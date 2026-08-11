@@ -1,0 +1,96 @@
+# docker-compose.yml -- Phase 0 local stack.
+#
+# postgres : supabase/postgres, pinned as requested (PostGIS + friends
+#            already baked in).
+# martin   : vector tile server, points straight at postgres. No feature
+#            classes exist yet (Phase 1), so it has nothing to serve until
+#            then -- it's here so the wiring exists from day one.
+# rustfs   : S3-compatible object storage for attachments (RustFS-backed),
+#            unused until Phase 2.
+# api      : Go/chi/bun skeleton, proves it can reach postgres via /healthz.
+# gitbash  : Alpine shell with git + bash + psql, mounted against the repo
+#            root. Stands in for Git Bash and runs migrations/apply.sh.
+#
+# Martin's and RustFS's tags are pinned to `latest` deliberately -- pin
+# them to an exact version once you've confirmed the pull and it works,
+# rather than trusting a version number nobody has run.
+
+services:
+  postgres:
+    image: supabase/postgres:15.8.1.049
+    container_name: voltedge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-voltedge_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  martin:
+    image: ghcr.io/maplibre/martin:latest
+    container_name: voltedge-martin
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}
+    ports:
+      - "${MARTIN_PORT:-3000}:3000"
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: voltedge-rustfs
+    restart: unless-stopped
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-voltedge}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
+    ports:
+      - "${RUSTFS_S3_PORT:-9000}:9000"
+      - "${RUSTFS_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - rustfs_data:/data
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: voltedge-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}
+      PORT: "8080"
+    ports:
+      - "${API_PORT:-8080}:8080"
+
+  gitbash:
+    build:
+      context: ./infra/gitbash
+      dockerfile: Dockerfile
+    container_name: voltedge-gitbash
+    stdin_open: true
+    tty: true
+    depends_on:
+      - postgres
+    volumes:
+      - .:/workspace
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}
+
+volumes:
+  postgres_data:
+  rustfs_data:

@@ -1,0 +1,17 @@
+# Environment
+.env
+
+# Go
+api/bin/
+api/tmp/
+api/server
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Docker volumes are named volumes, not bind-mounted directories, so
+# nothing under /infra needs excluding here yet.
