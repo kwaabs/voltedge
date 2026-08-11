@@ -52,6 +52,12 @@ curl http://localhost:8080/healthz
 Run `make help` for the full command list (infra up/down/clean/logs,
 api-dev/build/test, tidy/vet/fmt, frontend-dev, migrate/migrate-status/psql).
 
+If `make` or shell scripts aren't runnable on your machine (locked-down
+corporate policy, no script execution allowed), see
+[`docs/commands-cheatsheet.md`](docs/commands-cheatsheet.md) — the same
+operations as literal one-line commands you type directly into whatever
+terminal is available, no `.ps1`/`.sh`/`make` involved.
+
 If you don't have Git Bash or another POSIX shell locally, the `gitbash`
 service is an Alpine sidecar with git + bash + psql, mounted at
 `/workspace`:
