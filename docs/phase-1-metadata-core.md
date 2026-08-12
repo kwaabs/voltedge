@@ -94,17 +94,32 @@ version-specific, but run it on your actual stack and confirm.
 
 ## How to run it
 
+**On Windows PowerShell/cmd, skip `make`** — same failure as everywhere
+else in this repo: `make` resolves its shell through a Git-for-Windows
+`sh.exe` whose launch path goes through `git.exe`, which locked-down
+environments block (`error launching git: Access is denied`, on every
+target, not just these). Run the direct commands instead:
+
+```
+docker compose exec -T -e "DATABASE_URL=postgres://postgres:voltedge_dev@postgres:5432/postgres?sslmode=disable" gitbash bash /workspace/migrations/apply.sh
+docker compose exec -T gitbash psql "postgres://postgres:voltedge_dev@postgres:5432/postgres?sslmode=disable" -f /workspace/seed/pole_example.sql
+cd api
+$env:DATABASE_URL = "postgres://postgres:voltedge_dev@localhost:3700/postgres?sslmode=disable"
+go run ./cmd/compile POLE
+```
+
+**On Linux, Mac, or a working WSL2 shell**, `make` works as shorthand:
+
 ```
 make migrate                    # applies 0001-0015, including the gis schema + PostGIS
 make seed-pole                  # loads seed/pole_example.sql
 make compile CODE=POLE          # compiles it into gis.pole
 ```
 
-Or the cheatsheet equivalents in
-[`docs/commands-cheatsheet.md`](./commands-cheatsheet.md) if `make` isn't
-usable on your machine. Check the result with
-`docker compose exec gitbash psql "..." -c '\d gis.pole'` (or `make psql`
-then `\d gis.pole` interactively).
+Full reference either way:
+[`docs/commands-cheatsheet.md`](./commands-cheatsheet.md). Check the
+result with `docker compose exec gitbash psql "..." -f -` and
+`\d gis.pole`, or `make psql` then `\d gis.pole` interactively.
 
 ## Decisions made
 
