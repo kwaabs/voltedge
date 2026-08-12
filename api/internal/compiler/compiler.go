@@ -72,6 +72,20 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 			if err != nil {
 				return err
 			}
+
+			// deleted_at was added to buildCreateTable after some feature
+			// classes were already compiled -- back it onto any table that
+			// predates it, the same way a new field gets ALTER TABLE ADD
+			// COLUMN'd in below. Nullable with no default beyond Postgres's
+			// implicit NULL, so this is always safe to run.
+			if !existingCols["deleted_at"] {
+				stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN deleted_at timestamptz", qualifiedTable)
+				if _, err := tx.ExecContext(ctx, stmt); err != nil {
+					return fmt.Errorf("add column deleted_at: %w", err)
+				}
+				result.ColumnsAdded = append(result.ColumnsAdded, "deleted_at")
+			}
+
 			for _, f := range loaded.Fields {
 				if existingCols[f.Name] {
 					continue

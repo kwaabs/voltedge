@@ -1,13 +1,14 @@
-# Phase 2 (slices 1-2) — Generic CRUD engine + publish/unpublish
+# Phase 2 (slices 1-3) — Generic CRUD engine + publish/unpublish + delete
 
 **Goal:** one set of HTTP handlers that reads a feature class's compiled
 metadata and does validated create/read/update against its physical
-table, plus the draft/published lifecycle — no feature-class-specific
-code anywhere.
-**Status:** both slices done and verified against a live server and a
-real feature class (`POLE`), including every validation path and the
-publish completeness gate. See "Try it yourself" below for the exact
-commands to reproduce all of it.
+table, plus the draft/published lifecycle and a delete/restore/purge
+lifecycle — no feature-class-specific code anywhere.
+**Status:** all three slices done and verified against a live server and
+a real feature class (`POLE`), including every validation path, the
+publish completeness gate, and the full soft-delete/restore/purge
+sequence. See "Try it yourself" below for the exact commands to
+reproduce all of it.
 
 ## What was built
 
@@ -36,9 +37,19 @@ commands to reproduce all of it.
     transitions (`draft` ⇄ `published`), with `publish` gated on a
     completeness check against the row's *current* values, not just what
     was true at create time.
+  - `delete.go` — `softDeleteFeature`/`restoreFeature`/`hardDeleteFeature`:
+    a `deleted_at` timestamp, orthogonal to `status`, plus a hard
+    `DELETE FROM` gated on the row already being soft-deleted first.
   - `handler.go` — `chi.Router` mounted at `/features`:
-    `GET/POST /{code}`, `GET/PATCH /{code}/{id}`,
-    `POST /{code}/{id}/publish`, `POST /{code}/{id}/unpublish`.
+    `GET/POST /{code}`, `GET/PATCH/DELETE /{code}/{id}`,
+    `POST /{code}/{id}/publish`, `POST /{code}/{id}/unpublish`,
+    `POST /{code}/{id}/restore`, `DELETE /{code}/{id}/purge`.
+- **`api/internal/compiler`** — `deleted_at timestamptz` added to every
+  compiled table's system columns. Feature classes compiled before this
+  slice existed get it backfilled via `ALTER TABLE ADD COLUMN` the next
+  time they're compiled, the same incremental path fields already use —
+  verified live against a table compiled under the old system columns
+  (see "How this was validated").
 - Wired into `cmd/server/main.go` as `r.Mount("/features", crud.Routes(db))`.
 
 ### Why publish needs its own completeness check
@@ -53,6 +64,25 @@ satisfied. `publishFeature` re-checks every currently-required field
 against the row's live values before allowing the transition — this is
 the point where "is this feature actually complete" gets enforced, not
 create.
+
+### Why delete is two operations, not one
+
+`DELETE /{code}/{id}` only ever soft-deletes: it sets `deleted_at`,
+nothing else, and it's always reversible via `restore`. That's
+deliberate — a soft delete is safe to call from anywhere (a published row
+doesn't need to be unpublished first, same as unpublish needing no
+completeness gate: deleted-ness and draft/published are orthogonal), so
+there's no reason to make a client think twice before calling it.
+
+Permanently removing a row is a different kind of operation and gets a
+different route (`DELETE /{code}/{id}/purge`), gated on the row already
+being soft-deleted. That gate means a single wrong call — a typo'd id, a
+retried request, a client bug — can flip `deleted_at`, but it can never
+purge a row that was still live a moment ago; there's always a reversible
+soft-delete step in between. `GET`, `PATCH`, `publish`, and `unpublish`
+all reject a soft-deleted row (restore it first), so a row can't drift
+into an inconsistent state while it's sitting in the deleted-but-not-
+purged state either.
 
 ## How this was validated
 
@@ -89,6 +119,25 @@ it with real HTTP requests:
   `null` (now legal), confirmed `publish` rejects it with `field
   "condition_rating" is required before publishing`, then fixed the
   value and confirmed `publish` succeeds.
+- **`deleted_at` backfill onto a pre-existing table** — recompiled a
+  `POLE` table that had been compiled *before* this slice existed (no
+  `deleted_at` column), confirmed the compiler's report listed it under
+  `columns added` and that `\d gis.pole` showed the new nullable column
+  afterward, with the row's existing data untouched.
+- **The full delete/restore/purge sequence against a live, published
+  row**, in order: purge attempted before any soft delete → rejected
+  (`400`, "must be soft-deleted before it can be purged"); soft delete →
+  `200`, `deleted_at` set, `status` unchanged (`published`); soft delete
+  again → idempotent, identical `deleted_at`, confirming no re-write;
+  `list` → row excluded; `get` by id → row still returned, `deleted_at`
+  visible; `PATCH`/`publish`/`unpublish` on the deleted row → all three
+  rejected with a "restore it first" message; `restore` → `200`,
+  `deleted_at` back to `null`, `status` still `published` throughout (it
+  was never unpublished); `list` → row reappears; `PATCH` → succeeds
+  again now that it's restored; soft delete once more, then `purge` →
+  `204`; `get` on the purged id → `404`; `purge` again on the same id →
+  `404`, not a crash; confirmed via direct SQL that the row is actually
+  gone from `gis.pole`, not just hidden.
 
 ## Three real bugs found and fixed along the way
 
@@ -155,10 +204,28 @@ otherwise look right and be wrong again.
   worth surfacing.
 - **Unpublish has no gate** — reverting to draft can't violate a
   completeness rule that only applies to published rows.
+- **`deleted_at`, not a third `status` value** — a row can be deleted
+  regardless of `draft`/`published`, so folding deletion into `status`
+  would mean either losing the draft/published information on delete or
+  tracking two independent pieces of state in one column. A separate
+  nullable timestamp keeps them orthogonal and makes "was this deleted,
+  and when" a plain `IS NOT NULL` / value check instead of a third string
+  every existing `status == 'published'` comparison would need to learn
+  to ignore.
+- **Delete and restore are both idempotent, purge is not** — same
+  reasoning as publish/unpublish: delete/restore have no meaningful
+  "wrong state" failure worth surfacing to a retrying client, but purge
+  redefines "already done" as "the row is just gone" — a second purge
+  call correctly gets `404`, not a silent `204`.
+- **List excludes soft-deleted rows; get does not** — list is the normal
+  browsing view, where a deleted row reappearing would look like the
+  delete didn't work. A direct get-by-id is usually a follow-up to a
+  specific id a client already has (confirming a delete, deciding whether
+  to restore), so it keeps returning the row with `deleted_at` visible
+  rather than turning a real row into a `404`.
 
 ## What's still open
 
-- **No delete.**
 - **No filtering or sorting on list** — just a bounded, offset-paginated
   scan ordered by `created_at, id`.
 - **The connectivity/relationship establish flow, attachments, and
@@ -353,3 +420,58 @@ try { Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE" 
 catch { $_.ErrorDetails.Message }
 ```
 Each returns `400` with a message naming the exact field and problem.
+
+### 10. Delete, restore, and purge
+
+Last on purpose — `purge` at the end of this step permanently removes
+`$ID`, so nothing earlier in this walkthrough can depend on the row
+still existing afterward.
+
+A hard `purge` before any soft delete is rejected — there's always a
+reversible step in between a live row and actually losing it:
+```powershell
+try {
+  Invoke-RestMethod -Method Delete -Uri "http://localhost:3704/features/POLE/$ID/purge"
+} catch {
+  $_.ErrorDetails.Message
+}
+```
+`400`, `{"error":"feature ... must be soft-deleted before it can be
+purged"}`.
+
+Soft delete instead — this is the normal `DELETE`, always safe, always
+reversible:
+```powershell
+Invoke-RestMethod -Method Delete -Uri "http://localhost:3704/features/POLE/$ID"
+```
+`deleted_at` is now set. Confirm it disappears from `list` but a direct
+`get` still returns it:
+```powershell
+(Invoke-RestMethod -Uri "http://localhost:3704/features/POLE?limit=50").features |
+  Where-Object { $_.id -eq $ID }   # nothing
+Invoke-RestMethod -Uri "http://localhost:3704/features/POLE/$ID"          # still there, deleted_at set
+```
+And confirm `PATCH`/`publish`/`unpublish` all refuse to touch it:
+```powershell
+$body = @{ attributes = @{ condition_rating = "GOOD" } } | ConvertTo-Json -Depth 5
+try { Invoke-RestMethod -Method Patch -Uri "http://localhost:3704/features/POLE/$ID" -ContentType "application/json" -Body $body }
+catch { $_.ErrorDetails.Message }
+try { Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE/$ID/publish" }
+catch { $_.ErrorDetails.Message }
+```
+Each returns `400` with a "restore it before ..." message.
+
+Restore, then confirm it's back to normal (still `published` the whole
+time — it was never unpublished, delete/restore don't touch `status`):
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE/$ID/restore"
+Invoke-RestMethod -Uri "http://localhost:3704/features/POLE/$ID"
+```
+
+Finally, soft delete once more and purge for real:
+```powershell
+Invoke-RestMethod -Method Delete -Uri "http://localhost:3704/features/POLE/$ID"
+Invoke-RestMethod -Method Delete -Uri "http://localhost:3704/features/POLE/$ID/purge"
+try { Invoke-RestMethod -Uri "http://localhost:3704/features/POLE/$ID" }
+catch { $_.ErrorDetails.Message }   # 404 -- the row is actually gone
+```

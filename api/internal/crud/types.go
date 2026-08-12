@@ -1,14 +1,14 @@
 // Package crud is the generic, metadata-driven CRUD engine for Phase 2:
 // one set of HTTP handlers that reads a feature class's metadata (via
-// api/internal/metadata) and validates/executes create, read, and update
-// against its compiled physical table (api/internal/compiler). No
-// feature-class-specific code exists anywhere in this package -- adding
-// a new feature class means compiling it, not writing a new handler.
+// api/internal/metadata) and validates/executes create, read, update,
+// publish/unpublish, and delete against its compiled physical table
+// (api/internal/compiler). No feature-class-specific code exists
+// anywhere in this package -- adding a new feature class means compiling
+// it, not writing a new handler.
 //
-// Deliberately not in this pass: publish/unpublish (status stays
-// 'draft' on create -- there's no endpoint to flip it yet), delete,
-// filtering/sorting on list, and the connectivity/relationship establish
-// flow. See docs/phase-2-crud-engine.md for the full list of what's open.
+// Deliberately not in this pass: filtering/sorting on list, and the
+// connectivity/relationship establish flow. See
+// docs/phase-2-crud-engine.md for the full list of what's open.
 package crud
 
 import "encoding/json"

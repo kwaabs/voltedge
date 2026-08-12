@@ -31,6 +31,9 @@ func publishFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id
 	if err != nil {
 		return nil, err
 	}
+	if current["deleted_at"] != nil {
+		return nil, invalid("feature %s is deleted -- restore it before publishing", id)
+	}
 	if status, _ := current["status"].(string); status == "published" {
 		return current, nil
 	}
@@ -49,6 +52,9 @@ func unpublishFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, 
 	current, err := getFeature(ctx, db, loaded, id)
 	if err != nil {
 		return nil, err
+	}
+	if current["deleted_at"] != nil {
+		return nil, invalid("feature %s is deleted -- restore it before unpublishing", id)
 	}
 	if status, _ := current["status"].(string); status == "draft" {
 		return current, nil
