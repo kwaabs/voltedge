@@ -215,6 +215,31 @@ soft-deleted and purged afterward, leaving `SUBSTATION_YARD`'s table
 compiled and empty, ready for real use, and the seed `POLE`/
 `MV_CONDUCTOR`/`DIST_XFMR` data unchanged.
 
+## A third round: Martin's cache disabled by default
+
+The first round deliberately left "should a real deployment run Martin
+with caching disabled" as an open question, not baked into
+`docker-compose.yml` -- reasonable in the abstract, but the user hit
+the real cost of that fence-sitting directly: *"when line is drawn i
+need to refresh ctrl + shft + r before i see it on the screen."* A hard
+refresh discards the browser's own cache too, which is why it appeared
+to work -- but it was masking the same root cause as before, not a
+different bug. `setUrl()`'s cache-busting version param (see the first
+round above) already forces the *browser* to issue a genuinely new
+request every time; Martin's cache was always the remaining piece, and
+Martin has no finer-grained tool to reach for than its one on/off
+`--cache-size` knob -- no TTL, no per-table invalidation, no webhook.
+Given that, and that VoltEdge is an active editing tool rather than a
+high-traffic public tile server, leaving the question open no longer
+made sense once it was causing real, reproducible pain: **`docker-compose.yml`'s
+`martin` service now runs with `command: ["--cache-size", "0"]`**,
+matching exactly the flag this doc's first round already used to make
+the bug reproducible and fixable. Every tile request now costs a live
+Postgres query instead of a cache hit -- an accepted cost for a tool
+whose whole point is "see your edit immediately," not a tradeoff to
+revisit unless a real deployment's territory size and tile-serving load
+say otherwise.
+
 ## Decisions made
 
 - **The schema endpoint is deliberately heavier than
@@ -234,12 +259,12 @@ compiled and empty, ready for real use, and the seed `POLE`/
   (`docs/phase-3-map-loop.md`'s "What's still open"); a plain,
   deliberately-different emerald dashed circle says "unsaved" without
   pretending to be a preview of something not built yet.
-- **`--cache-size 0` is documented, not silently adopted as the
-  project's default.** Disabling Martin's cache made this slice's bug
-  reproducible and fixable, but whether a real deployment wants that
-  tradeoff depends on territory size and edit frequency -- a decision
-  for whoever configures the real environment, not baked into
-  `docker-compose.yml` here.
+- **`--cache-size 0` is `docker-compose.yml`'s default, not just a
+  debugging flag.** See "A third round" above -- left open initially,
+  decided once the cost of leaving it open became real (a hard refresh
+  needed after every single edit). Revisit only if a real deployment's
+  territory size and tile-serving load actually make the tradeoff worth
+  reconsidering.
 
 ## What's still open
 
