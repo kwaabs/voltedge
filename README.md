@@ -41,6 +41,30 @@ what was done, how to run/verify it, decisions made, what's deferred.
 
 ## Running it locally
 
+**On Windows PowerShell/cmd, use the direct commands** — `make` on
+Windows commonly resolves its shell through a Git-for-Windows `sh.exe`
+whose launch path goes through `git.exe`, which locked-down environments
+often block (`error launching git: Access is denied`, on *any* target,
+even ones that never mention git — see Troubleshooting in
+[`docs/commands-cheatsheet.md`](docs/commands-cheatsheet.md)). These are
+verified working from a plain PowerShell prompt:
+
+```
+copy .env.example .env
+docker compose up -d postgres martin rustfs gitbash
+docker compose exec -T -e "DATABASE_URL=postgres://postgres:voltedge_dev@postgres:5432/postgres" gitbash bash /workspace/migrations/apply.sh
+cd api
+$env:DATABASE_URL = "postgres://postgres:voltedge_dev@localhost:3700/postgres"
+$env:PORT = "3704"
+go run ./cmd/server
+```
+then, from a second terminal: `curl http://localhost:3704/healthz`.
+Full command reference, including build/test/tidy/vet and the database
+shell: [`docs/commands-cheatsheet.md`](docs/commands-cheatsheet.md).
+
+**On Linux, Mac, or from inside a working WSL2 shell**, `make` works as a
+shorthand for the same commands:
+
 ```
 cp .env.example .env
 make infra-up      # postgres, martin, rustfs, gitbash
@@ -49,30 +73,20 @@ make api-dev          # run the api on your host against dockerized postgres
 curl http://localhost:3704/healthz
 ```
 
+Run `make help` for the full command list (infra up/down/clean/logs,
+api-dev/build/test, tidy/vet/fmt, frontend-dev, migrate/migrate-status/psql).
+
 All published ports live in 3700-3720, not the defaults, so nothing here
 collides with other local services. See `.env.example` for the full
 assignment.
 
-Run `make help` for the full command list (infra up/down/clean/logs,
-api-dev/build/test, tidy/vet/fmt, frontend-dev, migrate/migrate-status/psql).
-
-If `make` or shell scripts aren't runnable on your machine (locked-down
-corporate policy, no script execution allowed), see
-[`docs/commands-cheatsheet.md`](docs/commands-cheatsheet.md) — the same
-operations as literal one-line commands you type directly into whatever
-terminal is available, no `.ps1`/`.sh`/`make` involved.
-
-If you don't have Git Bash or another POSIX shell locally, the `gitbash`
-service is an Alpine sidecar with git + bash + psql, mounted at
-`/workspace`:
+Either way, the `gitbash` service (Alpine + git + bash + psql, mounted at
+`/workspace`) is where all bash-dependent work actually executes — your
+host never runs bash directly:
 
 ```
 docker compose exec gitbash bash
 ```
-
-`make migrate`, `make migrate-status`, and `make psql` already route
-through it, so you don't need bash or psql on the host at all — only
-`make`, `docker`, and `go` (for the `api-*` targets).
 
 ## Repo layout
 

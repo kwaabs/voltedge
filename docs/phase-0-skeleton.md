@@ -31,6 +31,8 @@
 
 ## How to run it
 
+`make` works on Linux/Mac/WSL2:
+
 ```
 cp .env.example .env
 make infra-up        # postgres, martin, rustfs, gitbash
@@ -39,12 +41,13 @@ make api-dev           # runs the api on the host against dockerized postgres
 curl http://localhost:3704/healthz
 ```
 
-Or run everything in Docker, api included: `make up`.
-
-If `make` itself isn't available on your machine either, every target is
-a one- or two-line `docker compose` / `go` command — open the Makefile
-and run the underlying command directly, or use
-[`docs/commands-cheatsheet.md`](./commands-cheatsheet.md).
+**On plain Windows PowerShell, skip `make`** — it commonly fails there
+with `error launching git: Access is denied` on any target, not because
+of anything git-related in the command itself, but because `make`
+resolves its shell through a Git-for-Windows `sh.exe` whose launch path
+goes through `git.exe`, which locked-down environments block. Verified
+working instead: [`docs/commands-cheatsheet.md`](./commands-cheatsheet.md),
+and the equivalent block in the root [`README.md`](../README.md#running-it-locally).
 
 Martin (`:3701`) and RustFS (`:3702` API / `:3703` console) are wired into
 Compose but have nothing to serve yet: Martin needs a real feature class
