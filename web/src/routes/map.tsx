@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react"
 
 import { LayersPanel } from "@/components/map/layers-panel"
+import { StatusBar } from "@/components/map/status-bar"
 import { VoltEdgeMap } from "@/components/map/voltedge-map"
 import { Badge } from "@/components/ui/badge"
 import { useHealth } from "@/hooks/use-health"
@@ -32,14 +33,17 @@ function HealthBadge() {
 
 export function MapPage() {
   return (
-    <div className="relative h-full w-full">
-      <div className="pointer-events-none absolute top-3 left-3 z-10 flex items-start gap-1.5">
-        <HealthBadge />
-        <div className="pointer-events-auto">
+    <div className="flex h-full w-full flex-col">
+      <div className="relative min-h-0 flex-1">
+        <div className="pointer-events-none absolute top-3 left-3 z-10">
+          <HealthBadge />
+        </div>
+        <div className="pointer-events-auto absolute top-3 right-3 z-10">
           <LayersPanel />
         </div>
+        <VoltEdgeMap />
       </div>
-      <VoltEdgeMap />
+      <StatusBar />
     </div>
   )
 }

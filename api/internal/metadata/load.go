@@ -176,6 +176,24 @@ func (l *Loaded) RequiredFieldNames(subtypeID string) []string {
 	return names
 }
 
+// ListFeatureClasses returns every active feature class -- the code
+// (Martin's tile source ids are always its lowercased form) alongside
+// the human-readable name an admin actually set, plus enough shape info
+// for a client to know what it's looking at (geometry_type,
+// network_role) without a second round trip. Active only: a draft class
+// has no physical table, so it can't appear on a map or in Martin's
+// catalog regardless.
+func ListFeatureClasses(ctx context.Context, db bun.IDB) ([]FeatureClass, error) {
+	var classes []FeatureClass
+	if err := db.NewSelect().Model(&classes).
+		Where("status = ?", "active").
+		Order("code").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: listing feature classes: %w", err)
+	}
+	return classes, nil
+}
+
 // LoadRelationshipClasses returns every relationship_classes row for a
 // specific origin/destination feature-class pair. Unlike NetworkRule
 // there's no valid/invalid split to preserve here -- a row either exists

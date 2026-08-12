@@ -67,6 +67,63 @@ shows the unchecked state persisted; navigating to `/features` (or any
 other secondary route) confirmed the docked sidebar is exactly as
 before there — this fix is scoped to the map route only, on purpose.
 
+## A third round: display names, a status bar, and a corrected layers position
+
+Three more things came out of the same live-testing pass: the layers
+panel showed raw table ids (`pole`, `mv_conductor`) instead of the
+admin-set display name; the Layers button made more sense top-right,
+mirroring where map tools conventionally live, not stacked against the
+health badge on the left; and the map needed a real status bar --
+live mouse coordinates, the working projection, basemap attribution,
+and a select/pan mode toggle with its own cursor feedback.
+
+**Display names required a real backend gap to close, not a frontend
+trick.** Martin's catalog only ever knows a Postgres table name --
+lowercased, with underscores where the code has them (see
+`api/internal/compiler/compiler.go`: `tableName :=
+strings.ToLower(fc.Code)`). It has no idea `metadata.feature_classes`
+even has a `name` column. Faking a display name client-side (e.g.
+title-casing `mv_conductor` into "Mv Conductor") would have been
+guessing at something admin-configured and possibly wrong -- the whole
+point of a metadata-driven system is that the *real* configured value
+wins, not a plausible-looking derivation of it. So:
+
+- **`GET /feature-classes`** (new, `api/cmd/server/main.go`) — a small,
+  read-only endpoint listing every active feature class's `code`,
+  `name`, `geometry_type`, and `network_role`. Backed by
+  `metadata.ListFeatureClasses` (new in `api/internal/metadata`).
+  Deliberately its own response type (`featureClassResponse`), not
+  `metadata.FeatureClass` serialized directly -- that type has no json
+  tags and carries a couple of internal-only fields with no reason to
+  leave the API.
+- **`src/hooks/use-feature-classes.ts`** fetches it through Query; the
+  layers panel matches each Martin source id against a feature class's
+  lowercased `code` to render `MV Conductor` instead of `mv_conductor`.
+
+**The status bar** (`src/components/map/status-bar.tsx`) replaces
+OpenLayers' default `Attribution` control (disabled explicitly in
+`voltedge-map.tsx` via `controls: defaultControls({ attribution:
+false })`) with the same required OSM attribution text, rendered as a
+link to `openstreetmap.org/copyright`, alongside:
+- **Live mouse coordinates** in EPSG:4326 (lat/lon), via the map's own
+  `pointermove` event reprojected with `ol/proj`'s `toLonLat` --
+  written to a new `map-pointer-store.ts` (Zustand, not persisted --
+  this changes on essentially every mouse move, the opposite of
+  something worth remembering between sessions) so the map canvas
+  (writer) and the status bar (reader), which are siblings, don't need
+  a shared parent to pass this through.
+- **The map's working projection**, `EPSG:3857` -- a label for now
+  (OpenLayers' default view projection, not yet configurable), not
+  derived from anything live.
+- **A select/pan mode toggle** (`interaction-store.ts`, also not
+  persisted -- which mode you're in is a moment-to-moment choice, not a
+  preference). Pan mode sets the map container's cursor to `grab`;
+  select mode leaves it default. This is cursor feedback only in this
+  slice -- there's no selection behavior to actually gate on the mode
+  yet, since feature selection itself doesn't exist until the next
+  slice. Wiring the toggle now means the next slice only has to make
+  `select` mode *do* something, not invent the toggle too.
+
 ## Why this slice exists
 
 Slice 1 shipped a shell with `/`, `/features`, `/connectivity`,
@@ -211,10 +268,22 @@ compiled:
   default), shape-vs-modifier split, `render_context`. Current styling
   is geometry-type-only, a deliberate placeholder (see "Decisions
   made").
-- **Click-to-select + attribute panel** — selecting a feature on the
-  map and seeing/editing its attributes in a side panel, with its
-  connectivity and relationships surfaced contextually (per the IA
-  discussion this slice grew out of). This is the natural next slice.
+- **Click-to-select + an attribute panel**, scoped out with the user as
+  several follow-on slices:
+  1. Click-to-select + a panel docked to the bottom of the map showing
+     the selected feature's real attributes.
+  2. A small peer picker for the case where a click hits several
+     stacked/overlapping features at once -- pick one, it populates the
+     main panel.
+  3. Undocking: the same panel becomes a floating window over the map
+     -- movable, resizable, minimizable, closeable.
+  4. The same panel later hosts a form, for drawing a new feature or
+     editing an existing one -- deliberately not attempted until the
+     selection/panel mechanics above exist to build on.
+  The select/pan mode toggle in the status bar is already wired for
+  this -- `select` mode doesn't yet *do* anything beyond a cursor
+  change, but the next slice only has to add behavior to it, not invent
+  it.
 - **Snapping** — depends on an edit/digitize flow existing first, which
   depends on the selection/attribute panel above.
 - **No default-extent concept** — the map's initial center/zoom is a
@@ -262,16 +331,21 @@ Open `http://localhost:5173`. You should see:
   `POLE`/`MV_CONDUCTOR`/`DIST_XFMR` rows you've created via the API
   (see docs/phase-2-crud-engine.md's "Try it yourself" if you need to
   create some first).
-- A small "API healthy" badge plus a "Layers" button, top-left of the
-  map — no docked sidebar; the map fills the full width below the
-  header.
-- Click "Layers" to see one checkbox per compiled feature class;
+- A small "API healthy" badge top-left, and a "Layers" button top-right
+  — no docked sidebar; the map fills the full width below the header.
+- Click "Layers" to see one checkbox per compiled feature class, named
+  with its real display name (e.g. "MV Conductor", not `mv_conductor`);
   unchecking one hides exactly that layer on the map, live.
 - Click the header's menu icon (top-left) to open navigation
   (`Map`/`Feature classes`/`Connectivity`/`Relationships`/`Settings`)
   as a drawer that slides over the map, not a column that pushes it
   aside. Navigating to any other route shows the normal docked sidebar
   there instead — this floating behavior is specific to the map route.
+- A thin status bar along the bottom: move your mouse over the map and
+  watch the lat/lon readout update live; `EPSG:3857` next to it; OSM's
+  attribution, linked, on the right. Click the hand icon to switch to
+  pan mode (cursor becomes a grab hand) and back to the pointer icon
+  for select mode.
 - Scroll to zoom, drag to pan, double-click to zoom in a step — all
   standard OpenLayers interactions, no custom code required for them to
   work.
