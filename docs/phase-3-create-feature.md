@@ -1,16 +1,16 @@
 # Phase 3 (slice 7) — draw a new feature, fill a metadata-driven form, save it
 
-**Goal:** let a user place a new point feature on the map and save it
-through the real, generic CRUD API (`api/internal/crud`, built in Phase
-2) rather than the map staying read-only. Point geometry only this
-slice — line/polygon drawing and editing an existing feature's geometry
-are both future work, see "What's still open."
+**Goal:** let a user place a new feature — point, line, or polygon — on
+the map and save it through the real, generic CRUD API
+(`api/internal/crud`, built in Phase 2) rather than the map staying
+read-only. Editing an existing feature's attributes or geometry is
+future work, see "What's still open."
 **Status:** done and verified against a real Postgres/Martin/API/Vite
-stack — a real feature created through the UI, confirmed in Postgres,
-in Martin's own tile bytes, and visually on the map after saving, in
-both themes. See "How this was validated" for a real bug this
-verification caught (the map didn't visually update after a save) and
-"Try it yourself" below.
+stack, all three geometry types — a real feature of each created
+through the UI, confirmed in Postgres, in Martin's own tile bytes, and
+visually on the map after saving, in both themes. See "How this was
+validated" for a real bug this verification caught (the map didn't
+visually update after a save) and "Try it yourself" below.
 
 ## Why this slice exists
 
@@ -58,22 +58,30 @@ coded domain values.
   waiting on the create form). `finishDrawing` moves straight from the
   first to the second.
 - **`src/components/map/new-feature-menu.tsx`** (new) — a dropdown
-  listing every *point* feature class (line/polygon excluded, since
-  drawing them isn't built yet), top-right next to the Layers button.
-  Picking one calls `startDrawing`; while a draw is active, the button
-  is replaced by a small banner ("Click the map to place the new
-  feature") with its own Cancel control.
+  listing every feature class with real geometry (point, line, or
+  polygon — `none` is excluded, since those never appear on the map at
+  all), top-right next to the Layers button. Picking one calls
+  `startDrawing`; while a draw is active, the button is replaced by a
+  small banner with its own Cancel control, worded per geometry type
+  ("Click the map to place the new feature" for a point; "Click to add
+  points, double-click to finish" for a line or polygon).
 - **`src/components/map/voltedge-map.tsx`** gained:
-  - An unsaved-draft marker layer (a dashed emerald circle, see
-    `draftPointStyle` in `src/lib/map-layers.ts` — deliberately a
-    different color from every committed feature style, so a draft
-    never reads as already-real data), created once alongside the map
-    and cleared whenever `draft` is cleared.
-  - A `Draw` interaction (point-only), added/removed based on
-    `drawingFeatureClassCode`. On `drawend`, the drawn coordinate is
-    converted from the view's EPSG:3857 to EPSG:4326 and handed to
-    `finishDrawing` as GeoJSON — the exact shape `POST /features/{code}`
-    expects.
+  - An unsaved-draft marker layer (a dashed emerald shape, geometry-type
+    branching same as `styleForFeature` — see `draftStyleForFeature` in
+    `src/lib/map-layers.ts` — deliberately a different color from every
+    committed feature style, so a draft never reads as already-real
+    data), created once alongside the map and cleared whenever `draft`
+    is cleared.
+  - A `Draw` interaction typed to match the picked feature class's
+    geometry (`Point`/`LineString`/`Polygon`), added/removed based on
+    `drawingFeatureClassCode`/`drawingGeometryType`. Line and polygon
+    drawing (multiple clicks, finished with a double-click or Enter) is
+    OL's own default `Draw` behavior — no extra interaction wiring
+    needed beyond picking the right `type`. On `drawend`,
+    `geometryToGeoJSON` converts whichever geometry class OL handed
+    back (point/line/polygon each shape their coordinates differently)
+    from the view's EPSG:3857 to the EPSG:4326 GeoJSON
+    `POST /features/{code}` expects.
   - Escape cancels an in-progress draw; the click-to-select handler
     (from earlier slices) now no-ops while drawing or while a draft's
     form is open, so a click doesn't silently reselect something out
@@ -158,15 +166,57 @@ any click; the form's own Cancel button (and the panel's close button)
 both discard the draft, clear the marker, and leave nothing selected;
 no console errors throughout.
 
+## A second round: line and polygon drawing, and a real polygon feature class
+
+The first pass deliberately shipped point-only, on the theory that
+getting the schema endpoint, the form, and the save/refresh plumbing
+right for the simple case first was worth doing before tackling a
+multi-click draw session too. The user asked for the rest directly
+("i can draw point feature and fill its form. but can draw line
+feature. i need a polygon feature seeded also so we can test all
+geometries") — and pointed at a real gap: nothing in this repo had ever
+defined a polygon feature class, so there was no way to test polygon
+drawing even once the code existed.
+
+- **`seed/substation_yard_example.sql`** (new) — `SUBSTATION_YARD`, a
+  polygon feature class (a substation site boundary), following the
+  exact same seed pattern as `seed/pole_example.sql`: two subtypes
+  (`distribution_substation`/`transmission_substation`), an
+  `enclosure_type` coded field, and a reused `CONDITION_RATING` domain.
+  `network_role: 'none'` -- a yard boundary doesn't participate in
+  electrical connectivity the way `DIST_XFMR` does. `task
+  seed-substation-yard` (new Taskfile target) loads it; `task compile
+  CODE=SUBSTATION_YARD` compiles it, same two-step flow as every other
+  feature class in this repo.
+- **`voltedge-map.tsx`'s Draw interaction is now geometry-type-aware**
+  instead of hardcoding `type: "Point"` -- see "What was built" above
+  for the mechanics. The key realization: almost nothing else needed to
+  change. `feature-create-form.tsx` already forwarded `draft.geometry`
+  to `POST /features/{code}` without inspecting its shape, so a
+  differently-shaped GeoJSON payload (a `LineString`'s array of
+  coordinate pairs, a `Polygon`'s array of rings) needed zero form
+  changes -- the geometry-agnostic design of the first round paid off
+  immediately.
+
+**Verified against a real stack**, all three geometry types in one
+pass: a real `MV_CONDUCTOR` line (three clicks, double-click to finish,
+real voltage class and condition rating filled from real domains) and a
+real `SUBSTATION_YARD` polygon (four clicks, double-click to finish,
+real enclosure type) were each drawn, saved, and confirmed rendering on
+the map with the correct shape and the panel's real attributes --
+alongside re-confirming the existing `POLE` point flow still works
+unchanged. The dashed emerald draft styling correctly rendered for all
+three geometry types while a form was open, in both light and dark
+mode. Click-to-select on the newly created polygon (a feature class
+that didn't exist in this repo before this round) worked with no
+special-casing, confirming the click-to-select code from earlier
+slices was already properly geometry-agnostic. All test instances were
+soft-deleted and purged afterward, leaving `SUBSTATION_YARD`'s table
+compiled and empty, ready for real use, and the seed `POLE`/
+`MV_CONDUCTOR`/`DIST_XFMR` data unchanged.
+
 ## Decisions made
 
-- **Point geometry only, this slice.** `Draw`'s `type: "Point"` is
-  hardcoded in `voltedge-map.tsx`; the "New feature" menu only lists
-  point feature classes for exactly this reason. Line/polygon drawing
-  needs its own interaction handling (a draw session that isn't a
-  single click) and isn't attempted alongside getting the schema
-  endpoint, the form, and the save/refresh plumbing right for the
-  simple case first.
 - **The schema endpoint is deliberately heavier than
   `GET /feature-classes`, and fetched separately.** Every field, every
   domain's coded values -- too much to fetch for every layer/panel
@@ -198,9 +248,8 @@ no console errors throughout.
   create form's field-rendering code (`feature-create-form.tsx`) is
   reusable for this; what's missing is switching `AttributesTab` into
   an edit mode and wiring `PATCH /features/{code}/{id}`.
-- **Line/polygon drawing** -- see "Decisions made."
 - **Editing an existing feature's geometry** (move a point, reshape a
-  line) -- depends on an edit flow existing first.
+  line or polygon) -- depends on an edit flow existing first.
 - **Snapping** -- depends on both of the above; still open from
   `docs/phase-3-map-loop.md`.
 - **Floating/resizable/minimizable panel** -- pinned by the user,
@@ -212,22 +261,27 @@ no console errors throughout.
 ## Try it yourself
 
 Same stack as `docs/phase-3-map-loop.md`'s "Try it yourself" --
-`task infra-up && task migrate && task api-dev`, then `cd web && npm
-run dev`. Open `http://localhost:5173`:
+`task infra-up && task migrate && task api-dev`. To also have a polygon
+feature class to draw (not required for point/line, which `seed-pole`/
+`seed-connectivity` already cover): `task seed-substation-yard && task
+compile CODE=SUBSTATION_YARD`. Then `cd web && npm run dev`. Open
+`http://localhost:5173`:
 
-- Click "New feature" (top-right, next to Layers) and pick a point
-  feature class. The button is replaced by a banner telling you to
-  click the map; press Escape any time before clicking to back out.
-- Click anywhere on the map. A dashed emerald marker appears there, and
-  a form opens in the bottom panel: a subtype picker (if the feature
-  class has subtypes) and one control per field, required ones marked
-  with a red asterisk once you've picked a subtype.
+- Click "New feature" (top-right, next to Layers) and pick a feature
+  class. The button is replaced by a banner telling you what to do next
+  (a single click for a point; click to add points, double-click to
+  finish for a line or polygon); press Escape any time before finishing
+  to back out.
+- Draw the geometry. A dashed emerald shape appears where you drew it,
+  and a form opens in the bottom panel: a subtype picker (if the
+  feature class has subtypes) and one control per field, required ones
+  marked with a red asterisk once you've picked a subtype.
 - Fill in the required fields and click Save. The panel switches to
-  showing the real, newly-created feature's attributes, and the point
+  showing the real, newly-created feature's attributes, and the feature
   now renders on the map with the same styling as every other feature
   of its class -- no reload needed.
 - Click Cancel (or the panel's close button) instead, at any point
-  before saving, to discard the draft -- the marker disappears and
+  before saving, to discard the draft -- the shape disappears and
   nothing is written.
 
 `npm run build && npm run lint` and `go build ./... && go vet ./... &&
