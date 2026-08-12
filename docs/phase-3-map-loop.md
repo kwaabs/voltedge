@@ -461,12 +461,16 @@ compiled:
   made").
 - **Click-to-select, a docked attribute panel, a peer picker for
   stacked features, and terminal/relationship tabs are all done.**
-  Still open, pinned for later at the user's request:
+  Drawing a new point feature and saving it through a metadata-driven
+  form is also done -- see `docs/phase-3-create-feature.md`. Still
+  open:
   1. Undocking: the panel becomes a floating window over the map --
-     movable, resizable, minimizable, closeable.
-  2. The same panel later hosts a form, for drawing a new feature or
-     editing an existing one -- deliberately not attempted until the
-     selection/panel mechanics above exist to build on.
+     movable, resizable, minimizable, closeable. Pinned for later at
+     the user's request.
+  2. Editing an existing feature's attributes and geometry, and
+     drawing line/polygon feature classes -- see
+     `docs/phase-3-create-feature.md`'s "What's still open" for the
+     specifics of what this built vs. what it left for later.
 - **Snapping** — depends on an edit/digitize flow existing first, which
   depends on the selection/attribute panel above.
 - **No default-extent concept** — the map's initial center/zoom is a

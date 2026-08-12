@@ -1,12 +1,14 @@
 import { Fragment, useEffect, useState } from "react"
 import { Info, Link2, Loader2, Plug, X } from "lucide-react"
 
+import { FeatureCreateForm } from "@/components/map/feature-create-form"
 import { Button } from "@/components/ui/button"
 import { useConnections } from "@/hooks/use-connections"
 import { useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useRelationships } from "@/hooks/use-relationships"
 import { cn } from "@/lib/utils"
+import { useDrawStore } from "@/stores/draw-store"
 import { useSelectionStore } from "@/stores/selection-store"
 
 type TabId = "attributes" | "terminals" | "relationships"
@@ -215,6 +217,8 @@ function RelationshipsTab() {
 export function FeaturePanel() {
   const selected = useSelectionStore((s) => s.selected)
   const clear = useSelectionStore((s) => s.clear)
+  const draft = useDrawStore((s) => s.draft)
+  const clearDraft = useDrawStore((s) => s.clearDraft)
   const { data: featureClasses } = useFeatureClasses()
   const [activeTab, setActiveTab] = useState<TabId>("attributes")
 
@@ -225,6 +229,35 @@ export function FeaturePanel() {
   useEffect(() => {
     setActiveTab("attributes")
   }, [selected?.featureClassCode, selected?.featureId])
+
+  // An unsaved draft (see draw-store.ts) takes over the whole panel,
+  // no tabs -- a feature with no id yet has no terminals or
+  // relationships to show. Checked before `selected` so starting a new
+  // draw while another feature is already selected still shows the
+  // form, not that older feature's tabs.
+  if (draft) {
+    const className =
+      featureClasses?.feature_classes.find((fc) => fc.code === draft.featureClassCode)?.name ??
+      draft.featureClassCode
+
+    return (
+      <div className="bg-background flex h-64 shrink-0 flex-col border-t">
+        <div className="flex items-center justify-between border-b px-3 py-2">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">New {className}</p>
+            <p className="text-muted-foreground truncate text-xs">Unsaved</p>
+          </div>
+          <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={clearDraft}>
+            <X className="size-4" />
+            <span className="sr-only">Cancel</span>
+          </Button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          <FeatureCreateForm />
+        </div>
+      </div>
+    )
+  }
 
   if (!selected) return null
 

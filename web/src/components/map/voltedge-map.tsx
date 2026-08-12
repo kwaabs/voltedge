@@ -1,22 +1,29 @@
 import { defaults as defaultControls } from "ol/control"
+import type Feature from "ol/Feature"
 import MVT from "ol/format/MVT"
+import Point from "ol/geom/Point"
+import Draw from "ol/interaction/Draw"
 import type Layer from "ol/layer/Layer"
 import TileLayer from "ol/layer/Tile"
+import VectorLayer from "ol/layer/Vector"
 import VectorTileLayer from "ol/layer/VectorTile"
 import Map from "ol/Map"
 import type MapBrowserEvent from "ol/MapBrowserEvent"
 import { fromLonLat, toLonLat } from "ol/proj"
 import OSM from "ol/source/OSM"
+import VectorSource from "ol/source/Vector"
 import VectorTileSource from "ol/source/VectorTile"
 import View from "ol/View"
 import { useEffect, useRef } from "react"
 
 import { useCatalog } from "@/hooks/use-catalog"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
-import { styleForFeature } from "@/lib/map-layers"
+import { draftPointStyle, styleForFeature } from "@/lib/map-layers"
 import { tileUrlTemplate } from "@/lib/martin"
+import { useDrawStore } from "@/stores/draw-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
+import { useMapRefreshStore } from "@/stores/map-refresh-store"
 import { useSelectionStore } from "@/stores/selection-store"
 
 import "ol/ol.css"
@@ -38,8 +45,12 @@ export function VoltEdgeMap() {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<Map | null>(null)
   const vectorLayersRef = useRef<VectorTileLayer[]>([])
+  const draftSourceRef = useRef<VectorSource | null>(null)
   const { data: catalog } = useCatalog()
   const { data: featureClasses } = useFeatureClasses()
+  const drawingFeatureClassCode = useDrawStore((s) => s.drawingFeatureClassCode)
+  const draft = useDrawStore((s) => s.draft)
+  const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
   // Lets the layer-creation effect below read the *current* hidden set
   // without depending on it -- depending on it directly would rebuild
@@ -72,25 +83,100 @@ export function VoltEdgeMap() {
       const [lon, lat] = toLonLat(evt.coordinate)
       setPosition(lon, lat)
 
-      // Pointer cursor over a selectable feature, default cursor
-      // otherwise -- standard web-map affordance for "this is
-      // clickable," and the only thing that needs to distinguish
-      // select-able-here from pan-able-everywhere now that there's no
-      // separate select/pan mode to do it instead.
       const target = map.getTargetElement()
-      if (target) {
-        const hasFeature = map.hasFeatureAtPixel(evt.pixel, { layerFilter: isVectorLayer, hitTolerance: 5 })
-        target.style.cursor = hasFeature ? "pointer" : ""
+      if (!target) return
+
+      // Crosshair while a draw interaction is active (see the draw
+      // effect below) -- otherwise, pointer cursor over a selectable
+      // feature and default cursor everywhere else, the only thing that
+      // needs to distinguish select-able-here from pan-able-everywhere
+      // now that there's no separate select/pan mode to do it instead.
+      if (useDrawStore.getState().drawingFeatureClassCode) {
+        target.style.cursor = "crosshair"
+        return
       }
+      const hasFeature = map.hasFeatureAtPixel(evt.pixel, { layerFilter: isVectorLayer, hitTolerance: 5 })
+      target.style.cursor = hasFeature ? "pointer" : ""
     })
     map.getTargetElement().addEventListener("mouseleave", clearPosition)
+
+    // The unsaved-draft marker layer (see draftPointStyle) -- created
+    // once alongside the map, not per-draw, so its source can just be
+    // cleared/repopulated across multiple draw sessions instead of
+    // tearing down and rebuilding a layer every time.
+    const draftSource = new VectorSource()
+    const draftLayer = new VectorLayer({ source: draftSource, style: draftPointStyle, zIndex: 10 })
+    map.addLayer(draftLayer)
+    draftSourceRef.current = draftSource
 
     return () => {
       map.getTargetElement()?.removeEventListener("mouseleave", clearPosition)
       map.setTarget(undefined)
       mapRef.current = null
+      draftSourceRef.current = null
     }
   }, [])
+
+  // Adds/removes an OL Draw interaction for the feature class the user
+  // picked to place (see src/components/map/new-feature-menu.tsx and
+  // draw-store.ts) -- point geometry only this slice, matching what the
+  // create form below is built for. On drawend, the drawn point is
+  // already sitting in draftSource (Draw's target), so there's nothing
+  // to hand off but the geometry itself, converted from the view's
+  // EPSG:3857 into the EPSG:4326 GeoJSON the create API expects.
+  useEffect(() => {
+    const map = mapRef.current
+    const source = draftSourceRef.current
+    if (!map || !source || !drawingFeatureClassCode) return
+
+    const draw = new Draw({ source, type: "Point" })
+    draw.on("drawend", (evt: { feature: Feature }) => {
+      const geometry = evt.feature.getGeometry()
+      if (!(geometry instanceof Point)) return
+      const [lon, lat] = toLonLat(geometry.getCoordinates())
+      useDrawStore.getState().finishDrawing({ type: "Point", coordinates: [lon, lat] })
+    })
+    map.addInteraction(draw)
+
+    const handleEscape = (evt: KeyboardEvent) => {
+      if (evt.key === "Escape") useDrawStore.getState().cancelDrawing()
+    }
+    document.addEventListener("keydown", handleEscape)
+
+    return () => {
+      map.removeInteraction(draw)
+      document.removeEventListener("keydown", handleEscape)
+    }
+  }, [drawingFeatureClassCode])
+
+  // Clears the draft marker once its form is dismissed -- saved
+  // (feature-create-form.tsx clears the draft on success, after
+  // selecting the real, now-persisted feature) or canceled.
+  useEffect(() => {
+    if (!draft) draftSourceRef.current?.clear()
+  }, [draft])
+
+  // Forces every vector tile source to refetch -- bumped by
+  // feature-create-form.tsx after a successful save, since the catalog
+  // itself (which sources exist) doesn't change when a feature is
+  // added, so nothing about the catalog-driven layer effect below would
+  // otherwise signal that tiles are stale. Deliberately not
+  // `source.refresh()`: VectorTileSource doesn't override `clear()`, so
+  // refresh() only fires a 'change' event without actually discarding
+  // the renderer's already-loaded tile cache -- a tile fetched once
+  // (even an empty one, before a feature existed there) would otherwise
+  // never be requested again without a full page reload. Calling
+  // setUrl() with a new cache-busting version query param changes the
+  // source's key, which is what actually makes the renderer discard its
+  // cached tiles and refetch.
+  useEffect(() => {
+    if (refreshVersion === 0) return
+    for (const layer of vectorLayersRef.current) {
+      const sourceId = layer.get("sourceId") as string
+      const source = layer.getSource()
+      source?.setUrl(tileUrlTemplate(sourceId, refreshVersion))
+    }
+  }, [refreshVersion])
 
   // Click-to-select: hit-test every vector layer at the clicked pixel,
   // resolve each hit's feature class (a layer's sourceId is always a
@@ -114,6 +200,13 @@ export function VoltEdgeMap() {
     )
 
     const handleClick = (evt: MapBrowserEvent<PointerEvent | KeyboardEvent | WheelEvent>) => {
+      // A click while drawing belongs to the Draw interaction (placing
+      // the geometry), and a click while the create form is open for an
+      // already-placed draft shouldn't silently change what's selected
+      // out from under an in-progress, unsaved form.
+      const drawState = useDrawStore.getState()
+      if (drawState.drawingFeatureClassCode || drawState.draft) return
+
       const hits: { code: string; id: string }[] = []
       const seen = new Set<string>()
 
