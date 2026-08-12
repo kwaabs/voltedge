@@ -1,0 +1,162 @@
+version: "3"
+
+dotenv:
+  - ".env"
+
+vars:
+  API_DIR: api
+  POSTGRES_PASSWORD: '{{.POSTGRES_PASSWORD | default "voltedge_dev"}}'
+  POSTGRES_DB: '{{.POSTGRES_DB | default "postgres"}}'
+  POSTGRES_PORT: '{{.POSTGRES_PORT | default "3700"}}'
+  API_PORT: '{{.API_PORT | default "3704"}}'
+
+  LOCAL_DATABASE_URL: "postgres://postgres:{{.POSTGRES_PASSWORD}}@localhost:{{.POSTGRES_PORT}}/{{.POSTGRES_DB}}?sslmode=disable"
+  CONTAINER_DATABASE_URL: "postgres://postgres:{{.POSTGRES_PASSWORD}}@postgres:5432/{{.POSTGRES_DB}}?sslmode=disable"
+
+tasks:
+  # ---------------------------------------------------------------- infra --
+
+  infra-up:
+    desc: Start postgres, martin, rustfs, gitbash
+    cmds:
+      - docker compose up -d postgres martin rustfs gitbash
+
+  infra-down:
+    desc: Stop all containers, keep volumes
+    cmds:
+      - docker compose down
+
+  infra-clean:
+    desc: Stop all containers AND delete volumes -- wipes the local DB
+    interactive: true
+    cmds:
+      - powershell -NoProfile -Command "$answer = Read-Host 'This deletes postgres_data and rustfs_data volumes. Type YES to continue'; if ($answer -ne 'YES') { Write-Host 'Aborted.'; exit 1 }"
+      - docker compose down -v
+
+  infra-ps:
+    desc: Show status of the compose stack
+    cmds:
+      - docker compose ps
+
+  infra-logs:
+    desc: Tail logs for every service
+    cmds:
+      - docker compose logs -f
+
+  up:
+    desc: Start everything, including the api container, building images as needed
+    cmds:
+      - docker compose up -d --build
+
+  down:
+    desc: Stop all containers, keep volumes
+    cmds:
+      - task: infra-down
+
+  # ------------------------------------------------------------------ api --
+
+  api-dev:
+    desc: Run the API locally against the dockerized postgres
+    dir: "{{.API_DIR}}"
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+      PORT: "{{.API_PORT}}"
+    cmds:
+      - go run ./cmd/server
+
+  api-build:
+    desc: Build the API binary to api/bin/server
+    dir: "{{.API_DIR}}"
+    cmds:
+      - go build -o bin/server ./cmd/server
+
+  api-test:
+    desc: Run API tests
+    dir: "{{.API_DIR}}"
+    cmds:
+      - go test ./...
+
+  tidy:
+    desc: Run go mod tidy on the API module
+    dir: "{{.API_DIR}}"
+    cmds:
+      - go mod tidy
+
+  vet:
+    desc: Run go vet on the API module
+    dir: "{{.API_DIR}}"
+    cmds:
+      - go vet ./...
+
+  fmt:
+    desc: Run gofmt on the API module
+    dir: "{{.API_DIR}}"
+    cmds:
+      - gofmt -l -w .
+
+  compile:
+    desc: Compile one feature class metadata into physical schema
+    dir: "{{.API_DIR}}"
+    requires:
+      vars:
+        - name: CODE
+          desc: Feature class code, e.g. POLE
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/compile {{.CODE}}
+
+  seed-pole:
+    desc: Load the POLE example metadata through the gitbash sidecar
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/pole_example.sql
+
+  # ------------------------------------------------------------- frontend --
+
+  frontend-dev:
+    desc: Run the OpenLayers frontend dev server
+    dir: web
+    preconditions:
+      - sh: powershell -NoProfile -Command "if (-not (Test-Path package.json)) { exit 1 }"
+        msg: "web/package.json doesn't exist -- the frontend hasn't been scaffolded yet."
+    cmds:
+      - npm run dev
+
+  # -------------------------------------------------------------- database --
+
+  migrate:
+    desc: Apply pending SQL migrations through the gitbash sidecar
+    cmds:
+      - >-
+        docker compose exec -T
+        -e DATABASE_URL="{{.CONTAINER_DATABASE_URL}}"
+        gitbash bash /workspace/migrations/apply.sh
+
+  migrate-status:
+    desc: Show recorded migrations
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -c "SELECT filename, status, applied_at FROM ops.migration_log ORDER BY id;"
+
+  psql:
+    desc: Open an interactive psql shell against dockerized postgres
+    interactive: true
+    cmds:
+      - docker compose exec gitbash psql "{{.CONTAINER_DATABASE_URL}}"
+
+  # ------------------------------------------------------------------ misc --
+
+  clean:
+    desc: Remove local build artifacts
+    cmds:
+      - powershell -NoProfile -Command "if (Test-Path '{{.API_DIR}}/bin') { Remove-Item -Recurse -Force '{{.API_DIR}}/bin' }"
+
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
