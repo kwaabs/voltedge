@@ -45,13 +45,24 @@ what was done, how to run/verify it, decisions made, what's deferred.
 
 ## Running it locally
 
-**On Windows PowerShell/cmd, use the direct commands** — `make` on
-Windows commonly resolves its shell through a Git-for-Windows `sh.exe`
-whose launch path goes through `git.exe`, which locked-down environments
-often block (`error launching git: Access is denied`, on *any* target,
-even ones that never mention git — see Troubleshooting in
-[`docs/commands-cheatsheet.md`](docs/commands-cheatsheet.md)). These are
-verified working from a plain PowerShell prompt:
+**On Windows, use `task`, not `make`.** `make` on Windows commonly
+resolves its shell through a Git-for-Windows `sh.exe` whose launch path
+goes through `git.exe`, which locked-down environments often block
+(`error launching git: Access is denied`, on *any* target, even ones that
+never mention git). [`Taskfile.yml`](Taskfile.yml) mirrors every Makefile
+target 1:1 for [`task`](https://taskfile.dev) — a single static binary
+that execs commands directly, no shell resolution involved, so this
+failure mode doesn't apply to it:
+
+```
+copy .env.example .env
+task infra-up
+task migrate
+task api-dev
+```
+`task --list` shows every available task. If `task` itself isn't
+installed, the verified-working direct commands (no `make`, no `task`,
+just `docker`/`go` typed straight into PowerShell) are still here:
 
 ```
 copy .env.example .env
