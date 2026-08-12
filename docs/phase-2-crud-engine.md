@@ -255,6 +255,16 @@ work in your environment, substitute the direct `docker compose exec
 [`docs/commands-cheatsheet.md`](./commands-cheatsheet.md) for
 `task migrate`/`task seed-pole`/`task compile`.
 
+**Picking this up in an environment where `POLE` was already compiled
+under an older version of this doc** (same Postgres volume across
+sessions, not a fresh `task infra-up`)? Step 1's `task compile CODE=POLE`
+still needs to be re-run before anything else here — it's what backfills
+new system columns (like `deleted_at` in slice 3) onto a table compiled
+before they existed. Skipping it because "I already compiled POLE last
+time" surfaces as a `column ... does not exist` error on whatever
+endpoint touches the missing column first. Re-running it is always safe:
+existing rows and columns are untouched, it only adds what's missing.
+
 Two easy-to-miss things about `Invoke-RestMethod` + `ConvertTo-Json`:
 - **Always pass `-Depth`** — `ConvertTo-Json`'s default depth is 2, and
   it silently truncates anything nested deeper than that instead of
