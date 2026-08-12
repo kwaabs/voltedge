@@ -21,17 +21,20 @@ feature-specific code path anywhere else.
   incremental add-a-field path. Write-up:
   [`docs/phase-1-metadata-core.md`](docs/phase-1-metadata-core.md).
 - **Phase 2 — Generic data-plane engine** (CRUD + publish/unpublish +
-  delete + zero-trust connectivity done, rest open): metadata-validated
-  create/read/update, a draft ⇄ published lifecycle with a real
-  completeness gate, a soft-delete/restore/hard-delete lifecycle, and a
-  zero-trust connectivity engine that only commits an electrical
-  connection when a matching, active `network_rules` row authorizes it —
-  absence of a rule, or a matching but disabled rule, both reject the
-  write. Working end to end against any compiled feature class — see
-  write-ups for full curl+SQL walkthroughs. Still open:
-  relationship establish flow, attachments, diagrams. Write-ups:
-  [`docs/phase-2-crud-engine.md`](docs/phase-2-crud-engine.md),
-  [`docs/phase-2-connectivity.md`](docs/phase-2-connectivity.md).
+  delete + zero-trust connectivity + explicit-confirm relationships
+  done, attachments/diagrams open): metadata-validated create/read/
+  update, a draft ⇄ published lifecycle with a real completeness gate, a
+  soft-delete/restore/hard-delete lifecycle, a zero-trust connectivity
+  engine that only commits an electrical connection when a matching,
+  active `network_rules` row authorizes it — absence of a rule, or a
+  matching but disabled rule, both reject the write — and a parallel
+  structural-relationship engine gated on `relationship_classes` plus
+  cardinality enforcement (`one_to_one`/`one_to_many`/`many_to_many`).
+  Working end to end against any compiled feature class — see write-ups
+  for full curl+SQL walkthroughs. Still open: attachments, diagrams.
+  Write-ups: [`docs/phase-2-crud-engine.md`](docs/phase-2-crud-engine.md),
+  [`docs/phase-2-connectivity.md`](docs/phase-2-connectivity.md),
+  [`docs/phase-2-relationships.md`](docs/phase-2-relationships.md).
 - **Phase 3 — Map loop**: Martin tile config generation, symbology
   resolution, OpenLayers viewer, snapping.
 - **Phase 4 — Network model**: the trace engine, built against the

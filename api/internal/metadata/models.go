@@ -123,6 +123,23 @@ type NetworkRule struct {
 	IsValid            bool    `bun:"is_valid"`
 }
 
+// RelationshipClass mirrors metadata.relationship_classes -- see
+// migrations/0010. Defines a legal structural/spatial relationship
+// between two feature classes (e.g. POLE supports MV_CONDUCTOR). Unlike
+// NetworkRule, there's no IsValid flag -- legality is simply whether a
+// row exists for the origin/destination pairing at all; see
+// api/internal/relationship.
+type RelationshipClass struct {
+	bun.BaseModel `bun:"table:metadata.relationship_classes"`
+
+	ID                        string `bun:"id,pk"`
+	Name                      string `bun:"name"`
+	OriginFeatureClassID      string `bun:"origin_feature_class_id"`
+	DestinationFeatureClassID string `bun:"destination_feature_class_id"`
+	Kind                      string `bun:"kind"`
+	Cardinality               string `bun:"cardinality"`
+}
+
 // Version mirrors metadata.metadata_versions -- see migrations/0006.
 type Version struct {
 	bun.BaseModel `bun:"table:metadata.metadata_versions"`

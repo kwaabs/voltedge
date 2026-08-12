@@ -176,6 +176,25 @@ func (l *Loaded) RequiredFieldNames(subtypeID string) []string {
 	return names
 }
 
+// LoadRelationshipClasses returns every relationship_classes row for a
+// specific origin/destination feature-class pair. Unlike NetworkRule
+// there's no valid/invalid split to preserve here -- a row either exists
+// (legal) or it doesn't (rejected) -- but there can still legitimately be
+// more than one row for the same pairing (different kind), which is why
+// this returns a slice rather than assuming a single match:
+// api/internal/relationship disambiguates by kind when more than one
+// applies.
+func LoadRelationshipClasses(ctx context.Context, db bun.IDB, originFeatureClassID, destinationFeatureClassID string) ([]RelationshipClass, error) {
+	var classes []RelationshipClass
+	if err := db.NewSelect().Model(&classes).
+		Where("origin_feature_class_id = ?", originFeatureClassID).
+		Where("destination_feature_class_id = ?", destinationFeatureClassID).
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: loading relationship_classes: %w", err)
+	}
+	return classes, nil
+}
+
 // ResolveTerminal finds the terminal matching a code for a given
 // subtype (or no subtype, if the feature class doesn't have any). A
 // terminal scoped to the specific subtype wins over one that applies to
