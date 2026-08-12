@@ -127,7 +127,7 @@ export function VoltEdgeMap() {
       // feature and default cursor everywhere else, the only thing that
       // needs to distinguish select-able-here from pan-able-everywhere
       // now that there's no separate select/pan mode to do it instead.
-      if (useDrawStore.getState().drawingFeatureClassCode) {
+      if (useDrawStore.getState().drawingFeatureClassCode || useConnectStore.getState().mode) {
         target.style.cursor = "crosshair"
         return
       }

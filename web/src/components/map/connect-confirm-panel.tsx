@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { ArrowRight, Loader2, X } from "lucide-react"
 
@@ -58,6 +58,10 @@ function EndpointPicker({ featureClassCode, featureId, name, terminal, onTermina
  * whichever feature was selected when "+ New connection" was clicked
  * (feature-panel.tsx), target picked by clicking a second feature on
  * the map (voltedge-map.tsx's click handler, gated on connect-store.ts).
+ * Renders as soon as a source is set, with a placeholder in the
+ * target's spot until one is picked, so starting the workflow always
+ * gives visible feedback (the map cursor also switches to crosshair --
+ * see voltedge-map.tsx) rather than silently waiting on a second click.
  * Deliberately not resizable/minimizable -- that's the pinned
  * floating-attribute-panel work, a separate and later concern; this is
  * just draggable so it can be moved out of the way of the two features
@@ -78,7 +82,20 @@ export function ConnectConfirmPanel() {
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
-  if (!mode || !source || !target) return null
+  // A fresh "+ New connection"/"+ New relationship" click starts a new
+  // session with a (possibly different) source and no target yet --
+  // this component never unmounts (it renders null instead), so without
+  // this its terminal picks and any error from a previous, unrelated
+  // attempt would silently carry over into the new one.
+  useEffect(() => {
+    if (!mode) return
+    setSourceTerminal("")
+    setTargetTerminal("")
+    setError(null)
+    setPosition(null)
+  }, [mode, source?.featureClassCode, source?.featureId])
+
+  if (!mode || !source) return null
 
   const nameFor = (code: string) => featureClasses?.feature_classes.find((fc) => fc.code === code)?.name ?? code
 
@@ -152,13 +169,19 @@ export function ConnectConfirmPanel() {
           onTerminalChange={setSourceTerminal}
         />
         <ArrowRight className="text-muted-foreground size-4 self-center" />
-        <EndpointPicker
-          featureClassCode={target.featureClassCode}
-          featureId={target.featureId}
-          name={nameFor(target.featureClassCode)}
-          terminal={targetTerminal}
-          onTerminalChange={setTargetTerminal}
-        />
+        {target ? (
+          <EndpointPicker
+            featureClassCode={target.featureClassCode}
+            featureId={target.featureId}
+            name={nameFor(target.featureClassCode)}
+            terminal={targetTerminal}
+            onTerminalChange={setTargetTerminal}
+          />
+        ) : (
+          <p className="text-muted-foreground border-input rounded-md border border-dashed px-2 py-3 text-center text-sm">
+            Click a second feature on the map to connect to.
+          </p>
+        )}
 
         {error && <p className="text-destructive text-sm">{error}</p>}
 
@@ -166,7 +189,7 @@ export function ConnectConfirmPanel() {
           <Button variant="outline" size="sm" onClick={cancel} disabled={saving}>
             Cancel
           </Button>
-          <Button size="sm" onClick={handleConfirm} disabled={saving}>
+          <Button size="sm" onClick={handleConfirm} disabled={saving || !target}>
             {saving && <Loader2 className="size-4 animate-spin" />}
             Confirm
           </Button>
