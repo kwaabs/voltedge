@@ -1,6 +1,7 @@
-// Command server is the VoltEdge API skeleton for Phase 0: it only proves
-// the api container can reach Postgres. The generic, metadata-driven CRUD
-// engine (Phase 2) replaces almost everything in this file.
+// Command server is the VoltEdge API. Phase 0 gave it a healthcheck;
+// Phase 2 adds the generic, metadata-driven CRUD engine (api/internal/crud)
+// -- one set of handlers that serves every compiled feature class, no
+// feature-specific code required.
 package main
 
 import (
@@ -14,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
@@ -39,6 +41,7 @@ func main() {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/healthz", healthzHandler(db))
+	r.Mount("/features", crud.Routes(db))
 
 	log.Printf("voltedge api listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

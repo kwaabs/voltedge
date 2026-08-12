@@ -1,3 +1,10 @@
+// Package compiler reads published metadata (via api/internal/metadata)
+// and compiles it into real physical schema in the gis schema -- CREATE
+// TABLE for a class compiled for the first time, ALTER TABLE ADD COLUMN
+// for one that already has a table and gained a field. It never drops or
+// alters an existing column: disabling a field is a metadata-level
+// status flip (fields.status = deprecated), never a physical DROP
+// COLUMN, matching docs/metadata-core.md's field lifecycle rules.
 package compiler
 
 import (
@@ -5,6 +12,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 )
 
@@ -41,8 +49,8 @@ func postgresType(dataType string) (string, error) {
 
 // geometryType maps feature_classes.geometry_type to the PostGIS
 // geometry subtype used in the generated geom column.
-func geometryType(geometryType string) (string, error) {
-	switch geometryType {
+func geometryType(geomType string) (string, error) {
+	switch geomType {
 	case "point":
 		return "Point", nil
 	case "line":
@@ -50,7 +58,7 @@ func geometryType(geometryType string) (string, error) {
 	case "polygon":
 		return "Polygon", nil
 	default:
-		return "", fmt.Errorf("compiler: geometry_type %q has no physical geom column", geometryType)
+		return "", fmt.Errorf("compiler: geometry_type %q has no physical geom column", geomType)
 	}
 }
 
@@ -58,7 +66,7 @@ func geometryType(geometryType string) (string, error) {
 // e.g. `voltage_class text CHECK (voltage_class IN ('11KV','33KV'))`.
 // A NULL value always satisfies a Postgres CHECK, so a nullable field
 // with a domain still permits NULL without a separate IS NULL clause.
-func columnDefinition(f Field, domains map[string]*Domain, domainValues map[string][]string) (string, error) {
+func columnDefinition(f metadata.Field, domains map[string]*metadata.Domain, domainValues map[string][]string) (string, error) {
 	pgType, err := postgresType(f.DataType)
 	if err != nil {
 		return "", fmt.Errorf("field %s: %w", f.Name, err)
@@ -113,7 +121,7 @@ func quoteLiteralList(values []string) string {
 // class compiled for the first time: system columns (id, subtype if any,
 // status, geom if any, created_at, updated_at) followed by one column
 // per active field.
-func buildCreateTable(qualifiedTable string, fc *FeatureClass, fields []Field, subtypes []Subtype, domains map[string]*Domain, domainValues map[string][]string) (string, error) {
+func buildCreateTable(qualifiedTable string, fc *metadata.FeatureClass, fields []metadata.Field, subtypes []metadata.Subtype, domains map[string]*metadata.Domain, domainValues map[string][]string) (string, error) {
 	var cols []string
 
 	cols = append(cols, `id uuid PRIMARY KEY DEFAULT gen_random_uuid()`)
