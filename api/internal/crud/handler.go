@@ -18,10 +18,12 @@ const defaultListLimit = 50
 // Routes returns a router of the generic, metadata-driven CRUD
 // endpoints, meant to be mounted at something like /features:
 //
-//	GET    /{code}       list
-//	POST   /{code}       create
-//	GET    /{code}/{id}  get
-//	PATCH  /{code}/{id}  update
+//	GET    /{code}               list
+//	POST   /{code}               create
+//	GET    /{code}/{id}          get
+//	PATCH  /{code}/{id}          update
+//	POST   /{code}/{id}/publish   draft -> published, gated on completeness
+//	POST   /{code}/{id}/unpublish published -> draft, no gate
 //
 // No feature-class-specific code exists anywhere here -- {code} is
 // resolved against metadata.feature_classes at request time.
@@ -31,6 +33,8 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/{code}", createHandler(db))
 	r.Get("/{code}/{id}", getHandler(db))
 	r.Patch("/{code}/{id}", updateHandler(db))
+	r.Post("/{code}/{id}/publish", publishHandler(db))
+	r.Post("/{code}/{id}/unpublish", unpublishHandler(db))
 	return r
 }
 
@@ -200,6 +204,46 @@ func updateHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := updateFeature(r.Context(), db, loaded, id, values)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func publishHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		id := chi.URLParam(r, "id")
+
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		result, err := publishFeature(r.Context(), db, loaded, id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func unpublishHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		id := chi.URLParam(r, "id")
+
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		result, err := unpublishFeature(r.Context(), db, loaded, id)
 		if err != nil {
 			writeError(w, err)
 			return
