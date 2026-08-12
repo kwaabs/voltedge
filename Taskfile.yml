@@ -133,7 +133,7 @@ tasks:
   # ------------------------------------------------------------- frontend --
 
   frontend-dev:
-    desc: Run the OpenLayers frontend dev server
+    desc: Run the React + Vite frontend dev server
     dir: web
     preconditions:
       - sh: powershell -NoProfile -Command "if (-not (Test-Path package.json)) { exit 1 }"

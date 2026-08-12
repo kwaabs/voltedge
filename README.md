@@ -35,8 +35,15 @@ feature-specific code path anywhere else.
   Write-ups: [`docs/phase-2-crud-engine.md`](docs/phase-2-crud-engine.md),
   [`docs/phase-2-connectivity.md`](docs/phase-2-connectivity.md),
   [`docs/phase-2-relationships.md`](docs/phase-2-relationships.md).
-- **Phase 3 — Map loop**: Martin tile config generation, symbology
-  resolution, OpenLayers viewer, snapping.
+- **Phase 3 — Map loop** (slice 1 of several, app shell done): React +
+  Vite + TypeScript frontend scaffolded in `web/` — Tailwind v4 +
+  shadcn-style components, a light/dark/system theme with a distinct
+  palette and typography (not shadcn's default blue-on-white/black),
+  header + collapsible icon sidebar, routing, and Zustand/TanStack Query
+  wired end to end against the live API. Still open: Azure AD SSO, the
+  map itself (Martin tile config, symbology resolution, OpenLayers
+  viewer, snapping), real data views. Write-up:
+  [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md).
 - **Phase 4 — Network model**: the trace engine, built against the
   terminals/network_rules/trace_configurations metadata Phase 1 already
   created and the connectivity Phase 2 establishes.
@@ -115,13 +122,30 @@ host never runs bash directly:
 docker compose exec gitbash bash
 ```
 
+### Running the frontend
+
+With the API already running (`task api-dev`, above), from a second
+terminal:
+
+```
+cd web
+npm install
+npm run dev
+```
+Open `http://localhost:5173`. Vite proxies `/api/*` to the Go API at
+`localhost:3704`, so the frontend never needs CORS configured on the API
+side. See [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md) for
+what to expect and how it was validated.
+
 ## Repo layout
 
 ```
 voltedge/
 ├── api/                   Go (chi + bun) service
+├── web/                   React + Vite + TypeScript frontend
 ├── infra/gitbash/          Alpine dev shell: git + bash + psql
 ├── migrations/             Hand-written, numbered SQL + manual apply.sh
+├── seed/                  Demo metadata, applied manually (never by apply.sh)
 ├── docs/                   Architecture reference + one write-up per phase
 ├── Makefile
 ├── docker-compose.yml
