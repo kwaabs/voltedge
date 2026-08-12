@@ -1,4 +1,4 @@
-import { Database, LayoutDashboard, Link2, Settings, Waypoints, Zap } from "lucide-react"
+import { Database, Link2, Map, Settings, Waypoints, Zap } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import {
@@ -14,8 +14,13 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 
-const navItems = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
+/**
+ * The map is the app's home surface -- everything else here is a
+ * secondary, less-frequently-used view (bulk browse/inspect, not the
+ * primary GIS canvas), grouped separately and visually demoted rather
+ * than competing with it. See docs/phase-3-map-loop.md's IA notes.
+ */
+const dataItems = [
   { to: "/features", label: "Feature classes", icon: Database },
   { to: "/connectivity", label: "Connectivity", icon: Waypoints },
   { to: "/relationships", label: "Relationships", icon: Link2 },
@@ -40,16 +45,30 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={pathname === "/"} tooltip="Map">
+                  <NavLink to="/" end>
+                    <Map />
+                    <span>Map</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
           <SidebarGroupLabel>Data</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) => {
-                const isActive =
-                  item.to === "/" ? pathname === "/" : pathname.startsWith(item.to)
+              {dataItems.map((item) => {
+                const isActive = pathname.startsWith(item.to)
                 return (
                   <SidebarMenuItem key={item.to}>
                     <SidebarMenuButton asChild isActive={isActive} tooltip={item.label}>
-                      <NavLink to={item.to} end={item.to === "/"}>
+                      <NavLink to={item.to}>
                         <item.icon />
                         <span>{item.label}</span>
                       </NavLink>

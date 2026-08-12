@@ -17,6 +17,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ""),
       },
+      "/tiles": {
+        target: "http://localhost:3701",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/tiles/, ""),
+      },
     },
   },
 })

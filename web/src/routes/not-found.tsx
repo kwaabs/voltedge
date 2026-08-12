@@ -8,7 +8,7 @@ export function NotFoundPage() {
       <p className="text-muted-foreground text-sm font-medium">404</p>
       <h1 className="text-xl font-semibold">Page not found</h1>
       <Button asChild variant="outline" size="sm" className="mt-2">
-        <Link to="/">Back to dashboard</Link>
+        <Link to="/">Back to the map</Link>
       </Button>
     </div>
   )
