@@ -49,6 +49,7 @@ func main() {
 
 	r.Get("/healthz", healthzHandler(db))
 	r.Get("/feature-classes", featureClassesHandler(db))
+	r.Get("/feature-classes/{code}/schema", featureClassSchemaHandler(db))
 	r.Mount("/features", crud.Routes(db))
 	r.Mount("/connectivity", connectivity.Routes(db))
 	r.Mount("/relationships", relationship.Routes(db))
@@ -119,5 +120,109 @@ func featureClassesHandler(db *bun.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"feature_classes": out})
+	}
+}
+
+// subtypeSchema is one row of a feature class's subtypes, code + name
+// only -- everything a form needs to offer a subtype picker.
+type subtypeSchema struct {
+	Code int    `json:"code"`
+	Name string `json:"name"`
+}
+
+// fieldSchema is everything a client needs to render one correct form
+// control for one field, and to know when it's required, without
+// re-deriving api/internal/crud's validation rules independently.
+// RequiredForSubtypes is flattened from metadata.subtype_field_rules
+// here rather than shipped as raw rule rows, since the only thing a
+// form actually needs from that table is "is this required for the
+// subtype the user picked" -- a field with a default_override for a
+// given subtype is deliberately left out of that subtype's list, same
+// as api/internal/crud/validate.go's validateRequired: the rule is
+// satisfied by the fallback value, not by demanding the client send one.
+type fieldSchema struct {
+	Name                 string   `json:"name"`
+	DataType             string   `json:"data_type"`
+	Nullable             bool     `json:"nullable"`
+	VisibleOnCreate      bool     `json:"visible_on_create"`
+	VisibleOnUpdate      bool     `json:"visible_on_update"`
+	EditableAfterPublish bool     `json:"editable_after_publish"`
+	DomainCode           *string  `json:"domain_code,omitempty"`
+	DomainValues         []string `json:"domain_values,omitempty"`
+	RequiredForSubtypes  []int    `json:"required_for_subtypes,omitempty"`
+}
+
+// featureClassSchemaResponse is the shape a create/edit form needs:
+// whether (and what type of) geometry to draw, what subtype to pick (if
+// any), and what fields to render for it. Deliberately separate from
+// featureClassResponse above -- that one backs the layers panel and map
+// (cheap, always-fetched summary data); this one is heavier (every
+// field + domain values) and only fetched when a form is actually about
+// to be shown.
+type featureClassSchemaResponse struct {
+	Code         string          `json:"code"`
+	Name         string          `json:"name"`
+	GeometryType string          `json:"geometry_type"`
+	Subtypes     []subtypeSchema `json:"subtypes"`
+	Fields       []fieldSchema   `json:"fields"`
+}
+
+func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+
+		loaded, err := metadata.Load(r.Context(), db, code)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		subtypes := make([]subtypeSchema, len(loaded.Subtypes))
+		for i, s := range loaded.Subtypes {
+			subtypes[i] = subtypeSchema{Code: s.Code, Name: s.Name}
+		}
+
+		fields := make([]fieldSchema, len(loaded.Fields))
+		for i, f := range loaded.Fields {
+			fs := fieldSchema{
+				Name:                 f.Name,
+				DataType:             f.DataType,
+				Nullable:             f.Nullable,
+				VisibleOnCreate:      f.VisibleOnCreate,
+				VisibleOnUpdate:      f.VisibleOnUpdate,
+				EditableAfterPublish: f.EditableAfterPublish,
+			}
+
+			if f.DomainID != nil {
+				if d, ok := loaded.Domains[*f.DomainID]; ok {
+					code := d.Code
+					fs.DomainCode = &code
+					if d.DomainType == "coded" {
+						fs.DomainValues = loaded.DomainValues[d.ID]
+					}
+				}
+			}
+
+			for _, st := range loaded.Subtypes {
+				for _, rule := range loaded.SubtypeFieldRules {
+					if rule.SubtypeID == st.ID && rule.FieldID == f.ID && rule.IsRequired && rule.DefaultOverride == nil {
+						fs.RequiredForSubtypes = append(fs.RequiredForSubtypes, st.Code)
+					}
+				}
+			}
+
+			fields[i] = fs
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(featureClassSchemaResponse{
+			Code:         loaded.FeatureClass.Code,
+			Name:         loaded.FeatureClass.Name,
+			GeometryType: loaded.FeatureClass.GeometryType,
+			Subtypes:     subtypes,
+			Fields:       fields,
+		})
 	}
 }

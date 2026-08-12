@@ -12,12 +12,25 @@ import type { FeatureLike } from "ol/Feature"
 const POINT_COLOR = "#d9752e"
 const LINE_COLOR = "#3f8fa6"
 const POLYGON_COLOR = "#64748b"
+/** Emerald -- distinct from every committed-feature color above, so an
+ * unsaved draft point never reads as just another real feature. */
+const DRAFT_COLOR = "#10b981"
 
 const pointStyle = new Style({
   image: new Circle({
     radius: 5,
     fill: new Fill({ color: POINT_COLOR }),
     stroke: new Stroke({ color: "#ffffff", width: 1.5 }),
+  }),
+})
+
+/** The in-progress/unsaved marker voltedge-map.tsx shows while a new
+ * feature's create form is open -- see src/stores/draw-store.ts. */
+export const draftPointStyle = new Style({
+  image: new Circle({
+    radius: 6,
+    fill: new Fill({ color: `${DRAFT_COLOR}80` }),
+    stroke: new Stroke({ color: DRAFT_COLOR, width: 2, lineDash: [4, 3] }),
   }),
 })
 
