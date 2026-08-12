@@ -4,10 +4,10 @@
 `/`, not a fourth item in a flat nav list — render real, compiled
 feature data on it via Martin, not a mock, and let a user click a
 feature (including disambiguating a click that hits several
-stacked/overlapping features) to see its real attributes. Deliberately
-not in this slice: metadata-driven symbology (icon resolution, shape
-vs. modifier) and an undockable/floating panel — see "What's still
-open."
+stacked/overlapping features) to see its real attributes, terminal
+connections, and structural relationships. Deliberately not in this
+slice: metadata-driven symbology (icon resolution, shape vs. modifier)
+and an undockable/floating panel — see "What's still open."
 **Status:** done and verified against a **real Martin binary** run
 in-sandbox against real compiled feature tables (not assumed from
 documentation) — genuine MVT tiles requested, returned, and rendered,
@@ -257,6 +257,64 @@ identical. Re-measuring after every state change that resizes the map
 was the fix, both here and in the previous round's click-to-clear
 testing.
 
+## A sixth round: terminals and relationships on the feature panel
+
+The attribute panel only ever showed a feature's own columns. That's
+half the picture for a utility network -- a transformer's incoming
+conductor, or a pole physically supporting a span, are facts the panel
+had no way to surface, even though both already existed as real,
+queryable data (`api/internal/connectivity` and `api/internal/relationship`,
+built in Phase 2, both already expose `GET /connectivity?feature_class=&feature_id=`
+and `GET /relationships?feature_class=&feature_id=` -- list-by-feature
+was there from the start, just never called from the frontend).
+
+- **Side tabs, not top or bottom ones.** Raised as an open question
+  before building anything: *"we can use tabs? side tabs or bottom
+  tabs? not at the top of the feature panel."* The panel is short and
+  wide (fixed `h-64`, spans the map's width) -- a vertical rail on the
+  left spends the plentiful horizontal space, where a horizontal strip
+  along the bottom would cost height directly out of an already-cramped
+  content area. Three tabs (`Attributes`/`Terminals`/`Relationships`)
+  fit a narrow `w-28` rail comfortably even at this panel's height.
+- **`use-connections.ts`** and **`use-relationships.ts`** (new) --
+  thin Query hooks over the two existing list-by-feature endpoints,
+  same shape as every other server-state hook in this app.
+- **`feature-panel.tsx`** restructured into three tab views sharing one
+  header/close button: `AttributesTab` (the existing `dl` grid,
+  unchanged), `TerminalsTab`, and `RelationshipsTab`. Both new tabs
+  face the same problem -- a connection or relationship names two
+  sides (`from`/`to`, `origin`/`destination`) and the panel needs to
+  show *the other one*, not the feature already selected -- solved by
+  comparing each side against the current selection and rendering
+  whichever side doesn't match, labeled `Incoming`/`Outgoing` (terminals)
+  or `Origin`/`Destination` (relationships) so the direction isn't lost.
+  Terminals additionally show which of this feature's own terminals the
+  link uses (`via T1`) and the matched network rule's name; relationships
+  show the relationship class name, kind, and cardinality.
+- **Tab state resets to Attributes on every new selection**
+  (`useEffect` keyed on `selected?.featureClassCode`/`featureId`) --
+  otherwise clicking a new feature while parked on Relationships would
+  silently show that new feature's relationships under a tab the user
+  never chose for it.
+
+**Verified against real connectivity and relationship data, not
+placeholders.** The seed relationships already existed (POLE
+supporting/composed-with MV_CONDUCTOR, established back in Phase 2's
+own verification pass), but no connectivity did in this database, so a
+real connection was established through `POST /connectivity`
+(`MV_CONDUCTOR -> DIST_XFMR T1`, a real, currently-active
+`network_rules` row) -- then revoked again once verification was done,
+leaving the seed data unchanged. Driven via Playwright against the real
+stack: selecting the pole shows both real relationships under
+Relationships (`POLE supports MV_CONDUCTOR`, `spatial_support`,
+`many_to_many`, labeled `Origin`) and correctly shows "No terminal
+connections." under Terminals (the pole has none); selecting the
+transformer shows the real conductor connection under Terminals
+(`MV Conductor`, `Incoming`, `via T1`, the real rule name). Switching
+feature selection while parked on a non-default tab correctly snapped
+back to Attributes. Checked in both light and dark mode; no console
+errors.
+
 ## Why this slice exists
 
 Slice 1 shipped a shell with `/`, `/features`, `/connectivity`,
@@ -401,12 +459,11 @@ compiled:
   default), shape-vs-modifier split, `render_context`. Current styling
   is geometry-type-only, a deliberate placeholder (see "Decisions
   made").
-- **Click-to-select, a docked attribute panel, and a peer picker for
-  stacked features are all done.** Still open, scoped out with the user
-  as follow-on slices:
+- **Click-to-select, a docked attribute panel, a peer picker for
+  stacked features, and terminal/relationship tabs are all done.**
+  Still open, pinned for later at the user's request:
   1. Undocking: the panel becomes a floating window over the map --
-     movable, resizable, minimizable, closeable. Orthogonal to the peer
-     picker -- neither depends on the other.
+     movable, resizable, minimizable, closeable.
   2. The same panel later hosts a form, for drawing a new feature or
      editing an existing one -- deliberately not attempted until the
      selection/panel mechanics above exist to build on.
@@ -470,8 +527,13 @@ Open `http://localhost:5173`. You should see:
 - Hover over a rendered feature and the cursor becomes a pointer; click
   it and a panel docks along the bottom of the map showing its real
   display name, id, status, subtype, every attribute, and when it was
-  last updated. Click the panel's close button, or click empty map
-  space, to clear the selection and collapse the panel.
+  last updated, under an "Attributes" tab on a side rail. Two more tabs
+  sit next to it: "Terminals" lists this feature's real electrical
+  connections (direction, the terminal used, the matched network rule);
+  "Relationships" lists its real structural/spatial relationships (the
+  other feature, the relationship class, kind, and cardinality). Click
+  the panel's close button, or click empty map space, to clear the
+  selection and collapse the panel.
 - If a click lands on several stacked features at once, a small popup
   appears at the click point instead, listing each one's real display
   name for you to pick from -- picking one opens the same attribute
