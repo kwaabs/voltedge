@@ -90,6 +90,56 @@ type DomainValue struct {
 	Code     string `bun:"code"`
 }
 
+// Terminal mirrors metadata.terminals -- see migrations/0009. A named,
+// logical connection point on a junction feature class (e.g. DIST_XFMR's
+// T1/T2/T3) -- not a separate geometry.
+type Terminal struct {
+	bun.BaseModel `bun:"table:metadata.terminals"`
+
+	ID             string  `bun:"id,pk"`
+	FeatureClassID string  `bun:"feature_class_id"`
+	SubtypeID      *string `bun:"subtype_id"`
+	Code           string  `bun:"code"`
+	Role           string  `bun:"role"`
+	PhaseCapable   bool    `bun:"phase_capable"`
+}
+
+// NetworkRule mirrors metadata.network_rules -- see migrations/0011. One
+// row = one legal electrical connectivity pattern. Absence of a matching
+// row -- or a matching row with IsValid = false -- is itself the
+// rejection; see api/internal/connectivity.
+type NetworkRule struct {
+	bun.BaseModel `bun:"table:metadata.network_rules"`
+
+	ID                 string  `bun:"id,pk"`
+	Name               string  `bun:"name"`
+	FromFeatureClassID string  `bun:"from_feature_class_id"`
+	FromSubtypeID      *string `bun:"from_subtype_id"`
+	FromTerminalID     *string `bun:"from_terminal_id"`
+	ToFeatureClassID   string  `bun:"to_feature_class_id"`
+	ToSubtypeID        *string `bun:"to_subtype_id"`
+	ToTerminalID       *string `bun:"to_terminal_id"`
+	PhaseRule          *string `bun:"phase_rule"`
+	IsValid            bool    `bun:"is_valid"`
+}
+
+// RelationshipClass mirrors metadata.relationship_classes -- see
+// migrations/0010. Defines a legal structural/spatial relationship
+// between two feature classes (e.g. POLE supports MV_CONDUCTOR). Unlike
+// NetworkRule, there's no IsValid flag -- legality is simply whether a
+// row exists for the origin/destination pairing at all; see
+// api/internal/relationship.
+type RelationshipClass struct {
+	bun.BaseModel `bun:"table:metadata.relationship_classes"`
+
+	ID                        string `bun:"id,pk"`
+	Name                      string `bun:"name"`
+	OriginFeatureClassID      string `bun:"origin_feature_class_id"`
+	DestinationFeatureClassID string `bun:"destination_feature_class_id"`
+	Kind                      string `bun:"kind"`
+	Cardinality               string `bun:"cardinality"`
+}
+
 // Version mirrors metadata.metadata_versions -- see migrations/0006.
 type Version struct {
 	bun.BaseModel `bun:"table:metadata.metadata_versions"`

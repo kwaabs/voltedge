@@ -114,6 +114,22 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/pole_example.sql
 
+  seed-connectivity:
+    desc: Load the MV_CONDUCTOR/DIST_XFMR connectivity example metadata through the gitbash sidecar
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/connectivity_example.sql
+
+  seed-relationships:
+    desc: Load the POLE/MV_CONDUCTOR relationship_classes example metadata through the gitbash sidecar (requires seed-pole and seed-connectivity first)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/relationship_example.sql
+
   # ------------------------------------------------------------- frontend --
 
   frontend-dev:

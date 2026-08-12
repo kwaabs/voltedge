@@ -240,6 +240,22 @@ func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 	return formatRow(loaded, results[0])
 }
 
+// GetFeature is the exported form of getFeature -- other packages (e.g.
+// api/internal/connectivity, resolving a feature's subtype and
+// deleted_at state before establishing a connection) need the same
+// physical-table lookup and generic scanning this package already has,
+// without duplicating it.
+func GetFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) (map[string]any, error) {
+	return getFeature(ctx, db, loaded, id)
+}
+
+// IsNotFoundError lets another package (api/internal/connectivity) tell
+// a GetFeature "no such row" error apart from any other failure, without
+// this package exporting its whole error-type hierarchy.
+func IsNotFoundError(err error) bool {
+	return isNotFoundError(err)
+}
+
 // getFeature reads one feature by id.
 func getFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) (map[string]any, error) {
 	table, err := physicalTable(loaded.FeatureClass)

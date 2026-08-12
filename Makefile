@@ -100,6 +100,14 @@ compile: ## Compile one feature class's metadata into physical schema, e.g. make
 seed-pole: ## Load the POLE example metadata (seed/pole_example.sql) via the gitbash sidecar
 	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/pole_example.sql
 
+.PHONY: seed-connectivity
+seed-connectivity: ## Load the MV_CONDUCTOR/DIST_XFMR connectivity example metadata (seed/connectivity_example.sql) via the gitbash sidecar
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/connectivity_example.sql
+
+.PHONY: seed-relationships
+seed-relationships: ## Load the POLE/MV_CONDUCTOR relationship_classes example metadata (seed/relationship_example.sql) via the gitbash sidecar -- requires seed-pole and seed-connectivity first
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/relationship_example.sql
+
 ## ------------------------------------------------------------- frontend --
 
 .PHONY: frontend-dev

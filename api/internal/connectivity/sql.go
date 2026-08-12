@@ -1,0 +1,358 @@
+package connectivity
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/uptrace/bun"
+)
+
+// Connectivity mirrors runtime.feature_connectivity (migrations/0016).
+// Unlike api/internal/crud's dynamic, runtime-shaped feature tables,
+// this table's schema is fixed and known at compile time -- same
+// category as the metadata.* tables -- so it's a plain bun model rather
+// than hand-built SQL.
+//
+// alias:feature_connectivity pins the table's SQL alias to its own bare
+// name -- without it, bun derives the alias from the Go struct name
+// ("connectivity", lowercased from Connectivity) instead, which breaks
+// establishConnection's ON CONFLICT DO UPDATE SET clause: that clause
+// references the pre-existing row's value as feature_connectivity.<col>,
+// and Postgres rejects that as an unknown table once bun has aliased the
+// insert target to something else ("missing FROM-clause entry for table
+// \"feature_connectivity\""). Pinning the alias here means the SET
+// clause's table reference is guaranteed correct rather than dependent
+// on guessing what bun would derive from the struct name.
+type Connectivity struct {
+	bun.BaseModel `bun:"table:runtime.feature_connectivity,alias:feature_connectivity"`
+
+	ID                 string    `bun:"id,pk,nullzero"`
+	NetworkRuleID      string    `bun:"network_rule_id"`
+	FromFeatureClassID string    `bun:"from_feature_class_id"`
+	FromFeatureID      string    `bun:"from_feature_id"`
+	FromTerminalID     *string   `bun:"from_terminal_id"`
+	ToFeatureClassID   string    `bun:"to_feature_class_id"`
+	ToFeatureID        string    `bun:"to_feature_id"`
+	ToTerminalID       *string   `bun:"to_terminal_id"`
+	EstablishedAt      time.Time `bun:"established_at,nullzero"`
+	EstablishedBy      *string   `bun:"established_by"`
+}
+
+// resolvedEndpoint is one side of a connection after its feature class,
+// specific feature row, and (optional) terminal have all been resolved
+// and validated -- everything matchRule and the insert need, with the
+// human-facing code/terminal strings kept alongside for the response.
+type resolvedEndpoint struct {
+	ref        endpointRef
+	loaded     *metadata.Loaded
+	subtypeID  *string
+	terminalID *string
+}
+
+// loadFeatureClass mirrors crud's loadOrNotFound -- kept as its own copy
+// here rather than exported from crud, since translating sql.ErrNoRows
+// into a connectivity-local notFoundError (so this package's writeError
+// never has to know about crud's error types) is the whole point.
+func loadFeatureClass(ctx context.Context, db bun.IDB, code string) (*metadata.Loaded, error) {
+	loaded, err := metadata.Load(ctx, db, code)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, notFound("feature class %q does not exist", code)
+		}
+		return nil, err
+	}
+	return loaded, nil
+}
+
+// resolveEndpoint validates one side of an establish request: the
+// feature class must exist and be compiled, the specific feature row
+// must exist and not be soft-deleted (connecting a deleted feature makes
+// no sense), and a requested terminal code must actually be defined for
+// that feature's feature class/subtype.
+func resolveEndpoint(ctx context.Context, db bun.IDB, ref endpointRef) (*resolvedEndpoint, error) {
+	loaded, err := loadFeatureClass(ctx, db, ref.FeatureClass)
+	if err != nil {
+		return nil, err
+	}
+
+	row, err := crud.GetFeature(ctx, db, loaded, ref.FeatureID)
+	if err != nil {
+		if crud.IsNotFoundError(err) {
+			return nil, notFound("feature %s (%s) not found", ref.FeatureID, ref.FeatureClass)
+		}
+		return nil, err
+	}
+	if row["deleted_at"] != nil {
+		return nil, invalid("feature %s (%s) is deleted -- restore it before connecting", ref.FeatureID, ref.FeatureClass)
+	}
+
+	var subtypeID *string
+	if rawSubtype, ok := row["subtype"]; ok && rawSubtype != nil {
+		code, ok := toInt(rawSubtype)
+		if !ok {
+			return nil, fmt.Errorf("connectivity: %s: subtype value %v not an integer", ref.FeatureClass, rawSubtype)
+		}
+		if st := loaded.SubtypeByCode(code); st != nil {
+			subtypeID = &st.ID
+		}
+	}
+
+	var terminalID *string
+	if ref.Terminal != nil {
+		t := loaded.ResolveTerminal(subtypeID, *ref.Terminal)
+		if t == nil {
+			return nil, invalid("terminal %q is not defined for %s", *ref.Terminal, ref.FeatureClass)
+		}
+		terminalID = &t.ID
+	}
+
+	return &resolvedEndpoint{ref: ref, loaded: loaded, subtypeID: subtypeID, terminalID: terminalID}, nil
+}
+
+// toInt mirrors crud's own helper -- pgdriver/bun can hand back a scanned
+// integer as any of these Go types depending on path taken, and this
+// package needs the same normalization crud's completeness gate does.
+func toInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int64:
+		return int(n), true
+	case int32:
+		return int(n), true
+	case int:
+		return n, true
+	case float64:
+		return int(n), true
+	default:
+		return 0, false
+	}
+}
+
+// establishConnection is the only path that turns a candidate connection
+// into real topology: resolve both endpoints, require a matching active
+// network_rules row (zero trust -- matchRule rejects if none exists or
+// the only match is disabled), then write. The insert is an idempotent
+// upsert on the table's (from_feature_id, from_terminal_id,
+// to_feature_id, to_terminal_id) unique constraint -- establishing the
+// same connection twice is a safe no-op, not a duplicate row, matching
+// this codebase's existing idempotency pattern for publish/unpublish and
+// delete/restore.
+func establishConnection(ctx context.Context, db bun.IDB, req establishRequest) (*connectionResponse, error) {
+	from, err := resolveEndpoint(ctx, db, req.From)
+	if err != nil {
+		return nil, err
+	}
+	to, err := resolveEndpoint(ctx, db, req.To)
+	if err != nil {
+		return nil, err
+	}
+
+	rules, err := metadata.LoadNetworkRules(ctx, db, from.loaded.FeatureClass.ID, to.loaded.FeatureClass.ID)
+	if err != nil {
+		return nil, err
+	}
+	rule, err := matchRule(rules, from.subtypeID, to.subtypeID, from.terminalID, to.terminalID)
+	if err != nil {
+		return nil, err
+	}
+
+	establishedBy := "api"
+	conn := &Connectivity{
+		NetworkRuleID:      rule.ID,
+		FromFeatureClassID: from.loaded.FeatureClass.ID,
+		FromFeatureID:      req.From.FeatureID,
+		FromTerminalID:     from.terminalID,
+		ToFeatureClassID:   to.loaded.FeatureClass.ID,
+		ToFeatureID:        req.To.FeatureID,
+		ToTerminalID:       to.terminalID,
+		EstablishedBy:      &establishedBy,
+	}
+
+	_, err = db.NewInsert().Model(conn).
+		On("CONFLICT (from_feature_id, from_terminal_id, to_feature_id, to_terminal_id) DO UPDATE").
+		Set("established_at = feature_connectivity.established_at").
+		Returning("*").
+		Exec(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("connectivity: establish: %w", err)
+	}
+
+	return formatConnection(conn, rule.Name, from, to), nil
+}
+
+// listConnections returns every connection involving one feature, on
+// either side -- a junction like DIST_XFMR is typically the "to" side of
+// several incoming conductors, but nothing stops a feature from
+// appearing as "from" elsewhere too.
+func listConnections(ctx context.Context, db bun.IDB, featureClassCode, featureID string) ([]connectionResponse, error) {
+	loaded, err := loadFeatureClass(ctx, db, featureClassCode)
+	if err != nil {
+		return nil, err
+	}
+	fcID := loaded.FeatureClass.ID
+
+	var rows []Connectivity
+	if err := db.NewSelect().Model(&rows).
+		Where("(from_feature_id = ? AND from_feature_class_id = ?) OR (to_feature_id = ? AND to_feature_class_id = ?)",
+			featureID, fcID, featureID, fcID).
+		Order("established_at").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("connectivity: list: %w", err)
+	}
+
+	return formatConnections(ctx, db, rows)
+}
+
+// revokeConnection permanently removes an established connection --
+// undoing a mistaken establish, or reflecting a real physical
+// disconnection. No soft-delete/restore pair like features have:
+// unlike a feature, a connection carries no draft/published life cycle
+// of its own to preserve -- it's a binary fact, established or not.
+func revokeConnection(ctx context.Context, db bun.IDB, id string) error {
+	res, err := db.NewDelete().Model((*Connectivity)(nil)).Where("id = ?", id).Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("connectivity: revoke: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("connectivity: revoke: %w", err)
+	}
+	if n == 0 {
+		return notFound("connection %s not found", id)
+	}
+	return nil
+}
+
+// formatConnection builds the response for a connection just
+// established, reusing the already-validated request-side endpointRefs
+// verbatim (feature class code, feature id, terminal code) rather than
+// re-deriving them from the ids just written.
+func formatConnection(conn *Connectivity, ruleName string, from, to *resolvedEndpoint) *connectionResponse {
+	return &connectionResponse{
+		ID:              conn.ID,
+		NetworkRuleID:   conn.NetworkRuleID,
+		NetworkRuleName: ruleName,
+		From:            from.ref,
+		To:              to.ref,
+		EstablishedAt:   conn.EstablishedAt,
+	}
+}
+
+// formatConnections turns raw Connectivity rows (feature-class ids,
+// terminal ids, a rule id -- whatever came back from the database) into
+// the same human-readable shape formatConnection produces for a fresh
+// establish, via a handful of batched lookups rather than one query per
+// row per row's referenced feature class/terminal/rule.
+func formatConnections(ctx context.Context, db bun.IDB, rows []Connectivity) ([]connectionResponse, error) {
+	if len(rows) == 0 {
+		return []connectionResponse{}, nil
+	}
+
+	fcIDs := map[string]struct{}{}
+	terminalIDs := map[string]struct{}{}
+	ruleIDs := map[string]struct{}{}
+	for _, r := range rows {
+		fcIDs[r.FromFeatureClassID] = struct{}{}
+		fcIDs[r.ToFeatureClassID] = struct{}{}
+		if r.FromTerminalID != nil {
+			terminalIDs[*r.FromTerminalID] = struct{}{}
+		}
+		if r.ToTerminalID != nil {
+			terminalIDs[*r.ToTerminalID] = struct{}{}
+		}
+		ruleIDs[r.NetworkRuleID] = struct{}{}
+	}
+
+	fcCodes, err := loadFeatureClassCodes(ctx, db, keys(fcIDs))
+	if err != nil {
+		return nil, err
+	}
+	terminalCodes, err := loadTerminalCodes(ctx, db, keys(terminalIDs))
+	if err != nil {
+		return nil, err
+	}
+	ruleNames, err := loadRuleNames(ctx, db, keys(ruleIDs))
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]connectionResponse, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, connectionResponse{
+			ID:              r.ID,
+			NetworkRuleID:   r.NetworkRuleID,
+			NetworkRuleName: ruleNames[r.NetworkRuleID],
+			From: endpointRef{
+				FeatureClass: fcCodes[r.FromFeatureClassID],
+				FeatureID:    r.FromFeatureID,
+				Terminal:     terminalCodePtr(r.FromTerminalID, terminalCodes),
+			},
+			To: endpointRef{
+				FeatureClass: fcCodes[r.ToFeatureClassID],
+				FeatureID:    r.ToFeatureID,
+				Terminal:     terminalCodePtr(r.ToTerminalID, terminalCodes),
+			},
+			EstablishedAt: r.EstablishedAt,
+		})
+	}
+	return out, nil
+}
+
+func terminalCodePtr(id *string, codes map[string]string) *string {
+	if id == nil {
+		return nil
+	}
+	code := codes[*id]
+	return &code
+}
+
+func keys(set map[string]struct{}) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	return out
+}
+
+func loadFeatureClassCodes(ctx context.Context, db bun.IDB, ids []string) (map[string]string, error) {
+	var fcs []metadata.FeatureClass
+	if err := db.NewSelect().Model(&fcs).Where("id IN (?)", bun.In(ids)).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("connectivity: loading feature classes: %w", err)
+	}
+	out := make(map[string]string, len(fcs))
+	for _, fc := range fcs {
+		out[fc.ID] = fc.Code
+	}
+	return out, nil
+}
+
+func loadTerminalCodes(ctx context.Context, db bun.IDB, ids []string) (map[string]string, error) {
+	if len(ids) == 0 {
+		return map[string]string{}, nil
+	}
+	var terminals []metadata.Terminal
+	if err := db.NewSelect().Model(&terminals).Where("id IN (?)", bun.In(ids)).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("connectivity: loading terminals: %w", err)
+	}
+	out := make(map[string]string, len(terminals))
+	for _, t := range terminals {
+		out[t.ID] = t.Code
+	}
+	return out, nil
+}
+
+func loadRuleNames(ctx context.Context, db bun.IDB, ids []string) (map[string]string, error) {
+	var rules []metadata.NetworkRule
+	if err := db.NewSelect().Model(&rules).Where("id IN (?)", bun.In(ids)).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("connectivity: loading network rules: %w", err)
+	}
+	out := make(map[string]string, len(rules))
+	for _, r := range rules {
+		out[r.ID] = r.Name
+	}
+	return out, nil
+}
