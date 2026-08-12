@@ -48,11 +48,11 @@ docker compose up -d --build
 Dev run against dockerized postgres:
 ```
 cd api
-set DATABASE_URL=postgres://postgres:voltedge_dev@localhost:5432/postgres
-set PORT=8080
+set DATABASE_URL=postgres://postgres:voltedge_dev@localhost:3700/postgres
+set PORT=3704
 go run ./cmd/server
 ```
-(PowerShell: use `$env:DATABASE_URL = "..."` and `$env:PORT = "8080"`
+(PowerShell: use `$env:DATABASE_URL = "..."` and `$env:PORT = "3704"`
 instead of `set`.)
 
 Build / test / tidy / vet / fmt:
@@ -98,8 +98,9 @@ npm run dev
 
 - These assume the default values from `.env.example`
   (`POSTGRES_PASSWORD=voltedge_dev`, `POSTGRES_DB=postgres`,
-  `POSTGRES_PORT=5432`). If you changed `.env`, substitute your own
+  `POSTGRES_PORT=3700`). If you changed `.env`, substitute your own
   values into the connection strings above.
 - Inside the `gitbash` container, Postgres is reachable at `postgres:5432`
-  (the Docker Compose service name). From your host directly (the `api`
-  block above), it's `localhost:5432` (the published port).
+  (the Docker Compose service name and its *container-internal* port,
+  which never changes). From your host directly (the `api` block above),
+  it's `localhost:3700` — the published port, deliberately non-default.
