@@ -154,18 +154,33 @@ look right and be wrong again.
 ## Try it yourself
 
 Everything below is the exact sequence used to validate this phase,
-condensed into copy-pasteable commands. Two things worth knowing before
-you start:
+condensed into copy-pasteable commands.
 
-- **On Windows, use `curl.exe`, not bare `curl`.** PowerShell aliases
-  `curl` to `Invoke-WebRequest`, which doesn't understand `-X`/`-d` the
-  same way real curl does — `curl.exe` forces the actual binary Windows
-  10+ ships. Quote JSON bodies with **single quotes** in PowerShell; it
-  passes the string through literally, internal double quotes and all.
-- If `task`/`make` don't work in your environment, substitute the direct
-  `docker compose exec ...` commands from
-  [`docs/commands-cheatsheet.md`](./commands-cheatsheet.md) for
-  `task migrate`/`task seed-pole`/`task compile`.
+**On Windows, use `Invoke-RestMethod`, not `curl`/`curl.exe`, for any
+call that sends a JSON body.** PowerShell has to flatten arguments back
+into one command-line string to hand off to a native binary like
+`curl.exe`, and its quoting rules for embedded double quotes are
+unreliable enough that a perfectly-formed JSON string routinely arrives
+corrupted — that's the exact `invalid character ... looking for
+beginning of object key string` failure mode. `Invoke-RestMethod` takes
+the body as a real PowerShell string parameter, no command-line
+reconstruction involved, so this whole class of bug doesn't apply.
+GET-only calls (no body) are fine with either. If `task`/`make` don't
+work in your environment, substitute the direct `docker compose exec
+...` commands from
+[`docs/commands-cheatsheet.md`](./commands-cheatsheet.md) for
+`task migrate`/`task seed-pole`/`task compile`.
+
+Two easy-to-miss things about `Invoke-RestMethod` + `ConvertTo-Json`:
+- **Always pass `-Depth`** — `ConvertTo-Json`'s default depth is 2, and
+  it silently truncates anything nested deeper than that instead of
+  erroring. The bodies below nest three levels deep
+  (`attributes`/`geometry.coordinates`), so `-Depth 5` is used
+  throughout, with room to spare.
+- **`Invoke-RestMethod` throws on non-2xx responses** instead of just
+  returning the body — the validation-failure examples in step 9 wrap
+  the call in `try`/`catch` and read `$_.ErrorDetails.Message` to see
+  the error JSON.
 
 ### 1. Set up and compile
 
@@ -182,31 +197,41 @@ task compile CODE=POLE
 task api-dev
 ```
 From a second terminal:
-```
-curl.exe -s -X POST http://localhost:3704/features/POLE -H "Content-Type: application/json" -d '{"subtype":1,"geometry":{"type":"Point","coordinates":[-0.1276,51.5072]},"attributes":{"pole_material":"WOOD","pole_use":"DISTRIBUTION","height_class":"CLASS_1","condition_rating":"GOOD"}}'
-```
-Copy the `id` from the response into `$ID` for the rest of this walkthrough:
-```
-$ID = "paste-the-id-here"
+```powershell
+$body = @{
+  subtype = 1
+  geometry = @{ type = "Point"; coordinates = @(-0.1276, 51.5072) }
+  attributes = @{
+    pole_material    = "WOOD"
+    pole_use         = "DISTRIBUTION"
+    height_class     = "CLASS_1"
+    condition_rating = "GOOD"
+  }
+} | ConvertTo-Json -Depth 5
+
+$created = Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE" -ContentType "application/json" -Body $body
+$created
+$ID = $created.id
 ```
 
 ### 3. Read it back
 
-```
-curl.exe -s http://localhost:3704/features/POLE/$ID
-curl.exe -s "http://localhost:3704/features/POLE?limit=5"
+```powershell
+Invoke-RestMethod -Uri "http://localhost:3704/features/POLE/$ID"
+Invoke-RestMethod -Uri "http://localhost:3704/features/POLE?limit=5"
 ```
 
 ### 4. Update one attribute
 
-```
-curl.exe -s -X PATCH http://localhost:3704/features/POLE/$ID -H "Content-Type: application/json" -d '{"attributes":{"condition_rating":"FAIR"}}'
+```powershell
+$body = @{ attributes = @{ condition_rating = "FAIR" } } | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Patch -Uri "http://localhost:3704/features/POLE/$ID" -ContentType "application/json" -Body $body
 ```
 
 ### 5. Publish it
 
-```
-curl.exe -s -X POST http://localhost:3704/features/POLE/$ID/publish
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE/$ID/publish"
 ```
 Calling this again returns the same result unchanged (idempotent) —
 compare the `updated_at` field before and after to confirm nothing
@@ -229,22 +254,29 @@ ALTER TABLE gis.pole ALTER COLUMN condition_rating DROP NOT NULL;
 \q
 ```
 Back in PowerShell:
-```
-curl.exe -s -X PATCH http://localhost:3704/features/POLE/$ID -H "Content-Type: application/json" -d '{"attributes":{"condition_rating":null}}'
-curl.exe -s -X POST http://localhost:3704/features/POLE/$ID/publish
+```powershell
+$body = @{ attributes = @{ condition_rating = $null } } | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Patch -Uri "http://localhost:3704/features/POLE/$ID" -ContentType "application/json" -Body $body
+
+try {
+  Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE/$ID/publish"
+} catch {
+  $_.ErrorDetails.Message
+}
 ```
 The publish call returns `400` with
 `{"error":"field \"condition_rating\" is required before publishing"}`.
 Fix it and publish succeeds:
-```
-curl.exe -s -X PATCH http://localhost:3704/features/POLE/$ID -H "Content-Type: application/json" -d '{"attributes":{"condition_rating":"POOR"}}'
-curl.exe -s -X POST http://localhost:3704/features/POLE/$ID/publish
+```powershell
+$body = @{ attributes = @{ condition_rating = "POOR" } } | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Patch -Uri "http://localhost:3704/features/POLE/$ID" -ContentType "application/json" -Body $body
+Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE/$ID/publish"
 ```
 
 ### 7. Unpublish
 
-```
-curl.exe -s -X POST http://localhost:3704/features/POLE/$ID/unpublish
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE/$ID/unpublish"
 ```
 
 ### 8. Inspect the row directly with SQL
@@ -268,14 +300,20 @@ SELECT version_no, published_at, published_by, status
 
 ### 9. A few of the validation failures, for comparison
 
-```
+```powershell
 # bad subtype
-curl.exe -s -X POST http://localhost:3704/features/POLE -H "Content-Type: application/json" -d '{"subtype":99,"geometry":{"type":"Point","coordinates":[0,0]},"attributes":{"pole_material":"WOOD","pole_use":"DISTRIBUTION","height_class":"CLASS_1","condition_rating":"GOOD"}}'
+$body = @{ subtype = 99; geometry = @{ type = "Point"; coordinates = @(0,0) }; attributes = @{ pole_material = "WOOD"; pole_use = "DISTRIBUTION"; height_class = "CLASS_1"; condition_rating = "GOOD" } } | ConvertTo-Json -Depth 5
+try { Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE" -ContentType "application/json" -Body $body }
+catch { $_.ErrorDetails.Message }
 
 # missing required field
-curl.exe -s -X POST http://localhost:3704/features/POLE -H "Content-Type: application/json" -d '{"subtype":1,"geometry":{"type":"Point","coordinates":[0,0]},"attributes":{"pole_material":"WOOD"}}'
+$body = @{ subtype = 1; geometry = @{ type = "Point"; coordinates = @(0,0) }; attributes = @{ pole_material = "WOOD" } } | ConvertTo-Json -Depth 5
+try { Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE" -ContentType "application/json" -Body $body }
+catch { $_.ErrorDetails.Message }
 
 # bad domain value
-curl.exe -s -X POST http://localhost:3704/features/POLE -H "Content-Type: application/json" -d '{"subtype":1,"geometry":{"type":"Point","coordinates":[0,0]},"attributes":{"pole_material":"PLASTIC","pole_use":"DISTRIBUTION","height_class":"CLASS_1","condition_rating":"GOOD"}}'
+$body = @{ subtype = 1; geometry = @{ type = "Point"; coordinates = @(0,0) }; attributes = @{ pole_material = "PLASTIC"; pole_use = "DISTRIBUTION"; height_class = "CLASS_1"; condition_rating = "GOOD" } } | ConvertTo-Json -Depth 5
+try { Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE" -ContentType "application/json" -Body $body }
+catch { $_.ErrorDetails.Message }
 ```
 Each returns `400` with a message naming the exact field and problem.
