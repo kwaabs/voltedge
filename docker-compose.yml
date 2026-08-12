@@ -17,6 +17,12 @@
 #
 # Published ports are all in 3700-3720, deliberately not the defaults
 # (5432, 3000, 9000/9001, 8080) -- see .env.example for the assignment.
+#
+# DATABASE_URLs carry ?sslmode=disable -- this postgres image has no TLS
+# configured (no certs mounted), and pgdriver's client default is to
+# attempt TLS regardless, so without this every connection fails with
+# "SSL is not enabled on the server". Local-dev-only: a real deployment
+# with TLS available should drop this, not carry it forward.
 
 services:
   postgres:
@@ -44,7 +50,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
     ports:
       - "${MARTIN_PORT:-3701}:3000"
 
@@ -75,7 +81,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
       PORT: "8080"
     ports:
       - "${API_PORT:-3704}:8080"
@@ -92,7 +98,7 @@ services:
     volumes:
       - .:/workspace
     environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
 
 volumes:
   postgres_data:

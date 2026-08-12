@@ -15,15 +15,18 @@ feature-specific code path anywhere else.
 
 - **Phase 0 — Skeleton** (done): repo layout, local infra, nothing
   functional yet. Write-up: [`docs/phase-0-skeleton.md`](docs/phase-0-skeleton.md).
-- **Phase 1 — Metadata core + schema compiler**: the metadata tables
-  themselves, and the generator that turns them into physical schema.
+- **Phase 1 — Metadata core + schema compiler** (tables done, compiler
+  pending): all 15 metadata tables exist and are verified. The generator
+  that turns them into physical schema is still open. Write-up:
+  [`docs/phase-1-metadata-core.md`](docs/phase-1-metadata-core.md).
 - **Phase 2 — Generic data-plane engine**: metadata-validated CRUD,
   draft/published state, connectivity/relationship establish flow,
   attachments, diagrams.
 - **Phase 3 — Map loop**: Martin tile config generation, symbology
   resolution, OpenLayers viewer, snapping.
-- **Phase 4 — Network model**: terminals, network_rules, connectivity
-  establish flow, the trace engine.
+- **Phase 4 — Network model**: the trace engine and the connectivity
+  establish flow, built against the terminals/network_rules/
+  trace_configurations metadata Phase 1 already created.
 - **Phase 5 — Diagrams, attribute groups, MCP**: one-line diagram canvas,
   metadata-driven forms, MCP data-plane tools.
 - **Phase 6 — Domain expansion + hardening**: full feature class catalog,
@@ -52,9 +55,9 @@ verified working from a plain PowerShell prompt:
 ```
 copy .env.example .env
 docker compose up -d postgres martin rustfs gitbash
-docker compose exec -T -e "DATABASE_URL=postgres://postgres:voltedge_dev@postgres:5432/postgres" gitbash bash /workspace/migrations/apply.sh
+docker compose exec -T -e "DATABASE_URL=postgres://postgres:voltedge_dev@postgres:5432/postgres?sslmode=disable" gitbash bash /workspace/migrations/apply.sh
 cd api
-$env:DATABASE_URL = "postgres://postgres:voltedge_dev@localhost:3700/postgres"
+$env:DATABASE_URL = "postgres://postgres:voltedge_dev@localhost:3700/postgres?sslmode=disable"
 $env:PORT = "3704"
 go run ./cmd/server
 ```
