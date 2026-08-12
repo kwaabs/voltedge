@@ -1,7 +1,9 @@
 // Command server is the VoltEdge API. Phase 0 gave it a healthcheck;
 // Phase 2 adds the generic, metadata-driven CRUD engine (api/internal/crud)
 // -- one set of handlers that serves every compiled feature class, no
-// feature-specific code required.
+// feature-specific code required -- plus the zero-trust connectivity
+// engine (api/internal/connectivity), the only path that turns a
+// candidate electrical connection into real topology.
 package main
 
 import (
@@ -15,6 +17,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
@@ -42,6 +45,7 @@ func main() {
 
 	r.Get("/healthz", healthzHandler(db))
 	r.Mount("/features", crud.Routes(db))
+	r.Mount("/connectivity", connectivity.Routes(db))
 
 	log.Printf("voltedge api listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

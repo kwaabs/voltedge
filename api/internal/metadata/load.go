@@ -15,6 +15,7 @@ type Loaded struct {
 	Fields            []Field
 	Subtypes          []Subtype
 	SubtypeFieldRules []SubtypeFieldRule
+	Terminals         []Terminal
 	Domains           map[string]*Domain  // by domain id
 	DomainValues      map[string][]string // by domain id -> coded values
 }
@@ -60,6 +61,14 @@ func Load(ctx context.Context, db bun.IDB, code string) (*Loaded, error) {
 		}
 	}
 
+	var terminals []Terminal
+	if err := db.NewSelect().Model(&terminals).
+		Where("feature_class_id = ?", fc.ID).
+		Order("code").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: loading terminals for %q: %w", code, err)
+	}
+
 	domains, domainValues, err := loadDomains(ctx, db, fields)
 	if err != nil {
 		return nil, fmt.Errorf("metadata: %q: %w", code, err)
@@ -70,9 +79,27 @@ func Load(ctx context.Context, db bun.IDB, code string) (*Loaded, error) {
 		Fields:            fields,
 		Subtypes:          subtypes,
 		SubtypeFieldRules: rules,
+		Terminals:         terminals,
 		Domains:           domains,
 		DomainValues:      domainValues,
 	}, nil
+}
+
+// LoadNetworkRules returns every network_rules row for a specific
+// from/to feature-class pair, valid or not -- unlike Load, which only
+// ever surfaces active data. api/internal/connectivity needs both: a
+// disabled rule (is_valid = false) that would otherwise match is a
+// different rejection reason than no matching rule existing at all, and
+// that distinction only exists in the full set.
+func LoadNetworkRules(ctx context.Context, db bun.IDB, fromFeatureClassID, toFeatureClassID string) ([]NetworkRule, error) {
+	var rules []NetworkRule
+	if err := db.NewSelect().Model(&rules).
+		Where("from_feature_class_id = ?", fromFeatureClassID).
+		Where("to_feature_class_id = ?", toFeatureClassID).
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: loading network_rules: %w", err)
+	}
+	return rules, nil
 }
 
 func loadDomains(ctx context.Context, db bun.IDB, fields []Field) (map[string]*Domain, map[string][]string, error) {
@@ -147,6 +174,40 @@ func (l *Loaded) RequiredFieldNames(subtypeID string) []string {
 		}
 	}
 	return names
+}
+
+// ResolveTerminal finds the terminal matching a code for a given
+// subtype (or no subtype, if the feature class doesn't have any). A
+// terminal scoped to the specific subtype wins over one that applies to
+// every subtype of the feature class (subtype_id null) -- same
+// most-specific-wins principle as symbology resolution.
+func (l *Loaded) ResolveTerminal(subtypeID *string, code string) *Terminal {
+	var generic *Terminal
+	for i := range l.Terminals {
+		t := &l.Terminals[i]
+		if t.Code != code {
+			continue
+		}
+		if t.SubtypeID == nil {
+			generic = t
+			continue
+		}
+		if subtypeID != nil && *t.SubtypeID == *subtypeID {
+			return t
+		}
+	}
+	return generic
+}
+
+// TerminalByID looks up a loaded terminal by id, for formatting a
+// resolved terminal id back into its human-readable code.
+func (l *Loaded) TerminalByID(id string) *Terminal {
+	for i := range l.Terminals {
+		if l.Terminals[i].ID == id {
+			return &l.Terminals[i]
+		}
+	}
+	return nil
 }
 
 func (l *Loaded) fieldByID(id string) *Field {

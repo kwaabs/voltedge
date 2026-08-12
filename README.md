@@ -21,13 +21,17 @@ feature-specific code path anywhere else.
   incremental add-a-field path. Write-up:
   [`docs/phase-1-metadata-core.md`](docs/phase-1-metadata-core.md).
 - **Phase 2 — Generic data-plane engine** (CRUD + publish/unpublish +
-  delete done, rest open): metadata-validated create/read/update, a
-  draft ⇄ published lifecycle with a real completeness gate, and a
-  soft-delete/restore/hard-delete lifecycle, working end to end against
-  any compiled feature class — see write-up for a full curl+SQL
-  walkthrough. Still open: connectivity/relationship establish flow,
-  attachments, diagrams. Write-up:
-  [`docs/phase-2-crud-engine.md`](docs/phase-2-crud-engine.md).
+  delete + zero-trust connectivity done, rest open): metadata-validated
+  create/read/update, a draft ⇄ published lifecycle with a real
+  completeness gate, a soft-delete/restore/hard-delete lifecycle, and a
+  zero-trust connectivity engine that only commits an electrical
+  connection when a matching, active `network_rules` row authorizes it —
+  absence of a rule, or a matching but disabled rule, both reject the
+  write. Working end to end against any compiled feature class — see
+  write-ups for full curl+SQL walkthroughs. Still open:
+  relationship establish flow, attachments, diagrams. Write-ups:
+  [`docs/phase-2-crud-engine.md`](docs/phase-2-crud-engine.md),
+  [`docs/phase-2-connectivity.md`](docs/phase-2-connectivity.md).
 - **Phase 3 — Map loop**: Martin tile config generation, symbology
   resolution, OpenLayers viewer, snapping.
 - **Phase 4 — Network model**: the trace engine, built against the
