@@ -35,15 +35,19 @@ feature-specific code path anywhere else.
   Write-ups: [`docs/phase-2-crud-engine.md`](docs/phase-2-crud-engine.md),
   [`docs/phase-2-connectivity.md`](docs/phase-2-connectivity.md),
   [`docs/phase-2-relationships.md`](docs/phase-2-relationships.md).
-- **Phase 3 — Map loop** (slice 1 of several, app shell done): React +
-  Vite + TypeScript frontend scaffolded in `web/` — Tailwind v4 +
+- **Phase 3 — Map loop** (slices 1-2 of several: shell + map done):
+  React + Vite + TypeScript frontend in `web/` — Tailwind v4 +
   shadcn-style components, a light/dark/system theme with a distinct
-  palette and typography (not shadcn's default blue-on-white/black),
-  header + collapsible icon sidebar, routing, and Zustand/TanStack Query
-  wired end to end against the live API. Still open: Azure AD SSO, the
-  map itself (Martin tile config, symbology resolution, OpenLayers
-  viewer, snapping), real data views. Write-up:
-  [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md).
+  palette and typography, header + collapsible icon sidebar, and
+  Zustand/TanStack Query wired end to end against the live API. The map
+  is the app's home route (`/`) — a real OpenLayers canvas rendering
+  every compiled feature class as a live vector tile layer straight from
+  Martin's auto-discovered catalog, verified against a real Martin
+  instance, not just its documented API. Still open: Azure AD SSO,
+  metadata-driven symbology resolution, click-to-select/attribute
+  panels, snapping. Write-ups:
+  [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md),
+  [`docs/phase-3-map-loop.md`](docs/phase-3-map-loop.md).
 - **Phase 4 — Network model**: the trace engine, built against the
   terminals/network_rules/trace_configurations metadata Phase 1 already
   created and the connectivity Phase 2 establishes.
@@ -124,18 +128,20 @@ docker compose exec gitbash bash
 
 ### Running the frontend
 
-With the API already running (`task api-dev`, above), from a second
-terminal:
+With the API and Martin already running (`task api-dev` and `task
+infra-up`, above), from a second terminal:
 
 ```
 cd web
 npm install
 npm run dev
 ```
-Open `http://localhost:5173`. Vite proxies `/api/*` to the Go API at
-`localhost:3704`, so the frontend never needs CORS configured on the API
-side. See [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md) for
-what to expect and how it was validated.
+Open `http://localhost:5173` — it lands on the map. Vite proxies
+`/api/*` to the Go API at `localhost:3704` and `/tiles/*` to Martin at
+`localhost:3701`, so the frontend never needs CORS configured on
+either. See [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md) and
+[`docs/phase-3-map-loop.md`](docs/phase-3-map-loop.md) for what to
+expect and how each was validated.
 
 ## Repo layout
 
