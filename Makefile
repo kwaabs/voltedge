@@ -111,7 +111,7 @@ seed-relationships: ## Load the POLE/MV_CONDUCTOR relationship_classes example m
 ## ------------------------------------------------------------- frontend --
 
 .PHONY: frontend-dev
-frontend-dev: ## Run the OpenLayers frontend dev server (Phase 3 scaffolds web/)
+frontend-dev: ## Run the React + Vite frontend dev server
 	@if [ -f web/package.json ]; then \
 		cd web && npm run dev; \
 	else \
