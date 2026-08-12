@@ -104,3 +104,21 @@ npm run dev
   (the Docker Compose service name and its *container-internal* port,
   which never changes). From your host directly (the `api` block above),
   it's `localhost:3700` — the published port, deliberately non-default.
+
+## Troubleshooting
+
+**`make` fails with `error launching git: Access is denied`, on *any*
+target, including ones that never mention git** (e.g. a plain
+`go run ...` recipe) — this isn't your command failing, it's `make`
+itself failing to launch its configured shell. On Windows, `make.exe`
+commonly resolves its shell through a Git-for-Windows-provided `sh.exe`,
+whose launch path goes through `git.exe` internally. If your environment
+blocks script/shell execution (the same class of policy that blocks
+`.ps1` files), that shell launch gets denied before `make` ever reaches
+`docker` or `go` — the error just happens to mention git because of how
+the shell resolves, not because your command needed it.
+
+Fix: stop using `make` and run the equivalent command from this
+cheatsheet directly in PowerShell/cmd instead. `docker.exe` and `go.exe`
+are native binaries invoked directly with no intermediate shell, so this
+failure mode doesn't apply to them.

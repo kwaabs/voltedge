@@ -1,0 +1,7 @@
+# Force LF line endings on checkout, regardless of the checking-out
+# platform's core.autocrlf setting. Everything in this repo either runs
+# inside a Linux container (shell scripts, Dockerfiles) or is parsed by
+# tools that don't tolerate CRLF well (Makefile recipes, SQL migrations)
+# -- a Windows checkout silently converting these to CRLF breaks them at
+# runtime, not at diff time, which is a nasty thing to debug blind.
+* text=auto eol=lf
