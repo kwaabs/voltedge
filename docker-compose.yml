@@ -46,6 +46,19 @@ services:
     image: ghcr.io/maplibre/martin:latest
     container_name: voltedge-martin
     restart: unless-stopped
+    # --cache-size 0: Martin's tile cache keys on (source, z, x, y) only,
+    # not on the data underneath -- a tile fetched once (even an empty
+    # one, before a feature existed there) is served stale forever,
+    # surviving even a hard client-side refresh. Martin has no per-tile
+    # invalidation to reach for instead (only this on/off size knob) --
+    # see docs/phase-3-create-feature.md's "How this was validated" for
+    # how this was diagnosed. Since VoltEdge is an active editing tool,
+    # not a high-traffic public tile server, "a feature is visible on
+    # the map right after it's saved" wins over the caching every
+    # uncached tile request now costs a live Postgres query. Revisit if
+    # that tradeoff stops being true (e.g. a large territory with rare
+    # edits and real tile-serving load).
+    command: ["--cache-size", "0"]
     depends_on:
       postgres:
         condition: service_healthy
