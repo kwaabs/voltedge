@@ -46,10 +46,10 @@ feature-specific code path anywhere else.
   instance, not just its documented API. Click-to-select (with a peer
   picker for stacked features) opens a docked attribute panel with
   tabs for a feature's attributes, terminal connections, and structural
-  relationships; a "New feature" tool draws a new point feature and
-  saves it through a metadata-driven form. Still open: Azure AD SSO,
-  metadata-driven symbology resolution, editing an existing feature,
-  line/polygon drawing, snapping, an undockable/floating panel.
+  relationships; a "New feature" tool draws a new point, line, or
+  polygon feature and saves it through a metadata-driven form. Still
+  open: Azure AD SSO, metadata-driven symbology resolution, editing an
+  existing feature, snapping, an undockable/floating panel.
   Write-ups: [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md),
   [`docs/phase-3-map-loop.md`](docs/phase-3-map-loop.md),
   [`docs/phase-3-create-feature.md`](docs/phase-3-create-feature.md).

@@ -1,7 +1,10 @@
 import { defaults as defaultControls } from "ol/control"
 import type Feature from "ol/Feature"
 import MVT from "ol/format/MVT"
+import type Geometry from "ol/geom/Geometry"
+import LineString from "ol/geom/LineString"
 import Point from "ol/geom/Point"
+import Polygon from "ol/geom/Polygon"
 import Draw from "ol/interaction/Draw"
 import type Layer from "ol/layer/Layer"
 import TileLayer from "ol/layer/Tile"
@@ -18,15 +21,45 @@ import { useEffect, useRef } from "react"
 
 import { useCatalog } from "@/hooks/use-catalog"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
-import { draftPointStyle, styleForFeature } from "@/lib/map-layers"
+import { draftStyleForFeature, styleForFeature } from "@/lib/map-layers"
 import { tileUrlTemplate } from "@/lib/martin"
-import { useDrawStore } from "@/stores/draw-store"
+import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
 import { useSelectionStore } from "@/stores/selection-store"
 
 import "ol/ol.css"
+
+const OL_DRAW_TYPE: Record<DrawGeometryType, "Point" | "LineString" | "Polygon"> = {
+  point: "Point",
+  line: "LineString",
+  polygon: "Polygon",
+}
+
+/**
+ * Converts a just-drawn OL geometry (view projection, EPSG:3857) into
+ * the EPSG:4326 GeoJSON `POST /features/{code}` expects -- point, line,
+ * and polygon each shape their coordinates differently (a bare pair, a
+ * list of pairs, a list of rings of pairs), so this branches on the
+ * concrete geometry class rather than assuming Draw always hands back a
+ * Point the way the original point-only version of this file did.
+ */
+function geometryToGeoJSON(geometry: Geometry): { type: string; coordinates: unknown } | null {
+  if (geometry instanceof Point) {
+    return { type: "Point", coordinates: toLonLat(geometry.getCoordinates()) }
+  }
+  if (geometry instanceof LineString) {
+    return { type: "LineString", coordinates: geometry.getCoordinates().map((c) => toLonLat(c)) }
+  }
+  if (geometry instanceof Polygon) {
+    return {
+      type: "Polygon",
+      coordinates: geometry.getCoordinates().map((ring) => ring.map((c) => toLonLat(c))),
+    }
+  }
+  return null
+}
 
 /**
  * Placeholder default view -- centered on the seed data used to
@@ -49,6 +82,7 @@ export function VoltEdgeMap() {
   const { data: catalog } = useCatalog()
   const { data: featureClasses } = useFeatureClasses()
   const drawingFeatureClassCode = useDrawStore((s) => s.drawingFeatureClassCode)
+  const drawingGeometryType = useDrawStore((s) => s.drawingGeometryType)
   const draft = useDrawStore((s) => s.draft)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
@@ -100,12 +134,12 @@ export function VoltEdgeMap() {
     })
     map.getTargetElement().addEventListener("mouseleave", clearPosition)
 
-    // The unsaved-draft marker layer (see draftPointStyle) -- created
-    // once alongside the map, not per-draw, so its source can just be
-    // cleared/repopulated across multiple draw sessions instead of
-    // tearing down and rebuilding a layer every time.
+    // The unsaved-draft marker layer (see draftStyleForFeature) --
+    // created once alongside the map, not per-draw, so its source can
+    // just be cleared/repopulated across multiple draw sessions instead
+    // of tearing down and rebuilding a layer every time.
     const draftSource = new VectorSource()
-    const draftLayer = new VectorLayer({ source: draftSource, style: draftPointStyle, zIndex: 10 })
+    const draftLayer = new VectorLayer({ source: draftSource, style: draftStyleForFeature, zIndex: 10 })
     map.addLayer(draftLayer)
     draftSourceRef.current = draftSource
 
@@ -119,22 +153,24 @@ export function VoltEdgeMap() {
 
   // Adds/removes an OL Draw interaction for the feature class the user
   // picked to place (see src/components/map/new-feature-menu.tsx and
-  // draw-store.ts) -- point geometry only this slice, matching what the
-  // create form below is built for. On drawend, the drawn point is
-  // already sitting in draftSource (Draw's target), so there's nothing
-  // to hand off but the geometry itself, converted from the view's
-  // EPSG:3857 into the EPSG:4326 GeoJSON the create API expects.
+  // draw-store.ts), typed to match its geometry -- a single click for a
+  // point, or multiple clicks plus a double-click/Enter to finish for a
+  // line or polygon (OL's own default Draw behavior, no extra wiring
+  // needed for that part). On drawend, the drawn feature is already
+  // sitting in draftSource (Draw's target); geometryToGeoJSON converts
+  // it from the view's EPSG:3857 into the EPSG:4326 GeoJSON the create
+  // API expects.
   useEffect(() => {
     const map = mapRef.current
     const source = draftSourceRef.current
-    if (!map || !source || !drawingFeatureClassCode) return
+    if (!map || !source || !drawingFeatureClassCode || !drawingGeometryType) return
 
-    const draw = new Draw({ source, type: "Point" })
+    const draw = new Draw({ source, type: OL_DRAW_TYPE[drawingGeometryType] })
     draw.on("drawend", (evt: { feature: Feature }) => {
       const geometry = evt.feature.getGeometry()
-      if (!(geometry instanceof Point)) return
-      const [lon, lat] = toLonLat(geometry.getCoordinates())
-      useDrawStore.getState().finishDrawing({ type: "Point", coordinates: [lon, lat] })
+      const geojson = geometry && geometryToGeoJSON(geometry)
+      if (!geojson) return
+      useDrawStore.getState().finishDrawing(geojson)
     })
     map.addInteraction(draw)
 
@@ -147,7 +183,7 @@ export function VoltEdgeMap() {
       map.removeInteraction(draw)
       document.removeEventListener("keydown", handleEscape)
     }
-  }, [drawingFeatureClassCode])
+  }, [drawingFeatureClassCode, drawingGeometryType])
 
   // Clears the draft marker once its form is dismissed -- saved
   // (feature-create-form.tsx clears the draft on success, after

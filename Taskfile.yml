@@ -130,6 +130,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/relationship_example.sql
 
+  seed-substation-yard:
+    desc: Load the SUBSTATION_YARD (polygon) example metadata through the gitbash sidecar
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/substation_yard_example.sql
+
   # ------------------------------------------------------------- frontend --
 
   frontend-dev:
