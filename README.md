@@ -52,9 +52,9 @@ verified working from a plain PowerShell prompt:
 ```
 copy .env.example .env
 docker compose up -d postgres martin rustfs gitbash
-docker compose exec -T -e "DATABASE_URL=postgres://postgres:voltedge_dev@postgres:5432/postgres" gitbash bash /workspace/migrations/apply.sh
+docker compose exec -T -e "DATABASE_URL=postgres://postgres:voltedge_dev@postgres:5432/postgres?sslmode=disable" gitbash bash /workspace/migrations/apply.sh
 cd api
-$env:DATABASE_URL = "postgres://postgres:voltedge_dev@localhost:3700/postgres"
+$env:DATABASE_URL = "postgres://postgres:voltedge_dev@localhost:3700/postgres?sslmode=disable"
 $env:PORT = "3704"
 go run ./cmd/server
 ```

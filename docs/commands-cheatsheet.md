@@ -48,7 +48,7 @@ docker compose up -d --build
 Dev run against dockerized postgres:
 ```
 cd api
-set DATABASE_URL=postgres://postgres:voltedge_dev@localhost:3700/postgres
+set DATABASE_URL=postgres://postgres:voltedge_dev@localhost:3700/postgres?sslmode=disable
 set PORT=3704
 go run ./cmd/server
 ```
@@ -69,17 +69,17 @@ gofmt -l -w .
 
 Apply pending migrations:
 ```
-docker compose exec -T -e DATABASE_URL=postgres://postgres:voltedge_dev@postgres:5432/postgres gitbash bash /workspace/migrations/apply.sh
+docker compose exec -T -e "DATABASE_URL=postgres://postgres:voltedge_dev@postgres:5432/postgres?sslmode=disable" gitbash bash /workspace/migrations/apply.sh
 ```
 
 Show what's been applied:
 ```
-docker compose exec -T gitbash psql "postgres://postgres:voltedge_dev@postgres:5432/postgres" -c "SELECT filename, status, applied_at FROM ops.migration_log ORDER BY id;"
+docker compose exec -T gitbash psql "postgres://postgres:voltedge_dev@postgres:5432/postgres?sslmode=disable" -c "SELECT filename, status, applied_at FROM ops.migration_log ORDER BY id;"
 ```
 
 Interactive psql shell:
 ```
-docker compose exec gitbash psql "postgres://postgres:voltedge_dev@postgres:5432/postgres"
+docker compose exec gitbash psql "postgres://postgres:voltedge_dev@postgres:5432/postgres?sslmode=disable"
 ```
 
 Interactive shell in the sidecar itself (git, bash, psql all live here):
@@ -104,6 +104,11 @@ npm run dev
   (the Docker Compose service name and its *container-internal* port,
   which never changes). From your host directly (the `api` block above),
   it's `localhost:3700` — the published port, deliberately non-default.
+- `?sslmode=disable` is required on every connection string here — this
+  postgres image has no TLS configured, and the Go client defaults to
+  attempting it anyway, failing with `SSL is not enabled on the server`
+  if it's missing. Local-dev-only; drop it for any DSN pointed at a real
+  deployment with TLS.
 
 ## Troubleshooting
 

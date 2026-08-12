@@ -24,10 +24,13 @@ POSTGRES_PORT ?= 3700
 API_PORT ?= 3704
 
 # api-dev runs on the host and talks to postgres over its published port.
-LOCAL_DATABASE_URL := postgres://postgres:$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_DB)
+# sslmode=disable: this postgres image has no TLS configured, and the
+# client defaults to attempting it anyway -- local-dev-only, never carry
+# this into a DSN that points at a deployment with real TLS.
+LOCAL_DATABASE_URL := postgres://postgres:$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=disable
 # migrate/psql run inside the compose network, where postgres is reachable
 # by service name instead.
-CONTAINER_DATABASE_URL := postgres://postgres:$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)
+CONTAINER_DATABASE_URL := postgres://postgres:$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable
 
 .DEFAULT_GOAL := help
 
