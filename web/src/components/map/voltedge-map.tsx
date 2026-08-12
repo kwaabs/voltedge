@@ -1,17 +1,20 @@
+import { defaults as defaultControls } from "ol/control"
+import MVT from "ol/format/MVT"
 import TileLayer from "ol/layer/Tile"
 import VectorTileLayer from "ol/layer/VectorTile"
 import Map from "ol/Map"
-import { fromLonLat } from "ol/proj"
+import { fromLonLat, toLonLat } from "ol/proj"
 import OSM from "ol/source/OSM"
 import VectorTileSource from "ol/source/VectorTile"
 import View from "ol/View"
-import MVT from "ol/format/MVT"
 import { useEffect, useRef } from "react"
 
 import { useCatalog } from "@/hooks/use-catalog"
 import { styleForFeature } from "@/lib/map-layers"
 import { tileUrlTemplate } from "@/lib/martin"
+import { useInteractionStore } from "@/stores/interaction-store"
 import { useLayersStore } from "@/stores/layers-store"
+import { useMapPointerStore } from "@/stores/map-pointer-store"
 
 import "ol/ol.css"
 
@@ -31,6 +34,7 @@ export function VoltEdgeMap() {
   const vectorLayersRef = useRef<VectorTileLayer[]>([])
   const { data: catalog } = useCatalog()
   const hiddenLayers = useLayersStore((s) => s.hidden)
+  const mode = useInteractionStore((s) => s.mode)
   // Lets the layer-creation effect below read the *current* hidden set
   // without depending on it -- depending on it directly would rebuild
   // every VectorTileLayer (and re-request every tile) on each single
@@ -42,7 +46,10 @@ export function VoltEdgeMap() {
   const hiddenLayersRef = useRef(hiddenLayers)
   hiddenLayersRef.current = hiddenLayers
 
-  // Base map + OL Map instance -- created once.
+  // Base map + OL Map instance -- created once. attribution: false drops
+  // the default Attribution control -- src/components/map/status-bar.tsx
+  // renders OSM's required attribution text itself instead, so it
+  // doesn't need to also float over the map in its own corner.
   useEffect(() => {
     if (!containerRef.current) return
 
@@ -50,14 +57,32 @@ export function VoltEdgeMap() {
       target: containerRef.current,
       layers: [new TileLayer({ source: new OSM() })],
       view: new View({ center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM, maxZoom: 22 }),
+      controls: defaultControls({ attribution: false }),
     })
     mapRef.current = map
 
+    const { setPosition, clearPosition } = useMapPointerStore.getState()
+    map.on("pointermove", (evt) => {
+      const [lon, lat] = toLonLat(evt.coordinate)
+      setPosition(lon, lat)
+    })
+    map.getTargetElement().addEventListener("mouseleave", clearPosition)
+
     return () => {
+      map.getTargetElement()?.removeEventListener("mouseleave", clearPosition)
       map.setTarget(undefined)
       mapRef.current = null
     }
   }, [])
+
+  // Cursor reflects the select/pan toggle in the status bar -- actual
+  // click-select behavior lands with feature selection; for now this is
+  // purely visual feedback for which mode is active.
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.style.cursor = mode === "pan" ? "grab" : ""
+    }
+  }, [mode])
 
   // One VectorTileLayer per Martin catalog entry -- added/replaced
   // whenever the catalog changes, independent of the base map's own

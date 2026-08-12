@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useCatalog } from "@/hooks/use-catalog"
+import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useLayersStore } from "@/stores/layers-store"
 
 /**
@@ -21,9 +22,18 @@ import { useLayersStore } from "@/stores/layers-store"
  */
 export function LayersPanel() {
   const { data: catalog } = useCatalog()
+  const { data: featureClasses } = useFeatureClasses()
   const hidden = useLayersStore((s) => s.hidden)
   const toggle = useLayersStore((s) => s.toggle)
   const sourceIds = catalog ? Object.keys(catalog.tiles) : []
+
+  // Martin's source id is always the lowercased feature class code
+  // (see api/internal/compiler/compiler.go: tableName :=
+  // strings.ToLower(fc.Code)) -- this is what maps a bare tile source
+  // id like "mv_conductor" back to its real display name.
+  const nameByLowercaseCode = new Map(
+    (featureClasses?.feature_classes ?? []).map((fc) => [fc.code.toLowerCase(), fc.name]),
+  )
 
   return (
     <DropdownMenu>
@@ -33,7 +43,7 @@ export function LayersPanel() {
           Layers
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52">
+      <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuLabel>Feature classes</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {sourceIds.length === 0 ? (
@@ -46,7 +56,7 @@ export function LayersPanel() {
               onSelect={(e) => e.preventDefault()}
               onCheckedChange={() => toggle(id)}
             >
-              {id}
+              {nameByLowercaseCode.get(id) ?? id}
             </DropdownMenuCheckboxItem>
           ))
         )}

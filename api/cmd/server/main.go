@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
@@ -47,6 +48,7 @@ func main() {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/healthz", healthzHandler(db))
+	r.Get("/feature-classes", featureClassesHandler(db))
 	r.Mount("/features", crud.Routes(db))
 	r.Mount("/connectivity", connectivity.Routes(db))
 	r.Mount("/relationships", relationship.Routes(db))
@@ -76,5 +78,46 @@ func healthzHandler(db *bun.DB) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(code)
 		json.NewEncoder(w).Encode(map[string]string{"status": status})
+	}
+}
+
+// featureClassResponse is deliberately its own type, not
+// metadata.FeatureClass serialized directly -- that type has no json
+// tags (nothing before this needed it over the wire) and carries a
+// couple of internal-only fields (MetadataVersionID) with no reason to
+// ever leave the API.
+type featureClassResponse struct {
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	GeometryType string `json:"geometry_type"`
+	NetworkRole  string `json:"network_role"`
+}
+
+// featureClassesHandler is what lets the frontend show a real,
+// admin-set display name (e.g. "MV Conductor") instead of the bare
+// table/tile-source id (e.g. "mv_conductor") Martin's catalog only
+// knows -- see docs/phase-3-map-loop.md's follow-up on layer naming.
+func featureClassesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		classes, err := metadata.ListFeatureClasses(r.Context(), db)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		out := make([]featureClassResponse, len(classes))
+		for i, fc := range classes {
+			out[i] = featureClassResponse{
+				Code:         fc.Code,
+				Name:         fc.Name,
+				GeometryType: fc.GeometryType,
+				NetworkRole:  fc.NetworkRole,
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"feature_classes": out})
 	}
 }
