@@ -1,8 +1,5 @@
-import { Hand, MousePointer2 } from "lucide-react"
-
-import { Button } from "@/components/ui/button"
+import { useHealth } from "@/hooks/use-health"
 import { cn } from "@/lib/utils"
-import { useInteractionStore } from "@/stores/interaction-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
 
 /**
@@ -13,6 +10,29 @@ import { useMapPointerStore } from "@/stores/map-pointer-store"
  * read off the map instance.
  */
 const MAP_PROJECTION = "EPSG:3857"
+
+function ApiStatusIndicator() {
+  const { data, isPending, isError } = useHealth()
+
+  let dotClass = "bg-muted-foreground"
+  let label = "Checking API..."
+  if (!isPending) {
+    if (isError || data?.status !== "ok") {
+      dotClass = "bg-destructive"
+      label = "API unreachable"
+    } else {
+      dotClass = "bg-emerald-500"
+      label = "API healthy"
+    }
+  }
+
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
+      {label}
+    </span>
+  )
+}
 
 function CoordinateReadout() {
   const lon = useMapPointerStore((s) => s.lon)
@@ -28,49 +48,19 @@ function CoordinateReadout() {
   )
 }
 
-function ModeToggle() {
-  const mode = useInteractionStore((s) => s.mode)
-  const setMode = useInteractionStore((s) => s.setMode)
-
-  return (
-    <div className="flex items-center gap-0.5">
-      <Button
-        variant="ghost"
-        size="icon"
-        className={cn("size-6", mode === "select" && "bg-accent text-accent-foreground")}
-        aria-pressed={mode === "select"}
-        title="Select"
-        onClick={() => setMode("select")}
-      >
-        <MousePointer2 className="size-3.5" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className={cn("size-6", mode === "pan" && "bg-accent text-accent-foreground")}
-        aria-pressed={mode === "pan"}
-        title="Pan"
-        onClick={() => setMode("pan")}
-      >
-        <Hand className="size-3.5" />
-      </Button>
-    </div>
-  )
-}
-
 /**
- * A thin status bar, not another floating overlay -- coordinates,
- * projection, and required basemap attribution are reference info a
- * user glances at, not something worth covering map area with a badge
- * cluster for. Attribution text/link here is OSM's own required
- * wording (see https://www.openstreetmap.org/copyright) -- it replaces
- * OpenLayers' default Attribution control, which is disabled in
- * voltedge-map.tsx so it isn't shown twice.
+ * A thin status bar, not another floating overlay -- API reachability,
+ * coordinates, projection, and required basemap attribution are
+ * reference info a user glances at, not something worth covering map
+ * area with a badge cluster for. Attribution text/link here is OSM's
+ * own required wording (see https://www.openstreetmap.org/copyright) --
+ * it replaces OpenLayers' default Attribution control, which is
+ * disabled in voltedge-map.tsx so it isn't shown twice.
  */
 export function StatusBar() {
   return (
     <div className="bg-background flex h-7 shrink-0 items-center gap-4 border-t px-3 text-xs">
-      <ModeToggle />
+      <ApiStatusIndicator />
       <div className="bg-border h-4 w-px" />
       <CoordinateReadout />
       <span className="text-muted-foreground">{MAP_PROJECTION}</span>

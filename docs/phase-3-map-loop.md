@@ -1,11 +1,12 @@
 # Phase 3 (slice 2) — The map loop + IA correction
 
 **Goal:** put the map where a GIS app's home surface actually belongs —
-`/`, not a fourth item in a flat nav list — and render real, compiled
-feature data on it via Martin, not a mock. Deliberately not in this
-slice: click-to-select/attribute panels and metadata-driven symbology
-(icon resolution, shape vs. modifier) — both real subsystems on their
-own; see "What's still open."
+`/`, not a fourth item in a flat nav list — render real, compiled
+feature data on it via Martin, not a mock, and let a user click a
+feature to see its real attributes. Deliberately not in this slice:
+metadata-driven symbology (icon resolution, shape vs. modifier), a peer
+picker for stacked features, and an undockable/floating panel — see
+"What's still open."
 **Status:** done and verified against a **real Martin binary** run
 in-sandbox against real compiled feature tables (not assumed from
 documentation) — genuine MVT tiles requested, returned, and rendered,
@@ -123,6 +124,77 @@ link to `openstreetmap.org/copyright`, alongside:
   yet, since feature selection itself doesn't exist until the next
   slice. Wiring the toggle now means the next slice only has to make
   `select` mode *do* something, not invent the toggle too.
+
+## A fourth round: click-to-select, a real attribute panel, and cutting a mode toggle that added nothing
+
+Live testing of the third round's select/pan mode toggle surfaced a
+direct correction: *"i dont see the difference between select mode and
+pan mode. remove the pan mode. i dont think its necessary."* Correct —
+pan mode only ever changed the cursor to a grab hand; there was no
+actual behavior difference between the two modes because selection
+itself didn't exist yet. Rather than keep a toggle that gates nothing,
+this round removes it outright and builds the thing it was a stand-in
+for.
+
+- **`interaction-store.ts` is gone.** The status bar no longer has a
+  mode toggle. Instead, the map itself now shows a pointer cursor
+  whenever the mouse is over a selectable feature (via
+  `map.hasFeatureAtPixel` on every `pointermove`, restricted to vector
+  layers) and the default cursor everywhere else — the same affordance
+  the toggle was trying to fake, but driven by what's actually under
+  the cursor instead of a mode the user has to remember to switch.
+- **The floating "API healthy" badge moved into the status bar**
+  (`ApiStatusIndicator` in `status-bar.tsx`, reusing the existing
+  `useHealth` hook) — one less thing floating over the map now that the
+  status bar exists to hold exactly this kind of reference info.
+  `src/routes/map.tsx` no longer renders it as a separate overlay.
+- **Click-to-select** (`voltedge-map.tsx`) — a `click` listener hit-tests
+  every vector layer at the clicked pixel via
+  `map.forEachFeatureAtPixel`, resolves the hit feature's layer back to
+  a feature class code (each `VectorTileLayer` carries its Martin
+  source id as an OL layer property, set when the layer is created; the
+  source id lowercases a feature class's `code` the same way the
+  compiler names the physical table, so matching is a straight lookup
+  against `GET /feature-classes`, not a guess), and writes
+  `{featureClassCode, featureId}` to a new `selection-store.ts`
+  (Zustand, not persisted — a selected feature has no meaning after a
+  reload). Clicking empty space clears the selection. Only the topmost
+  hit is used — disambiguating stacked features is the peer-picker
+  slice, still open below.
+- **A real attribute panel** (`feature-panel.tsx`), docked between the
+  map and the status bar, renders whatever `selection-store` currently
+  holds. It fetches through `use-feature.ts` → `GET
+  /features/{code}/{id}` — the same generic CRUD read path every other
+  feature is fetched through — rather than reading whatever properties
+  happened to ride along on the clicked MVT tile feature. That's a
+  deliberate correctness choice, not just tidiness: vector tiles are
+  cached client-side and by Martin, so tile properties can go stale the
+  moment a feature is edited elsewhere, and this same panel is meant to
+  host edit forms in a later slice, where stale data shown next to an
+  edit form would be a real bug. The panel shows status, soft-delete
+  state, subtype, every attribute (label derived from the column name —
+  not a real per-field display label, since `metadata.fields` doesn't
+  model one yet), and the last-updated timestamp. Renders nothing when
+  nothing is selected, so it reserves no layout space until there's
+  something to show. Fixed height, docked only — undocking into a
+  floating/resizable/minimizable window is still its own later slice,
+  described below.
+
+**Verified against a real stack** — Postgres, a real Martin binary, and
+the Go API all running together (the same in-sandbox setup as the
+earlier rounds), driving the actual dev server with Playwright:
+clicking a real `MV_CONDUCTOR` feature opened the panel showing its
+actual display name ("MV Conductor"), real id, real status (`Draft`),
+real attributes (`Condition rating: GOOD`, `Voltage class: 11KV`), and
+a real updated timestamp — not placeholder data. The close button
+cleared the selection and collapsed the panel. Clicking empty map space
+(re-measuring the map's canvas bounds *after* the panel had already
+shrunk it — an easy trap during testing, since the map area gets
+shorter by the panel's own height the moment a feature is selected)
+also correctly cleared the selection. The status bar shows "API
+healthy" where the mode toggle used to be, and no pan-mode control
+remains anywhere. Checked in both light and dark mode; no console
+errors.
 
 ## Why this slice exists
 
@@ -268,22 +340,17 @@ compiled:
   default), shape-vs-modifier split, `render_context`. Current styling
   is geometry-type-only, a deliberate placeholder (see "Decisions
   made").
-- **Click-to-select + an attribute panel**, scoped out with the user as
-  several follow-on slices:
-  1. Click-to-select + a panel docked to the bottom of the map showing
-     the selected feature's real attributes.
-  2. A small peer picker for the case where a click hits several
-     stacked/overlapping features at once -- pick one, it populates the
-     main panel.
-  3. Undocking: the same panel becomes a floating window over the map
+- **Click-to-select + a docked attribute panel are done** (this round).
+  Still open, scoped out with the user as follow-on slices:
+  1. A small peer picker for the case where a click hits several
+     stacked/overlapping features at once -- right now only the topmost
+     hit is selected; picking a specific one from a stack isn't
+     possible yet.
+  2. Undocking: the same panel becomes a floating window over the map
      -- movable, resizable, minimizable, closeable.
-  4. The same panel later hosts a form, for drawing a new feature or
+  3. The same panel later hosts a form, for drawing a new feature or
      editing an existing one -- deliberately not attempted until the
      selection/panel mechanics above exist to build on.
-  The select/pan mode toggle in the status bar is already wired for
-  this -- `select` mode doesn't yet *do* anything beyond a cursor
-  change, but the next slice only has to add behavior to it, not invent
-  it.
 - **Snapping** — depends on an edit/digitize flow existing first, which
   depends on the selection/attribute panel above.
 - **No default-extent concept** — the map's initial center/zoom is a
@@ -331,8 +398,8 @@ Open `http://localhost:5173`. You should see:
   `POLE`/`MV_CONDUCTOR`/`DIST_XFMR` rows you've created via the API
   (see docs/phase-2-crud-engine.md's "Try it yourself" if you need to
   create some first).
-- A small "API healthy" badge top-left, and a "Layers" button top-right
-  — no docked sidebar; the map fills the full width below the header.
+- A "Layers" button top-right — no docked sidebar; the map fills the
+  full width below the header.
 - Click "Layers" to see one checkbox per compiled feature class, named
   with its real display name (e.g. "MV Conductor", not `mv_conductor`);
   unchecking one hides exactly that layer on the map, live.
@@ -341,11 +408,15 @@ Open `http://localhost:5173`. You should see:
   as a drawer that slides over the map, not a column that pushes it
   aside. Navigating to any other route shows the normal docked sidebar
   there instead — this floating behavior is specific to the map route.
-- A thin status bar along the bottom: move your mouse over the map and
-  watch the lat/lon readout update live; `EPSG:3857` next to it; OSM's
-  attribution, linked, on the right. Click the hand icon to switch to
-  pan mode (cursor becomes a grab hand) and back to the pointer icon
-  for select mode.
+- Hover over a rendered feature and the cursor becomes a pointer; click
+  it and a panel docks along the bottom of the map showing its real
+  display name, id, status, subtype, every attribute, and when it was
+  last updated. Click the panel's close button, or click empty map
+  space, to clear the selection and collapse the panel.
+- A thin status bar along the bottom: "API healthy"/"API unreachable"
+  on the left; move your mouse over the map and watch the lat/lon
+  readout update live; `EPSG:3857` next to it; OSM's attribution,
+  linked, on the right.
 - Scroll to zoom, drag to pan, double-click to zoom in a step — all
   standard OpenLayers interactions, no custom code required for them to
   work.
