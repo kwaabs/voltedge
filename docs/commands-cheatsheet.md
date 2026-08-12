@@ -138,7 +138,13 @@ blocks script/shell execution (the same class of policy that blocks
 `docker` or `go` — the error just happens to mention git because of how
 the shell resolves, not because your command needed it.
 
-Fix: stop using `make` and run the equivalent command from this
-cheatsheet directly in PowerShell/cmd instead. `docker.exe` and `go.exe`
-are native binaries invoked directly with no intermediate shell, so this
-failure mode doesn't apply to them.
+Fix, in order of preference:
+1. Use [`Taskfile.yml`](../Taskfile.yml) with [`task`](https://taskfile.dev)
+   instead of `make` — `task migrate`, `task compile CODE=POLE`, etc.
+   `task` is a single static binary that execs commands directly with no
+   shell resolution step, so this failure mode doesn't apply to it at
+   all. Mirrors every Makefile target 1:1.
+2. If `task` isn't installed either, run the equivalent command from this
+   cheatsheet directly in PowerShell/cmd. `docker.exe` and `go.exe` are
+   native binaries invoked directly with no intermediate shell, so this
+   failure mode doesn't apply to them either.

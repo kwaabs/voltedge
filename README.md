@@ -20,14 +20,17 @@ feature-specific code path anywhere else.
   physical table (`gis.pole`), verified end to end including the
   incremental add-a-field path. Write-up:
   [`docs/phase-1-metadata-core.md`](docs/phase-1-metadata-core.md).
-- **Phase 2 — Generic data-plane engine**: metadata-validated CRUD,
-  draft/published state, connectivity/relationship establish flow,
-  attachments, diagrams.
+- **Phase 2 — Generic data-plane engine** (CRUD done, rest open):
+  metadata-validated create/read/update against any compiled feature
+  class, working end to end — see write-up. Still open: publish/
+  unpublish, delete, connectivity/relationship establish flow,
+  attachments, diagrams. Write-up:
+  [`docs/phase-2-crud-engine.md`](docs/phase-2-crud-engine.md).
 - **Phase 3 — Map loop**: Martin tile config generation, symbology
   resolution, OpenLayers viewer, snapping.
-- **Phase 4 — Network model**: the trace engine and the connectivity
-  establish flow, built against the terminals/network_rules/
-  trace_configurations metadata Phase 1 already created.
+- **Phase 4 — Network model**: the trace engine, built against the
+  terminals/network_rules/trace_configurations metadata Phase 1 already
+  created and the connectivity Phase 2 establishes.
 - **Phase 5 — Diagrams, attribute groups, MCP**: one-line diagram canvas,
   metadata-driven forms, MCP data-plane tools.
 - **Phase 6 — Domain expansion + hardening**: full feature class catalog,
@@ -45,13 +48,24 @@ what was done, how to run/verify it, decisions made, what's deferred.
 
 ## Running it locally
 
-**On Windows PowerShell/cmd, use the direct commands** — `make` on
-Windows commonly resolves its shell through a Git-for-Windows `sh.exe`
-whose launch path goes through `git.exe`, which locked-down environments
-often block (`error launching git: Access is denied`, on *any* target,
-even ones that never mention git — see Troubleshooting in
-[`docs/commands-cheatsheet.md`](docs/commands-cheatsheet.md)). These are
-verified working from a plain PowerShell prompt:
+**On Windows, use `task`, not `make`.** `make` on Windows commonly
+resolves its shell through a Git-for-Windows `sh.exe` whose launch path
+goes through `git.exe`, which locked-down environments often block
+(`error launching git: Access is denied`, on *any* target, even ones that
+never mention git). [`Taskfile.yml`](Taskfile.yml) mirrors every Makefile
+target 1:1 for [`task`](https://taskfile.dev) — a single static binary
+that execs commands directly, no shell resolution involved, so this
+failure mode doesn't apply to it:
+
+```
+copy .env.example .env
+task infra-up
+task migrate
+task api-dev
+```
+`task --list` shows every available task. If `task` itself isn't
+installed, the verified-working direct commands (no `make`, no `task`,
+just `docker`/`go` typed straight into PowerShell) are still here:
 
 ```
 copy .env.example .env

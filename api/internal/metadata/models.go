@@ -1,12 +1,10 @@
-// Package compiler reads published metadata (metadata.feature_classes and
-// everything hanging off it) and compiles it into real physical schema in
-// the gis schema -- CREATE TABLE for a class compiled for the first time,
-// ALTER TABLE ADD COLUMN for one that already has a table and gained a
-// field. It never drops or alters an existing column: disabling a field
-// is a metadata-level status flip (fields.status = deprecated), never a
-// physical DROP COLUMN, matching docs/metadata-core.md's field lifecycle
-// rules.
-package compiler
+// Package metadata is the shared read layer over the metadata.* tables
+// (see docs/metadata-core.md) -- feature classes, fields, subtypes,
+// domains. Both the schema compiler (api/internal/compiler) and the
+// generic CRUD engine (api/internal/crud) load the same shape of data
+// through this package rather than each keeping their own copy of what a
+// Field or a Domain looks like.
+package metadata
 
 import (
 	"time"
@@ -31,24 +29,26 @@ type FeatureClass struct {
 }
 
 // Field mirrors metadata.fields -- see migrations/0008. Only rows with
-// status = 'active' are ever compiled; deprecated fields keep their
-// physical column (if one exists) but never gain a new one.
+// status = 'active' are ever compiled or accepted on a write; deprecated
+// fields keep their physical column (if one exists) but are invisible to
+// both the compiler and the CRUD engine.
 type Field struct {
 	bun.BaseModel `bun:"table:metadata.fields"`
 
-	ID             string  `bun:"id,pk"`
-	FeatureClassID string  `bun:"feature_class_id"`
-	Name           string  `bun:"name"`
-	DataType       string  `bun:"data_type"`
-	DomainID       *string `bun:"domain_id"`
-	Nullable       bool    `bun:"nullable"`
-	IsComputed     bool    `bun:"is_computed"`
-	Status         string  `bun:"status"`
+	ID                   string  `bun:"id,pk"`
+	FeatureClassID       string  `bun:"feature_class_id"`
+	Name                 string  `bun:"name"`
+	DataType             string  `bun:"data_type"`
+	DomainID             *string `bun:"domain_id"`
+	Nullable             bool    `bun:"nullable"`
+	IsComputed           bool    `bun:"is_computed"`
+	Status               string  `bun:"status"`
+	VisibleOnCreate      bool    `bun:"visible_on_create"`
+	VisibleOnUpdate      bool    `bun:"visible_on_update"`
+	EditableAfterPublish bool    `bun:"editable_after_publish"`
 }
 
-// Subtype mirrors metadata.subtypes -- see migrations/0008. A feature
-// class with one or more subtypes gets a physical `subtype` column,
-// constrained to the codes that exist at compile time.
+// Subtype mirrors metadata.subtypes -- see migrations/0008.
 type Subtype struct {
 	bun.BaseModel `bun:"table:metadata.subtypes"`
 
@@ -56,6 +56,20 @@ type Subtype struct {
 	FeatureClassID string `bun:"feature_class_id"`
 	Code           int    `bun:"code"`
 	Name           string `bun:"name"`
+}
+
+// SubtypeFieldRule mirrors metadata.subtype_field_rules -- see
+// migrations/0008. A field with no rule row for a given subtype is
+// optional by default; the CRUD engine's required-field validation on
+// create walks these per the feature's subtype.
+type SubtypeFieldRule struct {
+	bun.BaseModel `bun:"table:metadata.subtype_field_rules"`
+
+	ID              string  `bun:"id,pk"`
+	SubtypeID       string  `bun:"subtype_id"`
+	FieldID         string  `bun:"field_id"`
+	IsRequired      bool    `bun:"is_required"`
+	DefaultOverride *string `bun:"default_override"`
 }
 
 // Domain mirrors metadata.domains -- see migrations/0004.
@@ -76,12 +90,8 @@ type DomainValue struct {
 	Code     string `bun:"code"`
 }
 
-// MetadataVersion mirrors metadata.metadata_versions -- see
-// migrations/0006. Compile creates one per call and links the compiled
-// feature class to it. True multi-class atomic publishing (one version
-// covering several feature classes compiled together) is future work --
-// see docs/phase-1-metadata-core.md.
-type MetadataVersion struct {
+// Version mirrors metadata.metadata_versions -- see migrations/0006.
+type Version struct {
 	bun.BaseModel `bun:"table:metadata.metadata_versions"`
 
 	// nullzero: without it, bun inserts Go's zero value "" literally

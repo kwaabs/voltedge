@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 )
 
@@ -18,45 +19,24 @@ type Result struct {
 	MetadataVersionID string
 }
 
-// Compile reads the metadata for one feature class by code and makes the
-// physical schema in gis match it: CREATE TABLE the first time, ALTER
-// TABLE ADD COLUMN for any active field that doesn't have a column yet.
-// It never drops or alters an existing column -- see the package comment
-// in models.go.
+// Compile reads the metadata for one feature class by code (via
+// api/internal/metadata) and makes the physical schema in gis match it:
+// CREATE TABLE the first time, ALTER TABLE ADD COLUMN for any active
+// field that doesn't have a column yet. It never drops or alters an
+// existing column -- see the package comment in ddl.go.
 //
 // This is intentionally scoped to one feature class per call. Compiling
 // several classes as one atomic metadata_versions publish is future
 // work, not this pass -- see docs/phase-1-metadata-core.md.
 func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
-	fc := new(FeatureClass)
-	if err := db.NewSelect().Model(fc).Where("code = ?", code).Scan(ctx); err != nil {
-		return nil, fmt.Errorf("compiler: feature class %q not found: %w", code, err)
+	loaded, err := metadata.Load(ctx, db, code)
+	if err != nil {
+		return nil, fmt.Errorf("compiler: %w", err)
 	}
+	fc := loaded.FeatureClass
 
 	if fc.GeometryType != "none" && fc.SRID == nil {
 		return nil, fmt.Errorf("compiler: feature class %q has geometry_type %q but no srid", code, fc.GeometryType)
-	}
-
-	var fields []Field
-	if err := db.NewSelect().Model(&fields).
-		Where("feature_class_id = ?", fc.ID).
-		Where("status = ?", "active").
-		Order("name").
-		Scan(ctx); err != nil {
-		return nil, fmt.Errorf("compiler: loading fields for %q: %w", code, err)
-	}
-
-	var subtypes []Subtype
-	if err := db.NewSelect().Model(&subtypes).
-		Where("feature_class_id = ?", fc.ID).
-		Order("code").
-		Scan(ctx); err != nil {
-		return nil, fmt.Errorf("compiler: loading subtypes for %q: %w", code, err)
-	}
-
-	domains, domainValues, err := loadDomains(ctx, db, fields)
-	if err != nil {
-		return nil, fmt.Errorf("compiler: %q: %w", code, err)
 	}
 
 	tableName := strings.ToLower(fc.Code)
@@ -71,7 +51,7 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 
 	err = db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if !exists {
-			stmt, err := buildCreateTable(qualifiedTable, fc, fields, subtypes, domains, domainValues)
+			stmt, err := buildCreateTable(qualifiedTable, fc, loaded.Fields, loaded.Subtypes, loaded.Domains, loaded.DomainValues)
 			if err != nil {
 				return err
 			}
@@ -92,11 +72,11 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 			if err != nil {
 				return err
 			}
-			for _, f := range fields {
+			for _, f := range loaded.Fields {
 				if existingCols[f.Name] {
 					continue
 				}
-				colDef, err := columnDefinition(f, domains, domainValues)
+				colDef, err := columnDefinition(f, loaded.Domains, loaded.DomainValues)
 				if err != nil {
 					return err
 				}
@@ -108,7 +88,7 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 			}
 		}
 
-		version := &MetadataVersion{
+		version := &metadata.Version{
 			PublishedAt: time.Now(),
 			PublishedBy: "compiler-cli",
 			Status:      "active",
@@ -133,45 +113,4 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 	}
 
 	return result, nil
-}
-
-// loadDomains fetches, once each, every domain (and its coded values)
-// referenced by the given fields.
-func loadDomains(ctx context.Context, db *bun.DB, fields []Field) (map[string]*Domain, map[string][]string, error) {
-	domains := map[string]*Domain{}
-	domainValues := map[string][]string{}
-
-	for _, f := range fields {
-		if f.DomainID == nil {
-			continue
-		}
-		if _, ok := domains[*f.DomainID]; ok {
-			continue
-		}
-
-		d := new(Domain)
-		if err := db.NewSelect().Model(d).Where("id = ?", *f.DomainID).Scan(ctx); err != nil {
-			return nil, nil, fmt.Errorf("field %s references missing domain %s: %w", f.Name, *f.DomainID, err)
-		}
-		domains[d.ID] = d
-
-		if d.DomainType != "coded" {
-			continue
-		}
-
-		var values []DomainValue
-		if err := db.NewSelect().Model(&values).
-			Where("domain_id = ?", d.ID).
-			Order("sort_order").
-			Scan(ctx); err != nil {
-			return nil, nil, fmt.Errorf("loading values for domain %s: %w", d.Code, err)
-		}
-		codes := make([]string, len(values))
-		for i, v := range values {
-			codes[i] = v.Code
-		}
-		domainValues[d.ID] = codes
-	}
-
-	return domains, domainValues, nil
 }
