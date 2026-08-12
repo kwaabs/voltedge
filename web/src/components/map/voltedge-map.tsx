@@ -11,6 +11,7 @@ import { useEffect, useRef } from "react"
 import { useCatalog } from "@/hooks/use-catalog"
 import { styleForFeature } from "@/lib/map-layers"
 import { tileUrlTemplate } from "@/lib/martin"
+import { useLayersStore } from "@/stores/layers-store"
 
 import "ol/ol.css"
 
@@ -29,6 +30,17 @@ export function VoltEdgeMap() {
   const mapRef = useRef<Map | null>(null)
   const vectorLayersRef = useRef<VectorTileLayer[]>([])
   const { data: catalog } = useCatalog()
+  const hiddenLayers = useLayersStore((s) => s.hidden)
+  // Lets the layer-creation effect below read the *current* hidden set
+  // without depending on it -- depending on it directly would rebuild
+  // every VectorTileLayer (and re-request every tile) on each single
+  // checkbox toggle, when only that one layer's visible flag actually
+  // needs to change (the second effect below already does that in
+  // place). Kept in sync on every render, not inside an effect --
+  // assigning a ref during render is fine, it's only reads during
+  // render that render fresh data is not safe for.
+  const hiddenLayersRef = useRef(hiddenLayers)
+  hiddenLayersRef.current = hiddenLayers
 
   // Base map + OL Map instance -- created once.
   useEffect(() => {
@@ -64,12 +76,24 @@ export function VoltEdgeMap() {
           url: tileUrlTemplate(sourceId),
         }),
         style: styleForFeature,
+        visible: !hiddenLayersRef.current[sourceId],
         properties: { sourceId },
       })
       map.addLayer(layer)
       vectorLayersRef.current.push(layer)
     }
   }, [catalog])
+
+  // Reacts to the layers store -- src/components/map/layers-panel.tsx
+  // -- toggling an existing layer's visibility in place, independent of
+  // the catalog-driven effect above that only runs when the set of
+  // layers itself changes.
+  useEffect(() => {
+    for (const layer of vectorLayersRef.current) {
+      const sourceId = layer.get("sourceId") as string
+      layer.setVisible(!hiddenLayers[sourceId])
+    }
+  }, [hiddenLayers])
 
   return <div ref={containerRef} className="h-full w-full" />
 }

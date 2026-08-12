@@ -12,6 +12,61 @@ documentation) — genuine MVT tiles requested, returned, and rendered,
 confirmed via network capture and screenshot, in both themes, with pan/
 zoom interaction working. See "Try it yourself" below.
 
+## A second correction, caught immediately by live testing
+
+The first version of this slice still docked the sidebar beside the
+map — same fixed-width column as every other route, just with the map
+filling what was left. Live testing caught it right away: *"isnt the
+layer controls not supposed to be in the sidebar? ... shouldn't you be
+suggesting a better ui?"* Fair, and worth fixing before calling this
+slice done rather than filing it as a follow-up — a docked sidebar
+permanently reserving map width is the same category of mistake this
+slice's own intro describes fixing (competing for the front door
+instead of getting out of the way).
+
+The actual pattern every real map product uses: the canvas stays edge
+to edge, and navigation/tools float *over* it rather than push it
+aside. What changed:
+
+- **`src/components/ui/sidebar.tsx`** gained an `overlay` prop on
+  `SidebarProvider` — when set, the sidebar always renders as a `Sheet`
+  drawer (the same component already used for the mobile breakpoint on
+  every other route), never as a docked column, regardless of viewport
+  width. This reuses the exact same nav content and component rather
+  than building a second, parallel nav UI to keep in sync.
+- **`src/components/layout/map-layout.tsx`** (new) — the map route's
+  own layout: `SidebarProvider overlay` + the same `AppSidebar` +
+  `AppHeader`, no docked column, map fills everything below the
+  header. `src/app.tsx` now has two layout groups: `MapLayout` for `/`,
+  `AppLayout` (unchanged, still docks) for everything else.
+- **A real layers panel**, not just a fix — the old "3 layers" badge
+  was read-only. `src/stores/layers-store.ts` (Zustand, persisted, only
+  storing *hidden* source ids so a newly compiled feature class defaults
+  to visible with no extra wiring) + `src/components/map/layers-panel.tsx`
+  (a `DropdownMenuCheckboxItem` per catalog entry) give an actual
+  visibility toggle per feature class. `voltedge-map.tsx` reacts to the
+  store and flips each `VectorTileLayer`'s `visible` flag in place —
+  toggling one layer doesn't rebuild or re-fetch the others. (Getting
+  this right needed one more fix along the way: reading the store
+  directly inside the layer-*creation* effect made oxlint correctly flag
+  a stale-closure risk — if the catalog rebuilt the layer list on a
+  render where visibility had already changed elsewhere, the new layers
+  would carry whatever `hidden` looked like when the effect last ran,
+  not the current value. Fixed with a ref kept in sync every render,
+  read (not depended on) inside the effect — current value, no
+  rebuild-on-every-toggle.)
+
+**Verified in a real browser**, driving the actual dev server: the map
+route now measures full viewport width with zero docked sidebar
+present; clicking the header's menu button opens the nav as a Sheet
+overlay *on top of* the map (dimmed backdrop, map untouched
+underneath), with the same four nav items as before; the Layers button
+opens a real dropdown, unchecking "pole" removes exactly the pole
+points from the rendered map and nothing else, and re-opening the panel
+shows the unchecked state persisted; navigating to `/features` (or any
+other secondary route) confirmed the docked sidebar is exactly as
+before there — this fix is scoped to the map route only, on purpose.
+
 ## Why this slice exists
 
 Slice 1 shipped a shell with `/`, `/features`, `/connectivity`,
@@ -31,8 +86,9 @@ selected feature, or a secondary escape hatch, never the front door.
   reflects the current route instead of a hardcoded "Dashboard". The
   old `DashboardPage` (slice 1's health-check-and-cards page) is gone —
   its one genuinely useful signal, live API health, is now a small
-  overlay badge on the map itself (`src/routes/map.tsx`), alongside a
-  layer count from Martin's catalog.
+  overlay badge on the map itself (`src/routes/map.tsx`), alongside the
+  real layers panel described below (superseding an initial read-only
+  layer-count badge).
 - **Layout fix for a full-bleed route** — `AppLayout` no longer
   wraps every route in a padded div; that padding moved into
   `PlaceholderPage` itself (`src/routes/placeholder-page.tsx`), so the
@@ -206,11 +262,16 @@ Open `http://localhost:5173`. You should see:
   `POLE`/`MV_CONDUCTOR`/`DIST_XFMR` rows you've created via the API
   (see docs/phase-2-crud-engine.md's "Try it yourself" if you need to
   create some first).
-- A small "API healthy" + "N layers" status overlay, top-left of the
-  map.
-- The sidebar showing `Map` as the first, primary item, with `Feature
-  classes`/`Connectivity`/`Relationships` grouped separately under
-  "Data" below it.
+- A small "API healthy" badge plus a "Layers" button, top-left of the
+  map — no docked sidebar; the map fills the full width below the
+  header.
+- Click "Layers" to see one checkbox per compiled feature class;
+  unchecking one hides exactly that layer on the map, live.
+- Click the header's menu icon (top-left) to open navigation
+  (`Map`/`Feature classes`/`Connectivity`/`Relationships`/`Settings`)
+  as a drawer that slides over the map, not a column that pushes it
+  aside. Navigating to any other route shows the normal docked sidebar
+  there instead — this floating behavior is specific to the map route.
 - Scroll to zoom, drag to pan, double-click to zoom in a step — all
   standard OpenLayers interactions, no custom code required for them to
   work.
