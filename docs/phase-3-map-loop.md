@@ -3,10 +3,11 @@
 **Goal:** put the map where a GIS app's home surface actually belongs —
 `/`, not a fourth item in a flat nav list — render real, compiled
 feature data on it via Martin, not a mock, and let a user click a
-feature to see its real attributes. Deliberately not in this slice:
-metadata-driven symbology (icon resolution, shape vs. modifier), a peer
-picker for stacked features, and an undockable/floating panel — see
-"What's still open."
+feature (including disambiguating a click that hits several
+stacked/overlapping features) to see its real attributes. Deliberately
+not in this slice: metadata-driven symbology (icon resolution, shape
+vs. modifier) and an undockable/floating panel — see "What's still
+open."
 **Status:** done and verified against a **real Martin binary** run
 in-sandbox against real compiled feature tables (not assumed from
 documentation) — genuine MVT tiles requested, returned, and rendered,
@@ -196,6 +197,66 @@ healthy" where the mode toggle used to be, and no pan-mode control
 remains anywhere. Checked in both light and dark mode; no console
 errors.
 
+## A fifth round: a peer picker for stacked features
+
+The round above deliberately took only the topmost hit when a click
+landed on several overlapping features, leaving disambiguation as an
+open follow-on. This round closes it.
+
+- **`voltedge-map.tsx`'s click handler now collects every hit, not just
+  the first.** `map.forEachFeatureAtPixel`'s callback stops iterating
+  as soon as it returns something truthy -- the previous slice relied
+  on exactly that to take the topmost hit. Collecting every hit instead
+  means the callback must always return `undefined`, and hits get
+  pushed into a local array as a side effect. Deduped by `(code, id)`,
+  since a line feature clipped across an MVT tile boundary can
+  otherwise appear as two separate hits for what's really one feature.
+- **Zero hits clears the selection, exactly one selects it directly
+  (unchanged from the previous round), and more than one now populates
+  a new `candidates` field on `selection-store.ts`** instead of
+  guessing which one the user meant. `selected` and `candidates` are
+  mutually exclusive in the store on purpose -- a stacked click doesn't
+  select anything until the user actually picks one.
+- **`peer-picker.tsx`** (new) renders a small floating list at the
+  click's screen position (`evt.originalEvent.clientX/clientY`, not the
+  map's own pixel space, which is relative to the map container --
+  positioned with `fixed` so it's correct regardless of where in the
+  DOM it's mounted) showing each candidate's real feature-class display
+  name and a shortened id. Picking one calls `select`, which also
+  clears `candidates` -- same store action a direct single-feature
+  click already used, so `feature-panel.tsx` didn't need to change at
+  all to pick this up. Dismisses on an outside click or Escape, since a
+  click elsewhere in the UI (the Layers button, the header, ...) never
+  reaches the map's own click handler to replace `candidates` the way a
+  second map click naturally would.
+
+**Verified against a genuinely stacked scenario, not a synthetic one.**
+The existing seed data doesn't have two features at the same point, so
+a real `POLE` was created via `POST /features/POLE` at the exact
+coordinates of the existing seed `DIST_XFMR` (through the same generic
+CRUD endpoint every other feature goes through), producing a real
+same-point stack of two different feature classes to click on -- then
+deleted again (soft delete + purge) once verification was done, so the
+seed data this doc's other screenshots depend on is unchanged. Driving
+the real stack (Postgres, a restarted Martin binary so its in-memory
+tile cache picked up the newly created feature, the Go API, and the
+Vite dev server) via Playwright: clicking the stacked point opened the
+picker showing both real names ("Pole" and "Distribution
+Transformer") with their real (shortened) ids; picking one closed the
+picker and opened the attribute panel with that feature's real data;
+reopening the picker and clicking the Layers button, or pressing
+Escape, both dismissed it without selecting anything. Checked in both
+light and dark mode; no console errors.
+
+One thing worth calling out about testing this kind of overlay: the
+picker and the attribute panel both depend on screen coordinates that
+shift the moment the panel opens and shrinks the map -- a stale
+`getBoundingClientRect()` captured before a selection is exactly the
+kind of thing that silently makes a real bug and a test artifact look
+identical. Re-measuring after every state change that resizes the map
+was the fix, both here and in the previous round's click-to-clear
+testing.
+
 ## Why this slice exists
 
 Slice 1 shipped a shell with `/`, `/features`, `/connectivity`,
@@ -340,15 +401,13 @@ compiled:
   default), shape-vs-modifier split, `render_context`. Current styling
   is geometry-type-only, a deliberate placeholder (see "Decisions
   made").
-- **Click-to-select + a docked attribute panel are done** (this round).
-  Still open, scoped out with the user as follow-on slices:
-  1. A small peer picker for the case where a click hits several
-     stacked/overlapping features at once -- right now only the topmost
-     hit is selected; picking a specific one from a stack isn't
-     possible yet.
-  2. Undocking: the same panel becomes a floating window over the map
-     -- movable, resizable, minimizable, closeable.
-  3. The same panel later hosts a form, for drawing a new feature or
+- **Click-to-select, a docked attribute panel, and a peer picker for
+  stacked features are all done.** Still open, scoped out with the user
+  as follow-on slices:
+  1. Undocking: the panel becomes a floating window over the map --
+     movable, resizable, minimizable, closeable. Orthogonal to the peer
+     picker -- neither depends on the other.
+  2. The same panel later hosts a form, for drawing a new feature or
      editing an existing one -- deliberately not attempted until the
      selection/panel mechanics above exist to build on.
 - **Snapping** — depends on an edit/digitize flow existing first, which
@@ -413,6 +472,11 @@ Open `http://localhost:5173`. You should see:
   display name, id, status, subtype, every attribute, and when it was
   last updated. Click the panel's close button, or click empty map
   space, to clear the selection and collapse the panel.
+- If a click lands on several stacked features at once, a small popup
+  appears at the click point instead, listing each one's real display
+  name for you to pick from -- picking one opens the same attribute
+  panel as a direct single-feature click would. Click elsewhere in the
+  UI, or press Escape, to dismiss the popup without selecting anything.
 - A thin status bar along the bottom: "API healthy"/"API unreachable"
   on the left; move your mouse over the map and watch the lat/lon
   readout update live; `EPSG:3857` next to it; OSM's attribution,

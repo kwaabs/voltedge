@@ -1,5 +1,6 @@
 import { FeaturePanel } from "@/components/map/feature-panel"
 import { LayersPanel } from "@/components/map/layers-panel"
+import { PeerPicker } from "@/components/map/peer-picker"
 import { StatusBar } from "@/components/map/status-bar"
 import { VoltEdgeMap } from "@/components/map/voltedge-map"
 
@@ -12,6 +13,7 @@ export function MapPage() {
         </div>
         <VoltEdgeMap />
       </div>
+      <PeerPicker />
       <FeaturePanel />
       <StatusBar />
     </div>
