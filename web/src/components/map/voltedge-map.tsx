@@ -23,6 +23,7 @@ import { useCatalog } from "@/hooks/use-catalog"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { draftStyleForFeature, styleForFeature } from "@/lib/map-layers"
 import { tileUrlTemplate } from "@/lib/martin"
+import { useConnectStore } from "@/stores/connect-store"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
@@ -84,6 +85,7 @@ export function VoltEdgeMap() {
   const drawingFeatureClassCode = useDrawStore((s) => s.drawingFeatureClassCode)
   const drawingGeometryType = useDrawStore((s) => s.drawingGeometryType)
   const draft = useDrawStore((s) => s.draft)
+  const connectMode = useConnectStore((s) => s.mode)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
   // Lets the layer-creation effect below read the *current* hidden set
@@ -192,6 +194,18 @@ export function VoltEdgeMap() {
     if (!draft) draftSourceRef.current?.clear()
   }, [draft])
 
+  // Escape cancels an in-progress connect/relate workflow (see
+  // connect-store.ts and the click handler below) while it's still
+  // waiting on a target feature -- same affordance as canceling a draw.
+  useEffect(() => {
+    if (!connectMode) return
+    const handleEscape = (evt: KeyboardEvent) => {
+      if (evt.key === "Escape") useConnectStore.getState().cancel()
+    }
+    document.addEventListener("keydown", handleEscape)
+    return () => document.removeEventListener("keydown", handleEscape)
+  }, [connectMode])
+
   // Forces every vector tile source to refetch -- bumped by
   // feature-create-form.tsx after a successful save, since the catalog
   // itself (which sources exist) doesn't change when a feature is
@@ -242,6 +256,30 @@ export function VoltEdgeMap() {
       // out from under an in-progress, unsaved form.
       const drawState = useDrawStore.getState()
       if (drawState.drawingFeatureClassCode || drawState.draft) return
+
+      // A click while connect-store is waiting on a target feature
+      // (see connect-store.ts, feature-panel.tsx's "+ New connection",
+      // and connect-confirm-panel.tsx) picks that target instead of
+      // changing the normal selection -- only the topmost hit, no peer
+      // picker here, to keep this first version's scope tight. A click
+      // on empty space is ignored (Escape is the only way to cancel)
+      // rather than treated as "clear," so an imprecise click doesn't
+      // silently abandon the workflow.
+      const connectState = useConnectStore.getState()
+      if (connectState.mode && !connectState.target) {
+        const hit = map.forEachFeatureAtPixel(
+          evt.pixel,
+          (feature, layer) => {
+            const sourceId = layer?.get("sourceId") as string | undefined
+            const id = feature.get("id") as string | undefined
+            const code = sourceId ? codeBySourceId.get(sourceId) : undefined
+            return code && id ? { code, id } : undefined
+          },
+          { layerFilter: isVectorLayer, hitTolerance: 5 },
+        )
+        if (hit) connectState.pickTarget({ featureClassCode: hit.code, featureId: hit.id })
+        return
+      }
 
       const hits: { code: string; id: string }[] = []
       const seen = new Set<string>()
