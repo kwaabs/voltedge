@@ -38,7 +38,7 @@ func selectColumns(loaded *metadata.Loaded) []string {
 	if len(loaded.Subtypes) > 0 {
 		cols = append(cols, "subtype")
 	}
-	cols = append(cols, "status")
+	cols = append(cols, "status", "deleted_at")
 	if loaded.FeatureClass.GeometryType != "none" {
 		cols = append(cols, "ST_AsGeoJSON(geom)::text AS geom_json")
 	}
@@ -99,6 +99,7 @@ func formatRow(loaded *metadata.Loaded, row map[string]any) (map[string]any, err
 	out := map[string]any{
 		"id":         row["id"],
 		"status":     row["status"],
+		"deleted_at": row["deleted_at"],
 		"created_at": row["created_at"],
 		"updated_at": row["updated_at"],
 	}
@@ -261,7 +262,13 @@ func getFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id str
 	return formatRow(loaded, results[0])
 }
 
-// listFeatures reads a bounded page of features, oldest first.
+// listFeatures reads a bounded page of features, oldest first. Excludes
+// soft-deleted rows -- list is the normal browsing view, and a deleted
+// row showing back up in it would look like the delete didn't work.
+// getFeature has no such filter: a direct GET by id still returns a
+// deleted row (deleted_at set, visible in the response) since a client
+// following up on a delete or deciding whether to restore needs to see
+// it, not get a 404 for a row that still exists.
 func listFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, limit, offset int) ([]map[string]any, error) {
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
@@ -269,7 +276,7 @@ func listFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, limi
 	}
 
 	query := fmt.Sprintf(
-		"SELECT %s FROM %s ORDER BY created_at, id LIMIT ? OFFSET ?",
+		"SELECT %s FROM %s WHERE deleted_at IS NULL ORDER BY created_at, id LIMIT ? OFFSET ?",
 		strings.Join(selectColumns(loaded), ", "), table,
 	)
 	rows, err := db.QueryContext(ctx, query, limit, offset)

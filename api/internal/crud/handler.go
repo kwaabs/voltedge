@@ -18,12 +18,15 @@ const defaultListLimit = 50
 // Routes returns a router of the generic, metadata-driven CRUD
 // endpoints, meant to be mounted at something like /features:
 //
-//	GET    /{code}               list
+//	GET    /{code}               list, excludes soft-deleted
 //	POST   /{code}               create
-//	GET    /{code}/{id}          get
-//	PATCH  /{code}/{id}          update
+//	GET    /{code}/{id}          get, includes soft-deleted
+//	PATCH  /{code}/{id}          update, rejected if soft-deleted
 //	POST   /{code}/{id}/publish   draft -> published, gated on completeness
 //	POST   /{code}/{id}/unpublish published -> draft, no gate
+//	DELETE /{code}/{id}          soft delete (sets deleted_at), no gate
+//	POST   /{code}/{id}/restore   undoes a soft delete, no gate
+//	DELETE /{code}/{id}/purge     hard delete, requires prior soft-delete
 //
 // No feature-class-specific code exists anywhere here -- {code} is
 // resolved against metadata.feature_classes at request time.
@@ -35,6 +38,9 @@ func Routes(db *bun.DB) chi.Router {
 	r.Patch("/{code}/{id}", updateHandler(db))
 	r.Post("/{code}/{id}/publish", publishHandler(db))
 	r.Post("/{code}/{id}/unpublish", unpublishHandler(db))
+	r.Delete("/{code}/{id}", deleteHandler(db))
+	r.Post("/{code}/{id}/restore", restoreHandler(db))
+	r.Delete("/{code}/{id}/purge", purgeHandler(db))
 	return r
 }
 
@@ -175,6 +181,10 @@ func updateHandler(db *bun.DB) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		if existing["deleted_at"] != nil {
+			writeError(w, invalid("feature %s is deleted -- restore it before updating", id))
+			return
+		}
 		currentStatus, _ := existing["status"].(string)
 
 		var req updateRequest
@@ -256,6 +266,65 @@ func unpublishHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func deleteHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		id := chi.URLParam(r, "id")
+
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		result, err := softDeleteFeature(r.Context(), db, loaded, id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func restoreHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		id := chi.URLParam(r, "id")
+
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		result, err := restoreFeature(r.Context(), db, loaded, id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func purgeHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		id := chi.URLParam(r, "id")
+
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		if err := hardDeleteFeature(r.Context(), db, loaded, id); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

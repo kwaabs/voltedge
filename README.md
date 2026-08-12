@@ -20,12 +20,13 @@ feature-specific code path anywhere else.
   physical table (`gis.pole`), verified end to end including the
   incremental add-a-field path. Write-up:
   [`docs/phase-1-metadata-core.md`](docs/phase-1-metadata-core.md).
-- **Phase 2 — Generic data-plane engine** (CRUD + publish/unpublish done,
-  rest open): metadata-validated create/read/update plus a draft ⇄
-  published lifecycle with a real completeness gate, working end to end
-  against any compiled feature class — see write-up for a full curl+SQL
-  walkthrough. Still open: delete, connectivity/relationship establish
-  flow, attachments, diagrams. Write-up:
+- **Phase 2 — Generic data-plane engine** (CRUD + publish/unpublish +
+  delete done, rest open): metadata-validated create/read/update, a
+  draft ⇄ published lifecycle with a real completeness gate, and a
+  soft-delete/restore/hard-delete lifecycle, working end to end against
+  any compiled feature class — see write-up for a full curl+SQL
+  walkthrough. Still open: connectivity/relationship establish flow,
+  attachments, diagrams. Write-up:
   [`docs/phase-2-crud-engine.md`](docs/phase-2-crud-engine.md).
 - **Phase 3 — Map loop**: Martin tile config generation, symbology
   resolution, OpenLayers viewer, snapping.

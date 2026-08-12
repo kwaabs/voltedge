@@ -136,6 +136,12 @@ func buildCreateTable(qualifiedTable string, fc *metadata.FeatureClass, fields [
 
 	cols = append(cols, `status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published'))`)
 
+	// deleted_at is soft-delete, not a status value: a row can be deleted
+	// regardless of draft/published, and NULL vs. set is a cheaper,
+	// less error-prone check than adding a third status string everywhere
+	// that already switches on 'draft'/'published'.
+	cols = append(cols, `deleted_at timestamptz`)
+
 	if fc.GeometryType != "none" {
 		geomType, err := geometryType(fc.GeometryType)
 		if err != nil {
