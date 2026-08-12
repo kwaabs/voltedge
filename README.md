@@ -15,9 +15,10 @@ feature-specific code path anywhere else.
 
 - **Phase 0 — Skeleton** (done): repo layout, local infra, nothing
   functional yet. Write-up: [`docs/phase-0-skeleton.md`](docs/phase-0-skeleton.md).
-- **Phase 1 — Metadata core + schema compiler** (tables done, compiler
-  pending): all 15 metadata tables exist and are verified. The generator
-  that turns them into physical schema is still open. Write-up:
+- **Phase 1 — Metadata core + schema compiler** (done): all 15 metadata
+  tables, plus a working compiler that turns a feature class into a real
+  physical table (`gis.pole`), verified end to end including the
+  incremental add-a-field path. Write-up:
   [`docs/phase-1-metadata-core.md`](docs/phase-1-metadata-core.md).
 - **Phase 2 — Generic data-plane engine**: metadata-validated CRUD,
   draft/published state, connectivity/relationship establish flow,

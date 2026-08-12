@@ -91,6 +91,15 @@ vet: ## go vet the api module
 fmt: ## gofmt the api module
 	cd $(API_DIR) && gofmt -l -w .
 
+.PHONY: compile
+compile: ## Compile one feature class's metadata into physical schema, e.g. make compile CODE=POLE
+	@if [ -z "$(CODE)" ]; then echo "usage: make compile CODE=<FEATURE_CLASS_CODE>"; exit 1; fi
+	cd $(API_DIR) && DATABASE_URL="$(LOCAL_DATABASE_URL)" go run ./cmd/compile $(CODE)
+
+.PHONY: seed-pole
+seed-pole: ## Load the POLE example metadata (seed/pole_example.sql) via the gitbash sidecar
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/pole_example.sql
+
 ## ------------------------------------------------------------- frontend --
 
 .PHONY: frontend-dev

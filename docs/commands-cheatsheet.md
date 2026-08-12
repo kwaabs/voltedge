@@ -65,7 +65,22 @@ go vet ./...
 gofmt -l -w .
 ```
 
+Compile a feature class's metadata into physical schema (`gis.<code>`) --
+runs on your host like `api-dev`, needs a feature class to already exist
+in `metadata.feature_classes` (see the seed example below):
+```
+cd api
+$env:DATABASE_URL = "postgres://postgres:voltedge_dev@localhost:3700/postgres?sslmode=disable"
+go run ./cmd/compile POLE
+```
+
 ## Database — all routed through the gitbash container, never your host
+
+Load the POLE example metadata (`seed/pole_example.sql`) to have
+something to compile:
+```
+docker compose exec -T gitbash psql "postgres://postgres:voltedge_dev@postgres:5432/postgres?sslmode=disable" -f /workspace/seed/pole_example.sql
+```
 
 Apply pending migrations:
 ```
