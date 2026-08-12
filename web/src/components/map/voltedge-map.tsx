@@ -93,14 +93,15 @@ export function VoltEdgeMap() {
   }, [])
 
   // Click-to-select: hit-test every vector layer at the clicked pixel,
-  // resolve which feature class it came from (a layer's sourceId is
-  // always a feature class code, lowercased -- see the catalog-driven
-  // effect below), and hand the (code, id) pair to the selection store
-  // for src/components/map/feature-panel.tsx to fetch and display.
-  // Takes only the first (topmost) hit -- when several features are
-  // stacked at one point, disambiguating between them is the next
-  // slice's peer picker, not this one. Clicking empty space clears
-  // whatever was selected.
+  // resolve each hit's feature class (a layer's sourceId is always a
+  // feature class code, lowercased -- see the catalog-driven effect
+  // below), and dedupe by (code, id) -- a line feature clipped across
+  // an MVT tile boundary can otherwise show up as two hits for the same
+  // real feature. Zero hits clears whatever was selected; exactly one
+  // hit selects it directly; more than one hands the whole list to the
+  // selection store as `candidates` for src/components/map/peer-picker.tsx
+  // to disambiguate, rather than guessing which stacked feature the
+  // user meant.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !featureClasses) return
@@ -113,18 +114,45 @@ export function VoltEdgeMap() {
     )
 
     const handleClick = (evt: MapBrowserEvent<PointerEvent | KeyboardEvent | WheelEvent>) => {
-      const hit = map.forEachFeatureAtPixel(
+      const hits: { code: string; id: string }[] = []
+      const seen = new Set<string>()
+
+      map.forEachFeatureAtPixel(
         evt.pixel,
         (feature, layer) => {
           const sourceId = layer?.get("sourceId") as string | undefined
           const id = feature.get("id") as string | undefined
           const code = sourceId ? codeBySourceId.get(sourceId) : undefined
-          return code && id ? { code, id } : undefined
+          if (code && id) {
+            const key = `${code}:${id}`
+            if (!seen.has(key)) {
+              seen.add(key)
+              hits.push({ code, id })
+            }
+          }
+          // Always continue -- forEachFeatureAtPixel stops as soon as
+          // the callback returns truthy, but every feature under the
+          // click needs visiting to know whether a peer picker is
+          // needed at all.
+          return undefined
         },
         { layerFilter: isVectorLayer, hitTolerance: 5 },
       )
-      if (hit) useSelectionStore.getState().select(hit.code, hit.id)
-      else useSelectionStore.getState().clear()
+
+      if (hits.length === 0) {
+        useSelectionStore.getState().clear()
+      } else if (hits.length === 1) {
+        useSelectionStore.getState().select(hits[0].code, hits[0].id)
+      } else {
+        // Click events are always backed by a PointerEvent (never the
+        // Keyboard/Wheel members of this handler's broader type), so
+        // clientX/clientY are always present here.
+        const { clientX, clientY } = evt.originalEvent as PointerEvent
+        useSelectionStore.getState().showCandidates(
+          hits.map((hit) => ({ featureClassCode: hit.code, featureId: hit.id })),
+          { x: clientX, y: clientY },
+        )
+      }
     }
 
     map.on("click", handleClick)
