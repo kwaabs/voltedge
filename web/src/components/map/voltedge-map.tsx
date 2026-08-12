@@ -1,8 +1,10 @@
 import { defaults as defaultControls } from "ol/control"
 import MVT from "ol/format/MVT"
+import type Layer from "ol/layer/Layer"
 import TileLayer from "ol/layer/Tile"
 import VectorTileLayer from "ol/layer/VectorTile"
 import Map from "ol/Map"
+import type MapBrowserEvent from "ol/MapBrowserEvent"
 import { fromLonLat, toLonLat } from "ol/proj"
 import OSM from "ol/source/OSM"
 import VectorTileSource from "ol/source/VectorTile"
@@ -10,11 +12,12 @@ import View from "ol/View"
 import { useEffect, useRef } from "react"
 
 import { useCatalog } from "@/hooks/use-catalog"
+import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { styleForFeature } from "@/lib/map-layers"
 import { tileUrlTemplate } from "@/lib/martin"
-import { useInteractionStore } from "@/stores/interaction-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
+import { useSelectionStore } from "@/stores/selection-store"
 
 import "ol/ol.css"
 
@@ -28,13 +31,16 @@ import "ol/ol.css"
 const DEFAULT_CENTER = fromLonLat([-0.127, 51.507])
 const DEFAULT_ZOOM = 15
 
+/** Only ever hit-test the real feature layers, never the OSM base tile layer. */
+const isVectorLayer = (layer: Layer) => layer instanceof VectorTileLayer
+
 export function VoltEdgeMap() {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<Map | null>(null)
   const vectorLayersRef = useRef<VectorTileLayer[]>([])
   const { data: catalog } = useCatalog()
+  const { data: featureClasses } = useFeatureClasses()
   const hiddenLayers = useLayersStore((s) => s.hidden)
-  const mode = useInteractionStore((s) => s.mode)
   // Lets the layer-creation effect below read the *current* hidden set
   // without depending on it -- depending on it directly would rebuild
   // every VectorTileLayer (and re-request every tile) on each single
@@ -65,6 +71,17 @@ export function VoltEdgeMap() {
     map.on("pointermove", (evt) => {
       const [lon, lat] = toLonLat(evt.coordinate)
       setPosition(lon, lat)
+
+      // Pointer cursor over a selectable feature, default cursor
+      // otherwise -- standard web-map affordance for "this is
+      // clickable," and the only thing that needs to distinguish
+      // select-able-here from pan-able-everywhere now that there's no
+      // separate select/pan mode to do it instead.
+      const target = map.getTargetElement()
+      if (target) {
+        const hasFeature = map.hasFeatureAtPixel(evt.pixel, { layerFilter: isVectorLayer, hitTolerance: 5 })
+        target.style.cursor = hasFeature ? "pointer" : ""
+      }
     })
     map.getTargetElement().addEventListener("mouseleave", clearPosition)
 
@@ -75,14 +92,44 @@ export function VoltEdgeMap() {
     }
   }, [])
 
-  // Cursor reflects the select/pan toggle in the status bar -- actual
-  // click-select behavior lands with feature selection; for now this is
-  // purely visual feedback for which mode is active.
+  // Click-to-select: hit-test every vector layer at the clicked pixel,
+  // resolve which feature class it came from (a layer's sourceId is
+  // always a feature class code, lowercased -- see the catalog-driven
+  // effect below), and hand the (code, id) pair to the selection store
+  // for src/components/map/feature-panel.tsx to fetch and display.
+  // Takes only the first (topmost) hit -- when several features are
+  // stacked at one point, disambiguating between them is the next
+  // slice's peer picker, not this one. Clicking empty space clears
+  // whatever was selected.
   useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.style.cursor = mode === "pan" ? "grab" : ""
+    const map = mapRef.current
+    if (!map || !featureClasses) return
+
+    // globalThis.Map, not Map -- this file's `Map` import is
+    // ol/Map (the map instance class), which shadows the built-in
+    // collection constructor.
+    const codeBySourceId = new globalThis.Map(
+      featureClasses.feature_classes.map((fc) => [fc.code.toLowerCase(), fc.code]),
+    )
+
+    const handleClick = (evt: MapBrowserEvent<PointerEvent | KeyboardEvent | WheelEvent>) => {
+      const hit = map.forEachFeatureAtPixel(
+        evt.pixel,
+        (feature, layer) => {
+          const sourceId = layer?.get("sourceId") as string | undefined
+          const id = feature.get("id") as string | undefined
+          const code = sourceId ? codeBySourceId.get(sourceId) : undefined
+          return code && id ? { code, id } : undefined
+        },
+        { layerFilter: isVectorLayer, hitTolerance: 5 },
+      )
+      if (hit) useSelectionStore.getState().select(hit.code, hit.id)
+      else useSelectionStore.getState().clear()
     }
-  }, [mode])
+
+    map.on("click", handleClick)
+    return () => map.un("click", handleClick)
+  }, [featureClasses])
 
   // One VectorTileLayer per Martin catalog entry -- added/replaced
   // whenever the catalog changes, independent of the base map's own
