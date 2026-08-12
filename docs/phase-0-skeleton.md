@@ -36,18 +36,21 @@ cp .env.example .env
 make infra-up        # postgres, martin, rustfs, gitbash
 make migrate          # applies migrations/0001-0003
 make api-dev           # runs the api on the host against dockerized postgres
-curl http://localhost:8080/healthz
+curl http://localhost:3704/healthz
 ```
 
 Or run everything in Docker, api included: `make up`.
 
 If `make` itself isn't available on your machine either, every target is
 a one- or two-line `docker compose` / `go` command — open the Makefile
-and run the underlying command directly.
+and run the underlying command directly, or use
+[`docs/commands-cheatsheet.md`](./commands-cheatsheet.md).
 
-Martin (`:3000`) and RustFS (`:9000` API / `:9001` console) are wired into
+Martin (`:3701`) and RustFS (`:3702` API / `:3703` console) are wired into
 Compose but have nothing to serve yet: Martin needs a real feature class
-(Phase 1) and RustFS needs the attachments table (Phase 2).
+(Phase 1) and RustFS needs the attachments table (Phase 2). All published
+ports are deliberately in 3700-3720, not the defaults — see
+`.env.example`.
 
 ## Decisions made
 

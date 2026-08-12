@@ -46,8 +46,12 @@ cp .env.example .env
 make infra-up      # postgres, martin, rustfs, gitbash
 make migrate        # apply pending SQL migrations
 make api-dev          # run the api on your host against dockerized postgres
-curl http://localhost:8080/healthz
+curl http://localhost:3704/healthz
 ```
+
+All published ports live in 3700-3720, not the defaults, so nothing here
+collides with other local services. See `.env.example` for the full
+assignment.
 
 Run `make help` for the full command list (infra up/down/clean/logs,
 api-dev/build/test, tidy/vet/fmt, frontend-dev, migrate/migrate-status/psql).

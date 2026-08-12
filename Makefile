@@ -20,7 +20,8 @@ endif
 
 POSTGRES_PASSWORD ?= voltedge_dev
 POSTGRES_DB ?= postgres
-POSTGRES_PORT ?= 5432
+POSTGRES_PORT ?= 3700
+API_PORT ?= 3704
 
 # api-dev runs on the host and talks to postgres over its published port.
 LOCAL_DATABASE_URL := postgres://postgres:$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_DB)
@@ -65,7 +66,7 @@ down: infra-down ## Alias for infra-down
 
 .PHONY: api-dev
 api-dev: ## Run the api locally against the dockerized postgres (needs infra-up first)
-	cd $(API_DIR) && DATABASE_URL="$(LOCAL_DATABASE_URL)" PORT=8080 go run ./cmd/server
+	cd $(API_DIR) && DATABASE_URL="$(LOCAL_DATABASE_URL)" PORT=$(API_PORT) go run ./cmd/server
 
 .PHONY: api-build
 api-build: ## Build the api binary to api/bin/server

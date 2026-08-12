@@ -14,6 +14,9 @@
 # Martin's and RustFS's tags are pinned to `latest` deliberately -- pin
 # them to an exact version once you've confirmed the pull and it works,
 # rather than trusting a version number nobody has run.
+#
+# Published ports are all in 3700-3720, deliberately not the defaults
+# (5432, 3000, 9000/9001, 8080) -- see .env.example for the assignment.
 
 services:
   postgres:
@@ -24,7 +27,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-voltedge_dev}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-3700}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -43,7 +46,7 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}
     ports:
-      - "${MARTIN_PORT:-3000}:3000"
+      - "${MARTIN_PORT:-3701}:3000"
 
   rustfs:
     image: rustfs/rustfs:latest
@@ -57,8 +60,8 @@ services:
       RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-voltedge}
       RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
     ports:
-      - "${RUSTFS_S3_PORT:-9000}:9000"
-      - "${RUSTFS_CONSOLE_PORT:-9001}:9001"
+      - "${RUSTFS_S3_PORT:-3702}:9000"
+      - "${RUSTFS_CONSOLE_PORT:-3703}:9001"
     volumes:
       - rustfs_data:/data
 
@@ -75,7 +78,7 @@ services:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}
       PORT: "8080"
     ports:
-      - "${API_PORT:-8080}:8080"
+      - "${API_PORT:-3704}:8080"
 
   gitbash:
     build:
