@@ -203,6 +203,13 @@ func updateHandler(db *bun.DB) http.HandlerFunc {
 			values[name] = coerced
 		}
 
+		if currentStatus == "published" {
+			if err := validateUpdateCompleteness(loaded, existing, values); err != nil {
+				writeError(w, err)
+				return
+			}
+		}
+
 		result, err := updateFeature(r.Context(), db, loaded, id, values)
 		if err != nil {
 			writeError(w, err)

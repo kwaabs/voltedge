@@ -90,7 +90,7 @@ it with real HTTP requests:
   "condition_rating" is required before publishing`, then fixed the
   value and confirmed `publish` succeeds.
 
-## Two real bugs found and fixed along the way
+## Three real bugs found and fixed along the way
 
 1. **`bun.DB.QueryContext` formats its own placeholders client-side**
    (`db.gen.FormatQuery`, using `?` in appearance order — bun's own
@@ -110,9 +110,26 @@ it with real HTTP requests:
    it silently base64-encoded every id in API responses. Fixed by
    normalizing any scanned `[]byte` to `string` once, in `scanRows`,
    rather than at every call site that touches a value.
+3. **The completeness gate only ever ran at the draft→published
+   transition, not on every write to an already-published row** —
+   found by manually reproducing the exact sequence a user hit: publish
+   a complete row, `PATCH` a required-but-still-nullable field to
+   `null` (legal, since nothing stopped it), then call `publish` again
+   expecting a rejection. It came back `200` with the stale
+   `"status":"published"` unchanged, because `publishFeature`'s
+   idempotent "already published → return as-is" check runs *before*
+   the completeness check, and a `publish` call on an already-published
+   row never reaches it. Fixed by adding `validateUpdateCompleteness`,
+   called from `updateHandler` whenever the row being patched is
+   currently `published`: it merges the proposed change into the row's
+   existing attributes and runs the same required-field check against
+   that merged view, rejecting the *update* itself before it can ever
+   leave a published row incomplete. The idempotent short-circuit in
+   `publishFeature` is only safe because of this — without it, that
+   short-circuit is exactly what let the gap through.
 
-Both are documented as comments at the exact line that would otherwise
-look right and be wrong again.
+All three are documented as comments at the exact line that would
+otherwise look right and be wrong again.
 
 ## Decisions made
 
@@ -220,6 +237,11 @@ $ID = $created.id
 Invoke-RestMethod -Uri "http://localhost:3704/features/POLE/$ID"
 Invoke-RestMethod -Uri "http://localhost:3704/features/POLE?limit=5"
 ```
+The `list` response's `features` property prints truncated
+(`{@{attributes=; created_at=...`) in the PowerShell console by
+default — that's just its table formatter summarizing a nested array,
+not missing data. Pipe to `ConvertTo-Json -Depth 5` or index into it
+(`(Invoke-RestMethod ...).features[0]`) to see it in full.
 
 ### 4. Update one attribute
 
@@ -239,9 +261,10 @@ actually re-ran.
 
 ### 6. See the completeness gate reject an incomplete row
 
-The seed data's required fields are all `NOT NULL` at the column level
-too, so reaching this through the API alone needs one field temporarily
-relaxed — this mirrors exactly what was done to validate it:
+Your `$ID` is already `published` from step 5. The seed data's required
+fields are all `NOT NULL` at the column level too, so reaching the gate
+through the API alone needs one field temporarily relaxed — this
+mirrors exactly what was done to validate it:
 ```
 task psql
 ```
@@ -253,24 +276,32 @@ UPDATE metadata.fields SET nullable = true
 ALTER TABLE gis.pole ALTER COLUMN condition_rating DROP NOT NULL;
 \q
 ```
-Back in PowerShell:
+Back in PowerShell, try to null out that now-nullable-but-still-required
+field on the already-`published` row:
 ```powershell
 $body = @{ attributes = @{ condition_rating = $null } } | ConvertTo-Json -Depth 5
-Invoke-RestMethod -Method Patch -Uri "http://localhost:3704/features/POLE/$ID" -ContentType "application/json" -Body $body
-
 try {
-  Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE/$ID/publish"
+  Invoke-RestMethod -Method Patch -Uri "http://localhost:3704/features/POLE/$ID" -ContentType "application/json" -Body $body
 } catch {
   $_.ErrorDetails.Message
 }
 ```
-The publish call returns `400` with
-`{"error":"field \"condition_rating\" is required before publishing"}`.
-Fix it and publish succeeds:
+This is rejected immediately, at the `PATCH` itself — `400` with
+`{"error":"field \"condition_rating\" is required while the feature is
+published"}`. That's deliberate: the gate runs on every write to an
+already-published row, not just at the moment it first becomes
+published, precisely so a required field can't quietly go missing
+afterward. (The original draft→published gate still exists too — try
+creating a *new* `POLE` feature omitting `condition_rating` entirely
+and you'll hit the create-time required-field check from step 9 instead,
+long before publish ever comes into it.)
+
+Setting the field to a real value instead succeeds, same as any other
+update to a published row — `$ID` was never unpublished, so there's no
+publish call needed here, just the PATCH going through cleanly this time:
 ```powershell
 $body = @{ attributes = @{ condition_rating = "POOR" } } | ConvertTo-Json -Depth 5
 Invoke-RestMethod -Method Patch -Uri "http://localhost:3704/features/POLE/$ID" -ContentType "application/json" -Body $body
-Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE/$ID/publish"
 ```
 
 ### 7. Unpublish
@@ -281,14 +312,19 @@ Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE/$ID/unp
 
 ### 8. Inspect the row directly with SQL
 
+`psql` runs in its own shell, separate from PowerShell, so it can't see
+`$ID`. Print it first (just type `$ID` in PowerShell and hit enter) and
+copy the UUID it prints — `REPLACE_WITH_YOUR_ID` below is a literal
+placeholder, not something to paste as-is.
+
 `task psql`, then:
 ```sql
 SELECT id, subtype, status, pole_material, condition_rating, created_at, updated_at
   FROM gis.pole
-  WHERE id = 'paste-the-id-here';
+  WHERE id = 'REPLACE_WITH_YOUR_ID';
 
 -- geometry as GeoJSON, same shape the API returns
-SELECT ST_AsGeoJSON(geom) FROM gis.pole WHERE id = 'paste-the-id-here';
+SELECT ST_AsGeoJSON(geom) FROM gis.pole WHERE id = 'REPLACE_WITH_YOUR_ID';
 
 -- every metadata_versions row this feature class has ever been compiled under
 SELECT version_no, published_at, published_by, status
