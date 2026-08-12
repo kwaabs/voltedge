@@ -42,9 +42,21 @@ function SidebarProvider({
   className,
   style,
   children,
+  overlay = false,
   ...props
-}: React.ComponentProps<"div">) {
-  const isMobile = useIsMobile()
+}: React.ComponentProps<"div"> & {
+  /**
+   * Forces the Sheet (drawer-over-content) rendering path regardless of
+   * viewport width -- for a route like the map, where the sidebar must
+   * never dock beside the content and reserve width from it, only ever
+   * float on top. Reuses the exact same mobile-drawer machinery rather
+   * than a second, parallel nav-overlay component; see
+   * docs/phase-3-map-loop.md's layout fix.
+   */
+  overlay?: boolean
+}) {
+  const viewportIsMobile = useIsMobile()
+  const isMobile = overlay || viewportIsMobile
   const open = useUIStore((s) => s.sidebarOpen)
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
   const [openMobile, setOpenMobile] = useState(false)
