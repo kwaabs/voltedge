@@ -9,6 +9,7 @@ import Point from "ol/geom/Point"
 import Polygon from "ol/geom/Polygon"
 import Draw from "ol/interaction/Draw"
 import Modify from "ol/interaction/Modify"
+import Snap from "ol/interaction/Snap"
 import Translate from "ol/interaction/Translate"
 import type Layer from "ol/layer/Layer"
 import TileLayer from "ol/layer/Tile"
@@ -17,9 +18,11 @@ import VectorTileLayer from "ol/layer/VectorTile"
 import Map from "ol/Map"
 import type MapBrowserEvent from "ol/MapBrowserEvent"
 import { fromLonLat, toLonLat } from "ol/proj"
+import { toFeature } from "ol/render/Feature"
 import OSM from "ol/source/OSM"
 import VectorSource from "ol/source/Vector"
 import VectorTileSource from "ol/source/VectorTile"
+import TileState from "ol/TileState"
 import View from "ol/View"
 import { useEffect, useRef } from "react"
 
@@ -42,6 +45,7 @@ import { useLayersStore } from "@/stores/layers-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
 import { useSelectionStore } from "@/stores/selection-store"
+import { useSnapStore } from "@/stores/snap-store"
 
 import "ol/ol.css"
 
@@ -101,6 +105,66 @@ function geoJSONToGeometry(geometry: FeatureGeometry): Geometry | null {
 }
 
 /**
+ * Rebuilds the snap-candidate source (snapSourceRef) from whichever
+ * vector tiles are already loaded for the current view -- OL's Snap
+ * interaction only accepts a plain VectorSource (see its Options
+ * typedef), never a VectorTileSource, so there's no source it could
+ * point at directly among the real, tile-served feature layers.
+ *
+ * Mirrors the exact tile-reading pattern OL's own canvas vector-tile
+ * renderer uses for hit-detection (ol/renderer/canvas/VectorTileLayer.js's
+ * `getFeatures`), confirmed by reading that source directly rather than
+ * guessing: `source.getTile(z, x, y, pixelRatio, projection)` returns a
+ * lightweight VectorRenderTile wrapper (cheap, not itself cached); its
+ * `getSourceTiles()` looks up the *source's own* shared cache of raw MVT
+ * tiles keyed by URL -- already populated and LOADED for whatever this
+ * same source's real, rendered VectorTileLayer already fetched to draw
+ * the current view, so this is a synchronous, no-network-request read
+ * in the common case, not a fresh fetch.
+ *
+ * Each raw tile's already-parsed features are `ol/render/Feature`'s
+ * lightweight RenderFeature (this app's `new MVT()` never sets a
+ * featureClass), which has no usable geometry for Snap -- `toFeature`
+ * (from the same module) is OL's own conversion to a real `ol/Feature`
+ * with a real `ol/geom/*` geometry, already in the view's projection
+ * (VectorTileSource transforms tile-pixel coordinates into it while
+ * parsing, before a tile's features are ever exposed).
+ *
+ * Rebuilds from scratch every call rather than diffing -- only ever
+ * called on moveend or when a snapping session starts (see the effects
+ * below), not per frame, so this is cheap enough not to need to be
+ * incremental.
+ */
+function refreshSnapSource(map: Map, layers: VectorTileLayer[], snapSource: VectorSource) {
+  const view = map.getView()
+  const resolution = view.getResolution()
+  const size = map.getSize()
+  if (!resolution || !size) return
+  const projection = view.getProjection()
+  const extent = view.calculateExtent(size)
+
+  const features: Feature[] = []
+  for (const layer of layers) {
+    const source = layer.getSource()
+    if (!source) continue
+    const tileGrid = source.getTileGridForProjection(projection)
+    const z = tileGrid.getZForResolution(resolution)
+    tileGrid.forEachTileCoord(extent, z, (tileCoord) => {
+      const [tz, tx, ty] = tileCoord
+      const renderTile = source.getTile(tz, tx, ty, 1, projection)
+      for (const sourceTile of renderTile.getSourceTiles()) {
+        if (sourceTile.getState() !== TileState.LOADED) continue
+        for (const renderFeature of sourceTile.getFeatures()) {
+          features.push(toFeature(renderFeature))
+        }
+      }
+    })
+  }
+  snapSource.clear()
+  snapSource.addFeatures(features)
+}
+
+/**
  * Placeholder default view -- centered on the seed data used to
  * validate this slice (seed/pole_example.sql, seed/connectivity_example.sql),
  * not a real service-territory extent. Nothing in the metadata model
@@ -120,6 +184,12 @@ export function VoltEdgeMap() {
   const draftSourceRef = useRef<VectorSource | null>(null)
   const highlightSourceRef = useRef<VectorSource | null>(null)
   const editSourceRef = useRef<VectorSource | null>(null)
+  // Snap candidates -- never added to the map as a rendered layer, just
+  // a plain VectorSource for the Snap interaction below to read (see
+  // refreshSnapSource for why this indirection is needed at all: every
+  // real feature lives in a VectorTileSource, which Snap can't consume
+  // directly).
+  const snapSourceRef = useRef<VectorSource | null>(null)
   // The single OL Feature representing the geometry currently under
   // edit -- created once per edit session (see the seeding effect
   // below) and mutated in place by whichever of Modify/Translate is
@@ -147,6 +217,7 @@ export function VoltEdgeMap() {
   const editing = useEditStore((s) => s.editing)
   const geometryTool = useEditStore((s) => s.geometryTool)
   const deletedIds = useDeletedFeaturesStore((s) => s.ids)
+  const snapEnabled = useSnapStore((s) => s.enabled)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
   const selected = useSelectionStore((s) => s.selected)
@@ -245,6 +316,23 @@ export function VoltEdgeMap() {
     map.addLayer(editLayer)
     editSourceRef.current = editSource
 
+    // Never rendered as its own layer -- just a plain VectorSource the
+    // Snap interaction (see the effect below) reads from. Kept fresh as
+    // the user pans/zooms during an active draw or geometry-edit
+    // session; the Snap-attaching effect itself handles the initial
+    // population at session start, this just keeps it current
+    // afterward, since Snap only sees whatever's already in the source
+    // at the moment of a drag, not a live view of the map.
+    const snapSource = new VectorSource()
+    snapSourceRef.current = snapSource
+    map.on("moveend", () => {
+      const drawingActive = Boolean(useDrawStore.getState().drawingFeatureClassCode)
+      const editState = useEditStore.getState()
+      const editingActive = Boolean(editState.editing && editState.geometryTool)
+      if (!useSnapStore.getState().enabled || (!drawingActive && !editingActive)) return
+      refreshSnapSource(map, vectorLayersRef.current, snapSource)
+    })
+
     return () => {
       map.getTargetElement()?.removeEventListener("mouseleave", clearPosition)
       map.setTarget(undefined)
@@ -252,6 +340,7 @@ export function VoltEdgeMap() {
       draftSourceRef.current = null
       highlightSourceRef.current = null
       editSourceRef.current = null
+      snapSourceRef.current = null
     }
   }, [])
 
@@ -511,6 +600,40 @@ export function VoltEdgeMap() {
       map.removeInteraction(modify)
     }
   }, [geometryTool, editing, editingFeature])
+
+  // Attaches OL's Snap interaction whenever a workflow that manipulates
+  // geometry is active -- drawing a brand new feature (draft-store.ts's
+  // drawingFeatureClassCode) or geometry-edit-toolbar.tsx's Move/Edit
+  // vertices tools (edit-store.ts's geometryTool) -- and snap-store.ts's
+  // `enabled` flag is on. Both workflows share the one toggle and the
+  // one snap source, per the user's own framing: "when drawing a new
+  // feature, snapping should also be available."
+  //
+  // Placed textually after both the Draw effect above and the
+  // Modify/Translate effect just above this one -- not just logically
+  // gated to run after them. OL only lets a Snap interaction influence a
+  // drag already being handled by another interaction if Snap was added
+  // to the map *after* that interaction (confirmed by reading
+  // ol/interaction/Snap.js directly), and React runs a single commit's
+  // effects in the order they're defined in the component, regardless of
+  // which dependency actually changed -- so Snap has to physically sit
+  // below both to reliably attach after them on every render that
+  // recreates any of the three.
+  useEffect(() => {
+    const map = mapRef.current
+    const snapSource = snapSourceRef.current
+    if (!map || !snapSource) return
+    const drawingActive = Boolean(drawingFeatureClassCode)
+    const editingActive = Boolean(editing && geometryTool)
+    if (!snapEnabled || (!drawingActive && !editingActive)) return
+
+    refreshSnapSource(map, vectorLayersRef.current, snapSource)
+    const snap = new Snap({ source: snapSource })
+    map.addInteraction(snap)
+    return () => {
+      map.removeInteraction(snap)
+    }
+  }, [snapEnabled, drawingFeatureClassCode, editing, geometryTool])
 
   // Click-to-select: hit-test every vector layer at the clicked pixel,
   // resolve each hit's feature class (a layer's sourceId is always a
