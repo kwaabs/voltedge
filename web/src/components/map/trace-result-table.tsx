@@ -24,6 +24,7 @@ interface ResolvedRow {
   feature_id: string
   name: string | null
   isBarrier: boolean
+  isTarget: boolean
 }
 
 /**
@@ -61,6 +62,7 @@ export function TraceResultTable() {
     // into the nested async function below.
     const trace: NonNullable<typeof result> = result
     const barrierKeys = new Set(trace.barriers.map((b) => `${b.feature_class}:${b.feature_id}`))
+    const targetKeys = new Set((trace.targets ?? []).map((t) => `${t.feature_class}:${t.feature_id}`))
 
     async function loadNames() {
       const resolved = await Promise.all(
@@ -74,11 +76,13 @@ export function TraceResultTable() {
             // up with its class/id -- not worth failing the whole table
             // over one feature's name.
           }
+          const key = `${ref.feature_class}:${ref.feature_id}`
           return {
             feature_class: ref.feature_class,
             feature_id: ref.feature_id,
             name,
-            isBarrier: barrierKeys.has(`${ref.feature_class}:${ref.feature_id}`),
+            isBarrier: barrierKeys.has(key),
+            isTarget: targetKeys.has(key),
           }
         }),
       )
@@ -137,8 +141,17 @@ export function TraceResultTable() {
                   className={cn(
                     "hover:bg-accent cursor-pointer border-b last:border-b-0",
                     row.isBarrier && "bg-destructive/10 text-destructive hover:bg-destructive/15",
+                    !row.isBarrier &&
+                      row.isTarget &&
+                      "bg-yellow-500/10 text-yellow-700 hover:bg-yellow-500/15 dark:text-yellow-400",
                   )}
-                  title={row.isBarrier ? "Trace stopped here (open device)" : undefined}
+                  title={
+                    row.isBarrier
+                      ? "Trace stopped here (open device)"
+                      : row.isTarget
+                        ? "Matched the trace's target class"
+                        : undefined
+                  }
                 >
                   <td className="px-3 py-1.5">{classNameFor(row.feature_class)}</td>
                   <td className="px-3 py-1.5 font-mono">{shortId(row.feature_id)}</td>

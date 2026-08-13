@@ -101,36 +101,37 @@ having to reread every phase doc's own "What's still open" section.
   [`docs/phase-3-snapping.md`](docs/phase-3-snapping.md),
   [`docs/phase-3-relationships-ui.md`](docs/phase-3-relationships-ui.md),
   [`docs/phase-3-floating-panel.md`](docs/phase-3-floating-panel.md).
-- **Phase 4 — Network model** (slices 1-3: core trace primitives, feature
-  names, trace discovery + name display everywhere + search done): a
-  real trace engine (`api/internal/trace`) walking
-  `runtime.feature_connectivity` edge by edge, per a named
+- **Phase 4 — Network model** (closed out except loop/mesh detection and
+  `respect_phase` enforcement): a real trace engine (`api/internal/trace`)
+  walking `runtime.feature_connectivity` edge by edge, per a named
   `metadata.trace_configurations` profile — the four raw directions
   (`connected`/`downstream`/`upstream`/`shortest_path`), with real
   barrier-stopping against a live feature attribute (a seeded
   `DIST_SWITCH`'s `device_state`, checked fresh at each hop, never
-  baked into the graph). Two "Trace downstream"/"Trace upstream"
-  buttons in the floating attribute panel's header trigger a real trace
-  and show every reached feature in a data table (feature class, id,
-  and name) plus a matching map highlight (lime-green, red for
-  whichever feature a barrier actually stopped it at) — opening or
-  closing the switch itself needed no new UI at all, just the existing
-  Phase 3 attribute-edit form. Every feature, regardless of class, can
-  also now carry an optional human-readable name (a universal system
-  column the compiler adds to every physical table, same precedent as
-  `deleted_at`) — set from the same create/edit forms, promoted to the
-  floating panel's header once set, and shown in the trace table
-  alongside each feature's class and id, plus everywhere else a
-  counterpart feature is listed (the connect/relationship confirm
-  panel, Terminals/Relationships tab rows). `GET
-  /trace/configurations` lets the trace trigger buttons resolve a
-  configuration by raw direction instead of a hardcoded code, and a
-  "Search by name…" box in the map toolbar finds a feature by name
-  across every feature class. Isolation/loop traces and
-  `cross_transformers`/`respect_phase` enforcement are explicitly not
-  built this pass — see `docs/phase-4-trace-engine.md`,
-  `docs/phase-4-feature-names.md`,
-  `docs/phase-4-trace-discovery-and-search.md`.
+  baked into the graph), plus a generalized `target_class_id` that
+  stops a walk at (while still recording) the first node of a given
+  class — one mechanism powering trace-to-transformer,
+  transformer-to-source, and LV-network tracing, with `cross_transformers`
+  finally enforced against it. `POST /trace/isolate` composes a
+  downstream trace from a device's neighbors (simulating it open
+  without mutating data) with an upstream target-class search for the
+  nearest protective boundary. A new `SERVICE_POINT` feature class and
+  an extended seeded topology (a substation power transformer, a
+  second switch) make all of it real to run. The floating attribute
+  panel's header has a "Run trace" dropdown listing every config by
+  name plus "Isolate from here" for junction features, each producing
+  its own floating result table (feature class/id/name per row,
+  target/barrier/boundary rows visually distinct) and map highlight.
+  Every feature, regardless of class, can also carry an optional
+  human-readable name (a universal system column the compiler adds to
+  every physical table, same precedent as `deleted_at`) — set from the
+  create/edit forms, shown everywhere a feature is referenced (its own
+  panel header, trace/isolation tables, connect/relationship confirm
+  panel, Terminals/Relationships tab rows), and searchable via a
+  "Search by name…" box in the map toolbar across every feature class.
+  See `docs/phase-4-trace-engine.md`, `docs/phase-4-feature-names.md`,
+  `docs/phase-4-trace-discovery-and-search.md`,
+  `docs/phase-4-utility-traces.md`.
   Write-ups: [`docs/phase-4-trace-engine.md`](docs/phase-4-trace-engine.md),
   [`docs/phase-4-feature-names.md`](docs/phase-4-feature-names.md),
   [`docs/phase-4-trace-discovery-and-search.md`](docs/phase-4-trace-discovery-and-search.md).

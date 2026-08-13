@@ -100,12 +100,25 @@ export function editStyleForFeature(feature: FeatureLike): Style {
 /** The roles voltedge-map.tsx's highlight layer ever draws: the single
  * feature currently shown in the floating panel; while a connectivity/
  * relationship workflow is active (connect-store.ts), the source and
- * target ends of it; or, while a trace result is active (trace-store.ts),
- * every feature the trace reached ("trace") and, distinctly, whichever
- * of those a live barrier condition actually stopped it at
- * ("trace-barrier") -- each role in its own color so none are ever
- * confused with each other or with a plain selection. */
-export type HighlightRole = "selected" | "connect-source" | "connect-target" | "trace" | "trace-barrier"
+ * target ends of it; while a trace result is active (trace-store.ts),
+ * every feature the trace reached ("trace"), distinctly whichever of
+ * those a live barrier condition actually stopped it at
+ * ("trace-barrier"), and distinctly again whichever matched a
+ * trace_configurations target_class ("trace-target", e.g. the
+ * transformer a "trace to transformer" run found); or, while an
+ * isolation result is active (isolate-store.ts), everything that would
+ * de-energize ("isolation-deenergized") and the upstream protective
+ * boundary device ("isolation-boundary") -- each role in its own color
+ * so none are ever confused with each other or with a plain selection. */
+export type HighlightRole =
+  | "selected"
+  | "connect-source"
+  | "connect-target"
+  | "trace"
+  | "trace-barrier"
+  | "trace-target"
+  | "isolation-deenergized"
+  | "isolation-boundary"
 
 const HIGHLIGHT_COLORS: Record<HighlightRole, string> = {
   selected: "#38bdf8",
@@ -113,6 +126,9 @@ const HIGHLIGHT_COLORS: Record<HighlightRole, string> = {
   "connect-target": "#a855f7",
   trace: "#84cc16",
   "trace-barrier": "#ef4444",
+  "trace-target": "#eab308",
+  "isolation-deenergized": "#f97316",
+  "isolation-boundary": "#8b5cf6",
 }
 
 function highlightStyleFor(color: string, geometryType: string | undefined): Style {

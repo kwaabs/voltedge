@@ -1,11 +1,18 @@
 import { Fragment, useEffect, useRef, useState } from "react"
-import { ArrowDown, ArrowUp, GripHorizontal, Info, Link2, Loader2, Pencil, Plug, Plus, Trash2, X } from "lucide-react"
+import { ChevronDown, GripHorizontal, Info, Link2, Loader2, Pencil, Plug, Plus, Route, Trash2, X, Zap } from "lucide-react"
 
 import { DeleteFeatureDialog } from "@/components/map/delete-feature-dialog"
 import { FeatureCreateForm } from "@/components/map/feature-create-form"
 import { FeatureEditForm } from "@/components/map/feature-edit-form"
 import { formatFieldLabel, formatValue } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useConnections } from "@/hooks/use-connections"
 import { useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -16,6 +23,7 @@ import { cn } from "@/lib/utils"
 import { useConnectStore } from "@/stores/connect-store"
 import { useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
+import { type IsolationResult, useIsolateStore } from "@/stores/isolate-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
 import { type TraceResult, useTraceStore } from "@/stores/trace-store"
@@ -354,6 +362,7 @@ export function FeaturePanel() {
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const tracing = useTraceStore((s) => s.loading)
+  const isolating = useIsolateStore((s) => s.loading)
   const { data: traceConfigurations } = useTraceConfigurations()
 
   const isEditingSelected =
@@ -397,28 +406,29 @@ export function FeaturePanel() {
     window.addEventListener("pointerup", handleUp)
   }
 
-  // Runs a real trace (api/internal/trace, see docs/phase-4-trace-engine.md)
-  // starting from the selected feature -- DOWNSTREAM/UPSTREAM are the
-  // two primitive directions worth a one-click trigger here (CONNECTED
-  // and SHORTEST_PATH don't have a single, obvious feature to start a
-  // one-click action from the panel with). Resolves the actual
-  // trace_configurations *code* to send from GET /trace/configurations
-  // by matching on `direction` rather than assuming a specific seeded
-  // code like "DOWNSTREAM_TRACE" exists -- stays correct even if the
-  // seeded config's code is ever renamed, only its direction has to
-  // stay put. The result lands in trace-store.ts, which
+  // Runs a real trace (api/internal/trace, see
+  // docs/phase-4-trace-engine.md and docs/phase-4-utility-traces.md)
+  // starting from the selected feature, by trace_configurations *code*
+  // -- the dropdown below is built directly off GET /trace/configurations,
+  // so there's nothing left to resolve by direction the way this used
+  // to when there were only ever two hardcoded buttons. SHORTEST_PATH
+  // configs are filtered out of that dropdown (no single, obvious
+  // target to trace to from a one-click panel action), so every code
+  // this can be called with is a real, runnable one-shot trace. Clears
+  // any isolation result first -- the two workflows share the same map
+  // highlight/result-panel real estate and are mutually exclusive, not
+  // simultaneous. The result lands in trace-store.ts, which
   // voltedge-map.tsx and trace-result-table.tsx both read -- this
   // function's only job is the request itself.
-  async function runTrace(direction: "DOWNSTREAM" | "UPSTREAM") {
+  async function runTrace(configCode: string) {
     if (!selected) return
-    const config = traceConfigurations?.trace_configurations.find((c) => c.direction === direction)
-    if (!config) return
+    useIsolateStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<TraceResult>("/trace", {
         method: "POST",
         body: JSON.stringify({
-          trace_configuration: config.code,
+          trace_configuration: configCode,
           start: { feature_class: selected.featureClassCode, feature_id: selected.featureId },
         }),
       })
@@ -429,8 +439,39 @@ export function FeaturePanel() {
     }
   }
 
-  const downstreamConfig = traceConfigurations?.trace_configurations.find((c) => c.direction === "DOWNSTREAM")
-  const upstreamConfig = traceConfigurations?.trace_configurations.find((c) => c.direction === "UPSTREAM")
+  // Isolation (api/internal/trace/isolate.go) needs a DOWNSTREAM
+  // config for its barrier settings -- resolved by direction, same
+  // reasoning the old hardcoded trace buttons used, since there's no
+  // separate "isolation configuration" of its own to pick from a list.
+  const isolationConfig = traceConfigurations?.trace_configurations.find((c) => c.direction === "DOWNSTREAM")
+
+  async function runIsolate() {
+    if (!selected || !isolationConfig) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().setLoading(true)
+    try {
+      const result = await apiFetch<IsolationResult>("/trace/isolate", {
+        method: "POST",
+        body: JSON.stringify({
+          trace_configuration: isolationConfig.code,
+          device: { feature_class: selected.featureClassCode, feature_id: selected.featureId },
+        }),
+      })
+      useIsolateStore.getState().setResult(result)
+    } catch (err) {
+      useIsolateStore.getState().setLoading(false)
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not isolate from this device.")
+    }
+  }
+
+  // Runnable trace_configurations for the dropdown -- SHORTEST_PATH
+  // excluded (needs a target, no single one-click starting point).
+  const runnableConfigs = traceConfigurations?.trace_configurations.filter((c) => c.direction !== "SHORTEST_PATH") ?? []
+  // Isolation only makes sense from a junction -- an edge or a
+  // non-network feature has nothing to "open."
+  const selectedNetworkRole = featureClasses?.feature_classes.find((fc) => fc.code === selected?.featureClassCode)
+    ?.network_role
+  const canIsolate = selectedNetworkRole === "junction" && Boolean(isolationConfig)
 
   const positionStyle = position ? { left: position.x, top: position.y } : undefined
   const positionClass = cn(
@@ -505,28 +546,43 @@ export function FeaturePanel() {
         </div>
         {isEditingSelected ? null : (
           <div className="flex shrink-0 items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              disabled={tracing || !downstreamConfig}
-              title={downstreamConfig ? "Trace downstream" : "No downstream trace configuration exists"}
-              onClick={() => runTrace("DOWNSTREAM")}
-            >
-              <ArrowDown className="size-4" />
-              <span className="sr-only">Trace downstream</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              disabled={tracing || !upstreamConfig}
-              title={upstreamConfig ? "Trace upstream" : "No upstream trace configuration exists"}
-              onClick={() => runTrace("UPSTREAM")}
-            >
-              <ArrowUp className="size-4" />
-              <span className="sr-only">Trace upstream</span>
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  disabled={(tracing || isolating) || (runnableConfigs.length === 0 && !canIsolate)}
+                  title="Run trace"
+                >
+                  <Route className="size-4" />
+                  <ChevronDown className="size-3" />
+                  <span className="sr-only">Run trace</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                {runnableConfigs.length === 0 && !canIsolate ? (
+                  <p className="text-muted-foreground px-2 py-1.5 text-sm">No trace configurations exist</p>
+                ) : (
+                  <>
+                    {runnableConfigs.map((config) => (
+                      <DropdownMenuItem key={config.code} onSelect={() => runTrace(config.code)}>
+                        {config.name}
+                      </DropdownMenuItem>
+                    ))}
+                    {canIsolate && (
+                      <>
+                        {runnableConfigs.length > 0 && <DropdownMenuSeparator />}
+                        <DropdownMenuItem onSelect={runIsolate}>
+                          <Zap className="size-4" />
+                          Isolate from here
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <div className="bg-border mx-0.5 h-4 w-px" />
             <Button
               variant="ghost"

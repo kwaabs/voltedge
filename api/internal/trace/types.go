@@ -55,6 +55,13 @@ type traceRequest struct {
 // has no further edges, so a caller (or a future map highlight) can
 // tell "the trace stopped here because of an open device" apart from
 // "the trace stopped here because the network just ends."
+//
+// Targets/TargetsFound are only ever populated when the named
+// trace_configurations row has a target_class_id set (see
+// migrations/0018) -- omitted entirely otherwise, same reasoning
+// PathFound is only set for a SHORTEST_PATH trace. Targets is the
+// subset of Features whose feature class matched, e.g. every
+// transformer a "trace to transformer" run reached.
 type traceResponse struct {
 	TraceConfiguration string       `json:"trace_configuration"`
 	Direction          string       `json:"direction"`
@@ -62,6 +69,8 @@ type traceResponse struct {
 	Features           []featureRef `json:"features"`
 	Barriers           []featureRef `json:"barriers"`
 	PathFound          *bool        `json:"path_found,omitempty"`
+	Targets            []featureRef `json:"targets,omitempty"`
+	TargetsFound       *bool        `json:"targets_found,omitempty"`
 }
 
 // traceConfigurationSummary is one row of GET /trace/configurations --
