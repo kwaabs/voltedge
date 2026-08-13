@@ -5,7 +5,8 @@
 // zero-trust electrical connectivity (api/internal/connectivity) and
 // structural/spatial relationships (api/internal/relationship), the
 // only paths that turn a candidate connection or relationship into
-// real topology/fact.
+// real topology/fact. Phase 4 adds the read-only network trace engine
+// (api/internal/trace) that walks that same committed topology.
 package main
 
 import (
@@ -23,6 +24,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
+	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
@@ -53,6 +55,7 @@ func main() {
 	r.Mount("/features", crud.Routes(db))
 	r.Mount("/connectivity", connectivity.Routes(db))
 	r.Mount("/relationships", relationship.Routes(db))
+	r.Mount("/trace", trace.Routes(db))
 
 	log.Printf("voltedge api listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

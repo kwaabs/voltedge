@@ -140,6 +140,41 @@ type RelationshipClass struct {
 	Cardinality               string `bun:"cardinality"`
 }
 
+// TraceConfiguration mirrors metadata.trace_configurations -- see
+// migrations/0014. A named, reusable trace profile (e.g. "Downstream
+// trace"): api/internal/trace loads one by its stable Code, resolves
+// DirectionValueID to a domain_values.code (CONNECTED/DOWNSTREAM/
+// UPSTREAM/SHORTEST_PATH), then walks runtime.feature_connectivity
+// according to it. Isolation and loop-detection traces aren't separate
+// rows here -- the Go service composes two primitive traces and
+// post-processes the result.
+type TraceConfiguration struct {
+	bun.BaseModel `bun:"table:metadata.trace_configurations"`
+
+	ID                string `bun:"id,pk"`
+	Code              string `bun:"code"`
+	Name              string `bun:"name"`
+	DirectionValueID  string `bun:"direction_value_id"`
+	StopAtOpenDevices bool   `bun:"stop_at_open_devices"`
+	CrossTransformers bool   `bun:"cross_transformers"`
+	RespectPhase      bool   `bun:"respect_phase"`
+}
+
+// TraceBarrierRule mirrors metadata.trace_barrier_rules -- see
+// migrations/0014. One row = one condition that halts traversal for a
+// given TraceConfiguration, e.g. "on DIST_SWITCH, if device_state
+// equals OPEN, stop." Checked live against each hop's actual attribute
+// value -- never baked into feature_connectivity itself.
+type TraceBarrierRule struct {
+	bun.BaseModel `bun:"table:metadata.trace_barrier_rules"`
+
+	ID                   string `bun:"id,pk"`
+	TraceConfigurationID string `bun:"trace_configuration_id"`
+	FeatureClassID       string `bun:"feature_class_id"`
+	FieldID              string `bun:"field_id"`
+	HaltsOnValueID       string `bun:"halts_on_value_id"`
+}
+
 // Version mirrors metadata.metadata_versions -- see migrations/0006.
 type Version struct {
 	bun.BaseModel `bun:"table:metadata.metadata_versions"`

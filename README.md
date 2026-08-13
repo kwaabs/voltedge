@@ -101,9 +101,21 @@ having to reread every phase doc's own "What's still open" section.
   [`docs/phase-3-snapping.md`](docs/phase-3-snapping.md),
   [`docs/phase-3-relationships-ui.md`](docs/phase-3-relationships-ui.md),
   [`docs/phase-3-floating-panel.md`](docs/phase-3-floating-panel.md).
-- **Phase 4 — Network model**: the trace engine, built against the
-  terminals/network_rules/trace_configurations metadata Phase 1 already
-  created and the connectivity Phase 2 establishes.
+- **Phase 4 — Network model** (slice 1: core trace primitives done): a
+  real trace engine (`api/internal/trace`) walking `runtime.feature_connectivity`
+  edge by edge, per a named `metadata.trace_configurations` profile —
+  the four raw directions (`connected`/`downstream`/`upstream`/
+  `shortest_path`), with real barrier-stopping against a live feature
+  attribute (a seeded `DIST_SWITCH`'s `device_state`, checked fresh at
+  each hop, never baked into the graph). Two "Trace downstream"/"Trace
+  upstream" buttons in the floating attribute panel's header trigger a
+  real trace and highlight every reached feature on the map (lime-green,
+  red for whichever feature a barrier actually stopped it at) — opening
+  or closing the switch itself needed no new UI at all, just the
+  existing Phase 3 attribute-edit form. Isolation/loop traces and
+  `cross_transformers`/`respect_phase` enforcement are explicitly not
+  built this pass — see `docs/phase-4-trace-engine.md`.
+  Write-up: [`docs/phase-4-trace-engine.md`](docs/phase-4-trace-engine.md).
 - **Phase 5 — Diagrams, attribute groups, MCP**: one-line diagram canvas,
   metadata-driven forms, MCP data-plane tools.
 - **Phase 6 — Domain expansion + hardening**: full feature class catalog,
