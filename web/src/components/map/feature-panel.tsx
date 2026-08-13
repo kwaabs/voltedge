@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react"
-import { Info, Link2, Loader2, Plug, X } from "lucide-react"
+import { Info, Link2, Loader2, Plug, Plus, X } from "lucide-react"
 
 import { FeatureCreateForm } from "@/components/map/feature-create-form"
 import { Button } from "@/components/ui/button"
@@ -8,6 +8,7 @@ import { useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useRelationships } from "@/hooks/use-relationships"
 import { cn } from "@/lib/utils"
+import { useConnectStore } from "@/stores/connect-store"
 import { useDrawStore } from "@/stores/draw-store"
 import { useSelectionStore } from "@/stores/selection-store"
 
@@ -101,6 +102,18 @@ function TerminalsTab() {
     selected?.featureId,
   )
 
+  const newConnectionButton = selected && (
+    <Button
+      variant="outline"
+      size="sm"
+      className="self-start"
+      onClick={() => useConnectStore.getState().start("connectivity", selected)}
+    >
+      <Plus className="size-4" />
+      New connection
+    </Button>
+  )
+
   if (isPending) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 text-sm">
@@ -117,34 +130,42 @@ function TerminalsTab() {
     )
   }
   if (!selected || !data || data.connections.length === 0) {
-    return <p className="text-muted-foreground text-sm">No terminal connections.</p>
+    return (
+      <div className="flex flex-col items-start gap-2">
+        {newConnectionButton}
+        <p className="text-muted-foreground text-sm">No terminal connections.</p>
+      </div>
+    )
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      {data.connections.map((conn) => {
-        const isFrom =
-          conn.from.feature_class === selected.featureClassCode && conn.from.feature_id === selected.featureId
-        const counterpart = isFrom ? conn.to : conn.from
-        const thisTerminal = isFrom ? conn.from.terminal : conn.to.terminal
-        const counterpartName =
-          featureClasses?.feature_classes.find((fc) => fc.code === counterpart.feature_class)?.name ??
-          counterpart.feature_class
+    <div className="flex flex-col items-start gap-2">
+      {newConnectionButton}
+      <div className="flex w-full flex-col gap-2">
+        {data.connections.map((conn) => {
+          const isFrom =
+            conn.from.feature_class === selected.featureClassCode && conn.from.feature_id === selected.featureId
+          const counterpart = isFrom ? conn.to : conn.from
+          const thisTerminal = isFrom ? conn.from.terminal : conn.to.terminal
+          const counterpartName =
+            featureClasses?.feature_classes.find((fc) => fc.code === counterpart.feature_class)?.name ??
+            counterpart.feature_class
 
-        return (
-          <div key={conn.id} className="rounded-md border p-2 text-sm">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-medium">{counterpartName}</span>
-              <span className="text-muted-foreground shrink-0 text-xs">{isFrom ? "Outgoing" : "Incoming"}</span>
+          return (
+            <div key={conn.id} className="w-full rounded-md border p-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{counterpartName}</span>
+                <span className="text-muted-foreground shrink-0 text-xs">{isFrom ? "Outgoing" : "Incoming"}</span>
+              </div>
+              <p className="text-muted-foreground font-mono text-xs">{shortId(counterpart.feature_id)}</p>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {thisTerminal && <>via {thisTerminal} · </>}
+                {conn.network_rule_name}
+              </p>
             </div>
-            <p className="text-muted-foreground font-mono text-xs">{shortId(counterpart.feature_id)}</p>
-            <p className="text-muted-foreground mt-1 text-xs">
-              {thisTerminal && <>via {thisTerminal} · </>}
-              {conn.network_rule_name}
-            </p>
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
     </div>
   )
 }

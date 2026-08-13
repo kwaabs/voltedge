@@ -152,19 +152,37 @@ type fieldSchema struct {
 	RequiredForSubtypes  []int    `json:"required_for_subtypes,omitempty"`
 }
 
-// featureClassSchemaResponse is the shape a create/edit form needs:
-// whether (and what type of) geometry to draw, what subtype to pick (if
-// any), and what fields to render for it. Deliberately separate from
-// featureClassResponse above -- that one backs the layers panel and map
-// (cheap, always-fetched summary data); this one is heavier (every
-// field + domain values) and only fetched when a form is actually about
-// to be shown.
+// terminalSchema is one named connection point a junction feature class
+// defines (e.g. DIST_XFMR's T1/T2/T3) -- everything a connectivity UI
+// needs to offer a terminal picker without re-deriving
+// metadata.Loaded.ResolveTerminal's subtype-scoping itself. SubtypeCode
+// nil means the terminal applies to every subtype of the feature class
+// (metadata.Terminal.SubtypeID nil, same meaning); a non-nil value
+// scopes it to one specific subtype, and per ResolveTerminal's own
+// most-specific-wins rule, a subtype-scoped terminal with the same code
+// as a generic one takes precedence for that subtype.
+type terminalSchema struct {
+	Code         string `json:"code"`
+	Role         string `json:"role"`
+	PhaseCapable bool   `json:"phase_capable"`
+	SubtypeCode  *int   `json:"subtype_code,omitempty"`
+}
+
+// featureClassSchemaResponse is the shape a create/edit form -- or a
+// connectivity picker -- needs: whether (and what type of) geometry to
+// draw, what subtype to pick (if any), what fields to render for it,
+// and what terminals (if any) it can be connected through. Deliberately
+// separate from featureClassResponse above -- that one backs the layers
+// panel and map (cheap, always-fetched summary data); this one is
+// heavier (every field + domain values + terminals) and only fetched
+// when a form or picker is actually about to be shown.
 type featureClassSchemaResponse struct {
-	Code         string          `json:"code"`
-	Name         string          `json:"name"`
-	GeometryType string          `json:"geometry_type"`
-	Subtypes     []subtypeSchema `json:"subtypes"`
-	Fields       []fieldSchema   `json:"fields"`
+	Code         string           `json:"code"`
+	Name         string           `json:"name"`
+	GeometryType string           `json:"geometry_type"`
+	Subtypes     []subtypeSchema  `json:"subtypes"`
+	Fields       []fieldSchema    `json:"fields"`
+	Terminals    []terminalSchema `json:"terminals,omitempty"`
 }
 
 func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
@@ -216,6 +234,22 @@ func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 			fields[i] = fs
 		}
 
+		subtypeCodeByID := make(map[string]int, len(loaded.Subtypes))
+		for _, st := range loaded.Subtypes {
+			subtypeCodeByID[st.ID] = st.Code
+		}
+
+		terminals := make([]terminalSchema, len(loaded.Terminals))
+		for i, t := range loaded.Terminals {
+			ts := terminalSchema{Code: t.Code, Role: t.Role, PhaseCapable: t.PhaseCapable}
+			if t.SubtypeID != nil {
+				if code, ok := subtypeCodeByID[*t.SubtypeID]; ok {
+					ts.SubtypeCode = &code
+				}
+			}
+			terminals[i] = ts
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(featureClassSchemaResponse{
 			Code:         loaded.FeatureClass.Code,
@@ -223,6 +257,7 @@ func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 			GeometryType: loaded.FeatureClass.GeometryType,
 			Subtypes:     subtypes,
 			Fields:       fields,
+			Terminals:    terminals,
 		})
 	}
 }

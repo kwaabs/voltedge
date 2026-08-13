@@ -1,3 +1,4 @@
+import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
 import { FeaturePanel } from "@/components/map/feature-panel"
 import { LayersPanel } from "@/components/map/layers-panel"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
@@ -17,6 +18,7 @@ export function MapPage() {
       </div>
       <PeerPicker />
       <FeaturePanel />
+      <ConnectConfirmPanel />
       <StatusBar />
     </div>
   )

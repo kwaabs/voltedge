@@ -47,12 +47,17 @@ feature-specific code path anywhere else.
   picker for stacked features) opens a docked attribute panel with
   tabs for a feature's attributes, terminal connections, and structural
   relationships; a "New feature" tool draws a new point, line, or
-  polygon feature and saves it through a metadata-driven form. Still
-  open: Azure AD SSO, metadata-driven symbology resolution, editing an
-  existing feature, snapping, an undockable/floating panel.
+  polygon feature and saves it through a metadata-driven form. A
+  "+ New connection" button in the Terminals tab drives a floating,
+  draggable panel that establishes real electrical connectivity between
+  two features' terminals through the zero-trust `POST /connectivity`
+  engine. Still open: structural relationships from the same panel,
+  Azure AD SSO, metadata-driven symbology resolution, editing an
+  existing feature, snapping, an undockable/floating attribute panel.
   Write-ups: [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md),
   [`docs/phase-3-map-loop.md`](docs/phase-3-map-loop.md),
-  [`docs/phase-3-create-feature.md`](docs/phase-3-create-feature.md).
+  [`docs/phase-3-create-feature.md`](docs/phase-3-create-feature.md),
+  [`docs/phase-3-connectivity-ui.md`](docs/phase-3-connectivity-ui.md).
 - **Phase 4 — Network model**: the trace engine, built against the
   terminals/network_rules/trace_configurations metadata Phase 1 already
   created and the connectivity Phase 2 establishes.

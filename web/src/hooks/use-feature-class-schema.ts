@@ -19,21 +19,49 @@ export interface FieldSchema {
   required_for_subtypes?: number[]
 }
 
+export interface TerminalSchema {
+  code: string
+  role: string
+  phase_capable: boolean
+  /** undefined -- applies to every subtype of the feature class. */
+  subtype_code?: number
+}
+
 export interface FeatureClassSchema {
   code: string
   name: string
   geometry_type: string
   subtypes: SubtypeSchema[]
   fields: FieldSchema[]
+  terminals?: TerminalSchema[]
 }
 
 /**
- * Everything a create/edit form needs to render itself correctly --
- * subtypes to pick from, one entry per field with its data type, domain
- * values (for a coded field), and which subtypes require it. Heavier
- * than useFeatureClasses (every field + domain values, not just
- * code/name/geometry_type), so only fetched when a form is actually
- * about to be shown, not for every layer/panel render.
+ * The terminals a specific subtype can connect through -- a
+ * subtype-scoped terminal (same code) wins over a generic one, mirroring
+ * api/internal/metadata's ResolveTerminal (most-specific-wins), since
+ * this is the same connectivity picker's job on the client side.
+ */
+export function terminalsForSubtype(schema: FeatureClassSchema, subtypeCode: number | undefined): TerminalSchema[] {
+  const byCode = new Map<string, TerminalSchema>()
+  for (const t of schema.terminals ?? []) {
+    if (t.subtype_code !== undefined && t.subtype_code !== subtypeCode) continue
+    const existing = byCode.get(t.code)
+    if (!existing || (existing.subtype_code === undefined && t.subtype_code !== undefined)) {
+      byCode.set(t.code, t)
+    }
+  }
+  return [...byCode.values()]
+}
+
+/**
+ * Everything a create/edit form -- or a connectivity picker -- needs to
+ * render itself correctly: subtypes to pick from, one entry per field
+ * with its data type, domain values (for a coded field), which subtypes
+ * require it, and terminals available per subtype. Heavier than
+ * useFeatureClasses (every field + domain values + terminals, not just
+ * code/name/geometry_type), so only fetched when a form or picker is
+ * actually about to be shown, not for every layer/panel render.
  */
 export function useFeatureClassSchema(featureClassCode: string | undefined) {
   return useQuery({
