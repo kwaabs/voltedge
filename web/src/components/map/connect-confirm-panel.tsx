@@ -24,16 +24,21 @@ interface EndpointPickerProps {
   name: string
   terminal: string
   onTerminalChange: (terminal: string) => void
+  showTerminal: boolean
 }
 
 /** One side of the connection: the feature's real display name/id, and
- * a terminal dropdown scoped to its actual subtype -- only rendered
- * when that subtype has any terminals at all (an edge like
- * MV_CONDUCTOR never will). */
-function EndpointPicker({ featureClassCode, featureId, name, terminal, onTerminalChange }: EndpointPickerProps) {
+ * -- for a connectivity workflow only -- a terminal dropdown scoped to
+ * its actual subtype, rendered only when that subtype has any terminals
+ * at all (an edge like MV_CONDUCTOR never will). A relationship has no
+ * terminal concept (`relationship_classes` doesn't reference terminals
+ * the way `network_rules` does), so `showTerminal` is false for that
+ * workflow rather than this component trying to infer it from whether
+ * terminals happen to exist. */
+function EndpointPicker({ featureClassCode, featureId, name, terminal, onTerminalChange, showTerminal }: EndpointPickerProps) {
   const { data: schema } = useFeatureClassSchema(featureClassCode)
   const { data: feature } = useFeature(featureClassCode, featureId)
-  const terminals = schema ? terminalsForSubtype(schema, feature?.subtype) : []
+  const terminals = showTerminal && schema ? terminalsForSubtype(schema, feature?.subtype) : []
 
   return (
     <div className="flex flex-col gap-1">
@@ -54,11 +59,16 @@ function EndpointPicker({ featureClassCode, featureId, name, terminal, onTermina
 }
 
 /**
- * A small floating, movable (drag the header) panel for confirming a
- * connectivity link between two features -- source locked in from
- * whichever feature was selected when "+ New connection" was clicked
- * (feature-panel.tsx), target picked by clicking a second feature on
- * the map (voltedge-map.tsx's click handler, gated on connect-store.ts).
+ * A small floating, movable (drag the header) panel for confirming
+ * either an electrical connectivity link or a structural relationship
+ * between two features -- same panel, same drag/target-picking
+ * mechanics, branching on connect-store.ts's `mode` for the one part
+ * that actually differs (terminals + POST /connectivity vs. an
+ * optional kind + POST /relationships, see handleConfirm below).
+ * Source locked in from whichever feature was selected when "+ New
+ * connection"/"+ New relationship" was clicked (feature-panel.tsx),
+ * target picked by clicking a second feature on the map
+ * (voltedge-map.tsx's click handler, gated on connect-store.ts).
  * Renders as soon as a source is set, with a placeholder in the
  * target's spot until one is picked, so starting the workflow always
  * gives visible feedback (the map cursor also switches to crosshair --
@@ -66,7 +76,7 @@ function EndpointPicker({ featureClassCode, featureId, name, terminal, onTermina
  * Deliberately not resizable/minimizable -- that's the pinned
  * floating-attribute-panel work, a separate and later concern; this is
  * just draggable so it can be moved out of the way of the two features
- * it's connecting.
+ * it's linking.
  */
 export function ConnectConfirmPanel() {
   const mode = useConnectStore((s) => s.mode)
@@ -78,6 +88,7 @@ export function ConnectConfirmPanel() {
 
   const [sourceTerminal, setSourceTerminal] = useState("")
   const [targetTerminal, setTargetTerminal] = useState("")
+  const [kind, setKind] = useState("")
   const [saving, setSaving] = useState(false)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -85,11 +96,13 @@ export function ConnectConfirmPanel() {
   // A fresh "+ New connection"/"+ New relationship" click starts a new
   // session with a (possibly different) source and no target yet --
   // this component never unmounts (it renders null instead), so without
-  // this its terminal picks would silently carry over into the new one.
+  // this its terminal picks (or, for a relationship, its kind) would
+  // silently carry over into the new one.
   useEffect(() => {
     if (!mode) return
     setSourceTerminal("")
     setTargetTerminal("")
+    setKind("")
     setPosition(null)
   }, [mode, source?.featureClassCode, source?.featureId])
 
@@ -120,22 +133,43 @@ export function ConnectConfirmPanel() {
     if (!source || !target) return
     setSaving(true)
     try {
-      await apiFetch("/connectivity", {
-        method: "POST",
-        body: JSON.stringify({
-          from: { feature_class: source.featureClassCode, feature_id: source.featureId, terminal: sourceTerminal || undefined },
-          to: { feature_class: target.featureClassCode, feature_id: target.featureId, terminal: targetTerminal || undefined },
-        }),
-      })
-      queryClient.invalidateQueries({ queryKey: ["connections", source.featureClassCode, source.featureId] })
-      queryClient.invalidateQueries({ queryKey: ["connections", target.featureClassCode, target.featureId] })
+      if (mode === "connectivity") {
+        await apiFetch("/connectivity", {
+          method: "POST",
+          body: JSON.stringify({
+            from: { feature_class: source.featureClassCode, feature_id: source.featureId, terminal: sourceTerminal || undefined },
+            to: { feature_class: target.featureClassCode, feature_id: target.featureId, terminal: targetTerminal || undefined },
+          }),
+        })
+        queryClient.invalidateQueries({ queryKey: ["connections", source.featureClassCode, source.featureId] })
+        queryClient.invalidateQueries({ queryKey: ["connections", target.featureClassCode, target.featureId] })
+      } else {
+        // relationship_classes has no terminal concept -- just origin,
+        // destination, and an optional kind, only needed when more than
+        // one relationship_classes row matches the same pairing
+        // (api/internal/relationship/rules.go's matchClass). Left blank,
+        // an ambiguous pairing comes back as a real 400 naming the valid
+        // kinds -- surfaced through the same toast as any other
+        // rejection, no separate UI for listing them out.
+        await apiFetch("/relationships", {
+          method: "POST",
+          body: JSON.stringify({
+            origin: { feature_class: source.featureClassCode, feature_id: source.featureId },
+            destination: { feature_class: target.featureClassCode, feature_id: target.featureId },
+            kind: kind || undefined,
+          }),
+        })
+        queryClient.invalidateQueries({ queryKey: ["relationships", source.featureClassCode, source.featureId] })
+        queryClient.invalidateQueries({ queryKey: ["relationships", target.featureClassCode, target.featureId] })
+      }
       cancel()
     } catch (err) {
       // Panel stays open (unlike a successful Confirm, which calls
       // cancel() above) so a rejected pairing can be retried with a
-      // different terminal or target without losing the workflow's
+      // different terminal/kind or target without losing the workflow's
       // place -- only where the message shows moved to a toast.
-      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not establish this connection.")
+      const fallback = mode === "connectivity" ? "Could not establish this connection." : "Could not establish this relationship."
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : fallback)
     } finally {
       setSaving(false)
     }
@@ -168,6 +202,7 @@ export function ConnectConfirmPanel() {
           name={nameFor(source.featureClassCode)}
           terminal={sourceTerminal}
           onTerminalChange={setSourceTerminal}
+          showTerminal={mode === "connectivity"}
         />
         <ArrowRight className="text-muted-foreground size-4 self-center" />
         {target ? (
@@ -177,11 +212,25 @@ export function ConnectConfirmPanel() {
             name={nameFor(target.featureClassCode)}
             terminal={targetTerminal}
             onTerminalChange={setTargetTerminal}
+            showTerminal={mode === "connectivity"}
           />
         ) : (
           <p className="text-muted-foreground border-input rounded-md border border-dashed px-2 py-3 text-center text-sm">
             Click a second feature on the map to connect to.
           </p>
+        )}
+
+        {mode === "relationship" && (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium">Kind</label>
+            <input
+              type="text"
+              className={selectClass}
+              value={kind}
+              onChange={(e) => setKind(e.target.value)}
+              placeholder="Only needed if the pairing is ambiguous"
+            />
+          </div>
         )}
 
         <div className="flex justify-end gap-2 pt-1">

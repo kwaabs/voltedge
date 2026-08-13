@@ -9,7 +9,10 @@ tables that compile into physical schema. See
 [`docs/metadata-core.md`](docs/metadata-core.md) for the full metadata
 core, symbology resolution, connectivity integrity model, snapping rules,
 tracing, and MCP data-plane design — check it before writing a
-feature-specific code path anywhere else.
+feature-specific code path anywhere else. For what's deliberately left
+undone in each phase, see [`docs/open-items.md`](docs/open-items.md) —
+a single, current backlog kept up to date as items close, instead of
+having to reread every phase doc's own "What's still open" section.
 
 ## Build phases
 
@@ -44,13 +47,18 @@ feature-specific code path anywhere else.
   every compiled feature class as a live vector tile layer straight from
   Martin's auto-discovered catalog, verified against a real Martin
   instance, not just its documented API. Click-to-select (with a peer
-  picker for stacked features) opens a docked attribute panel with
-  tabs for a feature's attributes, terminal connections, and structural
-  relationships; a "New feature" tool draws a new point, line, or
-  polygon feature and saves it through a metadata-driven form. A
-  "+ New connection" button in the Terminals tab drives a floating,
-  draggable panel that establishes real electrical connectivity between
-  two features' terminals through the zero-trust `POST /connectivity`
+  picker for stacked features) opens a floating, draggable attribute
+  panel (drag its header anywhere, position persists across selections)
+  with tabs for a feature's attributes, terminal connections, and
+  structural relationships; a "New feature" tool draws a new point,
+  line, or polygon feature and saves it through a metadata-driven form.
+  A "+ New connection"/"+ New relationship" button in the Terminals/
+  Relationships tab drives the same floating, draggable confirm panel,
+  branching on which was clicked: connectivity establishes a real
+  electrical link between two features' terminals through the
+  zero-trust `POST /connectivity` engine; relationships establish a
+  structural/spatial link (no terminals, an optional `kind` to
+  disambiguate) through the equally zero-trust `POST /relationships`
   engine. The selected feature (or, mid-connect-workflow, its source and
   target) gets a real halo traced around its actual geometry on the map;
   every connection/relationship row is clickable and pans/highlights the
@@ -73,12 +81,15 @@ feature-specific code path anywhere else.
   `Snap` interaction reading directly from whichever vector tiles are
   already loaded (metadata-driven `snapping_rules` still deferred) —
   completing all four of the CRUD slices originally planned (attribute
-  edit, delete confirmation, geometry editing, snapping). Also still
-  open: structural relationships from the connect panel, Azure AD SSO,
-  metadata-driven symbology resolution, an undockable/floating attribute
-  panel, and a real fix for Martin having no soft-delete awareness (a
-  client-side workaround papers over it for now — see
-  `docs/phase-3-delete-confirmation.md`).
+  edit, delete confirmation, geometry editing, snapping). Two more small
+  items closed after that: relationships joined connectivity as
+  something the connect panel can establish, not just display, and the
+  attribute panel itself undocked into the floating window described
+  above. The full, current list of what's still open across every
+  phase — Azure AD SSO, metadata-driven symbology resolution, the real
+  Martin soft-delete fix, and more — now lives in
+  [`docs/open-items.md`](docs/open-items.md), kept current going
+  forward instead of scattered across each slice's own doc.
   Write-ups: [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md),
   [`docs/phase-3-map-loop.md`](docs/phase-3-map-loop.md),
   [`docs/phase-3-create-feature.md`](docs/phase-3-create-feature.md),
@@ -87,7 +98,9 @@ feature-specific code path anywhere else.
   [`docs/phase-3-edit-attributes.md`](docs/phase-3-edit-attributes.md),
   [`docs/phase-3-delete-confirmation.md`](docs/phase-3-delete-confirmation.md),
   [`docs/phase-3-edit-geometry.md`](docs/phase-3-edit-geometry.md),
-  [`docs/phase-3-snapping.md`](docs/phase-3-snapping.md).
+  [`docs/phase-3-snapping.md`](docs/phase-3-snapping.md),
+  [`docs/phase-3-relationships-ui.md`](docs/phase-3-relationships-ui.md),
+  [`docs/phase-3-floating-panel.md`](docs/phase-3-floating-panel.md).
 - **Phase 4 — Network model**: the trace engine, built against the
   terminals/network_rules/trace_configurations metadata Phase 1 already
   created and the connectivity Phase 2 establishes.
