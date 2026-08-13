@@ -27,6 +27,7 @@ import { draftStyleForFeature, type HighlightRole, highlightStyleForFeature, sty
 import { tileUrlTemplate } from "@/lib/martin"
 import { useConnectStore } from "@/stores/connect-store"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
+import { useEditStore } from "@/stores/edit-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
@@ -120,6 +121,7 @@ export function VoltEdgeMap() {
   const connectMode = useConnectStore((s) => s.mode)
   const connectSource = useConnectStore((s) => s.source)
   const connectTarget = useConnectStore((s) => s.target)
+  const editing = useEditStore((s) => s.editing)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
   const selected = useSelectionStore((s) => s.selected)
@@ -264,6 +266,18 @@ export function VoltEdgeMap() {
     return () => document.removeEventListener("keydown", handleEscape)
   }, [connectMode])
 
+  // Escape also cancels an in-progress feature edit (see edit-store.ts
+  // and feature-edit-form.tsx) -- same affordance as canceling a draw
+  // or a connect workflow, discarding whatever's been typed so far.
+  useEffect(() => {
+    if (!editing) return
+    const handleEscape = (evt: KeyboardEvent) => {
+      if (evt.key === "Escape") useEditStore.getState().stop()
+    }
+    document.addEventListener("keydown", handleEscape)
+    return () => document.removeEventListener("keydown", handleEscape)
+  }, [editing])
+
   // Draws (or clears) the highlight halo -- while a connect/relate
   // workflow is active it takes over entirely (source/target, each in
   // their own color), otherwise it's just whichever single feature is
@@ -372,6 +386,13 @@ export function VoltEdgeMap() {
       // out from under an in-progress, unsaved form.
       const drawState = useDrawStore.getState()
       if (drawState.drawingFeatureClassCode || drawState.draft) return
+
+      // A click while a feature is under edit (see edit-store.ts,
+      // feature-edit-form.tsx) shouldn't silently change the selection
+      // out from under an in-progress, unsaved edit either -- same
+      // reasoning as the draft guard just above. Escape or the form's
+      // own Cancel/Save ends the edit; a click never does.
+      if (useEditStore.getState().editing) return
 
       // A click while connect-store is waiting on a target feature
       // (see connect-store.ts, feature-panel.tsx's "+ New connection",
