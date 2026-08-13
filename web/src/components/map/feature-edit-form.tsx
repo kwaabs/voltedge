@@ -9,6 +9,7 @@ import { useFeature } from "@/hooks/use-feature"
 import { type FieldSchema, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useEditStore } from "@/stores/edit-store"
+import { useMapRefreshStore } from "@/stores/map-refresh-store"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
 
 interface FeatureEditFormProps {
@@ -18,10 +19,15 @@ interface FeatureEditFormProps {
 
 /**
  * Renders in place of feature-panel.tsx's read-only Attributes tab
- * while edit-store.ts's `editing` matches the selected feature.
- * Attribute-only this slice -- geometry stays whatever it already was;
- * see edit-store.ts for why that's deliberately left open for a later
- * slice rather than baked around here.
+ * while edit-store.ts's `editing` matches the selected feature. Also
+ * where a geometry edit actually gets committed: the map (see
+ * voltedge-map.tsx's Modify/Translate interactions and
+ * geometry-edit-toolbar.tsx) only ever produces a *candidate* new
+ * geometry, written to edit-store.ts's `dirtyGeometry` -- this form's
+ * Save is what turns it into a real `PATCH`, same commit-on-save
+ * decision every write in this app already follows (see
+ * docs/phase-3-edit-attributes.md's "Why this slice exists" for why
+ * that was chosen over piling up edits server-side).
  *
  * Fetches the feature and its schema itself (useFeature/
  * useFeatureClassSchema) rather than taking them as props -- the same
@@ -46,6 +52,7 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
   useErrorToast(featureIsError, featureError, "Could not load this feature")
   useErrorToast(schemaIsError, schemaError, "Could not load the form")
 
+  const dirtyGeometry = useEditStore((s) => s.dirtyGeometry)
   const [attributes, setAttributes] = useState<Record<string, unknown>>({})
   const [saving, setSaving] = useState(false)
 
@@ -82,7 +89,10 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
     return v === undefined || v === ""
   })
   const changedKeys = Object.keys(attributes).filter((k) => attributes[k] !== feature.attributes[k])
-  const canSave = !missingRequiredField && changedKeys.length > 0 && !saving
+  // Either kind of change alone is enough to save -- the user may touch
+  // just attributes, just geometry (via the map toolbar), or both, per
+  // the user's own framing of this feature.
+  const canSave = !missingRequiredField && (changedKeys.length > 0 || dirtyGeometry !== null) && !saving
 
   function handleCancel() {
     useEditStore.getState().stop()
@@ -94,11 +104,24 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
     try {
       const changed: Record<string, unknown> = {}
       for (const key of changedKeys) changed[key] = attributes[key]
+      const body: Record<string, unknown> = { attributes: changed }
+      if (dirtyGeometry) body.geometry = dirtyGeometry
+
       await apiFetch(`/features/${featureClassCode}/${featureId}`, {
         method: "PATCH",
-        body: JSON.stringify({ attributes: changed }),
+        body: JSON.stringify(body),
       })
       queryClient.invalidateQueries({ queryKey: ["feature", featureClassCode, featureId] })
+      if (dirtyGeometry) {
+        // The real fix for the browser's own stale vector-tile cache
+        // (not Martin's -- Martin has no cache with --cache-size 0, and
+        // its tiles genuinely do reflect a real geometry UPDATE, unlike
+        // the soft-delete case deleted-features-store.ts works around).
+        // Same cache-busting bump() the create-feature slice already
+        // established for exactly this "the browser is still showing
+        // the old tile" problem.
+        useMapRefreshStore.getState().bump()
+      }
       useEditStore.getState().stop()
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save this feature.")

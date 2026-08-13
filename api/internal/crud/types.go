@@ -21,12 +21,17 @@ type createRequest struct {
 }
 
 // updateRequest is the PATCH body for updating a feature. Every field is
-// optional -- only what's present gets changed. Subtype and geometry are
-// deliberately not updatable in this pass (changing a feature's subtype
-// after creation raises "does it still satisfy the new subtype's
-// required fields" questions this pass doesn't answer yet).
+// optional -- only what's present gets changed. Subtype is still
+// deliberately not updatable (changing a feature's subtype after
+// creation raises "does it still satisfy the new subtype's required
+// fields" questions this pass doesn't answer yet) -- geometry doesn't
+// have that problem (no subtype/required-field interaction at all), so
+// it's just a plain optional replace, same validation
+// (validateGeometry) as create, only skipped entirely when absent
+// rather than required.
 type updateRequest struct {
-	Attributes map[string]any `json:"attributes"`
+	Geometry   json.RawMessage `json:"geometry,omitempty"`
+	Attributes map[string]any  `json:"attributes"`
 }
 
 // geoJSONGeometry is enough of a GeoJSON Geometry object to check its

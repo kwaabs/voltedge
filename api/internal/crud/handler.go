@@ -196,6 +196,16 @@ func updateHandler(db *bun.DB) http.HandlerFunc {
 			req.Attributes = map[string]any{}
 		}
 
+		// Same type-matches-feature-class check create already runs --
+		// just skipped entirely when geometry wasn't sent, since absence
+		// means "not changing it" here, not "missing."
+		if len(req.Geometry) > 0 {
+			if err := validateGeometry(loaded, req.Geometry); err != nil {
+				writeError(w, err)
+				return
+			}
+		}
+
 		fields, err := validateAttributes(loaded, req.Attributes, writeUpdate, &currentStatus)
 		if err != nil {
 			writeError(w, err)
@@ -220,7 +230,7 @@ func updateHandler(db *bun.DB) http.HandlerFunc {
 			}
 		}
 
-		result, err := updateFeature(r.Context(), db, loaded, id, values)
+		result, err := updateFeature(r.Context(), db, loaded, id, req.Geometry, values)
 		if err != nil {
 			writeError(w, err)
 			return

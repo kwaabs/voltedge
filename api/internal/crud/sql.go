@@ -194,10 +194,10 @@ func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, sub
 }
 
 // updateFeature builds and executes a parameterized, partial UPDATE --
-// only the columns present in values are touched. Always sets
-// updated_at, since the physical table has no trigger to do it
-// automatically yet.
-func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string, values map[string]any) (map[string]any, error) {
+// only the columns present in values (plus geom, if geometry is
+// non-empty) are touched. Always sets updated_at, since the physical
+// table has no trigger to do it automatically yet.
+func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string, geometry []byte, values map[string]any) (map[string]any, error) {
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
 		return nil, err
@@ -205,6 +205,12 @@ func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 
 	var sets []string
 	var args []any
+
+	if len(geometry) > 0 {
+		sets = append(sets, fmt.Sprintf("geom = ST_SetSRID(ST_GeomFromGeoJSON(?), %d)", *loaded.FeatureClass.SRID))
+		args = append(args, string(geometry))
+	}
+
 	for _, f := range loaded.Fields {
 		v, present := values[f.Name]
 		if !present {
