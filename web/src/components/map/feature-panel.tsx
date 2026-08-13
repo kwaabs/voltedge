@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useState } from "react"
-import { Info, Link2, Loader2, Pencil, Plug, Plus, Trash2, X } from "lucide-react"
+import { Fragment, useEffect, useRef, useState } from "react"
+import { GripHorizontal, Info, Link2, Loader2, Pencil, Plug, Plus, Trash2, X } from "lucide-react"
 
 import { DeleteFeatureDialog } from "@/components/map/delete-feature-dialog"
 import { FeatureCreateForm } from "@/components/map/feature-create-form"
@@ -171,6 +171,18 @@ function RelationshipsTab() {
   )
   useErrorToast(isError, error, "Could not load relationships")
 
+  const newRelationshipButton = selected && (
+    <Button
+      variant="outline"
+      size="sm"
+      className="self-start"
+      onClick={() => useConnectStore.getState().start("relationship", selected)}
+    >
+      <Plus className="size-4" />
+      New relationship
+    </Button>
+  )
+
   if (isPending) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 text-sm">
@@ -181,51 +193,72 @@ function RelationshipsTab() {
   }
   if (isError) return null
   if (!selected || !data || data.relationships.length === 0) {
-    return <p className="text-muted-foreground text-sm">No relationships.</p>
+    return (
+      <div className="flex flex-col items-start gap-2">
+        {newRelationshipButton}
+        <p className="text-muted-foreground text-sm">No relationships.</p>
+      </div>
+    )
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      {data.relationships.map((rel) => {
-        const isOrigin =
-          rel.origin.feature_class === selected.featureClassCode && rel.origin.feature_id === selected.featureId
-        const counterpart = isOrigin ? rel.destination : rel.origin
-        const counterpartName =
-          featureClasses?.feature_classes.find((fc) => fc.code === counterpart.feature_class)?.name ??
-          counterpart.feature_class
+    <div className="flex flex-col items-start gap-2">
+      {newRelationshipButton}
+      <div className="flex w-full flex-col gap-2">
+        {data.relationships.map((rel) => {
+          const isOrigin =
+            rel.origin.feature_class === selected.featureClassCode && rel.origin.feature_id === selected.featureId
+          const counterpart = isOrigin ? rel.destination : rel.origin
+          const counterpartName =
+            featureClasses?.feature_classes.find((fc) => fc.code === counterpart.feature_class)?.name ??
+            counterpart.feature_class
 
-        return (
-          <button
-            key={rel.id}
-            type="button"
-            onClick={() => useSelectionStore.getState().select(counterpart.feature_class, counterpart.feature_id, { focus: true })}
-            className="hover:bg-accent hover:text-accent-foreground w-full rounded-md border p-2 text-left text-sm transition-colors"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-medium">{counterpartName}</span>
-              <span className="text-muted-foreground shrink-0 text-xs">{isOrigin ? "Origin" : "Destination"}</span>
-            </div>
-            <p className="text-muted-foreground font-mono text-xs">{shortId(counterpart.feature_id)}</p>
-            <p className="text-muted-foreground mt-1 text-xs">
-              {rel.relationship_class_name} · {rel.kind} · {rel.cardinality}
-            </p>
-          </button>
-        )
-      })}
+          return (
+            <button
+              key={rel.id}
+              type="button"
+              onClick={() => useSelectionStore.getState().select(counterpart.feature_class, counterpart.feature_id, { focus: true })}
+              className="hover:bg-accent hover:text-accent-foreground w-full rounded-md border p-2 text-left text-sm transition-colors"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{counterpartName}</span>
+                <span className="text-muted-foreground shrink-0 text-xs">{isOrigin ? "Origin" : "Destination"}</span>
+              </div>
+              <p className="text-muted-foreground font-mono text-xs">{shortId(counterpart.feature_id)}</p>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {rel.relationship_class_name} · {rel.kind} · {rel.cardinality}
+              </p>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
 
+/** Default position (bottom-right, clear of the h-7 status bar below
+ * it) used until the user drags the panel somewhere else -- matches
+ * `!position` in connect-confirm-panel.tsx's own className branch. */
+const DEFAULT_POSITION_CLASS = "bottom-10 right-4"
+
 /**
- * Docked to the bottom of the map (between the canvas and the status
- * bar), not floating -- undocking into a movable/resizable/minimizable
- * window is its own later slice, pinned for now. Renders nothing when
- * no feature is selected, so it doesn't reserve space it isn't using.
+ * Floating and draggable (grab the header, same mechanics as
+ * connect-confirm-panel.tsx's own `handleHeaderPointerDown`/`position`
+ * state), not docked -- so it can be moved clear of whatever part of
+ * the map the user is actually working on, the same way the
+ * connect/relationship confirm panel already can be. `position` lives
+ * in this component's own state, which React preserves across
+ * re-renders even while this returns null (nothing selected, no
+ * draft) -- so a window the user has already dragged somewhere stays
+ * there the next time a feature is selected, rather than snapping back
+ * to the default corner on every click. Resizing/minimizing remain out
+ * of scope -- undocking was the specifically requested piece; a fixed
+ * `w-96` and internal `overflow-y-auto` (as before) are enough for now.
  *
- * Side tabs, not top or bottom ones -- this panel is short and wide
- * (fixed h-64, spans the map's width), so a vertical rail spends the
- * plentiful horizontal space instead of costing height a bottom tab
- * strip would take directly out of the already-cramped content area.
+ * Side tabs, not top or bottom ones -- a vertical rail spends the
+ * panel's plentiful horizontal space instead of costing height a
+ * bottom tab strip would take directly out of the already-short
+ * content area.
  */
 export function FeaturePanel() {
   const selected = useSelectionStore((s) => s.selected)
@@ -237,6 +270,8 @@ export function FeaturePanel() {
   const { data: feature } = useFeature(selected?.featureClassCode, selected?.featureId)
   const [activeTab, setActiveTab] = useState<TabId>("attributes")
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   const isEditingSelected =
     Boolean(selected) &&
@@ -251,12 +286,39 @@ export function FeaturePanel() {
   // at a feature that's no longer selected, and voltedge-map.tsx's
   // click guard already stops a click from changing `selected` while
   // editing anyway, so the only way this effect fires mid-edit is
-  // Escape, which should end the edit too.
+  // Escape, which should end the edit too. Deliberately doesn't touch
+  // `position` -- unlike connect-confirm-panel.tsx's per-workflow reset,
+  // a window the user already moved should stay put across selections.
   useEffect(() => {
     setActiveTab("attributes")
     setDeleteDialogOpen(false)
     useEditStore.getState().stop()
   }, [selected?.featureClassCode, selected?.featureId])
+
+  function handleHeaderPointerDown(e: React.PointerEvent) {
+    const rect = panelRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const startX = e.clientX
+    const startY = e.clientY
+    const origX = position?.x ?? rect.left
+    const origY = position?.y ?? rect.top
+
+    const handleMove = (moveEvt: PointerEvent) => {
+      setPosition({ x: origX + (moveEvt.clientX - startX), y: origY + (moveEvt.clientY - startY) })
+    }
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove)
+      window.removeEventListener("pointerup", handleUp)
+    }
+    window.addEventListener("pointermove", handleMove)
+    window.addEventListener("pointerup", handleUp)
+  }
+
+  const positionStyle = position ? { left: position.x, top: position.y } : undefined
+  const positionClass = cn(
+    "bg-background fixed z-40 flex h-64 w-96 flex-col rounded-md border shadow-lg",
+    !position && DEFAULT_POSITION_CLASS,
+  )
 
   // An unsaved draft (see draw-store.ts) takes over the whole panel,
   // no tabs -- a feature with no id yet has no terminals or
@@ -269,11 +331,17 @@ export function FeaturePanel() {
       draft.featureClassCode
 
     return (
-      <div className="bg-background flex h-64 shrink-0 flex-col border-t">
-        <div className="flex items-center justify-between border-b px-3 py-2">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">New {className}</p>
-            <p className="text-muted-foreground truncate text-xs">Unsaved</p>
+      <div ref={panelRef} style={positionStyle} className={positionClass}>
+        <div
+          onPointerDown={handleHeaderPointerDown}
+          className="flex cursor-grab items-center justify-between border-b px-3 py-2 select-none active:cursor-grabbing"
+        >
+          <div className="flex min-w-0 items-center gap-1.5">
+            <GripHorizontal className="text-muted-foreground size-3.5 shrink-0" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">New {className}</p>
+              <p className="text-muted-foreground truncate text-xs">Unsaved</p>
+            </div>
           </div>
           <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={clearDraft}>
             <X className="size-4" />
@@ -294,13 +362,19 @@ export function FeaturePanel() {
     selected.featureClassCode
 
   return (
-    <div className="bg-background flex h-64 shrink-0 flex-col border-t">
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{className}</p>
-          <p className="text-muted-foreground truncate font-mono text-xs">
-            {isEditingSelected ? "Editing…" : selected.featureId}
-          </p>
+    <div ref={panelRef} style={positionStyle} className={positionClass}>
+      <div
+        onPointerDown={handleHeaderPointerDown}
+        className="flex cursor-grab items-center justify-between border-b px-3 py-2 select-none active:cursor-grabbing"
+      >
+        <div className="flex min-w-0 items-center gap-1.5">
+          <GripHorizontal className="text-muted-foreground size-3.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{className}</p>
+            <p className="text-muted-foreground truncate font-mono text-xs">
+              {isEditingSelected ? "Editing…" : selected.featureId}
+            </p>
+          </div>
         </div>
         {isEditingSelected ? null : (
           <div className="flex shrink-0 items-center gap-1">
