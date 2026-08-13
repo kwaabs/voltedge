@@ -21,7 +21,7 @@ function shortId(id: string): string {
 interface EndpointPickerProps {
   featureClassCode: string
   featureId: string
-  name: string
+  className: string
   terminal: string
   onTerminalChange: (terminal: string) => void
   showTerminal: boolean
@@ -34,16 +34,22 @@ interface EndpointPickerProps {
  * terminal concept (`relationship_classes` doesn't reference terminals
  * the way `network_rules` does), so `showTerminal` is false for that
  * workflow rather than this component trying to infer it from whether
- * terminals happen to exist. */
-function EndpointPicker({ featureClassCode, featureId, name, terminal, onTerminalChange, showTerminal }: EndpointPickerProps) {
+ * terminals happen to exist.
+ *
+ * Same primary/secondary label promotion as feature-panel.tsx's header:
+ * a per-feature name, once set, is more human-identifiable than the
+ * class name and id, so it takes the primary line when present. */
+function EndpointPicker({ featureClassCode, featureId, className, terminal, onTerminalChange, showTerminal }: EndpointPickerProps) {
   const { data: schema } = useFeatureClassSchema(featureClassCode)
   const { data: feature } = useFeature(featureClassCode, featureId)
   const terminals = showTerminal && schema ? terminalsForSubtype(schema, feature?.subtype) : []
+  const primaryLabel = feature?.name || className
+  const secondaryLabel = feature?.name ? `${className} · ${shortId(featureId)}` : shortId(featureId)
 
   return (
     <div className="flex flex-col gap-1">
-      <p className="truncate text-sm font-medium">{name}</p>
-      <p className="text-muted-foreground truncate font-mono text-xs">{shortId(featureId)}</p>
+      <p className="truncate text-sm font-medium">{primaryLabel}</p>
+      <p className="text-muted-foreground truncate font-mono text-xs">{secondaryLabel}</p>
       {terminals.length > 0 && (
         <select className={selectClass} value={terminal} onChange={(e) => onTerminalChange(e.target.value)}>
           <option value="">No terminal</option>
@@ -199,7 +205,7 @@ export function ConnectConfirmPanel() {
         <EndpointPicker
           featureClassCode={source.featureClassCode}
           featureId={source.featureId}
-          name={nameFor(source.featureClassCode)}
+          className={nameFor(source.featureClassCode)}
           terminal={sourceTerminal}
           onTerminalChange={setSourceTerminal}
           showTerminal={mode === "connectivity"}
@@ -209,7 +215,7 @@ export function ConnectConfirmPanel() {
           <EndpointPicker
             featureClassCode={target.featureClassCode}
             featureId={target.featureId}
-            name={nameFor(target.featureClassCode)}
+            className={nameFor(target.featureClassCode)}
             terminal={targetTerminal}
             onTerminalChange={setTargetTerminal}
             showTerminal={mode === "connectivity"}

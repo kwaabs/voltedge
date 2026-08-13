@@ -26,8 +26,9 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-13, after Phase 4's second slice (universal
-feature names + the trace result table).
+**Last updated:** 2026-08-13, after Phase 4's third slice (trace
+configuration discovery, feature names shown everywhere a counterpart
+is listed, search by name).
 
 ## Phase 1 — Metadata core
 
@@ -71,9 +72,7 @@ feature names + the trace result table).
 | Isolation and loop/mesh detection | Open | M | `docs/metadata-core.md`'s own framing: each composes two of the four primitive traces already built (upstream+downstream for isolation, connected run from two sources for loop detection) and post-processes the result -- deliberately deferred until the primitives have more real-world exercise, not designed speculatively alongside them. | `docs/phase-4-trace-engine.md` |
 | `cross_transformers`/`respect_phase` enforcement | Open | M–L | Both accepted on a `trace_configurations` row and threaded through, not enforced -- real design questions (what marks a transformer boundary in a `network_role`-driven model that doesn't currently distinguish "transformer" from "any other junction"? how does phase capability intersect hop to hop?) deserve their own pass, not answers invented under time pressure. | `docs/phase-4-trace-engine.md` |
 | No persistent/cached graph | Open | S–M, revisit only if needed | Every hop queries `runtime.feature_connectivity` fresh, matching `api/internal/connectivity`'s own stateless-per-request style -- fine at current seed-data scale; `docs/metadata-core.md` describes an in-memory graph as a longer-term role, not something the current data size gives any signal is actually needed yet. | `docs/phase-4-trace-engine.md` |
-| No endpoint to discover which `trace_configurations` exist | Open | S | `feature-panel.tsx`'s two trigger buttons hardcode `DOWNSTREAM_TRACE`/`UPSTREAM_TRACE` by code. Fine for four fixed, seeded configs; would need a real listing endpoint if `trace_configurations` ever becomes something an admin authors freely. | `docs/phase-4-trace-engine.md` |
-| Per-feature name not shown in connect panel / connection rows | Open | S | `connect-confirm-panel.tsx`'s `EndpointPicker` and the Terminals/Relationships tab's counterpart rows still show only the feature class name, never a per-feature name -- `EndpointPicker` already fetches the full feature record, so this is display-only work, not a new fetch. | `docs/phase-4-feature-names.md` |
-| No search/filter by feature name | Open | S–M | Names are display-only right now -- nothing lets a user find a feature *by* its name (e.g. a search box). | `docs/phase-4-feature-names.md` |
+| Trace configuration discovery, name display everywhere, search by name | Done | — | `GET /trace/configurations` lets a client resolve a trace by raw direction instead of a hardcoded code; `connect-confirm-panel.tsx`'s `EndpointPicker` and the Terminals/Relationships tabs' counterpart rows now promote a per-feature name the same way the floating panel header already did; a new "Search by name…" box in the map toolbar fans a name query out across every feature class and merges results client-side. Closes the three items previously tracked here: no endpoint to discover trace configs, name not shown in connect panel/rows, no search by name. | `docs/phase-4-trace-discovery-and-search.md` |
 | Universal feature name + trace result table | Done | — | `name` is now a system column every compiled feature class gets (same precedent as `deleted_at`), settable from the create/edit forms, shown as the floating panel header's primary label once set. The trace result banner became a real data table (feature class, id, name per row, barrier rows visually distinct, clickable). | `docs/phase-4-feature-names.md` |
 | Core trace engine primitives | Done | — | `api/internal/trace` walks `runtime.feature_connectivity` per a named `trace_configurations` profile (`connected`/`downstream`/`upstream`/`shortest_path`), real barrier-stopping against a seeded `DIST_SWITCH`'s live `device_state`. Two "Trace downstream"/"Trace upstream" buttons trigger it and highlight the result on the map. | `docs/phase-4-trace-engine.md` |
 

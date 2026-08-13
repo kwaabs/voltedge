@@ -101,8 +101,9 @@ having to reread every phase doc's own "What's still open" section.
   [`docs/phase-3-snapping.md`](docs/phase-3-snapping.md),
   [`docs/phase-3-relationships-ui.md`](docs/phase-3-relationships-ui.md),
   [`docs/phase-3-floating-panel.md`](docs/phase-3-floating-panel.md).
-- **Phase 4 — Network model** (slices 1-2: core trace primitives, feature
-  names done): a real trace engine (`api/internal/trace`) walking
+- **Phase 4 — Network model** (slices 1-3: core trace primitives, feature
+  names, trace discovery + name display everywhere + search done): a
+  real trace engine (`api/internal/trace`) walking
   `runtime.feature_connectivity` edge by edge, per a named
   `metadata.trace_configurations` profile — the four raw directions
   (`connected`/`downstream`/`upstream`/`shortest_path`), with real
@@ -119,12 +120,20 @@ having to reread every phase doc's own "What's still open" section.
   column the compiler adds to every physical table, same precedent as
   `deleted_at`) — set from the same create/edit forms, promoted to the
   floating panel's header once set, and shown in the trace table
-  alongside each feature's class and id. Isolation/loop traces and
+  alongside each feature's class and id, plus everywhere else a
+  counterpart feature is listed (the connect/relationship confirm
+  panel, Terminals/Relationships tab rows). `GET
+  /trace/configurations` lets the trace trigger buttons resolve a
+  configuration by raw direction instead of a hardcoded code, and a
+  "Search by name…" box in the map toolbar finds a feature by name
+  across every feature class. Isolation/loop traces and
   `cross_transformers`/`respect_phase` enforcement are explicitly not
   built this pass — see `docs/phase-4-trace-engine.md`,
-  `docs/phase-4-feature-names.md`.
+  `docs/phase-4-feature-names.md`,
+  `docs/phase-4-trace-discovery-and-search.md`.
   Write-ups: [`docs/phase-4-trace-engine.md`](docs/phase-4-trace-engine.md),
-  [`docs/phase-4-feature-names.md`](docs/phase-4-feature-names.md).
+  [`docs/phase-4-feature-names.md`](docs/phase-4-feature-names.md),
+  [`docs/phase-4-trace-discovery-and-search.md`](docs/phase-4-trace-discovery-and-search.md).
 - **Phase 5 — Diagrams, attribute groups, MCP**: one-line diagram canvas,
   metadata-driven forms, MCP data-plane tools.
 - **Phase 6 — Domain expansion + hardening**: full feature class catalog,
