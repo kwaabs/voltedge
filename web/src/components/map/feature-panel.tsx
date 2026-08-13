@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react"
-import { Info, Link2, Loader2, Pencil, Plug, Plus, X } from "lucide-react"
+import { Info, Link2, Loader2, Pencil, Plug, Plus, Trash2, X } from "lucide-react"
 
+import { DeleteFeatureDialog } from "@/components/map/delete-feature-dialog"
 import { FeatureCreateForm } from "@/components/map/feature-create-form"
 import { FeatureEditForm } from "@/components/map/feature-edit-form"
 import { formatFieldLabel, formatValue } from "@/components/map/field-utils"
@@ -235,6 +236,7 @@ export function FeaturePanel() {
   const { data: featureClasses } = useFeatureClasses()
   const { data: feature } = useFeature(selected?.featureClassCode, selected?.featureId)
   const [activeTab, setActiveTab] = useState<TabId>("attributes")
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   const isEditingSelected =
     Boolean(selected) &&
@@ -252,6 +254,7 @@ export function FeaturePanel() {
   // Escape, which should end the edit too.
   useEffect(() => {
     setActiveTab("attributes")
+    setDeleteDialogOpen(false)
     useEditStore.getState().stop()
   }, [selected?.featureClassCode, selected?.featureId])
 
@@ -311,6 +314,16 @@ export function FeaturePanel() {
               <Pencil className="size-4" />
               <span className="sr-only">Edit</span>
             </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              disabled={Boolean(feature?.deleted_at)}
+              onClick={() => setDeleteDialogOpen(true)}
+            >
+              <Trash2 className="size-4" />
+              <span className="sr-only">Delete</span>
+            </Button>
             <Button variant="ghost" size="icon" className="size-7" onClick={clear}>
               <X className="size-4" />
               <span className="sr-only">Close</span>
@@ -318,6 +331,14 @@ export function FeaturePanel() {
           </div>
         )}
       </div>
+
+      <DeleteFeatureDialog
+        featureClassCode={selected.featureClassCode}
+        featureId={selected.featureId}
+        className={className}
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+      />
 
       <div className="flex min-h-0 flex-1">
         <div className="flex w-28 shrink-0 flex-col gap-0.5 border-r p-1">

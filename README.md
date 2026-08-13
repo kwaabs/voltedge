@@ -58,17 +58,24 @@ feature-specific code path anywhere else.
   instead of inline panel text. A pencil "Edit" button in the panel
   header opens a pre-filled attribute form (locking any field the
   backend would reject once a feature is published) and `PATCH`es only
-  the fields that actually changed — the first of four planned CRUD
-  slices (attribute edit done; delete confirmation, a geometry-editing
-  toolbar, and snapping still open). Also still open: structural
-  relationships from the connect panel, Azure AD SSO, metadata-driven
-  symbology resolution, an undockable/floating attribute panel.
+  the fields that actually changed; a trash-can "Delete" button opens a
+  real modal confirmation (built on Radix's AlertDialog, immune to an
+  accidental outside click by design) whose Delete action soft-deletes
+  the feature and makes it disappear from the map immediately — the
+  first two of four planned CRUD slices (attribute edit and delete
+  confirmation done; a geometry-editing toolbar and snapping still
+  open). Also still open: structural relationships from the connect
+  panel, Azure AD SSO, metadata-driven symbology resolution, an
+  undockable/floating attribute panel, and a real fix for Martin having
+  no soft-delete awareness (a client-side workaround papers over it for
+  now — see `docs/phase-3-delete-confirmation.md`).
   Write-ups: [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md),
   [`docs/phase-3-map-loop.md`](docs/phase-3-map-loop.md),
   [`docs/phase-3-create-feature.md`](docs/phase-3-create-feature.md),
   [`docs/phase-3-connectivity-ui.md`](docs/phase-3-connectivity-ui.md),
   [`docs/phase-3-map-aesthetics.md`](docs/phase-3-map-aesthetics.md),
-  [`docs/phase-3-edit-attributes.md`](docs/phase-3-edit-attributes.md).
+  [`docs/phase-3-edit-attributes.md`](docs/phase-3-edit-attributes.md),
+  [`docs/phase-3-delete-confirmation.md`](docs/phase-3-delete-confirmation.md).
 - **Phase 4 — Network model**: the trace engine, built against the
   terminals/network_rules/trace_configurations metadata Phase 1 already
   created and the connectivity Phase 2 establishes.

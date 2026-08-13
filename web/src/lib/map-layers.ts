@@ -1,6 +1,8 @@
 import { Circle, Fill, Stroke, Style } from "ol/style"
 import type { FeatureLike } from "ol/Feature"
 
+import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
+
 /**
  * Canvas-rendered styles can't consume the app's CSS custom properties
  * (see src/index.css) -- OpenLayers paints to a <canvas>, not the DOM,
@@ -15,6 +17,12 @@ const POLYGON_COLOR = "#64748b"
 /** Emerald -- distinct from every committed-feature color above, so an
  * unsaved draft feature never reads as just another real one. */
 const DRAFT_COLOR = "#10b981"
+
+/** An empty Style renders nothing -- see deleted-features-store.ts for
+ * why styleForFeature needs this at all: Martin has no idea a feature
+ * was soft-deleted, so its tiles keep the feature's bytes; this is what
+ * makes it actually disappear from the map anyway. */
+const hiddenStyle = new Style({})
 
 const pointStyle = new Style({
   image: new Circle({
@@ -111,6 +119,9 @@ export function highlightStyleForFeature(feature: FeatureLike): Style {
  * lands as its own later slice.
  */
 export function styleForFeature(feature: FeatureLike): Style {
+  const id = feature.get("id") as string | undefined
+  if (id && useDeletedFeaturesStore.getState().ids.has(id)) return hiddenStyle
+
   switch (feature.getGeometry()?.getType()) {
     case "Point":
     case "MultiPoint":
