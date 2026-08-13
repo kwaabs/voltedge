@@ -11,8 +11,12 @@ import (
 // Routes returns a router for the trace engine, meant to be mounted at
 // /trace:
 //
-//	POST   /   run a trace, per a named metadata.trace_configurations
-//	           profile, starting from one feature
+//	POST   /               run a trace, per a named
+//	                       metadata.trace_configurations profile,
+//	                       starting from one feature
+//	GET    /configurations list every trace_configurations row --
+//	                       lets a client discover what's available
+//	                       instead of a fixed set of hardcoded codes
 //
 // Read-only -- unlike api/internal/connectivity and
 // api/internal/relationship, there's nothing here to establish or
@@ -21,6 +25,7 @@ import (
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Post("/", runHandler(db))
+	r.Get("/configurations", listConfigurationsHandler(db))
 	return r
 }
 
@@ -38,6 +43,17 @@ func runHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func listConfigurationsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		result, err := listConfigurations(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"trace_configurations": result})
 	}
 }
 

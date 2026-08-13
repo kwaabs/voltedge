@@ -18,7 +18,9 @@ const defaultListLimit = 50
 // Routes returns a router of the generic, metadata-driven CRUD
 // endpoints, meant to be mounted at something like /features:
 //
-//	GET    /{code}               list, excludes soft-deleted
+//	GET    /{code}               list, excludes soft-deleted; ?name=
+//	                             adds a case-insensitive partial match
+//	                             against the name column
 //	POST   /{code}               create
 //	GET    /{code}/{id}          get, includes soft-deleted
 //	PATCH  /{code}/{id}          update, rejected if soft-deleted
@@ -76,8 +78,9 @@ func listHandler(db *bun.DB) http.HandlerFunc {
 				offset = n
 			}
 		}
+		nameQuery := r.URL.Query().Get("name")
 
-		results, err := listFeatures(r.Context(), db, loaded, limit, offset)
+		results, err := listFeatures(r.Context(), db, loaded, limit, offset, nameQuery)
 		if err != nil {
 			writeError(w, err)
 			return

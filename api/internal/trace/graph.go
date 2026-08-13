@@ -362,6 +362,37 @@ func nodeClassCodes(ctx context.Context, db bun.IDB, nodes []node) (map[string]s
 	return out, nil
 }
 
+// listConfigurations returns every trace_configurations row, each
+// resolved to its raw direction code -- backs GET /trace/configurations.
+func listConfigurations(ctx context.Context, db bun.IDB) ([]traceConfigurationSummary, error) {
+	configs, err := metadata.ListTraceConfigurations(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	if len(configs) == 0 {
+		return []traceConfigurationSummary{}, nil
+	}
+
+	valueIDs := make([]string, len(configs))
+	for i, c := range configs {
+		valueIDs[i] = c.DirectionValueID
+	}
+	var values []metadata.DomainValue
+	if err := db.NewSelect().Model(&values).Where("id IN (?)", bun.In(valueIDs)).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("trace: loading directions: %w", err)
+	}
+	codeByID := make(map[string]string, len(values))
+	for _, v := range values {
+		codeByID[v.ID] = v.Code
+	}
+
+	out := make([]traceConfigurationSummary, len(configs))
+	for i, c := range configs {
+		out[i] = traceConfigurationSummary{Code: c.Code, Name: c.Name, Direction: codeByID[c.DirectionValueID]}
+	}
+	return out, nil
+}
+
 func toFeatureRefs(nodes []node, classCodes map[string]string) []featureRef {
 	out := make([]featureRef, 0, len(nodes))
 	for _, n := range nodes {

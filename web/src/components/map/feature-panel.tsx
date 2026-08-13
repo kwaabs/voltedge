@@ -10,6 +10,7 @@ import { useConnections } from "@/hooks/use-connections"
 import { useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useRelationships } from "@/hooks/use-relationships"
+import { useTraceConfigurations } from "@/hooks/use-trace-configurations"
 import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useConnectStore } from "@/stores/connect-store"
@@ -88,6 +89,60 @@ function AttributesTab() {
   )
 }
 
+/**
+ * Resolves each counterpart's per-feature name for TerminalsTab and
+ * RelationshipsTab's row lists -- same independent-fetch-per-row
+ * pattern trace-result-table.tsx uses for its own table, since both
+ * tabs render a variable-length list (so useFeature, a single hook
+ * call, can't be used in a loop) and neither wants to share a cache key
+ * with the single selected feature's own useFeature call. Keyed by
+ * `feature_class:feature_id`; refetches whenever the row list itself
+ * changes (a new connection/relationship established, or a different
+ * feature selected).
+ */
+function useCounterpartNames(refs: { feature_class: string; feature_id: string }[] | undefined) {
+  const [names, setNames] = useState<Record<string, string | null>>({})
+  const key = refs?.map((r) => `${r.feature_class}:${r.feature_id}`).join(",") ?? ""
+
+  useEffect(() => {
+    if (!refs || refs.length === 0) {
+      setNames({})
+      return
+    }
+    let cancelled = false
+    // Reassigned into a typed local -- same reason
+    // trace-result-table.tsx does this for its own nested async
+    // function: TS's narrowing from the `if (!refs)` check above
+    // doesn't propagate into loadNames below.
+    const resolved: NonNullable<typeof refs> = refs
+
+    async function loadNames() {
+      const entries = await Promise.all(
+        resolved.map(async (ref) => {
+          try {
+            const feature = await apiFetch<{ name: string | null }>(`/features/${ref.feature_class}/${ref.feature_id}`)
+            return [`${ref.feature_class}:${ref.feature_id}`, feature.name] as const
+          } catch {
+            return [`${ref.feature_class}:${ref.feature_id}`, null] as const
+          }
+        }),
+      )
+      if (!cancelled) setNames(Object.fromEntries(entries))
+    }
+    loadNames()
+    return () => {
+      cancelled = true
+    }
+    // Deliberately keyed on `key` (a stable string derived from refs),
+    // not `refs` itself -- refs is a fresh array/object identity on
+    // every render (each Tab recomputes it from query data inline), so
+    // depending on it directly would refetch every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+
+  return names
+}
+
 function TerminalsTab() {
   const selected = useSelectionStore((s) => s.selected)
   const { data: featureClasses } = useFeatureClasses()
@@ -96,6 +151,13 @@ function TerminalsTab() {
     selected?.featureId,
   )
   useErrorToast(isError, error, "Could not load connections")
+  const counterpartNames = useCounterpartNames(
+    data?.connections.map((conn) => {
+      const isFrom =
+        conn.from.feature_class === selected?.featureClassCode && conn.from.feature_id === selected?.featureId
+      return isFrom ? conn.to : conn.from
+    }),
+  )
 
   const newConnectionButton = selected && (
     <Button
@@ -136,9 +198,14 @@ function TerminalsTab() {
             conn.from.feature_class === selected.featureClassCode && conn.from.feature_id === selected.featureId
           const counterpart = isFrom ? conn.to : conn.from
           const thisTerminal = isFrom ? conn.from.terminal : conn.to.terminal
-          const counterpartName =
+          const counterpartClassName =
             featureClasses?.feature_classes.find((fc) => fc.code === counterpart.feature_class)?.name ??
             counterpart.feature_class
+          const counterpartFeatureName = counterpartNames[`${counterpart.feature_class}:${counterpart.feature_id}`]
+          const counterpartPrimary = counterpartFeatureName || counterpartClassName
+          const counterpartSecondary = counterpartFeatureName
+            ? `${counterpartClassName} · ${shortId(counterpart.feature_id)}`
+            : shortId(counterpart.feature_id)
 
           return (
             <button
@@ -148,10 +215,10 @@ function TerminalsTab() {
               className="hover:bg-accent hover:text-accent-foreground w-full rounded-md border p-2 text-left text-sm transition-colors"
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">{counterpartName}</span>
+                <span className="font-medium">{counterpartPrimary}</span>
                 <span className="text-muted-foreground shrink-0 text-xs">{isFrom ? "Outgoing" : "Incoming"}</span>
               </div>
-              <p className="text-muted-foreground font-mono text-xs">{shortId(counterpart.feature_id)}</p>
+              <p className="text-muted-foreground font-mono text-xs">{counterpartSecondary}</p>
               <p className="text-muted-foreground mt-1 text-xs">
                 {thisTerminal && <>via {thisTerminal} · </>}
                 {conn.network_rule_name}
@@ -172,6 +239,13 @@ function RelationshipsTab() {
     selected?.featureId,
   )
   useErrorToast(isError, error, "Could not load relationships")
+  const counterpartNames = useCounterpartNames(
+    data?.relationships.map((rel) => {
+      const isOrigin =
+        rel.origin.feature_class === selected?.featureClassCode && rel.origin.feature_id === selected?.featureId
+      return isOrigin ? rel.destination : rel.origin
+    }),
+  )
 
   const newRelationshipButton = selected && (
     <Button
@@ -211,9 +285,14 @@ function RelationshipsTab() {
           const isOrigin =
             rel.origin.feature_class === selected.featureClassCode && rel.origin.feature_id === selected.featureId
           const counterpart = isOrigin ? rel.destination : rel.origin
-          const counterpartName =
+          const counterpartClassName =
             featureClasses?.feature_classes.find((fc) => fc.code === counterpart.feature_class)?.name ??
             counterpart.feature_class
+          const counterpartFeatureName = counterpartNames[`${counterpart.feature_class}:${counterpart.feature_id}`]
+          const counterpartPrimary = counterpartFeatureName || counterpartClassName
+          const counterpartSecondary = counterpartFeatureName
+            ? `${counterpartClassName} · ${shortId(counterpart.feature_id)}`
+            : shortId(counterpart.feature_id)
 
           return (
             <button
@@ -223,10 +302,10 @@ function RelationshipsTab() {
               className="hover:bg-accent hover:text-accent-foreground w-full rounded-md border p-2 text-left text-sm transition-colors"
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">{counterpartName}</span>
+                <span className="font-medium">{counterpartPrimary}</span>
                 <span className="text-muted-foreground shrink-0 text-xs">{isOrigin ? "Origin" : "Destination"}</span>
               </div>
-              <p className="text-muted-foreground font-mono text-xs">{shortId(counterpart.feature_id)}</p>
+              <p className="text-muted-foreground font-mono text-xs">{counterpartSecondary}</p>
               <p className="text-muted-foreground mt-1 text-xs">
                 {rel.relationship_class_name} · {rel.kind} · {rel.cardinality}
               </p>
@@ -275,6 +354,7 @@ export function FeaturePanel() {
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const tracing = useTraceStore((s) => s.loading)
+  const { data: traceConfigurations } = useTraceConfigurations()
 
   const isEditingSelected =
     Boolean(selected) &&
@@ -318,20 +398,27 @@ export function FeaturePanel() {
   }
 
   // Runs a real trace (api/internal/trace, see docs/phase-4-trace-engine.md)
-  // starting from the selected feature -- DOWNSTREAM_TRACE/UPSTREAM_TRACE
-  // are the two primitive directions worth a one-click trigger here
-  // (CONNECTED and SHORTEST_PATH don't have a single, obvious feature
-  // to start a one-click action from the panel with). The result lands
-  // in trace-store.ts, which voltedge-map.tsx and trace-result-banner.tsx
-  // both read -- this function's only job is the request itself.
-  async function runTrace(traceConfiguration: "DOWNSTREAM_TRACE" | "UPSTREAM_TRACE") {
+  // starting from the selected feature -- DOWNSTREAM/UPSTREAM are the
+  // two primitive directions worth a one-click trigger here (CONNECTED
+  // and SHORTEST_PATH don't have a single, obvious feature to start a
+  // one-click action from the panel with). Resolves the actual
+  // trace_configurations *code* to send from GET /trace/configurations
+  // by matching on `direction` rather than assuming a specific seeded
+  // code like "DOWNSTREAM_TRACE" exists -- stays correct even if the
+  // seeded config's code is ever renamed, only its direction has to
+  // stay put. The result lands in trace-store.ts, which
+  // voltedge-map.tsx and trace-result-table.tsx both read -- this
+  // function's only job is the request itself.
+  async function runTrace(direction: "DOWNSTREAM" | "UPSTREAM") {
     if (!selected) return
+    const config = traceConfigurations?.trace_configurations.find((c) => c.direction === direction)
+    if (!config) return
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<TraceResult>("/trace", {
         method: "POST",
         body: JSON.stringify({
-          trace_configuration: traceConfiguration,
+          trace_configuration: config.code,
           start: { feature_class: selected.featureClassCode, feature_id: selected.featureId },
         }),
       })
@@ -341,6 +428,9 @@ export function FeaturePanel() {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not run this trace.")
     }
   }
+
+  const downstreamConfig = traceConfigurations?.trace_configurations.find((c) => c.direction === "DOWNSTREAM")
+  const upstreamConfig = traceConfigurations?.trace_configurations.find((c) => c.direction === "UPSTREAM")
 
   const positionStyle = position ? { left: position.x, top: position.y } : undefined
   const positionClass = cn(
@@ -419,9 +509,9 @@ export function FeaturePanel() {
               variant="ghost"
               size="icon"
               className="size-7"
-              disabled={tracing}
-              title="Trace downstream"
-              onClick={() => runTrace("DOWNSTREAM_TRACE")}
+              disabled={tracing || !downstreamConfig}
+              title={downstreamConfig ? "Trace downstream" : "No downstream trace configuration exists"}
+              onClick={() => runTrace("DOWNSTREAM")}
             >
               <ArrowDown className="size-4" />
               <span className="sr-only">Trace downstream</span>
@@ -430,9 +520,9 @@ export function FeaturePanel() {
               variant="ghost"
               size="icon"
               className="size-7"
-              disabled={tracing}
-              title="Trace upstream"
-              onClick={() => runTrace("UPSTREAM_TRACE")}
+              disabled={tracing || !upstreamConfig}
+              title={upstreamConfig ? "Trace upstream" : "No upstream trace configuration exists"}
+              onClick={() => runTrace("UPSTREAM")}
             >
               <ArrowUp className="size-4" />
               <span className="sr-only">Trace upstream</span>

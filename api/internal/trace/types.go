@@ -64,6 +64,15 @@ type traceResponse struct {
 	PathFound          *bool        `json:"path_found,omitempty"`
 }
 
+// traceConfigurationSummary is one row of GET /trace/configurations --
+// enough for a client to discover what's available (and which raw
+// direction it drives) instead of a fixed set of hardcoded codes.
+type traceConfigurationSummary struct {
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	Direction string `json:"direction"`
+}
+
 // apiError is the JSON body returned for any 4xx/5xx response.
 type apiError struct {
 	Error string `json:"error"`

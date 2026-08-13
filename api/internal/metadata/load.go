@@ -224,6 +224,18 @@ func LoadTraceConfiguration(ctx context.Context, db bun.IDB, code string) (*Trac
 	return tc, nil
 }
 
+// ListTraceConfigurations returns every trace_configurations row --
+// backs a real listing endpoint (api/internal/trace) so a client (or a
+// future admin UI authoring these freely) can discover what's available
+// instead of a fixed set of hardcoded codes.
+func ListTraceConfigurations(ctx context.Context, db bun.IDB) ([]TraceConfiguration, error) {
+	var configs []TraceConfiguration
+	if err := db.NewSelect().Model(&configs).Order("code").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: listing trace configurations: %w", err)
+	}
+	return configs, nil
+}
+
 // LoadTraceBarrierRules returns every trace_barrier_rules row for one
 // trace_configurations id -- empty when no barrier condition was
 // authored for this profile (or, at the caller's discretion, when

@@ -303,17 +303,34 @@ func getFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id str
 // deleted row (deleted_at set, visible in the response) since a client
 // following up on a delete or deciding whether to restore needs to see
 // it, not get a 404 for a row that still exists.
-func listFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, limit, offset int) ([]map[string]any, error) {
+//
+// nameQuery, when non-empty, adds a case-insensitive partial match
+// against the universal name column -- a narrow, name-specific search,
+// not general list filtering/sorting (that stays an open item; see
+// docs/open-items.md). "%" and "_" aren't escaped since ILIKE treating
+// them as wildcards inside a human-typed search string is harmless
+// (at worst a slightly broader match), unlike unescaped interpolation
+// into the query itself, which this avoids entirely via a bind param.
+func listFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, limit, offset int, nameQuery string) ([]map[string]any, error) {
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
 		return nil, err
 	}
 
-	query := fmt.Sprintf(
-		"SELECT %s FROM %s WHERE deleted_at IS NULL ORDER BY created_at, id LIMIT ? OFFSET ?",
-		strings.Join(selectColumns(loaded), ", "), table,
-	)
-	rows, err := db.QueryContext(ctx, query, limit, offset)
+	var rows *sql.Rows
+	if nameQuery != "" {
+		query := fmt.Sprintf(
+			"SELECT %s FROM %s WHERE deleted_at IS NULL AND name ILIKE ? ORDER BY created_at, id LIMIT ? OFFSET ?",
+			strings.Join(selectColumns(loaded), ", "), table,
+		)
+		rows, err = db.QueryContext(ctx, query, "%"+nameQuery+"%", limit, offset)
+	} else {
+		query := fmt.Sprintf(
+			"SELECT %s FROM %s WHERE deleted_at IS NULL ORDER BY created_at, id LIMIT ? OFFSET ?",
+			strings.Join(selectColumns(loaded), ", "), table,
+		)
+		rows, err = db.QueryContext(ctx, query, limit, offset)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("crud: list: %w", err)
 	}
