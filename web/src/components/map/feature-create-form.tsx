@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
 
+import { FieldInput } from "@/components/map/feature-field-input"
+import { formatFieldLabel, inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { type FieldSchema, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { ApiError, apiFetch } from "@/lib/api"
@@ -8,96 +10,6 @@ import { useDrawStore } from "@/stores/draw-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
-
-/** "condition_rating" -> "Condition rating" -- same cheap label
- * derivation feature-panel.tsx already uses; no real per-field display
- * label modeled in metadata.fields yet. */
-function formatFieldLabel(key: string): string {
-  const spaced = key.replace(/_/g, " ")
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
-}
-
-const inputClass =
-  "border-input bg-background h-8 w-full rounded-md border px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-
-interface FieldInputProps {
-  field: FieldSchema
-  value: unknown
-  onChange: (value: unknown) => void
-}
-
-/** One form control per field, picked from its metadata data_type --
- * the same contract api/internal/crud/validate.go's validateValue
- * enforces server-side, so a value that passes here should never bounce
- * off a 400 for its type alone. A coded domain always wins into a
- * select, regardless of the underlying data_type. */
-function FieldInput({ field, value, onChange }: FieldInputProps) {
-  if (field.domain_values) {
-    return (
-      <select
-        className={inputClass}
-        value={typeof value === "string" ? value : ""}
-        onChange={(e) => onChange(e.target.value || undefined)}
-      >
-        <option value="">—</option>
-        {field.domain_values.map((v) => (
-          <option key={v} value={v}>
-            {v}
-          </option>
-        ))}
-      </select>
-    )
-  }
-
-  switch (field.data_type) {
-    case "boolean":
-      return (
-        <input
-          type="checkbox"
-          className="size-4"
-          checked={Boolean(value)}
-          onChange={(e) => onChange(e.target.checked)}
-        />
-      )
-    case "integer":
-    case "numeric":
-      return (
-        <input
-          type="number"
-          className={inputClass}
-          value={typeof value === "number" ? value : ""}
-          onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))}
-        />
-      )
-    case "date":
-      return (
-        <input
-          type="date"
-          className={inputClass}
-          value={typeof value === "string" ? value : ""}
-          onChange={(e) => onChange(e.target.value || undefined)}
-        />
-      )
-    case "timestamp":
-      return (
-        <input
-          type="datetime-local"
-          className={inputClass}
-          value={typeof value === "string" ? value : ""}
-          onChange={(e) => onChange(e.target.value ? new Date(e.target.value).toISOString() : undefined)}
-        />
-      )
-    default:
-      return (
-        <input
-          type="text"
-          className={inputClass}
-          value={typeof value === "string" ? value : ""}
-          onChange={(e) => onChange(e.target.value || undefined)}
-        />
-      )
-  }
-}
 
 /**
  * Renders in place of feature-panel.tsx's tabs while a draft exists

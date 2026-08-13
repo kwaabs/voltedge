@@ -1,7 +1,9 @@
 import { Fragment, useEffect, useState } from "react"
-import { Info, Link2, Loader2, Plug, Plus, X } from "lucide-react"
+import { Info, Link2, Loader2, Pencil, Plug, Plus, X } from "lucide-react"
 
 import { FeatureCreateForm } from "@/components/map/feature-create-form"
+import { FeatureEditForm } from "@/components/map/feature-edit-form"
+import { formatFieldLabel, formatValue } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useConnections } from "@/hooks/use-connections"
 import { useFeature } from "@/hooks/use-feature"
@@ -10,6 +12,7 @@ import { useRelationships } from "@/hooks/use-relationships"
 import { cn } from "@/lib/utils"
 import { useConnectStore } from "@/stores/connect-store"
 import { useDrawStore } from "@/stores/draw-store"
+import { useEditStore } from "@/stores/edit-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useErrorToast } from "@/stores/toast-store"
 
@@ -21,31 +24,24 @@ const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
   { id: "relationships", label: "Relationships", icon: Link2 },
 ]
 
-/** "condition_rating" -> "Condition rating" -- cheap and clearly better
- * than the raw column name; not a stand-in for a real per-field display
- * label, which isn't modeled in metadata.fields yet. */
-function formatFieldLabel(key: string): string {
-  const spaced = key.replace(/_/g, " ")
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
-}
-
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—"
-  if (typeof value === "boolean") return value ? "Yes" : "No"
-  return String(value)
-}
-
 function shortId(id: string): string {
   return id.length > 8 ? `${id.slice(0, 8)}…` : id
 }
 
 function AttributesTab() {
   const selected = useSelectionStore((s) => s.selected)
+  const editing = useEditStore((s) => s.editing)
   const { data: feature, isPending, isError, error } = useFeature(
     selected?.featureClassCode,
     selected?.featureId,
   )
   useErrorToast(isError, error, "Could not load this feature")
+
+  const isEditingThis =
+    selected && editing?.featureClassCode === selected.featureClassCode && editing?.featureId === selected.featureId
+  if (isEditingThis) {
+    return <FeatureEditForm featureClassCode={selected.featureClassCode} featureId={selected.featureId} />
+  }
 
   if (isPending) {
     return (
@@ -235,15 +231,28 @@ export function FeaturePanel() {
   const clear = useSelectionStore((s) => s.clear)
   const draft = useDrawStore((s) => s.draft)
   const clearDraft = useDrawStore((s) => s.clearDraft)
+  const editing = useEditStore((s) => s.editing)
   const { data: featureClasses } = useFeatureClasses()
+  const { data: feature } = useFeature(selected?.featureClassCode, selected?.featureId)
   const [activeTab, setActiveTab] = useState<TabId>("attributes")
+
+  const isEditingSelected =
+    Boolean(selected) &&
+    editing?.featureClassCode === selected?.featureClassCode &&
+    editing?.featureId === selected?.featureId
 
   // Land back on Attributes for every newly selected feature -- staying
   // on, say, Relationships while the id underneath changes would show
   // the new feature's relationships under a tab the user didn't
-  // deliberately choose for it.
+  // deliberately choose for it. Also ends whatever edit session was in
+  // progress -- edit-store.ts's `editing` would otherwise keep pointing
+  // at a feature that's no longer selected, and voltedge-map.tsx's
+  // click guard already stops a click from changing `selected` while
+  // editing anyway, so the only way this effect fires mid-edit is
+  // Escape, which should end the edit too.
   useEffect(() => {
     setActiveTab("attributes")
+    useEditStore.getState().stop()
   }, [selected?.featureClassCode, selected?.featureId])
 
   // An unsaved draft (see draw-store.ts) takes over the whole panel,
@@ -286,32 +295,57 @@ export function FeaturePanel() {
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{className}</p>
-          <p className="text-muted-foreground truncate font-mono text-xs">{selected.featureId}</p>
+          <p className="text-muted-foreground truncate font-mono text-xs">
+            {isEditingSelected ? "Editing…" : selected.featureId}
+          </p>
         </div>
-        <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={clear}>
-          <X className="size-4" />
-          <span className="sr-only">Close</span>
-        </Button>
+        {isEditingSelected ? null : (
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              disabled={Boolean(feature?.deleted_at)}
+              onClick={() => useEditStore.getState().start(selected.featureClassCode, selected.featureId)}
+            >
+              <Pencil className="size-4" />
+              <span className="sr-only">Edit</span>
+            </Button>
+            <Button variant="ghost" size="icon" className="size-7" onClick={clear}>
+              <X className="size-4" />
+              <span className="sr-only">Close</span>
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1">
         <div className="flex w-28 shrink-0 flex-col gap-0.5 border-r p-1">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "flex items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs font-medium",
-                activeTab === tab.id
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent/50",
-              )}
-            >
-              <tab.icon className="size-3.5 shrink-0" />
-              {tab.label}
-            </button>
-          ))}
+          {TABS.map((tab) => {
+            // Terminals/Relationships unmount when the active tab
+            // changes (see below) -- switching away mid-edit would
+            // silently drop whatever's typed into the Attributes tab's
+            // edit form, so those two are locked until Save or Cancel
+            // ends the edit session.
+            const locked = isEditingSelected && tab.id !== "attributes"
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                disabled={locked}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "flex items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs font-medium",
+                  locked && "cursor-not-allowed opacity-40",
+                  !locked && activeTab === tab.id && "bg-accent text-accent-foreground",
+                  !locked && activeTab !== tab.id && "text-muted-foreground hover:bg-accent/50",
+                )}
+              >
+                <tab.icon className="size-3.5 shrink-0" />
+                {tab.label}
+              </button>
+            )
+          })}
         </div>
         <div className="flex-1 overflow-y-auto p-3">
           {activeTab === "attributes" && <AttributesTab />}
