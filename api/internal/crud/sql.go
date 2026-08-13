@@ -34,7 +34,7 @@ func physicalTable(fc *metadata.FeatureClass) (string, error) {
 // easy to pick out while scanning), then every active field in the same
 // order the compiler created them.
 func selectColumns(loaded *metadata.Loaded) []string {
-	cols := []string{"id"}
+	cols := []string{"id", "name"}
 	if len(loaded.Subtypes) > 0 {
 		cols = append(cols, "subtype")
 	}
@@ -98,6 +98,7 @@ func scanRows(rows *sql.Rows) ([]map[string]any, error) {
 func formatRow(loaded *metadata.Loaded, row map[string]any) (map[string]any, error) {
 	out := map[string]any{
 		"id":         row["id"],
+		"name":       row["name"],
 		"status":     row["status"],
 		"deleted_at": row["deleted_at"],
 		"created_at": row["created_at"],
@@ -133,7 +134,7 @@ func formatRow(loaded *metadata.Loaded, row map[string]any) (map[string]any, err
 // GET). Column/placeholder lists are built up in lockstep so a bug here
 // shows up as a Postgres arity error immediately rather than silently
 // writing the wrong value into the wrong column.
-func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, subtype *metadata.Subtype, geometry []byte, values map[string]any) (map[string]any, error) {
+func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, subtype *metadata.Subtype, geometry []byte, name *string, values map[string]any) (map[string]any, error) {
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
 		return nil, err
@@ -153,6 +154,12 @@ func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, sub
 		cols = append(cols, "subtype")
 		placeholders = append(placeholders, "?")
 		args = append(args, subtype.Code)
+	}
+
+	if name != nil {
+		cols = append(cols, "name")
+		placeholders = append(placeholders, "?")
+		args = append(args, *name)
 	}
 
 	if len(geometry) > 0 {
@@ -197,7 +204,7 @@ func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, sub
 // only the columns present in values (plus geom, if geometry is
 // non-empty) are touched. Always sets updated_at, since the physical
 // table has no trigger to do it automatically yet.
-func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string, geometry []byte, values map[string]any) (map[string]any, error) {
+func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string, geometry []byte, name *string, values map[string]any) (map[string]any, error) {
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
 		return nil, err
@@ -209,6 +216,11 @@ func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 	if len(geometry) > 0 {
 		sets = append(sets, fmt.Sprintf("geom = ST_SetSRID(ST_GeomFromGeoJSON(?), %d)", *loaded.FeatureClass.SRID))
 		args = append(args, string(geometry))
+	}
+
+	if name != nil {
+		sets = append(sets, "name = ?")
+		args = append(args, *name)
 	}
 
 	for _, f := range loaded.Fields {

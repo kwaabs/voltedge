@@ -156,7 +156,7 @@ func createHandler(db *bun.DB) http.HandlerFunc {
 			values[name] = coerced
 		}
 
-		result, err := insertFeature(r.Context(), db, loaded, subtype, req.Geometry, values)
+		result, err := insertFeature(r.Context(), db, loaded, subtype, req.Geometry, req.Name, values)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -230,7 +230,7 @@ func updateHandler(db *bun.DB) http.HandlerFunc {
 			}
 		}
 
-		result, err := updateFeature(r.Context(), db, loaded, id, req.Geometry, values)
+		result, err := updateFeature(r.Context(), db, loaded, id, req.Geometry, req.Name, values)
 		if err != nil {
 			writeError(w, err)
 			return

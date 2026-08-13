@@ -17,6 +17,7 @@ export interface FeatureGeometry {
 
 export interface FeatureRecord {
   id: string
+  name: string | null
   status: string
   deleted_at: string | null
   created_at: string

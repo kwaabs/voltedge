@@ -13,9 +13,14 @@ package crud
 
 import "encoding/json"
 
-// createRequest is the POST body for creating a feature.
+// createRequest is the POST body for creating a feature. Name is a
+// top-level field, not nested under Attributes -- it's the one
+// universal, optional, human-assigned label every feature class gets
+// identically (api/internal/compiler's buildCreateTable), not a
+// metadata-authored field an admin opts a class into.
 type createRequest struct {
 	Subtype    *int            `json:"subtype,omitempty"`
+	Name       *string         `json:"name,omitempty"`
 	Geometry   json.RawMessage `json:"geometry,omitempty"`
 	Attributes map[string]any  `json:"attributes"`
 }
@@ -28,8 +33,11 @@ type createRequest struct {
 // have that problem (no subtype/required-field interaction at all), so
 // it's just a plain optional replace, same validation
 // (validateGeometry) as create, only skipped entirely when absent
-// rather than required.
+// rather than required. Name is the same kind of plain optional replace
+// as geometry -- absent means "not changing it", an explicit empty
+// string means "clear it".
 type updateRequest struct {
+	Name       *string         `json:"name,omitempty"`
 	Geometry   json.RawMessage `json:"geometry,omitempty"`
 	Attributes map[string]any  `json:"attributes"`
 }

@@ -86,6 +86,16 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 				result.ColumnsAdded = append(result.ColumnsAdded, "deleted_at")
 			}
 
+			// Same backfill pattern for name -- added to buildCreateTable
+			// after every existing feature class was already compiled.
+			if !existingCols["name"] {
+				stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN name text", qualifiedTable)
+				if _, err := tx.ExecContext(ctx, stmt); err != nil {
+					return fmt.Errorf("add column name: %w", err)
+				}
+				result.ColumnsAdded = append(result.ColumnsAdded, "name")
+			}
+
 			for _, f := range loaded.Fields {
 				if existingCols[f.Name] {
 					continue

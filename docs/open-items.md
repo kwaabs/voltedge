@@ -15,8 +15,8 @@ framing used to prioritize which of these to pick up next. Closed items
 move to "Recently closed" for one entry, then drop off -- git history
 and the phase docs are the permanent record, not this file.
 
-**Last updated:** 2026-08-13, after Phase 4's first slice (core trace
-engine primitives).
+**Last updated:** 2026-08-13, after Phase 4's second slice (universal
+feature names + the trace result table).
 
 ## Phase 1 — Metadata core
 
@@ -59,6 +59,8 @@ engine primitives).
 | `cross_transformers`/`respect_phase` enforcement | M–L | Both accepted on a `trace_configurations` row and threaded through, not enforced -- real design questions (what marks a transformer boundary in a `network_role`-driven model that doesn't currently distinguish "transformer" from "any other junction"? how does phase capability intersect hop to hop?) deserve their own pass, not answers invented under this slice's time pressure. | `docs/phase-4-trace-engine.md` |
 | No persistent/cached graph | S–M, revisit only if needed | Every hop queries `runtime.feature_connectivity` fresh, matching `api/internal/connectivity`'s own stateless-per-request style -- fine at this pass's seed-data scale; `docs/metadata-core.md` describes an in-memory graph as a longer-term role, not something this pass's data size gives any signal is actually needed yet. | `docs/phase-4-trace-engine.md` |
 | No endpoint to discover which `trace_configurations` exist | S | `feature-panel.tsx`'s two trigger buttons hardcode `DOWNSTREAM_TRACE`/`UPSTREAM_TRACE` by code. Fine for four fixed, seeded configs; would need a real listing endpoint if `trace_configurations` ever becomes something an admin authors freely. | `docs/phase-4-trace-engine.md` |
+| Per-feature name not shown in connect panel / connection rows | S | `connect-confirm-panel.tsx`'s `EndpointPicker` and the Terminals/Relationships tab's counterpart rows still show only the feature class name, never a per-feature name -- `EndpointPicker` already fetches the full feature record, so this is display-only work, not a new fetch. | `docs/phase-4-feature-names.md` |
+| No search/filter by feature name | S–M | Names are display-only right now -- nothing lets a user find a feature *by* its name (e.g. a search box). | `docs/phase-4-feature-names.md` |
 
 ## Phases 5-7
 
@@ -68,13 +70,20 @@ collection). Too far out to itemize yet.
 
 ## Recently closed
 
-- **Phase 4 slice 1: core trace engine primitives** (this session) --
-  `api/internal/trace` walks `runtime.feature_connectivity` per a named
-  `trace_configurations` profile (`connected`/`downstream`/`upstream`/
-  `shortest_path`, real barrier-stopping against a seeded `DIST_SWITCH`'s
-  live `device_state`); two "Trace downstream"/"Trace upstream" buttons
-  in the floating attribute panel trigger it and highlight the result on
-  the map. See `docs/phase-4-trace-engine.md` for the two real bugs this
-  slice's own verification caught and fixed (a directional-walk gap in
-  how the seeded topology was established; `crud.GetFeature`'s
+- **Phase 4 slice 2: universal feature names + trace result table**
+  (this session) -- `name` is now a system column every compiled
+  feature class gets (same precedent as `deleted_at`), settable from
+  the create/edit forms, shown as the floating panel header's primary
+  label once set. The trace result banner became a real data table
+  (feature class, id, name per row, barrier rows visually distinct,
+  clickable). See `docs/phase-4-feature-names.md`.
+- **Phase 4 slice 1: core trace engine primitives** -- `api/internal/trace`
+  walks `runtime.feature_connectivity` per a named `trace_configurations`
+  profile (`connected`/`downstream`/`upstream`/`shortest_path`, real
+  barrier-stopping against a seeded `DIST_SWITCH`'s live `device_state`);
+  two "Trace downstream"/"Trace upstream" buttons in the floating
+  attribute panel trigger it and highlight the result on the map. See
+  `docs/phase-4-trace-engine.md` for the two real bugs this slice's own
+  verification caught and fixed (a directional-walk gap in how the
+  seeded topology was established; `crud.GetFeature`'s
   attributes-nesting not accounted for in the barrier check).

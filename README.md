@@ -101,21 +101,30 @@ having to reread every phase doc's own "What's still open" section.
   [`docs/phase-3-snapping.md`](docs/phase-3-snapping.md),
   [`docs/phase-3-relationships-ui.md`](docs/phase-3-relationships-ui.md),
   [`docs/phase-3-floating-panel.md`](docs/phase-3-floating-panel.md).
-- **Phase 4 — Network model** (slice 1: core trace primitives done): a
-  real trace engine (`api/internal/trace`) walking `runtime.feature_connectivity`
-  edge by edge, per a named `metadata.trace_configurations` profile —
-  the four raw directions (`connected`/`downstream`/`upstream`/
-  `shortest_path`), with real barrier-stopping against a live feature
-  attribute (a seeded `DIST_SWITCH`'s `device_state`, checked fresh at
-  each hop, never baked into the graph). Two "Trace downstream"/"Trace
-  upstream" buttons in the floating attribute panel's header trigger a
-  real trace and highlight every reached feature on the map (lime-green,
-  red for whichever feature a barrier actually stopped it at) — opening
-  or closing the switch itself needed no new UI at all, just the
-  existing Phase 3 attribute-edit form. Isolation/loop traces and
+- **Phase 4 — Network model** (slices 1-2: core trace primitives, feature
+  names done): a real trace engine (`api/internal/trace`) walking
+  `runtime.feature_connectivity` edge by edge, per a named
+  `metadata.trace_configurations` profile — the four raw directions
+  (`connected`/`downstream`/`upstream`/`shortest_path`), with real
+  barrier-stopping against a live feature attribute (a seeded
+  `DIST_SWITCH`'s `device_state`, checked fresh at each hop, never
+  baked into the graph). Two "Trace downstream"/"Trace upstream"
+  buttons in the floating attribute panel's header trigger a real trace
+  and show every reached feature in a data table (feature class, id,
+  and name) plus a matching map highlight (lime-green, red for
+  whichever feature a barrier actually stopped it at) — opening or
+  closing the switch itself needed no new UI at all, just the existing
+  Phase 3 attribute-edit form. Every feature, regardless of class, can
+  also now carry an optional human-readable name (a universal system
+  column the compiler adds to every physical table, same precedent as
+  `deleted_at`) — set from the same create/edit forms, promoted to the
+  floating panel's header once set, and shown in the trace table
+  alongside each feature's class and id. Isolation/loop traces and
   `cross_transformers`/`respect_phase` enforcement are explicitly not
-  built this pass — see `docs/phase-4-trace-engine.md`.
-  Write-up: [`docs/phase-4-trace-engine.md`](docs/phase-4-trace-engine.md).
+  built this pass — see `docs/phase-4-trace-engine.md`,
+  `docs/phase-4-feature-names.md`.
+  Write-ups: [`docs/phase-4-trace-engine.md`](docs/phase-4-trace-engine.md),
+  [`docs/phase-4-feature-names.md`](docs/phase-4-feature-names.md).
 - **Phase 5 — Diagrams, attribute groups, MCP**: one-line diagram canvas,
   metadata-driven forms, MCP data-plane tools.
 - **Phase 6 — Domain expansion + hardening**: full feature class catalog,
