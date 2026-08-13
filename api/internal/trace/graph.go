@@ -262,12 +262,25 @@ const maxTraceHops = 2000
 // discovered rather than exhausting the whole reachable set -- correct
 // for shortest-path because BFS discovers nodes in non-decreasing
 // distance order, so the first discovery is already a shortest path.
-func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers map[string]barrierCheck, loader *featureClassLoader, target *node) (order []node, barrierHits []node, parent map[node]node, found bool, err error) {
+//
+// targetClassID is a different, later-added concept from target above:
+// target names one specific feature (shortest_path's destination),
+// targetClassID names a whole feature *class* to stop at the first
+// node of -- e.g. "walk upstream until you reach a DIST_XFMR." The
+// start node itself never counts as a class-target hit even if its own
+// class matches, so a trace started AT a transformer correctly finds
+// the *next* one, not itself. crossTransformers controls what happens
+// once a class-target node is reached: false (the trace_configurations
+// default) stops expansion there, same as a barrier; true records the
+// hit but keeps walking past it -- the real, enforced meaning that
+// column only ever had as a stub before this.
+func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers map[string]barrierCheck, loader *featureClassLoader, target *node, targetClassID *string, crossTransformers bool) (order []node, barrierHits []node, targetHits []node, parent map[node]node, found bool, err error) {
 	visited := map[node]bool{start: true}
 	parent = map[node]node{}
 	queue := []node{start}
 	order = []node{start}
 	barrierSet := map[node]bool{}
+	targetSet := map[node]bool{}
 	found = target != nil && start == *target
 
 	for len(queue) > 0 && len(order) < maxTraceHops {
@@ -282,6 +295,14 @@ func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers
 		if isBarrier {
 			barrierSet[current] = true
 			continue
+		}
+
+		isClassTarget := targetClassID != nil && current != start && current.classID == *targetClassID
+		if isClassTarget {
+			targetSet[current] = true
+			if !crossTransformers {
+				continue
+			}
 		}
 
 		var neighbors []node
@@ -309,6 +330,10 @@ func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers
 	barrierHits = make([]node, 0, len(barrierSet))
 	for n := range barrierSet {
 		barrierHits = append(barrierHits, n)
+	}
+	targetHits = make([]node, 0, len(targetSet))
+	for n := range targetSet {
+		targetHits = append(targetHits, n)
 	}
 	err = nil
 	return
@@ -447,7 +472,7 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 		return nil, err
 	}
 
-	visited, barrierHits, parent, found, err := bfs(ctx, db, start, direction, barriers, newFeatureClassLoader(), target)
+	visited, barrierHits, targetHits, parent, found, err := bfs(ctx, db, start, direction, barriers, newFeatureClassLoader(), target, tc.TargetClassID, tc.CrossTransformers)
 	if err != nil {
 		return nil, err
 	}
@@ -461,9 +486,10 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 		featureNodes = visited
 	}
 
-	allNodes := make([]node, 0, len(featureNodes)+len(barrierHits))
+	allNodes := make([]node, 0, len(featureNodes)+len(barrierHits)+len(targetHits))
 	allNodes = append(allNodes, featureNodes...)
 	allNodes = append(allNodes, barrierHits...)
+	allNodes = append(allNodes, targetHits...)
 	classCodes, err := nodeClassCodes(ctx, db, allNodes)
 	if err != nil {
 		return nil, err
@@ -478,6 +504,11 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 	}
 	if direction == "SHORTEST_PATH" {
 		resp.PathFound = &found
+	}
+	if tc.TargetClassID != nil {
+		resp.Targets = toFeatureRefs(targetHits, classCodes)
+		targetsFound := len(targetHits) > 0
+		resp.TargetsFound = &targetsFound
 	}
 	return resp, nil
 }

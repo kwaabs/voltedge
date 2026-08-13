@@ -13,7 +13,9 @@ export interface TraceFeatureRef {
  * `barriers` is always a subset of `features`: the nodes a trace
  * actually reached but a live trace_barrier_rules condition stopped it
  * from expanding past, distinct from a node that simply has no further
- * edges. */
+ * edges. `targets`/`targets_found` are only present when the named
+ * trace_configurations row has a target_class set (migrations/0018) --
+ * e.g. every transformer a "trace to transformer" run reached. */
 export interface TraceResult {
   trace_configuration: string
   direction: string
@@ -21,6 +23,8 @@ export interface TraceResult {
   features: TraceFeatureRef[]
   barriers: TraceFeatureRef[]
   path_found?: boolean
+  targets?: TraceFeatureRef[]
+  targets_found?: boolean
 }
 
 /**

@@ -17,6 +17,9 @@ import (
 //	GET    /configurations list every trace_configurations row --
 //	                       lets a client discover what's available
 //	                       instead of a fixed set of hardcoded codes
+//	POST   /isolate        de-energized set + upstream protective
+//	                       boundary for a switching device, composed
+//	                       from two ordinary downstream/upstream traces
 //
 // Read-only -- unlike api/internal/connectivity and
 // api/internal/relationship, there's nothing here to establish or
@@ -26,6 +29,7 @@ func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Post("/", runHandler(db))
 	r.Get("/configurations", listConfigurationsHandler(db))
+	r.Post("/isolate", isolateHandler(db))
 	return r
 }
 
@@ -38,6 +42,23 @@ func runHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := runTrace(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func isolateHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req isolationRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := isolate(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

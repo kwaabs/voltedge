@@ -2,6 +2,7 @@ import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
 import { FeaturePanel } from "@/components/map/feature-panel"
 import { FeatureSearch } from "@/components/map/feature-search"
 import { GeometryEditToolbar } from "@/components/map/geometry-edit-toolbar"
+import { IsolationResultTable } from "@/components/map/isolation-result-table"
 import { LayersPanel } from "@/components/map/layers-panel"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
 import { PeerPicker } from "@/components/map/peer-picker"
@@ -26,6 +27,7 @@ export function MapPage() {
       <ConnectConfirmPanel />
       <GeometryEditToolbar />
       <TraceResultTable />
+      <IsolationResultTable />
       <Toaster />
       <StatusBar />
     </div>

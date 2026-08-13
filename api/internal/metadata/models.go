@@ -151,13 +151,14 @@ type RelationshipClass struct {
 type TraceConfiguration struct {
 	bun.BaseModel `bun:"table:metadata.trace_configurations"`
 
-	ID                string `bun:"id,pk"`
-	Code              string `bun:"code"`
-	Name              string `bun:"name"`
-	DirectionValueID  string `bun:"direction_value_id"`
-	StopAtOpenDevices bool   `bun:"stop_at_open_devices"`
-	CrossTransformers bool   `bun:"cross_transformers"`
-	RespectPhase      bool   `bun:"respect_phase"`
+	ID                string  `bun:"id,pk"`
+	Code              string  `bun:"code"`
+	Name              string  `bun:"name"`
+	DirectionValueID  string  `bun:"direction_value_id"`
+	StopAtOpenDevices bool    `bun:"stop_at_open_devices"`
+	CrossTransformers bool    `bun:"cross_transformers"`
+	RespectPhase      bool    `bun:"respect_phase"`
+	TargetClassID     *string `bun:"target_class_id"`
 }
 
 // TraceBarrierRule mirrors metadata.trace_barrier_rules -- see

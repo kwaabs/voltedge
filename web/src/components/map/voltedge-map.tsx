@@ -42,6 +42,7 @@ import { useConnectStore } from "@/stores/connect-store"
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
+import { useIsolateStore } from "@/stores/isolate-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
@@ -196,6 +197,13 @@ export function VoltEdgeMap() {
   // happened to run on a given commit silently wins, clobbering the
   // other's features.
   const traceSourceRef = useRef<VectorSource | null>(null)
+  // Isolation results (isolate-store.ts) -- same reasoning as
+  // traceSourceRef's own comment: fetched asynchronously, so it needs
+  // its own source rather than sharing traceSource's, even though the
+  // two workflows are mutually exclusive in the UI (running one clears
+  // the other's store) -- a shared source would leave the two effects'
+  // clear/populate timing racing each other across that transition.
+  const isolateSourceRef = useRef<VectorSource | null>(null)
   // Snap candidates -- never added to the map as a rendered layer, just
   // a plain VectorSource for the Snap interaction below to read (see
   // refreshSnapSource for why this indirection is needed at all: every
@@ -231,6 +239,7 @@ export function VoltEdgeMap() {
   const deletedIds = useDeletedFeaturesStore((s) => s.ids)
   const snapEnabled = useSnapStore((s) => s.enabled)
   const traceResult = useTraceStore((s) => s.result)
+  const isolateResult = useIsolateStore((s) => s.result)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
   const selected = useSelectionStore((s) => s.selected)
@@ -328,6 +337,15 @@ export function VoltEdgeMap() {
     map.addLayer(traceLayer)
     traceSourceRef.current = traceSource
 
+    // Isolation results (see the effect below and isolate-store.ts) --
+    // same style function, own source, same zIndex as traceLayer (the
+    // two never render simultaneously in practice, see isolateSourceRef's
+    // own comment).
+    const isolateSource = new VectorSource()
+    const isolateLayer = new VectorLayer({ source: isolateSource, style: highlightStyleForFeature, zIndex: 6 })
+    map.addLayer(isolateLayer)
+    isolateSourceRef.current = isolateSource
+
     // The one feature currently under geometry edit (see
     // editStyleForFeature) -- above the highlight layer so its cyan
     // isn't washed out underneath a selected halo, below the draft
@@ -364,6 +382,7 @@ export function VoltEdgeMap() {
       draftSourceRef.current = null
       highlightSourceRef.current = null
       traceSourceRef.current = null
+      isolateSourceRef.current = null
       editSourceRef.current = null
       snapSourceRef.current = null
     }
@@ -504,6 +523,7 @@ export function VoltEdgeMap() {
 
     let cancelled = false
     const barrierKeys = new Set(result.barriers.map((b) => `${b.feature_class}:${b.feature_id}`))
+    const targetKeys = new Set((result.targets ?? []).map((t) => `${t.feature_class}:${t.feature_id}`))
 
     async function loadTraceFeatures() {
       const fetched = await Promise.all(
@@ -531,7 +551,13 @@ export function VoltEdgeMap() {
         if (!olGeometry) continue
         const feature = new Feature(olGeometry)
         const key = `${f.ref.feature_class}:${f.ref.feature_id}`
-        feature.set("role", barrierKeys.has(key) ? "trace-barrier" : "trace")
+        // Barrier takes precedence over target in the unlikely case a
+        // node is somehow both -- the two are mutually exclusive in
+        // every seeded scenario (a barrier halts expansion before a
+        // target-class check would even run against it, see
+        // api/internal/trace/graph.go's bfs), this is just a
+        // deterministic tie-break, not a real modeled case.
+        feature.set("role", barrierKeys.has(key) ? "trace-barrier" : targetKeys.has(key) ? "trace-target" : "trace")
         src.addFeature(feature)
       }
     }
@@ -541,6 +567,59 @@ export function VoltEdgeMap() {
       cancelled = true
     }
   }, [traceResult])
+
+  // Isolation result highlight -- same async-fetch-into-a-dedicated-source
+  // shape as the trace effect above, just two named lists (de_energized,
+  // upstream_boundary) instead of one feature list plus subsets of it.
+  useEffect(() => {
+    const source = isolateSourceRef.current
+    if (!source) return
+
+    if (!isolateResult) {
+      source.clear()
+      return
+    }
+
+    const src: VectorSource = source
+    const result: NonNullable<typeof isolateResult> = isolateResult
+
+    let cancelled = false
+
+    async function loadIsolationFeatures() {
+      const refs = result.upstream_boundary
+        ? [...result.de_energized.map((ref) => ({ ref, role: "isolation-deenergized" as const })), { ref: result.upstream_boundary, role: "isolation-boundary" as const }]
+        : result.de_energized.map((ref) => ({ ref, role: "isolation-deenergized" as const }))
+
+      const fetched = await Promise.all(
+        refs.map(async ({ ref, role }) => {
+          try {
+            const feature = await apiFetch<{ geometry?: FeatureGeometry }>(
+              `/features/${ref.feature_class}/${ref.feature_id}`,
+            )
+            return { geometry: feature.geometry, role }
+          } catch {
+            return null
+          }
+        }),
+      )
+      if (cancelled) return
+
+      src.clear()
+      for (const f of fetched) {
+        if (!f?.geometry) continue
+        const olGeometry = geoJSONToGeometry(f.geometry)
+        if (!olGeometry) continue
+        const feature = new Feature(olGeometry)
+        feature.set("role", f.role)
+        src.addFeature(feature)
+      }
+    }
+
+    loadIsolationFeatures()
+    return () => {
+      cancelled = true
+    }
+  }, [isolateResult])
 
   // Pans/zooms to a feature selected from a connection/relationship
   // list row (feature-panel.tsx) rather than a direct map click -- see
