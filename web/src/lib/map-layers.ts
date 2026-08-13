@@ -50,6 +50,58 @@ const draftPolygonStyle = new Style({
   stroke: new Stroke({ color: DRAFT_COLOR, width: 2, lineDash: [6, 4] }),
 })
 
+/** The three roles voltedge-map.tsx's highlight layer ever draws: the
+ * single feature currently shown in the docked panel, or -- while a
+ * connectivity/relationship workflow is active (connect-store.ts) --
+ * the source and target ends of it, each in its own color so the two
+ * are never confused with each other or with a plain selection. */
+export type HighlightRole = "selected" | "connect-source" | "connect-target"
+
+const HIGHLIGHT_COLORS: Record<HighlightRole, string> = {
+  selected: "#38bdf8",
+  "connect-source": "#f59e0b",
+  "connect-target": "#a855f7",
+}
+
+function highlightStyleFor(color: string, geometryType: string | undefined): Style {
+  switch (geometryType) {
+    case "Point":
+    case "MultiPoint":
+      return new Style({
+        image: new Circle({
+          radius: 12,
+          fill: new Fill({ color: `${color}26` }),
+          stroke: new Stroke({ color, width: 2.5 }),
+        }),
+      })
+    case "LineString":
+    case "MultiLineString":
+      // Wide and translucent (the highlight layer renders above the
+      // real feature -- see voltedge-map.tsx -- so an opaque stroke here
+      // would hide the line's own real color underneath it) so it reads
+      // as a glow rather than replacing the line's real styling.
+      return new Style({ stroke: new Stroke({ color: `${color}66`, width: 9, lineCap: "round" }) })
+    default:
+      return new Style({
+        fill: new Fill({ color: `${color}1f` }),
+        stroke: new Stroke({ color, width: 3 }),
+      })
+  }
+}
+
+/**
+ * The highlight layer's style function -- reads which role a given
+ * highlight feature was tagged with (voltedge-map.tsx sets a `role`
+ * property when it builds each one from a fetched feature's real
+ * geometry) rather than taking the role as a style-function argument,
+ * since OL always calls a layer's style function with the feature
+ * alone.
+ */
+export function highlightStyleForFeature(feature: FeatureLike): Style {
+  const role = (feature.get("role") as HighlightRole | undefined) ?? "selected"
+  return highlightStyleFor(HIGHLIGHT_COLORS[role], feature.getGeometry()?.getType())
+}
+
 /**
  * Geometry-type-only styling -- no metadata-driven symbology yet
  * (icon_ref resolution, shape vs. modifier, subtype/domain-value

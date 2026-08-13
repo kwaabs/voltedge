@@ -51,13 +51,19 @@ feature-specific code path anywhere else.
   "+ New connection" button in the Terminals tab drives a floating,
   draggable panel that establishes real electrical connectivity between
   two features' terminals through the zero-trust `POST /connectivity`
-  engine. Still open: structural relationships from the same panel,
-  Azure AD SSO, metadata-driven symbology resolution, editing an
-  existing feature, snapping, an undockable/floating attribute panel.
+  engine. The selected feature (or, mid-connect-workflow, its source and
+  target) gets a real halo traced around its actual geometry on the map;
+  every connection/relationship row is clickable and pans/highlights the
+  feature on the other end; every error surfaces as a top-right toast
+  instead of inline panel text. Still open: structural relationships
+  from the same panel, Azure AD SSO, metadata-driven symbology
+  resolution, editing an existing feature, snapping, an
+  undockable/floating attribute panel.
   Write-ups: [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md),
   [`docs/phase-3-map-loop.md`](docs/phase-3-map-loop.md),
   [`docs/phase-3-create-feature.md`](docs/phase-3-create-feature.md),
-  [`docs/phase-3-connectivity-ui.md`](docs/phase-3-connectivity-ui.md).
+  [`docs/phase-3-connectivity-ui.md`](docs/phase-3-connectivity-ui.md),
+  [`docs/phase-3-map-aesthetics.md`](docs/phase-3-map-aesthetics.md).
 - **Phase 4 — Network model**: the trace engine, built against the
   terminals/network_rules/trace_configurations metadata Phase 1 already
   created and the connectivity Phase 2 establishes.

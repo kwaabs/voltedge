@@ -7,6 +7,7 @@ import { ApiError, apiFetch } from "@/lib/api"
 import { useDrawStore } from "@/stores/draw-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
 import { useSelectionStore } from "@/stores/selection-store"
+import { useErrorToast, useToastStore } from "@/stores/toast-store"
 
 /** "condition_rating" -> "Condition rating" -- same cheap label
  * derivation feature-panel.tsx already uses; no real per-field display
@@ -111,11 +112,11 @@ export function FeatureCreateForm() {
   const bumpMapRefresh = useMapRefreshStore((s) => s.bump)
   const select = useSelectionStore((s) => s.select)
   const { data: schema, isPending, isError, error } = useFeatureClassSchema(draft?.featureClassCode)
+  useErrorToast(isError, error, "Could not load the form")
 
   const [subtypeCode, setSubtypeCode] = useState<number | "">("")
   const [attributes, setAttributes] = useState<Record<string, unknown>>({})
   const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Fresh form state for every new draft -- a leftover subtype pick or
   // attribute value from a just-canceled or just-saved draft has no
@@ -123,7 +124,6 @@ export function FeatureCreateForm() {
   useEffect(() => {
     setSubtypeCode("")
     setAttributes({})
-    setSaveError(null)
   }, [draft?.featureClassCode])
 
   if (!draft) return null
@@ -136,13 +136,7 @@ export function FeatureCreateForm() {
       </div>
     )
   }
-  if (isError || !schema) {
-    return (
-      <p className="text-destructive text-sm">
-        Could not load the form{error instanceof Error ? `: ${error.message}` : "."}
-      </p>
-    )
-  }
+  if (isError || !schema) return null
 
   const visibleFields = schema.fields.filter((f) => f.visible_on_create)
   const isFieldRequired = (field: FieldSchema) =>
@@ -159,7 +153,6 @@ export function FeatureCreateForm() {
   async function handleSave() {
     if (!draft || !schema) return
     setSaving(true)
-    setSaveError(null)
     try {
       const body: Record<string, unknown> = { geometry: draft.geometry, attributes }
       if (needsSubtype) body.subtype = subtypeCode
@@ -171,7 +164,7 @@ export function FeatureCreateForm() {
       select(draft.featureClassCode, created.id)
       clearDraft()
     } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : "Could not save this feature.")
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save this feature.")
     } finally {
       setSaving(false)
     }
@@ -212,8 +205,6 @@ export function FeatureCreateForm() {
           />
         </div>
       ))}
-
-      {saveError && <p className="text-destructive text-sm">{saveError}</p>}
 
       <div className="flex justify-end gap-2 pt-1">
         <Button variant="outline" size="sm" onClick={clearDraft} disabled={saving}>

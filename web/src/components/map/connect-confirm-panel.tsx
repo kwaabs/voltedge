@@ -9,6 +9,7 @@ import { terminalsForSubtype, useFeatureClassSchema } from "@/hooks/use-feature-
 import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useConnectStore } from "@/stores/connect-store"
+import { useToastStore } from "@/stores/toast-store"
 
 const selectClass =
   "border-input bg-background h-8 w-full rounded-md border px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
@@ -78,20 +79,17 @@ export function ConnectConfirmPanel() {
   const [sourceTerminal, setSourceTerminal] = useState("")
   const [targetTerminal, setTargetTerminal] = useState("")
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
   // A fresh "+ New connection"/"+ New relationship" click starts a new
   // session with a (possibly different) source and no target yet --
   // this component never unmounts (it renders null instead), so without
-  // this its terminal picks and any error from a previous, unrelated
-  // attempt would silently carry over into the new one.
+  // this its terminal picks would silently carry over into the new one.
   useEffect(() => {
     if (!mode) return
     setSourceTerminal("")
     setTargetTerminal("")
-    setError(null)
     setPosition(null)
   }, [mode, source?.featureClassCode, source?.featureId])
 
@@ -121,7 +119,6 @@ export function ConnectConfirmPanel() {
   async function handleConfirm() {
     if (!source || !target) return
     setSaving(true)
-    setError(null)
     try {
       await apiFetch("/connectivity", {
         method: "POST",
@@ -134,7 +131,11 @@ export function ConnectConfirmPanel() {
       queryClient.invalidateQueries({ queryKey: ["connections", target.featureClassCode, target.featureId] })
       cancel()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not establish this connection.")
+      // Panel stays open (unlike a successful Confirm, which calls
+      // cancel() above) so a rejected pairing can be retried with a
+      // different terminal or target without losing the workflow's
+      // place -- only where the message shows moved to a toast.
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not establish this connection.")
     } finally {
       setSaving(false)
     }
@@ -182,8 +183,6 @@ export function ConnectConfirmPanel() {
             Click a second feature on the map to connect to.
           </p>
         )}
-
-        {error && <p className="text-destructive text-sm">{error}</p>}
 
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="outline" size="sm" onClick={cancel} disabled={saving}>

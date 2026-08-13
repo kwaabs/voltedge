@@ -5,6 +5,7 @@ import { NewFeatureMenu } from "@/components/map/new-feature-menu"
 import { PeerPicker } from "@/components/map/peer-picker"
 import { StatusBar } from "@/components/map/status-bar"
 import { VoltEdgeMap } from "@/components/map/voltedge-map"
+import { Toaster } from "@/components/ui/toaster"
 
 export function MapPage() {
   return (
@@ -19,6 +20,7 @@ export function MapPage() {
       <PeerPicker />
       <FeaturePanel />
       <ConnectConfirmPanel />
+      <Toaster />
       <StatusBar />
     </div>
   )

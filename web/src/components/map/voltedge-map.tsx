@@ -1,5 +1,6 @@
 import { defaults as defaultControls } from "ol/control"
-import type Feature from "ol/Feature"
+import { isEmpty as isEmptyExtent } from "ol/extent"
+import Feature from "ol/Feature"
 import MVT from "ol/format/MVT"
 import type Geometry from "ol/geom/Geometry"
 import LineString from "ol/geom/LineString"
@@ -20,8 +21,9 @@ import View from "ol/View"
 import { useEffect, useRef } from "react"
 
 import { useCatalog } from "@/hooks/use-catalog"
+import { type FeatureGeometry, useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
-import { draftStyleForFeature, styleForFeature } from "@/lib/map-layers"
+import { draftStyleForFeature, type HighlightRole, highlightStyleForFeature, styleForFeature } from "@/lib/map-layers"
 import { tileUrlTemplate } from "@/lib/martin"
 import { useConnectStore } from "@/stores/connect-store"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
@@ -46,7 +48,7 @@ const OL_DRAW_TYPE: Record<DrawGeometryType, "Point" | "LineString" | "Polygon">
  * concrete geometry class rather than assuming Draw always hands back a
  * Point the way the original point-only version of this file did.
  */
-function geometryToGeoJSON(geometry: Geometry): { type: string; coordinates: unknown } | null {
+function geometryToGeoJSON(geometry: Geometry): FeatureGeometry | null {
   if (geometry instanceof Point) {
     return { type: "Point", coordinates: toLonLat(geometry.getCoordinates()) }
   }
@@ -58,6 +60,31 @@ function geometryToGeoJSON(geometry: Geometry): { type: string; coordinates: unk
       type: "Polygon",
       coordinates: geometry.getCoordinates().map((ring) => ring.map((c) => toLonLat(c))),
     }
+  }
+  return null
+}
+
+/**
+ * The inverse of geometryToGeoJSON above -- turns a fetched feature's
+ * real GeoJSON geometry (EPSG:4326, from `GET /features/{code}/{id}`)
+ * into an OL geometry in view projection (EPSG:3857), so the highlight
+ * layer (see the effect below) can draw a halo around whichever feature
+ * is currently selected or, mid connect/relate workflow, its source and
+ * target. Same three-geometry-type support as the forward direction,
+ * for the same reason: nothing this app creates or highlights is ever a
+ * Multi* geometry.
+ */
+function geoJSONToGeometry(geometry: FeatureGeometry): Geometry | null {
+  if (geometry.type === "Point") {
+    return new Point(fromLonLat(geometry.coordinates as [number, number]))
+  }
+  if (geometry.type === "LineString") {
+    return new LineString((geometry.coordinates as [number, number][]).map((c) => fromLonLat(c)))
+  }
+  if (geometry.type === "Polygon") {
+    return new Polygon(
+      (geometry.coordinates as [number, number][][]).map((ring) => ring.map((c) => fromLonLat(c))),
+    )
   }
   return null
 }
@@ -80,14 +107,33 @@ export function VoltEdgeMap() {
   const mapRef = useRef<Map | null>(null)
   const vectorLayersRef = useRef<VectorTileLayer[]>([])
   const draftSourceRef = useRef<VectorSource | null>(null)
+  const highlightSourceRef = useRef<VectorSource | null>(null)
+  // The last focusToken the pan-to-feature effect below already handled
+  // -- see that effect for why it needs this instead of just depending
+  // on focusToken alone.
+  const fittedTokenRef = useRef(0)
   const { data: catalog } = useCatalog()
   const { data: featureClasses } = useFeatureClasses()
   const drawingFeatureClassCode = useDrawStore((s) => s.drawingFeatureClassCode)
   const drawingGeometryType = useDrawStore((s) => s.drawingGeometryType)
   const draft = useDrawStore((s) => s.draft)
   const connectMode = useConnectStore((s) => s.mode)
+  const connectSource = useConnectStore((s) => s.source)
+  const connectTarget = useConnectStore((s) => s.target)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
+  const selected = useSelectionStore((s) => s.selected)
+  const focusToken = useSelectionStore((s) => s.focusToken)
+
+  // Whichever feature(s) the highlight layer needs a real geometry for
+  // -- the plain-selected feature normally, or the connect/relate
+  // workflow's source and target while one is active (see connect-store.ts).
+  // TanStack Query dedupes these against the same queries feature-panel.tsx
+  // and connect-confirm-panel.tsx already run for the same ids, so this
+  // is a cache hit in the common case, not a second real fetch.
+  const { data: selectedFeature } = useFeature(selected?.featureClassCode, selected?.featureId)
+  const { data: connectSourceFeature } = useFeature(connectSource?.featureClassCode, connectSource?.featureId)
+  const { data: connectTargetFeature } = useFeature(connectTarget?.featureClassCode, connectTarget?.featureId)
   // Lets the layer-creation effect below read the *current* hidden set
   // without depending on it -- depending on it directly would rebuild
   // every VectorTileLayer (and re-request every tile) on each single
@@ -145,11 +191,23 @@ export function VoltEdgeMap() {
     map.addLayer(draftLayer)
     draftSourceRef.current = draftSource
 
+    // The highlight layer (see highlightStyleForFeature) -- above the
+    // vector tile layers (zIndex 0 by default) so a halo is never hidden
+    // behind other features, but below the draft layer; translucent
+    // enough (see the style's alpha channels) that it reads as a glow
+    // around the real feature rather than covering it. Same
+    // clear-and-repopulate pattern as draftSource.
+    const highlightSource = new VectorSource()
+    const highlightLayer = new VectorLayer({ source: highlightSource, style: highlightStyleForFeature, zIndex: 5 })
+    map.addLayer(highlightLayer)
+    highlightSourceRef.current = highlightSource
+
     return () => {
       map.getTargetElement()?.removeEventListener("mouseleave", clearPosition)
       map.setTarget(undefined)
       mapRef.current = null
       draftSourceRef.current = null
+      highlightSourceRef.current = null
     }
   }, [])
 
@@ -205,6 +263,64 @@ export function VoltEdgeMap() {
     document.addEventListener("keydown", handleEscape)
     return () => document.removeEventListener("keydown", handleEscape)
   }, [connectMode])
+
+  // Draws (or clears) the highlight halo -- while a connect/relate
+  // workflow is active it takes over entirely (source/target, each in
+  // their own color), otherwise it's just whichever single feature is
+  // selected. Each fetched feature's real geometry (see the useFeature
+  // calls above) is what makes this a true highlight of the actual
+  // shape rather than a generic marker -- a temporary OL Feature built
+  // fresh each time this runs, tagged with a `role` the style function
+  // reads (see highlightStyleForFeature), added to highlightSource, and
+  // nothing else keeps a reference to it once the effect reruns and
+  // clears the source again.
+  useEffect(() => {
+    const source = highlightSourceRef.current
+    if (!source) return
+    source.clear()
+
+    const add = (geometry: FeatureGeometry | undefined, role: HighlightRole) => {
+      const olGeometry = geometry && geoJSONToGeometry(geometry)
+      if (!olGeometry) return
+      const feature = new Feature(olGeometry)
+      feature.set("role", role)
+      source.addFeature(feature)
+    }
+
+    if (connectMode) {
+      add(connectSourceFeature?.geometry, "connect-source")
+      add(connectTargetFeature?.geometry, "connect-target")
+    } else {
+      add(selectedFeature?.geometry, "selected")
+    }
+  }, [connectMode, connectSourceFeature, connectTargetFeature, selectedFeature])
+
+  // Pans/zooms to a feature selected from a connection/relationship
+  // list row (feature-panel.tsx) rather than a direct map click -- see
+  // selection-store.ts's focusToken for why a click doesn't also do
+  // this (it's already on screen). maxZoom caps how far a point (a
+  // zero-size extent) gets zoomed in; a line or polygon's real extent
+  // fits within that same padding regardless of size.
+  //
+  // Depends on both focusToken and selectedFeature, not focusToken
+  // alone -- a freshly clicked row almost always targets a feature this
+  // tab hasn't fetched before, so selectedFeature is still `undefined`
+  // on the very render where focusToken changes; a token-only dependency
+  // would silently skip the pan for exactly that (the common) case and
+  // only happen to work when the feature's data was already cached from
+  // earlier in the session. fittedTokenRef makes sure the actual fit
+  // still only runs once per focus request (not on every later refetch
+  // of the same feature) by remembering the last token it already
+  // handled.
+  useEffect(() => {
+    if (focusToken === 0 || focusToken === fittedTokenRef.current) return
+    const map = mapRef.current
+    const geometry = selectedFeature?.geometry && geoJSONToGeometry(selectedFeature.geometry)
+    const extent = geometry?.getExtent()
+    if (!map || !extent || isEmptyExtent(extent)) return
+    map.getView().fit(extent, { padding: [80, 80, 80, 80], maxZoom: 18, duration: 400 })
+    fittedTokenRef.current = focusToken
+  }, [focusToken, selectedFeature])
 
   // Forces every vector tile source to refetch -- bumped by
   // feature-create-form.tsx after a successful save, since the catalog
