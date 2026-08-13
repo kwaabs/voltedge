@@ -2,6 +2,7 @@ import { Circle, Fill, Stroke, Style } from "ol/style"
 import type { FeatureLike } from "ol/Feature"
 
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
+import { useEditStore } from "@/stores/edit-store"
 
 /**
  * Canvas-rendered styles can't consume the app's CSS custom properties
@@ -17,6 +18,13 @@ const POLYGON_COLOR = "#64748b"
 /** Emerald -- distinct from every committed-feature color above, so an
  * unsaved draft feature never reads as just another real one. */
 const DRAFT_COLOR = "#10b981"
+/** Cyan -- distinct from every other role color in this file (point/
+ * line/polygon, draft, and every highlight role), so a feature actively
+ * under geometry edit (geometry-edit-toolbar.tsx, voltedge-map.tsx's
+ * Modify/Translate interactions) never reads as merely selected or a
+ * fresh draft. Vertex handles themselves are Modify's own overlay, not
+ * drawn here -- this only needs to make the geometry itself distinct. */
+const EDIT_COLOR = "#06b6d4"
 
 /** An empty Style renders nothing -- see deleted-features-store.ts for
  * why styleForFeature needs this at all: Martin has no idea a feature
@@ -57,6 +65,37 @@ const draftPolygonStyle = new Style({
   fill: new Fill({ color: `${DRAFT_COLOR}26` }),
   stroke: new Stroke({ color: DRAFT_COLOR, width: 2, lineDash: [6, 4] }),
 })
+
+const editPointStyle = new Style({
+  image: new Circle({
+    radius: 6,
+    fill: new Fill({ color: `${EDIT_COLOR}80` }),
+    stroke: new Stroke({ color: EDIT_COLOR, width: 2 }),
+  }),
+})
+
+const editLineStyle = new Style({
+  stroke: new Stroke({ color: EDIT_COLOR, width: 3 }),
+})
+
+const editPolygonStyle = new Style({
+  fill: new Fill({ color: `${EDIT_COLOR}26` }),
+  stroke: new Stroke({ color: EDIT_COLOR, width: 2 }),
+})
+
+/** The one feature currently under geometry edit -- see EDIT_COLOR. */
+export function editStyleForFeature(feature: FeatureLike): Style {
+  switch (feature.getGeometry()?.getType()) {
+    case "Point":
+    case "MultiPoint":
+      return editPointStyle
+    case "LineString":
+    case "MultiLineString":
+      return editLineStyle
+    default:
+      return editPolygonStyle
+  }
+}
 
 /** The three roles voltedge-map.tsx's highlight layer ever draws: the
  * single feature currently shown in the docked panel, or -- while a
@@ -121,6 +160,13 @@ export function highlightStyleForFeature(feature: FeatureLike): Style {
 export function styleForFeature(feature: FeatureLike): Style {
   const id = feature.get("id") as string | undefined
   if (id && useDeletedFeaturesStore.getState().ids.has(id)) return hiddenStyle
+  // The real, tile-rendered copy of whichever feature is under
+  // geometry edit is hidden for the whole edit session (not just while
+  // a geometry tool is actively engaged) -- the cyan edit-geometry
+  // layer (see editStyleForFeature, voltedge-map.tsx) stands in for it
+  // instead, so there's never a stale copy sitting at the old position
+  // underneath the one the user can actually drag.
+  if (id && useEditStore.getState().editing?.featureId === id) return hiddenStyle
 
   switch (feature.getGeometry()?.getType()) {
     case "Point":

@@ -1,3 +1,4 @@
+import Collection from "ol/Collection"
 import { defaults as defaultControls } from "ol/control"
 import { isEmpty as isEmptyExtent } from "ol/extent"
 import Feature from "ol/Feature"
@@ -7,6 +8,8 @@ import LineString from "ol/geom/LineString"
 import Point from "ol/geom/Point"
 import Polygon from "ol/geom/Polygon"
 import Draw from "ol/interaction/Draw"
+import Modify from "ol/interaction/Modify"
+import Translate from "ol/interaction/Translate"
 import type Layer from "ol/layer/Layer"
 import TileLayer from "ol/layer/Tile"
 import VectorLayer from "ol/layer/Vector"
@@ -23,7 +26,13 @@ import { useEffect, useRef } from "react"
 import { useCatalog } from "@/hooks/use-catalog"
 import { type FeatureGeometry, useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
-import { draftStyleForFeature, type HighlightRole, highlightStyleForFeature, styleForFeature } from "@/lib/map-layers"
+import {
+  draftStyleForFeature,
+  editStyleForFeature,
+  type HighlightRole,
+  highlightStyleForFeature,
+  styleForFeature,
+} from "@/lib/map-layers"
 import { tileUrlTemplate } from "@/lib/martin"
 import { useConnectStore } from "@/stores/connect-store"
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
@@ -110,6 +119,19 @@ export function VoltEdgeMap() {
   const vectorLayersRef = useRef<VectorTileLayer[]>([])
   const draftSourceRef = useRef<VectorSource | null>(null)
   const highlightSourceRef = useRef<VectorSource | null>(null)
+  const editSourceRef = useRef<VectorSource | null>(null)
+  // The single OL Feature representing the geometry currently under
+  // edit -- created once per edit session (see the seeding effect
+  // below) and mutated in place by whichever of Modify/Translate is
+  // attached, so it keeps whatever progress the user's made across
+  // switching between those two tools mid-session.
+  const editFeatureRef = useRef<Feature | null>(null)
+  // The "code:id" the edit-geometry source was last seeded for -- lets
+  // the seeding effect tell "a brand new edit session started" (reseed
+  // from the real feature) apart from "this session's data just
+  // refetched for an unrelated reason" (don't stomp the user's
+  // in-progress drag).
+  const editSeededForRef = useRef<string | null>(null)
   // The last focusToken the pan-to-feature effect below already handled
   // -- see that effect for why it needs this instead of just depending
   // on focusToken alone.
@@ -123,6 +145,7 @@ export function VoltEdgeMap() {
   const connectSource = useConnectStore((s) => s.source)
   const connectTarget = useConnectStore((s) => s.target)
   const editing = useEditStore((s) => s.editing)
+  const geometryTool = useEditStore((s) => s.geometryTool)
   const deletedIds = useDeletedFeaturesStore((s) => s.ids)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
@@ -138,6 +161,10 @@ export function VoltEdgeMap() {
   const { data: selectedFeature } = useFeature(selected?.featureClassCode, selected?.featureId)
   const { data: connectSourceFeature } = useFeature(connectSource?.featureClassCode, connectSource?.featureId)
   const { data: connectTargetFeature } = useFeature(connectTarget?.featureClassCode, connectTarget?.featureId)
+  // The feature currently under geometry edit -- same dedup reasoning
+  // as the three above (feature-edit-form.tsx already runs this exact
+  // query).
+  const { data: editingFeature } = useFeature(editing?.featureClassCode, editing?.featureId)
   // Lets the layer-creation effect below read the *current* hidden set
   // without depending on it -- depending on it directly would rebuild
   // every VectorTileLayer (and re-request every tile) on each single
@@ -206,12 +233,25 @@ export function VoltEdgeMap() {
     map.addLayer(highlightLayer)
     highlightSourceRef.current = highlightSource
 
+    // The one feature currently under geometry edit (see
+    // editStyleForFeature) -- above the highlight layer so its cyan
+    // isn't washed out underneath a selected halo, below the draft
+    // layer (the two never coexist in practice: drawing a brand new
+    // feature and editing an existing one are different workflows, but
+    // keeping edit below draft costs nothing and avoids relying on that
+    // never happening). Same clear-and-repopulate pattern as the above.
+    const editSource = new VectorSource()
+    const editLayer = new VectorLayer({ source: editSource, style: editStyleForFeature, zIndex: 8 })
+    map.addLayer(editLayer)
+    editSourceRef.current = editSource
+
     return () => {
       map.getTargetElement()?.removeEventListener("mouseleave", clearPosition)
       map.setTarget(undefined)
       mapRef.current = null
       draftSourceRef.current = null
       highlightSourceRef.current = null
+      editSourceRef.current = null
     }
   }, [])
 
@@ -303,13 +343,24 @@ export function VoltEdgeMap() {
       source.addFeature(feature)
     }
 
+    // Skips the "selected" halo entirely for a feature currently under
+    // geometry edit -- selectedFeature is the server-fetched, cached
+    // geometry (only refreshed by Save's query invalidation), so while
+    // a drag is in progress this halo would sit at the feature's real,
+    // pre-drag position -- a stale ghost underneath the live cyan
+    // edit-geometry copy (editStyleForFeature, seeded/moved by the
+    // effects below) that already represents the same feature
+    // correctly. Harmless during attribute-only editing (nothing on
+    // the map moves then); only became visible now that geometry can
+    // actually change mid-session.
+    const isEditingSelected = editing && selected && editing.featureId === selected.featureId
     if (connectMode) {
       add(connectSourceFeature?.geometry, "connect-source")
       add(connectTargetFeature?.geometry, "connect-target")
-    } else {
+    } else if (!isEditingSelected) {
       add(selectedFeature?.geometry, "selected")
     }
-  }, [connectMode, connectSourceFeature, connectTargetFeature, selectedFeature])
+  }, [connectMode, connectSourceFeature, connectTargetFeature, selectedFeature, editing, selected])
 
   // Pans/zooms to a feature selected from a connection/relationship
   // list row (feature-panel.tsx) rather than a direct map click -- see
@@ -371,6 +422,95 @@ export function VoltEdgeMap() {
     if (deletedIds.size === 0) return
     for (const layer of vectorLayersRef.current) layer.changed()
   }, [deletedIds])
+
+  // Re-renders every vector tile layer in place whenever an edit
+  // session starts or ends -- styleForFeature's hidden-while-editing
+  // check (map-layers.ts) needs this same nudge deletedIds does, for
+  // the same reason: nothing else tells OL's renderer that a feature
+  // it already rasterized needs a different style now.
+  useEffect(() => {
+    for (const layer of vectorLayersRef.current) layer.changed()
+  }, [editing])
+
+  // Seeds (or clears) the edit-geometry source from the real feature
+  // under edit -- once per session, not once per render: editSeededForRef
+  // remembers which session was last seeded, so a later refetch of the
+  // same feature (e.g. after Save invalidates its query) never stomps
+  // whatever the user's mid-drag progress is. Waits for editingFeature's
+  // geometry to actually be loaded (same async-arrives-later lesson as
+  // the pan-to-feature effect above) rather than assuming it's already
+  // there the instant `editing` is set.
+  useEffect(() => {
+    const source = editSourceRef.current
+    if (!source) return
+
+    if (!editing) {
+      source.clear()
+      editFeatureRef.current = null
+      editSeededForRef.current = null
+      return
+    }
+
+    const key = `${editing.featureClassCode}:${editing.featureId}`
+    if (editSeededForRef.current === key) return
+    if (!editingFeature?.geometry) return
+
+    const geometry = geoJSONToGeometry(editingFeature.geometry)
+    if (!geometry) return
+    source.clear()
+    const feature = new Feature(geometry)
+    source.addFeature(feature)
+    editFeatureRef.current = feature
+    editSeededForRef.current = key
+  }, [editing, editingFeature])
+
+  // Attaches whichever of Modify/Translate geometry-edit-toolbar.tsx's
+  // buttons picked (see edit-store.ts's `geometryTool`) to the single
+  // feature the effect above seeded -- never both at once, since they'd
+  // fight over the same drag gestures. Both interactions mutate
+  // editFeatureRef's geometry in place; their own end events convert it
+  // back to GeoJSON (geometryToGeoJSON, the same conversion the draw
+  // interaction's drawend already uses) and hand it to edit-store.ts's
+  // `dirtyGeometry` for feature-edit-form.tsx's Save to pick up.
+  // Deliberately no custom deleteCondition/insertVertexCondition on
+  // Modify -- its defaults (alt+click to delete a vertex, drag a
+  // segment midpoint to insert one) are exactly the behavior
+  // geometry-edit-toolbar.tsx's hint text already describes.
+  //
+  // Depends on editingFeature too, not just geometryTool/editing --
+  // editFeatureRef.current is only populated once the seeding effect
+  // above actually runs with loaded data; picking a tool before that
+  // fetch resolves would otherwise attach nothing and silently strand
+  // the click, the same async-arrives-later race the pan-to-feature
+  // effect already had to account for.
+  useEffect(() => {
+    const map = mapRef.current
+    const feature = editFeatureRef.current
+    if (!map || !editing || !feature || !geometryTool) return
+
+    const features = new Collection([feature])
+    const handleEnd = () => {
+      const geometry = feature.getGeometry()
+      const geojson = geometry && geometryToGeoJSON(geometry)
+      if (geojson) useEditStore.getState().setDirtyGeometry(geojson)
+    }
+
+    if (geometryTool === "move") {
+      const translate = new Translate({ features })
+      translate.on("translateend", handleEnd)
+      map.addInteraction(translate)
+      return () => {
+        map.removeInteraction(translate)
+      }
+    }
+
+    const modify = new Modify({ features })
+    modify.on("modifyend", handleEnd)
+    map.addInteraction(modify)
+    return () => {
+      map.removeInteraction(modify)
+    }
+  }, [geometryTool, editing, editingFeature])
 
   // Click-to-select: hit-test every vector layer at the clicked pixel,
   // resolve each hit's feature class (a layer's sourceId is always a

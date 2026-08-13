@@ -1,5 +1,6 @@
 import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
 import { FeaturePanel } from "@/components/map/feature-panel"
+import { GeometryEditToolbar } from "@/components/map/geometry-edit-toolbar"
 import { LayersPanel } from "@/components/map/layers-panel"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
 import { PeerPicker } from "@/components/map/peer-picker"
@@ -20,6 +21,7 @@ export function MapPage() {
       <PeerPicker />
       <FeaturePanel />
       <ConnectConfirmPanel />
+      <GeometryEditToolbar />
       <Toaster />
       <StatusBar />
     </div>

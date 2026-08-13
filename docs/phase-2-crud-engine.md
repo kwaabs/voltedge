@@ -194,10 +194,14 @@ otherwise look right and be wrong again.
 - **A required field with a `default_override` is satisfied by that
   default**, not by demanding the client send it explicitly — matches
   `subtype_field_rules.default_override`'s documented purpose.
-- **Update never touches `subtype` or `geometry`** — changing a feature's
-  subtype after creation raises "does it still satisfy the new subtype's
+- **Update never touches `subtype`** — changing a feature's subtype
+  after creation raises "does it still satisfy the new subtype's
   required fields" questions this slice doesn't answer. Deliberately out
-  of scope, not an oversight.
+  of scope, not an oversight. (Geometry *is* updatable via `PATCH` as of
+  `docs/phase-3-edit-geometry.md` — it doesn't share subtype's
+  required-field problem, so lifting that restriction for geometry
+  alone was a later, much smaller change, not a reversal of this
+  decision.)
 - **Publish and unpublish are both idempotent** — calling either on a row
   already in that state just returns it, no error. Simpler for clients
   that retry, and there's no meaningful "already published" failure mode
