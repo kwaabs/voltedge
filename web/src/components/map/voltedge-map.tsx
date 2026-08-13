@@ -26,6 +26,7 @@ import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { draftStyleForFeature, type HighlightRole, highlightStyleForFeature, styleForFeature } from "@/lib/map-layers"
 import { tileUrlTemplate } from "@/lib/martin"
 import { useConnectStore } from "@/stores/connect-store"
+import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
 import { useLayersStore } from "@/stores/layers-store"
@@ -122,6 +123,7 @@ export function VoltEdgeMap() {
   const connectSource = useConnectStore((s) => s.source)
   const connectTarget = useConnectStore((s) => s.target)
   const editing = useEditStore((s) => s.editing)
+  const deletedIds = useDeletedFeaturesStore((s) => s.ids)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
   const selected = useSelectionStore((s) => s.selected)
@@ -357,6 +359,18 @@ export function VoltEdgeMap() {
       source?.setUrl(tileUrlTemplate(sourceId, refreshVersion))
     }
   }, [refreshVersion])
+
+  // Re-renders every vector tile layer in place after a successful
+  // delete (see deleted-features-store.ts for why this is needed at
+  // all -- Martin's tiles never stop containing the deleted feature's
+  // bytes) -- deliberately `layer.changed()`, not a refetch: the id
+  // needs hiding client-side regardless of what Martin returns, and the
+  // already-loaded tile data in OL's own cache is enough for that, no
+  // network round trip required.
+  useEffect(() => {
+    if (deletedIds.size === 0) return
+    for (const layer of vectorLayersRef.current) layer.changed()
+  }, [deletedIds])
 
   // Click-to-select: hit-test every vector layer at the clicked pixel,
   // resolve each hit's feature class (a layer's sourceId is always a
