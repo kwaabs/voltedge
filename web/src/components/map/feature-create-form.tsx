@@ -26,6 +26,7 @@ export function FeatureCreateForm() {
   const { data: schema, isPending, isError, error } = useFeatureClassSchema(draft?.featureClassCode)
   useErrorToast(isError, error, "Could not load the form")
 
+  const [name, setName] = useState("")
   const [subtypeCode, setSubtypeCode] = useState<number | "">("")
   const [attributes, setAttributes] = useState<Record<string, unknown>>({})
   const [saving, setSaving] = useState(false)
@@ -34,6 +35,7 @@ export function FeatureCreateForm() {
   // attribute value from a just-canceled or just-saved draft has no
   // business surviving into the next one.
   useEffect(() => {
+    setName("")
     setSubtypeCode("")
     setAttributes({})
   }, [draft?.featureClassCode])
@@ -68,6 +70,7 @@ export function FeatureCreateForm() {
     try {
       const body: Record<string, unknown> = { geometry: draft.geometry, attributes }
       if (needsSubtype) body.subtype = subtypeCode
+      if (name.trim()) body.name = name.trim()
       const created = await apiFetch<{ id: string }>(`/features/${draft.featureClassCode}`, {
         method: "POST",
         body: JSON.stringify(body),
@@ -84,6 +87,17 @@ export function FeatureCreateForm() {
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium">Name</label>
+        <input
+          type="text"
+          className={inputClass}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Optional -- a human-readable label"
+        />
+      </div>
+
       {needsSubtype && (
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium">

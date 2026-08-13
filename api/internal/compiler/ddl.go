@@ -118,13 +118,21 @@ func quoteLiteralList(values []string) string {
 }
 
 // buildCreateTable renders the full CREATE TABLE statement for a feature
-// class compiled for the first time: system columns (id, subtype if any,
-// status, geom if any, created_at, updated_at) followed by one column
-// per active field.
+// class compiled for the first time: system columns (id, name, subtype
+// if any, status, geom if any, created_at, updated_at) followed by one
+// column per active field.
 func buildCreateTable(qualifiedTable string, fc *metadata.FeatureClass, fields []metadata.Field, subtypes []metadata.Subtype, domains map[string]*metadata.Domain, domainValues map[string][]string) (string, error) {
 	var cols []string
 
 	cols = append(cols, `id uuid PRIMARY KEY DEFAULT gen_random_uuid()`)
+
+	// A human-assigned label, distinct from any metadata field: every
+	// feature class gets one identically, an admin never opts a class
+	// in or out of it the way they would a real attribute. Optional
+	// (nullable, no default) -- a feature is fully valid with none set,
+	// identified by its class and id alone, same as before this column
+	// existed.
+	cols = append(cols, `name text`)
 
 	if len(subtypes) > 0 {
 		codes := make([]string, len(subtypes))

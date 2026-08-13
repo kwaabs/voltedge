@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { Loader2 } from "lucide-react"
 
 import { FieldInput } from "@/components/map/feature-field-input"
-import { formatFieldLabel, formatValue } from "@/components/map/field-utils"
+import { formatFieldLabel, formatValue, inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeature } from "@/hooks/use-feature"
 import { type FieldSchema, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
@@ -53,6 +53,7 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
   useErrorToast(schemaIsError, schemaError, "Could not load the form")
 
   const dirtyGeometry = useEditStore((s) => s.dirtyGeometry)
+  const [name, setName] = useState("")
   const [attributes, setAttributes] = useState<Record<string, unknown>>({})
   const [saving, setSaving] = useState(false)
 
@@ -61,7 +62,10 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
   // component unmounting (edit-store.ts's `editing` can retarget while
   // feature-panel.tsx keeps this mounted across the same render).
   useEffect(() => {
-    if (feature) setAttributes({ ...feature.attributes })
+    if (feature) {
+      setName(feature.name ?? "")
+      setAttributes({ ...feature.attributes })
+    }
   }, [feature])
 
   if (featurePending || schemaPending) {
@@ -89,10 +93,12 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
     return v === undefined || v === ""
   })
   const changedKeys = Object.keys(attributes).filter((k) => attributes[k] !== feature.attributes[k])
-  // Either kind of change alone is enough to save -- the user may touch
-  // just attributes, just geometry (via the map toolbar), or both, per
-  // the user's own framing of this feature.
-  const canSave = !missingRequiredField && (changedKeys.length > 0 || dirtyGeometry !== null) && !saving
+  const nameChanged = name !== (feature.name ?? "")
+  // Any kind of change alone is enough to save -- the user may touch
+  // just the name, just attributes, just geometry (via the map
+  // toolbar), or any combination, per the user's own framing of this
+  // feature.
+  const canSave = !missingRequiredField && (changedKeys.length > 0 || nameChanged || dirtyGeometry !== null) && !saving
 
   function handleCancel() {
     useEditStore.getState().stop()
@@ -106,6 +112,12 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
       for (const key of changedKeys) changed[key] = attributes[key]
       const body: Record<string, unknown> = { attributes: changed }
       if (dirtyGeometry) body.geometry = dirtyGeometry
+      // An explicit empty string clears the name (crud's updateRequest
+      // treats a *present* name as "set it to exactly this", same as
+      // geometry's own presence-means-replace semantics) -- trimmed so
+      // a user backspacing everything out reliably clears it rather
+      // than leaving whitespace behind.
+      if (nameChanged) body.name = name.trim()
 
       await apiFetch(`/features/${featureClassCode}/${featureId}`, {
         method: "PATCH",
@@ -132,6 +144,17 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium">Name</label>
+        <input
+          type="text"
+          className={inputClass}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Optional -- a human-readable label"
+        />
+      </div>
+
       {visibleFields.map((field) => (
         <div key={field.name} className="flex flex-col gap-1">
           <label className="text-xs font-medium">

@@ -388,6 +388,17 @@ export function FeaturePanel() {
   const className =
     featureClasses?.feature_classes.find((fc) => fc.code === selected.featureClassCode)?.name ??
     selected.featureClassCode
+  // A per-feature name, once set, is the more human-identifiable label
+  // -- promoted to the primary line, with the class name and id (the
+  // system guid, less meaningful on its own) demoted to the secondary
+  // line together. No name yet: unchanged from before this field
+  // existed, class name primary, id secondary.
+  const primaryLabel = feature?.name || className
+  const secondaryLabel = isEditingSelected
+    ? "Editing…"
+    : feature?.name
+      ? `${className} · ${shortId(selected.featureId)}`
+      : shortId(selected.featureId)
 
   return (
     <div ref={panelRef} style={positionStyle} className={positionClass}>
@@ -398,10 +409,8 @@ export function FeaturePanel() {
         <div className="flex min-w-0 items-center gap-1.5">
           <GripHorizontal className="text-muted-foreground size-3.5 shrink-0" />
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{className}</p>
-            <p className="text-muted-foreground truncate font-mono text-xs">
-              {isEditingSelected ? "Editing…" : selected.featureId}
-            </p>
+            <p className="truncate text-sm font-medium">{primaryLabel}</p>
+            <p className="text-muted-foreground truncate font-mono text-xs">{secondaryLabel}</p>
           </div>
         </div>
         {isEditingSelected ? null : (
