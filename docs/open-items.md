@@ -15,9 +15,8 @@ framing used to prioritize which of these to pick up next. Closed items
 move to "Recently closed" for one entry, then drop off -- git history
 and the phase docs are the permanent record, not this file.
 
-**Last updated:** 2026-08-13, after closing two Phase 3 items
-(structural relationships from the connect panel; the floating/
-draggable attribute panel).
+**Last updated:** 2026-08-13, after Phase 4's first slice (core trace
+engine primitives).
 
 ## Phase 1 — Metadata core
 
@@ -54,11 +53,12 @@ draggable attribute panel).
 
 ## Phase 4 — Network model
 
-Not started. Per `README.md`: the trace engine, built against the
-`terminals`/`network_rules`/`trace_configurations` metadata (Phase 1)
-and the connectivity Phase 2 establishes. Not itemized here yet --
-scoping this out is the natural next step once the Phase 3 items above
-are worked through or deliberately deferred further.
+| Item | Size | Value | Detail |
+|---|---|---|---|
+| Isolation and loop/mesh detection | M | `docs/metadata-core.md`'s own framing: each composes two of the four primitive traces this slice built (upstream+downstream for isolation, connected run from two sources for loop detection) and post-processes the result -- deliberately deferred until the primitives have more real-world exercise, not designed speculatively alongside them. | `docs/phase-4-trace-engine.md` |
+| `cross_transformers`/`respect_phase` enforcement | M–L | Both accepted on a `trace_configurations` row and threaded through, not enforced -- real design questions (what marks a transformer boundary in a `network_role`-driven model that doesn't currently distinguish "transformer" from "any other junction"? how does phase capability intersect hop to hop?) deserve their own pass, not answers invented under this slice's time pressure. | `docs/phase-4-trace-engine.md` |
+| No persistent/cached graph | S–M, revisit only if needed | Every hop queries `runtime.feature_connectivity` fresh, matching `api/internal/connectivity`'s own stateless-per-request style -- fine at this pass's seed-data scale; `docs/metadata-core.md` describes an in-memory graph as a longer-term role, not something this pass's data size gives any signal is actually needed yet. | `docs/phase-4-trace-engine.md` |
+| No endpoint to discover which `trace_configurations` exist | S | `feature-panel.tsx`'s two trigger buttons hardcode `DOWNSTREAM_TRACE`/`UPSTREAM_TRACE` by code. Fine for four fixed, seeded configs; would need a real listing endpoint if `trace_configurations` ever becomes something an admin authors freely. | `docs/phase-4-trace-engine.md` |
 
 ## Phases 5-7
 
@@ -68,14 +68,13 @@ collection). Too far out to itemize yet.
 
 ## Recently closed
 
-- **Structural relationships from the connect panel** (this session) --
-  `connect-confirm-panel.tsx` now branches on `connect-store.ts`'s
-  `mode` to call `POST /relationships` (no terminal pickers, an
-  optional `kind` field) instead of always assuming connectivity;
-  `feature-panel.tsx`'s Relationships tab gained a matching "New
-  relationship" trigger.
-- **Undockable/floating attribute panel** (this session) --
-  `feature-panel.tsx` adopted `connect-confirm-panel.tsx`'s drag
-  pattern (header pointer-down, `position` state) and become a
-  `fixed`-positioned floating window instead of a docked, full-width,
-  fixed-height row between the map and the status bar.
+- **Phase 4 slice 1: core trace engine primitives** (this session) --
+  `api/internal/trace` walks `runtime.feature_connectivity` per a named
+  `trace_configurations` profile (`connected`/`downstream`/`upstream`/
+  `shortest_path`, real barrier-stopping against a seeded `DIST_SWITCH`'s
+  live `device_state`); two "Trace downstream"/"Trace upstream" buttons
+  in the floating attribute panel trigger it and highlight the result on
+  the map. See `docs/phase-4-trace-engine.md` for the two real bugs this
+  slice's own verification caught and fixed (a directional-walk gap in
+  how the seeded topology was established; `crud.GetFeature`'s
+  attributes-nesting not accounted for in the barrier check).

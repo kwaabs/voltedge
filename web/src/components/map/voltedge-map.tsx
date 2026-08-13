@@ -29,6 +29,7 @@ import { useEffect, useRef } from "react"
 import { useCatalog } from "@/hooks/use-catalog"
 import { type FeatureGeometry, useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
+import { apiFetch } from "@/lib/api"
 import {
   draftStyleForFeature,
   editStyleForFeature,
@@ -46,6 +47,7 @@ import { useMapPointerStore } from "@/stores/map-pointer-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useSnapStore } from "@/stores/snap-store"
+import { useTraceStore } from "@/stores/trace-store"
 
 import "ol/ol.css"
 
@@ -184,6 +186,16 @@ export function VoltEdgeMap() {
   const draftSourceRef = useRef<VectorSource | null>(null)
   const highlightSourceRef = useRef<VectorSource | null>(null)
   const editSourceRef = useRef<VectorSource | null>(null)
+  // A trace result's reached/barrier features, highlighted with their
+  // own two HighlightRole colors -- kept as a dedicated source/layer
+  // rather than folded into highlightSourceRef, since the trace result
+  // is fetched asynchronously (see the effect below) while the
+  // selected/connect halo effect clears and rebuilds highlightSource
+  // synchronously on its own, unrelated render -- sharing one source
+  // between an async effect and a sync one would mean whichever last
+  // happened to run on a given commit silently wins, clobbering the
+  // other's features.
+  const traceSourceRef = useRef<VectorSource | null>(null)
   // Snap candidates -- never added to the map as a rendered layer, just
   // a plain VectorSource for the Snap interaction below to read (see
   // refreshSnapSource for why this indirection is needed at all: every
@@ -218,6 +230,7 @@ export function VoltEdgeMap() {
   const geometryTool = useEditStore((s) => s.geometryTool)
   const deletedIds = useDeletedFeaturesStore((s) => s.ids)
   const snapEnabled = useSnapStore((s) => s.enabled)
+  const traceResult = useTraceStore((s) => s.result)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
   const selected = useSelectionStore((s) => s.selected)
@@ -304,6 +317,17 @@ export function VoltEdgeMap() {
     map.addLayer(highlightLayer)
     highlightSourceRef.current = highlightSource
 
+    // Trace results (see the effect below and trace-store.ts) -- same
+    // highlightStyleForFeature style function as the layer above (it
+    // only ever reads a feature's own `role` tag, indifferent to which
+    // source/layer it's attached to), just a separate source so an
+    // async trace fetch and the synchronous selected/connect halo
+    // effect never clobber each other's work.
+    const traceSource = new VectorSource()
+    const traceLayer = new VectorLayer({ source: traceSource, style: highlightStyleForFeature, zIndex: 6 })
+    map.addLayer(traceLayer)
+    traceSourceRef.current = traceSource
+
     // The one feature currently under geometry edit (see
     // editStyleForFeature) -- above the highlight layer so its cyan
     // isn't washed out underneath a selected halo, below the draft
@@ -339,6 +363,7 @@ export function VoltEdgeMap() {
       mapRef.current = null
       draftSourceRef.current = null
       highlightSourceRef.current = null
+      traceSourceRef.current = null
       editSourceRef.current = null
       snapSourceRef.current = null
     }
@@ -450,6 +475,72 @@ export function VoltEdgeMap() {
       add(selectedFeature?.geometry, "selected")
     }
   }, [connectMode, connectSourceFeature, connectTargetFeature, selectedFeature, editing, selected])
+
+  // Fetches and highlights a trace result's own two feature sets (every
+  // reached feature, and, distinctly, whichever of those a barrier
+  // condition actually stopped at -- see trace-store.ts and
+  // feature-panel.tsx's Trace downstream/upstream triggers). Unlike the
+  // selected/connect halo effect above, this can't just read a fixed
+  // number of `useFeature` hooks -- a trace result is an arbitrary-length
+  // list -- so it fetches every reached feature's geometry imperatively
+  // via apiFetch instead, into its own dedicated traceSource (see why in
+  // that ref's own comment). `cancelled` guards against a slow fetch
+  // resolving after a newer trace (or Clear) has already superseded it.
+  useEffect(() => {
+    const source = traceSourceRef.current
+    if (!source) return
+
+    if (!traceResult) {
+      source.clear()
+      return
+    }
+
+    // Reassigned into typed locals (rather than relying on the null
+    // checks above) purely so TypeScript's control-flow narrowing --
+    // which doesn't propagate into the nested async function below --
+    // sees both as definitely non-null there too.
+    const src: VectorSource = source
+    const result: NonNullable<typeof traceResult> = traceResult
+
+    let cancelled = false
+    const barrierKeys = new Set(result.barriers.map((b) => `${b.feature_class}:${b.feature_id}`))
+
+    async function loadTraceFeatures() {
+      const fetched = await Promise.all(
+        result.features.map(async (ref) => {
+          try {
+            const feature = await apiFetch<{ geometry?: FeatureGeometry }>(
+              `/features/${ref.feature_class}/${ref.feature_id}`,
+            )
+            return { ref, geometry: feature.geometry }
+          } catch {
+            // A feature the trace reached that fails to load individually
+            // (e.g. deleted between the trace running and this fetch)
+            // just doesn't get a halo -- not worth failing the whole
+            // highlight over one stale reference.
+            return null
+          }
+        }),
+      )
+      if (cancelled) return
+
+      src.clear()
+      for (const f of fetched) {
+        if (!f?.geometry) continue
+        const olGeometry = geoJSONToGeometry(f.geometry)
+        if (!olGeometry) continue
+        const feature = new Feature(olGeometry)
+        const key = `${f.ref.feature_class}:${f.ref.feature_id}`
+        feature.set("role", barrierKeys.has(key) ? "trace-barrier" : "trace")
+        src.addFeature(feature)
+      }
+    }
+
+    loadTraceFeatures()
+    return () => {
+      cancelled = true
+    }
+  }, [traceResult])
 
   // Pans/zooms to a feature selected from a connection/relationship
   // list row (feature-panel.tsx) rather than a direct map click -- see

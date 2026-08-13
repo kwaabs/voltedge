@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react"
-import { GripHorizontal, Info, Link2, Loader2, Pencil, Plug, Plus, Trash2, X } from "lucide-react"
+import { ArrowDown, ArrowUp, GripHorizontal, Info, Link2, Loader2, Pencil, Plug, Plus, Trash2, X } from "lucide-react"
 
 import { DeleteFeatureDialog } from "@/components/map/delete-feature-dialog"
 import { FeatureCreateForm } from "@/components/map/feature-create-form"
@@ -10,12 +10,14 @@ import { useConnections } from "@/hooks/use-connections"
 import { useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useRelationships } from "@/hooks/use-relationships"
+import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useConnectStore } from "@/stores/connect-store"
 import { useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
 import { useSelectionStore } from "@/stores/selection-store"
-import { useErrorToast } from "@/stores/toast-store"
+import { useErrorToast, useToastStore } from "@/stores/toast-store"
+import { type TraceResult, useTraceStore } from "@/stores/trace-store"
 
 type TabId = "attributes" | "terminals" | "relationships"
 
@@ -272,6 +274,7 @@ export function FeaturePanel() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const tracing = useTraceStore((s) => s.loading)
 
   const isEditingSelected =
     Boolean(selected) &&
@@ -312,6 +315,31 @@ export function FeaturePanel() {
     }
     window.addEventListener("pointermove", handleMove)
     window.addEventListener("pointerup", handleUp)
+  }
+
+  // Runs a real trace (api/internal/trace, see docs/phase-4-trace-engine.md)
+  // starting from the selected feature -- DOWNSTREAM_TRACE/UPSTREAM_TRACE
+  // are the two primitive directions worth a one-click trigger here
+  // (CONNECTED and SHORTEST_PATH don't have a single, obvious feature
+  // to start a one-click action from the panel with). The result lands
+  // in trace-store.ts, which voltedge-map.tsx and trace-result-banner.tsx
+  // both read -- this function's only job is the request itself.
+  async function runTrace(traceConfiguration: "DOWNSTREAM_TRACE" | "UPSTREAM_TRACE") {
+    if (!selected) return
+    useTraceStore.getState().setLoading(true)
+    try {
+      const result = await apiFetch<TraceResult>("/trace", {
+        method: "POST",
+        body: JSON.stringify({
+          trace_configuration: traceConfiguration,
+          start: { feature_class: selected.featureClassCode, feature_id: selected.featureId },
+        }),
+      })
+      useTraceStore.getState().setResult(result)
+    } catch (err) {
+      useTraceStore.getState().setLoading(false)
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not run this trace.")
+    }
   }
 
   const positionStyle = position ? { left: position.x, top: position.y } : undefined
@@ -378,6 +406,29 @@ export function FeaturePanel() {
         </div>
         {isEditingSelected ? null : (
           <div className="flex shrink-0 items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              disabled={tracing}
+              title="Trace downstream"
+              onClick={() => runTrace("DOWNSTREAM_TRACE")}
+            >
+              <ArrowDown className="size-4" />
+              <span className="sr-only">Trace downstream</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              disabled={tracing}
+              title="Trace upstream"
+              onClick={() => runTrace("UPSTREAM_TRACE")}
+            >
+              <ArrowUp className="size-4" />
+              <span className="sr-only">Trace upstream</span>
+            </Button>
+            <div className="bg-border mx-0.5 h-4 w-px" />
             <Button
               variant="ghost"
               size="icon"

@@ -5,6 +5,7 @@ import { LayersPanel } from "@/components/map/layers-panel"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
 import { PeerPicker } from "@/components/map/peer-picker"
 import { StatusBar } from "@/components/map/status-bar"
+import { TraceResultBanner } from "@/components/map/trace-result-banner"
 import { VoltEdgeMap } from "@/components/map/voltedge-map"
 import { Toaster } from "@/components/ui/toaster"
 
@@ -22,6 +23,7 @@ export function MapPage() {
       <FeaturePanel />
       <ConnectConfirmPanel />
       <GeometryEditToolbar />
+      <TraceResultBanner />
       <Toaster />
       <StatusBar />
     </div>

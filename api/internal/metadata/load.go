@@ -213,6 +213,45 @@ func LoadRelationshipClasses(ctx context.Context, db bun.IDB, originFeatureClass
 	return classes, nil
 }
 
+// LoadTraceConfiguration fetches a trace_configurations row by its
+// stable Code (e.g. "DOWNSTREAM_TRACE") -- api/internal/trace's entry
+// point for resolving which profile a trace request named.
+func LoadTraceConfiguration(ctx context.Context, db bun.IDB, code string) (*TraceConfiguration, error) {
+	tc := new(TraceConfiguration)
+	if err := db.NewSelect().Model(tc).Where("code = ?", code).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: trace configuration %q not found: %w", code, err)
+	}
+	return tc, nil
+}
+
+// LoadTraceBarrierRules returns every trace_barrier_rules row for one
+// trace_configurations id -- empty when no barrier condition was
+// authored for this profile (or, at the caller's discretion, when
+// StopAtOpenDevices is false and barriers shouldn't be consulted at
+// all regardless of what's authored here).
+func LoadTraceBarrierRules(ctx context.Context, db bun.IDB, traceConfigurationID string) ([]TraceBarrierRule, error) {
+	var rules []TraceBarrierRule
+	if err := db.NewSelect().Model(&rules).
+		Where("trace_configuration_id = ?", traceConfigurationID).
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: loading trace_barrier_rules: %w", err)
+	}
+	return rules, nil
+}
+
+// DomainValueCode resolves a domain_values id to its stable Code (e.g.
+// "DOWNSTREAM", "OPEN") -- trace_configurations.direction_value_id and
+// trace_barrier_rules.halts_on_value_id are both FKs a caller needs
+// turned into a comparable string, the same way a field's own coded
+// value already is by the time it reaches a feature's attributes.
+func DomainValueCode(ctx context.Context, db bun.IDB, id string) (string, error) {
+	dv := new(DomainValue)
+	if err := db.NewSelect().Model(dv).Where("id = ?", id).Scan(ctx); err != nil {
+		return "", fmt.Errorf("metadata: domain value %s not found: %w", id, err)
+	}
+	return dv.Code, nil
+}
+
 // ResolveTerminal finds the terminal matching a code for a given
 // subtype (or no subtype, if the feature class doesn't have any). A
 // terminal scoped to the specific subtype wins over one that applies to

@@ -97,17 +97,22 @@ export function editStyleForFeature(feature: FeatureLike): Style {
   }
 }
 
-/** The three roles voltedge-map.tsx's highlight layer ever draws: the
- * single feature currently shown in the docked panel, or -- while a
- * connectivity/relationship workflow is active (connect-store.ts) --
- * the source and target ends of it, each in its own color so the two
- * are never confused with each other or with a plain selection. */
-export type HighlightRole = "selected" | "connect-source" | "connect-target"
+/** The roles voltedge-map.tsx's highlight layer ever draws: the single
+ * feature currently shown in the floating panel; while a connectivity/
+ * relationship workflow is active (connect-store.ts), the source and
+ * target ends of it; or, while a trace result is active (trace-store.ts),
+ * every feature the trace reached ("trace") and, distinctly, whichever
+ * of those a live barrier condition actually stopped it at
+ * ("trace-barrier") -- each role in its own color so none are ever
+ * confused with each other or with a plain selection. */
+export type HighlightRole = "selected" | "connect-source" | "connect-target" | "trace" | "trace-barrier"
 
 const HIGHLIGHT_COLORS: Record<HighlightRole, string> = {
   selected: "#38bdf8",
   "connect-source": "#f59e0b",
   "connect-target": "#a855f7",
+  trace: "#84cc16",
+  "trace-barrier": "#ef4444",
 }
 
 function highlightStyleFor(color: string, geometryType: string | undefined): Style {
