@@ -1,5 +1,6 @@
 import { Move, Waypoints } from "lucide-react"
 
+import { SnapToggleButton } from "@/components/map/snap-toggle-button"
 import { Button } from "@/components/ui/button"
 import { useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { cn } from "@/lib/utils"
@@ -54,6 +55,7 @@ export function GeometryEditToolbar() {
           Edit vertices
         </Button>
       )}
+      <SnapToggleButton />
       {geometryTool === "vertices" && (
         <p className="text-muted-foreground border-l pl-2 text-xs whitespace-nowrap">
           Drag a vertex to move it, a segment to add one, Alt+click to delete one

@@ -66,13 +66,19 @@ feature-specific code path anywhere else.
   aware (a point gets only "Move," a line/polygon also gets "Edit
   vertices" — drag a vertex, drag a segment midpoint to add one,
   Alt+click to delete one) — Save commits whichever changed, attributes
-  and/or geometry, in one `PATCH` — the first three of four planned CRUD
-  slices done (attribute edit, delete confirmation, geometry editing;
-  snapping still open). Also still open: structural relationships from
-  the connect panel, Azure AD SSO, metadata-driven symbology resolution,
-  an undockable/floating attribute panel, and a real fix for Martin
-  having no soft-delete awareness (a client-side workaround papers over
-  it for now — see `docs/phase-3-delete-confirmation.md`).
+  and/or geometry, in one `PATCH`. A shared "Snap" toggle (magnet icon,
+  on by default) sits in both that toolbar and the "New feature" draw
+  banner — while placing a brand new feature or reshaping an existing
+  one, the cursor snaps to a nearby feature's vertex or edge, a real OL
+  `Snap` interaction reading directly from whichever vector tiles are
+  already loaded (metadata-driven `snapping_rules` still deferred) —
+  completing all four of the CRUD slices originally planned (attribute
+  edit, delete confirmation, geometry editing, snapping). Also still
+  open: structural relationships from the connect panel, Azure AD SSO,
+  metadata-driven symbology resolution, an undockable/floating attribute
+  panel, and a real fix for Martin having no soft-delete awareness (a
+  client-side workaround papers over it for now — see
+  `docs/phase-3-delete-confirmation.md`).
   Write-ups: [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md),
   [`docs/phase-3-map-loop.md`](docs/phase-3-map-loop.md),
   [`docs/phase-3-create-feature.md`](docs/phase-3-create-feature.md),
@@ -80,7 +86,8 @@ feature-specific code path anywhere else.
   [`docs/phase-3-map-aesthetics.md`](docs/phase-3-map-aesthetics.md),
   [`docs/phase-3-edit-attributes.md`](docs/phase-3-edit-attributes.md),
   [`docs/phase-3-delete-confirmation.md`](docs/phase-3-delete-confirmation.md),
-  [`docs/phase-3-edit-geometry.md`](docs/phase-3-edit-geometry.md).
+  [`docs/phase-3-edit-geometry.md`](docs/phase-3-edit-geometry.md),
+  [`docs/phase-3-snapping.md`](docs/phase-3-snapping.md).
 - **Phase 4 — Network model**: the trace engine, built against the
   terminals/network_rules/trace_configurations metadata Phase 1 already
   created and the connectivity Phase 2 establishes.
