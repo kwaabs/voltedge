@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils"
 import { useConnectStore } from "@/stores/connect-store"
 import { useDrawStore } from "@/stores/draw-store"
 import { useSelectionStore } from "@/stores/selection-store"
+import { useErrorToast } from "@/stores/toast-store"
 
 type TabId = "attributes" | "terminals" | "relationships"
 
@@ -44,6 +45,7 @@ function AttributesTab() {
     selected?.featureClassCode,
     selected?.featureId,
   )
+  useErrorToast(isError, error, "Could not load this feature")
 
   if (isPending) {
     return (
@@ -53,14 +55,7 @@ function AttributesTab() {
       </div>
     )
   }
-  if (isError) {
-    return (
-      <p className="text-destructive text-sm">
-        Could not load this feature{error instanceof Error ? `: ${error.message}` : "."}
-      </p>
-    )
-  }
-  if (!feature) return null
+  if (isError || !feature) return null
 
   return (
     <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">
@@ -101,6 +96,7 @@ function TerminalsTab() {
     selected?.featureClassCode,
     selected?.featureId,
   )
+  useErrorToast(isError, error, "Could not load connections")
 
   const newConnectionButton = selected && (
     <Button
@@ -122,13 +118,7 @@ function TerminalsTab() {
       </div>
     )
   }
-  if (isError) {
-    return (
-      <p className="text-destructive text-sm">
-        Could not load connections{error instanceof Error ? `: ${error.message}` : "."}
-      </p>
-    )
-  }
+  if (isError) return null
   if (!selected || !data || data.connections.length === 0) {
     return (
       <div className="flex flex-col items-start gap-2">
@@ -152,7 +142,12 @@ function TerminalsTab() {
             counterpart.feature_class
 
           return (
-            <div key={conn.id} className="w-full rounded-md border p-2 text-sm">
+            <button
+              key={conn.id}
+              type="button"
+              onClick={() => useSelectionStore.getState().select(counterpart.feature_class, counterpart.feature_id, { focus: true })}
+              className="hover:bg-accent hover:text-accent-foreground w-full rounded-md border p-2 text-left text-sm transition-colors"
+            >
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium">{counterpartName}</span>
                 <span className="text-muted-foreground shrink-0 text-xs">{isFrom ? "Outgoing" : "Incoming"}</span>
@@ -162,7 +157,7 @@ function TerminalsTab() {
                 {thisTerminal && <>via {thisTerminal} · </>}
                 {conn.network_rule_name}
               </p>
-            </div>
+            </button>
           )
         })}
       </div>
@@ -177,6 +172,7 @@ function RelationshipsTab() {
     selected?.featureClassCode,
     selected?.featureId,
   )
+  useErrorToast(isError, error, "Could not load relationships")
 
   if (isPending) {
     return (
@@ -186,13 +182,7 @@ function RelationshipsTab() {
       </div>
     )
   }
-  if (isError) {
-    return (
-      <p className="text-destructive text-sm">
-        Could not load relationships{error instanceof Error ? `: ${error.message}` : "."}
-      </p>
-    )
-  }
+  if (isError) return null
   if (!selected || !data || data.relationships.length === 0) {
     return <p className="text-muted-foreground text-sm">No relationships.</p>
   }
@@ -208,7 +198,12 @@ function RelationshipsTab() {
           counterpart.feature_class
 
         return (
-          <div key={rel.id} className="rounded-md border p-2 text-sm">
+          <button
+            key={rel.id}
+            type="button"
+            onClick={() => useSelectionStore.getState().select(counterpart.feature_class, counterpart.feature_id, { focus: true })}
+            className="hover:bg-accent hover:text-accent-foreground w-full rounded-md border p-2 text-left text-sm transition-colors"
+          >
             <div className="flex items-center justify-between gap-2">
               <span className="font-medium">{counterpartName}</span>
               <span className="text-muted-foreground shrink-0 text-xs">{isOrigin ? "Origin" : "Destination"}</span>
@@ -217,7 +212,7 @@ function RelationshipsTab() {
             <p className="text-muted-foreground mt-1 text-xs">
               {rel.relationship_class_name} · {rel.kind} · {rel.cardinality}
             </p>
-          </div>
+          </button>
         )
       })}
     </div>

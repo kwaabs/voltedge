@@ -2,6 +2,19 @@ import { useQuery } from "@tanstack/react-query"
 
 import { apiFetch } from "@/lib/api"
 
+/** GeoJSON's geometry shape, EPSG:4326 -- what `ST_AsGeoJSON` on the
+ * backend actually returns (api/internal/crud/sql.go) and what
+ * voltedge-map.tsx's geoJSONToGeometry converts into a real OL geometry
+ * for the highlight layer. Coordinates are deliberately `unknown` here
+ * rather than modeled per geometry type -- a bare pair for a point, a
+ * list of pairs for a line, a list of rings of pairs for a polygon --
+ * the same shape geometryToGeoJSON's reverse direction already leaves
+ * untyped for the same reason. */
+export interface FeatureGeometry {
+  type: string
+  coordinates: unknown
+}
+
 export interface FeatureRecord {
   id: string
   status: string
@@ -9,7 +22,7 @@ export interface FeatureRecord {
   created_at: string
   updated_at: string
   subtype?: number
-  geometry?: unknown
+  geometry?: FeatureGeometry
   attributes: Record<string, unknown>
 }
 
