@@ -1,6 +1,8 @@
-import { Circle, Fill, Stroke, Style } from "ol/style"
+import { Circle, Fill, Icon, Stroke, Style } from "ol/style"
 import type { FeatureLike } from "ol/Feature"
 
+import { iconDataUri } from "@/lib/symbology-icons"
+import { resolveSymbology, type SymbologyRuleSchema } from "@/lib/symbology"
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
 import { useEditStore } from "@/stores/edit-store"
 
@@ -173,24 +175,29 @@ export function highlightStyleForFeature(feature: FeatureLike): Style {
   return highlightStyleFor(HIGHLIGHT_COLORS[role], feature.getGeometry()?.getType())
 }
 
+/** Shared by styleForFeature and createSymbologyStyle -- a feature that's
+ * soft-deleted (client-side hidden, see deleted-features-store.ts) or
+ * currently under geometry edit (the cyan edit-geometry layer stands in
+ * for it instead, see editStyleForFeature) never gets styled by either
+ * one; both need this exact same check, so it's factored out instead of
+ * duplicated. */
+function isHiddenFeature(feature: FeatureLike): boolean {
+  const id = feature.get("id") as string | undefined
+  if (!id) return false
+  if (useDeletedFeaturesStore.getState().ids.has(id)) return true
+  if (useEditStore.getState().editing?.featureId === id) return true
+  return false
+}
+
 /**
- * Geometry-type-only styling -- no metadata-driven symbology yet
- * (icon_ref resolution, shape vs. modifier, subtype/domain-value
- * rules). That's docs/metadata-core.md's whole "Symbology resolution"
- * section and a real subsystem on its own; this is deliberately just
- * enough to tell feature classes apart on the map by shape while that
- * lands as its own later slice.
+ * Geometry-type-only styling, no symbology_rules involved -- the
+ * fallback createSymbologyStyle itself uses when a feature class has no
+ * rules loaded at all (not yet seeded, or its schema hasn't finished
+ * fetching), so a layer never renders invisible just because symbology
+ * resolution came up empty.
  */
 export function styleForFeature(feature: FeatureLike): Style {
-  const id = feature.get("id") as string | undefined
-  if (id && useDeletedFeaturesStore.getState().ids.has(id)) return hiddenStyle
-  // The real, tile-rendered copy of whichever feature is under
-  // geometry edit is hidden for the whole edit session (not just while
-  // a geometry tool is actively engaged) -- the cyan edit-geometry
-  // layer (see editStyleForFeature, voltedge-map.tsx) stands in for it
-  // instead, so there's never a stale copy sitting at the old position
-  // underneath the one the user can actually drag.
-  if (id && useEditStore.getState().editing?.featureId === id) return hiddenStyle
+  if (isHiddenFeature(feature)) return hiddenStyle
 
   switch (feature.getGeometry()?.getType()) {
     case "Point":
@@ -201,6 +208,74 @@ export function styleForFeature(feature: FeatureLike): Style {
       return lineStyle
     default:
       return polygonStyle
+  }
+}
+
+/** Icons are authored at a 24x24 viewBox (symbology-icons.ts) -- scaled
+ * down so a resolved icon reads at roughly the same on-screen size the
+ * plain pointStyle circle above already used, not a raw 24px blob. */
+const ICON_BASE_SCALE = 0.65
+
+/** Every distinct (icon_ref, color, scale) combination this session
+ * has resolved, reused across every call rather than constructing a
+ * fresh `Icon`/`Style` per render. This isn't just an optimization --
+ * an OL `Icon`'s image loads asynchronously, and a vector tile layer's
+ * style function is called on every render pass; a brand-new `Icon`
+ * (and thus a brand-new, not-yet-loaded `Image`) built inline on every
+ * single call means the load effectively never finishes before the
+ * next render discards it and starts over, so the icon never actually
+ * draws. Line/polygon styles below don't need this (Stroke/Fill have
+ * no async image involved), which is exactly why only point features
+ * were affected the one time this shipped without the cache. */
+const iconStyleCache = new Map<string, Style>()
+
+function iconStyleFor(iconRef: string | undefined, color: string, scale: number): Style {
+  const key = `${iconRef ?? ""}|${color}|${scale}`
+  const cached = iconStyleCache.get(key)
+  if (cached) return cached
+  const style = new Style({ image: new Icon({ src: iconDataUri(iconRef, color), scale }) })
+  iconStyleCache.set(key, style)
+  return style
+}
+
+/**
+ * Builds one layer's style function, bound to that feature class's own
+ * resolved symbology_rules (see symbology.ts's resolveSymbology and
+ * docs/metadata-core.md's "Symbology resolution" section) -- each
+ * Martin catalog entry is already scoped to exactly one feature class,
+ * so voltedge-map.tsx creates one of these per VectorTileLayer at
+ * layer-creation time rather than resolving rules generically per
+ * feature. Falls back to styleForFeature's plain geometry-type styling
+ * whenever no rule resolves at all (rules is empty/undefined, or the
+ * feature's own subtype+attributes don't match even the mandatory
+ * class-level default -- a metadata-authoring gap, not something worth
+ * hiding the feature entirely over).
+ */
+export function createSymbologyStyle(rules: SymbologyRuleSchema[] | undefined) {
+  return function symbologyStyleForFeature(feature: FeatureLike): Style {
+    if (isHiddenFeature(feature)) return hiddenStyle
+
+    const geometryType = feature.getGeometry()?.getType()
+    const props = feature.getProperties() as Record<string, unknown>
+    const subtype = typeof props.subtype === "number" ? props.subtype : undefined
+    const def = resolveSymbology(rules, subtype, props)
+    if (!def) return styleForFeature(feature)
+
+    switch (geometryType) {
+      case "Point":
+      case "MultiPoint":
+        return iconStyleFor(def.icon_ref, def.color ?? POINT_COLOR, ICON_BASE_SCALE * (def.scale ?? 1))
+      case "LineString":
+      case "MultiLineString":
+        return new Style({ stroke: new Stroke({ color: def.color ?? LINE_COLOR, width: def.width ?? 3 }) })
+      default: {
+        const color = def.fill_color ?? def.color ?? POLYGON_COLOR
+        return new Style({
+          fill: new Fill({ color: `${color}33` }),
+          stroke: new Stroke({ color: def.stroke_color ?? color, width: 2 }),
+        })
+      }
+    }
   }
 }
 

@@ -124,16 +124,16 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
         body: JSON.stringify(body),
       })
       queryClient.invalidateQueries({ queryKey: ["feature", featureClassCode, featureId] })
-      if (dirtyGeometry) {
-        // The real fix for the browser's own stale vector-tile cache
-        // (not Martin's -- Martin has no cache with --cache-size 0, and
-        // its tiles genuinely do reflect a real geometry UPDATE, unlike
-        // the soft-delete case deleted-features-store.ts works around).
-        // Same cache-busting bump() the create-feature slice already
-        // established for exactly this "the browser is still showing
-        // the old tile" problem.
-        useMapRefreshStore.getState().bump()
-      }
+      // The real fix for the browser's own stale vector-tile cache (not
+      // Martin's -- Martin has no cache with --cache-size 0, and its
+      // tiles genuinely do reflect the update), same cache-busting
+      // bump() the create-feature slice already established for exactly
+      // this "the browser is still showing the old tile" problem. Not
+      // just for dirtyGeometry: an attribute-only change (e.g.
+      // device_state) can resolve to a different symbology_rules match
+      // (map-layers.ts's createSymbologyStyle), so the map needs a fresh
+      // tile after any successful save, not only a geometry change.
+      useMapRefreshStore.getState().bump()
       useEditStore.getState().stop()
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save this feature.")
