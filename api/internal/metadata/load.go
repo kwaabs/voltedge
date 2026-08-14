@@ -280,6 +280,25 @@ func DomainValueCode(ctx context.Context, db bun.IDB, id string) (string, error)
 	return dv.Code, nil
 }
 
+// ResolveDomainValueByCode is DomainValueCode's inverse -- a caller
+// accepting a human-typed domain value (e.g. api/internal/diagram's
+// "diagram_type": "ONE_LINE" in a create request) needs the id to store
+// as a FK, the same direction api/internal/crud already resolves a
+// field's own coded value in. Scoped by domain code, not just value
+// code, since a bare value code alone isn't guaranteed unique across
+// every domain in the system.
+func ResolveDomainValueByCode(ctx context.Context, db bun.IDB, domainCode, valueCode string) (*DomainValue, error) {
+	domain := new(Domain)
+	if err := db.NewSelect().Model(domain).Where("code = ?", domainCode).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: domain %q not found: %w", domainCode, err)
+	}
+	dv := new(DomainValue)
+	if err := db.NewSelect().Model(dv).Where("domain_id = ? AND code = ?", domain.ID, valueCode).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: domain value %q not found in domain %q: %w", valueCode, domainCode, err)
+	}
+	return dv, nil
+}
+
 // ResolveTerminal finds the terminal matching a code for a given
 // subtype (or no subtype, if the feature class doesn't have any). A
 // terminal scoped to the specific subtype wins over one that applies to

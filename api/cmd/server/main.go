@@ -22,6 +22,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/diagram"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
 	"github.com/kwaabs/voltedge/api/internal/trace"
@@ -55,6 +56,7 @@ func main() {
 	r.Mount("/features", crud.Routes(db))
 	r.Mount("/connectivity", connectivity.Routes(db))
 	r.Mount("/relationships", relationship.Routes(db))
+	r.Mount("/diagrams", diagram.Routes(db))
 	r.Mount("/trace", trace.Routes(db))
 
 	log.Printf("voltedge api listening on :%s", port)

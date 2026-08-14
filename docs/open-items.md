@@ -26,11 +26,10 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-13, after Phase 4's fifth slice (feeder/
-section tracing, critical-facility + backfeed checks on isolation, and
-loop/mesh detection -- Phase 4 now closed except `respect_phase`
-enforcement, voltage-boundary tracing, and phase-aware tracing, all
-deliberately deferred pending their own data-modeling passes).
+**Last updated:** 2026-08-14, after Phase 5's first slice (diagram
+containers -- `runtime.diagram_instances`/`diagram_placements`, a new
+`api/internal/diagram` package, backend-only and curl-verified; the
+frontend canvas is next).
 
 ## Phase 1 — Metadata core
 
@@ -46,7 +45,7 @@ deliberately deferred pending their own data-modeling passes).
 |---|---|---|---|---|
 | No filtering or sorting on list | Open | S | List is a bounded, offset-paginated scan ordered by `created_at, id` only -- fine for demo data, not for a real feature count. | `docs/phase-2-crud-engine.md` |
 | Attachments (RustFS-backed) | Open | L | A genuinely different design surface (upload flow, size/type limits) not yet worked through in enough detail to build. | `docs/phase-2-crud-engine.md`, `docs/phase-2-relationships.md` |
-| Diagrams | Open | L | Same status as attachments -- still ahead per the original Phase 2 plan. | `docs/phase-2-crud-engine.md` |
+| Diagrams (backend) | Done | L | Superseded by Phase 5's own slice -- `runtime.diagram_instances`/`diagram_placements`, a new `api/internal/diagram` package (create/list/get/delete an instance, place/move/list/remove a feature on it), gated on `is_diagram_container`. See the Phase 5 section below for the frontend canvas, still open. | `docs/phase-5-diagrams.md` |
 | `numeric` fields round-trip through Go `float64` | Open | S | Not exact-decimal-safe; worth revisiting if a field ever needs currency-grade precision. | `docs/phase-2-crud-engine.md` |
 | No `PATCH` for a connection or relationship | Open | S–M | Both are re-established or revoked, never edited in place -- fine for now, but a wrong terminal/kind pick means delete-and-redo. | `docs/phase-2-relationships.md` |
 | `ST_DWithin` plausibility check for relationships | Open | S | `docs/metadata-core.md`'s POLE sample mentions this as a soft geometric-plausibility check alongside the explicit establish requirement; not implemented -- nothing warns when two related features are implausibly far apart. | `docs/phase-2-relationships.md` |
@@ -85,8 +84,17 @@ deliberately deferred pending their own data-modeling passes).
 | Universal feature name + trace result table | Done | — | `name` is now a system column every compiled feature class gets (same precedent as `deleted_at`), settable from the create/edit forms, shown as the floating panel header's primary label once set. The trace result banner became a real data table (feature class, id, name per row, barrier rows visually distinct, clickable). | `docs/phase-4-feature-names.md` |
 | Core trace engine primitives | Done | — | `api/internal/trace` walks `runtime.feature_connectivity` per a named `trace_configurations` profile (`connected`/`downstream`/`upstream`/`shortest_path`), real barrier-stopping against a seeded `DIST_SWITCH`'s live `device_state`. Two "Trace downstream"/"Trace upstream" buttons trigger it and highlight the result on the map. | `docs/phase-4-trace-engine.md` |
 
-## Phases 5-7
+## Phase 5 — Diagrams, attribute groups, MCP
+
+| Item | Status | Size | Value | Detail |
+|---|---|---|---|---|
+| Diagram frontend canvas | Open | M–L | Nothing renders a diagram yet -- no route, no component, no drag-to-place interaction. The data model and API are done and curl-verified; this is what would finally consume `render_context = 'diagram'` symbology, unused since Phase 3. | `docs/phase-5-diagrams.md` |
+| `geometry_type = 'none'` with a real feature class | Open | S | The compiler and CRUD engine already support a feature class with no map geometry at all (whose only visual representation is a diagram placement) -- proven by code inspection, not yet exercised by any actual seeded feature class (e.g. a `PROTECTIVE_RELAY`). | `docs/phase-5-diagrams.md` |
+| Admin UI for `DIAGRAM_TYPE` values / `is_diagram_container` | Open | M | Both are real metadata changes made by hand today (seed SQL / a migration), same as every other metadata-level change in this project pre-admin-UI -- not diagram-specific, just the first place this gap became concrete. | `docs/phase-5-diagrams.md` |
+| Diagram containers, data model + API | Done | L | `runtime.diagram_instances`/`diagram_placements` (a diagram belongs to one container feature, a placement puts any feature at an x/y/rotation inside it, independent of real geometry), a new `api/internal/diagram` package, gated on `metadata.feature_classes.is_diagram_container`. `SUBSTATION_YARD` is the first real container. Curl-verified end to end against a real Postgres/API stack, including both rejection gates and cascade delete. | `docs/phase-5-diagrams.md` |
+
+## Phases 6-7
 
 Not started; see `README.md`'s phase list for their one-line scope
-(diagrams/attribute groups/MCP; domain expansion + hardening; field
-collection). Too far out to itemize yet.
+(domain expansion + hardening; field collection). Too far out to
+itemize yet.
