@@ -1,10 +1,25 @@
 import { Fragment, useEffect, useRef, useState } from "react"
-import { ChevronDown, GripHorizontal, Info, Link2, Loader2, Pencil, Plug, Plus, Route, Trash2, X, Zap } from "lucide-react"
+import {
+  ChevronDown,
+  GripHorizontal,
+  Info,
+  Link2,
+  Loader2,
+  Pencil,
+  Plug,
+  Plus,
+  Route,
+  Trash2,
+  Unlink2,
+  X,
+  Zap,
+} from "lucide-react"
 
 import { DeleteFeatureDialog } from "@/components/map/delete-feature-dialog"
 import { FeatureCreateForm } from "@/components/map/feature-create-form"
 import { FeatureEditForm } from "@/components/map/feature-edit-form"
 import { formatFieldLabel, formatValue } from "@/components/map/field-utils"
+import { RevokeConnectionDialog } from "@/components/map/revoke-connection-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -13,7 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useConnections } from "@/hooks/use-connections"
+import { type Connection, useConnections } from "@/hooks/use-connections"
 import { useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useRelationships } from "@/hooks/use-relationships"
@@ -159,6 +174,7 @@ function TerminalsTab() {
     selected?.featureId,
   )
   useErrorToast(isError, error, "Could not load connections")
+  const [revokingConnection, setRevokingConnection] = useState<Connection | null>(null)
   const counterpartNames = useCounterpartNames(
     data?.connections.map((conn) => {
       const isFrom =
@@ -179,6 +195,18 @@ function TerminalsTab() {
     </Button>
   )
 
+  // The dialog needs to stay mounted across every branch below -- a
+  // successful revoke can flip data.connections from non-empty to
+  // empty (switching which branch renders) while the dialog is still
+  // closing itself, so it can't live only inside the "has connections"
+  // return.
+  const revokeDialog = (
+    <RevokeConnectionDialog
+      connection={revokingConnection}
+      onOpenChange={(open) => !open && setRevokingConnection(null)}
+    />
+  )
+
   if (isPending) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 text-sm">
@@ -193,6 +221,7 @@ function TerminalsTab() {
       <div className="flex flex-col items-start gap-2">
         {newConnectionButton}
         <p className="text-muted-foreground text-sm">No terminal connections.</p>
+        {revokeDialog}
       </div>
     )
   }
@@ -216,25 +245,42 @@ function TerminalsTab() {
             : shortId(counterpart.feature_id)
 
           return (
-            <button
+            <div
               key={conn.id}
-              type="button"
-              onClick={() => useSelectionStore.getState().select(counterpart.feature_class, counterpart.feature_id, { focus: true })}
-              className="hover:bg-accent hover:text-accent-foreground w-full rounded-md border p-2 text-left text-sm transition-colors"
+              className="hover:bg-accent hover:text-accent-foreground group flex items-start gap-1 rounded-md border p-2 text-sm transition-colors"
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">{counterpartPrimary}</span>
-                <span className="text-muted-foreground shrink-0 text-xs">{isFrom ? "Outgoing" : "Incoming"}</span>
-              </div>
-              <p className="text-muted-foreground font-mono text-xs">{counterpartSecondary}</p>
-              <p className="text-muted-foreground mt-1 text-xs">
-                {thisTerminal && <>via {thisTerminal} · </>}
-                {conn.network_rule_name}
-              </p>
-            </button>
+              <button
+                type="button"
+                onClick={() =>
+                  useSelectionStore.getState().select(counterpart.feature_class, counterpart.feature_id, {
+                    focus: true,
+                  })
+                }
+                className="min-w-0 flex-1 text-left"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">{counterpartPrimary}</span>
+                  <span className="text-muted-foreground shrink-0 text-xs">{isFrom ? "Outgoing" : "Incoming"}</span>
+                </div>
+                <p className="text-muted-foreground font-mono text-xs">{counterpartSecondary}</p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  {thisTerminal && <>via {thisTerminal} · </>}
+                  {conn.network_rule_name}
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRevokingConnection(conn)}
+                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 rounded p-1"
+              >
+                <Unlink2 className="size-3.5" />
+                <span className="sr-only">Revoke connection</span>
+              </button>
+            </div>
           )
         })}
       </div>
+      {revokeDialog}
     </div>
   )
 }
