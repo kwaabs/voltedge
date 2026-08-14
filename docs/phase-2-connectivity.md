@@ -169,6 +169,40 @@ created for each, and hit it with real HTTP requests:
   whether the phase condition actually holds; that's explicitly deferred
   to Phase 4's trace engine work.
 
+## Direction-agnostic matching, added later
+
+`network_rules.from_feature_class_id`/`to_feature_class_id` is a
+metadata-authoring convention -- e.g. an edge like `MV_CONDUCTOR` is
+always authored as `from`, a terminal-bearing junction like `DIST_XFMR`
+always `to`, so `to_terminal_id` has somewhere meaningful to point --
+not a statement about real electrical current direction. Every other
+consumer (listing, the Terminals tab, Phase 4's trace engine `connected`
+direction) already treats an established connection as undirected. But
+`matchRule` originally required an *exact* `from`/`to` pair match with
+no reverse fallback, and `docs/phase-3-connectivity-ui.md`'s connect
+workflow always sends whichever feature the user opened "+ New
+connection" from as `from` -- so establishing the exact same physical
+link between two features succeeded or failed depending on which
+endpoint the user happened to click first, purely an artifact of which
+direction the metadata author happened to write the rule in, invisible
+to the user.
+
+Fixed in `api/internal/connectivity/rules.go`'s new
+`matchRuleEitherDirection`: try the request's own `from`/`to` pair,
+then the swapped pair; if only the swap matches, write (and report)
+the connection in the rule's own canonical direction regardless of
+which endpoint the request named first, so the same physical link is
+always recorded identically no matter which side the workflow started
+from. Verified via curl against the real seeded topology: a request in
+the previously-rejected direction (`DIST_XFMR` T1 -> `MV_CONDUCTOR`)
+now succeeds and idempotently resolves to the same row as the
+already-established canonical-direction connection when one exists, or
+inserts a fresh one in canonical direction when it doesn't; a
+genuinely unruled pair (`DIST_SWITCH` <-> `SERVICE_POINT`) still
+correctly rejects with the same zero-trust error in both directions,
+confirming the fix widens *which* direction a real rule authorizes
+without weakening the zero-trust default itself.
+
 ## What's still open
 
 - **`feature_relationships`** (structural/spatial support, e.g. pole ↔

@@ -1,6 +1,41 @@
 package connectivity
 
-import "github.com/kwaabs/voltedge/api/internal/metadata"
+import (
+	"context"
+
+	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/uptrace/bun"
+)
+
+// matchRuleEitherDirection tries the request's own from/to pair, then
+// the swapped pair -- see establishConnection's own comment for why a
+// rule authored in one direction needs to authorize a request made in
+// either direction. When only the swapped pair matches, the returned
+// endpoints are swapped too, so the connection is always written (and
+// reported back) in the rule's own canonical direction, never whatever
+// direction the caller happened to name first.
+func matchRuleEitherDirection(ctx context.Context, db bun.IDB, from, to *resolvedEndpoint) (*metadata.NetworkRule, *resolvedEndpoint, *resolvedEndpoint, error) {
+	rules, err := metadata.LoadNetworkRules(ctx, db, from.loaded.FeatureClass.ID, to.loaded.FeatureClass.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	rule, forwardErr := matchRule(rules, from.subtypeID, to.subtypeID, from.terminalID, to.terminalID)
+	if forwardErr == nil {
+		return rule, from, to, nil
+	}
+
+	swappedRules, err := metadata.LoadNetworkRules(ctx, db, to.loaded.FeatureClass.ID, from.loaded.FeatureClass.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if rule, err := matchRule(swappedRules, to.subtypeID, from.subtypeID, to.terminalID, from.terminalID); err == nil {
+		return rule, to, from, nil
+	}
+
+	// Neither direction matched -- surface the forward attempt's error,
+	// since it directly reflects what the caller actually requested.
+	return nil, nil, nil, forwardErr
+}
 
 // matchRule picks the network_rules row that authorizes a specific
 // from/to connection, or explains exactly why none does. Zero trust:
