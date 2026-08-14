@@ -26,12 +26,15 @@ export interface StyleDef {
  * api/cmd/server/main.go's resolveSymbologySchema) -- domain_field is
  * already the field *name* a rendered feature's own attribute should
  * be compared against, not a raw domain_value_id the frontend would
- * otherwise have to cross-reference itself. */
+ * otherwise have to cross-reference itself. render_context ("map" or
+ * "diagram") is sent unfiltered -- the API resolves both contexts'
+ * rules the same way, and each consumer filters to the one it renders. */
 export interface SymbologyRuleSchema {
   subtype_code?: number
   domain_field?: string
   domain_value_code?: string
   style_def: StyleDef
+  render_context: "map" | "diagram"
 }
 
 function ruleMatches(rule: SymbologyRuleSchema, subtype: number | undefined, attributes: Record<string, unknown>): boolean {
@@ -52,19 +55,24 @@ function specificity(rule: SymbologyRuleSchema): number {
 /** Resolves the most specific matching rule's style for one feature --
  * subtype and attributes come from that feature's own rendered tile
  * properties (Martin's auto-discovery publishes every column, not just
- * geometry, so no extra fetch is needed per feature). Returns
- * undefined when no rule matches at all (no rules loaded yet, or a
- * feature class that was never seeded with even a default rule --
- * map-layers.ts falls back to its own plain geometry-type styling in
- * that case, same as before this existed). */
+ * geometry, so no extra fetch is needed per feature). context selects
+ * which render_context's rules are even considered -- the schema
+ * endpoint now sends both map and diagram rules together, so every
+ * caller must say which one it's rendering. Returns undefined when no
+ * rule matches at all (no rules loaded yet, or a feature class that
+ * was never seeded with even a default rule -- map-layers.ts falls
+ * back to its own plain geometry-type styling in that case, same as
+ * before this existed). */
 export function resolveSymbology(
   rules: SymbologyRuleSchema[] | undefined,
   subtype: number | undefined,
   attributes: Record<string, unknown>,
+  context: "map" | "diagram",
 ): StyleDef | undefined {
   let best: SymbologyRuleSchema | undefined
   let bestScore = -1
   for (const rule of rules ?? []) {
+    if (rule.render_context !== context) continue
     if (!ruleMatches(rule, subtype, attributes)) continue
     const score = specificity(rule)
     if (score > bestScore) {

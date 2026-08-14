@@ -26,10 +26,9 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-14, after Phase 5's first slice (diagram
-containers -- `runtime.diagram_instances`/`diagram_placements`, a new
-`api/internal/diagram` package, backend-only and curl-verified; the
-frontend canvas is next).
+**Last updated:** 2026-08-14, after Phase 5's second slice (the
+diagram frontend canvas -- a hand-rolled SVG side-by-side split view,
+consuming `render_context = 'diagram'` symbology for the first time).
 
 ## Phase 1 — Metadata core
 
@@ -45,7 +44,7 @@ frontend canvas is next).
 |---|---|---|---|---|
 | No filtering or sorting on list | Open | S | List is a bounded, offset-paginated scan ordered by `created_at, id` only -- fine for demo data, not for a real feature count. | `docs/phase-2-crud-engine.md` |
 | Attachments (RustFS-backed) | Open | L | A genuinely different design surface (upload flow, size/type limits) not yet worked through in enough detail to build. | `docs/phase-2-crud-engine.md`, `docs/phase-2-relationships.md` |
-| Diagrams (backend) | Done | L | Superseded by Phase 5's own slice -- `runtime.diagram_instances`/`diagram_placements`, a new `api/internal/diagram` package (create/list/get/delete an instance, place/move/list/remove a feature on it), gated on `is_diagram_container`. See the Phase 5 section below for the frontend canvas, still open. | `docs/phase-5-diagrams.md` |
+| Diagrams (backend) | Done | L | Superseded by Phase 5's own slice -- `runtime.diagram_instances`/`diagram_placements`, a new `api/internal/diagram` package (create/list/get/delete an instance, place/move/list/remove a feature on it), gated on `is_diagram_container`. See the Phase 5 section below for the frontend canvas, now also done. | `docs/phase-5-diagrams.md` |
 | `numeric` fields round-trip through Go `float64` | Open | S | Not exact-decimal-safe; worth revisiting if a field ever needs currency-grade precision. | `docs/phase-2-crud-engine.md` |
 | No `PATCH` for a connection or relationship | Open | S–M | Both are re-established or revoked, never edited in place -- fine for now, but a wrong terminal/kind pick means delete-and-redo. | `docs/phase-2-relationships.md` |
 | `ST_DWithin` plausibility check for relationships | Open | S | `docs/metadata-core.md`'s POLE sample mentions this as a soft geometric-plausibility check alongside the explicit establish requirement; not implemented -- nothing warns when two related features are implausibly far apart. | `docs/phase-2-relationships.md` |
@@ -55,8 +54,8 @@ frontend canvas is next).
 
 | Item | Status | Size | Value | Detail |
 |---|---|---|---|---|
-| Metadata-driven symbology resolution | Done | M–L | Closed the core "looks like a real GIS" gap -- `metadata.symbology_rules` now resolves client-side into real per-class, per-attribute SVG icon shapes (points) and color/width (lines/polygons), most-specific-wins over subtype + domain-value. Zoom-gating, `render_context = 'diagram'`, and a real sprite pipeline remain deliberately deferred -- see "What's still open" below. | `docs/phase-3-symbology.md` |
-| Symbology zoom-gating, diagram context, real sprite pipeline | Open | S–L | Follow-ons deferred from the symbology resolution slice above: `min_zoom`/`max_zoom` exist on `symbology_rules` and are loaded but unused by `resolveSymbology`; `render_context = 'diagram'` rules are loadable but nothing renders them (blocked on Phase 5's diagram system); `symbology-icons.ts` is a small hardcoded SVG registry, not a real asset-serving system. | `docs/phase-3-symbology.md` |
+| Metadata-driven symbology resolution | Done | M–L | Closed the core "looks like a real GIS" gap -- `metadata.symbology_rules` now resolves client-side into real per-class, per-attribute SVG icon shapes (points) and color/width (lines/polygons), most-specific-wins over subtype + domain-value. Zoom-gating and a real sprite pipeline remain deliberately deferred -- see "What's still open" below. `render_context = 'diagram'` is now consumed too, by Phase 5's diagram canvas. | `docs/phase-3-symbology.md` |
+| Symbology zoom-gating, real sprite pipeline | Open | S–L | Follow-ons deferred from the symbology resolution slice above: `min_zoom`/`max_zoom` exist on `symbology_rules` and are loaded but unused by `resolveSymbology`; `symbology-icons.ts` is a small hardcoded SVG registry, not a real asset-serving system. | `docs/phase-3-symbology.md` |
 | Azure AD SSO + backend auth | Open | L | Legitimately greenfield -- no session/token handling, no user table, no frontend auth state anywhere (`README.md`: "Auth and permissions are deliberately not modeled yet"). A prerequisite for Phase 6 access control more than something the map loop itself needs. | `docs/phase-3-ui-shell.md` |
 | Real Martin soft-delete-aware fix | Open | L, unresolved unknown | Today's fix (`deleted-features-store.ts`) is purely client-side and session-local -- a fresh tab or a different user still sees a soft-deleted feature. The real fix (compiler-generated `deleted_at IS NULL` view, Martin serving from it) is blocked on an unconfirmed question: Martin auto-discovers tiles by table name, so the view would need to be published under the same name the table currently uses -- needs a spike before it can be sized honestly. | `docs/phase-3-delete-confirmation.md` |
 | Metadata-driven `snapping_rules` | Open | M | `docs/phase-3-snapping.md` shipped a plain OL `Snap` interaction against real feature geometry; the metadata table (per-feature-class-pair tolerance/eligibility) is still schema-only, deliberately deferred as a distinct, later layer on top of what exists now. | `docs/phase-3-snapping.md` |
@@ -88,10 +87,11 @@ frontend canvas is next).
 
 | Item | Status | Size | Value | Detail |
 |---|---|---|---|---|
-| Diagram frontend canvas | Open | M–L | Nothing renders a diagram yet -- no route, no component, no drag-to-place interaction. The data model and API are done and curl-verified; this is what would finally consume `render_context = 'diagram'` symbology, unused since Phase 3. | `docs/phase-5-diagrams.md` |
+| Drag-to-place / drag-to-reposition on the diagram canvas | Open | M | Placements render at their stored `x`/`y`/`rotation` and are clickable (select the underlying feature), but nothing on the canvas itself writes a new position yet -- moving a feature still means a direct `POST /diagrams/{id}/placements` call, same as the backend slice's own curl walkthrough. | `docs/phase-5-diagrams.md` |
 | `geometry_type = 'none'` with a real feature class | Open | S | The compiler and CRUD engine already support a feature class with no map geometry at all (whose only visual representation is a diagram placement) -- proven by code inspection, not yet exercised by any actual seeded feature class (e.g. a `PROTECTIVE_RELAY`). | `docs/phase-5-diagrams.md` |
-| Admin UI for `DIAGRAM_TYPE` values / `is_diagram_container` | Open | M | Both are real metadata changes made by hand today (seed SQL / a migration), same as every other metadata-level change in this project pre-admin-UI -- not diagram-specific, just the first place this gap became concrete. | `docs/phase-5-diagrams.md` |
+| Admin UI for `DIAGRAM_TYPE` values / `is_diagram_container` | Open | M | Both are real metadata changes made by hand today (seed SQL / a migration), same as every other metadata-level change in this project pre-admin-UI -- not diagram-specific, just the first place this gap became concrete. There's also no UI yet to create a diagram instance or place a feature onto one for the first time -- the canvas only ever renders what's already there. | `docs/phase-5-diagrams.md` |
 | Diagram containers, data model + API | Done | L | `runtime.diagram_instances`/`diagram_placements` (a diagram belongs to one container feature, a placement puts any feature at an x/y/rotation inside it, independent of real geometry), a new `api/internal/diagram` package, gated on `metadata.feature_classes.is_diagram_container`. `SUBSTATION_YARD` is the first real container. Curl-verified end to end against a real Postgres/API stack, including both rejection gates and cascade delete. | `docs/phase-5-diagrams.md` |
+| Diagram frontend canvas | Done | M–L | A hand-rolled SVG canvas (no new dependency, reuses `symbology-icons.ts`'s `iconDataUri` directly) in a side-by-side split view next to the map, not a floating overlay or a new route. Renders placements as symbology-resolved icons plus labels, and real `feature_connectivity` edges between placements that are both on the same diagram. Triggered from `FeaturePanel` via a "View diagram" button, shown only when the selected feature's class is a diagram container with at least one diagram instance. First real consumer of `render_context = 'diagram'` symbology (falls back to `'map'` symbology when no diagram-context rule exists yet). | `docs/phase-5-diagrams.md` |
 
 ## Phases 6-7
 

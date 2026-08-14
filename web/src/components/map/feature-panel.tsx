@@ -11,6 +11,7 @@ import {
   Route,
   Trash2,
   Unlink2,
+  Workflow,
   X,
   Zap,
 } from "lucide-react"
@@ -29,6 +30,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { type Connection, useConnections } from "@/hooks/use-connections"
+import { useDiagramInstances } from "@/hooks/use-diagrams"
 import { useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useRelationships } from "@/hooks/use-relationships"
@@ -36,6 +38,7 @@ import { useTraceConfigurations } from "@/hooks/use-trace-configurations"
 import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useConnectStore } from "@/stores/connect-store"
+import { useDiagramStore } from "@/stores/diagram-store"
 import { useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
 import { type IsolationResult, useIsolateStore } from "@/stores/isolate-store"
@@ -591,9 +594,22 @@ export function FeaturePanel() {
   const runnableConfigs = traceConfigurations?.trace_configurations.filter((c) => c.direction !== "SHORTEST_PATH") ?? []
   // Isolation only makes sense from a junction -- an edge or a
   // non-network feature has nothing to "open."
-  const selectedNetworkRole = featureClasses?.feature_classes.find((fc) => fc.code === selected?.featureClassCode)
-    ?.network_role
+  const selectedClass = featureClasses?.feature_classes.find((fc) => fc.code === selected?.featureClassCode)
+  const selectedNetworkRole = selectedClass?.network_role
   const canIsolate = selectedNetworkRole === "junction" && Boolean(isolationConfig)
+
+  // Diagrams: only fetched at all once the selected feature's own class
+  // is a real container (is_diagram_container) -- most feature classes
+  // never host one, no point issuing a query that always comes back
+  // empty. A container can host more than one diagram instance
+  // (docs/phase-5-diagrams.md), so the trigger below is a small menu
+  // once there's more than one to choose from, not a single button.
+  const isDiagramContainer = Boolean(selectedClass?.is_diagram_container)
+  const { data: diagramsData } = useDiagramInstances(
+    isDiagramContainer ? selected?.featureClassCode : undefined,
+    isDiagramContainer ? selected?.featureId : undefined,
+  )
+  const diagrams = diagramsData?.diagrams ?? []
 
   const positionStyle = position ? { left: position.x, top: position.y } : undefined
   const positionClass = cn(
@@ -715,6 +731,36 @@ export function FeaturePanel() {
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
+            {diagrams.length === 1 && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="View diagram"
+                onClick={() => useDiagramStore.getState().open(diagrams[0].id)}
+              >
+                <Workflow className="size-4" />
+                <span className="sr-only">View diagram</span>
+              </Button>
+            )}
+            {diagrams.length > 1 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="size-7" title="View diagram">
+                    <Workflow className="size-4" />
+                    <ChevronDown className="size-3" />
+                    <span className="sr-only">View diagram</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  {diagrams.map((d) => (
+                    <DropdownMenuItem key={d.id} onSelect={() => useDiagramStore.getState().open(d.id)}>
+                      {d.name || d.diagram_type}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <div className="bg-border mx-0.5 h-4 w-px" />
             <Button
               variant="ghost"
