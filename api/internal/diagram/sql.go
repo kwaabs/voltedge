@@ -194,6 +194,30 @@ func deleteInstance(ctx context.Context, db bun.IDB, id string) error {
 	return nil
 }
 
+// renameInstance updates a diagram instance's own display name --
+// there's no admin UI or metadata concept behind it, just a plain
+// column set once at creation (createInstance) that a diagram canvas
+// now also needs to be able to change after the fact.
+func renameInstance(ctx context.Context, db bun.IDB, id string, name *string) (*instanceResponse, error) {
+	inst := new(DiagramInstance)
+	res, err := db.NewUpdate().Model(inst).
+		Set("name = ?", name).
+		Where("id = ?", id).
+		Returning("*").
+		Exec(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("diagram: rename instance: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("diagram: rename instance: %w", err)
+	}
+	if n == 0 {
+		return nil, notFound("diagram instance %s not found", id)
+	}
+	return formatInstance(ctx, db, inst)
+}
+
 // placeFeature puts (or moves) one feature on one diagram: resolve the
 // diagram instance and the feature, then upsert on the table's own
 // (diagram_instance_id, feature_class_id, feature_id) unique constraint

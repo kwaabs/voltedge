@@ -402,6 +402,97 @@ was moved back to its original position afterward via the same real
 API, same "leave the demo data as found" discipline every other
 manual-verification pass in this project follows.
 
+## Conductors as wires, naming, rotate, and delete, added later
+
+Shown a real reference one-line diagram and asked pointed questions
+about the result, four real gaps came back at once, not a single
+follow-on: `MV_CONDUCTOR` -- a `geometry_type = 'line'` feature, a
+physical wire -- was rendering through the exact same point-icon path
+every junction device used, putting a circle in the middle of what
+should be one continuous line; a second, separate elbow was
+auto-drawn for *every* underlying `feature_connectivity` row
+regardless of whether a real conductor was even placed, so adding an
+unrelated device could make an unrequested line appear; the diagram's
+own `name` (in every API response since the backend slice) was never
+shown, and there was no way to set one; and there was no way to rotate
+a placement (drag only ever changed position) or remove one from a
+diagram (the backend `DELETE .../placements/{id}` route has existed
+since the very first slice, just never called from the UI).
+
+- **Conductors render as wires, not point icons.** A placement whose
+  feature class is `geometry_type = 'line'` no longer gets an icon at
+  all. It resolves its own real connectivity endpoints (via the same
+  per-placement `connectionResults` the canvas already fetches) and
+  renders *as* the routed line between them, styled with its own
+  resolved map/diagram `color` (not an icon -- `MV_CONDUCTOR`'s seeded
+  style is `{"color": "#3f8fa6", "width": 3}`, and that teal is exactly
+  what the wire now renders in). With fewer than two endpoints placed
+  on this diagram, it falls back to a small draggable marker at its
+  own stored `x`/`y` -- a loose end waiting for its other side, still
+  selectable and removable, just not yet "wired in." Once a second
+  endpoint appears, it snaps into wire form automatically on the next
+  render, no action needed.
+- **No more generic auto-drawn connectivity edges.** The old `edges`
+  computation -- one elbow per `feature_connectivity` row where both
+  ends had *any* placement, regardless of what was between them -- is
+  gone entirely. Every network_rule in this system already connects an
+  edge-role class to a junction-role class (docs/metadata-core.md), so
+  in practice every real wire *is* a placed conductor; removing the
+  generic fallback means a wire only ever appears when its own
+  conductor is actually on the diagram, matching how a real one-line
+  diagram works -- if it isn't drawn, it isn't shown.
+- **`PATCH /diagrams/{id}`** (new, backend) -- `renameInstance`
+  (`api/internal/diagram/sql.go`) updates a diagram instance's `name`
+  column; `Name *string` so an explicit `null` clears it, same
+  pointer convention `createInstanceRequest.Name` already uses.
+  `web/src/hooks/use-diagrams.ts` gained `useDiagramInstance` (fetch
+  one diagram by id, the canvas's own header needs its name) alongside
+  the existing per-container list fetch.
+- **`DiagramTitle`** (new, `diagram-canvas.tsx`) -- the header's
+  hardcoded "Diagram" text is now the real name (falling back to the
+  `diagram_type` code when unnamed). Click to edit; Enter or blur
+  commits via the new `PATCH`, Escape cancels without writing anything.
+- **Drag-to-rotate** -- a small handle appears above a placement only
+  while it's the app's own globally-selected feature (`useSelectionStore`),
+  reusing the exact same selection state clicking a placement already
+  sets, not a separate canvas-local concept. Deliberately rendered
+  *outside* the icon's own `rotate()` sub-group so it's always found in
+  the same predictable spot regardless of the feature's current
+  orientation. Dragging computes the new angle from the pointer's
+  position relative to the placement's true center (`atan2`, converted
+  from screen pixels via the same `getScreenCTM` used for
+  drag-to-reposition), snapped to 15-degree increments for a
+  deliberate, schematic-appropriate feel rather than free-angle drift.
+  Writes back through the same placement upsert, independently of
+  `x`/`y` -- confirmed by curl that a rotate leaves position untouched
+  and a position drag leaves rotation untouched.
+- **`RemoveControl`** (new) -- a small "×" badge, hidden until hover
+  (Tailwind `group`/`group-hover`), on every placement (point or
+  conductor). Calls the pre-existing `DELETE
+  /diagrams/{id}/placements/{placementID}` with an optimistic
+  cache removal, same pattern every other mutation here uses.
+  Deliberately no confirm dialog, unlike `RevokeConnectionDialog` or
+  `DeleteFeatureDialog`: un-placing a feature only loses its cosmetic
+  position on *one* diagram, trivially restored with one search-and-add
+  through `AddFeatureButton` -- not a real network fact like a
+  connection, and not the feature itself like a real delete.
+
+Verified live: the demo diagram's `MV_CONDUCTOR` now renders as a
+teal routed wire directly between the switch and transformer icons,
+no circle in the middle; the panel header shows "Main Substation Yard
+- One-Line" instead of the literal word "Diagram"; clicking the title
+opens an editable input pre-filled with the current name, Escape
+reverts it (confirmed via a real `GET` that nothing was written);
+selecting the meter shows a rotate handle, dragging it to a real
+DOM-located position changes its stored `rotation` from 0 to 90 while
+leaving `x`/`y` byte-for-byte unchanged (confirmed via `GET`); hovering
+the meter reveals its remove control, clicking it deletes the real
+placement row (confirmed via `GET` showing three placements
+remaining), and the meter was re-added afterward via `AddFeatureButton`
+to leave the demo data as found. Confirmed in dark mode throughout.
+`go build/vet/gofmt`, `npx tsc --noEmit`, `npm run lint`, and `npm run
+build` all finish clean.
+
 ## What's still open
 
 - **Multi-segment bus routing, not just a single-bend elbow.** Real
