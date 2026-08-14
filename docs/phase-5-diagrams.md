@@ -298,6 +298,49 @@ CSS custom properties the rest of the app themes with, not hardcoded.
 `npx tsc --noEmit`, `npm run lint` (oxlint), and `npm run build` all
 finish clean.
 
+## Adding existing features from the canvas, added later
+
+The canvas above could render a diagram, but there was still no way to
+put a feature onto one from the UI at all -- every placement so far had
+come from a direct curl call. Asked "new features or existing
+features?", the answer was existing features, for less effort: a new,
+geometry-less feature needs its own creation flow (the normal
+draw-on-map form doesn't apply when there's nothing to draw), while
+adding an already-mapped feature is just picking one and calling the
+placement endpoint that already exists.
+
+- **`web/src/hooks/use-feature-name-search.ts`** (new) -- the
+  cross-class, debounced, fan-out-by-feature-class name search
+  extracted out of `feature-search.tsx` (the map toolbar's own search
+  box), which now calls this hook instead of carrying its own copy.
+  Needed in two places once the diagram canvas wanted the same "find a
+  feature by name across every class" capability; extracting it was
+  less code than a second copy, not a speculative abstraction.
+- **`diagram-canvas.tsx`'s `AddFeatureButton`** (new, colocated in the
+  same file) -- a `+` icon in the panel header opens a small popover:
+  type a name, get cross-class results via the hook above, click one to
+  place it. Results already on this diagram are filtered out (re-adding
+  one would just move it, which is a different, still-open capability –
+  see "What's still open"). Placement position is computed by
+  `nextPlacementPosition` -- just outside the current bounding box,
+  offset by a fraction of its own extent, so successive additions
+  spread out left-to-right instead of stacking exactly on top of each
+  other; an empty diagram's first addition lands at a fixed `(200,
+  150)`. A real `POST /diagrams/{id}/placements` call, then
+  `queryClient.invalidateQueries({queryKey: ["diagram-placements",
+  diagramId]})` -- no client-side optimistic insert, the canvas just
+  re-renders off the real refetched list, same pattern every other
+  mutation in this project follows.
+
+Verified live: searching for a named `SERVICE_POINT` ("Meter 4471 - 12
+Elm Court") from an empty search returns it, clicking it places a new
+icon at the expected offset position and the popover closes; a real
+`GET /diagrams/{id}/placements` confirms the new row landed in Postgres
+with the expected `x`/`y`; reopening the diagram after a full page
+reload shows the addition persisted; searching the same name again
+correctly returns "No matching features not already on this diagram."
+instead of offering a duplicate; confirmed in dark mode too.
+
 ## What's still open
 
 - **Drag-to-place / drag-to-reposition on the canvas.** Placements
@@ -315,11 +358,13 @@ finish clean.
   but nothing in the seeded data actually exercises it yet (e.g. a
   `PROTECTIVE_RELAY` that only ever appears via a diagram placement).
 - **No admin UI for authoring `DIAGRAM_TYPE` values, flipping
-  `is_diagram_container`, or creating a diagram instance/first
-  placement.** All are real metadata/data changes today made by hand
-  (seed SQL / a migration / a direct curl call) — the canvas renders
-  what's already there, it doesn't yet create the first diagram or the
-  first placement on a container that doesn't have one.
+  `is_diagram_container`, or creating the first diagram instance for a
+  container.** Still real metadata/data changes made by hand today
+  (seed SQL / a migration / a direct curl call). Adding an *existing*
+  feature to an *already-created* diagram is now a real UI capability
+  (see "Adding existing features from the canvas, added later" above);
+  creating that first diagram instance itself, and placing a brand-new
+  `geometry_type = 'none'` feature with no prior map presence, are not.
 
 ## Try it yourself
 

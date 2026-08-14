@@ -1,17 +1,19 @@
-import { useMemo } from "react"
-import { useQueries } from "@tanstack/react-query"
-import { X } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useQueries, useQueryClient } from "@tanstack/react-query"
+import { Loader2, Plus, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { type Connection } from "@/hooks/use-connections"
 import { useAllSymbology } from "@/hooks/use-all-symbology"
 import { type DiagramPlacement, useDiagramPlacements } from "@/hooks/use-diagrams"
 import { type FeatureRecord } from "@/hooks/use-feature"
-import { apiFetch } from "@/lib/api"
+import { type FeatureSearchResult, MIN_QUERY_LENGTH, useFeatureNameSearch } from "@/hooks/use-feature-name-search"
+import { ApiError, apiFetch } from "@/lib/api"
 import { iconDataUri } from "@/lib/symbology-icons"
 import { resolveSymbology } from "@/lib/symbology"
 import { useDiagramStore } from "@/stores/diagram-store"
 import { useSelectionStore } from "@/stores/selection-store"
+import { useToastStore } from "@/stores/toast-store"
 
 interface ConnectionsResponse {
   connections: Connection[]
@@ -33,6 +35,124 @@ const FONT_FRACTION = 0.035
 
 function placementKey(featureClass: string, featureId: string): string {
   return `${featureClass}:${featureId}`
+}
+
+/** Where a newly-added feature lands -- just outside the current
+ * bounding box, spaced by a fraction of its own extent, so successive
+ * additions spread out left-to-right instead of stacking on top of
+ * each other. There's no drag-to-reposition yet (docs/open-items.md),
+ * so this is only a starting point, not a final layout decision. */
+function nextPlacementPosition(placements: DiagramPlacement[]): { x: number; y: number } {
+  if (placements.length === 0) return { x: 200, y: 150 }
+  const xs = placements.map((p) => p.x)
+  const ys = placements.map((p) => p.y)
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  const minY = Math.min(...ys)
+  const maxY = Math.max(...ys)
+  const extent = Math.max(maxX - minX, maxY - minY, MIN_EXTENT)
+  return { x: maxX + extent * 0.3, y: minY }
+}
+
+/**
+ * Search-and-add for an existing feature -- placing a *new*,
+ * geometry-less feature straight from the canvas is a separate, bigger
+ * piece of work (docs/phase-5-diagrams.md's "What's still open"); this
+ * covers the smaller, more common case of putting an already-mapped
+ * feature onto the schematic too. Reuses the exact same cross-class
+ * name search feature-search.tsx's map toolbar box uses. Results
+ * already on this diagram are filtered out -- re-adding one would just
+ * move it, which isn't what "add a feature" implies here (moving is
+ * the still-open drag-to-reposition item).
+ */
+function AddFeatureButton({ diagramId, placements }: { diagramId: string; placements: DiagramPlacement[] }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const [placing, setPlacing] = useState(false)
+  const { results, loading } = useFeatureNameSearch(query)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    if (!open) return
+    function handlePointerDown(e: PointerEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    window.addEventListener("pointerdown", handlePointerDown)
+    return () => window.removeEventListener("pointerdown", handlePointerDown)
+  }, [open])
+
+  const placedKeys = useMemo(
+    () => new Set(placements.map((p) => placementKey(p.feature_class, p.feature_id))),
+    [placements],
+  )
+  const addableResults = results.filter((r) => !placedKeys.has(placementKey(r.featureClassCode, r.featureId)))
+
+  async function handleAdd(row: FeatureSearchResult) {
+    setPlacing(true)
+    const { x, y } = nextPlacementPosition(placements)
+    try {
+      await apiFetch(`/diagrams/${diagramId}/placements`, {
+        method: "POST",
+        body: JSON.stringify({ feature_class: row.featureClassCode, feature_id: row.featureId, x, y, rotation: 0 }),
+      })
+      queryClient.invalidateQueries({ queryKey: ["diagram-placements", diagramId] })
+      setOpen(false)
+      setQuery("")
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not add this feature to the diagram.")
+    } finally {
+      setPlacing(false)
+    }
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <Button variant="ghost" size="icon" className="size-7" title="Add feature" onClick={() => setOpen((o) => !o)}>
+        <Plus className="size-4" />
+        <span className="sr-only">Add feature</span>
+      </Button>
+      {open && (
+        <div className="bg-popover text-popover-foreground absolute top-full right-0 z-10 mt-1 w-72 rounded-md border shadow-lg">
+          <div className="p-2">
+            <input
+              autoFocus
+              type="text"
+              className="border-input bg-background h-8 w-full rounded-md border px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+              placeholder="Search by name…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <div className="max-h-64 overflow-y-auto border-t">
+            {query.trim().length < MIN_QUERY_LENGTH ? (
+              <p className="text-muted-foreground p-3 text-sm">Type a feature's name to add it here.</p>
+            ) : loading ? (
+              <div className="text-muted-foreground flex items-center gap-2 p-3 text-sm">
+                <Loader2 className="size-4 animate-spin" />
+                Searching…
+              </div>
+            ) : addableResults.length === 0 ? (
+              <p className="text-muted-foreground p-3 text-sm">No matching features not already on this diagram.</p>
+            ) : (
+              addableResults.map((row) => (
+                <button
+                  key={`${row.featureClassCode}:${row.featureId}`}
+                  type="button"
+                  disabled={placing}
+                  onClick={() => handleAdd(row)}
+                  className="hover:bg-accent hover:text-accent-foreground block w-full border-b p-2 text-left text-sm transition-colors last:border-b-0 disabled:opacity-50"
+                >
+                  <p className="truncate font-medium">{row.name}</p>
+                  <p className="text-muted-foreground truncate text-xs">{row.className}</p>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 /**
@@ -119,10 +239,13 @@ export function DiagramCanvas() {
     <div className="bg-background flex h-full w-full min-w-0 flex-col border-l">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <p className="text-sm font-medium">Diagram</p>
-        <Button variant="ghost" size="icon" className="size-7" onClick={close}>
-          <X className="size-4" />
-          <span className="sr-only">Close diagram</span>
-        </Button>
+        <div className="flex items-center gap-1">
+          <AddFeatureButton diagramId={openDiagramId} placements={placements} />
+          <Button variant="ghost" size="icon" className="size-7" onClick={close}>
+            <X className="size-4" />
+            <span className="sr-only">Close diagram</span>
+          </Button>
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         {isPending ? (
