@@ -20,11 +20,11 @@
  * docs/metadata-core.md draws for exactly this example).
  */
 const ICONS: Record<string, string> = {
-  circle: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="{{COLOR}}"/></svg>`,
-  square: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="{{COLOR}}"/></svg>`,
-  triangle: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><polygon points="12,3 21,20 3,20" fill="{{COLOR}}"/></svg>`,
-  "triangle-outline": `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><polygon points="12,3 21,20 3,20" fill="none" stroke="{{COLOR}}" stroke-width="2.5" stroke-linejoin="round"/></svg>`,
-  diamond: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><polygon points="12,2 22,12 12,22 2,12" fill="{{COLOR}}"/></svg>`,
+  circle: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="{{COLOR}}"/></svg>`,
+  square: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="{{COLOR}}"/></svg>`,
+  triangle: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><polygon points="12,3 21,20 3,20" fill="{{COLOR}}"/></svg>`,
+  "triangle-outline": `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><polygon points="12,3 21,20 3,20" fill="none" stroke="{{COLOR}}" stroke-width="2.5" stroke-linejoin="round"/></svg>`,
+  diamond: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><polygon points="12,2 22,12 12,22 2,12" fill="{{COLOR}}"/></svg>`,
 }
 
 const DEFAULT_ICON_REF = "circle"

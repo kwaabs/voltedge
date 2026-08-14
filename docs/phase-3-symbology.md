@@ -6,10 +6,11 @@ feature class, the map's own "looks like a real GIS" problem
 (`docs/open-items.md`) -- by resolving `metadata.symbology_rules`
 client-side into a real per-class, per-attribute style, the way
 `docs/metadata-core.md` originally designed it back in Phase 1.
-**Status:** backend and static checks verified against a real
-Postgres/Martin/API/Vite stack; a frontend rendering bug (point
-markers not drawing at all -- see "How this was validated") was found
-and fixed, with live re-verification of the fix in progress.
+**Status:** done and verified against a real Postgres/Martin/API/Vite
+stack, including toggling a real switch's `device_state` and confirming
+the map's own icon changed shape live, not just color. Two real bugs
+surfaced during frontend verification and got fixed along the way --
+see "How this was validated."
 
 ## Why this slice exists
 
@@ -112,6 +113,11 @@ about Martin needed to change.
   or color swatch next to the feature class name, using the exact same
   `resolveSymbology`/`iconDataUri` the map itself uses -- the legend the
   user asked for, without a new component.
+- **`feature-edit-form.tsx`** -- the post-save map-refresh cache-bust
+  (`useMapRefreshStore.bump()`) now fires on every successful save, not
+  only when geometry changed -- see "How this was validated" for why
+  the old `if (dirtyGeometry)` gate was a real bug once symbology
+  started depending on live attributes.
 
 ### Seed data
 
@@ -130,28 +136,46 @@ Backend confirmed via `curl` against the real Postgres/API stack:
 `.../MV_CONDUCTOR/schema` confirmed the simple default-only case for a
 point and a line class respectively.
 
-Frontend: a first Playwright pass against the real dev stack (Vite +
-Go API + Postgres + Martin, no mocking) found a real bug -- **no point
-markers rendered on the map at all**, in any zoom/pan state, across
-every point feature class, confirmed via raw canvas pixel dumps, not
-just screenshots. Lines and polygons rendered correctly. Root cause:
-`createSymbologyStyle`'s Point-case branch (`map-layers.ts`)
-constructed a brand-new `new Style({ image: new Icon({...}) })`
-inline on every single OL style-function call. An OL `Icon`'s image
-loads asynchronously, and a vector tile layer's style function fires
-on every render pass -- a freshly-constructed, not-yet-loaded `Icon`/
-`Image` built inline each call means the load effectively never
-finishes before the next render discards it and starts over, so the
-icon never actually draws. Stroke/Fill-based line and polygon styles
-have no async image involved, which is exactly why only points were
-affected. Fixed by adding a module-level `iconStyleCache` and
-`iconStyleFor(iconRef, color, scale)` helper that reuses the same
-`Style`/`Icon` instance across renders instead of rebuilding it from
-scratch every call. `npm run build` and `npm run lint` both pass
-cleanly against the fix; a second Playwright pass to re-confirm the
-fix live (multiple point classes rendering distinctly, and the
-`DIST_SWITCH` solid-to-hollow-triangle swap on a live `device_state`
-edit) was in progress as of this commit.
+Frontend verification against the real dev stack (Vite + Go API +
+Postgres + Martin, no mocking) surfaced two real bugs, both fixed and
+re-confirmed live before calling this done:
+
+1. **No point markers rendered on the map at all**, in any zoom/pan
+   state, across every point feature class -- confirmed via raw canvas
+   pixel dumps, not just screenshots. Lines and polygons rendered
+   correctly. The first suspect -- `createSymbologyStyle`'s Point-case
+   branch (`map-layers.ts`) constructing a brand-new
+   `new Style({ image: new Icon({...}) })` inline on every OL
+   style-function call -- got a module-level `iconStyleCache` fix, but
+   that alone didn't resolve it: instrumenting `drawImage` directly in
+   a live browser showed the real cause was our SVGs having no
+   explicit `width`/`height` attributes (only `viewBox="0 0 24 24"`),
+   which Chromium resolves to a default intrinsic size (150x150, not
+   24x24) for a detached `Image()` -- a mismatch that broke
+   `VectorTileLayer`'s per-tile render-instruction building in a way a
+   plain `VectorLayer` or an isolated `ol/style/Icon` test didn't
+   reproduce. Fixed by adding explicit `width="24" height="24"` to
+   every template in `symbology-icons.ts`. The `iconStyleCache` stayed
+   in (still the right call re: not rebuilding `Icon`/`Image` objects
+   per render), but it wasn't the actual fix for this bug.
+2. **An attribute-only edit (e.g. `device_state`) never updated the
+   map icon**, even after the fix above -- the data-level save worked
+   (panel showed the new value immediately), but the map kept
+   rendering the stale symbology. `feature-edit-form.tsx` only bumped
+   `useMapRefreshStore` (the cache-busting signal that makes vector
+   tile sources refetch from Martin) `if (dirtyGeometry)` -- a holdover
+   from before symbology resolution existed, when an attribute-only
+   change had no visual consequence on the map at all. Now that
+   `createSymbologyStyle` resolves per-attribute, any successful save
+   can change what a feature looks like, so the bump is now
+   unconditional.
+
+With both fixed, live re-verification confirmed: multiple point
+feature classes visually distinct on the map itself (not just the
+legend), `Switch S1` toggled from `CLOSED` to `OPEN` and back with its
+map icon actually switching from a solid green triangle to a hollow
+red one and back live, and the Layers dropdown still showing each
+class's resolved icon next to its name.
 
 `npm run build && npm run lint` and `go build ./... && go vet ./... &&
 gofmt -l .` all finish clean.

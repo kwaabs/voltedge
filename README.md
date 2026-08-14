@@ -85,11 +85,22 @@ having to reread every phase doc's own "What's still open" section.
   items closed after that: relationships joined connectivity as
   something the connect panel can establish, not just display, and the
   attribute panel itself undocked into the floating window described
-  above. The full, current list of what's still open across every
-  phase — Azure AD SSO, metadata-driven symbology resolution, the real
-  Martin soft-delete fix, and more — now lives in
-  [`docs/open-items.md`](docs/open-items.md), kept current going
-  forward instead of scattered across each slice's own doc.
+  above. The map's last big cosmetic gap closed too: every feature of
+  a given geometry type used to render identically regardless of
+  feature class — `metadata.symbology_rules` (schema-only since Phase
+  1) is now resolved entirely client-side, most-specific-wins over
+  subtype + domain-value, into real per-class SVG icon shapes for
+  points (a hand-authored registry standing in for a real sprite
+  pipeline) and color/width for lines and polygons; the Layers dropdown
+  doubles as the map's legend, showing each class's resolved icon next
+  to its name; `DIST_SWITCH`'s `device_state` is a genuine shape swap
+  (hollow vs. solid triangle) that updates live the moment it's edited,
+  not just a color change. The full, current list of what's still open
+  across every phase — Azure AD SSO, symbology zoom-gating/diagram
+  context/a real sprite pipeline, the real Martin soft-delete fix, and
+  more — now lives in [`docs/open-items.md`](docs/open-items.md), kept
+  current going forward instead of scattered across each slice's own
+  doc.
   Write-ups: [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md),
   [`docs/phase-3-map-loop.md`](docs/phase-3-map-loop.md),
   [`docs/phase-3-create-feature.md`](docs/phase-3-create-feature.md),
@@ -100,7 +111,8 @@ having to reread every phase doc's own "What's still open" section.
   [`docs/phase-3-edit-geometry.md`](docs/phase-3-edit-geometry.md),
   [`docs/phase-3-snapping.md`](docs/phase-3-snapping.md),
   [`docs/phase-3-relationships-ui.md`](docs/phase-3-relationships-ui.md),
-  [`docs/phase-3-floating-panel.md`](docs/phase-3-floating-panel.md).
+  [`docs/phase-3-floating-panel.md`](docs/phase-3-floating-panel.md),
+  [`docs/phase-3-symbology.md`](docs/phase-3-symbology.md).
 - **Phase 4 — Network model** (closed out except `respect_phase`
   enforcement, voltage-boundary tracing, and phase-aware tracing — all
   deliberately deferred pending their own data-modeling passes): a real
