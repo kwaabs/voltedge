@@ -1,4 +1,4 @@
-import { Database, Link2, Map, Settings, Waypoints, Zap } from "lucide-react"
+import { Database, Layers, Link2, Map, Rows3, Settings, Tags, Waypoints, Zap } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import {
@@ -24,6 +24,21 @@ const dataItems = [
   { to: "/features", label: "Feature classes", icon: Database },
   { to: "/connectivity", label: "Connectivity", icon: Waypoints },
   { to: "/relationships", label: "Relationships", icon: Link2 },
+]
+
+/**
+ * Metadata configuration -- authoring what a feature class *is*
+ * (subtypes, fields, domains, field groups), distinct from `dataItems`
+ * above, which browse/edit real feature *data*. See
+ * docs/phase-6-admin-metadata.md for why this is its own section: the
+ * first real write path into metadata.* (every table it touches was
+ * seed-SQL/migration-only before this), deliberately scoped to
+ * additive-only operations the schema compiler already supports safely.
+ */
+const adminItems = [
+  { to: "/admin/feature-classes", label: "Feature classes", icon: Layers },
+  { to: "/admin/domains", label: "Domains", icon: Tags },
+  { to: "/admin/field-groups", label: "Field groups", icon: Rows3 },
 ]
 
 export function AppSidebar() {
@@ -64,6 +79,27 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {dataItems.map((item) => {
+                const isActive = pathname.startsWith(item.to)
+                return (
+                  <SidebarMenuItem key={item.to}>
+                    <SidebarMenuButton asChild isActive={isActive} tooltip={item.label}>
+                      <NavLink to={item.to}>
+                        <item.icon />
+                        <span>{item.label}</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Admin</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {adminItems.map((item) => {
                 const isActive = pathname.startsWith(item.to)
                 return (
                   <SidebarMenuItem key={item.to}>
