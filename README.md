@@ -196,9 +196,34 @@ having to reread every phase doc's own "What's still open" section.
   create a diagram instance itself, metadata-driven forms, MCP
   data-plane tools.
   Write-up: [`docs/phase-5-diagrams.md`](docs/phase-5-diagrams.md).
-- **Phase 6 — Domain expansion + hardening**: full feature class catalog,
-  access control, asset numbering, units/locale, voltage-boundary and
-  phase-aware tracing, load testing.
+- **Phase 6 — Domain expansion + hardening** (slice 1 done: admin
+  metadata UI): a new `api/internal/admin` package, mounted at
+  `/admin`, is the first write path into `metadata.*` — feature
+  classes, subtypes, fields, terminals, domains, field groups — that
+  goes through the API rather than a hand-written seed file or
+  migration. A wizard (`/admin/feature-classes/new`) builds a
+  brand-new feature class end to end in one transaction — subtypes,
+  fields (with optional domain/field-group references and per-subtype
+  required flags), terminals for edge/junction classes, and one
+  default symbology rule — then compiles it with the same
+  `compiler.Compile` the CLI has always used. Separate pages
+  (`/admin/domains`, `/admin/field-groups`) author the shared reference
+  data those fields point at. Deliberately scoped to purely-additive
+  operations on a brand-new class only: adding a field to an
+  already-compiled class already worked (the compiler's existing-table
+  path does a real `ALTER TABLE ADD COLUMN`), but adding a new subtype
+  or domain value to a class *already* compiled would silently break
+  against a `CHECK` constraint that's only ever written once, at
+  initial `CREATE TABLE` — a real compiler gap this slice's scope was
+  drawn around rather than papered over. User accounts, authentication,
+  and authorization stay a distinct, later effort within this phase —
+  genuinely greenfield work, not something to design under the
+  time pressure of shipping the metadata UI. Curl- and
+  browser-verified end to end.
+  Write-up: [`docs/phase-6-admin-metadata.md`](docs/phase-6-admin-metadata.md).
+  Still ahead: editing an already-compiled class, access control, asset
+  numbering, units/locale, voltage-boundary and phase-aware tracing,
+  load testing.
 - **Phase 7 — Field collection**: mobile/offline data capture for field
   crews. Design deferred — noted here as a placeholder only.
 

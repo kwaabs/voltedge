@@ -26,21 +26,30 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-14, after a round of direct feedback on the
-digitizing tool and the rest of the diagram canvas in practice:
-connect/relate target picking now works from the diagram, placements
-and conductors highlight when selected or acting as a connect
-source/target, the canvas has its own independent pan/zoom camera and
-a Select/Pan tool toggle, placements snap-align to each other while
-dragging, an unconnected conductor's loose-end marker is no longer a
-visible circle, and digitizing a new feature now opens the real
-`FeaturePanel`/`feature-create-form.tsx` instead of a second, bespoke
-form -- on top of the same day's earlier rounds (a confirm dialog
-before removing a diagram placement, seeding the first real
+**Last updated:** 2026-08-14, Phase 6 slice 1 shipped: a real admin UI
+(`api/internal/admin`, `/admin/feature-classes`, `/admin/domains`,
+`/admin/field-groups` in the frontend) for authoring `metadata.*`
+end to end -- a brand-new feature class with subtypes, fields,
+terminals, and default symbology in one wizard, plus domains and field
+groups -- without writing SQL, the first write path into any of those
+tables that goes through the API rather than a hand-written seed file
+or migration. Deliberately scoped to purely-additive operations on a
+brand-new class only; see the Phase 6 section below for why editing an
+already-compiled class's subtypes or an already-referenced domain's
+values stays out of scope. Earlier the same day: a round of direct
+feedback on the digitizing tool and the rest of the diagram canvas in
+practice -- connect/relate target picking now works from the diagram,
+placements and conductors highlight when selected or acting as a
+connect source/target, the canvas has its own independent pan/zoom
+camera and a Select/Pan tool toggle, placements snap-align to each
+other while dragging, an unconnected conductor's loose-end marker is
+no longer a visible circle, and digitizing a new feature now opens the
+real `FeaturePanel`/`feature-create-form.tsx` instead of a second,
+bespoke form -- on top of the same day's earlier rounds (a confirm
+dialog before removing a diagram placement, seeding the first real
 `geometry_type = 'none'` feature class, and the digitizing tool itself)
 and the diagram-canvas fixes before that (conductors as wires, diagram
-naming, rotate,
-remove).
+naming, rotate, remove).
 
 ## Phase 1 — Metadata core
 
@@ -120,8 +129,19 @@ remove).
 | Round marker on an unconnected conductor's loose end | Done | XS | The visible dot read as a stray symbol rather than "this wire is waiting for its other end" -- it's now an invisible-but-still-interactive hit target (`fill: transparent`, `pointerEvents: all`) instead of a painted circle. | `docs/phase-5-diagrams.md` |
 | Drag-to-reposition + routed elbow edges on the diagram canvas | Done | M | Shown a real one-line diagram, the auto-placed/straight-line canvas didn't hold up. Placements now drag via pointer events (screen coordinates converted into the SVG's own viewBox space via `getScreenCTM`), writing back through the existing placement upsert on drop with an optimistic query-cache update to avoid flicker; a plain click still selects, same as before. Edges now render as a right-angle elbow `<path>` instead of a straight `<line>`. Neither React Flow nor Fabric.js was reconsidered as the fix -- both were re-evaluated and rejected again, since neither ships schematic routing or symbol conventions either. | `docs/phase-5-diagrams.md` |
 
-## Phases 6-7
+## Phase 6 — Domain expansion + hardening
 
-Not started; see `README.md`'s phase list for their one-line scope
-(domain expansion + hardening; field collection). Too far out to
-itemize yet.
+| Item | Status | Size | Value | Detail |
+|---|---|---|---|---|
+| Edit an already-compiled class's subtypes / an already-referenced domain's values | Open | M | The schema compiler's existing-table path only ever `ALTER TABLE ADD COLUMN` -- a subtype's `CHECK` and a coded domain field's `CHECK` are both written once, at initial `CREATE TABLE`, and never revisited. Needs a compiler change (drop/re-add the constraint, or equivalent) before this is safe to expose in the admin UI. | `docs/phase-6-admin-metadata.md` |
+| Edit a feature class's own basic info after creation | Open | S | This slice's `POST /admin/feature-classes` is create-only -- no `PATCH` endpoint or UI for renaming a class or changing its geometry type/network role after the fact. | `docs/phase-6-admin-metadata.md` |
+| Column type change / rename / delete on an existing field | Open | M–L | The compiler's existing-table path has never supported this, on any class, at any point in this project -- a real design question (data migration on retype, dependent view/constraint handling), not a quick add. | `docs/phase-6-admin-metadata.md` |
+| Range domains in the admin UI | Open | S | `createDomainRequest` and the domains page only ever build a coded domain's values list -- a range domain's own bounds aren't in the request shape yet. | `docs/phase-6-admin-metadata.md` |
+| Delete a feature class / domain / field group from the admin UI | Open | S–M | Create-only this slice; deleting an already-compiled class raises the same "what happens to its physical table and real data" question soft-delete already answers for a feature row, just not yet worked through for a whole class. | `docs/phase-6-admin-metadata.md` |
+| Azure AD SSO + backend auth | Open | L | Legitimately greenfield -- no session/token handling, no user table, no frontend auth state anywhere. Deliberately kept out of this slice -- see the doc's "Why this is its own slice" section -- but still the prerequisite for any real access control on top of the metadata this slice now lets you author. | `docs/phase-6-admin-metadata.md`, `docs/phase-3-ui-shell.md` |
+| Admin metadata UI: feature class catalog + create wizard | Done | L | `api/internal/admin` (new package, mounted at `/admin`) plus four new frontend routes (`/admin/feature-classes`, `.../new`, `/admin/domains`, `/admin/field-groups`) -- the first write path into `metadata.*` that goes through the API instead of hand-written SQL. Create-a-domain, create-a-field-group, and create-a-feature-class-end-to-end (subtypes, fields, terminals, one default symbology rule, in one transaction) all real; compile is a direct call to the same `compiler.Compile` the CLI has always used. Deliberately scoped to purely-additive operations on a brand-new class only -- see the doc for the CHECK-constraint finding that drew that line. Curl- and browser-verified end to end. | `docs/phase-6-admin-metadata.md` |
+
+## Phase 7
+
+Not started; see `README.md`'s phase list for its one-line scope
+(field collection). Too far out to itemize yet.

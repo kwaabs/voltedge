@@ -36,11 +36,17 @@ type FeatureClass struct {
 type Field struct {
 	bun.BaseModel `bun:"table:metadata.fields"`
 
-	ID                   string  `bun:"id,pk"`
-	FeatureClassID       string  `bun:"feature_class_id"`
-	Name                 string  `bun:"name"`
-	DataType             string  `bun:"data_type"`
-	DomainID             *string `bun:"domain_id"`
+	ID             string  `bun:"id,pk"`
+	FeatureClassID string  `bun:"feature_class_id"`
+	Name           string  `bun:"name"`
+	DataType       string  `bun:"data_type"`
+	DomainID       *string `bun:"domain_id"`
+	// GroupID was left off this struct originally -- nothing before
+	// api/internal/admin needed to read or write which form section a
+	// field belongs in, only whether it has one at all indirectly via
+	// featureClassSchemaResponse's own separate rendering (cmd/server's
+	// main.go doesn't source this from the Field model).
+	GroupID              *string `bun:"group_id"`
 	Nullable             bool    `bun:"nullable"`
 	IsComputed           bool    `bun:"is_computed"`
 	Status               string  `bun:"status"`
@@ -73,22 +79,46 @@ type SubtypeFieldRule struct {
 	DefaultOverride *string `bun:"default_override"`
 }
 
-// Domain mirrors metadata.domains -- see migrations/0004.
+// Domain mirrors metadata.domains -- see migrations/0004. Name was left
+// off this struct originally (nothing before api/internal/admin needed
+// it -- every resolution here has only ever gone from a field to its
+// domain's *values*, never displayed the domain's own label), even
+// though the column is real and NOT NULL.
 type Domain struct {
 	bun.BaseModel `bun:"table:metadata.domains"`
 
 	ID         string `bun:"id,pk"`
 	Code       string `bun:"code"`
+	Name       string `bun:"name"`
 	DomainType string `bun:"domain_type"`
 }
 
 // DomainValue mirrors metadata.domain_values -- see migrations/0004.
+// Label and SortOrder were left off this struct originally since nothing
+// before api/internal/admin needed them (every existing consumer only
+// ever needed the code); both are real, always-populated columns.
 type DomainValue struct {
 	bun.BaseModel `bun:"table:metadata.domain_values"`
 
-	ID       string `bun:"id,pk"`
-	DomainID string `bun:"domain_id"`
-	Code     string `bun:"code"`
+	ID        string `bun:"id,pk"`
+	DomainID  string `bun:"domain_id"`
+	Code      string `bun:"code"`
+	Label     string `bun:"label"`
+	SortOrder int    `bun:"sort_order"`
+}
+
+// FieldGroup mirrors metadata.field_groups -- see migrations/0005. A
+// small, reusable, global set of attribute categories (general,
+// electrical, maintenance, asset) that metadata.fields.group_id points
+// at, not redefined per feature class.
+type FieldGroup struct {
+	bun.BaseModel `bun:"table:metadata.field_groups"`
+
+	ID        string  `bun:"id,pk"`
+	Code      string  `bun:"code"`
+	Name      string  `bun:"name"`
+	SortOrder int     `bun:"sort_order"`
+	Icon      *string `bun:"icon"`
 }
 
 // Terminal mirrors metadata.terminals -- see migrations/0009. A named,

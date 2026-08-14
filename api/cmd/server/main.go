@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/kwaabs/voltedge/api/internal/admin"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/diagram"
@@ -58,6 +59,7 @@ func main() {
 	r.Mount("/relationships", relationship.Routes(db))
 	r.Mount("/diagrams", diagram.Routes(db))
 	r.Mount("/trace", trace.Routes(db))
+	r.Mount("/admin", admin.Routes(db))
 
 	log.Printf("voltedge api listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

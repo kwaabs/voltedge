@@ -194,6 +194,52 @@ func ListFeatureClasses(ctx context.Context, db bun.IDB) ([]FeatureClass, error)
 	return classes, nil
 }
 
+// ListAllFeatureClasses is ListFeatureClasses without the active-only
+// filter -- what api/internal/admin's catalog view needs (a draft class
+// not yet compiled is exactly what an admin browsing this list wants to
+// see, not something to hide), unlike every other consumer of this
+// package, which only ever cares about classes real features can
+// already be written against.
+func ListAllFeatureClasses(ctx context.Context, db bun.IDB) ([]FeatureClass, error) {
+	var classes []FeatureClass
+	if err := db.NewSelect().Model(&classes).
+		Order("code").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: listing all feature classes: %w", err)
+	}
+	return classes, nil
+}
+
+// ListDomains returns every domain, and ListDomainValues returns every
+// value for every domain in one query (not one query per domain) --
+// api/internal/admin's own domain picker and management view both want
+// the full set at once, unlike Loaded's own per-feature-class scoping.
+func ListDomains(ctx context.Context, db bun.IDB) ([]Domain, error) {
+	var domains []Domain
+	if err := db.NewSelect().Model(&domains).Order("code").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: listing domains: %w", err)
+	}
+	return domains, nil
+}
+
+func ListDomainValues(ctx context.Context, db bun.IDB) ([]DomainValue, error) {
+	var values []DomainValue
+	if err := db.NewSelect().Model(&values).Order("domain_id", "sort_order", "code").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: listing domain values: %w", err)
+	}
+	return values, nil
+}
+
+// ListFieldGroups returns every field group -- a small, global,
+// reusable set, cheap enough to always fetch in full for a picker.
+func ListFieldGroups(ctx context.Context, db bun.IDB) ([]FieldGroup, error) {
+	var groups []FieldGroup
+	if err := db.NewSelect().Model(&groups).Order("sort_order", "code").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: listing field groups: %w", err)
+	}
+	return groups, nil
+}
+
 // LoadRelationshipClasses returns every relationship_classes row for a
 // specific origin/destination feature-class pair. Unlike NetworkRule
 // there's no valid/invalid split to preserve here -- a row either exists
