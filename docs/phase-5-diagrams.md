@@ -1,17 +1,22 @@
-# Phase 5 (slice 1) — diagram containers, backend only
+# Phase 5 — diagram containers, backend and frontend canvas
 
-**Goal:** the first slice of Phase 5 (README: "Diagrams, attribute
+**Goal:** the first two slices of Phase 5 (README: "Diagrams, attribute
 groups, MCP") — a real data model and API for placing features on a
-schematic diagram, independent of their real map geometry. Deliberately
-backend-only: no canvas view yet, matching how connectivity, relationships,
-and the trace engine all shipped in this project — the data model proven
-solid via curl against a real Postgres/API stack before any UI is built
-on top of it.
-**Status:** done and verified against a real Postgres/API stack —
-create/get/list/delete a diagram instance, place/move/list/remove a
-feature on it, both zero-trust gates (non-container feature class,
-unknown diagram type), cascade delete, and 404 handling all confirmed
-with real curl calls, not assumed from the code.
+schematic diagram, independent of their real map geometry, then a real
+canvas to render one. The backend slice was deliberately built first,
+no canvas view yet, matching how connectivity, relationships, and the
+trace engine all shipped in this project — the data model proven solid
+via curl against a real Postgres/API stack before any UI is built on
+top of it. See "Frontend canvas, added later" below for the second
+slice.
+**Status:** both slices done. Backend verified against a real
+Postgres/API stack — create/get/list/delete a diagram instance,
+place/move/list/remove a feature on it, both zero-trust gates
+(non-container feature class, unknown diagram type), cascade delete,
+and 404 handling all confirmed with real curl calls, not assumed from
+the code. Frontend canvas verified live in the browser, light and dark
+mode, including click-to-select and real connectivity edges between
+placed features.
 
 ## Why this slice exists, and why backend-only
 
@@ -166,29 +171,161 @@ Driven against a real Postgres + Go API, not assumed from the code:
   future package accepting a coded value in a request body would also
   need, not something specific to diagrams.
 
+## Frontend canvas, added later
+
+The user asked "front end canvas, lets go" and, before any code, three
+design questions: which library, and where does it live relative to the
+map (floating panel? resizable? movable? minimizable?). The library
+question got a real answer, not a default: React Flow was the initial
+recommendation (a node+edge graph fits a one-line diagram, pan/zoom and
+custom nodes come built in), but the user pushed back ("svg. react
+flow? are you sure? fabric?"). Re-evaluated honestly rather than
+defended — the actual scope is one substation's handful of devices, not
+a large flow chart; this project has hand-rolled every other
+interaction (dragging, connect-mode, the peer picker) rather than
+reaching for a library; and `symbology-icons.ts`'s `iconDataUri` SVG
+strings plug directly into a hand-rolled SVG canvas with zero
+translation layer. Fabric.js was considered too (canvas/raster-based,
+no native edge concept, no first-party React bindings) and rejected as
+the weakest fit. Landed on: **hand-rolled SVG, no new dependency**. For
+placement, "once its not on a new page and its on the map, or side by
+side on the map, i'm ok with it" ruled out a dedicated route; the final
+choice was **side-by-side split view**, not a floating overlay — the
+map keeps its own full interaction surface, the diagram gets its own
+panel alongside it.
+
+- **Backend groundwork.** Two fields the schema endpoint had been
+  deliberately withholding needed to reach the frontend before any
+  canvas code could work: `featureClassResponse.is_diagram_container`
+  (so the UI can know which selected feature's class can even host a
+  diagram) and `symbologySchema.render_context` (previously filtered to
+  `"map"` only inside `resolveSymbologySchema`, back when diagrams
+  didn't exist yet — now both contexts are sent, and each consumer
+  filters client-side, same "every icon decision happens client-side"
+  principle `docs/metadata-core.md` already commits to for symbology).
+- **`web/src/lib/symbology.ts`'s `resolveSymbology`** gained a required
+  `context: "map" | "diagram"` parameter — now that both contexts'
+  rules arrive together, every call site has to say which one it's
+  rendering, or a diagram-context rule could silently start matching on
+  the map. `map-layers.ts` and `layers-panel.tsx`'s legend both pass
+  `"map"`; the new diagram canvas passes `"diagram"`, falling back to
+  `"map"` when no diagram-context rule exists yet (none does in the
+  current seed data — `render_context = 'diagram'` rows are still
+  unauthored, same open item as before, just no longer blocked on
+  having a consumer).
+- **`web/src/hooks/use-diagrams.ts`** (new) — `useDiagramInstances`
+  (list by container feature, backs the "View diagram" trigger) and
+  `useDiagramPlacements` (list by diagram id, backs the canvas itself).
+  Plain `useQuery` wrappers over the existing endpoints, same shape as
+  every other data hook in this project.
+- **`web/src/stores/diagram-store.ts`** (new) — one field,
+  `openDiagramId: string | null`, same minimal-Zustand-store pattern as
+  `edit-store.ts`/`connect-store.ts`. Not persisted, not a stack — opening
+  a second diagram replaces whichever was open.
+- **`web/src/components/map/diagram-canvas.tsx`** (new) — the canvas
+  itself. Fetches placements, then per-placement feature records
+  (`useQueries`, same pattern `use-all-symbology.ts` already uses for
+  per-class schema fetches — a placement only ever stores
+  `x`/`y`/`rotation`, not a feature's name/subtype/attributes) and
+  per-placement connectivity, so edges can be derived: a real
+  `feature_connectivity` row renders as a line only when *both* its
+  ends are placed on this same diagram (a feature can have real
+  connectivity reaching outside the diagram entirely — a conductor
+  leaving the yard — which has nowhere sensible to draw to). Icons
+  resolve through the same `resolveSymbology` + `iconDataUri` path the
+  map itself uses, just with `context: "diagram"`. Clicking a placed
+  feature calls `useSelectionStore`'s `select`, reusing the exact same
+  feature panel the map's own click-to-select already opens — a
+  diagram is another way to reach a feature, not a separate feature
+  viewer.
+  - **Icon/text sizing is extent-relative, not a fixed pixel-like
+    constant.** Placement `x`/`y` is an arbitrary local coordinate
+    space chosen by whoever placed each feature — there's no fixed
+    "one unit = one pixel" relationship the way the map's real geometry
+    has. A first pass used fixed constants (`ICON_SIZE = 40`,
+    `fontSize: 11`) against a viewBox sized to the placements' own
+    bounding box, and looked fine in isolation but broke visibly once
+    live-verified: the seed data's placements span roughly 100x50
+    units, the panel is much taller than wide, so the effective
+    px-per-unit scale factor came out large enough that the text
+    dwarfed the icons and overflowed the panel edge. Fixed by deriving
+    icon size, padding, and font size as fractions of the placements'
+    own extent (`Math.max(width, height)`, floored at 100 units) instead
+    of literal pixel-like numbers — legible regardless of what
+    coordinate scale a given diagram happens to be authored in.
+- **`web/src/routes/map.tsx`** — the map area became a flex row: the
+  existing map `div` (`flex-1`) plus, only while
+  `diagramStore.openDiagramId` is set, a `w-2/5` panel hosting
+  `DiagramCanvas`. Closing (its own header `X` button) removes the
+  panel and the map reclaims full width.
+- **`web/src/components/map/voltedge-map.tsx`** gained a
+  `ResizeObserver` on the map's container `div`, calling
+  `map.updateSize()` on every resize. OL sizes its canvas off the
+  target element's dimensions at creation/window-resize time only — it
+  has no idea the container itself can shrink/grow without a window
+  resize, which is exactly what happens when the split view opens or
+  closes. Without this the map kept rendering at its pre-split width
+  until the next window resize; confirmed fixed by watching the map
+  visibly resize on open/close in the live verification pass.
+- **`web/src/components/map/feature-panel.tsx`** — a "View diagram"
+  trigger (`Workflow` icon) in the header, next to the existing trace
+  dropdown. Only fetches `useDiagramInstances` at all when the selected
+  feature's own class `is_diagram_container` is true (most classes
+  never host one). A single diagram opens directly on click; more than
+  one (a container can legitimately host several, per
+  `docs/metadata-core.md`) shows a small dropdown to pick from, same
+  `DropdownMenu` pattern the trace picker already uses. Zero diagrams
+  for an otherwise-container-capable feature shows no trigger at all —
+  there's no admin UI yet to create one, so a dead button pointing at
+  nothing would be worse than no button.
+
+Verified live in the browser (Playwright), not just build/typecheck:
+the trigger appears only for `SUBSTATION_YARD` and only once its real
+diagram instance exists, opening it shows the switch/conductor/
+transformer placements as their resolved icons with real edges between
+them (an extra placement of the shared `MV_CONDUCTOR` feature was added
+to the running dev diagram through the real `POST /diagrams/{id}/
+placements` endpoint specifically to exercise the edge-rendering path,
+same "real API, never a raw INSERT" discipline every other runtime
+instance in this project follows), the map visibly shrinks and the
+resize observer keeps it correctly sized, clicking a placed icon
+selects that feature and opens the same feature panel the map's own
+selection uses, closing the panel returns the map to full width, and
+the trigger is correctly absent for a non-container feature class
+(`DIST_SWITCH`). Confirmed in both light and dark mode — the SVG's
+edge/text colors are set via the same `--foreground`/`--muted-foreground`
+CSS custom properties the rest of the app themes with, not hardcoded.
+`npx tsc --noEmit`, `npm run lint` (oxlint), and `npm run build` all
+finish clean.
+
 ## What's still open
 
-- **The frontend canvas itself.** Nothing renders a diagram yet — no
-  route, no component, no drag-to-place interaction. This is the next
-  slice once diagrams get picked back up.
-- **`render_context = 'diagram'` symbology.** `metadata.symbology_rules`
-  has carried this value since Phase 1 and it's been loadable since
-  Phase 3's symbology resolution work, but nothing has ever resolved or
-  rendered it — a diagram canvas is what would finally consume it.
+- **Drag-to-place / drag-to-reposition on the canvas.** Placements
+  render and are clickable, but nothing on the canvas itself writes a
+  new position yet — moving a feature still means a direct `POST
+  /diagrams/{id}/placements` call, same as the backend slice's own curl
+  walkthrough below.
+- **`render_context = 'diagram'` symbology rules.** The canvas now
+  resolves and renders them (falling back to `'map'` symbology when
+  none exists), but no diagram-specific rule has actually been authored
+  in seed data yet — every placement in the demo currently renders its
+  map-context icon.
 - **`geometry_type = 'none'` with a real feature class.** The compiler
   and CRUD engine already support it (see "What was already there"),
   but nothing in the seeded data actually exercises it yet (e.g. a
   `PROTECTIVE_RELAY` that only ever appears via a diagram placement).
-- **No admin UI for authoring `DIAGRAM_TYPE` values or flipping
-  `is_diagram_container`.** Both are real metadata changes today made
-  by hand (seed SQL / a migration), same as every other metadata-level
-  change in this project pre-admin-UI.
+- **No admin UI for authoring `DIAGRAM_TYPE` values, flipping
+  `is_diagram_container`, or creating a diagram instance/first
+  placement.** All are real metadata/data changes today made by hand
+  (seed SQL / a migration / a direct curl call) — the canvas renders
+  what's already there, it doesn't yet create the first diagram or the
+  first placement on a container that doesn't have one.
 
 ## Try it yourself
 
-Backend only this slice — no frontend change. Against a running API
-(`DATABASE_URL=... go run ./cmd/server`, migrations 0001-0019 applied,
-`seed/diagram_example.sql` applied):
+Against a running API (`DATABASE_URL=... go run ./cmd/server`,
+migrations 0001-0019 applied, `seed/diagram_example.sql` applied) and,
+for the frontend part, `npm run dev` in `web/`:
 
 ```bash
 # Create a container feature
@@ -213,4 +350,12 @@ curl -X POST http://localhost:3704/diagrams/<diagram-id>/placements \
 curl http://localhost:3704/diagrams/<diagram-id>/placements
 ```
 
-`go build ./... && go vet ./... && gofmt -l .` should all finish clean.
+Then in the browser: select the `SUBSTATION_YARD` feature just created
+(search by name or click it on the map), click the "View diagram"
+button (`Workflow` icon) in the feature panel's header, and the diagram
+opens in a side-by-side panel next to the map showing every feature
+just placed.
+
+`go build ./... && go vet ./... && gofmt -l .` should all finish clean,
+and so should `npx tsc --noEmit`, `npm run lint`, and `npm run build`
+in `web/`.

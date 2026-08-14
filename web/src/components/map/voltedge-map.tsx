@@ -286,6 +286,15 @@ export function VoltEdgeMap() {
     })
     mapRef.current = map
 
+    // OL sizes its canvas off the target element's dimensions at
+    // creation/resize-event time only -- it has no idea the container
+    // itself can shrink/grow without a window resize, which is exactly
+    // what happens when map.tsx opens/closes the side-by-side diagram
+    // panel. Without this, the map keeps rendering at its pre-split
+    // width until the next window resize.
+    const resizeObserver = new ResizeObserver(() => map.updateSize())
+    resizeObserver.observe(containerRef.current)
+
     const { setPosition, clearPosition } = useMapPointerStore.getState()
     map.on("pointermove", (evt) => {
       const [lon, lat] = toLonLat(evt.coordinate)
@@ -378,6 +387,7 @@ export function VoltEdgeMap() {
     })
 
     return () => {
+      resizeObserver.disconnect()
       map.getTargetElement()?.removeEventListener("mouseleave", clearPosition)
       map.setTarget(undefined)
       mapRef.current = null

@@ -258,7 +258,7 @@ export function createSymbologyStyle(rules: SymbologyRuleSchema[] | undefined) {
     const geometryType = feature.getGeometry()?.getType()
     const props = feature.getProperties() as Record<string, unknown>
     const subtype = typeof props.subtype === "number" ? props.subtype : undefined
-    const def = resolveSymbology(rules, subtype, props)
+    const def = resolveSymbology(rules, subtype, props, "map")
     if (!def) return styleForFeature(feature)
 
     switch (geometryType) {

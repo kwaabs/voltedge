@@ -96,9 +96,9 @@ having to reread every phase doc's own "What's still open" section.
   to its name; `DIST_SWITCH`'s `device_state` is a genuine shape swap
   (hollow vs. solid triangle) that updates live the moment it's edited,
   not just a color change. The full, current list of what's still open
-  across every phase — Azure AD SSO, symbology zoom-gating/diagram
-  context/a real sprite pipeline, the real Martin soft-delete fix, and
-  more — now lives in [`docs/open-items.md`](docs/open-items.md), kept
+  across every phase — Azure AD SSO, symbology zoom-gating/a real
+  sprite pipeline, the real Martin soft-delete fix, and more — now
+  lives in [`docs/open-items.md`](docs/open-items.md), kept
   current going forward instead of scattered across each slice's own
   doc.
   Write-ups: [`docs/phase-3-ui-shell.md`](docs/phase-3-ui-shell.md),
@@ -154,18 +154,22 @@ having to reread every phase doc's own "What's still open" section.
   [`docs/phase-4-trace-discovery-and-search.md`](docs/phase-4-trace-discovery-and-search.md),
   [`docs/phase-4-utility-traces.md`](docs/phase-4-utility-traces.md),
   [`docs/phase-4-safety-traces.md`](docs/phase-4-safety-traces.md).
-- **Phase 5 — Diagrams, attribute groups, MCP** (slice 1 of several:
-  diagram containers done, backend only): `runtime.diagram_instances`/
+- **Phase 5 — Diagrams, attribute groups, MCP** (2 slices done: diagram
+  containers + frontend canvas): `runtime.diagram_instances`/
   `diagram_placements` and a new `api/internal/diagram` package let any
   feature be placed at an `x`/`y`/`rotation` inside a diagram belonging
   to a container feature (`SUBSTATION_YARD` is the first real one),
   entirely independent of its real map geometry — gated on
   `metadata.feature_classes.is_diagram_container`, a column that had
-  existed since Phase 1 with nothing using it yet. Curl-verified end to
-  end against a real Postgres/API stack. Still ahead: the frontend
-  canvas itself (nothing renders a diagram yet), metadata-driven forms,
-  MCP data-plane tools. Write-up:
-  [`docs/phase-5-diagrams.md`](docs/phase-5-diagrams.md).
+  existed since Phase 1 with nothing using it yet. A hand-rolled SVG
+  canvas (no new dependency, reuses the map's own symbology/icon
+  resolution) renders a diagram in a side-by-side split view next to
+  the map — placements as resolved icons, real connectivity as edges
+  between placed features, first real consumer of `render_context =
+  'diagram'` symbology. Curl- and browser-verified end to end. Still
+  ahead: drag-to-place on the canvas, an admin UI to create a diagram
+  or its first placement, metadata-driven forms, MCP data-plane tools.
+  Write-up: [`docs/phase-5-diagrams.md`](docs/phase-5-diagrams.md).
 - **Phase 6 — Domain expansion + hardening**: full feature class catalog,
   access control, asset numbering, units/locale, voltage-boundary and
   phase-aware tracing, load testing.

@@ -25,7 +25,7 @@ import { useLayersStore } from "@/stores/layers-store"
  * when the class has no symbology_rules at all yet (not seeded), so
  * the row just shows its name with no swatch rather than a broken one. */
 function LegendSwatch({ classCode, rules }: { classCode: string; rules: ReturnType<typeof useAllSymbology> }) {
-  const styleDef = resolveSymbology(rules[classCode], undefined, {})
+  const styleDef = resolveSymbology(rules[classCode], undefined, {}, "map")
   if (!styleDef) return null
   if (styleDef.icon_ref) {
     return <img src={iconDataUri(styleDef.icon_ref, styleDef.color)} alt="" className="size-4 shrink-0" />

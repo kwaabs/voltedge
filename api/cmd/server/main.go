@@ -93,10 +93,11 @@ func healthzHandler(db *bun.DB) http.HandlerFunc {
 // couple of internal-only fields (MetadataVersionID) with no reason to
 // ever leave the API.
 type featureClassResponse struct {
-	Code         string `json:"code"`
-	Name         string `json:"name"`
-	GeometryType string `json:"geometry_type"`
-	NetworkRole  string `json:"network_role"`
+	Code               string `json:"code"`
+	Name               string `json:"name"`
+	GeometryType       string `json:"geometry_type"`
+	NetworkRole        string `json:"network_role"`
+	IsDiagramContainer bool   `json:"is_diagram_container"`
 }
 
 // featureClassesHandler is what lets the frontend show a real,
@@ -116,10 +117,11 @@ func featureClassesHandler(db *bun.DB) http.HandlerFunc {
 		out := make([]featureClassResponse, len(classes))
 		for i, fc := range classes {
 			out[i] = featureClassResponse{
-				Code:         fc.Code,
-				Name:         fc.Name,
-				GeometryType: fc.GeometryType,
-				NetworkRole:  fc.NetworkRole,
+				Code:               fc.Code,
+				Name:               fc.Name,
+				GeometryType:       fc.GeometryType,
+				NetworkRole:        fc.NetworkRole,
+				IsDiagramContainer: fc.IsDiagramContainer,
 			}
 		}
 
@@ -183,7 +185,13 @@ type terminalSchema struct {
 // domain against whichever of the feature class's fields uses it (see
 // migrations/0012's own column comment) -- work this handler is already
 // positioned to do once, not work worth repeating in every consumer.
+// RenderContext ("map" or "diagram") is included, not filtered server-side
+// -- both the map layer styling and the diagram canvas resolve from this
+// same array client-side, each ignoring the rules meant for the other
+// context, matching docs/metadata-core.md's "every icon decision happens
+// client-side" design.
 type symbologySchema struct {
+	RenderContext   string          `json:"render_context"`
 	SubtypeCode     *int            `json:"subtype_code,omitempty"`
 	DomainField     *string         `json:"domain_field,omitempty"`
 	DomainValueCode *string         `json:"domain_value_code,omitempty"`
@@ -208,11 +216,12 @@ type featureClassSchemaResponse struct {
 	Symbology    []symbologySchema `json:"symbology,omitempty"`
 }
 
-// resolveSymbologySchema loads a feature class's map-context symbology
-// rules and resolves each one's domain_value_id into a (field name,
-// value code) pair the frontend's matcher can compare directly against
-// a rendered feature's own attributes -- see symbologySchema's own
-// comment for why that resolution belongs here, not in the frontend.
+// resolveSymbologySchema loads every one of a feature class's symbology
+// rules (map and diagram context alike) and resolves each one's
+// domain_value_id into a (field name, value code) pair the frontend's
+// matcher can compare directly against a rendered feature's own
+// attributes -- see symbologySchema's own comment for why that
+// resolution belongs here, not in the frontend.
 func resolveSymbologySchema(ctx context.Context, db *bun.DB, loaded *metadata.Loaded, subtypeCodeByID map[string]int) ([]symbologySchema, error) {
 	rules, err := metadata.LoadSymbologyRules(ctx, db, loaded.FeatureClass.ID)
 	if err != nil {
@@ -221,7 +230,7 @@ func resolveSymbologySchema(ctx context.Context, db *bun.DB, loaded *metadata.Lo
 
 	valueIDs := make([]string, 0, len(rules))
 	for _, r := range rules {
-		if r.RenderContext == "map" && r.DomainValueID != nil {
+		if r.DomainValueID != nil {
 			valueIDs = append(valueIDs, *r.DomainValueID)
 		}
 	}
@@ -245,10 +254,7 @@ func resolveSymbologySchema(ctx context.Context, db *bun.DB, loaded *metadata.Lo
 
 	out := make([]symbologySchema, 0, len(rules))
 	for _, r := range rules {
-		if r.RenderContext != "map" {
-			continue
-		}
-		s := symbologySchema{StyleDef: r.StyleDef}
+		s := symbologySchema{StyleDef: r.StyleDef, RenderContext: r.RenderContext}
 		if r.SubtypeID != nil {
 			if code, ok := subtypeCodeByID[*r.SubtypeID]; ok {
 				s.SubtypeCode = &code
