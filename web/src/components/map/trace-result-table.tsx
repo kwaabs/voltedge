@@ -13,6 +13,15 @@ const DIRECTION_LABEL: Record<string, string> = {
   DOWNSTREAM: "Downstream",
   UPSTREAM: "Upstream",
   SHORTEST_PATH: "Shortest path",
+  // Not real api/internal/trace direction codes -- feature-panel.tsx's
+  // feeder/section triggers hit their own dedicated endpoints
+  // (POST /trace/feeder, POST /trace/section) and normalize their
+  // differently-shaped responses into this same TraceResult display
+  // rather than building two more result tables from scratch; these
+  // two synthetic labels are what that normalization uses in place of
+  // a real trace_configurations direction.
+  FEEDER: "Feeder",
+  SECTION: "Section",
 }
 
 function shortId(id: string): string {
@@ -149,7 +158,7 @@ export function TraceResultTable() {
                     row.isBarrier
                       ? "Trace stopped here (open device)"
                       : row.isTarget
-                        ? "Matched the trace's target class"
+                        ? "Notable for this trace (a matched target class, feeder head, or section boundary)"
                         : undefined
                   }
                 >

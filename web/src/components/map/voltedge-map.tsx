@@ -569,8 +569,9 @@ export function VoltEdgeMap() {
   }, [traceResult])
 
   // Isolation result highlight -- same async-fetch-into-a-dedicated-source
-  // shape as the trace effect above, just two named lists (de_energized,
-  // upstream_boundary) instead of one feature list plus subsets of it.
+  // shape as the trace effect above, just three named lists
+  // (de_energized, upstream_boundary, possible_backfeed_paths) instead
+  // of one feature list plus subsets of it.
   useEffect(() => {
     const source = isolateSourceRef.current
     if (!source) return
@@ -586,9 +587,11 @@ export function VoltEdgeMap() {
     let cancelled = false
 
     async function loadIsolationFeatures() {
-      const refs = result.upstream_boundary
-        ? [...result.de_energized.map((ref) => ({ ref, role: "isolation-deenergized" as const })), { ref: result.upstream_boundary, role: "isolation-boundary" as const }]
-        : result.de_energized.map((ref) => ({ ref, role: "isolation-deenergized" as const }))
+      const refs = [
+        ...result.de_energized.map((ref) => ({ ref, role: "isolation-deenergized" as const })),
+        ...(result.upstream_boundary ? [{ ref: result.upstream_boundary, role: "isolation-boundary" as const }] : []),
+        ...(result.possible_backfeed_paths ?? []).map((ref) => ({ ref, role: "isolation-backfeed" as const })),
+      ]
 
       const fetched = await Promise.all(
         refs.map(async ({ ref, role }) => {

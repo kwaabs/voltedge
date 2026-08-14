@@ -20,6 +20,13 @@ import (
 //	POST   /isolate        de-energized set + upstream protective
 //	                       boundary for a switching device, composed
 //	                       from two ordinary downstream/upstream traces
+//	POST   /feeder         the whole feeder a feature belongs to,
+//	                       regardless of which point along it you start
+//	                       from -- find the network root(s) upstream,
+//	                       then downstream from there
+//	POST   /section        the section a feature sits in -- everything
+//	                       between the nearest bounding device upstream
+//	                       and downstream of it
 //
 // Read-only -- unlike api/internal/connectivity and
 // api/internal/relationship, there's nothing here to establish or
@@ -30,6 +37,8 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/", runHandler(db))
 	r.Get("/configurations", listConfigurationsHandler(db))
 	r.Post("/isolate", isolateHandler(db))
+	r.Post("/feeder", feederHandler(db))
+	r.Post("/section", sectionHandler(db))
 	return r
 }
 
@@ -59,6 +68,40 @@ func isolateHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := isolate(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func feederHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req feederRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := feederTrace(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func sectionHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req sectionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := sectionTrace(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

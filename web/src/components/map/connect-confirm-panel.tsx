@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowRight, Loader2, X } from "lucide-react"
+import { AlertTriangle, ArrowRight, CircleCheck, Loader2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { useFeature } from "@/hooks/use-feature"
@@ -97,6 +97,10 @@ export function ConnectConfirmPanel() {
   const [kind, setKind] = useState("")
   const [saving, setSaving] = useState(false)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
+  const [loopCheck, setLoopCheck] = useState<{ checking: boolean; pathFound: boolean | null }>({
+    checking: false,
+    pathFound: null,
+  })
   const panelRef = useRef<HTMLDivElement>(null)
 
   // A fresh "+ New connection"/"+ New relationship" click starts a new
@@ -111,6 +115,13 @@ export function ConnectConfirmPanel() {
     setKind("")
     setPosition(null)
   }, [mode, source?.featureClassCode, source?.featureId])
+
+  // A loop check result only applies to the exact source/target pairing
+  // it ran against -- picking a different target (or restarting the
+  // whole workflow, already covered by the effect above) invalidates it.
+  useEffect(() => {
+    setLoopCheck({ checking: false, pathFound: null })
+  }, [target?.featureClassCode, target?.featureId])
 
   if (!mode || !source) return null
 
@@ -133,6 +144,31 @@ export function ConnectConfirmPanel() {
     }
     window.addEventListener("pointermove", handleMove)
     window.addEventListener("pointerup", handleUp)
+  }
+
+  // Whether closing/establishing this connectivity link would create a
+  // loop -- a live path (LOOP_CHECK_TRACE, unlike SHORTEST_PATH_TRACE,
+  // respects real switch state: a topological path through a
+  // currently-open device wouldn't actually loop anything right now,
+  // see seed/loop_check_example.sql) already connecting source and
+  // target means this new link would be a second, parallel path.
+  async function checkLoop() {
+    if (!source || !target) return
+    setLoopCheck({ checking: true, pathFound: null })
+    try {
+      const result = await apiFetch<{ path_found?: boolean }>("/trace", {
+        method: "POST",
+        body: JSON.stringify({
+          trace_configuration: "LOOP_CHECK_TRACE",
+          start: { feature_class: source.featureClassCode, feature_id: source.featureId },
+          target: { feature_class: target.featureClassCode, feature_id: target.featureId },
+        }),
+      })
+      setLoopCheck({ checking: false, pathFound: result.path_found ?? false })
+    } catch (err) {
+      setLoopCheck({ checking: false, pathFound: null })
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not check for a loop.")
+    }
   }
 
   async function handleConfirm() {
@@ -236,6 +272,27 @@ export function ConnectConfirmPanel() {
               onChange={(e) => setKind(e.target.value)}
               placeholder="Only needed if the pairing is ambiguous"
             />
+          </div>
+        )}
+
+        {mode === "connectivity" && target && (
+          <div className="flex flex-col gap-1.5">
+            <Button variant="outline" size="sm" onClick={checkLoop} disabled={loopCheck.checking}>
+              {loopCheck.checking && <Loader2 className="size-4 animate-spin" />}
+              Check for loop
+            </Button>
+            {loopCheck.pathFound === true && (
+              <p className="text-destructive flex items-start gap-1.5 text-xs">
+                <AlertTriangle className="size-3.5 shrink-0 translate-y-0.5" />
+                A live path already connects these -- this would create a loop.
+              </p>
+            )}
+            {loopCheck.pathFound === false && (
+              <p className="flex items-start gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                <CircleCheck className="size-3.5 shrink-0 translate-y-0.5" />
+                No existing live path between these.
+              </p>
+            )}
           </div>
         )}
 

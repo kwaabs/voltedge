@@ -7,11 +7,16 @@ import type { TraceFeatureRef } from "@/stores/trace-store"
  * would lose power if `device` were opened right now; `upstream_boundary`
  * is the nearest protective device upstream of it, absent when none
  * exists in that direction (fed all the way back to an unmodeled
- * source). */
+ * source). `critical_facilities` is the subset of `de_energized`
+ * flagged critical; `possible_backfeed_paths` is every live connection
+ * out of the de-energized set this isolation didn't already account
+ * for -- a possibility to verify, not a claimed guarantee either way. */
 export interface IsolationResult {
   device: TraceFeatureRef
   de_energized: TraceFeatureRef[]
   upstream_boundary?: TraceFeatureRef
+  critical_facilities?: TraceFeatureRef[]
+  possible_backfeed_paths?: TraceFeatureRef[]
 }
 
 /**

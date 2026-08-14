@@ -107,9 +107,10 @@ export function editStyleForFeature(feature: FeatureLike): Style {
  * trace_configurations target_class ("trace-target", e.g. the
  * transformer a "trace to transformer" run found); or, while an
  * isolation result is active (isolate-store.ts), everything that would
- * de-energize ("isolation-deenergized") and the upstream protective
- * boundary device ("isolation-boundary") -- each role in its own color
- * so none are ever confused with each other or with a plain selection. */
+ * de-energize ("isolation-deenergized"), the upstream protective
+ * boundary device ("isolation-boundary"), and any possible backfeed
+ * path ("isolation-backfeed") -- each role in its own color so none
+ * are ever confused with each other or with a plain selection. */
 export type HighlightRole =
   | "selected"
   | "connect-source"
@@ -119,6 +120,7 @@ export type HighlightRole =
   | "trace-target"
   | "isolation-deenergized"
   | "isolation-boundary"
+  | "isolation-backfeed"
 
 const HIGHLIGHT_COLORS: Record<HighlightRole, string> = {
   selected: "#38bdf8",
@@ -129,6 +131,7 @@ const HIGHLIGHT_COLORS: Record<HighlightRole, string> = {
   "trace-target": "#eab308",
   "isolation-deenergized": "#f97316",
   "isolation-boundary": "#8b5cf6",
+  "isolation-backfeed": "#dc2626",
 }
 
 function highlightStyleFor(color: string, geometryType: string | undefined): Style {

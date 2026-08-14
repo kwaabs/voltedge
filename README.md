@@ -101,45 +101,52 @@ having to reread every phase doc's own "What's still open" section.
   [`docs/phase-3-snapping.md`](docs/phase-3-snapping.md),
   [`docs/phase-3-relationships-ui.md`](docs/phase-3-relationships-ui.md),
   [`docs/phase-3-floating-panel.md`](docs/phase-3-floating-panel.md).
-- **Phase 4 — Network model** (closed out except loop/mesh detection and
-  `respect_phase` enforcement): a real trace engine (`api/internal/trace`)
-  walking `runtime.feature_connectivity` edge by edge, per a named
-  `metadata.trace_configurations` profile — the four raw directions
-  (`connected`/`downstream`/`upstream`/`shortest_path`), with real
-  barrier-stopping against a live feature attribute (a seeded
-  `DIST_SWITCH`'s `device_state`, checked fresh at each hop, never
-  baked into the graph), plus a generalized `target_class_id` that
-  stops a walk at (while still recording) the first node of a given
-  class — one mechanism powering trace-to-transformer,
-  transformer-to-source, and LV-network tracing, with `cross_transformers`
-  finally enforced against it. `POST /trace/isolate` composes a
-  downstream trace from a device's neighbors (simulating it open
-  without mutating data) with an upstream target-class search for the
-  nearest protective boundary. A new `SERVICE_POINT` feature class and
-  an extended seeded topology (a substation power transformer, a
-  second switch) make all of it real to run. The floating attribute
-  panel's header has a "Run trace" dropdown listing every config by
-  name plus "Isolate from here" for junction features, each producing
-  its own floating result table (feature class/id/name per row,
-  target/barrier/boundary rows visually distinct) and map highlight.
-  Every feature, regardless of class, can also carry an optional
-  human-readable name (a universal system column the compiler adds to
-  every physical table, same precedent as `deleted_at`) — set from the
-  create/edit forms, shown everywhere a feature is referenced (its own
-  panel header, trace/isolation tables, connect/relationship confirm
-  panel, Terminals/Relationships tab rows), and searchable via a
+- **Phase 4 — Network model** (closed out except `respect_phase`
+  enforcement, voltage-boundary tracing, and phase-aware tracing — all
+  deliberately deferred pending their own data-modeling passes): a real
+  trace engine (`api/internal/trace`) walking `runtime.feature_connectivity`
+  edge by edge, per a named `metadata.trace_configurations` profile —
+  the four raw directions (`connected`/`downstream`/`upstream`/
+  `shortest_path`), with real barrier-stopping against a live feature
+  attribute (a seeded `DIST_SWITCH`'s `device_state`, checked fresh at
+  each hop, never baked into the graph), plus a generalized
+  `target_class_id` that stops a walk at (while still recording) the
+  first node of a given class — one mechanism powering
+  trace-to-transformer, transformer-to-source, and LV-network tracing,
+  with `cross_transformers` finally enforced against it. `POST
+  /trace/isolate` composes a downstream trace from a device's
+  neighbors (simulating it open without mutating data) with an
+  upstream target-class search for the nearest protective boundary,
+  plus a critical-facility cross-reference and a backfeed check (every
+  live connection an isolation didn't already account for, surfaced
+  for a human to verify). `POST /trace/feeder` finds a feature's whole
+  feeder regardless of where you start; `POST /trace/section` finds
+  the section between the nearest bounding devices in each direction.
+  Loop/mesh detection needed no new engine code — a second
+  `SHORTEST_PATH` config that, unlike the original, respects live
+  barrier state, plus a "Check for loop" trigger in the connect panel.
+  A new `SERVICE_POINT` feature class and an extended seeded topology
+  (a substation power transformer, two switches) make all of it real
+  to run. The floating attribute panel's header has a "Run trace"
+  dropdown listing every config by name plus "Isolate from here" for
+  junction features, each producing its own floating result table
+  (feature class/id/name per row, target/barrier/boundary/backfeed
+  rows visually distinct) and map highlight. Every feature, regardless
+  of class, can also carry an optional human-readable name (a
+  universal system column the compiler adds to every physical table,
+  same precedent as `deleted_at`) — set from the create/edit forms,
+  shown everywhere a feature is referenced, and searchable via a
   "Search by name…" box in the map toolbar across every feature class.
-  See `docs/phase-4-trace-engine.md`, `docs/phase-4-feature-names.md`,
-  `docs/phase-4-trace-discovery-and-search.md`,
-  `docs/phase-4-utility-traces.md`.
   Write-ups: [`docs/phase-4-trace-engine.md`](docs/phase-4-trace-engine.md),
   [`docs/phase-4-feature-names.md`](docs/phase-4-feature-names.md),
-  [`docs/phase-4-trace-discovery-and-search.md`](docs/phase-4-trace-discovery-and-search.md).
+  [`docs/phase-4-trace-discovery-and-search.md`](docs/phase-4-trace-discovery-and-search.md),
+  [`docs/phase-4-utility-traces.md`](docs/phase-4-utility-traces.md),
+  [`docs/phase-4-safety-traces.md`](docs/phase-4-safety-traces.md).
 - **Phase 5 — Diagrams, attribute groups, MCP**: one-line diagram canvas,
   metadata-driven forms, MCP data-plane tools.
 - **Phase 6 — Domain expansion + hardening**: full feature class catalog,
-  access control, asset numbering, units/locale, isolation/loop traces,
-  load testing.
+  access control, asset numbering, units/locale, voltage-boundary and
+  phase-aware tracing, load testing.
 - **Phase 7 — Field collection**: mobile/offline data capture for field
   crews. Design deferred — noted here as a placeholder only.
 
