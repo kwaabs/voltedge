@@ -26,9 +26,9 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-14, after Phase 5's second slice (the
-diagram frontend canvas -- a hand-rolled SVG side-by-side split view,
-consuming `render_context = 'diagram'` symbology for the first time).
+**Last updated:** 2026-08-14, after adding an "add feature" picker to
+the diagram canvas -- an existing feature can now be placed onto an
+already-created diagram from the UI itself, not just via curl.
 
 ## Phase 1 — Metadata core
 
@@ -89,9 +89,10 @@ consuming `render_context = 'diagram'` symbology for the first time).
 |---|---|---|---|---|
 | Drag-to-place / drag-to-reposition on the diagram canvas | Open | M | Placements render at their stored `x`/`y`/`rotation` and are clickable (select the underlying feature), but nothing on the canvas itself writes a new position yet -- moving a feature still means a direct `POST /diagrams/{id}/placements` call, same as the backend slice's own curl walkthrough. | `docs/phase-5-diagrams.md` |
 | `geometry_type = 'none'` with a real feature class | Open | S | The compiler and CRUD engine already support a feature class with no map geometry at all (whose only visual representation is a diagram placement) -- proven by code inspection, not yet exercised by any actual seeded feature class (e.g. a `PROTECTIVE_RELAY`). | `docs/phase-5-diagrams.md` |
-| Admin UI for `DIAGRAM_TYPE` values / `is_diagram_container` | Open | M | Both are real metadata changes made by hand today (seed SQL / a migration), same as every other metadata-level change in this project pre-admin-UI -- not diagram-specific, just the first place this gap became concrete. There's also no UI yet to create a diagram instance or place a feature onto one for the first time -- the canvas only ever renders what's already there. | `docs/phase-5-diagrams.md` |
+| Admin UI for `DIAGRAM_TYPE` values / `is_diagram_container` / creating the first diagram instance | Open | M | All real metadata/data changes made by hand today (seed SQL / a migration / a direct curl call), same as every other metadata-level change in this project pre-admin-UI. Adding an *existing* feature to an *already-created* diagram is now a real UI capability -- see the "Add existing feature to a diagram" row below -- creating that first diagram instance itself is not. | `docs/phase-5-diagrams.md` |
 | Diagram containers, data model + API | Done | L | `runtime.diagram_instances`/`diagram_placements` (a diagram belongs to one container feature, a placement puts any feature at an x/y/rotation inside it, independent of real geometry), a new `api/internal/diagram` package, gated on `metadata.feature_classes.is_diagram_container`. `SUBSTATION_YARD` is the first real container. Curl-verified end to end against a real Postgres/API stack, including both rejection gates and cascade delete. | `docs/phase-5-diagrams.md` |
 | Diagram frontend canvas | Done | M–L | A hand-rolled SVG canvas (no new dependency, reuses `symbology-icons.ts`'s `iconDataUri` directly) in a side-by-side split view next to the map, not a floating overlay or a new route. Renders placements as symbology-resolved icons plus labels, and real `feature_connectivity` edges between placements that are both on the same diagram. Triggered from `FeaturePanel` via a "View diagram" button, shown only when the selected feature's class is a diagram container with at least one diagram instance. First real consumer of `render_context = 'diagram'` symbology (falls back to `'map'` symbology when no diagram-context rule exists yet). | `docs/phase-5-diagrams.md` |
+| Add existing feature to a diagram, from the canvas | Done | S | A `+` button in the diagram panel opens a cross-class name search (the same fan-out `feature-search.tsx`'s map toolbar box uses, extracted into `use-feature-name-search.ts` so both share it) and places the picked feature via the existing `POST /diagrams/{id}/placements` endpoint -- no new backend work needed. New placements land just outside the current bounding box so repeated additions spread out instead of stacking; already-placed features are filtered out of the search results. Placing a brand-new, geometry-less feature is a separate, still-open capability. | `docs/phase-5-diagrams.md` |
 
 ## Phases 6-7
 

@@ -166,9 +166,12 @@ having to reread every phase doc's own "What's still open" section.
   resolution) renders a diagram in a side-by-side split view next to
   the map — placements as resolved icons, real connectivity as edges
   between placed features, first real consumer of `render_context =
-  'diagram'` symbology. Curl- and browser-verified end to end. Still
-  ahead: drag-to-place on the canvas, an admin UI to create a diagram
-  or its first placement, metadata-driven forms, MCP data-plane tools.
+  'diagram'` symbology. An existing feature can be added to an
+  already-created diagram straight from the canvas (cross-class name
+  search, reusing the same fan-out the map's own search box uses).
+  Curl- and browser-verified end to end. Still ahead: drag-to-reposition
+  on the canvas, an admin UI to create a diagram instance itself,
+  metadata-driven forms, MCP data-plane tools.
   Write-up: [`docs/phase-5-diagrams.md`](docs/phase-5-diagrams.md).
 - **Phase 6 — Domain expansion + hardening**: full feature class catalog,
   access control, asset numbering, units/locale, voltage-boundary and
