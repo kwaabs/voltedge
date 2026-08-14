@@ -3,6 +3,8 @@ import { useQueries, useQueryClient } from "@tanstack/react-query"
 import { Loader2, Plus, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { type PendingDigitize, DigitizeFeatureButton, DigitizeFeatureForm } from "@/components/map/digitize-feature-tool"
+import { type PendingRemoval, RemovePlacementDialog } from "@/components/map/remove-placement-dialog"
 import { type Connection } from "@/hooks/use-connections"
 import { useAllSymbology } from "@/hooks/use-all-symbology"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -69,12 +71,12 @@ function nextPlacementPosition(placements: DiagramPlacement[]): { x: number; y: 
 }
 
 /** The small "×" badge that appears on hover of a placement (point or
- * conductor) -- un-places it from this diagram via the same
- * `DELETE /diagrams/{id}/placements/{placementID}` the backend slice
- * already exposed, just never wired to any UI control until now. Not
- * a real feature delete -- removable in the sense of Un-placing, not
- * destroying anything, so no confirm dialog: reversible with one
- * search-and-add. */
+ * conductor) -- opens RemovePlacementDialog's confirm step rather than
+ * un-placing immediately. An earlier version skipped the dialog
+ * (reasoning it was cosmetic and one search-and-add away from
+ * reversed), but a hover-revealed "x" alone turned out too easy to hit
+ * by accident, so it gets the same explicit-choice guard every other
+ * permanent-ish action in this app already has. */
 function RemoveControl({ x, y, size, onRemove }: { x: number; y: number; size: number; onRemove: () => void }) {
   return (
     <g
@@ -353,6 +355,37 @@ export function DiagramCanvas() {
     return map
   }, [featureClassesData])
 
+  // The one hard rule the digitizing tool exists to respect
+  // (docs/phase-5-diagrams.md): only geometry_type = 'none' classes can
+  // ever be created from inside a diagram, since there's no way to give
+  // a spatial class real map geometry from here.
+  const geometryLessClasses = useMemo(
+    () => featureClassesData?.feature_classes.filter((fc) => fc.geometry_type === "none") ?? [],
+    [featureClassesData],
+  )
+  const [digitizingClass, setDigitizingClass] = useState<string | null>(null)
+  const [pendingDigitize, setPendingDigitize] = useState<PendingDigitize | null>(null)
+
+  useEffect(() => {
+    if (!digitizingClass && !pendingDigitize) return
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setPendingDigitize(null)
+        setDigitizingClass(null)
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [digitizingClass, pendingDigitize])
+
+  function handleCanvasClick(e: React.MouseEvent<SVGSVGElement>) {
+    if (!digitizingClass || e.target !== e.currentTarget) return
+    const svgPoint = clientToSvgPoint(e.clientX, e.clientY)
+    if (!svgPoint) return
+    setPendingDigitize({ featureClass: digitizingClass, x: svgPoint.x, y: svgPoint.y })
+    setDigitizingClass(null)
+  }
+
   // Screen-pixel pointer movement has to be converted into the SVG's
   // own viewBox coordinate space before it means anything as a new
   // x/y -- the viewBox is data-dependent (see the extent-relative
@@ -479,18 +512,7 @@ export function DiagramCanvas() {
     }
   }
 
-  async function handleRemovePlacement(placementId: string) {
-    if (!openDiagramId) return
-    queryClient.setQueryData<{ placements: DiagramPlacement[] }>(["diagram-placements", openDiagramId], (old) =>
-      old ? { placements: old.placements.filter((p) => p.id !== placementId) } : old,
-    )
-    try {
-      await apiFetch(`/diagrams/${openDiagramId}/placements/${placementId}`, { method: "DELETE" })
-    } catch (err) {
-      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not remove this feature from the diagram.")
-      queryClient.invalidateQueries({ queryKey: ["diagram-placements", openDiagramId] })
-    }
-  }
+  const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null)
 
   // The placement actively being dragged or rotated renders at its
   // live pointer-driven position/angle rather than its last-saved one
@@ -594,6 +616,12 @@ export function DiagramCanvas() {
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <DiagramTitle diagramId={openDiagramId} />
         <div className="ml-auto flex shrink-0 items-center gap-1">
+          <DigitizeFeatureButton
+            classes={geometryLessClasses}
+            digitizingClass={digitizingClass}
+            onStart={(code) => setDigitizingClass(code)}
+            onCancel={() => setDigitizingClass(null)}
+          />
           <AddFeatureButton diagramId={openDiagramId} placements={placements} />
           <Button variant="ghost" size="icon" className="size-7" onClick={close}>
             <X className="size-4" />
@@ -601,15 +629,23 @@ export function DiagramCanvas() {
           </Button>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="relative min-h-0 flex-1 overflow-auto">
         {isPending ? (
           <div className="text-muted-foreground p-4 text-sm">Loading diagram...</div>
         ) : isError ? (
           <div className="text-destructive p-4 text-sm">Could not load this diagram.</div>
-        ) : placements.length === 0 ? (
-          <div className="text-muted-foreground p-4 text-sm">Nothing placed on this diagram yet.</div>
         ) : (
-          <svg ref={svgRef} viewBox={viewBox} className="h-full w-full">
+          <svg
+            ref={svgRef}
+            viewBox={viewBox}
+            className={cn("h-full w-full", digitizingClass && "cursor-crosshair")}
+            onClick={handleCanvasClick}
+          >
+            {placements.length === 0 && (
+              <text x={bounds.minX + (bounds.maxX - bounds.minX) / 2} y={bounds.minY + (bounds.maxY - bounds.minY) / 2} textAnchor="middle" style={{ fill: "var(--muted-foreground)", fontSize }}>
+                Nothing placed on this diagram yet.
+              </text>
+            )}
             {conductorItems.map((item) => {
               const feature = featureResults[item.index]?.data
               const classRules = rules[item.placement.feature_class]
@@ -647,7 +683,12 @@ export function DiagramCanvas() {
                     >
                       {feature?.name || item.placement.feature_class}
                     </text>
-                    <RemoveControl x={removeSize * 2.2} y={-removeSize * 2.2} size={removeSize} onRemove={() => handleRemovePlacement(item.placement.id)} />
+                    <RemoveControl
+                      x={removeSize * 2.2}
+                      y={-removeSize * 2.2}
+                      size={removeSize}
+                      onRemove={() => setPendingRemoval({ id: item.placement.id, label: feature?.name || item.placement.feature_class })}
+                    />
                   </g>
                 </g>
               )
@@ -708,14 +749,27 @@ export function DiagramCanvas() {
                     x={iconSize * 0.45}
                     y={-iconSize * 0.45}
                     size={removeSize}
-                    onRemove={() => handleRemovePlacement(placement.id)}
+                    onRemove={() => setPendingRemoval({ id: placement.id, label: feature?.name || placement.feature_class })}
                   />
                 </g>
               )
             })}
           </svg>
         )}
+        {pendingDigitize && (
+          <DigitizeFeatureForm
+            diagramId={openDiagramId}
+            pending={pendingDigitize}
+            onCancel={() => setPendingDigitize(null)}
+            onDone={() => setPendingDigitize(null)}
+          />
+        )}
       </div>
+      <RemovePlacementDialog
+        diagramId={openDiagramId}
+        placement={pendingRemoval}
+        onOpenChange={(open) => !open && setPendingRemoval(null)}
+      />
     </div>
   )
 }
