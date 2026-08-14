@@ -468,14 +468,10 @@ since the very first slice, just never called from the UI).
   and a position drag leaves rotation untouched.
 - **`RemoveControl`** (new) -- a small "×" badge, hidden until hover
   (Tailwind `group`/`group-hover`), on every placement (point or
-  conductor). Calls the pre-existing `DELETE
-  /diagrams/{id}/placements/{placementID}` with an optimistic
-  cache removal, same pattern every other mutation here uses.
-  Deliberately no confirm dialog, unlike `RevokeConnectionDialog` or
-  `DeleteFeatureDialog`: un-placing a feature only loses its cosmetic
-  position on *one* diagram, trivially restored with one search-and-add
-  through `AddFeatureButton` -- not a real network fact like a
-  connection, and not the feature itself like a real delete.
+  conductor). Originally shipped with no confirm step, on the reasoning
+  that un-placing only loses cosmetic position on one diagram; see
+  "Confirm dialog, PROTECTIVE_RELAY, and the digitizing tool, added
+  later" below for why that call got reversed the same day.
 
 Verified live: the demo diagram's `MV_CONDUCTOR` now renders as a
 teal routed wire directly between the switch and transformer icons,
@@ -492,6 +488,97 @@ remaining), and the meter was re-added afterward via `AddFeatureButton`
 to leave the demo data as found. Confirmed in dark mode throughout.
 `go build/vet/gofmt`, `npx tsc --noEmit`, `npm run lint`, and `npm run
 build` all finish clean.
+
+## Confirm dialog, PROTECTIVE_RELAY, and the digitizing tool, added later
+
+Shown the no-confirm `RemoveControl` in practice, direct pushback:
+un-placing deserved the same explicit-choice guard as revoking a
+connection or deleting a feature, even though it's the most reversible
+of the three -- a hover-revealed "×" alone turned out too easy to hit
+by accident. Separately, a real design gap: every feature ever placed
+on a diagram up to this point had first been drawn on the map (real
+geometry) and only *then* added to a diagram via `AddFeatureButton`.
+Nothing let a user create a feature that is never meant to have map
+geometry at all -- a protective relay, a control switch, anything
+whose only representation is ever a diagram symbol. `geometry_type =
+'none'` has been supported by the compiler and CRUD engine since Phase
+1 (see "What was already there" above), just never exercised by a real
+feature class or a real UI path.
+
+Worked out explicitly before writing any code: a feature class falls
+into one of three categories, not two. (1) Both spatial and
+diagram-placeable (e.g. `DIST_XFMR`) -- drawn on the map, placed on
+diagrams via `AddFeatureButton`. (2) Diagram-only (`geometry_type =
+'none'`, e.g. the new `PROTECTIVE_RELAY`) -- created *only* from
+inside a diagram, never has a `geom` column, never appears on the map.
+(3) Spatial-only (e.g. `POLE`) -- not a distinct mechanism, just a
+feature class that happens to never get a `diagram_placements` row.
+The one hard rule that follows: a digitizing tool's class picker must
+only ever offer `geometry_type = 'none'` classes -- there is no way to
+give a spatial class real map geometry from inside a diagram canvas,
+so offering one there would be a dead end by construction.
+
+- **`RemovePlacementDialog`** (new,
+  `web/src/components/map/remove-placement-dialog.tsx`) -- the same
+  `AlertDialog`, can't-dismiss-mid-request pattern as
+  `RevokeConnectionDialog`/`DeleteFeatureDialog`. `RemoveControl`'s
+  click now opens it instead of deleting immediately; the real `DELETE
+  .../placements/{id}` call plus the optimistic cache filter both moved
+  here from the old inline handler in `diagram-canvas.tsx`.
+- **`seed/protective_relay_example.sql`** (new) -- the first
+  `geometry_type = 'none'` feature class actually exercised end to end:
+  `PROTECTIVE_RELAY`, `srid = NULL`, `network_role = 'none'`, one
+  subtype, an ANSI device-number coded field (`27`, `59`, `50/51`,
+  `50/51N`, `86`, `87`) plus an optional manufacturer text field, and
+  its own `render_context = 'diagram'` symbology rule (`{"icon_ref":
+  "circle", "color": "#ea580c"}`) -- the first diagram-context rule
+  ever authored in this project, since every other class up to now has
+  only ever fallen back to its `'map'` rule. Compiled with `go run
+  ./cmd/compile PROTECTIVE_RELAY`; the resulting `gis.protective_relay`
+  table has no `geom` column, confirmed via `\d`.
+- **`digitize-feature-tool.tsx`** (new) -- `DigitizeFeatureButton`, a
+  header trigger next to `AddFeatureButton` that only ever lists
+  `geometry_type = 'none'` classes (filtered client-side from the same
+  `useFeatureClasses` data every other picker already uses) and returns
+  `null` outright when there are none. Clicking a class arms digitizing
+  mode (the button itself becomes a "Click the canvas to place X / Esc"
+  banner); the canvas's own `onClick` handler, guarded by both
+  `digitizingClass` being set and `e.target === e.currentTarget` (so a
+  click that bubbled up from an existing placement doesn't count),
+  captures the point via the same `clientToSvgPoint` drag-to-reposition
+  already uses and opens `DigitizeFeatureForm`. That form is
+  deliberately not a reuse of `feature-create-form.tsx` -- that
+  component's save body always includes `geometry` (tied to the map's
+  own draw-store flow) and its post-save side effects don't apply here
+  -- but it does reuse every lower-level field piece
+  (`FieldInput`/`formatFieldLabel`/`useFeatureClassSchema`) so the
+  actual attribute inputs behave identically either way. Saving is two
+  real API calls for one user action: `POST /features/{class}` with no
+  `geometry` key at all, then `POST /diagrams/{id}/placements` at the
+  captured point -- no backend changes needed, since the CRUD engine
+  already rejects a geometry for a `geometry_type = 'none'` class and
+  the placement endpoint already accepts any valid feature reference.
+  Escape cancels cleanly at both the armed stage and the form-open
+  stage, back to idle either way.
+- The empty-diagram render branch was restructured so the `<svg>`
+  always mounts (the "nothing placed yet" message is now text drawn
+  inside the SVG rather than a replacement `<div>`) -- digitizing the
+  very first feature onto a brand-new, empty diagram needs a live
+  `svgRef` to convert click coordinates through, which a placeholder
+  `<div>` branch never provided.
+
+Verified live end to end: the picker lists exactly "Protective Relay"
+and nothing else (confirmed no spatial class ever appears); arming,
+clicking the canvas, filling in name/subtype/device number/manufacturer,
+and saving produces a real orange circle at the clicked point labeled
+with its name, confirmed via `GET .../protective_relay` and `GET
+.../placements` that both the feature row and the placement row are
+real; Escape at the armed stage and at the open-form stage both cancel
+back to idle cleanly; hovering an existing placement and clicking its
+"×" opens the confirm dialog, Cancel leaves the placement untouched
+(confirmed via `GET`), and Remove performs the real `DELETE` (confirmed
+via a follow-up `GET` showing it gone). `npx tsc --noEmit`, `npm run
+lint`, and `npm run build` all finish clean.
 
 ## What's still open
 
@@ -516,23 +603,16 @@ build` all finish clean.
   `feature_connectivity` row. A protection scheme's dashed trip lines
   with arrowheads aren't real network connectivity at all -- they're
   schematic-only annotations, which the current model has no place for.
-- **`render_context = 'diagram'` symbology rules.** The canvas now
-  resolves and renders them (falling back to `'map'` symbology when
-  none exists), but no diagram-specific rule has actually been authored
-  in seed data yet — every placement in the demo currently renders its
-  map-context icon.
-- **`geometry_type = 'none'` with a real feature class.** The compiler
-  and CRUD engine already support it (see "What was already there"),
-  but nothing in the seeded data actually exercises it yet (e.g. a
-  `PROTECTIVE_RELAY` that only ever appears via a diagram placement).
 - **No admin UI for authoring `DIAGRAM_TYPE` values, flipping
   `is_diagram_container`, or creating the first diagram instance for a
   container.** Still real metadata/data changes made by hand today
   (seed SQL / a migration / a direct curl call). Adding an *existing*
-  feature to an *already-created* diagram is now a real UI capability
-  (see "Adding existing features from the canvas, added later" above);
-  creating that first diagram instance itself, and placing a brand-new
-  `geometry_type = 'none'` feature with no prior map presence, are not.
+  feature to an *already-created* diagram, and digitizing a brand-new
+  `geometry_type = 'none'` feature straight onto one, are both now real
+  UI capabilities (see "Adding existing features from the canvas, added
+  later" and "Confirm dialog, PROTECTIVE_RELAY, and the digitizing
+  tool, added later" above/below); creating that first diagram instance
+  itself is not.
 
 ## Try it yourself
 
