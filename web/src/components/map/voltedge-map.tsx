@@ -453,6 +453,23 @@ export function VoltEdgeMap() {
     return () => document.removeEventListener("keydown", handleEscape)
   }, [connectMode])
 
+  // Escape also cancels an already-placed draft waiting on
+  // feature-create-form.tsx -- one step later than the drawing-in-progress
+  // Escape above (which only clears drawingFeatureClassCode, not draft).
+  // Covers both the map's own draw flow (geometry already placed, form
+  // open) and a geometry-less draft started from a diagram's digitizing
+  // tool (draw-store.ts's diagramPlacement) -- neither had a Escape-to-
+  // cancel affordance at this stage before, only the form's own Cancel
+  // button.
+  useEffect(() => {
+    if (!draft) return
+    const handleEscape = (evt: KeyboardEvent) => {
+      if (evt.key === "Escape") useDrawStore.getState().clearDraft()
+    }
+    document.addEventListener("keydown", handleEscape)
+    return () => document.removeEventListener("keydown", handleEscape)
+  }, [draft])
+
   // Escape also cancels an in-progress feature edit (see edit-store.ts
   // and feature-edit-form.tsx) -- same affordance as canceling a draw
   // or a connect workflow, discarding whatever's been typed so far.

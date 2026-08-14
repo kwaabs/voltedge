@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useQueries, useQueryClient } from "@tanstack/react-query"
-import { Loader2, Plus, X } from "lucide-react"
+import { Hand, Loader2, Magnet, Maximize2, MousePointer2, Plus, X, ZoomIn, ZoomOut } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { type PendingDigitize, DigitizeFeatureButton, DigitizeFeatureForm } from "@/components/map/digitize-feature-tool"
+import { DigitizeFeatureButton } from "@/components/map/digitize-feature-tool"
 import { type PendingRemoval, RemovePlacementDialog } from "@/components/map/remove-placement-dialog"
 import { type Connection } from "@/hooks/use-connections"
 import { useAllSymbology } from "@/hooks/use-all-symbology"
@@ -12,10 +12,13 @@ import { type DiagramInstance, type DiagramPlacement, useDiagramInstance, useDia
 import { type FeatureRecord } from "@/hooks/use-feature"
 import { type FeatureSearchResult, MIN_QUERY_LENGTH, useFeatureNameSearch } from "@/hooks/use-feature-name-search"
 import { ApiError, apiFetch } from "@/lib/api"
+import { type HighlightRole, HIGHLIGHT_COLORS } from "@/lib/map-layers"
 import { iconDataUri } from "@/lib/symbology-icons"
 import { resolveSymbology } from "@/lib/symbology"
 import { cn } from "@/lib/utils"
+import { useConnectStore } from "@/stores/connect-store"
 import { useDiagramStore } from "@/stores/diagram-store"
+import { useDrawStore } from "@/stores/draw-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -35,9 +38,30 @@ const ICON_FRACTION = 0.12
 const PADDING_FRACTION = 0.25
 const FONT_FRACTION = 0.035
 const ROTATE_SNAP_DEGREES = 15
+const ZOOM_FACTOR = 1.25
+const SNAP_THRESHOLD_FRACTION = 0.03
 
 function placementKey(featureClass: string, featureId: string): string {
   return `${featureClass}:${featureId}`
+}
+
+/** Placement-to-placement alignment snapping while dragging (see the
+ * view toolbar's Magnet toggle) -- snaps to another placement's exact
+ * x or y, independently per axis, whichever's within `threshold`.
+ * Deliberately not a fixed grid: a one-line diagram's meaningful
+ * alignment is "level with this other device," not an arbitrary grid
+ * cell. */
+function snapCoordinate(value: number, candidates: number[], threshold: number): number {
+  let snapped = value
+  let bestDist = threshold
+  for (const c of candidates) {
+    const dist = Math.abs(c - value)
+    if (dist < bestDist) {
+      bestDist = dist
+      snapped = c
+    }
+  }
+  return snapped
 }
 
 /** A routed, right-angle connector between two points -- a real
@@ -108,6 +132,84 @@ function RemoveControl({ x, y, size, onRemove }: { x: number; y: number; size: n
         strokeLinecap="round"
       />
     </g>
+  )
+}
+
+/**
+ * Select vs. pan tool, zoom in/out/fit, and a placement-alignment snap
+ * toggle. The diagram canvas has its own independent camera (see
+ * DiagramCanvas's `camera`/`fitBox` state) rather than the browser's
+ * native scroll -- it needs its own small set of controls for the same
+ * ideas the map's OL pan/zoom gets for free, since an SVG viewBox has
+ * no built-in equivalent. Positioned like the map's own zoom buttons
+ * (top-left corner of the canvas), not the header, since it's about
+ * navigating the canvas itself rather than the diagram as a whole.
+ */
+function DiagramViewToolbar({
+  mode,
+  onModeChange,
+  onZoomIn,
+  onZoomOut,
+  onFit,
+  snapEnabled,
+  onToggleSnap,
+}: {
+  mode: "select" | "pan"
+  onModeChange: (mode: "select" | "pan") => void
+  onZoomIn: () => void
+  onZoomOut: () => void
+  onFit: () => void
+  snapEnabled: boolean
+  onToggleSnap: () => void
+}) {
+  const activeClass = "bg-accent text-accent-foreground"
+  return (
+    <div className="bg-popover text-popover-foreground absolute top-2 left-2 z-10 flex items-center gap-0.5 rounded-md border p-0.5 shadow-sm">
+      <Button
+        variant="ghost"
+        size="icon"
+        className={cn("size-7", mode === "select" && activeClass)}
+        title="Select"
+        onClick={() => onModeChange("select")}
+      >
+        <MousePointer2 className="size-4" />
+        <span className="sr-only">Select</span>
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className={cn("size-7", mode === "pan" && activeClass)}
+        title="Pan"
+        onClick={() => onModeChange("pan")}
+      >
+        <Hand className="size-4" />
+        <span className="sr-only">Pan</span>
+      </Button>
+      <div className="bg-border mx-0.5 h-5 w-px" />
+      <Button variant="ghost" size="icon" className="size-7" title="Zoom in" onClick={onZoomIn}>
+        <ZoomIn className="size-4" />
+        <span className="sr-only">Zoom in</span>
+      </Button>
+      <Button variant="ghost" size="icon" className="size-7" title="Zoom out" onClick={onZoomOut}>
+        <ZoomOut className="size-4" />
+        <span className="sr-only">Zoom out</span>
+      </Button>
+      <Button variant="ghost" size="icon" className="size-7" title="Fit to view" onClick={onFit}>
+        <Maximize2 className="size-4" />
+        <span className="sr-only">Fit to view</span>
+      </Button>
+      <div className="bg-border mx-0.5 h-5 w-px" />
+      <Button
+        variant="ghost"
+        size="icon"
+        className={cn("size-7", snapEnabled && activeClass)}
+        title={snapEnabled ? "Snapping on" : "Snapping off"}
+        onClick={onToggleSnap}
+      >
+        <Magnet className="size-4" />
+        <span className="sr-only">{snapEnabled ? "Snapping on" : "Snapping off"}</span>
+      </Button>
+    </div>
   )
 }
 
@@ -338,6 +440,8 @@ export function DiagramCanvas() {
   const openDiagramId = useDiagramStore((s) => s.openDiagramId)
   const close = useDiagramStore((s) => s.close)
   const selected = useSelectionStore((s) => s.selected)
+  const connectSource = useConnectStore((s) => s.source)
+  const connectTarget = useConnectStore((s) => s.target)
   const { data: placementsData, isPending, isError } = useDiagramPlacements(openDiagramId ?? undefined)
   const { data: featureClassesData } = useFeatureClasses()
   const rules = useAllSymbology()
@@ -346,6 +450,52 @@ export function DiagramCanvas() {
   const [dragState, setDragState] = useState<DragState | null>(null)
   const [rotateState, setRotateState] = useState<RotateState | null>(null)
   const queryClient = useQueryClient()
+
+  // The canvas's own camera, independent of the map's OL pan/zoom and
+  // of the always-auto-fit viewBox this used to compute on every
+  // render -- see the "fit-to-bounds happens once per diagram" effect
+  // below for why. "select" is the default tool; "pan" hands drag
+  // gestures to the camera instead of to a placement (see
+  // handlePlacementPointerDown's own mode guard).
+  const [canvasMode, setCanvasMode] = useState<"select" | "pan">("select")
+  const [snapEnabled, setSnapEnabled] = useState(true)
+  const [camera, setCamera] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const [panDrag, setPanDrag] = useState<{
+    startClientX: number
+    startClientY: number
+    startCamera: { x: number; y: number; w: number; h: number }
+  } | null>(null)
+  const lastFitDiagramRef = useRef<string | null>(null)
+
+  // A placement/conductor's highlight role, if any -- reuses the exact
+  // same roles and colors the map's own highlight layer uses
+  // (map-layers.ts's HIGHLIGHT_COLORS) so a selected or connect-mode
+  // source/target feature reads identically whether it's shown on the
+  // map or the diagram.
+  function roleFor(featureClass: string, featureId: string): HighlightRole | null {
+    if (selected?.featureClassCode === featureClass && selected?.featureId === featureId) return "selected"
+    if (connectSource?.featureClassCode === featureClass && connectSource?.featureId === featureId) return "connect-source"
+    if (connectTarget?.featureClassCode === featureClass && connectTarget?.featureId === featureId) return "connect-target"
+    return null
+  }
+
+  // A plain click on a placement either picks it as a connect-mode
+  // target (if a connect/relate workflow is waiting on one -- see
+  // connect-store.ts, mirroring voltedge-map.tsx's own click handler)
+  // or falls back to the normal global selection every other click
+  // already used. Bails out entirely while a create-draft is open (see
+  // draw-store.ts), same guard voltedge-map.tsx's own click handler
+  // applies -- a click shouldn't silently change what's selected out
+  // from under an in-progress, unsaved create form.
+  function selectOrPickTarget(featureClass: string, featureId: string) {
+    if (useDrawStore.getState().draft) return
+    const connectState = useConnectStore.getState()
+    if (connectState.mode && !connectState.target) {
+      connectState.pickTarget({ featureClassCode: featureClass, featureId })
+      return
+    }
+    useSelectionStore.getState().select(featureClass, featureId)
+  }
 
   const geometryTypeByClass = useMemo(() => {
     const map: Record<string, string> = {}
@@ -364,25 +514,34 @@ export function DiagramCanvas() {
     [featureClassesData],
   )
   const [digitizingClass, setDigitizingClass] = useState<string | null>(null)
-  const [pendingDigitize, setPendingDigitize] = useState<PendingDigitize | null>(null)
 
+  // Escape while armed (waiting on a canvas click) cancels back to
+  // idle. Escape once a draft actually exists -- the attribute form is
+  // open, rendered by feature-panel.tsx/feature-create-form.tsx, not
+  // this component -- is handled globally in voltedge-map.tsx, the same
+  // place that already handles it for the map's own draw flow.
   useEffect(() => {
-    if (!digitizingClass && !pendingDigitize) return
+    if (!digitizingClass) return
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setPendingDigitize(null)
-        setDigitizingClass(null)
-      }
+      if (e.key === "Escape") setDigitizingClass(null)
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [digitizingClass, pendingDigitize])
+  }, [digitizingClass])
 
+  // Captures the clicked point and hands off to draw-store.ts's
+  // startDiagramDraft -- feature-panel.tsx picks the resulting draft up
+  // from there and renders feature-create-form.tsx, the exact same
+  // attribute form the map's own draw flow uses (see that file's own
+  // doc comment for why this isn't a second, bespoke form). Guarded
+  // against the pan tool: a pan drag ends with a plain `click` event
+  // too, which would otherwise place a feature at wherever the drag
+  // happened to end.
   function handleCanvasClick(e: React.MouseEvent<SVGSVGElement>) {
-    if (!digitizingClass || e.target !== e.currentTarget) return
+    if (!digitizingClass || e.target !== e.currentTarget || canvasMode === "pan") return
     const svgPoint = clientToSvgPoint(e.clientX, e.clientY)
-    if (!svgPoint) return
-    setPendingDigitize({ featureClass: digitizingClass, x: svgPoint.x, y: svgPoint.y })
+    if (!svgPoint || !openDiagramId) return
+    useDrawStore.getState().startDiagramDraft(digitizingClass, { diagramId: openDiagramId, x: svgPoint.x, y: svgPoint.y })
     setDigitizingClass(null)
   }
 
@@ -404,7 +563,13 @@ export function DiagramCanvas() {
     return { x: transformed.x, y: transformed.y }
   }
 
+  // No-ops entirely while the pan tool is active -- the pointerdown
+  // isn't captured or prevented here, so it bubbles up to the SVG's own
+  // pan handler instead (see handleCanvasPanPointerDown), letting a
+  // drag that starts on top of a placement still pan the canvas rather
+  // than move the feature.
   function handlePlacementPointerDown(e: React.PointerEvent<SVGGElement>, placement: DiagramPlacement) {
+    if (canvasMode === "pan") return
     const svgPoint = clientToSvgPoint(e.clientX, e.clientY)
     if (!svgPoint) return
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -420,26 +585,43 @@ export function DiagramCanvas() {
     })
   }
 
+  // Snapping (the view toolbar's Magnet toggle) aligns the dragged
+  // placement's x or y, independently per axis, to any other
+  // placement's exact x or y within a threshold scaled to the
+  // diagram's own current extent -- the same extent-relative sizing
+  // reasoning icon/font sizing already uses, so the snap distance feels
+  // consistent regardless of what coordinate scale the diagram was
+  // authored in.
   function handlePlacementPointerMove(e: React.PointerEvent<SVGGElement>) {
     if (!dragState) return
     const svgPoint = clientToSvgPoint(e.clientX, e.clientY)
     if (!svgPoint) return
-    setDragState((prev) => prev && { ...prev, x: svgPoint.x + prev.offsetX, y: svgPoint.y + prev.offsetY, moved: true })
+    let x = svgPoint.x + dragState.offsetX
+    let y = svgPoint.y + dragState.offsetY
+    if (snapEnabled) {
+      const ext = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, MIN_EXTENT)
+      const threshold = ext * SNAP_THRESHOLD_FRACTION
+      const others = placements.filter((p) => p.id !== dragState.placementId)
+      x = snapCoordinate(x, others.map((p) => p.x), threshold)
+      y = snapCoordinate(y, others.map((p) => p.y), threshold)
+    }
+    setDragState((prev) => prev && { ...prev, x, y, moved: true })
   }
 
   // A pointerup with no real movement is a click, not a drag -- select
-  // the feature, same as before drag existed. A real drag writes the
-  // new position back immediately: an optimistic update to the query
-  // cache first (so the node doesn't visibly snap back to its old spot
-  // while the request is in flight), then the real POST upsert this
-  // endpoint has supported since the backend slice, then only
-  // reconciles from the server on failure.
+  // the feature (or, mid connect/relate workflow, pick it as the
+  // target), same as before drag existed. A real drag writes the new
+  // position back immediately: an optimistic update to the query cache
+  // first (so the node doesn't visibly snap back to its old spot while
+  // the request is in flight), then the real POST upsert this endpoint
+  // has supported since the backend slice, then only reconciles from
+  // the server on failure.
   async function handlePlacementPointerUp() {
     if (!dragState || !openDiagramId) return
     const { placementId, featureClass, featureId, x, y, moved } = dragState
     if (!moved) {
       setDragState(null)
-      useSelectionStore.getState().select(featureClass, featureId)
+      selectOrPickTarget(featureClass, featureId)
       return
     }
     const rotation = placements.find((p) => p.id === placementId)?.rotation ?? 0
@@ -465,6 +647,7 @@ export function DiagramCanvas() {
   // the placement's own center, snapped to ROTATE_SNAP_DEGREES for a
   // deliberate, schematic-appropriate feel rather than free-angle drift.
   function handleRotateHandlePointerDown(e: React.PointerEvent<SVGGElement>, placement: DiagramPlacement) {
+    if (canvasMode === "pan") return
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     setRotateState({
@@ -510,6 +693,55 @@ export function DiagramCanvas() {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not rotate this feature.")
       queryClient.invalidateQueries({ queryKey: ["diagram-placements", openDiagramId] })
     }
+  }
+
+  // Zooms the camera by `factor` (< 1 zooms in, > 1 zooms out) around
+  // `center` (a diagram-space point) if given, or the current view's
+  // own center otherwise -- the same "keep this point fixed under the
+  // cursor" math a map or image editor's scroll-to-zoom uses. Clamped
+  // relative to fitBox's own width so zooming stays sane regardless of
+  // how far the user has already gone, in either direction.
+  function zoomBy(factor: number, center?: { x: number; y: number }) {
+    const current = camera ?? fitBox
+    const cx = center?.x ?? current.x + current.w / 2
+    const cy = center?.y ?? current.y + current.h / 2
+    const newW = Math.min(Math.max(current.w * factor, fitBox.w * 0.04), fitBox.w * 20)
+    const newH = current.h * (newW / current.w)
+    const fracX = (cx - current.x) / current.w
+    const fracY = (cy - current.y) / current.h
+    setCamera({ x: cx - fracX * newW, y: cy - fracY * newH, w: newW, h: newH })
+  }
+
+  function handleWheelZoom(e: React.WheelEvent<SVGSVGElement>) {
+    e.preventDefault()
+    const cursor = clientToSvgPoint(e.clientX, e.clientY)
+    zoomBy(e.deltaY < 0 ? 1 / ZOOM_FACTOR : ZOOM_FACTOR, cursor ?? undefined)
+  }
+
+  // The pan tool's own drag, on the SVG element itself rather than a
+  // placement's <g> -- active only in "pan" mode (handlePlacementPointerDown
+  // no-ops and lets the same pointerdown bubble up here when it starts
+  // on top of a placement). Converts the screen-pixel drag delta into
+  // diagram-space units via the current CTM's own scale, the same
+  // conversion clientToSvgPoint uses for a single point.
+  function handleCanvasPanPointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    if (canvasMode !== "pan") return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setPanDrag({ startClientX: e.clientX, startClientY: e.clientY, startCamera: camera ?? fitBox })
+  }
+
+  function handleCanvasPanPointerMove(e: React.PointerEvent<SVGSVGElement>) {
+    if (!panDrag) return
+    const svg = svgRef.current
+    const ctm = svg?.getScreenCTM()
+    if (!svg || !ctm) return
+    const dx = (e.clientX - panDrag.startClientX) / ctm.a
+    const dy = (e.clientY - panDrag.startClientY) / ctm.d
+    setCamera({ ...panDrag.startCamera, x: panDrag.startCamera.x - dx, y: panDrag.startCamera.y - dy })
+  }
+
+  function handleCanvasPanPointerUp() {
+    setPanDrag(null)
   }
 
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null)
@@ -602,14 +834,42 @@ export function DiagramCanvas() {
     return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
   }, [effectivePlacements])
 
+  // The auto-fit-to-bounds rect -- what the viewBox used to always be,
+  // on every render. Still what "Fit to view" (the toolbar's Maximize2
+  // button) recomputes on demand, and what the camera below initializes
+  // to; it just no longer drives the viewBox directly on every render.
+  const fitBox = useMemo(() => {
+    const ext = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, MIN_EXTENT)
+    const pad = ext * PADDING_FRACTION
+    return {
+      x: bounds.minX - pad,
+      y: bounds.minY - pad,
+      w: bounds.maxX - bounds.minX + pad * 2,
+      h: bounds.maxY - bounds.minY + pad * 2,
+    }
+  }, [bounds])
+
+  // Fits to bounds once per diagram, the moment its placements finish
+  // loading -- not on every render the way the viewBox used to. A
+  // manual pan/zoom should stick instead of snapping back to fit the
+  // instant a placement moves and `bounds` recomputes; `lastFitDiagramRef`
+  // is what makes this "once," even though `fitBox` itself (an effect
+  // dependency) keeps changing on every placement move.
+  useEffect(() => {
+    if (isPending || !openDiagramId || lastFitDiagramRef.current === openDiagramId) return
+    lastFitDiagramRef.current = openDiagramId
+    setCamera(fitBox)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openDiagramId, isPending, fitBox])
+
   if (!openDiagramId) return null
 
   const extent = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, MIN_EXTENT)
-  const padding = extent * PADDING_FRACTION
   const iconSize = extent * ICON_FRACTION
   const fontSize = extent * FONT_FRACTION
   const removeSize = iconSize * 0.18
-  const viewBox = `${bounds.minX - padding} ${bounds.minY - padding} ${bounds.maxX - bounds.minX + padding * 2} ${bounds.maxY - bounds.minY + padding * 2}`
+  const view = camera ?? fitBox
+  const viewBox = `${view.x} ${view.y} ${view.w} ${view.h}`
 
   return (
     <div className="bg-background flex h-full w-full min-w-0 flex-col border-l">
@@ -635,12 +895,31 @@ export function DiagramCanvas() {
         ) : isError ? (
           <div className="text-destructive p-4 text-sm">Could not load this diagram.</div>
         ) : (
-          <svg
-            ref={svgRef}
-            viewBox={viewBox}
-            className={cn("h-full w-full", digitizingClass && "cursor-crosshair")}
-            onClick={handleCanvasClick}
-          >
+          <>
+            <DiagramViewToolbar
+              mode={canvasMode}
+              onModeChange={setCanvasMode}
+              onZoomIn={() => zoomBy(1 / ZOOM_FACTOR)}
+              onZoomOut={() => zoomBy(ZOOM_FACTOR)}
+              onFit={() => setCamera(fitBox)}
+              snapEnabled={snapEnabled}
+              onToggleSnap={() => setSnapEnabled((s) => !s)}
+            />
+            <svg
+              ref={svgRef}
+              viewBox={viewBox}
+              className={cn(
+                "h-full w-full",
+                digitizingClass && "cursor-crosshair",
+                canvasMode === "pan" && (panDrag ? "cursor-grabbing" : "cursor-grab"),
+              )}
+              onClick={handleCanvasClick}
+              onWheel={handleWheelZoom}
+              onPointerDown={handleCanvasPanPointerDown}
+              onPointerMove={handleCanvasPanPointerMove}
+              onPointerUp={handleCanvasPanPointerUp}
+              onPointerCancel={handleCanvasPanPointerUp}
+            >
             {placements.length === 0 && (
               <text x={bounds.minX + (bounds.maxX - bounds.minX) / 2} y={bounds.minY + (bounds.maxY - bounds.minY) / 2} textAnchor="middle" style={{ fill: "var(--muted-foreground)", fontSize }}>
                 Nothing placed on this diagram yet.
@@ -657,8 +936,17 @@ export function DiagramCanvas() {
               const midX = (p1.x + p2.x) / 2
               const midY = (p1.y + p2.y) / 2
               const dragging = dragState?.placementId === item.placement.id
+              const role = roleFor(item.placement.feature_class, item.placement.feature_id)
               return (
                 <g key={item.placement.id}>
+                  {role && (
+                    <path
+                      d={elbowPath(p1.x, p1.y, p2.x, p2.y)}
+                      fill="none"
+                      style={{ stroke: HIGHLIGHT_COLORS[role], opacity: 0.4 }}
+                      strokeWidth={Math.max(fontSize * 1.1, 5)}
+                    />
+                  )}
                   <path d={elbowPath(p1.x, p1.y, p2.x, p2.y)} fill="none" style={{ stroke }} strokeWidth={Math.max(fontSize * 0.5, 2)} />
                   <g
                     transform={`translate(${midX}, ${midY})`}
@@ -670,12 +958,16 @@ export function DiagramCanvas() {
                     onPointerMove={item.fullyConnected ? undefined : handlePlacementPointerMove}
                     onPointerUp={
                       item.fullyConnected
-                        ? () => useSelectionStore.getState().select(item.placement.feature_class, item.placement.feature_id)
+                        ? () => selectOrPickTarget(item.placement.feature_class, item.placement.feature_id)
                         : handlePlacementPointerUp
                     }
                     onPointerCancel={() => setDragState(null)}
                   >
-                    {!item.fullyConnected && <circle r={iconSize * 0.22} style={{ fill: stroke }} />}
+                    {/* A loose end (not yet fully connected) still needs a
+                      drag/click target at this midpoint, just not a
+                      visible dot -- fill stays transparent, pointerEvents
+                      keeps it interactive despite that. */}
+                    {!item.fullyConnected && <circle r={iconSize * 0.22} style={{ fill: "transparent", pointerEvents: "all" }} />}
                     <text
                       y={item.fullyConnected ? -fontSize * 0.6 : iconSize * 0.3 + fontSize * 1.1}
                       textAnchor="middle"
@@ -701,7 +993,8 @@ export function DiagramCanvas() {
                 resolveSymbology(classRules, feature?.subtype, feature?.attributes ?? {}, "map")
               const icon = iconDataUri(def?.icon_ref, def?.color)
               const dragging = dragState?.placementId === placement.id
-              const isSelected = selected?.featureClassCode === placement.feature_class && selected?.featureId === placement.feature_id
+              const role = roleFor(placement.feature_class, placement.feature_id)
+              const isSelected = role === "selected"
               return (
                 <g
                   key={placement.id}
@@ -712,6 +1005,13 @@ export function DiagramCanvas() {
                   onPointerUp={handlePlacementPointerUp}
                   onPointerCancel={() => setDragState(null)}
                 >
+                  {role && (
+                    <circle
+                      r={iconSize * 0.62}
+                      style={{ fill: `${HIGHLIGHT_COLORS[role]}26`, stroke: HIGHLIGHT_COLORS[role] }}
+                      strokeWidth={Math.max(fontSize * 0.4, 1.5)}
+                    />
+                  )}
                   <g transform={`rotate(${placement.rotation})`}>
                     <image href={icon} x={-iconSize / 2} y={-iconSize / 2} width={iconSize} height={iconSize} />
                   </g>
@@ -755,14 +1055,7 @@ export function DiagramCanvas() {
               )
             })}
           </svg>
-        )}
-        {pendingDigitize && (
-          <DigitizeFeatureForm
-            diagramId={openDiagramId}
-            pending={pendingDigitize}
-            onCancel={() => setPendingDigitize(null)}
-            onDone={() => setPendingDigitize(null)}
-          />
+          </>
         )}
       </div>
       <RemovePlacementDialog

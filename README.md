@@ -181,8 +181,15 @@ having to reread every phase doc's own "What's still open" section.
   /diagrams/{id}`, new). A brand-new feature that only ever exists on a
   diagram (`geometry_type = 'none'`, e.g. the seeded `PROTECTIVE_RELAY`)
   can now be digitized straight from the canvas — a picker filtered to
-  geometry-less classes, click to place, fill in attributes, no map
-  presence ever created or expected. Curl- and browser-verified end to
+  geometry-less classes, click to place, fill in attributes via the
+  same floating `FeaturePanel`/create form the map's own draw flow
+  uses, no map presence ever created or expected. The canvas also picks
+  connect/relate targets directly (mirroring the map's own click
+  handler), highlights the selected or connect-role placement/conductor
+  with the map's own highlight colors, has its own independent pan/zoom
+  camera with a Select/Pan tool toggle, snap-aligns placements to each
+  other while dragging, and no longer paints a stray circle on an
+  unconnected conductor's loose end. Curl- and browser-verified end to
   end. Still ahead: multi-segment bus routing, a real
   electrical-schematic symbol library, grouping/annotation boxes, dual
   line semantics for power vs. control/trip circuits, an admin UI to
