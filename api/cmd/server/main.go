@@ -171,6 +171,23 @@ type terminalSchema struct {
 	SubtypeCode  *int   `json:"subtype_code,omitempty"`
 }
 
+// symbologySchema is one symbology_rules row, pre-resolved for the
+// frontend's own most-specific-wins matcher (web/src/lib/symbology.ts)
+// -- SubtypeCode/DomainField/DomainValueCode nil means that axis is
+// unconstrained (matches any subtype / any attribute value). DomainField
+// is resolved server-side rather than making the frontend cross-reference
+// domains itself: a rule only ever stores a domain_value_id, and "which
+// field is implied by which domain_value" requires matching that value's
+// domain against whichever of the feature class's fields uses it (see
+// migrations/0012's own column comment) -- work this handler is already
+// positioned to do once, not work worth repeating in every consumer.
+type symbologySchema struct {
+	SubtypeCode     *int            `json:"subtype_code,omitempty"`
+	DomainField     *string         `json:"domain_field,omitempty"`
+	DomainValueCode *string         `json:"domain_value_code,omitempty"`
+	StyleDef        json.RawMessage `json:"style_def"`
+}
+
 // featureClassSchemaResponse is the shape a create/edit form -- or a
 // connectivity picker -- needs: whether (and what type of) geometry to
 // draw, what subtype to pick (if any), what fields to render for it,
@@ -180,12 +197,73 @@ type terminalSchema struct {
 // heavier (every field + domain values + terminals) and only fetched
 // when a form or picker is actually about to be shown.
 type featureClassSchemaResponse struct {
-	Code         string           `json:"code"`
-	Name         string           `json:"name"`
-	GeometryType string           `json:"geometry_type"`
-	Subtypes     []subtypeSchema  `json:"subtypes"`
-	Fields       []fieldSchema    `json:"fields"`
-	Terminals    []terminalSchema `json:"terminals,omitempty"`
+	Code         string            `json:"code"`
+	Name         string            `json:"name"`
+	GeometryType string            `json:"geometry_type"`
+	Subtypes     []subtypeSchema   `json:"subtypes"`
+	Fields       []fieldSchema     `json:"fields"`
+	Terminals    []terminalSchema  `json:"terminals,omitempty"`
+	Symbology    []symbologySchema `json:"symbology,omitempty"`
+}
+
+// resolveSymbologySchema loads a feature class's map-context symbology
+// rules and resolves each one's domain_value_id into a (field name,
+// value code) pair the frontend's matcher can compare directly against
+// a rendered feature's own attributes -- see symbologySchema's own
+// comment for why that resolution belongs here, not in the frontend.
+func resolveSymbologySchema(ctx context.Context, db *bun.DB, loaded *metadata.Loaded, subtypeCodeByID map[string]int) ([]symbologySchema, error) {
+	rules, err := metadata.LoadSymbologyRules(ctx, db, loaded.FeatureClass.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	valueIDs := make([]string, 0, len(rules))
+	for _, r := range rules {
+		if r.RenderContext == "map" && r.DomainValueID != nil {
+			valueIDs = append(valueIDs, *r.DomainValueID)
+		}
+	}
+	var values []metadata.DomainValue
+	if len(valueIDs) > 0 {
+		if err := db.NewSelect().Model(&values).Where("id IN (?)", bun.In(valueIDs)).Scan(ctx); err != nil {
+			return nil, err
+		}
+	}
+	valueByID := make(map[string]metadata.DomainValue, len(values))
+	for _, v := range values {
+		valueByID[v.ID] = v
+	}
+
+	fieldNameByDomainID := make(map[string]string, len(loaded.Fields))
+	for _, f := range loaded.Fields {
+		if f.DomainID != nil {
+			fieldNameByDomainID[*f.DomainID] = f.Name
+		}
+	}
+
+	out := make([]symbologySchema, 0, len(rules))
+	for _, r := range rules {
+		if r.RenderContext != "map" {
+			continue
+		}
+		s := symbologySchema{StyleDef: r.StyleDef}
+		if r.SubtypeID != nil {
+			if code, ok := subtypeCodeByID[*r.SubtypeID]; ok {
+				s.SubtypeCode = &code
+			}
+		}
+		if r.DomainValueID != nil {
+			if v, ok := valueByID[*r.DomainValueID]; ok {
+				if fieldName, ok := fieldNameByDomainID[v.DomainID]; ok {
+					s.DomainField = &fieldName
+				}
+				code := v.Code
+				s.DomainValueCode = &code
+			}
+		}
+		out = append(out, s)
+	}
+	return out, nil
 }
 
 func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
@@ -253,6 +331,14 @@ func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 			terminals[i] = ts
 		}
 
+		symbology, err := resolveSymbologySchema(r.Context(), db, loaded, subtypeCodeByID)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(featureClassSchemaResponse{
 			Code:         loaded.FeatureClass.Code,
@@ -261,6 +347,7 @@ func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 			Subtypes:     subtypes,
 			Fields:       fields,
 			Terminals:    terminals,
+			Symbology:    symbology,
 		})
 	}
 }

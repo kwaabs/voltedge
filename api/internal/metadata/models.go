@@ -7,6 +7,7 @@
 package metadata
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -174,6 +175,25 @@ type TraceBarrierRule struct {
 	FeatureClassID       string `bun:"feature_class_id"`
 	FieldID              string `bun:"field_id"`
 	HaltsOnValueID       string `bun:"halts_on_value_id"`
+}
+
+// SymbologyRule mirrors metadata.symbology_rules -- see migrations/0012.
+// Never read by Martin and never baked into a tile -- resolved into a
+// feature's actual style entirely client-side (or by a thin styling
+// service later), most-specific-match-wins: (feature_class + subtype +
+// domain_value) > (feature_class + subtype) > (feature_class +
+// domain_value) > (feature_class alone, the mandatory default).
+type SymbologyRule struct {
+	bun.BaseModel `bun:"table:metadata.symbology_rules"`
+
+	ID             string          `bun:"id,pk"`
+	FeatureClassID string          `bun:"feature_class_id"`
+	SubtypeID      *string         `bun:"subtype_id"`
+	DomainValueID  *string         `bun:"domain_value_id"`
+	RenderContext  string          `bun:"render_context"`
+	MinZoom        *int            `bun:"min_zoom"`
+	MaxZoom        *int            `bun:"max_zoom"`
+	StyleDef       json.RawMessage `bun:"style_def"`
 }
 
 // Version mirrors metadata.metadata_versions -- see migrations/0006.

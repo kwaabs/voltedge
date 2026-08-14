@@ -251,6 +251,22 @@ func LoadTraceBarrierRules(ctx context.Context, db bun.IDB, traceConfigurationID
 	return rules, nil
 }
 
+// LoadSymbologyRules returns every symbology_rules row for one feature
+// class, both render_context values included -- callers filter to
+// "map" or "diagram" themselves (diagram rules have nothing to render
+// against yet, no diagram_instance/diagram_placements table exists,
+// but there's no reason to hide them from a caller that might want to
+// know they're there).
+func LoadSymbologyRules(ctx context.Context, db bun.IDB, featureClassID string) ([]SymbologyRule, error) {
+	var rules []SymbologyRule
+	if err := db.NewSelect().Model(&rules).
+		Where("feature_class_id = ?", featureClassID).
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: loading symbology_rules: %w", err)
+	}
+	return rules, nil
+}
+
 // DomainValueCode resolves a domain_values id to its stable Code (e.g.
 // "DOWNSTREAM", "OPEN") -- trace_configurations.direction_value_id and
 // trace_barrier_rules.halts_on_value_id are both FKs a caller needs

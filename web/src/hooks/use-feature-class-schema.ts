@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { apiFetch } from "@/lib/api"
+import type { SymbologyRuleSchema } from "@/lib/symbology"
 
 export interface SubtypeSchema {
   code: number
@@ -34,6 +35,7 @@ export interface FeatureClassSchema {
   subtypes: SubtypeSchema[]
   fields: FieldSchema[]
   terminals?: TerminalSchema[]
+  symbology?: SymbologyRuleSchema[]
 }
 
 /**
