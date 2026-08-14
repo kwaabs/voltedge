@@ -26,12 +26,20 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-14, after adding a confirm dialog before
-removing a diagram placement, seeding the first real `geometry_type =
-'none'` feature class (`PROTECTIVE_RELAY`), and building a digitizing
-tool that creates and places a geometry-less feature straight from the
-diagram canvas -- on top of the same day's earlier round of
-diagram-canvas fixes (conductors as wires, diagram naming, rotate,
+**Last updated:** 2026-08-14, after a round of direct feedback on the
+digitizing tool and the rest of the diagram canvas in practice:
+connect/relate target picking now works from the diagram, placements
+and conductors highlight when selected or acting as a connect
+source/target, the canvas has its own independent pan/zoom camera and
+a Select/Pan tool toggle, placements snap-align to each other while
+dragging, an unconnected conductor's loose-end marker is no longer a
+visible circle, and digitizing a new feature now opens the real
+`FeaturePanel`/`feature-create-form.tsx` instead of a second, bespoke
+form -- on top of the same day's earlier rounds (a confirm dialog
+before removing a diagram placement, seeding the first real
+`geometry_type = 'none'` feature class, and the digitizing tool itself)
+and the diagram-canvas fixes before that (conductors as wires, diagram
+naming, rotate,
 remove).
 
 ## Phase 1 — Metadata core
@@ -104,7 +112,12 @@ remove).
 | Diagram containers, data model + API | Done | L | `runtime.diagram_instances`/`diagram_placements` (a diagram belongs to one container feature, a placement puts any feature at an x/y/rotation inside it, independent of real geometry), a new `api/internal/diagram` package, gated on `metadata.feature_classes.is_diagram_container`. `SUBSTATION_YARD` is the first real container. Curl-verified end to end against a real Postgres/API stack, including both rejection gates and cascade delete. | `docs/phase-5-diagrams.md` |
 | Diagram frontend canvas | Done | M–L | A hand-rolled SVG canvas (no new dependency, reuses `symbology-icons.ts`'s `iconDataUri` directly) in a side-by-side split view next to the map, not a floating overlay or a new route. Renders placements as symbology-resolved icons plus labels, and real `feature_connectivity` edges between placements that are both on the same diagram. Triggered from `FeaturePanel` via a "View diagram" button, shown only when the selected feature's class is a diagram container with at least one diagram instance. First real consumer of `render_context = 'diagram'` symbology (falls back to `'map'` symbology when no diagram-context rule exists yet). | `docs/phase-5-diagrams.md` |
 | Add existing feature to a diagram, from the canvas | Done | S | A `+` button in the diagram panel opens a cross-class name search (the same fan-out `feature-search.tsx`'s map toolbar box uses, extracted into `use-feature-name-search.ts` so both share it) and places the picked feature via the existing `POST /diagrams/{id}/placements` endpoint -- no new backend work needed. New placements land just outside the current bounding box so repeated additions spread out instead of stacking; already-placed features are filtered out of the search results. Placing a brand-new, geometry-less feature is now a separate, also-done capability -- see the "Digitize a geometry-less feature" row below. | `docs/phase-5-diagrams.md` |
-| Digitize a geometry-less feature straight onto a diagram | Done | M | A new header trigger next to "Add feature" lists only `geometry_type = 'none'` classes (e.g. `PROTECTIVE_RELAY`) -- the one hard rule, since there's no way to give a spatial class real map geometry from inside a diagram. Arming it, clicking the canvas, and filling in the attribute form does two real API calls for one user action: `POST /features/{class}` with no `geometry` key, then `POST /diagrams/{id}/placements` at the clicked point -- no backend changes needed. Escape cancels cleanly at both the armed and form-open stages. | `docs/phase-5-diagrams.md` |
+| Digitize a geometry-less feature straight onto a diagram | Done | M | A new header trigger next to "Add feature" lists only `geometry_type = 'none'` classes (e.g. `PROTECTIVE_RELAY`) -- the one hard rule, since there's no way to give a spatial class real map geometry from inside a diagram. Arming it and clicking the canvas starts a `draw-store.ts` draft with no geometry and a `diagramPlacement` instead, which the real `FeaturePanel`/`feature-create-form.tsx` picks up and renders -- not a second, bespoke form. Saving does two real API calls for one user action: `POST /features/{class}` with no `geometry` key, then `POST /diagrams/{id}/placements` at the clicked point -- no backend changes needed. Escape cancels cleanly at both the armed and form-open stages (the latter now a global handler, fixing the same gap for the map's own draw flow too). | `docs/phase-5-diagrams.md` |
+| Connect/relate target picking from the diagram canvas | Done | S | A plain click on a placement or fully-connected conductor picks it as the waiting connect/relate target (`connect-store.ts`'s `pickTarget`) when a workflow is active, mirroring `voltedge-map.tsx`'s own click handler exactly -- `ConnectConfirmPanel` needed no changes, since it already reads the same store regardless of which panel called it. | `docs/phase-5-diagrams.md` |
+| Selection/connect-role highlight on the diagram canvas | Done | S | A placement or conductor now gets a colored ring/halo when selected or acting as a connect-mode source/target, reusing `map-layers.ts`'s `HIGHLIGHT_COLORS` (now exported) so the colors match the map's own highlight layer exactly instead of a second palette. | `docs/phase-5-diagrams.md` |
+| Pan/zoom + Select/Pan tool on the diagram canvas | Done | M | The viewBox no longer recomputes from placement bounds on every render -- a `camera` rect fits once per diagram and then stays put under manual pan/zoom (a new toolbar: MousePointer2/Hand tool toggle, zoom in/out, fit-to-view). Wheel zooms centered on the cursor; the Hand tool drags to pan via the SVG's own CTM scale, same technique drag-to-reposition already used. | `docs/phase-5-diagrams.md` |
+| Placement-to-placement snap alignment on the diagram canvas | Done | S | A Magnet toggle (on by default) in the new view toolbar. While dragging, a placement's x and y each independently snap to any other placement's exact x or y within a threshold scaled to the diagram's own current extent -- alignment to another device, not a fixed grid. | `docs/phase-5-diagrams.md` |
+| Round marker on an unconnected conductor's loose end | Done | XS | The visible dot read as a stray symbol rather than "this wire is waiting for its other end" -- it's now an invisible-but-still-interactive hit target (`fill: transparent`, `pointerEvents: all`) instead of a painted circle. | `docs/phase-5-diagrams.md` |
 | Drag-to-reposition + routed elbow edges on the diagram canvas | Done | M | Shown a real one-line diagram, the auto-placed/straight-line canvas didn't hold up. Placements now drag via pointer events (screen coordinates converted into the SVG's own viewBox space via `getScreenCTM`), writing back through the existing placement upsert on drop with an optimistic query-cache update to avoid flicker; a plain click still selects, same as before. Edges now render as a right-angle elbow `<path>` instead of a straight `<line>`. Neither React Flow nor Fabric.js was reconsidered as the fix -- both were re-evaluated and rejected again, since neither ships schematic routing or symbol conventions either. | `docs/phase-5-diagrams.md` |
 
 ## Phases 6-7

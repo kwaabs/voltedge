@@ -580,6 +580,98 @@ back to idle cleanly; hovering an existing placement and clicking its
 via a follow-up `GET` showing it gone). `npx tsc --noEmit`, `npm run
 lint`, and `npm run build` all finish clean.
 
+## Selection highlight, connect-mode targets, pan/zoom, snapping, form reuse, added later
+
+Six pieces of direct feedback after using the digitizing tool and the
+rest of the canvas in practice, all landed together:
+
+- **Connect-mode target picking now works from the diagram, not just
+  the map.** `connect-store.ts`'s `pickTarget` is a plain store write --
+  `voltedge-map.tsx`'s own click handler was the only thing ever calling
+  it. `diagram-canvas.tsx` now has the same check (`selectOrPickTarget`):
+  a plain click on a placement or a fully-connected conductor either
+  picks it as the waiting connect/relate target or falls back to normal
+  selection, exactly mirroring the map's own logic. `ConnectConfirmPanel`
+  needed no changes at all -- it already reads the same store regardless
+  of which panel called `pickTarget`.
+- **Placements and conductors now highlight when selected or
+  connect-mode source/target.** `map-layers.ts`'s `HIGHLIGHT_COLORS` is
+  now exported so the diagram reuses the exact same role colors the
+  map's own highlight layer uses (sky blue for `selected`, amber for
+  `connect-source`, purple for `connect-target`) instead of a second,
+  invented palette. A point placement gets a translucent stroked ring
+  behind its icon; a conductor gets a wide translucent halo behind its
+  real stroke, same "wide and translucent so the real color underneath
+  still reads" convention `highlightStyleFor`'s own line case already
+  used on the map.
+- **The diagram canvas has its own pan/zoom camera and a Select/Pan
+  tool toggle.** Previously the viewBox was recomputed from the
+  placements' bounding box on *every* render -- there was no way to pan
+  or zoom independent of what was currently placed. Now `camera` is a
+  `{x,y,w,h}` rect that fits to bounds once per diagram (the moment its
+  placements finish loading) and then stays exactly where the user left
+  it, even as placements move and their bounding box changes -- the new
+  toolbar's Maximize2 button re-fits on demand. Mouse wheel zooms
+  centered on the cursor; the new Hand tool drags to pan (screen-pixel
+  delta converted through the SVG's own CTM scale, same technique
+  `clientToSvgPoint` already used for drag-to-reposition). The default
+  MousePointer2 tool is what "select" always meant before this --
+  dragging a placement still moves it, a plain click still selects --
+  `handlePlacementPointerDown` just no-ops while the Hand tool is active
+  so the same pointerdown bubbles up to the canvas's own pan handler
+  instead.
+- **Placement-to-placement snap alignment**, a Magnet toggle in the
+  same new toolbar (on by default). While dragging, `snapCoordinate`
+  independently checks the dragged placement's x and y against every
+  other placement's exact x and y, snapping to whichever's within a
+  threshold scaled to the diagram's own current extent -- the same
+  extent-relative sizing reasoning icon/font sizing already uses. Not a
+  fixed grid: a one-line diagram's meaningful alignment is "level with
+  this other device," not an arbitrary grid cell.
+- **The round circle marking an unconnected conductor's loose end is
+  gone.** It's still there as a drag/click hit target (`fill:
+  "transparent"`, `pointerEvents: "all"`), just no longer painted --
+  the visible dot read as a stray symbol rather than "this wire is
+  waiting for its other end."
+- **Digitizing a new feature now reuses `feature-create-form.tsx`
+  inside the real `FeaturePanel`, not a second, bespoke form glued to
+  the diagram canvas.** `draw-store.ts`'s `DraftFeature.geometry` is now
+  optional, and a new `diagramPlacement?: {diagramId, x, y}` field
+  carries where to place the feature once it's saved -- set only by the
+  new `startDiagramDraft` action, which `diagram-canvas.tsx`'s canvas
+  click handler calls instead of opening its own form. `FeaturePanel`
+  already rendered `FeatureCreateForm` in place of its tabs whenever a
+  draft exists (previously only ever the map's own draw flow); it needed
+  no changes. `feature-create-form.tsx`'s `handleSave` now branches on
+  `draft.diagramPlacement`: if set, it calls `POST
+  /diagrams/{id}/placements` after creating the feature and invalidates
+  that diagram's placements query instead of bumping the map refresh.
+  `digitize-feature-tool.tsx` shrank to just `DigitizeFeatureButton` --
+  the old `DigitizeFeatureForm`/`PendingDigitize` are gone entirely,
+  since the real feature panel now does that job. Escape while a draft
+  is open (attribute form showing, either origin) is a new global
+  handler in `voltedge-map.tsx` -- a gap that existed for the map's own
+  draw flow too before this, not just the diagram's.
+
+Verified live end to end: picking "New connection" on a diagram
+placement and clicking a second placement on the same diagram populates
+`ConnectConfirmPanel` with both ends, source and target each showing
+their own highlight color on the canvas; clicking a placement or a
+fully-connected conductor shows the selected-role ring/halo and the
+same feature highlighted on the real map via the existing highlight
+layer; the Hand tool drags to pan, wheel zooms centered on the cursor,
+Maximize2 re-fits, and the Select tool's placements still drag normally
+throughout; dragging a placement within threshold of another's exact x
+or y snaps to it (confirmed via `GET` showing the exact matched
+coordinate, converting screen points through the SVG's own
+`getScreenCTM()` rather than naive linear math, which does not account
+for `preserveAspectRatio` letterboxing); digitizing a new
+`PROTECTIVE_RELAY` now opens the exact same floating `FeaturePanel`
+window used everywhere else in the app, showing "Unsaved" under its
+name, and saving both creates the feature and places it, auto-selecting
+it afterward the same way the map's own draw flow always has. `npx tsc
+--noEmit`, `npm run lint`, and `npm run build` all finish clean.
+
 ## What's still open
 
 - **Multi-segment bus routing, not just a single-bend elbow.** Real

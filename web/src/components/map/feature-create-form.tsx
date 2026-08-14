@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Loader2 } from "lucide-react"
 
 import { FieldInput } from "@/components/map/feature-field-input"
@@ -14,15 +15,23 @@ import { useErrorToast, useToastStore } from "@/stores/toast-store"
 /**
  * Renders in place of feature-panel.tsx's tabs while a draft exists
  * (see draw-store.ts) -- a not-yet-saved feature has no id, so
- * Terminals/Relationships don't apply yet. Point geometry only this
- * slice, since that's all voltedge-map.tsx's Draw interaction produces
- * so far; line/polygon drawing is future work.
+ * Terminals/Relationships don't apply yet. Two distinct draft origins,
+ * same form either way: the map's own draw flow (`draft.geometry` set,
+ * point/line/polygon depending on the feature class) and a diagram's
+ * digitizing tool (`draft.diagramPlacement` set instead, no geometry at
+ * all -- diagram-canvas.tsx only ever starts one of these for a
+ * `geometry_type = 'none'` class). Deliberately one shared form rather
+ * than a second bespoke one for the diagram case: the actual attribute
+ * inputs, subtype picker, and save/cancel affordances have no reason to
+ * differ, and a user filling either one should see the exact same
+ * panel they already know from the feature-panel.tsx attribute view.
  */
 export function FeatureCreateForm() {
   const draft = useDrawStore((s) => s.draft)
   const clearDraft = useDrawStore((s) => s.clearDraft)
   const bumpMapRefresh = useMapRefreshStore((s) => s.bump)
   const select = useSelectionStore((s) => s.select)
+  const queryClient = useQueryClient()
   const { data: schema, isPending, isError, error } = useFeatureClassSchema(draft?.featureClassCode)
   useErrorToast(isError, error, "Could not load the form")
 
@@ -68,14 +77,24 @@ export function FeatureCreateForm() {
     if (!draft || !schema) return
     setSaving(true)
     try {
-      const body: Record<string, unknown> = { geometry: draft.geometry, attributes }
+      const body: Record<string, unknown> = { attributes }
+      if (draft.geometry) body.geometry = draft.geometry
       if (needsSubtype) body.subtype = subtypeCode
       if (name.trim()) body.name = name.trim()
       const created = await apiFetch<{ id: string }>(`/features/${draft.featureClassCode}`, {
         method: "POST",
         body: JSON.stringify(body),
       })
-      bumpMapRefresh()
+      if (draft.diagramPlacement) {
+        const { diagramId, x, y } = draft.diagramPlacement
+        await apiFetch(`/diagrams/${diagramId}/placements`, {
+          method: "POST",
+          body: JSON.stringify({ feature_class: draft.featureClassCode, feature_id: created.id, x, y, rotation: 0 }),
+        })
+        queryClient.invalidateQueries({ queryKey: ["diagram-placements", diagramId] })
+      } else {
+        bumpMapRefresh()
+      }
       select(draft.featureClassCode, created.id)
       clearDraft()
     } catch (err) {

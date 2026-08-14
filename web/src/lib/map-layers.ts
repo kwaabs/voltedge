@@ -124,7 +124,10 @@ export type HighlightRole =
   | "isolation-boundary"
   | "isolation-backfeed"
 
-const HIGHLIGHT_COLORS: Record<HighlightRole, string> = {
+/** Exported so diagram-canvas.tsx can highlight a selected/connect-role
+ * placement with the exact same colors the map's own highlight layer
+ * uses, instead of inventing a second palette for the same concepts. */
+export const HIGHLIGHT_COLORS: Record<HighlightRole, string> = {
   selected: "#38bdf8",
   "connect-source": "#f59e0b",
   "connect-target": "#a855f7",
