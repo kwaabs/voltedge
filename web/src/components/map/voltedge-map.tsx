@@ -849,24 +849,49 @@ export function VoltEdgeMap() {
       // A click while connect-store is waiting on a target feature
       // (see connect-store.ts, feature-panel.tsx's "+ New connection",
       // and connect-confirm-panel.tsx) picks that target instead of
-      // changing the normal selection -- only the topmost hit, no peer
-      // picker here, to keep this first version's scope tight. A click
-      // on empty space is ignored (Escape is the only way to cancel)
-      // rather than treated as "clear," so an imprecise click doesn't
-      // silently abandon the workflow.
+      // changing the normal selection. Stacked/overlapping features get
+      // the same peer-picker disambiguation normal selection already
+      // gets below, reusing selection-store's candidates/showCandidates
+      // (peer-picker.tsx branches its own pick action on connect mode
+      // being active rather than this needing a second, parallel
+      // candidates store) -- picking the wrong one of several stacked
+      // features used to be a silent, unrecoverable topmost-hit guess.
+      // A click on empty space is still ignored (Escape is the only way
+      // to cancel) rather than treated as "clear," so an imprecise click
+      // doesn't silently abandon the workflow.
       const connectState = useConnectStore.getState()
       if (connectState.mode && !connectState.target) {
-        const hit = map.forEachFeatureAtPixel(
+        const targetHits: { code: string; id: string }[] = []
+        const seenTargets = new Set<string>()
+
+        map.forEachFeatureAtPixel(
           evt.pixel,
           (feature, layer) => {
             const sourceId = layer?.get("sourceId") as string | undefined
             const id = feature.get("id") as string | undefined
             const code = sourceId ? codeBySourceId.get(sourceId) : undefined
-            return code && id ? { code, id } : undefined
+            if (code && id) {
+              const key = `${code}:${id}`
+              if (!seenTargets.has(key)) {
+                seenTargets.add(key)
+                targetHits.push({ code, id })
+              }
+            }
+            return undefined
           },
           { layerFilter: isVectorLayer, hitTolerance: 5 },
         )
-        if (hit) connectState.pickTarget({ featureClassCode: hit.code, featureId: hit.id })
+
+        if (targetHits.length === 1) {
+          connectState.pickTarget({ featureClassCode: targetHits[0].code, featureId: targetHits[0].id })
+        } else if (targetHits.length > 1) {
+          const { clientX, clientY } = evt.originalEvent as PointerEvent
+          useSelectionStore.getState().showCandidates(
+            targetHits.map((hit) => ({ featureClassCode: hit.code, featureId: hit.id })),
+            { x: clientX, y: clientY },
+            { clearSelected: false },
+          )
+        }
         return
       }
 

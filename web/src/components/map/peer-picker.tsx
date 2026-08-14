@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react"
 
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
+import { useConnectStore } from "@/stores/connect-store"
 import { useSelectionStore } from "@/stores/selection-store"
 
 /** Keeps the popup fully on-screen regardless of where in the viewport the click landed. */
@@ -15,32 +16,49 @@ function shortId(id: string): string {
  * stacked/overlapping features at once -- src/components/map/voltedge-map.tsx
  * only auto-selects when exactly one feature is under the click; more
  * than one lands here instead of guessing which one the user meant.
- * Picking an entry selects it, populating FeaturePanel the same as a
- * direct single-feature click would. Positioned with `fixed` at the
- * original click's viewport coordinates (not the map's own pixel space,
- * which is relative to the map container), clamped so it never renders
- * off-screen.
+ * Doubles as connect-mode's own target disambiguation (voltedge-map.tsx's
+ * click handler populates the exact same candidates/candidatesPosition
+ * state during a "+ New connection"/"+ New relationship" workflow) --
+ * picking an entry routes to whichever action is actually live right
+ * now: connect-store.ts's `pickTarget` while a workflow is waiting on a
+ * target, selection-store's own `select` (populating FeaturePanel the
+ * same as a direct single-feature click would) otherwise. Positioned
+ * with `fixed` at the original click's viewport coordinates (not the
+ * map's own pixel space, which is relative to the map container),
+ * clamped so it never renders off-screen.
  */
 export function PeerPicker() {
   const candidates = useSelectionStore((s) => s.candidates)
   const position = useSelectionStore((s) => s.candidatesPosition)
   const select = useSelectionStore((s) => s.select)
-  const clear = useSelectionStore((s) => s.clear)
+  const clearCandidates = useSelectionStore((s) => s.clearCandidates)
+  const connectMode = useConnectStore((s) => s.mode)
+  const connectTarget = useConnectStore((s) => s.target)
   const { data: featureClasses } = useFeatureClasses()
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // True for exactly the window voltedge-map.tsx's click handler uses
+  // this same candidates state for connect-mode's own target pick
+  // rather than a normal selection -- once target is set the confirm
+  // panel takes over and no further picks from this list make sense.
+  const pickingConnectTarget = Boolean(connectMode) && !connectTarget
 
   // Close on a click outside the popup or an Escape press -- the map's
   // own click handler already replaces `candidates` on its own when the
   // next click lands back on the map, but a click anywhere else in the
   // UI (the Layers button, the header, ...) never reaches that handler.
+  // clearCandidates, not selection-store's `clear` -- dismissing this
+  // list should never drop whichever feature is otherwise selected (or,
+  // mid connect-workflow, the workflow's own source feature, still
+  // shown in FeaturePanel throughout).
   useEffect(() => {
     if (!candidates) return
 
     const handlePointerDown = (evt: PointerEvent) => {
-      if (!containerRef.current?.contains(evt.target as Node)) clear()
+      if (!containerRef.current?.contains(evt.target as Node)) clearCandidates()
     }
     const handleKeyDown = (evt: KeyboardEvent) => {
-      if (evt.key === "Escape") clear()
+      if (evt.key === "Escape") clearCandidates()
     }
 
     document.addEventListener("pointerdown", handlePointerDown)
@@ -49,12 +67,21 @@ export function PeerPicker() {
       document.removeEventListener("pointerdown", handlePointerDown)
       document.removeEventListener("keydown", handleKeyDown)
     }
-  }, [candidates, clear])
+  }, [candidates, clearCandidates])
 
   if (!candidates || !position) return null
 
   const left = Math.min(Math.max(position.x, MARGIN), window.innerWidth - 220 - MARGIN)
   const top = Math.min(Math.max(position.y, MARGIN), window.innerHeight - candidates.length * 44 - 48 - MARGIN)
+
+  function pick(candidate: { featureClassCode: string; featureId: string }) {
+    if (pickingConnectTarget) {
+      useConnectStore.getState().pickTarget(candidate)
+      clearCandidates()
+    } else {
+      select(candidate.featureClassCode, candidate.featureId)
+    }
+  }
 
   return (
     <div
@@ -63,7 +90,7 @@ export function PeerPicker() {
       className="bg-popover text-popover-foreground fixed z-50 w-56 overflow-hidden rounded-md border shadow-lg"
     >
       <p className="text-muted-foreground border-b px-3 py-1.5 text-xs">
-        {candidates.length} features here — pick one
+        {candidates.length} features here — pick {pickingConnectTarget ? "a target" : "one"}
       </p>
       <div className="max-h-64 overflow-y-auto p-1">
         {candidates.map((candidate) => {
@@ -74,7 +101,7 @@ export function PeerPicker() {
             <button
               key={`${candidate.featureClassCode}:${candidate.featureId}`}
               type="button"
-              onClick={() => select(candidate.featureClassCode, candidate.featureId)}
+              onClick={() => pick(candidate)}
               className="hover:bg-accent hover:text-accent-foreground flex w-full flex-col items-start gap-0.5 rounded-sm px-2 py-1.5 text-left text-sm"
             >
               <span className="font-medium">{className}</span>

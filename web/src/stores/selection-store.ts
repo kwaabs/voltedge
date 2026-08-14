@@ -16,11 +16,18 @@ export interface ScreenPoint {
  * handler, read by FeaturePanel and PeerPicker -- all siblings, not
  * parent/child, same reasoning as map-pointer-store.ts.
  *
- * `candidates` and `selected` are mutually exclusive: a click that hits
- * several stacked features populates `candidates` (for PeerPicker to
- * render a small disambiguation list) rather than guessing which one
- * the user meant; a click that hits exactly one feature -- including
- * picking one out of `candidates` -- goes straight to `selected`.
+ * `candidates` and `selected` are mutually exclusive for a normal
+ * selection click: hitting several stacked features populates
+ * `candidates` (for PeerPicker to render a small disambiguation list)
+ * rather than guessing which one the user meant, clearing whatever was
+ * previously `selected`; a click that hits exactly one feature --
+ * including picking one out of `candidates` -- goes straight to
+ * `selected`. Not mutually exclusive during connect-mode target-picking
+ * (voltedge-map.tsx, peer-picker.tsx) though: `candidates` there means
+ * "possible connect targets," which has nothing to do with whichever
+ * feature is the connect workflow's own source and still needs to stay
+ * visible in FeaturePanel throughout -- see `showCandidates`'s
+ * `clearSelected` option.
  */
 interface SelectionState {
   selected: FeatureRef | null
@@ -36,7 +43,13 @@ interface SelectionState {
   // feature (the same row clicked twice) still both re-trigger the pan.
   focusToken: number
   select: (featureClassCode: string, featureId: string, options?: { focus?: boolean }) => void
-  showCandidates: (candidates: FeatureRef[], position: ScreenPoint) => void
+  showCandidates: (candidates: FeatureRef[], position: ScreenPoint, options?: { clearSelected?: boolean }) => void
+  // Dismisses the disambiguation list without touching `selected` --
+  // peer-picker.tsx uses this once a connect-mode target has been
+  // picked (connect-store.ts's own pickTarget, not this store's
+  // `select`), since `clear()` would also drop the connect workflow's
+  // source feature out of FeaturePanel.
+  clearCandidates: () => void
   clear: () => void
 }
 
@@ -52,6 +65,12 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       candidatesPosition: null,
       focusToken: options?.focus ? state.focusToken + 1 : state.focusToken,
     })),
-  showCandidates: (candidates, position) => set({ candidates, candidatesPosition: position, selected: null }),
+  showCandidates: (candidates, position, options) =>
+    set((state) => ({
+      candidates,
+      candidatesPosition: position,
+      selected: options?.clearSelected === false ? state.selected : null,
+    })),
+  clearCandidates: () => set({ candidates: null, candidatesPosition: null }),
   clear: () => set({ selected: null, candidates: null, candidatesPosition: null }),
 }))

@@ -202,14 +202,64 @@ before verification finished -- topologically and terminal-wise
 identical to the original; only the connection's own `id` and
 `established_at` differ, unavoidable for a real delete-and-recreate.
 
+## Peer-picker disambiguation, added later
+
+The other item this slice's own "What's still open" originally listed:
+connect-mode's target pick always took the topmost hit at a click, no
+way to pick a different one out of several stacked features -- a
+silent, unrecoverable wrong-target risk given establishing a connection
+is a permanent write, not a preview.
+
+- **`voltedge-map.tsx`'s connect-mode click branch** now collects every
+  feature under the click (mirroring the exact hit-collection loop
+  normal selection already used just below it), routing to
+  `connectState.pickTarget(...)` directly on exactly one hit, or to
+  `selection-store.ts`'s `showCandidates` -- the same store/state
+  `peer-picker.tsx` already rendered from for normal selection -- on
+  more than one, instead of guessing.
+- **`peer-picker.tsx`** branches its own pick action on whether a
+  connect workflow is actively waiting on a target
+  (`connectState.mode && !connectState.target`, the identical guard
+  `voltedge-map.tsx`'s click handler itself uses): `connect-store.ts`'s
+  `pickTarget` in that case, `selection-store.ts`'s normal `select`
+  otherwise. The header text reads "pick a target" instead of "pick
+  one" in the connect case, so the popup itself signals which workflow
+  is asking.
+- **A real regression caught before it shipped:** `showCandidates`
+  unconditionally cleared `selected`, which normal selection's own
+  mutual-exclusivity design wants (`docs/phase-3-map-loop.md`) but
+  connect-mode does not -- `selected` there is the workflow's own
+  *source* feature, and clearing it would hide the source's
+  `FeaturePanel` the moment disambiguation was needed, for the rest of
+  the workflow (picking from the list never called `select`, so nothing
+  would have set it back). Fixed with a `{ clearSelected: false }`
+  option on `showCandidates` (connect-mode's own call site opts in) and
+  a new `clearCandidates()` action -- clears only the candidate list,
+  never `selected` -- that the picker's own Escape/outside-click
+  dismissal uses instead of the blunter `clear()`.
+
+Verified live against a genuine 3-way stacked scenario (a temporary
+`POLE` created via `POST /features/POLE` at an existing `DIST_XFMR`'s
+exact coordinates, which turned out to already coincide with an
+`MV_CONDUCTOR` too -- a stronger test than planned, not a weaker one):
+starting a connect workflow and clicking the stack opened the picker
+("3 features here — pick a target") instead of guessing; picking the
+correct entry set exactly that feature as the confirm panel's target;
+the source feature's own `FeaturePanel` never disappeared, through the
+picker being open or after picking; the picker's own outside-click
+dismissal (clicking the Layers button) closed it without ending the
+workflow, still waiting on a target; a plain Escape press does end the
+whole workflow, but that's `voltedge-map.tsx`'s own separate, pre-existing
+global Escape handler (`connectState.cancel()`), not something this
+change touches. Normal (non-connect) peer-picker behavior re-verified
+unchanged: the same stack outside any workflow shows the original "pick
+one" wording and routes through `select`, not `pickTarget`. The
+temporary feature was purged (not just soft-deleted) afterward, no
+stray connection was left in `runtime.feature_connectivity`, and the
+seed data is confirmed back to its pre-test state.
+
 ## Decisions made
 
-- **No peer-picker disambiguation when picking a target.** Selecting a
-  feature elsewhere in this app already handles overlapping features via
-  a peer picker (`docs/phase-3-map-loop.md`); connect-mode's target pick
-  deliberately doesn't reuse it yet, always taking the topmost hit — a
-  scope cut for this first version, not a design decision to keep
-  permanently (see "What's still open").
 - **A click on empty space while picking a target is ignored, not
   treated as cancel.** Only Escape or an explicit Cancel/X aborts the
   workflow — an imprecise click missing the intended feature shouldn't
@@ -236,9 +286,6 @@ identical to the original; only the connection's own `id` and
   `mode`, precisely so this reuses almost everything: a "+ New
   relationship" button in `RelationshipsTab`, no terminal dropdowns, and
   the reactive `kind`-disambiguation described above.
-- **Peer-picker disambiguation for target-picking** — currently always
-  takes the topmost hit; overlapping features can't be distinguished the
-  way normal selection already handles it.
 - **Floating/resizable/minimizable panel** — pinned by the user
   elsewhere in this project; this panel is draggable only, matching that
   existing scope cut.
@@ -255,7 +302,9 @@ dev`. Open `http://localhost:5173`:
   subtype has any) — drag it by its header if it's in the way.
 - The map cursor becomes a crosshair. Click a second feature anywhere on
   the map — the panel updates to show both endpoints, each with its own
-  terminal dropdown where applicable, and an arrow between them.
+  terminal dropdown where applicable, and an arrow between them. If the
+  click landed on several stacked features, a small popup opens instead
+  ("pick a target") rather than silently guessing the topmost one.
 - Click **Confirm** to establish the connection (`POST /connectivity`),
   or **Cancel**/the panel's **X**/**Escape** to abort. A rejected pairing
   (no matching, active `network_rules` row — see
