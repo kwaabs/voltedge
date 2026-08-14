@@ -26,7 +26,7 @@ import { useEditStore } from "@/stores/edit-store"
 import { type IsolationResult, useIsolateStore } from "@/stores/isolate-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
-import { type TraceResult, useTraceStore } from "@/stores/trace-store"
+import { type TraceFeatureRef, type TraceResult, useTraceStore } from "@/stores/trace-store"
 
 type TabId = "attributes" | "terminals" | "relationships"
 
@@ -464,6 +464,82 @@ export function FeaturePanel() {
     }
   }
 
+  // Feeder trace (api/internal/trace/feeder.go) and section trace
+  // (api/internal/trace/section.go) each hit their own dedicated
+  // endpoint, not a named trace_configurations row -- both still need
+  // isolationConfig's DOWNSTREAM barrier settings, same reasoning
+  // isolation itself uses one. Their differently-shaped responses
+  // (heads / upstream_boundary+downstream_boundary instead of
+  // barriers/targets) are normalized into the same TraceResult shape
+  // trace-result-table.tsx already renders, rather than building two
+  // more result tables from scratch -- heads/boundaries become
+  // `targets` so they get the same visually-distinct treatment a
+  // target_class hit already gets.
+  async function runFeederTrace() {
+    if (!selected || !isolationConfig) return
+    useIsolateStore.getState().clear()
+    useTraceStore.getState().setLoading(true)
+    try {
+      const result = await apiFetch<{ start: TraceFeatureRef; heads: TraceFeatureRef[]; features: TraceFeatureRef[] }>(
+        "/trace/feeder",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            trace_configuration: isolationConfig.code,
+            start: { feature_class: selected.featureClassCode, feature_id: selected.featureId },
+          }),
+        },
+      )
+      useTraceStore.getState().setResult({
+        trace_configuration: "FEEDER",
+        direction: "FEEDER",
+        start: result.start,
+        features: result.features,
+        barriers: [],
+        targets: result.heads,
+        targets_found: result.heads.length > 0,
+      })
+    } catch (err) {
+      useTraceStore.getState().setLoading(false)
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not trace this feeder.")
+    }
+  }
+
+  async function runSectionTrace() {
+    if (!selected || !isolationConfig) return
+    useIsolateStore.getState().clear()
+    useTraceStore.getState().setLoading(true)
+    try {
+      const result = await apiFetch<{
+        start: TraceFeatureRef
+        features: TraceFeatureRef[]
+        upstream_boundary?: TraceFeatureRef
+        downstream_boundary?: TraceFeatureRef
+      }>("/trace/section", {
+        method: "POST",
+        body: JSON.stringify({
+          trace_configuration: isolationConfig.code,
+          start: { feature_class: selected.featureClassCode, feature_id: selected.featureId },
+        }),
+      })
+      const boundaries = [result.upstream_boundary, result.downstream_boundary].filter(
+        (b): b is TraceFeatureRef => Boolean(b),
+      )
+      useTraceStore.getState().setResult({
+        trace_configuration: "SECTION",
+        direction: "SECTION",
+        start: result.start,
+        features: result.features,
+        barriers: [],
+        targets: boundaries,
+        targets_found: boundaries.length > 0,
+      })
+    } catch (err) {
+      useTraceStore.getState().setLoading(false)
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not trace this section.")
+    }
+  }
+
   // Runnable trace_configurations for the dropdown -- SHORTEST_PATH
   // excluded (needs a target, no single one-click starting point).
   const runnableConfigs = traceConfigurations?.trace_configurations.filter((c) => c.direction !== "SHORTEST_PATH") ?? []
@@ -552,7 +628,10 @@ export function FeaturePanel() {
                   variant="ghost"
                   size="icon"
                   className="size-7"
-                  disabled={(tracing || isolating) || (runnableConfigs.length === 0 && !canIsolate)}
+                  disabled={
+                    (tracing || isolating) ||
+                    (runnableConfigs.length === 0 && !canIsolate && !isolationConfig)
+                  }
                   title="Run trace"
                 >
                   <Route className="size-4" />
@@ -561,7 +640,7 @@ export function FeaturePanel() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">
-                {runnableConfigs.length === 0 && !canIsolate ? (
+                {runnableConfigs.length === 0 && !canIsolate && !isolationConfig ? (
                   <p className="text-muted-foreground px-2 py-1.5 text-sm">No trace configurations exist</p>
                 ) : (
                   <>
@@ -570,9 +649,16 @@ export function FeaturePanel() {
                         {config.name}
                       </DropdownMenuItem>
                     ))}
-                    {canIsolate && (
+                    {isolationConfig && (
                       <>
                         {runnableConfigs.length > 0 && <DropdownMenuSeparator />}
+                        <DropdownMenuItem onSelect={runFeederTrace}>Feeder trace</DropdownMenuItem>
+                        <DropdownMenuItem onSelect={runSectionTrace}>Section trace</DropdownMenuItem>
+                      </>
+                    )}
+                    {canIsolate && (
+                      <>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem onSelect={runIsolate}>
                           <Zap className="size-4" />
                           Isolate from here

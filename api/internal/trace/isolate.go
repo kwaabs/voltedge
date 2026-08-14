@@ -5,8 +5,21 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
+)
+
+// criticalFacilityClass and criticalFacilityField are the one
+// concrete "is this a critical facility" signal this app's seed data
+// models -- a plain boolean field on SERVICE_POINT, not a formal
+// metadata concept any feature class can opt into. Hardcoded rather
+// than made configurable since nothing else in this pass needed that
+// generality; worth revisiting if a second consumer-facing class is
+// ever added.
+const (
+	criticalFacilityClass = "SERVICE_POINT"
+	criticalFacilityField = "is_critical"
 )
 
 // isolationRequest is the POST /trace/isolate body. TraceConfiguration
@@ -29,10 +42,21 @@ type isolationRequest struct {
 // the real-world "where's the isolation boundary" answer -- nil if
 // none exists upstream (Device is fed all the way back to an
 // unmodeled source with nothing of that class in between).
+// CriticalFacilities is the subset of DeEnergized flagged
+// is_critical on a SERVICE_POINT. PossibleBackfeedPaths is every
+// physically-connected neighbor of anything in DeEnergized that isn't
+// already accounted for by this result (the device, DeEnergized
+// itself, or the boundary) -- a live connection the directed
+// downstream walk wouldn't have needed to cross, e.g. a normally-open
+// tie point that's actually closed right now, or any meshed
+// connection. Reported as a possibility for a human to verify, not a
+// claimed guarantee either way -- see isolate's own comment.
 type isolationResponse struct {
-	Device           featureRef   `json:"device"`
-	DeEnergized      []featureRef `json:"de_energized"`
-	UpstreamBoundary *featureRef  `json:"upstream_boundary,omitempty"`
+	Device                featureRef   `json:"device"`
+	DeEnergized           []featureRef `json:"de_energized"`
+	UpstreamBoundary      *featureRef  `json:"upstream_boundary,omitempty"`
+	CriticalFacilities    []featureRef `json:"critical_facilities,omitempty"`
+	PossibleBackfeedPaths []featureRef `json:"possible_backfeed_paths,omitempty"`
 }
 
 // isolate composes two of the engine's existing primitives rather than
@@ -52,6 +76,14 @@ type isolationResponse struct {
 //     same target_class_id stop mechanism runTrace uses, targeting
 //     BoundaryClass (or Device's own class by default) -- the nearest
 //     protective device found is the isolation boundary.
+//
+// Two more checks run against that result before returning, both
+// safety-oriented and both best-effort rather than exhaustive: which
+// of the de-energized set is a critical facility (a plain attribute
+// cross-reference), and which of it has any live connection this
+// isolation didn't already account for (a possible backfeed path --
+// see isolationResponse's own comment on what that does and doesn't
+// claim).
 func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationResponse, error) {
 	if req.TraceConfiguration == "" {
 		return nil, invalid("trace_configuration is required")
@@ -123,17 +155,77 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 		return nil, err
 	}
 
-	allNodes := make([]node, 0, len(deEnergizedNodes)+len(boundaryHits))
+	// Backfeed check: every physically-connected neighbor (either
+	// direction -- a real second source doesn't announce which way its
+	// edge happens to be recorded) of anything de-energized, that isn't
+	// already accounted for by this result.
+	accounted := map[node]bool{device: true}
+	for _, n := range deEnergizedNodes {
+		accounted[n] = true
+	}
+	for _, n := range boundaryHits {
+		accounted[n] = true
+	}
+	backfeedSet := map[node]bool{}
+	for _, n := range deEnergizedNodes {
+		neighbors, nerr := neighborsOf(ctx, db, n, "CONNECTED")
+		if nerr != nil {
+			return nil, nerr
+		}
+		for _, nb := range neighbors {
+			if !accounted[nb] {
+				backfeedSet[nb] = true
+			}
+		}
+	}
+	backfeedNodes := make([]node, 0, len(backfeedSet))
+	for n := range backfeedSet {
+		backfeedNodes = append(backfeedNodes, n)
+	}
+
+	allNodes := make([]node, 0, len(deEnergizedNodes)+len(boundaryHits)+len(backfeedNodes))
 	allNodes = append(allNodes, deEnergizedNodes...)
 	allNodes = append(allNodes, boundaryHits...)
+	allNodes = append(allNodes, backfeedNodes...)
 	classCodes, err := nodeClassCodes(ctx, db, allNodes)
 	if err != nil {
 		return nil, err
 	}
 
+	// Critical-facility check: which of the de-energized set is a
+	// SERVICE_POINT with is_critical set. A missing/unreadable
+	// attribute (e.g. a dangling reference to a since-purged feature)
+	// is treated as "not critical" rather than failing the whole
+	// isolation over one row -- same reasoning checkBarrier already
+	// uses for the same situation.
+	var criticalNodes []node
+	for _, n := range deEnergizedNodes {
+		if classCodes[n.classID] != criticalFacilityClass {
+			continue
+		}
+		classLoaded, lerr := loader.loadedFor(ctx, db, n.classID)
+		if lerr != nil {
+			return nil, lerr
+		}
+		row, gerr := crud.GetFeature(ctx, db, classLoaded, n.featureID)
+		if gerr != nil {
+			continue
+		}
+		attrs, _ := row["attributes"].(map[string]any)
+		if critical, _ := attrs[criticalFacilityField].(bool); critical {
+			criticalNodes = append(criticalNodes, n)
+		}
+	}
+
 	resp := &isolationResponse{
 		Device:      req.Device,
 		DeEnergized: toFeatureRefs(deEnergizedNodes, classCodes),
+	}
+	if len(criticalNodes) > 0 {
+		resp.CriticalFacilities = toFeatureRefs(criticalNodes, classCodes)
+	}
+	if len(backfeedNodes) > 0 {
+		resp.PossibleBackfeedPaths = toFeatureRefs(backfeedNodes, classCodes)
 	}
 	if len(boundaryHits) > 0 {
 		// A radial network has at most one boundary node per branch --
