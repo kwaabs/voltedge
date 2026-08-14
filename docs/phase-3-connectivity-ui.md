@@ -13,7 +13,8 @@ stack — a real connection established through the UI end to end, both
 features' Terminals tabs confirmed showing it without a reload, cancel
 and Escape both verified to fully abort, both themes checked. Two real
 bugs were caught and fixed during verification — see "How this was
-validated."
+validated." A follow-on slice later closed this doc's own "Revoking a
+connection from the UI" open item — see "Revoke, added later" below.
 
 ## Why this slice exists
 
@@ -163,6 +164,44 @@ soft-delete lifecycle, so that endpoint (already built and tested in
 Phase 2) is the correct cleanup path — leaving `runtime.feature_
 connectivity` empty again.
 
+## Revoke, added later
+
+The one item this slice originally left open that had no real design
+work left to do -- `DELETE /connectivity/{id}` (`api/internal/
+connectivity`) had existed since Phase 2, exercised only by this
+slice's own test cleanup, never by an actual UI control.
+
+- **`src/components/map/revoke-connection-dialog.tsx`** (new) -- same
+  `AlertDialog`-based, can't-dismiss-mid-request pattern as
+  `delete-feature-dialog.tsx` (a revoke is a hard, permanent remove
+  with no soft-delete/restore pair, same as a feature delete, so it
+  gets the same explicit-choice guard). On confirm, `DELETE
+  /connectivity/{id}`, then `queryClient.invalidateQueries({queryKey:
+  ["connections"]})` -- a bare prefix, not scoped to one feature's
+  `["connections", featureClassCode, featureId]` key, since a revoke
+  changes both ends' lists and the counterpart's Terminals tab may
+  already be warm in cache from an earlier selection.
+- **`feature-panel.tsx`'s `TerminalsTab`** -- each connection row
+  changed from a single `<button>` (whole row navigates to the
+  counterpart) to a `<div>` wrapping that same button plus a sibling
+  icon button (`Unlink2`, `sr-only` "Revoke connection" text) that opens
+  the dialog for that row's connection -- restructured specifically to
+  avoid a `<button>` nested inside a `<button>`, which is invalid HTML.
+
+Verified live: the icon appears on every row, Cancel and Escape both
+leave the connection untouched (confirmed surviving a reload), a real
+revoke removes the row immediately on the feature whose panel is open
+*and* on the counterpart's own Terminals tab without a reload (proving
+the broad `["connections"]` invalidation actually reaches both sides),
+and the removal survives a hard reload (a real backend delete, not a
+client-side hide). The one connection permanently revoked during
+testing (`DIST_XFMR` "Substation Power Transformer" terminal T2 ->
+`MV_CONDUCTOR` "Feeder source to S0") was re-established through the
+existing "+ New connection" flow, same two features and terminal,
+before verification finished -- topologically and terminal-wise
+identical to the original; only the connection's own `id` and
+`established_at` differ, unavoidable for a real delete-and-recreate.
+
 ## Decisions made
 
 - **No peer-picker disambiguation when picking a target.** Selecting a
@@ -200,10 +239,6 @@ connectivity` empty again.
 - **Peer-picker disambiguation for target-picking** — currently always
   takes the topmost hit; overlapping features can't be distinguished the
   way normal selection already handles it.
-- **Revoking a connection from the UI** — `DELETE /connectivity/{id}`
-  exists and is exercised by this slice's own test cleanup, but nothing
-  in the Terminals tab lets a user revoke a connection they can already
-  see listed there.
 - **Floating/resizable/minimizable panel** — pinned by the user
   elsewhere in this project; this panel is draggable only, matching that
   existing scope cut.
@@ -228,6 +263,9 @@ dev`. Open `http://localhost:5173`:
   instead of closing it.
 - After a successful Confirm, reopen either feature's Terminals tab —
   the new connection shows up in both, no reload needed.
+- Click the small unlink icon on any connection row to revoke it —
+  confirm in the dialog, and it disappears from both features' Terminals
+  tabs immediately, no reload needed.
 
 `npm run build && npm run lint` and `go build ./... && go vet ./... &&
 gofmt -l .` should all finish clean.
