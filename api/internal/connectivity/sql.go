@@ -151,23 +151,35 @@ func establishConnection(ctx context.Context, db bun.IDB, req establishRequest) 
 		return nil, err
 	}
 
-	rules, err := metadata.LoadNetworkRules(ctx, db, from.loaded.FeatureClass.ID, to.loaded.FeatureClass.ID)
+	// network_rules.from/to is a metadata-authoring convention (e.g. an
+	// edge like MV_CONDUCTOR is always authored as "from", a
+	// terminal-bearing junction like DIST_XFMR always "to"), not a
+	// statement about real electrical current direction -- every other
+	// consumer (the Terminals tab, the trace engine's "connected"
+	// direction) treats an established connection as undirected. Which
+	// endpoint the client calls "from" only reflects which feature the
+	// UI's connect workflow happened to start from, so a rule authored
+	// for one direction must also authorize the request made in the
+	// other: try the request's own from/to pair first, then the swapped
+	// pair, and if only the swap matches, write (and report) the
+	// connection in the rule's own canonical direction rather than the
+	// direction the request happened to name it in -- so a connection
+	// between the same two features is recorded identically regardless
+	// of which endpoint the user started the workflow from.
+	rule, canonicalFrom, canonicalTo, err := matchRuleEitherDirection(ctx, db, from, to)
 	if err != nil {
 		return nil, err
 	}
-	rule, err := matchRule(rules, from.subtypeID, to.subtypeID, from.terminalID, to.terminalID)
-	if err != nil {
-		return nil, err
-	}
+	from, to = canonicalFrom, canonicalTo
 
 	establishedBy := "api"
 	conn := &Connectivity{
 		NetworkRuleID:      rule.ID,
 		FromFeatureClassID: from.loaded.FeatureClass.ID,
-		FromFeatureID:      req.From.FeatureID,
+		FromFeatureID:      from.ref.FeatureID,
 		FromTerminalID:     from.terminalID,
 		ToFeatureClassID:   to.loaded.FeatureClass.ID,
-		ToFeatureID:        req.To.FeatureID,
+		ToFeatureID:        to.ref.FeatureID,
 		ToTerminalID:       to.terminalID,
 		EstablishedBy:      &establishedBy,
 	}
