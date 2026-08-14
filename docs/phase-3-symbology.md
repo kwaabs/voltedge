@@ -238,3 +238,38 @@ Open `http://localhost:5173`:
 
 `npm run build && npm run lint` and `go build ./... && go vet ./... &&
 gofmt -l .` should all finish clean.
+
+## Zoom-gating, added later
+
+Tracked as an open item since this doc first shipped:
+`symbology_rules.min_zoom`/`max_zoom` have existed and been loaded into
+`metadata.SymbologyRule` since Phase 1, but the schema endpoint never
+sent either to the frontend, so `resolveSymbology` had nothing to gate
+on. `symbologySchema` (`api/cmd/server/main.go`) now includes both
+(omitted when unset, same `omitempty` convention every other optional
+field on that response already uses); `resolveSymbology`
+(`symbology.ts`) takes an optional `zoom` parameter and skips any rule
+whose bounds don't cover it, before the specificity comparison that
+picks the best match -- so a broader, unrestricted rule still wins if
+the more specific one is zoom-gated out, the same fallback behavior
+`resolveSymbology` already had for "no rule matches at all."
+
+Only `createSymbologyStyle` (`map-layers.ts`), the map's own per-layer
+style function, has a real "current zoom" to pass -- `view` is now a
+required second argument, and the OL `StyleFunction`'s own `resolution`
+argument (previously ignored) is converted via
+`view.getZoomForResolution(resolution)`, which respects whatever
+projection/resolutions config the view actually uses rather than a
+hardcoded EPSG:3857 formula. `layers-panel.tsx`'s legend and
+`diagram-canvas.tsx` both call `resolveSymbology` with `zoom` omitted --
+a legend has no single zoom to represent, and a diagram's own camera
+zoom is a different, author-chosen coordinate scale, not the same unit
+as a real map zoom level.
+
+Verified live: setting a real rule's (`STREET_LIGHT`'s default diamond
+icon) `min_zoom` to 18 made the feature render as the plain fallback
+circle at the map's normal zoom, switching to the real yellow diamond
+icon exactly at zoom 18 and back below it, confirmed by pixel color at
+each transition in both directions; reverting the test `min_zoom`
+restored the icon. `npx tsc --noEmit`, `npm run lint`, and `go build
+./... && go vet ./... && gofmt -l .` all finish clean.

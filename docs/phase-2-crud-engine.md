@@ -489,3 +489,28 @@ Invoke-RestMethod -Method Delete -Uri "http://localhost:3704/features/POLE/$ID/p
 try { Invoke-RestMethod -Uri "http://localhost:3704/features/POLE/$ID" }
 catch { $_.ErrorDetails.Message }   # 404 -- the row is actually gone
 ```
+
+
+## List filtering/sorting, added later
+
+`GET /features/{code}` only ever ordered by `created_at, id` and had no
+way to filter beyond `?name=`, tracked as an open item since this doc
+first shipped. Extended, not redesigned: `listOptions` (`crud/sql.go`)
+now also carries `Status` (exact match against the `status` system
+column, `?status=draft`/`?status=published`) and `Sort`/`Desc`
+(`?sort=`/`?order=desc`), both applied via bind params, never
+string-interpolated. `Sort` is checked against `validSortColumns` --
+every system column plus this feature class's own active fields (`geom`
+deliberately excluded, ordering by a raw geometry isn't a real request)
+-- an unrecognized column is silently ignored and falls back to
+`created_at`, matching this endpoint's existing lenient handling of an
+out-of-range `limit`/`offset` rather than a new 400 path. `id` is always
+appended as a tiebreaker after the requested sort column so paginated
+results stay stable across identical sort values.
+
+Verified via curl against `DIST_SWITCH`: `?sort=name&order=desc`
+reverses the two seeded switches; `?status=published` returns nothing
+(both are still `draft`) while `?status=draft` returns both, confirming
+the filter is real, not silently ignored; `?sort=not_a_real_column`
+still returns `200` with the default ordering rather than erroring.
+`go build ./... && go vet ./... && gofmt -l .` all finish clean.

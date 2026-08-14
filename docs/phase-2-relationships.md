@@ -320,3 +320,46 @@ try { Invoke-RestMethod -Method Post -Uri "http://localhost:3704/relationships" 
 catch { $_.ErrorDetails.Message }
 Invoke-RestMethod -Method Post -Uri "http://localhost:3704/features/POLE/$POLE1/restore"   # clean up
 ```
+
+## ST_DWithin plausibility check, added later
+
+Tracked as an open item since this doc first shipped:
+`docs/metadata-core.md`'s own POLE sample describes the pairing as
+"explicitly established... `ST_DWithin` only validating plausibility,"
+but nothing actually checked it. `api/internal/relationship/plausibility.go`
+(new) adds `checkPlausibility`, called once at the end of
+`establishRelationship`, after the relationship is already committed --
+a soft check, never a gate. Skips entirely when either side is
+`geometry_type = 'none'` (e.g. a diagram-only `PROTECTIVE_RELAY`) or
+either geometry is null; otherwise a single cross-table query --
+`ST_Distance` on both geometries transformed to EPSG:4326 and cast to
+`geography`, so the result is real meters regardless of either feature
+class's own SRID -- compares against a fixed, generous
+`plausibilityThresholdMeters = 500`. Over that bound, the response
+carries a new `plausibility_warning` field naming the actual distance;
+under it, the field is simply absent, same as always before this
+existed. A query error during the check is swallowed, not propagated --
+by the time it runs the relationship write has already succeeded, so a
+plausibility-check failure shouldn't turn a successful establish into a
+failed request.
+
+Frontend: `useToastStore` gained a `variant` (`"error"` | `"warning"`)
+and a `pushWarning` action alongside the existing `pushError` -- a
+plausibility warning is telling the user to double-check something that
+already succeeded, not that a request failed, so it renders amber in
+`Toaster`, not the destructive red every other toast in this app has
+used until now. `connect-confirm-panel.tsx`'s relationship establish
+call now reads the response's `plausibility_warning` and pushes it
+through `pushWarning` when present.
+
+Verified via curl: two real `POLE` features, one ~7m from a seeded
+`MV_CONDUCTOR` (no warning) and one ~50km away (`spatial_support`
+established, response carries `"these features are 50465m apart,
+further than the usual 500m plausibility bound..."`), confirming both
+the pass-through and warning paths against real geometries and a real
+distance computation, not a mocked value. Browser-verified
+(Playwright): establishing the implausible pairing through
+`+New relationship` → peer-picker → confirm renders the amber toast
+with the real computed distance; the relationship is still created, not
+blocked. `go build ./... && go vet ./... && gofmt -l .`, `npx tsc
+--noEmit`, and `npm run lint` all finish clean.
