@@ -104,13 +104,20 @@ POST /admin/field-groups                   create a field group
   types across packages.
 - **`validate.go`** — `codePattern` (`^[A-Z][A-Z0-9_]*$`, matching
   every hand-written seed file's `MV_CONDUCTOR`/`PROTECTIVE_RELAY`
-  convention) for domain/field-group/feature-class codes,
-  `fieldNamePattern` (`^[a-z][a-z0-9_]*$`, matching `device_number`/
-  `voltage_class`) for field names. Full structural validation for a
-  create-feature-class request, including cross-reference checks (a
-  field's `required_for_subtypes` must reference a subtype code
-  actually defined in the same request) and the rule that terminals
-  are only meaningful for `edge`/`junction` network roles.
+  convention) for domain and feature-class codes; `fieldNamePattern`
+  (`^[a-z][a-z0-9_]*$`, matching `device_number`/`voltage_class`) for
+  field names *and* field-group codes — every hand-written seed file's
+  `field_groups` rows (`general`/`electrical`/`maintenance`/`asset`/...)
+  are lower_snake_case, unlike domain/feature-class codes, so
+  `validateCreateFieldGroup` deliberately doesn't reuse `codePattern`
+  (an initial version did, which rejected every field group the
+  frontend's own lower-casing Code input could ever produce — caught
+  and fixed during browser verification, see "How this was validated"
+  below). Full structural validation for a create-feature-class
+  request, including cross-reference checks (a field's
+  `required_for_subtypes` must reference a subtype code actually
+  defined in the same request) and the rule that terminals are only
+  meaningful for `edge`/`junction` network roles.
 - **`create.go`** — `createFeatureClass` is one transaction: insert the
   class, its subtypes, its fields (resolving domain/group codes to
   ids first), its terminals, and one optional default symbology rule.
@@ -215,11 +222,22 @@ Frontend: `npx tsc --noEmit`, `npm run lint` (oxlint), and `npm run
 build` all finish clean. Browser-verified (Playwright): the sidebar's
 new Admin group and its three links; the feature classes list showing
 real existing classes with correct status/counts and a working
-"Compile" action; the domains and field groups pages' list + inline
-create flows; and the full wizard end to end — filling in basic info,
-a subtype, a field, submitting, landing on the success screen, clicking
-"Compile now," and confirming the new class appears active with the
-right counts back on the list page.
+"Compile" action; the domains page's list + inline create flow; and the
+full wizard end to end — filling in basic info, a subtype, a field,
+submitting, landing on the success screen, clicking "Compile now," and
+confirming the new class appears active with the right counts back on
+the list page. This pass caught one real bug before merge: the field
+groups page's Code input correctly lower-cases as typed (matching
+`general`/`electrical`/... convention), but `validateCreateFieldGroup`
+had reused the uppercase `codePattern`, so every field-group create
+400'd — impossible to create one through the UI at all. Fixed by
+switching that one validator to `fieldNamePattern`
+(`api/internal/admin/validate.go`); re-verified by curl (lowercase now
+accepted, uppercase now correctly rejected with the right message) and
+the demo database's test debris from both the original curl pass and
+this verification pass (`TEST_PLAYWRIGHT_CLASS`, `TEST_ADMIN_DOMAIN`,
+stray field-group test rows) was cleaned up afterward, leaving only the
+intentional `STREET_LIGHT`/`SEC_FUSE`/`LAMP_TYPE` additions.
 
 ## Try it yourself
 

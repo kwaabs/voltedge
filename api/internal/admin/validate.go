@@ -58,9 +58,15 @@ func validateCreateDomain(req createDomainRequest) error {
 	return nil
 }
 
+// validateCreateFieldGroup uses fieldNamePattern, not codePattern -- unlike
+// domain/feature-class codes, every hand-written seed file's field_groups
+// rows (general/electrical/maintenance/asset/...) are lower_snake_case, the
+// same convention a field's own name follows. The admin-domains page's own
+// Code input correctly preserves case for that reason; admin-field-groups
+// lower-cases as typed to match.
 func validateCreateFieldGroup(req createFieldGroupRequest) error {
-	if err := validateCode("field group code", req.Code); err != nil {
-		return err
+	if !fieldNamePattern.MatchString(req.Code) {
+		return invalid("field group code %q must be lower-case letters, digits, and underscores, starting with a letter", req.Code)
 	}
 	if strings.TrimSpace(req.Name) == "" {
 		return invalid("field group name is required")
