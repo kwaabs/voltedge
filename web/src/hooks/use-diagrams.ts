@@ -53,6 +53,20 @@ export function useDiagramInstances(featureClassCode: string | undefined, featur
 }
 
 /**
+ * One diagram instance by id -- the "View diagram" trigger's own list
+ * already has this diagram's summary, but once diagram-store.ts opens
+ * it by id alone the canvas needs its own fetch to know that diagram's
+ * name (or lack of one) for its header.
+ */
+export function useDiagramInstance(diagramId: string | undefined) {
+  return useQuery({
+    queryKey: ["diagram-instance", diagramId],
+    queryFn: () => apiFetch<DiagramInstance>(`/diagrams/${diagramId}`),
+    enabled: Boolean(diagramId),
+  })
+}
+
+/**
  * Every feature placed on one diagram instance, with its own local
  * x/y/rotation -- entirely independent of whatever real geom the same
  * feature might also have on the map (docs/phase-5-diagrams.md). Backs

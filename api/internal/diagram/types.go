@@ -46,6 +46,13 @@ type instanceResponse struct {
 	CreatedAt   time.Time  `json:"created_at"`
 }
 
+// renameInstanceRequest is the PATCH /diagrams/{id} body -- Name is a
+// pointer so an explicit null clears a diagram's name back to none,
+// same convention createInstanceRequest.Name already uses.
+type renameInstanceRequest struct {
+	Name *string `json:"name"`
+}
+
 // placeRequest is the POST /diagrams/{id}/placements body. Placing the
 // same feature into the same diagram a second time moves it (an
 // idempotent upsert on the table's own unique constraint), not a second

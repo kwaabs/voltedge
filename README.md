@@ -169,15 +169,20 @@ having to reread every phase doc's own "What's still open" section.
   'diagram'` symbology. An existing feature can be added to an
   already-created diagram straight from the canvas (cross-class name
   search, reusing the same fan-out the map's own search box uses).
-  Placements drag to a new position (writes back through the same
-  placement upsert) and edges route as right-angle elbow connectors
-  instead of straight lines — placed by hand, drawn instead of just
-  appearing, matching how a real one-line diagram actually looks.
-  Curl- and browser-verified end to end. Still ahead: multi-segment bus
-  routing, a real electrical-schematic symbol library, grouping/
-  annotation boxes, dual line semantics for power vs. control/trip
-  circuits, an admin UI to create a diagram instance itself,
-  metadata-driven forms, MCP data-plane tools.
+  Placements drag to a new position or rotate via a selection handle
+  (both write back through the same placement upsert, independently of
+  each other) and can be removed from a diagram with a hover-revealed
+  control. A `geometry_type = 'line'` feature (e.g. `MV_CONDUCTOR`)
+  renders as its own routed wire between its real connectivity
+  endpoints instead of a point icon, and the canvas no longer
+  auto-draws a generic connector for connectivity that isn't backed by
+  an actual placed conductor — a wire only appears when it's really
+  there. Diagrams have a visible, editable name (`PATCH
+  /diagrams/{id}`, new). Curl- and browser-verified end to end. Still
+  ahead: multi-segment bus routing, a real electrical-schematic symbol
+  library, grouping/annotation boxes, dual line semantics for power vs.
+  control/trip circuits, an admin UI to create a diagram instance
+  itself, metadata-driven forms, MCP data-plane tools.
   Write-up: [`docs/phase-5-diagrams.md`](docs/phase-5-diagrams.md).
 - **Phase 6 — Domain expansion + hardening**: full feature class catalog,
   access control, asset numbering, units/locale, voltage-boundary and

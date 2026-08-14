@@ -14,6 +14,7 @@ import (
 //	POST   /                          create a diagram instance for a container feature
 //	GET    /?container_feature_class=&container_feature_id=  list diagram instances for one container feature
 //	GET    /{id}                      get one diagram instance
+//	PATCH  /{id}                      rename a diagram instance
 //	DELETE /{id}                      delete a diagram instance (cascades to its placements)
 //	POST   /{id}/placements           place (or move) a feature on a diagram
 //	GET    /{id}/placements           list every feature placed on a diagram
@@ -24,6 +25,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Get("/", listInstancesHandler(db))
 	r.Route("/{id}", func(r chi.Router) {
 		r.Get("/", getInstanceHandler(db))
+		r.Patch("/", renameInstanceHandler(db))
 		r.Delete("/", deleteInstanceHandler(db))
 		r.Post("/placements", placeFeatureHandler(db))
 		r.Get("/placements", listPlacementsHandler(db))
@@ -80,6 +82,25 @@ func getInstanceHandler(db *bun.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 
 		result, err := getInstance(r.Context(), db, id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func renameInstanceHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+
+		var req renameInstanceRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := renameInstance(r.Context(), db, id, req.Name)
 		if err != nil {
 			writeError(w, err)
 			return
