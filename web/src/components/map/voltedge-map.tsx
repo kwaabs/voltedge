@@ -24,6 +24,7 @@ import VectorSource from "ol/source/Vector"
 import VectorTileSource from "ol/source/VectorTile"
 import TileState from "ol/TileState"
 import View from "ol/View"
+import { Loader2 } from "lucide-react"
 import { useEffect, useRef } from "react"
 
 import { useAllSymbology } from "@/hooks/use-all-symbology"
@@ -253,9 +254,18 @@ export function VoltEdgeMap() {
   // TanStack Query dedupes these against the same queries feature-panel.tsx
   // and connect-confirm-panel.tsx already run for the same ids, so this
   // is a cache hit in the common case, not a second real fetch.
-  const { data: selectedFeature } = useFeature(selected?.featureClassCode, selected?.featureId)
-  const { data: connectSourceFeature } = useFeature(connectSource?.featureClassCode, connectSource?.featureId)
-  const { data: connectTargetFeature } = useFeature(connectTarget?.featureClassCode, connectTarget?.featureId)
+  const { data: selectedFeature, isLoading: selectedFeatureLoading } = useFeature(
+    selected?.featureClassCode,
+    selected?.featureId,
+  )
+  const { data: connectSourceFeature, isLoading: connectSourceLoading } = useFeature(
+    connectSource?.featureClassCode,
+    connectSource?.featureId,
+  )
+  const { data: connectTargetFeature, isLoading: connectTargetLoading } = useFeature(
+    connectTarget?.featureClassCode,
+    connectTarget?.featureId,
+  )
   // The feature currently under geometry edit -- same dedup reasoning
   // as the three above (feature-edit-form.tsx already runs this exact
   // query).
@@ -991,7 +1001,7 @@ export function VoltEdgeMap() {
           format: new MVT(),
           url: tileUrlTemplate(sourceId),
         }),
-        style: createSymbologyStyle(symbologyByClassCode[classCode]),
+        style: createSymbologyStyle(symbologyByClassCode[classCode], map.getView()),
         visible: !hiddenLayersRef.current[sourceId],
         properties: { sourceId },
       })
@@ -1011,5 +1021,28 @@ export function VoltEdgeMap() {
     }
   }, [hiddenLayers])
 
-  return <div ref={containerRef} className="h-full w-full" />
+  // Whether the highlight halo is currently waiting on a feature fetch
+  // it'll need a geometry from -- e.g. right after clicking a connection/
+  // relationship row for a feature that isn't already cached (the
+  // clicked-through feature panel's own tab shows its own spinner for
+  // the same fetch; the map had nothing, so a halo just silently
+  // appeared a beat late with no indication anything was happening).
+  // Mirrors the halo effect's own isEditingSelected skip so this never
+  // shows for a fetch the halo itself is going to ignore.
+  const isEditingSelectedForHalo = editing && selected && editing.featureId === selected.featureId
+  const haloLoading = connectMode
+    ? connectSourceLoading || connectTargetLoading
+    : !isEditingSelectedForHalo && selectedFeatureLoading
+
+  return (
+    <>
+      <div ref={containerRef} className="h-full w-full" />
+      {haloLoading && (
+        <div className="text-muted-foreground bg-background/90 pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs shadow-sm">
+          <Loader2 className="size-3.5 animate-spin" />
+          Loading feature…
+        </div>
+      )}
+    </>
+  )
 }

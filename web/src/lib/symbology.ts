@@ -35,6 +35,13 @@ export interface SymbologyRuleSchema {
   domain_value_code?: string
   style_def: StyleDef
   render_context: "map" | "diagram"
+  /** Optional zoom-level bounds (inclusive) a rule only applies within
+   * -- real columns on symbology_rules since Phase 1, loaded server-side
+   * but never sent to the frontend, and thus never enforced, until now.
+   * Omitted entirely (undefined on both) means "applies at every zoom",
+   * same as it always effectively behaved before this existed. */
+  min_zoom?: number
+  max_zoom?: number
 }
 
 function ruleMatches(rule: SymbologyRuleSchema, subtype: number | undefined, attributes: Record<string, unknown>): boolean {
@@ -58,21 +65,32 @@ function specificity(rule: SymbologyRuleSchema): number {
  * geometry, so no extra fetch is needed per feature). context selects
  * which render_context's rules are even considered -- the schema
  * endpoint now sends both map and diagram rules together, so every
- * caller must say which one it's rendering. Returns undefined when no
- * rule matches at all (no rules loaded yet, or a feature class that
- * was never seeded with even a default rule -- map-layers.ts falls
+ * caller must say which one it's rendering. zoom is optional -- passing
+ * it excludes any rule whose min_zoom/max_zoom don't cover the current
+ * level (map-layers.ts's the only caller that has a real one to pass;
+ * a legend or the diagram canvas has no single "current zoom" to filter
+ * by, so they call this with zoom omitted, same as every rule always
+ * behaved before min_zoom/max_zoom were wired in). Returns undefined
+ * when no rule matches at all (no rules loaded yet, a feature class
+ * that was never seeded with even a default rule, or every matching
+ * rule is zoom-gated out at the current level) -- map-layers.ts falls
  * back to its own plain geometry-type styling in that case, same as
- * before this existed). */
+ * before this existed. */
 export function resolveSymbology(
   rules: SymbologyRuleSchema[] | undefined,
   subtype: number | undefined,
   attributes: Record<string, unknown>,
   context: "map" | "diagram",
+  zoom?: number,
 ): StyleDef | undefined {
   let best: SymbologyRuleSchema | undefined
   let bestScore = -1
   for (const rule of rules ?? []) {
     if (rule.render_context !== context) continue
+    if (zoom !== undefined) {
+      if (rule.min_zoom !== undefined && zoom < rule.min_zoom) continue
+      if (rule.max_zoom !== undefined && zoom > rule.max_zoom) continue
+    }
     if (!ruleMatches(rule, subtype, attributes)) continue
     const score = specificity(rule)
     if (score > bestScore) {

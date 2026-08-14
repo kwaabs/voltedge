@@ -137,7 +137,17 @@ func establishRelationship(ctx context.Context, db bun.IDB, req establishRequest
 		return nil, fmt.Errorf("relationship: establish: %w", err)
 	}
 
-	return formatRelationship(rel, class, origin, destination), nil
+	// Best-effort: the relationship above is already committed by this
+	// point, so a plausibility-check failure (a query error, not a
+	// "too far apart" result) shouldn't turn a successful establish
+	// into a failed request -- it just means this response goes out
+	// with no warning either way, same as if the two features
+	// happened to be close enough that none was warranted.
+	warning, _ := checkPlausibility(ctx, db, origin, destination)
+
+	resp := formatRelationship(rel, class, origin, destination)
+	resp.PlausibilityWarning = warning
+	return resp, nil
 }
 
 // listRelationships returns every relationship involving one feature, on
