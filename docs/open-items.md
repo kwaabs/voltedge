@@ -26,9 +26,10 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-14, after adding an "add feature" picker to
-the diagram canvas -- an existing feature can now be placed onto an
-already-created diagram from the UI itself, not just via curl.
+**Last updated:** 2026-08-14, after adding drag-to-reposition and
+routed elbow edges to the diagram canvas -- placements are now
+actually drawn where the user puts them, not auto-computed, and wires
+route as right-angle connectors instead of straight lines.
 
 ## Phase 1 — Metadata core
 
@@ -87,12 +88,16 @@ already-created diagram from the UI itself, not just via curl.
 
 | Item | Status | Size | Value | Detail |
 |---|---|---|---|---|
-| Drag-to-place / drag-to-reposition on the diagram canvas | Open | M | Placements render at their stored `x`/`y`/`rotation` and are clickable (select the underlying feature), but nothing on the canvas itself writes a new position yet -- moving a feature still means a direct `POST /diagrams/{id}/placements` call, same as the backend slice's own curl walkthrough. | `docs/phase-5-diagrams.md` |
+| Multi-segment bus routing on the diagram canvas | Open | M | Edges now route as a single right-angle elbow (see the "Done" row below), not the multi-segment bus-tap routing a dense protection-scheme diagram needs -- every edge still only connects exactly two placements. | `docs/phase-5-diagrams.md` |
+| Electrical-schematic symbol library | Open | L | The current icon set (circle/square/triangle/diamond) is generic; a real protection one-line needs ANSI device-number circles, CTs, PTs, disconnect switches, ground studs, and more -- a large, ongoing content task independent of the canvas's rendering technology. | `docs/phase-5-diagrams.md` |
+| Grouping/annotation boxes on the diagram canvas | Open | M | Real diagrams label logical groupings (e.g. a relay panel) with a dashed box around several placements -- no such freeform, non-feature-backed annotation primitive exists in the data model yet. | `docs/phase-5-diagrams.md` |
+| Dual line semantics (power vs. dashed control/trip lines) | Open | M | Every edge today comes from a real `feature_connectivity` row; a protection scheme's dashed trip lines with arrowheads are schematic-only annotations with no real network connectivity behind them, which the current model has no place for. | `docs/phase-5-diagrams.md` |
 | `geometry_type = 'none'` with a real feature class | Open | S | The compiler and CRUD engine already support a feature class with no map geometry at all (whose only visual representation is a diagram placement) -- proven by code inspection, not yet exercised by any actual seeded feature class (e.g. a `PROTECTIVE_RELAY`). | `docs/phase-5-diagrams.md` |
 | Admin UI for `DIAGRAM_TYPE` values / `is_diagram_container` / creating the first diagram instance | Open | M | All real metadata/data changes made by hand today (seed SQL / a migration / a direct curl call), same as every other metadata-level change in this project pre-admin-UI. Adding an *existing* feature to an *already-created* diagram is now a real UI capability -- see the "Add existing feature to a diagram" row below -- creating that first diagram instance itself is not. | `docs/phase-5-diagrams.md` |
 | Diagram containers, data model + API | Done | L | `runtime.diagram_instances`/`diagram_placements` (a diagram belongs to one container feature, a placement puts any feature at an x/y/rotation inside it, independent of real geometry), a new `api/internal/diagram` package, gated on `metadata.feature_classes.is_diagram_container`. `SUBSTATION_YARD` is the first real container. Curl-verified end to end against a real Postgres/API stack, including both rejection gates and cascade delete. | `docs/phase-5-diagrams.md` |
 | Diagram frontend canvas | Done | M–L | A hand-rolled SVG canvas (no new dependency, reuses `symbology-icons.ts`'s `iconDataUri` directly) in a side-by-side split view next to the map, not a floating overlay or a new route. Renders placements as symbology-resolved icons plus labels, and real `feature_connectivity` edges between placements that are both on the same diagram. Triggered from `FeaturePanel` via a "View diagram" button, shown only when the selected feature's class is a diagram container with at least one diagram instance. First real consumer of `render_context = 'diagram'` symbology (falls back to `'map'` symbology when no diagram-context rule exists yet). | `docs/phase-5-diagrams.md` |
 | Add existing feature to a diagram, from the canvas | Done | S | A `+` button in the diagram panel opens a cross-class name search (the same fan-out `feature-search.tsx`'s map toolbar box uses, extracted into `use-feature-name-search.ts` so both share it) and places the picked feature via the existing `POST /diagrams/{id}/placements` endpoint -- no new backend work needed. New placements land just outside the current bounding box so repeated additions spread out instead of stacking; already-placed features are filtered out of the search results. Placing a brand-new, geometry-less feature is a separate, still-open capability. | `docs/phase-5-diagrams.md` |
+| Drag-to-reposition + routed elbow edges on the diagram canvas | Done | M | Shown a real one-line diagram, the auto-placed/straight-line canvas didn't hold up. Placements now drag via pointer events (screen coordinates converted into the SVG's own viewBox space via `getScreenCTM`), writing back through the existing placement upsert on drop with an optimistic query-cache update to avoid flicker; a plain click still selects, same as before. Edges now render as a right-angle elbow `<path>` instead of a straight `<line>`. Neither React Flow nor Fabric.js was reconsidered as the fix -- both were re-evaluated and rejected again, since neither ships schematic routing or symbol conventions either. | `docs/phase-5-diagrams.md` |
 
 ## Phases 6-7
 

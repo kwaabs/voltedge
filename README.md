@@ -169,8 +169,14 @@ having to reread every phase doc's own "What's still open" section.
   'diagram'` symbology. An existing feature can be added to an
   already-created diagram straight from the canvas (cross-class name
   search, reusing the same fan-out the map's own search box uses).
-  Curl- and browser-verified end to end. Still ahead: drag-to-reposition
-  on the canvas, an admin UI to create a diagram instance itself,
+  Placements drag to a new position (writes back through the same
+  placement upsert) and edges route as right-angle elbow connectors
+  instead of straight lines — placed by hand, drawn instead of just
+  appearing, matching how a real one-line diagram actually looks.
+  Curl- and browser-verified end to end. Still ahead: multi-segment bus
+  routing, a real electrical-schematic symbol library, grouping/
+  annotation boxes, dual line semantics for power vs. control/trip
+  circuits, an admin UI to create a diagram instance itself,
   metadata-driven forms, MCP data-plane tools.
   Write-up: [`docs/phase-5-diagrams.md`](docs/phase-5-diagrams.md).
 - **Phase 6 — Domain expansion + hardening**: full feature class catalog,

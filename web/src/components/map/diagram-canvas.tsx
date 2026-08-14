@@ -11,6 +11,7 @@ import { type FeatureSearchResult, MIN_QUERY_LENGTH, useFeatureNameSearch } from
 import { ApiError, apiFetch } from "@/lib/api"
 import { iconDataUri } from "@/lib/symbology-icons"
 import { resolveSymbology } from "@/lib/symbology"
+import { cn } from "@/lib/utils"
 import { useDiagramStore } from "@/stores/diagram-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useToastStore } from "@/stores/toast-store"
@@ -35,6 +36,18 @@ const FONT_FRACTION = 0.035
 
 function placementKey(featureClass: string, featureId: string): string {
   return `${featureClass}:${featureId}`
+}
+
+/** A routed, right-angle connector between two placements -- a real
+ * schematic's wires are drawn, not simply present between two points
+ * (see docs/phase-5-diagrams.md's "Drag-to-reposition and routed
+ * edges, added later"). Bends once, at the horizontal midpoint between
+ * the two ends -- the simplest orthogonal route, not the multi-segment
+ * bus-tap routing a dense protection-scheme diagram would eventually
+ * want (still open, see the same doc section). */
+function elbowPath(x1: number, y1: number, x2: number, y2: number): string {
+  const midX = (x1 + x2) / 2
+  return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`
 }
 
 /** Where a newly-added feature lands -- just outside the current
@@ -170,12 +183,108 @@ function AddFeatureButton({ diagramId, placements }: { diagramId: string; placem
  * connections, so both have to come from the same real endpoints the
  * map and feature panel already use, not duplicated here.
  */
+interface DragState {
+  placementId: string
+  featureClass: string
+  featureId: string
+  offsetX: number
+  offsetY: number
+  x: number
+  y: number
+  moved: boolean
+}
+
 export function DiagramCanvas() {
   const openDiagramId = useDiagramStore((s) => s.openDiagramId)
   const close = useDiagramStore((s) => s.close)
   const { data: placementsData, isPending, isError } = useDiagramPlacements(openDiagramId ?? undefined)
   const rules = useAllSymbology()
   const placements = useMemo(() => placementsData?.placements ?? [], [placementsData])
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [dragState, setDragState] = useState<DragState | null>(null)
+  const queryClient = useQueryClient()
+
+  // Screen-pixel pointer movement has to be converted into the SVG's
+  // own viewBox coordinate space before it means anything as a new
+  // x/y -- the viewBox is data-dependent (see the extent-relative
+  // sizing comment above) and the SVG element's actual on-screen size
+  // rarely matches it 1:1, so a raw clientX/clientY delta would drag a
+  // feature faster or slower than the cursor depending on how zoomed
+  // in the current diagram happens to be.
+  function clientToSvgPoint(clientX: number, clientY: number): { x: number; y: number } | null {
+    const svg = svgRef.current
+    const ctm = svg?.getScreenCTM()
+    if (!svg || !ctm) return null
+    const point = svg.createSVGPoint()
+    point.x = clientX
+    point.y = clientY
+    const transformed = point.matrixTransform(ctm.inverse())
+    return { x: transformed.x, y: transformed.y }
+  }
+
+  function handlePlacementPointerDown(e: React.PointerEvent<SVGGElement>, placement: DiagramPlacement) {
+    const svgPoint = clientToSvgPoint(e.clientX, e.clientY)
+    if (!svgPoint) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setDragState({
+      placementId: placement.id,
+      featureClass: placement.feature_class,
+      featureId: placement.feature_id,
+      offsetX: placement.x - svgPoint.x,
+      offsetY: placement.y - svgPoint.y,
+      x: placement.x,
+      y: placement.y,
+      moved: false,
+    })
+  }
+
+  function handlePlacementPointerMove(e: React.PointerEvent<SVGGElement>) {
+    if (!dragState) return
+    const svgPoint = clientToSvgPoint(e.clientX, e.clientY)
+    if (!svgPoint) return
+    setDragState((prev) => prev && { ...prev, x: svgPoint.x + prev.offsetX, y: svgPoint.y + prev.offsetY, moved: true })
+  }
+
+  // A pointerup with no real movement is a click, not a drag -- select
+  // the feature, same as before drag existed. A real drag writes the
+  // new position back immediately: an optimistic update to the query
+  // cache first (so the node doesn't visibly snap back to its old spot
+  // while the request is in flight), then the real POST upsert this
+  // endpoint has supported since the backend slice, then only
+  // reconciles from the server on failure.
+  async function handlePlacementPointerUp() {
+    if (!dragState || !openDiagramId) return
+    const { placementId, featureClass, featureId, x, y, moved } = dragState
+    if (!moved) {
+      setDragState(null)
+      useSelectionStore.getState().select(featureClass, featureId)
+      return
+    }
+    const rotation = placements.find((p) => p.id === placementId)?.rotation ?? 0
+    queryClient.setQueryData<{ placements: DiagramPlacement[] }>(["diagram-placements", openDiagramId], (old) =>
+      old ? { placements: old.placements.map((p) => (p.id === placementId ? { ...p, x, y } : p)) } : old,
+    )
+    setDragState(null)
+    try {
+      await apiFetch(`/diagrams/${openDiagramId}/placements`, {
+        method: "POST",
+        body: JSON.stringify({ feature_class: featureClass, feature_id: featureId, x, y, rotation }),
+      })
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not move this feature.")
+      queryClient.invalidateQueries({ queryKey: ["diagram-placements", openDiagramId] })
+    }
+  }
+
+  // The placement actively being dragged renders at the live pointer
+  // position rather than its last-saved one -- bounds, edges, and the
+  // node itself all read from this instead of `placements` directly,
+  // so a wire visibly follows the feature it's attached to while it
+  // moves, not just after the drag ends.
+  const effectivePlacements = useMemo(() => {
+    if (!dragState) return placements
+    return placements.map((p) => (p.id === dragState.placementId ? { ...p, x: dragState.x, y: dragState.y } : p))
+  }, [placements, dragState])
 
   const featureResults = useQueries({
     queries: placements.map((p) => ({
@@ -195,9 +304,9 @@ export function DiagramCanvas() {
 
   const placementByKey = useMemo(() => {
     const map = new Map<string, DiagramPlacement>()
-    placements.forEach((p) => map.set(placementKey(p.feature_class, p.feature_id), p))
+    effectivePlacements.forEach((p) => map.set(placementKey(p.feature_class, p.feature_id), p))
     return map
-  }, [placements])
+  }, [effectivePlacements])
 
   // Only edges where both ends are placed on this same diagram render --
   // a feature can have real connectivity reaching outside the diagram
@@ -221,11 +330,11 @@ export function DiagramCanvas() {
   }, [connectionResults.map((r) => r.dataUpdatedAt).join(","), placementByKey])
 
   const bounds = useMemo(() => {
-    if (placements.length === 0) return { minX: 0, minY: 0, maxX: 400, maxY: 300 }
-    const xs = placements.map((p) => p.x)
-    const ys = placements.map((p) => p.y)
+    if (effectivePlacements.length === 0) return { minX: 0, minY: 0, maxX: 400, maxY: 300 }
+    const xs = effectivePlacements.map((p) => p.x)
+    const ys = effectivePlacements.map((p) => p.y)
     return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
-  }, [placements])
+  }, [effectivePlacements])
 
   if (!openDiagramId) return null
 
@@ -255,31 +364,33 @@ export function DiagramCanvas() {
         ) : placements.length === 0 ? (
           <div className="text-muted-foreground p-4 text-sm">Nothing placed on this diagram yet.</div>
         ) : (
-          <svg viewBox={viewBox} className="h-full w-full">
+          <svg ref={svgRef} viewBox={viewBox} className="h-full w-full">
             {edges.map((edge) => (
-              <line
+              <path
                 key={edge.id}
-                x1={edge.from.x}
-                y1={edge.from.y}
-                x2={edge.to.x}
-                y2={edge.to.y}
+                d={elbowPath(edge.from.x, edge.from.y, edge.to.x, edge.to.y)}
+                fill="none"
                 style={{ stroke: "var(--muted-foreground)" }}
                 strokeWidth={2}
               />
             ))}
-            {placements.map((placement, i) => {
+            {effectivePlacements.map((placement, i) => {
               const feature = featureResults[i]?.data
               const classRules = rules[placement.feature_class]
               const def =
                 resolveSymbology(classRules, feature?.subtype, feature?.attributes ?? {}, "diagram") ??
                 resolveSymbology(classRules, feature?.subtype, feature?.attributes ?? {}, "map")
               const icon = iconDataUri(def?.icon_ref, def?.color)
+              const dragging = dragState?.placementId === placement.id
               return (
                 <g
                   key={placement.id}
                   transform={`translate(${placement.x}, ${placement.y})`}
-                  className="cursor-pointer"
-                  onClick={() => useSelectionStore.getState().select(placement.feature_class, placement.feature_id)}
+                  className={cn("touch-none", dragging ? "cursor-grabbing" : "cursor-grab")}
+                  onPointerDown={(e) => handlePlacementPointerDown(e, placement)}
+                  onPointerMove={handlePlacementPointerMove}
+                  onPointerUp={handlePlacementPointerUp}
+                  onPointerCancel={() => setDragState(null)}
                 >
                   <g transform={`rotate(${placement.rotation})`}>
                     <image href={icon} x={-iconSize / 2} y={-iconSize / 2} width={iconSize} height={iconSize} />

@@ -341,13 +341,90 @@ reload shows the addition persisted; searching the same name again
 correctly returns "No matching features not already on this diagram."
 instead of offering a duplicate; confirmed in dark mode too.
 
+## Drag-to-reposition and routed edges, added later
+
+Shown a real single-line diagram as a reference, the canvas as it
+stood didn't hold up: every placement landed at an auto-computed spot
+(`nextPlacementPosition`) that the user never chose, and edges were
+raw diagonal `<line>`s between two points -- a diagram that was
+*plotted*, not *drawn*. The library question came up again (React
+Flow? Fabric.js?) and the answer stayed the same both times: neither
+actually solves what a real one-line diagram needs (multi-segment bus
+routing, a real ANSI-device symbol library, grouped/boxed annotations,
+dual line semantics for power vs. control/trip circuits -- all real
+gaps, still open below) -- and for the two things asked for here,
+manual placement and routed wires, hand-rolled SVG was never the
+limiting factor. The gap was that the drag interaction and the
+elbow-routing math simply hadn't been written yet.
+
+- **`elbowPath`** (new, `diagram-canvas.tsx`) -- every edge renders as
+  a three-segment right-angle `<path>` (out horizontally from the
+  source to the horizontal midpoint, down/up to the target's row,
+  across to the target) instead of a straight `<line>`, matching real
+  schematic convention. Bends once, at a fixed midpoint -- not the
+  multi-segment bus-tap routing a dense protection-scheme diagram
+  would eventually want (see "What's still open").
+- **Drag-to-reposition** -- `pointerdown` on a placed icon starts
+  tracking; `pointermove` (captured via `setPointerCapture`, so the
+  drag keeps tracking even if the cursor leaves the icon) updates a
+  local `dragState`; `pointerup` either selects the feature (no real
+  movement -- a plain click still works exactly as before) or writes
+  the new position through the same `POST /diagrams/{id}/placements`
+  upsert every other placement write already uses. Screen-pixel
+  pointer movement is converted into the SVG's own viewBox coordinate
+  space via `getScreenCTM().inverse()` before being applied -- a raw
+  `clientX`/`clientY` delta would drag a feature faster or slower than
+  the cursor depending on how zoomed a given diagram's extent-relative
+  viewBox happens to be (see the sizing comment from the first canvas
+  slice).
+  - The node being dragged, and any edge attached to it, both render
+    from a `dragState`-aware `effectivePlacements` list rather than
+    the raw query data -- bounds, `placementByKey`, and the rendered
+    `<g>` all read from it, so a wire visibly follows its feature while
+    it's still mid-drag, not just once the drag ends.
+  - On drop, the query cache is updated optimistically
+    (`queryClient.setQueryData`) *before* `dragState` clears, so there
+    is no visible snap-back-then-forward flicker while the real
+    request is in flight; a failed write reverts by invalidating the
+    query instead.
+- **`nextPlacementPosition`'s comment updated** -- it's no longer the
+  only way a feature's position gets set, just where a newly *added*
+  feature starts before the user drags it somewhere deliberate.
+
+Verified live: dragging a placed icon (the switch, in the demo
+diagram) to a new spot moves it, the elbow-routed wire to the adjacent
+conductor follows it live during the drag, and a real `GET
+/diagrams/{id}/placements` afterward confirms the new `x`/`y` landed
+in Postgres (rotation unchanged); a plain click with no movement still
+selects the feature and opens the same feature panel, without writing
+any position change; confirmed in dark mode. The demo diagram's switch
+was moved back to its original position afterward via the same real
+API, same "leave the demo data as found" discipline every other
+manual-verification pass in this project follows.
+
 ## What's still open
 
-- **Drag-to-place / drag-to-reposition on the canvas.** Placements
-  render and are clickable, but nothing on the canvas itself writes a
-  new position yet — moving a feature still means a direct `POST
-  /diagrams/{id}/placements` call, same as the backend slice's own curl
-  walkthrough below.
+- **Multi-segment bus routing, not just a single-bend elbow.** Real
+  protection-scheme diagrams route wires off a shared vertical/
+  horizontal bus with T-junction taps, not just a point-to-point
+  right-angle connector -- `elbowPath` is a real improvement over a
+  straight line but still only connects exactly two placements.
+- **A real electrical-schematic symbol library.** The current icon set
+  (circle/square/triangle/diamond) is generic; a diagram like a
+  protection one-line needs ANSI device-number circles (27, 59, 50/51N,
+  86, 87, ...), CTs, PTs, disconnect switches, ground studs, and more --
+  a large, ongoing content task independent of the canvas's rendering
+  technology.
+- **Grouping/annotation boxes.** Real diagrams label logical groupings
+  (e.g. a relay panel) with a dashed box around several placements --
+  there's no such freeform, non-feature-backed annotation primitive in
+  the current data model (`diagram_placements` only ever points at a
+  real feature).
+- **Dual line semantics (power wiring vs. dashed control/trip
+  lines).** Every edge the canvas draws today comes from a real
+  `feature_connectivity` row. A protection scheme's dashed trip lines
+  with arrowheads aren't real network connectivity at all -- they're
+  schematic-only annotations, which the current model has no place for.
 - **`render_context = 'diagram'` symbology rules.** The canvas now
   resolves and renders them (falling back to `'map'` symbology when
   none exists), but no diagram-specific rule has actually been authored
