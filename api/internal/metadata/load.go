@@ -268,6 +268,18 @@ func ListFieldGroups(ctx context.Context, db bun.IDB) ([]FieldGroup, error) {
 	return groups, nil
 }
 
+// ListMaterialSpecs returns every material spec -- a small, global
+// catalog (mirrors ListFieldGroups above), cheap enough to always fetch
+// in full for a picker (the domains admin page's own "attach a material
+// spec to this value" affordance) rather than a lookup-by-code endpoint.
+func ListMaterialSpecs(ctx context.Context, db bun.IDB) ([]MaterialSpec, error) {
+	var specs []MaterialSpec
+	if err := db.NewSelect().Model(&specs).Order("category", "code").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: listing material specs: %w", err)
+	}
+	return specs, nil
+}
+
 // LoadRelationshipClasses returns every relationship_classes row for a
 // specific origin/destination feature-class pair. Unlike NetworkRule
 // there's no valid/invalid split to preserve here -- a row either exists

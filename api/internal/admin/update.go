@@ -126,7 +126,15 @@ func updateDomain(ctx context.Context, db *bun.DB, code string, req updateDomain
 		}
 		valueResponses := make([]domainValueResponse, len(values))
 		for i, v := range values {
-			valueResponses[i] = domainValueResponse{Code: v.Code, Label: v.Label, SortOrder: v.SortOrder}
+			var materialSpecCode *string
+			if v.MaterialSpecID != nil {
+				var m metadata.MaterialSpec
+				if err := tx.NewSelect().Model(&m).Where("id = ?", *v.MaterialSpecID).Scan(ctx); err != nil {
+					return fmt.Errorf("loading material spec for domain value %q: %w", v.Code, err)
+				}
+				materialSpecCode = &m.Code
+			}
+			valueResponses[i] = domainValueResponse{Code: v.Code, Label: v.Label, SortOrder: v.SortOrder, MaterialSpecCode: materialSpecCode}
 		}
 
 		resp = domainResponse{
@@ -169,7 +177,7 @@ func updateDomainValue(ctx context.Context, db *bun.DB, domainCode, valueCode st
 			return fmt.Errorf("loading domain value %q: %w", valueCode, err)
 		}
 
-		cols := make([]string, 0, 2)
+		cols := make([]string, 0, 3)
 		if req.Label != nil {
 			dv.Label = *req.Label
 			cols = append(cols, "label")
@@ -178,12 +186,33 @@ func updateDomainValue(ctx context.Context, db *bun.DB, domainCode, valueCode st
 			dv.SortOrder = *req.SortOrder
 			cols = append(cols, "sort_order")
 		}
+		if req.MaterialSpecCode != nil {
+			if *req.MaterialSpecCode == "" {
+				dv.MaterialSpecID = nil
+			} else {
+				id, err := resolveMaterialSpecCode(ctx, tx, *req.MaterialSpecCode)
+				if err != nil {
+					return err
+				}
+				dv.MaterialSpecID = &id
+			}
+			cols = append(cols, "material_spec_id")
+		}
 
 		if _, err := tx.NewUpdate().Model(dv).Column(cols...).Where("id = ?", dv.ID).Exec(ctx); err != nil {
 			return fmt.Errorf("updating domain value %q: %w", valueCode, err)
 		}
 
-		resp = domainValueResponse{Code: dv.Code, Label: dv.Label, SortOrder: dv.SortOrder}
+		var materialSpecCode *string
+		if dv.MaterialSpecID != nil {
+			var m metadata.MaterialSpec
+			if err := tx.NewSelect().Model(&m).Where("id = ?", *dv.MaterialSpecID).Scan(ctx); err != nil {
+				return fmt.Errorf("loading material spec for domain value %q: %w", valueCode, err)
+			}
+			materialSpecCode = &m.Code
+		}
+
+		resp = domainValueResponse{Code: dv.Code, Label: dv.Label, SortOrder: dv.SortOrder, MaterialSpecCode: materialSpecCode}
 		return nil
 	})
 	if err != nil {
@@ -302,6 +331,75 @@ func updateField(ctx context.Context, db *bun.DB, featureClassCode, fieldName st
 				return fmt.Errorf("loading group for response: %w", err)
 			}
 			resp.GroupCode = &g.Code
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// updateMaterialSpec edits an existing material spec's own name/category/
+// engineering numbers. Always safe: nothing physical or compiled reads
+// these columns directly (see MaterialSpec's own doc comment) -- a
+// domain value just carries an id pointer to whichever row is here now,
+// so changing the numbers on that row updates what every linked value
+// resolves to, the same way editing a domain value's own label already
+// does.
+func updateMaterialSpec(ctx context.Context, db *bun.DB, code string, req updateMaterialSpecRequest) (*materialSpecResponse, error) {
+	if err := validateUpdateMaterialSpec(req); err != nil {
+		return nil, err
+	}
+
+	var resp materialSpecResponse
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		m := new(metadata.MaterialSpec)
+		if err := tx.NewSelect().Model(m).Where("code = ?", code).Scan(ctx); err != nil {
+			if err == sql.ErrNoRows {
+				return notFound("material spec %q does not exist", code)
+			}
+			return fmt.Errorf("loading material spec %q: %w", code, err)
+		}
+
+		cols := make([]string, 0, 7)
+		if req.Name != nil {
+			m.Name = *req.Name
+			cols = append(cols, "name")
+		}
+		if req.Category != nil {
+			m.Category = *req.Category
+			cols = append(cols, "category")
+		}
+		if req.ResistanceOhmPerKm != nil {
+			m.ResistanceOhmPerKm = req.ResistanceOhmPerKm
+			cols = append(cols, "resistance_ohm_per_km")
+		}
+		if req.ReactanceOhmPerKm != nil {
+			m.ReactanceOhmPerKm = req.ReactanceOhmPerKm
+			cols = append(cols, "reactance_ohm_per_km")
+		}
+		if req.AmpacityAmps != nil {
+			m.AmpacityAmps = req.AmpacityAmps
+			cols = append(cols, "ampacity_amps")
+		}
+		if req.DiameterMm != nil {
+			m.DiameterMm = req.DiameterMm
+			cols = append(cols, "diameter_mm")
+		}
+		if req.WeightKgPerKm != nil {
+			m.WeightKgPerKm = req.WeightKgPerKm
+			cols = append(cols, "weight_kg_per_km")
+		}
+
+		if _, err := tx.NewUpdate().Model(m).Column(cols...).Where("code = ?", code).Exec(ctx); err != nil {
+			return fmt.Errorf("updating material spec %q: %w", code, err)
+		}
+
+		resp = materialSpecResponse{
+			Code: m.Code, Name: m.Name, Category: m.Category,
+			ResistanceOhmPerKm: m.ResistanceOhmPerKm, ReactanceOhmPerKm: m.ReactanceOhmPerKm,
+			AmpacityAmps: m.AmpacityAmps, DiameterMm: m.DiameterMm, WeightKgPerKm: m.WeightKgPerKm,
 		}
 		return nil
 	})

@@ -44,11 +44,15 @@ import (
 //	PATCH  /domains/{code}                 edit a domain's name, or (range domain only) its range_min/range_max
 //	DELETE /domains/{code}                 delete a domain not referenced by any field
 //	POST   /domains/{code}/values          add one value to an existing coded domain -- recompile any class using it to actually enforce it
-//	PATCH  /domains/{code}/values/{value_code} edit an existing coded value's label/sort_order
+//	PATCH  /domains/{code}/values/{value_code} edit an existing coded value's label/sort_order/material_spec_code
 //	DELETE /domains/{code}/values/{value_code} delete a coded value -- recompile any class using it to actually narrow the CHECK
 //	GET    /field-groups                   every field group
 //	POST   /field-groups                   create a field group
 //	DELETE /field-groups/{code}            delete a field group not referenced by any field
+//	GET    /material-specs                 every material spec (e.g. ACSR_50) with its engineering numbers
+//	POST   /material-specs                 create a material spec
+//	PATCH  /material-specs/{code}          edit an existing material spec's own numbers
+//	DELETE /material-specs/{code}          delete a material spec not referenced by any domain value
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/feature-classes", listFeatureClassesHandler(db))
@@ -69,6 +73,10 @@ func Routes(db *bun.DB) chi.Router {
 	r.Get("/field-groups", listFieldGroupsHandler(db))
 	r.Post("/field-groups", createFieldGroupHandler(db))
 	r.Delete("/field-groups/{code}", deleteFieldGroupHandler(db))
+	r.Get("/material-specs", listMaterialSpecsHandler(db))
+	r.Post("/material-specs", createMaterialSpecHandler(db))
+	r.Patch("/material-specs/{code}", updateMaterialSpecHandler(db))
+	r.Delete("/material-specs/{code}", deleteMaterialSpecHandler(db))
 	return r
 }
 
@@ -275,6 +283,59 @@ func deleteFieldGroupHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		code := chi.URLParam(r, "code")
 		if err := deleteFieldGroup(r.Context(), db, code); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func listMaterialSpecsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		specs, err := listMaterialSpecs(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"material_specs": specs})
+	}
+}
+
+func createMaterialSpecHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req createMaterialSpecRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := createMaterialSpec(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func updateMaterialSpecHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		var req updateMaterialSpecRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := updateMaterialSpec(r.Context(), db, code, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func deleteMaterialSpecHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		if err := deleteMaterialSpec(r.Context(), db, code); err != nil {
 			writeError(w, err)
 			return
 		}

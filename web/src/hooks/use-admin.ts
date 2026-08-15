@@ -25,6 +25,7 @@ export interface AdminDomainValue {
   code: string
   label: string
   sort_order: number
+  material_spec_code?: string
 }
 
 export interface AdminDomain {
@@ -41,6 +42,23 @@ export interface AdminFieldGroup {
   name: string
   sort_order: number
   icon?: string
+}
+
+/** Wire type for /admin/material-specs -- api/internal/admin's
+ * materialSpecResponse. A catalog entry (e.g. ACSR_50) a coded domain
+ * value can optionally link to via its own material_spec_code, so a
+ * field like MV_CONDUCTOR's conductor_spec resolves to real engineering
+ * numbers instead of just a display label. See
+ * docs/phase-7-materials.md. */
+export interface AdminMaterialSpec {
+  code: string
+  name: string
+  category: string
+  resistance_ohm_per_km?: number
+  reactance_ohm_per_km?: number
+  ampacity_amps?: number
+  diameter_mm?: number
+  weight_kg_per_km?: number
 }
 
 /** Long staleTime, same reasoning useFeatureClasses/useCatalog use --
@@ -69,6 +87,14 @@ export function useAdminFieldGroups() {
   return useQuery({
     queryKey: ["admin", "field-groups"],
     queryFn: () => apiFetch<{ field_groups: AdminFieldGroup[] }>("/admin/field-groups"),
+    staleTime: ADMIN_STALE_TIME,
+  })
+}
+
+export function useAdminMaterialSpecs() {
+  return useQuery({
+    queryKey: ["admin", "material-specs"],
+    queryFn: () => apiFetch<{ material_specs: AdminMaterialSpec[] }>("/admin/material-specs"),
     staleTime: ADMIN_STALE_TIME,
   })
 }

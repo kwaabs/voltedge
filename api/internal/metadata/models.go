@@ -102,11 +102,34 @@ type Domain struct {
 type DomainValue struct {
 	bun.BaseModel `bun:"table:metadata.domain_values"`
 
-	ID        string `bun:"id,pk"`
-	DomainID  string `bun:"domain_id"`
-	Code      string `bun:"code"`
-	Label     string `bun:"label"`
-	SortOrder int    `bun:"sort_order"`
+	ID             string  `bun:"id,pk"`
+	DomainID       string  `bun:"domain_id"`
+	Code           string  `bun:"code"`
+	Label          string  `bun:"label"`
+	SortOrder      int     `bun:"sort_order"`
+	MaterialSpecID *string `bun:"material_spec_id"`
+}
+
+// MaterialSpec mirrors metadata.material_specs -- see migrations/0021.
+// A catalog of real physical/electrical properties (resistance,
+// ampacity, ...) for one material+size combination, e.g. ACSR_50.
+// Attaches to a coded domain value via DomainValue.MaterialSpecID
+// rather than to a feature class directly -- the domain value a field
+// already selects (e.g. MV_CONDUCTOR's conductor_spec = "ACSR 50mm^2")
+// is what carries the real numbers, so nothing about fields, the
+// compiler, or the CRUD engine needed to change to introduce this.
+type MaterialSpec struct {
+	bun.BaseModel `bun:"table:metadata.material_specs"`
+
+	ID                 string   `bun:"id,pk"`
+	Code               string   `bun:"code"`
+	Name               string   `bun:"name"`
+	Category           string   `bun:"category"`
+	ResistanceOhmPerKm *float64 `bun:"resistance_ohm_per_km"`
+	ReactanceOhmPerKm  *float64 `bun:"reactance_ohm_per_km"`
+	AmpacityAmps       *float64 `bun:"ampacity_amps"`
+	DiameterMm         *float64 `bun:"diameter_mm"`
+	WeightKgPerKm      *float64 `bun:"weight_kg_per_km"`
 }
 
 // FieldGroup mirrors metadata.field_groups -- see migrations/0005. A

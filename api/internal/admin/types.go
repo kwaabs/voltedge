@@ -64,10 +64,14 @@ type featureClassSummary struct {
 // domainValueRequest is one value of a coded domain, provided inline
 // when creating the domain -- adding a value to an already-existing
 // domain later is a separate, smaller endpoint (see handler.go).
+// MaterialSpecCode, if set, must name an existing metadata.material_specs
+// row (see metadata.MaterialSpec's own doc comment) -- optional, since
+// most domain values (OPEN/CLOSED, phase codes, ...) never carry one.
 type domainValueRequest struct {
-	Code      string `json:"code"`
-	Label     string `json:"label"`
-	SortOrder int    `json:"sort_order"`
+	Code             string  `json:"code"`
+	Label            string  `json:"label"`
+	SortOrder        int     `json:"sort_order"`
+	MaterialSpecCode *string `json:"material_spec_code"`
 }
 
 // RangeMin/RangeMax only apply when DomainType is "range" -- see
@@ -99,21 +103,27 @@ type updateDomainRequest struct {
 }
 
 // updateDomainValueRequest is PATCH /admin/domains/{code}/values/{value_code}'s
-// body -- label and sort_order only. The code itself is the path segment
-// and isn't renameable here: a field's CHECK constraint and any real
-// feature data both reference a domain value by its code, so renaming it
-// out from under them is a different, harder operation than this
-// endpoint means to be (delete the old code, add the new one, if that's
-// really what's wanted).
+// body -- label, sort_order, and material_spec_code, all optional. The
+// code itself is the path segment and isn't renameable here: a field's
+// CHECK constraint and any real feature data both reference a domain
+// value by its code, so renaming it out from under them is a different,
+// harder operation than this endpoint means to be (delete the old code,
+// add the new one, if that's really what's wanted). MaterialSpecCode
+// uses the same nil/""/value three-state sentinel updateFieldRequest's
+// own DomainCode already established: nil leaves the link alone, ""
+// clears it, any other string resolves against an existing material
+// spec.
 type updateDomainValueRequest struct {
-	Label     *string `json:"label"`
-	SortOrder *int    `json:"sort_order"`
+	Label            *string `json:"label"`
+	SortOrder        *int    `json:"sort_order"`
+	MaterialSpecCode *string `json:"material_spec_code"`
 }
 
 type domainValueResponse struct {
-	Code      string `json:"code"`
-	Label     string `json:"label"`
-	SortOrder int    `json:"sort_order"`
+	Code             string  `json:"code"`
+	Label            string  `json:"label"`
+	SortOrder        int     `json:"sort_order"`
+	MaterialSpecCode *string `json:"material_spec_code,omitempty"`
 }
 
 type domainResponse struct {
@@ -262,4 +272,51 @@ type compileResponse struct {
 	Created           bool     `json:"created"`
 	ColumnsAdded      []string `json:"columns_added,omitempty"`
 	MetadataVersionID string   `json:"metadata_version_id"`
+}
+
+// createMaterialSpecRequest is POST /admin/material-specs' body -- a new
+// catalog entry (e.g. ACSR_50, see metadata.MaterialSpec's own doc
+// comment). Every engineering column is optional -- a spec can be
+// created with just a code/name and filled in later via PATCH, the same
+// "author now, refine later" flow the rest of this package already
+// allows for a domain value's own label/sort_order.
+type createMaterialSpecRequest struct {
+	Code               string   `json:"code"`
+	Name               string   `json:"name"`
+	Category           string   `json:"category"`
+	ResistanceOhmPerKm *float64 `json:"resistance_ohm_per_km"`
+	ReactanceOhmPerKm  *float64 `json:"reactance_ohm_per_km"`
+	AmpacityAmps       *float64 `json:"ampacity_amps"`
+	DiameterMm         *float64 `json:"diameter_mm"`
+	WeightKgPerKm      *float64 `json:"weight_kg_per_km"`
+}
+
+// updateMaterialSpecRequest is PATCH /admin/material-specs/{code}'s
+// body -- every field optional, only what's present gets changed.
+// Unlike updateDomainValueRequest's material_spec_code, there's no
+// clear-to-null sentinel needed here: every column already tolerates
+// NULL at the database level, but nothing in this package's own
+// discipline requires clearing one back out once set, and every
+// consumer (a calc reading these numbers) already has to handle NULL
+// either way, so a numeric field simply isn't touched unless a new
+// value is provided.
+type updateMaterialSpecRequest struct {
+	Name               *string  `json:"name"`
+	Category           *string  `json:"category"`
+	ResistanceOhmPerKm *float64 `json:"resistance_ohm_per_km"`
+	ReactanceOhmPerKm  *float64 `json:"reactance_ohm_per_km"`
+	AmpacityAmps       *float64 `json:"ampacity_amps"`
+	DiameterMm         *float64 `json:"diameter_mm"`
+	WeightKgPerKm      *float64 `json:"weight_kg_per_km"`
+}
+
+type materialSpecResponse struct {
+	Code               string   `json:"code"`
+	Name               string   `json:"name"`
+	Category           string   `json:"category"`
+	ResistanceOhmPerKm *float64 `json:"resistance_ohm_per_km,omitempty"`
+	ReactanceOhmPerKm  *float64 `json:"reactance_ohm_per_km,omitempty"`
+	AmpacityAmps       *float64 `json:"ampacity_amps,omitempty"`
+	DiameterMm         *float64 `json:"diameter_mm,omitempty"`
+	WeightKgPerKm      *float64 `json:"weight_kg_per_km,omitempty"`
 }

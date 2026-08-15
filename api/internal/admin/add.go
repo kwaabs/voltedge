@@ -205,11 +205,18 @@ func addDomainValue(ctx context.Context, db *bun.DB, domainCode string, req doma
 		}
 
 		dv := &metadata.DomainValue{DomainID: d.ID, Code: req.Code, Label: req.Label, SortOrder: req.SortOrder}
+		if req.MaterialSpecCode != nil {
+			id, err := resolveMaterialSpecCode(ctx, tx, *req.MaterialSpecCode)
+			if err != nil {
+				return err
+			}
+			dv.MaterialSpecID = &id
+		}
 		if _, err := tx.NewInsert().Model(dv).ExcludeColumn("id").Exec(ctx); err != nil {
 			return fmt.Errorf("insert domain value: %w", err)
 		}
 
-		resp = domainValueResponse{Code: req.Code, Label: req.Label, SortOrder: req.SortOrder}
+		resp = domainValueResponse{Code: req.Code, Label: req.Label, SortOrder: req.SortOrder, MaterialSpecCode: req.MaterialSpecCode}
 		return nil
 	})
 	if err != nil {

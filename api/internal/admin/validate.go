@@ -119,8 +119,43 @@ func validateUpdateDomainValue(req updateDomainValueRequest) error {
 	if req.Label != nil && strings.TrimSpace(*req.Label) == "" {
 		return invalid("label cannot be blank")
 	}
-	if req.Label == nil && req.SortOrder == nil {
-		return invalid("request must set at least one of label, sort_order")
+	if req.Label == nil && req.SortOrder == nil && req.MaterialSpecCode == nil {
+		return invalid("request must set at least one of label, sort_order, material_spec_code")
+	}
+	return nil
+}
+
+// validateCreateMaterialSpec checks the structural rules a new material
+// spec needs -- every engineering column is optional (see
+// createMaterialSpecRequest's own doc comment), so there's nothing to
+// check about them beyond what the database's own CHECK constraints
+// (migrations/0021: each is NULL or strictly positive) already enforce,
+// which surfaces as a Postgres error rather than a friendly 400 here --
+// acceptable since a negative resistance/ampacity is a mistake, not a
+// legitimate value ever worth a clearer message for.
+func validateCreateMaterialSpec(req createMaterialSpecRequest) error {
+	if err := validateCode("material spec code", req.Code); err != nil {
+		return err
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return invalid("material spec name is required")
+	}
+	if strings.TrimSpace(req.Category) == "" {
+		return invalid("material spec category is required")
+	}
+	return nil
+}
+
+func validateUpdateMaterialSpec(req updateMaterialSpecRequest) error {
+	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
+		return invalid("name cannot be blank")
+	}
+	if req.Category != nil && strings.TrimSpace(*req.Category) == "" {
+		return invalid("category cannot be blank")
+	}
+	if req.Name == nil && req.Category == nil && req.ResistanceOhmPerKm == nil && req.ReactanceOhmPerKm == nil &&
+		req.AmpacityAmps == nil && req.DiameterMm == nil && req.WeightKgPerKm == nil {
+		return invalid("request must set at least one field")
 	}
 	return nil
 }
