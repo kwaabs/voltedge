@@ -26,9 +26,28 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-15, range domains closed -- the second half of
+**Last updated:** 2026-08-15, the Phase 5 "admin UI for DIAGRAM_TYPE
+values / is_diagram_container / creating the first diagram instance"
+row closed -- scoped down before building, the same way this log's
+other recent updates did: checking the actual code found two of the
+three already true (`is_diagram_container` editable since Phase 6
+slice 1, `DIAGRAM_TYPE` an ordinary coded domain already authorable via
+the domains admin page), leaving only "creating the first diagram
+instance" as a real gap, even though `POST /diagrams` itself had been a
+real, generic, curl-verified endpoint since Phase 5's own backend
+slice -- it just had no UI trigger. A new `useCreateDiagramInstance`
+hook plus `create-diagram-form.tsx` closes that, wired into
+`feature-panel.tsx` as a header trigger shown only when the selected
+feature is a diagram container with zero diagrams yet, taking over the
+panel's tab body the same way an attribute-edit session already does.
+Verified against a local, non-Docker Postgres 16 + PostGIS install,
+the real Go API, and a real (non-Docker) Martin binary, driven end to
+end with Playwright: searched for a real container feature by name,
+triggered "Create diagram," picked a type and name, and confirmed the
+split-view canvas opened immediately on the real new instance.
+Before that, range domains closed -- the second half of
 what was originally asked alongside subtype/domain-value editing (the
-previous update below). `migrations/0020` finally gives
+update before that). `migrations/0020` finally gives
 `metadata.domains` somewhere to store a range domain's bounds
 (`range_min`/`range_max`, both nullable, `range_min <= range_max`
 enforced by its own `CHECK`) -- `api/internal/compiler/ddl.go` had
@@ -189,7 +208,7 @@ naming, rotate, remove).
 | Diagram naming: display + rename | Done | S | `runtime.diagram_instances.name` was already in every API response but never shown; the canvas header now shows the real name (falling back to `diagram_type`) and a new `PATCH /diagrams/{id}` endpoint lets it be renamed by clicking the title. | `docs/phase-5-diagrams.md` |
 | Rotate a placement on the diagram canvas | Done | M | A drag handle appears above the app's currently-selected placement (reusing the existing global selection state); dragging computes the new angle from the pointer's position relative to the placement's center, snapped to 15-degree increments, and writes back through the existing placement upsert independently of position. | `docs/phase-5-diagrams.md` |
 | Remove a placement from the diagram canvas | Done | S | A hover-revealed "×" control on every placement calls the `DELETE /diagrams/{id}/placements/{placementID}` endpoint that has existed since the backend slice, now behind a real `AlertDialog` confirm step (`RemovePlacementDialog`, same pattern as revoking a connection or deleting a feature) -- shipped without one first, reversed after direct feedback that a hover-revealed "×" alone was too easy to hit by accident. | `docs/phase-5-diagrams.md` |
-| Admin UI for `DIAGRAM_TYPE` values / `is_diagram_container` / creating the first diagram instance | Open | M | All real metadata/data changes made by hand today (seed SQL / a migration / a direct curl call), same as every other metadata-level change in this project pre-admin-UI. Adding an *existing* feature to an *already-created* diagram is now a real UI capability -- see the "Add existing feature to a diagram" row below -- creating that first diagram instance itself is not. | `docs/phase-5-diagrams.md` |
+| Admin UI for `DIAGRAM_TYPE` values / `is_diagram_container` / creating the first diagram instance | Done | M -- turned out to be S once scoped, see detail | Rescoped before building: two of the three were already true (`is_diagram_container` via `PATCH /admin/feature-classes/{code}` and the create wizard since Phase 6 slice 1; `DIAGRAM_TYPE` is an ordinary coded domain, already authorable via `admin-domains.tsx`). The one real gap -- creating the first `diagram_instances` row for a container -- is now closed: a new `useCreateDiagramInstance` hook wraps the already-generic `POST /diagrams`, and `feature-panel.tsx` gained a "Create diagram" trigger shown only when the selected feature is a container with zero diagrams. Verified against a local, non-Docker Postgres/API/Martin stack, end to end with Playwright. | `docs/phase-5-diagrams.md` |
 | Diagram containers, data model + API | Done | L | `runtime.diagram_instances`/`diagram_placements` (a diagram belongs to one container feature, a placement puts any feature at an x/y/rotation inside it, independent of real geometry), a new `api/internal/diagram` package, gated on `metadata.feature_classes.is_diagram_container`. `SUBSTATION_YARD` is the first real container. Curl-verified end to end against a real Postgres/API stack, including both rejection gates and cascade delete. | `docs/phase-5-diagrams.md` |
 | Diagram frontend canvas | Done | M–L | A hand-rolled SVG canvas (no new dependency, reuses `symbology-icons.ts`'s `iconDataUri` directly) in a side-by-side split view next to the map, not a floating overlay or a new route. Renders placements as symbology-resolved icons plus labels, and real `feature_connectivity` edges between placements that are both on the same diagram. Triggered from `FeaturePanel` via a "View diagram" button, shown only when the selected feature's class is a diagram container with at least one diagram instance. First real consumer of `render_context = 'diagram'` symbology (falls back to `'map'` symbology when no diagram-context rule exists yet). | `docs/phase-5-diagrams.md` |
 | Add existing feature to a diagram, from the canvas | Done | S | A `+` button in the diagram panel opens a cross-class name search (the same fan-out `feature-search.tsx`'s map toolbar box uses, extracted into `use-feature-name-search.ts` so both share it) and places the picked feature via the existing `POST /diagrams/{id}/placements` endpoint -- no new backend work needed. New placements land just outside the current bounding box so repeated additions spread out instead of stacking; already-placed features are filtered out of the search results. Placing a brand-new, geometry-less feature is now a separate, also-done capability -- see the "Digitize a geometry-less feature" row below. | `docs/phase-5-diagrams.md` |

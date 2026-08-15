@@ -672,6 +672,71 @@ name, and saving both creates the feature and places it, auto-selecting
 it afterward the same way the map's own draw flow always has. `npx tsc
 --noEmit`, `npm run lint`, and `npm run build` all finish clean.
 
+## Creating the first diagram instance, added later
+
+Re-scoped down before building, the same way other slices in this
+project drew their own line first: the open-items row this closes read
+as three gaps ("author `DIAGRAM_TYPE` values," "flip
+`is_diagram_container`," "create the first diagram instance"), but
+checking the actual code found only the third was real. Both
+`is_diagram_container` (editable via `PATCH
+/admin/feature-classes/{code}`, any status, and the create wizard) and
+`DIAGRAM_TYPE` (an ordinary coded domain, fully authorable via
+`admin-domains.tsx`) were already fully done as of Phase 6 slice 1 --
+nothing diagram-specific about either. `POST /diagrams` itself was
+already a real, generic, curl-verified endpoint too (this doc's own
+"How this was validated" section, above); it just had no UI trigger
+anywhere.
+
+- **`web/src/hooks/use-diagrams.ts`** -- a new `useCreateDiagramInstance`
+  mutation wrapping `POST /diagrams`, invalidating that container's own
+  `["diagrams", featureClass, featureId]` query on success so "View
+  diagram" picks up the new instance immediately.
+- **`web/src/components/map/create-diagram-form.tsx`** (new) -- reads
+  the current `DIAGRAM_TYPE` domain's values via the existing
+  `useAdminDomains` hook (no new backend endpoint needed) for a
+  diagram-type `<select>`, plus an optional name input. If no
+  `DIAGRAM_TYPE` domain (or no values under it) exists yet, shows a
+  plain message pointing at the Domains admin page instead of a broken
+  empty select -- the same "tell the admin what to go create first"
+  pattern `resolveDomainCodes`/`resolveGroupCodes` (`api/internal/admin/create.go`)
+  already use for a request-time version of the same problem. On
+  success, opens the new diagram immediately via
+  `useDiagramStore.getState().open(created.id)` -- no extra click to go
+  find it.
+- **`web/src/components/map/feature-panel.tsx`** -- a new header
+  trigger (Workflow+Plus icon) shown only when the selected feature's
+  class `is_diagram_container` and it currently has zero diagrams
+  (`diagrams.length === 0`); the existing single-button/dropdown "View
+  diagram" triggers already covered one-or-more. Clicking it swaps the
+  panel's tab content area for `CreateDiagramForm`, the same pattern
+  `isEditingSelected` already used to swap it for `FeatureEditForm` --
+  tabs lock, the header's other buttons hide (Cancel lives inside the
+  form itself, matching the edit-form precedent), and a new
+  `creatingDiagram` boolean resets on every newly selected feature the
+  same way `activeTab`/`deleteDialogOpen` already do.
+
+No cross-class container picker was needed -- the natural entry point
+is a container feature the user already has selected, so the form
+takes its `featureClassCode`/`featureId` straight from
+`selection-store.ts`, the same values `useDiagramInstances` was
+already reading.
+
+Verified against a local, non-Docker Postgres 16 + PostGIS install (see
+`docs/phase-6-admin-metadata.md`'s equivalent note -- this session's
+sandbox couldn't reach the Docker registry): created a real
+`DIAGRAM_TYPE` domain and a fresh `is_diagram_container = true`
+feature class through the admin API, compiled it, created a real
+feature. Ran the actual Go API and a real Martin binary (also outside
+Docker) against that database, plus the Vite dev server, and drove it
+with Playwright: searched for the feature by name, selected it,
+confirmed the new "Create diagram" trigger appeared (and only for a
+zero-diagram container), filled the type/name form, submitted, and
+confirmed the split-view canvas opened immediately showing the new,
+empty diagram with its real name in the header -- `GET /diagrams`
+confirmed the row was written correctly. `npx tsc --noEmit`, `npm run
+lint`, and `npm run build` all finish clean.
+
 ## What's still open
 
 - **Multi-segment bus routing, not just a single-bend elbow.** Real
@@ -695,16 +760,17 @@ it afterward the same way the map's own draw flow always has. `npx tsc
   `feature_connectivity` row. A protection scheme's dashed trip lines
   with arrowheads aren't real network connectivity at all -- they're
   schematic-only annotations, which the current model has no place for.
-- **No admin UI for authoring `DIAGRAM_TYPE` values, flipping
+- ~~No admin UI for authoring `DIAGRAM_TYPE` values, flipping
   `is_diagram_container`, or creating the first diagram instance for a
-  container.** Still real metadata/data changes made by hand today
-  (seed SQL / a migration / a direct curl call). Adding an *existing*
-  feature to an *already-created* diagram, and digitizing a brand-new
-  `geometry_type = 'none'` feature straight onto one, are both now real
-  UI capabilities (see "Adding existing features from the canvas, added
-  later" and "Confirm dialog, PROTECTIVE_RELAY, and the digitizing
-  tool, added later" above/below); creating that first diagram instance
-  itself is not.
+  container.~~ **Closed.** Turned out two of the three were already
+  true by the time anyone checked: `is_diagram_container` has been
+  editable via `PATCH /admin/feature-classes/{code}` (any status) and
+  the create wizard since Phase 6 slice 1, and `DIAGRAM_TYPE` is an
+  ordinary coded domain any admin can already author via
+  `admin-domains.tsx` -- neither needed diagram-specific work. Creating
+  the first `diagram_instances` row for a container was the one
+  genuine gap; see "Creating the first diagram instance, added later"
+  below.
 
 ## Try it yourself
 

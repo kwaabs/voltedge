@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react"
 
+import { CreateDiagramForm } from "@/components/map/create-diagram-form"
 import { DeleteFeatureDialog } from "@/components/map/delete-feature-dialog"
 import { FeatureCreateForm } from "@/components/map/feature-create-form"
 import { FeatureEditForm } from "@/components/map/feature-edit-form"
@@ -408,6 +409,7 @@ export function FeaturePanel() {
   const { data: feature } = useFeature(selected?.featureClassCode, selected?.featureId)
   const [activeTab, setActiveTab] = useState<TabId>("attributes")
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [creatingDiagram, setCreatingDiagram] = useState(false)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const tracing = useTraceStore((s) => s.loading)
@@ -433,6 +435,7 @@ export function FeaturePanel() {
   useEffect(() => {
     setActiveTab("attributes")
     setDeleteDialogOpen(false)
+    setCreatingDiagram(false)
     useEditStore.getState().stop()
   }, [selected?.featureClassCode, selected?.featureId])
 
@@ -682,7 +685,7 @@ export function FeaturePanel() {
             <p className="text-muted-foreground truncate font-mono text-xs">{secondaryLabel}</p>
           </div>
         </div>
-        {isEditingSelected ? null : (
+        {isEditingSelected || creatingDiagram ? null : (
           <div className="flex shrink-0 items-center gap-1">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -731,6 +734,19 @@ export function FeaturePanel() {
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
+            {isDiagramContainer && diagrams.length === 0 && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="Create diagram"
+                onClick={() => setCreatingDiagram(true)}
+              >
+                <Workflow className="size-4" />
+                <Plus className="size-3" />
+                <span className="sr-only">Create diagram</span>
+              </Button>
+            )}
             {diagrams.length === 1 && (
               <Button
                 variant="ghost"
@@ -805,8 +821,10 @@ export function FeaturePanel() {
             // changes (see below) -- switching away mid-edit would
             // silently drop whatever's typed into the Attributes tab's
             // edit form, so those two are locked until Save or Cancel
-            // ends the edit session.
-            const locked = isEditingSelected && tab.id !== "attributes"
+            // ends the edit session. Every tab locks while
+            // creatingDiagram too -- CreateDiagramForm takes over the
+            // whole content pane below, same reasoning.
+            const locked = (isEditingSelected && tab.id !== "attributes") || creatingDiagram
             return (
               <button
                 key={tab.id}
@@ -827,9 +845,19 @@ export function FeaturePanel() {
           })}
         </div>
         <div className="flex-1 overflow-y-auto p-3">
-          {activeTab === "attributes" && <AttributesTab />}
-          {activeTab === "terminals" && <TerminalsTab />}
-          {activeTab === "relationships" && <RelationshipsTab />}
+          {creatingDiagram ? (
+            <CreateDiagramForm
+              featureClassCode={selected.featureClassCode}
+              featureId={selected.featureId}
+              onDone={() => setCreatingDiagram(false)}
+            />
+          ) : (
+            <>
+              {activeTab === "attributes" && <AttributesTab />}
+              {activeTab === "terminals" && <TerminalsTab />}
+              {activeTab === "relationships" && <RelationshipsTab />}
+            </>
+          )}
         </div>
       </div>
     </div>
