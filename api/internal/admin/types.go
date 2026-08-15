@@ -145,6 +145,21 @@ type fieldRequest struct {
 	RequiredForSubtypes  []int   `json:"required_for_subtypes"`
 }
 
+// fieldResponse mirrors fieldRequest, echoed back for addField's POST
+// .../fields body (add.go), which adds a single field to an
+// already-existing class instead.
+type fieldResponse struct {
+	Name                 string  `json:"name"`
+	DataType             string  `json:"data_type"`
+	DomainCode           *string `json:"domain_code,omitempty"`
+	GroupCode            *string `json:"group_code,omitempty"`
+	Nullable             bool    `json:"nullable"`
+	VisibleOnCreate      bool    `json:"visible_on_create"`
+	VisibleOnUpdate      bool    `json:"visible_on_update"`
+	EditableAfterPublish bool    `json:"editable_after_publish"`
+	RequiredForSubtypes  []int   `json:"required_for_subtypes,omitempty"`
+}
+
 // terminalRequest is one named connection point, only meaningful (and
 // only accepted, see validate.go) when the class's network_role is edge
 // or junction. SubtypeCode nil means it applies to every subtype.

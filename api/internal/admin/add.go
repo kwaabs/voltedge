@@ -58,6 +58,118 @@ func addSubtype(ctx context.Context, db *bun.DB, featureClassCode string, req su
 	return &resp, nil
 }
 
+// addField appends one new field to an already-existing feature class,
+// regardless of status -- purely a metadata insert, like addSubtype.
+// Unlike addSubtype, the physical column this eventually produces needs
+// no compiler change to apply: compiler.go's existing-table path
+// already walks every field in metadata looking for one missing from
+// the physical table and ALTER TABLE ADD COLUMNs it -- that path
+// predates this admin package entirely (it's what lets a hand-edited
+// migration add a field to an already-compiled class today). Recompile
+// still has to be called to actually add the column; this endpoint
+// only ever touches metadata.
+func addField(ctx context.Context, db *bun.DB, featureClassCode string, req fieldRequest) (*fieldResponse, error) {
+	if err := validateAddField(req); err != nil {
+		return nil, err
+	}
+
+	var resp fieldResponse
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		fc := new(metadata.FeatureClass)
+		if err := tx.NewSelect().Model(fc).Where("code = ?", featureClassCode).Scan(ctx); err != nil {
+			if err == sql.ErrNoRows {
+				return notFound("feature class %q does not exist", featureClassCode)
+			}
+			return fmt.Errorf("loading feature class %q: %w", featureClassCode, err)
+		}
+
+		exists, err := tx.NewSelect().Model((*metadata.Field)(nil)).
+			Where("feature_class_id = ? AND name = ?", fc.ID, req.Name).Exists(ctx)
+		if err != nil {
+			return fmt.Errorf("checking field name %q: %w", req.Name, err)
+		}
+		if exists {
+			return invalid("feature class %q already has a field named %q", featureClassCode, req.Name)
+		}
+
+		domainIDByCode, err := resolveDomainCodes(ctx, tx, []fieldRequest{req})
+		if err != nil {
+			return err
+		}
+		groupIDByCode, err := resolveGroupCodes(ctx, tx, []fieldRequest{req})
+		if err != nil {
+			return err
+		}
+
+		field := &metadata.Field{
+			FeatureClassID:       fc.ID,
+			Name:                 req.Name,
+			DataType:             req.DataType,
+			Nullable:             req.Nullable,
+			Status:               "active",
+			VisibleOnCreate:      req.VisibleOnCreate,
+			VisibleOnUpdate:      req.VisibleOnUpdate,
+			EditableAfterPublish: req.EditableAfterPublish,
+		}
+		if req.DomainCode != nil {
+			id := domainIDByCode[*req.DomainCode]
+			field.DomainID = &id
+		}
+		if req.GroupCode != nil {
+			id := groupIDByCode[*req.GroupCode]
+			field.GroupID = &id
+		}
+		if _, err := tx.NewInsert().Model(field).ExcludeColumn("id").Returning("id").Exec(ctx); err != nil {
+			return fmt.Errorf("insert field: %w", err)
+		}
+
+		if len(req.RequiredForSubtypes) > 0 {
+			subtypeIDByCode, err := resolveSubtypeCodes(ctx, tx, fc.ID, req.RequiredForSubtypes)
+			if err != nil {
+				return err
+			}
+			for _, sc := range req.RequiredForSubtypes {
+				rule := &metadata.SubtypeFieldRule{SubtypeID: subtypeIDByCode[sc], FieldID: field.ID, IsRequired: true}
+				if _, err := tx.NewInsert().Model(rule).ExcludeColumn("id").Exec(ctx); err != nil {
+					return fmt.Errorf("insert subtype_field_rule for subtype %d: %w", sc, err)
+				}
+			}
+		}
+
+		resp = fieldResponse{
+			Name: req.Name, DataType: req.DataType, DomainCode: req.DomainCode, GroupCode: req.GroupCode,
+			Nullable: req.Nullable, VisibleOnCreate: req.VisibleOnCreate, VisibleOnUpdate: req.VisibleOnUpdate,
+			EditableAfterPublish: req.EditableAfterPublish, RequiredForSubtypes: req.RequiredForSubtypes,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// resolveSubtypeCodes looks up subtype ids for a set of subtype codes
+// scoped to one feature class -- an unresolvable code is a 400 naming
+// it, same discipline resolveDomainCodes/resolveGroupCodes already
+// apply for domain_code/group_code.
+func resolveSubtypeCodes(ctx context.Context, tx bun.Tx, featureClassID string, codes []int) (map[int]string, error) {
+	var subtypes []metadata.Subtype
+	if err := tx.NewSelect().Model(&subtypes).Where("feature_class_id = ?", featureClassID).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("loading subtypes: %w", err)
+	}
+	byCode := make(map[int]string, len(subtypes))
+	for _, s := range subtypes {
+		byCode[s.Code] = s.ID
+	}
+	for _, c := range codes {
+		if _, ok := byCode[c]; !ok {
+			return nil, invalid("required_for_subtypes references subtype code %d, which doesn't exist on this feature class", c)
+		}
+	}
+	return byCode, nil
+}
+
 // addDomainValue mirrors addSubtype -- appends one new coded value to
 // an already-existing domain, regardless of whether any compiled
 // field already uses it. Same "insert now, recompile any affected

@@ -26,9 +26,33 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-15, the Phase 5 "admin UI for DIAGRAM_TYPE
+**Last updated:** 2026-08-15, a new Phase 6 row closed: adding a field
+to an already-existing feature class, plus a real "see this class's
+fields and domains together" detail page (`/admin/feature-classes/{code}`)
+-- prompted by walking through what the admin UI could and couldn't do
+yet, which surfaced this as the one concrete gap behind several "no"
+answers (can't add a field to an existing class, so nothing downstream
+of that -- attaching a domain to one, seeing it in the create/edit
+forms -- was possible either). No compiler change was needed: the
+existing-table `ADD COLUMN` path already handled a field present in
+metadata but missing physically, it just had no admin endpoint to
+insert that metadata row in the first place. Verification caught a
+real, previously-latent bug: naming a new field the same as one of the
+compiler's own system columns (`status`, `geom`, `id`, ...) silently
+rode on the real column instead of erroring, and on recompile
+`syncCheckConstraints` would overwrite that column's actual
+constraint with the new field's domain -- e.g. a field literally named
+`status` would replace the real `draft`/`published` CHECK with an
+arbitrary domain-value one. Fixed with an explicit reserved-name
+rejection in both the new endpoint and the original create-feature-
+class path, re-verified clean afterward. Backend curl-verified end to
+end (happy path, reserved-name rejection, duplicate-name rejection,
+bad `required_for_subtypes` rejection, pre/post-recompile drift) and a
+full Playwright pass on the new detail page and add-field form against
+a local, non-Docker Postgres/API stack.
+The Phase 5 "admin UI for DIAGRAM_TYPE
 values / is_diagram_container / creating the first diagram instance"
-row closed -- scoped down before building, the same way this log's
+row closed before that -- scoped down before building, the same way this log's
 other recent updates did: checking the actual code found two of the
 three already true (`is_diagram_container` editable since Phase 6
 slice 1, `DIAGRAM_TYPE` an ordinary coded domain already authorable via
@@ -225,6 +249,7 @@ naming, rotate, remove).
 | Item | Status | Size | Value | Detail |
 |---|---|---|---|---|
 | Add a subtype / domain value to an already-compiled class | Done | M | `syncCheckConstraints` (`api/internal/compiler/ddl.go`) now rebuilds the subtype/coded-domain `CHECK` constraint on every recompile of an existing table, via `information_schema`-driven `DROP CONSTRAINT`/`ADD CONSTRAINT` -- safe because every operation the new `POST /admin/feature-classes/{code}/subtypes` and `POST /admin/domains/{code}/values` endpoints can produce is strictly widening, which Postgres's default `ADD CONSTRAINT` validation always accepts against existing rows. Editing or removing an existing subtype/value is still not exposed anywhere -- only adding. Backend curl-verified; frontend typechecked/linted but not yet browser-verified (see the doc). | `docs/phase-6-admin-metadata.md` |
+| Add a field to an already-existing class, and a way to see a class's own fields/domains together | Done | S | Neither needed compiler changes -- the existing-table `ADD COLUMN` path already picked up any field present in metadata but missing from the physical table (true since before `api/internal/admin` existed), just never reachable through the API. New `POST /admin/feature-classes/{code}/fields`, and a new `/admin/feature-classes/{code}` detail page (reusing the same `GET .../schema` response the map's own forms already read) showing every field's data type, resolved domain (values or range), visibility flags, and required-for-subtype rules in one place -- the admin list page had only ever shown a field *count*. Caught a real pre-existing landmine while verifying: naming a new field the same as a compiler system column (`status`, `geom`, ...) silently rode on the real column and let `syncCheckConstraints` overwrite its actual constraint -- fixed with an explicit reserved-name check in both this new endpoint and the original create-feature-class path. | `docs/phase-6-admin-metadata.md` |
 | Column type change / rename / delete on an existing field | Open | M–L | The compiler's existing-table path has never supported this, on any class, at any point in this project -- a real design question (data migration on retype, dependent view/constraint handling), not a quick add. | `docs/phase-6-admin-metadata.md` |
 | Range domains in the admin UI | Done | M -- corrected from an original S, see detail | Closed with the real schema change the original sizing missed: `migrations/0020` adds `range_min`/`range_max` to `metadata.domains`; `compiler/ddl.go` emits a `CHECK (field BETWEEN min AND max)` for any field linked to a range domain (both on initial `CREATE TABLE` and a later `ADD COLUMN`); `crud/validate.go` gained the Go-side range check mirroring the existing coded-domain one; `POST /admin/domains` accepts `range_min`/`range_max` when `domain_type = range`; the domains admin page gained a Coded values/Numeric range toggle. Verified against a local (non-Docker) Postgres, backend curl end to end and frontend Playwright end to end. | `docs/phase-6-admin-metadata.md`, `api/internal/compiler/ddl.go` |
 | Edit a feature class's own basic info after creation | Done | S | `PATCH /admin/feature-classes/{code}` -- `name`/`is_diagram_container` are always editable (pure metadata); `geometry_type`/`srid`/`network_role` only while the class is still draft, since those three are exactly what the compiler builds the physical table's shape from. Inline edit form on the admin feature-classes page, shown only for a draft row. | `docs/phase-6-admin-metadata.md` |

@@ -7,6 +7,10 @@
 > **Update:** range domains — flagged throughout this doc as unmodeled
 > ("range bounds aren't stored anywhere yet") — are now real too. See
 > "Range domains" at the very end.
+> **Update:** adding a field to an already-existing class, and a real
+> page showing a class's fields and domains together, are both real
+> now too — see "Adding a field to an existing class, and a real
+> detail view" at the very end.
 
 **Goal:** a real, in-app way to author `metadata.*` — feature classes,
 subtypes, fields, terminals, domains, field groups, default symbology —
@@ -21,7 +25,9 @@ built, typechecked, linted, and built clean; browser-verified.
 Adding a subtype/domain value to an already-compiled class (see
 "Editing an already-compiled class's subtypes and domain values"
 below) is backend curl-verified; its frontend is typechecked/linted
-clean but not yet browser-verified.
+clean but not yet browser-verified. Range domains and adding a field
+to an existing class (plus its new detail page) are both fully
+curl- and Playwright-verified end to end.
 
 ## Why this is its own slice, not folded into auth/authz
 
@@ -186,7 +192,10 @@ POST /admin/field-groups                   create a field group
   there.
 - **Column type change, rename, or delete on an existing field.**
   Same reasoning — the compiler's existing-table path has never
-  supported this, on any class, at any point in this project.
+  supported this, on any class, at any point in this project. *Adding*
+  a new field to an existing class is a different, now-closed
+  question — see "Adding a field to an existing class, and a real
+  detail view" at the end.
 - ~~Range domains~~ **Closed** — see "Range domains" at the end of this
   doc.
 - **User accounts, authentication, authorization** — see "Why this is
@@ -559,6 +568,130 @@ domains/classes created during verification (`LOAD_PCT`,
 `TEMP_RANGE_UI`/`TEMP_RANGE_FC`) were deleted afterward, including
 dropping their `gis.*` tables.
 
+## Adding a field to an existing class, and a real detail view
+
+Prompted by a direct walkthrough of what the admin UI could and
+couldn't actually do yet: "click on a feature class, know its fields,
+know the domains" and "modify the class — add fields, attach a
+domain" both turned out to trace back to the same single gap.
+`is_diagram_container` and domain authoring were already fully real
+(see this doc's other "added later" sections); the admin list page
+only ever showed a field *count*, never the fields themselves, and
+there was no endpoint to add a field to a class that already existed
+— only at brand-new-class creation time. Checking the compiler first,
+the same way every slice in this doc has: `compiler.go`'s
+existing-table `ADD COLUMN` loop already walks every field in metadata
+looking for one missing from the physical table — that's been true
+since before `api/internal/admin` existed at all (it's what let a
+hand-written migration add a field to an already-compiled class). No
+compiler change was needed here, only the admin endpoint to actually
+insert that field row into metadata in the first place.
+
+### Backend
+
+- **`api/internal/admin/add.go`** — `addField` (`POST
+  /admin/feature-classes/{code}/fields`) mirrors `addSubtype`: a
+  transaction that loads the class, rejects a duplicate field name,
+  resolves `domain_code`/`group_code` by reusing `resolveDomainCodes`/
+  `resolveGroupCodes` (already built for `createFeatureClass`, called
+  here with a one-element slice), inserts the field, and inserts a
+  `subtype_field_rules` row per code in `required_for_subtypes` via a
+  new `resolveSubtypeCodes` helper (a code that doesn't exist on this
+  class is a 400 naming it, same discipline as everywhere else in this
+  package). Reuses `fieldRequest`/adds `fieldResponse` — no new request
+  type needed, the create-wizard's own per-field shape was already
+  exactly right.
+
+### A real bug, caught by verifying rather than assuming
+
+Curl-testing the happy path first (add a field named `status` — a
+plausible-looking real attribute name) surfaced a genuine, previously-
+latent landmine: `compiler.go`'s `ADD COLUMN` loop skips a field name
+that's already a physical column (`existingCols[f.Name]`), which is
+correct for its actual purpose (don't re-add a column that's already
+there) but says nothing about *why* the name was already taken. Every
+compiled table already has system columns — `id`, `name`, `subtype`,
+`status`, `deleted_at`, `geom`, `created_at`, `updated_at`
+(`compiler/ddl.go`'s `buildCreateTable`). A field named `status`
+would silently ride on the real system status column: `recompile`
+would report nothing added (correct — the column exists), but
+`syncCheckConstraints` would then treat the new metadata field as an
+ordinary domain-linked one and overwrite the column's real
+`CHECK (status IN ('draft', 'published'))` with whatever domain the
+new field happened to reference — confirmed directly:
+`test_addfield_status_check CHECK (status = 'OK'::text)` replaced the
+real constraint after one add-then-recompile cycle. Worse, the CRUD
+engine would from then on treat `status` as an ordinary writable
+attribute, letting a client set the publish-state column directly
+through the public attributes API.
+
+Fixed with `reservedFieldNames` (`api/internal/admin/validate.go`) — a
+static list of the compiler's own system-column names, checked in
+`validateAddField` and (for the same latent risk on a brand-new class
+missing subtypes/geometry, where Postgres's own duplicate-column
+rejection at `CREATE TABLE` wouldn't catch it) in
+`validateCreateFeatureClass`'s own per-field loop. Re-verified after
+the fix: `status`/`geom`/`id` all correctly rejected with a clear 400,
+and the full happy path re-run confirmed the real system `status`
+`CHECK` survives an add-then-recompile cycle untouched.
+
+### Frontend
+
+- **`web/src/routes/admin-feature-class-detail.tsx`** (new) — a
+  `/admin/feature-classes/{code}` page reusing the existing
+  `useFeatureClassSchema` hook (the same `GET .../schema` response the
+  map's own create/edit forms already read — no new backend read
+  endpoint needed) to show every field's name, data type, resolved
+  domain (a coded domain's values or a range domain's bounds, same
+  `DomainCell` rendering `admin-domains.tsx` already established),
+  nullability, create/update visibility, and required-for-subtype
+  rules, in a real table. Subtypes and terminals are shown too.
+  `AddSubtypeRow` moved here from the list page (a per-class action
+  belongs on the one-class-at-a-time detail view, not a row action on
+  a many-classes-at-once table); a new `AddFieldRow` follows the exact
+  same insert-now/recompile-to-apply pattern.
+- **`web/src/routes/admin-feature-classes.tsx`** — the list page's
+  `ListPlus` "Add subtype" row action is gone (moved to the detail
+  page); each row now has an `Eye` "View" button linking to its detail
+  page instead.
+- **`web/src/app.tsx`** — one new route,
+  `admin/feature-classes/:code` — the first dynamic route in this
+  app's router.
+
+### How this was validated
+
+Backend, against the local, non-Docker Postgres 16 + PostGIS install
+this session's sandbox already had running (same Docker-registry
+network-policy block as the two previous "added later" sections in
+this doc):
+
+1. `go build ./... && go vet ./... && gofmt -l .` clean.
+2. Added a plain field and a domain-linked field with
+   `required_for_subtypes` to an already-compiled class; confirmed
+   both appear in the schema response immediately, and that using the
+   new domain-linked field to create a feature *before* recompiling
+   correctly 500s (`column "device_status" ... does not exist` — the
+   same drift window every other add-then-recompile flow in this doc
+   already has), then succeeds after recompiling, with the domain's
+   own `CHECK` correctly enforced.
+3. Confirmed a duplicate field name, an unresolvable
+   `required_for_subtypes` code, and a malformed (non-lower_snake_case)
+   name all reject with a clean 400 naming the actual problem.
+4. The reserved-name bug above: found, fixed, and re-verified as
+   described.
+
+Frontend: `npx tsc --noEmit`, `npm run lint` (oxlint), and `npm run
+build` all clean. Browser-verified with Playwright against the same
+local stack (API + a real, non-Docker Martin binary + `npm run dev`):
+searched for and opened a real class's detail page, confirmed its
+field table showed the correct resolved domain values; opened "Add
+field," filled in a plain numeric field, submitted, watched it appear
+in the table immediately; clicked Recompile and confirmed via `psql`
+that the column was added physically with no change to the class's
+other real constraints; separately confirmed "Add subtype" still works
+correctly from its new home on the detail page. Zero browser console
+errors throughout.
+
 ## Try it yourself
 
 Against a running API (`DATABASE_URL=... go run ./cmd/server`) and,
@@ -601,6 +734,15 @@ curl -X POST http://localhost:3704/admin/feature-classes/STREET_LIGHT/compile
 curl -X POST http://localhost:3704/admin/domains \
   -H "Content-Type: application/json" \
   -d '{"code": "LOAD_PCT", "name": "Load percentage", "domain_type": "range", "range_min": 0, "range_max": 100}'
+
+# Add a field to an already-compiled class, then recompile to actually add the column
+curl -X POST http://localhost:3704/admin/feature-classes/STREET_LIGHT/fields \
+  -H "Content-Type: application/json" \
+  -d '{"name": "wattage", "data_type": "numeric", "nullable": true, "visible_on_create": true, "visible_on_update": true}'
+curl -X POST http://localhost:3704/admin/feature-classes/STREET_LIGHT/compile
+
+# See a class's full fields/subtypes/domains together
+curl http://localhost:3704/feature-classes/STREET_LIGHT/schema
 ```
 
 Then in the browser: open the sidebar's "Admin" group, visit "Domains"
