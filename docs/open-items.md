@@ -26,7 +26,30 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-15, a new Phase 6 row closed: adding a field
+**Last updated:** 2026-08-15, a new Phase 6 row closed: editing an
+existing field's domain, group, `nullable`, and visibility settings in
+place, via `PATCH /admin/feature-classes/{code}/fields/{name}` --
+requested right alongside two other admin gaps in the same walkthrough
+(editing domain values, and seeing what network/relationship/snapping
+rules apply to a selected feature), scoped into three separate slices
+rather than one. This one landed first because it was the smallest and
+the safest: every setting the endpoint touches is one the rest of the
+system already reads live from `metadata.fields` on every request (the
+CRUD engine for `nullable`/visibility, a following recompile for
+domain/group), never something baked into the physical column at
+`ADD COLUMN` time -- so editing it in place needed no compiler change
+and no recompile to take effect. `domain_code`/`group_code` use an
+explicit empty-string sentinel to mean "clear the assignment," since
+JSON's null-vs-omitted can't otherwise distinguish "clear" from "leave
+alone" through a plain nullable string. Name and data type are still
+untouchable -- that's its own, harder, still-open row (the compiler has
+never had a rename/retype path for any class). Backend curl-verified
+end to end against a real Postgres; frontend Playwright-verified: the
+new pencil-icon edit affordance on the feature-class detail page opens
+a pre-filled form, and toggling `visible_on_update` off then back on
+round-trips correctly through the table.
+
+Before that, adding a field
 to an already-existing feature class, plus a real "see this class's
 fields and domains together" detail page (`/admin/feature-classes/{code}`)
 -- prompted by walking through what the admin UI could and couldn't do
@@ -250,7 +273,8 @@ naming, rotate, remove).
 |---|---|---|---|---|
 | Add a subtype / domain value to an already-compiled class | Done | M | `syncCheckConstraints` (`api/internal/compiler/ddl.go`) now rebuilds the subtype/coded-domain `CHECK` constraint on every recompile of an existing table, via `information_schema`-driven `DROP CONSTRAINT`/`ADD CONSTRAINT` -- safe because every operation the new `POST /admin/feature-classes/{code}/subtypes` and `POST /admin/domains/{code}/values` endpoints can produce is strictly widening, which Postgres's default `ADD CONSTRAINT` validation always accepts against existing rows. Editing or removing an existing subtype/value is still not exposed anywhere -- only adding. Backend curl-verified; frontend typechecked/linted but not yet browser-verified (see the doc). | `docs/phase-6-admin-metadata.md` |
 | Add a field to an already-existing class, and a way to see a class's own fields/domains together | Done | S | Neither needed compiler changes -- the existing-table `ADD COLUMN` path already picked up any field present in metadata but missing from the physical table (true since before `api/internal/admin` existed), just never reachable through the API. New `POST /admin/feature-classes/{code}/fields`, and a new `/admin/feature-classes/{code}` detail page (reusing the same `GET .../schema` response the map's own forms already read) showing every field's data type, resolved domain (values or range), visibility flags, and required-for-subtype rules in one place -- the admin list page had only ever shown a field *count*. Caught a real pre-existing landmine while verifying: naming a new field the same as a compiler system column (`status`, `geom`, ...) silently rode on the real column and let `syncCheckConstraints` overwrite its actual constraint -- fixed with an explicit reserved-name check in both this new endpoint and the original create-feature-class path. | `docs/phase-6-admin-metadata.md` |
-| Column type change / rename / delete on an existing field | Open | M–L | The compiler's existing-table path has never supported this, on any class, at any point in this project -- a real design question (data migration on retype, dependent view/constraint handling), not a quick add. | `docs/phase-6-admin-metadata.md` |
+| Edit an existing field's domain/group/nullable/visibility settings | Done | S | `PATCH /admin/feature-classes/{code}/fields/{name}` -- safe because domain/group assignment, `nullable`, and the three visibility flags are all read live from `metadata.fields` by whatever consumes them (the CRUD engine on every request, a following recompile for the domain's own `CHECK`), never baked into the physical column at `ADD COLUMN` time. Name and data type stay fixed -- the endpoint doesn't accept either, since the compiler still has no rename/retype path (next row). Edit affordance (pencil icon per row) added to the feature-class detail page. Backend curl-verified (happy path, domain clear via an explicit empty-string sentinel, bad domain code, empty-body, unknown field/class); frontend Playwright-verified. | `docs/phase-6-admin-metadata.md` |
+| Column rename / data type change on an existing field | Open | M–L | The compiler's existing-table path has never supported this, on any class, at any point in this project -- a real design question (data migration on retype, dependent view/constraint handling), not a quick add. Distinct from the row above: that one edits a field's *settings*, this one is its *identity* (name, data_type). | `docs/phase-6-admin-metadata.md` |
 | Range domains in the admin UI | Done | M -- corrected from an original S, see detail | Closed with the real schema change the original sizing missed: `migrations/0020` adds `range_min`/`range_max` to `metadata.domains`; `compiler/ddl.go` emits a `CHECK (field BETWEEN min AND max)` for any field linked to a range domain (both on initial `CREATE TABLE` and a later `ADD COLUMN`); `crud/validate.go` gained the Go-side range check mirroring the existing coded-domain one; `POST /admin/domains` accepts `range_min`/`range_max` when `domain_type = range`; the domains admin page gained a Coded values/Numeric range toggle. Verified against a local (non-Docker) Postgres, backend curl end to end and frontend Playwright end to end. | `docs/phase-6-admin-metadata.md`, `api/internal/compiler/ddl.go` |
 | Edit a feature class's own basic info after creation | Done | S | `PATCH /admin/feature-classes/{code}` -- `name`/`is_diagram_container` are always editable (pure metadata); `geometry_type`/`srid`/`network_role` only while the class is still draft, since those three are exactly what the compiler builds the physical table's shape from. Inline edit form on the admin feature-classes page, shown only for a draft row. | `docs/phase-6-admin-metadata.md` |
 | Delete a feature class / domain / field group from the admin UI | Done | S–M | Scoped to what's provably safe: a feature class only while still draft (cascade-deletes its subtypes/fields/terminals/symbology_rules, all already `ON DELETE CASCADE`); a domain or field group only while no field currently references it (a friendly pre-check, not a raw foreign-key-violation 500). Deleting an already-compiled class, or a referenced domain/field group, both stay exactly as unresolved as the row originally flagged -- this didn't answer that question, just carved out the subset that never runs into it. | `docs/phase-6-admin-metadata.md` |

@@ -160,6 +160,26 @@ type fieldResponse struct {
 	RequiredForSubtypes  []int   `json:"required_for_subtypes,omitempty"`
 }
 
+// updateFieldRequest is PATCH /admin/feature-classes/{code}/fields/{name}'s
+// body -- every field optional, only what's present gets changed. Name and
+// data_type are deliberately absent: the compiler has no rename/retype
+// path (see handler.go's package doc), so those stay fixed for a field's
+// whole life. DomainCode/GroupCode use the same *string a bit differently
+// than fieldRequest's own: nil means "leave alone", a pointer to "" means
+// "clear the assignment back to none", and a pointer to any other string
+// resolves against an existing domain/group the same way addField already
+// does -- JSON's null-vs-omitted can't tell "clear" from "don't touch"
+// through a plain *string alone, and no domain/group code is ever
+// legitimately blank, so "" is a safe sentinel for the missing state.
+type updateFieldRequest struct {
+	DomainCode           *string `json:"domain_code"`
+	GroupCode            *string `json:"group_code"`
+	Nullable             *bool   `json:"nullable"`
+	VisibleOnCreate      *bool   `json:"visible_on_create"`
+	VisibleOnUpdate      *bool   `json:"visible_on_update"`
+	EditableAfterPublish *bool   `json:"editable_after_publish"`
+}
+
 // terminalRequest is one named connection point, only meaningful (and
 // only accepted, see validate.go) when the class's network_role is edge
 // or junction. SubtypeCode nil means it applies to every subtype.

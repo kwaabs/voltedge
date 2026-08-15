@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, ListPlus, Loader2, Plus, X } from "lucide-react"
+import { ArrowLeft, ListPlus, Loader2, Pencil, Plus, X } from "lucide-react"
 import { Link, useParams } from "react-router"
 
 import { inputClass } from "@/components/map/field-utils"
@@ -285,6 +285,110 @@ function AddFieldRow({
 }
 
 /**
+ * Edit an existing field's domain, nullable, and form-visibility flags --
+ * api/internal/admin's PATCH .../fields/{name} (update.go). Name and
+ * data_type aren't editable here because the endpoint itself doesn't
+ * accept them (the compiler has no rename/retype path). group_code is
+ * also left out of this form: the Fields table has never displayed which
+ * group a field belongs to, so there's no current value to show as a
+ * starting point -- editing it would mean guessing at a value the admin
+ * can't see is being replaced. domain_code sends the empty string to
+ * mean "clear the assignment", matching updateFieldRequest's own
+ * sentinel convention (see its doc comment in api/internal/admin/types.go).
+ */
+function EditFieldRow({ code, field, onDone }: { code: string; field: FieldSchema; onDone: () => void }) {
+  const { data: domainsData } = useAdminDomains()
+  const [domainCode, setDomainCode] = useState(field.domain_code ?? "")
+  const [nullable, setNullable] = useState(field.nullable)
+  const [visibleOnCreate, setVisibleOnCreate] = useState(field.visible_on_create)
+  const [visibleOnUpdate, setVisibleOnUpdate] = useState(field.visible_on_update)
+  const [editableAfterPublish, setEditableAfterPublish] = useState(field.editable_after_publish)
+  const [saving, setSaving] = useState(false)
+  const queryClient = useQueryClient()
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      await apiFetch(`/admin/feature-classes/${code}/fields/${field.name}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          domain_code: domainCode,
+          nullable,
+          visible_on_create: visibleOnCreate,
+          visible_on_update: visibleOnUpdate,
+          editable_after_publish: editableAfterPublish,
+        }),
+      })
+      queryClient.invalidateQueries({ queryKey: ["feature-class-schema", code] })
+      onDone()
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not update this field.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between py-3">
+        <CardTitle className="text-sm">
+          Edit field <span className="font-mono">{field.name}</span>
+        </CardTitle>
+        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
+          <X className="size-4" />
+        </Button>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Domain</label>
+          <select className={inputClass} value={domainCode} onChange={(e) => setDomainCode(e.target.value)}>
+            <option value="">none</option>
+            {domainsData?.domains.map((d) => (
+              <option key={d.code} value={d.code}>
+                {d.name} ({d.code})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={nullable} onChange={(e) => setNullable(e.target.checked)} />
+            Nullable
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={visibleOnCreate} onChange={(e) => setVisibleOnCreate(e.target.checked)} />
+            Visible on create
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={visibleOnUpdate} onChange={(e) => setVisibleOnUpdate(e.target.checked)} />
+            Visible on update
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={editableAfterPublish}
+              onChange={(e) => setEditableAfterPublish(e.target.checked)}
+            />
+            Editable after publish
+          </label>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="outline" size="sm" onClick={onDone} disabled={saving}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={saving}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            Save
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
  * A single feature class's full picture -- fields (with resolved
  * domain info), subtypes, terminals -- reusing the exact same
  * GET /feature-classes/{code}/schema response the map's own create/
@@ -301,6 +405,7 @@ export function AdminFeatureClassDetailPage() {
   const [compiling, setCompiling] = useState(false)
   const [addingSubtype, setAddingSubtype] = useState(false)
   const [addingField, setAddingField] = useState(false)
+  const [editingFieldName, setEditingFieldName] = useState<string | null>(null)
 
   const summary = classesData?.feature_classes.find((fc) => fc.code === code)
 
@@ -388,7 +493,14 @@ export function AdminFeatureClassDetailPage() {
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Fields</h2>
               {!addingField && (
-                <Button variant="ghost" size="sm" onClick={() => setAddingField(true)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setEditingFieldName(null)
+                    setAddingField(true)
+                  }}
+                >
                   <ListPlus className="size-4" />
                   Add field
                 </Button>
@@ -397,6 +509,13 @@ export function AdminFeatureClassDetailPage() {
             {addingField && (
               <AddFieldRow code={code} subtypes={schema.subtypes} onDone={() => setAddingField(false)} />
             )}
+            {editingFieldName &&
+              (() => {
+                const editingField = schema.fields.find((f) => f.name === editingFieldName)
+                return editingField ? (
+                  <EditFieldRow code={code} field={editingField} onDone={() => setEditingFieldName(null)} />
+                ) : null
+              })()}
             {schema.fields.length === 0 ? (
               <p className="text-muted-foreground text-sm">No fields.</p>
             ) : (
@@ -411,6 +530,7 @@ export function AdminFeatureClassDetailPage() {
                       <th className="px-3 py-2 font-medium">Create</th>
                       <th className="px-3 py-2 font-medium">Update</th>
                       <th className="px-3 py-2 font-medium">Required for</th>
+                      <th className="px-3 py-2 font-medium" />
                     </tr>
                   </thead>
                   <tbody>
@@ -428,6 +548,20 @@ export function AdminFeatureClassDetailPage() {
                           {f.required_for_subtypes && f.required_for_subtypes.length > 0
                             ? f.required_for_subtypes.join(", ")
                             : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            title="Edit"
+                            onClick={() => {
+                              setAddingField(false)
+                              setEditingFieldName(f.name)
+                            }}
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
                         </td>
                       </tr>
                     ))}
