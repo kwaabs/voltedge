@@ -225,10 +225,17 @@ having to reread every phase doc's own "What's still open" section.
   scoped to what's provably safe rather than the full editing/deletion
   story.
   Write-up: [`docs/phase-6-admin-metadata.md`](docs/phase-6-admin-metadata.md).
-  Still ahead: editing an already-compiled class's subtypes/domain
-  values, access control, asset
-  numbering, units/locale, voltage-boundary and phase-aware tracing,
-  load testing.
+  Since then: editing/deleting an already-compiled class's subtypes/
+  domain values, range domains, adding and editing a field on an
+  existing class, editing a domain's own values/bounds, and a
+  "Rules" tab on the feature panel surfacing every network/
+  relationship/snapping rule for a selected feature's class (read-only
+  -- write access to those three tables is still hand-authored SQL).
+  Write-up for the last one:
+  [`docs/phase-6-rules-visibility.md`](docs/phase-6-rules-visibility.md).
+  Still ahead: renaming/retyping an existing field, access control,
+  asset numbering, units/locale, voltage-boundary and phase-aware
+  tracing, load testing.
 - **Phase 7 — Field collection**: mobile/offline data capture for field
   crews. Design deferred — noted here as a placeholder only.
 

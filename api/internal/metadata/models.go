@@ -173,6 +173,30 @@ type RelationshipClass struct {
 	Cardinality               string `bun:"cardinality"`
 }
 
+// SnappingRule mirrors metadata.snapping_rules -- see migrations/0013.
+// Purely geometric (feeds OpenLayers' own Snap interaction, see
+// snap-store.ts): proves two vertices are coincident while digitizing
+// FromFeatureClassID, nothing more -- never implies connectivity
+// (NetworkRule, above) or structural support (RelationshipClass) on its
+// own. This table has existed since Phase 1 but was never read from Go
+// until api/internal/rules -- the frontend's own snap toggle
+// (snap-store.ts/snap-toggle-button.tsx) is a client-side on/off switch,
+// not driven by this table's own per-class-pair tolerances.
+type SnappingRule struct {
+	bun.BaseModel `bun:"table:metadata.snapping_rules"`
+
+	ID                 string  `bun:"id,pk"`
+	FromFeatureClassID string  `bun:"from_feature_class_id"`
+	FromSubtypeID      *string `bun:"from_subtype_id"`
+	ToFeatureClassID   string  `bun:"to_feature_class_id"`
+	ToSubtypeID        *string `bun:"to_subtype_id"`
+	ToTerminalID       *string `bun:"to_terminal_id"`
+	TargetTypeValueID  string  `bun:"target_type_value_id"`
+	ToleranceM         float64 `bun:"tolerance_m"`
+	Priority           int     `bun:"priority"`
+	IsRequired         bool    `bun:"is_required"`
+}
+
 // TraceConfiguration mirrors metadata.trace_configurations -- see
 // migrations/0014. A named, reusable trace profile (e.g. "Downstream
 // trace"): api/internal/trace loads one by its stable Code, resolves
