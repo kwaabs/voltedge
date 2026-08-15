@@ -11,6 +11,9 @@
 > page showing a class's fields and domains together, are both real
 > now too — see "Adding a field to an existing class, and a real
 > detail view" at the very end.
+> **Update:** editing an existing field's domain/group/nullable/
+> visibility settings in place is real too now — see "Editing an
+> existing field's settings" at the very end.
 
 **Goal:** a real, in-app way to author `metadata.*` — feature classes,
 subtypes, fields, terminals, domains, field groups, default symbology —
@@ -25,9 +28,10 @@ built, typechecked, linted, and built clean; browser-verified.
 Adding a subtype/domain value to an already-compiled class (see
 "Editing an already-compiled class's subtypes and domain values"
 below) is backend curl-verified; its frontend is typechecked/linted
-clean but not yet browser-verified. Range domains and adding a field
-to an existing class (plus its new detail page) are both fully
-curl- and Playwright-verified end to end.
+clean but not yet browser-verified. Range domains, adding a field
+to an existing class (plus its new detail page), and editing an
+existing field's settings in place are all fully curl- and
+Playwright-verified end to end.
 
 ## Why this is its own slice, not folded into auth/authz
 
@@ -692,6 +696,95 @@ other real constraints; separately confirmed "Add subtype" still works
 correctly from its new home on the detail page. Zero browser console
 errors throughout.
 
+## Editing an existing field's settings
+
+The same walkthrough that surfaced add-field also asked for two more
+things in the same breath: editing a field's own settings after
+creation, and editing an existing domain's values. Scoped into
+separate slices rather than one — this section covers the first, the
+smallest and safest of the three.
+
+The question to answer first, same discipline as every other "can
+this be edited after the fact" question in this doc: does the setting
+get baked into the physical table at compile time, or read live by
+whatever actually uses it? `domain_id`/`group_id`, `nullable`,
+`visible_on_create`, `visible_on_update`, and `editable_after_publish`
+are all the second kind. The CRUD engine (`api/internal/crud/
+validate.go`) reads `Nullable` straight off `metadata.Field` on every
+write — it's never asserted as a physical `NOT NULL`, `columnDefinition`
+(`compiler/ddl.go`) only sets that once, at whichever moment the column
+is first added. A domain assignment is exactly the "insert now,
+recompile to enforce" pattern this doc has already established for
+subtypes and domain values: a following recompile rebuilds the field's
+own `CHECK` from `syncCheckConstraints`, same as it always has. None of
+the five settings this endpoint touches needed a compiler change —
+editing them is real and safe the moment the metadata row changes.
+
+Name and data type are the other kind entirely — physically fixed at
+`ADD COLUMN` time with no revisit path anywhere in the compiler — so
+`updateFieldRequest` doesn't accept either. That's still the fully
+open "Column rename / data type change" row, unchanged by this slice.
+
+One real, if minor, asymmetry worth naming: flipping `nullable` from
+`false` to `true` doesn't retroactively loosen an already-compiled
+column's own `NOT NULL` (nothing in the compiler revisits that either).
+If someone then actually writes a null against such a field, the Go
+layer now permits it through `validateValue`, so the write reaches
+Postgres and gets rejected there — a raw constraint-violation 500
+instead of a clean 400. Not silent data loss, just a rougher failure
+mode than usual, and not fixable without giving the compiler an `ALTER
+COLUMN DROP NOT NULL` path, which is out of scope here.
+
+### Backend
+
+- **`api/internal/admin/update.go`** — `updateField` (`PATCH
+  /admin/feature-classes/{code}/fields/{name}`) loads the field,
+  applies whichever of the six `updateFieldRequest` fields are
+  present, and does a targeted `UPDATE ... Column(cols...)` naming
+  only the columns that actually changed. `domain_code`/`group_code`
+  use an explicit empty-string sentinel to mean "clear the assignment
+  back to none" — a plain `*string` can't otherwise distinguish
+  "clear it" from "leave it alone" through JSON's null-vs-omitted, and
+  no real domain/group code is ever legitimately blank. An
+  unresolvable `domain_code`/`group_code` is a 400 naming it, same
+  discipline as `addField`'s own resolution. An empty request body (no
+  field set at all) is also a 400, not a silent no-op.
+
+### Frontend
+
+- **`web/src/routes/admin-feature-class-detail.tsx`** — a new
+  `EditFieldRow` component, structurally the sibling of `AddFieldRow`
+  but pre-filled from the field's current schema values instead of
+  starting blank, and `PATCH`ing instead of `POST`ing. A pencil-icon
+  button in a new column on the Fields table opens it for that row.
+  `group_code` is deliberately left out of this form even though the
+  backend accepts it — the Fields table has never shown which group a
+  field belongs to, so there's no current value to display as a
+  starting point, and editing a setting the admin can't see the
+  before-state of would just be guessing.
+
+### How this was validated
+
+Backend, against a local, non-Docker Postgres/API stack (same setup as
+every other section in this doc): built a real field's before/after
+state through `GET .../schema` around each `PATCH`; flipped
+`nullable`/`editable_after_publish`, confirmed both landed; cleared a
+field's domain via the `""` sentinel and confirmed `domain_code`
+disappeared from the schema response entirely, then re-set it back;
+confirmed an unresolvable `domain_code` 400s naming it; confirmed an
+empty request body 400s instead of silently succeeding; confirmed an
+unknown field name and an unknown feature class code both 404 with the
+right message.
+
+Frontend: `npx tsc --noEmit` and `npm run lint` (oxlint) both clean.
+Playwright-verified against the same stack: opened a real class's
+detail page, clicked the new pencil icon on a domain-linked field,
+confirmed the form opened pre-filled with its actual current settings,
+unchecked "Visible on update," saved, confirmed the table's Update
+column flipped to "no" immediately with no page reload, then repeated
+the same round-trip to flip it back and confirmed the table reflected
+that too. Zero browser console errors throughout.
+
 ## Try it yourself
 
 Against a running API (`DATABASE_URL=... go run ./cmd/server`) and,
@@ -743,6 +836,12 @@ curl -X POST http://localhost:3704/admin/feature-classes/STREET_LIGHT/compile
 
 # See a class's full fields/subtypes/domains together
 curl http://localhost:3704/feature-classes/STREET_LIGHT/schema
+
+# Edit an existing field's settings -- domain/group/nullable/visibility,
+# never name or data_type. "" clears a domain/group assignment.
+curl -X PATCH http://localhost:3704/admin/feature-classes/STREET_LIGHT/fields/wattage \
+  -H "Content-Type: application/json" \
+  -d '{"nullable": false, "editable_after_publish": true}'
 ```
 
 Then in the browser: open the sidebar's "Admin" group, visit "Domains"
