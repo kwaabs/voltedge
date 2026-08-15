@@ -247,9 +247,14 @@ having to reread every phase doc's own "What's still open" section.
   directly, so no compiler or CRUD-engine change was needed: any field
   already using a material-linked domain inherits real numbers for
   free. New Materials admin page, plus a material-spec picker on the
-  Domains page's own value editor. This is the dependency the next
-  slice (voltage drop and loading/capacity checks along a traced path)
-  needs before it can compute anything — not started yet.
+  Domains page's own value editor. The map's own feature panel gained a
+  matching read-only Materials tab (replacing the old Rules tab)
+  showing a selected feature's resolved engineering numbers, with an
+  "Edit in Attributes" jump — a feature's material is already just an
+  ordinary attribute, not a separate thing to author. This is the
+  dependency the next slice (voltage drop and loading/capacity checks
+  along a traced path) needs before it can compute anything — not
+  started yet.
   Write-up: [`docs/phase-8-materials.md`](docs/phase-8-materials.md).
 
 Auth and permissions are deliberately not modeled yet; several tables

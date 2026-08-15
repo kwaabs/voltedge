@@ -14,7 +14,11 @@ in both the create-with-inline-values and add-value-later paths, the
 delete-guard while referenced, and the narrowing-fails-loudly precedent
 this project already established elsewhere doesn't even apply here --
 see "Design" below). Frontend Playwright-verified: a new Materials admin
-page, and a material-spec picker on the Domains page's own value editor.
+page, a material-spec picker on the Domains page's own value editor,
+the wrench indicator on the feature-class detail page's Fields table,
+and (see "Follow-up" below) a read-only Materials tab on the map's own
+feature panel showing a selected feature's resolved engineering
+numbers.
 
 ## Design: material and size in one code, not two
 
@@ -179,16 +183,52 @@ one plain value, confirmed the linked one shows the wrench icon and
 tooltip and the plain one doesn't, then removed the scratch field/
 domain/spec afterward.
 
+## Follow-up: a read-only Materials tab on the map's feature panel
+
+The map's own `FeaturePanel` had a "Rules" tab (network/relationship/
+snapping rules for the selected feature's class -- see
+`docs/phase-6-rules-visibility.md`) but nowhere to see a *feature's own*
+material data. A direct request to add one ("introduce a new tab called
+materials... this is where user will add the feature's materials") led
+to a design correction worth recording: a feature's material isn't a
+separate thing to author on a new tab. It's already just the value of
+one of the feature's own domain-linked fields (e.g. `MV_CONDUCTOR`'s
+`conductor_spec`), settable through the Attributes tab's existing edit
+form exactly like `condition_rating` or any other coded field. Building
+a second add/edit workflow for the same data would duplicate that form
+for no reason. The actual gap was narrower: nowhere did a user see the
+*resolved* engineering numbers behind whichever value a field currently
+holds. So the Rules tab was removed outright (replacing, not adding
+alongside) and a **read-only** Materials tab took its place, matching
+how Rules was also read-only.
+
+This closes the "reading resolved material numbers from the
+feature-facing schema endpoint" gap flagged as out of scope in the
+original round above: `GET /feature-classes/{code}/schema`'s
+`fieldSchema` gained a `material_specs` map (keyed by domain value
+code, `omitempty` so it's absent entirely for a field with no
+material-linked values), resolved server-side by a new
+`resolveMaterialSpecs` in `api/cmd/server/main.go` -- the same handler
+`useFeatureClassSchema` (the map/admin forms' own shared hook) already
+calls, not a second admin-only round trip through `/admin/domains`.
+
+`feature-panel.tsx`'s new `MaterialsTab` filters the class's fields
+down to the ones carrying `material_specs`, and for each one shows the
+feature's current value alongside the resolved spec's name and
+whichever of resistance/reactance/ampacity/diameter/weight are set (a
+field with no material-linked domain, or a value that isn't
+material-linked, shows a plain "not set" / "no material data" message
+instead of chips). An "Edit in Attributes" button starts the existing
+`useEditStore` edit session *and* switches the panel to the Attributes
+tab in the same click, landing directly on the real field to change --
+it doesn't open a second form.
+
 ## What's still out of scope
 
-- **Reading resolved material numbers from the feature-facing schema
-  endpoint** — `GET /feature-classes/{code}/schema` still returns a
-  domain-linked field's plain codes/labels, not the attached material
-  spec's numbers. Nothing consumes those numbers yet (that's the next
-  slice's job), so this endpoint hasn't been extended to carry them.
 - **Electrical analysis itself** (voltage drop, loading/capacity
-  checks) — this slice only builds the catalog and the link; no calc
-  reads it yet.
+  checks) — this slice (and the follow-up above) only builds the
+  catalog, the link, and now visibility of the resolved numbers; no
+  calc reads them yet.
 - **Editing a domain value's material link from the Materials page
   itself** — the link is authored from the Domains page's own value
   editor only, matching where every other domain-value property is
