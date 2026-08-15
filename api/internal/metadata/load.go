@@ -102,6 +102,34 @@ func LoadNetworkRules(ctx context.Context, db bun.IDB, fromFeatureClassID, toFea
 	return rules, nil
 }
 
+// LoadNetworkRulesForClass returns every network rule where
+// featureClassID appears on either side -- for browsing "what can this
+// class connect to, or be connected from" as a whole (api/internal/rules),
+// unlike LoadNetworkRules's own from/to-pair-scoped query for validating
+// one specific proposed connection (api/internal/connectivity).
+func LoadNetworkRulesForClass(ctx context.Context, db bun.IDB, featureClassID string) ([]NetworkRule, error) {
+	var rules []NetworkRule
+	if err := db.NewSelect().Model(&rules).
+		Where("from_feature_class_id = ? OR to_feature_class_id = ?", featureClassID, featureClassID).
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: loading network_rules for class: %w", err)
+	}
+	return rules, nil
+}
+
+// LoadSnappingRulesForClass returns every snapping rule where
+// featureClassID appears on either side -- as the class being digitized
+// (from) or as an eligible snap target for some other class (to).
+func LoadSnappingRulesForClass(ctx context.Context, db bun.IDB, featureClassID string) ([]SnappingRule, error) {
+	var rules []SnappingRule
+	if err := db.NewSelect().Model(&rules).
+		Where("from_feature_class_id = ? OR to_feature_class_id = ?", featureClassID, featureClassID).
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: loading snapping_rules for class: %w", err)
+	}
+	return rules, nil
+}
+
 func loadDomains(ctx context.Context, db bun.IDB, fields []Field) (map[string]*Domain, map[string][]string, error) {
 	domains := map[string]*Domain{}
 	domainValues := map[string][]string{}
@@ -255,6 +283,21 @@ func LoadRelationshipClasses(ctx context.Context, db bun.IDB, originFeatureClass
 		Where("destination_feature_class_id = ?", destinationFeatureClassID).
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("metadata: loading relationship_classes: %w", err)
+	}
+	return classes, nil
+}
+
+// LoadRelationshipClassesForClass returns every relationship class where
+// featureClassID appears on either side -- for browsing "what can this
+// class relate to" as a whole (api/internal/rules), unlike
+// LoadRelationshipClasses's own origin/destination-pair-scoped query for
+// validating one specific proposed relationship (api/internal/relationship).
+func LoadRelationshipClassesForClass(ctx context.Context, db bun.IDB, featureClassID string) ([]RelationshipClass, error) {
+	var classes []RelationshipClass
+	if err := db.NewSelect().Model(&classes).
+		Where("origin_feature_class_id = ? OR destination_feature_class_id = ?", featureClassID, featureClassID).
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: loading relationship_classes for class: %w", err)
 	}
 	return classes, nil
 }

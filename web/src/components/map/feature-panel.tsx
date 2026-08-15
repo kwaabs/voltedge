@@ -4,6 +4,7 @@ import {
   GripHorizontal,
   Info,
   Link2,
+  ListChecks,
   Loader2,
   Pencil,
   Plug,
@@ -33,6 +34,7 @@ import {
 import { type Connection, useConnections } from "@/hooks/use-connections"
 import { useDiagramInstances } from "@/hooks/use-diagrams"
 import { useFeature } from "@/hooks/use-feature"
+import { useFeatureClassRules } from "@/hooks/use-feature-class-rules"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useRelationships } from "@/hooks/use-relationships"
 import { useTraceConfigurations } from "@/hooks/use-trace-configurations"
@@ -47,12 +49,13 @@ import { useSelectionStore } from "@/stores/selection-store"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
 import { type TraceFeatureRef, type TraceResult, useTraceStore } from "@/stores/trace-store"
 
-type TabId = "attributes" | "terminals" | "relationships"
+type TabId = "attributes" | "terminals" | "relationships" | "rules"
 
 const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
   { id: "attributes", label: "Attributes", icon: Info },
   { id: "terminals", label: "Terminals", icon: Plug },
   { id: "relationships", label: "Relationships", icon: Link2 },
+  { id: "rules", label: "Rules", icon: ListChecks },
 ]
 
 function shortId(id: string): string {
@@ -371,6 +374,111 @@ function RelationshipsTab() {
           )
         })}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Class-scoped, not instance-scoped, unlike TerminalsTab/RelationshipsTab
+ * above -- every feature of the same class has the same answer to "what
+ * rules apply," so this reads from useFeatureClassRules keyed on
+ * featureClassCode rather than a per-feature endpoint. Answers what
+ * Terminals/Relationships never could on their own: those two only ever
+ * show what's actually been established for *this* feature; this shows
+ * what's *allowed* for the whole class -- network rules
+ * (api/internal/connectivity), relationship rules
+ * (api/internal/relationship), and snapping rules (never surfaced
+ * anywhere before api/internal/rules).
+ */
+function RulesTab() {
+  const selected = useSelectionStore((s) => s.selected)
+  const { data, isPending, isError, error } = useFeatureClassRules(selected?.featureClassCode)
+  useErrorToast(isError, error, "Could not load rules")
+
+  if (isPending) {
+    return (
+      <div className="text-muted-foreground flex items-center gap-2 text-sm">
+        <Loader2 className="size-4 animate-spin" />
+        Loading rules...
+      </div>
+    )
+  }
+  if (isError || !data) return null
+
+  const hasNothing =
+    data.network_rules.length === 0 && data.relationship_rules.length === 0 && data.snapping_rules.length === 0
+  if (hasNothing) {
+    return <p className="text-muted-foreground text-sm">No rules configured for this feature class.</p>
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {data.network_rules.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-muted-foreground text-xs font-semibold uppercase">Network rules</h3>
+          {data.network_rules.map((r, i) => (
+            <div key={i} className="rounded-md border p-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">
+                  {r.from_class}
+                  {r.from_terminal && ` (${r.from_terminal})`} → {r.to_class}
+                  {r.to_terminal && ` (${r.to_terminal})`}
+                </span>
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  {r.direction === "outgoing" ? "Outgoing" : "Incoming"}
+                </span>
+              </div>
+              <p className="text-muted-foreground mt-1 text-xs">{r.name}</p>
+              {r.phase_rule && <p className="text-muted-foreground text-xs">Phase: {r.phase_rule}</p>}
+              {!r.is_valid && <p className="text-destructive text-xs">Disabled (is_valid = false)</p>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {data.relationship_rules.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-muted-foreground text-xs font-semibold uppercase">Relationship rules</h3>
+          {data.relationship_rules.map((r, i) => (
+            <div key={i} className="rounded-md border p-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">
+                  {r.origin_class} → {r.destination_class}
+                </span>
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  {r.direction === "origin" ? "Origin" : "Destination"}
+                </span>
+              </div>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {r.kind} · {r.cardinality}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {data.snapping_rules.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-muted-foreground text-xs font-semibold uppercase">Snapping rules</h3>
+          {data.snapping_rules.map((r, i) => (
+            <div key={i} className="rounded-md border p-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">
+                  {r.from_class} → {r.to_class}
+                  {r.to_terminal && ` (${r.to_terminal})`}
+                </span>
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  {r.direction === "from" ? "As source" : "As target"}
+                </span>
+              </div>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {r.target_type} · {r.tolerance_m}m tolerance · priority {r.priority}
+                {r.is_required && " · required"}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -856,6 +964,7 @@ export function FeaturePanel() {
               {activeTab === "attributes" && <AttributesTab />}
               {activeTab === "terminals" && <TerminalsTab />}
               {activeTab === "relationships" && <RelationshipsTab />}
+              {activeTab === "rules" && <RulesTab />}
             </>
           )}
         </div>

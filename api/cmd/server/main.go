@@ -26,6 +26,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/diagram"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
+	"github.com/kwaabs/voltedge/api/internal/rules"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
@@ -54,6 +55,7 @@ func main() {
 	r.Get("/healthz", healthzHandler(db))
 	r.Get("/feature-classes", featureClassesHandler(db))
 	r.Get("/feature-classes/{code}/schema", featureClassSchemaHandler(db))
+	r.Get("/feature-classes/{code}/rules", rules.Handler(db))
 	r.Mount("/features", crud.Routes(db))
 	r.Mount("/connectivity", connectivity.Routes(db))
 	r.Mount("/relationships", relationship.Routes(db))

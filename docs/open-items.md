@@ -26,7 +26,35 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-15, a second Phase 6 row closed from the same
+**Last updated:** 2026-08-15, the third and final Phase 6 row from the
+same three-part walkthrough closed: seeing what network, relationship,
+and snapping rules apply to a selected feature, via a new "Rules" tab
+on the feature panel backed by `GET /feature-classes/{code}/rules`
+(`api/internal/rules`, a new package). Unlike the other two items from
+this walkthrough, this one isn't an admin *write* capability at all --
+it's a read-only view, and it lives outside `api/internal/admin`
+entirely. The interesting gap: `network_rules` and
+`relationship_classes` have always been loaded pair-scoped (both
+from/to sides required), right before validating one specific proposed
+write in `api/internal/connectivity`/`api/internal/relationship`; this
+needed the browsing shape instead -- every rule where a class appears
+on *either* side -- so three new class-scoped loaders were added
+alongside the existing pair-scoped ones rather than replacing them.
+`metadata.snapping_rules` was the more interesting find: it's had zero
+rows, anywhere in this project, since the table was created in Phase
+1 -- no Go model had ever been written for it, and the frontend's own
+snap toggle is a client-side switch, not driven by this table at all.
+Seeded one real row by hand (a `SNAP_TARGET_TYPE` domain plus one
+`snapping_rules` row via `psql`) to prove the read/resolve path
+actually works end to end, not just that it compiles against an empty
+table, then removed the scratch data afterward. Backend curl-verified
+against real `network_rules`/`relationship_classes` seed data (six and
+two rows respectively) from both sides of an asymmetric class pair;
+frontend Playwright-verified: searched for a real feature by name,
+opened the new Rules tab, confirmed all three sections rendered
+correctly with zero console errors.
+
+Before that, a second Phase 6 row closed from the same
 three-part walkthrough: editing and deleting an existing domain's own
 values (label/sort_order, or the value entirely), and editing a
 domain's own name/range bounds, via `PATCH /admin/domains/{code}`,
@@ -302,6 +330,7 @@ naming, rotate, remove).
 | Edit an existing field's domain/group/nullable/visibility settings | Done | S | `PATCH /admin/feature-classes/{code}/fields/{name}` -- safe because domain/group assignment, `nullable`, and the three visibility flags are all read live from `metadata.fields` by whatever consumes them (the CRUD engine on every request, a following recompile for the domain's own `CHECK`), never baked into the physical column at `ADD COLUMN` time. Name and data type stay fixed -- the endpoint doesn't accept either, since the compiler still has no rename/retype path (next row). Edit affordance (pencil icon per row) added to the feature-class detail page. Backend curl-verified (happy path, domain clear via an explicit empty-string sentinel, bad domain code, empty-body, unknown field/class); frontend Playwright-verified. | `docs/phase-6-admin-metadata.md` |
 | Column rename / data type change on an existing field | Open | M–L | The compiler's existing-table path has never supported this, on any class, at any point in this project -- a real design question (data migration on retype, dependent view/constraint handling), not a quick add. Distinct from the row above: that one edits a field's *settings*, this one is its *identity* (name, data_type). | `docs/phase-6-admin-metadata.md` |
 | Edit/delete a domain's own values, and its name/range bounds | Done | S–M | `PATCH /admin/domains/{code}` (name always; range_min/range_max on a range domain only), `PATCH /admin/domains/{code}/values/{value_code}` (label/sort_order -- always safe, a CHECK is built from codes, never labels), `DELETE /admin/domains/{code}/values/{value_code}`. Deleting a value needs no referenced-by-a-field precheck the way deleting a whole domain does: `fields.domain_id` is a foreign key to `metadata.domains` itself, not to any specific value row. Safe by the same design `compiler/ddl.go`'s `syncCheckConstraints` already documents for widening a coded domain (see the "add a subtype/domain value" row above) -- if a later recompile tries to narrow a field's CHECK past real data still using the deleted code, Postgres's own `ADD CONSTRAINT` rejects it outright rather than silently narrowing. Confirmed directly: deleted a value 3 real rows still used, recompiled, got a clean constraint-violation error naming the exact row conflict, not silent data loss. Domain admin page gained a pencil icon per domain (name/range) and per value pill (label/sort_order), plus a delete "x" per value pill reusing the existing confirm-dialog component. | `docs/phase-6-admin-metadata.md` |
+| See what network/relationship/snapping rules apply to a selected feature | Done | M | New `GET /feature-classes/{code}/rules` (`api/internal/rules`, new package) returns every rule where the class appears on either side, resolved to readable codes/names -- unlike the existing pair-scoped loaders `api/internal/connectivity`/`api/internal/relationship` already use to validate one proposed write, these are class-scoped browsing loaders (`LoadNetworkRulesForClass`/`LoadRelationshipClassesForClass`/`LoadSnappingRulesForClass`). `metadata.snapping_rules` had no Go model at all before this -- added `SnappingRule` and seeded a real row by hand to prove the read path, since the table has held zero rows anywhere in this project since Phase 1. New "Rules" tab on the feature panel, class-scoped (cached by `featureClassCode`, not per-instance like Terminals/Relationships) since every feature of a class gets the same answer, plus a matching "Rules" section on the admin feature-class detail page (same hook/endpoint, rendered as tables) -- both are equally natural homes since there's no specific feature instance involved either way. Read-only -- none of the three tables gained a write path. Backend curl-verified end to end; frontend Playwright-verified on both surfaces. | `docs/phase-6-rules-visibility.md` |
 | Range domains in the admin UI | Done | M -- corrected from an original S, see detail | Closed with the real schema change the original sizing missed: `migrations/0020` adds `range_min`/`range_max` to `metadata.domains`; `compiler/ddl.go` emits a `CHECK (field BETWEEN min AND max)` for any field linked to a range domain (both on initial `CREATE TABLE` and a later `ADD COLUMN`); `crud/validate.go` gained the Go-side range check mirroring the existing coded-domain one; `POST /admin/domains` accepts `range_min`/`range_max` when `domain_type = range`; the domains admin page gained a Coded values/Numeric range toggle. Verified against a local (non-Docker) Postgres, backend curl end to end and frontend Playwright end to end. | `docs/phase-6-admin-metadata.md`, `api/internal/compiler/ddl.go` |
 | Edit a feature class's own basic info after creation | Done | S | `PATCH /admin/feature-classes/{code}` -- `name`/`is_diagram_container` are always editable (pure metadata); `geometry_type`/`srid`/`network_role` only while the class is still draft, since those three are exactly what the compiler builds the physical table's shape from. Inline edit form on the admin feature-classes page, shown only for a draft row. | `docs/phase-6-admin-metadata.md` |
 | Delete a feature class / domain / field group from the admin UI | Done | S–M | Scoped to what's provably safe: a feature class only while still draft (cascade-deletes its subtypes/fields/terminals/symbology_rules, all already `ON DELETE CASCADE`); a domain or field group only while no field currently references it (a friendly pre-check, not a raw foreign-key-violation 500). Deleting an already-compiled class, or a referenced domain/field group, both stay exactly as unresolved as the row originally flagged -- this didn't answer that question, just carved out the subset that never runs into it. | `docs/phase-6-admin-metadata.md` |
