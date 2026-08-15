@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, ListPlus, Loader2, Pencil, Plus, X } from "lucide-react"
+import { ArrowLeft, ListPlus, Loader2, Pencil, Plus, Wrench, X } from "lucide-react"
 import { Link, useParams } from "react-router"
 
 import { inputClass } from "@/components/map/field-utils"
@@ -22,18 +22,38 @@ const DATA_TYPES = ["text", "numeric", "integer", "boolean", "date", "timestamp"
  * is -- a coded domain's own values as a pill list, a range domain's
  * bounds as a single "min – max" pill. Mirrors admin-domains.tsx's own
  * per-domain display, just inline in a table cell instead of a card.
+ *
+ * The schema endpoint's own domain_values is just bare codes (see
+ * fieldSchema/api/cmd/server/main.go) -- it's shared with every other
+ * schema consumer (create/edit forms), so it was never worth widening
+ * just for this page's own display. Cross-references useAdminDomains
+ * (already fetched elsewhere on this page, for the edit-field domain
+ * picker) instead, purely client-side, to show each value's real label
+ * and whether it's material-backed -- the same wrench indicator
+ * admin-domains.tsx's own value pills already use.
  */
 function DomainCell({ field }: { field: FieldSchema }) {
+  const { data: domainsData } = useAdminDomains()
+  const domain = domainsData?.domains.find((d) => d.code === field.domain_code)
+
   if (!field.domain_code) return <span className="text-muted-foreground">—</span>
   if (field.domain_values) {
     return (
       <div className="flex flex-wrap gap-1">
         <span className="font-mono text-xs">{field.domain_code}</span>
-        {field.domain_values.map((v) => (
-          <span key={v} className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
-            {v}
-          </span>
-        ))}
+        {field.domain_values.map((v) => {
+          const value = domain?.values?.find((dv) => dv.code === v)
+          return (
+            <span
+              key={v}
+              className="bg-muted text-muted-foreground flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs"
+              title={value?.material_spec_code ? `${v} · material spec: ${value.material_spec_code}` : v}
+            >
+              {value?.material_spec_code && <Wrench className="size-3" />}
+              {value?.label ?? v}
+            </span>
+          )
+        })}
       </div>
     )
   }
