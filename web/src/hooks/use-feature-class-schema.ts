@@ -8,6 +8,20 @@ export interface SubtypeSchema {
   name: string
 }
 
+/** A material_specs row's real engineering numbers -- see
+ * metadata.MaterialSpec's own doc comment (attaches to a domain value,
+ * not a field or feature class directly). */
+export interface MaterialSpecSummary {
+  code: string
+  name: string
+  category: string
+  resistance_ohm_per_km?: number
+  reactance_ohm_per_km?: number
+  ampacity_amps?: number
+  diameter_mm?: number
+  weight_kg_per_km?: number
+}
+
 export interface FieldSchema {
   name: string
   data_type: "text" | "numeric" | "integer" | "boolean" | "date" | "timestamp" | "uuid" | "jsonb"
@@ -20,6 +34,9 @@ export interface FieldSchema {
   range_min?: number
   range_max?: number
   required_for_subtypes?: number[]
+  /** Keyed by domain value code -- only present for the subset of
+   * domain_values that carry a material spec. */
+  material_specs?: Record<string, MaterialSpecSummary>
 }
 
 export interface TerminalSchema {

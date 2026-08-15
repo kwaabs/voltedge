@@ -26,7 +26,38 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-15, a new Phase 8 opened and its first row
+**Last updated:** 2026-08-15, a Phase 8 follow-up closed: the map's
+`FeaturePanel` had a read-only "Rules" tab (network/relationship/
+snapping rules for the selected feature's class) but nowhere to see a
+*feature's own* resolved material data. A direct request to add a
+Materials tab for adding/editing a feature's materials led to a design
+correction: a feature's material isn't a separate thing to author --
+it's already just the value of one of the feature's own domain-linked
+fields, settable through the existing Attributes tab edit form exactly
+like any other coded field. Building a second add/edit workflow for the
+same data would duplicate that form. The real gap was narrower: nowhere
+did a user see the *resolved* engineering numbers (resistance,
+ampacity, ...) behind whichever value a field currently holds. The
+Rules tab was removed outright (not kept alongside) and replaced with a
+**read-only** Materials tab, matching how Rules was also read-only.
+Closes the "reading resolved material numbers from the feature-facing
+schema endpoint" item the original Phase 8 slice flagged as out of
+scope: `GET /feature-classes/{code}/schema`'s `fieldSchema` gained an
+`omitempty` `material_specs` map (keyed by domain value code), resolved
+server-side by a new `resolveMaterialSpecs` in `api/cmd/server/main.go`
+onto the same shared handler `useFeatureClassSchema` already calls, not
+a second admin-only round trip through `/admin/domains`. The new tab's
+"Edit in Attributes" button starts the existing edit session *and*
+switches the panel to the Attributes tab in one click, landing directly
+on the real field to change. Backend curl-verified (a real compiled
+field, linked and unlinked domain values, `omitempty` absence
+confirmed on a non-material field); frontend Playwright-verified end to
+end against a real feature: confirmed Rules is gone from the tab bar,
+confirmed the Materials tab renders the resolved name/resistance/
+ampacity chips, and confirmed the Edit button lands on a pre-filled
+Attributes form. See `docs/phase-8-materials.md`.
+
+Before that, a new Phase 8 opened and its first row
 closed: a materials catalog letting a coded domain value carry real
 physical/electrical properties (resistance, reactance, ampacity), the
 dependency the next planned capability (voltage drop and loading/
@@ -373,6 +404,7 @@ proper (voltage drop, loading/capacity checks -- not started).
 | Item | Status | Size | Value | Detail |
 |---|---|---|---|---|
 | Materials catalog -- link a coded domain value to real engineering numbers | Done | M | New `metadata.material_specs` table (code, name, category, resistance/reactance/ampacity/diameter/weight, each `NULL or > 0`) plus one nullable `material_spec_id` FK on `metadata.domain_values` -- deliberately attached to a *domain value*, not a feature class directly, so a field like `MV_CONDUCTOR.conductor_spec` inherits real numbers for free the moment its domain's values happen to be material-linked, with zero compiler or CRUD-engine changes. `POST/GET/PATCH/DELETE /admin/material-specs`, and `material_spec_code` added to the existing domain-value create/edit requests (`updateDomainValueRequest` uses the same nil/""/value sentinel `updateFieldRequest.domain_code` already established). New Materials admin page; a material-spec picker added to the Domains page's own value editor, with a wrench-icon indicator on a linked value's pill. Follow-up (same day, prompted by a real "how do I attach a material to a feature class?" question): the feature-class detail page's own Fields table now shows the same wrench indicator per domain value, cross-referencing the already-fetched `useAdminDomains()` client-side rather than widening the shared schema endpoint -- a side effect is every domain-linked field's pills now show real labels instead of bare codes. Backend curl-verified end to end (including the delete-guard while referenced, and the database's own numeric `CHECK` rejecting a negative value); frontend Playwright-verified on all three surfaces. | `docs/phase-8-materials.md` |
+| Read-only Materials tab on the map's own feature panel | Done | S | Replaced the feature panel's "Rules" tab outright with a read-only "Materials" tab, closing the "reading resolved material numbers from the feature-facing schema endpoint" gap the original catalog slice left open. `GET /feature-classes/{code}/schema`'s `fieldSchema` gained an `omitempty` `material_specs` map (keyed by domain value code), resolved by a new `resolveMaterialSpecs` in `api/cmd/server/main.go` onto the same shared handler the map/admin forms already call. A design correction from the original request (add a tab to *author* materials): a feature's material is already just the value of one of its own domain-linked fields, editable through the existing Attributes tab form -- so this tab only surfaces the resolved numbers behind whichever value is currently set, plus an "Edit in Attributes" button that starts the edit session and switches to the Attributes tab in one click, rather than duplicating that form. Backend curl-verified; frontend Playwright-verified against a real compiled field and feature instance. | `docs/phase-8-materials.md` |
 | Voltage drop along a traced path | Open | M | Needs a traced path's conductor segments' `resistance_ohm_per_km` (now available via the materials catalog above) times real geometry length (`ST_Length`, already available), accumulated per segment, plus a load figure at the far end. |
 | Loading/capacity check | Open | M | Compare a conductor's `ampacity_amps` (now available) against connected load summed downstream of a point via an existing trace -- flags overloaded equipment. Natural first electrical-analysis capability to build: needs the least new modeling beyond what tracing + materials already provide. |
 | Transformer loading % | Open | S–M | Needs a transformer kVA rating field (not yet modeled on `DIST_XFMR`) compared against downstream connected load, same trace-sum approach as loading/capacity above. |

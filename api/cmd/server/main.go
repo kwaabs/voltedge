@@ -13,6 +13,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -163,6 +164,29 @@ type fieldSchema struct {
 	RangeMin             *float64 `json:"range_min,omitempty"`
 	RangeMax             *float64 `json:"range_max,omitempty"`
 	RequiredForSubtypes  []int    `json:"required_for_subtypes,omitempty"`
+	// MaterialSpecs is keyed by domain value code, only present for the
+	// subset of DomainValues that carry a material_spec_id
+	// (metadata.domain_values, migrations/0021) -- lets a consumer go
+	// straight from "this field's current value is ACSR_50" to its real
+	// engineering numbers (the map feature panel's own Materials tab)
+	// without a second, admin-only round trip.
+	MaterialSpecs map[string]materialSpecSummary `json:"material_specs,omitempty"`
+}
+
+// materialSpecSummary mirrors admin's own materialSpecResponse --
+// duplicated rather than imported, the same way this package already
+// keeps its own wire-shaped copies of everything else it returns
+// (compileResponse mirrors compiler.Result for the identical reason,
+// see api/internal/admin/types.go).
+type materialSpecSummary struct {
+	Code               string   `json:"code"`
+	Name               string   `json:"name"`
+	Category           string   `json:"category"`
+	ResistanceOhmPerKm *float64 `json:"resistance_ohm_per_km,omitempty"`
+	ReactanceOhmPerKm  *float64 `json:"reactance_ohm_per_km,omitempty"`
+	AmpacityAmps       *float64 `json:"ampacity_amps,omitempty"`
+	DiameterMm         *float64 `json:"diameter_mm,omitempty"`
+	WeightKgPerKm      *float64 `json:"weight_kg_per_km,omitempty"`
 }
 
 // terminalSchema is one named connection point a junction feature class
@@ -286,6 +310,50 @@ func resolveSymbologySchema(ctx context.Context, db *bun.DB, loaded *metadata.Lo
 	return out, nil
 }
 
+// resolveMaterialSpecs looks up every domain_values row under domainID
+// that carries a material_spec_id, and resolves each into a full
+// materialSpecSummary keyed by the domain value's own code. Returns nil
+// (not an empty map) when nothing under this domain is material-linked,
+// so fieldSchema.MaterialSpecs' own omitempty leaves it out of the
+// response entirely for the common case (most domains carry no
+// material data at all).
+func resolveMaterialSpecs(ctx context.Context, db *bun.DB, domainID string) (map[string]materialSpecSummary, error) {
+	var values []metadata.DomainValue
+	if err := db.NewSelect().Model(&values).Where("domain_id = ? AND material_spec_id IS NOT NULL", domainID).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("loading material-linked domain values: %w", err)
+	}
+	if len(values) == 0 {
+		return nil, nil
+	}
+
+	specIDs := make([]string, len(values))
+	for i, v := range values {
+		specIDs[i] = *v.MaterialSpecID
+	}
+	var specs []metadata.MaterialSpec
+	if err := db.NewSelect().Model(&specs).Where("id IN (?)", bun.In(specIDs)).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("loading material specs: %w", err)
+	}
+	specByID := make(map[string]metadata.MaterialSpec, len(specs))
+	for _, s := range specs {
+		specByID[s.ID] = s
+	}
+
+	out := make(map[string]materialSpecSummary, len(values))
+	for _, v := range values {
+		s, ok := specByID[*v.MaterialSpecID]
+		if !ok {
+			continue
+		}
+		out[v.Code] = materialSpecSummary{
+			Code: s.Code, Name: s.Name, Category: s.Category,
+			ResistanceOhmPerKm: s.ResistanceOhmPerKm, ReactanceOhmPerKm: s.ReactanceOhmPerKm,
+			AmpacityAmps: s.AmpacityAmps, DiameterMm: s.DiameterMm, WeightKgPerKm: s.WeightKgPerKm,
+		}
+	}
+	return out, nil
+}
+
 func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		code := chi.URLParam(r, "code")
@@ -320,6 +388,14 @@ func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 					fs.DomainCode = &code
 					if d.DomainType == "coded" {
 						fs.DomainValues = loaded.DomainValues[d.ID]
+						materialSpecs, err := resolveMaterialSpecs(r.Context(), db, d.ID)
+						if err != nil {
+							w.Header().Set("Content-Type", "application/json")
+							w.WriteHeader(http.StatusInternalServerError)
+							json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+							return
+						}
+						fs.MaterialSpecs = materialSpecs
 					} else if d.DomainType == "range" {
 						fs.RangeMin = d.RangeMin
 						fs.RangeMax = d.RangeMax

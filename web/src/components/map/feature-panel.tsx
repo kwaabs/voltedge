@@ -4,7 +4,6 @@ import {
   GripHorizontal,
   Info,
   Link2,
-  ListChecks,
   Loader2,
   Pencil,
   Plug,
@@ -13,6 +12,7 @@ import {
   Trash2,
   Unlink2,
   Workflow,
+  Wrench,
   X,
   Zap,
 } from "lucide-react"
@@ -34,7 +34,7 @@ import {
 import { type Connection, useConnections } from "@/hooks/use-connections"
 import { useDiagramInstances } from "@/hooks/use-diagrams"
 import { useFeature } from "@/hooks/use-feature"
-import { useFeatureClassRules } from "@/hooks/use-feature-class-rules"
+import { useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useRelationships } from "@/hooks/use-relationships"
 import { useTraceConfigurations } from "@/hooks/use-trace-configurations"
@@ -49,13 +49,13 @@ import { useSelectionStore } from "@/stores/selection-store"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
 import { type TraceFeatureRef, type TraceResult, useTraceStore } from "@/stores/trace-store"
 
-type TabId = "attributes" | "terminals" | "relationships" | "rules"
+type TabId = "attributes" | "terminals" | "relationships" | "materials"
 
 const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
   { id: "attributes", label: "Attributes", icon: Info },
   { id: "terminals", label: "Terminals", icon: Plug },
   { id: "relationships", label: "Relationships", icon: Link2 },
-  { id: "rules", label: "Rules", icon: ListChecks },
+  { id: "materials", label: "Materials", icon: Wrench },
 ]
 
 function shortId(id: string): string {
@@ -379,106 +379,111 @@ function RelationshipsTab() {
 }
 
 /**
- * Class-scoped, not instance-scoped, unlike TerminalsTab/RelationshipsTab
- * above -- every feature of the same class has the same answer to "what
- * rules apply," so this reads from useFeatureClassRules keyed on
- * featureClassCode rather than a per-feature endpoint. Answers what
- * Terminals/Relationships never could on their own: those two only ever
- * show what's actually been established for *this* feature; this shows
- * what's *allowed* for the whole class -- network rules
- * (api/internal/connectivity), relationship rules
- * (api/internal/relationship), and snapping rules (never surfaced
- * anywhere before api/internal/rules).
+ * Read-only, deliberately -- a feature's material isn't a separate
+ * thing to "add" here, it's whatever value the feature already has on
+ * one of its own domain-linked fields (e.g. MV_CONDUCTOR's own
+ * conductor_spec), the same attribute the Attributes tab's edit form
+ * already lets you set. This tab exists purely to surface what's
+ * otherwise invisible once that value is picked: the real engineering
+ * numbers (resistance, ampacity, ...) behind whichever domain value the
+ * field currently holds, resolved server-side onto
+ * useFeatureClassSchema's own fieldSchema.material_specs
+ * (api/cmd/server/main.go's resolveMaterialSpecs) rather than the
+ * admin-only /admin/domains this map-facing panel has no business
+ * calling. Changing which material a feature uses still happens on
+ * Attributes -- the Edit button below just jumps there, it doesn't
+ * duplicate that form.
  */
-function RulesTab() {
+function MaterialsTab({ onEditClick }: { onEditClick: () => void }) {
   const selected = useSelectionStore((s) => s.selected)
-  const { data, isPending, isError, error } = useFeatureClassRules(selected?.featureClassCode)
-  useErrorToast(isError, error, "Could not load rules")
+  const {
+    data: schema,
+    isPending: schemaPending,
+    isError: schemaIsError,
+    error: schemaError,
+  } = useFeatureClassSchema(selected?.featureClassCode)
+  const {
+    data: feature,
+    isPending: featurePending,
+    isError: featureIsError,
+    error: featureError,
+  } = useFeature(selected?.featureClassCode, selected?.featureId)
+  useErrorToast(schemaIsError, schemaError, "Could not load this feature class's schema")
+  useErrorToast(featureIsError, featureError, "Could not load this feature")
 
-  if (isPending) {
+  if (schemaPending || featurePending) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 text-sm">
         <Loader2 className="size-4 animate-spin" />
-        Loading rules...
+        Loading materials...
       </div>
     )
   }
-  if (isError || !data) return null
+  if (schemaIsError || featureIsError || !schema || !feature || !selected) return null
 
-  const hasNothing =
-    data.network_rules.length === 0 && data.relationship_rules.length === 0 && data.snapping_rules.length === 0
-  if (hasNothing) {
-    return <p className="text-muted-foreground text-sm">No rules configured for this feature class.</p>
+  const materialFields = schema.fields.filter((f) => f.material_specs && Object.keys(f.material_specs).length > 0)
+
+  if (materialFields.length === 0) {
+    return <p className="text-muted-foreground text-sm">This feature class has no material-linked fields.</p>
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      {data.network_rules.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <h3 className="text-muted-foreground text-xs font-semibold uppercase">Network rules</h3>
-          {data.network_rules.map((r, i) => (
-            <div key={i} className="rounded-md border p-2 text-sm">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">
-                  {r.from_class}
-                  {r.from_terminal && ` (${r.from_terminal})`} → {r.to_class}
-                  {r.to_terminal && ` (${r.to_terminal})`}
-                </span>
-                <span className="text-muted-foreground shrink-0 text-xs">
-                  {r.direction === "outgoing" ? "Outgoing" : "Incoming"}
-                </span>
-              </div>
-              <p className="text-muted-foreground mt-1 text-xs">{r.name}</p>
-              {r.phase_rule && <p className="text-muted-foreground text-xs">Phase: {r.phase_rule}</p>}
-              {!r.is_valid && <p className="text-destructive text-xs">Disabled (is_valid = false)</p>}
+    <div className="flex flex-col gap-3">
+      <Button
+        variant="outline"
+        size="sm"
+        className="self-start"
+        disabled={Boolean(feature.deleted_at)}
+        onClick={() => {
+          useEditStore.getState().start(selected.featureClassCode, selected.featureId)
+          onEditClick()
+        }}
+      >
+        <Pencil className="size-4" />
+        Edit in Attributes
+      </Button>
+      {materialFields.map((f) => {
+        const currentValue = feature.attributes[f.name]
+        const spec = typeof currentValue === "string" ? f.material_specs?.[currentValue] : undefined
+        return (
+          <div key={f.name} className="rounded-md border p-2 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">{formatFieldLabel(f.name)}</span>
+              <span className="text-muted-foreground text-xs">{currentValue ? String(currentValue) : "Not set"}</span>
             </div>
-          ))}
-        </div>
-      )}
-
-      {data.relationship_rules.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <h3 className="text-muted-foreground text-xs font-semibold uppercase">Relationship rules</h3>
-          {data.relationship_rules.map((r, i) => (
-            <div key={i} className="rounded-md border p-2 text-sm">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">
-                  {r.origin_class} → {r.destination_class}
-                </span>
-                <span className="text-muted-foreground shrink-0 text-xs">
-                  {r.direction === "origin" ? "Origin" : "Destination"}
-                </span>
+            {spec ? (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">{spec.name}</span>
+                {spec.resistance_ohm_per_km !== undefined && (
+                  <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+                    R {spec.resistance_ohm_per_km} Ω/km
+                  </span>
+                )}
+                {spec.reactance_ohm_per_km !== undefined && (
+                  <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+                    X {spec.reactance_ohm_per_km} Ω/km
+                  </span>
+                )}
+                {spec.ampacity_amps !== undefined && (
+                  <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">{spec.ampacity_amps} A</span>
+                )}
+                {spec.diameter_mm !== undefined && (
+                  <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">⌀ {spec.diameter_mm} mm</span>
+                )}
+                {spec.weight_kg_per_km !== undefined && (
+                  <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+                    {spec.weight_kg_per_km} kg/km
+                  </span>
+                )}
               </div>
+            ) : (
               <p className="text-muted-foreground mt-1 text-xs">
-                {r.kind} · {r.cardinality}
+                {currentValue ? "No material data for this value." : "Set this field on Attributes to add a material."}
               </p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {data.snapping_rules.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <h3 className="text-muted-foreground text-xs font-semibold uppercase">Snapping rules</h3>
-          {data.snapping_rules.map((r, i) => (
-            <div key={i} className="rounded-md border p-2 text-sm">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">
-                  {r.from_class} → {r.to_class}
-                  {r.to_terminal && ` (${r.to_terminal})`}
-                </span>
-                <span className="text-muted-foreground shrink-0 text-xs">
-                  {r.direction === "from" ? "As source" : "As target"}
-                </span>
-              </div>
-              <p className="text-muted-foreground mt-1 text-xs">
-                {r.target_type} · {r.tolerance_m}m tolerance · priority {r.priority}
-                {r.is_required && " · required"}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -964,7 +969,7 @@ export function FeaturePanel() {
               {activeTab === "attributes" && <AttributesTab />}
               {activeTab === "terminals" && <TerminalsTab />}
               {activeTab === "relationships" && <RelationshipsTab />}
-              {activeTab === "rules" && <RulesTab />}
+              {activeTab === "materials" && <MaterialsTab onEditClick={() => setActiveTab("attributes")} />}
             </>
           )}
         </div>
