@@ -1,12 +1,12 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ListPlus, Loader2, Plus, Tags, Trash2, X } from "lucide-react"
+import { ListPlus, Loader2, Pencil, Plus, Tags, Trash2, X } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { type AdminDomain, useAdminDomains } from "@/hooks/use-admin"
+import { type AdminDomain, type AdminDomainValue, useAdminDomains } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -98,6 +98,148 @@ function AddDomainValueRow({ domain, onDone }: { domain: AdminDomain; onDone: ()
 }
 
 /**
+ * Edit a domain's own name, or (range domain only) its bounds --
+ * api/internal/admin's PATCH /admin/domains/{code}. Safe the same way
+ * widening a coded domain's values already is: a recompile of any class
+ * using this domain rebuilds the field's BETWEEN CHECK from whatever's
+ * here now, and Postgres itself rejects a narrowing that doesn't fit
+ * real data rather than silently applying it.
+ */
+function EditDomainRow({ domain, onDone }: { domain: AdminDomain; onDone: () => void }) {
+  const [name, setName] = useState(domain.name)
+  const [rangeMin, setRangeMin] = useState(domain.range_min !== undefined ? String(domain.range_min) : "")
+  const [rangeMax, setRangeMax] = useState(domain.range_max !== undefined ? String(domain.range_max) : "")
+  const [saving, setSaving] = useState(false)
+  const queryClient = useQueryClient()
+
+  const canSave =
+    name.trim().length > 0 &&
+    (domain.domain_type !== "range" || (rangeMin.trim().length > 0 && rangeMax.trim().length > 0 && Number(rangeMin) <= Number(rangeMax)))
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const body: Record<string, unknown> = { name: name.trim() }
+      if (domain.domain_type === "range") {
+        body.range_min = Number(rangeMin)
+        body.range_max = Number(rangeMax)
+      }
+      await apiFetch(`/admin/domains/${domain.code}`, { method: "PATCH", body: JSON.stringify(body) })
+      queryClient.invalidateQueries({ queryKey: ["admin", "domains"] })
+      onDone()
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not update this domain.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between py-3">
+        <CardTitle className="text-sm">
+          Edit domain <span className="font-mono">{domain.code}</span>
+        </CardTitle>
+        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
+          <X className="size-4" />
+        </Button>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Name</label>
+          <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        {domain.domain_type === "range" && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>Minimum</label>
+              <input type="number" className={inputClass} value={rangeMin} onChange={(e) => setRangeMin(e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>Maximum</label>
+              <input type="number" className={inputClass} value={rangeMax} onChange={(e) => setRangeMax(e.target.value)} />
+            </div>
+          </div>
+        )}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="outline" size="sm" onClick={onDone} disabled={saving}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            Save
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Edit an existing coded value's label/sort_order -- api/internal/admin's
+ * PATCH /admin/domains/{code}/values/{value_code}. Always safe with no
+ * recompile involved at all: a value's code is what a CHECK constraint
+ * is built from, never its label.
+ */
+function EditDomainValueRow({
+  domainCode,
+  value,
+  onDone,
+}: {
+  domainCode: string
+  value: AdminDomainValue
+  onDone: () => void
+}) {
+  const [label, setLabel] = useState(value.label)
+  const [sortOrder, setSortOrder] = useState(String(value.sort_order))
+  const [saving, setSaving] = useState(false)
+  const queryClient = useQueryClient()
+
+  const canSave = label.trim().length > 0
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      await apiFetch(`/admin/domains/${domainCode}/values/${value.code}`, {
+        method: "PATCH",
+        body: JSON.stringify({ label: label.trim(), sort_order: Number(sortOrder) }),
+      })
+      queryClient.invalidateQueries({ queryKey: ["admin", "domains"] })
+      onDone()
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not update this value.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-muted/50 flex items-end gap-2 rounded-md border p-2">
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>
+          Code <span className="font-mono">{value.code}</span>
+        </label>
+      </div>
+      <div className="flex flex-1 flex-col gap-1">
+        <label className={labelClass}>Label</label>
+        <input className={inputClass} value={label} onChange={(e) => setLabel(e.target.value)} />
+      </div>
+      <div className="flex w-20 flex-col gap-1">
+        <label className={labelClass}>Sort</label>
+        <input type="number" className={inputClass} value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
+      </div>
+      <Button variant="ghost" size="icon" className="size-8" onClick={onDone} disabled={saving}>
+        <X className="size-4" />
+      </Button>
+      <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
+        {saving && <Loader2 className="size-4 animate-spin" />}
+        Save
+      </Button>
+    </div>
+  )
+}
+
+/**
  * A domain is shared reference data -- fields across many feature
  * classes point at the same one (see docs/metadata-core.md) -- so it
  * gets its own page rather than being authored inline inside the
@@ -120,6 +262,9 @@ export function AdminDomainsPage() {
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<AdminDomain | null>(null)
   const [addingValueCode, setAddingValueCode] = useState<string | null>(null)
+  const [editingDomainCode, setEditingDomainCode] = useState<string | null>(null)
+  const [editingValue, setEditingValue] = useState<{ domainCode: string; value: AdminDomainValue } | null>(null)
+  const [deleteValueTarget, setDeleteValueTarget] = useState<{ domainCode: string; value: AdminDomainValue } | null>(null)
 
   function reset() {
     setCode("")
@@ -354,10 +499,14 @@ export function AdminDomainsPage() {
           <p className="text-muted-foreground text-sm">No domains yet.</p>
         ) : (
           <div className="flex flex-col gap-2">
-            {data.domains.map((d) =>
-              addingValueCode === d.code ? (
-                <AddDomainValueRow key={d.code} domain={d} onDone={() => setAddingValueCode(null)} />
-              ) : (
+            {data.domains.map((d) => {
+              if (editingDomainCode === d.code) {
+                return <EditDomainRow key={d.code} domain={d} onDone={() => setEditingDomainCode(null)} />
+              }
+              if (addingValueCode === d.code) {
+                return <AddDomainValueRow key={d.code} domain={d} onDone={() => setAddingValueCode(null)} />
+              }
+              return (
                 <Card key={d.code}>
                   <CardHeader className="flex flex-row items-center gap-2 pb-2">
                     <Tags className="text-muted-foreground size-4" />
@@ -366,6 +515,15 @@ export function AdminDomainsPage() {
                       <CardDescription className="font-mono text-xs">{d.code}</CardDescription>
                     </div>
                     <span className="text-muted-foreground text-xs">{d.domain_type}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7"
+                      title="Edit"
+                      onClick={() => setEditingDomainCode(d.code)}
+                    >
+                      <Pencil className="size-4" />
+                    </Button>
                     {d.domain_type === "coded" && (
                       <Button
                         variant="ghost"
@@ -387,16 +545,41 @@ export function AdminDomainsPage() {
                     </Button>
                   </CardHeader>
                   {d.values && d.values.length > 0 && (
-                    <CardContent className="flex flex-wrap gap-1 pt-0">
-                      {d.values.map((v) => (
-                        <span
-                          key={v.code}
-                          className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs"
-                          title={v.code}
-                        >
-                          {v.label}
-                        </span>
-                      ))}
+                    <CardContent className="flex flex-col gap-2 pt-0">
+                      <div className="flex flex-wrap gap-1">
+                        {d.values.map((v) => (
+                          <span
+                            key={v.code}
+                            className="bg-muted text-muted-foreground group flex items-center gap-1 rounded-md py-0.5 pr-0.5 pl-1.5 text-xs"
+                            title={v.code}
+                          >
+                            {v.label}
+                            <button
+                              type="button"
+                              className="hover:text-foreground rounded p-0.5"
+                              title="Edit value"
+                              onClick={() => setEditingValue({ domainCode: d.code, value: v })}
+                            >
+                              <Pencil className="size-3" />
+                            </button>
+                            <button
+                              type="button"
+                              className="hover:text-destructive rounded p-0.5"
+                              title="Delete value"
+                              onClick={() => setDeleteValueTarget({ domainCode: d.code, value: v })}
+                            >
+                              <X className="size-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      {editingValue?.domainCode === d.code && (
+                        <EditDomainValueRow
+                          domainCode={d.code}
+                          value={editingValue.value}
+                          onDone={() => setEditingValue(null)}
+                        />
+                      )}
                     </CardContent>
                   )}
                   {d.domain_type === "range" && d.range_min !== undefined && d.range_max !== undefined && (
@@ -407,8 +590,8 @@ export function AdminDomainsPage() {
                     </CardContent>
                   )}
                 </Card>
-              ),
-            )}
+              )
+            })}
           </div>
         )}
       </div>
@@ -421,6 +604,20 @@ export function AdminDomainsPage() {
         onConfirm={async () => {
           if (!deleteTarget) return
           await apiFetch(`/admin/domains/${deleteTarget.code}`, { method: "DELETE" })
+          queryClient.invalidateQueries({ queryKey: ["admin", "domains"] })
+        }}
+      />
+
+      <ConfirmDeleteDialog
+        open={deleteValueTarget !== null}
+        title={`Delete value ${deleteValueTarget?.value.code ?? ""}?`}
+        description="Safe to remove from metadata now -- if any feature class using this domain is later recompiled while real data still holds this value, the compiler rejects the narrower constraint outright rather than silently applying it. This can't be undone."
+        onOpenChange={(open) => !open && setDeleteValueTarget(null)}
+        onConfirm={async () => {
+          if (!deleteValueTarget) return
+          await apiFetch(`/admin/domains/${deleteValueTarget.domainCode}/values/${deleteValueTarget.value.code}`, {
+            method: "DELETE",
+          })
           queryClient.invalidateQueries({ queryKey: ["admin", "domains"] })
         }}
       />

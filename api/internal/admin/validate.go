@@ -89,6 +89,42 @@ func validateCreateDomain(req createDomainRequest) error {
 	return nil
 }
 
+// validateUpdateDomain checks the structural rules updateDomainRequest
+// needs before update.go looks at the existing row's domain_type: an
+// empty Name is never valid, and range_min/range_max must be provided
+// together (mirroring createDomainRequest's own rule) since one without
+// the other leaves an incomplete bound. Whether the request is even
+// *allowed* to touch range_min/range_max -- only a range domain has
+// them -- is a database question, checked in updateDomain itself.
+func validateUpdateDomain(req updateDomainRequest) error {
+	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
+		return invalid("name cannot be blank")
+	}
+	rangeTouched := req.RangeMin != nil || req.RangeMax != nil
+	if req.Name == nil && !rangeTouched {
+		return invalid("request must set at least one of name, range_min/range_max")
+	}
+	if rangeTouched {
+		if req.RangeMin == nil || req.RangeMax == nil {
+			return invalid("range_min and range_max must be provided together when changing either")
+		}
+		if *req.RangeMin > *req.RangeMax {
+			return invalid("range_min must be less than or equal to range_max")
+		}
+	}
+	return nil
+}
+
+func validateUpdateDomainValue(req updateDomainValueRequest) error {
+	if req.Label != nil && strings.TrimSpace(*req.Label) == "" {
+		return invalid("label cannot be blank")
+	}
+	if req.Label == nil && req.SortOrder == nil {
+		return invalid("request must set at least one of label, sort_order")
+	}
+	return nil
+}
+
 // validateAddField checks a new field being added to an already-existing
 // feature class -- the same per-field structural rules
 // validateCreateFeatureClass applies within a create request, just for

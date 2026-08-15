@@ -82,6 +82,34 @@ type createDomainRequest struct {
 	RangeMax   *float64             `json:"range_max"`
 }
 
+// updateDomainRequest is PATCH /admin/domains/{code}'s body -- Name is
+// always editable (pure metadata, no physical footprint at all).
+// RangeMin/RangeMax only apply to a range domain (checked against the
+// actual row in update.go, same split validateUpdateFeatureClass/
+// updateFeatureClass already use) -- editing them is safe the same way
+// widening a coded domain's values already is: a recompile of any class
+// using this domain rebuilds the field's BETWEEN CHECK from whatever's
+// here now, and if that narrows past real data, Postgres's own ADD
+// CONSTRAINT rejects it outright (see compiler/ddl.go's
+// syncCheckConstraints doc comment) rather than silently applying it.
+type updateDomainRequest struct {
+	Name     *string  `json:"name"`
+	RangeMin *float64 `json:"range_min"`
+	RangeMax *float64 `json:"range_max"`
+}
+
+// updateDomainValueRequest is PATCH /admin/domains/{code}/values/{value_code}'s
+// body -- label and sort_order only. The code itself is the path segment
+// and isn't renameable here: a field's CHECK constraint and any real
+// feature data both reference a domain value by its code, so renaming it
+// out from under them is a different, harder operation than this
+// endpoint means to be (delete the old code, add the new one, if that's
+// really what's wanted).
+type updateDomainValueRequest struct {
+	Label     *string `json:"label"`
+	SortOrder *int    `json:"sort_order"`
+}
+
 type domainValueResponse struct {
 	Code      string `json:"code"`
 	Label     string `json:"label"`

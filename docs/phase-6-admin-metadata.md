@@ -14,6 +14,9 @@
 > **Update:** editing an existing field's domain/group/nullable/
 > visibility settings in place is real too now — see "Editing an
 > existing field's settings" at the very end.
+> **Update:** editing and deleting an existing domain's own values, and
+> editing a domain's own name/range bounds, are real too now — see
+> "Editing and deleting domain values" at the very end.
 
 **Goal:** a real, in-app way to author `metadata.*` — feature classes,
 subtypes, fields, terminals, domains, field groups, default symbology —
@@ -29,9 +32,10 @@ Adding a subtype/domain value to an already-compiled class (see
 "Editing an already-compiled class's subtypes and domain values"
 below) is backend curl-verified; its frontend is typechecked/linted
 clean but not yet browser-verified. Range domains, adding a field
-to an existing class (plus its new detail page), and editing an
-existing field's settings in place are all fully curl- and
-Playwright-verified end to end.
+to an existing class (plus its new detail page), editing an
+existing field's settings in place, and editing/deleting an existing
+domain's own values are all fully curl- and Playwright-verified end
+to end.
 
 ## Why this is its own slice, not folded into auth/authz
 
@@ -785,6 +789,91 @@ column flipped to "no" immediately with no page reload, then repeated
 the same round-trip to flip it back and confirmed the table reflected
 that too. Zero browser console errors throughout.
 
+## Editing and deleting domain values
+
+The second of the three gaps from the same walkthrough that produced
+field-setting editing above. This one has a sharper edge than the
+others: editing a domain value's label/sort_order is pure display
+metadata (never referenced by a `CHECK` -- that's built from codes),
+so it's unconditionally safe. Deleting one is a narrowing change, the
+exact category this doc has repeatedly flagged as unsupported for
+subtypes and domain values elsewhere -- so the question that actually
+needed answering was whether deleting one here is safe, not just
+whether it's technically possible.
+
+It turns out this project already had an answer on record, just never
+exercised. `fields.domain_id` is a foreign key to `metadata.domains`
+itself (the domain as a whole), never to any individual
+`domain_values` row -- so there's no FK-level reason Postgres would
+ever reject deleting one value out of a domain a field still uses.
+The real safety question is whether real feature data already holds
+that code, and `compiler/ddl.go`'s `syncCheckConstraints` doc comment
+already documents the answer for exactly this shape of change: a
+narrowing `ADD CONSTRAINT` is validated against existing rows by
+Postgres itself and fails outright, loudly, naming the actual
+conflict, rather than silently applying a narrower rule. Deleting a
+domain value is safe for the same reason adding one already was (see
+"Adding a subtype/domain value" above) -- both are metadata-only
+changes; recompiling is what may or may not translate them into an
+actually-valid physical constraint.
+
+### Backend
+
+- **`api/internal/admin/update.go`** — `updateDomain` (`PATCH
+  /admin/domains/{code}`, name always, `range_min`/`range_max` only on
+  a range domain -- checked against the real row, not just the
+  request shape) and `updateDomainValue` (`PATCH /admin/domains/{code}
+  /values/{value_code}`, label/sort_order).
+- **`api/internal/admin/delete.go`** — `deleteDomainValue` (`DELETE
+  /admin/domains/{code}/values/{value_code}`). No referenced-by-a-field
+  precheck, unlike `deleteDomain`/`deleteFieldGroup` right above it in
+  the same file -- there's genuinely nothing to precheck at the FK
+  level, and the real check (does real data use this code) belongs to
+  a later recompile, not this endpoint.
+
+### Verifying the safety claim directly, not trusting the comment
+
+Rather than take `syncCheckConstraints`' own doc comment on faith,
+this got exercised for real: confirmed `MV_CONDUCTOR`'s
+`condition_rating` column had three real rows with `GOOD`, deleted the
+`GOOD` value from `CONDITION_RATING` via the new endpoint (succeeded —
+no precheck, as designed), then triggered a recompile of
+`MV_CONDUCTOR`. It failed exactly as the comment says it should:
+`add constraint on condition_rating: ERROR: check constraint
+"mv_conductor_condition_rating_check" of relation "mv_conductor" is
+violated by some row (SQLSTATE=23514)` — a clean 400, not a 500, and
+the physical table's existing `CHECK` was left untouched by the failed
+`ADD CONSTRAINT` (Postgres rolls back a failed constraint add). Restored
+the value and recompiled again clean.
+
+### Frontend
+
+- **`web/src/routes/admin-domains.tsx`** — a pencil icon on each
+  domain's header opens `EditDomainRow` (name, plus min/max for a
+  range domain). Each coded value's pill gained an inline pencil
+  (opens `EditDomainValueRow`, a compact label/sort-order form) and an
+  "×" (opens the same `ConfirmDeleteDialog` the domain-level delete
+  action already used, reused rather than duplicated).
+
+### How this was validated
+
+Backend, against the same local, non-Docker Postgres/API stack as
+every other section: edited a value's label/sort_order and confirmed
+both landed; edited a domain's own name; edited a range domain's
+bounds; confirmed `range_min`/`range_max` are rejected on a coded
+domain and accepted only together on a range one; deleted a scratch
+value and confirmed it was gone; confirmed deleting an unknown value
+or domain both 404 with the right message; ran the delete-then-
+recompile safety check against real `MV_CONDUCTOR` data described
+above.
+
+Frontend: `npx tsc --noEmit` and `npm run lint` (oxlint) both clean.
+Playwright-verified: renamed a real domain and reverted it, edited a
+real value's label and reverted it, deleted a value from a scratch
+domain and confirmed the confirm dialog and the resulting pill list,
+edited a scratch range domain's bounds and confirmed the displayed
+range updated. Zero browser console errors throughout.
+
 ## Try it yourself
 
 Against a running API (`DATABASE_URL=... go run ./cmd/server`) and,
@@ -842,6 +931,13 @@ curl http://localhost:3704/feature-classes/STREET_LIGHT/schema
 curl -X PATCH http://localhost:3704/admin/feature-classes/STREET_LIGHT/fields/wattage \
   -H "Content-Type: application/json" \
   -d '{"nullable": false, "editable_after_publish": true}'
+
+# Edit an existing coded value's label/sort_order -- always safe
+curl -X PATCH http://localhost:3704/admin/domains/LAMP_TYPE/values/LED \
+  -H "Content-Type: application/json" -d '{"label": "LED (Light-Emitting Diode)"}'
+
+# Delete a coded value -- recompile any class using it to actually narrow the CHECK
+curl -X DELETE http://localhost:3704/admin/domains/LAMP_TYPE/values/INDUCTION
 ```
 
 Then in the browser: open the sidebar's "Admin" group, visit "Domains"

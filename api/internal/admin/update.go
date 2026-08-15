@@ -78,6 +78,120 @@ func updateFeatureClass(ctx context.Context, db *bun.DB, code string, req update
 	return &resp, nil
 }
 
+// updateDomain edits a domain's own name -- always safe, pure metadata
+// with no physical footprint -- and, for a range domain, its
+// range_min/range_max bounds. Editing the bounds is safe the same way
+// widening a coded domain's values already is (see addDomainValue and
+// compiler/ddl.go's syncCheckConstraints doc comment): a recompile of
+// any class using this domain rebuilds the field's own BETWEEN CHECK
+// from whatever's here now, and Postgres's own ADD CONSTRAINT rejects
+// it outright if that narrows past real data, rather than silently
+// applying a narrower rule.
+func updateDomain(ctx context.Context, db *bun.DB, code string, req updateDomainRequest) (*domainResponse, error) {
+	if err := validateUpdateDomain(req); err != nil {
+		return nil, err
+	}
+
+	var resp domainResponse
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		d := new(metadata.Domain)
+		if err := tx.NewSelect().Model(d).Where("code = ?", code).Scan(ctx); err != nil {
+			if err == sql.ErrNoRows {
+				return notFound("domain %q does not exist", code)
+			}
+			return fmt.Errorf("loading domain %q: %w", code, err)
+		}
+
+		cols := make([]string, 0, 3)
+		if req.Name != nil {
+			d.Name = *req.Name
+			cols = append(cols, "name")
+		}
+		if req.RangeMin != nil {
+			if d.DomainType != "range" {
+				return invalid("domain %q is not a range domain -- range_min/range_max only apply to a range domain", code)
+			}
+			d.RangeMin = req.RangeMin
+			d.RangeMax = req.RangeMax
+			cols = append(cols, "range_min", "range_max")
+		}
+
+		if _, err := tx.NewUpdate().Model(d).Column(cols...).Where("code = ?", code).Exec(ctx); err != nil {
+			return fmt.Errorf("updating domain %q: %w", code, err)
+		}
+
+		var values []metadata.DomainValue
+		if err := tx.NewSelect().Model(&values).Where("domain_id = ?", d.ID).Order("sort_order").Scan(ctx); err != nil {
+			return fmt.Errorf("loading values for domain %q: %w", code, err)
+		}
+		valueResponses := make([]domainValueResponse, len(values))
+		for i, v := range values {
+			valueResponses[i] = domainValueResponse{Code: v.Code, Label: v.Label, SortOrder: v.SortOrder}
+		}
+
+		resp = domainResponse{
+			Code: d.Code, Name: d.Name, DomainType: d.DomainType, Values: valueResponses,
+			RangeMin: d.RangeMin, RangeMax: d.RangeMax,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// updateDomainValue edits an existing coded domain value's label and/or
+// sort_order -- both pure display metadata, never referenced by a CHECK
+// constraint (that's built from codes, not labels -- see
+// syncCheckConstraints), so this needs no recompile-safety story at all,
+// unlike updateDomain's range bounds above.
+func updateDomainValue(ctx context.Context, db *bun.DB, domainCode, valueCode string, req updateDomainValueRequest) (*domainValueResponse, error) {
+	if err := validateUpdateDomainValue(req); err != nil {
+		return nil, err
+	}
+
+	var resp domainValueResponse
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		d := new(metadata.Domain)
+		if err := tx.NewSelect().Model(d).Where("code = ?", domainCode).Scan(ctx); err != nil {
+			if err == sql.ErrNoRows {
+				return notFound("domain %q does not exist", domainCode)
+			}
+			return fmt.Errorf("loading domain %q: %w", domainCode, err)
+		}
+
+		dv := new(metadata.DomainValue)
+		if err := tx.NewSelect().Model(dv).Where("domain_id = ? AND code = ?", d.ID, valueCode).Scan(ctx); err != nil {
+			if err == sql.ErrNoRows {
+				return notFound("domain %q has no value with code %q", domainCode, valueCode)
+			}
+			return fmt.Errorf("loading domain value %q: %w", valueCode, err)
+		}
+
+		cols := make([]string, 0, 2)
+		if req.Label != nil {
+			dv.Label = *req.Label
+			cols = append(cols, "label")
+		}
+		if req.SortOrder != nil {
+			dv.SortOrder = *req.SortOrder
+			cols = append(cols, "sort_order")
+		}
+
+		if _, err := tx.NewUpdate().Model(dv).Column(cols...).Where("id = ?", dv.ID).Exec(ctx); err != nil {
+			return fmt.Errorf("updating domain value %q: %w", valueCode, err)
+		}
+
+		resp = domainValueResponse{Code: dv.Code, Label: dv.Label, SortOrder: dv.SortOrder}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // updateField edits the subset of an existing field's metadata that the
 // rest of the system reads live rather than bakes into the physical
 // column at ADD COLUMN time -- domain_id/group_id (a following recompile

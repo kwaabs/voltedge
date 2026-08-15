@@ -68,6 +68,40 @@ func deleteDomain(ctx context.Context, db *bun.DB, code string) error {
 	})
 }
 
+// deleteDomainValue removes one coded value from a domain -- unlike
+// deleteDomain/deleteFieldGroup above, this needs no referenced-by-a-
+// field precheck: fields.domain_id is a foreign key to metadata.domains
+// itself, not to any specific domain_values row, so there's nothing for
+// Postgres to reject at the FK level either way. The real safety
+// question is whether real feature data already holds this code, and
+// that's answered the same way removing a value has always been safe in
+// this project (see compiler/ddl.go's syncCheckConstraints doc comment):
+// deleting the metadata row here doesn't touch any physical CHECK by
+// itself, and if a later recompile then tries to narrow a domain-linked
+// field's CHECK to no longer include this code, Postgres's own ADD
+// CONSTRAINT validation rejects it outright, loudly, against whatever
+// real rows still use it -- never a silent narrowing.
+func deleteDomainValue(ctx context.Context, db *bun.DB, domainCode, valueCode string) error {
+	return db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		d := new(metadata.Domain)
+		if err := tx.NewSelect().Model(d).Where("code = ?", domainCode).Scan(ctx); err != nil {
+			if err == sql.ErrNoRows {
+				return notFound("domain %q does not exist", domainCode)
+			}
+			return fmt.Errorf("loading domain %q: %w", domainCode, err)
+		}
+		res, err := tx.NewDelete().Model((*metadata.DomainValue)(nil)).
+			Where("domain_id = ? AND code = ?", d.ID, valueCode).Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("deleting domain value %q: %w", valueCode, err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return notFound("domain %q has no value with code %q", domainCode, valueCode)
+		}
+		return nil
+	})
+}
+
 // deleteFieldGroup mirrors deleteDomain -- same reasoning, just against
 // fields.group_id instead of fields.domain_id.
 func deleteFieldGroup(ctx context.Context, db *bun.DB, code string) error {
