@@ -110,6 +110,18 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 				}
 				result.ColumnsAdded = append(result.ColumnsAdded, f.Name)
 			}
+
+			// Rebuilds the subtype/coded-domain CHECK constraints from
+			// current metadata every recompile -- not just when a column
+			// was added -- so a subtype or domain value added to
+			// already-compiled metadata (api/internal/admin's own
+			// add-subtype/add-domain-value endpoints) actually takes
+			// effect on the physical table once recompiled. See
+			// syncCheckConstraints' own doc comment (ddl.go) for why this
+			// is safe.
+			if err := syncCheckConstraints(ctx, tx, qualifiedTable, tableName, loaded.Fields, loaded.Subtypes, loaded.Domains, loaded.DomainValues); err != nil {
+				return err
+			}
 		}
 
 		version := &metadata.Version{

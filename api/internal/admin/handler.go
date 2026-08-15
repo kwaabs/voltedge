@@ -2,12 +2,11 @@
 // feature class, subtype, field, domain, and field group in this project
 // has been authored by hand so far (seed/*.sql, migrations/*.sql), never
 // through the API. See docs/phase-6-admin-metadata.md for the full
-// design and why this slice deliberately stops short of editing an
-// already-compiled class's subtypes or an already-referenced domain's
-// values (the schema compiler doesn't safely support altering either
-// yet -- see api/internal/compiler/compiler.go's own existing-table
-// path, which only ever ADD COLUMNs, never touches a CHECK constraint
-// baked in at initial CREATE TABLE).
+// design. Adding a subtype to an already-compiled class, or a value to
+// an already-referenced coded domain, is real and safe (see
+// api/internal/compiler's syncCheckConstraints) -- editing/removing one
+// still isn't, since that's a narrowing change the compiler has no safe
+// story for.
 package admin
 
 import (
@@ -26,10 +25,12 @@ import (
 //	POST   /feature-classes                create a brand-new class end to end (subtypes, fields, terminals, one default symbology rule)
 //	PATCH  /feature-classes/{code}         edit name/is_diagram_container (any class), or geometry_type/srid/network_role (draft only)
 //	DELETE /feature-classes/{code}         delete a draft (never-compiled) class
+//	POST   /feature-classes/{code}/subtypes add one subtype to an existing class (any status) -- recompile to actually enforce it
 //	POST   /feature-classes/{code}/compile compile/recompile -- wraps api/internal/compiler.Compile directly
 //	GET    /domains                        every domain with its values
 //	POST   /domains                        create a domain, optionally with initial coded values
 //	DELETE /domains/{code}                 delete a domain not referenced by any field
+//	POST   /domains/{code}/values          add one value to an existing coded domain -- recompile any class using it to actually enforce it
 //	GET    /field-groups                   every field group
 //	POST   /field-groups                   create a field group
 //	DELETE /field-groups/{code}            delete a field group not referenced by any field
@@ -39,10 +40,12 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/feature-classes", createFeatureClassHandler(db))
 	r.Patch("/feature-classes/{code}", updateFeatureClassHandler(db))
 	r.Delete("/feature-classes/{code}", deleteFeatureClassHandler(db))
+	r.Post("/feature-classes/{code}/subtypes", addSubtypeHandler(db))
 	r.Post("/feature-classes/{code}/compile", compileFeatureClassHandler(db))
 	r.Get("/domains", listDomainsHandler(db))
 	r.Post("/domains", createDomainHandler(db))
 	r.Delete("/domains/{code}", deleteDomainHandler(db))
+	r.Post("/domains/{code}/values", addDomainValueHandler(db))
 	r.Get("/field-groups", listFieldGroupsHandler(db))
 	r.Post("/field-groups", createFieldGroupHandler(db))
 	r.Delete("/field-groups/{code}", deleteFieldGroupHandler(db))
@@ -113,6 +116,38 @@ func updateFeatureClassHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func addSubtypeHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		var req subtypeRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := addSubtype(r.Context(), db, code, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func addDomainValueHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		var req domainValueRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := addDomainValue(r.Context(), db, code, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
 	}
 }
 

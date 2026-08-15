@@ -1,5 +1,10 @@
 # Phase 6, slice 1 — admin metadata UI (feature class catalog + create wizard)
 
+> **Update:** the "editing an already-compiled class's subtypes / an
+> already-referenced domain's values" gap flagged throughout this doc
+> as permanently out of scope has since been closed — see "Editing an
+> already-compiled class's subtypes and domain values" near the end.
+
 **Goal:** a real, in-app way to author `metadata.*` — feature classes,
 subtypes, fields, terminals, domains, field groups, default symbology —
 without writing SQL by hand. Every one of those tables has been
@@ -10,6 +15,10 @@ API.
 Postgres/API stack (two independent test feature classes, one
 point/no-network-role, one junction-role with terminals). Frontend
 built, typechecked, linted, and built clean; browser-verified.
+Adding a subtype/domain value to an already-compiled class (see
+"Editing an already-compiled class's subtypes and domain values"
+below) is backend curl-verified; its frontend is typechecked/linted
+clean but not yet browser-verified.
 
 ## Why this is its own slice, not folded into auth/authz
 
@@ -166,12 +175,12 @@ POST /admin/field-groups                   create a field group
 
 ## What's deliberately out of scope for this slice
 
-- **Editing an already-compiled class's subtypes, or a domain's
-  values once referenced by a compiled field.** The CHECK-constraint
-  gap described above — building this safely needs compiler changes
-  (an `ALTER TABLE ... DROP CONSTRAINT` / re-`ADD CONSTRAINT` path, or
-  equivalent) that are a distinct, later effort, not a UI-only
-  addition.
+- ~~Editing an already-compiled class's subtypes, or a domain's
+  values once referenced by a compiled field.~~ **Closed** — see
+  "Editing an already-compiled class's subtypes and domain values"
+  below. *Adding* a new subtype/value is real and safe; editing or
+  removing an existing one is still out of scope, for the reason given
+  there.
 - **Column type change, rename, or delete on an existing field.**
   Same reasoning — the compiler's existing-table path has never
   supported this, on any class, at any point in this project.
@@ -321,6 +330,126 @@ it just needs to exist exactly once. Re-verified: the same rejected
 delete now shows a real red error toast, and the map route's own
 toasts still work unchanged.
 
+## Editing an already-compiled class's subtypes and domain values
+
+The original slice drew its scope line at "purely-additive operations
+on a brand-new feature class" specifically *because* the compiler's
+subtype/domain-value `CHECK` constraints were written once, at initial
+`CREATE TABLE`, and never revisited by the existing-table `ALTER
+TABLE ADD COLUMN` path. Revisited the same way edit/delete was later
+revisited: not by building the whole thing, but by finding the
+genuinely safe subset.
+
+**The insight that makes it safe:** every operation this slice's own
+API surface can produce is a *widening* change — adding a new subtype
+code, or a new value to a domain. Postgres validates `ADD CONSTRAINT`
+against a table's existing rows by default, and a strictly wider value
+list is trivially satisfied by every row that already passed the
+narrower one. So `DROP CONSTRAINT` + `ADD CONSTRAINT` with the new,
+wider list can never fail against real data — if metadata ever
+*narrowed* instead (outside this API, which has no "remove a
+subtype"/"remove a domain value" endpoint), the `ADD CONSTRAINT` would
+fail loudly, naming the offending rows, rather than silently applying
+a stricter rule underneath live data. Editing or removing an existing
+subtype/value is deliberately still not exposed anywhere — only
+adding.
+
+### Backend
+
+- **`api/internal/compiler/ddl.go`** — `syncCheckConstraints`, called
+  every time `Compile` runs against an *existing* table (not just when
+  a column is missing), rebuilds the subtype `CHECK` and every coded-
+  domain-linked field's `CHECK` from current metadata.
+  `replaceCheckConstraint` does the actual `DROP`/`ADD`, looking up the
+  constraint's real name via `information_schema` (`findCheckConstraint`)
+  rather than assuming Postgres's default naming — the same caution
+  `migrations/0019` already applies elsewhere, for the same 63-byte
+  identifier-truncation reason.
+- **`api/internal/compiler/compiler.go`** — wires `syncCheckConstraints`
+  into the existing-table branch, right after the `ADD COLUMN` loop.
+- **`api/internal/admin/add.go`** (new) — `addSubtype` (`POST
+  /admin/feature-classes/{code}/subtypes`) and `addDomainValue` (`POST
+  /admin/domains/{code}/values`). Each is a plain metadata insert
+  inside a transaction, with a friendly duplicate-code pre-check (same
+  `codeExists`-style discipline as `create.go`) so a repeat code gets a
+  clean 400 instead of a raw unique-violation. Neither touches the
+  physical table — recompiling (the same, unchanged `POST
+  .../compile`) is what actually widens the constraint.
+
+### The metadata/physical drift window
+
+Adding a subtype or domain value is purely a metadata insert; it
+doesn't take effect on the physical table until the class is
+recompiled. Between the two, creating a feature that uses the new
+value correctly fails with a raw Postgres constraint-violation error —
+the exact same drift window that already exists (and was already
+accepted) for adding a new *field* to an already-compiled class and
+forgetting to recompile. Not a new gap this slice introduces.
+
+### Frontend
+
+- **`web/src/routes/admin-feature-classes.tsx`** — a `ListPlus` icon
+  button on every row, any status, opens an inline `AddSubtypeRow`
+  card: shows the class's current subtypes, a code/name input, an Add
+  button. After a successful add, on an already-compiled class, an
+  inline note plus a "Recompile" button appear right there so the
+  add-then-apply flow never has to leave the row. The existing
+  Compile button (previously shown only for a `draft` row) now always
+  shows, labeled "Compile" or "Recompile" depending on status — a real,
+  small new capability of its own, since there was previously no way
+  to trigger a recompile on an already-active class from this page at
+  all.
+- **`web/src/routes/admin-domains.tsx`** — the same pattern, an
+  `AddDomainValueRow` opened via a `ListPlus` button per domain card
+  (coded domains only). Unlike the feature-classes page, this page
+  doesn't know which feature classes reference a given domain through
+  a compiled field, so the post-add note here is a generic reminder to
+  recompile any class using the domain, not a targeted button.
+
+### How this was validated
+
+Backend, against a real Postgres + Go API:
+
+1. `go build ./...`, `go vet ./...`, `gofmt -l .` all clean.
+2. Added a second subtype to the existing `SEC_FUSE` class via `POST
+   /admin/feature-classes/SEC_FUSE/subtypes`; confirmed creating a
+   feature with the new subtype code correctly failed (raw Postgres
+   500, the expected pre-recompile drift) until `POST
+   /admin/feature-classes/SEC_FUSE/compile` was called, after which it
+   succeeded and `\d gis.sec_fuse` showed the widened `subtype = ANY
+   (ARRAY[1, 2])` constraint.
+3. Added a new value to `LAMP_TYPE` (referenced by `STREET_LIGHT`'s
+   `lamp_type` field) the same way; same pre-recompile rejection,
+   post-recompile acceptance, confirmed via `\d gis.street_light`.
+4. Recompiled every other existing compiled feature class in the demo
+   database and confirmed no regressions — `syncCheckConstraints` runs
+   unconditionally on every existing-table recompile, so this had to
+   be checked, not assumed.
+5. Recompiled `SEC_FUSE` and `STREET_LIGHT` a second time each with no
+   metadata change in between, confirming the constraint rebuild is
+   idempotent and existing feature rows survive it untouched.
+6. One real bug caught and fixed during this pass: `findCheckConstraint`'s
+   first version used literal `$1`/`$2`/`$3` Postgres-style
+   placeholders in a raw query passed to bun's `QueryRowContext` — bun's
+   raw-query methods expect `?`-style placeholders (which bun rewrites
+   internally to `$1, $2, ...`), so the literal `$1` produced `ERROR:
+   there is no parameter $1 (SQLSTATE=42P02)`. Fixed by switching to
+   `?, ?, ?`; re-verified with the full sequence above.
+
+Frontend: `npx tsc --noEmit` and `npm run lint` (oxlint) both finish
+clean. **Not** browser-verified with Playwright for this slice — the
+sandbox this was built in couldn't pull the `docker-compose.yml`
+images (Postgres/Martin/RustFS) needed to run the full stack, a
+network-policy limitation of that particular session, not a code
+issue. The new frontend components follow the exact same pattern
+(`AddSubtypeRow`/`AddDomainValueRow`, inline card, toast-based error
+handling, query invalidation on success) as `EditFeatureClassRow` and
+the other admin inline-edit rows already browser-verified in this
+doc's "Edit and delete, added later" section above, and the underlying
+endpoints are the curl-verified ones described above — but an actual
+click-through of the new UI in a real browser is still outstanding and
+should happen before this is considered fully closed out.
+
 ## Try it yourself
 
 Against a running API (`DATABASE_URL=... go run ./cmd/server`) and,
@@ -348,6 +477,16 @@ curl -X POST http://localhost:3704/admin/feature-classes/STREET_LIGHT/compile
 
 # List every class, any status
 curl http://localhost:3704/admin/feature-classes
+
+# Add a subtype to an already-compiled class, then recompile to enforce it
+curl -X POST http://localhost:3704/admin/feature-classes/SEC_FUSE/subtypes \
+  -H "Content-Type: application/json" -d '{"code": 2, "name": "recloser"}'
+curl -X POST http://localhost:3704/admin/feature-classes/SEC_FUSE/compile
+
+# Add a value to an already-referenced coded domain, then recompile any class using it
+curl -X POST http://localhost:3704/admin/domains/LAMP_TYPE/values \
+  -H "Content-Type: application/json" -d '{"code": "INDUCTION", "label": "Induction", "sort_order": 3}'
+curl -X POST http://localhost:3704/admin/feature-classes/STREET_LIGHT/compile
 ```
 
 Then in the browser: open the sidebar's "Admin" group, visit "Domains"
