@@ -74,6 +74,42 @@ func validateCreateFieldGroup(req createFieldGroupRequest) error {
 	return nil
 }
 
+// validateUpdateFeatureClass checks the structural rules
+// updateFeatureClassRequest needs before update.go even looks at the
+// existing row's status: an empty Name is never valid, and touching
+// GeometryType/SRID/NetworkRole requires all three together (mirroring
+// createFeatureClassRequest's own geometry_type/srid/network_role
+// rules) since SRID's own validity depends on GeometryType. Whether
+// the request is even *allowed* to touch those three -- only while the
+// class is still draft -- is a database question, checked in
+// updateFeatureClass itself.
+func validateUpdateFeatureClass(req updateFeatureClassRequest) error {
+	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
+		return invalid("name cannot be blank")
+	}
+
+	geometryTouched := req.GeometryType != nil || req.SRID != nil || req.NetworkRole != nil
+	if !geometryTouched {
+		return nil
+	}
+	if req.GeometryType == nil || req.NetworkRole == nil {
+		return invalid("geometry_type, srid, and network_role must be provided together when changing any of them")
+	}
+	if !validGeometryTypes[*req.GeometryType] {
+		return invalid("geometry_type must be one of point, line, polygon, none")
+	}
+	if *req.GeometryType != "none" && req.SRID == nil {
+		return invalid("srid is required unless geometry_type is none")
+	}
+	if *req.GeometryType == "none" && req.SRID != nil {
+		return invalid("srid must be omitted when geometry_type is none")
+	}
+	if !validNetworkRoles[*req.NetworkRole] {
+		return invalid("network_role must be one of edge, junction, container, none")
+	}
+	return nil
+}
+
 // validateCreateFeatureClass checks everything about a new-feature-class
 // request that doesn't require a database round trip (existing-domain/
 // existing-group lookups happen in create.go, where the actual rows are

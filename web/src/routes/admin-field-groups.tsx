@@ -1,11 +1,12 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Loader2, Plus, Rows3, X } from "lucide-react"
+import { Loader2, Plus, Rows3, Trash2, X } from "lucide-react"
 
+import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { useAdminFieldGroups } from "@/hooks/use-admin"
+import { type AdminFieldGroup, useAdminFieldGroups } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -25,6 +26,7 @@ export function AdminFieldGroupsPage() {
   const [name, setName] = useState("")
   const [sortOrder, setSortOrder] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<AdminFieldGroup | null>(null)
 
   function reset() {
     setCode("")
@@ -164,12 +166,32 @@ export function AdminFieldGroupsPage() {
                     <CardDescription className="font-mono text-xs">{g.code}</CardDescription>
                   </div>
                   <span className="text-muted-foreground text-xs">#{g.sort_order}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive size-7"
+                    onClick={() => setDeleteTarget(g)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
                 </CardHeader>
               </Card>
             ))}
           </div>
         )}
       </div>
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        title={`Delete ${deleteTarget?.code ?? "this field group"}?`}
+        description="Only possible while no field belongs to this group -- if any field already references it, deletion is rejected with a clear error instead. This can't be undone."
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onConfirm={async () => {
+          if (!deleteTarget) return
+          await apiFetch(`/admin/field-groups/${deleteTarget.code}`, { method: "DELETE" })
+          queryClient.invalidateQueries({ queryKey: ["admin", "field-groups"] })
+        }}
+      />
     </div>
   )
 }

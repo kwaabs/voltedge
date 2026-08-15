@@ -10,7 +10,6 @@ import { PeerPicker } from "@/components/map/peer-picker"
 import { StatusBar } from "@/components/map/status-bar"
 import { TraceResultTable } from "@/components/map/trace-result-table"
 import { VoltEdgeMap } from "@/components/map/voltedge-map"
-import { Toaster } from "@/components/ui/toaster"
 import { useDiagramStore } from "@/stores/diagram-store"
 
 export function MapPage() {
@@ -39,7 +38,6 @@ export function MapPage() {
       <GeometryEditToolbar />
       <TraceResultTable />
       <IsolationResultTable />
-      <Toaster />
       <StatusBar />
     </div>
   )

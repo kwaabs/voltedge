@@ -14,10 +14,40 @@ var (
 	validTerminalRoles = map[string]bool{"primary": true, "secondary": true, "ground": true, "other": true}
 )
 
+// updateFeatureClassRequest is PATCH /admin/feature-classes/{code}'s
+// body -- every field optional, only what's present gets changed.
+// Name/IsDiagramContainer are pure metadata, safe to change on any
+// class regardless of status. GeometryType/SRID/NetworkRole are the
+// three columns the compiler's own DDL is built from -- see
+// updateFeatureClass's own doc comment for why touching any of them is
+// only accepted while the class is still draft (never compiled).
+// Touching one of the three requires all three together, same
+// srid-required-unless-none rule createFeatureClassRequest already
+// enforces -- there's no meaningful "just change network_role, leave
+// geometry_type as whatever it already was" partial update here, since
+// SRID's own validity depends on GeometryType.
+type updateFeatureClassRequest struct {
+	Name               *string `json:"name"`
+	IsDiagramContainer *bool   `json:"is_diagram_container"`
+	GeometryType       *string `json:"geometry_type"`
+	SRID               *int    `json:"srid"`
+	NetworkRole        *string `json:"network_role"`
+}
+
+type updateFeatureClassResponse struct {
+	Code               string `json:"code"`
+	Name               string `json:"name"`
+	GeometryType       string `json:"geometry_type"`
+	SRID               *int   `json:"srid,omitempty"`
+	NetworkRole        string `json:"network_role"`
+	IsDiagramContainer bool   `json:"is_diagram_container"`
+}
+
 // featureClassSummary is one row of the admin catalog view -- enough to
 // browse and decide what to open, not the full definition
-// createFeatureClassRequest would need to recreate it (that's a
-// separate, not-yet-built "edit" endpoint's job).
+// createFeatureClassRequest would need to recreate it (that's
+// updateFeatureClassRequest's job, above, for what's actually safe to
+// change).
 type featureClassSummary struct {
 	Code               string  `json:"code"`
 	Name               string  `json:"name"`

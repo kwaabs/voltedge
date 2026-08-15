@@ -22,22 +22,30 @@ import (
 // Routes returns a router of the metadata-authoring endpoints, meant to
 // be mounted at /admin:
 //
-//	GET  /feature-classes                every class, any status, with subtype/field counts
-//	POST /feature-classes                create a brand-new class end to end (subtypes, fields, terminals, one default symbology rule)
-//	POST /feature-classes/{code}/compile compile/recompile -- wraps api/internal/compiler.Compile directly
-//	GET  /domains                        every domain with its values
-//	POST /domains                        create a domain, optionally with initial coded values
-//	GET  /field-groups                   every field group
-//	POST /field-groups                   create a field group
+//	GET    /feature-classes                every class, any status, with subtype/field counts
+//	POST   /feature-classes                create a brand-new class end to end (subtypes, fields, terminals, one default symbology rule)
+//	PATCH  /feature-classes/{code}         edit name/is_diagram_container (any class), or geometry_type/srid/network_role (draft only)
+//	DELETE /feature-classes/{code}         delete a draft (never-compiled) class
+//	POST   /feature-classes/{code}/compile compile/recompile -- wraps api/internal/compiler.Compile directly
+//	GET    /domains                        every domain with its values
+//	POST   /domains                        create a domain, optionally with initial coded values
+//	DELETE /domains/{code}                 delete a domain not referenced by any field
+//	GET    /field-groups                   every field group
+//	POST   /field-groups                   create a field group
+//	DELETE /field-groups/{code}            delete a field group not referenced by any field
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/feature-classes", listFeatureClassesHandler(db))
 	r.Post("/feature-classes", createFeatureClassHandler(db))
+	r.Patch("/feature-classes/{code}", updateFeatureClassHandler(db))
+	r.Delete("/feature-classes/{code}", deleteFeatureClassHandler(db))
 	r.Post("/feature-classes/{code}/compile", compileFeatureClassHandler(db))
 	r.Get("/domains", listDomainsHandler(db))
 	r.Post("/domains", createDomainHandler(db))
+	r.Delete("/domains/{code}", deleteDomainHandler(db))
 	r.Get("/field-groups", listFieldGroupsHandler(db))
 	r.Post("/field-groups", createFieldGroupHandler(db))
+	r.Delete("/field-groups/{code}", deleteFieldGroupHandler(db))
 	return r
 }
 
@@ -89,6 +97,55 @@ func createFeatureClassHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func updateFeatureClassHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		var req updateFeatureClassRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := updateFeatureClass(r.Context(), db, code, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func deleteFeatureClassHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		if err := deleteFeatureClass(r.Context(), db, code); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func deleteDomainHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		if err := deleteDomain(r.Context(), db, code); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func deleteFieldGroupHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		if err := deleteFieldGroup(r.Context(), db, code); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

@@ -175,16 +175,17 @@ POST /admin/field-groups                   create a field group
 - **Column type change, rename, or delete on an existing field.**
   Same reasoning — the compiler's existing-table path has never
   supported this, on any class, at any point in this project.
-- **Editing a feature class's own basic info after creation** (name,
-  geometry type, network role, etc.) — this slice is create-only;
-  there's no `PATCH /admin/feature-classes/{code}` yet.
 - **Range domains** — `createDomainRequest` and the domains page only
   ever build a domain's `values` list (coded domains); a range
   domain's own bounds aren't in `api/internal/admin`'s request shape
   yet.
-- **Deleting a feature class, domain, or field group.**
 - **User accounts, authentication, authorization** — see "Why this is
   its own slice" above; tracked separately.
+
+Editing a feature class's own basic info, and deleting a feature
+class/domain/field group, were both originally scoped out of this
+slice too — see "Edit and delete, added later" below for the safe
+subset that shipped, and what's still deliberately excluded.
 
 ## How this was validated
 
@@ -238,6 +239,87 @@ the demo database's test debris from both the original curl pass and
 this verification pass (`TEST_PLAYWRIGHT_CLASS`, `TEST_ADMIN_DOMAIN`,
 stray field-group test rows) was cleaned up afterward, leaving only the
 intentional `STREET_LIGHT`/`SEC_FUSE`/`LAMP_TYPE` additions.
+
+## Edit and delete, added later
+
+Both were originally scoped out entirely -- "create-only this slice."
+Revisited to find the genuinely safe subset of each, the same way the
+original slice drew its own scope line around the compiler's real
+CHECK-constraint limits, rather than building either capability in full
+or skipping both.
+
+- **`PATCH /admin/feature-classes/{code}`** (`update.go`, new) --
+  `name`/`is_diagram_container` are pure metadata with no physical-
+  table footprint, so they're always editable regardless of status.
+  `geometry_type`/`srid`/`network_role` are exactly the three columns
+  `compiler/ddl.go` reads to build the physical table's own shape;
+  changing any of them on an already-compiled class would leave the
+  physical table and its metadata disagreeing, the same class of
+  problem that kept editing an already-compiled class's subtypes/domain
+  values out of scope in the first place. So those three are only
+  accepted while the class is still `draft` (`PhysicalTable` is nil) --
+  nothing physical exists yet to disagree with. Touching one requires
+  all three together (mirroring `createFeatureClassRequest`'s own
+  srid-required-unless-none rule, since SRID's validity depends on
+  GeometryType).
+- **`DELETE /admin/feature-classes/{code}`**, **`DELETE
+  /admin/domains/{code}`**, **`DELETE /admin/field-groups/{code}`**
+  (`delete.go`, new) -- each draws its own safe line. A feature class
+  can only be deleted while still `draft`; subtypes/fields/
+  subtype_field_rules/terminals/symbology_rules all cascade
+  automatically (`ON DELETE CASCADE` from `feature_class_id`, already
+  in place since migrations 0008/0009/0012). A domain or field group
+  can only be deleted while no field currently references it --
+  `fields.domain_id`/`group_id` have no cascade of their own by design
+  (a field silently losing its domain would be a real, surprising
+  data-model change), so a pre-check turns what would otherwise be a
+  raw foreign-key-violation 500 into a clear 400 naming the actual
+  reason, same discipline `codeExists` (`create.go`) already applies on
+  the insert side.
+- **Frontend** -- `admin-feature-classes.tsx` gained inline Edit/Delete
+  icon buttons next to Compile, shown only for a draft row (a compiled
+  row shows none of the three); Edit expands an inline form pre-filled
+  with the row's current values, reusing the wizard's own basic-info
+  field markup. `admin-domains.tsx`/`admin-field-groups.tsx` each
+  gained a trash-icon button per row. All three deletes share one new
+  `ConfirmDeleteDialog` (`components/admin/`) -- same AlertDialog,
+  can't-dismiss-mid-request pattern the map's own delete/revoke/remove-
+  placement dialogs already use, parameterized rather than copy-pasted
+  three times since all three are just "call this endpoint, then
+  refresh the list" with no dialog-specific data shape of their own. A
+  rejected delete (e.g. a referenced domain) surfaces through the app's
+  existing error toast and leaves the dialog open, not a silent no-op.
+
+Verified via curl: renamed and flipped `is_diagram_container` on a
+draft class (always allowed); changed its `geometry_type`/`network_role`
+while still draft (allowed); compiled it, then confirmed the same
+geometry-type change was rejected with a clear message naming its
+actual status, while renaming still worked post-compile; deleted a
+draft class with a real subtype and field attached, confirmed the
+cascade removed everything; created and deleted an unreferenced domain
+and field group; confirmed deleting `LAMP_TYPE` (referenced by
+`STREET_LIGHT`) and `general` (referenced by many classes) both
+correctly rejected with the "referenced by at least one field" message
+rather than a raw constraint error. `go build ./... && go vet ./... &&
+gofmt -l .`, `npx tsc --noEmit`, and `npm run lint` all finish clean.
+
+Browser-verified (Playwright) end to end: Edit/Delete buttons appear
+only on a draft row and disappear once compiled; the inline edit form
+round-trips correctly, including the SRID field disappearing when
+geometry_type is switched to `none`; all three delete confirm dialogs
+work, and deleting a draft class with a real subtype+field cascades
+correctly. This pass caught a second real, pre-existing bug (unrelated
+to this slice's own new code): `Toaster` (`components/ui/toaster.tsx`)
+was mounted only inside `MapPage`, so `pushError`/`pushWarning` calls
+on any other route -- `/features`, `/admin/*`, `/connectivity`,
+`/relationships`, `/settings` -- updated the toast store but had
+nowhere to render; the rejected-`LAMP_TYPE`-delete's error toast simply
+never appeared. Fixed by mounting `<Toaster />` once in `app.tsx`,
+above every route, instead of inside one page's own component --
+`position: fixed`, so where it mounts in the tree has no layout impact,
+it just needs to exist exactly once. Re-verified: the same rejected
+delete now shows a real red error toast, and the map route's own
+toasts still work unchanged.
 
 ## Try it yourself
 
