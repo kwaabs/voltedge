@@ -92,6 +92,19 @@ project started.
   subtype/terminal. Locks the same way Terminals/Relationships already
   do while mid-edit on Attributes (the existing `locked` check is
   `tab.id !== "attributes"`, so a new tab id needed no changes there).
+- **`web/src/routes/admin-feature-class-detail.tsx`** — a "Rules"
+  section, same underlying hook and data as the feature-panel tab
+  above, rendered as tables instead of cards to match this page's own
+  Fields table. Added after the first round of frontend work here
+  landed in the feature panel only — the admin feature-class detail
+  page (built for browsing a class's own fields/subtypes/domains/
+  terminals together, see "Adding a field to an existing class, and a
+  real detail view" in `docs/phase-6-admin-metadata.md`) is exactly as
+  natural a home for this class-scoped data as a feature's own map
+  panel, since the answer is the same either way — there's no specific
+  feature instance in play on either page. `RulesSection` is the
+  `AdminFeatureClassDetailPage`-local counterpart to
+  `feature-panel.tsx`'s `RulesTab`.
 
 ## How this was validated
 
@@ -122,7 +135,10 @@ Martin binary: searched for a real `MV_CONDUCTOR` feature by name,
 selected it, opened the new Rules tab, and confirmed all three
 sections rendered with the correct resolved data (matching the curl
 output above exactly) with zero browser console errors from the
-application itself.
+application itself. Separately verified the admin feature-class detail
+page's own "Rules" section the same way: opened
+`/admin/feature-classes/MV_CONDUCTOR`, confirmed all three tables
+rendered with the same resolved data as the feature-panel tab.
 
 ## Try it yourself
 

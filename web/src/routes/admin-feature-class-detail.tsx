@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAdminDomains, useAdminFeatureClasses, useAdminFieldGroups } from "@/hooks/use-admin"
+import { useFeatureClassRules } from "@/hooks/use-feature-class-rules"
 import { type FieldSchema, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
@@ -389,6 +390,150 @@ function EditFieldRow({ code, field, onDone }: { code: string; field: FieldSchem
 }
 
 /**
+ * Every network/relationship/snapping rule where this class appears on
+ * either side -- reuses the exact same GET /feature-classes/{code}/rules
+ * response the map's own feature-panel "Rules" tab already reads
+ * (api/internal/rules), just rendered as tables here instead of cards,
+ * matching this page's own Fields table above. Class-scoped like every
+ * other section on this page -- unlike the feature-panel tab, there's no
+ * specific feature instance in play here, which is exactly why this
+ * endpoint fits a class-detail page as naturally as a feature panel: the
+ * answer is the same either way.
+ */
+function RulesSection({ code }: { code: string }) {
+  const { data, isPending, isError } = useFeatureClassRules(code)
+
+  if (isPending) {
+    return (
+      <div className="text-muted-foreground flex items-center gap-2 text-sm">
+        <Loader2 className="size-4 animate-spin" />
+        Loading rules...
+      </div>
+    )
+  }
+  if (isError || !data) {
+    return <p className="text-destructive text-sm">Could not load rules.</p>
+  }
+
+  const hasNothing =
+    data.network_rules.length === 0 && data.relationship_rules.length === 0 && data.snapping_rules.length === 0
+  if (hasNothing) {
+    return <p className="text-muted-foreground text-sm">No rules configured for this class.</p>
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {data.network_rules.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-muted-foreground text-xs font-medium">Network</h3>
+          <div className="overflow-hidden rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Name</th>
+                  <th className="px-3 py-2 font-medium">Direction</th>
+                  <th className="px-3 py-2 font-medium">From</th>
+                  <th className="px-3 py-2 font-medium">To</th>
+                  <th className="px-3 py-2 font-medium">Phase rule</th>
+                  <th className="px-3 py-2 font-medium">Valid</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.network_rules.map((r, i) => (
+                  <tr key={i} className="border-t">
+                    <td className="px-3 py-2">{r.name}</td>
+                    <td className="px-3 py-2">{r.direction === "outgoing" ? "Outgoing" : "Incoming"}</td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {r.from_class}
+                      {r.from_terminal ? ` (${r.from_terminal})` : ""}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {r.to_class}
+                      {r.to_terminal ? ` (${r.to_terminal})` : ""}
+                    </td>
+                    <td className="px-3 py-2 text-xs">{r.phase_rule ?? "—"}</td>
+                    <td className="px-3 py-2">{r.is_valid ? "yes" : "no"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {data.relationship_rules.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-muted-foreground text-xs font-medium">Relationship</h3>
+          <div className="overflow-hidden rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Name</th>
+                  <th className="px-3 py-2 font-medium">Direction</th>
+                  <th className="px-3 py-2 font-medium">Origin</th>
+                  <th className="px-3 py-2 font-medium">Destination</th>
+                  <th className="px-3 py-2 font-medium">Kind</th>
+                  <th className="px-3 py-2 font-medium">Cardinality</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.relationship_rules.map((r, i) => (
+                  <tr key={i} className="border-t">
+                    <td className="px-3 py-2">{r.name}</td>
+                    <td className="px-3 py-2">{r.direction === "origin" ? "Origin" : "Destination"}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{r.origin_class}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{r.destination_class}</td>
+                    <td className="px-3 py-2 text-xs">{r.kind}</td>
+                    <td className="px-3 py-2 text-xs">{r.cardinality}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {data.snapping_rules.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-muted-foreground text-xs font-medium">Snapping</h3>
+          <div className="overflow-hidden rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Direction</th>
+                  <th className="px-3 py-2 font-medium">From</th>
+                  <th className="px-3 py-2 font-medium">To</th>
+                  <th className="px-3 py-2 font-medium">Target type</th>
+                  <th className="px-3 py-2 font-medium">Tolerance</th>
+                  <th className="px-3 py-2 font-medium">Priority</th>
+                  <th className="px-3 py-2 font-medium">Required</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.snapping_rules.map((r, i) => (
+                  <tr key={i} className="border-t">
+                    <td className="px-3 py-2">{r.direction === "from" ? "As source" : "As target"}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{r.from_class}</td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {r.to_class}
+                      {r.to_terminal ? ` (${r.to_terminal})` : ""}
+                    </td>
+                    <td className="px-3 py-2 text-xs">{r.target_type}</td>
+                    <td className="px-3 py-2 text-xs">{r.tolerance_m}m</td>
+                    <td className="px-3 py-2 text-xs">{r.priority}</td>
+                    <td className="px-3 py-2">{r.is_required ? "yes" : "no"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * A single feature class's full picture -- fields (with resolved
  * domain info), subtypes, terminals -- reusing the exact same
  * GET /feature-classes/{code}/schema response the map's own create/
@@ -583,6 +728,9 @@ export function AdminFeatureClassDetailPage() {
                 </div>
               </>
             )}
+
+            <h2 className="text-sm font-semibold">Rules</h2>
+            <RulesSection code={code} />
           </>
         )}
       </div>
