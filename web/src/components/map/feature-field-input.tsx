@@ -53,6 +53,8 @@ export function FieldInput({ field, value, onChange }: FieldInputProps) {
           className={inputClass}
           value={typeof value === "number" ? value : ""}
           onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+          min={field.range_min}
+          max={field.range_max}
         />
       )
     case "date":

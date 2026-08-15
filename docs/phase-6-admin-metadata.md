@@ -4,6 +4,9 @@
 > already-referenced domain's values" gap flagged throughout this doc
 > as permanently out of scope has since been closed — see "Editing an
 > already-compiled class's subtypes and domain values" near the end.
+> **Update:** range domains — flagged throughout this doc as unmodeled
+> ("range bounds aren't stored anywhere yet") — are now real too. See
+> "Range domains" at the very end.
 
 **Goal:** a real, in-app way to author `metadata.*` — feature classes,
 subtypes, fields, terminals, domains, field groups, default symbology —
@@ -184,10 +187,8 @@ POST /admin/field-groups                   create a field group
 - **Column type change, rename, or delete on an existing field.**
   Same reasoning — the compiler's existing-table path has never
   supported this, on any class, at any point in this project.
-- **Range domains** — `createDomainRequest` and the domains page only
-  ever build a domain's `values` list (coded domains); a range
-  domain's own bounds aren't in `api/internal/admin`'s request shape
-  yet.
+- ~~Range domains~~ **Closed** — see "Range domains" at the end of this
+  doc.
 - **User accounts, authentication, authorization** — see "Why this is
   its own slice" above; tracked separately.
 
@@ -450,6 +451,114 @@ endpoints are the curl-verified ones described above — but an actual
 click-through of the new UI in a real browser is still outstanding and
 should happen before this is considered fully closed out.
 
+## Range domains
+
+The original slice deliberately built only coded domains — `domain_type
+= 'range'` was already a legal value (the `CHECK` on `metadata.domains`
+allowed it from Phase 1 onward), but nothing stored an actual min/max
+anywhere, and `api/internal/compiler/ddl.go`'s own comment flagged the
+gap directly: "nothing to compile into a CHECK for domain_type = 'range'
+until that's modeled." Closing it needed a real schema change, not a
+UI-only addition — the same shape of gap subtype/domain-value editing
+had, just for a different pair of columns.
+
+### Backend
+
+- **`migrations/0020_add_domain_range_bounds.sql`** (new) — adds
+  `range_min numeric`/`range_max numeric` to `metadata.domains`, both
+  nullable (unused by a coded domain), plus a `CHECK (range_min IS NULL
+  OR range_max IS NULL OR range_min <= range_max)` so a backwards
+  bound can never land in metadata at all, not even through a future
+  write path that skips `api/internal/admin`'s own validation.
+- **`api/internal/metadata/models.go`** — `Domain` gained
+  `RangeMin`/`RangeMax *float64` fields; `Load`'s existing
+  `loadDomains` picks them up automatically (bun selects every mapped
+  struct field, no query change needed).
+- **`api/internal/compiler/ddl.go`** — `columnDefinition` (used by both
+  `buildCreateTable` and the existing-table `ADD COLUMN` path — see
+  `compiler.go`) now emits `CHECK (field BETWEEN min AND max)` for a
+  field linked to a range domain with both bounds set. `formatNumber`
+  renders a bound via `strconv.FormatFloat(..., 'f', -1, 64)` rather
+  than `%g`, so a large/small bound never emits scientific notation
+  into the SQL text. `syncCheckConstraints` (the same
+  recompile-rebuilds-every-domain-linked-CHECK mechanism subtype/domain-
+  value editing added) also covers a range-domain field now, for the
+  same reason it covers coded ones: there's no admin endpoint that
+  edits an *existing* range domain's bounds today, so this branch has
+  nothing to widen in practice yet, but it means a future one would
+  Just Work without a second compiler change.
+- **`api/internal/crud/validate.go`** — `validateDomainRange` mirrors
+  the existing coded-domain membership check: a `numeric`/`integer`
+  field linked to a range domain gets its value checked against
+  `[RangeMin, RangeMax]` before the insert/update, so an out-of-range
+  value gets a clean 400 naming the actual domain and bounds instead of
+  reaching the database's own `BETWEEN` `CHECK`.
+- **`api/internal/admin`** — `createDomainRequest` gained
+  `RangeMin`/`RangeMax *float64`; `validateCreateDomain` requires both
+  when `domain_type = range` (and rejects either being set for
+  `coded`), plus `range_min <= range_max`. `createDomain`/`listDomains`
+  thread the two fields straight through to `domainResponse`.
+- **`cmd/server/main.go`**'s schema endpoint — `fieldSchema` gained the
+  same `RangeMin`/`RangeMax`, populated for a range-domain field the
+  same way `DomainValues` already was for a coded one, so the create/
+  edit form has something to show a bound against without a second
+  request.
+
+### Frontend
+
+- **`web/src/routes/admin-domains.tsx`** — the "New domain" form gained
+  a Coded values/Numeric range toggle. Coded shows the existing values
+  editor; range shows two plain numeric inputs (min/max), validated
+  client-side the same way (`canSave` requires both, min ≤ max) before
+  the request ever goes out. An existing range domain's card shows its
+  bounds as a `min – max` pill, next to (not replacing) the existing
+  coded-values pill row, which is simply empty for a range domain.
+- **`web/src/components/map/feature-field-input.tsx`** — the shared
+  numeric input (used by both the feature create and edit forms) now
+  passes `min`/`max` straight from the field's schema onto the native
+  `<input type="number">`, the same low-cost hint a coded domain
+  already got for free by becoming a `<select>` instead of a bare
+  input.
+
+### How this was validated
+
+This session's sandbox couldn't reach the Docker registry CDN (the same
+403 policy block noted earlier in this doc), so this slice was verified
+against a **local, non-Docker Postgres 16 + PostGIS install** already
+present in the sandbox instead — migrations applied via the real
+`migrations/apply.sh`, the real Go API run against it directly:
+
+1. `go build ./... && go vet ./... && gofmt -l .` clean; `migrations/apply.sh`
+   ran every migration including 0020 with no errors.
+2. `POST /admin/domains` with `domain_type: range`: valid bounds
+   accepted; `range_min > range_max` rejected with a clean 400; missing
+   either bound rejected; a `coded` domain with `range_min`/`range_max`
+   set rejected — all four checked directly.
+3. Created a feature class with a `numeric` field linked to the range
+   domain, compiled it, confirmed via `\d` that the physical table's
+   `CHECK` read exactly `(load_pct >= 0::numeric AND load_pct <=
+   100::numeric)`.
+4. `POST /features/{code}` with an out-of-range value: rejected with
+   `field "load_pct" value 150 is outside LOAD_PCT's range [0, 100]`,
+   the friendly Go-side message, not a raw constraint violation; an
+   in-range value succeeded (201). `PATCH` with an out-of-range update
+   rejected the same way.
+5. `GET /feature-classes/{code}/schema` confirmed the field entry
+   carries `range_min`/`range_max` for the frontend form to read.
+
+Frontend: `npx tsc --noEmit`, `npm run lint` (oxlint), and `npm run
+build` all clean. Browser-verified with Playwright against the same
+local stack (`npm run dev`, Vite's own proxy already pointed at
+`localhost:3704`): created a range domain through the UI end to end
+(name/code, Numeric range toggle, min/max inputs, Create), confirmed it
+listed with the correct `range` badge and `0 – 100` bounds pill,
+confirmed the pre-existing coded-domain create flow still works
+unaffected, zero browser console errors throughout. All test
+domains/classes created during verification (`LOAD_PCT`,
+`TEST_XFMR_RANGE(2)`, `LOAD_PCT_UI`, `CODED_UI_TEST`,
+`TEMP_RANGE_UI`/`TEMP_RANGE_FC`) were deleted afterward, including
+dropping their `gis.*` tables.
+
 ## Try it yourself
 
 Against a running API (`DATABASE_URL=... go run ./cmd/server`) and,
@@ -487,6 +596,11 @@ curl -X POST http://localhost:3704/admin/feature-classes/SEC_FUSE/compile
 curl -X POST http://localhost:3704/admin/domains/LAMP_TYPE/values \
   -H "Content-Type: application/json" -d '{"code": "INDUCTION", "label": "Induction", "sort_order": 3}'
 curl -X POST http://localhost:3704/admin/feature-classes/STREET_LIGHT/compile
+
+# Create a range domain and a field that uses it -- compiling emits a BETWEEN CHECK
+curl -X POST http://localhost:3704/admin/domains \
+  -H "Content-Type: application/json" \
+  -d '{"code": "LOAD_PCT", "name": "Load percentage", "domain_type": "range", "range_min": 0, "range_max": 100}'
 ```
 
 Then in the browser: open the sidebar's "Admin" group, visit "Domains"

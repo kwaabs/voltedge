@@ -70,11 +70,16 @@ type domainValueRequest struct {
 	SortOrder int    `json:"sort_order"`
 }
 
+// RangeMin/RangeMax only apply when DomainType is "range" -- see
+// validateCreateDomain for the rule that a range domain requires both
+// and a coded domain rejects either being set.
 type createDomainRequest struct {
 	Code       string               `json:"code"`
 	Name       string               `json:"name"`
 	DomainType string               `json:"domain_type"`
 	Values     []domainValueRequest `json:"values"`
+	RangeMin   *float64             `json:"range_min"`
+	RangeMax   *float64             `json:"range_max"`
 }
 
 type domainValueResponse struct {
@@ -88,6 +93,8 @@ type domainResponse struct {
 	Name       string                `json:"name"`
 	DomainType string                `json:"domain_type"`
 	Values     []domainValueResponse `json:"values,omitempty"`
+	RangeMin   *float64              `json:"range_min,omitempty"`
+	RangeMax   *float64              `json:"range_max,omitempty"`
 }
 
 type createFieldGroupRequest struct {

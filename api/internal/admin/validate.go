@@ -37,7 +37,10 @@ func validateCreateDomain(req createDomainRequest) error {
 		return invalid("domain_type must be one of coded, range")
 	}
 	if req.DomainType == "range" && len(req.Values) > 0 {
-		return invalid("a range domain doesn't take values -- range bounds aren't modeled by this endpoint yet")
+		return invalid("a range domain doesn't take values -- set range_min/range_max instead")
+	}
+	if req.DomainType == "coded" && (req.RangeMin != nil || req.RangeMax != nil) {
+		return invalid("range_min/range_max only apply to a range domain")
 	}
 	seen := make(map[string]bool, len(req.Values))
 	for _, v := range req.Values {
@@ -54,6 +57,14 @@ func validateCreateDomain(req createDomainRequest) error {
 	}
 	if req.DomainType == "coded" && len(req.Values) == 0 {
 		return invalid("a coded domain needs at least one value")
+	}
+	if req.DomainType == "range" {
+		if req.RangeMin == nil || req.RangeMax == nil {
+			return invalid("a range domain needs both range_min and range_max")
+		}
+		if *req.RangeMin > *req.RangeMax {
+			return invalid("range_min must be less than or equal to range_max")
+		}
 	}
 	return nil
 }

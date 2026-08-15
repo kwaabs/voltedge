@@ -11,6 +11,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/kwaabs/voltedge/api/internal/metadata"
@@ -83,18 +84,32 @@ func columnDefinition(f metadata.Field, domains map[string]*metadata.Domain, dom
 		if !ok {
 			return "", fmt.Errorf("field %s: domain %s not loaded", f.Name, *f.DomainID)
 		}
-		if domain.DomainType == "coded" {
+		switch domain.DomainType {
+		case "coded":
 			values := domainValues[domain.ID]
 			if len(values) > 0 {
 				def += fmt.Sprintf(" CHECK (%s IN (%s))", quoteIdent(f.Name), quoteLiteralList(values))
 			}
-			// Range domains have no min/max stored anywhere yet (domains/
-			// domain_values only carry coded values) -- nothing to compile
-			// into a CHECK for domain_type = 'range' until that's modeled.
+		case "range":
+			// RangeMin/RangeMax are both nullable (migrations/0020) -- a
+			// range domain with either unset compiles with no CHECK at
+			// all, same as a coded domain with zero values.
+			if domain.RangeMin != nil && domain.RangeMax != nil {
+				def += fmt.Sprintf(" CHECK (%s BETWEEN %s AND %s)",
+					quoteIdent(f.Name), formatNumber(*domain.RangeMin), formatNumber(*domain.RangeMax))
+			}
 		}
 	}
 
 	return def, nil
+}
+
+// formatNumber renders a domain's range bound as a plain decimal literal
+// -- strconv's 'f' format never falls back to scientific notation the way
+// fmt's %g can for very large/small values, which would otherwise emit
+// invalid-looking (though still parseable) SQL like "1e+06".
+func formatNumber(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
 // quoteIdent wraps a Postgres identifier in double quotes. Field/table
@@ -175,12 +190,16 @@ func buildCreateTable(qualifiedTable string, fc *metadata.FeatureClass, fields [
 }
 
 // syncCheckConstraints rebuilds the subtype CHECK constraint and every
-// coded-domain-linked field's CHECK constraint on an already-compiled
-// table to match current metadata -- called every time Compile runs on
-// an existing table, not just when a column is missing. This is what
-// makes it safe to add a new subtype to an already-compiled class, or a
-// new value to a domain a compiled field already uses: recompiling
-// widens the constraint to match.
+// domain-linked field's CHECK constraint (coded or range) on an
+// already-compiled table to match current metadata -- called every time
+// Compile runs on an existing table, not just when a column is missing.
+// This is what makes it safe to add a new subtype to an already-compiled
+// class, or a new value to a domain a compiled field already uses:
+// recompiling widens the constraint to match. There's no admin endpoint
+// that edits an existing range domain's bounds today, so the range branch
+// here has nothing to widen yet in practice -- it exists so that if one
+// is ever added, it works the same way the coded case already does,
+// without a second compiler change.
 //
 // Safe because it only ever DROP+ADDs the constraint itself, never
 // touches a row -- widening (the only kind of change
@@ -208,16 +227,27 @@ func syncCheckConstraints(ctx context.Context, tx bun.Tx, qualifiedTable, tableN
 			continue
 		}
 		domain, ok := domains[*f.DomainID]
-		if !ok || domain.DomainType != "coded" {
+		if !ok {
 			continue
 		}
-		values := domainValues[domain.ID]
-		if len(values) == 0 {
-			continue
-		}
-		if err := replaceCheckConstraint(ctx, tx, qualifiedTable, tableName, f.Name,
-			fmt.Sprintf("%s IN (%s)", quoteIdent(f.Name), quoteLiteralList(values))); err != nil {
-			return err
+		switch domain.DomainType {
+		case "coded":
+			values := domainValues[domain.ID]
+			if len(values) == 0 {
+				continue
+			}
+			if err := replaceCheckConstraint(ctx, tx, qualifiedTable, tableName, f.Name,
+				fmt.Sprintf("%s IN (%s)", quoteIdent(f.Name), quoteLiteralList(values))); err != nil {
+				return err
+			}
+		case "range":
+			if domain.RangeMin == nil || domain.RangeMax == nil {
+				continue
+			}
+			if err := replaceCheckConstraint(ctx, tx, qualifiedTable, tableName, f.Name,
+				fmt.Sprintf("%s BETWEEN %s AND %s", quoteIdent(f.Name), formatNumber(*domain.RangeMin), formatNumber(*domain.RangeMax))); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

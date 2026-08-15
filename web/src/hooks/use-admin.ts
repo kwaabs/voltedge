@@ -32,6 +32,8 @@ export interface AdminDomain {
   name: string
   domain_type: "coded" | "range"
   values?: AdminDomainValue[]
+  range_min?: number
+  range_max?: number
 }
 
 export interface AdminFieldGroup {

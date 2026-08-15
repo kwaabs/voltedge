@@ -26,9 +26,35 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-15, the Phase 6 "edit an already-compiled
+**Last updated:** 2026-08-15, range domains closed -- the second half of
+what was originally asked alongside subtype/domain-value editing (the
+previous update below). `migrations/0020` finally gives
+`metadata.domains` somewhere to store a range domain's bounds
+(`range_min`/`range_max`, both nullable, `range_min <= range_max`
+enforced by its own `CHECK`) -- `api/internal/compiler/ddl.go` had
+carried its own comment flagging this exact gap since Phase 6 slice 1
+("nothing to compile into a CHECK for domain_type = 'range' until
+that's modeled"). `columnDefinition` now emits a `BETWEEN` `CHECK` for
+any field linked to a range domain, on both a fresh `CREATE TABLE` and
+a later `ADD COLUMN`; `crud/validate.go` gained the matching Go-side
+range check (mirroring the existing coded-domain membership check) so
+an out-of-range value gets a clean 400 instead of a raw constraint
+violation; `POST /admin/domains` accepts `range_min`/`range_max` when
+`domain_type = range`; the domains admin page gained a Coded values/
+Numeric range toggle. This session's sandbox couldn't reach the Docker
+registry (same 403 policy block as the previous update), so
+verification ran against a local, non-Docker Postgres 16 + PostGIS
+install already present in the sandbox instead -- migrations applied
+for real via `migrations/apply.sh`, backend curl-verified end to end
+(valid/invalid bound combinations, a compiled `BETWEEN` CHECK matching
+exactly, pre- and post-compile feature create/update rejection and
+acceptance), and this time the frontend got a real Playwright pass too,
+not just typecheck/lint -- created a range domain through the UI,
+confirmed its bounds displayed correctly, confirmed the pre-existing
+coded-domain flow still worked, zero console errors.
+The Phase 6 "edit an already-compiled
 class's subtypes / an already-referenced domain's values" gap closed
-for its safe half: *adding* a new subtype or domain value to an
+for its safe half before that: *adding* a new subtype or domain value to an
 already-compiled class is now real (`api/internal/compiler`'s
 `syncCheckConstraints` rebuilds the affected `CHECK` constraint on
 every recompile; `POST /admin/feature-classes/{code}/subtypes` and
@@ -43,8 +69,8 @@ value" row per class/domain, plus a recompile trigger) is
 typechecked/linted clean but this session's sandbox couldn't pull the
 Docker images needed to browser-verify it -- flagged explicitly in
 `docs/phase-6-admin-metadata.md` rather than claimed done. Range
-domains (below) is the other half of what was originally asked
-alongside this and remains open, tracked separately.
+domains was the other half of what was originally asked alongside this
+-- see the newer update above for its own close-out.
 Before that, two more Phase 6 quick wins closed:
 editing a feature class's own basic info (`PATCH
 /admin/feature-classes/{code}` -- name/is_diagram_container always,
@@ -181,7 +207,7 @@ naming, rotate, remove).
 |---|---|---|---|---|
 | Add a subtype / domain value to an already-compiled class | Done | M | `syncCheckConstraints` (`api/internal/compiler/ddl.go`) now rebuilds the subtype/coded-domain `CHECK` constraint on every recompile of an existing table, via `information_schema`-driven `DROP CONSTRAINT`/`ADD CONSTRAINT` -- safe because every operation the new `POST /admin/feature-classes/{code}/subtypes` and `POST /admin/domains/{code}/values` endpoints can produce is strictly widening, which Postgres's default `ADD CONSTRAINT` validation always accepts against existing rows. Editing or removing an existing subtype/value is still not exposed anywhere -- only adding. Backend curl-verified; frontend typechecked/linted but not yet browser-verified (see the doc). | `docs/phase-6-admin-metadata.md` |
 | Column type change / rename / delete on an existing field | Open | M–L | The compiler's existing-table path has never supported this, on any class, at any point in this project -- a real design question (data migration on retype, dependent view/constraint handling), not a quick add. | `docs/phase-6-admin-metadata.md` |
-| Range domains in the admin UI | Open | M -- corrected from an original S, see detail | `createDomainRequest` and the domains page only ever build a coded domain's values list. Turned out to be a bigger gap than sizing implied: `metadata.domains` has no `range_min`/`range_max` columns at all -- a range domain's bounds aren't stored *anywhere* in the schema yet, and `api/internal/compiler/ddl.go` already has its own comment flagging this ("nothing to compile into a CHECK for domain_type = 'range' until that's modeled"). An admin form here would have nothing real to write to; needs a migration + compiler CHECK-constraint generation + CRUD validation first, not just a UI addition. | `docs/phase-6-admin-metadata.md`, `api/internal/compiler/ddl.go` |
+| Range domains in the admin UI | Done | M -- corrected from an original S, see detail | Closed with the real schema change the original sizing missed: `migrations/0020` adds `range_min`/`range_max` to `metadata.domains`; `compiler/ddl.go` emits a `CHECK (field BETWEEN min AND max)` for any field linked to a range domain (both on initial `CREATE TABLE` and a later `ADD COLUMN`); `crud/validate.go` gained the Go-side range check mirroring the existing coded-domain one; `POST /admin/domains` accepts `range_min`/`range_max` when `domain_type = range`; the domains admin page gained a Coded values/Numeric range toggle. Verified against a local (non-Docker) Postgres, backend curl end to end and frontend Playwright end to end. | `docs/phase-6-admin-metadata.md`, `api/internal/compiler/ddl.go` |
 | Edit a feature class's own basic info after creation | Done | S | `PATCH /admin/feature-classes/{code}` -- `name`/`is_diagram_container` are always editable (pure metadata); `geometry_type`/`srid`/`network_role` only while the class is still draft, since those three are exactly what the compiler builds the physical table's shape from. Inline edit form on the admin feature-classes page, shown only for a draft row. | `docs/phase-6-admin-metadata.md` |
 | Delete a feature class / domain / field group from the admin UI | Done | S–M | Scoped to what's provably safe: a feature class only while still draft (cascade-deletes its subtypes/fields/terminals/symbology_rules, all already `ON DELETE CASCADE`); a domain or field group only while no field currently references it (a friendly pre-check, not a raw foreign-key-violation 500). Deleting an already-compiled class, or a referenced domain/field group, both stay exactly as unresolved as the row originally flagged -- this didn't answer that question, just carved out the subset that never runs into it. | `docs/phase-6-admin-metadata.md` |
 | Azure AD SSO + backend auth | Open | L | Legitimately greenfield -- no session/token handling, no user table, no frontend auth state anywhere. Deliberately kept out of this slice -- see the doc's "Why this is its own slice" section -- but still the prerequisite for any real access control on top of the metadata this slice now lets you author. | `docs/phase-6-admin-metadata.md`, `docs/phase-3-ui-shell.md` |

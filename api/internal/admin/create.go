@@ -30,7 +30,7 @@ func createDomain(ctx context.Context, db *bun.DB, req createDomainRequest) (*do
 			return invalid("a domain with code %q already exists", req.Code)
 		}
 
-		d := &metadata.Domain{Code: req.Code, Name: req.Name, DomainType: req.DomainType}
+		d := &metadata.Domain{Code: req.Code, Name: req.Name, DomainType: req.DomainType, RangeMin: req.RangeMin, RangeMax: req.RangeMax}
 		if _, err := tx.NewInsert().Model(d).ExcludeColumn("id").Returning("id").Exec(ctx); err != nil {
 			return fmt.Errorf("insert domain: %w", err)
 		}
@@ -44,7 +44,10 @@ func createDomain(ctx context.Context, db *bun.DB, req createDomainRequest) (*do
 			values = append(values, domainValueResponse{Code: v.Code, Label: v.Label, SortOrder: v.SortOrder})
 		}
 
-		resp = domainResponse{Code: req.Code, Name: req.Name, DomainType: req.DomainType, Values: values}
+		resp = domainResponse{
+			Code: req.Code, Name: req.Name, DomainType: req.DomainType, Values: values,
+			RangeMin: req.RangeMin, RangeMax: req.RangeMax,
+		}
 		return nil
 	})
 	if err != nil {
