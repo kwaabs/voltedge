@@ -2,10 +2,11 @@ import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Loader2, Plus, Tags, Trash2, X } from "lucide-react"
 
+import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { useAdminDomains } from "@/hooks/use-admin"
+import { type AdminDomain, useAdminDomains } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -31,6 +32,7 @@ export function AdminDomainsPage() {
   const [name, setName] = useState("")
   const [values, setValues] = useState<DraftValue[]>([{ code: "", label: "" }])
   const [saving, setSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<AdminDomain | null>(null)
 
   function reset() {
     setCode("")
@@ -220,6 +222,14 @@ export function AdminDomainsPage() {
                     <CardDescription className="font-mono text-xs">{d.code}</CardDescription>
                   </div>
                   <span className="text-muted-foreground text-xs">{d.domain_type}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive size-7"
+                    onClick={() => setDeleteTarget(d)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
                 </CardHeader>
                 {d.values && d.values.length > 0 && (
                   <CardContent className="flex flex-wrap gap-1 pt-0">
@@ -239,6 +249,18 @@ export function AdminDomainsPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        title={`Delete ${deleteTarget?.code ?? "this domain"}?`}
+        description="Only possible while no field constrains its values to this domain -- if any field already references it, deletion is rejected with a clear error instead. This can't be undone."
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onConfirm={async () => {
+          if (!deleteTarget) return
+          await apiFetch(`/admin/domains/${deleteTarget.code}`, { method: "DELETE" })
+          queryClient.invalidateQueries({ queryKey: ["admin", "domains"] })
+        }}
+      />
     </div>
   )
 }

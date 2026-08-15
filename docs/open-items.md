@@ -26,7 +26,14 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-14, a batch of six low-effort open items
+**Last updated:** 2026-08-15, two more Phase 6 quick wins closed:
+editing a feature class's own basic info (`PATCH
+/admin/feature-classes/{code}` -- name/is_diagram_container always,
+geometry_type/srid/network_role only while still draft) and deleting a
+draft feature class or an unreferenced domain/field group, both scoped
+to the provably-safe subset the same way the original Phase 6 slice
+drew its own line around the compiler's real CHECK-constraint limits.
+The day before, a batch of six low-effort open items
 closed at once: `GET /features/{code}` gained real `?sort=`/`?order=`/
 `?status=` query params; establishing a relationship now runs a soft
 `ST_Distance`-based plausibility check (never blocking, just a new
@@ -148,10 +155,10 @@ naming, rotate, remove).
 | Item | Status | Size | Value | Detail |
 |---|---|---|---|---|
 | Edit an already-compiled class's subtypes / an already-referenced domain's values | Open | M | The schema compiler's existing-table path only ever `ALTER TABLE ADD COLUMN` -- a subtype's `CHECK` and a coded domain field's `CHECK` are both written once, at initial `CREATE TABLE`, and never revisited. Needs a compiler change (drop/re-add the constraint, or equivalent) before this is safe to expose in the admin UI. | `docs/phase-6-admin-metadata.md` |
-| Edit a feature class's own basic info after creation | Open | S | This slice's `POST /admin/feature-classes` is create-only -- no `PATCH` endpoint or UI for renaming a class or changing its geometry type/network role after the fact. | `docs/phase-6-admin-metadata.md` |
 | Column type change / rename / delete on an existing field | Open | M–L | The compiler's existing-table path has never supported this, on any class, at any point in this project -- a real design question (data migration on retype, dependent view/constraint handling), not a quick add. | `docs/phase-6-admin-metadata.md` |
 | Range domains in the admin UI | Open | M -- corrected from an original S, see detail | `createDomainRequest` and the domains page only ever build a coded domain's values list. Turned out to be a bigger gap than sizing implied: `metadata.domains` has no `range_min`/`range_max` columns at all -- a range domain's bounds aren't stored *anywhere* in the schema yet, and `api/internal/compiler/ddl.go` already has its own comment flagging this ("nothing to compile into a CHECK for domain_type = 'range' until that's modeled"). An admin form here would have nothing real to write to; needs a migration + compiler CHECK-constraint generation + CRUD validation first, not just a UI addition. | `docs/phase-6-admin-metadata.md`, `api/internal/compiler/ddl.go` |
-| Delete a feature class / domain / field group from the admin UI | Open | S–M | Create-only this slice; deleting an already-compiled class raises the same "what happens to its physical table and real data" question soft-delete already answers for a feature row, just not yet worked through for a whole class. | `docs/phase-6-admin-metadata.md` |
+| Edit a feature class's own basic info after creation | Done | S | `PATCH /admin/feature-classes/{code}` -- `name`/`is_diagram_container` are always editable (pure metadata); `geometry_type`/`srid`/`network_role` only while the class is still draft, since those three are exactly what the compiler builds the physical table's shape from. Inline edit form on the admin feature-classes page, shown only for a draft row. | `docs/phase-6-admin-metadata.md` |
+| Delete a feature class / domain / field group from the admin UI | Done | S–M | Scoped to what's provably safe: a feature class only while still draft (cascade-deletes its subtypes/fields/terminals/symbology_rules, all already `ON DELETE CASCADE`); a domain or field group only while no field currently references it (a friendly pre-check, not a raw foreign-key-violation 500). Deleting an already-compiled class, or a referenced domain/field group, both stay exactly as unresolved as the row originally flagged -- this didn't answer that question, just carved out the subset that never runs into it. | `docs/phase-6-admin-metadata.md` |
 | Azure AD SSO + backend auth | Open | L | Legitimately greenfield -- no session/token handling, no user table, no frontend auth state anywhere. Deliberately kept out of this slice -- see the doc's "Why this is its own slice" section -- but still the prerequisite for any real access control on top of the metadata this slice now lets you author. | `docs/phase-6-admin-metadata.md`, `docs/phase-3-ui-shell.md` |
 | Admin metadata UI: feature class catalog + create wizard | Done | L | `api/internal/admin` (new package, mounted at `/admin`) plus four new frontend routes (`/admin/feature-classes`, `.../new`, `/admin/domains`, `/admin/field-groups`) -- the first write path into `metadata.*` that goes through the API instead of hand-written SQL. Create-a-domain, create-a-field-group, and create-a-feature-class-end-to-end (subtypes, fields, terminals, one default symbology rule, in one transaction) all real; compile is a direct call to the same `compiler.Compile` the CLI has always used. Deliberately scoped to purely-additive operations on a brand-new class only -- see the doc for the CHECK-constraint finding that drew that line. Curl- and browser-verified end to end. | `docs/phase-6-admin-metadata.md` |
 

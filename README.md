@@ -219,9 +219,14 @@ having to reread every phase doc's own "What's still open" section.
   and authorization stay a distinct, later effort within this phase —
   genuinely greenfield work, not something to design under the
   time pressure of shipping the metadata UI. Curl- and
-  browser-verified end to end.
+  browser-verified end to end. Editing a class's own basic info
+  (`PATCH /admin/feature-classes/{code}`) and deleting a draft class or
+  an unreferenced domain/field group shipped later the same way —
+  scoped to what's provably safe rather than the full editing/deletion
+  story.
   Write-up: [`docs/phase-6-admin-metadata.md`](docs/phase-6-admin-metadata.md).
-  Still ahead: editing an already-compiled class, access control, asset
+  Still ahead: editing an already-compiled class's subtypes/domain
+  values, access control, asset
   numbering, units/locale, voltage-boundary and phase-aware tracing,
   load testing.
 - **Phase 7 — Field collection**: mobile/offline data capture for field
