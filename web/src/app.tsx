@@ -5,6 +5,7 @@ import { MapLayout } from "@/components/layout/map-layout"
 import { Toaster } from "@/components/ui/toaster"
 import { useThemeEffect } from "@/hooks/use-theme-effect"
 import { AdminDomainsPage } from "@/routes/admin-domains"
+import { AdminFeatureClassDetailPage } from "@/routes/admin-feature-class-detail"
 import { AdminFeatureClassNewPage } from "@/routes/admin-feature-class-new"
 import { AdminFeatureClassesPage } from "@/routes/admin-feature-classes"
 import { AdminFieldGroupsPage } from "@/routes/admin-field-groups"
@@ -41,6 +42,7 @@ export function App() {
           <Route path="relationships" element={<RelationshipsPage />} />
           <Route path="admin/feature-classes" element={<AdminFeatureClassesPage />} />
           <Route path="admin/feature-classes/new" element={<AdminFeatureClassNewPage />} />
+          <Route path="admin/feature-classes/:code" element={<AdminFeatureClassDetailPage />} />
           <Route path="admin/domains" element={<AdminDomainsPage />} />
           <Route path="admin/field-groups" element={<AdminFieldGroupsPage />} />
           <Route path="settings" element={<SettingsPage />} />

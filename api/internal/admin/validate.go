@@ -19,6 +19,26 @@ var codePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 // voltage_class, ...).
 var fieldNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
+// reservedFieldNames are api/internal/compiler/ddl.go's own system
+// columns (buildCreateTable): id/name/status/deleted_at/created_at/
+// updated_at unconditionally, subtype/geom only when a class actually
+// has subtypes/geometry. A brand-new class naming a field one of the
+// unconditional five would fail loudly at CREATE TABLE time (Postgres
+// rejects a duplicate column outright) -- but addField's own
+// existingCols skip logic (compiler.go's ADD COLUMN loop) treats
+// "already a column" as nothing to add, not an error, on an
+// already-compiled class. Left unchecked, a field literally named
+// "status" would silently ride on the real system status column: the
+// CRUD engine would let a client overwrite it as a plain attribute, and
+// a domain-linked "status" field would have syncCheckConstraints
+// (ddl.go) overwrite its real draft/published CHECK with the domain's
+// own values -- caught during this endpoint's own verification, not
+// theoretical.
+var reservedFieldNames = map[string]bool{
+	"id": true, "name": true, "subtype": true, "status": true,
+	"deleted_at": true, "geom": true, "created_at": true, "updated_at": true,
+}
+
 func validateCode(label, code string) error {
 	if !codePattern.MatchString(code) {
 		return invalid("%s %q must be upper-case letters, digits, and underscores, starting with a letter", label, code)
@@ -65,6 +85,26 @@ func validateCreateDomain(req createDomainRequest) error {
 		if *req.RangeMin > *req.RangeMax {
 			return invalid("range_min must be less than or equal to range_max")
 		}
+	}
+	return nil
+}
+
+// validateAddField checks a new field being added to an already-existing
+// feature class -- the same per-field structural rules
+// validateCreateFeatureClass applies within a create request, just for
+// one field added on its own. Cross-references (domain_code/group_code
+// resolving to a real row, required_for_subtypes codes existing on this
+// class) are DB questions, checked in add.go where the actual rows are
+// available.
+func validateAddField(req fieldRequest) error {
+	if !fieldNamePattern.MatchString(req.Name) {
+		return invalid("field name %q must be lower-case letters, digits, and underscores, starting with a letter", req.Name)
+	}
+	if reservedFieldNames[req.Name] {
+		return invalid("field name %q is reserved by the compiler's own system columns", req.Name)
+	}
+	if !validDataTypes[req.DataType] {
+		return invalid("field %q: data_type must be one of text, numeric, integer, boolean, date, timestamp, uuid, jsonb", req.Name)
 	}
 	return nil
 }
@@ -163,6 +203,9 @@ func validateCreateFeatureClass(req createFeatureClassRequest) error {
 	for _, f := range req.Fields {
 		if !fieldNamePattern.MatchString(f.Name) {
 			return invalid("field name %q must be lower-case letters, digits, and underscores, starting with a letter", f.Name)
+		}
+		if reservedFieldNames[f.Name] {
+			return invalid("field name %q is reserved by the compiler's own system columns", f.Name)
 		}
 		if fieldNames[f.Name] {
 			return invalid("field name %q is repeated", f.Name)

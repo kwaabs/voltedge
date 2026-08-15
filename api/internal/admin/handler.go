@@ -2,11 +2,12 @@
 // feature class, subtype, field, domain, and field group in this project
 // has been authored by hand so far (seed/*.sql, migrations/*.sql), never
 // through the API. See docs/phase-6-admin-metadata.md for the full
-// design. Adding a subtype to an already-compiled class, or a value to
-// an already-referenced coded domain, is real and safe (see
-// api/internal/compiler's syncCheckConstraints) -- editing/removing one
-// still isn't, since that's a narrowing change the compiler has no safe
-// story for.
+// design. Adding a subtype to an already-compiled class, a value to an
+// already-referenced coded domain, or a new field to an already-existing
+// class, is real and safe -- editing/removing one still isn't, since
+// that's a narrowing change (subtypes/domain values, via
+// api/internal/compiler's syncCheckConstraints) or a change the compiler
+// has never supported at all (fields: rename/retype/drop).
 package admin
 
 import (
@@ -26,6 +27,7 @@ import (
 //	PATCH  /feature-classes/{code}         edit name/is_diagram_container (any class), or geometry_type/srid/network_role (draft only)
 //	DELETE /feature-classes/{code}         delete a draft (never-compiled) class
 //	POST   /feature-classes/{code}/subtypes add one subtype to an existing class (any status) -- recompile to actually enforce it
+//	POST   /feature-classes/{code}/fields  add one field to an existing class (any status) -- recompile to actually add the column
 //	POST   /feature-classes/{code}/compile compile/recompile -- wraps api/internal/compiler.Compile directly
 //	GET    /domains                        every domain with its values
 //	POST   /domains                        create a domain, optionally with initial coded values
@@ -41,6 +43,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Patch("/feature-classes/{code}", updateFeatureClassHandler(db))
 	r.Delete("/feature-classes/{code}", deleteFeatureClassHandler(db))
 	r.Post("/feature-classes/{code}/subtypes", addSubtypeHandler(db))
+	r.Post("/feature-classes/{code}/fields", addFieldHandler(db))
 	r.Post("/feature-classes/{code}/compile", compileFeatureClassHandler(db))
 	r.Get("/domains", listDomainsHandler(db))
 	r.Post("/domains", createDomainHandler(db))
@@ -127,6 +130,22 @@ func addSubtypeHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		result, err := addSubtype(r.Context(), db, code, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func addFieldHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		var req fieldRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := addField(r.Context(), db, code, req)
 		if err != nil {
 			writeError(w, err)
 			return
