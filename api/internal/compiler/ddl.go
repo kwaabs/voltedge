@@ -9,6 +9,7 @@ package compiler
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -171,6 +172,104 @@ func buildCreateTable(qualifiedTable string, fc *metadata.FeatureClass, fields [
 
 	stmt := fmt.Sprintf("CREATE TABLE %s (\n    %s\n)", qualifiedTable, strings.Join(cols, ",\n    "))
 	return stmt, nil
+}
+
+// syncCheckConstraints rebuilds the subtype CHECK constraint and every
+// coded-domain-linked field's CHECK constraint on an already-compiled
+// table to match current metadata -- called every time Compile runs on
+// an existing table, not just when a column is missing. This is what
+// makes it safe to add a new subtype to an already-compiled class, or a
+// new value to a domain a compiled field already uses: recompiling
+// widens the constraint to match.
+//
+// Safe because it only ever DROP+ADDs the constraint itself, never
+// touches a row -- widening (the only kind of change
+// api/internal/admin's own "add a subtype"/"add a domain value"
+// endpoints can ever produce) trivially satisfies existing data.
+// Postgres validates ADD CONSTRAINT against existing rows by default;
+// if metadata ever narrowed instead (outside this API's own
+// additive-only surface -- there's no "remove a subtype" endpoint),
+// the ADD CONSTRAINT would fail outright naming the offending rows,
+// a safe loud failure rather than silently applying a narrower rule.
+func syncCheckConstraints(ctx context.Context, tx bun.Tx, qualifiedTable, tableName string, fields []metadata.Field, subtypes []metadata.Subtype, domains map[string]*metadata.Domain, domainValues map[string][]string) error {
+	if len(subtypes) > 0 {
+		codes := make([]string, len(subtypes))
+		for i, s := range subtypes {
+			codes[i] = fmt.Sprintf("%d", s.Code)
+		}
+		if err := replaceCheckConstraint(ctx, tx, qualifiedTable, tableName, "subtype",
+			fmt.Sprintf("subtype IN (%s)", strings.Join(codes, ", "))); err != nil {
+			return err
+		}
+	}
+
+	for _, f := range fields {
+		if f.DomainID == nil {
+			continue
+		}
+		domain, ok := domains[*f.DomainID]
+		if !ok || domain.DomainType != "coded" {
+			continue
+		}
+		values := domainValues[domain.ID]
+		if len(values) == 0 {
+			continue
+		}
+		if err := replaceCheckConstraint(ctx, tx, qualifiedTable, tableName, f.Name,
+			fmt.Sprintf("%s IN (%s)", quoteIdent(f.Name), quoteLiteralList(values))); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// replaceCheckConstraint drops whatever CHECK constraint currently
+// covers columnName (if any -- a fresh CREATE TABLE already has one,
+// named by Postgres's own default convention, but this doesn't assume
+// that naming and looks it up instead) and adds a new one under a
+// stable, self-chosen name instead of whatever Postgres would pick.
+func replaceCheckConstraint(ctx context.Context, tx bun.Tx, qualifiedTable, tableName, columnName, checkExpr string) error {
+	constraintName, err := findCheckConstraint(ctx, tx, PhysicalSchema, tableName, columnName)
+	if err != nil {
+		return err
+	}
+	if constraintName != "" {
+		stmt := fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s", qualifiedTable, quoteIdent(constraintName))
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("drop constraint on %s: %w", columnName, err)
+		}
+	}
+	newName := tableName + "_" + columnName + "_check"
+	stmt := fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s)", qualifiedTable, quoteIdent(newName), checkExpr)
+	if _, err := tx.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("add constraint on %s: %w", columnName, err)
+	}
+	return nil
+}
+
+// findCheckConstraint returns the name of the CHECK constraint (if any)
+// currently covering one column, via information_schema -- not a
+// guess at Postgres's own default naming convention, which could in
+// principle differ (e.g. if a name got truncated at the 63-byte
+// identifier limit, the same reason migrations/0019 names one of its
+// own constraints explicitly rather than relying on the derived name).
+func findCheckConstraint(ctx context.Context, db bun.IDB, schema, table, column string) (string, error) {
+	var name string
+	err := db.QueryRowContext(ctx, `
+		SELECT tc.constraint_name
+		FROM information_schema.table_constraints tc
+		JOIN information_schema.constraint_column_usage ccu
+		  ON ccu.constraint_name = tc.constraint_name AND ccu.constraint_schema = tc.constraint_schema
+		WHERE tc.constraint_type = 'CHECK'
+		  AND tc.table_schema = ? AND tc.table_name = ? AND ccu.column_name = ?
+		LIMIT 1`, schema, table, column).Scan(&name)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", fmt.Errorf("compiler: finding check constraint on %s.%s: %w", table, column, err)
+	}
+	return name, nil
 }
 
 // tableExists checks information_schema, not pg_catalog directly, so this

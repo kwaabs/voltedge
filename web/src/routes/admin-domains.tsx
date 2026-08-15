@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Loader2, Plus, Tags, Trash2, X } from "lucide-react"
+import { ListPlus, Loader2, Plus, Tags, Trash2, X } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { inputClass } from "@/components/map/field-utils"
@@ -10,9 +10,91 @@ import { type AdminDomain, useAdminDomains } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
 
+const labelClass = "text-xs font-medium"
+
 interface DraftValue {
   code: string
   label: string
+}
+
+/**
+ * Add one new coded value to an existing domain -- mirrors
+ * AddSubtypeRow in admin-feature-classes.tsx. Unlike that row, this
+ * page doesn't know which feature classes (if any) reference this
+ * domain through a compiled field, so the "recompile to apply" note
+ * here can only point at the feature-classes page rather than offer a
+ * targeted recompile button.
+ */
+function AddDomainValueRow({ domain, onDone }: { domain: AdminDomain; onDone: () => void }) {
+  const [code, setCode] = useState("")
+  const [label, setLabel] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [added, setAdded] = useState(false)
+  const queryClient = useQueryClient()
+
+  const existingCodes = new Set((domain.values ?? []).map((v) => v.code))
+  const canSave = code.trim().length > 0 && label.trim().length > 0 && !existingCodes.has(code.trim())
+
+  async function handleAdd() {
+    setSaving(true)
+    try {
+      const nextSortOrder = (domain.values?.length ?? 0) + 1
+      await apiFetch(`/admin/domains/${domain.code}/values`, {
+        method: "POST",
+        body: JSON.stringify({ code: code.trim(), label: label.trim(), sort_order: nextSortOrder }),
+      })
+      queryClient.invalidateQueries({ queryKey: ["admin", "domains"] })
+      setCode("")
+      setLabel("")
+      setAdded(true)
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not add this value.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between py-3">
+        <CardTitle className="text-sm">Add value to {domain.code}</CardTitle>
+        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
+          <X className="size-4" />
+        </Button>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {domain.values && domain.values.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {domain.values.map((v) => (
+              <span key={v.code} className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+                {v.label}
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex items-end gap-2">
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Code</label>
+            <input className={inputClass} value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. LED" />
+          </div>
+          <div className="flex flex-1 flex-col gap-1">
+            <label className={labelClass}>Label</label>
+            <input className={inputClass} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. LED" />
+          </div>
+          <Button size="sm" onClick={handleAdd} disabled={!canSave || saving}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            Add
+          </Button>
+        </div>
+        {added && (
+          <p className="text-muted-foreground text-xs">
+            Added to metadata -- recompile any feature class using this domain to actually allow it on real
+            features.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
 }
 
 /**
@@ -33,6 +115,7 @@ export function AdminDomainsPage() {
   const [values, setValues] = useState<DraftValue[]>([{ code: "", label: "" }])
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<AdminDomain | null>(null)
+  const [addingValueCode, setAddingValueCode] = useState<string | null>(null)
 
   function reset() {
     setCode("")
@@ -213,39 +296,54 @@ export function AdminDomainsPage() {
           <p className="text-muted-foreground text-sm">No domains yet.</p>
         ) : (
           <div className="flex flex-col gap-2">
-            {data.domains.map((d) => (
-              <Card key={d.code}>
-                <CardHeader className="flex flex-row items-center gap-2 pb-2">
-                  <Tags className="text-muted-foreground size-4" />
-                  <div className="min-w-0 flex-1">
-                    <CardTitle className="text-sm">{d.name}</CardTitle>
-                    <CardDescription className="font-mono text-xs">{d.code}</CardDescription>
-                  </div>
-                  <span className="text-muted-foreground text-xs">{d.domain_type}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-destructive size-7"
-                    onClick={() => setDeleteTarget(d)}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </CardHeader>
-                {d.values && d.values.length > 0 && (
-                  <CardContent className="flex flex-wrap gap-1 pt-0">
-                    {d.values.map((v) => (
-                      <span
-                        key={v.code}
-                        className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs"
-                        title={v.code}
+            {data.domains.map((d) =>
+              addingValueCode === d.code ? (
+                <AddDomainValueRow key={d.code} domain={d} onDone={() => setAddingValueCode(null)} />
+              ) : (
+                <Card key={d.code}>
+                  <CardHeader className="flex flex-row items-center gap-2 pb-2">
+                    <Tags className="text-muted-foreground size-4" />
+                    <div className="min-w-0 flex-1">
+                      <CardTitle className="text-sm">{d.name}</CardTitle>
+                      <CardDescription className="font-mono text-xs">{d.code}</CardDescription>
+                    </div>
+                    <span className="text-muted-foreground text-xs">{d.domain_type}</span>
+                    {d.domain_type === "coded" && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        title="Add value"
+                        onClick={() => setAddingValueCode(d.code)}
                       >
-                        {v.label}
-                      </span>
-                    ))}
-                  </CardContent>
-                )}
-              </Card>
-            ))}
+                        <ListPlus className="size-4" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive size-7"
+                      onClick={() => setDeleteTarget(d)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </CardHeader>
+                  {d.values && d.values.length > 0 && (
+                    <CardContent className="flex flex-wrap gap-1 pt-0">
+                      {d.values.map((v) => (
+                        <span
+                          key={v.code}
+                          className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs"
+                          title={v.code}
+                        >
+                          {v.label}
+                        </span>
+                      ))}
+                    </CardContent>
+                  )}
+                </Card>
+              ),
+            )}
           </div>
         )}
       </div>

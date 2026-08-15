@@ -26,7 +26,26 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-15, two more Phase 6 quick wins closed:
+**Last updated:** 2026-08-15, the Phase 6 "edit an already-compiled
+class's subtypes / an already-referenced domain's values" gap closed
+for its safe half: *adding* a new subtype or domain value to an
+already-compiled class is now real (`api/internal/compiler`'s
+`syncCheckConstraints` rebuilds the affected `CHECK` constraint on
+every recompile; `POST /admin/feature-classes/{code}/subtypes` and
+`POST /admin/domains/{code}/values` insert the metadata, an existing
+recompile call applies it), backend curl-verified extensively
+(pre-recompile rejection, post-recompile acceptance, idempotency,
+no regressions across every other compiled class). *Editing or
+removing* an existing subtype/value stays out of scope -- only ever
+additive, matching what Postgres's constraint-widening safety
+argument actually covers. The frontend (an inline "add subtype"/"add
+value" row per class/domain, plus a recompile trigger) is
+typechecked/linted clean but this session's sandbox couldn't pull the
+Docker images needed to browser-verify it -- flagged explicitly in
+`docs/phase-6-admin-metadata.md` rather than claimed done. Range
+domains (below) is the other half of what was originally asked
+alongside this and remains open, tracked separately.
+Before that, two more Phase 6 quick wins closed:
 editing a feature class's own basic info (`PATCH
 /admin/feature-classes/{code}` -- name/is_diagram_container always,
 geometry_type/srid/network_role only while still draft) and deleting a
@@ -160,7 +179,7 @@ naming, rotate, remove).
 
 | Item | Status | Size | Value | Detail |
 |---|---|---|---|---|
-| Edit an already-compiled class's subtypes / an already-referenced domain's values | Open | M | The schema compiler's existing-table path only ever `ALTER TABLE ADD COLUMN` -- a subtype's `CHECK` and a coded domain field's `CHECK` are both written once, at initial `CREATE TABLE`, and never revisited. Needs a compiler change (drop/re-add the constraint, or equivalent) before this is safe to expose in the admin UI. | `docs/phase-6-admin-metadata.md` |
+| Add a subtype / domain value to an already-compiled class | Done | M | `syncCheckConstraints` (`api/internal/compiler/ddl.go`) now rebuilds the subtype/coded-domain `CHECK` constraint on every recompile of an existing table, via `information_schema`-driven `DROP CONSTRAINT`/`ADD CONSTRAINT` -- safe because every operation the new `POST /admin/feature-classes/{code}/subtypes` and `POST /admin/domains/{code}/values` endpoints can produce is strictly widening, which Postgres's default `ADD CONSTRAINT` validation always accepts against existing rows. Editing or removing an existing subtype/value is still not exposed anywhere -- only adding. Backend curl-verified; frontend typechecked/linted but not yet browser-verified (see the doc). | `docs/phase-6-admin-metadata.md` |
 | Column type change / rename / delete on an existing field | Open | M–L | The compiler's existing-table path has never supported this, on any class, at any point in this project -- a real design question (data migration on retype, dependent view/constraint handling), not a quick add. | `docs/phase-6-admin-metadata.md` |
 | Range domains in the admin UI | Open | M -- corrected from an original S, see detail | `createDomainRequest` and the domains page only ever build a coded domain's values list. Turned out to be a bigger gap than sizing implied: `metadata.domains` has no `range_min`/`range_max` columns at all -- a range domain's bounds aren't stored *anywhere* in the schema yet, and `api/internal/compiler/ddl.go` already has its own comment flagging this ("nothing to compile into a CHECK for domain_type = 'range' until that's modeled"). An admin form here would have nothing real to write to; needs a migration + compiler CHECK-constraint generation + CRUD validation first, not just a UI addition. | `docs/phase-6-admin-metadata.md`, `api/internal/compiler/ddl.go` |
 | Edit a feature class's own basic info after creation | Done | S | `PATCH /admin/feature-classes/{code}` -- `name`/`is_diagram_container` are always editable (pure metadata); `geometry_type`/`srid`/`network_role` only while the class is still draft, since those three are exactly what the compiler builds the physical table's shape from. Inline edit form on the admin feature-classes page, shown only for a draft row. | `docs/phase-6-admin-metadata.md` |

@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Loader2, Pencil, Plus, Trash2, X } from "lucide-react"
+import { ListPlus, Loader2, Pencil, Plus, Trash2, X } from "lucide-react"
 import { Link } from "react-router"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { type AdminFeatureClassSummary, useAdminFeatureClasses } from "@/hooks/use-admin"
+import { useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -124,6 +125,110 @@ function EditFeatureClassRow({ fc, onDone }: { fc: AdminFeatureClassSummary; onD
 }
 
 /**
+ * Add one new subtype to an existing class, any status -- unlike
+ * EditFeatureClassRow, deliberately not draft-gated: adding a subtype
+ * to an already-compiled class is exactly the point of this control
+ * (api/internal/admin/add.go, api/internal/compiler's
+ * syncCheckConstraints). The metadata insert alone doesn't make it
+ * usable, though -- shows a clear "recompile to apply" note, and for
+ * an already-compiled class, an inline Recompile button right here so
+ * the whole add-then-apply flow never has to leave this row.
+ */
+function AddSubtypeRow({ fc, onDone }: { fc: AdminFeatureClassSummary; onDone: () => void }) {
+  const { data: schema } = useFeatureClassSchema(fc.code)
+  const [code, setCode] = useState((schema?.subtypes.length ?? 0) + 1)
+  const [name, setName] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [recompiling, setRecompiling] = useState(false)
+  const [added, setAdded] = useState(false)
+  const queryClient = useQueryClient()
+
+  const canSave = name.trim().length > 0 && !schema?.subtypes.some((s) => s.code === code)
+
+  async function handleAdd() {
+    setSaving(true)
+    try {
+      await apiFetch(`/admin/feature-classes/${fc.code}/subtypes`, {
+        method: "POST",
+        body: JSON.stringify({ code, name: name.trim() }),
+      })
+      queryClient.invalidateQueries({ queryKey: ["feature-class-schema", fc.code] })
+      queryClient.invalidateQueries({ queryKey: ["admin", "feature-classes"] })
+      setName("")
+      setCode((c) => c + 1)
+      setAdded(true)
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not add this subtype.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleRecompile() {
+    setRecompiling(true)
+    try {
+      await apiFetch(`/admin/feature-classes/${fc.code}/compile`, { method: "POST" })
+      queryClient.invalidateQueries({ queryKey: ["admin", "feature-classes"] })
+      queryClient.invalidateQueries({ queryKey: ["feature-classes"] })
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not recompile this class.")
+    } finally {
+      setRecompiling(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between py-3">
+        <CardTitle className="text-sm">Add subtype to {fc.code}</CardTitle>
+        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
+          <X className="size-4" />
+        </Button>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {schema && schema.subtypes.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {schema.subtypes.map((s) => (
+              <span key={s.code} className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+                {s.code}: {s.name}
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex items-end gap-2">
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Code</label>
+            <input
+              type="number"
+              className={`${inputClass} w-20`}
+              value={code}
+              onChange={(e) => setCode(Number(e.target.value))}
+            />
+          </div>
+          <div className="flex flex-1 flex-col gap-1">
+            <label className={labelClass}>Name</label>
+            <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. recloser" />
+          </div>
+          <Button size="sm" onClick={handleAdd} disabled={!canSave || saving}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            Add
+          </Button>
+        </div>
+        {added && fc.status !== "draft" && (
+          <div className="bg-muted flex items-center justify-between rounded-md px-3 py-2 text-xs">
+            <span>Added to metadata -- recompile to actually allow it on real features.</span>
+            <Button variant="outline" size="sm" onClick={handleRecompile} disabled={recompiling}>
+              {recompiling && <Loader2 className="size-4 animate-spin" />}
+              Recompile
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
  * The admin catalog view -- every feature class regardless of status
  * (draft/active/deprecated), unlike the map/layers panel's own
  * useFeatureClasses hook (active only). "Compile" is offered inline for
@@ -140,6 +245,7 @@ export function AdminFeatureClassesPage() {
   const queryClient = useQueryClient()
   const [compiling, setCompiling] = useState<string | null>(null)
   const [editingCode, setEditingCode] = useState<string | null>(null)
+  const [addingSubtypeCode, setAddingSubtypeCode] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminFeatureClassSummary | null>(null)
 
   async function handleCompile(code: string) {
@@ -178,6 +284,13 @@ export function AdminFeatureClassesPage() {
           <EditFeatureClassRow
             fc={data.feature_classes.find((f) => f.code === editingCode)!}
             onDone={() => setEditingCode(null)}
+          />
+        )}
+
+        {addingSubtypeCode && data && (
+          <AddSubtypeRow
+            fc={data.feature_classes.find((f) => f.code === addingSubtypeCode)!}
+            onDone={() => setAddingSubtypeCode(null)}
           />
         )}
 
@@ -226,6 +339,15 @@ export function AdminFeatureClassesPage() {
                     <td className="px-3 py-2">{fc.field_count}</td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          title="Add subtype"
+                          onClick={() => setAddingSubtypeCode(fc.code)}
+                        >
+                          <ListPlus className="size-4" />
+                        </Button>
                         {fc.status === "draft" && (
                           <>
                             <Button variant="ghost" size="icon" className="size-8" onClick={() => setEditingCode(fc.code)}>
@@ -239,17 +361,17 @@ export function AdminFeatureClassesPage() {
                             >
                               <Trash2 className="size-4" />
                             </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleCompile(fc.code)}
-                              disabled={compiling === fc.code}
-                            >
-                              {compiling === fc.code && <Loader2 className="size-4 animate-spin" />}
-                              Compile
-                            </Button>
                           </>
                         )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleCompile(fc.code)}
+                          disabled={compiling === fc.code}
+                        >
+                          {compiling === fc.code && <Loader2 className="size-4 animate-spin" />}
+                          {fc.status === "draft" ? "Compile" : "Recompile"}
+                        </Button>
                       </div>
                     </td>
                   </tr>

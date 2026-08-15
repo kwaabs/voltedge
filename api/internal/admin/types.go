@@ -107,8 +107,15 @@ type fieldGroupResponse struct {
 // subtypeRequest is one subtype defined as part of creating a brand-new
 // feature class -- Code must be unique within the request, and is what
 // fieldRequest.RequiredForSubtypes and terminalRequest.SubtypeCode refer
-// back to below, before any of these rows have real ids yet.
+// back to below, before any of these rows have real ids yet. Reused
+// as-is for addSubtype's POST .../subtypes body (add.go), which adds a
+// single subtype to an already-existing class instead.
 type subtypeRequest struct {
+	Code int    `json:"code"`
+	Name string `json:"name"`
+}
+
+type subtypeResponse struct {
 	Code int    `json:"code"`
 	Name string `json:"name"`
 }
