@@ -87,10 +87,12 @@ type SubtypeFieldRule struct {
 type Domain struct {
 	bun.BaseModel `bun:"table:metadata.domains"`
 
-	ID         string `bun:"id,pk"`
-	Code       string `bun:"code"`
-	Name       string `bun:"name"`
-	DomainType string `bun:"domain_type"`
+	ID         string   `bun:"id,pk"`
+	Code       string   `bun:"code"`
+	Name       string   `bun:"name"`
+	DomainType string   `bun:"domain_type"`
+	RangeMin   *float64 `bun:"range_min"`
+	RangeMax   *float64 `bun:"range_max"`
 }
 
 // DomainValue mirrors metadata.domain_values -- see migrations/0004.

@@ -17,6 +17,8 @@ export interface FieldSchema {
   editable_after_publish: boolean
   domain_code?: string
   domain_values?: string[]
+  range_min?: number
+  range_max?: number
   required_for_subtypes?: number[]
 }
 

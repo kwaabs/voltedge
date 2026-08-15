@@ -158,6 +158,8 @@ type fieldSchema struct {
 	EditableAfterPublish bool     `json:"editable_after_publish"`
 	DomainCode           *string  `json:"domain_code,omitempty"`
 	DomainValues         []string `json:"domain_values,omitempty"`
+	RangeMin             *float64 `json:"range_min,omitempty"`
+	RangeMax             *float64 `json:"range_max,omitempty"`
 	RequiredForSubtypes  []int    `json:"required_for_subtypes,omitempty"`
 }
 
@@ -316,6 +318,9 @@ func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 					fs.DomainCode = &code
 					if d.DomainType == "coded" {
 						fs.DomainValues = loaded.DomainValues[d.ID]
+					} else if d.DomainType == "range" {
+						fs.RangeMin = d.RangeMin
+						fs.RangeMax = d.RangeMax
 					}
 				}
 			}

@@ -205,12 +205,18 @@ func validateValue(loaded *metadata.Loaded, f *metadata.Field, value any) (any, 
 		if !ok || n != float64(int64(n)) {
 			return nil, invalid("field %q must be a whole number", f.Name)
 		}
+		if err := validateDomainRange(loaded, f, n); err != nil {
+			return nil, err
+		}
 		return int64(n), nil
 
 	case "numeric":
 		n, ok := value.(float64)
 		if !ok {
 			return nil, invalid("field %q must be a number", f.Name)
+		}
+		if err := validateDomainRange(loaded, f, n); err != nil {
+			return nil, err
 		}
 		return n, nil
 
@@ -249,6 +255,26 @@ func validateValue(loaded *metadata.Loaded, f *metadata.Field, value any) (any, 
 	default:
 		return nil, invalid("field %q has an unrecognized data_type %q", f.Name, f.DataType)
 	}
+}
+
+// validateDomainRange mirrors the coded-domain membership check above,
+// for a numeric/integer field linked to a range domain -- an out-of-range
+// value gets a clean 400 here instead of reaching the database's own
+// BETWEEN CHECK constraint (compiler/ddl.go). A range domain with either
+// bound unset compiles with no CHECK at all (see ddl.go), so this stays
+// a no-op the same way, rather than rejecting everything.
+func validateDomainRange(loaded *metadata.Loaded, f *metadata.Field, n float64) error {
+	if f.DomainID == nil {
+		return nil
+	}
+	domain, ok := loaded.Domains[*f.DomainID]
+	if !ok || domain.DomainType != "range" || domain.RangeMin == nil || domain.RangeMax == nil {
+		return nil
+	}
+	if n < *domain.RangeMin || n > *domain.RangeMax {
+		return invalid("field %q value %v is outside %s's range [%v, %v]", f.Name, n, domain.Code, *domain.RangeMin, *domain.RangeMax)
+	}
+	return nil
 }
 
 func contains(values []string, target string) bool {

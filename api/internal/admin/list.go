@@ -92,7 +92,10 @@ func listDomains(ctx context.Context, db *bun.DB) ([]domainResponse, error) {
 
 	out := make([]domainResponse, len(domains))
 	for i, d := range domains {
-		out[i] = domainResponse{Code: d.Code, Name: d.Name, DomainType: d.DomainType, Values: valuesByDomain[d.ID]}
+		out[i] = domainResponse{
+			Code: d.Code, Name: d.Name, DomainType: d.DomainType, Values: valuesByDomain[d.ID],
+			RangeMin: d.RangeMin, RangeMax: d.RangeMax,
+		}
 	}
 	return out, nil
 }

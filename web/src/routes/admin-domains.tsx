@@ -101,9 +101,10 @@ function AddDomainValueRow({ domain, onDone }: { domain: AdminDomain; onDone: ()
  * A domain is shared reference data -- fields across many feature
  * classes point at the same one (see docs/metadata-core.md) -- so it
  * gets its own page rather than being authored inline inside the
- * feature-class wizard. Coded domains only: a range domain's own bounds
- * aren't modeled by api/internal/admin yet (see that package's own doc
- * comment), so this form only ever builds the values list.
+ * feature-class wizard. Either domain_type is real here: coded builds
+ * the values list, range sets range_min/range_max (a plain numeric
+ * bound, enforced by api/internal/compiler as a BETWEEN CHECK on any
+ * field that uses it -- see migrations/0020).
  */
 export function AdminDomainsPage() {
   const { data, isPending, isError } = useAdminDomains()
@@ -112,7 +113,10 @@ export function AdminDomainsPage() {
   const [open, setOpen] = useState(false)
   const [code, setCode] = useState("")
   const [name, setName] = useState("")
+  const [domainType, setDomainType] = useState<"coded" | "range">("coded")
   const [values, setValues] = useState<DraftValue[]>([{ code: "", label: "" }])
+  const [rangeMin, setRangeMin] = useState("")
+  const [rangeMax, setRangeMax] = useState("")
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<AdminDomain | null>(null)
   const [addingValueCode, setAddingValueCode] = useState<string | null>(null)
@@ -120,27 +124,30 @@ export function AdminDomainsPage() {
   function reset() {
     setCode("")
     setName("")
+    setDomainType("coded")
     setValues([{ code: "", label: "" }])
+    setRangeMin("")
+    setRangeMax("")
   }
 
   const canSave =
     code.trim().length > 0 &&
     name.trim().length > 0 &&
-    values.length > 0 &&
-    values.every((v) => v.code.trim().length > 0 && v.label.trim().length > 0)
+    (domainType === "coded"
+      ? values.length > 0 && values.every((v) => v.code.trim().length > 0 && v.label.trim().length > 0)
+      : rangeMin.trim().length > 0 && rangeMax.trim().length > 0 && Number(rangeMin) <= Number(rangeMax))
 
   async function handleSave() {
     setSaving(true)
     try {
-      await apiFetch("/admin/domains", {
-        method: "POST",
-        body: JSON.stringify({
-          code: code.trim(),
-          name: name.trim(),
-          domain_type: "coded",
-          values: values.map((v, i) => ({ code: v.code.trim(), label: v.label.trim(), sort_order: i + 1 })),
-        }),
-      })
+      const body: Record<string, unknown> = { code: code.trim(), name: name.trim(), domain_type: domainType }
+      if (domainType === "coded") {
+        body.values = values.map((v, i) => ({ code: v.code.trim(), label: v.label.trim(), sort_order: i + 1 }))
+      } else {
+        body.range_min = Number(rangeMin)
+        body.range_max = Number(rangeMax)
+      }
+      await apiFetch("/admin/domains", { method: "POST", body: JSON.stringify(body) })
       queryClient.invalidateQueries({ queryKey: ["admin", "domains"] })
       setOpen(false)
       reset()
@@ -216,53 +223,104 @@ export function AdminDomainsPage() {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-medium">
-                  Values <span className="text-destructive">*</span>
-                </label>
-                {values.map((v, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <input
-                      className={inputClass}
-                      value={v.code}
-                      onChange={(e) => {
-                        const next = [...values]
-                        next[i] = { ...next[i], code: e.target.value }
-                        setValues(next)
-                      }}
-                      placeholder="code, e.g. LED"
-                    />
-                    <input
-                      className={inputClass}
-                      value={v.label}
-                      onChange={(e) => {
-                        const next = [...values]
-                        next[i] = { ...next[i], label: e.target.value }
-                        setValues(next)
-                      }}
-                      placeholder="label, e.g. LED"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 shrink-0"
-                      onClick={() => setValues(values.filter((_, vi) => vi !== i))}
-                      disabled={values.length === 1}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </div>
-                ))}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="self-start"
-                  onClick={() => setValues([...values, { code: "", label: "" }])}
-                >
-                  <Plus className="size-4" />
-                  Add value
-                </Button>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium">Type</label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={domainType === "coded" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setDomainType("coded")}
+                  >
+                    Coded values
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={domainType === "range" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setDomainType("range")}
+                  >
+                    Numeric range
+                  </Button>
+                </div>
               </div>
+
+              {domainType === "coded" ? (
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-medium">
+                    Values <span className="text-destructive">*</span>
+                  </label>
+                  {values.map((v, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input
+                        className={inputClass}
+                        value={v.code}
+                        onChange={(e) => {
+                          const next = [...values]
+                          next[i] = { ...next[i], code: e.target.value }
+                          setValues(next)
+                        }}
+                        placeholder="code, e.g. LED"
+                      />
+                      <input
+                        className={inputClass}
+                        value={v.label}
+                        onChange={(e) => {
+                          const next = [...values]
+                          next[i] = { ...next[i], label: e.target.value }
+                          setValues(next)
+                        }}
+                        placeholder="label, e.g. LED"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 shrink-0"
+                        onClick={() => setValues(values.filter((_, vi) => vi !== i))}
+                        disabled={values.length === 1}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="self-start"
+                    onClick={() => setValues([...values, { code: "", label: "" }])}
+                  >
+                    <Plus className="size-4" />
+                    Add value
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium">
+                      Minimum <span className="text-destructive">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      className={inputClass}
+                      value={rangeMin}
+                      onChange={(e) => setRangeMin(e.target.value)}
+                      placeholder="e.g. 0"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium">
+                      Maximum <span className="text-destructive">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      className={inputClass}
+                      value={rangeMax}
+                      onChange={(e) => setRangeMax(e.target.value)}
+                      placeholder="e.g. 100"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="flex justify-end gap-2 pt-1">
                 <Button
@@ -339,6 +397,13 @@ export function AdminDomainsPage() {
                           {v.label}
                         </span>
                       ))}
+                    </CardContent>
+                  )}
+                  {d.domain_type === "range" && d.range_min !== undefined && d.range_max !== undefined && (
+                    <CardContent className="pt-0">
+                      <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+                        {d.range_min} – {d.range_max}
+                      </span>
                     </CardContent>
                   )}
                 </Card>
