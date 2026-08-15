@@ -4,15 +4,19 @@
 // through the API. See docs/phase-6-admin-metadata.md for the full
 // design. Adding a subtype to an already-compiled class, a value to an
 // already-referenced coded domain, or a new field to an already-existing
-// class, is real and safe -- editing/removing one still isn't in general,
-// since that's a narrowing change (subtypes/domain values, via
-// api/internal/compiler's syncCheckConstraints) or a change the compiler
-// has never supported at all (fields: rename/retype/drop). An existing
-// field's own domain/group assignment, nullable, and form-visibility
-// flags are the one exception: those are read live from metadata.fields
-// by whatever consumes them (the CRUD engine, a following recompile),
-// never baked into the physical column at ADD COLUMN time, so editing
-// them in place is real and safe too -- see update.go's updateField.
+// class, is real and safe. Editing or deleting a subtype is still fully
+// unsupported (no endpoint at all). A domain value is different: editing
+// its label/sort_order is always safe (pure display metadata, never in a
+// CHECK), and deleting it is safe the same way adding one already was --
+// see deleteDomainValue's own doc comment on why a later recompile fails
+// loudly rather than silently narrowing real data out from under itself.
+// An existing field's own domain/group assignment, nullable, and
+// form-visibility flags are the other real exception: those are read
+// live from metadata.fields by whatever consumes them (the CRUD engine,
+// a following recompile), never baked into the physical column at ADD
+// COLUMN time, so editing them in place is real and safe too -- see
+// update.go's updateField. What's still genuinely unsupported: renaming
+// or retyping a field, and editing/removing a subtype.
 package admin
 
 import (
@@ -37,8 +41,11 @@ import (
 //	POST   /feature-classes/{code}/compile compile/recompile -- wraps api/internal/compiler.Compile directly
 //	GET    /domains                        every domain with its values
 //	POST   /domains                        create a domain, optionally with initial coded values
+//	PATCH  /domains/{code}                 edit a domain's name, or (range domain only) its range_min/range_max
 //	DELETE /domains/{code}                 delete a domain not referenced by any field
 //	POST   /domains/{code}/values          add one value to an existing coded domain -- recompile any class using it to actually enforce it
+//	PATCH  /domains/{code}/values/{value_code} edit an existing coded value's label/sort_order
+//	DELETE /domains/{code}/values/{value_code} delete a coded value -- recompile any class using it to actually narrow the CHECK
 //	GET    /field-groups                   every field group
 //	POST   /field-groups                   create a field group
 //	DELETE /field-groups/{code}            delete a field group not referenced by any field
@@ -54,8 +61,11 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/feature-classes/{code}/compile", compileFeatureClassHandler(db))
 	r.Get("/domains", listDomainsHandler(db))
 	r.Post("/domains", createDomainHandler(db))
+	r.Patch("/domains/{code}", updateDomainHandler(db))
 	r.Delete("/domains/{code}", deleteDomainHandler(db))
 	r.Post("/domains/{code}/values", addDomainValueHandler(db))
+	r.Patch("/domains/{code}/values/{value_code}", updateDomainValueHandler(db))
+	r.Delete("/domains/{code}/values/{value_code}", deleteDomainValueHandler(db))
 	r.Get("/field-groups", listFieldGroupsHandler(db))
 	r.Post("/field-groups", createFieldGroupHandler(db))
 	r.Delete("/field-groups/{code}", deleteFieldGroupHandler(db))
@@ -191,6 +201,51 @@ func addDomainValueHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func updateDomainHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		var req updateDomainRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := updateDomain(r.Context(), db, code, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func updateDomainValueHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		valueCode := chi.URLParam(r, "value_code")
+		var req updateDomainValueRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := updateDomainValue(r.Context(), db, code, valueCode, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func deleteDomainValueHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		valueCode := chi.URLParam(r, "value_code")
+		if err := deleteDomainValue(r.Context(), db, code, valueCode); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
