@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { apiFetch } from "@/lib/api"
 
@@ -63,6 +63,33 @@ export function useDiagramInstance(diagramId: string | undefined) {
     queryKey: ["diagram-instance", diagramId],
     queryFn: () => apiFetch<DiagramInstance>(`/diagrams/${diagramId}`),
     enabled: Boolean(diagramId),
+  })
+}
+
+interface CreateDiagramInstanceBody {
+  container: DiagramFeatureRef
+  diagram_type: string
+  name?: string
+}
+
+/**
+ * Creates the first (or a further) diagram instance for a container
+ * feature -- api/internal/diagram's POST /diagrams was already a real,
+ * generically-callable endpoint (curl-verified since Phase 5), just
+ * never wired to any UI trigger. Invalidates this container's own
+ * diagrams list on success so "View diagram" (feature-panel.tsx) picks
+ * the new instance up immediately, no reload.
+ */
+export function useCreateDiagramInstance() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: CreateDiagramInstanceBody) =>
+      apiFetch<DiagramInstance>("/diagrams", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["diagrams", variables.container.feature_class, variables.container.feature_id],
+      })
+    },
   })
 }
 
