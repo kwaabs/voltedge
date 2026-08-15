@@ -82,11 +82,25 @@ func listDomains(ctx context.Context, db *bun.DB) ([]domainResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+	materialSpecs, err := metadata.ListMaterialSpecs(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	materialSpecCodeByID := make(map[string]string, len(materialSpecs))
+	for _, m := range materialSpecs {
+		materialSpecCodeByID[m.ID] = m.Code
+	}
 
 	valuesByDomain := make(map[string][]domainValueResponse, len(domains))
 	for _, v := range values {
+		var materialSpecCode *string
+		if v.MaterialSpecID != nil {
+			if code, ok := materialSpecCodeByID[*v.MaterialSpecID]; ok {
+				materialSpecCode = &code
+			}
+		}
 		valuesByDomain[v.DomainID] = append(valuesByDomain[v.DomainID], domainValueResponse{
-			Code: v.Code, Label: v.Label, SortOrder: v.SortOrder,
+			Code: v.Code, Label: v.Label, SortOrder: v.SortOrder, MaterialSpecCode: materialSpecCode,
 		})
 	}
 
@@ -95,6 +109,25 @@ func listDomains(ctx context.Context, db *bun.DB) ([]domainResponse, error) {
 		out[i] = domainResponse{
 			Code: d.Code, Name: d.Name, DomainType: d.DomainType, Values: valuesByDomain[d.ID],
 			RangeMin: d.RangeMin, RangeMax: d.RangeMax,
+		}
+	}
+	return out, nil
+}
+
+// listMaterialSpecs returns every material spec -- the materials admin
+// page's own list view, and the domains page's own "attach a material
+// spec" picker.
+func listMaterialSpecs(ctx context.Context, db *bun.DB) ([]materialSpecResponse, error) {
+	specs, err := metadata.ListMaterialSpecs(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]materialSpecResponse, len(specs))
+	for i, m := range specs {
+		out[i] = materialSpecResponse{
+			Code: m.Code, Name: m.Name, Category: m.Category,
+			ResistanceOhmPerKm: m.ResistanceOhmPerKm, ReactanceOhmPerKm: m.ReactanceOhmPerKm,
+			AmpacityAmps: m.AmpacityAmps, DiameterMm: m.DiameterMm, WeightKgPerKm: m.WeightKgPerKm,
 		}
 	}
 	return out, nil

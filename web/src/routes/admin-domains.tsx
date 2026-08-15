@@ -1,12 +1,12 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ListPlus, Loader2, Pencil, Plus, Tags, Trash2, X } from "lucide-react"
+import { ListPlus, Loader2, Pencil, Plus, Tags, Trash2, Wrench, X } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { type AdminDomain, type AdminDomainValue, useAdminDomains } from "@/hooks/use-admin"
+import { type AdminDomain, type AdminDomainValue, useAdminDomains, useAdminMaterialSpecs } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -15,6 +15,30 @@ const labelClass = "text-xs font-medium"
 interface DraftValue {
   code: string
   label: string
+}
+
+/**
+ * Shared by AddDomainValueRow/EditDomainValueRow below -- optional, so
+ * most domain values (OPEN/CLOSED, phase codes, ...) leave it at "none."
+ * Only meaningful for a coded domain whose values represent a real
+ * material/size catalog entry (e.g. a CONDUCTOR_SPEC domain's ACSR_50),
+ * see docs/phase-7-materials.md.
+ */
+function MaterialSpecPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const { data } = useAdminMaterialSpecs()
+  return (
+    <div className="flex flex-col gap-1">
+      <label className={labelClass}>Material spec</label>
+      <select className={inputClass} value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">none</option>
+        {data?.material_specs.map((m) => (
+          <option key={m.code} value={m.code}>
+            {m.name} ({m.code})
+          </option>
+        ))}
+      </select>
+    </div>
+  )
 }
 
 /**
@@ -28,6 +52,7 @@ interface DraftValue {
 function AddDomainValueRow({ domain, onDone }: { domain: AdminDomain; onDone: () => void }) {
   const [code, setCode] = useState("")
   const [label, setLabel] = useState("")
+  const [materialSpecCode, setMaterialSpecCode] = useState("")
   const [saving, setSaving] = useState(false)
   const [added, setAdded] = useState(false)
   const queryClient = useQueryClient()
@@ -41,11 +66,17 @@ function AddDomainValueRow({ domain, onDone }: { domain: AdminDomain; onDone: ()
       const nextSortOrder = (domain.values?.length ?? 0) + 1
       await apiFetch(`/admin/domains/${domain.code}/values`, {
         method: "POST",
-        body: JSON.stringify({ code: code.trim(), label: label.trim(), sort_order: nextSortOrder }),
+        body: JSON.stringify({
+          code: code.trim(),
+          label: label.trim(),
+          sort_order: nextSortOrder,
+          material_spec_code: materialSpecCode || undefined,
+        }),
       })
       queryClient.invalidateQueries({ queryKey: ["admin", "domains"] })
       setCode("")
       setLabel("")
+      setMaterialSpecCode("")
       setAdded(true)
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not add this value.")
@@ -86,6 +117,7 @@ function AddDomainValueRow({ domain, onDone }: { domain: AdminDomain; onDone: ()
             Add
           </Button>
         </div>
+        <MaterialSpecPicker value={materialSpecCode} onChange={setMaterialSpecCode} />
         {added && (
           <p className="text-muted-foreground text-xs">
             Added to metadata -- recompile any feature class using this domain to actually allow it on real
@@ -192,6 +224,7 @@ function EditDomainValueRow({
 }) {
   const [label, setLabel] = useState(value.label)
   const [sortOrder, setSortOrder] = useState(String(value.sort_order))
+  const [materialSpecCode, setMaterialSpecCode] = useState(value.material_spec_code ?? "")
   const [saving, setSaving] = useState(false)
   const queryClient = useQueryClient()
 
@@ -202,7 +235,7 @@ function EditDomainValueRow({
     try {
       await apiFetch(`/admin/domains/${domainCode}/values/${value.code}`, {
         method: "PATCH",
-        body: JSON.stringify({ label: label.trim(), sort_order: Number(sortOrder) }),
+        body: JSON.stringify({ label: label.trim(), sort_order: Number(sortOrder), material_spec_code: materialSpecCode }),
       })
       queryClient.invalidateQueries({ queryKey: ["admin", "domains"] })
       onDone()
@@ -214,27 +247,30 @@ function EditDomainValueRow({
   }
 
   return (
-    <div className="bg-muted/50 flex items-end gap-2 rounded-md border p-2">
-      <div className="flex flex-col gap-1">
-        <label className={labelClass}>
-          Code <span className="font-mono">{value.code}</span>
-        </label>
+    <div className="bg-muted/50 flex flex-col gap-2 rounded-md border p-2">
+      <div className="flex items-end gap-2">
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>
+            Code <span className="font-mono">{value.code}</span>
+          </label>
+        </div>
+        <div className="flex flex-1 flex-col gap-1">
+          <label className={labelClass}>Label</label>
+          <input className={inputClass} value={label} onChange={(e) => setLabel(e.target.value)} />
+        </div>
+        <div className="flex w-20 flex-col gap-1">
+          <label className={labelClass}>Sort</label>
+          <input type="number" className={inputClass} value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
+        </div>
+        <Button variant="ghost" size="icon" className="size-8" onClick={onDone} disabled={saving}>
+          <X className="size-4" />
+        </Button>
+        <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
+          {saving && <Loader2 className="size-4 animate-spin" />}
+          Save
+        </Button>
       </div>
-      <div className="flex flex-1 flex-col gap-1">
-        <label className={labelClass}>Label</label>
-        <input className={inputClass} value={label} onChange={(e) => setLabel(e.target.value)} />
-      </div>
-      <div className="flex w-20 flex-col gap-1">
-        <label className={labelClass}>Sort</label>
-        <input type="number" className={inputClass} value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
-      </div>
-      <Button variant="ghost" size="icon" className="size-8" onClick={onDone} disabled={saving}>
-        <X className="size-4" />
-      </Button>
-      <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
-        {saving && <Loader2 className="size-4 animate-spin" />}
-        Save
-      </Button>
+      <MaterialSpecPicker value={materialSpecCode} onChange={setMaterialSpecCode} />
     </div>
   )
 }
@@ -551,8 +587,9 @@ export function AdminDomainsPage() {
                           <span
                             key={v.code}
                             className="bg-muted text-muted-foreground group flex items-center gap-1 rounded-md py-0.5 pr-0.5 pl-1.5 text-xs"
-                            title={v.code}
+                            title={v.material_spec_code ? `${v.code} · material spec: ${v.material_spec_code}` : v.code}
                           >
+                            {v.material_spec_code && <Wrench className="size-3" />}
                             {v.label}
                             <button
                               type="button"

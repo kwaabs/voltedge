@@ -238,6 +238,19 @@ having to reread every phase doc's own "What's still open" section.
   tracing, load testing.
 - **Phase 7 — Field collection**: mobile/offline data capture for field
   crews. Design deferred — noted here as a placeholder only.
+- **Phase 8 — Materials + electrical analysis** (slice 1 done: materials
+  catalog): a new `metadata.material_specs` table lets a coded domain
+  value (e.g. a `CONDUCTOR_SPEC` domain's `ACSR_50`) carry real physical/
+  electrical properties — resistance, reactance, ampacity, diameter,
+  weight — instead of being just a display label. Attaches to the
+  *domain value* a field already selects, not to the feature class
+  directly, so no compiler or CRUD-engine change was needed: any field
+  already using a material-linked domain inherits real numbers for
+  free. New Materials admin page, plus a material-spec picker on the
+  Domains page's own value editor. This is the dependency the next
+  slice (voltage drop and loading/capacity checks along a traced path)
+  needs before it can compute anything — not started yet.
+  Write-up: [`docs/phase-8-materials.md`](docs/phase-8-materials.md).
 
 Auth and permissions are deliberately not modeled yet; several tables
 already carry an `applied_by`/`established_by`-style placeholder column so

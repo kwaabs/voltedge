@@ -26,7 +26,26 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-15, the third and final Phase 6 row from the
+**Last updated:** 2026-08-15, a new Phase 8 opened and its first row
+closed: a materials catalog letting a coded domain value carry real
+physical/electrical properties (resistance, reactance, ampacity), the
+dependency the next planned capability (voltage drop and loading/
+capacity checks along a traced path) needs before it can compute
+anything real. The design question worth recording: whether a material
+spec attaches to a feature class directly (a new field kind, a real
+cross-schema foreign key the compiler would need to learn to emit) or
+to the *domain value* a field already selects (one nullable column on
+`metadata.domain_values`, zero compiler or CRUD-engine changes). The
+domain-value route won -- a coded field inherits real numbers for free
+the moment its domain's values happen to be material-linked, reusing
+the exact admin UI a domain value already has. New Materials admin
+page; a material-spec picker added to the Domains page's own value
+editor. Backend curl-verified end to end (including the delete-guard
+while a spec is still referenced, and the database's own numeric
+`CHECK` rejecting a negative value); frontend Playwright-verified on
+both surfaces. See `docs/phase-8-materials.md`.
+
+Before that, the third and final Phase 6 row from the
 same three-part walkthrough closed: seeing what network, relationship,
 and snapping rules apply to a selected feature, via a new "Rules" tab
 on the feature panel backed by `GET /feature-classes/{code}/rules`
@@ -341,3 +360,20 @@ naming, rotate, remove).
 
 Not started; see `README.md`'s phase list for its one-line scope
 (field collection). Too far out to itemize yet.
+
+## Phase 8 — Materials + electrical analysis
+
+New phase, not a continuation of Phase 6/7: a user question ("what
+else could benefit from the trace engine or the features we have,
+beyond tracing itself?") turned into two threads -- a materials
+catalog (locked and built first, since electrical analysis needs real
+per-conductor numbers to compute anything) and electrical analysis
+proper (voltage drop, loading/capacity checks -- not started).
+
+| Item | Status | Size | Value | Detail |
+|---|---|---|---|---|
+| Materials catalog -- link a coded domain value to real engineering numbers | Done | M | New `metadata.material_specs` table (code, name, category, resistance/reactance/ampacity/diameter/weight, each `NULL or > 0`) plus one nullable `material_spec_id` FK on `metadata.domain_values` -- deliberately attached to a *domain value*, not a feature class directly, so a field like `MV_CONDUCTOR.conductor_spec` inherits real numbers for free the moment its domain's values happen to be material-linked, with zero compiler or CRUD-engine changes. `POST/GET/PATCH/DELETE /admin/material-specs`, and `material_spec_code` added to the existing domain-value create/edit requests (`updateDomainValueRequest` uses the same nil/""/value sentinel `updateFieldRequest.domain_code` already established). New Materials admin page; a material-spec picker added to the Domains page's own value editor, with a wrench-icon indicator on a linked value's pill. Backend curl-verified end to end (including the delete-guard while referenced, and the database's own numeric `CHECK` rejecting a negative value); frontend Playwright-verified on both surfaces. | `docs/phase-8-materials.md` |
+| Voltage drop along a traced path | Open | M | Needs a traced path's conductor segments' `resistance_ohm_per_km` (now available via the materials catalog above) times real geometry length (`ST_Length`, already available), accumulated per segment, plus a load figure at the far end. |
+| Loading/capacity check | Open | M | Compare a conductor's `ampacity_amps` (now available) against connected load summed downstream of a point via an existing trace -- flags overloaded equipment. Natural first electrical-analysis capability to build: needs the least new modeling beyond what tracing + materials already provide. |
+| Transformer loading % | Open | S–M | Needs a transformer kVA rating field (not yet modeled on `DIST_XFMR`) compared against downstream connected load, same trace-sum approach as loading/capacity above. |
+| Fault current / short-circuit analysis, protection coordination | Open | L | A bigger modeling lift than the three rows above -- source impedance, sequence networks. Treated as a later, separate effort rather than folded into this phase's first slice. |

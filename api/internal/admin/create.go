@@ -38,10 +38,17 @@ func createDomain(ctx context.Context, db *bun.DB, req createDomainRequest) (*do
 		values := make([]domainValueResponse, 0, len(req.Values))
 		for _, v := range req.Values {
 			dv := &metadata.DomainValue{DomainID: d.ID, Code: v.Code, Label: v.Label, SortOrder: v.SortOrder}
+			if v.MaterialSpecCode != nil {
+				id, err := resolveMaterialSpecCode(ctx, tx, *v.MaterialSpecCode)
+				if err != nil {
+					return err
+				}
+				dv.MaterialSpecID = &id
+			}
 			if _, err := tx.NewInsert().Model(dv).ExcludeColumn("id").Exec(ctx); err != nil {
 				return fmt.Errorf("insert domain value %q: %w", v.Code, err)
 			}
-			values = append(values, domainValueResponse{Code: v.Code, Label: v.Label, SortOrder: v.SortOrder})
+			values = append(values, domainValueResponse{Code: v.Code, Label: v.Label, SortOrder: v.SortOrder, MaterialSpecCode: v.MaterialSpecCode})
 		}
 
 		resp = domainResponse{
@@ -266,4 +273,61 @@ func resolveGroupCodes(ctx context.Context, tx bun.Tx, fields []fieldRequest) (m
 		out[code] = g.ID
 	}
 	return out, nil
+}
+
+// resolveMaterialSpecCode looks up one material_spec_code against real,
+// already-existing metadata.material_specs rows -- same reasoning as
+// resolveDomainCodes/resolveGroupCodes above, just for a single code at
+// a time since callers (addDomainValue, createDomain's inline values,
+// updateDomainValue) each only ever have one to resolve, not a batch
+// across many fields.
+func resolveMaterialSpecCode(ctx context.Context, tx bun.Tx, code string) (string, error) {
+	var m metadata.MaterialSpec
+	if err := tx.NewSelect().Model(&m).Where("code = ?", code).Scan(ctx); err != nil {
+		if err == sql.ErrNoRows {
+			return "", invalid("material_spec_code %q does not exist -- create it first", code)
+		}
+		return "", fmt.Errorf("resolving material spec %q: %w", code, err)
+	}
+	return m.ID, nil
+}
+
+// createMaterialSpec inserts a new material_specs catalog row --
+// existence-checked first, same discipline codeExists/createDomain
+// already apply.
+func createMaterialSpec(ctx context.Context, db *bun.DB, req createMaterialSpecRequest) (*materialSpecResponse, error) {
+	if err := validateCreateMaterialSpec(req); err != nil {
+		return nil, err
+	}
+
+	var resp materialSpecResponse
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		exists, err := codeExists(ctx, tx, (*metadata.MaterialSpec)(nil), req.Code)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return invalid("a material spec with code %q already exists", req.Code)
+		}
+
+		m := &metadata.MaterialSpec{
+			Code: req.Code, Name: req.Name, Category: req.Category,
+			ResistanceOhmPerKm: req.ResistanceOhmPerKm, ReactanceOhmPerKm: req.ReactanceOhmPerKm,
+			AmpacityAmps: req.AmpacityAmps, DiameterMm: req.DiameterMm, WeightKgPerKm: req.WeightKgPerKm,
+		}
+		if _, err := tx.NewInsert().Model(m).ExcludeColumn("id").Exec(ctx); err != nil {
+			return fmt.Errorf("insert material spec: %w", err)
+		}
+
+		resp = materialSpecResponse{
+			Code: m.Code, Name: m.Name, Category: m.Category,
+			ResistanceOhmPerKm: m.ResistanceOhmPerKm, ReactanceOhmPerKm: m.ReactanceOhmPerKm,
+			AmpacityAmps: m.AmpacityAmps, DiameterMm: m.DiameterMm, WeightKgPerKm: m.WeightKgPerKm,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }

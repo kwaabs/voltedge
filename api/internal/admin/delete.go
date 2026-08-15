@@ -102,6 +102,35 @@ func deleteDomainValue(ctx context.Context, db *bun.DB, domainCode, valueCode st
 	})
 }
 
+// deleteMaterialSpec mirrors deleteDomain/deleteFieldGroup -- but for a
+// real reason this time, unlike deleteDomainValue right above: a domain
+// value's material_spec_id is a genuine foreign key to material_specs
+// (migrations/0021), so deleting a referenced spec would otherwise
+// surface as a raw Postgres FK-violation 500. This precheck turns that
+// into a clear 400 naming the actual reason instead.
+func deleteMaterialSpec(ctx context.Context, db *bun.DB, code string) error {
+	return db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		m := new(metadata.MaterialSpec)
+		if err := tx.NewSelect().Model(m).Where("code = ?", code).Scan(ctx); err != nil {
+			if err == sql.ErrNoRows {
+				return notFound("material spec %q does not exist", code)
+			}
+			return fmt.Errorf("loading material spec %q: %w", code, err)
+		}
+		referenced, err := tx.NewSelect().Model((*metadata.DomainValue)(nil)).Where("material_spec_id = ?", m.ID).Exists(ctx)
+		if err != nil {
+			return fmt.Errorf("checking material spec %q references: %w", code, err)
+		}
+		if referenced {
+			return invalid("material spec %q is referenced by at least one domain value -- remove that reference first", code)
+		}
+		if _, err := tx.NewDelete().Model(m).Where("code = ?", code).Exec(ctx); err != nil {
+			return fmt.Errorf("deleting material spec %q: %w", code, err)
+		}
+		return nil
+	})
+}
+
 // deleteFieldGroup mirrors deleteDomain -- same reasoning, just against
 // fields.group_id instead of fields.domain_id.
 func deleteFieldGroup(ctx context.Context, db *bun.DB, code string) error {
