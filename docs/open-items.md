@@ -33,6 +33,12 @@ geometry_type/srid/network_role only while still draft) and deleting a
 draft feature class or an unreferenced domain/field group, both scoped
 to the provably-safe subset the same way the original Phase 6 slice
 drew its own line around the compiler's real CHECK-constraint limits.
+Verifying it also caught a real, pre-existing, cross-cutting bug: the
+app's `<Toaster />` was mounted only inside the map route's own page
+component, so `pushError`/`pushWarning` on every *other* route
+(`/features`, `/admin/*`, `/connectivity`, `/relationships`,
+`/settings`) silently had nowhere to render -- fixed by mounting it
+once in `app.tsx`, above every route, instead.
 The day before, a batch of six low-effort open items
 closed at once: `GET /features/{code}` gained real `?sort=`/`?order=`/
 `?status=` query params; establishing a relationship now runs a soft

@@ -302,8 +302,24 @@ and field group; confirmed deleting `LAMP_TYPE` (referenced by
 correctly rejected with the "referenced by at least one field" message
 rather than a raw constraint error. `go build ./... && go vet ./... &&
 gofmt -l .`, `npx tsc --noEmit`, and `npm run lint` all finish clean.
-Browser-verified (Playwright) end to end -- see the commit for the full
-pass.
+
+Browser-verified (Playwright) end to end: Edit/Delete buttons appear
+only on a draft row and disappear once compiled; the inline edit form
+round-trips correctly, including the SRID field disappearing when
+geometry_type is switched to `none`; all three delete confirm dialogs
+work, and deleting a draft class with a real subtype+field cascades
+correctly. This pass caught a second real, pre-existing bug (unrelated
+to this slice's own new code): `Toaster` (`components/ui/toaster.tsx`)
+was mounted only inside `MapPage`, so `pushError`/`pushWarning` calls
+on any other route -- `/features`, `/admin/*`, `/connectivity`,
+`/relationships`, `/settings` -- updated the toast store but had
+nowhere to render; the rejected-`LAMP_TYPE`-delete's error toast simply
+never appeared. Fixed by mounting `<Toaster />` once in `app.tsx`,
+above every route, instead of inside one page's own component --
+`position: fixed`, so where it mounts in the tree has no layout impact,
+it just needs to exist exactly once. Re-verified: the same rejected
+delete now shows a real red error toast, and the map route's own
+toasts still work unchanged.
 
 ## Try it yourself
 
