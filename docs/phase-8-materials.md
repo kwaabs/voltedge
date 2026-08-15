@@ -148,6 +148,37 @@ curl -X POST http://localhost:3704/admin/domains \
   -d '{"code":"CONDUCTOR_SPEC","name":"Conductor spec","domain_type":"coded","values":[{"code":"ACSR_50","label":"ACSR 50mm^2","sort_order":1,"material_spec_code":"ACSR_50"}]}'
 ```
 
+## Follow-up: showing the link on the feature-class detail page
+
+The first round only surfaced a material link on the Domains page
+itself -- an admin browsing a feature class's own Fields table (e.g.
+`MV_CONDUCTOR`'s `conductor_spec` field) had no way to tell whether any
+of that field's domain values were material-backed without navigating
+to the Domains page and finding the matching domain by hand. Real user
+confusion surfaced this: "how do I attach a material to a feature
+class?" -- the honest answer is you don't, directly (see "Design:
+attach to a domain value, not a feature class" above), but that answer
+is a lot easier to believe when the Fields table shows it.
+
+Rather than widen `GET /feature-classes/{code}/schema`'s own
+`domain_values` (currently just bare codes, shared by every other
+schema consumer -- create/edit forms included -- so widening it would
+touch more than this one display), `admin-feature-class-detail.tsx`'s
+`DomainCell` now cross-references `useAdminDomains()` client-side --
+already fetched on this page for the edit-field domain picker -- to
+look up each value's real label and `material_spec_code`, and renders
+the same wrench-icon indicator `admin-domains.tsx`'s own value pills
+already use. A useful side effect: every domain-linked field's pills
+now show real labels (`Good`/`Fair`/`Poor`) instead of bare codes
+(`GOOD`/`FAIR`/`POOR`), matching the Domains page's own display, not
+just the material-linked ones.
+
+Playwright-verified: added a real `conductor_spec_test` field to
+`MV_CONDUCTOR` pointing at a domain with one material-linked value and
+one plain value, confirmed the linked one shows the wrench icon and
+tooltip and the plain one doesn't, then removed the scratch field/
+domain/spec afterward.
+
 ## What's still out of scope
 
 - **Reading resolved material numbers from the feature-facing schema
