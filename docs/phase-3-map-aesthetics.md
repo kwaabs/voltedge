@@ -234,3 +234,28 @@ dev`. Open `http://localhost:5173`:
 
 `npm run build && npm run lint` and `go build ./... && go vet ./... &&
 gofmt -l .` should all finish clean.
+
+## Loading affordance on the highlight halo, added later
+
+Tracked as an open item since this doc first shipped: clicking a
+connection/relationship row for a feature not yet in the query cache
+took a beat before its halo appeared, no indication anything was
+happening in the meantime (the attribute panel's own tab already showed
+a spinner for that same fetch). `voltedge-map.tsx`'s three
+`useFeature` calls behind the halo (`selectedFeature`,
+`connectSourceFeature`, `connectTargetFeature`) now also destructure
+`isLoading` -- true only while there's no cached data yet for that
+specific query and a fetch is genuinely in flight, not on a background
+refetch. A small `"Loading feature…"` badge (`Loader2` spinner, same
+component every save/delete button in this app already uses) renders
+`absolute top-3 left-3` inside the map's own relative container --
+clear of the top-right toolbar -- gated on the same
+`isEditingSelected` skip the halo effect itself already used, so it
+never shows for a fetch the halo was always going to ignore.
+
+Verified live (Playwright): clicking a connection row for a
+not-yet-cached feature shows the badge during the fetch window
+(confirmed by racing a selector wait against the click, since the real
+window is sub-second on local Postgres); a repeat click on an
+already-cached feature is instant, no badge, as expected. No console
+errors. `npx tsc --noEmit` and `npm run lint` finish clean.

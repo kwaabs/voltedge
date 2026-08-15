@@ -198,3 +198,17 @@ web && npm run dev`. Open `http://localhost:5173`:
 
 `npm run build && npm run lint` and `go build ./... && go vet ./... &&
 gofmt -l .` should all finish clean.
+
+## Polygon re-verification, added later
+
+This doc's own vertex-editing work only ever exercised a line feature
+-- no polygon existed in the demo dataset at the time. Tracked as an
+open item since. `SUBSTATION_YARD` ("Main Substation Yard") is now a
+real seeded polygon (Phase 5's diagram containers slice), so the gap
+finally had something real to test against. Verified live (Playwright):
+selected it, entered edit vertices, dragged the top-left vertex to a
+new position, Saved, confirmed via a real `GET` that the new coordinate
+actually persisted server-side rather than just moving on screen, then
+restored the original geometry exactly (verified again via `GET`). No
+bugs found -- the shared line/polygon Modify-interaction code this doc
+already argued for held up on a real polygon with no changes needed.

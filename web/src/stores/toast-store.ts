@@ -4,6 +4,7 @@ import { create } from "zustand"
 export interface Toast {
   id: number
   message: string
+  variant: "error" | "warning"
 }
 
 const AUTO_DISMISS_MS = 6000
@@ -18,24 +19,34 @@ const AUTO_DISMISS_MS = 6000
  * appear. `id` is a monotonic counter, not the error's own identity --
  * two consecutive failures with the same message are still two
  * separate toasts, each dismissed independently.
+ *
+ * `pushWarning` is for a request that *succeeded* but came back with
+ * something worth flagging -- e.g. a relationship's own
+ * plausibility_warning (api/internal/relationship/plausibility.go) --
+ * distinct from `pushError`'s red destructive styling since nothing
+ * actually failed.
  */
 interface ToastState {
   toasts: Toast[]
   pushError: (message: string) => void
+  pushWarning: (message: string) => void
   dismiss: (id: number) => void
 }
 
 let nextId = 1
 
+function push(set: (fn: (state: ToastState) => Partial<ToastState>) => void, message: string, variant: Toast["variant"]) {
+  const id = nextId++
+  set((state) => ({ toasts: [...state.toasts, { id, message, variant }] }))
+  setTimeout(() => {
+    set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))
+  }, AUTO_DISMISS_MS)
+}
+
 export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
-  pushError: (message) => {
-    const id = nextId++
-    set((state) => ({ toasts: [...state.toasts, { id, message }] }))
-    setTimeout(() => {
-      set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))
-    }, AUTO_DISMISS_MS)
-  },
+  pushError: (message) => push(set, message, "error"),
+  pushWarning: (message) => push(set, message, "warning"),
   dismiss: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
 }))
 

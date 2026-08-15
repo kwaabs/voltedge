@@ -43,6 +43,13 @@ type relationshipResponse struct {
 	Origin                featureRef `json:"origin"`
 	Destination           featureRef `json:"destination"`
 	EstablishedAt         time.Time  `json:"established_at"`
+	// PlausibilityWarning is set only on the response to a fresh
+	// establish, and only when checkPlausibility (plausibility.go)
+	// found both features' real geometries further apart than
+	// plausibilityThresholdMeters -- never re-checked on list, so an
+	// old relationship's warning doesn't recompute (or silently
+	// disappear) every time it's read back.
+	PlausibilityWarning *string `json:"plausibility_warning,omitempty"`
 }
 
 // apiError is the JSON body returned for any 4xx/5xx response.

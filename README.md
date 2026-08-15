@@ -96,8 +96,8 @@ having to reread every phase doc's own "What's still open" section.
   to its name; `DIST_SWITCH`'s `device_state` is a genuine shape swap
   (hollow vs. solid triangle) that updates live the moment it's edited,
   not just a color change. The full, current list of what's still open
-  across every phase — Azure AD SSO, symbology zoom-gating/a real
-  sprite pipeline, the real Martin soft-delete fix, and more — now
+  across every phase — Azure AD SSO, a real symbology sprite pipeline,
+  the real Martin soft-delete fix, and more — now
   lives in [`docs/open-items.md`](docs/open-items.md), kept
   current going forward instead of scattered across each slice's own
   doc.

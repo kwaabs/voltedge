@@ -193,7 +193,7 @@ export function ConnectConfirmPanel() {
         // an ambiguous pairing comes back as a real 400 naming the valid
         // kinds -- surfaced through the same toast as any other
         // rejection, no separate UI for listing them out.
-        await apiFetch("/relationships", {
+        const result = await apiFetch<{ plausibility_warning?: string }>("/relationships", {
           method: "POST",
           body: JSON.stringify({
             origin: { feature_class: source.featureClassCode, feature_id: source.featureId },
@@ -201,6 +201,14 @@ export function ConnectConfirmPanel() {
             kind: kind || undefined,
           }),
         })
+        // A soft geometric sanity check (api/internal/relationship/plausibility.go)
+        // -- never blocks the establish above, which has already
+        // succeeded by this point; just flags a pairing worth a second
+        // look, in the same toast stack as an error but styled as a
+        // warning (nothing failed).
+        if (result.plausibility_warning) {
+          useToastStore.getState().pushWarning(result.plausibility_warning)
+        }
         queryClient.invalidateQueries({ queryKey: ["relationships", source.featureClassCode, source.featureId] })
         queryClient.invalidateQueries({ queryKey: ["relationships", target.featureClassCode, target.featureId] })
       }

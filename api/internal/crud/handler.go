@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
@@ -20,7 +21,11 @@ const defaultListLimit = 50
 //
 //	GET    /{code}               list, excludes soft-deleted; ?name=
 //	                             adds a case-insensitive partial match
-//	                             against the name column
+//	                             against the name column; ?status=
+//	                             exact-matches draft/published; ?sort=
+//	                             orders by any real column on this class
+//	                             (falls back to created_at if unrecognized),
+//	                             ?order=desc reverses it (default asc)
 //	POST   /{code}               create
 //	GET    /{code}/{id}          get, includes soft-deleted
 //	PATCH  /{code}/{id}          update, rejected if soft-deleted
@@ -78,9 +83,16 @@ func listHandler(db *bun.DB) http.HandlerFunc {
 				offset = n
 			}
 		}
-		nameQuery := r.URL.Query().Get("name")
+		opts := listOptions{
+			Limit:     limit,
+			Offset:    offset,
+			NameQuery: r.URL.Query().Get("name"),
+			Status:    r.URL.Query().Get("status"),
+			Sort:      r.URL.Query().Get("sort"),
+			Desc:      strings.EqualFold(r.URL.Query().Get("order"), "desc"),
+		}
 
-		results, err := listFeatures(r.Context(), db, loaded, limit, offset, nameQuery)
+		results, err := listFeatures(r.Context(), db, loaded, opts)
 		if err != nil {
 			writeError(w, err)
 			return

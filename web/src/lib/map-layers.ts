@@ -1,5 +1,6 @@
 import { Circle, Fill, Icon, Stroke, Style } from "ol/style"
 import type { FeatureLike } from "ol/Feature"
+import type View from "ol/View"
 
 import { iconDataUri } from "@/lib/symbology-icons"
 import { resolveSymbology, type SymbologyRuleSchema } from "@/lib/symbology"
@@ -249,19 +250,28 @@ function iconStyleFor(iconRef: string | undefined, color: string, scale: number)
  * so voltedge-map.tsx creates one of these per VectorTileLayer at
  * layer-creation time rather than resolving rules generically per
  * feature. Falls back to styleForFeature's plain geometry-type styling
- * whenever no rule resolves at all (rules is empty/undefined, or the
+ * whenever no rule resolves at all (rules is empty/undefined, the
  * feature's own subtype+attributes don't match even the mandatory
- * class-level default -- a metadata-authoring gap, not something worth
- * hiding the feature entirely over).
+ * class-level default, or every matching rule is zoom-gated out at the
+ * current level -- a metadata-authoring gap or a deliberate zoom
+ * restriction, not something worth hiding the feature entirely over).
+ *
+ * view is the map's own View -- an OL StyleFunction is called with
+ * (feature, resolution) on every render, and resolution only means
+ * something as a zoom level once converted through the same View
+ * that's actually rendering it (getZoomForResolution respects whatever
+ * projection/resolutions config the view uses, unlike a hardcoded
+ * EPSG:3857 formula would).
  */
-export function createSymbologyStyle(rules: SymbologyRuleSchema[] | undefined) {
-  return function symbologyStyleForFeature(feature: FeatureLike): Style {
+export function createSymbologyStyle(rules: SymbologyRuleSchema[] | undefined, view: View) {
+  return function symbologyStyleForFeature(feature: FeatureLike, resolution: number): Style {
     if (isHiddenFeature(feature)) return hiddenStyle
 
     const geometryType = feature.getGeometry()?.getType()
     const props = feature.getProperties() as Record<string, unknown>
     const subtype = typeof props.subtype === "number" ? props.subtype : undefined
-    const def = resolveSymbology(rules, subtype, props, "map")
+    const zoom = view.getZoomForResolution(resolution)
+    const def = resolveSymbology(rules, subtype, props, "map", zoom ?? undefined)
     if (!def) return styleForFeature(feature)
 
     switch (geometryType) {

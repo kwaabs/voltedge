@@ -304,33 +304,81 @@ func getFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id str
 // following up on a delete or deciding whether to restore needs to see
 // it, not get a 404 for a row that still exists.
 //
-// nameQuery, when non-empty, adds a case-insensitive partial match
-// against the universal name column -- a narrow, name-specific search,
-// not general list filtering/sorting (that stays an open item; see
-// docs/open-items.md). "%" and "_" aren't escaped since ILIKE treating
-// them as wildcards inside a human-typed search string is harmless
-// (at worst a slightly broader match), unlike unescaped interpolation
-// into the query itself, which this avoids entirely via a bind param.
-func listFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, limit, offset int, nameQuery string) ([]map[string]any, error) {
+// listOptions is listFeatures' own request shape -- a struct rather
+// than a growing positional-argument list now that list takes on real
+// filtering/sorting alongside pagination and the name search that was
+// already here.
+type listOptions struct {
+	Limit     int
+	Offset    int
+	NameQuery string // case-insensitive partial match against name, unchanged from before this existed
+	Status    string // exact match against the status system column ("draft"/"published"); "" means no filter
+	Sort      string // a column to order by; falls back to created_at if empty or not a real column on this class
+	Desc      bool   // sort direction; false = ascending (the existing default before this existed)
+}
+
+// validSortColumns is every column list may safely sort by: the system
+// columns selectColumns always includes, plus this feature class's own
+// active fields -- geom is deliberately excluded, ordering by a raw
+// geometry isn't something a sort control is ever really asking for.
+// A requested sort column not in this set is silently ignored (falls
+// back to created_at) rather than rejected with a 400, matching this
+// endpoint's existing lenient handling of an out-of-range limit/offset.
+func validSortColumns(loaded *metadata.Loaded) map[string]bool {
+	cols := map[string]bool{"id": true, "name": true, "status": true, "deleted_at": true, "created_at": true, "updated_at": true}
+	if len(loaded.Subtypes) > 0 {
+		cols["subtype"] = true
+	}
+	for _, f := range loaded.Fields {
+		cols[f.Name] = true
+	}
+	return cols
+}
+
+// listFeatures applies opts.NameQuery/Status as an AND-ed WHERE clause
+// (both via bind params, never string-interpolated) and opts.Sort/Desc
+// as the ORDER BY, with `id` always appended as a stable tiebreaker so
+// two rows with an identical sort value don't reorder between pages.
+// NameQuery's "%"/"_" aren't escaped since ILIKE treating them as
+// wildcards inside a human-typed search string is harmless (at worst a
+// slightly broader match).
+func listFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, opts listOptions) ([]map[string]any, error) {
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
 		return nil, err
 	}
 
-	var rows *sql.Rows
-	if nameQuery != "" {
-		query := fmt.Sprintf(
-			"SELECT %s FROM %s WHERE deleted_at IS NULL AND name ILIKE ? ORDER BY created_at, id LIMIT ? OFFSET ?",
-			strings.Join(selectColumns(loaded), ", "), table,
-		)
-		rows, err = db.QueryContext(ctx, query, "%"+nameQuery+"%", limit, offset)
-	} else {
-		query := fmt.Sprintf(
-			"SELECT %s FROM %s WHERE deleted_at IS NULL ORDER BY created_at, id LIMIT ? OFFSET ?",
-			strings.Join(selectColumns(loaded), ", "), table,
-		)
-		rows, err = db.QueryContext(ctx, query, limit, offset)
+	where := []string{"deleted_at IS NULL"}
+	args := make([]any, 0, 4)
+	if opts.NameQuery != "" {
+		where = append(where, "name ILIKE ?")
+		args = append(args, "%"+opts.NameQuery+"%")
 	}
+	if opts.Status != "" {
+		where = append(where, "status = ?")
+		args = append(args, opts.Status)
+	}
+
+	sortCol := "created_at"
+	if opts.Sort != "" && validSortColumns(loaded)[opts.Sort] {
+		sortCol = opts.Sort
+	}
+	direction := "ASC"
+	if opts.Desc {
+		direction = "DESC"
+	}
+	orderBy := quoteIdent(sortCol) + " " + direction
+	if sortCol != "id" {
+		orderBy += ", id"
+	}
+
+	query := fmt.Sprintf(
+		"SELECT %s FROM %s WHERE %s ORDER BY %s LIMIT ? OFFSET ?",
+		strings.Join(selectColumns(loaded), ", "), table, strings.Join(where, " AND "), orderBy,
+	)
+	args = append(args, opts.Limit, opts.Offset)
+
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("crud: list: %w", err)
 	}

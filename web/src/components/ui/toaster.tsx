@@ -1,18 +1,18 @@
-import { AlertCircle, X } from "lucide-react"
+import { AlertCircle, AlertTriangle, X } from "lucide-react"
 
 import { useToastStore } from "@/stores/toast-store"
 
 /**
  * Fixed top-right stack, mounted once in src/routes/map.tsx alongside
- * this app's other floating overlays -- every error anywhere in the app
- * goes through useToastStore.pushError instead of being rendered inline
- * in whatever panel or form triggered it, so it always shows up here.
- * Offset below the top nav row (New feature / Layers buttons, also
- * top-right) rather than sharing its exact corner, so a toast never
- * sits directly on top of those controls. Error-only for now (no
- * success/info variants) since that's the only kind of toast this app
- * currently has a use for; the store's shape (`message` only, no
- * `variant`) would need to grow before that changes.
+ * this app's other floating overlays -- every error or warning anywhere
+ * in the app goes through useToastStore.pushError/pushWarning instead
+ * of being rendered inline in whatever panel or form triggered it, so
+ * it always shows up here. Offset below the top nav row (New feature /
+ * Layers buttons, also top-right) rather than sharing its exact corner,
+ * so a toast never sits directly on top of those controls.
+ * `warning` uses amber, not the destructive red `error` gets -- a
+ * plausibility_warning-style toast is telling the user to double-check
+ * something that already succeeded, not that a request failed.
  */
 export function Toaster() {
   const toasts = useToastStore((s) => s.toasts)
@@ -25,9 +25,17 @@ export function Toaster() {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className="bg-destructive text-destructive-foreground pointer-events-auto flex items-start gap-2 rounded-md border border-transparent px-3 py-2 text-sm shadow-lg"
+          className={`pointer-events-auto flex items-start gap-2 rounded-md border border-transparent px-3 py-2 text-sm shadow-lg ${
+            toast.variant === "warning"
+              ? "bg-amber-500 text-white dark:bg-amber-600"
+              : "bg-destructive text-destructive-foreground"
+          }`}
         >
-          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          {toast.variant === "warning" ? (
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          ) : (
+            <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          )}
           <p className="flex-1 break-words">{toast.message}</p>
           <button
             onClick={() => dismiss(toast.id)}

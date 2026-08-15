@@ -198,6 +198,12 @@ type symbologySchema struct {
 	DomainField     *string         `json:"domain_field,omitempty"`
 	DomainValueCode *string         `json:"domain_value_code,omitempty"`
 	StyleDef        json.RawMessage `json:"style_def"`
+	// MinZoom/MaxZoom were already real columns loaded into
+	// metadata.SymbologyRule (see models.go) but never left this
+	// package until now -- resolveSymbology (web/src/lib/symbology.ts)
+	// couldn't zoom-gate a rule it never received.
+	MinZoom *int `json:"min_zoom,omitempty"`
+	MaxZoom *int `json:"max_zoom,omitempty"`
 }
 
 // featureClassSchemaResponse is the shape a create/edit form -- or a
@@ -256,7 +262,7 @@ func resolveSymbologySchema(ctx context.Context, db *bun.DB, loaded *metadata.Lo
 
 	out := make([]symbologySchema, 0, len(rules))
 	for _, r := range rules {
-		s := symbologySchema{StyleDef: r.StyleDef, RenderContext: r.RenderContext}
+		s := symbologySchema{StyleDef: r.StyleDef, RenderContext: r.RenderContext, MinZoom: r.MinZoom, MaxZoom: r.MaxZoom}
 		if r.SubtypeID != nil {
 			if code, ok := subtypeCodeByID[*r.SubtypeID]; ok {
 				s.SubtypeCode = &code
