@@ -130,6 +130,18 @@ type MaterialSpec struct {
 	AmpacityAmps       *float64 `bun:"ampacity_amps"`
 	DiameterMm         *float64 `bun:"diameter_mm"`
 	WeightKgPerKm      *float64 `bun:"weight_kg_per_km"`
+
+	// The four columns below (migrations/0022) are conductor-intrinsic
+	// inputs to a first-principles IEEE 738 ampacity calc, on top of the
+	// static ampacity_amps catalog figure above. Environmental
+	// conditions the same calc needs -- ambient temp, wind speed/angle,
+	// solar gain -- are deliberately NOT modeled here: those vary per
+	// calculation run, not per conductor, so they're request-time
+	// parameters to the ampacity endpoint instead.
+	MaxOperatingTempC             *float64 `bun:"max_operating_temp_c"`
+	Emissivity                    *float64 `bun:"emissivity"`
+	Absorptivity                  *float64 `bun:"absorptivity"`
+	ResistanceTempCoefficientPerC *float64 `bun:"resistance_temp_coefficient_per_c"`
 }
 
 // FieldGroup mirrors metadata.field_groups -- see migrations/0005. A

@@ -223,12 +223,37 @@ instead of chips). An "Edit in Attributes" button starts the existing
 tab in the same click, landing directly on the real field to change --
 it doesn't open a second form.
 
+## Follow-up: thermal properties for a first-principles ampacity calc
+
+`migrations/0022` adds four more nullable columns to
+`metadata.material_specs`: `max_operating_temp_c`, `emissivity`,
+`absorptivity`, `resistance_temp_coefficient_per_c`. These are the
+conductor-intrinsic inputs an IEEE Std 738 steady-state thermal rating
+calc needs on top of the static `ampacity_amps` catalog figure already
+there -- letting a later slice compute a conductor's actual current-
+carrying capacity from first principles (given real environmental
+conditions) rather than only ever reading a fixed catalog number.
+Environmental conditions the same calc needs -- ambient temperature,
+wind speed/angle, solar heat gain -- are deliberately NOT modeled here:
+those vary per calculation run, not per conductor, so they'll be
+request-time parameters to whatever endpoint runs the calc, not stored
+data. Same admin CRUD surface as the original five columns (Materials
+page's create/edit form gained a "Thermal properties" section);
+`emissivity`/`absorptivity` are `CHECK`ed `NULL or (0, 1]` rather than
+just `NULL or > 0`, since they're unitless fractions.
+
+This is Slice A of a larger, explicitly slice-up electrical-analysis
+build (load flow, transformer loading %, symmetrical fault current,
+first-principles ampacity) -- see `docs/open-items.md`'s Phase 8
+section for the full plan and the design decisions locked for it.
+
 ## What's still out of scope
 
 - **Electrical analysis itself** (voltage drop, loading/capacity
-  checks) — this slice (and the follow-up above) only builds the
-  catalog, the link, and now visibility of the resolved numbers; no
-  calc reads them yet.
+  checks, load flow, fault current) — this slice (and the follow-ups
+  above) only build the catalog, the link, visibility of the resolved
+  numbers, and now the thermal-property inputs a first-principles
+  ampacity calc will need; no calc reads any of it yet.
 - **Editing a domain value's material link from the Materials page
   itself** — the link is authored from the Domains page's own value
   editor only, matching where every other domain-value property is

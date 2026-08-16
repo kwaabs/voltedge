@@ -362,7 +362,7 @@ func updateMaterialSpec(ctx context.Context, db *bun.DB, code string, req update
 			return fmt.Errorf("loading material spec %q: %w", code, err)
 		}
 
-		cols := make([]string, 0, 7)
+		cols := make([]string, 0, 11)
 		if req.Name != nil {
 			m.Name = *req.Name
 			cols = append(cols, "name")
@@ -391,6 +391,22 @@ func updateMaterialSpec(ctx context.Context, db *bun.DB, code string, req update
 			m.WeightKgPerKm = req.WeightKgPerKm
 			cols = append(cols, "weight_kg_per_km")
 		}
+		if req.MaxOperatingTempC != nil {
+			m.MaxOperatingTempC = req.MaxOperatingTempC
+			cols = append(cols, "max_operating_temp_c")
+		}
+		if req.Emissivity != nil {
+			m.Emissivity = req.Emissivity
+			cols = append(cols, "emissivity")
+		}
+		if req.Absorptivity != nil {
+			m.Absorptivity = req.Absorptivity
+			cols = append(cols, "absorptivity")
+		}
+		if req.ResistanceTempCoefficientPerC != nil {
+			m.ResistanceTempCoefficientPerC = req.ResistanceTempCoefficientPerC
+			cols = append(cols, "resistance_temp_coefficient_per_c")
+		}
 
 		if _, err := tx.NewUpdate().Model(m).Column(cols...).Where("code = ?", code).Exec(ctx); err != nil {
 			return fmt.Errorf("updating material spec %q: %w", code, err)
@@ -400,6 +416,8 @@ func updateMaterialSpec(ctx context.Context, db *bun.DB, code string, req update
 			Code: m.Code, Name: m.Name, Category: m.Category,
 			ResistanceOhmPerKm: m.ResistanceOhmPerKm, ReactanceOhmPerKm: m.ReactanceOhmPerKm,
 			AmpacityAmps: m.AmpacityAmps, DiameterMm: m.DiameterMm, WeightKgPerKm: m.WeightKgPerKm,
+			MaxOperatingTempC: m.MaxOperatingTempC, Emissivity: m.Emissivity,
+			Absorptivity: m.Absorptivity, ResistanceTempCoefficientPerC: m.ResistanceTempCoefficientPerC,
 		}
 		return nil
 	})

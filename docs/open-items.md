@@ -26,7 +26,48 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-15, a Phase 8 follow-up closed: the map's
+**Last updated:** 2026-08-16, the electrical-analysis half of Phase 8 --
+previously just four open rows -- got sliced into a real, ordered build
+plan after a design discussion: load flow, symmetrical fault current,
+and first-principles ampacity are all genuinely buildable on top of
+what's already here (the graph substrate from `feature_connectivity` +
+the trace engine, the materials catalog's real impedance numbers), not
+blocked architecturally -- the actual gate is the same one from the
+original materials slice, just bigger: real engineering input data
+(load, source impedance, transformer nameplate, conductor thermal
+properties) that doesn't exist yet. Two of the four original rows
+(voltage drop, loading/capacity) turned out to be the same underlying
+problem and got merged into one engine: a radial-feeder forward-
+backward sweep (the standard method for tree-shaped distribution
+feeders, much simpler than full Newton-Raphson AC power flow), since
+per-node voltage % and per-branch loading % both fall out as read-outs
+of the same solve. The old combined "fault current / protection
+coordination" row split in two: symmetrical (3-phase bolted) fault
+current reuses the same branch-impedance-accumulation the sweep needs
+and is buildable now; unbalanced/sequence-network analysis and real
+protection coordination need per-device sequence impedance and
+protective time-current curve data that's a genuinely different,
+specialized modeling domain (what dedicated tools like ETAP/CYME exist
+for), and stays out of scope. A new capability was added to the plan
+too: first-principles conductor ampacity (IEEE Std 738 steady-state
+thermal rating) as an alternative to always reading the catalog's
+static `ampacity_amps`. Slice A of the resulting six-slice plan closed
+same day: `migrations/0022` adds the four conductor-intrinsic columns
+(`max_operating_temp_c`, `emissivity`, `absorptivity`,
+`resistance_temp_coefficient_per_c`) an IEEE 738 calc needs on
+`metadata.material_specs`, plus the matching admin API/UI (a new
+"Thermal properties" section on the Materials page's create/edit form).
+Environmental conditions the same calc needs (ambient temp, wind
+speed/angle, solar gain) are deliberately not stored -- those vary per
+calculation run, not per conductor, so they'll be request-time
+parameters instead. Backend curl-verified (create/update round-trip,
+`omitempty` absence on a spec with no thermal data, the database's own
+`CHECK` rejecting an out-of-range emissivity); frontend Playwright-
+verified (create with thermal values, confirm the new chips render,
+confirm the edit form pre-fills them correctly). See
+`docs/phase-8-materials.md`.
+
+Before that, a Phase 8 follow-up closed: the map's
 `FeaturePanel` had a read-only "Rules" tab (network/relationship/
 snapping rules for the selected feature's class) but nowhere to see a
 *feature's own* resolved material data. A direct request to add a
@@ -405,7 +446,9 @@ proper (voltage drop, loading/capacity checks -- not started).
 |---|---|---|---|---|
 | Materials catalog -- link a coded domain value to real engineering numbers | Done | M | New `metadata.material_specs` table (code, name, category, resistance/reactance/ampacity/diameter/weight, each `NULL or > 0`) plus one nullable `material_spec_id` FK on `metadata.domain_values` -- deliberately attached to a *domain value*, not a feature class directly, so a field like `MV_CONDUCTOR.conductor_spec` inherits real numbers for free the moment its domain's values happen to be material-linked, with zero compiler or CRUD-engine changes. `POST/GET/PATCH/DELETE /admin/material-specs`, and `material_spec_code` added to the existing domain-value create/edit requests (`updateDomainValueRequest` uses the same nil/""/value sentinel `updateFieldRequest.domain_code` already established). New Materials admin page; a material-spec picker added to the Domains page's own value editor, with a wrench-icon indicator on a linked value's pill. Follow-up (same day, prompted by a real "how do I attach a material to a feature class?" question): the feature-class detail page's own Fields table now shows the same wrench indicator per domain value, cross-referencing the already-fetched `useAdminDomains()` client-side rather than widening the shared schema endpoint -- a side effect is every domain-linked field's pills now show real labels instead of bare codes. Backend curl-verified end to end (including the delete-guard while referenced, and the database's own numeric `CHECK` rejecting a negative value); frontend Playwright-verified on all three surfaces. | `docs/phase-8-materials.md` |
 | Read-only Materials tab on the map's own feature panel | Done | S | Replaced the feature panel's "Rules" tab outright with a read-only "Materials" tab, closing the "reading resolved material numbers from the feature-facing schema endpoint" gap the original catalog slice left open. `GET /feature-classes/{code}/schema`'s `fieldSchema` gained an `omitempty` `material_specs` map (keyed by domain value code), resolved by a new `resolveMaterialSpecs` in `api/cmd/server/main.go` onto the same shared handler the map/admin forms already call. A design correction from the original request (add a tab to *author* materials): a feature's material is already just the value of one of its own domain-linked fields, editable through the existing Attributes tab form -- so this tab only surfaces the resolved numbers behind whichever value is currently set, plus an "Edit in Attributes" button that starts the edit session and switches to the Attributes tab in one click, rather than duplicating that form. Backend curl-verified; frontend Playwright-verified against a real compiled field and feature instance. | `docs/phase-8-materials.md` |
-| Voltage drop along a traced path | Open | M | Needs a traced path's conductor segments' `resistance_ohm_per_km` (now available via the materials catalog above) times real geometry length (`ST_Length`, already available), accumulated per segment, plus a load figure at the far end. |
-| Loading/capacity check | Open | M | Compare a conductor's `ampacity_amps` (now available) against connected load summed downstream of a point via an existing trace -- flags overloaded equipment. Natural first electrical-analysis capability to build: needs the least new modeling beyond what tracing + materials already provide. |
-| Transformer loading % | Open | S–M | Needs a transformer kVA rating field (not yet modeled on `DIST_XFMR`) compared against downstream connected load, same trace-sum approach as loading/capacity above. |
-| Fault current / short-circuit analysis, protection coordination | Open | L | A bigger modeling lift than the three rows above -- source impedance, sequence networks. Treated as a later, separate effort rather than folded into this phase's first slice. |
+| Material spec thermal properties (first-principles ampacity inputs) | Done | S | `migrations/0022` -- `max_operating_temp_c`, `emissivity`, `absorptivity`, `resistance_temp_coefficient_per_c` on `metadata.material_specs`, the conductor-intrinsic inputs an IEEE 738 steady-state thermal rating calc needs on top of the static `ampacity_amps` figure already there. Environmental conditions the same calc needs (ambient temp, wind speed/angle, solar gain) are deliberately not stored -- those vary per calculation run, not per conductor, so they'll be request-time parameters instead. Same admin CRUD surface as the original five columns. Slice A of the load-flow/fault-current/ampacity build below. | `docs/phase-8-materials.md` |
+| Load flow (voltage drop + loading/capacity, one engine) | Open | L | Rescoped from two separate single-path calcs into one radial-feeder forward-backward sweep (the standard method for tree-shaped distribution feeders, much simpler than full Newton-Raphson AC power flow) -- walks `feature_connectivity` the same barrier-aware way the trace engine does, rejects on a detected cycle, accumulates downstream (P,Q) demand backward then applies `I×Z` voltage drop forward, 2-3 iterations, constant-power loads. Per-node voltage % and per-branch loading % (current vs. `ampacity_amps`) both fall out as read-outs of the same solve, closing what were two separate rows. Needs (P,Q) load fields on `SERVICE_POINT`, addable via the existing admin add-field capability -- no new migration. | `docs/phase-8-materials.md` |
+| Transformer loading % | Open | S | Rides on the load-flow engine above: the sweep's demand at a `DIST_XFMR` node, expressed against a new `rated_kva` field (addable via the existing admin add-field capability, no migration needed) instead of a bare demand figure. | `docs/phase-8-materials.md` |
+| Symmetrical (3-phase bolted) fault current | Open | M | Reuses the load-flow engine's branch-impedance-accumulation directly -- `V / \|Z_total\|`, where `Z_total` sums a new source-impedance figure at the network root plus every branch `R+jX` to the fault point, the same impedance data the sweep already needs. Rescoped out of the old combined "fault current / protection coordination" row below once the shared math with load flow became clear. | `docs/phase-8-materials.md` |
+| Unbalanced fault analysis + protection coordination | Open | L | Positive/negative/zero-sequence impedance per piece of equipment, grounding configuration, protective device time-current curves -- a genuinely different, more specialized modeling domain (what dedicated protection-study tools like ETAP/CYME exist for), not something this slice-up folds in. Distinct from the row above: that one is symmetrical/balanced and buildable now; this one isn't yet. | `docs/phase-8-materials.md` |
+| First-principles conductor ampacity (IEEE 738) | Open | M | A standalone thermal-equilibrium calc, doesn't touch the graph at all -- uses the new thermal-property columns above plus request-time environmental inputs (ambient temp, wind speed/angle, solar gain), solving a bounded root-find for the current that reaches `max_operating_temp_c`. Wires in as an optional dynamic ampacity source for the loading/capacity and transformer-loading checks above, instead of always reading the static catalog `ampacity_amps`. | `docs/phase-8-materials.md` |

@@ -289,6 +289,13 @@ type createMaterialSpecRequest struct {
 	AmpacityAmps       *float64 `json:"ampacity_amps"`
 	DiameterMm         *float64 `json:"diameter_mm"`
 	WeightKgPerKm      *float64 `json:"weight_kg_per_km"`
+
+	// migrations/0022 -- conductor-intrinsic inputs to a first-principles
+	// IEEE 738 ampacity calc, see metadata.MaterialSpec's own doc comment.
+	MaxOperatingTempC             *float64 `json:"max_operating_temp_c"`
+	Emissivity                    *float64 `json:"emissivity"`
+	Absorptivity                  *float64 `json:"absorptivity"`
+	ResistanceTempCoefficientPerC *float64 `json:"resistance_temp_coefficient_per_c"`
 }
 
 // updateMaterialSpecRequest is PATCH /admin/material-specs/{code}'s
@@ -308,6 +315,11 @@ type updateMaterialSpecRequest struct {
 	AmpacityAmps       *float64 `json:"ampacity_amps"`
 	DiameterMm         *float64 `json:"diameter_mm"`
 	WeightKgPerKm      *float64 `json:"weight_kg_per_km"`
+
+	MaxOperatingTempC             *float64 `json:"max_operating_temp_c"`
+	Emissivity                    *float64 `json:"emissivity"`
+	Absorptivity                  *float64 `json:"absorptivity"`
+	ResistanceTempCoefficientPerC *float64 `json:"resistance_temp_coefficient_per_c"`
 }
 
 type materialSpecResponse struct {
@@ -319,4 +331,9 @@ type materialSpecResponse struct {
 	AmpacityAmps       *float64 `json:"ampacity_amps,omitempty"`
 	DiameterMm         *float64 `json:"diameter_mm,omitempty"`
 	WeightKgPerKm      *float64 `json:"weight_kg_per_km,omitempty"`
+
+	MaxOperatingTempC             *float64 `json:"max_operating_temp_c,omitempty"`
+	Emissivity                    *float64 `json:"emissivity,omitempty"`
+	Absorptivity                  *float64 `json:"absorptivity,omitempty"`
+	ResistanceTempCoefficientPerC *float64 `json:"resistance_temp_coefficient_per_c,omitempty"`
 }

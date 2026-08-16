@@ -128,6 +128,8 @@ func listMaterialSpecs(ctx context.Context, db *bun.DB) ([]materialSpecResponse,
 			Code: m.Code, Name: m.Name, Category: m.Category,
 			ResistanceOhmPerKm: m.ResistanceOhmPerKm, ReactanceOhmPerKm: m.ReactanceOhmPerKm,
 			AmpacityAmps: m.AmpacityAmps, DiameterMm: m.DiameterMm, WeightKgPerKm: m.WeightKgPerKm,
+			MaxOperatingTempC: m.MaxOperatingTempC, Emissivity: m.Emissivity,
+			Absorptivity: m.Absorptivity, ResistanceTempCoefficientPerC: m.ResistanceTempCoefficientPerC,
 		}
 	}
 	return out, nil
