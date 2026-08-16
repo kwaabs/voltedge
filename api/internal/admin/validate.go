@@ -154,7 +154,9 @@ func validateUpdateMaterialSpec(req updateMaterialSpecRequest) error {
 		return invalid("category cannot be blank")
 	}
 	if req.Name == nil && req.Category == nil && req.ResistanceOhmPerKm == nil && req.ReactanceOhmPerKm == nil &&
-		req.AmpacityAmps == nil && req.DiameterMm == nil && req.WeightKgPerKm == nil {
+		req.AmpacityAmps == nil && req.DiameterMm == nil && req.WeightKgPerKm == nil &&
+		req.MaxOperatingTempC == nil && req.Emissivity == nil && req.Absorptivity == nil &&
+		req.ResistanceTempCoefficientPerC == nil {
 		return invalid("request must set at least one field")
 	}
 	return nil

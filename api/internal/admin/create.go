@@ -314,6 +314,8 @@ func createMaterialSpec(ctx context.Context, db *bun.DB, req createMaterialSpecR
 			Code: req.Code, Name: req.Name, Category: req.Category,
 			ResistanceOhmPerKm: req.ResistanceOhmPerKm, ReactanceOhmPerKm: req.ReactanceOhmPerKm,
 			AmpacityAmps: req.AmpacityAmps, DiameterMm: req.DiameterMm, WeightKgPerKm: req.WeightKgPerKm,
+			MaxOperatingTempC: req.MaxOperatingTempC, Emissivity: req.Emissivity,
+			Absorptivity: req.Absorptivity, ResistanceTempCoefficientPerC: req.ResistanceTempCoefficientPerC,
 		}
 		if _, err := tx.NewInsert().Model(m).ExcludeColumn("id").Exec(ctx); err != nil {
 			return fmt.Errorf("insert material spec: %w", err)
@@ -323,6 +325,8 @@ func createMaterialSpec(ctx context.Context, db *bun.DB, req createMaterialSpecR
 			Code: m.Code, Name: m.Name, Category: m.Category,
 			ResistanceOhmPerKm: m.ResistanceOhmPerKm, ReactanceOhmPerKm: m.ReactanceOhmPerKm,
 			AmpacityAmps: m.AmpacityAmps, DiameterMm: m.DiameterMm, WeightKgPerKm: m.WeightKgPerKm,
+			MaxOperatingTempC: m.MaxOperatingTempC, Emissivity: m.Emissivity,
+			Absorptivity: m.Absorptivity, ResistanceTempCoefficientPerC: m.ResistanceTempCoefficientPerC,
 		}
 		return nil
 	})

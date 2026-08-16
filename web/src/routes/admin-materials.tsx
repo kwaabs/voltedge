@@ -18,6 +18,10 @@ interface NumberFields {
   ampacityAmps: string
   diameterMm: string
   weightKgPerKm: string
+  maxOperatingTempC: string
+  emissivity: string
+  absorptivity: string
+  resistanceTempCoefficientPerC: string
 }
 
 const EMPTY_NUMBERS: NumberFields = {
@@ -26,6 +30,10 @@ const EMPTY_NUMBERS: NumberFields = {
   ampacityAmps: "",
   diameterMm: "",
   weightKgPerKm: "",
+  maxOperatingTempC: "",
+  emissivity: "",
+  absorptivity: "",
+  resistanceTempCoefficientPerC: "",
 }
 
 function numberFieldsFrom(spec: AdminMaterialSpec): NumberFields {
@@ -35,6 +43,11 @@ function numberFieldsFrom(spec: AdminMaterialSpec): NumberFields {
     ampacityAmps: spec.ampacity_amps !== undefined ? String(spec.ampacity_amps) : "",
     diameterMm: spec.diameter_mm !== undefined ? String(spec.diameter_mm) : "",
     weightKgPerKm: spec.weight_kg_per_km !== undefined ? String(spec.weight_kg_per_km) : "",
+    maxOperatingTempC: spec.max_operating_temp_c !== undefined ? String(spec.max_operating_temp_c) : "",
+    emissivity: spec.emissivity !== undefined ? String(spec.emissivity) : "",
+    absorptivity: spec.absorptivity !== undefined ? String(spec.absorptivity) : "",
+    resistanceTempCoefficientPerC:
+      spec.resistance_temp_coefficient_per_c !== undefined ? String(spec.resistance_temp_coefficient_per_c) : "",
   }
 }
 
@@ -45,56 +58,106 @@ function toBody(n: NumberFields): Record<string, unknown> {
     ampacity_amps: n.ampacityAmps.trim() === "" ? undefined : Number(n.ampacityAmps),
     diameter_mm: n.diameterMm.trim() === "" ? undefined : Number(n.diameterMm),
     weight_kg_per_km: n.weightKgPerKm.trim() === "" ? undefined : Number(n.weightKgPerKm),
+    max_operating_temp_c: n.maxOperatingTempC.trim() === "" ? undefined : Number(n.maxOperatingTempC),
+    emissivity: n.emissivity.trim() === "" ? undefined : Number(n.emissivity),
+    absorptivity: n.absorptivity.trim() === "" ? undefined : Number(n.absorptivity),
+    resistance_temp_coefficient_per_c:
+      n.resistanceTempCoefficientPerC.trim() === "" ? undefined : Number(n.resistanceTempCoefficientPerC),
   }
 }
 
 function NumberFieldsGrid({ value, onChange }: { value: NumberFields; onChange: (v: NumberFields) => void }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-      <div className="flex flex-col gap-1">
-        <label className={labelClass}>Resistance (Ω/km)</label>
-        <input
-          type="number"
-          className={inputClass}
-          value={value.resistanceOhmPerKm}
-          onChange={(e) => onChange({ ...value, resistanceOhmPerKm: e.target.value })}
-        />
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Resistance (Ω/km)</label>
+          <input
+            type="number"
+            className={inputClass}
+            value={value.resistanceOhmPerKm}
+            onChange={(e) => onChange({ ...value, resistanceOhmPerKm: e.target.value })}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Reactance (Ω/km)</label>
+          <input
+            type="number"
+            className={inputClass}
+            value={value.reactanceOhmPerKm}
+            onChange={(e) => onChange({ ...value, reactanceOhmPerKm: e.target.value })}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Ampacity (A)</label>
+          <input
+            type="number"
+            className={inputClass}
+            value={value.ampacityAmps}
+            onChange={(e) => onChange({ ...value, ampacityAmps: e.target.value })}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Diameter (mm)</label>
+          <input
+            type="number"
+            className={inputClass}
+            value={value.diameterMm}
+            onChange={(e) => onChange({ ...value, diameterMm: e.target.value })}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Weight (kg/km)</label>
+          <input
+            type="number"
+            className={inputClass}
+            value={value.weightKgPerKm}
+            onChange={(e) => onChange({ ...value, weightKgPerKm: e.target.value })}
+          />
+        </div>
       </div>
-      <div className="flex flex-col gap-1">
-        <label className={labelClass}>Reactance (Ω/km)</label>
-        <input
-          type="number"
-          className={inputClass}
-          value={value.reactanceOhmPerKm}
-          onChange={(e) => onChange({ ...value, reactanceOhmPerKm: e.target.value })}
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <label className={labelClass}>Ampacity (A)</label>
-        <input
-          type="number"
-          className={inputClass}
-          value={value.ampacityAmps}
-          onChange={(e) => onChange({ ...value, ampacityAmps: e.target.value })}
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <label className={labelClass}>Diameter (mm)</label>
-        <input
-          type="number"
-          className={inputClass}
-          value={value.diameterMm}
-          onChange={(e) => onChange({ ...value, diameterMm: e.target.value })}
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <label className={labelClass}>Weight (kg/km)</label>
-        <input
-          type="number"
-          className={inputClass}
-          value={value.weightKgPerKm}
-          onChange={(e) => onChange({ ...value, weightKgPerKm: e.target.value })}
-        />
+      <div className="flex flex-col gap-2">
+        <p className="text-muted-foreground text-xs font-semibold uppercase">
+          Thermal properties (first-principles ampacity)
+        </p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Max operating temp (°C)</label>
+            <input
+              type="number"
+              className={inputClass}
+              value={value.maxOperatingTempC}
+              onChange={(e) => onChange({ ...value, maxOperatingTempC: e.target.value })}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Emissivity (0-1)</label>
+            <input
+              type="number"
+              className={inputClass}
+              value={value.emissivity}
+              onChange={(e) => onChange({ ...value, emissivity: e.target.value })}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Absorptivity (0-1)</label>
+            <input
+              type="number"
+              className={inputClass}
+              value={value.absorptivity}
+              onChange={(e) => onChange({ ...value, absorptivity: e.target.value })}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Resistance temp. coeff. (/°C)</label>
+            <input
+              type="number"
+              className={inputClass}
+              value={value.resistanceTempCoefficientPerC}
+              onChange={(e) => onChange({ ...value, resistanceTempCoefficientPerC: e.target.value })}
+            />
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -172,7 +235,7 @@ function EditMaterialSpecRow({ spec, onDone }: { spec: AdminMaterialSpec; onDone
  * properties a coded domain value can optionally attach to (from the
  * Domains page's own value editor), so a field like MV_CONDUCTOR's
  * conductor_spec resolves to real numbers, not just a display label.
- * See docs/phase-7-materials.md.
+ * See docs/phase-8-materials.md.
  */
 export function AdminMaterialsPage() {
   const { data, isPending, isError } = useAdminMaterialSpecs()
@@ -371,6 +434,26 @@ export function AdminMaterialsPage() {
                     {m.weight_kg_per_km !== undefined && (
                       <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
                         {m.weight_kg_per_km} kg/km
+                      </span>
+                    )}
+                    {m.max_operating_temp_c !== undefined && (
+                      <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+                        max {m.max_operating_temp_c}°C
+                      </span>
+                    )}
+                    {m.emissivity !== undefined && (
+                      <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+                        ε {m.emissivity}
+                      </span>
+                    )}
+                    {m.absorptivity !== undefined && (
+                      <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+                        α {m.absorptivity}
+                      </span>
+                    )}
+                    {m.resistance_temp_coefficient_per_c !== undefined && (
+                      <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+                        α_R {m.resistance_temp_coefficient_per_c}/°C
                       </span>
                     )}
                   </CardContent>

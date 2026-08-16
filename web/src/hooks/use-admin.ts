@@ -49,7 +49,7 @@ export interface AdminFieldGroup {
  * value can optionally link to via its own material_spec_code, so a
  * field like MV_CONDUCTOR's conductor_spec resolves to real engineering
  * numbers instead of just a display label. See
- * docs/phase-7-materials.md. */
+ * docs/phase-8-materials.md. */
 export interface AdminMaterialSpec {
   code: string
   name: string
@@ -59,6 +59,12 @@ export interface AdminMaterialSpec {
   ampacity_amps?: number
   diameter_mm?: number
   weight_kg_per_km?: number
+  /** migrations/0022 -- conductor-intrinsic inputs to a first-principles
+   * IEEE 738 ampacity calc, on top of the static ampacity_amps above. */
+  max_operating_temp_c?: number
+  emissivity?: number
+  absorptivity?: number
+  resistance_temp_coefficient_per_c?: number
 }
 
 /** Long staleTime, same reasoning useFeatureClasses/useCatalog use --
