@@ -30,6 +30,8 @@ type nodeState struct {
 	cumKW     float64
 	cumKVAR   float64
 	voltageV  float64
+	ratedKVA  float64
+	hasRating bool
 }
 
 // runLoadFlow is this package's whole engine, POST /analysis/load-flow's
@@ -124,8 +126,12 @@ func resolveNodeStates(ctx context.Context, db bun.IDB, tr *tree, loader *featur
 			}
 		}
 		ownKW, ownKVAR := resolveDemand(attrs)
+		ratedKVA, hasRating := resolveTransformerRating(attrs)
 
-		states[n] = &nodeState{loaded: loaded, attrs: attrs, impedance: imp, ownKW: ownKW, ownKVAR: ownKVAR}
+		states[n] = &nodeState{
+			loaded: loaded, attrs: attrs, impedance: imp, ownKW: ownKW, ownKVAR: ownKVAR,
+			ratedKVA: ratedKVA, hasRating: hasRating,
+		}
 	}
 	return states, nil
 }
@@ -245,6 +251,15 @@ func formatResults(tr *tree, states map[node]*nodeState, classCodes map[string]s
 				if loadingPct > 100 {
 					overloaded = append(overloaded, featureRef{FeatureClass: res.FeatureClass, FeatureID: res.FeatureID})
 				}
+			}
+		} else if st.hasRating {
+			sKVA := math.Hypot(st.cumKW, st.cumKVAR)
+			ratedKVA := st.ratedKVA
+			res.RatedKVA = &ratedKVA
+			loadingPct := sKVA / ratedKVA * 100
+			res.LoadingPct = &loadingPct
+			if loadingPct > 100 {
+				overloaded = append(overloaded, featureRef{FeatureClass: res.FeatureClass, FeatureID: res.FeatureID})
 			}
 		}
 		nodes = append(nodes, res)

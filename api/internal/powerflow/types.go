@@ -68,10 +68,13 @@ type loadFlowRequest struct {
 }
 
 // nodeResult is one visited node's resolved electrical state.
-// VoltageV/VoltageDropPct are always populated. The remaining fields
-// only apply to a conductor (network_role = 'edge') node -- omitted
-// entirely for a junction/container node, which carries no impedance
-// or current of its own to report.
+// VoltageV/VoltageDropPct are always populated. CurrentAmps/
+// AmpacityAmps only apply to a conductor (network_role = 'edge') node;
+// RatedKVA only applies to a rated junction node (today, a DIST_XFMR
+// with its own rated_kva set) -- a node is never both, so the two
+// loading sources share one LoadingPct rather than each needing their
+// own: a caller displaying "how loaded is this" doesn't need to know
+// which kind of equipment this particular node happens to be.
 type nodeResult struct {
 	FeatureClass     string   `json:"feature_class"`
 	FeatureID        string   `json:"feature_id"`
@@ -81,6 +84,7 @@ type nodeResult struct {
 	CumulativeKVAR   float64  `json:"cumulative_kvar"`
 	CurrentAmps      *float64 `json:"current_amps,omitempty"`
 	AmpacityAmps     *float64 `json:"ampacity_amps,omitempty"`
+	RatedKVA         *float64 `json:"rated_kva,omitempty"`
 	LoadingPct       *float64 `json:"loading_pct,omitempty"`
 	MaterialResolved bool     `json:"material_resolved"`
 }

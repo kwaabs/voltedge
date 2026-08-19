@@ -263,7 +263,12 @@ having to reread every phase doc's own "What's still open" section.
   a prompt-then-results panel in the shared bottom-center slot, and
   three new map highlight colors (normal/overloaded/stopped-at-barrier)
   — mutually exclusive with trace/isolate, same as those two already
-  are with each other.
+  are with each other. `DIST_XFMR` also gained a `rated_kva` field, so
+  a transformer's own loading % (apparent power vs. rating) falls out
+  of the same sweep a conductor's ampacity loading already does —
+  reusing the same loading %/overload fields rather than adding
+  parallel ones, and needing zero frontend changes since the results
+  table's Loading column already read that field generically.
   Write-ups: [`docs/phase-8-materials.md`](docs/phase-8-materials.md),
   [`docs/phase-8-load-flow.md`](docs/phase-8-load-flow.md).
 
