@@ -268,9 +268,16 @@ having to reread every phase doc's own "What's still open" section.
   of the same sweep a conductor's ampacity loading already does —
   reusing the same loading %/overload fields rather than adding
   parallel ones, and needing zero frontend changes since the results
-  table's Loading column already read that field generically.
+  table's Loading column already read that field generically. A new
+  `POST /analysis/fault-current` endpoint computes available
+  symmetrical (3-phase bolted) fault current across the same network —
+  one exact forward pass reusing the load-flow engine's own tree-walk
+  and impedance resolution directly, with no sweep needed since fault
+  current has no demand-voltage circular dependency to iterate over.
+  No frontend for it yet.
   Write-ups: [`docs/phase-8-materials.md`](docs/phase-8-materials.md),
-  [`docs/phase-8-load-flow.md`](docs/phase-8-load-flow.md).
+  [`docs/phase-8-load-flow.md`](docs/phase-8-load-flow.md),
+  [`docs/phase-8-fault-current.md`](docs/phase-8-fault-current.md).
 
 Auth and permissions are deliberately not modeled yet; several tables
 already carry an `applied_by`/`established_by`-style placeholder column so

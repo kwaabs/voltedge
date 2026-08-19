@@ -26,7 +26,45 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-19, Slice D of the Phase 8 electrical-
+**Last updated:** 2026-08-19, Slice E of the Phase 8 electrical-
+analysis plan closed: symmetrical (3-phase bolted) fault current. New
+`POST /analysis/fault-current` in `api/internal/powerflow`
+(`fault.go`), reusing the load-flow engine's own tree-walk, barrier
+handling, and branch-impedance resolution directly (`resolveNode`,
+`loadFlowBarriers`, `buildTree`, `resolveNodeStates`,
+`resolveSourceImpedance`) rather than re-deriving any of it -- but not
+its forward-backward iteration: fault current (`V / |Z_total|`) has no
+demand-voltage circular dependency to sweep, since it depends only on
+the network's own fixed topology and impedance, so one forward pass
+accumulating each node's own R+jX onto its parent's already-summed
+total (seeded at the source's own impedance) is exact, not an
+approximation refined over iterations. Mirrors `/load-flow`'s own
+response shape -- one reading per downstream node, not a single
+fault-point query -- so a caller sees fault duty across the whole
+network from one call, same as a load flow shows voltage everywhere at
+once. `fault_current_amps` is a `*float64`, deliberately omitted (not
+`0`, not `Infinity`) when the accumulated impedance is zero: an
+unbounded reading from incomplete impedance data (no source impedance
+set, no conductor along the path resolved a material spec), not a real
+number to report -- same degrade-gracefully stance
+`resolveConductorImpedance` already takes for an unresolved branch.
+Barrier handling needed zero changes: an open device's own node still
+resolves (its own barrier check happens when the walk tries to go past
+it, not when it's reached), everything downstream is absent from
+`nodes`, and the device itself appears in `barriers`, exactly matching
+`buildTree`'s own established semantics. Curl-verified against the
+real seed topology: a hand-computed check (`Z = hypot(0.05, 0.02) =
+0.053852`, `I = 11000 / 0.053852 = 204264.87A`) matched the API's own
+response to full float precision, uniform across every pass-through
+junction in the test topology (correctly zero added impedance, since
+none of its conductors resolve a material spec); the zero-impedance
+omit case; the open-device barrier case; and the validation/not-found
+error paths. No frontend yet -- a genuinely different result shape
+(impedance/fault-duty, not voltage/demand) from the load-flow results
+table, so unlike transformer loading %, it doesn't fold into the
+existing panel for free. See `docs/phase-8-fault-current.md`.
+
+Before that, 2026-08-19, Slice D of the Phase 8 electrical-
 analysis plan closed: transformer loading %. `DIST_XFMR` gained a
 `rated_kva` field (same no-migration admin add-field + recompile path
 as every prior field this phase added). `resolveTransformerRating`
@@ -677,8 +715,8 @@ proper (voltage drop, loading/capacity checks -- not started).
 | Read-only Materials tab on the map's own feature panel | Done | S | Replaced the feature panel's "Rules" tab outright with a read-only "Materials" tab, closing the "reading resolved material numbers from the feature-facing schema endpoint" gap the original catalog slice left open. `GET /feature-classes/{code}/schema`'s `fieldSchema` gained an `omitempty` `material_specs` map (keyed by domain value code), resolved by a new `resolveMaterialSpecs` in `api/cmd/server/main.go` onto the same shared handler the map/admin forms already call. A design correction from the original request (add a tab to *author* materials): a feature's material is already just the value of one of its own domain-linked fields, editable through the existing Attributes tab form -- so this tab only surfaces the resolved numbers behind whichever value is currently set, plus an "Edit in Attributes" button that starts the edit session and switches to the Attributes tab in one click, rather than duplicating that form. Backend curl-verified; frontend Playwright-verified against a real compiled field and feature instance. | `docs/phase-8-materials.md` |
 | Material spec thermal properties (first-principles ampacity inputs) | Done | S | `migrations/0022` -- `max_operating_temp_c`, `emissivity`, `absorptivity`, `resistance_temp_coefficient_per_c` on `metadata.material_specs`, the conductor-intrinsic inputs an IEEE 738 steady-state thermal rating calc needs on top of the static `ampacity_amps` figure already there. Environmental conditions the same calc needs (ambient temp, wind speed/angle, solar gain) are deliberately not stored -- those vary per calculation run, not per conductor, so they'll be request-time parameters instead. Same admin CRUD surface as the original five columns. Slice A of the load-flow/fault-current/ampacity build below. | `docs/phase-8-materials.md` |
 | Load flow (voltage drop + loading/capacity, one engine) | Done | L | New `api/internal/powerflow` package, `POST /analysis/load-flow` -- a radial-feeder forward-backward sweep (Kersting's method), reusing `DOWNSTREAM_TRACE`'s own `trace_barrier_rules` to stop at an open device rather than inventing a parallel barrier mechanism. Every graph node -- not just literal connectivity edges -- can carry impedance (a `network_role = 'edge'` node's own real geometry length × its resolved material spec) or demand (`SERVICE_POINT.demand_kw`/`power_factor`, new nullable fields added via the existing admin add-field capability, no migration); a junction/container node is electrically pass-through. `nominal_voltage_v` is a required request parameter rather than derived from a per-class field -- MV/LV sit at very different voltages and `LV_CONDUCTOR` carries no voltage-class field to derive one from. A detected loop/mesh fails the request outright with a 400 naming the exact converging feature rather than silently computing a wrong answer -- this project already has a dedicated loop detector (`LOOP_CHECK_TRACE`) a caller can run first. Per-node voltage % and per-branch loading % (current vs. `ampacity_amps`) both fall out as read-outs of the same solve, closing what were two separate rows. Backend curl-verified end to end, including a hand-computed numerical check (voltage drop/current/loading % all matched by hand), open-device barrier stopping, an overload flag, and cycle rejection against a real mesh. Frontend (trigger on the existing header dropdown, prompt + results table + row-click select, map color-coding for normal/overload/barrier) Playwright-verified end to end against the real seed topology, including mutual exclusivity with trace/isolate. `DIST_XFMR` gained a `rated_kva` field (same no-migration add-field path); a rated junction node's loading % (apparent power vs. rating) reuses the same `LoadingPct`/`Overloaded` a conductor's ampacity loading already populates, rather than a parallel field -- both are "how loaded is this equipment" to a caller, and a node is never both an edge and a rated junction. Needed zero frontend changes: the results table's Loading column already read `loading_pct` generically. Hand-verified (`demand_kw=50`/`pf=0.95` behind a `rated_kva=25` transformer → `loading_pct=210.53`, matching `hypot(50,16.43)/25*100` by hand) and Playwright-confirmed the overload styling/map color react to it the same way. | `docs/phase-8-load-flow.md` |
-| Transformer loading % | Open | S | Rides on the load-flow engine above: the sweep's demand at a `DIST_XFMR` node, expressed against a new `rated_kva` field (addable via the existing admin add-field capability, no migration needed) instead of a bare demand figure. | `docs/phase-8-materials.md` |
-| Symmetrical (3-phase bolted) fault current | Open | M | Reuses the load-flow engine's branch-impedance-accumulation directly -- `V / \|Z_total\|`, where `Z_total` sums a new source-impedance figure at the network root plus every branch `R+jX` to the fault point, the same impedance data the sweep already needs. Rescoped out of the old combined "fault current / protection coordination" row below once the shared math with load flow became clear. | `docs/phase-8-materials.md` |
+| Transformer loading % | Done | S | Folded into the Load flow row above -- see its own detail. | `docs/phase-8-load-flow.md` |
+| Symmetrical (3-phase bolted) fault current | Done | M | New `POST /analysis/fault-current` in `api/internal/powerflow`, reusing the load-flow engine's own tree-walk/barrier/impedance-resolution functions directly (`resolveNode`, `loadFlowBarriers`, `buildTree`, `resolveNodeStates`, `resolveSourceImpedance`) but not its iteration -- fault current is `V / \|Z_total\|` with no demand-voltage circular dependency to sweep, so it's one exact forward pass summing each node's own R+jX onto its parent's already-accumulated total, seeded at the source's own impedance. Mirrors `/load-flow`'s own response shape (one reading per downstream node, not a single fault-point query) so a caller sees fault duty across the whole network from one call. `fault_current_amps` is omitted (not `0`, not `Infinity`) when the accumulated impedance is zero -- an unbounded reading from incomplete impedance data, not a real number to report. Reuses barrier handling completely unchanged: an open device's own node still resolves (its barrier check happens when the walk tries to go past it, not when it's reached), everything downstream is absent from `nodes`, and the device itself appears in `barriers`. Backend curl-verified end to end against the real seed topology: a hand-computed check matched to full float precision, the omit-on-zero-`Z` case, barrier stopping, and the validation/not-found error paths. No frontend yet -- a genuinely different result shape from the load-flow table, so (unlike transformer loading %) it doesn't fold in for free. | `docs/phase-8-fault-current.md` |
 | Unbalanced fault analysis + protection coordination | Open | L | Positive/negative/zero-sequence impedance per piece of equipment, grounding configuration, protective device time-current curves -- a genuinely different, more specialized modeling domain (what dedicated protection-study tools like ETAP/CYME exist for), not something this slice-up folds in. Distinct from the row above: that one is symmetrical/balanced and buildable now; this one isn't yet. | `docs/phase-8-materials.md` |
 | First-principles conductor ampacity (IEEE 738) | Open | M | A standalone thermal-equilibrium calc, doesn't touch the graph at all -- uses the new thermal-property columns above plus request-time environmental inputs (ambient temp, wind speed/angle, solar gain), solving a bounded root-find for the current that reaches `max_operating_temp_c`. Wires in as an optional dynamic ampacity source for the loading/capacity and transformer-loading checks above, instead of always reading the static catalog `ampacity_amps`. | `docs/phase-8-materials.md` |
 

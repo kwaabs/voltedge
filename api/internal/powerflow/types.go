@@ -104,6 +104,48 @@ type loadFlowResponse struct {
 	Overloaded      []featureRef `json:"overloaded"`
 }
 
+// faultCurrentRequest is POST /analysis/fault-current's body -- same
+// shape and same reasoning as loadFlowRequest's own NominalVoltageV
+// (required, caller's own consistent LN/LL basis; see that type's doc
+// comment).
+type faultCurrentRequest struct {
+	Start           featureRef `json:"start"`
+	NominalVoltageV float64    `json:"nominal_voltage_v"`
+}
+
+// faultNodeResult is the available symmetrical (3-phase bolted) fault
+// current at one node, as if a bolted fault occurred right there.
+// ROhmTotal/XOhmTotal/ZOhmTotal are the series impedance summed from
+// the network's own source down to this node -- always populated,
+// zero for the start node itself when no source impedance is set.
+// FaultCurrentAmps is omitted (not zero, not infinite) when ZOhmTotal
+// is zero: an ideal, zero-impedance path to this point makes the
+// fault current mathematically unbounded, not a real number to report
+// -- the caller has incomplete impedance data (no source impedance
+// set, and/or no conductor between here and the source resolved a
+// material spec), not "the fault current here is 0A."
+type faultNodeResult struct {
+	FeatureClass     string   `json:"feature_class"`
+	FeatureID        string   `json:"feature_id"`
+	ROhmTotal        float64  `json:"r_ohm_total"`
+	XOhmTotal        float64  `json:"x_ohm_total"`
+	ZOhmTotal        float64  `json:"z_ohm_total"`
+	FaultCurrentAmps *float64 `json:"fault_current_amps,omitempty"`
+	MaterialResolved bool     `json:"material_resolved"`
+}
+
+// faultCurrentResponse mirrors loadFlowResponse's own shape: one
+// reading per downstream node rather than a single target-specific
+// figure, so a caller sees available fault current across the whole
+// network from one call, same as a load flow's own per-node voltage
+// table.
+type faultCurrentResponse struct {
+	Start           featureRef        `json:"start"`
+	NominalVoltageV float64           `json:"nominal_voltage_v"`
+	Nodes           []faultNodeResult `json:"nodes"`
+	Barriers        []featureRef      `json:"barriers"`
+}
+
 // apiError is the JSON body returned for any 4xx/5xx response.
 type apiError struct {
 	Error string `json:"error"`

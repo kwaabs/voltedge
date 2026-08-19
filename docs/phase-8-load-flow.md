@@ -16,6 +16,9 @@ overload flag, and cycle/mesh rejection. Frontend (trigger, results
 table, map color-coding) built and Playwright-verified end to end --
 see "Frontend" below. Transformer loading % (`DIST_XFMR.rated_kva`)
 also landed and verified -- see "Transformer loading %" below.
+Symmetrical (3-phase bolted) fault current, the next slice in the
+plan, is its own sibling engine built directly on top of this one --
+see `docs/phase-8-fault-current.md`.
 
 ## Design: forward-backward sweep, not full AC power flow
 
@@ -266,9 +269,6 @@ conductor. Scratch values removed afterward.
 
 ## What's still out of scope
 
-- **Symmetrical fault current** — reuses this engine's branch-
-  impedance-accumulation directly, walked from source to a fault point
-  instead of source to load; not built yet.
 - **Phase-aware sweep** — `docs/phase-9-lv-service-delivery.md`'s own
   phase model (Slice 0) is connect-time only; this sweep treats the
   whole network as a balanced single-line equivalent, same
