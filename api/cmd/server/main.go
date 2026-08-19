@@ -26,6 +26,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/diagram"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/kwaabs/voltedge/api/internal/powerflow"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
 	"github.com/kwaabs/voltedge/api/internal/rules"
 	"github.com/kwaabs/voltedge/api/internal/trace"
@@ -63,6 +64,7 @@ func main() {
 	r.Mount("/relationships", relationship.Routes(db))
 	r.Mount("/diagrams", diagram.Routes(db))
 	r.Mount("/trace", trace.Routes(db))
+	r.Mount("/analysis", powerflow.Routes(db))
 	r.Mount("/admin", admin.Routes(db))
 
 	log.Printf("voltedge api listening on :%s", port)
