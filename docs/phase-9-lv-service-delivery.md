@@ -9,8 +9,10 @@ load-flowed, not just the single simplification the seed data carries
 today (`SERVICE_POINT` wired *directly* to a `DIST_XFMR` secondary, one
 meter per service, no phase).
 
-**Status:** **Slices 0–3 have code landed (verification owed); Slices
-4–6 remain design-only.** This doc is the scope-lock the rest of the
+**Status:** **Slices 0–3 and 5 have code landed (verification owed);
+Slice 4 (`DER_UNIT`) is deferred until a load-flow engine exists to give
+its bidirectional hooks something to attach to; Slice 6 remains
+design-only.** This doc is the scope-lock the rest of the
 phase's slices are cut from, written before any code per this repo's
 convention (every prior large build got a design doc first). As with the
 recent frontend work, the environment can't spawn a shell (`bash.exe`
@@ -79,7 +81,7 @@ exists.
 - **Commercial CT/3ph:** `LV_CONDUCTOR(service, 3ph) → SERVICE_CUTOUT → METER(CT subtype) → SERVICE_POINT`.
 - **Meshed LV:** `LV_CONDUCTOR(main) ↔ LV_LINK_BOX (normally-open) ↔ LV_CONDUCTOR(main)` -- isolation via `device_state`, loops via the existing `LOOP_CHECK_TRACE` config.
 - **Prosumer:** `DER_UNIT` at the `SERVICE_POINT`; load flow handles reverse flow.
-- **Street light:** `LV_CONDUCTOR(main) → LV_CONDUCTOR(service, unmetered) → STREET_LIGHT` (leaf, no meter).
+- **Street light:** `LV_CONDUCTOR → STREET_LIGHT` (leaf, no meter/cutout — unmetered utility load). The feed rule is **phase-gated** (`phases_intersect`): a light wired to L1 must be fed by a conductor carrying L1, the first use of the Slice 0 gate on a device→leaf rule.
 
 ## How it reuses what exists
 
@@ -107,8 +109,8 @@ un-reviewable drop.
 | **1** *(code landed, verify owed)* | Single `LV_CONDUCTOR` edge (construction = OH/UG subtype, role = `lv_role` field) + LV cable specs + `network_rules`; retire the direct `XFMR.T2 → SERVICE_POINT` hop so supply is fed via LV | "no distinct LV/secondary conductor" open item |
 | **2** *(code landed, verify owed)* | LV devices: `SERVICE_CUTOUT` (line/load fuse), `LV_LINK_BOX` (4-way node) + `device_state` OPEN barriers on the isolation traces | meshed/isolation coverage |
 | **3** *(code landed, verify owed)* | `METER` as inline junction + `METER_CHAMBER` (`containment`, its first use) + `LV_BUSBAR` (single-tap, scales to N meters); metered chain + `SERVICE_POINT` → point-of-supply leaf | multi-occupancy / metering |
-| **4** | `DER_UNIT` + bidirectional load-flow hooks | prosumer coverage |
-| **5** | Unmetered (`STREET_LIGHT`) + CT-metering nuances | remaining scenarios |
+| **4** *(deferred — no load-flow engine yet)* | `DER_UNIT` + bidirectional load-flow hooks | prosumer coverage |
+| **5** *(code landed, verify owed)* | Unmetered (`STREET_LIGHT`, phase-gated feed) + CT-metering nuance (`ct_ratio` on `METER`, required for the `ct_metered` subtype only) | remaining scenarios (8 + CT detail of 5) |
 | **6** | LV load flow | ties into the Phase 8 engine |
 
 ### Slice 0 (starting here): the phase model
@@ -198,7 +200,13 @@ services to run them against.
   the model supports both shapes.
 - **CT vs whole-current, and 1ph vs 3ph, are subtypes/fields, not
   classes.** Modelling CTs/VTs as their own features is a granularity we
-  don't need; the metering arrangement is an attribute of the meter.
+  don't need; the metering arrangement is an attribute of the meter. Slice
+  5 realises this as a `ct_ratio` field on `METER` that is physically
+  nullable but required for the `ct_metered` subtype only (via a single
+  `subtype_field_rules` row) — a whole-current meter never carries a ratio,
+  a CT meter has no meaning without one. This is the first per-subtype
+  required field in the phase; because the column is nullable, re-compiling
+  the already-created `METER` takes the safe `ALTER TABLE ADD COLUMN` path.
 - **Repurpose `SERVICE_POINT` as the point of supply, don't add a new
   leaf class.** It already *is* the customer connection; the only change
   is that it's fed through the LV chain instead of directly off the

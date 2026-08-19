@@ -178,6 +178,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/lv_metering_example.sql
 
+  seed-lv-unmetered-ct:
+    desc: Load STREET_LIGHT + add the ct_ratio field to METER (Phase 9 Slice 5) through the gitbash sidecar (requires seed-lv-metering + seed-lv-conductors first; compile CODE=STREET_LIGHT and re-compile CODE=METER after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/lv_unmetered_ct_example.sql
+
   # ------------------------------------------------------------- frontend --
 
   frontend-dev:
