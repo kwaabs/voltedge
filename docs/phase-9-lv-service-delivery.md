@@ -11,8 +11,9 @@ meter per service, no phase).
 
 **Status:** **Slices 0–3 and 5 have code landed (verification owed);
 Slice 4 (`DER_UNIT`) is deferred until a load-flow engine exists to give
-its bidirectional hooks something to attach to; Slice 6 remains
-design-only.** This doc is the scope-lock the rest of the
+its bidirectional hooks something to attach to; Slices 6 and 7 remain
+design-only (Slice 7 — inside-plant schematic containers — newly
+scoped).** This doc is the scope-lock the rest of the
 phase's slices are cut from, written before any code per this repo's
 convention (every prior large build got a design doc first). As with the
 recent frontend work, the environment can't spawn a shell (`bash.exe`
@@ -83,6 +84,59 @@ exists.
 - **Prosumer:** `DER_UNIT` at the `SERVICE_POINT`; load flow handles reverse flow.
 - **Street light:** `LV_CONDUCTOR → STREET_LIGHT` (leaf, no meter/cutout — unmetered utility load). The feed rule is **phase-gated** (`phases_intersect`): a light wired to L1 must be fed by a conductor carrying L1, the first use of the Slice 0 gate on a device→leaf rule.
 
+### Valid premise chains (what the seeded rules allow)
+
+The `network_rules` from Slices 1–5 permit exactly the set below at the
+premise end — every chain starts from an `LV_CONDUCTOR` (itself off the
+transformer, another LV run, or a link box) and ends at the point of
+supply. The **cut-out and the meter each drop in or out independently**
+(the fidelity dial — see "Decisions made"), which is why a handful of
+rules yields seven terminations. This table is the authority on which
+connections are legal; a chain not listed here has no rule and is
+rejected at connect time.
+
+*Single service — four variants by how much is modelled:*
+
+| # | Chain | What it is | Rules |
+|---|---|---|---|
+| 1 | `LV_CONDUCTOR → SERVICE_POINT` | bare / unmetered, no cut-out modelled | Slice 1 |
+| 2 | `LV_CONDUCTOR → SERVICE_CUTOUT → SERVICE_POINT` | cut-out tracked, meter kept in CIS (not a node) | Slices 1–2 |
+| 3 | `LV_CONDUCTOR → METER → SERVICE_POINT` | metered, cut-out not modelled | Slices 1, 3 |
+| 4 | `LV_CONDUCTOR → SERVICE_CUTOUT → METER → SERVICE_POINT` | the standard house (also rural direct — just a shorter run) | Slices 1–3 |
+
+*Multi-occupancy — the busbar fans one-to-N:*
+
+| # | Chain | What it is | Rules |
+|---|---|---|---|
+| 5 | `LV_CONDUCTOR → LV_BUSBAR → METER×N → SERVICE_POINT×N` | busbar direct, no building-main cut-out | Slices 1, 3 |
+| 6 | `LV_CONDUCTOR → SERVICE_CUTOUT → LV_BUSBAR → METER×N → SERVICE_POINT×N` | full apartment: building-main cut-out → board → N tenants | Slices 1–3 |
+
+*Unmetered leaf — not a service point at all:*
+
+| # | Chain | What it is | Rules |
+|---|---|---|---|
+| 7 | `LV_CONDUCTOR → STREET_LIGHT` | its own leaf, no meter/cut-out | Slice 5 |
+
+Structural facts that pin the set down:
+
+- **The busbar always goes through a meter** — there is `LV_BUSBAR.T2 →
+  METER` but deliberately no `LV_BUSBAR → SERVICE_POINT`: a distribution
+  board feeds *metered* circuits, so a tenant can't tap the bar unmetered.
+- **The cut-out is optional** in every chain — 1↔2, 3↔4, 5↔6 are the same
+  topology with/without a modelled `SERVICE_CUTOUT`.
+- **The meter is optional** too — 1/2 (none) vs 3/4 (metered) — because
+  Slice 3 left the direct-to-`SERVICE_POINT` rules valid rather than
+  retiring them.
+- **Upstream-agnostic** — any chain can sit behind an `LV_CONDUCTOR →
+  LV_CONDUCTOR` main→service splice (phase-matched) or downstream of an
+  `LV_LINK_BOX` in a meshed street.
+
+**Slice 7 note:** re-modelling `LV_LINK_BOX` into a container replaces its
+Slice 2 external ways with internal `LV_BUSBAR`/`LV_FUSE` wiring — that
+changes the *meshed-street* topology (the `LV_LINK_BOX ↔ LV_CONDUCTOR`
+hops), **not** any of the seven premise chains above, which don't route
+through a link box.
+
 ## How it reuses what exists
 
 - **Trace engine:** downstream from the transformer now reaches every LV
@@ -112,6 +166,7 @@ un-reviewable drop.
 | **4** *(deferred — no load-flow engine yet)* | `DER_UNIT` + bidirectional load-flow hooks | prosumer coverage |
 | **5** *(code landed, verify owed)* | Unmetered (`STREET_LIGHT`, phase-gated feed) + CT-metering nuance (`ct_ratio` on `METER`, required for the `ct_metered` subtype only) | remaining scenarios (8 + CT detail of 5) |
 | **6** | LV load flow | ties into the Phase 8 engine |
+| **7** *(design only)* | Inside-plant schematic containers: a new `LV_FUSE` (diagram-only fuse-way, sibling of `SERVICE_CUTOUT`) + re-model `LV_LINK_BOX` as a diagram container with real per-way fuses; flip `METER_CHAMBER` to a diagram container | per-way isolation (scenario 6, fixes Slice 2's feature-level barrier limitation) + internal one-line views (3, 6) |
 
 ### Slice 0 (starting here): the phase model
 
@@ -168,6 +223,59 @@ enforcement* for phase. Full phase-balance reporting and phase-aware
 load flow ride on later slices (5-6) once there are real phased LV
 services to run them against.
 
+### Slice 7 (design): inside-plant schematic containers
+
+**Why it exists.** Slice 2 modelled `LV_LINK_BOX` as a single junction
+with four ways and *one* feature-level `device_state`, and its own header
+recorded the honest gap: a normally-open *way* is faked by the absence of
+a seeded connection, "per-way NOP state is a later slice's" problem.
+Physically a link box (feeder pillar) is a **busbar with an individually
+pullable fuse-link per outgoing way** — so the fix is to make those fuses
+*real features* rather than a single lumped state. This reuses the Phase 5
+diagram system (`is_diagram_container`, `diagram_instances` /
+`diagram_placements`, the `geometry_type = 'none'` diagram-only feature
+path already proven end-to-end by `PROTECTIVE_RELAY`) with **no new engine
+mechanism** — the same way the rest of this phase reused connectivity and
+the trace engine.
+
+**New class — `LV_FUSE`** (the fuse-way; sibling of `SERVICE_CUTOUT`, not
+a subtype of a generalised fuse — see the "a cut-out *is* a fuse" decision
+below). `geometry_type = 'none'` (it only ever lives inside a container's
+internal diagram, like `PROTECTIVE_RELAY`), `network_role = 'junction'`,
+terminals `T1` (bus side) / `T2` (outgoing side) so it's inline, fields
+`device_state` (the `DEVICE_STATE` domain reused, not reinvented),
+`condition_rating`, and a `fuse_rating` coded field (new `FUSE_RATING`
+domain — standard LV ratings). It joins the existing `device_state = OPEN`
+`trace_barrier_rules` pattern, so opening **one** fuse now isolates **one**
+way — the per-way isolation Slice 2 couldn't express.
+
+**Re-model `LV_LINK_BOX` as a container** (mirrors `METER_CHAMBER`):
+`is_diagram_container = true`, `network_role = container`, and its four
+external terminals + the set-generating `LV_LINK_BOX Tn → LV_CONDUCTOR`
+rules from Slice 2 are **retired** in favour of the real internal wiring:
+incoming `LV_CONDUCTOR → LV_BUSBAR.T1`, `LV_BUSBAR.T2 → LV_FUSE.T1`,
+`LV_FUSE.T2 → LV_CONDUCTOR` (each outgoing way). `containment`
+relationship rows (`LV_LINK_BOX contains LV_BUSBAR` / `contains LV_FUSE`)
+tie the enclosure to its parts, exactly as the chamber ties to its meters.
+The box stays a `point` on the map (one symbol); double-clicking opens its
+internal one-line. **This is destructive on a live DB** the same way
+Slice 1's `SERVICE_POINT` repoint was — the compiler has no terminal-drop
+path — so it's clean on a fresh seed and needs a hand-written migration on
+an existing deployment (Slice 7 must call this out, as Slice 1 did).
+
+**Flip `METER_CHAMBER` to a diagram container too** — purely additive
+(`is_diagram_container = true`, nothing else): its `containment` rows to
+the busbar + meters already exist (Slice 3), so its internal one-line
+(busbar + N tenant meters) comes almost for free.
+
+**Open verification risk to close in the slice:** `LV_FUSE` is the first
+feature that is `geometry_type = 'none'` **and** `network_role = 'junction'`
+(the `PROTECTIVE_RELAY` precedent was `none` + `none`, never traced). The
+trace and connect engines are terminal/`feature_connectivity`-driven and
+should be geometry-independent, but that combination has never been run,
+so confirming a geometry-less junction traces and gates correctly is the
+one genuinely new thing to prove — not assume — in this slice.
+
 ## Decisions made
 
 - **Construction is the subtype; functional role is a field — settled
@@ -207,6 +315,27 @@ services to run them against.
   a CT meter has no meaning without one. This is the first per-subtype
   required field in the phase; because the column is nullable, re-compiling
   the already-created `METER` takes the safe `ALTER TABLE ADD COLUMN` path.
+- **A service cut-out *is* a fuse — but fuses stay distinct classes by
+  asset/placement, not collapsed into one.** `SERVICE_CUTOUT` is
+  electrically the customer's intake fuse (its Slice 2 subtypes are already
+  `fuse_carrier` / `switch_fuse`); the link-box fuse-ways are also fuses.
+  They share the protective mechanism (a `device_state` barrier on the
+  `DEVICE_STATE` domain) but are **different field assets in different
+  enclosures with different topology** (a 2-terminal intake unit vs. a
+  fuse-way on a shared bus), so Slice 7's `LV_FUSE` is a *sibling* class of
+  `SERVICE_CUTOUT`, not a subtype of a generalised `FUSE` — the same reason
+  `DIST_SWITCH` and `SERVICE_CUTOUT` coexist rather than merging into one
+  "switching/protective device" class. (Contrast `LV_CONDUCTOR`, which
+  *is* one class: there the variation is construction/role of a single
+  asset type, not two distinct assets.)
+- **`SERVICE_CUTOUT` and `SERVICE_POINT` are not near-duplicates.** They
+  overlap only positionally in the single-dwelling case. The cut-out is a
+  2-terminal *protective/isolation device* (power flows through it,
+  `device_state` OPEN halts a trace); the service point is a 1-terminal
+  *demand/DER demarcation leaf* (the trace terminus, the stable premise
+  identity that survives fuse and meter swaps). They diverge structurally
+  the moment there is more than one customer: one building-main
+  `SERVICE_CUTOUT` → `LV_BUSBAR` → N meters → **N** `SERVICE_POINT`s.
 - **Repurpose `SERVICE_POINT` as the point of supply, don't add a new
   leaf class.** It already *is* the customer connection; the only change
   is that it's fed through the LV chain instead of directly off the
