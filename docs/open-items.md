@@ -26,7 +26,46 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-19, Slice E of the Phase 8 electrical-
+**Last updated:** 2026-08-19, Slice F of the Phase 8 electrical-
+analysis plan closed -- the last of the six slices: first-principles
+conductor ampacity (IEEE 738). New `POST /analysis/ampacity` in
+`api/internal/powerflow` (`ampacity.go`), the real steady-state
+heat-balance equation `qc + qr = qs + I²R(Tc)` evaluated at
+`Tc = max_operating_temp_c` and solved for `I`. One deliberate
+simplification -- constant air properties instead of IEEE 738's own
+film-temperature-derived correlations, the same "real physics,
+simplified input" tradeoff the load-flow sweep's own linearization
+already makes -- turns out to remove the root-find the plan originally
+scoped entirely: with air properties fixed, the convective/radiative
+loss terms don't depend on the unknown current, so
+`I = sqrt((qc+qr-qs)/R(Tc))` is already closed-form. Takes one
+conductor feature, not a whole-network walk (this row's own original
+framing: "doesn't touch the graph at all"); `ambient_temp_c` is a
+`*float64` rather than a plain float64 like every other request field
+in this package, since 0°C is a real value with no sentinel "missing"
+reading -- explicit presence via a pointer is the only honest way to
+require it, same reasoning `nominal_voltage_v` is already required
+for. Curl-verified: an independent from-scratch Python
+re-implementation of the same formula matched the API's own response
+to full float precision; every validation/error path (non-conductor
+class, missing ambient temp, a material spec missing its thermal
+columns -- named exactly which ones); and the ambient-at-or-above-
+rating edge case correctly returning `0A` rather than a crash or a
+wrong positive number. Left the scratch material spec's newly-set
+thermal values in place rather than clearing them back to `NULL`
+afterward -- the admin API deliberately has no clear-to-null path for
+a material spec's numeric columns, and the values are realistic
+figures for a real cable, so leaving them populates real catalog data
+Slice A left empty rather than leaving scratch debris. Not yet wired
+in as the load-flow/fault-current engines' own dynamic ampacity
+source, and no frontend -- both real follow-ups, not this slice's own
+scope. See `docs/phase-8-ampacity.md`.
+
+With this, all six slices of the Phase 8 electrical-analysis plan
+(load flow, its frontend, transformer loading %, symmetrical fault
+current, and now first-principles ampacity) are closed.
+
+Before that, 2026-08-19, Slice E of the Phase 8 electrical-
 analysis plan closed: symmetrical (3-phase bolted) fault current. New
 `POST /analysis/fault-current` in `api/internal/powerflow`
 (`fault.go`), reusing the load-flow engine's own tree-walk, barrier
@@ -718,7 +757,7 @@ proper (voltage drop, loading/capacity checks -- not started).
 | Transformer loading % | Done | S | Folded into the Load flow row above -- see its own detail. | `docs/phase-8-load-flow.md` |
 | Symmetrical (3-phase bolted) fault current | Done | M | New `POST /analysis/fault-current` in `api/internal/powerflow`, reusing the load-flow engine's own tree-walk/barrier/impedance-resolution functions directly (`resolveNode`, `loadFlowBarriers`, `buildTree`, `resolveNodeStates`, `resolveSourceImpedance`) but not its iteration -- fault current is `V / \|Z_total\|` with no demand-voltage circular dependency to sweep, so it's one exact forward pass summing each node's own R+jX onto its parent's already-accumulated total, seeded at the source's own impedance. Mirrors `/load-flow`'s own response shape (one reading per downstream node, not a single fault-point query) so a caller sees fault duty across the whole network from one call. `fault_current_amps` is omitted (not `0`, not `Infinity`) when the accumulated impedance is zero -- an unbounded reading from incomplete impedance data, not a real number to report. Reuses barrier handling completely unchanged: an open device's own node still resolves (its barrier check happens when the walk tries to go past it, not when it's reached), everything downstream is absent from `nodes`, and the device itself appears in `barriers`. Backend curl-verified end to end against the real seed topology: a hand-computed check matched to full float precision, the omit-on-zero-`Z` case, barrier stopping, and the validation/not-found error paths. No frontend yet -- a genuinely different result shape from the load-flow table, so (unlike transformer loading %) it doesn't fold in for free. | `docs/phase-8-fault-current.md` |
 | Unbalanced fault analysis + protection coordination | Open | L | Positive/negative/zero-sequence impedance per piece of equipment, grounding configuration, protective device time-current curves -- a genuinely different, more specialized modeling domain (what dedicated protection-study tools like ETAP/CYME exist for), not something this slice-up folds in. Distinct from the row above: that one is symmetrical/balanced and buildable now; this one isn't yet. | `docs/phase-8-materials.md` |
-| First-principles conductor ampacity (IEEE 738) | Open | M | A standalone thermal-equilibrium calc, doesn't touch the graph at all -- uses the new thermal-property columns above plus request-time environmental inputs (ambient temp, wind speed/angle, solar gain), solving a bounded root-find for the current that reaches `max_operating_temp_c`. Wires in as an optional dynamic ampacity source for the loading/capacity and transformer-loading checks above, instead of always reading the static catalog `ampacity_amps`. | `docs/phase-8-materials.md` |
+| First-principles conductor ampacity (IEEE 738) | Done | M | New `POST /analysis/ampacity` in `api/internal/powerflow` (`ampacity.go`) -- the real IEEE 738 steady-state heat-balance equation (`qc + qr = qs + I^2*R(Tc)`: convective + radiated loss = solar gain + Joule heating), evaluated at `Tc = max_operating_temp_c` and solved for `I`. One deliberate simplification: holds air density/viscosity/thermal-conductivity **constant** rather than deriving them from the actual film temperature via IEEE 738's own polynomial correlations -- the same "real physics, simplified input" tradeoff the load-flow sweep's own linearized voltage-drop approximation already makes for a different equation. A useful side effect: with air properties fixed, `qc`/`qr` no longer depend on the unknown current, so the heat balance is already closed-form (`I = sqrt((qc+qr-qs)/R(Tc))`) rather than needing the root-find originally scoped -- this endpoint only ever answers "what current reaches the rated ceiling," not the inverse "what temperature does this current produce," which sidesteps the need for iteration entirely. Takes one conductor feature (not a whole-network read-out like `/load-flow`/`/fault-current` -- doesn't touch the graph, per this row's own original framing), resolving its own material-linked field the same by-field-name scanning `resolveConductorImpedance` already does (kept as ampacity.go's own independent copy, not shared, since the two functions' required-field sets differ), and returns a clear, field-naming error when the resolved spec is missing any of Slice A's four thermal columns. Environmental inputs (`ambient_temp_c`, `wind_speed_mps`, `wind_angle_deg`, `solar_heat_flux_w_m2`) are request-time parameters, never stored -- `ambient_temp_c` specifically is a `*float64` (not a plain float64 like every other request field in this package) since 0°C is a real, common value with no sentinel "missing" reading, the same underlying reasoning `nominal_voltage_v` is already required for. Curl-verified against a real seed topology: an independent from-scratch Python re-implementation of the same formula matched the API's own response to full float precision (`699.4339412616043` vs `699.4339412616042`); the non-conductor-class, missing-`ambient_temp_c`, and missing-thermal-columns error paths; and the ambient-at-or-above-rating edge case (correctly `0A`, not a crash or a wrong positive number). **Not yet wired in** as the load-flow/fault-current engines' own dynamic ampacity source (still reading the static catalog `ampacity_amps`) -- a real follow-up integration question (what environmental inputs a load-flow request itself would need to carry), not an oversight. No frontend yet. | `docs/phase-8-ampacity.md` |
 
 ## Phase 9 — LV / service delivery
 

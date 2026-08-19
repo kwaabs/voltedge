@@ -239,7 +239,9 @@ having to reread every phase doc's own "What's still open" section.
 - **Phase 7 — Field collection**: mobile/offline data capture for field
   crews. Design deferred — noted here as a placeholder only.
 - **Phase 8 — Materials + electrical analysis** (materials catalog and
-  the load-flow engine done): a new `metadata.material_specs` table lets a coded domain
+  all six slices of the electrical-analysis plan — load flow, its
+  frontend, transformer loading %, fault current, and first-principles
+  ampacity — done): a new `metadata.material_specs` table lets a coded domain
   value (e.g. a `CONDUCTOR_SPEC` domain's `ACSR_50`) carry real physical/
   electrical properties — resistance, reactance, ampacity, diameter,
   weight — instead of being just a display label. Attaches to the
@@ -274,10 +276,23 @@ having to reread every phase doc's own "What's still open" section.
   one exact forward pass reusing the load-flow engine's own tree-walk
   and impedance resolution directly, with no sweep needed since fault
   current has no demand-voltage circular dependency to iterate over.
-  No frontend for it yet.
+  No frontend for it yet. Last slice: `POST /analysis/ampacity`
+  computes a single conductor's own first-principles steady-state
+  ampacity via the real IEEE 738 heat-balance equation, evaluated at
+  its rated max operating temperature and solved for current — one
+  deliberate simplification (constant air properties instead of IEEE
+  738's own film-temperature-derived ones) turns out to remove the
+  root-find originally planned for it entirely, since the loss terms
+  no longer depend on the unknown current. Takes environmental
+  conditions (ambient temp, wind, solar gain) as request parameters
+  rather than storing them, and doesn't touch the connectivity graph
+  at all — a standalone calc on one feature, not a network-wide
+  read-out like the other two engines. Not yet wired in as their own
+  dynamic ampacity source; no frontend yet either.
   Write-ups: [`docs/phase-8-materials.md`](docs/phase-8-materials.md),
   [`docs/phase-8-load-flow.md`](docs/phase-8-load-flow.md),
-  [`docs/phase-8-fault-current.md`](docs/phase-8-fault-current.md).
+  [`docs/phase-8-fault-current.md`](docs/phase-8-fault-current.md),
+  [`docs/phase-8-ampacity.md`](docs/phase-8-ampacity.md).
 
 Auth and permissions are deliberately not modeled yet; several tables
 already carry an `applied_by`/`established_by`-style placeholder column so

@@ -18,14 +18,18 @@ import (
 //	                       current at every node downstream of one
 //	                       feature, reusing the same branch-impedance
 //	                       resolution as /load-flow
+//	POST   /ampacity       first-principles (IEEE 738) steady-state
+//	                       ampacity for one conductor feature, given
+//	                       request-time environmental conditions
 //
-// Read-only, same as api/internal/trace -- neither endpoint writes
-// anything, they only compute over what api/internal/connectivity and
-// the materials catalog have already committed.
+// Read-only, same as api/internal/trace -- none of these endpoints
+// write anything, they only compute over what api/internal/connectivity
+// and the materials catalog have already committed.
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Post("/load-flow", loadFlowHandler(db))
 	r.Post("/fault-current", faultCurrentHandler(db))
+	r.Post("/ampacity", ampacityHandler(db))
 	return r
 }
 
@@ -55,6 +59,23 @@ func faultCurrentHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := runFaultCurrent(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func ampacityHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req ampacityRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runAmpacity(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return
