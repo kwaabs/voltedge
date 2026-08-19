@@ -179,3 +179,25 @@ func resolveSourceImpedance(attrs map[string]any) (rOhm, xOhm float64) {
 	x, _ := readFloatAttr(attrs, sourceFieldX)
 	return r, x
 }
+
+// ratedKVAField is the field name a rated piece of equipment (today
+// only DIST_XFMR) carries its own nameplate apparent-power rating
+// under -- the junction-node analog of an edge's own resolved
+// ampacity, so a transformer's loading % falls out of the same sweep
+// an edge's already does, without hardcoding this package to
+// DIST_XFMR by name (same generic-field-name approach resolveDemand
+// and resolveSourceImpedance already use; any future rated junction
+// class gets this for free by adding a field of this name).
+const ratedKVAField = "rated_kva"
+
+// resolveTransformerRating reads a junction node's own rated_kva, if
+// it has any -- ok = false when the field doesn't exist on this class,
+// isn't set on this particular feature, or isn't a usable positive
+// value, meaning this node reports no loading % (not "0% loaded").
+func resolveTransformerRating(attrs map[string]any) (ratedKVA float64, ok bool) {
+	v, ok := readFloatAttr(attrs, ratedKVAField)
+	if !ok || v <= 0 {
+		return 0, false
+	}
+	return v, true
+}

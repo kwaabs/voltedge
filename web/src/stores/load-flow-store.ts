@@ -3,10 +3,12 @@ import { create } from "zustand"
 import type { TraceFeatureRef } from "@/stores/trace-store"
 
 /** One node's resolved electrical state -- mirrors api/internal/powerflow's
- * nodeResult exactly. VoltageV/VoltageDropPct are always present; the
- * conductor-only fields (CurrentAmps/AmpacityAmps/LoadingPct) are only
- * set for a network_role = 'edge' node, omitted entirely for a
- * junction/container node that carries no impedance of its own. */
+ * nodeResult exactly. VoltageV/VoltageDropPct are always present. The
+ * conductor-only fields (CurrentAmps/AmpacityAmps) are only set for a
+ * network_role = 'edge' node; RatedKVA is only set for a rated junction
+ * node (today, a DIST_XFMR with its own rated_kva). A node is never
+ * both, so both share one loading_pct -- displaying "how loaded" never
+ * needs to know which kind of equipment this particular node is. */
 export interface LoadFlowNodeResult {
   feature_class: string
   feature_id: string
@@ -16,6 +18,7 @@ export interface LoadFlowNodeResult {
   cumulative_kvar: number
   current_amps?: number
   ampacity_amps?: number
+  rated_kva?: number
   loading_pct?: number
   material_resolved: boolean
 }

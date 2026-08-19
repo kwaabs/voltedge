@@ -14,7 +14,8 @@ including a hand-computed numerical check (voltage drop, current, and
 loading % all matched by hand), open-device barrier stopping, an
 overload flag, and cycle/mesh rejection. Frontend (trigger, results
 table, map color-coding) built and Playwright-verified end to end --
-see "Frontend" below.
+see "Frontend" below. Transformer loading % (`DIST_XFMR.rated_kva`)
+also landed and verified -- see "Transformer loading %" below.
 
 ## Design: forward-backward sweep, not full AC power flow
 
@@ -225,11 +226,46 @@ initializing it as an empty slice instead, restoring the "list fields
 are always arrays, never null" contract every other list endpoint in
 this codebase already upholds.
 
+## Transformer loading %
+
+`DIST_XFMR` gained a `rated_kva` field (nullable numeric, same
+no-migration admin add-field + recompile path as every other field
+this slice added). `resolveTransformerRating` (`resolve.go`) reads it
+the same generic way `resolveDemand`/`resolveSourceImpedance` read
+theirs -- by field name, not by hardcoding to `DIST_XFMR`, so any
+future rated junction class gets this for free by adding a field of
+the same name. `formatResults` (`sweep.go`) computes the node's own
+apparent power from the sweep's already-accumulated cumulative (P, Q)
+-- `S = hypot(cumKW, cumKVAR)` -- and reports `S / rated_kva * 100` as
+`loading_pct`, folding into `Overloaded` past 100% exactly like a
+conductor already does.
+
+Deliberately reuses `LoadingPct` rather than adding a parallel
+transformer-specific field: a conductor's loading (current vs.
+ampacity) and a transformer's loading (apparent power vs. rated
+capacity) are different computations but the same *concept* to a
+caller -- "how loaded is this piece of equipment" -- and a node is
+never both an edge and a rated junction at once, so one field serves
+both without a caller needing to know which kind of node it's looking
+at. `RatedKVA` is the new field or the equipment-capacity counterpart
+of an edge's `AmpacityAmps`.
+
+No frontend changes were needed at all: `load-flow-panel.tsx`'s
+Loading column already reads `node.loading_pct` generically (it was
+never conductor-specific to begin with), so a transformer's loading %
+and overload flag just show up. Verified against a real scratch
+topology: `demand_kw=50`/`power_factor=0.95` at a `SERVICE_POINT`
+one hop off a `DIST_XFMR` with `rated_kva=25` produced
+`loading_pct=210.53` (hand-checked: `S = hypot(50, 16.43) = 52.63`,
+`52.63 / 25 * 100 = 210.53`) and the transformer correctly appeared in
+`overloaded`; raising `rated_kva` to 200 dropped it to `26.32` with an
+empty `overloaded`. Confirmed in the browser (Playwright) too --
+overload row styling and map highlight color both react to the
+transformer's own loading the same way they already do for a
+conductor. Scratch values removed afterward.
+
 ## What's still out of scope
 
-- **Transformer loading %** — rides on this engine once `DIST_XFMR`
-  gains a `rated_kva` field; the sweep's own demand at that node is
-  already computed, just not yet expressed against a rating.
 - **Symmetrical fault current** — reuses this engine's branch-
   impedance-accumulation directly, walked from source to a fault point
   instead of source to load; not built yet.
