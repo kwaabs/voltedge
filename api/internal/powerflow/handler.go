@@ -17,6 +17,8 @@ import (
 //	POST   /fault-current   accumulate series impedance from one source
 //	                        feature, returning the symmetrical bolted-
 //	                        fault current at every downstream node
+//	POST   /ampacity        first-principles (IEEE 738) steady-state
+//	                        thermal ampacity for one conductor feature
 //
 // Read-only, same as api/internal/trace -- neither route ever writes
 // anything, they only compute over what api/internal/connectivity and
@@ -25,6 +27,7 @@ func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Post("/load-flow", loadFlowHandler(db))
 	r.Post("/fault-current", faultCurrentHandler(db))
+	r.Post("/ampacity", ampacityHandler(db))
 	return r
 }
 
@@ -54,6 +57,23 @@ func faultCurrentHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := runFaultCurrent(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func ampacityHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req ampacityRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runAmpacity(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

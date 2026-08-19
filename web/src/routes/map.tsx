@@ -1,3 +1,4 @@
+import { AmpacityPanel } from "@/components/map/ampacity-panel"
 import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
 import { DiagramCanvas } from "@/components/map/diagram-canvas"
 import { FaultCurrentPanel } from "@/components/map/fault-current-panel"
@@ -44,6 +45,7 @@ export function MapPage() {
       <IsolationResultTable />
       <LoadFlowPanel />
       <FaultCurrentPanel />
+      <AmpacityPanel />
       <StatusBar />
     </div>
   )

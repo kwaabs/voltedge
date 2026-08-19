@@ -268,9 +268,17 @@ having to reread every phase doc's own "What's still open" section.
   of the same sweep a conductor's ampacity loading already does —
   reusing the same loading %/overload fields rather than adding
   parallel ones, and needing zero frontend changes since the results
-  table's Loading column already read that field generically.
+  table's Loading column already read that field generically. A
+  first-principles conductor ampacity endpoint (`POST
+  /analysis/ampacity`) rounds out the electrical-analysis plan: the
+  real IEEE 738 steady-state heat-balance equation, evaluated at a
+  conductor's own rated ceiling and solved in closed form for the
+  current that reaches it, with a compact key/value results panel
+  (no map highlight — a single-conductor calc, not a network walk)
+  and a trigger gated to conductor features only.
   Write-ups: [`docs/phase-8-materials.md`](docs/phase-8-materials.md),
-  [`docs/phase-8-load-flow.md`](docs/phase-8-load-flow.md).
+  [`docs/phase-8-load-flow.md`](docs/phase-8-load-flow.md),
+  [`docs/phase-8-ampacity.md`](docs/phase-8-ampacity.md).
 
 Auth and permissions are deliberately not modeled yet; several tables
 already carry an `applied_by`/`established_by`-style placeholder column so
