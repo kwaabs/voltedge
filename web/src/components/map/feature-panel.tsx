@@ -1,10 +1,13 @@
 import { Fragment, useEffect, useRef, useState } from "react"
 import {
   ChevronDown,
+  ChevronsDownUp,
+  ChevronsUpDown,
   GripHorizontal,
   Info,
   Link2,
   Loader2,
+  MoreHorizontal,
   Pencil,
   Plug,
   Plus,
@@ -39,6 +42,7 @@ import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useRelationships } from "@/hooks/use-relationships"
 import { useTraceConfigurations } from "@/hooks/use-trace-configurations"
 import { ApiError, apiFetch } from "@/lib/api"
+import { formatArea, formatLength, geoJSONAreaMeters, geoJSONLengthMeters } from "@/lib/measure"
 import { cn } from "@/lib/utils"
 import { useConnectStore } from "@/stores/connect-store"
 import { useDiagramStore } from "@/stores/diagram-store"
@@ -48,6 +52,7 @@ import { type IsolationResult, useIsolateStore } from "@/stores/isolate-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
 import { type TraceFeatureRef, type TraceResult, useTraceStore } from "@/stores/trace-store"
+import { useUnitsStore } from "@/stores/units-store"
 
 type TabId = "attributes" | "terminals" | "relationships" | "materials"
 
@@ -65,6 +70,7 @@ function shortId(id: string): string {
 function AttributesTab() {
   const selected = useSelectionStore((s) => s.selected)
   const editing = useEditStore((s) => s.editing)
+  const units = useUnitsStore((s) => s.units)
   const { data: feature, isPending, isError, error } = useFeature(
     selected?.featureClassCode,
     selected?.featureId,
@@ -87,34 +93,77 @@ function AttributesTab() {
   }
   if (isError || !feature) return null
 
+  // A hairline under every cell turns the flat key/value grid into
+  // legible, table-like rows -- both cells of a row share the same grid
+  // line, so their borders align into one continuous rule. `py-1.5`
+  // replaces the old `gap-y` so those rules butt up against each other
+  // with no gap breaking them; the last row keeps its border too (reads
+  // as the list's closing rule, and a flat Fragment grid has no clean
+  // "last row" to special-case anyway).
+  const dtClass = "text-muted-foreground border-primary/15 border-b py-1.5 font-medium"
+  const ddClass = "text-foreground border-primary/15 border-b py-1.5"
+
+  // Length/area computed live from the feature's own geometry (no stored
+  // column, no measure tool to arm) -- a line gets a Length row, a
+  // polygon an Area + Perimeter pair. Geodesic (see lib/measure.ts), so
+  // correct regardless of the class's SRID; re-formats instantly when the
+  // shared units preference flips.
+  const geometry = feature.geometry
+  const lengthMeters = geometry ? geoJSONLengthMeters(geometry) : null
+  const areaMeters = geometry ? geoJSONAreaMeters(geometry) : null
+
   return (
-    <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">
-      <dt className="text-muted-foreground">Status</dt>
-      <dd className="capitalize">{feature.status}</dd>
+    <dl className="grid grid-cols-[max-content_1fr] gap-x-6 text-sm">
+      <dt className={dtClass}>Status</dt>
+      <dd className={cn(ddClass, "capitalize")}>{feature.status}</dd>
 
       {feature.deleted_at && (
         <>
-          <dt className="text-muted-foreground">Deleted</dt>
-          <dd>{new Date(feature.deleted_at).toLocaleString()}</dd>
+          <dt className={dtClass}>Deleted</dt>
+          <dd className={ddClass}>{new Date(feature.deleted_at).toLocaleString()}</dd>
         </>
       )}
 
       {feature.subtype !== undefined && (
         <>
-          <dt className="text-muted-foreground">Subtype</dt>
-          <dd>{feature.subtype}</dd>
+          <dt className={dtClass}>Subtype</dt>
+          <dd className={ddClass}>{feature.subtype}</dd>
         </>
       )}
 
       {Object.entries(feature.attributes).map(([key, value]) => (
         <Fragment key={key}>
-          <dt className="text-muted-foreground">{formatFieldLabel(key)}</dt>
-          <dd>{formatValue(value)}</dd>
+          <dt className={dtClass}>{formatFieldLabel(key)}</dt>
+          <dd className={ddClass}>{formatValue(value)}</dd>
         </Fragment>
       ))}
 
-      <dt className="text-muted-foreground">Updated</dt>
-      <dd>{new Date(feature.updated_at).toLocaleString()}</dd>
+      {geometry?.type === "LineString" && lengthMeters !== null && (
+        <>
+          <dt className={dtClass}>Length</dt>
+          <dd className={ddClass}>{formatLength(lengthMeters, units)}</dd>
+        </>
+      )}
+
+      {geometry?.type === "Polygon" && (
+        <>
+          {areaMeters !== null && (
+            <>
+              <dt className={dtClass}>Area</dt>
+              <dd className={ddClass}>{formatArea(areaMeters, units)}</dd>
+            </>
+          )}
+          {lengthMeters !== null && (
+            <>
+              <dt className={dtClass}>Perimeter</dt>
+              <dd className={ddClass}>{formatLength(lengthMeters, units)}</dd>
+            </>
+          )}
+        </>
+      )}
+
+      <dt className={dtClass}>Updated</dt>
+      <dd className={ddClass}>{new Date(feature.updated_at).toLocaleString()}</dd>
     </dl>
   )
 }
@@ -493,6 +542,15 @@ function MaterialsTab({ onEditClick }: { onEditClick: () => void }) {
  * `!position` in connect-confirm-panel.tsx's own className branch. */
 const DEFAULT_POSITION_CLASS = "bottom-10 right-4"
 
+/** Fixed defaults the panel opens at (matching the former `w-96 h-64`
+ * Tailwind sizes) and the floors a manual resize can't shrink past --
+ * small enough to still show a header row plus a couple of lines of
+ * content, not so small the tab rail collapses. */
+const DEFAULT_WIDTH = 384
+const DEFAULT_HEIGHT = 256
+const MIN_WIDTH = 288
+const MIN_HEIGHT = 180
+
 /**
  * Floating and draggable (grab the header, same mechanics as
  * connect-confirm-panel.tsx's own `handleHeaderPointerDown`/`position`
@@ -503,9 +561,14 @@ const DEFAULT_POSITION_CLASS = "bottom-10 right-4"
  * re-renders even while this returns null (nothing selected, no
  * draft) -- so a window the user has already dragged somewhere stays
  * there the next time a feature is selected, rather than snapping back
- * to the default corner on every click. Resizing/minimizing remain out
- * of scope -- undocking was the specifically requested piece; a fixed
- * `w-96` and internal `overflow-y-auto` (as before) are enough for now.
+ * to the default corner on every click. The window can also be resized
+ * (drag the bottom-right corner grip -- `size` state, floored at
+ * MIN_WIDTH/MIN_HEIGHT) and minimized (the header's collapse toggle --
+ * `minimized` state hides the body so only the drag header remains),
+ * both living in this component's own state alongside `position`. Size
+ * persists across selections the same way position does; `minimized`
+ * resets to false on a new selection so a freshly-selected feature is
+ * never hidden.
  *
  * Side tabs, not top or bottom ones -- a vertical rail spends the
  * panel's plentiful horizontal space instead of costing height a
@@ -524,6 +587,8 @@ export function FeaturePanel() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [creatingDiagram, setCreatingDiagram] = useState(false)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
+  const [minimized, setMinimized] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   const tracing = useTraceStore((s) => s.loading)
   const isolating = useIsolateStore((s) => s.loading)
@@ -549,6 +614,7 @@ export function FeaturePanel() {
     setActiveTab("attributes")
     setDeleteDialogOpen(false)
     setCreatingDiagram(false)
+    setMinimized(false)
     useEditStore.getState().stop()
   }, [selected?.featureClassCode, selected?.featureId])
 
@@ -562,6 +628,37 @@ export function FeaturePanel() {
 
     const handleMove = (moveEvt: PointerEvent) => {
       setPosition({ x: origX + (moveEvt.clientX - startX), y: origY + (moveEvt.clientY - startY) })
+    }
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove)
+      window.removeEventListener("pointerup", handleUp)
+    }
+    window.addEventListener("pointermove", handleMove)
+    window.addEventListener("pointerup", handleUp)
+  }
+
+  // Same pointer-capture mechanics as the header drag above, but writes
+  // `size` instead of `position`. If the panel is still at its default
+  // corner anchor (`position` null, pinned bottom-right via
+  // DEFAULT_POSITION_CLASS), pin it to its current top-left first so a
+  // bottom-right resize grows down/right intuitively rather than the
+  // panel appearing to grow up/left off its fixed corner. Floors at
+  // MIN_WIDTH/MIN_HEIGHT so it can't be shrunk into an unusable sliver.
+  function handleResizePointerDown(e: React.PointerEvent) {
+    e.stopPropagation()
+    const rect = panelRef.current?.getBoundingClientRect()
+    if (!rect) return
+    if (!position) setPosition({ x: rect.left, y: rect.top })
+    const startX = e.clientX
+    const startY = e.clientY
+    const startWidth = size?.width ?? rect.width
+    const startHeight = size?.height ?? rect.height
+
+    const handleMove = (moveEvt: PointerEvent) => {
+      setSize({
+        width: Math.max(MIN_WIDTH, startWidth + (moveEvt.clientX - startX)),
+        height: Math.max(MIN_HEIGHT, startHeight + (moveEvt.clientY - startY)),
+      })
     }
     const handleUp = () => {
       window.removeEventListener("pointermove", handleMove)
@@ -727,11 +824,56 @@ export function FeaturePanel() {
   )
   const diagrams = diagramsData?.diagrams ?? []
 
-  const positionStyle = position ? { left: position.x, top: position.y } : undefined
+  // Width/height come from `size` (or the fixed defaults) as inline
+  // styles now, not the former `w-96 h-64` classes -- a manual resize
+  // needs a live numeric value the classes can't carry. Minimized drops
+  // the height entirely so the shell shrink-wraps its header row.
+  const shellStyle: React.CSSProperties = {
+    ...(position ? { left: position.x, top: position.y } : {}),
+    width: size?.width ?? DEFAULT_WIDTH,
+    height: minimized ? undefined : (size?.height ?? DEFAULT_HEIGHT),
+  }
   const positionClass = cn(
-    "bg-background fixed z-40 flex h-64 w-96 flex-col rounded-md border shadow-lg",
+    "bg-background fixed z-40 flex flex-col overflow-hidden rounded-md border border-primary/20 shadow-lg",
     !position && DEFAULT_POSITION_CLASS,
   )
+
+  const minimizeButton = (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-7 shrink-0"
+      title={minimized ? "Restore" : "Minimize"}
+      onClick={() => setMinimized((m) => !m)}
+    >
+      {minimized ? <ChevronsUpDown className="size-4" /> : <ChevronsDownUp className="size-4" />}
+      <span className="sr-only">{minimized ? "Restore panel" : "Minimize panel"}</span>
+    </Button>
+  )
+
+  const resizeHandle = minimized ? null : (
+    <div
+      onPointerDown={handleResizePointerDown}
+      title="Resize"
+      style={{ touchAction: "none" }}
+      className="absolute right-0 bottom-0 z-50 flex size-4 cursor-nwse-resize items-end justify-end p-0.5"
+    >
+      <span className="border-muted-foreground/40 size-2 border-r-2 border-b-2" />
+    </div>
+  )
+
+  // Header layout splits into feature actions (trace, edit, and an
+  // overflow menu holding the less-frequent/destructive diagram + delete
+  // items) and window controls (minimize + close, pinned far right).
+  // Feature actions hide entirely while editing, mid-create-diagram, or
+  // minimized -- a minimized panel is just its title bar plus window
+  // controls. Close stays available whenever the panel isn't mid-edit,
+  // including while minimized, so a collapsed panel can still be
+  // dismissed; the edit session has its own Save/Cancel instead.
+  const showHeaderActions = !isEditingSelected && !creatingDiagram && !minimized
+  const showCloseButton = !isEditingSelected && !creatingDiagram
+  const hasDiagramActions =
+    (isDiagramContainer && diagrams.length === 0) || diagrams.length >= 1
 
   // An unsaved draft (see draw-store.ts) takes over the whole panel,
   // no tabs -- a feature with no id yet has no terminals or
@@ -744,10 +886,10 @@ export function FeaturePanel() {
       draft.featureClassCode
 
     return (
-      <div ref={panelRef} style={positionStyle} className={positionClass}>
+      <div ref={panelRef} style={shellStyle} className={positionClass}>
         <div
           onPointerDown={handleHeaderPointerDown}
-          className="flex cursor-grab items-center justify-between border-b px-3 py-2 select-none active:cursor-grabbing"
+          className="from-accent/50 to-accent/20 flex cursor-grab items-center justify-between border-b border-primary/15 bg-gradient-to-b px-3 py-2 select-none active:cursor-grabbing"
         >
           <div className="flex min-w-0 items-center gap-1.5">
             <GripHorizontal className="text-muted-foreground size-3.5 shrink-0" />
@@ -756,14 +898,20 @@ export function FeaturePanel() {
               <p className="text-muted-foreground truncate text-xs">Unsaved</p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={clearDraft}>
-            <X className="size-4" />
-            <span className="sr-only">Cancel</span>
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            {minimizeButton}
+            <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={clearDraft}>
+              <X className="size-4" />
+              <span className="sr-only">Cancel</span>
+            </Button>
+          </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-3">
-          <FeatureCreateForm />
-        </div>
+        {!minimized && (
+          <div className="flex-1 overflow-y-auto p-3">
+            <FeatureCreateForm />
+          </div>
+        )}
+        {resizeHandle}
       </div>
     )
   }
@@ -786,7 +934,7 @@ export function FeaturePanel() {
       : shortId(selected.featureId)
 
   return (
-    <div ref={panelRef} style={positionStyle} className={positionClass}>
+    <div ref={panelRef} style={shellStyle} className={positionClass}>
       <div
         onPointerDown={handleHeaderPointerDown}
         className="flex cursor-grab items-center justify-between border-b px-3 py-2 select-none active:cursor-grabbing"
@@ -798,125 +946,116 @@ export function FeaturePanel() {
             <p className="text-muted-foreground truncate font-mono text-xs">{secondaryLabel}</p>
           </div>
         </div>
-        {isEditingSelected || creatingDiagram ? null : (
-          <div className="flex shrink-0 items-center gap-1">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  disabled={
-                    (tracing || isolating) ||
-                    (runnableConfigs.length === 0 && !canIsolate && !isolationConfig)
-                  }
-                  title="Run trace"
-                >
-                  <Route className="size-4" />
-                  <ChevronDown className="size-3" />
-                  <span className="sr-only">Run trace</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                {runnableConfigs.length === 0 && !canIsolate && !isolationConfig ? (
-                  <p className="text-muted-foreground px-2 py-1.5 text-sm">No trace configurations exist</p>
-                ) : (
-                  <>
-                    {runnableConfigs.map((config) => (
-                      <DropdownMenuItem key={config.code} onSelect={() => runTrace(config.code)}>
-                        {config.name}
-                      </DropdownMenuItem>
-                    ))}
-                    {isolationConfig && (
-                      <>
-                        {runnableConfigs.length > 0 && <DropdownMenuSeparator />}
-                        <DropdownMenuItem onSelect={runFeederTrace}>Feeder trace</DropdownMenuItem>
-                        <DropdownMenuItem onSelect={runSectionTrace}>Section trace</DropdownMenuItem>
-                      </>
-                    )}
-                    {canIsolate && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={runIsolate}>
-                          <Zap className="size-4" />
-                          Isolate from here
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            {isDiagramContainer && diagrams.length === 0 && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                title="Create diagram"
-                onClick={() => setCreatingDiagram(true)}
-              >
-                <Workflow className="size-4" />
-                <Plus className="size-3" />
-                <span className="sr-only">Create diagram</span>
-              </Button>
-            )}
-            {diagrams.length === 1 && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                title="View diagram"
-                onClick={() => useDiagramStore.getState().open(diagrams[0].id)}
-              >
-                <Workflow className="size-4" />
-                <span className="sr-only">View diagram</span>
-              </Button>
-            )}
-            {diagrams.length > 1 && (
+        <div className="flex shrink-0 items-center gap-1">
+          {showHeaderActions && (
+            <>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="size-7" title="View diagram">
-                    <Workflow className="size-4" />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    disabled={
+                      (tracing || isolating) ||
+                      (runnableConfigs.length === 0 && !canIsolate && !isolationConfig)
+                    }
+                    title="Run trace"
+                  >
+                    <Route className="size-4" />
                     <ChevronDown className="size-3" />
-                    <span className="sr-only">View diagram</span>
+                    <span className="sr-only">Run trace</span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-52">
-                  {diagrams.map((d) => (
-                    <DropdownMenuItem key={d.id} onSelect={() => useDiagramStore.getState().open(d.id)}>
-                      {d.name || d.diagram_type}
-                    </DropdownMenuItem>
-                  ))}
+                  {runnableConfigs.length === 0 && !canIsolate && !isolationConfig ? (
+                    <p className="text-muted-foreground px-2 py-1.5 text-sm">No trace configurations exist</p>
+                  ) : (
+                    <>
+                      {runnableConfigs.map((config) => (
+                        <DropdownMenuItem key={config.code} onSelect={() => runTrace(config.code)}>
+                          {config.name}
+                        </DropdownMenuItem>
+                      ))}
+                      {isolationConfig && (
+                        <>
+                          {runnableConfigs.length > 0 && <DropdownMenuSeparator />}
+                          <DropdownMenuItem onSelect={runFeederTrace}>Feeder trace</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={runSectionTrace}>Section trace</DropdownMenuItem>
+                        </>
+                      )}
+                      {canIsolate && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={runIsolate}>
+                            <Zap className="size-4" />
+                            Isolate from here
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
-            )}
-            <div className="bg-border mx-0.5 h-4 w-px" />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              disabled={Boolean(feature?.deleted_at)}
-              onClick={() => useEditStore.getState().start(selected.featureClassCode, selected.featureId)}
-            >
-              <Pencil className="size-4" />
-              <span className="sr-only">Edit</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              disabled={Boolean(feature?.deleted_at)}
-              onClick={() => setDeleteDialogOpen(true)}
-            >
-              <Trash2 className="size-4" />
-              <span className="sr-only">Delete</span>
-            </Button>
-            <Button variant="ghost" size="icon" className="size-7" onClick={clear}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="Edit"
+                disabled={Boolean(feature?.deleted_at)}
+                onClick={() => useEditStore.getState().start(selected.featureClassCode, selected.featureId)}
+              >
+                <Pencil className="size-4" />
+                <span className="sr-only">Edit</span>
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="size-7" title="More actions">
+                    <MoreHorizontal className="size-4" />
+                    <span className="sr-only">More actions</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  {isDiagramContainer && diagrams.length === 0 && (
+                    <DropdownMenuItem onSelect={() => setCreatingDiagram(true)}>
+                      <Workflow className="size-4" />
+                      Create diagram
+                    </DropdownMenuItem>
+                  )}
+                  {diagrams.length === 1 && (
+                    <DropdownMenuItem onSelect={() => useDiagramStore.getState().open(diagrams[0].id)}>
+                      <Workflow className="size-4" />
+                      View diagram
+                    </DropdownMenuItem>
+                  )}
+                  {diagrams.length > 1 &&
+                    diagrams.map((d) => (
+                      <DropdownMenuItem key={d.id} onSelect={() => useDiagramStore.getState().open(d.id)}>
+                        <Workflow className="size-4" />
+                        View {d.name || d.diagram_type}
+                      </DropdownMenuItem>
+                    ))}
+                  {hasDiagramActions && <DropdownMenuSeparator />}
+                  <DropdownMenuItem
+                    disabled={Boolean(feature?.deleted_at)}
+                    onSelect={() => setDeleteDialogOpen(true)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="size-4" />
+                    Delete feature
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <div className="bg-border mx-0.5 h-4 w-px" />
+            </>
+          )}
+          {minimizeButton}
+          {showCloseButton && (
+            <Button variant="ghost" size="icon" className="size-7" title="Close" onClick={clear}>
               <X className="size-4" />
               <span className="sr-only">Close</span>
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <DeleteFeatureDialog
@@ -927,8 +1066,9 @@ export function FeaturePanel() {
         onOpenChange={setDeleteDialogOpen}
       />
 
+      {!minimized && (
       <div className="flex min-h-0 flex-1">
-        <div className="flex w-28 shrink-0 flex-col gap-0.5 border-r p-1">
+        <div className="bg-muted/40 flex w-32 shrink-0 flex-col gap-0.5 border-r border-primary/10 p-1">
           {TABS.map((tab) => {
             // Terminals/Relationships unmount when the active tab
             // changes (see below) -- switching away mid-edit would
@@ -974,6 +1114,8 @@ export function FeaturePanel() {
           )}
         </div>
       </div>
+      )}
+      {resizeHandle}
     </div>
   )
 }

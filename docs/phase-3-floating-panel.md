@@ -93,9 +93,69 @@ already on the map.
 
 ## What's still open
 
-- **Resize and minimize** -- explicitly still deferred, as above.
-- Everything else tracked in `docs/open-items.md` is unchanged by this
-  slice.
+- Everything tracked in `docs/open-items.md` is unchanged by this
+  slice, other than the resize/minimize follow-up below, which closes
+  its own row.
+
+## Follow-up: resize + minimize (the deferred item, now closed)
+
+The "Resize and minimize" item this slice deliberately left open has
+since been built, in the same `feature-panel.tsx` and reusing the same
+window-level pointer mechanics the header drag already established.
+
+- **Resize.** A small corner grip (`absolute bottom-0 right-0`,
+  `cursor-nwse-resize`) drives a new `handleResizePointerDown` that
+  mirrors `handleHeaderPointerDown` exactly -- same
+  `pointermove`/`pointerup`-on-`window` capture -- but writes a new
+  `size` (`{ width, height }`) state instead of `position`. Width and
+  height moved off the former `w-96 h-64` Tailwind classes and onto an
+  inline `shellStyle` (a resize needs a live numeric value the classes
+  can't carry); the classes' pixel equivalents live on as `DEFAULT_WIDTH
+  = 384` / `DEFAULT_HEIGHT = 256`, the values the panel still opens at.
+  A `MIN_WIDTH = 288` / `MIN_HEIGHT = 180` floor keeps it from shrinking
+  into an unusable sliver. One real edge case: while the panel is still
+  at its default corner anchor (`position` null, pinned bottom-right by
+  `DEFAULT_POSITION_CLASS`), a bottom-right resize would visually grow
+  the box *up and left* off that fixed corner -- so the handler pins
+  `position` to the panel's current top-left on resize start when it
+  isn't already set, making the resize grow down/right as expected.
+- **Minimize.** A header toggle (`ChevronsDownUp`/`ChevronsUpDown`,
+  always visible on both the draft and selected-feature render paths)
+  flips a new `minimized` state that drops the panel body -- the tab
+  rail + content on the selected path, the create form on the draft
+  path -- leaving just the drag header, whose height the shell then
+  shrink-wraps (`height: undefined` when minimized). The resize grip
+  hides while minimized (nothing to resize to). `size` persists across
+  selections the same way `position` does; `minimized` resets to `false`
+  on a new selection, so a freshly-selected feature is never delivered
+  already-hidden.
+- **Header regroup (prompted by the minimize button crowding the bar).**
+  Adding minimize made an already-busy header worse -- it first landed
+  at the *left* of the action row, splitting the two window controls
+  (minimize, close) apart. The selected-feature header now reads as two
+  logical groups separated by the existing divider: **feature actions**
+  (trace dropdown, edit, and a new `MoreHorizontal` overflow menu holding
+  the less-frequent diagram actions and the destructive Delete) on the
+  left, then **window controls** (minimize, close) pinned far right.
+  Delete moved off a bare always-visible trash button into the overflow
+  menu (styled `text-destructive`), and the three former diagram buttons
+  (create / view-one / view-many) collapsed into overflow menu items
+  too. `showHeaderActions`/`showCloseButton` gate the two groups: actions
+  hide while editing, mid-create-diagram, or minimized; close stays up in
+  all of those except an active edit (which has its own Save/Cancel), so
+  a minimized panel can still be dismissed.
+
+Not yet browser-verified: the session that built this couldn't spawn a
+shell at all (`EPERM ... uv_spawn ... bash.exe` -- the exact
+git-backed-`bash` block `README.md` documents as why Windows uses
+`task` over `make`), so neither `tsc`/`lint` nor a Playwright pass could
+run here. The change is a self-contained frontend edit reviewed
+statically instead. Before this closes for real it still needs the
+same pass the original slice got against a live Postgres/Martin/API/Vite
+stack: resize the panel by the corner grip and confirm it holds the new
+size across a re-selection; minimize to the header alone and restore;
+confirm the grip disappears while minimized; confirm a freshly-selected
+feature always opens expanded; both themes legible.
 
 ## Try it yourself
 

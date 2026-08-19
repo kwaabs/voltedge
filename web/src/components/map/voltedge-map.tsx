@@ -1,5 +1,7 @@
 import Collection from "ol/Collection"
+import type { Coordinate } from "ol/coordinate"
 import { defaults as defaultControls } from "ol/control"
+import type { EventsKey } from "ol/events"
 import { isEmpty as isEmptyExtent } from "ol/extent"
 import Feature from "ol/Feature"
 import MVT from "ol/format/MVT"
@@ -7,7 +9,7 @@ import type Geometry from "ol/geom/Geometry"
 import LineString from "ol/geom/LineString"
 import Point from "ol/geom/Point"
 import Polygon from "ol/geom/Polygon"
-import Draw from "ol/interaction/Draw"
+import Draw, { type GeometryFunction } from "ol/interaction/Draw"
 import Modify from "ol/interaction/Modify"
 import Snap from "ol/interaction/Snap"
 import Translate from "ol/interaction/Translate"
@@ -17,11 +19,15 @@ import VectorLayer from "ol/layer/Vector"
 import VectorTileLayer from "ol/layer/VectorTile"
 import Map from "ol/Map"
 import type MapBrowserEvent from "ol/MapBrowserEvent"
+import { unByKey } from "ol/Observable"
+import Overlay from "ol/Overlay"
 import { fromLonLat, toLonLat } from "ol/proj"
 import { toFeature } from "ol/render/Feature"
-import OSM from "ol/source/OSM"
+import type TileSource from "ol/source/Tile"
 import VectorSource from "ol/source/Vector"
 import VectorTileSource from "ol/source/VectorTile"
+import { getArea, getLength } from "ol/sphere"
+import { Circle as CircleStyle, Fill, Stroke, Style } from "ol/style"
 import TileState from "ol/TileState"
 import View from "ol/View"
 import { Loader2 } from "lucide-react"
@@ -32,6 +38,7 @@ import { useCatalog } from "@/hooks/use-catalog"
 import { type FeatureGeometry, useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { apiFetch } from "@/lib/api"
+import { applyBasemap, createBasemapSource } from "@/lib/basemaps"
 import {
   createSymbologyStyle,
   draftStyleForFeature,
@@ -40,6 +47,8 @@ import {
   highlightStyleForFeature,
 } from "@/lib/map-layers"
 import { tileUrlTemplate } from "@/lib/martin"
+import { formatArea, formatLength } from "@/lib/measure"
+import { useBasemapStore } from "@/stores/basemap-store"
 import { useConnectStore } from "@/stores/connect-store"
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
@@ -48,9 +57,12 @@ import { useIsolateStore } from "@/stores/isolate-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
+import { useMeasureStore } from "@/stores/measure-store"
+import { useOrthoStore } from "@/stores/ortho-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useSnapStore } from "@/stores/snap-store"
 import { useTraceStore } from "@/stores/trace-store"
+import { useUnitsStore } from "@/stores/units-store"
 
 import "ol/ol.css"
 
@@ -108,6 +120,73 @@ function geoJSONToGeometry(geometry: FeatureGeometry): Geometry | null {
   }
   return null
 }
+
+/**
+ * Snaps the last (moving) vertex of an in-progress sketch to the nearest
+ * 45° direction off the previous fixed vertex, keeping the cursor's
+ * distance along that snapped bearing -- the orthogonal-drawing
+ * constraint. Only the moving point is adjusted; every earlier vertex
+ * stays exactly where it was placed (it was itself snapped at placement
+ * time). Planar math in the view projection (EPSG:3857), which is fine
+ * at the segment scale a user actually digitizes at.
+ */
+function snapLastOrtho(coords: Coordinate[]): Coordinate[] {
+  if (coords.length < 2) return coords
+  const out = coords.slice()
+  const prev = out[out.length - 2]
+  const last = out[out.length - 1]
+  const dx = last[0] - prev[0]
+  const dy = last[1] - prev[1]
+  const dist = Math.hypot(dx, dy)
+  if (dist === 0) return out
+  const step = Math.PI / 4
+  const snapped = Math.round(Math.atan2(dy, dx) / step) * step
+  out[out.length - 1] = [prev[0] + Math.cos(snapped) * dist, prev[1] + Math.sin(snapped) * dist]
+  return out
+}
+
+// Draw geometryFunctions that replicate OL's own defaults for
+// LineString/Polygon exactly, but ortho-snap the moving vertex first
+// when ortho-store says so. Read the flag live (getState) rather than
+// closing over it, so toggling Ortho mid-draw takes effect on the next
+// pointer move without tearing down and rebuilding the Draw interaction
+// (which would drop the in-progress sketch).
+const orthoLineGeometryFunction: GeometryFunction = (coordinates, geometry) => {
+  const coords = useOrthoStore.getState().enabled
+    ? snapLastOrtho(coordinates as Coordinate[])
+    : (coordinates as Coordinate[])
+  if (geometry) {
+    ;(geometry as LineString).setCoordinates(coords)
+    return geometry
+  }
+  return new LineString(coords)
+}
+
+const orthoPolygonGeometryFunction: GeometryFunction = (coordinates, geometry) => {
+  const rings = coordinates as Coordinate[][]
+  const ring = useOrthoStore.getState().enabled ? snapLastOrtho(rings[0]) : rings[0]
+  if (geometry) {
+    // Same closing-vertex handling OL's default Polygon geometryFunction
+    // does: append the first point to close the ring, or an empty ring
+    // while there's nothing placed yet.
+    ;(geometry as Polygon).setCoordinates(ring.length ? [ring.concat([ring[0]])] : [])
+    return geometry
+  }
+  return new Polygon([ring])
+}
+
+/**
+ * Style for the ephemeral measure-tool sketch layer -- a dashed copper
+ * line/outline with a translucent fill and small vertex dots, matching
+ * the app's copper accent so it reads as a tool overlay distinct from
+ * real feature symbology. Not tied to any feature class; the measure
+ * layer is scratch geometry, discarded when the tool closes.
+ */
+const MEASURE_STYLE = new Style({
+  fill: new Fill({ color: "rgba(194, 86, 15, 0.12)" }),
+  stroke: new Stroke({ color: "#c2560f", width: 2, lineDash: [6, 5] }),
+  image: new CircleStyle({ radius: 4, fill: new Fill({ color: "#c2560f" }) }),
+})
 
 /**
  * Rebuilds the snap-candidate source (snapSourceRef) from whichever
@@ -185,6 +264,10 @@ const isVectorLayer = (layer: Layer) => layer instanceof VectorTileLayer
 export function VoltEdgeMap() {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<Map | null>(null)
+  // The single base tile layer -- kept in a ref so the basemap-change
+  // effect below can swap its source in place (see lib/basemaps.ts's
+  // applyBasemap) without rebuilding the map or disturbing the z-order.
+  const baseLayerRef = useRef<TileLayer<TileSource> | null>(null)
   const vectorLayersRef = useRef<VectorTileLayer[]>([])
   const draftSourceRef = useRef<VectorSource | null>(null)
   const highlightSourceRef = useRef<VectorSource | null>(null)
@@ -228,6 +311,15 @@ export function VoltEdgeMap() {
   // -- see that effect for why it needs this instead of just depending
   // on focusToken alone.
   const fittedTokenRef = useRef(0)
+  // Finalized measure-tool labels (the frozen tooltip Overlays left
+  // behind by each completed measurement), kept in a ref so the
+  // units-change effect below can re-format them all in place without
+  // the measure effect (which owns their creation) having to re-run.
+  // Each entry keeps the raw meters + kind so a metric/imperial flip is
+  // a pure re-format, not a re-measure.
+  const measureOverlaysRef = useRef<
+    { overlay: Overlay; el: HTMLElement; meters: number; kind: "length" | "area" }[]
+  >([])
   const { data: catalog } = useCatalog()
   const { data: featureClasses } = useFeatureClasses()
   const symbologyByClassCode = useAllSymbology()
@@ -241,12 +333,15 @@ export function VoltEdgeMap() {
   const geometryTool = useEditStore((s) => s.geometryTool)
   const deletedIds = useDeletedFeaturesStore((s) => s.ids)
   const snapEnabled = useSnapStore((s) => s.enabled)
+  const basemap = useBasemapStore((s) => s.basemap)
   const traceResult = useTraceStore((s) => s.result)
   const isolateResult = useIsolateStore((s) => s.result)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
   const selected = useSelectionStore((s) => s.selected)
   const focusToken = useSelectionStore((s) => s.focusToken)
+  const measureMode = useMeasureStore((s) => s.mode)
+  const units = useUnitsStore((s) => s.units)
 
   // Whichever feature(s) the highlight layer needs a real geometry for
   // -- the plain-selected feature normally, or the connect/relate
@@ -283,14 +378,24 @@ export function VoltEdgeMap() {
 
   // Base map + OL Map instance -- created once. attribution: false drops
   // the default Attribution control -- src/components/map/status-bar.tsx
-  // renders OSM's required attribution text itself instead, so it
-  // doesn't need to also float over the map in its own corner.
+  // renders the active basemap's required attribution text itself
+  // instead, so it doesn't need to also float over the map in its own
+  // corner. The base layer starts on whichever basemap the user last
+  // chose (basemap-store.ts, persisted; osm by default), and the
+  // basemap-change effect below keeps its source in sync afterward.
   useEffect(() => {
     if (!containerRef.current) return
 
+    const initialSource = createBasemapSource(useBasemapStore.getState().basemap)
+    const baseLayer = new TileLayer<TileSource>({
+      source: initialSource ?? undefined,
+      visible: initialSource !== null,
+    })
+    baseLayerRef.current = baseLayer
+
     const map = new Map({
       target: containerRef.current,
-      layers: [new TileLayer({ source: new OSM() })],
+      layers: [baseLayer],
       view: new View({ center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM, maxZoom: 22 }),
       controls: defaultControls({ attribution: false }),
     })
@@ -401,6 +506,7 @@ export function VoltEdgeMap() {
       map.getTargetElement()?.removeEventListener("mouseleave", clearPosition)
       map.setTarget(undefined)
       mapRef.current = null
+      baseLayerRef.current = null
       draftSourceRef.current = null
       highlightSourceRef.current = null
       traceSourceRef.current = null
@@ -409,6 +515,21 @@ export function VoltEdgeMap() {
       snapSourceRef.current = null
     }
   }, [])
+
+  // Swaps the base tile layer's source (or hides it, for the blank
+  // choice) whenever the user picks a different basemap, in place. The
+  // creation effect above already applied the initial basemap, so the
+  // mount run here is skipped (`didApplyBasemapRef`) to avoid pointlessly
+  // rebuilding that source and re-requesting its tiles -- only a genuine
+  // change past mount does any work.
+  const didApplyBasemapRef = useRef(false)
+  useEffect(() => {
+    if (!didApplyBasemapRef.current) {
+      didApplyBasemapRef.current = true
+      return
+    }
+    if (baseLayerRef.current) applyBasemap(baseLayerRef.current, basemap)
+  }, [basemap])
 
   // Adds/removes an OL Draw interaction for the feature class the user
   // picked to place (see src/components/map/new-feature-menu.tsx and
@@ -424,7 +545,18 @@ export function VoltEdgeMap() {
     const source = draftSourceRef.current
     if (!map || !source || !drawingFeatureClassCode || !drawingGeometryType) return
 
-    const draw = new Draw({ source, type: OL_DRAW_TYPE[drawingGeometryType] })
+    const draw = new Draw({
+      source,
+      type: OL_DRAW_TYPE[drawingGeometryType],
+      // Orthogonal constraint applies only to the multi-segment
+      // geometries; a point has no segment to snap. The functions read
+      // the ortho flag live, so no dependency on it is needed here.
+      ...(drawingGeometryType === "line"
+        ? { geometryFunction: orthoLineGeometryFunction }
+        : drawingGeometryType === "polygon"
+          ? { geometryFunction: orthoPolygonGeometryFunction }
+          : {}),
+    })
     draw.on("drawend", (evt: { feature: Feature }) => {
       const geometry = evt.feature.getGeometry()
       const geojson = geometry && geometryToGeoJSON(geometry)
@@ -443,6 +575,127 @@ export function VoltEdgeMap() {
       document.removeEventListener("keydown", handleEscape)
     }
   }, [drawingFeatureClassCode, drawingGeometryType])
+
+  // The ad-hoc measure tool (see src/components/map/measure-toolbar.tsx
+  // and measure-store.ts). While a mode is armed this owns a throwaway
+  // scratch layer + Draw interaction that never touches the real feature
+  // data -- nothing is created, and turning the tool off (or unmounting)
+  // clears every measurement. A live tooltip Overlay trails the sketch,
+  // re-reading getLength/getArea on each vertex/pointer move; drawend
+  // freezes that tooltip in place (pushed onto measureOverlaysRef so the
+  // units-change effect below can re-format it) and a fresh one arms for
+  // the next measurement, so you can lay down several without disarming.
+  // Measurement is geodesic via ol/sphere on the view's EPSG:3857
+  // geometry (getLength/getArea default to that projection), so it stays
+  // correct regardless of latitude. handleClick bails while a mode is
+  // armed, so map clicks feed the Draw interaction, not selection.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !measureMode) return
+
+    const source = new VectorSource()
+    const layer = new VectorLayer({ source, style: MEASURE_STYLE, zIndex: 9 })
+    map.addLayer(layer)
+
+    const measureOf = (geometry: Geometry | undefined) => {
+      if (geometry instanceof Polygon) {
+        const ring = geometry.getLinearRing(0)
+        // A polygon still being drawn always has OL's auto-closing
+        // segment; measure the ring the user has actually laid down.
+        return { meters: getArea(geometry), kind: "area" as const, position: geometry.getInteriorPoint().getCoordinates().slice(0, 2), hasSpan: (ring?.getCoordinates().length ?? 0) > 3 }
+      }
+      if (geometry instanceof LineString) {
+        return { meters: getLength(geometry), kind: "length" as const, position: geometry.getLastCoordinate(), hasSpan: geometry.getCoordinates().length > 1 }
+      }
+      return null
+    }
+
+    const labelText = (meters: number, kind: "length" | "area") =>
+      kind === "area" ? formatArea(meters, useUnitsStore.getState().units) : formatLength(meters, useUnitsStore.getState().units)
+
+    const makeTooltipEl = (frozen: boolean) => {
+      const el = document.createElement("div")
+      el.className = frozen
+        ? "pointer-events-none rounded border border-primary/30 bg-background/95 px-1.5 py-0.5 text-xs font-medium text-foreground shadow-sm"
+        : "pointer-events-none rounded bg-primary px-1.5 py-0.5 text-xs font-medium text-primary-foreground shadow-sm"
+      return el
+    }
+
+    const draw = new Draw({
+      source,
+      type: measureMode === "area" ? "Polygon" : "LineString",
+    })
+
+    let liveEl: HTMLElement | null = null
+    let liveOverlay: Overlay | null = null
+    let changeKey: EventsKey | null = null
+
+    draw.on("drawstart", (evt: { feature: Feature }) => {
+      liveEl = makeTooltipEl(false)
+      liveOverlay = new Overlay({ element: liveEl, offset: [12, 0], positioning: "center-left", stopEvent: false })
+      map.addOverlay(liveOverlay)
+      const geometry = evt.feature.getGeometry()
+      if (!geometry) return
+      changeKey = geometry.on("change", () => {
+        const m = measureOf(geometry)
+        if (!m || !liveEl || !liveOverlay) return
+        liveEl.textContent = m.hasSpan ? labelText(m.meters, m.kind) : ""
+        liveOverlay.setPosition(m.position as Coordinate)
+      })
+    })
+
+    draw.on("drawend", (evt: { feature: Feature }) => {
+      if (changeKey) {
+        unByKey(changeKey)
+        changeKey = null
+      }
+      const geometry = evt.feature.getGeometry()
+      const m = geometry && measureOf(geometry)
+      // Retire the trailing live tooltip and drop a frozen one in its
+      // place, tracked so a units flip re-formats it (see below).
+      if (liveOverlay) {
+        map.removeOverlay(liveOverlay)
+        liveOverlay = null
+        liveEl = null
+      }
+      if (m && m.hasSpan) {
+        const el = makeTooltipEl(true)
+        el.textContent = labelText(m.meters, m.kind)
+        const overlay = new Overlay({ element: el, offset: [12, 0], positioning: "center-left", stopEvent: false })
+        overlay.setPosition(m.position as Coordinate)
+        map.addOverlay(overlay)
+        measureOverlaysRef.current.push({ overlay, el, meters: m.meters, kind: m.kind })
+      }
+    })
+
+    map.addInteraction(draw)
+
+    const handleEscape = (evt: KeyboardEvent) => {
+      if (evt.key === "Escape") useMeasureStore.getState().setMode(null)
+    }
+    document.addEventListener("keydown", handleEscape)
+
+    return () => {
+      if (changeKey) unByKey(changeKey)
+      if (liveOverlay) map.removeOverlay(liveOverlay)
+      for (const { overlay } of measureOverlaysRef.current) map.removeOverlay(overlay)
+      measureOverlaysRef.current = []
+      map.removeInteraction(draw)
+      map.removeLayer(layer)
+      document.removeEventListener("keydown", handleEscape)
+    }
+  }, [measureMode])
+
+  // Re-labels every frozen measurement in place when the metric/imperial
+  // toggle flips (see units-store.ts). The measure effect above owns the
+  // Overlays' lifecycle; this only rewrites their text from the raw
+  // meters it stashed, so a units change is a pure re-format, never a
+  // re-measure or a teardown of the in-progress sketch.
+  useEffect(() => {
+    for (const { el, meters, kind } of measureOverlaysRef.current) {
+      el.textContent = kind === "area" ? formatArea(meters, units) : formatLength(meters, units)
+    }
+  }, [units])
 
   // Clears the draft marker once its form is dismissed -- saved
   // (feature-create-form.tsx clears the draft on success, after
@@ -875,6 +1128,11 @@ export function VoltEdgeMap() {
       // out from under an in-progress, unsaved form.
       const drawState = useDrawStore.getState()
       if (drawState.drawingFeatureClassCode || drawState.draft) return
+
+      // A click while the ad-hoc measure tool is armed feeds the measure
+      // Draw interaction (see the measure effect above), not selection --
+      // same reasoning as the drawing guard just above.
+      if (useMeasureStore.getState().mode) return
 
       // A click while a feature is under edit (see edit-store.ts,
       // feature-edit-form.tsx) shouldn't silently change the selection

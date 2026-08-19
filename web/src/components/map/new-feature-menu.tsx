@@ -1,5 +1,6 @@
 import { Plus, X } from "lucide-react"
 
+import { OrthoToggleButton } from "@/components/map/ortho-toggle-button"
 import { SnapToggleButton } from "@/components/map/snap-toggle-button"
 import { Button } from "@/components/ui/button"
 import {
@@ -46,6 +47,7 @@ export function NewFeatureMenu() {
       <div className="bg-background/90 flex items-center gap-2 rounded-md border py-1.5 pr-1.5 pl-3 text-sm shadow-sm">
         <span className="bg-primary/70 size-2 shrink-0 animate-pulse rounded-full" />
         {drawingGeometryType ? BANNER_TEXT[drawingGeometryType] : BANNER_TEXT.point}
+        {(drawingGeometryType === "line" || drawingGeometryType === "polygon") && <OrthoToggleButton />}
         <SnapToggleButton />
         <Button variant="ghost" size="icon" className="size-6 shrink-0" onClick={cancelDrawing}>
           <X className="size-3.5" />

@@ -26,7 +26,75 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-16, the electrical-analysis half of Phase 8 --
+**Last updated:** 2026-08-19, a Phase 3 batch of **drawing-and-measurement
+tools**: orthogonal line/polygon drawing, an ad-hoc measure tool, always-on
+Length/Area read-outs in the feature panel, and a metric/imperial units
+toggle shared across all of them. Straight-line drawing already existed
+(OpenLayers' default Draw); what was missing was a right-angle constraint,
+so an **Ortho** toggle now sits beside the existing Snap toggle in the
+drawing banner (a session-only `ortho-store.ts`) and snaps each new
+line/polygon segment to the nearest 45° off the previous one via a Draw
+`geometryFunction` that reads the flag live -- toggling mid-sketch takes
+effect on the next pointer move without tearing down the in-progress draw.
+A new **Measure** dropdown in the map toolbar (`measure-toolbar.tsx`, a
+session-only `measure-store.ts`) arms an ephemeral Distance or Area
+measurement: a throwaway scratch layer + Draw interaction that never touches
+real feature data, with a live tooltip that trails the sketch and freezes in
+place on finish, so several measurements can be laid down without disarming;
+turning the tool off clears them all. To measure an *existing* feature there's
+nothing to arm -- the feature panel's Attributes tab now shows a computed
+**Length** row for a line and **Area + Perimeter** for a polygon, straight off
+the feature's own geometry. All read-outs (the live tooltips and the panel
+rows) format against one persisted `units-store.ts` (metric default), flipped
+by a units toggle in both the measure banner and -- so the panel rows flip
+too. Measurement is geodesic throughout (`ol/sphere` `getLength`/`getArea`):
+the panel passes its EPSG:4326 GeoJSON with `{projection:"EPSG:4326"}`, the
+measure tool passes the view's EPSG:3857 geometry straight in on the default
+projection, both correct regardless of latitude. Frontend-only, no
+backend/schema change. Same honest caveat as the basemap/resize work before
+it: the session couldn't spawn a shell (`bash.exe` `EPERM`), so nothing ran
+here -- no `tsc`, lint, or Playwright; it's a statically-reviewed edit and a
+real verification pass is still owed. See `docs/phase-3-drawing-measurement.md`.
+
+Before that, 2026-08-18, a small Phase 3 addition on top of the same
+day's resize/minimize work: a **basemap switcher** in the status bar.
+The status bar now carries a compact picker (a `DropdownMenu` radio group
+-- not a native/shadcn Select, since the app has no `@radix-ui/react-select`
+dependency, matching the radio-group primitive the layers panel already
+uses) offering exactly three choices: OpenStreetMap (the existing
+default), Carto Voyager, and Blank (no basemap). The choice lives in a new
+persisted `basemap-store.ts` (id only, no OpenLayers import -- the OL-free
+status bar consumes it as pure metadata); `voltedge-map.tsx` holds the one
+base tile layer in a ref and swaps its source in place via a new
+`lib/basemaps.ts` (`createBasemapSource`/`applyBasemap`) so the swap keeps
+the layer at the bottom of the z-order under every feature layer, hiding
+it outright for the blank choice rather than juggling a null source. The
+status bar's formerly-hardcoded OSM attribution is now driven off the
+active basemap's own required wording (OSM for osm, OSM + CARTO for carto,
+nothing for blank), still replacing OpenLayers' own disabled Attribution
+control. Frontend-only, no backend/schema change. Same honest caveat as
+the resize/minimize work it shipped beside: the session couldn't spawn a
+shell (`bash.exe` `EPERM`), so nothing ran here -- no `tsc`, lint, or
+Playwright; it's a statically-reviewed edit and a real verification pass
+is still owed. See `docs/phase-3-basemap-switcher.md`.
+
+Before that the same day, a Phase 3 quick win: the floating feature
+panel's long-deferred resize/minimize item closed. A bottom-right corner
+grip resizes the window (a new `handleResizePointerDown` reusing the
+header drag's own window-level pointer capture, writing a `size` state;
+the former `w-96 h-64` classes became an inline `shellStyle` with
+`DEFAULT_WIDTH`/`DEFAULT_HEIGHT` defaults and a `MIN_WIDTH`/`MIN_HEIGHT`
+floor), and a header toggle minimizes it to just the drag bar (a
+`minimized` state dropping the panel body). Frontend-only, no backend or
+schema change. One honest caveat, recorded rather than papered over: the
+session that built it couldn't spawn a shell at all (the git-backed
+`bash.exe` `EPERM` block `README.md` documents), so nothing ran here --
+no `tsc`, no lint, no Playwright. It's a self-contained, statically
+reviewed edit; a real verification pass is still owed before the item is
+truly done, and both this log's row and `docs/phase-3-floating-panel.md`
+say so. See `docs/phase-3-floating-panel.md`.
+
+Before that, 2026-08-16, the electrical-analysis half of Phase 8 --
 previously just four open rows -- got sliced into a real, ordered build
 plan after a design discussion: load flow, symmetrical fault current,
 and first-principles ampacity are all genuinely buildable on top of
@@ -357,6 +425,11 @@ naming, rotate, remove).
 
 | Item | Status | Size | Value | Detail |
 |---|---|---|---|---|
+| Orthogonal (right-angle) line/polygon drawing | Done | S | An **Ortho** toggle beside the existing Snap toggle in the drawing banner (session-only `ortho-store.ts`) constrains each new segment of a line or polygon to the nearest 45° off the previous one, via a Draw `geometryFunction` (`orthoLineGeometryFunction`/`orthoPolygonGeometryFunction` in `voltedge-map.tsx`) that reads the flag live from the store rather than closing over it -- so toggling mid-sketch takes effect on the next pointer move without tearing down the in-progress Draw (which would drop the sketch). With ortho off, the functions replicate OL's own default line/polygon geometry (including polygon ring-closing) exactly. Straight-line drawing itself already existed (OL's default Draw); this only adds the angular constraint. Frontend-only. Built shell-less (`bash.exe` `EPERM`), statically reviewed -- `tsc`/lint/Playwright still owed. | `docs/phase-3-drawing-measurement.md` |
+| Ad-hoc measure tool (distance + area) | Done | M | A **Measure** dropdown in the map toolbar (`measure-toolbar.tsx`, session-only `measure-store.ts`) arms an ephemeral Distance or Area measurement -- a throwaway scratch `VectorSource`/`VectorLayer` + `Draw` interaction in `voltedge-map.tsx` that never touches real feature data (nothing is created). A live tooltip `Overlay` trails the sketch, re-reading `ol/sphere` `getLength`/`getArea` on each vertex/pointer move; drawend freezes that tooltip in place (tracked in a `measureOverlaysRef` so a units flip re-formats it) and arms a fresh one, so several measurements can be laid down without disarming. Escape or the banner's stop button clears every measurement. `handleClick` bails while a mode is armed, so clicks feed the Draw interaction, not selection. Geodesic on the view's EPSG:3857 geometry (getLength/getArea's default projection). Frontend-only; statically reviewed, verification owed. | `docs/phase-3-drawing-measurement.md` |
+| Length/Area/Perimeter read-out in the feature panel | Done | S | The Attributes tab now shows a computed **Length** row for a `LineString` feature and **Area + Perimeter** rows for a `Polygon`, straight off the feature's own fetched GeoJSON geometry (`lib/measure.ts`'s `geoJSONLengthMeters`/`geoJSONAreaMeters`). Geodesic via `ol/sphere` with `{projection:"EPSG:4326"}` (the GeoJSON coords are already lon/lat), so the number is correct regardless of the class's storage SRID -- no ad-hoc tool to arm, unlike the measure tool above. Frontend-only; statically reviewed, verification owed. | `docs/phase-3-drawing-measurement.md` |
+| Metric/imperial units toggle | Done | XS | A persisted `units-store.ts` (metric default) shared by every measurement read-out -- the measure tool's live tooltips and the feature panel's Length/Area rows both format against it (`lib/measure.ts`'s `formatLength`/`formatArea`, rolling m->km / ft->mi and m²->ha->km² / ft²->ac), so flipping units in the measure banner's toggle flips the panel rows too. Persisted (unlike the session-only draw/measure stores): which units a user thinks in is a lasting preference. Frontend-only; statically reviewed, verification owed. | `docs/phase-3-drawing-measurement.md` |
+| Basemap switcher in the status bar | Done | S | A compact status-bar picker (a `DropdownMenu` radio group, `side="top"` -- not a Select, since there's no `@radix-ui/react-select` dep) swaps the underlying tile layer between OpenStreetMap (default), Carto Voyager, and Blank (no basemap). Choice lives in a new persisted `basemap-store.ts` (id only, no OL import); `voltedge-map.tsx` keeps the one base `TileLayer` in a ref and swaps its source in place via `lib/basemaps.ts` (`createBasemapSource`/`applyBasemap`), preserving z-order under feature layers and hiding the layer for blank rather than passing a null source. The status bar's formerly-hardcoded OSM attribution is now driven off the active basemap's own required wording (OSM / OSM+CARTO / none). Frontend-only, no backend/schema change. Built in the same shell-less sandbox as the resize/minimize work (`bash.exe` `EPERM`), so statically reviewed -- `tsc`/lint and a Playwright pass still owed; flagged in the doc rather than claimed. | `docs/phase-3-basemap-switcher.md` |
 | Metadata-driven symbology resolution | Done | M–L | Closed the core "looks like a real GIS" gap -- `metadata.symbology_rules` now resolves client-side into real per-class, per-attribute SVG icon shapes (points) and color/width (lines/polygons), most-specific-wins over subtype + domain-value. Zoom-gating and a real sprite pipeline remain deliberately deferred -- see "What's still open" below. `render_context = 'diagram'` is now consumed too, by Phase 5's diagram canvas. | `docs/phase-3-symbology.md` |
 | Real sprite pipeline | Open | L | `symbology-icons.ts` is a small hardcoded SVG registry, not a real asset-serving system -- fine at five icons, would need real design work to scale to a genuine utility symbol library. | `docs/phase-3-symbology.md` |
 | Symbology zoom-gating | Done | S | `min_zoom`/`max_zoom` were already loaded server-side but never sent to the frontend. Now included in the schema response and enforced in `resolveSymbology`/`createSymbologyStyle`, converting the map's real `resolution` to a zoom level via `View.getZoomForResolution` -- a rule outside the current zoom is skipped, falling back to a less-specific in-range rule or the plain geometry-type default, same fallback behavior as "no rule matches." | `docs/phase-3-symbology.md` |
@@ -366,7 +439,7 @@ naming, rotate, remove).
 | Peer-picker disambiguation for connect-mode target-picking | Done | S | Connect-mode's target pick now reuses the same peer-picker normal selection already had for stacked/overlapping features, instead of always taking the topmost hit. Picking one routes to `connect-store`'s `pickTarget` rather than normal `select`; a `clearSelected: false` option on `showCandidates` keeps the workflow's source feature visible in `FeaturePanel` throughout, a real regression caught before shipping. | `docs/phase-3-connectivity-ui.md` |
 | Revoking a connection from the UI | Done | S | Each connection row in the Terminals tab now has a small unlink icon opening an `AlertDialog` confirm (same pattern as feature delete), calling the existing `DELETE /connectivity/{id}`; a broad `["connections"]`-prefix cache invalidation refreshes both ends of the connection without a reload. | `docs/phase-3-connectivity-ui.md` |
 | No loading affordance on the highlight halo | Done | S | A small "Loading feature…" badge (top-left of the map) now shows while the halo's underlying feature fetch is genuinely in flight -- gated on TanStack Query's `isLoading` (no cached data yet + a real fetch running), not shown on a cache hit. | `docs/phase-3-map-aesthetics.md` |
-| Floating panel resize/minimize | Open | S–M | The panel undocked into a movable floating window (see the Done row below); resizing and minimizing it were flagged together as later scope when undocking was first pinned, and remain out of scope -- fixed `w-96 h-64` for now. | `docs/phase-3-floating-panel.md` |
+| Floating panel resize/minimize | Done | S–M | The floating panel gained a bottom-right corner resize grip (a new `handleResizePointerDown` mirroring the header-drag mechanics, writing a `size` state; `w-96 h-64` moved onto an inline `shellStyle` with `DEFAULT_WIDTH`/`DEFAULT_HEIGHT` defaults and a `MIN_WIDTH`/`MIN_HEIGHT` floor) and a header minimize toggle (a `minimized` state that drops the panel body, leaving just the drag header; `size` persists across selections like `position`, `minimized` resets per selection). Frontend-only, no backend/schema change. Built in a sandbox that couldn't spawn a shell (the git-backed `bash.exe` `EPERM` block from `README.md`), so reviewed statically -- `tsc`/lint and a Playwright pass still owed before it's fully closed; flagged in the doc rather than claimed. | `docs/phase-3-floating-panel.md` |
 | Polygon vertex editing, real re-verification | Done | S | Verified against the real `SUBSTATION_YARD` polygon: dragged a vertex, saved, confirmed via `GET` the new coordinate actually persisted (not just moved on screen), then restored the original geometry exactly. No bugs found -- the shared line/polygon `Modify` code held up unchanged. | `docs/phase-3-edit-geometry.md` |
 | Undockable/floating attribute panel | Done | S–M | The attribute panel adopted the connect-confirm-panel's drag pattern and became a `fixed`-positioned floating window instead of a docked, full-width row. | `docs/phase-3-floating-panel.md` |
 | Structural relationships from the connect panel | Done | S | The connect panel now branches on mode to call `POST /relationships` (no terminal pickers, an optional `kind`) instead of always assuming connectivity; a matching "New relationship" trigger was added to the Relationships tab. | `docs/phase-3-relationships-ui.md` |
