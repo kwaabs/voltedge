@@ -2,7 +2,8 @@ import { Circle, Fill, Icon, Stroke, Style } from "ol/style"
 import type { FeatureLike } from "ol/Feature"
 import type View from "ol/View"
 
-import { iconDataUri } from "@/lib/symbology-icons"
+import { lineDashArray } from "@/lib/line-dash"
+import { iconDataUri, type IconRegistry } from "@/lib/symbology-icons"
 import { resolveSymbology, type SymbologyRuleSchema } from "@/lib/symbology"
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
 import { useEditStore } from "@/stores/edit-store"
@@ -233,11 +234,18 @@ const ICON_BASE_SCALE = 0.65
  * were affected the one time this shipped without the cache. */
 const iconStyleCache = new Map<string, Style>()
 
-function iconStyleFor(iconRef: string | undefined, color: string, scale: number): Style {
-  const key = `${iconRef ?? ""}|${color}|${scale}`
+function iconStyleFor(iconRef: string | undefined, color: string, scale: number, icons?: IconRegistry): Style {
+  // Key on the resolved data URI, not the bare icon_ref -- the URI encodes
+  // the actual SVG markup, so a layer that built with the hardcoded
+  // fallback before the DB icon set landed doesn't get a stale cached
+  // style handed back once the real markup arrives (the same ref now
+  // resolves to a different URI, hence a different key). scale isn't in the
+  // URI, so it's appended.
+  const src = iconDataUri(iconRef, color, icons)
+  const key = `${src}|${scale}`
   const cached = iconStyleCache.get(key)
   if (cached) return cached
-  const style = new Style({ image: new Icon({ src: iconDataUri(iconRef, color), scale }) })
+  const style = new Style({ image: new Icon({ src, scale }) })
   iconStyleCache.set(key, style)
   return style
 }
@@ -263,7 +271,7 @@ function iconStyleFor(iconRef: string | undefined, color: string, scale: number)
  * projection/resolutions config the view uses, unlike a hardcoded
  * EPSG:3857 formula would).
  */
-export function createSymbologyStyle(rules: SymbologyRuleSchema[] | undefined, view: View) {
+export function createSymbologyStyle(rules: SymbologyRuleSchema[] | undefined, view: View, icons?: IconRegistry) {
   return function symbologyStyleForFeature(feature: FeatureLike, resolution: number): Style {
     if (isHiddenFeature(feature)) return hiddenStyle
 
@@ -277,15 +285,27 @@ export function createSymbologyStyle(rules: SymbologyRuleSchema[] | undefined, v
     switch (geometryType) {
       case "Point":
       case "MultiPoint":
-        return iconStyleFor(def.icon_ref, def.color ?? POINT_COLOR, ICON_BASE_SCALE * (def.scale ?? 1))
+        return iconStyleFor(def.icon_ref, def.color ?? POINT_COLOR, ICON_BASE_SCALE * (def.scale ?? 1), icons)
       case "LineString":
-      case "MultiLineString":
-        return new Style({ stroke: new Stroke({ color: def.color ?? LINE_COLOR, width: def.width ?? 3 }) })
+      case "MultiLineString": {
+        const lineDash = lineDashArray(def.dash)
+        return new Style({
+          stroke: new Stroke({
+            color: def.color ?? LINE_COLOR,
+            width: def.width ?? 3,
+            lineDash,
+            // A round cap turns the dotted pattern's near-zero dashes into
+            // real dots; harmless on solid/dashed (no lineDash or long
+            // dashes), so only forced on for dotted.
+            lineCap: def.dash === "dotted" ? "round" : undefined,
+          }),
+        })
+      }
       default: {
         const color = def.fill_color ?? def.color ?? POLYGON_COLOR
         return new Style({
           fill: new Fill({ color: `${color}33` }),
-          stroke: new Stroke({ color: def.stroke_color ?? color, width: 2 }),
+          stroke: new Stroke({ color: def.stroke_color ?? color, width: def.width ?? 2 }),
         })
       }
     }

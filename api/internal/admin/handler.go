@@ -53,6 +53,14 @@ import (
 //	POST   /material-specs                 create a material spec
 //	PATCH  /material-specs/{code}          edit an existing material spec's own numbers
 //	DELETE /material-specs/{code}          delete a material spec not referenced by any domain value
+//	GET    /symbology-icons                every icon_ref -> svg row (the icon library)
+//	POST   /symbology-icons                add one icon (name + svg markup)
+//	PATCH  /symbology-icons/{icon_ref}     replace an icon's svg markup in place
+//	DELETE /symbology-icons/{icon_ref}     delete an icon not referenced by any symbology rule
+//	GET    /feature-classes/{code}/symbology-rules  every rule for a class, id + code-shaped targeting
+//	POST   /feature-classes/{code}/symbology-rules  add one rule (targeting + style)
+//	PATCH  /symbology-rules/{id}           replace a rule wholesale
+//	DELETE /symbology-rules/{id}           delete a rule (no guard -- compiler re-validates the default at publish)
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/feature-classes", listFeatureClassesHandler(db))
@@ -77,6 +85,14 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/material-specs", createMaterialSpecHandler(db))
 	r.Patch("/material-specs/{code}", updateMaterialSpecHandler(db))
 	r.Delete("/material-specs/{code}", deleteMaterialSpecHandler(db))
+	r.Get("/symbology-icons", listSymbologyIconsHandler(db))
+	r.Post("/symbology-icons", createSymbologyIconHandler(db))
+	r.Patch("/symbology-icons/{icon_ref}", updateSymbologyIconHandler(db))
+	r.Delete("/symbology-icons/{icon_ref}", deleteSymbologyIconHandler(db))
+	r.Get("/feature-classes/{code}/symbology-rules", listSymbologyRulesHandler(db))
+	r.Post("/feature-classes/{code}/symbology-rules", createSymbologyRuleHandler(db))
+	r.Patch("/symbology-rules/{id}", updateSymbologyRuleHandler(db))
+	r.Delete("/symbology-rules/{id}", deleteSymbologyRuleHandler(db))
 	return r
 }
 
@@ -363,6 +379,114 @@ func compileFeatureClassHandler(db *bun.DB) http.HandlerFunc {
 			ColumnsAdded:      result.ColumnsAdded,
 			MetadataVersionID: result.MetadataVersionID,
 		})
+	}
+}
+
+func listSymbologyIconsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		icons, err := listSymbologyIcons(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"symbology_icons": icons})
+	}
+}
+
+func createSymbologyIconHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req createSymbologyIconRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := createSymbologyIcon(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func updateSymbologyIconHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		iconRef := chi.URLParam(r, "icon_ref")
+		var req updateSymbologyIconRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := updateSymbologyIcon(r.Context(), db, iconRef, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func deleteSymbologyIconHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		iconRef := chi.URLParam(r, "icon_ref")
+		if err := deleteSymbologyIcon(r.Context(), db, iconRef); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func listSymbologyRulesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		rules, err := listSymbologyRules(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"symbology_rules": rules})
+	}
+}
+
+func createSymbologyRuleHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		var req symbologyRuleRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := createSymbologyRule(r.Context(), db, code, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func updateSymbologyRuleHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var req symbologyRuleRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := updateSymbologyRule(r.Context(), db, id, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func deleteSymbologyRuleHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if err := deleteSymbologyRule(r.Context(), db, id); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

@@ -193,6 +193,9 @@ func createFeatureClass(ctx context.Context, db *bun.DB, req createFeatureClassR
 			if req.Symbology.Width != nil {
 				styleDef["width"] = *req.Symbology.Width
 			}
+			if req.Symbology.Dash != nil {
+				styleDef["dash"] = *req.Symbology.Dash
+			}
 			raw, err := json.Marshal(styleDef)
 			if err != nil {
 				return fmt.Errorf("marshal symbology style_def: %w", err)

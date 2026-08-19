@@ -1,5 +1,7 @@
 package admin
 
+import "encoding/json"
+
 // The metadata.* CHECK constraints, mirrored here so a bad value gets a
 // friendly 400 from this package's own validation instead of a raw
 // Postgres constraint-violation error surfacing from the insert.
@@ -12,6 +14,19 @@ var (
 	}
 	validDomainTypes   = map[string]bool{"coded": true, "range": true}
 	validTerminalRoles = map[string]bool{"primary": true, "secondary": true, "ground": true, "other": true}
+	// validRenderContexts mirrors migrations/0012's symbology_rules
+	// render_context CHECK -- a rule either styles the geographic map or
+	// the schematic diagram, resolved from the same array client-side (see
+	// api/cmd/server/main.go's symbologySchema doc comment).
+	validRenderContexts = map[string]bool{"map": true, "diagram": true}
+	// validLineDashes are the named stroke patterns a line rule's
+	// style_def.dash may carry -- semantic names, not raw pixel arrays, so
+	// a rule reads like the rest of style_def (dash names a pattern the way
+	// icon_ref names an asset) and web/src/lib/line-dash.ts owns the single
+	// name->array mapping the renderer and admin swatch both read. "solid"
+	// is the default a rule simply omits; it's accepted here so a
+	// raw-API/SQL author who writes it explicitly isn't rejected.
+	validLineDashes = map[string]bool{"solid": true, "dashed": true, "dotted": true, "dashdot": true}
 )
 
 // updateFeatureClassRequest is PATCH /admin/feature-classes/{code}'s
@@ -237,6 +252,7 @@ type symbologyRequest struct {
 	IconRef string   `json:"icon_ref"`
 	Color   string   `json:"color"`
 	Width   *float64 `json:"width"`
+	Dash    *string  `json:"dash"`
 }
 
 type createFeatureClassRequest struct {
@@ -336,4 +352,83 @@ type materialSpecResponse struct {
 	Emissivity                    *float64 `json:"emissivity,omitempty"`
 	Absorptivity                  *float64 `json:"absorptivity,omitempty"`
 	ResistanceTempCoefficientPerC *float64 `json:"resistance_temp_coefficient_per_c,omitempty"`
+}
+
+// createSymbologyIconRequest is POST /admin/symbology-icons' body -- one
+// icon_ref -> raw <svg> markup row of metadata.symbology_icons
+// (migrations/0023). IconRef is the name a symbology rule's
+// style_def.icon_ref points at (lowercase-kebab, e.g. "triangle-outline");
+// SVG is the markup that name resolves to. See validateSymbologyIcon for
+// the two real content rules (a {{COLOR}} placeholder is optional and opts
+// the icon into tinting; explicit width/height is mandatory).
+type createSymbologyIconRequest struct {
+	IconRef string `json:"icon_ref"`
+	SVG     string `json:"svg"`
+}
+
+// updateSymbologyIconRequest is PATCH /admin/symbology-icons/{icon_ref}'s
+// body -- only the markup is editable (icon_ref is the identity a rule
+// references, renaming it out from under a rule is a delete-and-recreate,
+// same reasoning updateDomainValueRequest's own doc comment gives for a
+// value code).
+type updateSymbologyIconRequest struct {
+	SVG *string `json:"svg"`
+}
+
+type symbologyIconResponse struct {
+	IconRef string `json:"icon_ref"`
+	SVG     string `json:"svg"`
+}
+
+// styleDefRequest is the style half of one symbology rule -- the same
+// shape as web/src/lib/symbology.ts's StyleDef and migrations/0012's
+// style_def JSON. Every field optional: a point rule carries
+// icon_ref/color/scale, a line color/width/dash, a polygon fill_color/
+// stroke_color -- buildStyleDef writes only the ones actually set, so a
+// rule's style_def never carries irrelevant keys for its geometry.
+type styleDefRequest struct {
+	IconRef     *string  `json:"icon_ref"`
+	Color       *string  `json:"color"`
+	Scale       *float64 `json:"scale"`
+	Width       *float64 `json:"width"`
+	Dash        *string  `json:"dash"`
+	FillColor   *string  `json:"fill_color"`
+	StrokeColor *string  `json:"stroke_color"`
+}
+
+// symbologyRuleRequest is the body for both POST
+// /admin/feature-classes/{code}/symbology-rules and PATCH
+// /admin/symbology-rules/{id} -- a full rule each time (a rule is small
+// and its targeting axes interlock, so a wholesale replace is clearer
+// than a partial patch). Targeting is expressed in the same *codes* the
+// schema endpoint speaks, not raw ids: SubtypeCode resolves against this
+// class's own subtypes, and (DomainField, DomainValueCode) against the
+// field's domain -- exactly the inverse of resolveSymbologySchema's
+// id->code flattening (see api/cmd/server/main.go). A nil axis means
+// "unconstrained" (matches any subtype / any value), the same
+// most-specific-wins semantics migrations/0012 documents.
+type symbologyRuleRequest struct {
+	RenderContext   string          `json:"render_context"`
+	SubtypeCode     *int            `json:"subtype_code"`
+	DomainField     *string         `json:"domain_field"`
+	DomainValueCode *string         `json:"domain_value_code"`
+	MinZoom         *int            `json:"min_zoom"`
+	MaxZoom         *int            `json:"max_zoom"`
+	Style           styleDefRequest `json:"style"`
+}
+
+// symbologyRuleResponse is one raw symbology_rules row with its id -- what
+// the rule editor lists and edits by identity. Deliberately distinct from
+// api/cmd/server/main.go's symbologySchema (which is id-less, pre-resolved
+// for the map/legend's read-only matcher): editing a rule needs its id and
+// the same code-shaped targeting the request speaks back.
+type symbologyRuleResponse struct {
+	ID              string          `json:"id"`
+	RenderContext   string          `json:"render_context"`
+	SubtypeCode     *int            `json:"subtype_code,omitempty"`
+	DomainField     *string         `json:"domain_field,omitempty"`
+	DomainValueCode *string         `json:"domain_value_code,omitempty"`
+	MinZoom         *int            `json:"min_zoom,omitempty"`
+	MaxZoom         *int            `json:"max_zoom,omitempty"`
+	StyleDef        json.RawMessage `json:"style_def"`
 }

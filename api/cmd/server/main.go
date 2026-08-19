@@ -57,6 +57,7 @@ func main() {
 	r.Get("/feature-classes", featureClassesHandler(db))
 	r.Get("/feature-classes/{code}/schema", featureClassSchemaHandler(db))
 	r.Get("/feature-classes/{code}/rules", rules.Handler(db))
+	r.Get("/symbology/icons", symbologyIconsHandler(db))
 	r.Mount("/features", crud.Routes(db))
 	r.Mount("/connectivity", connectivity.Routes(db))
 	r.Mount("/relationships", relationship.Routes(db))
@@ -132,6 +133,40 @@ func featureClassesHandler(db *bun.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"feature_classes": out})
+	}
+}
+
+// symbologyIcon is one symbology_icons row over the wire -- the SVG
+// markup behind an icon_ref a symbology rule references. Its own type
+// rather than metadata.SymbologyIcon serialized directly, matching how
+// this file keeps wire-shaped copies of everything else it returns.
+type symbologyIcon struct {
+	IconRef string `json:"icon_ref"`
+	SVG     string `json:"svg"`
+}
+
+// symbologyIconsHandler serves the whole icon set at once -- the frontend
+// (web/src/hooks/use-symbology-icons.ts) fetches it once and resolves
+// every rule's icon_ref against it client-side, the same way it already
+// resolves symbology_rules. A small, global set, so no per-class scoping
+// (unlike the per-feature-class schema endpoint); Martin never sees it.
+func symbologyIconsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		icons, err := metadata.ListSymbologyIcons(r.Context(), db)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		out := make([]symbologyIcon, len(icons))
+		for i, ic := range icons {
+			out[i] = symbologyIcon{IconRef: ic.IconRef, SVG: ic.SVG}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"icons": out})
 	}
 }
 

@@ -19,6 +19,14 @@ var codePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 // voltage_class, ...).
 var fieldNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
+// iconRefPattern is the third case convention in this package -- unlike a
+// domain/class code (UPPER_SNAKE) or a field name (lower_snake), an
+// icon_ref is lower-kebab (circle, triangle-outline, iec-disconnector),
+// the same shape every seeded row in seed/symbology_icons.sql and every
+// style_def.icon_ref uses. Enforced so the icon library UI can't drift a
+// name into a shape a rule's style_def could never spell.
+var iconRefPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
 // reservedFieldNames are api/internal/compiler/ddl.go's own system
 // columns (buildCreateTable): id/name/status/deleted_at/created_at/
 // updated_at unconditionally, subtype/geom only when a class actually
@@ -158,6 +166,68 @@ func validateUpdateMaterialSpec(req updateMaterialSpecRequest) error {
 		req.MaxOperatingTempC == nil && req.Emissivity == nil && req.Absorptivity == nil &&
 		req.ResistanceTempCoefficientPerC == nil {
 		return invalid("request must set at least one field")
+	}
+	return nil
+}
+
+// validateSymbologyIcon checks the two real content contracts an icon row
+// must honor (see docs/phase-3-symbology-icon-table.md and
+// migrations/0023's own column comments), the DB-authoring equivalent of
+// the invariants the seed file's five hand-written shapes already satisfy.
+// A {{COLOR}} placeholder is deliberately NOT required: its presence is
+// what opts an icon into tinting, its absence renders full-color artwork
+// as-is -- so requiring it would forbid exactly the full-color case this
+// table was built to also support.
+func validateSymbologyIcon(iconRef, svg string) error {
+	if !iconRefPattern.MatchString(iconRef) {
+		return invalid("icon_ref %q must be lower-case letters, digits, and hyphens, starting with a letter", iconRef)
+	}
+	if strings.TrimSpace(svg) == "" {
+		return invalid("svg markup is required")
+	}
+	if !strings.Contains(svg, "<svg") {
+		return invalid("svg must be a valid <svg> element")
+	}
+	// Explicit width/height, not just a viewBox: a detached Image() with
+	// no intrinsic size resolves to Chromium's 150x150 default, which
+	// silently broke icon rendering the one time it shipped without them
+	// (docs/phase-3-symbology.md, bug #1).
+	if !strings.Contains(svg, "width=") || !strings.Contains(svg, "height=") {
+		return invalid("svg must carry explicit width and height attributes, not just a viewBox -- see migrations/0023")
+	}
+	return nil
+}
+
+// validateSymbologyRule checks the request-only structural rules a rule
+// needs before symbology.go resolves its code-shaped targeting against
+// real rows. The domain-value axis is all-or-nothing: a value code is
+// meaningless without knowing which field's domain it belongs to, so
+// domain_field and domain_value_code are provided together or not at all
+// (the same pairing resolveSymbologySchema produces in reverse). Whether
+// those codes actually resolve -- a real subtype on this class, a real
+// value in that field's domain -- is a database question, checked in
+// resolveRuleTargeting where the rows are available.
+func validateSymbologyRule(req symbologyRuleRequest) error {
+	if !validRenderContexts[req.RenderContext] {
+		return invalid("render_context must be one of map, diagram")
+	}
+	if (req.DomainField == nil) != (req.DomainValueCode == nil) {
+		return invalid("domain_field and domain_value_code must be provided together")
+	}
+	if req.DomainField != nil && strings.TrimSpace(*req.DomainField) == "" {
+		return invalid("domain_field cannot be blank")
+	}
+	if req.DomainValueCode != nil && strings.TrimSpace(*req.DomainValueCode) == "" {
+		return invalid("domain_value_code cannot be blank")
+	}
+	if req.MinZoom != nil && req.MaxZoom != nil && *req.MinZoom > *req.MaxZoom {
+		return invalid("min_zoom must be less than or equal to max_zoom")
+	}
+	// dash names a line's stroke pattern; a value is validated whenever
+	// present regardless of geometry (this request carries no geometry to
+	// check against -- the renderer simply ignores dash on a non-line).
+	if req.Style.Dash != nil && !validLineDashes[*req.Style.Dash] {
+		return invalid("dash must be one of solid, dashed, dotted, dashdot")
 	}
 	return nil
 }
@@ -324,6 +394,9 @@ func validateCreateFeatureClass(req createFeatureClassRequest) error {
 		}
 		if strings.TrimSpace(req.Symbology.Color) == "" {
 			return invalid("symbology.color is required when symbology is provided")
+		}
+		if req.Symbology.Dash != nil && !validLineDashes[*req.Symbology.Dash] {
+			return invalid("symbology.dash must be one of solid, dashed, dotted, dashdot")
 		}
 	}
 

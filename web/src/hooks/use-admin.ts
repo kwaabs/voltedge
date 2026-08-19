@@ -67,6 +67,49 @@ export interface AdminMaterialSpec {
   resistance_temp_coefficient_per_c?: number
 }
 
+/** Wire type for /admin/symbology-icons -- api/internal/admin's
+ * symbologyIconResponse. One icon_ref -> raw <svg> markup row of the icon
+ * library (metadata.symbology_icons, migrations/0023): the artwork a
+ * symbology rule's style_def.icon_ref points at. Distinct from the public
+ * GET /symbology/icons the map reads (useSymbologyIcons) -- same rows, but
+ * this is the admin write-side list. See
+ * docs/phase-3-symbology-icon-table.md. */
+export interface AdminSymbologyIcon {
+  icon_ref: string
+  svg: string
+}
+
+/** The style half of a symbology rule -- mirrors api/internal/admin's
+ * styleDefRequest and web/src/lib/symbology.ts's StyleDef. Every field
+ * optional: a point rule carries icon_ref/color/scale, a line
+ * color/width, a polygon fill_color/stroke_color. */
+export interface AdminStyleDef {
+  icon_ref?: string
+  color?: string
+  scale?: number
+  width?: number
+  dash?: string
+  fill_color?: string
+  stroke_color?: string
+}
+
+/** Wire type for /admin/feature-classes/{code}/symbology-rules --
+ * api/internal/admin's symbologyRuleResponse. One raw symbology_rules row
+ * with its id and the same code-shaped targeting the rule editor edits by
+ * (subtype_code, domain_field + domain_value_code), the inverse of the
+ * pre-resolved, id-less array the map matcher reads off the schema
+ * endpoint. */
+export interface AdminSymbologyRule {
+  id: string
+  render_context: "map" | "diagram"
+  subtype_code?: number
+  domain_field?: string
+  domain_value_code?: string
+  min_zoom?: number
+  max_zoom?: number
+  style_def: AdminStyleDef
+}
+
 /** Long staleTime, same reasoning useFeatureClasses/useCatalog use --
  * this is admin-authored data that changes rarely (an explicit create
  * action), not something worth polling. Each admin mutation invalidates
@@ -101,6 +144,33 @@ export function useAdminMaterialSpecs() {
   return useQuery({
     queryKey: ["admin", "material-specs"],
     queryFn: () => apiFetch<{ material_specs: AdminMaterialSpec[] }>("/admin/material-specs"),
+    staleTime: ADMIN_STALE_TIME,
+  })
+}
+
+/** The icon library for the admin editor. Deliberately a SEPARATE query
+ * key from useSymbologyIcons' public ["symbology-icons"] (the map's
+ * registry): a mutation here invalidates both, so the library page and the
+ * live map both refresh, but they stay independently cached (the page
+ * wants the raw list, the map wants a memoized icon_ref -> svg registry). */
+export function useAdminSymbologyIcons() {
+  return useQuery({
+    queryKey: ["admin", "symbology-icons"],
+    queryFn: () => apiFetch<{ symbology_icons: AdminSymbologyIcon[] }>("/admin/symbology-icons"),
+    staleTime: ADMIN_STALE_TIME,
+  })
+}
+
+/** Every symbology rule for one feature class, for the rule editor on the
+ * feature-class detail page. Keyed by code and disabled until a code is
+ * present, the same shape useFeatureClassSchema uses. A mutation
+ * invalidates both this and ["feature-class-schema", code] (the map/legend
+ * read the pre-resolved symbology off the latter). */
+export function useSymbologyRules(code: string | undefined) {
+  return useQuery({
+    queryKey: ["admin", "symbology-rules", code],
+    queryFn: () => apiFetch<{ symbology_rules: AdminSymbologyRule[] }>(`/admin/feature-classes/${code}/symbology-rules`),
+    enabled: !!code,
     staleTime: ADMIN_STALE_TIME,
   })
 }

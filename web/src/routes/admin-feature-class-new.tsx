@@ -3,12 +3,13 @@ import { useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, ChevronLeft, Loader2, Plus, Trash2 } from "lucide-react"
 import { useNavigate } from "react-router"
 
+import { IconPicker } from "@/components/admin/icon-picker"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAdminDomains, useAdminFieldGroups } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
-import { KNOWN_ICON_REFS } from "@/lib/symbology-icons"
+import { LINE_DASH_STYLES } from "@/lib/line-dash"
 import { useToastStore } from "@/stores/toast-store"
 
 const GEOMETRY_TYPES = ["point", "line", "polygon", "none"] as const
@@ -67,9 +68,10 @@ export function AdminFeatureClassNewPage() {
   const [terminals, setTerminals] = useState<DraftTerminal[]>([])
 
   const [symbologyEnabled, setSymbologyEnabled] = useState(true)
-  const [iconRef, setIconRef] = useState(KNOWN_ICON_REFS[0] ?? "circle")
+  const [iconRef, setIconRef] = useState("circle")
   const [color, setColor] = useState("#2563eb")
   const [width, setWidth] = useState(3)
+  const [dash, setDash] = useState<string>("solid")
 
   const [saving, setSaving] = useState(false)
   const [createdCode, setCreatedCode] = useState<string | null>(null)
@@ -118,7 +120,12 @@ export function AdminFeatureClassNewPage() {
               }))
             : [],
           symbology: symbologyEnabled
-            ? { icon_ref: iconRef, color, width: geometryType === "line" ? width : null }
+            ? {
+                icon_ref: iconRef,
+                color,
+                width: geometryType === "line" ? width : null,
+                dash: geometryType === "line" && dash !== "solid" ? dash : null,
+              }
             : null,
         }),
       })
@@ -519,24 +526,46 @@ export function AdminFeatureClassNewPage() {
             </label>
           </CardHeader>
           {symbologyEnabled && (
-            <CardContent className="flex items-center gap-3">
-              <select className={inputClass} value={iconRef} onChange={(e) => setIconRef(e.target.value)}>
-                {KNOWN_ICON_REFS.map((ref) => (
-                  <option key={ref} value={ref}>
-                    {ref}
-                  </option>
-                ))}
-              </select>
-              <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-8 w-12 shrink-0 rounded-md border" />
-              {geometryType === "line" && (
-                <input
-                  type="number"
-                  className={`${inputClass} w-20`}
-                  value={width}
-                  onChange={(e) => setWidth(Number(e.target.value))}
-                  placeholder="width"
-                />
-              )}
+            <CardContent className="flex flex-col gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className={labelClass}>Color</label>
+                  <input
+                    type="color"
+                    value={color}
+                    onChange={(e) => setColor(e.target.value)}
+                    className="h-8 w-12 shrink-0 rounded-md border"
+                  />
+                </div>
+                {geometryType === "line" && (
+                  <>
+                    <div className="flex flex-col gap-1">
+                      <label className={labelClass}>Width</label>
+                      <input
+                        type="number"
+                        className={`${inputClass} w-20`}
+                        value={width}
+                        onChange={(e) => setWidth(Number(e.target.value))}
+                        placeholder="width"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className={labelClass}>Dash</label>
+                      <select className={inputClass} value={dash} onChange={(e) => setDash(e.target.value)}>
+                        {LINE_DASH_STYLES.map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className={labelClass}>Icon</label>
+                <IconPicker value={iconRef} color={color} onChange={setIconRef} />
+              </div>
             </CardContent>
           )}
         </Card>

@@ -37,6 +37,7 @@ import { useAllSymbology } from "@/hooks/use-all-symbology"
 import { useCatalog } from "@/hooks/use-catalog"
 import { type FeatureGeometry, useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
+import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { apiFetch } from "@/lib/api"
 import { applyBasemap, createBasemapSource } from "@/lib/basemaps"
 import {
@@ -323,6 +324,7 @@ export function VoltEdgeMap() {
   const { data: catalog } = useCatalog()
   const { data: featureClasses } = useFeatureClasses()
   const symbologyByClassCode = useAllSymbology()
+  const symbologyIcons = useSymbologyIcons()
   const drawingFeatureClassCode = useDrawStore((s) => s.drawingFeatureClassCode)
   const drawingGeometryType = useDrawStore((s) => s.drawingGeometryType)
   const draft = useDrawStore((s) => s.draft)
@@ -1237,12 +1239,13 @@ export function VoltEdgeMap() {
 
   // One VectorTileLayer per Martin catalog entry -- added/replaced
   // whenever the catalog changes, independent of the base map's own
-  // lifecycle above. Also re-runs when symbologyByClassCode changes
-  // (in practice, once -- the moment its useQueries calls first
-  // resolve after mount) so a layer created before that data arrived
-  // still ends up styled correctly, rather than being stuck on
-  // createSymbologyStyle's plain-geometry fallback for the rest of the
-  // session. Martin's source id is always the lowercased feature class
+  // lifecycle above. Also re-runs when symbologyByClassCode or
+  // symbologyIcons changes (in practice, once each -- the moment their
+  // queries first resolve after mount) so a layer created before that
+  // data arrived still ends up styled correctly, rather than being stuck
+  // on createSymbologyStyle's plain-geometry fallback (or the hardcoded
+  // fallback icon set) for the rest of the session. Martin's source id is
+  // always the lowercased feature class
   // code (see api/internal/compiler/compiler.go), reversed here the
   // same way layers-panel.tsx already does to look up a real name.
   useEffect(() => {
@@ -1259,14 +1262,14 @@ export function VoltEdgeMap() {
           format: new MVT(),
           url: tileUrlTemplate(sourceId),
         }),
-        style: createSymbologyStyle(symbologyByClassCode[classCode], map.getView()),
+        style: createSymbologyStyle(symbologyByClassCode[classCode], map.getView(), symbologyIcons),
         visible: !hiddenLayersRef.current[sourceId],
         properties: { sourceId },
       })
       map.addLayer(layer)
       vectorLayersRef.current.push(layer)
     }
-  }, [catalog, symbologyByClassCode])
+  }, [catalog, symbologyByClassCode, symbologyIcons])
 
   // Reacts to the layers store -- src/components/map/layers-panel.tsx
   // -- toggling an existing layer's visibility in place, independent of

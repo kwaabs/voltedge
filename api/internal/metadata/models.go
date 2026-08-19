@@ -287,6 +287,16 @@ type SymbologyRule struct {
 	StyleDef       json.RawMessage `bun:"style_def"`
 }
 
+// SymbologyIcon mirrors metadata.symbology_icons (migrations/0023) -- the
+// SVG markup behind a SymbologyRule's style_def.icon_ref. Resolved
+// client-side, never by Martin; see web/src/lib/symbology-icons.ts.
+type SymbologyIcon struct {
+	bun.BaseModel `bun:"table:metadata.symbology_icons"`
+
+	IconRef string `bun:"icon_ref,pk"`
+	SVG     string `bun:"svg"`
+}
+
 // Version mirrors metadata.metadata_versions -- see migrations/0006.
 type Version struct {
 	bun.BaseModel `bun:"table:metadata.metadata_versions"`

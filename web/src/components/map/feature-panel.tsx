@@ -141,7 +141,10 @@ function AttributesTab() {
       {geometry?.type === "LineString" && lengthMeters !== null && (
         <>
           <dt className={dtClass}>Length</dt>
-          <dd className={ddClass}>{formatLength(lengthMeters, units)}</dd>
+          <dd className={ddClass}>
+            {formatLength(lengthMeters, units)}
+            <span className="text-muted-foreground ml-1.5 text-xs">(calculated)</span>
+          </dd>
         </>
       )}
 
@@ -150,13 +153,19 @@ function AttributesTab() {
           {areaMeters !== null && (
             <>
               <dt className={dtClass}>Area</dt>
-              <dd className={ddClass}>{formatArea(areaMeters, units)}</dd>
+              <dd className={ddClass}>
+                {formatArea(areaMeters, units)}
+                <span className="text-muted-foreground ml-1.5 text-xs">(calculated)</span>
+              </dd>
             </>
           )}
           {lengthMeters !== null && (
             <>
               <dt className={dtClass}>Perimeter</dt>
-              <dd className={ddClass}>{formatLength(lengthMeters, units)}</dd>
+              <dd className={ddClass}>
+                {formatLength(lengthMeters, units)}
+                <span className="text-muted-foreground ml-1.5 text-xs">(calculated)</span>
+              </dd>
             </>
           )}
         </>

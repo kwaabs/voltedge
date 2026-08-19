@@ -10,6 +10,7 @@ import { AdminFeatureClassNewPage } from "@/routes/admin-feature-class-new"
 import { AdminFeatureClassesPage } from "@/routes/admin-feature-classes"
 import { AdminFieldGroupsPage } from "@/routes/admin-field-groups"
 import { AdminMaterialsPage } from "@/routes/admin-materials"
+import { AdminSymbologyIconsPage } from "@/routes/admin-symbology-icons"
 import { ConnectivityPage } from "@/routes/connectivity"
 import { FeaturesPage } from "@/routes/features"
 import { MapPage } from "@/routes/map"
@@ -47,6 +48,7 @@ export function App() {
           <Route path="admin/domains" element={<AdminDomainsPage />} />
           <Route path="admin/field-groups" element={<AdminFieldGroupsPage />} />
           <Route path="admin/materials" element={<AdminMaterialsPage />} />
+          <Route path="admin/symbology-icons" element={<AdminSymbologyIconsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>

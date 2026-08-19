@@ -1,16 +1,27 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, ListPlus, Loader2, Pencil, Plus, Wrench, X } from "lucide-react"
+import { ArrowLeft, Copy, ListPlus, Loader2, Pencil, Plus, Trash2, Wrench, X } from "lucide-react"
 import { Link, useParams } from "react-router"
 
+import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
+import { IconPicker } from "@/components/admin/icon-picker"
+import { SymbologySwatch, type SwatchGeometry } from "@/components/admin/symbology-swatch"
 import { inputClass } from "@/components/map/field-utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { useAdminDomains, useAdminFeatureClasses, useAdminFieldGroups } from "@/hooks/use-admin"
+import {
+  type AdminSymbologyRule,
+  useAdminDomains,
+  useAdminFeatureClasses,
+  useAdminFieldGroups,
+  useSymbologyRules,
+} from "@/hooks/use-admin"
 import { useFeatureClassRules } from "@/hooks/use-feature-class-rules"
-import { type FieldSchema, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
+import { type FeatureClassSchema, type FieldSchema, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
+import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { ApiError, apiFetch } from "@/lib/api"
+import { LINE_DASH_STYLES } from "@/lib/line-dash"
 import { useToastStore } from "@/stores/toast-store"
 
 const labelClass = "text-xs font-medium"
@@ -553,6 +564,539 @@ function RulesSection({ code }: { code: string }) {
   )
 }
 
+const RENDER_CONTEXTS = ["map", "diagram"] as const
+
+/** A rule's style_def in the small subset of state the editor form holds
+ * -- strings for every numeric/color field so an empty input stays empty
+ * rather than coercing to 0/NaN, converted to real numbers only when the
+ * body is built (toStyleBody). */
+interface StyleFields {
+  iconRef: string
+  color: string
+  scale: string
+  width: string
+  dash: string
+  fillColor: string
+  strokeColor: string
+}
+
+const EMPTY_STYLE: StyleFields = {
+  iconRef: "circle",
+  color: "#2563eb",
+  scale: "",
+  width: "",
+  dash: "solid",
+  fillColor: "",
+  strokeColor: "",
+}
+
+function styleFieldsFrom(rule: AdminSymbologyRule): StyleFields {
+  const s = rule.style_def
+  return {
+    iconRef: s.icon_ref ?? "circle",
+    color: s.color ?? "#2563eb",
+    scale: s.scale !== undefined ? String(s.scale) : "",
+    width: s.width !== undefined ? String(s.width) : "",
+    dash: s.dash ?? "solid",
+    fillColor: s.fill_color ?? "",
+    strokeColor: s.stroke_color ?? "",
+  }
+}
+
+/** Only the style keys actually filled become part of the body -- mirrors
+ * api/internal/admin's buildStyleDef, which writes only present keys so a
+ * point rule's style_def never carries line/polygon keys. */
+function toStyleBody(s: StyleFields): Record<string, unknown> {
+  return {
+    icon_ref: s.iconRef.trim() === "" ? undefined : s.iconRef.trim(),
+    color: s.color.trim() === "" ? undefined : s.color.trim(),
+    scale: s.scale.trim() === "" ? undefined : Number(s.scale),
+    width: s.width.trim() === "" ? undefined : Number(s.width),
+    // "solid" is the default a rule simply omits -- only a real pattern is
+    // written, keeping a solid line's style_def free of a redundant key
+    // (same "only present keys" discipline as buildStyleDef).
+    dash: s.dash === "solid" || s.dash.trim() === "" ? undefined : s.dash,
+    fill_color: s.fillColor.trim() === "" ? undefined : s.fillColor.trim(),
+    stroke_color: s.strokeColor.trim() === "" ? undefined : s.strokeColor.trim(),
+  }
+}
+
+/** A plain-language summary of what a rule targets, for the list row --
+ * "default" when it constrains nothing (the mandatory feature-class-only
+ * rule), else the subtype and/or domain-value it narrows to, plus its zoom
+ * band if any. Mirrors the most-specific-wins axes migrations/0012
+ * documents. */
+function targetingSummary(rule: AdminSymbologyRule): string {
+  const parts: string[] = []
+  if (rule.subtype_code !== undefined) parts.push(`subtype ${rule.subtype_code}`)
+  if (rule.domain_field && rule.domain_value_code) parts.push(`${rule.domain_field} = ${rule.domain_value_code}`)
+  let base = parts.length > 0 ? parts.join(" · ") : "default (whole class)"
+  if (rule.min_zoom !== undefined || rule.max_zoom !== undefined) {
+    base += ` · zoom ${rule.min_zoom ?? "–"}…${rule.max_zoom ?? "–"}`
+  }
+  return base
+}
+
+/** A one-line "what this rule draws" for the list row's subtitle, keyed
+ * to geometry so it names the style axis that geometry actually uses -- a
+ * point's icon, a line's width, a polygon's fill/stroke -- instead of
+ * only ever showing icon_ref (blank for every non-point rule). */
+function styleSummary(geometry: SwatchGeometry, style: AdminSymbologyRule["style_def"]): string {
+  if (geometry === "line") {
+    const parts = [style.dash ?? "solid"]
+    if (style.width !== undefined) parts.push(`${style.width}px`)
+    return parts.join(" · ")
+  }
+  if (geometry === "polygon") {
+    const fill = style.fill_color ?? style.color
+    return fill ? `fill ${fill}` : "polygon"
+  }
+  return style.icon_ref ?? "icon"
+}
+
+/**
+ * Add or edit one symbology rule -- which icon/color satisfies which
+ * subtype/domain-value, per render context and zoom band. This is the
+ * "shouldn't the admin UI do this" answer: the same rows a user would
+ * otherwise INSERT into metadata.symbology_rules by hand (the DB stays
+ * directly editable), authored visually with a live icon preview instead.
+ *
+ * The targeting pickers reuse the exact schema this page already loads --
+ * subtypes for the subtype picker, a coded field's own domain_values for
+ * the value picker -- so no lookup endpoint is needed. A blank subtype /
+ * field means "unconstrained" (matches anything), the same nil axis the
+ * server resolves. A domain field and its value go together: the value
+ * picker only appears once a field is chosen, and both are sent or
+ * neither (api/internal/admin rejects a half-set pair).
+ */
+function RuleForm({
+  code,
+  schema,
+  rule,
+  duplicate,
+  onDone,
+}: {
+  code: string
+  schema: FeatureClassSchema
+  rule?: AdminSymbologyRule
+  /** When true, `rule` seeds the form's initial values but saving creates
+   * a NEW row (POST) instead of updating the source (PATCH) -- the
+   * "duplicate this rule, then tweak it" path. The source rule is left
+   * untouched; the copy starts identical and the author narrows it (a
+   * different subtype, a dashed instead of solid line, ...) before saving. */
+  duplicate?: boolean
+  onDone: () => void
+}) {
+  const [renderContext, setRenderContext] = useState<(typeof RENDER_CONTEXTS)[number]>(
+    (rule?.render_context as (typeof RENDER_CONTEXTS)[number]) ?? "map",
+  )
+  const [subtypeCode, setSubtypeCode] = useState<string>(rule?.subtype_code !== undefined ? String(rule.subtype_code) : "")
+  const [domainField, setDomainField] = useState<string>(rule?.domain_field ?? "")
+  const [domainValueCode, setDomainValueCode] = useState<string>(rule?.domain_value_code ?? "")
+  const [minZoom, setMinZoom] = useState<string>(rule?.min_zoom !== undefined ? String(rule.min_zoom) : "")
+  const [maxZoom, setMaxZoom] = useState<string>(rule?.max_zoom !== undefined ? String(rule.max_zoom) : "")
+  const [style, setStyle] = useState<StyleFields>(rule ? styleFieldsFrom(rule) : EMPTY_STYLE)
+  const [saving, setSaving] = useState(false)
+  const queryClient = useQueryClient()
+
+  // Only coded fields (those with domain_values) can target a value.
+  const codedFields = schema.fields.filter((f) => f.domain_values && f.domain_values.length > 0)
+  const selectedFieldValues = codedFields.find((f) => f.name === domainField)?.domain_values ?? []
+
+  // Backend requires domain_field and domain_value_code together -- guard
+  // the same pairing here so save is disabled on a half-set target.
+  const targetingValid = domainField === "" || domainValueCode !== ""
+  const canSave = targetingValid
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const body = {
+        render_context: renderContext,
+        subtype_code: subtypeCode === "" ? undefined : Number(subtypeCode),
+        domain_field: domainField === "" ? undefined : domainField,
+        domain_value_code: domainField === "" ? undefined : domainValueCode,
+        min_zoom: minZoom.trim() === "" ? undefined : Number(minZoom),
+        max_zoom: maxZoom.trim() === "" ? undefined : Number(maxZoom),
+        style: toStyleBody(style),
+      }
+      if (rule && !duplicate) {
+        await apiFetch(`/admin/symbology-rules/${rule.id}`, { method: "PATCH", body: JSON.stringify(body) })
+      } else {
+        await apiFetch(`/admin/feature-classes/${code}/symbology-rules`, { method: "POST", body: JSON.stringify(body) })
+      }
+      queryClient.invalidateQueries({ queryKey: ["admin", "symbology-rules", code] })
+      queryClient.invalidateQueries({ queryKey: ["feature-class-schema", code] })
+      onDone()
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save this rule.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const isLine = schema.geometry_type === "line"
+  const isPolygon = schema.geometry_type === "polygon"
+
+  // A live preview of the line/polygon appearance, from the same string
+  // state the inputs hold -- the icon path (points) already previews
+  // through IconPicker, so this only feeds the stroke/fill swatch.
+  const previewStyle = {
+    color: style.color,
+    width: style.width.trim() === "" ? undefined : Number(style.width),
+    dash: style.dash,
+    fill_color: style.fillColor || undefined,
+    stroke_color: style.strokeColor || undefined,
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between py-3">
+        <CardTitle className="text-sm">{rule ? (duplicate ? "Duplicate rule" : "Edit rule") : "Add rule"}</CardTitle>
+        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
+          <X className="size-4" />
+        </Button>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Render context</label>
+            <select
+              className={inputClass}
+              value={renderContext}
+              onChange={(e) => setRenderContext(e.target.value as typeof renderContext)}
+            >
+              {RENDER_CONTEXTS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Subtype</label>
+            <select className={inputClass} value={subtypeCode} onChange={(e) => setSubtypeCode(e.target.value)}>
+              <option value="">any</option>
+              {schema.subtypes.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.code}: {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Field</label>
+            <select
+              className={inputClass}
+              value={domainField}
+              onChange={(e) => {
+                setDomainField(e.target.value)
+                setDomainValueCode("")
+              }}
+            >
+              <option value="">any</option>
+              {codedFields.map((f) => (
+                <option key={f.name} value={f.name}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {domainField !== "" && (
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>
+                Value <span className="text-destructive">*</span>
+              </label>
+              <select
+                className={inputClass}
+                value={domainValueCode}
+                onChange={(e) => setDomainValueCode(e.target.value)}
+              >
+                <option value="">select…</option>
+                {selectedFieldValues.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Min zoom</label>
+            <input
+              type="number"
+              className={inputClass}
+              value={minZoom}
+              onChange={(e) => setMinZoom(e.target.value)}
+              placeholder="any"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Max zoom</label>
+            <input
+              type="number"
+              className={inputClass}
+              value={maxZoom}
+              onChange={(e) => setMaxZoom(e.target.value)}
+              placeholder="any"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t pt-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>Color</label>
+              <input
+                type="color"
+                value={style.color}
+                onChange={(e) => setStyle({ ...style, color: e.target.value })}
+                className="h-8 w-12 rounded-md border"
+              />
+            </div>
+            {isLine && (
+              <>
+                <div className="flex flex-col gap-1">
+                  <label className={labelClass}>Width</label>
+                  <input
+                    type="number"
+                    className={`${inputClass} w-20`}
+                    value={style.width}
+                    onChange={(e) => setStyle({ ...style, width: e.target.value })}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className={labelClass}>Dash</label>
+                  <select
+                    className={inputClass}
+                    value={style.dash}
+                    onChange={(e) => setStyle({ ...style, dash: e.target.value })}
+                  >
+                    {LINE_DASH_STYLES.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+            {isPolygon && (
+              <>
+                <div className="flex flex-col gap-1">
+                  <label className={labelClass}>Fill color</label>
+                  <input
+                    type="color"
+                    value={style.fillColor || "#2563eb"}
+                    onChange={(e) => setStyle({ ...style, fillColor: e.target.value })}
+                    className="h-8 w-12 rounded-md border"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className={labelClass}>Stroke color</label>
+                  <input
+                    type="color"
+                    value={style.strokeColor || "#1e3a8a"}
+                    onChange={(e) => setStyle({ ...style, strokeColor: e.target.value })}
+                    className="h-8 w-12 rounded-md border"
+                  />
+                </div>
+              </>
+            )}
+            {!isLine && !isPolygon && (
+              <div className="flex flex-col gap-1">
+                <label className={labelClass}>Scale</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  className={`${inputClass} w-20`}
+                  value={style.scale}
+                  onChange={(e) => setStyle({ ...style, scale: e.target.value })}
+                  placeholder="1"
+                />
+              </div>
+            )}
+            {(isLine || isPolygon) && (
+              <div className="flex flex-col gap-1">
+                <label className={labelClass}>Preview</label>
+                <div className="bg-muted/40 flex size-10 items-center justify-center rounded-md border">
+                  <SymbologySwatch
+                    geometry={schema.geometry_type as SwatchGeometry}
+                    style={previewStyle}
+                    className="size-7"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          {!isLine && !isPolygon && (
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>Icon</label>
+              <IconPicker
+                value={style.iconRef}
+                color={style.color}
+                onChange={(ref) => setStyle({ ...style, iconRef: ref })}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="outline" size="sm" onClick={onDone} disabled={saving}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            {rule && !duplicate ? "Save" : "Add rule"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * The per-class symbology rule editor -- lists every rule (with a live
+ * swatch of exactly how it renders) and lets an author add, edit, or
+ * delete one. Deleting has no guard, matching api/internal/admin's
+ * deleteSymbologyRule: the "exactly one default rule" invariant is
+ * enforced by the compiler at publish, not by blocking a delete, so a
+ * class left without a default simply fails its next compile loudly.
+ */
+function SymbologySection({ code, schema }: { code: string; schema: FeatureClassSchema }) {
+  const { data, isPending, isError } = useSymbologyRules(code)
+  const icons = useSymbologyIcons()
+  const queryClient = useQueryClient()
+  const [adding, setAdding] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  // The rule a "Duplicate" click seeds a new-rule form from -- distinct
+  // from editingId (which edits in place) because a copy saves a NEW row.
+  const [duplicateSource, setDuplicateSource] = useState<AdminSymbologyRule | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<AdminSymbologyRule | null>(null)
+
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold">Symbology</h2>
+        {!adding && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setEditingId(null)
+              setDuplicateSource(null)
+              setAdding(true)
+            }}
+          >
+            <Plus className="size-4" />
+            Add rule
+          </Button>
+        )}
+      </div>
+
+      {adding && <RuleForm code={code} schema={schema} onDone={() => setAdding(false)} />}
+
+      {duplicateSource && (
+        <RuleForm
+          key={duplicateSource.id}
+          code={code}
+          schema={schema}
+          rule={duplicateSource}
+          duplicate
+          onDone={() => setDuplicateSource(null)}
+        />
+      )}
+
+      {isPending ? (
+        <div className="text-muted-foreground flex items-center gap-2 text-sm">
+          <Loader2 className="size-4 animate-spin" />
+          Loading rules...
+        </div>
+      ) : isError || !data ? (
+        <p className="text-destructive text-sm">Could not load symbology rules.</p>
+      ) : data.symbology_rules.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          No symbology rules yet — this class renders with the built-in default until one is added.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {data.symbology_rules.map((r) =>
+            editingId === r.id ? (
+              <RuleForm key={r.id} code={code} schema={schema} rule={r} onDone={() => setEditingId(null)} />
+            ) : (
+              <Card key={r.id}>
+                <CardHeader className="flex flex-row items-center gap-3 py-3">
+                  <div className="bg-muted/40 flex size-9 shrink-0 items-center justify-center rounded-md border">
+                    <SymbologySwatch
+                      geometry={schema.geometry_type as SwatchGeometry}
+                      style={r.style_def}
+                      icons={icons}
+                      className="size-6"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <CardTitle className="text-sm">{targetingSummary(r)}</CardTitle>
+                    <p className="text-muted-foreground font-mono text-xs">
+                      {r.render_context} · {styleSummary(schema.geometry_type as SwatchGeometry, r.style_def)}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    title="Edit"
+                    onClick={() => {
+                      setAdding(false)
+                      setDuplicateSource(null)
+                      setEditingId(r.id)
+                    }}
+                  >
+                    <Pencil className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    title="Duplicate"
+                    onClick={() => {
+                      setAdding(false)
+                      setEditingId(null)
+                      setDuplicateSource(r)
+                    }}
+                  >
+                    <Copy className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive size-7"
+                    onClick={() => setDeleteTarget(r)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </CardHeader>
+              </Card>
+            ),
+          )}
+        </div>
+      )}
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        title="Delete this symbology rule?"
+        description="Removing a rule only reduces specificity. If it leaves the class without a default rule, the next compile will fail with a clear error rather than rendering nothing. This can't be undone."
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onConfirm={async () => {
+          if (!deleteTarget) return
+          await apiFetch(`/admin/symbology-rules/${deleteTarget.id}`, { method: "DELETE" })
+          queryClient.invalidateQueries({ queryKey: ["admin", "symbology-rules", code] })
+          queryClient.invalidateQueries({ queryKey: ["feature-class-schema", code] })
+        }}
+      />
+    </>
+  )
+}
+
 /**
  * A single feature class's full picture -- fields (with resolved
  * domain info), subtypes, terminals -- reusing the exact same
@@ -748,6 +1292,8 @@ export function AdminFeatureClassDetailPage() {
                 </div>
               </>
             )}
+
+            <SymbologySection code={code} schema={schema} />
 
             <h2 className="text-sm font-semibold">Rules</h2>
             <RulesSection code={code} />

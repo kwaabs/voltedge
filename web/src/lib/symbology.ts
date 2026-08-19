@@ -10,14 +10,16 @@
 
 /** The actual style, as resolved from one symbology_rules row's
  * style_def JSON (api/internal/metadata's SymbologyRule). icon_ref/
- * color/scale apply to a point; width to a line (plus color, shared);
- * fill_color/stroke_color to a polygon. Not every field is relevant to
- * every geometry type -- map-layers.ts picks whichever apply. */
+ * color/scale apply to a point; width/dash to a line (plus color,
+ * shared); fill_color/stroke_color to a polygon. dash is a named stroke
+ * pattern (see line-dash.ts). Not every field is relevant to every
+ * geometry type -- map-layers.ts picks whichever apply. */
 export interface StyleDef {
   icon_ref?: string
   color?: string
   scale?: number
   width?: number
+  dash?: string
   fill_color?: string
   stroke_color?: string
 }

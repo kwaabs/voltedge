@@ -11,6 +11,7 @@ import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { type DiagramInstance, type DiagramPlacement, useDiagramInstance, useDiagramPlacements } from "@/hooks/use-diagrams"
 import { type FeatureRecord } from "@/hooks/use-feature"
 import { type FeatureSearchResult, MIN_QUERY_LENGTH, useFeatureNameSearch } from "@/hooks/use-feature-name-search"
+import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { ApiError, apiFetch } from "@/lib/api"
 import { type HighlightRole, HIGHLIGHT_COLORS } from "@/lib/map-layers"
 import { iconDataUri } from "@/lib/symbology-icons"
@@ -445,6 +446,7 @@ export function DiagramCanvas() {
   const { data: placementsData, isPending, isError } = useDiagramPlacements(openDiagramId ?? undefined)
   const { data: featureClassesData } = useFeatureClasses()
   const rules = useAllSymbology()
+  const symbologyIcons = useSymbologyIcons()
   const placements = useMemo(() => placementsData?.placements ?? [], [placementsData])
   const svgRef = useRef<SVGSVGElement>(null)
   const [dragState, setDragState] = useState<DragState | null>(null)
@@ -991,7 +993,7 @@ export function DiagramCanvas() {
               const def =
                 resolveSymbology(classRules, feature?.subtype, feature?.attributes ?? {}, "diagram") ??
                 resolveSymbology(classRules, feature?.subtype, feature?.attributes ?? {}, "map")
-              const icon = iconDataUri(def?.icon_ref, def?.color)
+              const icon = iconDataUri(def?.icon_ref, def?.color, symbologyIcons)
               const dragging = dragState?.placementId === placement.id
               const role = roleFor(placement.feature_class, placement.feature_id)
               const isSelected = role === "selected"

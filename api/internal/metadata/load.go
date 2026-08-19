@@ -280,6 +280,19 @@ func ListMaterialSpecs(ctx context.Context, db bun.IDB) ([]MaterialSpec, error) 
 	return specs, nil
 }
 
+// ListSymbologyIcons returns every symbology_icons row -- a small,
+// global set (mirrors ListMaterialSpecs/ListFieldGroups), served whole to
+// the frontend at GET /symbology/icons and cached there, since a rule can
+// reference any icon regardless of feature class. Ordered by icon_ref for
+// a stable admin-picker list.
+func ListSymbologyIcons(ctx context.Context, db bun.IDB) ([]SymbologyIcon, error) {
+	var icons []SymbologyIcon
+	if err := db.NewSelect().Model(&icons).Order("icon_ref").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: listing symbology icons: %w", err)
+	}
+	return icons, nil
+}
+
 // LoadRelationshipClasses returns every relationship_classes row for a
 // specific origin/destination feature-class pair. Unlike NetworkRule
 // there's no valid/invalid split to preserve here -- a row either exists

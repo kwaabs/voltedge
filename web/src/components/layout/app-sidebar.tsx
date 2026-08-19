@@ -1,4 +1,4 @@
-import { Database, Layers, Link2, Map, Rows3, Settings, Tags, Waypoints, Wrench, Zap } from "lucide-react"
+import { Database, Layers, Link2, Map, Rows3, Settings, Shapes, Tags, Waypoints, Wrench, Zap } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import {
@@ -40,6 +40,7 @@ const adminItems = [
   { to: "/admin/domains", label: "Domains", icon: Tags },
   { to: "/admin/field-groups", label: "Field groups", icon: Rows3 },
   { to: "/admin/materials", label: "Materials", icon: Wrench },
+  { to: "/admin/symbology-icons", label: "Symbology icons", icon: Shapes },
 ]
 
 export function AppSidebar() {

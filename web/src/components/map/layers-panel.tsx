@@ -12,6 +12,7 @@ import {
 import { useAllSymbology } from "@/hooks/use-all-symbology"
 import { useCatalog } from "@/hooks/use-catalog"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
+import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { iconDataUri } from "@/lib/symbology-icons"
 import { resolveSymbology } from "@/lib/symbology"
 import { useLayersStore } from "@/stores/layers-store"
@@ -24,11 +25,19 @@ import { useLayersStore } from "@/stores/layers-store"
  * nothing more specific known" -- exactly a legend entry's job. `null`
  * when the class has no symbology_rules at all yet (not seeded), so
  * the row just shows its name with no swatch rather than a broken one. */
-function LegendSwatch({ classCode, rules }: { classCode: string; rules: ReturnType<typeof useAllSymbology> }) {
+function LegendSwatch({
+  classCode,
+  rules,
+  icons,
+}: {
+  classCode: string
+  rules: ReturnType<typeof useAllSymbology>
+  icons: ReturnType<typeof useSymbologyIcons>
+}) {
   const styleDef = resolveSymbology(rules[classCode], undefined, {}, "map")
   if (!styleDef) return null
   if (styleDef.icon_ref) {
-    return <img src={iconDataUri(styleDef.icon_ref, styleDef.color)} alt="" className="size-4 shrink-0" />
+    return <img src={iconDataUri(styleDef.icon_ref, styleDef.color, icons)} alt="" className="size-4 shrink-0" />
   }
   const color = styleDef.fill_color ?? styleDef.stroke_color ?? styleDef.color
   if (!color) return null
@@ -49,6 +58,7 @@ export function LayersPanel() {
   const { data: catalog } = useCatalog()
   const { data: featureClasses } = useFeatureClasses()
   const symbologyByClassCode = useAllSymbology()
+  const symbologyIcons = useSymbologyIcons()
   const hidden = useLayersStore((s) => s.hidden)
   const toggle = useLayersStore((s) => s.toggle)
   const sourceIds = catalog ? Object.keys(catalog.tiles) : []
@@ -83,7 +93,7 @@ export function LayersPanel() {
               onCheckedChange={() => toggle(id)}
             >
               <span className="flex min-w-0 items-center gap-1.5">
-                <LegendSwatch classCode={id.toUpperCase()} rules={symbologyByClassCode} />
+                <LegendSwatch classCode={id.toUpperCase()} rules={symbologyByClassCode} icons={symbologyIcons} />
                 <span className="truncate">{nameByLowercaseCode.get(id) ?? id}</span>
               </span>
             </DropdownMenuCheckboxItem>

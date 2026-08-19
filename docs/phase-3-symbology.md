@@ -213,10 +213,15 @@ gofmt -l .` all finish clean.
 - **`render_context = 'diagram'`** -- rules exist in the schema and are
   loadable, but nothing renders them; blocked on Phase 5's diagram
   system existing at all.
-- **A real icon/sprite pipeline** -- `symbology-icons.ts` is a small,
+- **A real icon/sprite pipeline** -- `symbology-icons.ts` was a small,
   hardcoded registry of hand-authored SVGs, not a real asset-serving
-  system. Fine at five icons; would need real design work to scale to
-  a genuine utility symbol library (IEC-standard pictograms, etc.).
+  system. *Partly addressed since:* the icon markup moved into a
+  `metadata.symbology_icons` DB table served over the API, so icons are
+  now editable as data and full-color artwork is supported alongside the
+  tintable shapes (`docs/phase-3-symbology-icon-table.md`). The frontend
+  registry survives only as a fallback. Still open beyond that: a real
+  utility symbol library (IEC/ANSI pictograms), an in-app icon editor,
+  and any atlasing/CDN concern.
 - **Scale/rotation modifiers** -- `StyleDef.scale` is wired through
   (e.g. for a `kva_rating`-driven size tier), but no seeded rule uses
   it; rotation isn't modeled in `StyleDef` at all yet.
