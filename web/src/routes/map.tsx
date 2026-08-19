@@ -5,6 +5,7 @@ import { FeatureSearch } from "@/components/map/feature-search"
 import { GeometryEditToolbar } from "@/components/map/geometry-edit-toolbar"
 import { IsolationResultTable } from "@/components/map/isolation-result-table"
 import { LayersPanel } from "@/components/map/layers-panel"
+import { LoadFlowPanel } from "@/components/map/load-flow-panel"
 import { MeasureToolbar } from "@/components/map/measure-toolbar"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
 import { PeerPicker } from "@/components/map/peer-picker"
@@ -40,6 +41,7 @@ export function MapPage() {
       <GeometryEditToolbar />
       <TraceResultTable />
       <IsolationResultTable />
+      <LoadFlowPanel />
       <StatusBar />
     </div>
   )

@@ -238,8 +238,8 @@ having to reread every phase doc's own "What's still open" section.
   tracing, load testing.
 - **Phase 7 — Field collection**: mobile/offline data capture for field
   crews. Design deferred — noted here as a placeholder only.
-- **Phase 8 — Materials + electrical analysis** (slice 1 done: materials
-  catalog): a new `metadata.material_specs` table lets a coded domain
+- **Phase 8 — Materials + electrical analysis** (materials catalog and
+  the load-flow engine done): a new `metadata.material_specs` table lets a coded domain
   value (e.g. a `CONDUCTOR_SPEC` domain's `ACSR_50`) carry real physical/
   electrical properties — resistance, reactance, ampacity, diameter,
   weight — instead of being just a display label. Attaches to the
@@ -251,11 +251,21 @@ having to reread every phase doc's own "What's still open" section.
   matching read-only Materials tab (replacing the old Rules tab)
   showing a selected feature's resolved engineering numbers, with an
   "Edit in Attributes" jump — a feature's material is already just an
-  ordinary attribute, not a separate thing to author. This is the
-  dependency the next slice (voltage drop and loading/capacity checks
-  along a traced path) needs before it can compute anything — not
-  started yet.
-  Write-up: [`docs/phase-8-materials.md`](docs/phase-8-materials.md).
+  ordinary attribute, not a separate thing to author. A new
+  `api/internal/powerflow` package (`POST /analysis/load-flow`) now
+  computes real per-node voltage and per-branch loading across a radial
+  feeder — a forward-backward sweep (Kersting's method) whose branch
+  impedance comes directly from this catalog (a conductor's own real
+  geometry length × its resolved material spec), stopping at an open
+  device and rejecting a detected loop/mesh outright rather than
+  computing something wrong. Frontend done too: an unconditional "Run
+  load flow…" trigger on the map's existing trace/isolate dropdown,
+  a prompt-then-results panel in the shared bottom-center slot, and
+  three new map highlight colors (normal/overloaded/stopped-at-barrier)
+  — mutually exclusive with trace/isolate, same as those two already
+  are with each other.
+  Write-ups: [`docs/phase-8-materials.md`](docs/phase-8-materials.md),
+  [`docs/phase-8-load-flow.md`](docs/phase-8-load-flow.md).
 
 Auth and permissions are deliberately not modeled yet; several tables
 already carry an `applied_by`/`established_by`-style placeholder column so
