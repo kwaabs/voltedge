@@ -154,6 +154,30 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/phase_model_example.sql
 
+  seed-lv-conductors:
+    desc: Load the LV_CONDUCTOR class (Phase 9 Slice 1) through the gitbash sidecar (requires seed-service-point + seed-phase-model first; compile CODE=LV_CONDUCTOR after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/lv_conductors_example.sql
+
+  seed-lv-devices:
+    desc: Load the SERVICE_CUTOUT + LV_LINK_BOX classes (Phase 9 Slice 2) through the gitbash sidecar (requires seed-lv-conductors first; compile CODE=SERVICE_CUTOUT and CODE=LV_LINK_BOX after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/lv_devices_example.sql
+
+  seed-lv-metering:
+    desc: Load the METER + LV_BUSBAR + METER_CHAMBER classes (Phase 9 Slice 3) through the gitbash sidecar (requires seed-lv-devices first; compile CODE=METER, CODE=LV_BUSBAR and CODE=METER_CHAMBER after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/lv_metering_example.sql
+
   # ------------------------------------------------------------- frontend --
 
   frontend-dev:

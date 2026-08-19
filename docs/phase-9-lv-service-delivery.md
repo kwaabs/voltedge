@@ -9,14 +9,14 @@ load-flowed, not just the single simplification the seed data carries
 today (`SERVICE_POINT` wired *directly* to a `DIST_XFMR` secondary, one
 meter per service, no phase).
 
-**Status:** **design only -- nothing built yet.** This doc is the
-scope-lock the rest of the phase's slices are cut from, written before
-any code per this repo's convention (every prior large build got a
-design doc first). Nothing here has been migrated, seeded, compiled, or
-verified. As with the recent frontend work, the environment can't spawn
-a shell (`bash.exe` `EPERM`), so even once slices land they'll carry the
-usual "statically reviewed, live `psql`/compile/verify still owed"
-caveat.
+**Status:** **Slices 0–3 have code landed (verification owed); Slices
+4–6 remain design-only.** This doc is the scope-lock the rest of the
+phase's slices are cut from, written before any code per this repo's
+convention (every prior large build got a design doc first). As with the
+recent frontend work, the environment can't spawn a shell (`bash.exe`
+`EPERM`), so every landed slice carries the usual "statically reviewed,
+live `psql`/compile/verify still owed" caveat -- nothing below has had a
+live `psql` apply, `task compile`, or trace check run against it yet.
 
 **Why a whole phase.** This isn't a patch to `SERVICE_POINT`. A proper
 LV model reopens and finishes three standing open items at once -- the
@@ -58,13 +58,12 @@ right granularity.
 
 | Class | Geometry | `network_role` | Terminals | Purpose / scenarios |
 |---|---|---|---|---|
-| `LV_MAIN` | line | edge | — | Shared LV run from the transformer along the street (OH/UG subtype). The secondary backbone. 1,3,4,6,8 |
-| `LV_SERVICE` | line | edge | — | Service cable/drop: main (or transformer) → a premise intake (OH drop / UG / looped subtypes; 1ph or 3ph). 1,2,3,4,5,7,8 |
+| `LV_CONDUCTOR` | line | edge | — | The whole LV run below the transformer secondary, one class. **Construction (overhead/underground) is the subtype** (mirrors `MV_CONDUCTOR`); **functional role (main vs. service) is the `lv_role` field**, not a separate class. Carries `phase` + `conductor_spec`. 1,2,3,4,5,6,7,8 |
 | `LV_LINK_BOX` | point | junction | N ways (fused) | Feeder pillar / LV cabinet / sectionalising point; a normally-open way is a barrier. 4,6 |
 | `SERVICE_CUTOUT` | point | junction | line/load | The main service fuse at the intake -- the utility's last protective device before metering. All |
-| `LV_BUSBAR` | point | junction | N ways | The chamber's distribution board/busbar; the multi-way node feeding tenant meters. 3 |
-| `METER` | none *(or point)* | junction | line/load | **Inline** -- power flows through it; carries `meter_serial`/`account_ref`, CT vs whole-current subtype, 1ph/3ph. 1,3,5 |
-| `METER_CHAMBER` | point/polygon | other | — | Physical container asset; `containment` → busbar + meters. Located; the meter's physical home. 3 |
+| `LV_BUSBAR` | point | junction | T1 in + T2 bar | The chamber's distribution board. Solid equipotential bar, so *one* tap terminal (T2) fans out to N tenant meters — no N-way schema needed. 3 |
+| `METER` | point | junction | line/load | **Inline** -- power flows through it; carries `meter_serial`/`account_ref`, CT vs whole-current subtype, 1ph/3ph. Built as `point` (not `none`) so it stays a placeable/traceable node; containment, not null geometry, says it's in the chamber. 1,3,5 |
+| `METER_CHAMBER` | point | container | — | Physical container asset (`network_role = container`, not a traced node); `containment` → busbar + meters. Located; the meter's physical home. 3 |
 | `SERVICE_POINT` *(repurposed)* | point | junction (leaf) | load | The **point of supply** where load (and DER back-feed) applies. All |
 | `DER_UNIT` *(optional)* | point | junction | line | PV/battery at a premise; bidirectional injection. 7 |
 
@@ -73,14 +72,14 @@ exists.
 
 ### Coverage
 
-- **House:** `XFMR.T2 → LV_MAIN → LV_SERVICE(1ph) → SERVICE_CUTOUT → METER → SERVICE_POINT`.
-- **Rural direct:** drop `LV_MAIN`: `XFMR.T2 → LV_SERVICE → SERVICE_CUTOUT → METER → SERVICE_POINT`.
+- **House:** `XFMR.T2 → LV_CONDUCTOR(main) → LV_CONDUCTOR(service, 1ph) → SERVICE_CUTOUT → METER → SERVICE_POINT`.
+- **Rural direct:** no main run: `XFMR.T2 → LV_CONDUCTOR(service) → SERVICE_CUTOUT → METER → SERVICE_POINT`.
 - **Apartment:** `… → SERVICE_CUTOUT (building main) → LV_BUSBAR (inside METER_CHAMBER) → METER×N → SERVICE_POINT×N`.
-- **Shared street main:** one `LV_MAIN`, many `LV_SERVICE` taps to premises.
-- **Commercial CT/3ph:** `LV_SERVICE(3ph) → SERVICE_CUTOUT → METER(CT subtype) → SERVICE_POINT`.
-- **Meshed LV:** `LV_MAIN ↔ LV_LINK_BOX (normally-open) ↔ LV_MAIN` -- isolation via `device_state`, loops via the existing `LOOP_CHECK_TRACE` config.
+- **Shared street main:** one `LV_CONDUCTOR(main)`, many `LV_CONDUCTOR(service)` taps to premises.
+- **Commercial CT/3ph:** `LV_CONDUCTOR(service, 3ph) → SERVICE_CUTOUT → METER(CT subtype) → SERVICE_POINT`.
+- **Meshed LV:** `LV_CONDUCTOR(main) ↔ LV_LINK_BOX (normally-open) ↔ LV_CONDUCTOR(main)` -- isolation via `device_state`, loops via the existing `LOOP_CHECK_TRACE` config.
 - **Prosumer:** `DER_UNIT` at the `SERVICE_POINT`; load flow handles reverse flow.
-- **Street light:** `LV_MAIN → LV_SERVICE(unmetered) → STREET_LIGHT` (leaf, no meter).
+- **Street light:** `LV_CONDUCTOR(main) → LV_CONDUCTOR(service, unmetered) → STREET_LIGHT` (leaf, no meter).
 
 ## How it reuses what exists
 
@@ -104,10 +103,10 @@ un-reviewable drop.
 
 | Slice | Content | Closes / advances |
 |---|---|---|
-| **0** | `PHASE` domain + phase fields + activate `phase_rule` matching | Phase 4 phase-aware items |
-| **1** | `LV_MAIN` + `LV_SERVICE` (+ specs, `network_rules`); repoint `SERVICE_POINT` to be fed via LV | "no distinct LV/secondary conductor" open item |
-| **2** | LV devices: `SERVICE_CUTOUT`, `LV_LINK_BOX` (isolation, NOP, loops) | meshed/isolation coverage |
-| **3** | `METER` as inline junction + `METER_CHAMBER` (`containment`) + `LV_BUSBAR`; `SERVICE_POINT` → point-of-supply | multi-occupancy / metering |
+| **0** *(code landed, verify owed)* | `PHASE` domain + phase fields + activate `phase_rule` matching | Phase 4 phase-aware items |
+| **1** *(code landed, verify owed)* | Single `LV_CONDUCTOR` edge (construction = OH/UG subtype, role = `lv_role` field) + LV cable specs + `network_rules`; retire the direct `XFMR.T2 → SERVICE_POINT` hop so supply is fed via LV | "no distinct LV/secondary conductor" open item |
+| **2** *(code landed, verify owed)* | LV devices: `SERVICE_CUTOUT` (line/load fuse), `LV_LINK_BOX` (4-way node) + `device_state` OPEN barriers on the isolation traces | meshed/isolation coverage |
+| **3** *(code landed, verify owed)* | `METER` as inline junction + `METER_CHAMBER` (`containment`, its first use) + `LV_BUSBAR` (single-tap, scales to N meters); metered chain + `SERVICE_POINT` → point-of-supply leaf | multi-occupancy / metering |
 | **4** | `DER_UNIT` + bidirectional load-flow hooks | prosumer coverage |
 | **5** | Unmetered (`STREET_LIGHT`) + CT-metering nuances | remaining scenarios |
 | **6** | LV load flow | ties into the Phase 8 engine |
@@ -169,6 +168,19 @@ services to run them against.
 
 ## Decisions made
 
+- **Construction is the subtype; functional role is a field — settled
+  once, for MV and LV alike.** Overhead vs. underground is *always* the
+  subtype (`LV_CONDUCTOR` carries `overhead_lv_conductor` /
+  `underground_lv_conductor`, mirroring `MV_CONDUCTOR` exactly); a class's
+  functional role, where it has one, is *always* a field (LV's coded
+  `lv_role`: main / service). This replaced an abandoned two-class
+  `LV_MAIN`/`LV_SERVICE` split (role as class) and a briefly-considered
+  role-as-subtype variant — one class, construction as subtype, role as
+  field. Nothing is lost by not making construction a field:
+  `symbology_rules` (migrations/0012) key off `subtype_id` *and/or*
+  `domain_value_id` (most-specific-wins), so an overhead-main vs.
+  underground-service render distinction is still fully expressible
+  against (subtype × `lv_role`). `MV_CONDUCTOR` needed zero rework.
 - **Meter is inline in the network, not a leaf record.** The
   devil's-advocate meter-chamber discussion settled this: inside a
   chamber each meter sits on a real per-tenant circuit and power flows
