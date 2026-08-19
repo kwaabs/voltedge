@@ -13,6 +13,7 @@ import {
   Plug,
   Plus,
   Route,
+  Thermometer,
   Trash2,
   TriangleAlert,
   Unlink2,
@@ -46,6 +47,7 @@ import { useTraceConfigurations } from "@/hooks/use-trace-configurations"
 import { ApiError, apiFetch } from "@/lib/api"
 import { formatArea, formatLength, geoJSONAreaMeters, geoJSONLengthMeters } from "@/lib/measure"
 import { cn } from "@/lib/utils"
+import { useAmpacityStore } from "@/stores/ampacity-store"
 import { useConnectStore } from "@/stores/connect-store"
 import { useDiagramStore } from "@/stores/diagram-store"
 import { useDrawStore } from "@/stores/draw-store"
@@ -607,6 +609,7 @@ export function FeaturePanel() {
   const isolating = useIsolateStore((s) => s.loading)
   const loadFlowLoading = useLoadFlowStore((s) => s.loading)
   const faultCurrentLoading = useFaultCurrentStore((s) => s.loading)
+  const ampacityLoading = useAmpacityStore((s) => s.loading)
   const { data: traceConfigurations } = useTraceConfigurations()
 
   const isEditingSelected =
@@ -702,6 +705,7 @@ export function FeaturePanel() {
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<TraceResult>("/trace", {
@@ -729,6 +733,7 @@ export function FeaturePanel() {
     useTraceStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
     useIsolateStore.getState().setLoading(true)
     try {
       const result = await apiFetch<IsolationResult>("/trace/isolate", {
@@ -761,6 +766,7 @@ export function FeaturePanel() {
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{ start: TraceFeatureRef; heads: TraceFeatureRef[]; features: TraceFeatureRef[] }>(
@@ -793,6 +799,7 @@ export function FeaturePanel() {
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{
@@ -836,6 +843,7 @@ export function FeaturePanel() {
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
     useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
     useLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -849,7 +857,23 @@ export function FeaturePanel() {
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
+    useAmpacityStore.getState().clear()
     useFaultCurrentStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the ampacity panel (ampacity-panel.tsx) for the selected
+  // feature -- like the other two, it only arms (the engine needs
+  // environmental inputs first, no honest default for ambient temp);
+  // clears the other four mutually-exclusive workflows. Only ever
+  // called for an edge (see the dropdown item's own network_role gate
+  // below), mirroring the same guard runAmpacity enforces server-side.
+  function armAmpacity() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
   // Runnable trace_configurations for the dropdown -- SHORTEST_PATH
@@ -1005,7 +1029,7 @@ export function FeaturePanel() {
                     variant="ghost"
                     size="icon"
                     className="size-7"
-                    disabled={tracing || isolating || loadFlowLoading || faultCurrentLoading}
+                    disabled={tracing || isolating || loadFlowLoading || faultCurrentLoading || ampacityLoading}
                     title="Run trace"
                   >
                     <Route className="size-4" />
@@ -1047,6 +1071,12 @@ export function FeaturePanel() {
                     <TriangleAlert className="size-4" />
                     Fault current…
                   </DropdownMenuItem>
+                  {selectedNetworkRole === "edge" && (
+                    <DropdownMenuItem onSelect={armAmpacity}>
+                      <Thermometer className="size-4" />
+                      Run ampacity…
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button
