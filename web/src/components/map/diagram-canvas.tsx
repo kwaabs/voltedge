@@ -18,10 +18,13 @@ import { iconDataUri } from "@/lib/symbology-icons"
 import { resolveSymbology } from "@/lib/symbology"
 import { cn } from "@/lib/utils"
 import { useConnectStore } from "@/stores/connect-store"
-import { useDiagramStore } from "@/stores/diagram-store"
 import { useDrawStore } from "@/stores/draw-store"
+import { useFaultCurrentStore } from "@/stores/fault-current-store"
+import { useIsolateStore } from "@/stores/isolate-store"
+import { useLoadFlowStore } from "@/stores/load-flow-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useToastStore } from "@/stores/toast-store"
+import { useTraceStore } from "@/stores/trace-store"
 
 interface ConnectionsResponse {
   connections: Connection[]
@@ -437,12 +440,14 @@ interface ConductorRender {
  * this diagram falls back to a small draggable marker at its own
  * stored x/y (a loose end waiting for its other side to be added).
  */
-export function DiagramCanvas() {
-  const openDiagramId = useDiagramStore((s) => s.openDiagramId)
-  const close = useDiagramStore((s) => s.close)
+export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { diagramId: string; onClose: () => void }) {
   const selected = useSelectionStore((s) => s.selected)
   const connectSource = useConnectStore((s) => s.source)
   const connectTarget = useConnectStore((s) => s.target)
+  const traceResult = useTraceStore((s) => s.result)
+  const isolateResult = useIsolateStore((s) => s.result)
+  const loadFlowResult = useLoadFlowStore((s) => s.result)
+  const faultCurrentResult = useFaultCurrentStore((s) => s.result)
   const { data: placementsData, isPending, isError } = useDiagramPlacements(openDiagramId ?? undefined)
   const { data: featureClassesData } = useFeatureClasses()
   const rules = useAllSymbology()
@@ -472,12 +477,46 @@ export function DiagramCanvas() {
   // A placement/conductor's highlight role, if any -- reuses the exact
   // same roles and colors the map's own highlight layer uses
   // (map-layers.ts's HIGHLIGHT_COLORS) so a selected or connect-mode
-  // source/target feature reads identically whether it's shown on the
-  // map or the diagram.
+  // source/target feature, or a feature reached by a trace/isolate/
+  // load-flow/fault-current result, reads identically whether it's
+  // shown on the map or the diagram. Unlike voltedge-map.tsx's own
+  // highlight effects (which fetch each reached feature's geometry
+  // individually to draw it even when off-diagram), this only needs to
+  // color placements already on the canvas -- a plain membership check
+  // against each result's own feature_class/feature_id, no fetch
+  // needed. The four result stores are already mutually exclusive
+  // (arming one clears the others -- see feature-panel.tsx), so at
+  // most one of the blocks below ever has anything to check.
   function roleFor(featureClass: string, featureId: string): HighlightRole | null {
     if (selected?.featureClassCode === featureClass && selected?.featureId === featureId) return "selected"
     if (connectSource?.featureClassCode === featureClass && connectSource?.featureId === featureId) return "connect-source"
     if (connectTarget?.featureClassCode === featureClass && connectTarget?.featureId === featureId) return "connect-target"
+
+    const matches = (ref: { feature_class: string; feature_id: string }) =>
+      ref.feature_class === featureClass && ref.feature_id === featureId
+
+    if (traceResult) {
+      if (traceResult.barriers.some(matches)) return "trace-barrier"
+      if ((traceResult.targets ?? []).some(matches)) return "trace-target"
+      if (traceResult.features.some(matches)) return "trace"
+    }
+
+    if (isolateResult) {
+      if (isolateResult.upstream_boundary && matches(isolateResult.upstream_boundary)) return "isolation-boundary"
+      if ((isolateResult.possible_backfeed_paths ?? []).some(matches)) return "isolation-backfeed"
+      if (isolateResult.de_energized.some(matches)) return "isolation-deenergized"
+    }
+
+    if (loadFlowResult) {
+      if (loadFlowResult.barriers.some(matches)) return "load-flow-barrier"
+      if (loadFlowResult.nodes.some(matches)) return loadFlowResult.overloaded.some(matches) ? "load-flow-overload" : "load-flow"
+    }
+
+    if (faultCurrentResult) {
+      if (faultCurrentResult.barriers.some(matches)) return "fault-current-barrier"
+      if (faultCurrentResult.nodes.some(matches)) return "fault-current"
+    }
+
     return null
   }
 
