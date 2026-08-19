@@ -14,6 +14,7 @@ import {
   Plus,
   Route,
   Trash2,
+  TriangleAlert,
   Unlink2,
   Workflow,
   Wrench,
@@ -49,6 +50,7 @@ import { useConnectStore } from "@/stores/connect-store"
 import { useDiagramStore } from "@/stores/diagram-store"
 import { useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
+import { useFaultCurrentStore } from "@/stores/fault-current-store"
 import { type IsolationResult, useIsolateStore } from "@/stores/isolate-store"
 import { useLoadFlowStore } from "@/stores/load-flow-store"
 import { useSelectionStore } from "@/stores/selection-store"
@@ -604,6 +606,7 @@ export function FeaturePanel() {
   const tracing = useTraceStore((s) => s.loading)
   const isolating = useIsolateStore((s) => s.loading)
   const loadFlowLoading = useLoadFlowStore((s) => s.loading)
+  const faultCurrentLoading = useFaultCurrentStore((s) => s.loading)
   const { data: traceConfigurations } = useTraceConfigurations()
 
   const isEditingSelected =
@@ -698,6 +701,7 @@ export function FeaturePanel() {
     if (!selected) return
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<TraceResult>("/trace", {
@@ -724,6 +728,7 @@ export function FeaturePanel() {
     if (!selected || !isolationConfig) return
     useTraceStore.getState().clear()
     useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
     useIsolateStore.getState().setLoading(true)
     try {
       const result = await apiFetch<IsolationResult>("/trace/isolate", {
@@ -755,6 +760,7 @@ export function FeaturePanel() {
     if (!selected || !isolationConfig) return
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{ start: TraceFeatureRef; heads: TraceFeatureRef[]; features: TraceFeatureRef[] }>(
@@ -786,6 +792,7 @@ export function FeaturePanel() {
     if (!selected || !isolationConfig) return
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{
@@ -828,7 +835,21 @@ export function FeaturePanel() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
     useLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the fault-current panel (fault-current-panel.tsx) for the
+  // selected feature -- like armLoadFlow, it only arms (the engine needs
+  // nominal_voltage_v first, no honest MV/LV default), clearing the other
+  // three mutually-exclusive workflows; the panel's own Run button makes
+  // the POST /analysis/fault-current call.
+  function armFaultCurrent() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
   // Runnable trace_configurations for the dropdown -- SHORTEST_PATH
@@ -984,7 +1005,7 @@ export function FeaturePanel() {
                     variant="ghost"
                     size="icon"
                     className="size-7"
-                    disabled={tracing || isolating || loadFlowLoading}
+                    disabled={tracing || isolating || loadFlowLoading || faultCurrentLoading}
                     title="Run trace"
                   >
                     <Route className="size-4" />
@@ -1021,6 +1042,10 @@ export function FeaturePanel() {
                   <DropdownMenuItem onSelect={armLoadFlow}>
                     <Activity className="size-4" />
                     Run load flow…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={armFaultCurrent}>
+                    <TriangleAlert className="size-4" />
+                    Fault current…
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

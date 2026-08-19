@@ -186,6 +186,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/lv_unmetered_ct_example.sql
 
+  seed-load-flow-fields:
+    desc: Add the load-flow input fields (SERVICE_POINT.demand_kw/power_factor, DIST_XFMR.source_r_ohm/source_x_ohm/rated_kva; Phase 8) through the gitbash sidecar (requires seed-service-point + the DIST_XFMR seed first; re-compile CODE=SERVICE_POINT and CODE=DIST_XFMR after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/load_flow_fields.sql
+
   # ------------------------------------------------------------- frontend --
 
   frontend-dev:

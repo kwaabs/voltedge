@@ -129,13 +129,23 @@ read fresh each run.
     `power_factor`), `resolveSourceImpedance` (`source_r_ohm`/
     `source_x_ohm`).
   - `sweep.go` — `resolveNodeStates`, `backwardSweep`, `forwardSweep`,
-    `runLoadFlow` (the whole engine's entry point).
+    `runLoadFlow` (the whole engine's entry point), plus `formatResults`
+    which now also reports a rated junction's loading % (see
+    "Transformer loading" below).
   - `handler.go` — the chi router, mounted at `/analysis` in
     `api/cmd/server/main.go`.
-- New fields (no migration, added via the existing admin add-field
-  capability + a recompile): `SERVICE_POINT.demand_kw`,
-  `SERVICE_POINT.power_factor`, `DIST_XFMR.source_r_ohm`,
-  `DIST_XFMR.source_x_ohm` -- all nullable numeric.
+- **Transformer loading %** — a rated junction node reports its own
+  loading % from the same sweep; see the "Transformer loading %"
+  section below for the full design.
+- New fields (committed as `seed/load_flow_fields.sql` -- a seed, not a
+  migration; the reproducible form of the existing admin add-field
+  capability, so a fresh DB / CI / teammate gets the same inputs the
+  live DB has): `SERVICE_POINT.demand_kw`, `SERVICE_POINT.power_factor`,
+  `DIST_XFMR.source_r_ohm`, `DIST_XFMR.source_x_ohm`,
+  `DIST_XFMR.rated_kva` -- all nullable numeric, no subtype rules (the
+  engine treats an unset value as no demand / ideal source / no rating,
+  degrading gracefully rather than failing a partially-surveyed
+  network).
 
 ## How this was validated
 
@@ -228,9 +238,11 @@ this codebase already upholds.
 
 ## Transformer loading %
 
-`DIST_XFMR` gained a `rated_kva` field (nullable numeric, same
-no-migration admin add-field + recompile path as every other field
-this slice added). `resolveTransformerRating` (`resolve.go`) reads it
+`DIST_XFMR` gained a `rated_kva` field (nullable numeric, committed
+with this slice's other load-flow inputs as `seed/load_flow_fields.sql`
+-- a seed, not a migration, the reproducible form of the admin
+add-field capability, so a fresh DB gets it too).
+`resolveTransformerRating` (`resolve.go`) reads it
 the same generic way `resolveDemand`/`resolveSourceImpedance` read
 theirs -- by field name, not by hardcoding to `DIST_XFMR`, so any
 future rated junction class gets this for free by adding a field of
@@ -250,6 +262,15 @@ both without a caller needing to know which kind of node it's looking
 at. `RatedKVA` is the new field or the equipment-capacity counterpart
 of an edge's `AmpacityAmps`.
 
+**Basis caveat:** a `rated_kva` nameplate is almost always three-phase
+total, whereas the sweep's own `S = hypot(cumKW, cumKVAR)` is only as
+"three-phase" as the `demand_kw` values feeding it. Under this engine's
+balanced single-line equivalent (see "What's still out of scope"), the
+loading % is only meaningful when `demand_kw` is entered on that same
+phase basis -- a single-phase-per-service demand against a three-phase
+nameplate reads low by ~3×. The scratch check below uses matched bases;
+real data must too until the Slice 6 per-phase sweep lands.
+
 No frontend changes were needed at all: `load-flow-panel.tsx`'s
 Loading column already reads `node.loading_pct` generically (it was
 never conductor-specific to begin with), so a transformer's loading %
@@ -264,11 +285,60 @@ overload row styling and map highlight color both react to the
 transformer's own loading the same way they already do for a
 conductor. Scratch values removed afterward.
 
+## Symmetrical (3-phase bolted) fault current
+
+`POST /analysis/fault-current` (`fault.go`, sharing the powerflow
+package rather than a new one) is the fault-level counterpart of the
+load flow, and reuses almost all of it. Where the load flow accumulates
+demand *backward* (leaves → source) and derives voltage forward, a
+fault-current walk accumulates series impedance *forward* (source →
+leaves) and derives the prospective bolted-fault current at each node as
+`I = V / |Z_total|`. Everything up to the accumulation is shared code,
+not reimplemented: `resolveNode`, `loadFlowBarriers`, `buildTree` (same
+radial-only tree, mesh rejected for the same reason -- a single series-
+impedance path is only defined on a tree), and `resolveNodeStates`
+(which already resolves each node's own branch R+jX). Only the
+accumulation direction and the final `V/|Z|` are new.
+
+- **Path impedance** — `accumulateSeriesImpedance` walks `tr.order`
+  forward (parent before child, the mirror of `backwardSweep`'s reverse
+  walk), summing each `network_role = 'edge'` node's own branch R+jX
+  onto its parent's running total; a junction/container node adds
+  nothing (electrically a bolted node, same pass-through it is for
+  voltage drop). The start node seeds the total with its own Thevenin
+  `source_r_ohm`/`source_x_ohm` (the same field a load flow reads),
+  so a fault behind the source's own impedance is captured.
+- **Fault current** — `I = nominal_voltage_v / |Z_total|` per node,
+  same voltage-basis contract as the load flow. A node whose total path
+  impedance is exactly zero (an ideal source with no conductor yet
+  between it and the fault) reports **no** current rather than an
+  infinity or a divide-by-zero -- the honest "unbounded, set a source
+  impedance for a finite figure."
+- **Optimistic-bound flag** — `material_resolved` is false on any node
+  whose path crossed a conductor with no resolved impedance (taken as
+  zero). Because a missing branch impedance can only *lower* the true
+  fault current, the reported figure is then an upper bound, surfaced
+  in the UI as a `≤` and a greyed value.
+- **Barriers** — an open device stops the walk exactly as it does for
+  the load flow: a bolted fault downstream of an open point draws no
+  current from this source. Barrier nodes are reported separately, not
+  mixed into the electrical results.
+- **No new fields or data.** Everything it reads -- conductor R/X from
+  the material catalog, `source_r_ohm`/`source_x_ohm` on the start
+  feature -- already exists (the latter committed in
+  `seed/load_flow_fields.sql`). Nothing new to seed.
+
+Frontend mirrors the load-flow panel exactly: an own store
+(`fault-current-store.ts`), a highlight-layer effect in
+`voltedge-map.tsx` (roles `fault-current`/`fault-current-barrier` in
+`map-layers.ts`), a combined prompt/results panel
+(`fault-current-panel.tsx`) in the same shared bottom-center slot, and a
+"Fault current…" item on `feature-panel.tsx`'s header dropdown. Fault
+current joins trace/isolate/load-flow as a **fourth** mutually-exclusive
+workflow -- arming or running any one clears the other three.
+
 ## What's still out of scope
 
-- **Symmetrical fault current** — reuses this engine's branch-
-  impedance-accumulation directly, walked from source to a fault point
-  instead of source to load; not built yet.
 - **Phase-aware sweep** — `docs/phase-9-lv-service-delivery.md`'s own
   phase model (Slice 0) is connect-time only; this sweep treats the
   whole network as a balanced single-line equivalent, same

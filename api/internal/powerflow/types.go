@@ -104,6 +104,54 @@ type loadFlowResponse struct {
 	Overloaded      []featureRef `json:"overloaded"`
 }
 
+// faultCurrentRequest is POST /analysis/fault-current's body -- the same
+// shape as loadFlowRequest, and for the same reasons. Start is the source
+// (the fault-current calc walks the same radial tree away from it);
+// NominalVoltageV is the pre-fault sending-end voltage the bolted-fault
+// current is measured against, required rather than derived for exactly
+// the reasons loadFlowRequest.NominalVoltageV documents. The two requests
+// are kept as separate types rather than one shared struct so each can
+// grow its own fields later without disturbing the other.
+type faultCurrentRequest struct {
+	Start           featureRef `json:"start"`
+	NominalVoltageV float64    `json:"nominal_voltage_v"`
+}
+
+// faultNodeResult is one node's symmetrical (3-phase bolted) fault level:
+// the total series impedance from the source down to this node, and the
+// prospective fault current a bolted fault at this point would draw,
+// I = V / |Z_total|. ResistanceOhm/ReactanceOhm are the accumulated
+// R and X of that path (source impedance + every conductor branch between
+// source and here); ImpedanceOhm is their magnitude. FaultCurrentAmps is
+// omitted only when |Z_total| is zero -- an ideal, zero-impedance source
+// with no conductor between it and this node, where a bolted fault current
+// is unbounded and no finite figure is honest. MaterialResolved is false
+// when any conductor branch on the path lacked resolved R/X (so its
+// impedance was taken as zero) -- the reported current is then an
+// optimistic upper bound, since a missing branch impedance can only make
+// the true |Z_total| larger and the true fault current smaller.
+type faultNodeResult struct {
+	FeatureClass     string   `json:"feature_class"`
+	FeatureID        string   `json:"feature_id"`
+	ResistanceOhm    float64  `json:"resistance_ohm"`
+	ReactanceOhm     float64  `json:"reactance_ohm"`
+	ImpedanceOhm     float64  `json:"impedance_ohm"`
+	FaultCurrentAmps *float64 `json:"fault_current_amps,omitempty"`
+	MaterialResolved bool     `json:"material_resolved"`
+}
+
+// faultCurrentResponse is the full result of one fault-current walk.
+// Barriers mirrors loadFlowResponse.Barriers exactly -- an open device
+// stops the walk, because a bolted fault downstream of an open point draws
+// no current from this source, same as a de-energized branch carries no
+// load.
+type faultCurrentResponse struct {
+	Start           featureRef        `json:"start"`
+	NominalVoltageV float64           `json:"nominal_voltage_v"`
+	Nodes           []faultNodeResult `json:"nodes"`
+	Barriers        []featureRef      `json:"barriers"`
+}
+
 // apiError is the JSON body returned for any 4xx/5xx response.
 type apiError struct {
 	Error string `json:"error"`

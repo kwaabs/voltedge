@@ -1,5 +1,6 @@
 import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
 import { DiagramCanvas } from "@/components/map/diagram-canvas"
+import { FaultCurrentPanel } from "@/components/map/fault-current-panel"
 import { FeaturePanel } from "@/components/map/feature-panel"
 import { FeatureSearch } from "@/components/map/feature-search"
 import { GeometryEditToolbar } from "@/components/map/geometry-edit-toolbar"
@@ -42,6 +43,7 @@ export function MapPage() {
       <TraceResultTable />
       <IsolationResultTable />
       <LoadFlowPanel />
+      <FaultCurrentPanel />
       <StatusBar />
     </div>
   )
