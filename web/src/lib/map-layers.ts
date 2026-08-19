@@ -109,12 +109,17 @@ export function editStyleForFeature(feature: FeatureLike): Style {
  * those a live barrier condition actually stopped it at
  * ("trace-barrier"), and distinctly again whichever matched a
  * trace_configurations target_class ("trace-target", e.g. the
- * transformer a "trace to transformer" run found); or, while an
- * isolation result is active (isolate-store.ts), everything that would
+ * transformer a "trace to transformer" run found); while an isolation
+ * result is active (isolate-store.ts), everything that would
  * de-energize ("isolation-deenergized"), the upstream protective
  * boundary device ("isolation-boundary"), and any possible backfeed
- * path ("isolation-backfeed") -- each role in its own color so none
- * are ever confused with each other or with a plain selection. */
+ * path ("isolation-backfeed"); or, while a load-flow result is active
+ * (load-flow-store.ts), every node the sweep reached
+ * ("load-flow"), distinctly whichever conductor exceeded its own
+ * ampacity ("load-flow-overload"), and distinctly again whichever node
+ * the walk actually stopped at because of a live open device
+ * ("load-flow-barrier") -- each role in its own color so none are ever
+ * confused with each other or with a plain selection. */
 export type HighlightRole =
   | "selected"
   | "connect-source"
@@ -125,6 +130,9 @@ export type HighlightRole =
   | "isolation-deenergized"
   | "isolation-boundary"
   | "isolation-backfeed"
+  | "load-flow"
+  | "load-flow-overload"
+  | "load-flow-barrier"
 
 /** Exported so diagram-canvas.tsx can highlight a selected/connect-role
  * placement with the exact same colors the map's own highlight layer
@@ -139,6 +147,9 @@ export const HIGHLIGHT_COLORS: Record<HighlightRole, string> = {
   "isolation-deenergized": "#f97316",
   "isolation-boundary": "#8b5cf6",
   "isolation-backfeed": "#dc2626",
+  "load-flow": "#06b6d4",
+  "load-flow-overload": "#dc2626",
+  "load-flow-barrier": "#f97316",
 }
 
 function highlightStyleFor(color: string, geometryType: string | undefined): Style {

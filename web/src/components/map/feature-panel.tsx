@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react"
 import {
+  Activity,
   ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -49,6 +50,7 @@ import { useDiagramStore } from "@/stores/diagram-store"
 import { useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
 import { type IsolationResult, useIsolateStore } from "@/stores/isolate-store"
+import { useLoadFlowStore } from "@/stores/load-flow-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
 import { type TraceFeatureRef, type TraceResult, useTraceStore } from "@/stores/trace-store"
@@ -601,6 +603,7 @@ export function FeaturePanel() {
   const panelRef = useRef<HTMLDivElement>(null)
   const tracing = useTraceStore((s) => s.loading)
   const isolating = useIsolateStore((s) => s.loading)
+  const loadFlowLoading = useLoadFlowStore((s) => s.loading)
   const { data: traceConfigurations } = useTraceConfigurations()
 
   const isEditingSelected =
@@ -694,6 +697,7 @@ export function FeaturePanel() {
   async function runTrace(configCode: string) {
     if (!selected) return
     useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<TraceResult>("/trace", {
@@ -719,6 +723,7 @@ export function FeaturePanel() {
   async function runIsolate() {
     if (!selected || !isolationConfig) return
     useTraceStore.getState().clear()
+    useLoadFlowStore.getState().clear()
     useIsolateStore.getState().setLoading(true)
     try {
       const result = await apiFetch<IsolationResult>("/trace/isolate", {
@@ -749,6 +754,7 @@ export function FeaturePanel() {
   async function runFeederTrace() {
     if (!selected || !isolationConfig) return
     useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{ start: TraceFeatureRef; heads: TraceFeatureRef[]; features: TraceFeatureRef[] }>(
@@ -779,6 +785,7 @@ export function FeaturePanel() {
   async function runSectionTrace() {
     if (!selected || !isolationConfig) return
     useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{
@@ -809,6 +816,19 @@ export function FeaturePanel() {
       useTraceStore.getState().setLoading(false)
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not trace this section.")
     }
+  }
+
+  // Arms the load-flow panel (load-flow-panel.tsx) for the selected
+  // feature -- doesn't run anything itself, since the engine needs
+  // nominal_voltage_v first and there's no honest default across MV/LV
+  // to guess (see docs/phase-8-load-flow.md). Clears trace/isolate the
+  // same way every other trigger here does; the panel's own Run button
+  // makes the actual POST /analysis/load-flow call.
+  function armLoadFlow() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
   // Runnable trace_configurations for the dropdown -- SHORTEST_PATH
@@ -964,10 +984,7 @@ export function FeaturePanel() {
                     variant="ghost"
                     size="icon"
                     className="size-7"
-                    disabled={
-                      (tracing || isolating) ||
-                      (runnableConfigs.length === 0 && !canIsolate && !isolationConfig)
-                    }
+                    disabled={tracing || isolating || loadFlowLoading}
                     title="Run trace"
                   >
                     <Route className="size-4" />
@@ -976,33 +993,35 @@ export function FeaturePanel() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-52">
-                  {runnableConfigs.length === 0 && !canIsolate && !isolationConfig ? (
+                  {runnableConfigs.length === 0 && !canIsolate && !isolationConfig && (
                     <p className="text-muted-foreground px-2 py-1.5 text-sm">No trace configurations exist</p>
-                  ) : (
+                  )}
+                  {runnableConfigs.map((config) => (
+                    <DropdownMenuItem key={config.code} onSelect={() => runTrace(config.code)}>
+                      {config.name}
+                    </DropdownMenuItem>
+                  ))}
+                  {isolationConfig && (
                     <>
-                      {runnableConfigs.map((config) => (
-                        <DropdownMenuItem key={config.code} onSelect={() => runTrace(config.code)}>
-                          {config.name}
-                        </DropdownMenuItem>
-                      ))}
-                      {isolationConfig && (
-                        <>
-                          {runnableConfigs.length > 0 && <DropdownMenuSeparator />}
-                          <DropdownMenuItem onSelect={runFeederTrace}>Feeder trace</DropdownMenuItem>
-                          <DropdownMenuItem onSelect={runSectionTrace}>Section trace</DropdownMenuItem>
-                        </>
-                      )}
-                      {canIsolate && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onSelect={runIsolate}>
-                            <Zap className="size-4" />
-                            Isolate from here
-                          </DropdownMenuItem>
-                        </>
-                      )}
+                      {runnableConfigs.length > 0 && <DropdownMenuSeparator />}
+                      <DropdownMenuItem onSelect={runFeederTrace}>Feeder trace</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={runSectionTrace}>Section trace</DropdownMenuItem>
                     </>
                   )}
+                  {canIsolate && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={runIsolate}>
+                        <Zap className="size-4" />
+                        Isolate from here
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={armLoadFlow}>
+                    <Activity className="size-4" />
+                    Run load flow…
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button

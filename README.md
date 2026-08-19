@@ -258,7 +258,12 @@ having to reread every phase doc's own "What's still open" section.
   impedance comes directly from this catalog (a conductor's own real
   geometry length × its resolved material spec), stopping at an open
   device and rejecting a detected loop/mesh outright rather than
-  computing something wrong. No frontend for it yet.
+  computing something wrong. Frontend done too: an unconditional "Run
+  load flow…" trigger on the map's existing trace/isolate dropdown,
+  a prompt-then-results panel in the shared bottom-center slot, and
+  three new map highlight colors (normal/overloaded/stopped-at-barrier)
+  — mutually exclusive with trace/isolate, same as those two already
+  are with each other.
   Write-ups: [`docs/phase-8-materials.md`](docs/phase-8-materials.md),
   [`docs/phase-8-load-flow.md`](docs/phase-8-load-flow.md).
 

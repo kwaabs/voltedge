@@ -12,8 +12,9 @@ the design decisions locked before this slice started.
 **Status:** backend curl-verified end to end against a real Postgres,
 including a hand-computed numerical check (voltage drop, current, and
 loading % all matched by hand), open-device barrier stopping, an
-overload flag, and cycle/mesh rejection. No frontend yet -- that's the
-next slice (`docs/open-items.md`'s Phase 8 table).
+overload flag, and cycle/mesh rejection. Frontend (trigger, results
+table, map color-coding) built and Playwright-verified end to end --
+see "Frontend" below.
 
 ## Design: forward-backward sweep, not full AC power flow
 
@@ -180,10 +181,52 @@ curl -X POST http://localhost:3704/analysis/load-flow \
   -d '{"start":{"feature_class":"DIST_XFMR","feature_id":"<id>"},"nominal_voltage_v":230}'
 ```
 
+## Frontend
+
+Same architecture as trace/isolate before it -- own Zustand store
+(`web/src/stores/load-flow-store.ts`), a highlight-layer effect in
+`voltedge-map.tsx`, and a combined prompt/results panel
+(`web/src/components/map/load-flow-panel.tsx`) in the shared
+bottom-center slot `trace-result-table.tsx` uses. Trace, isolate, and
+load flow are mutually exclusive UI workflows -- running one clears the
+other two's stores, same as trace and isolate already clear each other.
+
+- **Trigger** — an unconditional "Run load flow…" item on
+  `feature-panel.tsx`'s existing header dropdown, offered regardless of
+  whether any `trace_configurations` exist for the selected feature's
+  class (unlike a trace config or isolation, a load flow can start from
+  any selected feature). Selecting it arms the panel with the selected
+  feature as `start`, without running anything yet.
+- **Panel** — prompts for `nominal_voltage_v` (the one input that
+  can't be honestly guessed, see above), then shows the swept result as
+  a table: feature, voltage (+ drop %), current, loading %. A row past
+  100% loading is flagged in the destructive color. Barrier rows (the
+  open device the sweep stopped at) render separately, greyed out, not
+  mixed into the electrical results. Clicking any row selects + pans to
+  that feature, same as every other result table in this app.
+- **Map highlight** — three new `HighlightRole`s in `map-layers.ts`
+  (`load-flow`, `load-flow-overload`, `load-flow-barrier`), each its
+  own color; a node in `Overloaded` is tagged with the overload color
+  even though it's also in `Nodes` (takes precedence -- more actionable
+  than "just reached").
+
+Verified in a real browser (Playwright) against the real seed topology
+(substation `DIST_XFMR` → `MV_CONDUCTOR` → `DIST_SWITCH` → ... →
+`SERVICE_POINT`): trigger → prompt → run → table + map highlight all
+render with real swept values; row click selects and pans; running a
+trace afterward on the same selection correctly clears the load-flow
+panel and highlight. One real bug caught and fixed during this pass:
+`formatResults` in `sweep.go` declared `Overloaded` as a nil slice when
+nothing was overloaded, which Go's JSON encoder serializes as `null`
+rather than `[]` -- `voltedge-map.tsx`'s highlight effect called
+`.map()` on it directly and crashed the whole page on any load flow
+with no overloaded conductors (i.e. almost every real run). Fixed by
+initializing it as an empty slice instead, restoring the "list fields
+are always arrays, never null" contract every other list endpoint in
+this codebase already upholds.
+
 ## What's still out of scope
 
-- **Frontend** — no trigger, results table, or map color-coding yet;
-  the next slice in the plan.
 - **Transformer loading %** — rides on this engine once `DIST_XFMR`
   gains a `rated_kva` field; the sweep's own demand at that node is
   already computed, just not yet expressed against a rating.

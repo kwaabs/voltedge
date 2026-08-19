@@ -217,7 +217,7 @@ func approxCurrentAmps(cumKW, cumKVAR, voltageV float64) float64 {
 // re-scan Nodes itself to find what actually needs attention.
 func formatResults(tr *tree, states map[node]*nodeState, classCodes map[string]string, nominalVoltageV float64) ([]nodeResult, []featureRef) {
 	nodes := make([]nodeResult, 0, len(tr.order))
-	var overloaded []featureRef
+	overloaded := make([]featureRef, 0)
 
 	for _, n := range tr.order {
 		st := states[n]
