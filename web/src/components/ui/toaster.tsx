@@ -1,4 +1,5 @@
-import { AlertCircle, AlertTriangle, X } from "lucide-react"
+import { AlertCircle, AlertTriangle, Check, Copy, X } from "lucide-react"
+import { useState } from "react"
 
 import { useToastStore } from "@/stores/toast-store"
 
@@ -35,11 +36,10 @@ export function Toaster() {
               : "bg-destructive text-destructive-foreground"
           }`}
         >
-          {toast.variant === "warning" ? (
-            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-          ) : (
-            <AlertCircle className="mt-0.5 size-4 shrink-0" />
-          )}
+          <div className="mt-0.5 flex shrink-0 flex-col items-center gap-1.5">
+            {toast.variant === "warning" ? <AlertTriangle className="size-4" /> : <AlertCircle className="size-4" />}
+            <CopyToastButton message={toast.message} />
+          </div>
           <p className="flex-1 break-words">{toast.message}</p>
           <button
             onClick={() => dismiss(toast.id)}
@@ -51,5 +51,26 @@ export function Toaster() {
         </div>
       ))}
     </div>
+  )
+}
+
+/** Copies a toast's own message text to the clipboard -- lets a caller
+ * grab a long validation error (e.g. a material-spec missing-field
+ * list) verbatim rather than retyping it. Swaps to a checkmark for a
+ * moment as the only feedback; the toast itself still auto-dismisses
+ * on its own schedule regardless of whether this was clicked. */
+function CopyToastButton({ message }: { message: string }) {
+  const [copied, setCopied] = useState(false)
+
+  async function copy() {
+    await navigator.clipboard.writeText(message)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  return (
+    <button onClick={copy} className="opacity-80 hover:opacity-100" aria-label="Copy message">
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+    </button>
   )
 }
