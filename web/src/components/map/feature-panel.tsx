@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
+  Flame,
   GripHorizontal,
   Info,
   Link2,
@@ -13,6 +14,7 @@ import {
   Plug,
   Plus,
   Route,
+  Thermometer,
   Trash2,
   Unlink2,
   Workflow,
@@ -45,10 +47,12 @@ import { useTraceConfigurations } from "@/hooks/use-trace-configurations"
 import { ApiError, apiFetch } from "@/lib/api"
 import { formatArea, formatLength, geoJSONAreaMeters, geoJSONLengthMeters } from "@/lib/measure"
 import { cn } from "@/lib/utils"
+import { useAmpacityStore } from "@/stores/ampacity-store"
 import { useConnectStore } from "@/stores/connect-store"
 import { useDiagramStore } from "@/stores/diagram-store"
 import { useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
+import { useFaultCurrentStore } from "@/stores/fault-current-store"
 import { type IsolationResult, useIsolateStore } from "@/stores/isolate-store"
 import { useLoadFlowStore } from "@/stores/load-flow-store"
 import { useSelectionStore } from "@/stores/selection-store"
@@ -604,6 +608,8 @@ export function FeaturePanel() {
   const tracing = useTraceStore((s) => s.loading)
   const isolating = useIsolateStore((s) => s.loading)
   const loadFlowLoading = useLoadFlowStore((s) => s.loading)
+  const faultCurrentLoading = useFaultCurrentStore((s) => s.loading)
+  const ampacityLoading = useAmpacityStore((s) => s.loading)
   const { data: traceConfigurations } = useTraceConfigurations()
 
   const isEditingSelected =
@@ -698,6 +704,8 @@ export function FeaturePanel() {
     if (!selected) return
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<TraceResult>("/trace", {
@@ -724,6 +732,8 @@ export function FeaturePanel() {
     if (!selected || !isolationConfig) return
     useTraceStore.getState().clear()
     useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
     useIsolateStore.getState().setLoading(true)
     try {
       const result = await apiFetch<IsolationResult>("/trace/isolate", {
@@ -755,6 +765,8 @@ export function FeaturePanel() {
     if (!selected || !isolationConfig) return
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{ start: TraceFeatureRef; heads: TraceFeatureRef[]; features: TraceFeatureRef[] }>(
@@ -786,6 +798,8 @@ export function FeaturePanel() {
     if (!selected || !isolationConfig) return
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{
@@ -821,14 +835,45 @@ export function FeaturePanel() {
   // Arms the load-flow panel (load-flow-panel.tsx) for the selected
   // feature -- doesn't run anything itself, since the engine needs
   // nominal_voltage_v first and there's no honest default across MV/LV
-  // to guess (see docs/phase-8-load-flow.md). Clears trace/isolate the
-  // same way every other trigger here does; the panel's own Run button
-  // makes the actual POST /analysis/load-flow call.
+  // to guess (see docs/phase-8-load-flow.md). Clears trace/isolate/
+  // fault-current the same way every other trigger here does; the
+  // panel's own Run button makes the actual POST /analysis/load-flow
+  // call.
   function armLoadFlow() {
     if (!selected) return
     useTraceStore.getState().clear()
     useIsolateStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
     useLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the fault-current panel (fault-current-panel.tsx) -- same
+  // "prompt first, run on the panel's own button" shape as
+  // armLoadFlow, same required nominal_voltage_v input (see
+  // docs/phase-8-fault-current.md). Clears trace/isolate/load-flow.
+  function armFaultCurrent() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useFaultCurrentStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the ampacity panel (ampacity-panel.tsx) -- same "prompt
+  // first, run on the panel's own button" shape as armLoadFlow/
+  // armFaultCurrent, but the panel itself is only ever offered for a
+  // conductor (network_role = 'edge') in the dropdown below, since
+  // ampacity has nothing to compute for a junction/container (see
+  // docs/phase-8-ampacity.md).
+  function armAmpacity() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
   // Runnable trace_configurations for the dropdown -- SHORTEST_PATH
@@ -984,7 +1029,7 @@ export function FeaturePanel() {
                     variant="ghost"
                     size="icon"
                     className="size-7"
-                    disabled={tracing || isolating || loadFlowLoading}
+                    disabled={tracing || isolating || loadFlowLoading || faultCurrentLoading || ampacityLoading}
                     title="Run trace"
                   >
                     <Route className="size-4" />
@@ -1022,6 +1067,16 @@ export function FeaturePanel() {
                     <Activity className="size-4" />
                     Run load flow…
                   </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={armFaultCurrent}>
+                    <Flame className="size-4" />
+                    Run fault current…
+                  </DropdownMenuItem>
+                  {selectedNetworkRole === "edge" && (
+                    <DropdownMenuItem onSelect={armAmpacity}>
+                      <Thermometer className="size-4" />
+                      Run ampacity…
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button

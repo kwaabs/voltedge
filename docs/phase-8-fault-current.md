@@ -11,11 +11,8 @@ the load-flow engine this rides on top of.
 **Status:** backend curl-verified end to end against a real Postgres,
 including a hand-computed numerical check, the omit-on-zero-impedance
 edge case, and open-device barrier stopping (reusing `DOWNSTREAM_TRACE`'s
-`trace_barrier_rules`, unchanged from the load-flow engine). No
-frontend yet -- unlike transformer loading % (Slice D), which folded
-into the existing load-flow results table for free, fault current is a
-genuinely different result shape (impedance, not voltage/demand), so a
-frontend for it would be its own slice, not built here.
+`trace_barrier_rules`, unchanged from the load-flow engine). Frontend
+built and Playwright-verified end to end -- see "Frontend" below.
 
 ## Design: one forward pass, no iteration, no demand
 
@@ -85,6 +82,39 @@ No new fields needed -- `DIST_XFMR.source_r_ohm`/`source_x_ohm` (Slice
 B) and every conductor's own material-linked field are exactly the
 inputs this needs, already in place.
 
+## Frontend
+
+Structurally a near-twin of the load-flow frontend: own store
+(`fault-current-store.ts`), a highlight-layer effect in
+`voltedge-map.tsx`, and a combined prompt/results panel
+(`fault-current-panel.tsx`) in the same shared bottom-center slot,
+kept as its own component rather than reusing `load-flow-panel.tsx`
+because the result shape is genuinely different (impedance/fault-duty
+columns -- Z total, R/X breakdown, fault current -- not voltage/
+demand/loading). Two new `HighlightRole`s in `map-layers.ts`
+(`fault-current`, `fault-current-barrier`, in fresh colors distinct
+from every other role) -- no third "overload" role, since fault
+current has no capacity-vs-rating concept of its own. "Run fault
+current…" is offered unconditionally on the same header dropdown
+`load-flow-panel.tsx`'s trigger already extended, regardless of the
+selected feature's `network_role` -- a fault can meaningfully be
+evaluated starting from any feature, same reasoning load flow's own
+trigger already uses. Arming any of trace/isolate/load-flow/fault-
+current now clears the other three, extending the mutual-exclusivity
+chain each engine's own trigger already maintained.
+
+Playwright-verified against the real seed topology: with
+`source_r_ohm`/`source_x_ohm` set on the substation transformer, the
+results table showed `Z = 0.0539Ω` (`R 0.0500 / X 0.0200`) and
+`204,265A` at every reached node, matching this doc's own hand-
+computed check to the displayed precision; the map highlight rendered
+in the new role's own color along the full reached path. Starting
+from a node with no source impedance of its own (`XF-1`, downstream of
+the substation transformer but carrying none itself) correctly showed
+`Z = 0.0000Ω` and an empty (not `0A`) Fault current cell, confirming
+the omit-on-zero-`Z` backend behavior surfaces correctly in the UI.
+Scratch source-impedance values removed afterward.
+
 ## How this was validated
 
 Against the same real seed topology `docs/phase-8-load-flow.md`'s own
@@ -135,12 +165,6 @@ curl -X POST http://localhost:3704/analysis/fault-current \
 
 ## What's still out of scope
 
-- **Frontend** -- no trigger, results table, or map color-coding yet.
-  A genuinely different result shape from the load-flow table (this
-  endpoint's own `docs/phase-8-load-flow.md`-style panel would show
-  impedance and fault duty, not voltage/current/demand), so it doesn't
-  fold into the existing panel for free the way transformer loading %
-  did.
 - **Unbalanced / sequence-network analysis and protection
   coordination** -- explicitly out of scope for this slice (see
   `docs/open-items.md`'s design-discussion narrative): needs per-device

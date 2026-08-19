@@ -118,8 +118,13 @@ export function editStyleForFeature(feature: FeatureLike): Style {
  * ("load-flow"), distinctly whichever conductor exceeded its own
  * ampacity ("load-flow-overload"), and distinctly again whichever node
  * the walk actually stopped at because of a live open device
- * ("load-flow-barrier") -- each role in its own color so none are ever
- * confused with each other or with a plain selection. */
+ * ("load-flow-barrier"); or, while a fault-current result is active
+ * (fault-current-store.ts), every node reached ("fault-current") and
+ * distinctly whichever node the walk stopped at ("fault-current-
+ * barrier") -- fault current has no capacity-vs-rating concept of its
+ * own, so unlike load-flow there's no third "overload" role here --
+ * each role in its own color so none are ever confused with each
+ * other or with a plain selection. */
 export type HighlightRole =
   | "selected"
   | "connect-source"
@@ -133,6 +138,8 @@ export type HighlightRole =
   | "load-flow"
   | "load-flow-overload"
   | "load-flow-barrier"
+  | "fault-current"
+  | "fault-current-barrier"
 
 /** Exported so diagram-canvas.tsx can highlight a selected/connect-role
  * placement with the exact same colors the map's own highlight layer
@@ -150,6 +157,8 @@ export const HIGHLIGHT_COLORS: Record<HighlightRole, string> = {
   "load-flow": "#06b6d4",
   "load-flow-overload": "#dc2626",
   "load-flow-barrier": "#f97316",
+  "fault-current": "#ec4899",
+  "fault-current-barrier": "#f97316",
 }
 
 function highlightStyleFor(color: string, geometryType: string | undefined): Style {

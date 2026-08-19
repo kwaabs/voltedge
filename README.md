@@ -275,20 +275,23 @@ having to reread every phase doc's own "What's still open" section.
   symmetrical (3-phase bolted) fault current across the same network —
   one exact forward pass reusing the load-flow engine's own tree-walk
   and impedance resolution directly, with no sweep needed since fault
-  current has no demand-voltage circular dependency to iterate over.
-  No frontend for it yet. Last slice: `POST /analysis/ampacity`
-  computes a single conductor's own first-principles steady-state
-  ampacity via the real IEEE 738 heat-balance equation, evaluated at
-  its rated max operating temperature and solved for current — one
-  deliberate simplification (constant air properties instead of IEEE
-  738's own film-temperature-derived ones) turns out to remove the
-  root-find originally planned for it entirely, since the loss terms
-  no longer depend on the unknown current. Takes environmental
-  conditions (ambient temp, wind, solar gain) as request parameters
-  rather than storing them, and doesn't touch the connectivity graph
-  at all — a standalone calc on one feature, not a network-wide
-  read-out like the other two engines. Not yet wired in as their own
-  dynamic ampacity source; no frontend yet either.
+  current has no demand-voltage circular dependency to iterate over —
+  its own trigger, results table, and two new map highlight colors
+  followed the same pattern load flow's own frontend already
+  established. Last slice: `POST /analysis/ampacity` computes a single
+  conductor's own first-principles steady-state ampacity via the real
+  IEEE 738 heat-balance equation, evaluated at its rated max operating
+  temperature and solved for current — one deliberate simplification
+  (constant air properties instead of IEEE 738's own film-temperature-
+  derived ones) turns out to remove the root-find originally planned
+  for it entirely, since the loss terms no longer depend on the
+  unknown current. Takes environmental conditions (ambient temp, wind,
+  solar gain) as request parameters rather than storing them, and
+  doesn't touch the connectivity graph at all — a standalone calc on
+  one feature, not a network-wide read-out like the other two engines,
+  so its own frontend shows a compact key/value readout instead of a
+  per-node table and adds no map highlight of its own. Not yet wired
+  in as the other two engines' own dynamic ampacity source.
   Write-ups: [`docs/phase-8-materials.md`](docs/phase-8-materials.md),
   [`docs/phase-8-load-flow.md`](docs/phase-8-load-flow.md),
   [`docs/phase-8-fault-current.md`](docs/phase-8-fault-current.md),

@@ -54,6 +54,7 @@ import { useConnectStore } from "@/stores/connect-store"
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
+import { useFaultCurrentStore } from "@/stores/fault-current-store"
 import { useIsolateStore } from "@/stores/isolate-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useLoadFlowStore } from "@/stores/load-flow-store"
@@ -296,6 +297,10 @@ export function VoltEdgeMap() {
   // asynchronously, own source, mutually exclusive with trace/isolate
   // in the UI so the three never race each other's clear/populate.
   const loadFlowSourceRef = useRef<VectorSource | null>(null)
+  // Fault-current results (fault-current-store.ts) -- same reasoning as
+  // loadFlowSourceRef's own comment: fetched asynchronously, own
+  // source, mutually exclusive with trace/isolate/load-flow in the UI.
+  const faultCurrentSourceRef = useRef<VectorSource | null>(null)
   // Snap candidates -- never added to the map as a rendered layer, just
   // a plain VectorSource for the Snap interaction below to read (see
   // refreshSnapSource for why this indirection is needed at all: every
@@ -345,6 +350,7 @@ export function VoltEdgeMap() {
   const traceResult = useTraceStore((s) => s.result)
   const isolateResult = useIsolateStore((s) => s.result)
   const loadFlowResult = useLoadFlowStore((s) => s.result)
+  const faultCurrentResult = useFaultCurrentStore((s) => s.result)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
   const selected = useSelectionStore((s) => s.selected)
@@ -489,6 +495,14 @@ export function VoltEdgeMap() {
     map.addLayer(loadFlowLayer)
     loadFlowSourceRef.current = loadFlowSource
 
+    // Fault-current results (see the effect below and
+    // fault-current-store.ts) -- same style function, own source, same
+    // zIndex as the other three (all mutually exclusive in practice).
+    const faultCurrentSource = new VectorSource()
+    const faultCurrentLayer = new VectorLayer({ source: faultCurrentSource, style: highlightStyleForFeature, zIndex: 6 })
+    map.addLayer(faultCurrentLayer)
+    faultCurrentSourceRef.current = faultCurrentSource
+
     // The one feature currently under geometry edit (see
     // editStyleForFeature) -- above the highlight layer so its cyan
     // isn't washed out underneath a selected halo, below the draft
@@ -529,6 +543,7 @@ export function VoltEdgeMap() {
       traceSourceRef.current = null
       isolateSourceRef.current = null
       loadFlowSourceRef.current = null
+      faultCurrentSourceRef.current = null
       editSourceRef.current = null
       snapSourceRef.current = null
     }
@@ -999,6 +1014,67 @@ export function VoltEdgeMap() {
       cancelled = true
     }
   }, [loadFlowResult])
+
+  // Fault-current results (see fault-current-store.ts) -- same async-
+  // fetch-into-a-dedicated-source shape as the load-flow effect above.
+  // Every reached node gets the base "fault-current" role; a barrier
+  // node never appears in `nodes` at all (the walk stopped before
+  // resolving its own state), so its geometry is fetched separately
+  // and tagged "fault-current-barrier". No overload-style third role --
+  // fault current has no capacity-vs-rating concept of its own.
+  useEffect(() => {
+    const source = faultCurrentSourceRef.current
+    if (!source) return
+
+    if (!faultCurrentResult) {
+      source.clear()
+      return
+    }
+
+    const src: VectorSource = source
+    const result: NonNullable<typeof faultCurrentResult> = faultCurrentResult
+
+    let cancelled = false
+
+    async function loadFaultCurrentFeatures() {
+      const refs = [
+        ...result.nodes.map((n) => ({
+          ref: { feature_class: n.feature_class, feature_id: n.feature_id },
+          role: "fault-current" as const,
+        })),
+        ...result.barriers.map((ref) => ({ ref, role: "fault-current-barrier" as const })),
+      ]
+
+      const fetched = await Promise.all(
+        refs.map(async ({ ref, role }) => {
+          try {
+            const feature = await apiFetch<{ geometry?: FeatureGeometry }>(
+              `/features/${ref.feature_class}/${ref.feature_id}`,
+            )
+            return { geometry: feature.geometry, role }
+          } catch {
+            return null
+          }
+        }),
+      )
+      if (cancelled) return
+
+      src.clear()
+      for (const f of fetched) {
+        if (!f?.geometry) continue
+        const olGeometry = geoJSONToGeometry(f.geometry)
+        if (!olGeometry) continue
+        const feature = new Feature(olGeometry)
+        feature.set("role", f.role)
+        src.addFeature(feature)
+      }
+    }
+
+    loadFaultCurrentFeatures()
+    return () => {
+      cancelled = true
+    }
+  }, [faultCurrentResult])
 
   // Pans/zooms to a feature selected from a connection/relationship
   // list row (feature-panel.tsx) rather than a direct map click -- see

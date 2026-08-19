@@ -13,9 +13,10 @@ catalog columns (Slice A) this rides on.
 including an independent Python re-implementation of the same formula
 matching the API's own response to full float precision, every
 validation/error path, and the ambient-at-or-above-rating edge case.
-No frontend, and deliberately not wired into the load-flow/fault-
-current engines as a dynamic ampacity source yet -- see "What's still
-out of scope" below.
+Frontend built and Playwright-verified end to end -- see "Frontend"
+below. Deliberately not wired into the load-flow/fault-current
+engines as a dynamic ampacity source yet -- see "What's still out of
+scope" below.
 
 ## Design: real IEEE 738 physics, one deliberate simplification
 
@@ -107,6 +108,44 @@ No new fields -- the four thermal columns (Slice A) and the existing
 `diameter_mm`/`resistance_ohm_per_km` are exactly the inputs this
 needs.
 
+## Frontend
+
+A genuinely different shape from `load-flow-panel.tsx`/`fault-current-
+panel.tsx`: ampacity is a single-conductor calc, not a whole-network
+walk, so `ampacity-panel.tsx`'s own result view is a compact key/value
+readout (the big final figure, the catalog static figure for
+comparison, then each heat-balance term) rather than a per-node table.
+No map highlight of its own either -- unlike the other two engines,
+ampacity never reaches beyond the one conductor already selected, so
+there's nothing new for `voltedge-map.tsx` to draw that the plain
+"selected" highlight doesn't already cover.
+
+The trigger ("Run ampacity…") is the one exception to this project's
+"offer the analysis trigger unconditionally" pattern the other two
+engines follow: it only appears in the header dropdown when the
+selected feature's own class has `network_role = 'edge'` (mirrored
+client-side from the same guard `runAmpacity` itself enforces
+server-side), since ampacity has nothing to compute for a junction or
+container. `ambient_temp_c` has no client-side default at all (an
+empty/blank starting value would misrepresent "not yet chosen" as a
+real reading); `solar_heat_flux_w_m2` defaults to `"0"` in the input
+but its label carries a tooltip spelling out that this is a clear-
+night assumption, not a conservative fallback -- the same caution
+`docs/phase-8-ampacity.md`'s own backend design section gives.
+
+Playwright-verified against a real scratch `LV_CONDUCTOR` (material
+spec `WAVEFORM_185`, with `max_operating_temp_c=90`/`emissivity=0.6`/
+`absorptivity=0.6`/`resistance_temp_coefficient_per_c=0.00393` set):
+running the panel at `ambient_temp_c=25`, `wind_speed_mps=0.6`,
+`wind_angle_deg=90`, `solar_heat_flux_w_m2=1000` showed `699A` against
+a `313A` catalog static figure, with `convective_loss=89.9 W/m`,
+`radiative_loss=30.4 W/m`, `solar_gain=18.0 W/m`, and
+`resistance=0.2091 Ω/km` -- matching this doc's own backend
+verification numbers exactly. Confirmed "Run ampacity…" is present for
+a conductor and absent for a junction (`DIST_XFMR`). Scratch feature
+purged and material-spec values left in place afterward (see "How
+this was validated" below for why).
+
 ## How this was validated
 
 Against a real, non-Docker Postgres:
@@ -168,7 +207,6 @@ curl -X POST http://localhost:3704/analysis/ampacity \
   inputs a load-flow request itself would need to carry (ambient/wind/
   solar alongside `nominal_voltage_v`) -- a real design question left
   open, not an oversight.
-- **Frontend** -- no trigger or results display yet.
 - **Temperature-dependent air properties / iterative film-temperature
   solve** -- the deliberate simplification this whole slice makes; see
   "Design" above.
