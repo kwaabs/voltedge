@@ -26,7 +26,30 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-19, a Phase 3 batch adding an **admin UI for
+**Last updated:** 2026-08-19, seeding the first real
+`metadata.snapping_rules` rows. The table has held **zero rows anywhere
+in this project since Phase 1** -- so its read path (the feature panel /
+admin "Rules" display, `api/internal/rules`) only ever rendered an empty
+section, and there was nothing for a future enforcement layer to test
+against. `seed/snapping_rules_example.sql` (new, plus a `seed-snapping`
+Taskfile target) seeds the `SNAP_TARGET_TYPE` domain
+(`point_feature`/`endpoint`/`edge`/`vertex`) the table's
+`target_type_value_id` references, then a small deliberate rule set over
+the existing MV_CONDUCTOR / DIST_XFMR / DIST_SWITCH / SERVICE_POINT
+topology: a conductor endpoint that **must** snap to a transformer's
+primary (T1, the migration's own canonical `is_required` example), a
+conductor→switch snap (either side, optional), a conductor→conductor
+endpoint tap, and a service-point→transformer-secondary (T2) snap.
+Priorities encode "a whole point feature outranks a bare conductor
+endpoint"; tolerances are real meters. This is the **metadata half only**
+-- the map's OL `Snap` is still the generic snap-to-any-visible-vertex
+with one global toggle (`docs/phase-3-snapping.md`); making it actually
+consume `tolerance_m`/`target_type`/eligibility is the remaining slice of
+the "Metadata-driven `snapping_rules`" open row. SQL-only change, no
+code; can't be applied/verified here (`bash.exe` `EPERM`, no live DB), so
+a real `psql` apply + a click-through of the Rules display is still owed.
+
+Prior update, 2026-08-19, a Phase 3 batch adding an **admin UI for
 symbology** so icons and rules can be authored without hand-writing SQL
 (SQL stays a valid path -- the DB is still directly editable). A new
 **Symbology icons** admin page does full CRUD on `metadata.symbology_icons`
@@ -45,7 +68,7 @@ shell-less (`bash.exe` `EPERM`), statically reviewed against live IDE
 diagnostics -- `tsc`/lint/`go build`/`gofmt` and a live DB/Playwright pass
 still owed. Full write-up in `docs/phase-3-symbology-admin-ui.md`.
 
-Prior update, 2026-08-19, a Phase 3 batch of **drawing-and-measurement
+Before that, 2026-08-19, a Phase 3 batch of **drawing-and-measurement
 tools**: orthogonal line/polygon drawing, an ad-hoc measure tool, always-on
 Length/Area read-outs in the feature panel, and a metric/imperial units
 toggle shared across all of them. Straight-line drawing already existed
@@ -456,7 +479,7 @@ naming, rotate, remove).
 | Symbology zoom-gating | Done | S | `min_zoom`/`max_zoom` were already loaded server-side but never sent to the frontend. Now included in the schema response and enforced in `resolveSymbology`/`createSymbologyStyle`, converting the map's real `resolution` to a zoom level via `View.getZoomForResolution` -- a rule outside the current zoom is skipped, falling back to a less-specific in-range rule or the plain geometry-type default, same fallback behavior as "no rule matches." | `docs/phase-3-symbology.md` |
 | Azure AD SSO + backend auth | Open | L | Legitimately greenfield -- no session/token handling, no user table, no frontend auth state anywhere (`README.md`: "Auth and permissions are deliberately not modeled yet"). A prerequisite for Phase 6 access control more than something the map loop itself needs. | `docs/phase-3-ui-shell.md` |
 | Real Martin soft-delete-aware fix | Open | L, unresolved unknown | Today's fix (`deleted-features-store.ts`) is purely client-side and session-local -- a fresh tab or a different user still sees a soft-deleted feature. The real fix (compiler-generated `deleted_at IS NULL` view, Martin serving from it) is blocked on an unconfirmed question: Martin auto-discovers tiles by table name, so the view would need to be published under the same name the table currently uses -- needs a spike before it can be sized honestly. | `docs/phase-3-delete-confirmation.md` |
-| Metadata-driven `snapping_rules` | Open | M | `docs/phase-3-snapping.md` shipped a plain OL `Snap` interaction against real feature geometry; the metadata table (per-feature-class-pair tolerance/eligibility) is still schema-only, deliberately deferred as a distinct, later layer on top of what exists now. | `docs/phase-3-snapping.md` |
+| Metadata-driven `snapping_rules` | Open | S–M | `docs/phase-3-snapping.md` shipped a plain OL `Snap` interaction against real feature geometry; the metadata table (per-feature-class-pair tolerance/eligibility) drives only the read-only "Rules" display, not the drawing UI. The metadata half is no longer empty: `seed/snapping_rules_example.sql` now seeds the `SNAP_TARGET_TYPE` domain plus a real rule set over the existing topology (conductor→transformer T1 required-snap, conductor→switch, conductor→conductor endpoint, service-point→transformer T2), so the display is real. What remains is enforcement -- wiring the map's `Snap` to actually consume `tolerance_m`/`target_type`/eligibility instead of snapping to any visible vertex at a fixed 10px (see the "Snapping enforcement" sub-slices discussed for that class of work). | `docs/phase-3-snapping.md`, `seed/snapping_rules_example.sql` |
 | Peer-picker disambiguation for connect-mode target-picking | Done | S | Connect-mode's target pick now reuses the same peer-picker normal selection already had for stacked/overlapping features, instead of always taking the topmost hit. Picking one routes to `connect-store`'s `pickTarget` rather than normal `select`; a `clearSelected: false` option on `showCandidates` keeps the workflow's source feature visible in `FeaturePanel` throughout, a real regression caught before shipping. | `docs/phase-3-connectivity-ui.md` |
 | Revoking a connection from the UI | Done | S | Each connection row in the Terminals tab now has a small unlink icon opening an `AlertDialog` confirm (same pattern as feature delete), calling the existing `DELETE /connectivity/{id}`; a broad `["connections"]`-prefix cache invalidation refreshes both ends of the connection without a reload. | `docs/phase-3-connectivity-ui.md` |
 | No loading affordance on the highlight halo | Done | S | A small "Loading feature…" badge (top-left of the map) now shows while the halo's underlying feature fetch is genuinely in flight -- gated on TanStack Query's `isLoading` (no cached data yet + a real fetch running), not shown on a cache hit. | `docs/phase-3-map-aesthetics.md` |

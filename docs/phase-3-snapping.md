@@ -166,7 +166,16 @@ with real seeded `POLE`, `MV_CONDUCTOR`, `DIST_XFMR`, and
   above; this slice's plain `Snap` interaction is the foundation a rules
   layer could later sit on top of (e.g. swapping the single shared
   `enabled` toggle for a source populated only with feature classes a
-  rule actually permits snapping to).
+  rule actually permits snapping to). Update (2026-08-19): the metadata
+  half is no longer empty -- `seed/snapping_rules_example.sql` seeds the
+  `SNAP_TARGET_TYPE` domain plus a real rule set over the seeded topology
+  (conductor→transformer T1 required-snap, conductor→switch,
+  conductor→conductor endpoint, service-point→transformer T2), so the
+  read-only "Rules" display now shows real data. The enforcement half --
+  making this `Snap` actually consume `tolerance_m`/`target_type`/
+  eligibility rather than snapping to any visible vertex at a fixed 10px
+  -- is still open (see `docs/open-items.md`'s "Metadata-driven
+  `snapping_rules`" row).
 - This closes the four-slice CRUD initiative the user scoped at the
   start (attribute edit, delete confirmation, geometry editing,
   snapping). Everything else already tracked as open in
