@@ -52,6 +52,11 @@ type resolvedEndpoint struct {
 	loaded     *metadata.Loaded
 	subtypeID  *string
 	terminalID *string
+	// phase is the feature's PHASE-coded field value (e.g. "L1N",
+	// "L1L2L3N"), or nil when the class has no phase field or the row
+	// left it unset. Phase 9 Slice 0's phase gate reads this; a nil phase
+	// means the gate can't run (see checkPhaseCompatibility).
+	phase *string
 }
 
 // loadFeatureClass mirrors crud's loadOrNotFound -- kept as its own copy
@@ -111,7 +116,18 @@ func resolveEndpoint(ctx context.Context, db bun.IDB, ref endpointRef) (*resolve
 		terminalID = &t.ID
 	}
 
-	return &resolvedEndpoint{ref: ref, loaded: loaded, subtypeID: subtypeID, terminalID: terminalID}, nil
+	// phase is optional: a class may have no phase field at all (Phase 9
+	// Slice 0 only added it to phase-bearing classes, as a nullable
+	// field), so a missing/empty value is normal and simply leaves the
+	// phase gate inert for this endpoint rather than being an error here.
+	var phase *string
+	if raw, ok := row["phase"]; ok && raw != nil {
+		if s, ok := raw.(string); ok && s != "" {
+			phase = &s
+		}
+	}
+
+	return &resolvedEndpoint{ref: ref, loaded: loaded, subtypeID: subtypeID, terminalID: terminalID, phase: phase}, nil
 }
 
 // toInt mirrors crud's own helper -- pgdriver/bun can hand back a scanned

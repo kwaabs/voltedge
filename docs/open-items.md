@@ -26,7 +26,31 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-19, seeding the first real
+**Last updated:** 2026-08-19, opening **Phase 9 — LV / service
+delivery** with a design doc (no code yet). A question about handling
+20 meters on one service point (an apartment block) exposed that today's
+`SERVICE_POINT` bakes in a 1:1 service-to-meter assumption, wires
+straight to a `DIST_XFMR` secondary with no LV network between them, and
+has no phase model at all. A meter-chamber devil's-advocate pass settled
+that the meter is genuinely *inline* (power flows through it), the
+chamber is a real physical container asset, and covering *all*
+service-delivery scenarios (single dwelling, direct-fed rural,
+multi-occupancy chamber, shared LV main, 3-phase/CT commercial, meshed LV
+with link boxes, prosumer/DER, unmetered street lighting) needs a proper
+LV build, not an asset-only compromise. `docs/phase-9-lv-service-delivery.md`
+(new) locks the scenario matrix, the LV class model (`LV_MAIN`,
+`LV_SERVICE`, `SERVICE_CUTOUT`, `LV_LINK_BOX`, `LV_BUSBAR`, `METER` as an
+inline junction, `METER_CHAMBER`, `SERVICE_POINT` repurposed as the
+point of supply, optional `DER_UNIT`), and a seven-slice plan. The new
+Phase 9 section below tracks the slices; **Slice 0 (a `PHASE` domain +
+phase fields + activating the long-unused `network_rules.phase_rule`)**
+is the agreed starting point, so every LV conductor built after is
+phase-aware from the outset. This reopens/finishes three standing items:
+the "no distinct LV/secondary conductor" gap, phase-aware tracing, and
+the downstream network the Phase 8 load-flow engine wants. Design only;
+nothing migrated, seeded, or verified.
+
+Before that, 2026-08-19, seeding the first real
 `metadata.snapping_rules` rows. The table has held **zero rows anywhere
 in this project since Phase 1** -- so its read path (the feature panel /
 admin "Rules" display, `api/internal/rules`) only ever rendered an empty
@@ -569,3 +593,33 @@ proper (voltage drop, loading/capacity checks -- not started).
 | Symmetrical (3-phase bolted) fault current | Open | M | Reuses the load-flow engine's branch-impedance-accumulation directly -- `V / \|Z_total\|`, where `Z_total` sums a new source-impedance figure at the network root plus every branch `R+jX` to the fault point, the same impedance data the sweep already needs. Rescoped out of the old combined "fault current / protection coordination" row below once the shared math with load flow became clear. | `docs/phase-8-materials.md` |
 | Unbalanced fault analysis + protection coordination | Open | L | Positive/negative/zero-sequence impedance per piece of equipment, grounding configuration, protective device time-current curves -- a genuinely different, more specialized modeling domain (what dedicated protection-study tools like ETAP/CYME exist for), not something this slice-up folds in. Distinct from the row above: that one is symmetrical/balanced and buildable now; this one isn't yet. | `docs/phase-8-materials.md` |
 | First-principles conductor ampacity (IEEE 738) | Open | M | A standalone thermal-equilibrium calc, doesn't touch the graph at all -- uses the new thermal-property columns above plus request-time environmental inputs (ambient temp, wind speed/angle, solar gain), solving a bounded root-find for the current that reaches `max_operating_temp_c`. Wires in as an optional dynamic ampacity source for the loading/capacity and transformer-loading checks above, instead of always reading the static catalog `ampacity_amps`. | `docs/phase-8-materials.md` |
+
+## Phase 9 — LV / service delivery
+
+New phase (not a continuation of Phase 8): modelling the low-voltage
+network from the distribution transformer secondary to the customer's
+point of supply, so every real service-delivery arrangement can be
+represented -- prompted by "how do we handle 20 meters on one service
+point (an apartment block)?", which surfaced that today's `SERVICE_POINT`
+bakes in a 1:1 service-to-meter assumption, wires straight to a
+`DIST_XFMR` secondary with no LV network in between, and has no phase
+model. A meter-chamber devil's-advocate pass then established that a
+meter is genuinely *inline* on a per-tenant circuit (power flows through
+it), the chamber is a real physical container asset, and "proper"
+coverage means a full LV build, not an asset-only compromise. Design
+locked in `docs/phase-9-lv-service-delivery.md` (scenario matrix, class
+model, seven-slice plan); this reopens/finishes three standing items --
+the "no distinct LV/secondary conductor" gap, phase-aware tracing, and
+the downstream network the Phase 8 load-flow engine wants. Design only so
+far; no code.
+
+| Item | Status | Size | Value | Detail |
+|---|---|---|---|---|
+| Slice 0 — phase model (`PHASE` domain + phase fields + activate `phase_rule`) | Code landed, verification owed | M | The starting slice. `terminals.phase_capable` and `network_rules.phase_rule` had existed unused since Phase 1; there was no `PHASE` domain. **Landed (statically reviewed):** a coded `PHASE` domain (`L1`/`L2`/`L3`/`N`, single-phase-plus-neutral `L1N`/`L2N`/`L3N`, three-phase `L1L2L3N`) + a nullable `PHASE` field on MV_CONDUCTOR/DIST_XFMR (`seed/phase_model_example.sql`, `task seed-phase-model`), and the connect-matcher gate (`api/internal/connectivity/phase.go`: `checkPhaseCompatibility` from `matchRuleEitherDirection`; `resolveEndpoint` now reads `phase`; pure-logic `phase_test.go`). A rule **opts in** by setting `phase_rule` to the token `phases_intersect` (any other value / `NULL` stays descriptive), so the gate lands **dormant** and no existing rule changes behavior; when opted in, both endpoints need a phase and their line phases (L1/L2/L3) must intersect (neutral ignored). Phase-selective *tracing* is deliberately **not** in this landing (connect-time only). **Still owed:** live `psql` apply + `task compile` for MV_CONDUCTOR/DIST_XFMR + `go test`/`go build`/`gofmt` (shell EPERM here). | `docs/phase-9-lv-service-delivery.md`, `docs/phase-4-safety-traces.md` |
+| Slice 1 — LV conductors (`LV_MAIN` + `LV_SERVICE`) | Open | M | The shared LV run and the service cable/drop, both `edge` line classes with OH/UG (and looped-service) subtypes, conductor `material_specs`, and `network_rules` (`XFMR.T2 → LV_MAIN`, `LV_MAIN → LV_SERVICE`). Closes the standing "no distinct LV/secondary conductor feature class" open item (Phase 4). Repoints `SERVICE_POINT` to be fed via `LV_SERVICE` instead of directly off the transformer -- a destructive change on a live DB (the compiler has no field-drop path), clean only on a fresh seed apply, so it must carry its own migration note. | `docs/phase-9-lv-service-delivery.md`, `docs/phase-4-utility-traces.md` |
+| Slice 2 — LV devices (`SERVICE_CUTOUT`, `LV_LINK_BOX`) | Open | M | The intake service fuse (junction, line/load terminals) and the feeder pillar / LV sectionalising cabinet (junction, N fused ways, normally-open ways as barriers). Brings LV isolation, meshed-network normally-open points, and loop detection into scope -- all on the existing `device_state` barrier + `LOOP_CHECK_TRACE` mechanism, no new engine. | `docs/phase-9-lv-service-delivery.md` |
+| Slice 3 — metering as network + meter chamber | Open | M–L | `METER` becomes an inline two-terminal junction (line/load, power flows through it) carrying CIS/MDM join keys (`meter_serial`, `account_ref`) and a CT-vs-whole-current subtype; `METER_CHAMBER` is a physical container asset (`containment` → meters, its first genuine use of that relationship kind); `LV_BUSBAR` is the chamber's multi-way node. `SERVICE_POINT` finishes its move to point-of-supply leaf. Covers the multi-occupancy apartment case that started the phase. | `docs/phase-9-lv-service-delivery.md` |
+| Slice 4 — DER / generation + bidirectional load flow hooks | Open | M | A `DER_UNIT` (PV/battery) at the point of supply that injects rather than draws, plus the load-flow direction handling for reverse power. Covers the prosumer scenario. | `docs/phase-9-lv-service-delivery.md` |
+| Slice 5 — unmetered LV + CT-metering nuances | Open | S–M | `STREET_LIGHT` (unmetered LV leaf) and the remaining CT-metering detail, closing the last scenarios not covered by earlier slices. | `docs/phase-9-lv-service-delivery.md` |
+| Slice 6 — LV load flow | Open | L | Extends the Phase 8 radial forward-backward sweep down the LV network (LV impedances, meter as pass-through, DER injection, per-phase where Slice 0's phase data supports it). The natural consumer of the whole phase. | `docs/phase-9-lv-service-delivery.md`, `docs/phase-8-materials.md` |
+| CIS / MDM integration connector | Open | L | Live join from a `METER`'s stored keys (`meter_serial`/`account_ref`) out to the external CIS/billing and MDM/AMI systems over an authenticated API (OAuth2 client-credentials or gateway key, secrets in a vault), so account/tenant/consumption resolve on demand -- GIS holds keys, the external system stays the record of truth. Deliberately **not** part of the LV modelling slices: it's downstream of the `Azure AD SSO + backend auth` open item (no auth/secrets/outbound-integration layer exists yet) and is a PII/data-governance surface of its own. The key *fields* land in Slice 3; this row is the connector. | `docs/phase-9-lv-service-delivery.md`, `docs/phase-6-admin-metadata.md` |

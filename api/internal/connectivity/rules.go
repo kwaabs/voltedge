@@ -21,6 +21,9 @@ func matchRuleEitherDirection(ctx context.Context, db bun.IDB, from, to *resolve
 	}
 	rule, forwardErr := matchRule(rules, from.subtypeID, to.subtypeID, from.terminalID, to.terminalID)
 	if forwardErr == nil {
+		if err := checkPhaseCompatibility(rule, from, to); err != nil {
+			return nil, nil, nil, err
+		}
 		return rule, from, to, nil
 	}
 
@@ -29,6 +32,9 @@ func matchRuleEitherDirection(ctx context.Context, db bun.IDB, from, to *resolve
 		return nil, nil, nil, err
 	}
 	if rule, err := matchRule(swappedRules, to.subtypeID, from.subtypeID, to.terminalID, from.terminalID); err == nil {
+		if err := checkPhaseCompatibility(rule, to, from); err != nil {
+			return nil, nil, nil, err
+		}
 		return rule, to, from, nil
 	}
 

@@ -146,6 +146,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/snapping_rules_example.sql
 
+  seed-phase-model:
+    desc: Load the PHASE domain + phase fields (Phase 9 Slice 0) through the gitbash sidecar (requires seed-connectivity first; re-compile MV_CONDUCTOR and DIST_XFMR after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/phase_model_example.sql
+
   # ------------------------------------------------------------- frontend --
 
   frontend-dev:
