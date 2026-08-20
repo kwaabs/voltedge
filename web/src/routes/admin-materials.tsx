@@ -1,8 +1,9 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Loader2, Pencil, Plus, Trash2, Wrench, X } from "lucide-react"
+import { Loader2, Pencil, Plus, Trash2, Wrench } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
+import { FormDialog } from "@/components/admin/form-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -177,6 +178,13 @@ function EditMaterialSpecRow({ spec, onDone }: { spec: AdminMaterialSpec; onDone
 
   const canSave = name.trim().length > 0 && category.trim().length > 0
 
+  function close() {
+    setName(spec.name)
+    setCategory(spec.category)
+    setNumbers(numberFieldsFrom(spec))
+    onDone()
+  }
+
   async function handleSave() {
     setSaving(true)
     try {
@@ -185,7 +193,7 @@ function EditMaterialSpecRow({ spec, onDone }: { spec: AdminMaterialSpec; onDone
         body: JSON.stringify({ name: name.trim(), category: category.trim(), ...toBody(numbers) }),
       })
       queryClient.invalidateQueries({ queryKey: ["admin", "material-specs"] })
-      onDone()
+      close()
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not update this material spec.")
     } finally {
@@ -194,38 +202,29 @@ function EditMaterialSpecRow({ spec, onDone }: { spec: AdminMaterialSpec; onDone
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between py-3">
-        <CardTitle className="text-sm">
-          Edit material spec <span className="font-mono">{spec.code}</span>
-        </CardTitle>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
-          <X className="size-4" />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1">
-            <label className={labelClass}>Name</label>
-            <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className={labelClass}>Category</label>
-            <input className={inputClass} value={category} onChange={(e) => setCategory(e.target.value)} />
-          </div>
+    <FormDialog
+      open
+      onOpenChange={(next) => next || close()}
+      title={`Edit material spec ${spec.code}`}
+      description="Update the display name, category, and engineering numbers."
+      onSubmit={handleSave}
+      submitLabel="Save"
+      canSubmit={canSave}
+      saving={saving}
+      className="max-w-2xl"
+    >
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Name</label>
+          <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
         </div>
-        <NumberFieldsGrid value={numbers} onChange={setNumbers} />
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" size="sm" onClick={onDone} disabled={saving}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Save
-          </Button>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Category</label>
+          <input className={inputClass} value={category} onChange={(e) => setCategory(e.target.value)} />
         </div>
-      </CardContent>
-    </Card>
+      </div>
+      <NumberFieldsGrid value={numbers} onChange={setNumbers} />
+    </FormDialog>
   )
 }
 
@@ -250,7 +249,8 @@ export function AdminMaterialsPage() {
   const [editingCode, setEditingCode] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminMaterialSpec | null>(null)
 
-  function reset() {
+  function close() {
+    setOpen(false)
     setCode("")
     setName("")
     setCategory("conductor")
@@ -267,8 +267,7 @@ export function AdminMaterialsPage() {
         body: JSON.stringify({ code: code.trim(), name: name.trim(), category: category.trim(), ...toBody(numbers) }),
       })
       queryClient.invalidateQueries({ queryKey: ["admin", "material-specs"] })
-      setOpen(false)
-      reset()
+      close()
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not create this material spec.")
     } finally {
@@ -287,86 +286,55 @@ export function AdminMaterialsPage() {
               a field resolves to real numbers instead of just a label.
             </p>
           </div>
-          {!open && (
-            <Button size="sm" onClick={() => setOpen(true)}>
-              <Plus className="size-4" />
-              New material spec
-            </Button>
-          )}
+          <Button size="sm" onClick={() => setOpen(true)}>
+            <Plus className="size-4" />
+            New material spec
+          </Button>
         </div>
 
-        {open && (
-          <Card>
-            <CardHeader className="flex flex-row items-start justify-between">
-              <div>
-                <CardTitle>New material spec</CardTitle>
-                <CardDescription>A stable code, a display name, and its engineering numbers.</CardDescription>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={() => {
-                  setOpen(false)
-                  reset()
-                }}
-                disabled={saving}
-              >
-                <X className="size-4" />
-              </Button>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className={labelClass}>
-                    Code <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    className={inputClass}
-                    value={code}
-                    onChange={(e) => setCode(e.target.value.toUpperCase())}
-                    placeholder="e.g. ACSR_50"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className={labelClass}>
-                    Name <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    className={inputClass}
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. ACSR 50 mm²"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className={labelClass}>
-                    Category <span className="text-destructive">*</span>
-                  </label>
-                  <input className={inputClass} value={category} onChange={(e) => setCategory(e.target.value)} />
-                </div>
-              </div>
-              <NumberFieldsGrid value={numbers} onChange={setNumbers} />
-              <div className="flex justify-end gap-2 pt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setOpen(false)
-                    reset()
-                  }}
-                  disabled={saving}
-                >
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
-                  {saving && <Loader2 className="size-4 animate-spin" />}
-                  Create
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        <FormDialog
+          open={open}
+          onOpenChange={(next) => (next ? setOpen(true) : close())}
+          title="New material spec"
+          description="A stable code, a display name, and its engineering numbers."
+          onSubmit={handleSave}
+          submitLabel="Create"
+          canSubmit={canSave}
+          saving={saving}
+          className="max-w-2xl"
+        >
+          <div className="grid grid-cols-3 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>
+                Code <span className="text-destructive">*</span>
+              </label>
+              <input
+                className={inputClass}
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                placeholder="e.g. ACSR_50"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>
+                Name <span className="text-destructive">*</span>
+              </label>
+              <input
+                className={inputClass}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. ACSR 50 mm²"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>
+                Category <span className="text-destructive">*</span>
+              </label>
+              <input className={inputClass} value={category} onChange={(e) => setCategory(e.target.value)} />
+            </div>
+          </div>
+          <NumberFieldsGrid value={numbers} onChange={setNumbers} />
+        </FormDialog>
 
         {isPending ? (
           <div className="text-muted-foreground flex items-center gap-2 text-sm">

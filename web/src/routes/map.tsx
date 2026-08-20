@@ -14,6 +14,8 @@ import { MeasureToolbar } from "@/components/map/measure-toolbar"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
 import { PeerPicker } from "@/components/map/peer-picker"
 import { StatusBar } from "@/components/map/status-bar"
+import { TerritoryEditToolbar } from "@/components/map/territory-edit-toolbar"
+import { TerritoryPanel } from "@/components/map/territory-panel"
 import { TraceResultTable } from "@/components/map/trace-result-table"
 import { VoltEdgeMap } from "@/components/map/voltedge-map"
 import { useDiagramInstance } from "@/hooks/use-diagrams"
@@ -47,8 +49,10 @@ export function MapPage() {
       </div>
       <PeerPicker />
       <FeaturePanel />
+      <TerritoryPanel />
       <ConnectConfirmPanel />
       <GeometryEditToolbar />
+      <TerritoryEditToolbar />
       <TraceResultTable />
       <IsolationResultTable />
       <LoadFlowPanel />

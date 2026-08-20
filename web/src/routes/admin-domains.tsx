@@ -1,8 +1,9 @@
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { ListPlus, Loader2, Pencil, Plus, Tags, Trash2, Wrench, X } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
+import { FormDialog } from "@/components/admin/form-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -86,46 +87,42 @@ function AddDomainValueRow({ domain, onDone }: { domain: AdminDomain; onDone: ()
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between py-3">
-        <CardTitle className="text-sm">Add value to {domain.code}</CardTitle>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
-          <X className="size-4" />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {domain.values && domain.values.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {domain.values.map((v) => (
-              <span key={v.code} className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
-                {v.label}
-              </span>
-            ))}
-          </div>
-        )}
-        <div className="flex items-end gap-2">
-          <div className="flex flex-col gap-1">
-            <label className={labelClass}>Code</label>
-            <input className={inputClass} value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. LED" />
-          </div>
-          <div className="flex flex-1 flex-col gap-1">
-            <label className={labelClass}>Label</label>
-            <input className={inputClass} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. LED" />
-          </div>
-          <Button size="sm" onClick={handleAdd} disabled={!canSave || saving}>
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Add
-          </Button>
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title={`Add value to ${domain.code}`}
+      description="Add one coded value at a time -- the dialog stays open so you can add several in a row."
+      onSubmit={handleAdd}
+      submitLabel="Add"
+      canSubmit={canSave}
+      saving={saving}
+    >
+      {domain.values && domain.values.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {domain.values.map((v) => (
+            <span key={v.code} className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+              {v.label}
+            </span>
+          ))}
         </div>
-        <MaterialSpecPicker value={materialSpecCode} onChange={setMaterialSpecCode} />
-        {added && (
-          <p className="text-muted-foreground text-xs">
-            Added to metadata -- recompile any feature class using this domain to actually allow it on real
-            features.
-          </p>
-        )}
-      </CardContent>
-    </Card>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Code</label>
+          <input className={inputClass} value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. LED" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Label</label>
+          <input className={inputClass} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. LED" />
+        </div>
+      </div>
+      <MaterialSpecPicker value={materialSpecCode} onChange={setMaterialSpecCode} />
+      {added && (
+        <p className="text-muted-foreground text-xs">
+          Added to metadata -- recompile any feature class using this domain to actually allow it on real features.
+        </p>
+      )}
+    </FormDialog>
   )
 }
 
@@ -167,43 +164,36 @@ function EditDomainRow({ domain, onDone }: { domain: AdminDomain; onDone: () => 
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between py-3">
-        <CardTitle className="text-sm">
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title={
+        <>
           Edit domain <span className="font-mono">{domain.code}</span>
-        </CardTitle>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
-          <X className="size-4" />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <label className={labelClass}>Name</label>
-          <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        {domain.domain_type === "range" && (
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className={labelClass}>Minimum</label>
-              <input type="number" className={inputClass} value={rangeMin} onChange={(e) => setRangeMin(e.target.value)} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className={labelClass}>Maximum</label>
-              <input type="number" className={inputClass} value={rangeMax} onChange={(e) => setRangeMax(e.target.value)} />
-            </div>
+        </>
+      }
+      onSubmit={handleSave}
+      submitLabel="Save"
+      canSubmit={canSave}
+      saving={saving}
+    >
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>Name</label>
+        <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
+      </div>
+      {domain.domain_type === "range" && (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Minimum</label>
+            <input type="number" className={inputClass} value={rangeMin} onChange={(e) => setRangeMin(e.target.value)} />
           </div>
-        )}
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" size="sm" onClick={onDone} disabled={saving}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Save
-          </Button>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Maximum</label>
+            <input type="number" className={inputClass} value={rangeMax} onChange={(e) => setRangeMax(e.target.value)} />
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </FormDialog>
   )
 }
 
@@ -247,31 +237,31 @@ function EditDomainValueRow({
   }
 
   return (
-    <div className="bg-muted/50 flex flex-col gap-2 rounded-md border p-2">
-      <div className="flex items-end gap-2">
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title={
+        <>
+          Edit value <span className="font-mono">{value.code}</span>
+        </>
+      }
+      onSubmit={handleSave}
+      submitLabel="Save"
+      canSubmit={canSave}
+      saving={saving}
+    >
+      <div className="grid grid-cols-[1fr_5rem] gap-2">
         <div className="flex flex-col gap-1">
-          <label className={labelClass}>
-            Code <span className="font-mono">{value.code}</span>
-          </label>
-        </div>
-        <div className="flex flex-1 flex-col gap-1">
           <label className={labelClass}>Label</label>
           <input className={inputClass} value={label} onChange={(e) => setLabel(e.target.value)} />
         </div>
-        <div className="flex w-20 flex-col gap-1">
+        <div className="flex flex-col gap-1">
           <label className={labelClass}>Sort</label>
           <input type="number" className={inputClass} value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
         </div>
-        <Button variant="ghost" size="icon" className="size-8" onClick={onDone} disabled={saving}>
-          <X className="size-4" />
-        </Button>
-        <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
-          {saving && <Loader2 className="size-4 animate-spin" />}
-          Save
-        </Button>
       </div>
       <MaterialSpecPicker value={materialSpecCode} onChange={setMaterialSpecCode} />
-    </div>
+    </FormDialog>
   )
 }
 
@@ -302,7 +292,8 @@ export function AdminDomainsPage() {
   const [editingValue, setEditingValue] = useState<{ domainCode: string; value: AdminDomainValue } | null>(null)
   const [deleteValueTarget, setDeleteValueTarget] = useState<{ domainCode: string; value: AdminDomainValue } | null>(null)
 
-  function reset() {
+  function close() {
+    setOpen(false)
     setCode("")
     setName("")
     setDomainType("coded")
@@ -330,8 +321,7 @@ export function AdminDomainsPage() {
       }
       await apiFetch("/admin/domains", { method: "POST", body: JSON.stringify(body) })
       queryClient.invalidateQueries({ queryKey: ["admin", "domains"] })
-      setOpen(false)
-      reset()
+      close()
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not create this domain.")
     } finally {
@@ -350,36 +340,24 @@ export function AdminDomainsPage() {
               of these.
             </p>
           </div>
-          {!open && (
-            <Button size="sm" onClick={() => setOpen(true)}>
-              <Plus className="size-4" />
-              New domain
-            </Button>
-          )}
+          <Button size="sm" onClick={() => setOpen(true)}>
+            <Plus className="size-4" />
+            New domain
+          </Button>
         </div>
 
-        {open && (
-          <Card>
-            <CardHeader className="flex flex-row items-start justify-between">
-              <div>
-                <CardTitle>New domain</CardTitle>
-                <CardDescription>A stable code, a display name, and its legal values.</CardDescription>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={() => {
-                  setOpen(false)
-                  reset()
-                }}
-                disabled={saving}
-              >
-                <X className="size-4" />
-              </Button>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <div className="grid grid-cols-2 gap-3">
+        <FormDialog
+          open={open}
+          onOpenChange={(next) => (next ? setOpen(true) : close())}
+          title="New domain"
+          description="A stable code, a display name, and its legal values."
+          onSubmit={handleSave}
+          submitLabel="Create"
+          canSubmit={canSave}
+          saving={saving}
+          className="max-w-2xl"
+        >
+          <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-medium">
                     Code <span className="text-destructive">*</span>
@@ -501,28 +479,8 @@ export function AdminDomainsPage() {
                     />
                   </div>
                 </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setOpen(false)
-                    reset()
-                  }}
-                  disabled={saving}
-                >
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
-                  {saving && <Loader2 className="size-4 animate-spin" />}
-                  Create
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+          )}
+        </FormDialog>
 
         {isPending ? (
           <div className="text-muted-foreground flex items-center gap-2 text-sm">
@@ -535,15 +493,15 @@ export function AdminDomainsPage() {
           <p className="text-muted-foreground text-sm">No domains yet.</p>
         ) : (
           <div className="flex flex-col gap-2">
-            {data.domains.map((d) => {
-              if (editingDomainCode === d.code) {
-                return <EditDomainRow key={d.code} domain={d} onDone={() => setEditingDomainCode(null)} />
-              }
-              if (addingValueCode === d.code) {
-                return <AddDomainValueRow key={d.code} domain={d} onDone={() => setAddingValueCode(null)} />
-              }
-              return (
-                <Card key={d.code}>
+            {data.domains.map((d) => (
+              <Fragment key={d.code}>
+                {editingDomainCode === d.code && (
+                  <EditDomainRow domain={d} onDone={() => setEditingDomainCode(null)} />
+                )}
+                {addingValueCode === d.code && (
+                  <AddDomainValueRow domain={d} onDone={() => setAddingValueCode(null)} />
+                )}
+                <Card>
                   <CardHeader className="flex flex-row items-center gap-2 pb-2">
                     <Tags className="text-muted-foreground size-4" />
                     <div className="min-w-0 flex-1">
@@ -627,8 +585,8 @@ export function AdminDomainsPage() {
                     </CardContent>
                   )}
                 </Card>
-              )
-            })}
+              </Fragment>
+            ))}
           </div>
         )}
       </div>

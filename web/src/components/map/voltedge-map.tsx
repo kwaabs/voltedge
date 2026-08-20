@@ -4,9 +4,11 @@ import { defaults as defaultControls } from "ol/control"
 import type { EventsKey } from "ol/events"
 import { isEmpty as isEmptyExtent } from "ol/extent"
 import Feature from "ol/Feature"
+import GeoJSON from "ol/format/GeoJSON"
 import MVT from "ol/format/MVT"
 import type Geometry from "ol/geom/Geometry"
 import LineString from "ol/geom/LineString"
+import MultiPolygon from "ol/geom/MultiPolygon"
 import Point from "ol/geom/Point"
 import Polygon from "ol/geom/Polygon"
 import Draw, { type GeometryFunction } from "ol/interaction/Draw"
@@ -37,6 +39,7 @@ import { useAllSymbology } from "@/hooks/use-all-symbology"
 import { useCatalog } from "@/hooks/use-catalog"
 import { type FeatureGeometry, useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
+import { useTerritoryBoundaries } from "@/hooks/use-territories"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { apiFetch } from "@/lib/api"
 import { applyBasemap, createBasemapSource } from "@/lib/basemaps"
@@ -46,8 +49,9 @@ import {
   editStyleForFeature,
   type HighlightRole,
   highlightStyleForFeature,
+  territoryStyleForFeature,
 } from "@/lib/map-layers"
-import { tileUrlTemplate } from "@/lib/martin"
+import { featureClassSourceIds, tileUrlTemplate } from "@/lib/martin"
 import { formatArea, formatLength } from "@/lib/measure"
 import { useBasemapStore } from "@/stores/basemap-store"
 import { useConnectStore } from "@/stores/connect-store"
@@ -64,6 +68,8 @@ import { useMeasureStore } from "@/stores/measure-store"
 import { useOrthoStore } from "@/stores/ortho-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useSnapStore } from "@/stores/snap-store"
+import { type TerritoryGeometry, useTerritoryEditStore } from "@/stores/territory-edit-store"
+import { useTerritoryOverlayStore } from "@/stores/territory-overlay-store"
 import { useTraceStore } from "@/stores/trace-store"
 import { useUnitsStore } from "@/stores/units-store"
 
@@ -272,6 +278,27 @@ export function VoltEdgeMap() {
   // applyBasemap) without rebuilding the map or disturbing the z-order.
   const baseLayerRef = useRef<TileLayer<TileSource> | null>(null)
   const vectorLayersRef = useRef<VectorTileLayer[]>([])
+  // The territory boundary overlay (Phase 11 Slice H) -- one client-side
+  // VectorLayer/VectorSource pair (not a Martin tile layer: territories
+  // are few and their boundaries are large MultiPolygons, so a single
+  // GeoJSON fetch beats tiling), kept in refs so the boundary-load effect
+  // below can repopulate/toggle it without rebuilding the map. Rendered
+  // below the feature tiles (see the init effect) so it reads as a
+  // backdrop, never covering the features it contains.
+  const territorySourceRef = useRef<VectorSource | null>(null)
+  const territoryLayerRef = useRef<VectorLayer | null>(null)
+  // The single OL Feature holding the MultiPolygon boundary currently
+  // under authoring (Phase 11 Slice I) -- its own source/layer, kept
+  // above the overlay so the in-progress boundary reads distinctly. The
+  // Draw tool appends each finished polygon to this one feature's
+  // geometry (a MultiPolygon), and Modify reshapes its rings in place;
+  // both mutate it and write the result back to territory-edit-store.
+  // Seeded once per session (territoryEditSeededForRef guards against a
+  // boundaries refetch re-stomping mid-edit work, same lesson as the
+  // feature edit seeding).
+  const territoryEditSourceRef = useRef<VectorSource | null>(null)
+  const territoryEditFeatureRef = useRef<Feature | null>(null)
+  const territoryEditSeededForRef = useRef<string | null>(null)
   const draftSourceRef = useRef<VectorSource | null>(null)
   const highlightSourceRef = useRef<VectorSource | null>(null)
   const editSourceRef = useRef<VectorSource | null>(null)
@@ -357,6 +384,18 @@ export function VoltEdgeMap() {
   const focusToken = useSelectionStore((s) => s.focusToken)
   const measureMode = useMeasureStore((s) => s.mode)
   const units = useUnitsStore((s) => s.units)
+  const territoryOverlayVisible = useTerritoryOverlayStore((s) => s.visible)
+  const territoryHiddenLevels = useTerritoryOverlayStore((s) => s.hiddenLevels)
+  const territoryEditing = useTerritoryEditStore((s) => s.editing)
+  const territoryEditTool = useTerritoryEditStore((s) => s.tool)
+  const territoryEditCleared = useTerritoryEditStore((s) => s.cleared)
+  // Fetched while the overlay is on OR a boundary is being authored -- the
+  // authoring seed reads the territory's current boundary from this same
+  // collection (see the seed effect) rather than a second single-territory
+  // fetch.
+  const { data: territoryBoundaries } = useTerritoryBoundaries(
+    territoryOverlayVisible || Boolean(territoryEditing),
+  )
 
   // Whichever feature(s) the highlight layer needs a real geometry for
   // -- the plain-selected feature normally, or the connect/relate
@@ -438,7 +477,11 @@ export function VoltEdgeMap() {
       // feature and default cursor everywhere else, the only thing that
       // needs to distinguish select-able-here from pan-able-everywhere
       // now that there's no separate select/pan mode to do it instead.
-      if (useDrawStore.getState().drawingFeatureClassCode || useConnectStore.getState().mode) {
+      if (
+        useDrawStore.getState().drawingFeatureClassCode ||
+        useConnectStore.getState().mode ||
+        useTerritoryEditStore.getState().tool === "draw"
+      ) {
         target.style.cursor = "crosshair"
         return
       }
@@ -446,6 +489,38 @@ export function VoltEdgeMap() {
       target.style.cursor = hasFeature ? "pointer" : ""
     })
     map.getTargetElement().addEventListener("mouseleave", clearPosition)
+
+    // The territory boundary overlay (see territoryStyleForFeature and
+    // the boundary-load effect below) -- added right after the base
+    // layer and before every other client layer, so with its default
+    // zIndex 0 it renders above the basemap but below the feature tile
+    // layers (added later in the catalog-driven effect, same zIndex 0 --
+    // insertion order breaks the tie) and below every higher-zIndex
+    // overlay (draft/highlight/edit). Starts hidden; the load effect
+    // flips it on with the store. Same clear-and-repopulate pattern as
+    // the sources below.
+    const territorySource = new VectorSource()
+    const territoryLayer = new VectorLayer({
+      source: territorySource,
+      style: territoryStyleForFeature,
+      visible: false,
+    })
+    map.addLayer(territoryLayer)
+    territorySourceRef.current = territorySource
+    territoryLayerRef.current = territoryLayer
+
+    // The boundary currently under authoring (Phase 11 Slice I) -- reuses
+    // editStyleForFeature (its default branch is the polygon/multipolygon
+    // cyan edit style), at zIndex 8 like the feature edit layer (the two
+    // never coexist -- editing a feature and authoring a territory
+    // boundary are separate workflows) so the in-progress boundary sits
+    // above the read-only overlay and every feature tile. Same
+    // clear-and-repopulate pattern; the seed effect below owns its
+    // contents.
+    const territoryEditSource = new VectorSource()
+    const territoryEditLayer = new VectorLayer({ source: territoryEditSource, style: editStyleForFeature, zIndex: 8 })
+    map.addLayer(territoryEditLayer)
+    territoryEditSourceRef.current = territoryEditSource
 
     // The unsaved-draft marker layer (see draftStyleForFeature) --
     // created once alongside the map, not per-draw, so its source can
@@ -539,6 +614,10 @@ export function VoltEdgeMap() {
       map.setTarget(undefined)
       mapRef.current = null
       baseLayerRef.current = null
+      territorySourceRef.current = null
+      territoryLayerRef.current = null
+      territoryEditSourceRef.current = null
+      territoryEditFeatureRef.current = null
       draftSourceRef.current = null
       highlightSourceRef.current = null
       traceSourceRef.current = null
@@ -1280,6 +1359,48 @@ export function VoltEdgeMap() {
       featureClasses.feature_classes.map((fc) => [fc.code.toLowerCase(), fc.code]),
     )
 
+    // The deepest territory boundary under a pixel (Phase 11 Slice H),
+    // or null when the overlay is off or nothing's there. Deepest wins
+    // because the boundaries nest -- a plot sits inside its district
+    // inside its region -- so a click always means the most specific area
+    // it landed in, not the utility-wide root that also covers it.
+    // Filtered to the overlay's own layer so it never hit-tests a feature
+    // tile. Reads the endpoint's properties straight off each feature
+    // (see the boundary-load effect).
+    const territoryAtPixel = (pixel: number[]) => {
+      const layer = territoryLayerRef.current
+      if (!layer || !layer.getVisible()) return null
+      let best: {
+        id: string
+        parent_id: string | null
+        name: string
+        level_code: string
+        level_name: string
+        level_rank: number
+      } | null = null
+      map.forEachFeatureAtPixel(
+        pixel,
+        (feature) => {
+          const id = feature.get("id") as string | undefined
+          if (!id) return undefined
+          const rank = (feature.get("level_rank") as number | undefined) ?? 0
+          if (!best || rank > best.level_rank) {
+            best = {
+              id,
+              parent_id: (feature.get("parent_id") as string | null | undefined) ?? null,
+              name: (feature.get("name") as string | undefined) ?? "",
+              level_code: (feature.get("level_code") as string | undefined) ?? "",
+              level_name: (feature.get("level_name") as string | undefined) ?? "",
+              level_rank: rank,
+            }
+          }
+          return undefined
+        },
+        { layerFilter: (l) => l === layer },
+      )
+      return best
+    }
+
     const handleClick = (evt: MapBrowserEvent<PointerEvent | KeyboardEvent | WheelEvent>) => {
       // A click while drawing belongs to the Draw interaction (placing
       // the geometry), and a click while the create form is open for an
@@ -1299,6 +1420,12 @@ export function VoltEdgeMap() {
       // reasoning as the draft guard just above. Escape or the form's
       // own Cancel/Save ends the edit; a click never does.
       if (useEditStore.getState().editing) return
+
+      // A click while a territory boundary is under authoring (Phase 11
+      // Slice I) belongs to that workflow's Draw/Modify interaction, not
+      // feature selection -- same reasoning as the feature-edit guard
+      // above. The toolbar's Cancel/Save or Escape ends it.
+      if (useTerritoryEditStore.getState().editing) return
 
       // A click while connect-store is waiting on a target feature
       // (see connect-store.ts, feature-panel.tsx's "+ New connection",
@@ -1375,7 +1502,21 @@ export function VoltEdgeMap() {
       )
 
       if (hits.length === 0) {
-        useSelectionStore.getState().clear()
+        // No feature under the click. If the boundary overlay is on and a
+        // territory sits here, features lost the click to empty space, so
+        // this unambiguously means "inspect this area" -- open the
+        // read-only territory panel (Phase 11 Slice H). The territories
+        // tile the whole map, so this is the only gesture that can select
+        // one without stealing clicks from the features drawn on top of
+        // them. Otherwise a click on true empty space clears both the
+        // feature selection and any open territory panel.
+        const territory = territoryAtPixel(evt.pixel)
+        if (territory) {
+          useTerritoryOverlayStore.getState().selectTerritory(territory)
+        } else {
+          useSelectionStore.getState().clear()
+          useTerritoryOverlayStore.getState().clearSelected()
+        }
       } else if (hits.length === 1) {
         useSelectionStore.getState().select(hits[0].code, hits[0].id)
       } else {
@@ -1412,7 +1553,7 @@ export function VoltEdgeMap() {
     for (const layer of vectorLayersRef.current) map.removeLayer(layer)
     vectorLayersRef.current = []
 
-    for (const sourceId of Object.keys(catalog.tiles)) {
+    for (const sourceId of featureClassSourceIds(catalog)) {
       const classCode = sourceId.toUpperCase()
       const layer = new VectorTileLayer({
         source: new VectorTileSource({
@@ -1438,6 +1579,168 @@ export function VoltEdgeMap() {
       layer.setVisible(!hiddenLayers[sourceId])
     }
   }, [hiddenLayers])
+
+  // Populates (or clears) the territory boundary overlay and toggles its
+  // visibility (Phase 11 Slice H). ol/format/GeoJSON is used directly
+  // here -- unlike geoJSONToGeometry above, it natively parses the
+  // MultiPolygon boundaries the endpoint returns, and reprojects them
+  // from the payload's EPSG:4326 into the view's EPSG:3857 in one pass.
+  // Each parsed feature carries the endpoint's properties (id, name,
+  // level_*), which territoryStyleForFeature and the click handler's
+  // territoryAtPixel both read. Fetch is gated on `visible` (see
+  // useTerritoryBoundaries), so `territoryBoundaries` is undefined until
+  // the overlay is first turned on.
+  useEffect(() => {
+    const source = territorySourceRef.current
+    const layer = territoryLayerRef.current
+    if (!source || !layer) return
+
+    layer.setVisible(territoryOverlayVisible)
+    if (!territoryOverlayVisible) {
+      source.clear()
+      return
+    }
+    if (!territoryBoundaries) return
+
+    // Per-level filtering (Phase 11 Slice J): drop the levels the user has
+    // hidden before they ever reach the source, so they're gone from both
+    // the draw *and* the click hit-test (territoryAtPixel walks this same
+    // source) -- no stale features lingering under the cursor.
+    const visibleFeatures = territoryBoundaries.features.filter(
+      (f) => !territoryHiddenLevels[f.properties.level_code],
+    )
+
+    source.clear()
+    source.addFeatures(
+      new GeoJSON().readFeatures(
+        { type: "FeatureCollection", features: visibleFeatures },
+        { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" },
+      ),
+    )
+  }, [territoryOverlayVisible, territoryBoundaries, territoryHiddenLevels])
+
+  // Escape cancels an in-progress boundary edit (Phase 11 Slice I) --
+  // same affordance as canceling a draw/connect/feature-edit. Discards
+  // the whole session (removing the interactions in the effects below
+  // drops any half-drawn sketch); the toolbar's Cancel does the same.
+  useEffect(() => {
+    if (!territoryEditing) return
+    const handleEscape = (evt: KeyboardEvent) => {
+      if (evt.key === "Escape") useTerritoryEditStore.getState().stop()
+    }
+    document.addEventListener("keydown", handleEscape)
+    return () => document.removeEventListener("keydown", handleEscape)
+  }, [territoryEditing])
+
+  // Seeds (or clears) the boundary-authoring source from the territory's
+  // current boundary -- once per session (territoryEditSeededForRef), so a
+  // boundaries refetch never stomps mid-edit work, same guard as the
+  // feature-edit seeding. The geometry comes from the same boundaries
+  // collection the overlay uses (fetched now that editing forces it on);
+  // a territory with no boundary yet simply isn't in the collection, so
+  // it starts from an empty MultiPolygon ready for the Draw tool. Always
+  // a MultiPolygon (the column stores one), so appendPolygon has
+  // something to grow.
+  useEffect(() => {
+    const source = territoryEditSourceRef.current
+    if (!source) return
+
+    if (!territoryEditing) {
+      source.clear()
+      territoryEditFeatureRef.current = null
+      territoryEditSeededForRef.current = null
+      return
+    }
+
+    if (territoryEditSeededForRef.current === territoryEditing.id) return
+    // Wait for the boundaries query to resolve before deciding "no
+    // boundary" -- undefined means still loading, not empty.
+    if (!territoryBoundaries) return
+
+    const boundary = territoryBoundaries.features.find((f) => f.properties.id === territoryEditing.id)
+    let geometry: MultiPolygon
+    if (boundary) {
+      const parsed = new GeoJSON().readGeometry(boundary.geometry as object, {
+        dataProjection: "EPSG:4326",
+        featureProjection: "EPSG:3857",
+      })
+      geometry =
+        parsed instanceof MultiPolygon
+          ? parsed
+          : parsed instanceof Polygon
+            ? new MultiPolygon([parsed.getCoordinates()])
+            : new MultiPolygon([])
+    } else {
+      geometry = new MultiPolygon([])
+    }
+
+    source.clear()
+    const feature = new Feature(geometry)
+    source.addFeature(feature)
+    territoryEditFeatureRef.current = feature
+    territoryEditSeededForRef.current = territoryEditing.id
+  }, [territoryEditing, territoryBoundaries])
+
+  // Empties the boundary in place when Clear is pressed (the store's
+  // `cleared` flag) -- the seed effect above is guarded to run once per
+  // session, so this is what actually wipes the on-map geometry. Drawing
+  // afterward appends to this now-empty MultiPolygon (setDirtyGeometry
+  // resets `cleared`), so Clear-then-redraw works without leaving the
+  // session.
+  useEffect(() => {
+    if (!territoryEditCleared) return
+    territoryEditFeatureRef.current?.setGeometry(new MultiPolygon([]))
+  }, [territoryEditCleared])
+
+  // Attaches the picked boundary-authoring interaction (Phase 11 Slice I)
+  // to the one MultiPolygon feature the seed effect produced. "vertices"
+  // is a Modify over its existing rings; "draw" is a Draw whose every
+  // finished polygon is appended to that same MultiPolygon (no source of
+  // its own -- the sketch is discarded, keeping the boundary a single
+  // feature). Both convert the result to EPSG:4326 GeoJSON and hand it to
+  // the store for the toolbar's Save. Depends on territoryBoundaries too,
+  // since territoryEditFeatureRef is only populated once the seed effect
+  // ran with loaded data -- the same async-arrives-later race the feature
+  // Modify/Translate effect already accounts for.
+  useEffect(() => {
+    const map = mapRef.current
+    const feature = territoryEditFeatureRef.current
+    if (!map || !territoryEditing || !feature || !territoryEditTool) return
+
+    const writeDirty = () => {
+      const geometry = feature.getGeometry()
+      if (!geometry) return
+      const geojson = new GeoJSON().writeGeometryObject(geometry, {
+        dataProjection: "EPSG:4326",
+        featureProjection: "EPSG:3857",
+      })
+      useTerritoryEditStore.getState().setDirtyGeometry(geojson as TerritoryGeometry)
+    }
+
+    if (territoryEditTool === "vertices") {
+      const modify = new Modify({ features: new Collection([feature]) })
+      modify.on("modifyend", writeDirty)
+      map.addInteraction(modify)
+      return () => {
+        map.removeInteraction(modify)
+      }
+    }
+
+    const draw = new Draw({ type: "Polygon" })
+    draw.on("drawend", (evt: { feature: Feature }) => {
+      const poly = evt.feature.getGeometry()
+      const multi = feature.getGeometry()
+      if (poly instanceof Polygon && multi instanceof MultiPolygon) {
+        multi.appendPolygon(poly)
+        feature.changed()
+        writeDirty()
+      }
+    })
+    map.addInteraction(draw)
+    return () => {
+      map.removeInteraction(draw)
+    }
+  }, [territoryEditTool, territoryEditing, territoryBoundaries])
 
   // Whether the highlight halo is currently waiting on a feature fetch
   // it'll need a geometry from -- e.g. right after clicking a connection/

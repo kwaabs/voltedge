@@ -1,4 +1,4 @@
-import { Circle, Fill, Icon, Stroke, Style } from "ol/style"
+import { Circle, Fill, Icon, Stroke, Style, Text } from "ol/style"
 import type { FeatureLike } from "ol/Feature"
 import type View from "ol/View"
 
@@ -328,6 +328,67 @@ export function createSymbologyStyle(rules: SymbologyRuleSchema[] | undefined, v
       }
     }
   }
+}
+
+/**
+ * The territory boundary overlay's palette, indexed by level rank (0 =
+ * utility, deepest = the min-feature level). Canvas-rendered like every
+ * other constant in this file (see POINT_COLOR's note), so hand-picked
+ * hues distinct from the feature/highlight/draft/edit roles above: a
+ * cool blue -> violet -> magenta ramp that reads as "administrative
+ * area" rather than "a feature you can select". Ranks past the ramp
+ * reuse the last (deepest) color rather than going undefined.
+ */
+const TERRITORY_COLORS = ["#2563eb", "#7c3aed", "#c026d3", "#db2777"]
+
+export function territoryColorForRank(rank: number): string {
+  if (rank < 0) return TERRITORY_COLORS[0]
+  return TERRITORY_COLORS[Math.min(rank, TERRITORY_COLORS.length - 1)]
+}
+
+/** Reused across every territory feature at the same rank rather than
+ * built per render pass (the overlay layer's style fn is called on every
+ * pass, like the feature layers') -- keyed by rank, the only thing that
+ * varies the stroke/fill. The name label's Text does vary per feature,
+ * so it's cloned on top rather than cached. */
+const territoryBaseStyleByRank = new Map<number, Style>()
+
+function territoryBaseStyle(rank: number): Style {
+  const cached = territoryBaseStyleByRank.get(rank)
+  if (cached) return cached
+  const color = territoryColorForRank(rank)
+  const style = new Style({
+    fill: new Fill({ color: `${color}1a` }),
+    stroke: new Stroke({ color, width: 2 }),
+    // Deeper levels label smaller -- a region's name shouldn't shout as
+    // loud as its many child areas', and stacked overlays get busy fast.
+    text: new Text({
+      font: `${Math.max(11, 15 - rank)}px ui-sans-serif, system-ui, sans-serif`,
+      fill: new Fill({ color }),
+      stroke: new Stroke({ color: "#ffffff", width: 3 }),
+      overflow: true,
+    }),
+  })
+  territoryBaseStyleByRank.set(rank, style)
+  return style
+}
+
+/**
+ * The territory boundary overlay's style function -- colors each drawn
+ * boundary by its level rank (TERRITORY_COLORS) and labels it with the
+ * territory's name, both read from the GeoJSON properties the overlay's
+ * boundaries endpoint attaches (see useTerritoryBoundaries /
+ * api/internal/territory/http.go's boundariesHandler). Translucent fill
+ * + a plain stroke so the real feature layers underneath stay legible;
+ * this overlay is a reference backdrop, never a selection target for the
+ * features it contains.
+ */
+export function territoryStyleForFeature(feature: FeatureLike): Style {
+  const rank = (feature.get("level_rank") as number | undefined) ?? 0
+  const name = (feature.get("name") as string | undefined) ?? ""
+  const style = territoryBaseStyle(rank)
+  style.getText()?.setText(name)
+  return style
 }
 
 /**

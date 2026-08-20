@@ -1,11 +1,12 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Loader2, Pencil, Plus, Shapes, Trash2, X } from "lucide-react"
+import { Loader2, Pencil, Plus, Shapes, Trash2 } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
+import { FormDialog } from "@/components/admin/form-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { type AdminSymbologyIcon, useAdminSymbologyIcons } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
@@ -91,6 +92,12 @@ function EditIconRow({ icon, onDone }: { icon: AdminSymbologyIcon; onDone: () =>
   const [saving, setSaving] = useState(false)
   const queryClient = useQueryClient()
 
+  function close() {
+    setSvg(icon.svg)
+    setPreviewColor(PREVIEW_DEFAULT_COLOR)
+    onDone()
+  }
+
   async function handleSave() {
     setSaving(true)
     try {
@@ -100,7 +107,7 @@ function EditIconRow({ icon, onDone }: { icon: AdminSymbologyIcon; onDone: () =>
       })
       queryClient.invalidateQueries({ queryKey: ["admin", "symbology-icons"] })
       queryClient.invalidateQueries({ queryKey: ["symbology-icons"] })
-      onDone()
+      close()
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not update this icon.")
     } finally {
@@ -109,28 +116,18 @@ function EditIconRow({ icon, onDone }: { icon: AdminSymbologyIcon; onDone: () =>
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between py-3">
-        <CardTitle className="text-sm">
-          Edit icon <span className="font-mono">{icon.icon_ref}</span>
-        </CardTitle>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
-          <X className="size-4" />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <IconEditor svg={svg} onSvgChange={setSvg} previewColor={previewColor} onPreviewColorChange={setPreviewColor} />
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" size="sm" onClick={onDone} disabled={saving}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={svg.trim().length === 0 || saving}>
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Save
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+    <FormDialog
+      open
+      onOpenChange={(next) => (next ? undefined : close())}
+      title={`Edit icon ${icon.icon_ref}`}
+      onSubmit={handleSave}
+      submitLabel="Save"
+      canSubmit={svg.trim().length > 0}
+      saving={saving}
+      className="max-w-2xl"
+    >
+      <IconEditor svg={svg} onSvgChange={setSvg} previewColor={previewColor} onPreviewColorChange={setPreviewColor} />
+    </FormDialog>
   )
 }
 
@@ -155,11 +152,14 @@ export function AdminSymbologyIconsPage() {
   const [editingRef, setEditingRef] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminSymbologyIcon | null>(null)
 
-  function reset() {
+  function close() {
+    setOpen(false)
     setIconRef("")
     setSvg("")
     setPreviewColor(PREVIEW_DEFAULT_COLOR)
   }
+
+  const editingIcon = data?.symbology_icons.find((icon) => icon.icon_ref === editingRef) ?? null
 
   // Lower-kebab, matching iconRefPattern in api/internal/admin/validate.go
   // -- reject early so the field can't drift a name a rule could never
@@ -175,8 +175,7 @@ export function AdminSymbologyIconsPage() {
       })
       queryClient.invalidateQueries({ queryKey: ["admin", "symbology-icons"] })
       queryClient.invalidateQueries({ queryKey: ["symbology-icons"] })
-      setOpen(false)
-      reset()
+      close()
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not create this icon.")
     } finally {
@@ -195,72 +194,36 @@ export function AdminSymbologyIconsPage() {
               name resolves to real SVG markup, added or edited without a deploy.
             </p>
           </div>
-          {!open && (
-            <Button size="sm" onClick={() => setOpen(true)}>
-              <Plus className="size-4" />
-              New icon
-            </Button>
-          )}
+          <Button size="sm" onClick={() => setOpen(true)}>
+            <Plus className="size-4" />
+            New icon
+          </Button>
         </div>
 
-        {open && (
-          <Card>
-            <CardHeader className="flex flex-row items-start justify-between">
-              <div>
-                <CardTitle>New icon</CardTitle>
-                <CardDescription>A lower-kebab name and its SVG markup.</CardDescription>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={() => {
-                  setOpen(false)
-                  reset()
-                }}
-                disabled={saving}
-              >
-                <X className="size-4" />
-              </Button>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <div className="flex flex-col gap-1">
-                <label className={labelClass}>
-                  Name <span className="text-destructive">*</span>
-                </label>
-                <input
-                  className={`${inputClass} font-mono`}
-                  value={iconRef}
-                  onChange={(e) => setIconRef(e.target.value.toLowerCase())}
-                  placeholder="e.g. iec-disconnector"
-                />
-              </div>
-              <IconEditor
-                svg={svg}
-                onSvgChange={setSvg}
-                previewColor={previewColor}
-                onPreviewColorChange={setPreviewColor}
-              />
-              <div className="flex justify-end gap-2 pt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setOpen(false)
-                    reset()
-                  }}
-                  disabled={saving}
-                >
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
-                  {saving && <Loader2 className="size-4 animate-spin" />}
-                  Create
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        <FormDialog
+          open={open}
+          onOpenChange={(next) => (next ? setOpen(true) : close())}
+          title="New icon"
+          description="A lower-kebab name and its SVG markup."
+          onSubmit={handleSave}
+          submitLabel="Create"
+          canSubmit={canSave}
+          saving={saving}
+          className="max-w-2xl"
+        >
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>
+              Name <span className="text-destructive">*</span>
+            </label>
+            <input
+              className={`${inputClass} font-mono`}
+              value={iconRef}
+              onChange={(e) => setIconRef(e.target.value.toLowerCase())}
+              placeholder="e.g. iec-disconnector"
+            />
+          </div>
+          <IconEditor svg={svg} onSvgChange={setSvg} previewColor={previewColor} onPreviewColorChange={setPreviewColor} />
+        </FormDialog>
 
         {isPending ? (
           <div className="text-muted-foreground flex items-center gap-2 text-sm">
@@ -275,44 +238,42 @@ export function AdminSymbologyIconsPage() {
           </p>
         ) : (
           <div className="flex flex-col gap-2">
-            {data.symbology_icons.map((icon) =>
-              editingRef === icon.icon_ref ? (
-                <EditIconRow key={icon.icon_ref} icon={icon} onDone={() => setEditingRef(null)} />
-              ) : (
-                <Card key={icon.icon_ref}>
-                  <CardHeader className="flex flex-row items-center gap-3 py-3">
-                    <div className="bg-muted/40 flex size-10 shrink-0 items-center justify-center rounded-md border">
-                      <img src={previewUri(icon.svg, PREVIEW_DEFAULT_COLOR)} alt={icon.icon_ref} className="size-7" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <CardTitle className="font-mono text-sm">{icon.icon_ref}</CardTitle>
-                      <CardDescription className="text-xs">
-                        {icon.svg.includes("{{COLOR}}") ? "Tintable" : "Full-color"}
-                      </CardDescription>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7"
-                      title="Edit"
-                      onClick={() => setEditingRef(icon.icon_ref)}
-                    >
-                      <Pencil className="size-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive size-7"
-                      onClick={() => setDeleteTarget(icon)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </CardHeader>
-                </Card>
-              ),
-            )}
+            {data.symbology_icons.map((icon) => (
+              <Card key={icon.icon_ref}>
+                <CardHeader className="flex flex-row items-center gap-3 py-3">
+                  <div className="bg-muted/40 flex size-10 shrink-0 items-center justify-center rounded-md border">
+                    <img src={previewUri(icon.svg, PREVIEW_DEFAULT_COLOR)} alt={icon.icon_ref} className="size-7" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <CardTitle className="font-mono text-sm">{icon.icon_ref}</CardTitle>
+                    <CardDescription className="text-xs">
+                      {icon.svg.includes("{{COLOR}}") ? "Tintable" : "Full-color"}
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    title="Edit"
+                    onClick={() => setEditingRef(icon.icon_ref)}
+                  >
+                    <Pencil className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive size-7"
+                    onClick={() => setDeleteTarget(icon)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </CardHeader>
+              </Card>
+            ))}
           </div>
         )}
+
+        {editingIcon && <EditIconRow icon={editingIcon} onDone={() => setEditingRef(null)} />}
       </div>
 
       <ConfirmDeleteDialog

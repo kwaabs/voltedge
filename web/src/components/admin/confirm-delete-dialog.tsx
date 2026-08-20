@@ -20,6 +20,12 @@ interface ConfirmDeleteDialogProps {
   description: string
   onOpenChange: (open: boolean) => void
   onConfirm: () => Promise<void>
+  /**
+   * Label for the destructive action button (default "Delete"). Set it for
+   * confirms that aren't literally deletes -- "Disable", "Unlink" -- so the
+   * button reads correctly while reusing this same scaffolding.
+   */
+  confirmLabel?: string
 }
 
 /**
@@ -36,7 +42,14 @@ interface ConfirmDeleteDialogProps {
  * the app's own toast, same as everywhere else, and leaves the dialog
  * open so the message stays visible.
  */
-export function ConfirmDeleteDialog({ open, title, description, onOpenChange, onConfirm }: ConfirmDeleteDialogProps) {
+export function ConfirmDeleteDialog({
+  open,
+  title,
+  description,
+  onOpenChange,
+  onConfirm,
+  confirmLabel = "Delete",
+}: ConfirmDeleteDialogProps) {
   const [deleting, setDeleting] = useState(false)
 
   async function handleDelete() {
@@ -45,7 +58,7 @@ export function ConfirmDeleteDialog({ open, title, description, onOpenChange, on
       await onConfirm()
       onOpenChange(false)
     } catch (err) {
-      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not delete this.")
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not complete this action.")
     } finally {
       setDeleting(false)
     }
@@ -69,7 +82,7 @@ export function ConfirmDeleteDialog({ open, title, description, onOpenChange, on
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20"
           >
             {deleting && <Loader2 className="size-4 animate-spin" />}
-            Delete
+            {confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

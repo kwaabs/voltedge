@@ -1,11 +1,12 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Loader2, Plus, Rows3, Trash2, X } from "lucide-react"
+import { Loader2, Plus, Rows3, Trash2 } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
+import { FormDialog } from "@/components/admin/form-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { type AdminFieldGroup, useAdminFieldGroups } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
@@ -28,7 +29,8 @@ export function AdminFieldGroupsPage() {
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<AdminFieldGroup | null>(null)
 
-  function reset() {
+  function close() {
+    setOpen(false)
     setCode("")
     setName("")
     setSortOrder(0)
@@ -44,8 +46,7 @@ export function AdminFieldGroupsPage() {
         body: JSON.stringify({ code: code.trim(), name: name.trim(), sort_order: sortOrder }),
       })
       queryClient.invalidateQueries({ queryKey: ["admin", "field-groups"] })
-      setOpen(false)
-      reset()
+      close()
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not create this field group.")
     } finally {
@@ -63,88 +64,56 @@ export function AdminFieldGroupsPage() {
               The form sections a field can belong to -- global, shared across every feature class.
             </p>
           </div>
-          {!open && (
-            <Button size="sm" onClick={() => setOpen(true)}>
-              <Plus className="size-4" />
-              New field group
-            </Button>
-          )}
+          <Button size="sm" onClick={() => setOpen(true)}>
+            <Plus className="size-4" />
+            New field group
+          </Button>
         </div>
 
-        {open && (
-          <Card>
-            <CardHeader className="flex flex-row items-start justify-between">
-              <div>
-                <CardTitle>New field group</CardTitle>
-                <CardDescription>A stable code, a display label, and where it sorts.</CardDescription>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={() => {
-                  setOpen(false)
-                  reset()
-                }}
-                disabled={saving}
-              >
-                <X className="size-4" />
-              </Button>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-medium">
-                    Code <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    className={inputClass}
-                    value={code}
-                    onChange={(e) => setCode(e.target.value.toLowerCase())}
-                    placeholder="e.g. lighting"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-medium">
-                    Name <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    className={inputClass}
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Lighting"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-medium">Sort order</label>
-                  <input
-                    type="number"
-                    className={inputClass}
-                    value={sortOrder}
-                    onChange={(e) => setSortOrder(Number(e.target.value))}
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 pt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setOpen(false)
-                    reset()
-                  }}
-                  disabled={saving}
-                >
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
-                  {saving && <Loader2 className="size-4 animate-spin" />}
-                  Create
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        <FormDialog
+          open={open}
+          onOpenChange={(next) => (next ? setOpen(true) : close())}
+          title="New field group"
+          description="A stable code, a display label, and where it sorts."
+          onSubmit={handleSave}
+          submitLabel="Create"
+          canSubmit={canSave}
+          saving={saving}
+        >
+          <div className="grid grid-cols-3 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium">
+                Code <span className="text-destructive">*</span>
+              </label>
+              <input
+                className={inputClass}
+                value={code}
+                onChange={(e) => setCode(e.target.value.toLowerCase())}
+                placeholder="e.g. lighting"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium">
+                Name <span className="text-destructive">*</span>
+              </label>
+              <input
+                className={inputClass}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Lighting"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium">Sort order</label>
+              <input
+                type="number"
+                className={inputClass}
+                value={sortOrder}
+                onChange={(e) => setSortOrder(Number(e.target.value))}
+              />
+            </div>
+          </div>
+        </FormDialog>
 
         {isPending ? (
           <div className="text-muted-foreground flex items-center gap-2 text-sm">

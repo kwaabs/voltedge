@@ -95,11 +95,13 @@ func setDeletedAt(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id s
 		assignment = "deleted_at = now()"
 	}
 
+	// A soft delete / restore is an edit too, so it stamps the actor into
+	// updated_by alongside updated_at (Slice E).
 	query := fmt.Sprintf(
-		"UPDATE %s SET %s, updated_at = now() WHERE id = ? RETURNING %s",
+		"UPDATE %s SET %s, updated_at = now(), updated_by = ? WHERE id = ? RETURNING %s",
 		table, assignment, strings.Join(selectColumns(loaded), ", "),
 	)
-	rows, err := db.QueryContext(ctx, query, id)
+	rows, err := db.QueryContext(ctx, query, actorArg(ctx), id)
 	if err != nil {
 		return nil, fmt.Errorf("crud: set deleted_at: %w", err)
 	}

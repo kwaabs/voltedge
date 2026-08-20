@@ -135,8 +135,9 @@ func quoteLiteralList(values []string) string {
 
 // buildCreateTable renders the full CREATE TABLE statement for a feature
 // class compiled for the first time: system columns (id, name, subtype
-// if any, status, geom if any, created_at, updated_at) followed by one
-// column per active field.
+// if any, status, geom if any, created_at, updated_at, created_by,
+// updated_by, territory_id if geometric) followed by one column per
+// active field.
 func buildCreateTable(qualifiedTable string, fc *metadata.FeatureClass, fields []metadata.Field, subtypes []metadata.Subtype, domains map[string]*metadata.Domain, domainValues map[string][]string) (string, error) {
 	var cols []string
 
@@ -184,6 +185,25 @@ func buildCreateTable(qualifiedTable string, fc *metadata.FeatureClass, fields [
 
 	cols = append(cols, `created_at timestamptz NOT NULL DEFAULT now()`)
 	cols = append(cols, `updated_at timestamptz NOT NULL DEFAULT now()`)
+
+	// Audit actor (Slice E): the CRUD engine stamps the acting user's id
+	// here on insert/update. Nullable (a session-less write leaves it
+	// NULL), and deliberately not a FK to iam.users -- the same no-
+	// enforced-join decision as the established_by/published_by columns,
+	// and it keeps the gis schema free of a hard dependency on iam.
+	cols = append(cols, `created_by uuid`)
+	cols = append(cols, `updated_by uuid`)
+
+	// The territory this feature belongs to (Phase 11) -- only for classes
+	// that actually carry a geometry to place; a geometry-less class has
+	// nothing to contain in a territory, so it never gets the column.
+	// Nullable, and deliberately NOT a FK to gis.territories: the same
+	// no-enforced-join convention as created_by/updated_by. Spatial
+	// assignment and the "at least a district" rule are enforced in the
+	// CRUD write path, not by the database (docs/phase-11-territories.md).
+	if fc.GeometryType != "none" {
+		cols = append(cols, `territory_id uuid`)
+	}
 
 	stmt := fmt.Sprintf("CREATE TABLE %s (\n    %s\n)", qualifiedTable, strings.Join(cols, ",\n    "))
 	return stmt, nil

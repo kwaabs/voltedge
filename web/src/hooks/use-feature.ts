@@ -24,6 +24,10 @@ export interface FeatureRecord {
   updated_at: string
   subtype?: number
   geometry?: FeatureGeometry
+  // Present only on geometric feature classes (Phase 11). null = the class
+  // has geometry but no territory resolved (unassigned); undefined = a
+  // non-geometric class with no territory_id column at all.
+  territory_id?: string | null
   attributes: Record<string, unknown>
 }
 

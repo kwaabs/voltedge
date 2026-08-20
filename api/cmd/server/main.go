@@ -22,6 +22,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/kwaabs/voltedge/api/internal/admin"
+	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/diagram"
@@ -29,6 +30,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/powerflow"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
 	"github.com/kwaabs/voltedge/api/internal/rules"
+	"github.com/kwaabs/voltedge/api/internal/territory"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
@@ -54,18 +56,52 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
+	// Phase 10: the trust boundary. SecurityHeaders hardens every response;
+	// SessionLoader validates the session cookie (if any) and attaches the
+	// authenticated user -- and their effective permission set -- to the
+	// request context. SessionLoader itself is non-failing (an anonymous
+	// request flows through); it is the per-route RBAC gates below (Slice C)
+	// that actually reject: 401 without a session, 403 without the permission.
+	authCfg := auth.NewConfigFromEnv()
+	r.Use(auth.SecurityHeaders())
+	r.Use(auth.SessionLoader(db, authCfg))
+
+	// /healthz stays public -- container orchestration probes it with no
+	// session, and it exposes nothing but DB reachability.
 	r.Get("/healthz", healthzHandler(db))
-	r.Get("/feature-classes", featureClassesHandler(db))
-	r.Get("/feature-classes/{code}/schema", featureClassSchemaHandler(db))
-	r.Get("/feature-classes/{code}/rules", rules.Handler(db))
-	r.Get("/symbology/icons", symbologyIconsHandler(db))
-	r.Mount("/features", crud.Routes(db))
-	r.Mount("/connectivity", connectivity.Routes(db))
-	r.Mount("/relationships", relationship.Routes(db))
-	r.Mount("/diagrams", diagram.Routes(db))
-	r.Mount("/trace", trace.Routes(db))
-	r.Mount("/analysis", powerflow.Routes(db))
-	r.Mount("/admin", admin.Routes(db))
+
+	// The map/forms read layer: the feature-class catalog, per-class schema
+	// and rules, and the global symbology icon set. All GET, all gated by
+	// features:read -- any viewer must load these to see the map at all.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead))
+		r.Get("/feature-classes", featureClassesHandler(db))
+		r.Get("/feature-classes/{code}/schema", featureClassSchemaHandler(db))
+		r.Get("/feature-classes/{code}/rules", rules.Handler(db))
+		r.Get("/symbology/icons", symbologyIconsHandler(db))
+	})
+
+	// Domain mounts, each wrapped in an RBAC gate. Mixed read/write mounts
+	// get a method-aware gate (GET => the :read permission, mutating => the
+	// :write/:commit one); the pure-action engines (trace, analysis), whose
+	// POSTs are queries rather than writes, get a single permission for
+	// every method. /auth is not wrapped here -- it self-gates (login and
+	// the SSO endpoints are public by necessity; logout/me/settings carry
+	// their own RequireAuth/RequireCSRF, and the switch checks
+	// admin:auth-settings/break-glass itself).
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/features", crud.Routes(db))
+	// Territories are fixed reference data read alongside features (the
+	// feature panel resolves a feature's territory_id to a name via this
+	// list), so the read-only endpoint sits under the same features:read
+	// gate every map viewer already holds -- not the metadata admin gate.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermTerritoriesWrite)).Mount("/territories", territory.Routes(db))
+	r.With(auth.RequirePermission(auth.PermConnectivityRead, auth.PermConnectivityCommit)).Mount("/connectivity", connectivity.Routes(db))
+	r.With(auth.RequirePermission(auth.PermRelationshipsRead, auth.PermRelationshipsCommit)).Mount("/relationships", relationship.Routes(db))
+	r.With(auth.RequirePermission(auth.PermDiagramsRead, auth.PermDiagramsWrite)).Mount("/diagrams", diagram.Routes(db))
+	r.With(auth.RequirePermission(auth.PermTraceRun, auth.PermTraceRun)).Mount("/trace", trace.Routes(db))
+	r.With(auth.RequirePermission(auth.PermAnalysisRun, auth.PermAnalysisRun)).Mount("/analysis", powerflow.Routes(db))
+	r.With(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite)).Mount("/admin", admin.Routes(db))
+	r.Mount("/auth", auth.Routes(db, authCfg))
 
 	log.Printf("voltedge api listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

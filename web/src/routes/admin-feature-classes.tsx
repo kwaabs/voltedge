@@ -1,13 +1,13 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Eye, Loader2, Pencil, Plus, Trash2, X } from "lucide-react"
+import { Eye, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
 import { Link } from "react-router"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
+import { FormDialog } from "@/components/admin/form-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { type AdminFeatureClassSummary, useAdminFeatureClasses } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
@@ -27,7 +27,15 @@ const labelClass = "text-xs font-medium"
  * name/is_diagram_container only, via the same PATCH endpoint, just
  * without this row ever being reachable for the other three.
  */
-function EditFeatureClassRow({ fc, onDone }: { fc: AdminFeatureClassSummary; onDone: () => void }) {
+function EditFeatureClassRow({
+  fc,
+  editingCode,
+  onDone,
+}: {
+  fc: AdminFeatureClassSummary
+  editingCode: string | null
+  onDone: () => void
+}) {
   const [name, setName] = useState(fc.name)
   const [isDiagramContainer, setIsDiagramContainer] = useState(fc.is_diagram_container)
   const [geometryType, setGeometryType] = useState<(typeof GEOMETRY_TYPES)[number]>(
@@ -39,6 +47,15 @@ function EditFeatureClassRow({ fc, onDone }: { fc: AdminFeatureClassSummary; onD
   )
   const [saving, setSaving] = useState(false)
   const queryClient = useQueryClient()
+
+  function close() {
+    setName(fc.name)
+    setIsDiagramContainer(fc.is_diagram_container)
+    setGeometryType(fc.geometry_type as (typeof GEOMETRY_TYPES)[number])
+    setSrid(fc.srid ?? 4326)
+    setNetworkRole(fc.network_role as (typeof NETWORK_ROLES)[number])
+    onDone()
+  }
 
   const canSave = name.trim().length > 0 && (geometryType === "none" || srid > 0)
 
@@ -56,7 +73,7 @@ function EditFeatureClassRow({ fc, onDone }: { fc: AdminFeatureClassSummary; onD
         }),
       })
       queryClient.invalidateQueries({ queryKey: ["admin", "feature-classes"] })
-      onDone()
+      close()
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not update this feature class.")
     } finally {
@@ -65,61 +82,54 @@ function EditFeatureClassRow({ fc, onDone }: { fc: AdminFeatureClassSummary; onD
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between py-3">
-        <CardTitle className="text-sm">Edit {fc.code}</CardTitle>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
-          <X className="size-4" />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+    <FormDialog
+      open={editingCode === fc.code}
+      onOpenChange={(next) => {
+        if (!next) close()
+      }}
+      title={`Edit ${fc.code}`}
+      onSubmit={handleSave}
+      canSubmit={canSave}
+      saving={saving}
+      className="max-w-2xl"
+    >
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>Name</label>
+        <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
+      </div>
+      <div className="grid grid-cols-3 gap-3">
         <div className="flex flex-col gap-1">
-          <label className={labelClass}>Name</label>
-          <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
+          <label className={labelClass}>Geometry type</label>
+          <select className={inputClass} value={geometryType} onChange={(e) => setGeometryType(e.target.value as typeof geometryType)}>
+            {GEOMETRY_TYPES.map((g) => (
+              <option key={g} value={g}>
+                {g}
+              </option>
+            ))}
+          </select>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        {geometryType !== "none" && (
           <div className="flex flex-col gap-1">
-            <label className={labelClass}>Geometry type</label>
-            <select className={inputClass} value={geometryType} onChange={(e) => setGeometryType(e.target.value as typeof geometryType)}>
-              {GEOMETRY_TYPES.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
-              ))}
-            </select>
+            <label className={labelClass}>SRID</label>
+            <input type="number" className={inputClass} value={srid} onChange={(e) => setSrid(Number(e.target.value))} />
           </div>
-          {geometryType !== "none" && (
-            <div className="flex flex-col gap-1">
-              <label className={labelClass}>SRID</label>
-              <input type="number" className={inputClass} value={srid} onChange={(e) => setSrid(Number(e.target.value))} />
-            </div>
-          )}
-          <div className="flex flex-col gap-1">
-            <label className={labelClass}>Network role</label>
-            <select className={inputClass} value={networkRole} onChange={(e) => setNetworkRole(e.target.value as typeof networkRole)}>
-              {NETWORK_ROLES.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </div>
+        )}
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Network role</label>
+          <select className={inputClass} value={networkRole} onChange={(e) => setNetworkRole(e.target.value as typeof networkRole)}>
+            {NETWORK_ROLES.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={isDiagramContainer} onChange={(e) => setIsDiagramContainer(e.target.checked)} />
-          Can host a one-line/schematic diagram (is_diagram_container)
-        </label>
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" size="sm" onClick={onDone} disabled={saving}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Save
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={isDiagramContainer} onChange={(e) => setIsDiagramContainer(e.target.checked)} />
+        Can host a one-line/schematic diagram (is_diagram_container)
+      </label>
+    </FormDialog>
   )
 }
 
@@ -181,6 +191,7 @@ export function AdminFeatureClassesPage() {
         {editingCode && data && (
           <EditFeatureClassRow
             fc={data.feature_classes.find((f) => f.code === editingCode)!}
+            editingCode={editingCode}
             onDone={() => setEditingCode(null)}
           />
         )}

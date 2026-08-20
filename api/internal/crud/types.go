@@ -19,10 +19,15 @@ import "encoding/json"
 // identically (api/internal/compiler's buildCreateTable), not a
 // metadata-authored field an admin opts a class into.
 type createRequest struct {
-	Subtype    *int            `json:"subtype,omitempty"`
-	Name       *string         `json:"name,omitempty"`
-	Geometry   json.RawMessage `json:"geometry,omitempty"`
-	Attributes map[string]any  `json:"attributes"`
+	Subtype  *int            `json:"subtype,omitempty"`
+	Name     *string         `json:"name,omitempty"`
+	Geometry json.RawMessage `json:"geometry,omitempty"`
+	// TerritoryID is an optional manual override of the spatial territory
+	// assignment (Phase 11). Absent means "auto-assign from geometry";
+	// present forces this territory (still validated as at least a
+	// district). Only meaningful for a geometric feature class.
+	TerritoryID *string        `json:"territory_id,omitempty"`
+	Attributes  map[string]any `json:"attributes"`
 }
 
 // updateRequest is the PATCH body for updating a feature. Every field is
@@ -37,9 +42,14 @@ type createRequest struct {
 // as geometry -- absent means "not changing it", an explicit empty
 // string means "clear it".
 type updateRequest struct {
-	Name       *string         `json:"name,omitempty"`
-	Geometry   json.RawMessage `json:"geometry,omitempty"`
-	Attributes map[string]any  `json:"attributes"`
+	Name     *string         `json:"name,omitempty"`
+	Geometry json.RawMessage `json:"geometry,omitempty"`
+	// TerritoryID overrides the territory assignment (Phase 11). Present
+	// forces this territory; absent leaves the current assignment alone
+	// unless the geometry itself is changing, in which case the territory
+	// is re-resolved from the new geometry.
+	TerritoryID *string        `json:"territory_id,omitempty"`
+	Attributes  map[string]any `json:"attributes"`
 }
 
 // geoJSONGeometry is enough of a GeoJSON Geometry object to check its

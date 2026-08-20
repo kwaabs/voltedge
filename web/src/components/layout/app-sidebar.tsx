@@ -1,4 +1,4 @@
-import { Database, Layers, Link2, Map, Rows3, Settings, Shapes, Tags, Waypoints, Wrench, Zap } from "lucide-react"
+import { Database, LandPlot, Layers, Link2, Map, Rows3, Settings, Shapes, Tags, UsersRound, Waypoints, Wrench, Zap } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import {
@@ -13,6 +13,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { usePermission } from "@/hooks/use-auth"
 
 /**
  * The map is the app's home surface -- everything else here is a
@@ -21,9 +22,9 @@ import {
  * than competing with it. See docs/phase-3-map-loop.md's IA notes.
  */
 const dataItems = [
-  { to: "/features", label: "Feature classes", icon: Database },
-  { to: "/connectivity", label: "Connectivity", icon: Waypoints },
-  { to: "/relationships", label: "Relationships", icon: Link2 },
+  { to: "/features", label: "Feature classes", icon: Database, perm: "features:read" },
+  { to: "/connectivity", label: "Connectivity", icon: Waypoints, perm: "connectivity:read" },
+  { to: "/relationships", label: "Relationships", icon: Link2, perm: "relationships:read" },
 ]
 
 /**
@@ -36,16 +37,25 @@ const dataItems = [
  * additive-only operations the schema compiler already supports safely.
  */
 const adminItems = [
-  { to: "/admin/feature-classes", label: "Feature classes", icon: Layers },
-  { to: "/admin/domains", label: "Domains", icon: Tags },
-  { to: "/admin/field-groups", label: "Field groups", icon: Rows3 },
-  { to: "/admin/materials", label: "Materials", icon: Wrench },
-  { to: "/admin/symbology-icons", label: "Symbology icons", icon: Shapes },
+  { to: "/admin/feature-classes", label: "Feature classes", icon: Layers, perm: "metadata:read" },
+  { to: "/admin/domains", label: "Domains", icon: Tags, perm: "metadata:read" },
+  { to: "/admin/field-groups", label: "Field groups", icon: Rows3, perm: "metadata:read" },
+  { to: "/admin/materials", label: "Materials", icon: Wrench, perm: "metadata:read" },
+  { to: "/admin/symbology-icons", label: "Symbology icons", icon: Shapes, perm: "metadata:read" },
+  { to: "/admin/territories", label: "Territories", icon: LandPlot, perm: "territories:write" },
+  { to: "/admin/users", label: "Users", icon: UsersRound, perm: "admin:users" },
 ]
 
 export function AppSidebar() {
   const { state } = useSidebar()
   const { pathname } = useLocation()
+  const can = usePermission()
+
+  // Only surface a link the caller could actually use -- Slice C would 403
+  // the rest, so hiding them keeps the nav honest rather than offering dead
+  // ends. The API remains the real gate; this just mirrors it.
+  const visibleData = dataItems.filter((item) => can(item.perm))
+  const visibleAdmin = adminItems.filter((item) => can(item.perm))
 
   return (
     <Sidebar>
@@ -76,47 +86,51 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Data</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {dataItems.map((item) => {
-                const isActive = pathname.startsWith(item.to)
-                return (
-                  <SidebarMenuItem key={item.to}>
-                    <SidebarMenuButton asChild isActive={isActive} tooltip={item.label}>
-                      <NavLink to={item.to}>
-                        <item.icon />
-                        <span>{item.label}</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {visibleData.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Data</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {visibleData.map((item) => {
+                  const isActive = pathname.startsWith(item.to)
+                  return (
+                    <SidebarMenuItem key={item.to}>
+                      <SidebarMenuButton asChild isActive={isActive} tooltip={item.label}>
+                        <NavLink to={item.to}>
+                          <item.icon />
+                          <span>{item.label}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Admin</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {adminItems.map((item) => {
-                const isActive = pathname.startsWith(item.to)
-                return (
-                  <SidebarMenuItem key={item.to}>
-                    <SidebarMenuButton asChild isActive={isActive} tooltip={item.label}>
-                      <NavLink to={item.to}>
-                        <item.icon />
-                        <span>{item.label}</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {visibleAdmin.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Admin</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {visibleAdmin.map((item) => {
+                  const isActive = pathname.startsWith(item.to)
+                  return (
+                    <SidebarMenuItem key={item.to}>
+                      <SidebarMenuButton asChild isActive={isActive} tooltip={item.label}>
+                        <NavLink to={item.to}>
+                          <item.icon />
+                          <span>{item.label}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         <SidebarGroup className="mt-auto">
           <SidebarGroupContent>

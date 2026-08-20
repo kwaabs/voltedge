@@ -134,11 +134,13 @@ func setStatus(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id, sta
 		return nil, err
 	}
 
+	// A status transition (publish/unpublish) is an edit too, so it stamps
+	// the actor into updated_by alongside updated_at (Slice E).
 	query := fmt.Sprintf(
-		"UPDATE %s SET status = ?, updated_at = now() WHERE id = ? RETURNING %s",
+		"UPDATE %s SET status = ?, updated_at = now(), updated_by = ? WHERE id = ? RETURNING %s",
 		table, strings.Join(selectColumns(loaded), ", "),
 	)
-	rows, err := db.QueryContext(ctx, query, status, id)
+	rows, err := db.QueryContext(ctx, query, status, actorArg(ctx), id)
 	if err != nil {
 		return nil, fmt.Errorf("crud: set status: %w", err)
 	}

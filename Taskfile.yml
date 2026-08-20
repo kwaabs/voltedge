@@ -106,6 +106,76 @@ tasks:
     cmds:
       - go run ./cmd/compile {{.CODE}}
 
+  authadmin-create:
+    desc: "Bootstrap/create a break-glass admin (Phase 10). EMAIL + NAME vars; set AUTHADMIN_PASSWORD in your env/.env first"
+    dir: "{{.API_DIR}}"
+    requires:
+      vars:
+        - name: EMAIL
+          desc: Account email, e.g. admin@yourutility.com
+        - name: NAME
+          desc: Display name, e.g. "Break-glass Admin"
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/authadmin create --email {{.EMAIL}} --name "{{.NAME}}"
+
+  authadmin-set-password:
+    desc: "Reset a lost local/break-glass password (Phase 10). EMAIL var; set AUTHADMIN_PASSWORD in your env/.env first"
+    dir: "{{.API_DIR}}"
+    requires:
+      vars:
+        - name: EMAIL
+          desc: Account email
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/authadmin set-password --email {{.EMAIL}}
+
+  authadmin-list:
+    desc: List all accounts and their roles (Phase 10)
+    dir: "{{.API_DIR}}"
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/authadmin list
+
+  authadmin-roles:
+    desc: List the available RBAC roles (Phase 10 Slice C)
+    dir: "{{.API_DIR}}"
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/authadmin roles
+
+  authadmin-grant-role:
+    desc: "Grant a role to an account (Phase 10 Slice C). EMAIL + ROLE vars"
+    dir: "{{.API_DIR}}"
+    requires:
+      vars:
+        - name: EMAIL
+          desc: Account email
+        - name: ROLE
+          desc: "Role key, e.g. editor (see `task authadmin-roles`)"
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/authadmin grant-role --email {{.EMAIL}} --role {{.ROLE}}
+
+  authadmin-revoke-role:
+    desc: "Revoke a role from an account (Phase 10 Slice C). EMAIL + ROLE vars"
+    dir: "{{.API_DIR}}"
+    requires:
+      vars:
+        - name: EMAIL
+          desc: Account email
+        - name: ROLE
+          desc: Role key to revoke
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/authadmin revoke-role --email {{.EMAIL}} --role {{.ROLE}}
+
   seed-pole:
     desc: Load the POLE example metadata through the gitbash sidecar
     cmds:

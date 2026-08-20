@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 )
@@ -96,6 +97,39 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 				result.ColumnsAdded = append(result.ColumnsAdded, "name")
 			}
 
+			// created_by / updated_by (Slice E) -- the audit columns the
+			// CRUD engine stamps the acting user into. Migration 0026
+			// already backfilled every table that existed at deploy time;
+			// this mirrors deleted_at/name so a recompile also covers any
+			// table that predates the column, keeping the compiler the
+			// single source of truth for a feature table's shape. Plain
+			// uuid, deliberately not a FK to iam.users -- same no-enforced-
+			// join decision as the established_by/published_by text columns.
+			for _, col := range []string{"created_by", "updated_by"} {
+				if existingCols[col] {
+					continue
+				}
+				stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s uuid", qualifiedTable, col)
+				if _, err := tx.ExecContext(ctx, stmt); err != nil {
+					return fmt.Errorf("add column %s: %w", col, err)
+				}
+				result.ColumnsAdded = append(result.ColumnsAdded, col)
+			}
+
+			// territory_id (Phase 11) -- only geometric classes get it; a
+			// geometry-less class has nothing to place in a territory.
+			// Mirrors the created_by backfill so a recompile also covers a
+			// table compiled before the column existed, alongside migration
+			// 0028's own deploy-time backfill, keeping the compiler the
+			// single source of truth for a feature table's shape.
+			if fc.GeometryType != "none" && !existingCols["territory_id"] {
+				stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN territory_id uuid", qualifiedTable)
+				if _, err := tx.ExecContext(ctx, stmt); err != nil {
+					return fmt.Errorf("add column territory_id: %w", err)
+				}
+				result.ColumnsAdded = append(result.ColumnsAdded, "territory_id")
+			}
+
 			for _, f := range loaded.Fields {
 				if existingCols[f.Name] {
 					continue
@@ -124,9 +158,18 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 			}
 		}
 
+		// published_by (text) carries the acting user's uuid when compile
+		// was triggered through the admin HTTP route (Slice E); it falls
+		// back to the "compiler-cli" system literal on the session-less
+		// cmd/compile path, which has no request context to read an actor
+		// from.
+		publishedBy := "compiler-cli"
+		if actor := auth.ActorID(ctx); actor != "" {
+			publishedBy = actor
+		}
 		version := &metadata.Version{
 			PublishedAt: time.Now(),
-			PublishedBy: "compiler-cli",
+			PublishedBy: publishedBy,
 			Status:      "active",
 		}
 		if _, err := tx.NewInsert().Model(version).Returning("id").Exec(ctx); err != nil {

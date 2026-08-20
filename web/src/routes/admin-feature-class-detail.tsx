@@ -1,15 +1,16 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Copy, ListPlus, Loader2, Pencil, Plus, Trash2, Wrench, X } from "lucide-react"
+import { ArrowLeft, Copy, ListPlus, Loader2, Pencil, Plus, Trash2, Wrench } from "lucide-react"
 import { Link, useParams } from "react-router"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
+import { FormDialog } from "@/components/admin/form-dialog"
 import { IconPicker } from "@/components/admin/icon-picker"
 import { SymbologySwatch, type SwatchGeometry } from "@/components/admin/symbology-swatch"
 import { inputClass } from "@/components/map/field-utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   type AdminSymbologyRule,
   useAdminDomains,
@@ -115,14 +116,16 @@ function AddSubtypeRow({ code, subtypes, onDone }: { code: string; subtypes: { c
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between py-3">
-        <CardTitle className="text-sm">Add subtype</CardTitle>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
-          <X className="size-4" />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex items-end gap-2">
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title="Add subtype"
+      onSubmit={handleAdd}
+      submitLabel="Add"
+      canSubmit={canSave}
+      saving={saving}
+    >
+      <div className="flex items-end gap-2">
         <div className="flex flex-col gap-1">
           <label className={labelClass}>Code</label>
           <input
@@ -136,12 +139,8 @@ function AddSubtypeRow({ code, subtypes, onDone }: { code: string; subtypes: { c
           <label className={labelClass}>Name</label>
           <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. recloser" />
         </div>
-        <Button size="sm" onClick={handleAdd} disabled={!canSave || saving}>
-          {saving && <Loader2 className="size-4 animate-spin" />}
-          Add
-        </Button>
-      </CardContent>
-    </Card>
+      </div>
+    </FormDialog>
   )
 }
 
@@ -216,15 +215,17 @@ function AddFieldRow({
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between py-3">
-        <CardTitle className="text-sm">Add field</CardTitle>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
-          <X className="size-4" />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <div className="grid grid-cols-2 gap-3">
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title="Add field"
+      onSubmit={handleAdd}
+      submitLabel="Add"
+      canSubmit={canSave}
+      saving={saving}
+      className="max-w-2xl"
+    >
+      <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
             <label className={labelClass}>
               Name <span className="text-destructive">*</span>
@@ -288,31 +289,20 @@ function AddFieldRow({
           </label>
         </div>
 
-        {subtypes.length > 0 && (
-          <div className="flex flex-col gap-1">
-            <label className={labelClass}>Required for subtypes</label>
-            <div className="flex flex-wrap gap-3">
-              {subtypes.map((s) => (
-                <label key={s.code} className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={requiredFor.has(s.code)} onChange={() => toggleRequired(s.code)} />
-                  {s.name}
-                </label>
-              ))}
-            </div>
+      {subtypes.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Required for subtypes</label>
+          <div className="flex flex-wrap gap-3">
+            {subtypes.map((s) => (
+              <label key={s.code} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={requiredFor.has(s.code)} onChange={() => toggleRequired(s.code)} />
+                {s.name}
+              </label>
+            ))}
           </div>
-        )}
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" size="sm" onClick={onDone} disabled={saving}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleAdd} disabled={!canSave || saving}>
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Add
-          </Button>
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </FormDialog>
   )
 }
 
@@ -361,62 +351,54 @@ function EditFieldRow({ code, field, onDone }: { code: string; field: FieldSchem
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between py-3">
-        <CardTitle className="text-sm">
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title={
+        <>
           Edit field <span className="font-mono">{field.name}</span>
-        </CardTitle>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
-          <X className="size-4" />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <label className={labelClass}>Domain</label>
-          <select className={inputClass} value={domainCode} onChange={(e) => setDomainCode(e.target.value)}>
-            <option value="">none</option>
-            {domainsData?.domains.map((d) => (
-              <option key={d.code} value={d.code}>
-                {d.name} ({d.code})
-              </option>
-            ))}
-          </select>
-        </div>
+        </>
+      }
+      onSubmit={handleSave}
+      submitLabel="Save"
+      canSubmit
+      saving={saving}
+    >
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>Domain</label>
+        <select className={inputClass} value={domainCode} onChange={(e) => setDomainCode(e.target.value)}>
+          <option value="">none</option>
+          {domainsData?.domains.map((d) => (
+            <option key={d.code} value={d.code}>
+              {d.name} ({d.code})
+            </option>
+          ))}
+        </select>
+      </div>
 
-        <div className="flex flex-wrap gap-4">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={nullable} onChange={(e) => setNullable(e.target.checked)} />
-            Nullable
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={visibleOnCreate} onChange={(e) => setVisibleOnCreate(e.target.checked)} />
-            Visible on create
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={visibleOnUpdate} onChange={(e) => setVisibleOnUpdate(e.target.checked)} />
-            Visible on update
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={editableAfterPublish}
-              onChange={(e) => setEditableAfterPublish(e.target.checked)}
-            />
-            Editable after publish
-          </label>
-        </div>
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" size="sm" onClick={onDone} disabled={saving}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={saving}>
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Save
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+      <div className="flex flex-wrap gap-4">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={nullable} onChange={(e) => setNullable(e.target.checked)} />
+          Nullable
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={visibleOnCreate} onChange={(e) => setVisibleOnCreate(e.target.checked)} />
+          Visible on create
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={visibleOnUpdate} onChange={(e) => setVisibleOnUpdate(e.target.checked)} />
+          Visible on update
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={editableAfterPublish}
+            onChange={(e) => setEditableAfterPublish(e.target.checked)}
+          />
+          Editable after publish
+        </label>
+      </div>
+    </FormDialog>
   )
 }
 
@@ -750,15 +732,17 @@ function RuleForm({
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between py-3">
-        <CardTitle className="text-sm">{rule ? (duplicate ? "Duplicate rule" : "Edit rule") : "Add rule"}</CardTitle>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onDone} disabled={saving}>
-          <X className="size-4" />
-        </Button>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title={rule ? (duplicate ? "Duplicate rule" : "Edit rule") : "Add rule"}
+      onSubmit={handleSave}
+      submitLabel={rule && !duplicate ? "Save" : "Add rule"}
+      canSubmit={canSave}
+      saving={saving}
+      className="max-w-2xl"
+    >
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div className="flex flex-col gap-1">
             <label className={labelClass}>Render context</label>
             <select
@@ -940,18 +924,7 @@ function RuleForm({
             </div>
           )}
         </div>
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" size="sm" onClick={onDone} disabled={saving}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={!canSave || saving}>
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            {rule && !duplicate ? "Save" : "Add rule"}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+    </FormDialog>
   )
 }
 
@@ -978,20 +951,18 @@ function SymbologySection({ code, schema }: { code: string; schema: FeatureClass
     <>
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold">Symbology</h2>
-        {!adding && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setEditingId(null)
-              setDuplicateSource(null)
-              setAdding(true)
-            }}
-          >
-            <Plus className="size-4" />
-            Add rule
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setEditingId(null)
+            setDuplicateSource(null)
+            setAdding(true)
+          }}
+        >
+          <Plus className="size-4" />
+          Add rule
+        </Button>
       </div>
 
       {adding && <RuleForm code={code} schema={schema} onDone={() => setAdding(false)} />}
@@ -1177,12 +1148,10 @@ export function AdminFeatureClassDetailPage() {
 
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Subtypes</h2>
-              {!addingSubtype && (
-                <Button variant="ghost" size="sm" onClick={() => setAddingSubtype(true)}>
-                  <Plus className="size-4" />
-                  Add subtype
-                </Button>
-              )}
+              <Button variant="ghost" size="sm" onClick={() => setAddingSubtype(true)}>
+                <Plus className="size-4" />
+                Add subtype
+              </Button>
             </div>
             {addingSubtype && (
               <AddSubtypeRow code={code} subtypes={schema.subtypes} onDone={() => setAddingSubtype(false)} />
@@ -1201,19 +1170,17 @@ export function AdminFeatureClassDetailPage() {
 
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Fields</h2>
-              {!addingField && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setEditingFieldName(null)
-                    setAddingField(true)
-                  }}
-                >
-                  <ListPlus className="size-4" />
-                  Add field
-                </Button>
-              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setEditingFieldName(null)
+                  setAddingField(true)
+                }}
+              >
+                <ListPlus className="size-4" />
+                Add field
+              </Button>
             </div>
             {addingField && (
               <AddFieldRow code={code} subtypes={schema.subtypes} onDone={() => setAddingField(false)} />

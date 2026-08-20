@@ -43,6 +43,7 @@ import { useFeature } from "@/hooks/use-feature"
 import { useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useRelationships } from "@/hooks/use-relationships"
+import { useTerritories, territoryNameMap } from "@/hooks/use-territories"
 import { useTraceConfigurations } from "@/hooks/use-trace-configurations"
 import { ApiError, apiFetch } from "@/lib/api"
 import { formatArea, formatLength, geoJSONAreaMeters, geoJSONLengthMeters } from "@/lib/measure"
@@ -82,6 +83,10 @@ function AttributesTab() {
     selected?.featureId,
   )
   useErrorToast(isError, error, "Could not load this feature")
+  // Resolve the feature's auto-assigned territory (Phase 11) to a name.
+  // Fixed reference data, cached long -- no picker, read-only.
+  const { data: territoriesData } = useTerritories()
+  const territoryNames = territoryNameMap(territoriesData?.territories)
 
   const isEditingThis =
     selected && editing?.featureClassCode === selected.featureClassCode && editing?.featureId === selected.featureId
@@ -174,6 +179,19 @@ function AttributesTab() {
               </dd>
             </>
           )}
+        </>
+      )}
+
+      {feature.territory_id !== undefined && (
+        <>
+          <dt className={dtClass}>Territory</dt>
+          <dd className={ddClass}>
+            {feature.territory_id ? (
+              territoryNames[feature.territory_id] || shortId(feature.territory_id)
+            ) : (
+              <span className="text-muted-foreground">Unassigned</span>
+            )}
+          </dd>
         </>
       )}
 

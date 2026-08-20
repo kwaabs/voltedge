@@ -1,4 +1,4 @@
-import { Layers } from "lucide-react"
+import { LandPlot, Layers } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -13,9 +13,13 @@ import { useAllSymbology } from "@/hooks/use-all-symbology"
 import { useCatalog } from "@/hooks/use-catalog"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
+import { useTerritoryLevels } from "@/hooks/use-territories"
+import { territoryColorForRank } from "@/lib/map-layers"
+import { featureClassSourceIds } from "@/lib/martin"
 import { iconDataUri } from "@/lib/symbology-icons"
 import { resolveSymbology } from "@/lib/symbology"
 import { useLayersStore } from "@/stores/layers-store"
+import { useTerritoryOverlayStore } from "@/stores/territory-overlay-store"
 
 /** The mandatory class-level default rule's preview -- an icon for a
  * point class (icon_ref set), or a plain color swatch for a line/
@@ -61,7 +65,18 @@ export function LayersPanel() {
   const symbologyIcons = useSymbologyIcons()
   const hidden = useLayersStore((s) => s.hidden)
   const toggle = useLayersStore((s) => s.toggle)
-  const sourceIds = catalog ? Object.keys(catalog.tiles) : []
+  const territoryOverlayVisible = useTerritoryOverlayStore((s) => s.visible)
+  const toggleTerritoryOverlay = useTerritoryOverlayStore((s) => s.toggle)
+  const hiddenLevels = useTerritoryOverlayStore((s) => s.hiddenLevels)
+  const toggleTerritoryLevel = useTerritoryOverlayStore((s) => s.toggleLevel)
+  const { data: territoryLevels } = useTerritoryLevels()
+  // Territories are auto-published by Martin but aren't a feature class --
+  // they live in the Overlays section below, not this list (see
+  // featureClassSourceIds).
+  const sourceIds = featureClassSourceIds(catalog)
+
+  // Top-first (utility -> plot), matching the map's own rank ordering.
+  const levels = [...(territoryLevels?.levels ?? [])].sort((a, b) => a.rank - b.rank)
 
   // Martin's source id is always the lowercased feature class code
   // (see api/internal/compiler/compiler.go: tableName :=
@@ -99,6 +114,46 @@ export function LayersPanel() {
             </DropdownMenuCheckboxItem>
           ))
         )}
+
+        {/* The territory boundary overlay (Phase 11 Slice H) -- a single
+            non-feature-class layer, so its own section rather than a row
+            in the list above. Same no-close-on-toggle behavior. */}
+        <DropdownMenuLabel>Overlays</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuCheckboxItem
+          checked={territoryOverlayVisible}
+          onSelect={(e) => e.preventDefault()}
+          onCheckedChange={() => toggleTerritoryOverlay()}
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            <LandPlot className="text-primary size-4 shrink-0" />
+            <span className="truncate">Territories</span>
+          </span>
+        </DropdownMenuCheckboxItem>
+
+        {/* Per-level toggles (Phase 11 Slice J) -- only meaningful while the
+            overlay is on, so shown only then, indented under the master
+            switch. Each hides/shows one level (e.g. districts) without
+            touching the others; the swatch matches territoryColorForRank so
+            the row reads as the same color drawn on the map. */}
+        {territoryOverlayVisible &&
+          levels.map((level) => (
+            <DropdownMenuCheckboxItem
+              key={level.code}
+              className="pl-11"
+              checked={!hiddenLevels[level.code]}
+              onSelect={(e) => e.preventDefault()}
+              onCheckedChange={() => toggleTerritoryLevel(level.code)}
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className="size-3 shrink-0 rounded-sm"
+                  style={{ backgroundColor: territoryColorForRank(level.rank) }}
+                />
+                <span className="truncate">{level.name}</span>
+              </span>
+            </DropdownMenuCheckboxItem>
+          ))}
       </DropdownMenuContent>
     </DropdownMenu>
   )

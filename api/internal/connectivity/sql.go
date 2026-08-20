@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
@@ -188,7 +189,10 @@ func establishConnection(ctx context.Context, db bun.IDB, req establishRequest) 
 	}
 	from, to = canonicalFrom, canonicalTo
 
-	establishedBy := "api"
+	// Stamp the acting user (Slice E): established_by is text and now
+	// holds the actor's uuid rather than the old fixed "api" literal.
+	// Empty only on a session-less code path -- leave it NULL then rather
+	// than invent an identity.
 	conn := &Connectivity{
 		NetworkRuleID:      rule.ID,
 		FromFeatureClassID: from.loaded.FeatureClass.ID,
@@ -196,8 +200,9 @@ func establishConnection(ctx context.Context, db bun.IDB, req establishRequest) 
 		FromTerminalID:     from.terminalID,
 		ToFeatureClassID:   to.loaded.FeatureClass.ID,
 		ToFeatureID:        to.ref.FeatureID,
-		ToTerminalID:       to.terminalID,
-		EstablishedBy:      &establishedBy,
+	}
+	if actor := auth.ActorID(ctx); actor != "" {
+		conn.EstablishedBy = &actor
 	}
 
 	_, err = db.NewInsert().Model(conn).

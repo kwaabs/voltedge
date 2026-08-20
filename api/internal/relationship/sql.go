@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
@@ -118,14 +119,17 @@ func establishRelationship(ctx context.Context, db bun.IDB, req establishRequest
 		return nil, err
 	}
 
-	establishedBy := "api"
+	// Stamp the acting user (Slice E): established_by holds the actor's
+	// uuid now, not the old "api" literal. NULL on a session-less path.
 	rel := &FeatureRelationship{
 		RelationshipClassID:       class.ID,
 		OriginFeatureClassID:      origin.loaded.FeatureClass.ID,
 		OriginFeatureID:           req.Origin.FeatureID,
 		DestinationFeatureClassID: destination.loaded.FeatureClass.ID,
 		DestinationFeatureID:      req.Destination.FeatureID,
-		EstablishedBy:             &establishedBy,
+	}
+	if actor := auth.ActorID(ctx); actor != "" {
+		rel.EstablishedBy = &actor
 	}
 
 	_, err = db.NewInsert().Model(rel).

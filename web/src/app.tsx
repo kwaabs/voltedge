@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes } from "react-router"
 
 import { AppLayout } from "@/components/layout/app-layout"
 import { MapLayout } from "@/components/layout/map-layout"
+import { RequirePermission, RequireSession } from "@/components/layout/require-session"
 import { Toaster } from "@/components/ui/toaster"
 import { useThemeEffect } from "@/hooks/use-theme-effect"
 import { AdminDomainsPage } from "@/routes/admin-domains"
@@ -11,8 +12,11 @@ import { AdminFeatureClassesPage } from "@/routes/admin-feature-classes"
 import { AdminFieldGroupsPage } from "@/routes/admin-field-groups"
 import { AdminMaterialsPage } from "@/routes/admin-materials"
 import { AdminSymbologyIconsPage } from "@/routes/admin-symbology-icons"
+import { AdminTerritoriesPage } from "@/routes/admin-territories"
+import { AdminUsersPage } from "@/routes/admin-users"
 import { ConnectivityPage } from "@/routes/connectivity"
 import { FeaturesPage } from "@/routes/features"
+import { LoginPage } from "@/routes/login"
 import { MapPage } from "@/routes/map"
 import { NotFoundPage } from "@/routes/not-found"
 import { RelationshipsPage } from "@/routes/relationships"
@@ -35,22 +39,46 @@ export function App() {
     <BrowserRouter>
       <Toaster />
       <Routes>
-        <Route element={<MapLayout />}>
-          <Route index element={<MapPage />} />
-        </Route>
-        <Route element={<AppLayout />}>
-          <Route path="features" element={<FeaturesPage />} />
-          <Route path="connectivity" element={<ConnectivityPage />} />
-          <Route path="relationships" element={<RelationshipsPage />} />
-          <Route path="admin/feature-classes" element={<AdminFeatureClassesPage />} />
-          <Route path="admin/feature-classes/new" element={<AdminFeatureClassNewPage />} />
-          <Route path="admin/feature-classes/:code" element={<AdminFeatureClassDetailPage />} />
-          <Route path="admin/domains" element={<AdminDomainsPage />} />
-          <Route path="admin/field-groups" element={<AdminFieldGroupsPage />} />
-          <Route path="admin/materials" element={<AdminMaterialsPage />} />
-          <Route path="admin/symbology-icons" element={<AdminSymbologyIconsPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-          <Route path="*" element={<NotFoundPage />} />
+        {/* Public: the only route reachable without a session. */}
+        <Route path="/login" element={<LoginPage />} />
+
+        {/* Everything else sits behind the session gate (Slice C gates the
+            API to match; RequireSession bounces an unauthenticated browser
+            to /login rather than rendering a shell full of 401s). */}
+        <Route element={<RequireSession />}>
+          <Route element={<MapLayout />}>
+            <Route index element={<MapPage />} />
+          </Route>
+          <Route element={<AppLayout />}>
+            <Route path="features" element={<FeaturesPage />} />
+            <Route path="connectivity" element={<ConnectivityPage />} />
+            <Route path="relationships" element={<RelationshipsPage />} />
+            <Route path="admin/feature-classes" element={<AdminFeatureClassesPage />} />
+            <Route path="admin/feature-classes/new" element={<AdminFeatureClassNewPage />} />
+            <Route path="admin/feature-classes/:code" element={<AdminFeatureClassDetailPage />} />
+            <Route path="admin/domains" element={<AdminDomainsPage />} />
+            <Route path="admin/field-groups" element={<AdminFieldGroupsPage />} />
+            <Route path="admin/materials" element={<AdminMaterialsPage />} />
+            <Route path="admin/symbology-icons" element={<AdminSymbologyIconsPage />} />
+            <Route
+              path="admin/territories"
+              element={
+                <RequirePermission perm="territories:write">
+                  <AdminTerritoriesPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/users"
+              element={
+                <RequirePermission perm="admin:users">
+                  <AdminUsersPage />
+                </RequirePermission>
+              }
+            />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="*" element={<NotFoundPage />} />
+          </Route>
         </Route>
       </Routes>
     </BrowserRouter>

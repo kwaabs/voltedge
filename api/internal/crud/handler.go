@@ -11,8 +11,20 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/kwaabs/voltedge/api/internal/territory"
 	"github.com/uptrace/bun"
 )
+
+// territoryError maps an api/internal/territory InvalidError (unknown or
+// too-shallow territory, no covering territory under enforcement) to this
+// package's own validationError so the HTTP layer returns 400, not 500.
+// Anything else passes through unchanged.
+func territoryError(err error) error {
+	if territory.IsInvalid(err) {
+		return invalid("%s", err.Error())
+	}
+	return err
+}
 
 const defaultListLimit = 50
 
@@ -171,7 +183,25 @@ func createHandler(db *bun.DB) http.HandlerFunc {
 			values[name] = coerced
 		}
 
-		result, err := insertFeature(r.Context(), db, loaded, subtype, req.Geometry, req.Name, values)
+		// Resolve the feature's territory (Phase 11). Only geometric classes
+		// have a territory_id column, so a supplied territory_id on a
+		// non-geometric class is a client error, and a geometric class always
+		// runs Assign -- override if given, else spatial auto-assign.
+		var territoryID *string
+		if loaded.FeatureClass.GeometryType == "none" {
+			if req.TerritoryID != nil {
+				writeError(w, invalid("feature class %q has no geometry, so it can't belong to a territory", code))
+				return
+			}
+		} else {
+			territoryID, err = territory.Assign(r.Context(), db, string(req.Geometry), *loaded.FeatureClass.SRID, req.TerritoryID)
+			if err != nil {
+				writeError(w, territoryError(err))
+				return
+			}
+		}
+
+		result, err := insertFeature(r.Context(), db, loaded, subtype, req.Geometry, req.Name, territoryID, values)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -245,7 +275,27 @@ func updateHandler(db *bun.DB) http.HandlerFunc {
 			}
 		}
 
-		result, err := updateFeature(r.Context(), db, loaded, id, req.Geometry, req.Name, values)
+		// Re-resolve the territory (Phase 11) only when there's a reason to:
+		// an explicit override, or a geometry change that could move the
+		// feature into a different territory. Absent both, the existing
+		// assignment is left untouched (assignTerritory stays false).
+		var territoryID *string
+		assignTerritory := false
+		if loaded.FeatureClass.GeometryType == "none" {
+			if req.TerritoryID != nil {
+				writeError(w, invalid("feature class %q has no geometry, so it can't belong to a territory", code))
+				return
+			}
+		} else if req.TerritoryID != nil || len(req.Geometry) > 0 {
+			assignTerritory = true
+			territoryID, err = territory.Assign(r.Context(), db, string(req.Geometry), *loaded.FeatureClass.SRID, req.TerritoryID)
+			if err != nil {
+				writeError(w, territoryError(err))
+				return
+			}
+		}
+
+		result, err := updateFeature(r.Context(), db, loaded, id, req.Geometry, req.Name, territoryID, assignTerritory, values)
 		if err != nil {
 			writeError(w, err)
 			return

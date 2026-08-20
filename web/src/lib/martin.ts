@@ -16,6 +16,27 @@ export interface Catalog {
 }
 
 /**
+ * Martin auto-publishes *every* geometry table in the gis schema, and
+ * gis.territories has a geom column -- so it shows up in the catalog like a
+ * feature class even though it isn't one. Territories render through their
+ * own dedicated boundary overlay (Phase 11 Slice H, fed by
+ * GET /territories/boundaries), toggled independently; drawing them as an
+ * always-on feature-class tile layer too is wrong (they'd show even with the
+ * overlay off). This is the one source id filtered out of the feature-class
+ * catalog everywhere it's consumed, leaving the overlay as the single path
+ * territories are ever drawn by. It matches the table name (gis.territories).
+ */
+export const TERRITORY_TILE_SOURCE_ID = "territories"
+
+/** The catalog's source ids minus the non-feature-class ones (see
+ * TERRITORY_TILE_SOURCE_ID) -- what actually belongs in the feature-class
+ * layer list and the map's per-class tile layers. */
+export function featureClassSourceIds(catalog: Catalog | undefined): string[] {
+  if (!catalog) return []
+  return Object.keys(catalog.tiles).filter((id) => id !== TERRITORY_TILE_SOURCE_ID)
+}
+
+/**
  * Martin auto-discovers every geometry table in the gis schema and
  * publishes it as a tile source named after the table (see
  * migrations/0015's gis schema comment) -- so the catalog *is* the

@@ -7,9 +7,22 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 )
+
+// actorArg returns the acting user's id for a created_by/updated_by bind
+// param (Slice E), or nil when the context carries no session so the
+// column is written NULL rather than an empty string (which would fail the
+// uuid cast). The id is a uuid string; Postgres casts it to the uuid
+// column implicitly.
+func actorArg(ctx context.Context) any {
+	if id := auth.ActorID(ctx); id != "" {
+		return id
+	}
+	return nil
+}
 
 // quoteIdent wraps a Postgres identifier in double quotes -- same
 // reasoning as compiler's copy: field names are always admin-set
@@ -41,6 +54,9 @@ func selectColumns(loaded *metadata.Loaded) []string {
 	cols = append(cols, "status", "deleted_at")
 	if loaded.FeatureClass.GeometryType != "none" {
 		cols = append(cols, "ST_AsGeoJSON(geom)::text AS geom_json")
+		// territory_id only exists on geometric tables (Phase 11) -- read it
+		// back so the API surfaces which territory a feature was assigned to.
+		cols = append(cols, "territory_id")
 	}
 	for _, f := range loaded.Fields {
 		cols = append(cols, quoteIdent(f.Name))
@@ -107,6 +123,11 @@ func formatRow(loaded *metadata.Loaded, row map[string]any) (map[string]any, err
 	if v, ok := row["subtype"]; ok {
 		out["subtype"] = v
 	}
+	// Present only for geometric classes (selectColumns adds the column
+	// alongside geom_json); absent entirely for a geometry-less class.
+	if v, ok := row["territory_id"]; ok {
+		out["territory_id"] = v
+	}
 
 	if raw, ok := row["geom_json"]; ok && raw != nil {
 		text, ok := raw.(string)
@@ -134,7 +155,7 @@ func formatRow(loaded *metadata.Loaded, row map[string]any) (map[string]any, err
 // GET). Column/placeholder lists are built up in lockstep so a bug here
 // shows up as a Postgres arity error immediately rather than silently
 // writing the wrong value into the wrong column.
-func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, subtype *metadata.Subtype, geometry []byte, name *string, values map[string]any) (map[string]any, error) {
+func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, subtype *metadata.Subtype, geometry []byte, name *string, territoryID *string, values map[string]any) (map[string]any, error) {
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
 		return nil, err
@@ -168,6 +189,16 @@ func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, sub
 		args = append(args, string(geometry))
 	}
 
+	// The resolved territory (Phase 11), only ever non-nil for a geometric
+	// class -- the column doesn't exist otherwise. nil leaves it unset
+	// (NULL), the correct state while enforcement is off and no territory
+	// covers the feature.
+	if territoryID != nil {
+		cols = append(cols, "territory_id")
+		placeholders = append(placeholders, "?")
+		args = append(args, *territoryID)
+	}
+
 	for _, f := range loaded.Fields {
 		v, present := values[f.Name]
 		if !present {
@@ -177,6 +208,14 @@ func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, sub
 		placeholders = append(placeholders, "?")
 		args = append(args, v)
 	}
+
+	// Stamp the acting user (Slice E). A new row's updated_by mirrors
+	// created_by -- the creator is also its most recent editor -- so the
+	// column is meaningful from the first write, not just after an update.
+	actor := actorArg(ctx)
+	cols = append(cols, "created_by", "updated_by")
+	placeholders = append(placeholders, "?", "?")
+	args = append(args, actor, actor)
 
 	query := fmt.Sprintf(
 		"INSERT INTO %s (%s) VALUES (%s) RETURNING %s",
@@ -204,7 +243,7 @@ func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, sub
 // only the columns present in values (plus geom, if geometry is
 // non-empty) are touched. Always sets updated_at, since the physical
 // table has no trigger to do it automatically yet.
-func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string, geometry []byte, name *string, values map[string]any) (map[string]any, error) {
+func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string, geometry []byte, name *string, territoryID *string, assignTerritory bool, values map[string]any) (map[string]any, error) {
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
 		return nil, err
@@ -216,6 +255,21 @@ func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 	if len(geometry) > 0 {
 		sets = append(sets, fmt.Sprintf("geom = ST_SetSRID(ST_GeomFromGeoJSON(?), %d)", *loaded.FeatureClass.SRID))
 		args = append(args, string(geometry))
+	}
+
+	// Re-assign the territory (Phase 11) only when the caller resolved a new
+	// one -- either an explicit override or a geometry change. assignTerritory
+	// distinguishes "recompute to this value (possibly NULL)" from "don't
+	// touch the existing assignment," which a bare nil pointer can't. Counted
+	// as a real change so a territory-only PATCH doesn't trip the
+	// nothing-to-change guard below.
+	if assignTerritory {
+		if territoryID != nil {
+			sets = append(sets, "territory_id = ?")
+			args = append(args, *territoryID)
+		} else {
+			sets = append(sets, "territory_id = NULL")
+		}
 	}
 
 	if name != nil {
@@ -235,6 +289,12 @@ func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 		return nil, invalid("update body has no recognized fields to change")
 	}
 	sets = append(sets, "updated_at = now()")
+
+	// Stamp the editor (Slice E). Appended after the "nothing to change"
+	// guard above so a no-op update still 400s rather than counting the
+	// actor stamp as a change; created_by is left untouched.
+	sets = append(sets, "updated_by = ?")
+	args = append(args, actorArg(ctx))
 
 	args = append(args, id)
 	query := fmt.Sprintf(
