@@ -8,6 +8,7 @@ import { FormDialog } from "@/components/admin/form-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { usePermission } from "@/hooks/use-auth"
 import { type AdminFeatureClassSummary, useAdminFeatureClasses } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
@@ -24,8 +25,9 @@ const labelClass = "text-xs font-medium"
  * included here too since this form only ever renders for a row whose
  * status is already confirmed draft (see the "Edit" button below,
  * which doesn't render otherwise) -- an already-compiled class edits
- * name/is_diagram_container only, via the same PATCH endpoint, just
- * without this row ever being reachable for the other three.
+ * its two diagram flags via the detail page's "Diagram settings" section
+ * (admin-feature-class-detail.tsx), the same PATCH endpoint, just without
+ * this row ever being reachable for geometry_type/srid/network_role.
  */
 function EditFeatureClassRow({
   fc,
@@ -38,6 +40,7 @@ function EditFeatureClassRow({
 }) {
   const [name, setName] = useState(fc.name)
   const [isDiagramContainer, setIsDiagramContainer] = useState(fc.is_diagram_container)
+  const [isDiagramPlaceable, setIsDiagramPlaceable] = useState(fc.is_diagram_placeable)
   const [geometryType, setGeometryType] = useState<(typeof GEOMETRY_TYPES)[number]>(
     fc.geometry_type as (typeof GEOMETRY_TYPES)[number],
   )
@@ -51,6 +54,7 @@ function EditFeatureClassRow({
   function close() {
     setName(fc.name)
     setIsDiagramContainer(fc.is_diagram_container)
+    setIsDiagramPlaceable(fc.is_diagram_placeable)
     setGeometryType(fc.geometry_type as (typeof GEOMETRY_TYPES)[number])
     setSrid(fc.srid ?? 4326)
     setNetworkRole(fc.network_role as (typeof NETWORK_ROLES)[number])
@@ -67,6 +71,7 @@ function EditFeatureClassRow({
         body: JSON.stringify({
           name: name.trim(),
           is_diagram_container: isDiagramContainer,
+          is_diagram_placeable: isDiagramPlaceable,
           geometry_type: geometryType,
           srid: geometryType === "none" ? null : srid,
           network_role: networkRole,
@@ -129,6 +134,10 @@ function EditFeatureClassRow({
         <input type="checkbox" checked={isDiagramContainer} onChange={(e) => setIsDiagramContainer(e.target.checked)} />
         Can host a one-line/schematic diagram (is_diagram_container)
       </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={isDiagramPlaceable} onChange={(e) => setIsDiagramPlaceable(e.target.checked)} />
+        Can be placed on a diagram (is_diagram_placeable)
+      </label>
     </FormDialog>
   )
 }
@@ -140,10 +149,10 @@ function EditFeatureClassRow({
  * a draft class -- the exact same api/internal/compiler.Compile the CLI
  * has always called, just reachable without a terminal now. "Edit" and
  * "Delete" are offered inline too, but only for a draft row -- an
- * already-compiled class can only have its name/is_diagram_container
- * touched (via the same edit form reached a different way, not built
- * here yet) and can never be deleted through this UI at all, per
- * api/internal/admin/update.go and delete.go's own scope. Adding a
+ * already-compiled class can only have its two diagram flags touched
+ * (via the detail page's "Diagram settings" section) and can never be
+ * deleted through this UI at all, per api/internal/admin/update.go and
+ * delete.go's own scope. Adding a
  * subtype or a field, and seeing a class's full field/domain picture,
  * both moved to the detail page (admin-feature-class-detail.tsx,
  * reached via the row's "View" button) -- this table only ever showed
@@ -152,6 +161,13 @@ function EditFeatureClassRow({
 export function AdminFeatureClassesPage() {
   const { data, isPending, isError } = useAdminFeatureClasses()
   const queryClient = useQueryClient()
+  // Every mutating control here hits an /admin route the server gates on
+  // metadata:write (main.go), a permission only admin/break-glass hold.
+  // metadata:read alone opens this page (app-sidebar.tsx), so without this
+  // gate a viewer/analyst/editor would see Edit/Compile/etc. and only learn
+  // they can't on a 403. Match the UI to what enforcement will actually
+  // allow -- read-only roles get a clean view-only catalog.
+  const canWrite = usePermission()("metadata:write")
   const [compiling, setCompiling] = useState<string | null>(null)
   const [editingCode, setEditingCode] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminFeatureClassSummary | null>(null)
@@ -162,6 +178,7 @@ export function AdminFeatureClassesPage() {
       await apiFetch(`/admin/feature-classes/${code}/compile`, { method: "POST" })
       queryClient.invalidateQueries({ queryKey: ["admin", "feature-classes"] })
       queryClient.invalidateQueries({ queryKey: ["feature-classes"] })
+      useToastStore.getState().pushSuccess(`Compiled ${code}.`)
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not compile this class.")
     } finally {
@@ -180,12 +197,14 @@ export function AdminFeatureClassesPage() {
               fields, terminals) without writing SQL.
             </p>
           </div>
-          <Button size="sm" asChild>
-            <Link to="/admin/feature-classes/new">
-              <Plus className="size-4" />
-              New feature class
-            </Link>
-          </Button>
+          {canWrite && (
+            <Button size="sm" asChild>
+              <Link to="/admin/feature-classes/new">
+                <Plus className="size-4" />
+                New feature class
+              </Link>
+            </Button>
+          )}
         </div>
 
         {editingCode && data && (
@@ -229,6 +248,11 @@ export function AdminFeatureClassesPage() {
                           diagram container
                         </Badge>
                       )}
+                      {fc.is_diagram_placeable && (
+                        <Badge variant="outline" className="ml-2">
+                          diagram placeable
+                        </Badge>
+                      )}
                     </td>
                     <td className="px-3 py-2">{fc.geometry_type}</td>
                     <td className="px-3 py-2">{fc.network_role}</td>
@@ -246,7 +270,7 @@ export function AdminFeatureClassesPage() {
                             <Eye className="size-4" />
                           </Link>
                         </Button>
-                        {fc.status === "draft" && (
+                        {canWrite && fc.status === "draft" && (
                           <>
                             <Button variant="ghost" size="icon" className="size-8" onClick={() => setEditingCode(fc.code)}>
                               <Pencil className="size-4" />
@@ -261,15 +285,17 @@ export function AdminFeatureClassesPage() {
                             </Button>
                           </>
                         )}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleCompile(fc.code)}
-                          disabled={compiling === fc.code}
-                        >
-                          {compiling === fc.code && <Loader2 className="size-4 animate-spin" />}
-                          {fc.status === "draft" ? "Compile" : "Recompile"}
-                        </Button>
+                        {canWrite && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleCompile(fc.code)}
+                            disabled={compiling === fc.code}
+                          >
+                            {compiling === fc.code && <Loader2 className="size-4 animate-spin" />}
+                            {fc.status === "draft" ? "Compile" : "Recompile"}
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>

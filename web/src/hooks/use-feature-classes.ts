@@ -8,6 +8,7 @@ export interface FeatureClassSummary {
   geometry_type: string
   network_role: string
   is_diagram_container: boolean
+  is_diagram_placeable: boolean
 }
 
 interface FeatureClassesResponse {

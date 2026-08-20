@@ -1,11 +1,14 @@
-import { ArrowDown, ArrowUp } from "lucide-react"
+import { ArrowDown, ArrowUp, Download, Search, Upload } from "lucide-react"
 
 import { AmpacityPanel } from "@/components/map/ampacity-panel"
 import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
 import { DiagramCanvas } from "@/components/map/diagram-canvas"
+import { ExportDialog } from "@/components/map/export-dialog"
 import { FaultCurrentPanel } from "@/components/map/fault-current-panel"
 import { FeaturePanel } from "@/components/map/feature-panel"
-import { FeatureSearch } from "@/components/map/feature-search"
+import { FeatureQueryPanel } from "@/components/map/feature-query-panel"
+import { ImportDialog } from "@/components/map/import-dialog"
+import { ImportedFeaturePopup } from "@/components/map/imported-feature-popup"
 import { GeometryEditToolbar } from "@/components/map/geometry-edit-toolbar"
 import { IsolationResultTable } from "@/components/map/isolation-result-table"
 import { LayersPanel } from "@/components/map/layers-panel"
@@ -18,22 +21,50 @@ import { TerritoryEditToolbar } from "@/components/map/territory-edit-toolbar"
 import { TerritoryPanel } from "@/components/map/territory-panel"
 import { TraceResultTable } from "@/components/map/trace-result-table"
 import { VoltEdgeMap } from "@/components/map/voltedge-map"
+import { Button } from "@/components/ui/button"
 import { useDiagramInstance } from "@/hooks/use-diagrams"
 import { cn } from "@/lib/utils"
 import { type DiagramPane, useDiagramStore } from "@/stores/diagram-store"
+import { useExportStore } from "@/stores/export-store"
+import { useImportStore } from "@/stores/import-store"
+import { useQueryStore } from "@/stores/query-store"
 
 export function MapPage() {
   const topTabs = useDiagramStore((s) => s.panes.top)
   const bottomTabs = useDiagramStore((s) => s.panes.bottom)
   const diagramOpen = topTabs.length > 0 || bottomTabs.length > 0
   const split = topTabs.length > 0 && bottomTabs.length > 0
+  const queryOpen = useQueryStore((s) => s.open)
 
   return (
     <div className="flex h-full w-full flex-col">
       <div className="flex min-h-0 flex-1">
         <div className="relative min-h-0 flex-1">
           <div className="pointer-events-auto absolute top-3 right-3 z-10 flex items-center gap-2">
-            <FeatureSearch />
+            <Button
+              variant={queryOpen ? "default" : "secondary"}
+              size="sm"
+              className="shadow-sm"
+              onClick={() => useQueryStore.getState().toggle()}
+            >
+              <Search className="size-3.5" /> Query
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="shadow-sm"
+              onClick={() => useImportStore.getState().openDialog()}
+            >
+              <Upload className="size-3.5" /> Import
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="shadow-sm"
+              onClick={() => useExportStore.getState().openDialog()}
+            >
+              <Download className="size-3.5" /> Export
+            </Button>
             <MeasureToolbar />
             <NewFeatureMenu />
             <LayersPanel />
@@ -47,6 +78,10 @@ export function MapPage() {
           </div>
         )}
       </div>
+      {queryOpen && <FeatureQueryPanel />}
+      <ExportDialog />
+      <ImportDialog />
+      <ImportedFeaturePopup />
       <PeerPicker />
       <FeaturePanel />
       <TerritoryPanel />

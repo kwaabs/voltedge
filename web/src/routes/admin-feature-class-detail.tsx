@@ -12,12 +12,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import {
+  type AdminFeatureClassSummary,
   type AdminSymbologyRule,
   useAdminDomains,
   useAdminFeatureClasses,
   useAdminFieldGroups,
   useSymbologyRules,
 } from "@/hooks/use-admin"
+import { usePermission } from "@/hooks/use-auth"
 import { useFeatureClassRules } from "@/hooks/use-feature-class-rules"
 import { type FeatureClassSchema, type FieldSchema, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
@@ -940,6 +942,8 @@ function SymbologySection({ code, schema }: { code: string; schema: FeatureClass
   const { data, isPending, isError } = useSymbologyRules(code)
   const icons = useSymbologyIcons()
   const queryClient = useQueryClient()
+  // Add/edit/duplicate/delete a rule are all metadata:write on the server.
+  const canWrite = usePermission()("metadata:write")
   const [adding, setAdding] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   // The rule a "Duplicate" click seeds a new-rule form from -- distinct
@@ -951,18 +955,20 @@ function SymbologySection({ code, schema }: { code: string; schema: FeatureClass
     <>
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold">Symbology</h2>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            setEditingId(null)
-            setDuplicateSource(null)
-            setAdding(true)
-          }}
-        >
-          <Plus className="size-4" />
-          Add rule
-        </Button>
+        {canWrite && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setEditingId(null)
+              setDuplicateSource(null)
+              setAdding(true)
+            }}
+          >
+            <Plus className="size-4" />
+            Add rule
+          </Button>
+        )}
       </div>
 
       {adding && <RuleForm code={code} schema={schema} onDone={() => setAdding(false)} />}
@@ -1011,40 +1017,44 @@ function SymbologySection({ code, schema }: { code: string; schema: FeatureClass
                       {r.render_context} · {styleSummary(schema.geometry_type as SwatchGeometry, r.style_def)}
                     </p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7"
-                    title="Edit"
-                    onClick={() => {
-                      setAdding(false)
-                      setDuplicateSource(null)
-                      setEditingId(r.id)
-                    }}
-                  >
-                    <Pencil className="size-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7"
-                    title="Duplicate"
-                    onClick={() => {
-                      setAdding(false)
-                      setEditingId(null)
-                      setDuplicateSource(r)
-                    }}
-                  >
-                    <Copy className="size-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-destructive size-7"
-                    onClick={() => setDeleteTarget(r)}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
+                  {canWrite && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        title="Edit"
+                        onClick={() => {
+                          setAdding(false)
+                          setDuplicateSource(null)
+                          setEditingId(r.id)
+                        }}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        title="Duplicate"
+                        onClick={() => {
+                          setAdding(false)
+                          setEditingId(null)
+                          setDuplicateSource(r)
+                        }}
+                      >
+                        <Copy className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive size-7"
+                        onClick={() => setDeleteTarget(r)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </>
+                  )}
                 </CardHeader>
               </Card>
             ),
@@ -1069,6 +1079,101 @@ function SymbologySection({ code, schema }: { code: string; schema: FeatureClass
 }
 
 /**
+ * Edit this class's two pure-metadata diagram flags -- whether it can
+ * host a one-line/schematic diagram (is_diagram_container) and whether
+ * its features can be placed onto one (is_diagram_placeable). Both are
+ * safe to change at ANY status: api/internal/admin/update.go treats them
+ * as metadata with no physical-table footprint (only geometry/srid/
+ * network_role are draft-gated there). That's exactly why this lives on
+ * the always-available detail page rather than only in the draft-only
+ * inline edit form on the list page -- an already-compiled class had no
+ * other UI path to toggle them. PATCHes the same
+ * /admin/feature-classes/{code} endpoint, sending only the two flags.
+ */
+function DiagramSettingsForm({ summary, onDone }: { summary: AdminFeatureClassSummary; onDone: () => void }) {
+  const [isDiagramContainer, setIsDiagramContainer] = useState(summary.is_diagram_container)
+  const [isDiagramPlaceable, setIsDiagramPlaceable] = useState(summary.is_diagram_placeable)
+  const [saving, setSaving] = useState(false)
+  const queryClient = useQueryClient()
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      await apiFetch(`/admin/feature-classes/${summary.code}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          is_diagram_container: isDiagramContainer,
+          is_diagram_placeable: isDiagramPlaceable,
+        }),
+      })
+      // Refresh both the admin catalog (this page's own summary/badges) and
+      // the map's active-only list, since placement eligibility changed.
+      queryClient.invalidateQueries({ queryKey: ["admin", "feature-classes"] })
+      queryClient.invalidateQueries({ queryKey: ["feature-classes"] })
+      onDone()
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not update diagram settings.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title={`Diagram settings — ${summary.code}`}
+      onSubmit={handleSave}
+      submitLabel="Save"
+      canSubmit
+      saving={saving}
+    >
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={isDiagramContainer} onChange={(e) => setIsDiagramContainer(e.target.checked)} />
+        Can host a one-line/schematic diagram (is_diagram_container)
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={isDiagramPlaceable} onChange={(e) => setIsDiagramPlaceable(e.target.checked)} />
+        Can be placed on a diagram (is_diagram_placeable)
+      </label>
+    </FormDialog>
+  )
+}
+
+/**
+ * The always-available home for a class's diagram flags -- shows their
+ * current state as badges and, for a writer, an Edit affordance that
+ * works regardless of compile status (unlike the list page's inline
+ * edit, which only ever renders for a draft row). See DiagramSettingsForm.
+ */
+function DiagramSettingsSection({ summary, canWrite }: { summary: AdminFeatureClassSummary; canWrite: boolean }) {
+  const [editing, setEditing] = useState(false)
+
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold">Diagram settings</h2>
+        {canWrite && (
+          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+            <Pencil className="size-4" />
+            Edit
+          </Button>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Badge variant={summary.is_diagram_container ? "success" : "outline"}>
+          {summary.is_diagram_container ? "Hosts diagrams" : "Not a diagram container"}
+        </Badge>
+        <Badge variant={summary.is_diagram_placeable ? "success" : "outline"}>
+          {summary.is_diagram_placeable ? "Placeable on diagrams" : "Not diagram-placeable"}
+        </Badge>
+      </div>
+      {editing && <DiagramSettingsForm summary={summary} onDone={() => setEditing(false)} />}
+    </>
+  )
+}
+
+/**
  * A single feature class's full picture -- fields (with resolved
  * domain info), subtypes, terminals -- reusing the exact same
  * GET /feature-classes/{code}/schema response the map's own create/
@@ -1082,6 +1187,9 @@ export function AdminFeatureClassDetailPage() {
   const { data: classesData } = useAdminFeatureClasses()
   const { data: schema, isPending, isError } = useFeatureClassSchema(code)
   const queryClient = useQueryClient()
+  // Compile and every subtype/field add/edit here are metadata:write on the
+  // server; this page opens on metadata:read, so gate the write controls.
+  const canWrite = usePermission()("metadata:write")
   const [compiling, setCompiling] = useState(false)
   const [addingSubtype, setAddingSubtype] = useState(false)
   const [addingField, setAddingField] = useState(false)
@@ -1096,6 +1204,7 @@ export function AdminFeatureClassDetailPage() {
       await apiFetch(`/admin/feature-classes/${code}/compile`, { method: "POST" })
       queryClient.invalidateQueries({ queryKey: ["admin", "feature-classes"] })
       queryClient.invalidateQueries({ queryKey: ["feature-classes"] })
+      useToastStore.getState().pushSuccess(`Compiled ${code}.`)
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not compile this class.")
     } finally {
@@ -1140,18 +1249,24 @@ export function AdminFeatureClassDetailPage() {
                   )}
                 </p>
               </div>
-              <Button size="sm" variant="outline" onClick={handleCompile} disabled={compiling}>
-                {compiling && <Loader2 className="size-4 animate-spin" />}
-                {summary?.status === "draft" ? "Compile" : "Recompile"}
-              </Button>
+              {canWrite && (
+                <Button size="sm" variant="outline" onClick={handleCompile} disabled={compiling}>
+                  {compiling && <Loader2 className="size-4 animate-spin" />}
+                  {summary?.status === "draft" ? "Compile" : "Recompile"}
+                </Button>
+              )}
             </div>
+
+            {summary && <DiagramSettingsSection summary={summary} canWrite={canWrite} />}
 
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Subtypes</h2>
-              <Button variant="ghost" size="sm" onClick={() => setAddingSubtype(true)}>
-                <Plus className="size-4" />
-                Add subtype
-              </Button>
+              {canWrite && (
+                <Button variant="ghost" size="sm" onClick={() => setAddingSubtype(true)}>
+                  <Plus className="size-4" />
+                  Add subtype
+                </Button>
+              )}
             </div>
             {addingSubtype && (
               <AddSubtypeRow code={code} subtypes={schema.subtypes} onDone={() => setAddingSubtype(false)} />
@@ -1170,17 +1285,19 @@ export function AdminFeatureClassDetailPage() {
 
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Fields</h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setEditingFieldName(null)
-                  setAddingField(true)
-                }}
-              >
-                <ListPlus className="size-4" />
-                Add field
-              </Button>
+              {canWrite && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setEditingFieldName(null)
+                    setAddingField(true)
+                  }}
+                >
+                  <ListPlus className="size-4" />
+                  Add field
+                </Button>
+              )}
             </div>
             {addingField && (
               <AddFieldRow code={code} subtypes={schema.subtypes} onDone={() => setAddingField(false)} />
@@ -1226,18 +1343,20 @@ export function AdminFeatureClassDetailPage() {
                             : "—"}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7"
-                            title="Edit"
-                            onClick={() => {
-                              setAddingField(false)
-                              setEditingFieldName(f.name)
-                            }}
-                          >
-                            <Pencil className="size-3.5" />
-                          </Button>
+                          {canWrite && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7"
+                              title="Edit"
+                              onClick={() => {
+                                setAddingField(false)
+                                setEditingFieldName(f.name)
+                              }}
+                            >
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          )}
                         </td>
                       </tr>
                     ))}

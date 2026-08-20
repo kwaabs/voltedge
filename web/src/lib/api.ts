@@ -65,3 +65,39 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
+
+/**
+ * The binary sibling of apiFetch: POSTs a JSON body to an endpoint that streams
+ * a file rather than JSON (the geographic export, docs/phase-14-export.md). It
+ * replays the same same-origin cookies + double-submit CSRF header apiFetch
+ * uses (a raw fetch would 403 without it), then -- on success -- returns the
+ * response as a Blob together with the filename the server set in
+ * Content-Disposition, so the caller saves it under the right name. A failing
+ * response is still JSON (`{error}`, sent before any file bytes), so it's
+ * decoded into an ApiError exactly like apiFetch.
+ */
+export async function postForBlob(path: string, body: unknown): Promise<{ blob: Blob; filename: string }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  const csrf = readCookie(CSRF_COOKIE)
+  if (csrf) headers["X-CSRF-Token"] = csrf
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers,
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new ApiError(res.status, err.error ?? res.statusText)
+  }
+  return { blob: await res.blob(), filename: filenameFromDisposition(res.headers.get("Content-Disposition")) }
+}
+
+/** Pulls the filename out of a `Content-Disposition: attachment; filename="..."`
+ *  header, empty string if absent so the caller can fall back to its own name. */
+function filenameFromDisposition(header: string | null): string {
+  if (!header) return ""
+  const match = /filename="?([^"]+)"?/.exec(header)
+  return match ? match[1] : ""
+}

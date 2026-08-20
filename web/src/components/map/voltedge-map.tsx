@@ -23,7 +23,7 @@ import Map from "ol/Map"
 import type MapBrowserEvent from "ol/MapBrowserEvent"
 import { unByKey } from "ol/Observable"
 import Overlay from "ol/Overlay"
-import { fromLonLat, toLonLat } from "ol/proj"
+import { fromLonLat, toLonLat, transformExtent } from "ol/proj"
 import { toFeature } from "ol/render/Feature"
 import type TileSource from "ol/source/Tile"
 import VectorSource from "ol/source/Vector"
@@ -49,6 +49,7 @@ import {
   editStyleForFeature,
   type HighlightRole,
   highlightStyleForFeature,
+  importedStyleForFeature,
   territoryStyleForFeature,
 } from "@/lib/map-layers"
 import { featureClassSourceIds, tileUrlTemplate } from "@/lib/martin"
@@ -56,16 +57,21 @@ import { formatArea, formatLength } from "@/lib/measure"
 import { useBasemapStore } from "@/stores/basemap-store"
 import { useConnectStore } from "@/stores/connect-store"
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
+import { useDiagramPlaceStore } from "@/stores/diagram-place-store"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
 import { useFaultCurrentStore } from "@/stores/fault-current-store"
+import { useImportedFeatureStore } from "@/stores/imported-feature-store"
+import { useImportedOverlaysStore } from "@/stores/imported-overlays-store"
 import { useIsolateStore } from "@/stores/isolate-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useLoadFlowStore } from "@/stores/load-flow-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
+import { type Bbox4326, useMapViewStore } from "@/stores/map-view-store"
 import { useMeasureStore } from "@/stores/measure-store"
 import { useOrthoStore } from "@/stores/ortho-store"
+import { useQueryStore } from "@/stores/query-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useSnapStore } from "@/stores/snap-store"
 import { type TerritoryGeometry, useTerritoryEditStore } from "@/stores/territory-edit-store"
@@ -287,6 +293,14 @@ export function VoltEdgeMap() {
   // backdrop, never covering the features it contains.
   const territorySourceRef = useRef<VectorSource | null>(null)
   const territoryLayerRef = useRef<VectorLayer | null>(null)
+  // The imported-overlay layer (Phase 15 data import) -- one client-side
+  // VectorLayer/VectorSource pair holding every visible imported overlay's
+  // features (amber/dashed, see importedStyleForFeature), kept in refs so the
+  // population effect below can repopulate/toggle it as overlays are
+  // added/removed/hidden without rebuilding the map. Read-only reference data,
+  // never written to the DB.
+  const importedSourceRef = useRef<VectorSource | null>(null)
+  const importedLayerRef = useRef<VectorLayer | null>(null)
   // The single OL Feature holding the MultiPolygon boundary currently
   // under authoring (Phase 11 Slice I) -- its own source/layer, kept
   // above the overlay so the in-progress boundary reads distinctly. The
@@ -328,6 +342,13 @@ export function VoltEdgeMap() {
   // again: own async-fetched source, mutually exclusive with the other
   // three analysis workflows so none race each other's clear/populate.
   const faultCurrentSourceRef = useRef<VectorSource | null>(null)
+  // Query-builder matches (query-store.ts, docs/phase-13-query-builder.md)
+  // -- its own dedicated source, same reasoning as the analysis sources
+  // above. Unlike them it's populated synchronously (the query response
+  // already carries each match's geometry, so there's no per-feature
+  // re-fetch), but it still gets its own source so it never clobbers, or
+  // is clobbered by, the sync selected/connect halo on highlightSource.
+  const queryResultSourceRef = useRef<VectorSource | null>(null)
   // Snap candidates -- never added to the map as a rendered layer, just
   // a plain VectorSource for the Snap interaction below to read (see
   // refreshSnapSource for why this indirection is needed at all: every
@@ -369,6 +390,10 @@ export function VoltEdgeMap() {
   const connectMode = useConnectStore((s) => s.mode)
   const connectSource = useConnectStore((s) => s.source)
   const connectTarget = useConnectStore((s) => s.target)
+  // Phase 12: while a diagram's "Add from map" pick is armed, the map is
+  // the picker -- see the click handler's own diagram-place block and
+  // the Escape effect below.
+  const diagramPlacePhase = useDiagramPlaceStore((s) => s.phase)
   const editing = useEditStore((s) => s.editing)
   const geometryTool = useEditStore((s) => s.geometryTool)
   const deletedIds = useDeletedFeaturesStore((s) => s.ids)
@@ -378,6 +403,7 @@ export function VoltEdgeMap() {
   const isolateResult = useIsolateStore((s) => s.result)
   const loadFlowResult = useLoadFlowStore((s) => s.result)
   const faultCurrentResult = useFaultCurrentStore((s) => s.result)
+  const queryResults = useQueryStore((s) => s.results)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
   const selected = useSelectionStore((s) => s.selected)
@@ -386,6 +412,7 @@ export function VoltEdgeMap() {
   const units = useUnitsStore((s) => s.units)
   const territoryOverlayVisible = useTerritoryOverlayStore((s) => s.visible)
   const territoryHiddenLevels = useTerritoryOverlayStore((s) => s.hiddenLevels)
+  const importedOverlays = useImportedOverlaysStore((s) => s.overlays)
   const territoryEditing = useTerritoryEditStore((s) => s.editing)
   const territoryEditTool = useTerritoryEditStore((s) => s.tool)
   const territoryEditCleared = useTerritoryEditStore((s) => s.cleared)
@@ -480,12 +507,19 @@ export function VoltEdgeMap() {
       if (
         useDrawStore.getState().drawingFeatureClassCode ||
         useConnectStore.getState().mode ||
+        useDiagramPlaceStore.getState().phase === "picking" ||
         useTerritoryEditStore.getState().tool === "draw"
       ) {
         target.style.cursor = "crosshair"
         return
       }
-      const hasFeature = map.hasFeatureAtPixel(evt.pixel, { layerFilter: isVectorLayer, hitTolerance: 5 })
+      // Imported overlay features (Phase 15) are clickable too (they open the
+      // read-only attribute popup), so the pointer cursor covers them as well
+      // as the DB feature tiles.
+      const hasFeature = map.hasFeatureAtPixel(evt.pixel, {
+        layerFilter: (l) => isVectorLayer(l) || l === importedLayerRef.current,
+        hitTolerance: 5,
+      })
       target.style.cursor = hasFeature ? "pointer" : ""
     })
     map.getTargetElement().addEventListener("mouseleave", clearPosition)
@@ -508,6 +542,19 @@ export function VoltEdgeMap() {
     map.addLayer(territoryLayer)
     territorySourceRef.current = territorySource
     territoryLayerRef.current = territoryLayer
+
+    // The imported-overlay layer (Phase 15) -- a single client-side
+    // VectorLayer holding every visible imported overlay's features, at
+    // zIndex 4 so it draws above the feature tiles and territory overlay
+    // (both zIndex 0) but below the selection/analysis highlights (zIndex 5+),
+    // which must never be hidden behind a reference layer. Same
+    // clear-and-repopulate pattern as the sources below; the population effect
+    // owns its contents.
+    const importedSource = new VectorSource()
+    const importedLayer = new VectorLayer({ source: importedSource, style: importedStyleForFeature, zIndex: 4 })
+    map.addLayer(importedLayer)
+    importedSourceRef.current = importedSource
+    importedLayerRef.current = importedLayer
 
     // The boundary currently under authoring (Phase 11 Slice I) -- reuses
     // editStyleForFeature (its default branch is the polygon/multipolygon
@@ -579,6 +626,14 @@ export function VoltEdgeMap() {
     map.addLayer(faultCurrentLayer)
     faultCurrentSourceRef.current = faultCurrentSource
 
+    // Query-builder matches (see the effect below and query-store.ts) --
+    // same style function and zIndex as the analysis layers; its "query-result"
+    // role gives it its own color (see HIGHLIGHT_COLORS).
+    const queryResultSource = new VectorSource()
+    const queryResultLayer = new VectorLayer({ source: queryResultSource, style: highlightStyleForFeature, zIndex: 6 })
+    map.addLayer(queryResultLayer)
+    queryResultSourceRef.current = queryResultSource
+
     // The one feature currently under geometry edit (see
     // editStyleForFeature) -- above the highlight layer so its cyan
     // isn't washed out underneath a selected halo, below the draft
@@ -608,6 +663,19 @@ export function VoltEdgeMap() {
       refreshSnapSource(map, vectorLayersRef.current, snapSource)
     })
 
+    // Publish the current viewport as a 4326 bbox for the export dialog (the
+    // only reader) -- the view is 3857, so transform the calculated extent to
+    // lon/lat. Kept fresh on every pan/zoom, plus once after the first render
+    // so a bbox exists before the user ever moves the map.
+    const pushViewBbox = () => {
+      const size = map.getSize()
+      if (!size) return
+      const extent = transformExtent(map.getView().calculateExtent(size), "EPSG:3857", "EPSG:4326")
+      useMapViewStore.getState().setBbox(extent as Bbox4326)
+    }
+    map.on("moveend", pushViewBbox)
+    map.once("rendercomplete", pushViewBbox)
+
     return () => {
       resizeObserver.disconnect()
       map.getTargetElement()?.removeEventListener("mouseleave", clearPosition)
@@ -624,6 +692,7 @@ export function VoltEdgeMap() {
       isolateSourceRef.current = null
       loadFlowSourceRef.current = null
       faultCurrentSourceRef.current = null
+      queryResultSourceRef.current = null
       editSourceRef.current = null
       snapSourceRef.current = null
     }
@@ -828,6 +897,19 @@ export function VoltEdgeMap() {
     document.addEventListener("keydown", handleEscape)
     return () => document.removeEventListener("keydown", handleEscape)
   }, [connectMode])
+
+  // Escape also cancels an armed diagram-place pick (Phase 12) at either
+  // step -- while picking on the map, or once a feature is armed and
+  // waiting on a place-click in the diagram canvas -- same affordance the
+  // connect workflow above gets.
+  useEffect(() => {
+    if (diagramPlacePhase === "idle") return
+    const handleEscape = (evt: KeyboardEvent) => {
+      if (evt.key === "Escape") useDiagramPlaceStore.getState().cancel()
+    }
+    document.addEventListener("keydown", handleEscape)
+    return () => document.removeEventListener("keydown", handleEscape)
+  }, [diagramPlacePhase])
 
   // Escape also cancels an already-placed draft waiting on
   // feature-create-form.tsx -- one step later than the drawing-in-progress
@@ -1154,6 +1236,29 @@ export function VoltEdgeMap() {
     }
   }, [faultCurrentResult])
 
+  // Query-builder matches (see query-store.ts and feature-query-panel.tsx).
+  // Unlike the four analysis effects above this one is fully synchronous:
+  // each match's geometry already rides along in the query response
+  // (selectColumns' geom_json, see docs/phase-13-query-builder.md), so
+  // there's nothing to fetch -- it just reads the rows and repaints the
+  // dedicated queryResultSource, every match tagged "query-result".
+  useEffect(() => {
+    const source = queryResultSourceRef.current
+    if (!source) return
+
+    source.clear()
+    if (!queryResults) return
+
+    for (const row of queryResults) {
+      if (!row.geometry) continue
+      const olGeometry = geoJSONToGeometry(row.geometry)
+      if (!olGeometry) continue
+      const feature = new Feature(olGeometry)
+      feature.set("role", "query-result")
+      source.addFeature(feature)
+    }
+  }, [queryResults])
+
   // Pans/zooms to a feature selected from a connection/relationship
   // list row (feature-panel.tsx) rather than a direct map click -- see
   // selection-store.ts's focusToken for why a click doesn't also do
@@ -1440,6 +1545,51 @@ export function VoltEdgeMap() {
       // A click on empty space is still ignored (Escape is the only way
       // to cancel) rather than treated as "clear," so an imprecise click
       // doesn't silently abandon the workflow.
+      // A click while a diagram's "Add from map" pick is armed (Phase 12,
+      // diagram-place-store.ts) picks that feature for the diagram instead
+      // of changing the normal selection -- the map is the palette. Same
+      // stacked-feature disambiguation every other click gets: one hit is
+      // handed straight to the store's `pick` (the owning canvas then
+      // validates + arms it), several land in the peer picker (which
+      // routes to `pick` while this phase is active). A click on empty
+      // space is ignored, not treated as "clear," so an imprecise click
+      // doesn't silently abandon the pick -- Escape is the way out.
+      const placeState = useDiagramPlaceStore.getState()
+      if (placeState.phase === "picking") {
+        const pickHits: { code: string; id: string }[] = []
+        const seenPicks = new Set<string>()
+
+        map.forEachFeatureAtPixel(
+          evt.pixel,
+          (feature, layer) => {
+            const sourceId = layer?.get("sourceId") as string | undefined
+            const id = feature.get("id") as string | undefined
+            const code = sourceId ? codeBySourceId.get(sourceId) : undefined
+            if (code && id) {
+              const key = `${code}:${id}`
+              if (!seenPicks.has(key)) {
+                seenPicks.add(key)
+                pickHits.push({ code, id })
+              }
+            }
+            return undefined
+          },
+          { layerFilter: isVectorLayer, hitTolerance: 5 },
+        )
+
+        if (pickHits.length === 1) {
+          placeState.pick({ featureClassCode: pickHits[0].code, featureId: pickHits[0].id })
+        } else if (pickHits.length > 1) {
+          const { clientX, clientY } = evt.originalEvent as PointerEvent
+          useSelectionStore.getState().showCandidates(
+            pickHits.map((hit) => ({ featureClassCode: hit.code, featureId: hit.id })),
+            { x: clientX, y: clientY },
+            { clearSelected: false },
+          )
+        }
+        return
+      }
+
       const connectState = useConnectStore.getState()
       if (connectState.mode && !connectState.target) {
         const targetHits: { code: string; id: string }[] = []
@@ -1475,6 +1625,45 @@ export function VoltEdgeMap() {
         }
         return
       }
+
+      // An imported overlay feature (Phase 15) is a read-only reference layer
+      // drawn on top of the DB feature tiles (zIndex 4). A click on one shows
+      // its attributes in a lightweight popup (imported-feature-popup.tsx)
+      // rather than the DB-coupled FeaturePanel it can't use. Hit-tested on its
+      // own layer -- a plain VectorLayer, so it's excluded from the isVectorLayer
+      // filter every DB hit-test uses -- and, being the topmost thing under the
+      // cursor, it wins the click. The features were tagged with their source
+      // overlay's id/name in the population effect; the geometry and those
+      // internal tags are stripped so only the file's own attributes show.
+      const importedLayer = importedLayerRef.current
+      if (importedLayer && importedLayer.getVisible()) {
+        let importedHit: Feature | null = null
+        map.forEachFeatureAtPixel(
+          evt.pixel,
+          (feature) => {
+            importedHit = feature as Feature
+            return true
+          },
+          { layerFilter: (l) => l === importedLayer, hitTolerance: 5 },
+        )
+        if (importedHit) {
+          const props = { ...importedHit.getProperties() }
+          delete props.geometry
+          const overlayName = (props.__overlayName as string | undefined) ?? "Imported overlay"
+          delete props.__overlayId
+          delete props.__overlayName
+          const { clientX, clientY } = evt.originalEvent as PointerEvent
+          useImportedFeatureStore.getState().show({
+            overlayName,
+            properties: props,
+            position: { x: clientX, y: clientY },
+          })
+          return
+        }
+      }
+      // Any other click dismisses an open imported-feature popup (the branches
+      // below then run their normal DB selection / territory / clear logic).
+      useImportedFeatureStore.getState().clear()
 
       const hits: { code: string; id: string }[] = []
       const seen = new Set<string>()
@@ -1618,6 +1807,31 @@ export function VoltEdgeMap() {
       ),
     )
   }, [territoryOverlayVisible, territoryBoundaries, territoryHiddenLevels])
+
+  // Imported overlays (Phase 15) -- repopulate the single imported layer from
+  // the store whenever an overlay is added, removed, toggled, or hydrated from
+  // localStorage. Only visible overlays contribute features; each feature is
+  // tagged with its overlay id/name so a later slice's click popup can trace it
+  // back. Stored geometry is canonical 4326, reprojected to the view CRS here.
+  useEffect(() => {
+    const source = importedSourceRef.current
+    if (!source) return
+
+    source.clear()
+    const reader = new GeoJSON()
+    for (const overlay of importedOverlays) {
+      if (!overlay.visible) continue
+      const features = reader.readFeatures(overlay.geojson, {
+        dataProjection: "EPSG:4326",
+        featureProjection: "EPSG:3857",
+      })
+      for (const f of features) {
+        f.set("__overlayId", overlay.id)
+        f.set("__overlayName", overlay.name)
+      }
+      source.addFeatures(features)
+    }
+  }, [importedOverlays])
 
   // Escape cancels an in-progress boundary edit (Phase 11 Slice I) --
   // same affordance as canceling a draw/connect/feature-edit. Discards

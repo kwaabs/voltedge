@@ -133,6 +133,7 @@ func createFeatureClass(ctx context.Context, db *bun.DB, req createFeatureClassR
 			NetworkRole:        req.NetworkRole,
 			Status:             "draft",
 			IsDiagramContainer: req.IsDiagramContainer,
+			IsDiagramPlaceable: req.IsDiagramPlaceable,
 		}
 		if _, err := tx.NewInsert().Model(fc).ExcludeColumn("id", "physical_table", "metadata_version_id").Returning("id").Exec(ctx); err != nil {
 			return fmt.Errorf("insert feature class: %w", err)

@@ -7,6 +7,7 @@ import { FormDialog } from "@/components/admin/form-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { usePermission } from "@/hooks/use-auth"
 import { type AdminMaterialSpec, useAdminMaterialSpecs } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
@@ -239,6 +240,9 @@ function EditMaterialSpecRow({ spec, onDone }: { spec: AdminMaterialSpec; onDone
 export function AdminMaterialsPage() {
   const { data, isPending, isError } = useAdminMaterialSpecs()
   const queryClient = useQueryClient()
+  // Create/edit/delete here are metadata:write on the server; this page opens
+  // on metadata:read, so gate the write controls to match.
+  const canWrite = usePermission()("metadata:write")
 
   const [open, setOpen] = useState(false)
   const [code, setCode] = useState("")
@@ -286,10 +290,12 @@ export function AdminMaterialsPage() {
               a field resolves to real numbers instead of just a label.
             </p>
           </div>
-          <Button size="sm" onClick={() => setOpen(true)}>
-            <Plus className="size-4" />
-            New material spec
-          </Button>
+          {canWrite && (
+            <Button size="sm" onClick={() => setOpen(true)}>
+              <Plus className="size-4" />
+              New material spec
+            </Button>
+          )}
         </div>
 
         <FormDialog
@@ -360,23 +366,27 @@ export function AdminMaterialsPage() {
                         {m.code} · {m.category}
                       </CardDescription>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7"
-                      title="Edit"
-                      onClick={() => setEditingCode(m.code)}
-                    >
-                      <Pencil className="size-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive size-7"
-                      onClick={() => setDeleteTarget(m)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
+                    {canWrite && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          title="Edit"
+                          onClick={() => setEditingCode(m.code)}
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive size-7"
+                          onClick={() => setDeleteTarget(m)}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </>
+                    )}
                   </CardHeader>
                   <CardContent className="flex flex-wrap gap-1 pt-0">
                     {m.resistance_ohm_per_km !== undefined && (

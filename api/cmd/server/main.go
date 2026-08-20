@@ -26,6 +26,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/diagram"
+	"github.com/kwaabs/voltedge/api/internal/export"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/powerflow"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
@@ -90,6 +91,11 @@ func main() {
 	// their own RequireAuth/RequireCSRF, and the switch checks
 	// admin:auth-settings/break-glass itself).
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/features", crud.Routes(db))
+	// Geographic export (Phase 14): reads features (optionally clipped to the
+	// map viewport) and streams them back as a KMZ/Shapefile/DXF download. A
+	// read, like trace/analysis -- POST only because the filter and scope don't
+	// fit query params -- so a single features:read gate covers every method.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/export", export.Routes(db))
 	// Territories are fixed reference data read alongside features (the
 	// feature panel resolves a feature's territory_id to a name via this
 	// list), so the read-only endpoint sits under the same features:read
@@ -142,6 +148,7 @@ type featureClassResponse struct {
 	GeometryType       string `json:"geometry_type"`
 	NetworkRole        string `json:"network_role"`
 	IsDiagramContainer bool   `json:"is_diagram_container"`
+	IsDiagramPlaceable bool   `json:"is_diagram_placeable"`
 }
 
 // featureClassesHandler is what lets the frontend show a real,
@@ -166,6 +173,7 @@ func featureClassesHandler(db *bun.DB) http.HandlerFunc {
 				GeometryType:       fc.GeometryType,
 				NetworkRole:        fc.NetworkRole,
 				IsDiagramContainer: fc.IsDiagramContainer,
+				IsDiagramPlaceable: fc.IsDiagramPlaceable,
 			}
 		}
 

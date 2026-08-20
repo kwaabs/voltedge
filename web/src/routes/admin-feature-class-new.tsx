@@ -62,6 +62,7 @@ export function AdminFeatureClassNewPage() {
   const [srid, setSrid] = useState(4326)
   const [networkRole, setNetworkRole] = useState<(typeof NETWORK_ROLES)[number]>("none")
   const [isDiagramContainer, setIsDiagramContainer] = useState(false)
+  const [isDiagramPlaceable, setIsDiagramPlaceable] = useState(false)
 
   const [subtypes, setSubtypes] = useState<DraftSubtype[]>([])
   const [fields, setFields] = useState<DraftField[]>([])
@@ -99,6 +100,7 @@ export function AdminFeatureClassNewPage() {
           srid: geometryType === "none" ? null : srid,
           network_role: networkRole,
           is_diagram_container: isDiagramContainer,
+          is_diagram_placeable: isDiagramPlaceable,
           subtypes: subtypes.map((s) => ({ code: s.code, name: s.name.trim() })),
           fields: fields.map((f) => ({
             name: f.name.trim(),
@@ -249,6 +251,10 @@ export function AdminFeatureClassNewPage() {
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={isDiagramContainer} onChange={(e) => setIsDiagramContainer(e.target.checked)} />
               Can host a one-line/schematic diagram (is_diagram_container)
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={isDiagramPlaceable} onChange={(e) => setIsDiagramPlaceable(e.target.checked)} />
+              Can be placed on a diagram (is_diagram_placeable)
             </label>
           </CardContent>
         </Card>

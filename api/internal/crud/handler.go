@@ -39,6 +39,10 @@ const defaultListLimit = 50
 //	                             (falls back to created_at if unrecognized),
 //	                             ?order=desc reverses it (default asc)
 //	POST   /{code}               create
+//	POST   /{code}/query         structured query -- a JSON body of typed
+//	                             AND/OR conditions (the map's query builder,
+//	                             docs/phase-13-query-builder.md), where the
+//	                             flat ?name=/?status= list params can't
 //	GET    /{code}/{id}          get, includes soft-deleted
 //	PATCH  /{code}/{id}          update, rejected if soft-deleted
 //	POST   /{code}/{id}/publish   draft -> published, gated on completeness
@@ -53,6 +57,7 @@ func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/{code}", listHandler(db))
 	r.Post("/{code}", createHandler(db))
+	r.Post("/{code}/query", queryHandler(db))
 	r.Get("/{code}/{id}", getHandler(db))
 	r.Patch("/{code}/{id}", updateHandler(db))
 	r.Post("/{code}/{id}/publish", publishHandler(db))
@@ -105,6 +110,30 @@ func listHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		results, err := listFeatures(r.Context(), db, loaded, opts)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"features": results})
+	}
+}
+
+func queryHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		var req queryRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		results, err := queryFeatures(r.Context(), db, loaded, req)
 		if err != nil {
 			writeError(w, err)
 			return

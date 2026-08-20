@@ -45,6 +45,10 @@ func updateFeatureClass(ctx context.Context, db *bun.DB, code string, req update
 			fc.IsDiagramContainer = *req.IsDiagramContainer
 			cols = append(cols, "is_diagram_container")
 		}
+		if req.IsDiagramPlaceable != nil {
+			fc.IsDiagramPlaceable = *req.IsDiagramPlaceable
+			cols = append(cols, "is_diagram_placeable")
+		}
 		if req.GeometryType != nil {
 			if fc.Status != "draft" {
 				return invalid("geometry_type/srid/network_role can only be changed while %q is still draft (not yet compiled) -- it's %s", code, fc.Status)
@@ -55,7 +59,7 @@ func updateFeatureClass(ctx context.Context, db *bun.DB, code string, req update
 			cols = append(cols, "geometry_type", "srid", "network_role")
 		}
 		if len(cols) == 0 {
-			return invalid("request must set at least one of name, is_diagram_container, geometry_type/srid/network_role")
+			return invalid("request must set at least one of name, is_diagram_container, is_diagram_placeable, geometry_type/srid/network_role")
 		}
 
 		if _, err := tx.NewUpdate().Model(fc).Column(cols...).Where("code = ?", code).Exec(ctx); err != nil {
@@ -69,6 +73,7 @@ func updateFeatureClass(ctx context.Context, db *bun.DB, code string, req update
 			SRID:               fc.SRID,
 			NetworkRole:        fc.NetworkRole,
 			IsDiagramContainer: fc.IsDiagramContainer,
+			IsDiagramPlaceable: fc.IsDiagramPlaceable,
 		}
 		return nil
 	})

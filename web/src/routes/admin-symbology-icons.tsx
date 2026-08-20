@@ -7,6 +7,7 @@ import { FormDialog } from "@/components/admin/form-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { usePermission } from "@/hooks/use-auth"
 import { type AdminSymbologyIcon, useAdminSymbologyIcons } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
@@ -143,6 +144,9 @@ function EditIconRow({ icon, onDone }: { icon: AdminSymbologyIcon; onDone: () =>
 export function AdminSymbologyIconsPage() {
   const { data, isPending, isError } = useAdminSymbologyIcons()
   const queryClient = useQueryClient()
+  // Create/edit/delete here are metadata:write on the server; this page opens
+  // on metadata:read, so gate the write controls to match.
+  const canWrite = usePermission()("metadata:write")
 
   const [open, setOpen] = useState(false)
   const [iconRef, setIconRef] = useState("")
@@ -194,10 +198,12 @@ export function AdminSymbologyIconsPage() {
               name resolves to real SVG markup, added or edited without a deploy.
             </p>
           </div>
-          <Button size="sm" onClick={() => setOpen(true)}>
-            <Plus className="size-4" />
-            New icon
-          </Button>
+          {canWrite && (
+            <Button size="sm" onClick={() => setOpen(true)}>
+              <Plus className="size-4" />
+              New icon
+            </Button>
+          )}
         </div>
 
         <FormDialog
@@ -250,23 +256,27 @@ export function AdminSymbologyIconsPage() {
                       {icon.svg.includes("{{COLOR}}") ? "Tintable" : "Full-color"}
                     </CardDescription>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7"
-                    title="Edit"
-                    onClick={() => setEditingRef(icon.icon_ref)}
-                  >
-                    <Pencil className="size-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-destructive size-7"
-                    onClick={() => setDeleteTarget(icon)}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
+                  {canWrite && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        title="Edit"
+                        onClick={() => setEditingRef(icon.icon_ref)}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive size-7"
+                        onClick={() => setDeleteTarget(icon)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </>
+                  )}
                 </CardHeader>
               </Card>
             ))}

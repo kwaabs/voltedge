@@ -7,6 +7,7 @@ import { FormDialog } from "@/components/admin/form-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { usePermission } from "@/hooks/use-auth"
 import { type AdminDomain, type AdminDomainValue, useAdminDomains, useAdminMaterialSpecs } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
@@ -277,6 +278,10 @@ function EditDomainValueRow({
 export function AdminDomainsPage() {
   const { data, isPending, isError } = useAdminDomains()
   const queryClient = useQueryClient()
+  // Every mutation here (POST/PATCH/DELETE on /admin/domains) is gated on
+  // metadata:write server-side; this page opens on metadata:read, so gate
+  // the write controls to match (see admin-feature-classes.tsx).
+  const canWrite = usePermission()("metadata:write")
 
   const [open, setOpen] = useState(false)
   const [code, setCode] = useState("")
@@ -340,10 +345,12 @@ export function AdminDomainsPage() {
               of these.
             </p>
           </div>
-          <Button size="sm" onClick={() => setOpen(true)}>
-            <Plus className="size-4" />
-            New domain
-          </Button>
+          {canWrite && (
+            <Button size="sm" onClick={() => setOpen(true)}>
+              <Plus className="size-4" />
+              New domain
+            </Button>
+          )}
         </div>
 
         <FormDialog
@@ -509,34 +516,38 @@ export function AdminDomainsPage() {
                       <CardDescription className="font-mono text-xs">{d.code}</CardDescription>
                     </div>
                     <span className="text-muted-foreground text-xs">{d.domain_type}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7"
-                      title="Edit"
-                      onClick={() => setEditingDomainCode(d.code)}
-                    >
-                      <Pencil className="size-4" />
-                    </Button>
-                    {d.domain_type === "coded" && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        title="Add value"
-                        onClick={() => setAddingValueCode(d.code)}
-                      >
-                        <ListPlus className="size-4" />
-                      </Button>
+                    {canWrite && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          title="Edit"
+                          onClick={() => setEditingDomainCode(d.code)}
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
+                        {d.domain_type === "coded" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            title="Add value"
+                            onClick={() => setAddingValueCode(d.code)}
+                          >
+                            <ListPlus className="size-4" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive size-7"
+                          onClick={() => setDeleteTarget(d)}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive size-7"
-                      onClick={() => setDeleteTarget(d)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
                   </CardHeader>
                   {d.values && d.values.length > 0 && (
                     <CardContent className="flex flex-col gap-2 pt-0">
@@ -549,22 +560,26 @@ export function AdminDomainsPage() {
                           >
                             {v.material_spec_code && <Wrench className="size-3" />}
                             {v.label}
-                            <button
-                              type="button"
-                              className="hover:text-foreground rounded p-0.5"
-                              title="Edit value"
-                              onClick={() => setEditingValue({ domainCode: d.code, value: v })}
-                            >
-                              <Pencil className="size-3" />
-                            </button>
-                            <button
-                              type="button"
-                              className="hover:text-destructive rounded p-0.5"
-                              title="Delete value"
-                              onClick={() => setDeleteValueTarget({ domainCode: d.code, value: v })}
-                            >
-                              <X className="size-3" />
-                            </button>
+                            {canWrite && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="hover:text-foreground rounded p-0.5"
+                                  title="Edit value"
+                                  onClick={() => setEditingValue({ domainCode: d.code, value: v })}
+                                >
+                                  <Pencil className="size-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="hover:text-destructive rounded p-0.5"
+                                  title="Delete value"
+                                  onClick={() => setDeleteValueTarget({ domainCode: d.code, value: v })}
+                                >
+                                  <X className="size-3" />
+                                </button>
+                              </>
+                            )}
                           </span>
                         ))}
                       </div>

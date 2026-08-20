@@ -15,6 +15,10 @@ export interface DiagramInstance {
   created_at: string
 }
 
+/** A single vertex in a drawn line placement's path -- [x, y] in the
+ * diagram's own local coordinate space (Phase 12, option B2). */
+export type DiagramPathPoint = [number, number]
+
 export interface DiagramPlacement {
   id: string
   feature_class: string
@@ -22,6 +26,11 @@ export interface DiagramPlacement {
   x: number
   y: number
   rotation: number
+  /** For a drawn line placement (migrations/0033): the ordered polyline
+   * vertices in the diagram's local coordinate space. Absent for a point
+   * placement, or a line placed without a hand-drawn path (which the
+   * canvas renders from connectivity instead). */
+  path?: DiagramPathPoint[]
 }
 
 interface DiagramsResponse {

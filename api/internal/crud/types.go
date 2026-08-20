@@ -52,6 +52,49 @@ type updateRequest struct {
 	Attributes  map[string]any `json:"attributes"`
 }
 
+// queryRequest is the POST /{code}/query body -- the structured filter
+// the map's query builder (docs/phase-13-query-builder.md) sends in place
+// of the list endpoint's flat ?name=/?status= query params, which can't
+// express typed operators or an OR. The request is itself the root query
+// group: Match ("all" = AND, the default, or "any" = OR) combines its own
+// Conditions with any nested Groups. A flat query just fills Conditions and
+// leaves Groups empty -- exactly the Slice 1 shape, unchanged; nested groups
+// (Slice 4) let a client express `(A AND B) OR C` by nesting. Sort/Order/
+// Limit/Offset mirror the list endpoint's own paging exactly.
+type queryRequest struct {
+	Match      string           `json:"match"`
+	Conditions []queryCondition `json:"conditions"`
+	Groups     []queryGroup     `json:"groups"`
+	Sort       string           `json:"sort"`
+	Order      string           `json:"order"`
+	Limit      int              `json:"limit"`
+	Offset     int              `json:"offset"`
+}
+
+// queryGroup is one node of the condition tree: its own Match combinator
+// applied across its leaf Conditions and its nested sub-Groups alike, so a
+// group evaluates to a single parenthesized SQL fragment. Recursion depth
+// and total condition count are bounded (buildGroup / countConditions) so a
+// pathological body can't blow the stack or the WHERE clause.
+type queryGroup struct {
+	Match      string           `json:"match"`
+	Conditions []queryCondition `json:"conditions"`
+	Groups     []queryGroup     `json:"groups"`
+}
+
+// queryCondition is one "field op value" clause. Value carries the operand
+// for the single-value operators (eq/ne/lt/lte/gt/gte/contains/starts_with);
+// Values carries the operand list for `in` (1+) and `between` (exactly 2);
+// is_null/not_null take neither. Every field/op is validated against the
+// feature class's real columns and the op is checked against that column's
+// data_type before any SQL is built -- see buildCondition.
+type queryCondition struct {
+	Field  string `json:"field"`
+	Op     string `json:"op"`
+	Value  any    `json:"value,omitempty"`
+	Values []any  `json:"values,omitempty"`
+}
+
 // geoJSONGeometry is enough of a GeoJSON Geometry object to check its
 // "type" matches the feature class's geometry_type. Coordinate
 // correctness is left to PostGIS's ST_GeomFromGeoJSON.

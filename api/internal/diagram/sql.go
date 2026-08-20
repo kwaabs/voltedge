@@ -3,6 +3,7 @@ package diagram
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -37,14 +38,19 @@ type DiagramInstance struct {
 type DiagramPlacement struct {
 	bun.BaseModel `bun:"table:runtime.diagram_placements,alias:diagram_placements"`
 
-	ID                string    `bun:"id,pk,nullzero"`
-	DiagramInstanceID string    `bun:"diagram_instance_id"`
-	FeatureClassID    string    `bun:"feature_class_id"`
-	FeatureID         string    `bun:"feature_id"`
-	X                 float64   `bun:"x"`
-	Y                 float64   `bun:"y"`
-	Rotation          float64   `bun:"rotation"`
-	CreatedAt         time.Time `bun:"created_at,nullzero"`
+	ID                string          `bun:"id,pk,nullzero"`
+	DiagramInstanceID string          `bun:"diagram_instance_id"`
+	FeatureClassID    string          `bun:"feature_class_id"`
+	FeatureID         string          `bun:"feature_id"`
+	X                 float64         `bun:"x"`
+	Y                 float64         `bun:"y"`
+	Rotation          float64         `bun:"rotation"`
+	// Path is the drawn polyline for a line placement (migrations/0033):
+	// a jsonb [[x, y], ...] array in the diagram's local coordinate
+	// space, null for point placements. nullzero so an absent path
+	// writes SQL NULL rather than an empty json literal.
+	Path      json.RawMessage `bun:"path,nullzero"`
+	CreatedAt time.Time       `bun:"created_at,nullzero"`
 }
 
 // resolvedFeature is one side of a request after its feature class and
@@ -236,6 +242,19 @@ func placeFeature(ctx context.Context, db bun.IDB, diagramInstanceID string, req
 	if err != nil {
 		return nil, err
 	}
+	// A diagram is electrical: only a class flagged is_diagram_placeable
+	// may go on one (Phase 12, migrations/0032), mirroring the
+	// is_diagram_container gate createInstance enforces above -- zero
+	// trust by omission, so a class that never opted in is rejected here
+	// rather than silently accepted.
+	if !feature.loaded.FeatureClass.IsDiagramPlaceable {
+		return nil, invalid("feature class %q cannot be placed on a diagram (is_diagram_placeable = false)", req.FeatureClass)
+	}
+
+	path, err := validatePlacementPath(req.Path, feature.loaded.FeatureClass.GeometryType)
+	if err != nil {
+		return nil, err
+	}
 
 	placement := &DiagramPlacement{
 		DiagramInstanceID: diagramInstanceID,
@@ -244,10 +263,11 @@ func placeFeature(ctx context.Context, db bun.IDB, diagramInstanceID string, req
 		X:                 req.X,
 		Y:                 req.Y,
 		Rotation:          req.Rotation,
+		Path:              path,
 	}
 	_, err = db.NewInsert().Model(placement).
 		On("CONFLICT (diagram_instance_id, feature_class_id, feature_id) DO UPDATE").
-		Set("x = EXCLUDED.x, y = EXCLUDED.y, rotation = EXCLUDED.rotation").
+		Set("x = EXCLUDED.x, y = EXCLUDED.y, rotation = EXCLUDED.rotation, path = EXCLUDED.path").
 		Returning("*").
 		Exec(ctx)
 	if err != nil {
@@ -261,7 +281,40 @@ func placeFeature(ctx context.Context, db bun.IDB, diagramInstanceID string, req
 		X:            placement.X,
 		Y:            placement.Y,
 		Rotation:     placement.Rotation,
+		Path:         placement.Path,
 	}, nil
+}
+
+// validatePlacementPath checks an optional hand-drawn line path (Phase
+// 12, option B2) against the feature class it's being placed as. A nil
+// or JSON-null path is fine for any class -- it just means a point
+// placement, or a line placed without a drawn polyline (which falls back
+// to the connectivity-derived elbow on the canvas). A non-empty path is
+// only legal on a geometry_type = "line" class and must be an ordered
+// array of at least two [x, y] pairs. Returns the path to persist (nil
+// when there's nothing to store) so the caller writes SQL NULL rather
+// than an empty json literal.
+func validatePlacementPath(raw json.RawMessage, geometryType string) (json.RawMessage, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+
+	var pts [][]float64
+	if err := json.Unmarshal(raw, &pts); err != nil {
+		return nil, invalid("path must be an array of [x, y] pairs: %v", err)
+	}
+	if geometryType != "line" {
+		return nil, invalid("path is only valid for a line feature (geometry_type = %q here)", geometryType)
+	}
+	if len(pts) < 2 {
+		return nil, invalid("path must have at least two [x, y] points, got %d", len(pts))
+	}
+	for i, p := range pts {
+		if len(p) != 2 {
+			return nil, invalid("path point %d must be a two-element [x, y] pair, got %d values", i, len(p))
+		}
+	}
+	return raw, nil
 }
 
 // listPlacements returns every feature placed on one diagram.
@@ -295,6 +348,7 @@ func listPlacements(ctx context.Context, db bun.IDB, diagramInstanceID string) (
 			X:            r.X,
 			Y:            r.Y,
 			Rotation:     r.Rotation,
+			Path:         r.Path,
 		})
 	}
 	return out, nil

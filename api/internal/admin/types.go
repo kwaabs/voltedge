@@ -44,6 +44,7 @@ var (
 type updateFeatureClassRequest struct {
 	Name               *string `json:"name"`
 	IsDiagramContainer *bool   `json:"is_diagram_container"`
+	IsDiagramPlaceable *bool   `json:"is_diagram_placeable"`
 	GeometryType       *string `json:"geometry_type"`
 	SRID               *int    `json:"srid"`
 	NetworkRole        *string `json:"network_role"`
@@ -56,6 +57,7 @@ type updateFeatureClassResponse struct {
 	SRID               *int   `json:"srid,omitempty"`
 	NetworkRole        string `json:"network_role"`
 	IsDiagramContainer bool   `json:"is_diagram_container"`
+	IsDiagramPlaceable bool   `json:"is_diagram_placeable"`
 }
 
 // featureClassSummary is one row of the admin catalog view -- enough to
@@ -71,6 +73,7 @@ type featureClassSummary struct {
 	NetworkRole        string  `json:"network_role"`
 	Status             string  `json:"status"`
 	IsDiagramContainer bool    `json:"is_diagram_container"`
+	IsDiagramPlaceable bool    `json:"is_diagram_placeable"`
 	PhysicalTable      *string `json:"physical_table,omitempty"`
 	SubtypeCount       int     `json:"subtype_count"`
 	FieldCount         int     `json:"field_count"`
@@ -262,6 +265,7 @@ type createFeatureClassRequest struct {
 	SRID               *int              `json:"srid"`
 	NetworkRole        string            `json:"network_role"`
 	IsDiagramContainer bool              `json:"is_diagram_container"`
+	IsDiagramPlaceable bool              `json:"is_diagram_placeable"`
 	Subtypes           []subtypeRequest  `json:"subtypes"`
 	Fields             []fieldRequest    `json:"fields"`
 	Terminals          []terminalRequest `json:"terminals"`

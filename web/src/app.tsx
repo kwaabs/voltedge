@@ -54,7 +54,19 @@ export function App() {
             <Route path="connectivity" element={<ConnectivityPage />} />
             <Route path="relationships" element={<RelationshipsPage />} />
             <Route path="admin/feature-classes" element={<AdminFeatureClassesPage />} />
-            <Route path="admin/feature-classes/new" element={<AdminFeatureClassNewPage />} />
+            {/* The create wizard is a pure-write page -- nothing to view --
+                so it gets a route-level metadata:write gate rather than
+                per-control gating. A metadata:read user reaching it by URL
+                (its sidebar/list entry points are already hidden) gets the
+                403 page instead of a form every submit would reject. */}
+            <Route
+              path="admin/feature-classes/new"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminFeatureClassNewPage />
+                </RequirePermission>
+              }
+            />
             <Route path="admin/feature-classes/:code" element={<AdminFeatureClassDetailPage />} />
             <Route path="admin/domains" element={<AdminDomainsPage />} />
             <Route path="admin/field-groups" element={<AdminFieldGroupsPage />} />

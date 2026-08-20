@@ -16,6 +16,7 @@ export interface AdminFeatureClassSummary {
   network_role: string
   status: string
   is_diagram_container: boolean
+  is_diagram_placeable: boolean
   physical_table?: string
   subtype_count: number
   field_count: number

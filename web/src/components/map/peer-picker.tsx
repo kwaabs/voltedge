@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react"
 
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useConnectStore } from "@/stores/connect-store"
+import { useDiagramPlaceStore } from "@/stores/diagram-place-store"
 import { useSelectionStore } from "@/stores/selection-store"
 
 /** Keeps the popup fully on-screen regardless of where in the viewport the click landed. */
@@ -34,6 +35,7 @@ export function PeerPicker() {
   const clearCandidates = useSelectionStore((s) => s.clearCandidates)
   const connectMode = useConnectStore((s) => s.mode)
   const connectTarget = useConnectStore((s) => s.target)
+  const diagramPlacePhase = useDiagramPlaceStore((s) => s.phase)
   const { data: featureClasses } = useFeatureClasses()
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -42,6 +44,10 @@ export function PeerPicker() {
   // rather than a normal selection -- once target is set the confirm
   // panel takes over and no further picks from this list make sense.
   const pickingConnectTarget = Boolean(connectMode) && !connectTarget
+  // Likewise for a diagram "Add from map" pick (Phase 12): a stacked-
+  // feature click during the pick lands here, and choosing one hands it
+  // to diagram-place-store's `pick` (the owning canvas validates + arms).
+  const pickingForDiagram = diagramPlacePhase === "picking"
 
   // Close on a click outside the popup or an Escape press -- the map's
   // own click handler already replaces `candidates` on its own when the
@@ -75,7 +81,10 @@ export function PeerPicker() {
   const top = Math.min(Math.max(position.y, MARGIN), window.innerHeight - candidates.length * 44 - 48 - MARGIN)
 
   function pick(candidate: { featureClassCode: string; featureId: string }) {
-    if (pickingConnectTarget) {
+    if (pickingForDiagram) {
+      useDiagramPlaceStore.getState().pick(candidate)
+      clearCandidates()
+    } else if (pickingConnectTarget) {
       useConnectStore.getState().pickTarget(candidate)
       clearCandidates()
     } else {
@@ -90,7 +99,8 @@ export function PeerPicker() {
       className="bg-popover text-popover-foreground fixed z-50 w-56 overflow-hidden rounded-md border shadow-lg"
     >
       <p className="text-muted-foreground border-b px-3 py-1.5 text-xs">
-        {candidates.length} features here — pick {pickingConnectTarget ? "a target" : "one"}
+        {candidates.length} features here — pick{" "}
+        {pickingForDiagram ? "one to place" : pickingConnectTarget ? "a target" : "one"}
       </p>
       <div className="max-h-64 overflow-y-auto p-1">
         {candidates.map((candidate) => {

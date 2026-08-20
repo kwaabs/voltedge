@@ -87,6 +87,50 @@ const editPolygonStyle = new Style({
   stroke: new Stroke({ color: EDIT_COLOR, width: 2 }),
 })
 
+/** Amber -- distinct from every role above (point copper, line teal,
+ * polygon slate, draft emerald, edit cyan, and the territory blues/
+ * violets/magenta). Imported-overlay features (Phase 15) are also drawn
+ * *dashed* so a foreign reference layer never reads as native, saved data
+ * regardless of hue. */
+const IMPORTED_COLOR = "#f59e0b"
+
+const importedPointStyle = new Style({
+  image: new Circle({
+    radius: 5,
+    fill: new Fill({ color: `${IMPORTED_COLOR}80` }),
+    stroke: new Stroke({ color: IMPORTED_COLOR, width: 2, lineDash: [4, 3] }),
+  }),
+})
+
+const importedLineStyle = new Style({
+  stroke: new Stroke({ color: IMPORTED_COLOR, width: 2.5, lineDash: [6, 4] }),
+})
+
+const importedPolygonStyle = new Style({
+  fill: new Fill({ color: `${IMPORTED_COLOR}26` }),
+  stroke: new Stroke({ color: IMPORTED_COLOR, width: 2, lineDash: [6, 4] }),
+})
+
+/**
+ * The imported-overlay layer's style function (Phase 15 data import) --
+ * an amber, dashed reference style branched by geometry type, so external
+ * data the user drops on the map (GeoJSON/KMZ/Shapefile/DXF) reads clearly
+ * as a foreign overlay and never as a native, saved feature. Read-only:
+ * these features are never selection/edit targets.
+ */
+export function importedStyleForFeature(feature: FeatureLike): Style {
+  switch (feature.getGeometry()?.getType()) {
+    case "Point":
+    case "MultiPoint":
+      return importedPointStyle
+    case "LineString":
+    case "MultiLineString":
+      return importedLineStyle
+    default:
+      return importedPolygonStyle
+  }
+}
+
 /** The one feature currently under geometry edit -- see EDIT_COLOR. */
 export function editStyleForFeature(feature: FeatureLike): Style {
   switch (feature.getGeometry()?.getType()) {
@@ -121,7 +165,9 @@ export function editStyleForFeature(feature: FeatureLike): Style {
  * ("load-flow-barrier"); or, while a fault-current result is active
  * (fault-current-store.ts), every node the walk reached
  * ("fault-current") and the open device it stopped at
- * ("fault-current-barrier") -- each role in its own color so none are
+ * ("fault-current-barrier"); or, while a query-builder result is active
+ * (query-store.ts), every feature the structured query matched
+ * ("query-result") -- each role in its own color so none are
  * ever confused with each other or with a plain selection. */
 export type HighlightRole =
   | "selected"
@@ -138,6 +184,7 @@ export type HighlightRole =
   | "load-flow-barrier"
   | "fault-current"
   | "fault-current-barrier"
+  | "query-result"
 
 /** Exported so diagram-canvas.tsx can highlight a selected/connect-role
  * placement with the exact same colors the map's own highlight layer
@@ -157,6 +204,10 @@ export const HIGHLIGHT_COLORS: Record<HighlightRole, string> = {
   "load-flow-barrier": "#f97316",
   "fault-current": "#d946ef",
   "fault-current-barrier": "#f97316",
+  // Query-builder matches (docs/phase-13-query-builder.md). Pink -- a hue
+  // no other highlight role uses, so a query result set never reads as a
+  // trace, isolation, or selection halo.
+  "query-result": "#ec4899",
 }
 
 function highlightStyleFor(color: string, geometryType: string | undefined): Style {

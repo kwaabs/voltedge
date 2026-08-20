@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useQueries, useQueryClient } from "@tanstack/react-query"
-import { Hand, Loader2, Magnet, Maximize2, MousePointer2, Plus, X, ZoomIn, ZoomOut } from "lucide-react"
+import { Crosshair, Hand, Loader2, Magnet, Maximize2, MousePointer2, Plus, X, ZoomIn, ZoomOut } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DigitizeFeatureButton } from "@/components/map/digitize-feature-tool"
@@ -8,7 +8,13 @@ import { type PendingRemoval, RemovePlacementDialog } from "@/components/map/rem
 import { type Connection } from "@/hooks/use-connections"
 import { useAllSymbology } from "@/hooks/use-all-symbology"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
-import { type DiagramInstance, type DiagramPlacement, useDiagramInstance, useDiagramPlacements } from "@/hooks/use-diagrams"
+import {
+  type DiagramInstance,
+  type DiagramPathPoint,
+  type DiagramPlacement,
+  useDiagramInstance,
+  useDiagramPlacements,
+} from "@/hooks/use-diagrams"
 import { type FeatureRecord } from "@/hooks/use-feature"
 import { type FeatureSearchResult, MIN_QUERY_LENGTH, useFeatureNameSearch } from "@/hooks/use-feature-name-search"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
@@ -18,11 +24,12 @@ import { iconDataUri } from "@/lib/symbology-icons"
 import { resolveSymbology } from "@/lib/symbology"
 import { cn } from "@/lib/utils"
 import { useConnectStore } from "@/stores/connect-store"
+import { useDiagramPlaceStore } from "@/stores/diagram-place-store"
 import { useDrawStore } from "@/stores/draw-store"
 import { useFaultCurrentStore } from "@/stores/fault-current-store"
 import { useIsolateStore } from "@/stores/isolate-store"
 import { useLoadFlowStore } from "@/stores/load-flow-store"
-import { useSelectionStore } from "@/stores/selection-store"
+import { type FeatureRef, useSelectionStore } from "@/stores/selection-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useTraceStore } from "@/stores/trace-store"
 
@@ -77,6 +84,22 @@ function snapCoordinate(value: number, candidates: number[], threshold: number):
 function elbowPath(x1: number, y1: number, x2: number, y2: number): string {
   const midX = (x1 + x2) / 2
   return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`
+}
+
+/** An SVG path straight through a hand-drawn polyline's own vertices --
+ * a line placement's stored `path` (Phase 12, option B2), in the
+ * diagram's local coordinate space. Unlike elbowPath (which invents an
+ * orthogonal route between two connectivity endpoints), this draws
+ * exactly what the user drew, vertex for vertex. */
+function polylinePath(points: DiagramPathPoint[]): string {
+  return points.map(([x, y], i) => `${i === 0 ? "M" : "L"} ${x} ${y}`).join(" ")
+}
+
+/** The middle vertex of a drawn path -- where its label/remove control
+ * sit, the polyline analogue of the two-endpoint midpoint. */
+function polylineMidpoint(points: DiagramPathPoint[]): { x: number; y: number } {
+  const [x, y] = points[Math.floor(points.length / 2)]
+  return { x, y }
 }
 
 /** Where a newly-added feature lands -- just outside the current
@@ -448,14 +471,32 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   const isolateResult = useIsolateStore((s) => s.result)
   const loadFlowResult = useLoadFlowStore((s) => s.result)
   const faultCurrentResult = useFaultCurrentStore((s) => s.result)
+  // Phase 12 "Add from map": this canvas both arms the pick (the header
+  // button) and, since only it knows this diagram's catalog + placements,
+  // validates and then draws whatever the map picked. `*Here` scopes
+  // every reaction to this diagram id so that with several diagrams open
+  // only the armed one responds.
+  const placePhase = useDiagramPlaceStore((s) => s.phase)
+  const placeDiagramId = useDiagramPlaceStore((s) => s.diagramId)
+  const placePicked = useDiagramPlaceStore((s) => s.picked)
+  const placeArmedFeature = useDiagramPlaceStore((s) => s.feature)
+  const placeArmedGeometry = useDiagramPlaceStore((s) => s.geometry)
   const { data: placementsData, isPending, isError } = useDiagramPlacements(openDiagramId ?? undefined)
   const { data: featureClassesData } = useFeatureClasses()
   const rules = useAllSymbology()
   const symbologyIcons = useSymbologyIcons()
   const placements = useMemo(() => placementsData?.placements ?? [], [placementsData])
+  const isPickingHere = placePhase === "picking" && placeDiagramId === openDiagramId
+  const isPlacingHere = placePhase === "placing" && placeDiagramId === openDiagramId
+  const isLineDrawing = isPlacingHere && placeArmedGeometry === "line"
   const svgRef = useRef<SVGSVGElement>(null)
   const [dragState, setDragState] = useState<DragState | null>(null)
   const [rotateState, setRotateState] = useState<RotateState | null>(null)
+  // The in-progress polyline while drawing a line placement (Phase 12
+  // Slice 5): committed vertices, plus the live cursor point for a
+  // rubber-band segment to wherever the next click would land.
+  const [lineDraft, setLineDraft] = useState<DiagramPathPoint[] | null>(null)
+  const [linePreview, setLinePreview] = useState<{ x: number; y: number } | null>(null)
   const queryClient = useQueryClient()
 
   // The canvas's own camera, independent of the map's OL pan/zoom and
@@ -570,20 +611,139 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [digitizingClass])
 
-  // Captures the clicked point and hands off to draw-store.ts's
-  // startDiagramDraft -- feature-panel.tsx picks the resulting draft up
-  // from there and renders feature-create-form.tsx, the exact same
-  // attribute form the map's own draw flow uses (see that file's own
-  // doc comment for why this isn't a second, bespoke form). Guarded
-  // against the pan tool: a pan drag ends with a plain `click` event
-  // too, which would otherwise place a feature at wherever the drag
-  // happened to end.
+  // Validates a feature the map just picked for this diagram (Phase 12),
+  // the moment diagram-place-store hands one over: only this canvas knows
+  // both the catalog (is it electrical / a line vs a point?) and what's
+  // already on the diagram, so the gate lives here rather than in the map
+  // click handler. A non-placeable class or a feature already on this
+  // diagram is refused with a toast and the pick is cancelled; a legal
+  // pick is armed for placement, tagged with how its class draws.
+  useEffect(() => {
+    if (!isPickingHere || !placePicked) return
+    const fc = featureClassesData?.feature_classes.find((c) => c.code === placePicked.featureClassCode)
+    if (!fc) return // catalog still loading -- re-runs once it arrives
+    const store = useDiagramPlaceStore.getState()
+    if (!fc.is_diagram_placeable) {
+      useToastStore.getState().pushError(`${fc.name} can't be placed on a diagram.`)
+      store.cancel()
+      return
+    }
+    if (placements.some((p) => p.feature_class === placePicked.featureClassCode && p.feature_id === placePicked.featureId)) {
+      useToastStore.getState().pushError("That feature is already on this diagram.")
+      store.cancel()
+      return
+    }
+    store.arm(placePicked, fc.geometry_type === "line" ? "line" : "point")
+  }, [isPickingHere, placePicked, featureClassesData, placements])
+
+  // Cancel an armed pick that belongs to this diagram if the canvas goes
+  // away (closed, or switched out in a tab pane) -- otherwise the map
+  // would stay in crosshair "picking" mode pointed at a diagram that's no
+  // longer on screen.
+  useEffect(() => {
+    return () => {
+      const store = useDiagramPlaceStore.getState()
+      if (store.diagramId === openDiagramId) store.cancel()
+    }
+  }, [openDiagramId])
+
+  // Drops any in-progress line draft whenever the place gesture ends
+  // (finished, Escaped -- voltedge-map.tsx owns the Escape that resets the
+  // store -- or switched to a point). Keeps the transient sketch from
+  // lingering on the canvas after the store says we're no longer drawing.
+  useEffect(() => {
+    if (!isLineDrawing) {
+      setLineDraft(null)
+      setLinePreview(null)
+    }
+  }, [isLineDrawing])
+
+  // POSTs a map-picked feature as a new placement and clears the armed
+  // pick. A point lands exactly where the click did (no `path`); a line
+  // sends its drawn polyline as `path`, with x/y anchored at the first
+  // vertex for its label/hit target.
+  async function placePickedFeature(
+    feature: FeatureRef,
+    at: { x: number; y: number },
+    path?: DiagramPathPoint[],
+  ) {
+    if (!openDiagramId) return
+    useDiagramPlaceStore.getState().cancel()
+    try {
+      await apiFetch(`/diagrams/${openDiagramId}/placements`, {
+        method: "POST",
+        body: JSON.stringify({
+          feature_class: feature.featureClassCode,
+          feature_id: feature.featureId,
+          x: at.x,
+          y: at.y,
+          rotation: 0,
+          ...(path ? { path } : {}),
+        }),
+      })
+      queryClient.invalidateQueries({ queryKey: ["diagram-placements", openDiagramId] })
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not place this feature on the diagram.")
+    }
+  }
+
+  // Completes the line draft: needs at least two vertices, anchors the
+  // placement at the first, and POSTs the whole polyline as `path`. The
+  // draft is cleared optimistically (placePickedFeature also cancels the
+  // store gesture) so the sketch vanishes the instant it's committed.
+  function finishLineDraft(points: DiagramPathPoint[]) {
+    if (!placeArmedFeature || points.length < 2) return
+    const feature = placeArmedFeature
+    setLineDraft(null)
+    setLinePreview(null)
+    void placePickedFeature(feature, { x: points[0][0], y: points[0][1] }, points)
+  }
+
+  // Captures the clicked point and either drops a map-picked feature
+  // (Phase 12 placing mode) or hands off to draw-store.ts's
+  // startDiagramDraft for the digitize-a-new-feature flow --
+  // feature-panel.tsx picks the resulting draft up from there and renders
+  // feature-create-form.tsx, the exact same attribute form the map's own
+  // draw flow uses (see that file's own doc comment for why this isn't a
+  // second, bespoke form). Guarded against the pan tool: a pan drag ends
+  // with a plain `click` event too, which would otherwise place a feature
+  // at wherever the drag happened to end.
   function handleCanvasClick(e: React.MouseEvent<SVGSVGElement>) {
-    if (!digitizingClass || e.target !== e.currentTarget || canvasMode === "pan") return
+    const placing = isPlacingHere && placeArmedFeature
+    if (e.target !== e.currentTarget || canvasMode === "pan" || (!digitizingClass && !placing)) return
     const svgPoint = clientToSvgPoint(e.clientX, e.clientY)
     if (!svgPoint || !openDiagramId) return
-    useDrawStore.getState().startDiagramDraft(digitizingClass, { diagramId: openDiagramId, x: svgPoint.x, y: svgPoint.y })
+    if (placing) {
+      // A line is drawn vertex-by-vertex (finished on double-click or the
+      // banner's Finish); a point drops on the first click.
+      if (isLineDrawing) {
+        setLineDraft((prev) => [...(prev ?? []), [svgPoint.x, svgPoint.y]])
+        return
+      }
+      void placePickedFeature(placing, svgPoint)
+      return
+    }
+    useDrawStore.getState().startDiagramDraft(digitizingClass!, { diagramId: openDiagramId, x: svgPoint.x, y: svgPoint.y })
     setDigitizingClass(null)
+  }
+
+  // Double-click finishes a line draft. Its own two constituent single
+  // clicks each already added a vertex, so the last (duplicate) one is
+  // dropped before committing.
+  function handleCanvasDoubleClick() {
+    if (!isLineDrawing || !lineDraft) return
+    const points = lineDraft.length >= 2 ? lineDraft.slice(0, -1) : lineDraft
+    finishLineDraft(points)
+  }
+
+  // Tracks the cursor in diagram space while drawing a line so the
+  // rubber-band segment can preview where the next click would land. Only
+  // does work mid line-draft; otherwise it's the pan handler alone.
+  function handleCanvasPointerMove(e: React.PointerEvent<SVGSVGElement>) {
+    handleCanvasPanPointerMove(e)
+    if (!isLineDrawing || !lineDraft) return
+    const svgPoint = clientToSvgPoint(e.clientX, e.clientY)
+    if (svgPoint) setLinePreview(svgPoint)
   }
 
   // Screen-pixel pointer movement has to be converted into the SVG's
@@ -923,6 +1083,20 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
             onStart={(code) => setDigitizingClass(code)}
             onCancel={() => setDigitizingClass(null)}
           />
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn("size-7", (isPickingHere || isPlacingHere) && "bg-accent text-accent-foreground")}
+            title="Add from map — pick a feature on the map, then click here to place it"
+            onClick={() =>
+              isPickingHere || isPlacingHere
+                ? useDiagramPlaceStore.getState().cancel()
+                : useDiagramPlaceStore.getState().startPicking(openDiagramId)
+            }
+          >
+            <Crosshair className="size-4" />
+            <span className="sr-only">Add from map</span>
+          </Button>
           <AddFeatureButton diagramId={openDiagramId} placements={placements} />
           <Button variant="ghost" size="icon" className="size-7" onClick={close}>
             <X className="size-4" />
@@ -946,18 +1120,48 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
               snapEnabled={snapEnabled}
               onToggleSnap={() => setSnapEnabled((s) => !s)}
             />
+            {(isPickingHere || isPlacingHere) && (
+              <div className="bg-popover text-popover-foreground absolute top-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-md border px-3 py-1.5 text-xs shadow-sm">
+                <Crosshair className="text-muted-foreground size-3.5" />
+                <span>
+                  {isPickingHere
+                    ? "Click a feature on the map to place it here"
+                    : isLineDrawing
+                      ? "Click to add line points; double-click to finish"
+                      : "Click on the diagram to drop the feature"}
+                </span>
+                {isLineDrawing && (lineDraft?.length ?? 0) >= 2 && (
+                  <button
+                    type="button"
+                    onClick={() => lineDraft && finishLineDraft(lineDraft)}
+                    className="text-primary font-medium"
+                  >
+                    Finish
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => useDiagramPlaceStore.getState().cancel()}
+                  className="text-muted-foreground hover:text-foreground font-medium"
+                >
+                  Cancel
+                </button>
+                <span className="text-muted-foreground">or Esc</span>
+              </div>
+            )}
             <svg
               ref={svgRef}
               viewBox={viewBox}
               className={cn(
                 "h-full w-full",
-                digitizingClass && "cursor-crosshair",
+                (digitizingClass || isPlacingHere) && "cursor-crosshair",
                 canvasMode === "pan" && (panDrag ? "cursor-grabbing" : "cursor-grab"),
               )}
               onClick={handleCanvasClick}
+              onDoubleClick={handleCanvasDoubleClick}
               onWheel={handleWheelZoom}
               onPointerDown={handleCanvasPanPointerDown}
-              onPointerMove={handleCanvasPanPointerMove}
+              onPointerMove={handleCanvasPointerMove}
               onPointerUp={handleCanvasPanPointerUp}
               onPointerCancel={handleCanvasPanPointerUp}
             >
@@ -974,43 +1178,51 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                 resolveSymbology(classRules, feature?.subtype, feature?.attributes ?? {}, "map")
               const stroke = def?.color ?? "var(--muted-foreground)"
               const [p1, p2] = item.points
-              const midX = (p1.x + p2.x) / 2
-              const midY = (p1.y + p2.y) / 2
+              // A hand-drawn line (Slice 5) renders from its stored `path`;
+              // absent one, fall back to today's connectivity-derived elbow
+              // between the two endpoints. Either way the node owns real
+              // geometry once `hasGeometry`, so it's select-only (no drag),
+              // exactly as a fully-connected conductor already was.
+              const drawnPath =
+                item.placement.path && item.placement.path.length >= 2 ? item.placement.path : null
+              const hasGeometry = drawnPath !== null || item.fullyConnected
+              const d = drawnPath ? polylinePath(drawnPath) : elbowPath(p1.x, p1.y, p2.x, p2.y)
+              const mid = drawnPath ? polylineMidpoint(drawnPath) : { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
               const dragging = dragState?.placementId === item.placement.id
               const role = roleFor(item.placement.feature_class, item.placement.feature_id)
               return (
                 <g key={item.placement.id}>
                   {role && (
                     <path
-                      d={elbowPath(p1.x, p1.y, p2.x, p2.y)}
+                      d={d}
                       fill="none"
                       style={{ stroke: HIGHLIGHT_COLORS[role], opacity: 0.4 }}
                       strokeWidth={Math.max(fontSize * 1.1, 5)}
                     />
                   )}
-                  <path d={elbowPath(p1.x, p1.y, p2.x, p2.y)} fill="none" style={{ stroke }} strokeWidth={Math.max(fontSize * 0.5, 2)} />
+                  <path d={d} fill="none" style={{ stroke }} strokeWidth={Math.max(fontSize * 0.5, 2)} />
                   <g
-                    transform={`translate(${midX}, ${midY})`}
+                    transform={`translate(${mid.x}, ${mid.y})`}
                     className={cn(
                       "group touch-none",
-                      item.fullyConnected ? "cursor-pointer" : dragging ? "cursor-grabbing" : "cursor-grab",
+                      hasGeometry ? "cursor-pointer" : dragging ? "cursor-grabbing" : "cursor-grab",
                     )}
-                    onPointerDown={item.fullyConnected ? undefined : (e) => handlePlacementPointerDown(e, item.placement)}
-                    onPointerMove={item.fullyConnected ? undefined : handlePlacementPointerMove}
+                    onPointerDown={hasGeometry ? undefined : (e) => handlePlacementPointerDown(e, item.placement)}
+                    onPointerMove={hasGeometry ? undefined : handlePlacementPointerMove}
                     onPointerUp={
-                      item.fullyConnected
+                      hasGeometry
                         ? () => selectOrPickTarget(item.placement.feature_class, item.placement.feature_id)
                         : handlePlacementPointerUp
                     }
                     onPointerCancel={() => setDragState(null)}
                   >
-                    {/* A loose end (not yet fully connected) still needs a
+                    {/* A loose end (no geometry of its own yet) still needs a
                       drag/click target at this midpoint, just not a
                       visible dot -- fill stays transparent, pointerEvents
                       keeps it interactive despite that. */}
-                    {!item.fullyConnected && <circle r={iconSize * 0.22} style={{ fill: "transparent", pointerEvents: "all" }} />}
+                    {!hasGeometry && <circle r={iconSize * 0.22} style={{ fill: "transparent", pointerEvents: "all" }} />}
                     <text
-                      y={item.fullyConnected ? -fontSize * 0.6 : iconSize * 0.3 + fontSize * 1.1}
+                      y={hasGeometry ? -fontSize * 0.6 : iconSize * 0.3 + fontSize * 1.1}
                       textAnchor="middle"
                       style={{ fill: "var(--foreground)", fontSize }}
                     >
@@ -1095,6 +1307,43 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                 </g>
               )
             })}
+            {/* In-progress line draft (Slice 5): the vertices committed so
+              far as dots, the polyline through them, and a rubber-band
+              segment from the last vertex to the pointer. Drawn last so it
+              sits on top of everything; pointerEvents off so it never
+              swallows the canvas clicks that are extending it. */}
+            {isLineDrawing && lineDraft && lineDraft.length > 0 && (
+              <g style={{ pointerEvents: "none" }}>
+                {lineDraft.length >= 2 && (
+                  <path
+                    d={polylinePath(lineDraft)}
+                    fill="none"
+                    style={{ stroke: "var(--ring)" }}
+                    strokeWidth={Math.max(fontSize * 0.5, 2)}
+                  />
+                )}
+                {linePreview && (
+                  <line
+                    x1={lineDraft[lineDraft.length - 1][0]}
+                    y1={lineDraft[lineDraft.length - 1][1]}
+                    x2={linePreview.x}
+                    y2={linePreview.y}
+                    style={{ stroke: "var(--ring)", opacity: 0.5 }}
+                    strokeWidth={Math.max(fontSize * 0.5, 2)}
+                    strokeDasharray="4 4"
+                  />
+                )}
+                {lineDraft.map(([x, y], i) => (
+                  <circle
+                    key={i}
+                    cx={x}
+                    cy={y}
+                    r={Math.max(fontSize * 0.4, 2)}
+                    style={{ fill: "var(--ring)" }}
+                  />
+                ))}
+              </g>
+            )}
           </svg>
           </>
         )}

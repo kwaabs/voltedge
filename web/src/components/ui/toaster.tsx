@@ -1,13 +1,14 @@
-import { AlertCircle, AlertTriangle, Check, Copy, X } from "lucide-react"
+import { AlertCircle, AlertTriangle, Check, CheckCircle2, Copy, X } from "lucide-react"
 import { useState } from "react"
 
 import { useToastStore } from "@/stores/toast-store"
 
 /**
  * Fixed top-right stack, mounted once in src/app.tsx above every
- * route -- every error or warning anywhere in the app goes through
- * useToastStore.pushError/pushWarning instead of being rendered inline
- * in whatever panel or form triggered it, so it always shows up here.
+ * route -- every error, warning, or success anywhere in the app goes
+ * through useToastStore.pushError/pushWarning/pushSuccess instead of
+ * being rendered inline in whatever panel or form triggered it, so it
+ * always shows up here.
  * Was previously mounted only inside MapPage (src/routes/map.tsx), so
  * any toast triggered from any other route (/features, /admin/*, ...)
  * silently had nowhere to render -- caught by Playwright-verifying an
@@ -33,11 +34,19 @@ export function Toaster() {
           className={`pointer-events-auto flex items-start gap-2 rounded-md border border-transparent px-3 py-2 text-sm shadow-lg ${
             toast.variant === "warning"
               ? "bg-amber-500 text-white dark:bg-amber-600"
-              : "bg-destructive text-destructive-foreground"
+              : toast.variant === "success"
+                ? "bg-emerald-600 text-white dark:bg-emerald-700"
+                : "bg-destructive text-destructive-foreground"
           }`}
         >
           <div className="mt-0.5 flex shrink-0 flex-col items-center gap-1.5">
-            {toast.variant === "warning" ? <AlertTriangle className="size-4" /> : <AlertCircle className="size-4" />}
+            {toast.variant === "warning" ? (
+              <AlertTriangle className="size-4" />
+            ) : toast.variant === "success" ? (
+              <CheckCircle2 className="size-4" />
+            ) : (
+              <AlertCircle className="size-4" />
+            )}
             <CopyToastButton message={toast.message} />
           </div>
           <p className="flex-1 break-words">{toast.message}</p>

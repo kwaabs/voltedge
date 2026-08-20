@@ -4,7 +4,7 @@ import { create } from "zustand"
 export interface Toast {
   id: number
   message: string
-  variant: "error" | "warning"
+  variant: "error" | "warning" | "success"
 }
 
 const AUTO_DISMISS_MS = 6000
@@ -25,11 +25,17 @@ const AUTO_DISMISS_MS = 6000
  * plausibility_warning (api/internal/relationship/plausibility.go) --
  * distinct from `pushError`'s red destructive styling since nothing
  * actually failed.
+ *
+ * `pushSuccess` (green) confirms a request that succeeded with nothing
+ * to flag -- used sparingly, only where the outcome isn't already
+ * self-evident on screen (e.g. a compile, whose result is a status
+ * change the user might not be looking at), not for every save.
  */
 interface ToastState {
   toasts: Toast[]
   pushError: (message: string) => void
   pushWarning: (message: string) => void
+  pushSuccess: (message: string) => void
   dismiss: (id: number) => void
 }
 
@@ -47,6 +53,7 @@ export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
   pushError: (message) => push(set, message, "error"),
   pushWarning: (message) => push(set, message, "warning"),
+  pushSuccess: (message) => push(set, message, "success"),
   dismiss: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
 }))
 

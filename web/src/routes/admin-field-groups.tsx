@@ -7,6 +7,7 @@ import { FormDialog } from "@/components/admin/form-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { usePermission } from "@/hooks/use-auth"
 import { type AdminFieldGroup, useAdminFieldGroups } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
@@ -21,6 +22,9 @@ import { useToastStore } from "@/stores/toast-store"
 export function AdminFieldGroupsPage() {
   const { data, isPending, isError } = useAdminFieldGroups()
   const queryClient = useQueryClient()
+  // Create/delete here are metadata:write on the server; this page opens on
+  // metadata:read, so gate the write controls to match.
+  const canWrite = usePermission()("metadata:write")
 
   const [open, setOpen] = useState(false)
   const [code, setCode] = useState("")
@@ -64,10 +68,12 @@ export function AdminFieldGroupsPage() {
               The form sections a field can belong to -- global, shared across every feature class.
             </p>
           </div>
-          <Button size="sm" onClick={() => setOpen(true)}>
-            <Plus className="size-4" />
-            New field group
-          </Button>
+          {canWrite && (
+            <Button size="sm" onClick={() => setOpen(true)}>
+              <Plus className="size-4" />
+              New field group
+            </Button>
+          )}
         </div>
 
         <FormDialog
@@ -135,14 +141,16 @@ export function AdminFieldGroupsPage() {
                     <CardDescription className="font-mono text-xs">{g.code}</CardDescription>
                   </div>
                   <span className="text-muted-foreground text-xs">#{g.sort_order}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-destructive size-7"
-                    onClick={() => setDeleteTarget(g)}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
+                  {canWrite && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive size-7"
+                      onClick={() => setDeleteTarget(g)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  )}
                 </CardHeader>
               </Card>
             ))}

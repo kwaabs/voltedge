@@ -1,4 +1,4 @@
-import { LandPlot, Layers } from "lucide-react"
+import { LandPlot, Layers, Shapes, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -18,6 +18,7 @@ import { territoryColorForRank } from "@/lib/map-layers"
 import { featureClassSourceIds } from "@/lib/martin"
 import { iconDataUri } from "@/lib/symbology-icons"
 import { resolveSymbology } from "@/lib/symbology"
+import { useImportedOverlaysStore } from "@/stores/imported-overlays-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useTerritoryOverlayStore } from "@/stores/territory-overlay-store"
 
@@ -69,6 +70,9 @@ export function LayersPanel() {
   const toggleTerritoryOverlay = useTerritoryOverlayStore((s) => s.toggle)
   const hiddenLevels = useTerritoryOverlayStore((s) => s.hiddenLevels)
   const toggleTerritoryLevel = useTerritoryOverlayStore((s) => s.toggleLevel)
+  const importedOverlays = useImportedOverlaysStore((s) => s.overlays)
+  const toggleImported = useImportedOverlaysStore((s) => s.toggle)
+  const removeImported = useImportedOverlaysStore((s) => s.remove)
   const { data: territoryLevels } = useTerritoryLevels()
   // Territories are auto-published by Martin but aren't a feature class --
   // they live in the Overlays section below, not this list (see
@@ -154,6 +158,47 @@ export function LayersPanel() {
               </span>
             </DropdownMenuCheckboxItem>
           ))}
+
+        {/* Imported overlays (Phase 15 data import) -- user-supplied reference
+            layers, each toggleable and removable. Only shown once at least one
+            has been imported. The trash button removes the overlay outright
+            (stopPropagation so it doesn't also toggle the row's checkbox). */}
+        {importedOverlays.length > 0 && (
+          <>
+            <DropdownMenuLabel>Imported</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {importedOverlays.map((overlay) => (
+              <DropdownMenuCheckboxItem
+                key={overlay.id}
+                checked={overlay.visible}
+                onSelect={(e) => e.preventDefault()}
+                onCheckedChange={() => toggleImported(overlay.id)}
+              >
+                <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                  <Shapes className="size-4 shrink-0" style={{ color: "#f59e0b" }} />
+                  <span className="truncate" title={`${overlay.name} (${overlay.featureCount})`}>
+                    {overlay.name}
+                  </span>
+                  <span className="text-muted-foreground ml-auto shrink-0 text-xs">
+                    {overlay.featureCount}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${overlay.name}`}
+                    className="text-muted-foreground hover:text-destructive shrink-0"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      removeImported(overlay.id)
+                    }}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </span>
+              </DropdownMenuCheckboxItem>
+            ))}
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

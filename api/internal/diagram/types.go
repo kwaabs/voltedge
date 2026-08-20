@@ -12,7 +12,10 @@
 // have.
 package diagram
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // featureRef identifies one specific feature row -- same shape as
 // api/internal/connectivity and api/internal/relationship's own
@@ -63,17 +66,25 @@ type placeRequest struct {
 	X            float64 `json:"x"`
 	Y            float64 `json:"y"`
 	Rotation     float64 `json:"rotation"`
+	// Path is an optional hand-drawn polyline for a line placement
+	// (Phase 12, option B2): an ordered [[x, y], ...] array in the
+	// diagram's local coordinate space. Null/absent for a point
+	// placement, which keeps using X/Y/Rotation. When present the class
+	// must be geometry_type = "line" (validated in placeFeature) and
+	// X/Y still anchor the node's label/hit target.
+	Path json.RawMessage `json:"path,omitempty"`
 }
 
 // placementResponse is the shape returned for one placement, whether
 // from place or list.
 type placementResponse struct {
-	ID           string  `json:"id"`
-	FeatureClass string  `json:"feature_class"`
-	FeatureID    string  `json:"feature_id"`
-	X            float64 `json:"x"`
-	Y            float64 `json:"y"`
-	Rotation     float64 `json:"rotation"`
+	ID           string          `json:"id"`
+	FeatureClass string          `json:"feature_class"`
+	FeatureID    string          `json:"feature_id"`
+	X            float64         `json:"x"`
+	Y            float64         `json:"y"`
+	Rotation     float64         `json:"rotation"`
+	Path         json.RawMessage `json:"path,omitempty"`
 }
 
 // apiError is the JSON body returned for any 4xx/5xx response.

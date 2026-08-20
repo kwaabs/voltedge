@@ -26,6 +26,7 @@ type FeatureClass struct {
 	PhysicalTable      *string `bun:"physical_table"`
 	Status             string  `bun:"status"`
 	IsDiagramContainer bool    `bun:"is_diagram_container"`
+	IsDiagramPlaceable bool    `bun:"is_diagram_placeable"`
 	MetadataVersionID  *string `bun:"metadata_version_id"`
 }
 
