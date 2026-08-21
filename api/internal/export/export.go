@@ -9,8 +9,10 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/territory"
@@ -29,42 +31,113 @@ type exportRequest struct {
 	FeatureClasses []string  `json:"feature_classes"`
 	Bbox           []float64 `json:"bbox"`
 	Territories    []string  `json:"territories"`
+	// CimProfile names the metadata.cim_profiles row for a CIM export; empty
+	// selects the is_default profile. Ignored by the other formats.
+	CimProfile string `json:"cim_profile"`
 }
 
-// format describes one supported output: its MIME type, file extension, and
-// the encoder that streams it. Adding a format (Slice 2 shapefile, Slice 3
-// DXF) is a new entry here plus its encoder file.
+// format describes one supported output: its MIME type, file extension, and its
+// encoder. A format encodes one of two ways (runExport dispatches on which is
+// set):
+//   - writeStream: the cursor path (KMZ/DXF), fed StreamLayers whose features
+//     are pulled one at a time, so the read is uncapped and never materialized
+//     (Phase 17 Slice 3d). Preferred where the encoder can stream.
+//   - write: the materialized path (shapefile), given fully-read []Layer --
+//     shapefile can't stream (its header holds offsets computed from a full
+//     pass), so it stays capped at maxExportFeatures.
+//
+// Both nil marks a format handled on its own path in runExport (CIM, whose
+// encoder needs the declarative mapping + whole-graph topology the generic
+// signatures don't carry). The entry still supplies the content-type/extension.
 type format struct {
 	contentType string
 	ext         string
 	write       func(w io.Writer, docName string, layers []Layer) error
+	writeStream func(w io.Writer, docName string, layers []StreamLayer) (int, error)
 }
 
 var formats = map[string]format{
-	"kmz": {contentType: "application/vnd.google-earth.kmz", ext: "kmz", write: writeKMZ},
+	"kmz": {contentType: "application/vnd.google-earth.kmz", ext: "kmz", writeStream: writeKMZStream},
 	"shp": {contentType: "application/zip", ext: "zip", write: writeShapefiles},
-	"dxf": {contentType: "application/dxf", ext: "dxf", write: writeDXF},
+	"dxf": {contentType: "application/dxf", ext: "dxf", writeStream: writeDXFStream},
+	// CIM RDF/XML (Phase 16) -- both encoders nil; runExport routes it to
+	// writeCIM with the loaded mapping. See docs/phase-16-cim-export.md.
+	"cim": {contentType: "application/rdf+xml", ext: "xml"},
 }
 
-// Routes returns the export router, meant to be mounted at /export behind the
-// features:read gate -- an export is a read, like trace/analysis, even though
-// it's a POST (the filter/scope don't fit query params).
-func Routes(db *bun.DB) chi.Router {
+// Routes returns the export router, mounted at /export behind the features:read
+// gate. As of Phase 17 (docs/phase-17-large-export.md) an export is an async
+// job, not a streamed download: POST enqueues and returns a job id, and the
+// caller polls GET /jobs/{id} until it can download. Every route is a read of
+// the caller's own data, so the single features:read gate on the mount covers
+// them all; per-user scoping (a caller only sees their own jobs) is enforced in
+// the handlers.
+func Routes(db *bun.DB, store *ObjectStore) chi.Router {
 	r := chi.NewRouter()
-	r.Post("/", exportHandler(db))
+	r.Post("/", enqueueHandler(db))
+	r.Get("/jobs", listJobsHandler(db))
+	r.Get("/jobs/{id}", getJobHandler(db))
+	r.Post("/jobs/{id}/cancel", cancelHandler(db))
+	r.Get("/jobs/{id}/download", downloadHandler(db, store))
 	return r
 }
 
-func exportHandler(db *bun.DB) http.HandlerFunc {
+// jobView is one export job over the wire. The result fields (feature_count,
+// byte_size) and error are omitted until they exist; download_url is present
+// only on a succeeded job. It points at this API's /download route (owner
+// -checked, stable across polls), which 302-redirects to a freshly minted
+// RustFS presigned URL at click time -- so the short TTL starts when the user
+// actually downloads, not when the poll observed success.
+type jobView struct {
+	ID           string     `json:"id"`
+	Status       string     `json:"status"`
+	Format       string     `json:"format"`
+	FeatureCount *int       `json:"feature_count,omitempty"`
+	ByteSize     *int64     `json:"byte_size,omitempty"`
+	Error        *string    `json:"error,omitempty"`
+	DownloadURL  string     `json:"download_url,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+}
+
+func toJobView(j *ExportJob) jobView {
+	v := jobView{
+		ID:           j.ID,
+		Status:       j.Status,
+		Format:       j.Format,
+		FeatureCount: j.FeatureCount,
+		ByteSize:     j.ByteSize,
+		Error:        j.Error,
+		CreatedAt:    j.CreatedAt,
+		FinishedAt:   j.FinishedAt,
+	}
+	if j.Status == "succeeded" {
+		v.DownloadURL = "/export/jobs/" + j.ID + "/download"
+	}
+	return v
+}
+
+// enqueueHandler validates the request, resolves its scope (the same authz
+// resolution the synchronous path did), and inserts a queued job -- returning
+// 202 + {job_id} with no bytes. Everything that can fail cleanly (bad format,
+// missing class, unconfigured CIM mapping) is checked here so the caller gets a
+// synchronous 4xx; anything that only fails at encode time surfaces later as a
+// failed job.
+func enqueueHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		user, ok := auth.UserFrom(r.Context())
+		if !ok {
+			writeErr(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+
 		var req exportRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeErr(w, http.StatusBadRequest, fmt.Sprintf("request body is not valid JSON: %v", err))
 			return
 		}
 
-		fmtSpec, ok := formats[req.Format]
-		if !ok {
+		if _, ok := formats[req.Format]; !ok {
 			writeErr(w, http.StatusBadRequest, fmt.Sprintf("unsupported export format %q", req.Format))
 			return
 		}
@@ -72,42 +145,201 @@ func exportHandler(db *bun.DB) http.HandlerFunc {
 			writeErr(w, http.StatusBadRequest, "no feature classes selected for export")
 			return
 		}
-		bbox, err := parseBBox(req.Bbox)
-		if err != nil {
+		if _, err := parseBBox(req.Bbox); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if status, msg := validateExportClasses(r.Context(), db, req.FeatureClasses); status != 0 {
+			writeErr(w, status, msg)
+			return
+		}
 
-		// Expand the selected territories to their subtrees so the filter
-		// matches features stamped to any descendant (see
-		// territory.DescendantIDs). A nil result (no territories requested)
-		// leaves the export unfiltered by territory; a non-nil but empty result
-		// (requested ids that don't exist) filters to nothing.
+		// Expand the selected territories to their subtrees (see
+		// territory.DescendantIDs): nil = no territory filter, non-nil empty =
+		// filter to nothing, populated = the descendant set. The expanded set is
+		// snapshotted into the job scope so the worker never re-resolves it.
 		territoryIDs, err := resolveTerritories(r.Context(), db, req.Territories)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		// Read every class fully before writing a byte of the response: a read
-		// failure mid-stream can't change an already-sent status/headers, so
-		// all the fallible work happens first and the file is only streamed
-		// once every layer is in hand.
-		layers, status, msg := gatherLayers(r.Context(), db, req.FeatureClasses, bbox, territoryIDs)
-		if status != 0 {
-			writeErr(w, status, msg)
+		// CIM: fail synchronously if the declarative mapping isn't seeded, so the
+		// caller learns now rather than via a failed job. The runner reloads it.
+		if req.Format == "cim" {
+			if _, err := metadata.LoadCIMMapping(r.Context(), db, req.CimProfile); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					writeErr(w, http.StatusBadRequest, "CIM export is not configured: "+err.Error())
+					return
+				}
+				writeErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+
+		scope := ExportScope{
+			Format:         req.Format,
+			FeatureClasses: req.FeatureClasses,
+			Bbox:           req.Bbox,
+			TerritoryIDs:   territoryIDs,
+			CimProfile:     req.CimProfile,
+		}
+		id, err := enqueueExport(r.Context(), db, user.ID, scope)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		filename := "voltedge-export." + fmtSpec.ext
-		w.Header().Set("Content-Type", fmtSpec.contentType)
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
-		if err := fmtSpec.write(w, "VoltEdge export", layers); err != nil {
-			// Headers are already sent, so this can't become a clean JSON error
-			// -- log-worthy, but the connection just ends with a truncated file.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]string{"job_id": id})
+	}
+}
+
+// listJobsHandler returns the caller's most recent export jobs, newest first.
+func listJobsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, ok := auth.UserFrom(r.Context())
+		if !ok {
+			writeErr(w, http.StatusUnauthorized, "authentication required")
 			return
 		}
+		jobs, err := listExportJobs(r.Context(), db, user.ID, 50)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		views := make([]jobView, len(jobs))
+		for i := range jobs {
+			views[i] = toJobView(&jobs[i])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"jobs": views})
 	}
+}
+
+// getJobHandler returns one of the caller's jobs by id (404 for a job that
+// doesn't exist or isn't theirs -- no cross-user peeking).
+func getJobHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, ok := auth.UserFrom(r.Context())
+		if !ok {
+			writeErr(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		job, err := getExportJob(r.Context(), db, chi.URLParam(r, "id"), user.ID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeErr(w, http.StatusNotFound, "export job not found")
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(toJobView(job))
+	}
+}
+
+// cancelHandler cancels one of the caller's own pending (queued/running) jobs
+// and returns its resulting state. A queued job is cancelled immediately; a
+// running job is flipped to cancelled and its worker aborts on the next
+// heartbeat (any artifact it already uploaded is reaped later by the retention
+// sweep). 404 for a job that isn't the caller's; 409 for one that already
+// finished (succeeded/failed) before the cancel could land.
+func cancelHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, ok := auth.UserFrom(r.Context())
+		if !ok {
+			writeErr(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		id := chi.URLParam(r, "id")
+
+		cancelled, err := cancelExport(r.Context(), db, id, user.ID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		// Report the resulting state. getExportJob is owner-scoped, so a job that
+		// isn't the caller's reads as 404 here exactly as it does on GET.
+		job, err := getExportJob(r.Context(), db, id, user.ID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeErr(w, http.StatusNotFound, "export job not found")
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		// Nothing flipped and it isn't cancelled -> it had already finished before
+		// the cancel could land (the worker won the race). Report the conflict.
+		if !cancelled && job.Status != "cancelled" {
+			writeErr(w, http.StatusConflict, fmt.Sprintf("export already %s; cannot cancel", job.Status))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(toJobView(job))
+	}
+}
+
+// downloadHandler redirects to a short-lived RustFS presigned URL for a
+// succeeded job's artifact. The API mints the URL (owner scoping inherited from
+// getExportJob) but never proxies the bytes -- the browser fetches them from
+// RustFS directly, keeping a multi-gigabyte download off the API hot path. The
+// URL is minted here, at click time, so its TTL is spent on the download rather
+// than on however long the caller polled before clicking.
+func downloadHandler(db *bun.DB, store *ObjectStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, ok := auth.UserFrom(r.Context())
+		if !ok {
+			writeErr(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		job, err := getExportJob(r.Context(), db, chi.URLParam(r, "id"), user.ID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeErr(w, http.StatusNotFound, "export job not found")
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if job.Status != "succeeded" || job.ObjectKey == nil {
+			writeErr(w, http.StatusConflict, "export is not ready for download")
+			return
+		}
+
+		spec := formats[job.Format]
+		filename := "voltedge-export." + spec.ext
+		signed, err := store.PresignGet(r.Context(), *job.ObjectKey, filename)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "could not prepare download: "+err.Error())
+			return
+		}
+		http.Redirect(w, r, signed, http.StatusFound)
+	}
+}
+
+// validateExportClasses cheaply checks every requested class exists and has
+// geometry -- enough to reject a bad request synchronously at enqueue without
+// the full feature read the runner does. Returns (0, "") when all pass, else an
+// HTTP status + message.
+func validateExportClasses(ctx context.Context, db *bun.DB, codes []string) (int, string) {
+	for _, code := range codes {
+		loaded, err := metadata.Load(ctx, db, code)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return http.StatusNotFound, fmt.Sprintf("feature class %q does not exist", code)
+			}
+			return http.StatusInternalServerError, err.Error()
+		}
+		if loaded.FeatureClass.GeometryType == "none" {
+			return http.StatusBadRequest, fmt.Sprintf("feature class %q has no geometry, so it can't be exported", code)
+		}
+	}
+	return 0, ""
 }
 
 // resolveTerritories turns the requested territory ids into the expanded
@@ -132,7 +364,7 @@ func resolveTerritories(ctx context.Context, db *bun.DB, ids []string) ([]string
 // gatherLayers loads and reads every requested class. On success it returns
 // the layers and a zero status; on failure it returns a nil slice plus the
 // HTTP status and message the handler should send (before any file bytes).
-func gatherLayers(ctx context.Context, db *bun.DB, codes []string, bbox *crud.ExportBBox, territoryIDs []string) ([]Layer, int, string) {
+func gatherLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.ExportBBox, territoryIDs []string) ([]Layer, int, string) {
 	layers := make([]Layer, 0, len(codes))
 	for _, code := range codes {
 		loaded, err := metadata.Load(ctx, db, code)
@@ -173,6 +405,59 @@ func gatherLayers(ctx context.Context, db *bun.DB, codes []string, bbox *crud.Ex
 			GeometryType: loaded.FeatureClass.GeometryType,
 			Fields:       fields,
 			Features:     features,
+			// Topology inputs (CIM only; the geometry formats leave these unread).
+			ClassID:     loaded.FeatureClass.ID,
+			NetworkRole: loaded.FeatureClass.NetworkRole,
+			Terminals:   loaded.Terminals,
+			Subtypes:    loaded.Subtypes,
+		})
+	}
+	return layers, 0, ""
+}
+
+// gatherStreamLayers is the streaming counterpart of gatherLayers (Phase 17
+// Slice 3d): it loads every requested class's metadata up front -- so a bad
+// class code or a geometry-less class still fails fast, before any bytes -- but
+// DEFERS the feature read into each StreamLayer's Each, which opens a DB cursor
+// on demand via crud.ExportFeaturesStream. The caller drives Each from inside
+// its snapshot transaction while the encoder runs, so the features stream
+// straight from the cursor to the wire, uncapped and never materialized. On a
+// metadata failure it returns a nil slice plus the HTTP status and message.
+func gatherStreamLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.ExportBBox, territoryIDs []string) ([]StreamLayer, int, string) {
+	layers := make([]StreamLayer, 0, len(codes))
+	for _, code := range codes {
+		loaded, err := metadata.Load(ctx, db, code)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, http.StatusNotFound, fmt.Sprintf("feature class %q does not exist", code)
+			}
+			return nil, http.StatusInternalServerError, err.Error()
+		}
+		if loaded.FeatureClass.GeometryType == "none" {
+			return nil, http.StatusBadRequest, fmt.Sprintf("feature class %q has no geometry, so it can't be exported", code)
+		}
+
+		fields := make([]AttributeField, len(loaded.Fields))
+		for i, f := range loaded.Fields {
+			fields[i] = AttributeField{Name: f.Name, DataType: f.DataType}
+		}
+
+		// loaded is declared per iteration above, so each Each closure captures
+		// its own class -- no shadow needed.
+		layers = append(layers, StreamLayer{
+			Code:         loaded.FeatureClass.Code,
+			Name:         loaded.FeatureClass.Name,
+			GeometryType: loaded.FeatureClass.GeometryType,
+			Fields:       fields,
+			Each: func(emit func(Feature) error) (int, error) {
+				return crud.ExportFeaturesStream(ctx, db, loaded, bbox, territoryIDs, func(row map[string]any) error {
+					f, err := featureFrom(row)
+					if err != nil {
+						return err
+					}
+					return emit(f)
+				})
+			},
 		})
 	}
 	return layers, 0, ""

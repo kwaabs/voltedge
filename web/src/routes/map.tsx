@@ -4,6 +4,7 @@ import { AmpacityPanel } from "@/components/map/ampacity-panel"
 import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
 import { DiagramCanvas } from "@/components/map/diagram-canvas"
 import { ExportDialog } from "@/components/map/export-dialog"
+import { ExportJobsPanel } from "@/components/map/export-jobs-panel"
 import { FaultCurrentPanel } from "@/components/map/fault-current-panel"
 import { FeaturePanel } from "@/components/map/feature-panel"
 import { FeatureQueryPanel } from "@/components/map/feature-query-panel"
@@ -80,6 +81,7 @@ export function MapPage() {
       </div>
       {queryOpen && <FeatureQueryPanel />}
       <ExportDialog />
+      <ExportJobsPanel />
       <ImportDialog />
       <ImportedFeaturePopup />
       <PeerPicker />

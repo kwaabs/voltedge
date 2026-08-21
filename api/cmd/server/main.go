@@ -53,6 +53,19 @@ func main() {
 	db := bun.NewDB(sqldb, pgdialect.New())
 	defer db.Close()
 
+	// Phase 17: export artifacts stream to RustFS and download via presigned
+	// URL. Building the client is offline (config only), so a momentarily
+	// unreachable RustFS does not stop boot; only ensuring the bucket touches
+	// the network, and that failure is a warning -- exports will fail with a
+	// clear per-job error rather than taking the whole API down.
+	exportStore, err := export.NewObjectStoreFromEnv()
+	if err != nil {
+		log.Fatalf("export object store: %v", err)
+	}
+	if err := exportStore.EnsureBucket(context.Background()); err != nil {
+		log.Printf("warning: could not ensure export bucket (exports fail until RustFS is reachable): %v", err)
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -95,7 +108,7 @@ func main() {
 	// map viewport) and streams them back as a KMZ/Shapefile/DXF download. A
 	// read, like trace/analysis -- POST only because the filter and scope don't
 	// fit query params -- so a single features:read gate covers every method.
-	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/export", export.Routes(db))
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/export", export.Routes(db, exportStore))
 	// Territories are fixed reference data read alongside features (the
 	// feature panel resolves a feature's territory_id to a name via this
 	// list), so the read-only endpoint sits under the same features:read
@@ -108,6 +121,12 @@ func main() {
 	r.With(auth.RequirePermission(auth.PermAnalysisRun, auth.PermAnalysisRun)).Mount("/analysis", powerflow.Routes(db))
 	r.With(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite)).Mount("/admin", admin.Routes(db))
 	r.Mount("/auth", auth.Routes(db, authCfg))
+
+	// Phase 17: export jobs are drained by the standalone cmd/exportworker
+	// process (internal/export/worker.go), not the API -- so a large export
+	// never competes with request handling. The API only enqueues jobs and mints
+	// download URLs; run `task exportworker-dev` (or the compose service)
+	// alongside this server, or queued exports will sit unprocessed.
 
 	log.Printf("voltedge api listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {

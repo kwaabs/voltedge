@@ -17,25 +17,24 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useEnqueueExport } from "@/hooks/use-export-jobs"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { type TerritorySummary, useTerritories } from "@/hooks/use-territories"
-import { ApiError, postForBlob } from "@/lib/api"
+import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useExportStore } from "@/stores/export-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useMapViewStore } from "@/stores/map-view-store"
 import { useToastStore } from "@/stores/toast-store"
 
-type FormatKey = "kmz" | "shp" | "dxf"
+type FormatKey = "kmz" | "shp" | "dxf" | "cim"
 
 const FORMATS: { value: FormatKey; label: string; hint: string }[] = [
   { value: "kmz", label: "KMZ", hint: "Google Earth" },
   { value: "shp", label: "Shapefile", hint: "zipped .shp/.dbf, for GIS" },
   { value: "dxf", label: "DXF", hint: "AutoCAD / CAD" },
+  { value: "cim", label: "CIM/XML", hint: "CDPSM RDF/XML, for power-system tools" },
 ]
-
-/** Server filename extension per format (shapefile ships as a .zip bundle). */
-const EXT: Record<FormatKey, string> = { kmz: "kmz", shp: "zip", dxf: "dxf" }
 
 /**
  * The three export scopes. "view" clips to the current map viewport (needs a
@@ -85,10 +84,12 @@ function flattenTerritories(list: TerritorySummary[]): TerritoryRow[] {
  * which feature classes to export -- pre-checked to whatever's currently
  * visible on the map -- and pick a scope: clip to the current viewport
  * (default), export each class's whole extent, or clip to a set of chosen
- * territories (expanded server-side to their subtrees). It POSTs to /export and
- * saves the streamed file. The class list is filtered to geometry-bearing
- * classes (a geometry-less class can't be placed on a map, and the endpoint
- * would 400 it anyway).
+ * territories (expanded server-side to their subtrees). Since Phase 17 an
+ * export is an async job: this POSTs to /export, which enqueues the work and
+ * returns a job id, then it hands off to the jobs panel (which polls for the
+ * download link). The class list is filtered to geometry-bearing classes (a
+ * geometry-less class can't be placed on a map, and the endpoint would 400 it
+ * anyway).
  */
 export function ExportDialog() {
   const open = useExportStore((s) => s.open)
@@ -96,12 +97,13 @@ export function ExportDialog() {
   const { data: territories } = useTerritories()
   const hidden = useLayersStore((s) => s.hidden)
   const bbox = useMapViewStore((s) => s.bbox)
+  const enqueue = useEnqueueExport()
 
   const [format, setFormat] = useState<FormatKey>("kmz")
   const [scope, setScope] = useState<Scope>("view")
   const [selected, setSelected] = useState<Record<string, boolean>>({})
   const [selectedTerritories, setSelectedTerritories] = useState<Record<string, boolean>>({})
-  const [exporting, setExporting] = useState(false)
+  const exporting = enqueue.isPending
 
   const exportable = useMemo(
     () =>
@@ -162,7 +164,6 @@ export function ExportDialog() {
 
   async function handleExport() {
     if (selectedCodes.length === 0 || !territoryReady) return
-    setExporting(true)
     try {
       const body: {
         format: FormatKey
@@ -175,16 +176,18 @@ export function ExportDialog() {
       }
       if (clip && bbox) body.bbox = bbox
       if (scope === "territory") body.territories = selectedTerritoryIds
-      const { blob, filename } = await postForBlob("/export", body)
-      saveBlob(blob, filename || `voltedge-export.${EXT[format]}`)
+      await enqueue.mutateAsync(body)
+      // The export now runs server-side; close the config dialog and open the
+      // jobs panel, which polls for the artifact and surfaces its download link.
+      close()
+      useExportStore.getState().openJobsPanel()
       useToastStore
         .getState()
-        .pushSuccess(`Exported ${selectedCodes.length} layer${selectedCodes.length === 1 ? "" : "s"}.`)
-      close()
+        .pushSuccess(
+          `Export queued for ${selectedCodes.length} layer${selectedCodes.length === 1 ? "" : "s"}.`,
+        )
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Export failed.")
-    } finally {
-      setExporting(false)
     }
   }
 
@@ -358,18 +361,4 @@ export function ExportDialog() {
       </DialogContent>
     </Dialog>
   )
-}
-
-/** Saves a fetched Blob to disk via the throwaway-anchor trick (mirrors the
- *  query panel's CSV download). Same approach, but the bytes come from the
- *  server rather than being built in the browser. */
-function saveBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
 }

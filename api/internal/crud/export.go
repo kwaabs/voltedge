@@ -18,19 +18,20 @@ type ExportBBox struct {
 }
 
 // maxExportFeatures caps how many features a single feature class contributes
-// to one export. A geographic export holds every matching feature in memory
-// to encode it, so this is the ceiling that keeps a whole-dataset export of a
-// huge class (or a hostile request) from exhausting memory -- generous enough
-// that a real map-extent export never approaches it.
+// to a MATERIALIZED export. The materialized readers (shapefile, CIM) hold every
+// matching feature in memory to encode -- shapefile needs a full pass to compute
+// its header offsets, CIM needs the whole connectivity graph for topology -- so
+// this ceiling keeps a whole-dataset export of a huge class (or a hostile
+// request) from exhausting memory. The streaming reader (ExportFeaturesStream,
+// used by KMZ/DXF) applies no such cap: it encodes each feature as it arrives
+// and never holds them all at once (Phase 17 Slice 3d).
 const maxExportFeatures = 50000
 
-// ExportFeatures reads one feature class's rows for a geographic export
-// (docs/phase-14-export.md): the same read path as list/query
-// (selectColumns/scanRows/formatRow, so each row carries its GeoJSON
-// geometry and attributes), with an optional bbox spatial filter, an optional
-// territory filter, and no attribute filter. Soft-deleted rows are excluded,
-// exactly as list does. Only geometric classes can be exported -- a
-// geometry-less class has nothing to place in a DXF/KMZ/shapefile.
+// exportQuery builds the SELECT for one class's export read -- columns, table,
+// WHERE (soft-delete + optional territory + optional bbox), and a stable
+// ORDER BY id -- WITHOUT a LIMIT tail, which each reader appends (or omits) for
+// itself. Only geometric classes can be exported: a geometry-less class has
+// nothing to place in a DXF/KMZ/shapefile.
 //
 // territoryIDs is the export's territory scope, ALREADY EXPANDED to include
 // descendants by the caller (territory.DescendantIDs). Its three states: nil
@@ -38,13 +39,13 @@ const maxExportFeatures = 50000
 // territory_id is in the set; an empty (non-nil) slice matches nothing (the
 // requested territories resolved to no ids) rather than silently falling back
 // to no filter.
-func ExportFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs []string) ([]map[string]any, error) {
+func exportQuery(loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs []string) (string, []any, error) {
 	if loaded.FeatureClass.GeometryType == "none" {
-		return nil, invalid("feature class %q has no geometry, so it can't be exported to a geographic format", loaded.FeatureClass.Code)
+		return "", nil, invalid("feature class %q has no geometry, so it can't be exported to a geographic format", loaded.FeatureClass.Code)
 	}
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 
 	where := []string{"deleted_at IS NULL"}
@@ -82,11 +83,24 @@ func ExportFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bb
 	}
 
 	// A stable id sort keeps repeated exports of the same extent byte-identical.
-	// maxExportFeatures is an int constant, not a bind param -- spliced as %d.
 	query := fmt.Sprintf(
-		"SELECT %s FROM %s WHERE %s ORDER BY id LIMIT %d",
-		strings.Join(selectColumns(loaded), ", "), table, strings.Join(where, " AND "), maxExportFeatures,
+		"SELECT %s FROM %s WHERE %s ORDER BY id",
+		strings.Join(selectColumns(loaded), ", "), table, strings.Join(where, " AND "),
 	)
+	return query, args, nil
+}
+
+// ExportFeatures reads one feature class's rows for a MATERIALIZED geographic
+// export (shapefile, CIM): the same read path as list/query
+// (selectColumns/scanRows/formatRow, so each row carries its GeoJSON geometry
+// and attributes), capped at maxExportFeatures. See exportQuery for the filters.
+func ExportFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs []string) ([]map[string]any, error) {
+	query, args, err := exportQuery(loaded, bbox, territoryIDs)
+	if err != nil {
+		return nil, err
+	}
+	// maxExportFeatures is an int constant, not a bind param -- spliced as %d.
+	query += fmt.Sprintf(" LIMIT %d", maxExportFeatures)
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -106,4 +120,64 @@ func ExportFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bb
 		out = append(out, formatted)
 	}
 	return out, nil
+}
+
+// ExportFeaturesStream reads one class's export rows one at a time, invoking fn
+// per formatted row, and returns how many rows it streamed. Unlike
+// ExportFeatures it applies NO maxExportFeatures cap and never materializes the
+// result set: rows are scanned and handed off individually, so the streaming
+// export path (KMZ/DXF, Phase 17 Slice 3d) encodes each feature as it arrives
+// at constant memory. The caller runs this inside a REPEATABLE READ snapshot
+// tx, so the cursor is a consistent point-in-time view for its whole lifetime.
+// If fn returns an error, iteration stops and that error is returned (with the
+// count so far).
+func ExportFeaturesStream(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs []string, fn func(map[string]any) error) (int, error) {
+	query, args, err := exportQuery(loaded, bbox, territoryIDs)
+	if err != nil {
+		return 0, err
+	}
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("crud: export stream read: %w", err)
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return 0, fmt.Errorf("crud: reading columns: %w", err)
+	}
+
+	count := 0
+	for rows.Next() {
+		// Scan generically, one row at a time -- the physical table's shape is
+		// only known at runtime, same as scanRows, but here nothing is retained
+		// past this iteration.
+		values := make([]any, len(columns))
+		ptrs := make([]any, len(columns))
+		for i := range values {
+			ptrs[i] = &values[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return count, fmt.Errorf("crud: scanning row: %w", err)
+		}
+		row := make(map[string]any, len(columns))
+		for i, col := range columns {
+			// Same []byte->string normalization scanRows does (uuids et al.).
+			if b, ok := values[i].([]byte); ok {
+				row[col] = string(b)
+			} else {
+				row[col] = values[i]
+			}
+		}
+		formatted, err := formatRow(loaded, row)
+		if err != nil {
+			return count, err
+		}
+		if err := fn(formatted); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, rows.Err()
 }

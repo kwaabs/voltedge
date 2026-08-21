@@ -1,6 +1,7 @@
 package export
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,28 +32,42 @@ const (
 	dxfXDataMax = 255
 )
 
-// writeDXF renders every layer into one DXF document. It builds the whole
-// document in memory and writes it once, so a geometry error surfaces before
-// any bytes are streamed (mirroring the read-before-write contract of the
-// handler as far as the format layer can).
-func writeDXF(w io.Writer, _ string, layers []Layer) error {
-	var b strings.Builder
-	writeDXFHeader(&b)
-	writeDXFTables(&b, layers)
-	if err := writeDXFEntities(&b, layers); err != nil {
-		return err
-	}
-	dxfPair(&b, 0, "EOF")
-	_, err := io.WriteString(w, b.String())
+// writeDXF renders every layer into one DXF document, streaming it straight to
+// w through a buffered writer (Slice 1, docs/phase-17-large-export.md) rather
+// than accumulating the whole drawing in a strings.Builder first -- the buffer
+// was an OOM at export scale. The trade-off streaming makes: a geometry error
+// (writeDXFEntities) may now surface after some bytes are already on the wire,
+// so it can no longer become a clean pre-stream failure -- acceptable, since DB
+// geometry is well-formed and the handler treats any post-header error as a
+// truncated download.
+func writeDXF(w io.Writer, docName string, layers []Layer) error {
+	_, err := writeDXFStream(w, docName, asStreams(layers))
 	return err
 }
 
+// writeDXFStream is the streaming DXF encoder (Phase 17 Slice 3d): it pulls each
+// layer's features one at a time through StreamLayer.Each rather than ranging a
+// materialized slice, so a whole-dataset DXF never holds its features in memory
+// and no maxExportFeatures cap applies. Returns the total feature count
+// streamed. writeDXF adapts materialized layers onto it, so DXF has one encoder.
+func writeDXFStream(w io.Writer, _ string, layers []StreamLayer) (int, error) {
+	b := bufio.NewWriter(w)
+	writeDXFHeader(b)
+	writeDXFTables(b, layers)
+	count, err := writeDXFEntities(b, layers)
+	if err != nil {
+		return count, err
+	}
+	dxfPair(b, 0, "EOF")
+	return count, b.Flush()
+}
+
 // dxfPair writes one group-code/value pair -- the atom of the DXF format.
-func dxfPair(b *strings.Builder, code int, value string) {
+func dxfPair(b *bufio.Writer, code int, value string) {
 	fmt.Fprintf(b, "%d\n%s\n", code, value)
 }
 
-func writeDXFHeader(b *strings.Builder) {
+func writeDXFHeader(b *bufio.Writer) {
 	dxfPair(b, 0, "SECTION")
 	dxfPair(b, 2, "HEADER")
 	dxfPair(b, 9, "$ACADVER")
@@ -64,7 +79,7 @@ func writeDXFHeader(b *strings.Builder) {
 // and the LAYER table (one layer per feature class, so a CAD user can toggle
 // classes independently). Layer names reuse the shapefile safeName so they're
 // free of DXF's forbidden characters.
-func writeDXFTables(b *strings.Builder, layers []Layer) {
+func writeDXFTables(b *bufio.Writer, layers []StreamLayer) {
 	dxfPair(b, 0, "SECTION")
 	dxfPair(b, 2, "TABLES")
 
@@ -93,29 +108,35 @@ func writeDXFTables(b *strings.Builder, layers []Layer) {
 	dxfPair(b, 0, "ENDSEC")
 }
 
-func writeDXFEntities(b *strings.Builder, layers []Layer) error {
+func writeDXFEntities(b *bufio.Writer, layers []StreamLayer) (int, error) {
 	dxfPair(b, 0, "SECTION")
 	dxfPair(b, 2, "ENTITIES")
+	count := 0
 	for _, layer := range layers {
 		layerName := safeName(layer.Code)
-		keys := layer.AttributeKeys()
-		for _, feat := range layer.Features {
+		keys := layer.FieldKeys()
+		n, err := layer.Each(func(feat Feature) error {
 			if len(feat.Geometry) == 0 {
-				continue // geometry-less feature: nothing to draw
+				return nil // geometry-less feature: nothing to draw
 			}
 			if err := dxfFeature(b, layerName, keys, feat); err != nil {
 				return fmt.Errorf("export: dxf: feature %s: %w", feat.ID, err)
 			}
+			return nil
+		})
+		count += n
+		if err != nil {
+			return count, err
 		}
 	}
 	dxfPair(b, 0, "ENDSEC")
-	return nil
+	return count, nil
 }
 
 // dxfFeature dispatches one feature's GeoJSON geometry to the matching DXF
 // entity emitter. Multi* and polygon geometries fan out to one entity per
 // part/ring, each carrying the same feature's XDATA.
-func dxfFeature(b *strings.Builder, layer string, keys []string, feat Feature) error {
+func dxfFeature(b *bufio.Writer, layer string, keys []string, feat Feature) error {
 	var g struct {
 		Type        string          `json:"type"`
 		Coordinates json.RawMessage `json:"coordinates"`
@@ -182,7 +203,7 @@ func dxfFeature(b *strings.Builder, layer string, keys []string, feat Feature) e
 	return nil
 }
 
-func dxfPoint(b *strings.Builder, layer string, x, y float64, xdata func()) {
+func dxfPoint(b *bufio.Writer, layer string, x, y float64, xdata func()) {
 	dxfPair(b, 0, "POINT")
 	dxfPair(b, 8, layer)
 	dxfPair(b, 10, dxfFloat(x))
@@ -195,7 +216,7 @@ func dxfPoint(b *strings.Builder, layer string, x, y float64, xdata func()) {
 // (closed=true). For a closed ring the GeoJSON already repeats the first point
 // as the last; that duplicate is dropped and the closed flag set instead, so
 // CAD sees a clean closed shape with no zero-length segment.
-func dxfPolyline(b *strings.Builder, layer string, pts [][2]float64, closed bool, xdata func()) {
+func dxfPolyline(b *bufio.Writer, layer string, pts [][2]float64, closed bool, xdata func()) {
 	if closed && len(pts) > 1 && pts[0] == pts[len(pts)-1] {
 		pts = pts[:len(pts)-1]
 	}
@@ -221,7 +242,7 @@ func dxfPolyline(b *strings.Builder, layer string, pts [][2]float64, closed bool
 // app: name and status first, then the layer's sorted attribute keys, each as
 // a "key=value" string (group 1000). Values are sanitized to a single line and
 // clipped to the format's 255-byte limit.
-func writeDXFXData(b *strings.Builder, keys []string, feat Feature) {
+func writeDXFXData(b *bufio.Writer, keys []string, feat Feature) {
 	dxfPair(b, 1001, dxfAppID)
 	dxfPair(b, 1000, dxfXField("name", feat.Name))
 	dxfPair(b, 1000, dxfXField("status", feat.Status))

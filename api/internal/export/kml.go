@@ -2,61 +2,87 @@ package export
 
 import (
 	"archive/zip"
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 )
 
-// writeKMZ streams a KMZ (a zip containing a single doc.kml) of every layer to
-// w. KML is inherently EPSG:4326 (lon/lat), which is exactly what the read
-// path emits, so no coordinate transform is needed. Each feature class becomes
-// a KML Folder; each feature a Placemark with its attributes in ExtendedData
-// and its geometry translated from GeoJSON.
+// writeKMZ streams a KMZ (a zip containing a single doc.kml) of every
+// materialized layer to w. It adapts its layers onto the streaming encoder
+// (writeKMZStream) so KMZ has a single implementation; this materialized entry
+// serves the format tests (and any in-memory caller). The runner uses
+// writeKMZStream directly for the uncapped cursor path.
 func writeKMZ(w io.Writer, docName string, layers []Layer) error {
+	_, err := writeKMZStream(w, docName, asStreams(layers))
+	return err
+}
+
+// writeKML writes the KML document body from materialized layers; a thin
+// adapter over writeKMLStream (see writeKMZ).
+func writeKML(w io.Writer, docName string, layers []Layer) error {
+	_, err := writeKMLStream(w, docName, asStreams(layers))
+	return err
+}
+
+// writeKMZStream streams a KMZ (a zip containing a single doc.kml) of every
+// layer to w, pulling each layer's features one at a time through StreamLayer.
+// Each so no class is ever fully held in memory (Phase 17 Slice 3d). Returns
+// the total feature count streamed. KML is inherently EPSG:4326 (lon/lat),
+// exactly what the read path emits, so no coordinate transform is needed.
+func writeKMZStream(w io.Writer, docName string, layers []StreamLayer) (int, error) {
 	zw := zip.NewWriter(w)
 	f, err := zw.Create("doc.kml")
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if err := writeKML(f, docName, layers); err != nil {
-		return err
+	n, err := writeKMLStream(f, docName, layers)
+	if err != nil {
+		return n, err
 	}
-	return zw.Close()
+	return n, zw.Close()
 }
 
-// writeKML writes the KML document body. Built with a strings.Builder and
-// flushed once -- an export is bounded (maxExportFeatures per class) and this
-// keeps the geometry/escape helpers simple string-in string-out.
-func writeKML(w io.Writer, docName string, layers []Layer) error {
-	var b strings.Builder
+// writeKMLStream writes the KML document body, streaming it to w through a
+// buffered writer (Slice 1, docs/phase-17-large-export.md) and pulling features
+// through each layer's cursor (Slice 3d) so neither the document nor the
+// feature set is ever fully buffered. Each feature class becomes a KML Folder;
+// each feature a Placemark with its attributes in ExtendedData and its geometry
+// translated from GeoJSON. bufio.Writer's write errors are sticky, so the
+// geometry/escape helpers keep ignoring them and the single Flush at the end
+// reports the first failure. Returns the total feature count streamed.
+func writeKMLStream(w io.Writer, docName string, layers []StreamLayer) (int, error) {
+	b := bufio.NewWriter(w)
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	b.WriteString(`<kml xmlns="http://www.opengis.net/kml/2.2">` + "\n")
 	b.WriteString("<Document>\n")
 	b.WriteString("<name>" + xmlEscape(docName) + "</name>\n")
 
+	count := 0
 	for _, layer := range layers {
 		b.WriteString("<Folder>\n")
 		b.WriteString("<name>" + xmlEscape(layer.Name) + "</name>\n")
-		keys := layer.AttributeKeys()
-		for _, feat := range layer.Features {
-			if err := kmlPlacemark(&b, feat, keys); err != nil {
-				return err
-			}
+		keys := layer.FieldKeys()
+		n, err := layer.Each(func(feat Feature) error {
+			return kmlPlacemark(b, feat, keys)
+		})
+		count += n
+		if err != nil {
+			return count, err
 		}
 		b.WriteString("</Folder>\n")
 	}
 
 	b.WriteString("</Document>\n</kml>\n")
-	_, err := io.WriteString(w, b.String())
-	return err
+	return count, b.Flush()
 }
 
 // kmlPlacemark writes one feature: its name, its attributes as ExtendedData
 // (status first, then the layer's sorted attribute keys so every placemark
 // has the same column set), then its geometry. A feature with no geometry is
 // skipped entirely -- a Placemark with no geometry is meaningless on a map.
-func kmlPlacemark(b *strings.Builder, feat Feature, keys []string) error {
+func kmlPlacemark(b *bufio.Writer, feat Feature, keys []string) error {
 	if len(feat.Geometry) == 0 {
 		return nil
 	}
@@ -79,14 +105,14 @@ func kmlPlacemark(b *strings.Builder, feat Feature, keys []string) error {
 	return nil
 }
 
-func kmlData(b *strings.Builder, name, value string) {
+func kmlData(b *bufio.Writer, name, value string) {
 	b.WriteString(`<Data name="` + xmlEscape(name) + `"><value>` + xmlEscape(value) + "</value></Data>\n")
 }
 
 // kmlGeometry translates a GeoJSON geometry object into its KML equivalent.
 // Handles the single and Multi* variants of Point/LineString/Polygon -- the
 // only geometry types a feature class column can hold.
-func kmlGeometry(b *strings.Builder, raw json.RawMessage) error {
+func kmlGeometry(b *bufio.Writer, raw json.RawMessage) error {
 	var g struct {
 		Type        string          `json:"type"`
 		Coordinates json.RawMessage `json:"coordinates"`
@@ -150,13 +176,13 @@ func kmlGeometry(b *strings.Builder, raw json.RawMessage) error {
 	return nil
 }
 
-func kmlPoint(b *strings.Builder, c []float64) {
+func kmlPoint(b *bufio.Writer, c []float64) {
 	b.WriteString("<Point><coordinates>")
 	writeCoord(b, c)
 	b.WriteString("</coordinates></Point>")
 }
 
-func kmlLineString(b *strings.Builder, cs [][]float64) {
+func kmlLineString(b *bufio.Writer, cs [][]float64) {
 	b.WriteString("<LineString><coordinates>")
 	writeCoordList(b, cs)
 	b.WriteString("</coordinates></LineString>")
@@ -164,7 +190,7 @@ func kmlLineString(b *strings.Builder, cs [][]float64) {
 
 // kmlPolygon writes a Polygon: the first ring is the outer boundary, any
 // remaining rings are holes, matching GeoJSON's ring ordering.
-func kmlPolygon(b *strings.Builder, rings [][][]float64) {
+func kmlPolygon(b *bufio.Writer, rings [][][]float64) {
 	b.WriteString("<Polygon>")
 	for i, ring := range rings {
 		if i == 0 {
@@ -182,7 +208,7 @@ func kmlPolygon(b *strings.Builder, rings [][][]float64) {
 	b.WriteString("</Polygon>")
 }
 
-func writeCoordList(b *strings.Builder, cs [][]float64) {
+func writeCoordList(b *bufio.Writer, cs [][]float64) {
 	for i, c := range cs {
 		if i > 0 {
 			b.WriteByte(' ')
@@ -194,7 +220,7 @@ func writeCoordList(b *strings.Builder, cs [][]float64) {
 // writeCoord writes one KML coordinate tuple, "lon,lat" (KML's axis order),
 // dropping any z. A coordinate with fewer than two ordinates is skipped rather
 // than panicking on a malformed geometry.
-func writeCoord(b *strings.Builder, c []float64) {
+func writeCoord(b *bufio.Writer, c []float64) {
 	if len(c) < 2 {
 		return
 	}
