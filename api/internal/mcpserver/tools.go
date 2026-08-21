@@ -6,10 +6,21 @@ package mcpserver
 // equivalent requires, which handleToolsCall enforces against the token's user
 // before running the handler. Slice 1 added the four feature tools
 // (features:read); Slice 2 adds the two trace tools (trace:run), backed by the
-// engine wrappers in internal/trace/export.go. The suggestion/validation and
-// mutating tools the design envisions need further engine work
-// (ranked-candidate logic, an exported validate-only path, the
-// establish/create/update writes) and land in later slices.
+// engine wrappers in internal/trace/export.go; Slice 3 adds validate_feature
+// (features:write -- it previews a create, whose REST equivalent needs write),
+// backed by crud.ValidateFeature; Slice 4 adds the two suggestion tools
+// (suggest_connections -> connectivity:read, suggest_relationships ->
+// relationships:read), backed by the new ranked-candidate engines
+// connectivity.SuggestConnections / relationship.SuggestRelationships; Slice 5
+// adds the three composite trace tools (run_isolation_trace, run_feeder_trace,
+// run_section_trace -- all trace:run, the same gate the /trace mount uses),
+// backed by the trace.Isolate / trace.FeederTrace / trace.SectionTrace
+// wrappers. Slices 1-5 are all read-only. Slice 6 opens the write surface with
+// create_feature (registerWriteTools, gated features:write), backed by the
+// shared crud.CreateFeature; write safety is the client-side MCP annotation
+// model (see toolAnnotations in server.go) -- the tool advertises
+// readOnlyHint:false so a client confirms with a human before calling. The
+// remaining mutating tools (establish_*/update_) land in later slices.
 
 import (
 	"context"
@@ -17,8 +28,10 @@ import (
 	"fmt"
 
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/kwaabs/voltedge/api/internal/relationship"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
 )
@@ -38,8 +51,15 @@ var orderedToolNames = []string{
 	"describe_feature_class",
 	"search_features",
 	"get_feature",
+	"validate_feature",
 	"list_trace_configurations",
 	"run_trace",
+	"run_isolation_trace",
+	"run_feeder_trace",
+	"run_section_trace",
+	"suggest_connections",
+	"suggest_relationships",
+	"create_feature",
 }
 
 func (s *Server) registerReadTools() {
@@ -122,6 +142,34 @@ func (s *Server) registerReadTools() {
 		},
 	}
 
+	s.tools["validate_feature"] = tool{
+		requiredPerm: auth.PermFeaturesWrite,
+		handler:      toolValidateFeature,
+		def: toolDef{
+			Name: "validate_feature",
+			Description: "Dry-run the validation a create would perform on a proposed feature, " +
+				"without writing anything. Checks the subtype, geometry presence/type, " +
+				"required fields for the subtype, that every attribute is a known editable " +
+				"field, and each value's type, coded-domain membership, and numeric range. " +
+				"Returns {valid:true} or {valid:false, error:<first problem>}. Use " +
+				"describe_feature_class to learn the fields first. Note this is a " +
+				"metadata-level pre-flight only -- it does not check database constraints " +
+				"(uniqueness, referenced-feature existence) or assign a territory, so a " +
+				"valid result is not a guaranteed insert.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code the proposed feature belongs to."},
+					"subtype":{"type":"integer","description":"The subtype code -- required when the class has subtypes, forbidden when it doesn't."},
+					"geometry":{"type":"object","description":"The GeoJSON geometry object -- required exactly when the feature class has geometry."},
+					"attributes":{"type":"object","description":"Field values keyed by field name.","additionalProperties":true}
+				},
+				"required":["feature_class"],
+				"additionalProperties":false
+			}`),
+		},
+	}
+
 	s.tools["list_trace_configurations"] = tool{
 		requiredPerm: auth.PermTraceRun,
 		handler:      toolListTraceConfigurations,
@@ -176,6 +224,209 @@ func (s *Server) registerReadTools() {
 				"required":["trace_configuration","start"],
 				"additionalProperties":false
 			}`),
+		},
+	}
+
+	s.tools["run_isolation_trace"] = tool{
+		requiredPerm: auth.PermTraceRun,
+		handler:      toolRunIsolationTrace,
+		def: toolDef{
+			Name: "run_isolation_trace",
+			Description: "Analyze isolating a switching device: compute what would be de-energized " +
+				"if the device were opened right now, without changing anything. Composes a " +
+				"downstream trace (from past the device) with an upstream search for the nearest " +
+				"protective boundary. Returns the de-energized features, the upstream boundary " +
+				"device (if any), the subset of de-energized features that are critical " +
+				"facilities, and possible backfeed paths (live connections this radial analysis " +
+				"didn't cross -- report them for a human to verify, not a guarantee). Requires a " +
+				"DOWNSTREAM trace_configuration. Read-only: it never opens the device.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"trace_configuration":{"type":"string","description":"A DOWNSTREAM trace configuration code from list_trace_configurations."},
+					"device":{
+						"type":"object",
+						"description":"The switching device to analyze isolating.",
+						"properties":{
+							"feature_class":{"type":"string","description":"The device's feature class code."},
+							"feature_id":{"type":"string","description":"The device's id (uuid)."}
+						},
+						"required":["feature_class","feature_id"],
+						"additionalProperties":false
+					},
+					"boundary_class":{"type":"string","description":"Feature class to treat as the upstream isolation boundary; defaults to the device's own class."}
+				},
+				"required":["trace_configuration","device"],
+				"additionalProperties":false
+			}`),
+		},
+	}
+
+	s.tools["run_feeder_trace"] = tool{
+		requiredPerm: auth.PermTraceRun,
+		handler:      toolRunFeederTrace,
+		def: toolDef{
+			Name: "run_feeder_trace",
+			Description: "Find the whole feeder a feature belongs to, regardless of where along it " +
+				"you start. Walks upstream (ignoring switching state) to the feeder head(s) -- the " +
+				"network root(s) -- then unions a downstream trace (respecting the configuration's " +
+				"barriers) from each head. Returns the head(s) and every feature the feeder reaches. " +
+				"Requires a DOWNSTREAM trace_configuration. Read-only.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"trace_configuration":{"type":"string","description":"A DOWNSTREAM trace configuration code from list_trace_configurations."},
+					"start":{
+						"type":"object",
+						"description":"Any feature on the feeder.",
+						"properties":{
+							"feature_class":{"type":"string","description":"The start feature's class code."},
+							"feature_id":{"type":"string","description":"The start feature's id (uuid)."}
+						},
+						"required":["feature_class","feature_id"],
+						"additionalProperties":false
+					}
+				},
+				"required":["trace_configuration","start"],
+				"additionalProperties":false
+			}`),
+		},
+	}
+
+	s.tools["run_section_trace"] = tool{
+		requiredPerm: auth.PermTraceRun,
+		handler:      toolRunSectionTrace,
+		def: toolDef{
+			Name: "run_section_trace",
+			Description: "Find the section a feature sits in: everything between the nearest bounding " +
+				"device upstream and the nearest bounding device downstream of it (the '\"which " +
+				"customers are between these two switches\"' answer for a planned outage). Composes " +
+				"an upstream and a downstream search that stop at -- but don't cross -- the first " +
+				"boundary-class device in each direction. Returns the section's features and each " +
+				"boundary device (either may be absent when the section runs to the network edge). " +
+				"Read-only.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"trace_configuration":{"type":"string","description":"A trace configuration code from list_trace_configurations."},
+					"start":{
+						"type":"object",
+						"description":"The feature whose section to find.",
+						"properties":{
+							"feature_class":{"type":"string","description":"The start feature's class code."},
+							"feature_id":{"type":"string","description":"The start feature's id (uuid)."}
+						},
+						"required":["feature_class","feature_id"],
+						"additionalProperties":false
+					},
+					"boundary_class":{"type":"string","description":"Feature class that bounds the section (a sectionalizing device); defaults to DIST_SWITCH."}
+				},
+				"required":["trace_configuration","start"],
+				"additionalProperties":false
+			}`),
+		},
+	}
+
+	s.tools["suggest_connections"] = tool{
+		requiredPerm: auth.PermConnectivityRead,
+		handler:      toolSuggestConnections,
+		def: toolDef{
+			Name: "suggest_connections",
+			Description: "Propose ranked candidate features the given feature could legally " +
+				"connect to, without establishing anything. A candidate is permitted by an " +
+				"active network rule, not already connected to this feature, not deleted, and " +
+				"-- when both feature classes have geometry -- within a search radius, returned " +
+				"nearest-first. Each suggestion names the candidate feature, the terminals the " +
+				"authorizing rule implies on each side (if any), the rule, and the distance in " +
+				"meters. These are candidates, not facts: a phase-gated rule and database " +
+				"constraints are still checked when you actually establish the connection.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code of the feature to suggest connections for."},
+					"feature_id":{"type":"string","description":"The feature's id (uuid)."},
+					"limit":{"type":"integer","description":"Max suggestions to return, 1-50 (default 10)."},
+					"radius_meters":{"type":"number","description":"Search radius in meters for the proximity ranking (default 1000); ignored for non-geometric classes."}
+				},
+				"required":["feature_class","feature_id"],
+				"additionalProperties":false
+			}`),
+		},
+	}
+
+	s.tools["suggest_relationships"] = tool{
+		requiredPerm: auth.PermRelationshipsRead,
+		handler:      toolSuggestRelationships,
+		def: toolDef{
+			Name: "suggest_relationships",
+			Description: "Propose ranked candidate features the given feature could legally form " +
+				"a structural/spatial relationship with, without establishing anything. A " +
+				"candidate is permitted by a relationship class, satisfies that class's " +
+				"cardinality, is not already related to this feature, is not deleted, and -- " +
+				"when both classes have geometry -- falls within a search radius, nearest-first. " +
+				"Each suggestion names the candidate, the role it would take (origin or " +
+				"destination), the relationship class with its kind and cardinality, and the " +
+				"distance in meters. Candidates, not facts: establishing still runs the full " +
+				"checks.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code of the feature to suggest relationships for."},
+					"feature_id":{"type":"string","description":"The feature's id (uuid)."},
+					"limit":{"type":"integer","description":"Max suggestions to return, 1-50 (default 10)."},
+					"radius_meters":{"type":"number","description":"Search radius in meters for the proximity ranking (default 1000); ignored for non-geometric classes."}
+				},
+				"required":["feature_class","feature_id"],
+				"additionalProperties":false
+			}`),
+		},
+	}
+}
+
+// falseHint backs the *bool annotation fields (Go has no bool-literal address),
+// so a write tool can advertise explicit false hint values.
+var falseHint = false
+
+// registerWriteTools registers the mutating tools. Unlike the read tools these
+// carry their own annotations (readOnlyHint:false) so a client surfaces them
+// for human confirmation before calling -- the write-safety model this server
+// chose. Each is gated by exactly the RBAC permission its REST equivalent
+// needs. markReadOnly runs before this, so these tools keep their own
+// annotations rather than being stamped read-only.
+func (s *Server) registerWriteTools() {
+	s.tools["create_feature"] = tool{
+		requiredPerm: auth.PermFeaturesWrite,
+		handler:      toolCreateFeature,
+		def: toolDef{
+			Name: "create_feature",
+			Description: "Create a new feature in a feature class -- the same validated write the " +
+				"REST create route performs (subtype, geometry, required fields, editable-field " +
+				"and per-value type/domain/range checks, then territory assignment and the " +
+				"insert). Returns the created feature's full envelope (including its new id). " +
+				"This WRITES to the database: confirm the change with a human before calling it, " +
+				"and prefer validate_feature first to catch problems without writing. The feature " +
+				"is created as its class's default status (typically draft); publishing is a " +
+				"separate step. Use describe_feature_class to learn the fields.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code to create the feature in."},
+					"name":{"type":"string","description":"Optional human-assigned label for the feature."},
+					"subtype":{"type":"integer","description":"The subtype code -- required when the class has subtypes, forbidden when it doesn't."},
+					"geometry":{"type":"object","description":"The GeoJSON geometry object -- required exactly when the feature class has geometry."},
+					"territory_id":{"type":"string","description":"Optional territory override (uuid); omit to auto-assign from geometry. Only valid for a geometric class."},
+					"attributes":{"type":"object","description":"Field values keyed by field name.","additionalProperties":true}
+				},
+				"required":["feature_class"],
+				"additionalProperties":false
+			}`),
+			Annotations: &toolAnnotations{
+				Title:           "Create feature",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // a create is additive, not destructive
+				IdempotentHint:  &falseHint, // repeating it creates another feature
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
 		},
 	}
 }
@@ -375,6 +626,35 @@ func toolGetFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any,
 	return feature, nil
 }
 
+func toolValidateFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		FeatureClass string          `json:"feature_class"`
+		Subtype      *int            `json:"subtype"`
+		Geometry     json.RawMessage `json:"geometry"`
+		Attributes   map[string]any  `json:"attributes"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.FeatureClass == "" {
+		return nil, fmt.Errorf("feature_class is required")
+	}
+
+	loaded, err := metadata.Load(ctx, db, in.FeatureClass)
+	if err != nil {
+		return nil, fmt.Errorf("no such feature class %q: %w", in.FeatureClass, err)
+	}
+
+	// A well-formed-but-invalid feature is a successful validation *result*
+	// (valid:false), not a tool error -- the report carries the reason. Only a
+	// bad request (unparseable args, unknown class) is a tool error above.
+	return crud.ValidateFeature(loaded, crud.ValidateFeatureInput{
+		Subtype:    in.Subtype,
+		Geometry:   in.Geometry,
+		Attributes: in.Attributes,
+	}), nil
+}
+
 func toolListTraceConfigurations(ctx context.Context, db bun.IDB, _ json.RawMessage) (any, error) {
 	configs, err := trace.ListConfigurations(ctx, db)
 	if err != nil {
@@ -420,4 +700,181 @@ func toolRunTrace(ctx context.Context, db bun.IDB, args json.RawMessage) (any, e
 		return nil, err
 	}
 	return result, nil
+}
+
+func toolRunIsolationTrace(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		TraceConfiguration string `json:"trace_configuration"`
+		Device             struct {
+			FeatureClass string `json:"feature_class"`
+			FeatureID    string `json:"feature_id"`
+		} `json:"device"`
+		BoundaryClass string `json:"boundary_class"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.TraceConfiguration == "" {
+		return nil, fmt.Errorf("trace_configuration is required")
+	}
+	if in.Device.FeatureClass == "" || in.Device.FeatureID == "" {
+		return nil, fmt.Errorf("device.feature_class and device.feature_id are required")
+	}
+
+	// The engine re-validates (DOWNSTREAM configuration required, feature must
+	// exist); its validation/not-found errors surface in-band as the tool error.
+	result, err := trace.Isolate(ctx, db, trace.IsolationInput{
+		TraceConfiguration: in.TraceConfiguration,
+		Device:             trace.FeatureRef{FeatureClass: in.Device.FeatureClass, FeatureID: in.Device.FeatureID},
+		BoundaryClass:      in.BoundaryClass,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func toolRunFeederTrace(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		TraceConfiguration string `json:"trace_configuration"`
+		Start              struct {
+			FeatureClass string `json:"feature_class"`
+			FeatureID    string `json:"feature_id"`
+		} `json:"start"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.TraceConfiguration == "" {
+		return nil, fmt.Errorf("trace_configuration is required")
+	}
+	if in.Start.FeatureClass == "" || in.Start.FeatureID == "" {
+		return nil, fmt.Errorf("start.feature_class and start.feature_id are required")
+	}
+
+	result, err := trace.FeederTrace(ctx, db, trace.FeederInput{
+		TraceConfiguration: in.TraceConfiguration,
+		Start:              trace.FeatureRef{FeatureClass: in.Start.FeatureClass, FeatureID: in.Start.FeatureID},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func toolRunSectionTrace(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		TraceConfiguration string `json:"trace_configuration"`
+		Start              struct {
+			FeatureClass string `json:"feature_class"`
+			FeatureID    string `json:"feature_id"`
+		} `json:"start"`
+		BoundaryClass string `json:"boundary_class"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.TraceConfiguration == "" {
+		return nil, fmt.Errorf("trace_configuration is required")
+	}
+	if in.Start.FeatureClass == "" || in.Start.FeatureID == "" {
+		return nil, fmt.Errorf("start.feature_class and start.feature_id are required")
+	}
+
+	result, err := trace.SectionTrace(ctx, db, trace.SectionInput{
+		TraceConfiguration: in.TraceConfiguration,
+		Start:              trace.FeatureRef{FeatureClass: in.Start.FeatureClass, FeatureID: in.Start.FeatureID},
+		BoundaryClass:      in.BoundaryClass,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func toolSuggestConnections(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		FeatureClass string  `json:"feature_class"`
+		FeatureID    string  `json:"feature_id"`
+		Limit        int     `json:"limit"`
+		RadiusMeters float64 `json:"radius_meters"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.FeatureClass == "" || in.FeatureID == "" {
+		return nil, fmt.Errorf("feature_class and feature_id are required")
+	}
+
+	suggestions, err := connectivity.SuggestConnections(ctx, db, connectivity.SuggestInput{
+		FeatureClass: in.FeatureClass,
+		FeatureID:    in.FeatureID,
+		Limit:        in.Limit,
+		RadiusMeters: in.RadiusMeters,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"suggestions": suggestions, "count": len(suggestions)}, nil
+}
+
+func toolSuggestRelationships(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		FeatureClass string  `json:"feature_class"`
+		FeatureID    string  `json:"feature_id"`
+		Limit        int     `json:"limit"`
+		RadiusMeters float64 `json:"radius_meters"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.FeatureClass == "" || in.FeatureID == "" {
+		return nil, fmt.Errorf("feature_class and feature_id are required")
+	}
+
+	suggestions, err := relationship.SuggestRelationships(ctx, db, relationship.SuggestInput{
+		FeatureClass: in.FeatureClass,
+		FeatureID:    in.FeatureID,
+		Limit:        in.Limit,
+		RadiusMeters: in.RadiusMeters,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"suggestions": suggestions, "count": len(suggestions)}, nil
+}
+
+func toolCreateFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		FeatureClass string          `json:"feature_class"`
+		Name         *string         `json:"name"`
+		Subtype      *int            `json:"subtype"`
+		Geometry     json.RawMessage `json:"geometry"`
+		TerritoryID  *string         `json:"territory_id"`
+		Attributes   map[string]any  `json:"attributes"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.FeatureClass == "" {
+		return nil, fmt.Errorf("feature_class is required")
+	}
+
+	loaded, err := metadata.Load(ctx, db, in.FeatureClass)
+	if err != nil {
+		return nil, fmt.Errorf("no such feature class %q: %w", in.FeatureClass, err)
+	}
+
+	// The acting user (stamped as created_by) is already on ctx via
+	// auth.WithUser in handleToolsCall, so the write is attributed to the
+	// token's user exactly as a REST create is to the session's. Validation,
+	// territory, and DB errors surface in-band as the tool error; success
+	// returns the new feature's envelope (with its id).
+	return crud.CreateFeature(ctx, db, loaded, crud.CreateFeatureInput{
+		Subtype:     in.Subtype,
+		Name:        in.Name,
+		Geometry:    in.Geometry,
+		TerritoryID: in.TerritoryID,
+		Attributes:  in.Attributes,
+	})
 }

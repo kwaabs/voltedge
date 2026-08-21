@@ -176,61 +176,14 @@ func createHandler(db *bun.DB) http.HandlerFunc {
 			writeError(w, invalid("request body is not valid JSON: %v", err))
 			return
 		}
-		if req.Attributes == nil {
-			req.Attributes = map[string]any{}
-		}
 
-		subtype, err := validateSubtype(loaded, req.Subtype)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		if err := validateGeometry(loaded, req.Geometry); err != nil {
-			writeError(w, err)
-			return
-		}
-
-		if err := validateRequired(loaded, subtype, req.Attributes); err != nil {
-			writeError(w, err)
-			return
-		}
-
-		fields, err := validateAttributes(loaded, req.Attributes, writeCreate, nil)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-
-		values := make(map[string]any, len(req.Attributes))
-		for name, raw := range req.Attributes {
-			f := fields[name]
-			coerced, err := validateValue(loaded, f, raw)
-			if err != nil {
-				writeError(w, err)
-				return
-			}
-			values[name] = coerced
-		}
-
-		// Resolve the feature's territory (Phase 11). Only geometric classes
-		// have a territory_id column, so a supplied territory_id on a
-		// non-geometric class is a client error, and a geometric class always
-		// runs Assign -- override if given, else spatial auto-assign.
-		var territoryID *string
-		if loaded.FeatureClass.GeometryType == "none" {
-			if req.TerritoryID != nil {
-				writeError(w, invalid("feature class %q has no geometry, so it can't belong to a territory", code))
-				return
-			}
-		} else {
-			territoryID, err = territory.Assign(r.Context(), db, string(req.Geometry), *loaded.FeatureClass.SRID, req.TerritoryID)
-			if err != nil {
-				writeError(w, territoryError(err))
-				return
-			}
-		}
-
-		result, err := insertFeature(r.Context(), db, loaded, subtype, req.Geometry, req.Name, territoryID, values)
+		result, err := CreateFeature(r.Context(), db, loaded, CreateFeatureInput{
+			Subtype:     req.Subtype,
+			Name:        req.Name,
+			Geometry:    req.Geometry,
+			TerritoryID: req.TerritoryID,
+			Attributes:  req.Attributes,
+		})
 		if err != nil {
 			writeError(w, err)
 			return

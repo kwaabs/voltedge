@@ -2,13 +2,15 @@ package trace
 
 // Exported, non-HTTP entrypoints for callers that reach the trace engine
 // without going through the chi handlers -- specifically the Phase 18 MCP
-// server (docs/phase-18-mcp.md), whose read_trace/list_trace_configurations
-// tools need to call the engine directly. This mirrors the crud/search.go
-// pattern from MCP Slice 1: the HTTP handlers keep their own unexported
+// server (docs/phase-18-mcp.md): its run_trace/list_trace_configurations
+// tools (Slice 2) and its isolation/feeder/section trace tools (Slice 5)
+// need to call the engine directly. This mirrors the crud/search.go pattern
+// from MCP Slice 1: the HTTP handlers keep their own unexported
 // request/response types, and these thin wrappers expose an exported surface
-// over the same engine functions (runTrace, listConfigurations) rather than
-// renaming the internal types across the whole package. No trace logic lives
-// here -- only the mapping between exported DTOs and the internal ones.
+// over the same engine functions (runTrace, listConfigurations, isolate,
+// feederTrace, sectionTrace) rather than renaming the internal types across
+// the whole package. No trace logic lives here -- only the mapping between
+// exported DTOs and the internal ones.
 
 import (
 	"context"
@@ -102,6 +104,125 @@ func ListConfigurations(ctx context.Context, db bun.IDB) ([]TraceConfigurationSu
 	return out, nil
 }
 
+// IsolationInput is the exported input to Isolate, mirroring the POST
+// /trace/isolate body. TraceConfiguration must name a DOWNSTREAM-direction
+// row; BoundaryClass is optional (defaults, inside the engine, to Device's
+// own feature class). See isolationRequest for the field meanings.
+type IsolationInput struct {
+	TraceConfiguration string
+	Device             FeatureRef
+	BoundaryClass      string
+}
+
+// IsolationResult is the exported form of isolationResponse -- the full
+// result of one isolation run. See isolationResponse for what each field
+// does and doesn't claim (in particular UpstreamBoundary and
+// PossibleBackfeedPaths).
+type IsolationResult struct {
+	Device                FeatureRef   `json:"device"`
+	DeEnergized           []FeatureRef `json:"de_energized"`
+	UpstreamBoundary      *FeatureRef  `json:"upstream_boundary,omitempty"`
+	CriticalFacilities    []FeatureRef `json:"critical_facilities,omitempty"`
+	PossibleBackfeedPaths []FeatureRef `json:"possible_backfeed_paths,omitempty"`
+}
+
+// Isolate runs one isolation trace through the engine's isolate entry point
+// and returns the result in exported form. Read-only -- it computes what
+// *would* de-energize if the device were opened, without writing anything.
+// Errors are the engine's own (validation / not-found), for a caller to
+// render as it likes.
+func Isolate(ctx context.Context, db bun.IDB, in IsolationInput) (*IsolationResult, error) {
+	resp, err := isolate(ctx, db, isolationRequest{
+		TraceConfiguration: in.TraceConfiguration,
+		Device:             featureRef{FeatureClass: in.Device.FeatureClass, FeatureID: in.Device.FeatureID},
+		BoundaryClass:      in.BoundaryClass,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &IsolationResult{
+		Device:                toExportedRef(resp.Device),
+		DeEnergized:           toExportedRefs(resp.DeEnergized),
+		UpstreamBoundary:      toExportedRefPtr(resp.UpstreamBoundary),
+		CriticalFacilities:    toExportedRefs(resp.CriticalFacilities),
+		PossibleBackfeedPaths: toExportedRefs(resp.PossibleBackfeedPaths),
+	}, nil
+}
+
+// FeederInput is the exported input to FeederTrace, mirroring the POST
+// /trace/feeder body. TraceConfiguration must name a DOWNSTREAM-direction
+// row. See feederRequest for the field meanings.
+type FeederInput struct {
+	TraceConfiguration string
+	Start              FeatureRef
+}
+
+// FeederResult is the exported form of feederResponse -- the whole feeder a
+// feature belongs to. See feederResponse for why Heads is a list.
+type FeederResult struct {
+	Start    FeatureRef   `json:"start"`
+	Heads    []FeatureRef `json:"heads"`
+	Features []FeatureRef `json:"features"`
+}
+
+// FeederTrace runs one feeder trace through the engine's feederTrace entry
+// point and returns the result in exported form. Read-only. Errors are the
+// engine's own (validation / not-found).
+func FeederTrace(ctx context.Context, db bun.IDB, in FeederInput) (*FeederResult, error) {
+	resp, err := feederTrace(ctx, db, feederRequest{
+		TraceConfiguration: in.TraceConfiguration,
+		Start:              featureRef{FeatureClass: in.Start.FeatureClass, FeatureID: in.Start.FeatureID},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &FeederResult{
+		Start:    toExportedRef(resp.Start),
+		Heads:    toExportedRefs(resp.Heads),
+		Features: toExportedRefs(resp.Features),
+	}, nil
+}
+
+// SectionInput is the exported input to SectionTrace, mirroring the POST
+// /trace/section body. BoundaryClass is optional (defaults, inside the
+// engine, to DIST_SWITCH). See sectionRequest for the field meanings.
+type SectionInput struct {
+	TraceConfiguration string
+	Start              FeatureRef
+	BoundaryClass      string
+}
+
+// SectionResult is the exported form of sectionResponse -- everything
+// between the nearest bounding device upstream and downstream of Start.
+// Either boundary may be absent (nil) when the section runs to the edge of
+// the modeled network in that direction.
+type SectionResult struct {
+	Start              FeatureRef   `json:"start"`
+	Features           []FeatureRef `json:"features"`
+	UpstreamBoundary   *FeatureRef  `json:"upstream_boundary,omitempty"`
+	DownstreamBoundary *FeatureRef  `json:"downstream_boundary,omitempty"`
+}
+
+// SectionTrace runs one section trace through the engine's sectionTrace
+// entry point and returns the result in exported form. Read-only. Errors
+// are the engine's own (validation / not-found).
+func SectionTrace(ctx context.Context, db bun.IDB, in SectionInput) (*SectionResult, error) {
+	resp, err := sectionTrace(ctx, db, sectionRequest{
+		TraceConfiguration: in.TraceConfiguration,
+		Start:              featureRef{FeatureClass: in.Start.FeatureClass, FeatureID: in.Start.FeatureID},
+		BoundaryClass:      in.BoundaryClass,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &SectionResult{
+		Start:              toExportedRef(resp.Start),
+		Features:           toExportedRefs(resp.Features),
+		UpstreamBoundary:   toExportedRefPtr(resp.UpstreamBoundary),
+		DownstreamBoundary: toExportedRefPtr(resp.DownstreamBoundary),
+	}, nil
+}
+
 func toExportedRef(r featureRef) FeatureRef {
 	return FeatureRef{FeatureClass: r.FeatureClass, FeatureID: r.FeatureID}
 }
@@ -115,4 +236,12 @@ func toExportedRefs(rs []featureRef) []FeatureRef {
 		out[i] = toExportedRef(r)
 	}
 	return out
+}
+
+func toExportedRefPtr(r *featureRef) *FeatureRef {
+	if r == nil {
+		return nil
+	}
+	out := toExportedRef(*r)
+	return &out
 }

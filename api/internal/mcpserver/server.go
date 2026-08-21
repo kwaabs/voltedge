@@ -6,13 +6,27 @@
 // internal/metadata) the REST handlers do; there is deliberately no path
 // from here into schema authoring or the metadata compiler.
 //
-// The tool set is read-only so far. Slice 1: the four feature tools
-// (list_feature_classes, describe_feature_class, search_features,
-// get_feature), gated by features:read. Slice 2: the two trace tools
-// (list_trace_configurations, run_trace), gated by trace:run. Each is gated by
-// the same RBAC permission its equivalent REST route requires. The mutating
-// tools (establish_*/create_/update_) and the suggestion/validation tools the
-// design envisions land in later slices.
+// The tool set is read-only so far (validate_feature writes nothing -- it only
+// previews). Slice 1: the four feature tools (list_feature_classes,
+// describe_feature_class, search_features, get_feature), gated by features:read.
+// Slice 2: the two trace tools (list_trace_configurations, run_trace), gated by
+// trace:run. Slice 3: validate_feature, a dry-run of create-time validation,
+// gated by features:write (its REST equivalent is the create route). Slice 4:
+// suggest_connections / suggest_relationships, ranked candidate proposals gated
+// by connectivity:read / relationships:read (they read those domains' rules and
+// existing links; they propose, never write). Slice 5: the three composite
+// trace tools (run_isolation_trace, run_feeder_trace, run_section_trace), gated
+// by trace:run like the /trace mount -- each analyzes the committed topology
+// (what would de-energize, the whole feeder, the section between two devices)
+// without writing. Slice 6 opens the write surface: create_feature (gated
+// features:write, the same as the REST create route), backed by the shared
+// crud.CreateFeature. Write safety is client-side per the MCP annotation model
+// (docs/phase-18-mcp.md): read tools advertise readOnlyHint:true and the write
+// tool readOnlyHint:false, so the human's MCP client surfaces a write for
+// approval before calling it -- the server itself stays stateless and does not
+// implement a second confirmation round-trip. Each tool is gated by the same
+// RBAC permission its equivalent REST route requires; the remaining mutating
+// tools (establish_*/update_) land in later slices.
 //
 // Transport is a hand-rolled JSON-RPC 2.0 over the MCP streamable-HTTP
 // binding -- no third-party MCP SDK, matching this codebase's "minimal,
@@ -111,9 +125,27 @@ type implementation struct {
 }
 
 type toolDef struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	InputSchema json.RawMessage  `json:"inputSchema"`
+	Annotations *toolAnnotations `json:"annotations,omitempty"`
+}
+
+// toolAnnotations are the MCP behavioral hints a client uses to decide how to
+// present a tool -- crucially, whether a call needs human confirmation before
+// it runs. This server's chosen write-safety model (docs/phase-18-mcp.md) is
+// exactly client-side: read tools advertise readOnlyHint:true so a client can
+// run them freely, and a write tool advertises readOnlyHint:false (plus the
+// destructive/idempotent hints) so a client knows to surface it for approval
+// first. Each field is a pointer so an unset hint is omitted rather than sent
+// as a misleading explicit false. These are hints, not a security boundary --
+// the RBAC gate in handleToolsCall is the actual enforcement.
+type toolAnnotations struct {
+	Title           string `json:"title,omitempty"`
+	ReadOnlyHint    *bool  `json:"readOnlyHint,omitempty"`
+	DestructiveHint *bool  `json:"destructiveHint,omitempty"`
+	IdempotentHint  *bool  `json:"idempotentHint,omitempty"`
+	OpenWorldHint   *bool  `json:"openWorldHint,omitempty"`
 }
 
 type toolsListResult struct {
@@ -152,11 +184,30 @@ type tool struct {
 	handler      func(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error)
 }
 
-// NewServer builds a Server with the Slice 1 read-only tool set registered.
+// NewServer builds a Server with the tool set registered: the read-only tools
+// first (stamped readOnlyHint via markReadOnly), then the write tools, which
+// declare their own annotations.
 func NewServer(db *bun.DB) *Server {
 	s := &Server{db: db, tools: make(map[string]tool)}
 	s.registerReadTools()
+	s.markReadOnly()
+	s.registerWriteTools()
 	return s
+}
+
+// markReadOnly stamps readOnlyHint:true on every tool registered so far that
+// hasn't declared its own annotations -- i.e. all the discovery, query, trace,
+// and suggestion tools, none of which write. A client reads this hint to decide
+// a call needs no human confirmation. It must run before registerWriteTools so
+// the write tools (which set readOnlyHint:false themselves) aren't overwritten.
+func (s *Server) markReadOnly() {
+	readOnly := true
+	for name, t := range s.tools {
+		if t.def.Annotations == nil {
+			t.def.Annotations = &toolAnnotations{ReadOnlyHint: &readOnly}
+			s.tools[name] = t
+		}
+	}
 }
 
 // Handler is the http.Handler serving the MCP streamable-HTTP endpoint.
@@ -274,7 +325,18 @@ func (s *Server) handleInitialize(req *rpcRequest) *rpcResponse {
 			"discover feature classes, describe_feature_class for a class's schema, " +
 			"search_features to browse features, and get_feature to fetch one by id. " +
 			"For network tracing, use list_trace_configurations to discover trace " +
-			"profiles, then run_trace to walk connectivity from a starting feature.",
+			"profiles, then run_trace to walk connectivity from a starting feature; " +
+			"run_isolation_trace, run_feeder_trace, and run_section_trace answer " +
+			"higher-level questions (what a switch de-energizes, a feature's whole " +
+			"feeder, the section between two devices). " +
+			"Before proposing a new feature, use validate_feature to dry-run its " +
+			"create-time validation. To find what a feature could connect or relate " +
+			"to, use suggest_connections and suggest_relationships -- they return " +
+			"ranked, rule-legal candidates (proposals, not established links). " +
+			"To add a feature, use create_feature -- validate_feature first to " +
+			"check it, then create_feature to write it. create_feature is a write " +
+			"tool (readOnlyHint:false): confirm the change with a human before " +
+			"calling it.",
 	})
 }
 

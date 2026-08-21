@@ -165,6 +165,45 @@ func validateRequired(loaded *metadata.Loaded, subtype *metadata.Subtype, attrs 
 	return nil
 }
 
+// validateForCreate runs the whole create-time validation sequence over an
+// in-memory metadata bundle: subtype, geometry, required-by-subtype (which may
+// inject default_override values into attrs), field known-ness/visibility, and
+// per-value type/domain/range checks. It returns the resolved subtype and the
+// coerced attribute values ready to write. It touches NO database and writes
+// nothing -- so it is the single shared source of truth for both createHandler
+// (the write path) and the read-only ValidateFeature dry-run (Phase 18 MCP,
+// docs/phase-18-mcp.md), guaranteeing the two can never disagree on what a
+// valid create looks like. Fail-fast: it returns the first validationError, the
+// same first error the create endpoint surfaces. Note it does NOT cover what
+// only the database enforces on the real write (FK, uniqueness, PostGIS
+// coordinate validity) or the territory assignment, which is a spatial DB call
+// the caller runs separately.
+func validateForCreate(loaded *metadata.Loaded, subtypeCode *int, geometry []byte, attrs map[string]any) (*metadata.Subtype, map[string]any, error) {
+	subtype, err := validateSubtype(loaded, subtypeCode)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := validateGeometry(loaded, geometry); err != nil {
+		return nil, nil, err
+	}
+	if err := validateRequired(loaded, subtype, attrs); err != nil {
+		return nil, nil, err
+	}
+	fields, err := validateAttributes(loaded, attrs, writeCreate, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	values := make(map[string]any, len(attrs))
+	for name, raw := range attrs {
+		coerced, err := validateValue(loaded, fields[name], raw)
+		if err != nil {
+			return nil, nil, err
+		}
+		values[name] = coerced
+	}
+	return subtype, values, nil
+}
+
 // validateValue does a light type check on a decoded JSON value against
 // a field's data_type -- enough to give a clean 400 instead of a raw
 // Postgres error, not full semantic validation. Domain membership (for
