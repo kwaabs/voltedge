@@ -95,7 +95,9 @@ AI agent ──POST /mcp──▶ cmd/mcpserver ──▶ internal/mcpserver.Ser
   error — so the agent reads the reason instead of seeing a dropped call.
   Protocol-level faults (bad params, unknown method) use JSON-RPC error codes.
 
-### The four tools (all `features:read`)
+### The tools
+
+Slice 1 — feature discovery/read (all `features:read`):
 
 | Tool | Backing engine call | Returns |
 |---|---|---|
@@ -104,9 +106,19 @@ AI agent ──POST /mcp──▶ cmd/mcpserver ──▶ internal/mcpserver.Ser
 | `search_features` | `crud.SearchFeatures` | a page of feature envelopes (id/name/status/geometry/attributes); name/status filter, sort, paging; ≤ 500/call |
 | `get_feature` | `crud.GetFeature` | one feature by id (including a soft-deleted row, so "deleted" is distinguishable from "missing") |
 
-`SearchFeatures` (`crud/search.go`) is a thin exported wrapper over the engine's
-existing unexported `listFeatures`/`listOptions` — the MCP tool reimplements no
-query logic.
+Slice 2 — network tracing (all `trace:run`):
+
+| Tool | Backing engine call | Returns |
+|---|---|---|
+| `list_trace_configurations` | `trace.ListConfigurations` | every available trace profile: code (→ `run_trace`), name, direction (CONNECTED/DOWNSTREAM/UPSTREAM/SHORTEST_PATH) |
+| `run_trace` | `trace.RunTrace` | features reached from a start feature (each `feature_class`+`feature_id`), the barrier subset, and — for SHORTEST_PATH — whether the target was found |
+
+`crud.SearchFeatures` (`crud/search.go`) and `trace.RunTrace` /
+`trace.ListConfigurations` (`trace/export.go`) are thin exported wrappers over
+those packages' existing unexported engine functions (`listFeatures`, `runTrace`,
+`listConfigurations`) — the MCP tools reimplement no query, traversal, or
+validation logic. The trace tools require `trace:run`, not `features:read`,
+because that is exactly the permission the REST `/trace` subtree enforces.
 
 ## Files
 
@@ -127,10 +139,16 @@ query logic.
   authenticated context the session middleware does.
 - **`api/internal/crud/search.go`** — `SearchFeatures` / `SearchOptions`, the
   thin export of `listFeatures`.
+- **`api/internal/trace/export.go`** (Slice 2) — `RunTrace` / `RunTraceInput` /
+  `RunTraceResult` and `ListConfigurations` / `TraceConfigurationSummary`, the
+  thin exported wrappers over the trace engine's unexported `runTrace` /
+  `listConfigurations` (mapping to exported DTOs so the internal package's
+  handler types stay untouched).
 - **`api/internal/mcpserver/server.go`** — the JSON-RPC 2.0 transport: request
   parsing, auth, dispatch, the RBAC gate, and result serialization.
-- **`api/internal/mcpserver/tools.go`** — the four tool definitions (input
-  schemas + descriptions) and their handlers.
+- **`api/internal/mcpserver/tools.go`** — the tool definitions (input schemas +
+  descriptions) and handlers: four feature tools (Slice 1) + two trace tools
+  (Slice 2).
 - **`api/cmd/mcpserver/main.go`** — the process: `POST /mcp`, `/healthz`, env
   config.
 - **`api/cmd/authadmin/main.go`** — added `mint-token` / `list-tokens` /
@@ -164,6 +182,30 @@ query logic.
   `task authadmin-list-tokens EMAIL=…`, `task authadmin-revoke-token EMAIL=… ID=…`,
   and confirm the revoked token then fails auth.
 
+- **Slice 2 — network tracing (read-only).** ✅ *Code complete (2026-08-21,
+  verification owed — Bash blocked).* Two tools — `list_trace_configurations`
+  (discover trace profiles) and `run_trace` (walk connectivity from a start
+  feature) — over the existing Phase 4 trace engine. As in Slice 1 the engine
+  was entirely unexported, so this slice first added `trace/export.go`: thin
+  exported wrappers (`ListConfigurations`, `RunTrace`) mapping to exported DTOs,
+  leaving the internal handler types and all traversal/barrier logic untouched.
+  Both tools require `trace:run` (the same permission the REST `/trace` subtree
+  enforces), not `features:read`. The specialized `isolate` / `feeder` /
+  `section` composites (also read-only, also unexported) are deferred — Slice 2
+  ships the two general-purpose trace tools.
+
+  *Verify:* `go build ./...` / `go vet ./...` (no migration — reuses Phase 4's
+  schema and the existing `trace:run` permission from migration 0025). With a
+  Bearer token whose user holds `trace:run`: `tools/list` now shows six tools
+  (the four feature tools + these two); `tools/call list_trace_configurations`
+  (no args) → the seeded configs with their directions; `tools/call run_trace`
+  with a real `trace_configuration` code and a real `start` feature
+  (`{feature_class, feature_id}`) → features/barriers. Confirm: a SHORTEST_PATH
+  config without `target` → `isError:true` ("target is required…"); an unknown
+  `trace_configuration` → `isError:true` ("… does not exist"); a token whose
+  user lacks `trace:run` (but has `features:read`) → the four feature tools work
+  but both trace tools return `isError:true` "permission denied".
+
 ## Deferred to later slices
 
 - **`suggest_connections` / `suggest_relationships`** (read-only) — need a
@@ -172,8 +214,10 @@ query logic.
   not exist yet.
 - **`validate_feature`** (read-only) — needs an exported validate-only entrypoint
   (dry-run against `subtype_field_rules` / `network_rules`, no write).
-- **`run_trace`** (read-only) — wraps the Go graph/trace service over
-  `feature_connectivity`.
+- **`isolate` / `feeder` / `section` traces** (read-only) — the composed trace
+  entrypoints (`isolate`/`feederTrace`/`sectionTrace`), each needing its own
+  exported wrapper + tool; deferred from Slice 2 to keep it focused on the two
+  general trace tools.
 - **`establish_connection` / `establish_relationship` / `create_feature` /
   `update_feature`** (mutating) — the same validated write path as the REST API,
   plus the **user-confirmation model**: per the architecture, `establish_*`/write

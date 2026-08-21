@@ -1,14 +1,15 @@
 package mcpserver
 
-// The Slice 1 read-only tool set (docs/phase-18-mcp.md). Each tool is a
-// thin adapter over an already-exported engine function -- no query or
-// validation logic is reimplemented here -- and each declares the RBAC
-// permission its REST equivalent requires (all four: features:read), which
-// handleToolsCall enforces against the token's user before running the
-// handler. The suggestion/validation and mutating tools the design
-// envisions need engine work (ranked-candidate logic, an exported
-// validate-only path, the establish/create/update writes) and land in later
-// slices.
+// The read-only tool set (docs/phase-18-mcp.md). Each tool is a thin adapter
+// over an already-exported engine function -- no query or validation logic is
+// reimplemented here -- and each declares the RBAC permission its REST
+// equivalent requires, which handleToolsCall enforces against the token's user
+// before running the handler. Slice 1 added the four feature tools
+// (features:read); Slice 2 adds the two trace tools (trace:run), backed by the
+// engine wrappers in internal/trace/export.go. The suggestion/validation and
+// mutating tools the design envisions need further engine work
+// (ranked-candidate logic, an exported validate-only path, the
+// establish/create/update writes) and land in later slices.
 
 import (
 	"context"
@@ -18,6 +19,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
 )
 
@@ -36,6 +38,8 @@ var orderedToolNames = []string{
 	"describe_feature_class",
 	"search_features",
 	"get_feature",
+	"list_trace_configurations",
+	"run_trace",
 }
 
 func (s *Server) registerReadTools() {
@@ -113,6 +117,63 @@ func (s *Server) registerReadTools() {
 					"id":{"type":"string","description":"The feature's id (uuid)."}
 				},
 				"required":["feature_class","id"],
+				"additionalProperties":false
+			}`),
+		},
+	}
+
+	s.tools["list_trace_configurations"] = tool{
+		requiredPerm: auth.PermTraceRun,
+		handler:      toolListTraceConfigurations,
+		def: toolDef{
+			Name: "list_trace_configurations",
+			Description: "List every available network trace configuration -- the named " +
+				"profiles run_trace can run. Returns each configuration's code (use it as " +
+				"trace_configuration in run_trace), display name, and the direction it walks " +
+				"(CONNECTED, DOWNSTREAM, UPSTREAM, or SHORTEST_PATH). Call this first to " +
+				"discover valid codes. Takes no arguments.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		},
+	}
+
+	s.tools["run_trace"] = tool{
+		requiredPerm: auth.PermTraceRun,
+		handler:      toolRunTrace,
+		def: toolDef{
+			Name: "run_trace",
+			Description: "Run a network trace from a starting feature, following the named " +
+				"trace configuration's direction over the connectivity graph and stopping at " +
+				"open devices (barriers) per that configuration. Returns the features reached " +
+				"(each as feature_class + feature_id), the subset that were barriers, and -- " +
+				"for a SHORTEST_PATH configuration -- whether a path to the target was found " +
+				"(a target is required only then). Use list_trace_configurations to find a " +
+				"valid trace_configuration code first.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"trace_configuration":{"type":"string","description":"A trace configuration code from list_trace_configurations."},
+					"start":{
+						"type":"object",
+						"description":"The feature the trace starts from.",
+						"properties":{
+							"feature_class":{"type":"string","description":"The start feature's class code."},
+							"feature_id":{"type":"string","description":"The start feature's id (uuid)."}
+						},
+						"required":["feature_class","feature_id"],
+						"additionalProperties":false
+					},
+					"target":{
+						"type":"object",
+						"description":"The destination feature -- required only for a SHORTEST_PATH configuration, ignored otherwise.",
+						"properties":{
+							"feature_class":{"type":"string","description":"The target feature's class code."},
+							"feature_id":{"type":"string","description":"The target feature's id (uuid)."}
+						},
+						"required":["feature_class","feature_id"],
+						"additionalProperties":false
+					}
+				},
+				"required":["trace_configuration","start"],
 				"additionalProperties":false
 			}`),
 		},
@@ -312,4 +373,51 @@ func toolGetFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any,
 		return nil, err
 	}
 	return feature, nil
+}
+
+func toolListTraceConfigurations(ctx context.Context, db bun.IDB, _ json.RawMessage) (any, error) {
+	configs, err := trace.ListConfigurations(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"trace_configurations": configs, "count": len(configs)}, nil
+}
+
+func toolRunTrace(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		TraceConfiguration string `json:"trace_configuration"`
+		Start              struct {
+			FeatureClass string `json:"feature_class"`
+			FeatureID    string `json:"feature_id"`
+		} `json:"start"`
+		Target *struct {
+			FeatureClass string `json:"feature_class"`
+			FeatureID    string `json:"feature_id"`
+		} `json:"target"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.TraceConfiguration == "" {
+		return nil, fmt.Errorf("trace_configuration is required")
+	}
+	if in.Start.FeatureClass == "" || in.Start.FeatureID == "" {
+		return nil, fmt.Errorf("start.feature_class and start.feature_id are required")
+	}
+
+	input := trace.RunTraceInput{
+		TraceConfiguration: in.TraceConfiguration,
+		Start:              trace.FeatureRef{FeatureClass: in.Start.FeatureClass, FeatureID: in.Start.FeatureID},
+	}
+	if in.Target != nil {
+		input.Target = &trace.FeatureRef{FeatureClass: in.Target.FeatureClass, FeatureID: in.Target.FeatureID}
+	}
+
+	// The engine re-validates (and, for SHORTEST_PATH, requires target); its
+	// validation/not-found errors surface in-band as the tool error.
+	result, err := trace.RunTrace(ctx, db, input)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }

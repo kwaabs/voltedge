@@ -6,11 +6,13 @@
 // internal/metadata) the REST handlers do; there is deliberately no path
 // from here into schema authoring or the metadata compiler.
 //
-// Slice 1 is read-only: four tools (list_feature_classes,
-// describe_feature_class, search_features, get_feature), each gated by the
-// same RBAC permission the equivalent REST route requires. The mutating
-// tools (establish_*/create_/update_) and the suggestion/validation tools
-// the design envisions land in later slices.
+// The tool set is read-only so far. Slice 1: the four feature tools
+// (list_feature_classes, describe_feature_class, search_features,
+// get_feature), gated by features:read. Slice 2: the two trace tools
+// (list_trace_configurations, run_trace), gated by trace:run. Each is gated by
+// the same RBAC permission its equivalent REST route requires. The mutating
+// tools (establish_*/create_/update_) and the suggestion/validation tools the
+// design envisions land in later slices.
 //
 // Transport is a hand-rolled JSON-RPC 2.0 over the MCP streamable-HTTP
 // binding -- no third-party MCP SDK, matching this codebase's "minimal,
@@ -270,7 +272,9 @@ func (s *Server) handleInitialize(req *rpcRequest) *rpcResponse {
 		ServerInfo:      implementation{Name: serverName, Version: serverVersion},
 		Instructions: "VoltEdge data-plane tools (read-only). Use list_feature_classes to " +
 			"discover feature classes, describe_feature_class for a class's schema, " +
-			"search_features to browse features, and get_feature to fetch one by id.",
+			"search_features to browse features, and get_feature to fetch one by id. " +
+			"For network tracing, use list_trace_configurations to discover trace " +
+			"profiles, then run_trace to walk connectivity from a starting feature.",
 	})
 }
 
