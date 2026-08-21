@@ -44,6 +44,16 @@ func withUser(ctx context.Context, u *SessionUser) context.Context {
 	return context.WithValue(ctx, userContextKey, u)
 }
 
+// WithUser is the exported form of withUser: it attaches an already-resolved
+// SessionUser to ctx so a non-HTTP-middleware caller can establish the same
+// authenticated context the session middleware does. The MCP server
+// (internal/mcpserver) uses it after resolving a bearer token, so the engine
+// downstream reads the acting user via UserFrom/ActorID exactly as it would
+// behind a cookie session.
+func WithUser(ctx context.Context, u *SessionUser) context.Context {
+	return withUser(ctx, u)
+}
+
 // UserFrom returns the authenticated user on ctx, if the session
 // middleware put one there. The boolean is false for anonymous requests.
 // This is the one supported way for other packages (handlers, the CRUD

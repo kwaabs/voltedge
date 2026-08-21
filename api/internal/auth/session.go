@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"time"
+
+	"github.com/uptrace/bun"
 )
 
 // createSession mints a fresh opaque session for userID and returns the
@@ -115,9 +117,21 @@ func (s *service) loadSession(ctx context.Context, rawToken string) (*SessionUse
 // loadPermissions returns a user's effective permission set: the union of
 // every permission granted by every role the user holds. An empty set (the
 // user holds no roles) is a valid result, not an error.
+//
+// The query lives in the standalone loadPermissionsFor so the API-token
+// path (apitoken.go) resolves the same session -> user -> roles ->
+// permissions chain a cookie session does -- one source of truth for "what
+// can this user do," regardless of how they authenticated.
 func (s *service) loadPermissions(ctx context.Context, userID string) (map[string]struct{}, error) {
+	return loadPermissionsFor(ctx, s.db, userID)
+}
+
+// loadPermissionsFor is the db-only core of loadPermissions -- usable by any
+// caller holding a bun.IDB (the session middleware via the service method,
+// and the API-token resolver directly).
+func loadPermissionsFor(ctx context.Context, db bun.IDB, userID string) (map[string]struct{}, error) {
 	var keys []string
-	err := s.db.NewSelect().
+	err := db.NewSelect().
 		ColumnExpr("DISTINCT rp.permission_key").
 		TableExpr("iam.user_roles AS ur").
 		Join("JOIN iam.role_permissions AS rp ON rp.role_id = ur.role_id").

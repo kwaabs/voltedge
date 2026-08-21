@@ -37,6 +37,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/uptrace/bun"
@@ -67,19 +68,28 @@ func main() {
 		runRoles(ctx, db)
 	case "list":
 		runList(ctx, db)
+	case "mint-token":
+		runMintToken(ctx, db, os.Args[2:])
+	case "list-tokens":
+		runListTokens(ctx, db, os.Args[2:])
+	case "revoke-token":
+		runRevokeToken(ctx, db, os.Args[2:])
 	default:
 		usage()
 	}
 }
 
 func usage() {
-	log.Fatal("usage: authadmin <create|set-password|grant-role|revoke-role|roles|list> [flags]\n" +
+	log.Fatal("usage: authadmin <create|set-password|grant-role|revoke-role|roles|list|mint-token|list-tokens|revoke-token> [flags]\n" +
 		"  create        --email <e> --name <n> [--break-glass=true] [--role admin]  (password from AUTHADMIN_PASSWORD)\n" +
 		"  set-password  --email <e>                                                  (password from AUTHADMIN_PASSWORD)\n" +
 		"  grant-role    --email <e> --role <r>\n" +
 		"  revoke-role   --email <e> --role <r>\n" +
 		"  roles                                                                      list the available roles\n" +
-		"  list                                                                       list users and their roles")
+		"  list                                                                       list users and their roles\n" +
+		"  mint-token    --email <e> --name <n> [--ttl <dur>]                         mint an MCP API token (printed once)\n" +
+		"  list-tokens   --email <e>                                                  list a user's MCP API tokens\n" +
+		"  revoke-token  --email <e> --id <token-id>                                  revoke one MCP API token")
 }
 
 func openDB() *bun.DB {
@@ -206,4 +216,86 @@ func runList(ctx context.Context, db *bun.DB) {
 		}
 		fmt.Printf("%s  %-32s  %-10s  %-20s  %s%s\n", u.ID, u.Email, u.Status, roles, u.DisplayName, flag)
 	}
+}
+
+func runMintToken(ctx context.Context, db *bun.DB, args []string) {
+	fs := flag.NewFlagSet("mint-token", flag.ExitOnError)
+	email := fs.String("email", "", "owning account email")
+	name := fs.String("name", "", "human label for the token (e.g. claude-desktop)")
+	ttl := fs.Duration("ttl", 0, "optional lifetime (e.g. 720h); omit or 0 for no expiry")
+	_ = fs.Parse(args)
+
+	if *email == "" || *name == "" {
+		log.Fatal("mint-token: --email and --name are required")
+	}
+
+	// createdBy is "" here: this is an out-of-band mint with no acting user,
+	// the same path that bootstraps the first admin.
+	raw, tok, err := auth.MintAPIToken(ctx, db, *email, *name, *ttl, "")
+	if err != nil {
+		log.Fatalf("mint-token: %v", err)
+	}
+
+	exp := "never"
+	if tok.ExpiresAt != nil {
+		exp = tok.ExpiresAt.Format(time.RFC3339)
+	}
+	fmt.Printf("minted token %s (%s) for %s, expires %s\n", tok.ID, tok.Name, *email, exp)
+	fmt.Println("--- copy this token now; it is shown only once and cannot be recovered ---")
+	fmt.Println(raw)
+}
+
+func runListTokens(ctx context.Context, db *bun.DB, args []string) {
+	fs := flag.NewFlagSet("list-tokens", flag.ExitOnError)
+	email := fs.String("email", "", "owning account email")
+	_ = fs.Parse(args)
+
+	if *email == "" {
+		log.Fatal("list-tokens: --email is required")
+	}
+	toks, err := auth.ListAPITokens(ctx, db, *email)
+	if err != nil {
+		log.Fatalf("list-tokens: %v", err)
+	}
+	if len(toks) == 0 {
+		fmt.Println("(no tokens)")
+		return
+	}
+	for _, t := range toks {
+		state := "active"
+		switch {
+		case t.RevokedAt != nil:
+			state = "revoked " + t.RevokedAt.Format(time.RFC3339)
+		case t.ExpiresAt != nil && time.Now().After(*t.ExpiresAt):
+			state = "expired " + t.ExpiresAt.Format(time.RFC3339)
+		case t.ExpiresAt != nil:
+			state = "expires " + t.ExpiresAt.Format(time.RFC3339)
+		}
+		used := "never"
+		if t.LastUsedAt != nil {
+			used = t.LastUsedAt.Format(time.RFC3339)
+		}
+		fmt.Printf("%s  %-20s  %-14s  created %s  last-used %s  %s\n",
+			t.ID, t.Name, t.TokenPrefix, t.CreatedAt.Format(time.RFC3339), used, state)
+	}
+}
+
+func runRevokeToken(ctx context.Context, db *bun.DB, args []string) {
+	fs := flag.NewFlagSet("revoke-token", flag.ExitOnError)
+	email := fs.String("email", "", "owning account email")
+	id := fs.String("id", "", "token id (see `authadmin list-tokens`)")
+	_ = fs.Parse(args)
+
+	if *email == "" || *id == "" {
+		log.Fatal("revoke-token: --email and --id are required")
+	}
+	n, err := auth.RevokeAPIToken(ctx, db, *email, *id)
+	if err != nil {
+		log.Fatalf("revoke-token: %v", err)
+	}
+	if n == 0 {
+		fmt.Printf("no live token %s for %s (already revoked, or no such id)\n", *id, *email)
+		return
+	}
+	fmt.Printf("revoked token %s for %s\n", *id, *email)
 }

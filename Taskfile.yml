@@ -9,6 +9,7 @@ vars:
   POSTGRES_DB: '{{.POSTGRES_DB | default "postgres"}}'
   POSTGRES_PORT: '{{.POSTGRES_PORT | default "3700"}}'
   API_PORT: '{{.API_PORT | default "3704"}}'
+  MCP_PORT: '{{.MCP_PORT | default "3705"}}'
 
   LOCAL_DATABASE_URL: "postgres://postgres:{{.POSTGRES_PASSWORD}}@localhost:{{.POSTGRES_PORT}}/{{.POSTGRES_DB}}?sslmode=disable"
   CONTAINER_DATABASE_URL: "postgres://postgres:{{.POSTGRES_PASSWORD}}@postgres:5432/{{.POSTGRES_DB}}?sslmode=disable"
@@ -69,6 +70,23 @@ tasks:
     dir: "{{.API_DIR}}"
     cmds:
       - go build -o bin/server ./cmd/server
+
+  exportworker-dev:
+    desc: Run the export worker locally against dockerized postgres + rustfs (Phase 17)
+    dir: "{{.API_DIR}}"
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/exportworker
+
+  mcp-dev:
+    desc: Run the MCP server locally against dockerized postgres (Phase 18)
+    dir: "{{.API_DIR}}"
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+      MCP_PORT: "{{.MCP_PORT}}"
+    cmds:
+      - go run ./cmd/mcpserver
 
   api-test:
     desc: Run API tests
@@ -176,6 +194,46 @@ tasks:
     cmds:
       - go run ./cmd/authadmin revoke-role --email {{.EMAIL}} --role {{.ROLE}}
 
+  authadmin-mint-token:
+    desc: "Mint an MCP API token, printed once (Phase 18). EMAIL + NAME vars; optional TTL (e.g. 720h)"
+    dir: "{{.API_DIR}}"
+    requires:
+      vars:
+        - name: EMAIL
+          desc: Owning account email
+        - name: NAME
+          desc: Token label, e.g. claude-desktop
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/authadmin mint-token --email {{.EMAIL}} --name "{{.NAME}}" {{if .TTL}}--ttl {{.TTL}}{{end}}
+
+  authadmin-list-tokens:
+    desc: "List a user's MCP API tokens (Phase 18). EMAIL var"
+    dir: "{{.API_DIR}}"
+    requires:
+      vars:
+        - name: EMAIL
+          desc: Owning account email
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/authadmin list-tokens --email {{.EMAIL}}
+
+  authadmin-revoke-token:
+    desc: "Revoke one MCP API token (Phase 18). EMAIL + ID vars (see `task authadmin-list-tokens`)"
+    dir: "{{.API_DIR}}"
+    requires:
+      vars:
+        - name: EMAIL
+          desc: Owning account email
+        - name: ID
+          desc: Token id to revoke
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/authadmin revoke-token --email {{.EMAIL}} --id {{.ID}}
+
   seed-pole:
     desc: Load the POLE example metadata through the gitbash sidecar
     cmds:
@@ -263,6 +321,14 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/load_flow_fields.sql
+
+  seed-cim-mapping:
+    desc: Load the default CDPSM/CIM16 export mapping (profile + class/attribute mappings; Phase 16) through the gitbash sidecar (requires migration 0034 + 0035 and the feature-class seeds it maps first; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/cim_mapping_example.sql
 
   # ------------------------------------------------------------- frontend --
 

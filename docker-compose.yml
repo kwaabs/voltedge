@@ -96,8 +96,65 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
       PORT: "8080"
+      # Export storage (Phase 17). Inside the compose network RustFS is reached
+      # as rustfs:9000, so that is the endpoint here -- NOT the .env value
+      # (localhost:3702), which is for host-run dev + the browser. Caveat: the
+      # download presigned URL is signed for this same endpoint, so a browser
+      # (which can't resolve rustfs:9000) can't follow it from the in-compose
+      # API. Splitting the internal upload endpoint from the public presign
+      # endpoint is a documented follow-up; host-run `task api-dev` is the
+      # browser-facing dev path today.
+      RUSTFS_ENDPOINT: rustfs:9000
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-voltedge-exports}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-voltedge}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
     ports:
       - "${API_PORT:-3704}:8080"
+
+  # The export worker (Phase 17). Same image as api, different command: it
+  # drains the ops.export_jobs queue and streams artifacts into RustFS. Scale
+  # it with `docker compose up -d --scale exportworker=N` -- SKIP LOCKED hands
+  # each replica distinct jobs. Uploads only, so the internal rustfs:9000
+  # endpoint is complete for it (no browser presign concern).
+  exportworker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: voltedge-exportworker
+    restart: unless-stopped
+    command: ["exportworker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+      RUSTFS_ENDPOINT: rustfs:9000
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-voltedge-exports}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-voltedge}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
+      EXPORT_WORKER_CONCURRENCY: ${EXPORT_WORKER_CONCURRENCY:-2}
+      EXPORT_JOB_LEASE: ${EXPORT_JOB_LEASE:-60s}
+
+  # The MCP server (Phase 18). Same image as api, different command: it serves
+  # the read-only data-plane tools an AI agent calls over POST /mcp, each
+  # authenticated by an iam.api_tokens bearer token (mint one out-of-band with
+  # `authadmin mint-token`). It only reads via the shared engine, so it needs
+  # DATABASE_URL and nothing else -- no RustFS, no export config.
+  mcpserver:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: voltedge-mcpserver
+    restart: unless-stopped
+    command: ["mcpserver"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+      MCP_PORT: "8090"
+    ports:
+      - "${MCP_PORT:-3705}:8090"
 
   gitbash:
     build:
