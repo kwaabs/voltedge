@@ -201,5 +201,14 @@ func runExport(ctx context.Context, db *bun.DB, scope ExportScope, w io.Writer) 
 		return count, spec.write(w, "VoltEdge export", layers)
 	}
 	// CIM: the nil-encoder format, encoded with its declarative mapping + topology.
-	return count, writeCIM(w, "VoltEdge export", layers, mapping, conns, specs, time.Now())
+	stats, err := writeCIM(w, "VoltEdge export", layers, mapping, conns, specs, time.Now())
+	// Slice 5 trigger signal (docs/phase-17-large-export.md): the persisted-topology
+	// optimization was designed but not built because no export has hit the
+	// union-find memory ceiling. This line is how we find out when one does --
+	// every CIM export records its topology size, so an operator (or an alert on
+	// parent_bytes) sees the union-find footprint climb toward the ~240MB
+	// projection long before it OOMs, which is the concrete signal to build Slice 5.
+	log.Printf("export: CIM topology features=%d conns=%d terminals=%d nodes=%d parent_bytes=%d",
+		count, stats.Conns, stats.Endpoints, stats.Nodes, stats.ParentBytes)
+	return count, err
 }

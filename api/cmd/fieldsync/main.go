@@ -1,0 +1,95 @@
+// Command fieldsync is the VoltEdge field-tool engine (Phase 21,
+// docs/phase-21-field-tool.md). It runs as its own process (its own
+// FIELDSYNC_PORT), a sibling of server / exportworker / mcpserver in the same
+// module, so building a region pack (async, CPU-heavy -- tippecanoe) never
+// competes with API request handling.
+//
+// One process does two jobs against the ops.field_packs queue:
+//   - a build WORKER (fieldpack.RunWorker) claims queued packs FOR UPDATE SKIP
+//     LOCKED, builds the two artifacts (MBTiles + SQLite pack), and uploads them
+//     to RustFS; and
+//   - an HTTP SURFACE (fieldpack.Routes) a device uses to enqueue a build, poll
+//     it, and fetch the manifest -- every route behind an iam.api_tokens bearer.
+//
+// Config (all via env, like the other binaries): DATABASE_URL and the RUSTFS_* /
+// EXPORT_URL_TTL block the storage layer reads, plus FIELDSYNC_PORT,
+// FIELDSYNC_WORKER_CONCURRENCY / FIELDSYNC_JOB_LEASE (see internal/fieldpack), and
+// TIPPECANOE_BIN / FIELDPACK_MIN_ZOOM / FIELDPACK_MAX_ZOOM for the tile build.
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/kwaabs/voltedge/api/internal/export"
+	"github.com/kwaabs/voltedge/api/internal/fieldpack"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/pgdialect"
+	"github.com/uptrace/bun/driver/pgdriver"
+)
+
+func main() {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		log.Fatal("DATABASE_URL is not set")
+	}
+
+	sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(databaseURL)))
+	db := bun.NewDB(sqldb, pgdialect.New())
+	defer db.Close()
+
+	// The pack artifacts (MBTiles + SQLite) share the RustFS store the export
+	// path uses -- namespaced under packs/<id>/ so keys never collide.
+	store, err := export.NewObjectStoreFromEnv()
+	if err != nil {
+		log.Fatalf("fieldsync object store: %v", err)
+	}
+	if err := store.EnsureBucket(context.Background()); err != nil {
+		log.Fatalf("fieldsync: %v", err)
+	}
+
+	// SIGINT/SIGTERM cancels the worker loop (it drains in-flight builds) and
+	// triggers a graceful HTTP shutdown.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		if err := fieldpack.RunWorker(ctx, db, store, fieldpack.WorkerConfigFromEnv()); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("fieldsync worker: %v", err)
+		}
+	}()
+
+	port := os.Getenv("FIELDSYNC_PORT")
+	if port == "" {
+		port = "8091"
+	}
+	srv := &http.Server{Addr: ":" + port, Handler: fieldpack.Routes(db, store)}
+
+	go func() {
+		<-ctx.Done()
+		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutCtx); err != nil {
+			log.Printf("fieldsync: http shutdown: %v", err)
+		}
+	}()
+
+	log.Printf("fieldsync listening on :%s", port)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalf("fieldsync: %v", err)
+	}
+
+	// Let the worker finish draining before exiting, so a rolling restart doesn't
+	// strand a running build.
+	<-workerDone
+	log.Print("fieldsync: shut down cleanly")
+}

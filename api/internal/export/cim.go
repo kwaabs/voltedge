@@ -56,7 +56,7 @@ type cimSubstation struct {
 // writeCIM streams a single combined CIM RDF/XML document of every layer to w,
 // using the resolved declarative mapping. generated stamps the md:FullModel
 // header (passed in rather than read from the clock so the output is testable).
-func writeCIM(w io.Writer, docName string, layers []Layer, mapping *metadata.CIMMapping, conns []connRow, specs map[string]*metadata.MaterialSpec, generated time.Time) error {
+func writeCIM(w io.Writer, docName string, layers []Layer, mapping *metadata.CIMMapping, conns []connRow, specs map[string]*metadata.MaterialSpec, generated time.Time) (topoStats, error) {
 	cw := &cimWriter{
 		mapping:   mapping,
 		specs:     specs,
@@ -99,7 +99,7 @@ type cimWriter struct {
 	subByID     map[string]bool // yard feature ids, to skip in the equipment pass
 }
 
-func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []connRow) error {
+func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []connRow) (topoStats, error) {
 	// Stream straight to the destination through a buffered writer instead of
 	// accumulating the whole document in memory (Slice 1). Every emit helper
 	// writes through cw.b; the lone Flush below surfaces the first write error.
@@ -148,10 +148,10 @@ func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []
 
 	// Pass 4 (Slice 2): synthesize the topology -- ConnectivityNodes from the
 	// connectivity graph, one Terminal per equipment endpoint, PowerTransformerEnds.
-	cw.writeTopology(layers, conns)
+	stats := cw.writeTopology(layers, conns)
 
 	cw.b.WriteString("</rdf:RDF>\n")
-	return bw.Flush()
+	return stats, bw.Flush()
 }
 
 // writeHeader emits the md:FullModel model-description header the CIM/XML

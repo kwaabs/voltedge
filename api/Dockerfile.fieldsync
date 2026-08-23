@@ -1,0 +1,44 @@
+# api/Dockerfile.fieldsync
+# The field-tool engine (Phase 21, cmd/fieldsync) is the one binary that needs
+# tippecanoe at runtime -- it shells out to it to build each pack's MBTiles
+# display tileset. There is NO official tippecanoe image: Mapbox archived the
+# original repo, Felt maintains the fork, and every tippecanoe image on Docker
+# Hub is an unpinned community build we can't vouch for. So we build it ourselves
+# from Felt's source, pinned to a release tag, and ship only the resulting binary
+# plus its runtime libs. This is kept SEPARATE from api/Dockerfile on purpose:
+# the server / exportworker / mcpserver image has no reason to carry a C++
+# tile compiler, so only this image does.
+
+# --- Stage 1: build tippecanoe from pinned Felt source ---------------------
+# TIPPECANOE_VERSION is an exact git tag for provenance + reproducibility.
+# Confirm/bump against https://github.com/felt/tippecanoe/releases -- a wrong
+# tag fails the clone loudly (that's the point of pinning over tracking main).
+FROM alpine:3.20 AS tippecanoe
+ARG TIPPECANOE_VERSION=2.79.0
+RUN apk add --no-cache build-base git sqlite-dev zlib-dev bash linux-headers
+RUN git clone --depth 1 --branch "${TIPPECANOE_VERSION}" \
+        https://github.com/felt/tippecanoe.git /tippecanoe
+WORKDIR /tippecanoe
+RUN make -j"$(nproc)" && make install   # -> /usr/local/bin/{tippecanoe,tile-join,...}
+
+# --- Stage 2: build the fieldsync Go binary --------------------------------
+# NOTE: `go mod download` fails until go.mod/go.sum include modernc.org/sqlite
+# (the pure-Go SQLite driver the pack builder uses). Run `go get
+# modernc.org/sqlite` in ./api and commit go.mod/go.sum before building.
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/fieldsync ./cmd/fieldsync
+
+# --- Stage 3: runtime ------------------------------------------------------
+# tippecanoe is a dynamically-linked C++ binary, so the runtime carries its
+# shared libs (sqlite/zlib/libstdc++/libgcc); the Go binary is static and needs
+# only ca-certificates.
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates sqlite-libs zlib libstdc++ libgcc
+COPY --from=tippecanoe /usr/local/bin/tippecanoe /usr/local/bin/tippecanoe
+COPY --from=build /out/fieldsync /usr/local/bin/fieldsync
+EXPOSE 8091
+CMD ["fieldsync"]

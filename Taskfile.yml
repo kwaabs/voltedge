@@ -10,6 +10,7 @@ vars:
   POSTGRES_PORT: '{{.POSTGRES_PORT | default "3700"}}'
   API_PORT: '{{.API_PORT | default "3704"}}'
   MCP_PORT: '{{.MCP_PORT | default "3705"}}'
+  FIELDSYNC_PORT: '{{.FIELDSYNC_PORT | default "3706"}}'
 
   LOCAL_DATABASE_URL: "postgres://postgres:{{.POSTGRES_PASSWORD}}@localhost:{{.POSTGRES_PORT}}/{{.POSTGRES_DB}}?sslmode=disable"
   CONTAINER_DATABASE_URL: "postgres://postgres:{{.POSTGRES_PASSWORD}}@postgres:5432/{{.POSTGRES_DB}}?sslmode=disable"
@@ -87,6 +88,18 @@ tasks:
       MCP_PORT: "{{.MCP_PORT}}"
     cmds:
       - go run ./cmd/mcpserver
+
+  fieldsync-dev:
+    desc: Run the field-tool engine locally against dockerized postgres + rustfs (Phase 21)
+    # RUSTFS_* come from .env (dotenv), same as exportworker-dev. tippecanoe must
+    # be on PATH (or set TIPPECANOE_BIN) -- the compose image bundles it, but a
+    # host run uses your local install.
+    dir: "{{.API_DIR}}"
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+      FIELDSYNC_PORT: "{{.FIELDSYNC_PORT}}"
+    cmds:
+      - go run ./cmd/fieldsync
 
   api-test:
     desc: Run API tests

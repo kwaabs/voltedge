@@ -42,10 +42,22 @@ const (
 // ObjectStore is the thin RustFS wrapper the export path uses: upload an
 // artifact under a key, and mint a presigned URL to fetch it back. It holds a
 // configured minio client, the target bucket, and the presign TTL.
+//
+// client vs presignClient is the internal/public endpoint split. Uploads +
+// bucket ops go through client, bound to RUSTFS_ENDPOINT -- the host the API
+// process reaches RustFS at (in compose, rustfs:9000). Presigned download URLs
+// are signed by presignClient, bound to RUSTFS_PUBLIC_ENDPOINT when set -- the
+// host the *downloader* (a browser, or a field device off the compose network)
+// reaches RustFS at (e.g. localhost:3702 or a LAN/public host). The signature is
+// computed over the endpoint host, so a URL signed for rustfs:9000 fails from
+// anywhere that can't resolve it; signing with a separate public-endpoint client
+// fixes that. When RUSTFS_PUBLIC_ENDPOINT is unset, presignClient == client and
+// behaviour is unchanged.
 type ObjectStore struct {
-	client *minio.Client
-	bucket string
-	urlTTL time.Duration
+	client        *minio.Client
+	presignClient *minio.Client
+	bucket        string
+	urlTTL        time.Duration
 }
 
 // NewObjectStoreFromEnv builds the store from the RUSTFS_* / EXPORT_URL_TTL
@@ -73,15 +85,45 @@ func NewObjectStoreFromEnv() (*ObjectStore, error) {
 		urlTTL = d
 	}
 
-	client, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(os.Getenv("RUSTFS_ACCESS_KEY"), os.Getenv("RUSTFS_SECRET_KEY"), ""),
-		Secure: os.Getenv("RUSTFS_USE_SSL") == "1",
-	})
+	client, err := newRustFSClient(endpoint, os.Getenv("RUSTFS_USE_SSL") == "1")
 	if err != nil {
 		return nil, fmt.Errorf("configuring RustFS client: %w", err)
 	}
 
-	return &ObjectStore{client: client, bucket: bucket, urlTTL: urlTTL}, nil
+	// The presign client is bound to the public endpoint when one is configured,
+	// so download URLs are signed for a host the downloader can actually reach.
+	// With the region set explicitly (see newRustFSClient) presigning is pure
+	// signature math -- no network -- so an unreachable-from-here public host is
+	// fine. Falls back to the internal client when unset.
+	presignClient := client
+	if pub := os.Getenv("RUSTFS_PUBLIC_ENDPOINT"); pub != "" {
+		presignClient, err = newRustFSClient(pub, os.Getenv("RUSTFS_PUBLIC_USE_SSL") == "1")
+		if err != nil {
+			return nil, fmt.Errorf("configuring RustFS presign client: %w", err)
+		}
+	}
+
+	return &ObjectStore{client: client, presignClient: presignClient, bucket: bucket, urlTTL: urlTTL}, nil
+}
+
+// newRustFSClient builds a minio client for endpoint with the shared static
+// credentials. Region is set EXPLICITLY (RUSTFS_REGION, default us-east-1) rather
+// than left empty: with no region, minio-go resolves the bucket region on first
+// use via a GetBucketLocation round-trip -- including inside PresignedGetObject.
+// That breaks the public presign client, whose endpoint (e.g. localhost:3702) is
+// deliberately not reachable from the API process; a fixed region makes
+// presigning fully offline (pure signature math) and matches the us-east-1 the
+// signatures already carry.
+func newRustFSClient(endpoint string, secure bool) (*minio.Client, error) {
+	region := os.Getenv("RUSTFS_REGION")
+	if region == "" {
+		region = "us-east-1"
+	}
+	return minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(os.Getenv("RUSTFS_ACCESS_KEY"), os.Getenv("RUSTFS_SECRET_KEY"), ""),
+		Secure: secure,
+		Region: region,
+	})
 }
 
 // EnsureBucket creates the export bucket if it does not exist. Called once at
@@ -127,12 +169,14 @@ func (s *ObjectStore) Delete(ctx context.Context, key string) error {
 // PresignGet mints a time-limited GET URL for key. The browser is redirected
 // here, so response-content-disposition is baked into the signature to force a
 // download with a friendly filename rather than an inline render. The call is
-// local (no RustFS round-trip): it only computes a signature, so the configured
-// endpoint must be the host the browser can reach, not an internal-only one.
+// local (no RustFS round-trip): it only computes a signature, so it is signed by
+// presignClient -- bound to the public endpoint (RUSTFS_PUBLIC_ENDPOINT) when set
+// -- so the host in the URL is one the downloader can reach, not an internal-only
+// one like rustfs:9000.
 func (s *ObjectStore) PresignGet(ctx context.Context, key, filename string) (string, error) {
 	params := make(url.Values)
 	params.Set("response-content-disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
-	u, err := s.client.PresignedGetObject(ctx, s.bucket, key, s.urlTTL, params)
+	u, err := s.presignClient.PresignedGetObject(ctx, s.bucket, key, s.urlTTL, params)
 	if err != nil {
 		return "", fmt.Errorf("presigning download URL: %w", err)
 	}

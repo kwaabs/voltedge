@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
+  Copy,
   GripHorizontal,
   Info,
   Link2,
@@ -46,6 +47,7 @@ import { useRelationships } from "@/hooks/use-relationships"
 import { useTerritories, territoryNameMap } from "@/hooks/use-territories"
 import { useTraceConfigurations } from "@/hooks/use-trace-configurations"
 import { ApiError, apiFetch } from "@/lib/api"
+import { offsetGeometry } from "@/lib/geometry"
 import { formatArea, formatLength, geoJSONAreaMeters, geoJSONLengthMeters } from "@/lib/measure"
 import { cn } from "@/lib/utils"
 import { useAmpacityStore } from "@/stores/ampacity-store"
@@ -584,6 +586,13 @@ const DEFAULT_HEIGHT = 256
 const MIN_WIDTH = 288
 const MIN_HEIGHT = 180
 
+/** How far off the original a duplicated feature lands (metres, EPSG:3857),
+ * far enough to be visible and separately clickable, near enough to drag into
+ * place -- see the Duplicate action below and docs/phase-20-split-copy.md.
+ * Applied on both axes, so the copy appears up-and-to-the-right of the
+ * original. */
+const COPY_OFFSET_METERS = 5
+
 /**
  * Floating and draggable (grab the header, same mechanics as
  * connect-confirm-panel.tsx's own `handleHeaderPointerDown`/`position`
@@ -653,6 +662,26 @@ export function FeaturePanel() {
     setMinimized(false)
     useEditStore.getState().stop()
   }, [selected?.featureClassCode, selected?.featureId])
+
+  // Duplicate: open the create form pre-seeded from this feature (its
+  // attributes, subtype, and name), with a copy of its geometry nudged a few
+  // metres off the original so it's visible and draggable into place (Phase
+  // 20, docs/phase-20-split-copy.md). Reuses the ordinary draft/create path --
+  // Save is a plain POST /features, so RBAC, validation, and territory
+  // assignment are exactly the manual create's. Connections/relationships are
+  // deliberately NOT copied (they're separate facts about the original); the
+  // assistant's suggestion loop fires on the new feature's geometry to help
+  // re-establish any that belong on the copy. Only offered for a feature that
+  // actually has geometry -- a geometry-less class has nothing to place.
+  function handleDuplicate() {
+    if (!selected || !feature?.geometry) return
+    const geometry = offsetGeometry(feature.geometry, COPY_OFFSET_METERS, COPY_OFFSET_METERS)
+    useDrawStore.getState().startCopyDraft(selected.featureClassCode, geometry, {
+      name: feature.name ?? undefined,
+      subtype: feature.subtype,
+      attributes: { ...feature.attributes },
+    })
+  }
 
   function handleHeaderPointerDown(e: React.PointerEvent) {
     const rect = panelRef.current?.getBoundingClientRect()
@@ -1116,6 +1145,14 @@ export function FeaturePanel() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem
+                    disabled={!feature?.geometry || Boolean(feature?.deleted_at)}
+                    onSelect={handleDuplicate}
+                  >
+                    <Copy className="size-4" />
+                    Duplicate
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   {isDiagramContainer && diagrams.length === 0 && (
                     <DropdownMenuItem onSelect={() => setCreatingDiagram(true)}>
                       <Workflow className="size-4" />

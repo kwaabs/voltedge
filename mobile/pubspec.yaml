@@ -1,0 +1,59 @@
+name: voltedge_field
+description: "VoltEdge offline-first field tool (Phase 21)."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # State management (design-locked).
+  flutter_riverpod: ^2.5.1
+
+  # Offline map render (Slice 2b, design-locked). Wraps MapLibre Native, so the
+  # pack's vector tiles draw on the GPU (no Dart in the draw loop) and it exposes
+  # the projection + query APIs snapping needs later: queryRenderedFeatures,
+  # toLatLng(screenPoint), toScreenLocation(latLng). Tiles are served offline from
+  # tiles.mbtiles by an in-app loopback HTTP server (see src/map/mbtiles_tile_server.dart),
+  # not maplibre_gl's own download-to-cache path.
+  #
+  # Range (not a pre-1.0 caret): 0.20.x still references the removed Android v1
+  # PluginRegistry.Registrar and won't compile on current Flutter; ^0.20.0 would
+  # pin there (caret on 0.x = >=0.20.0 <0.21.0), so allow the modern releases.
+  maplibre_gl: ">=0.21.0 <1.0.0"
+
+  # HTTP client for the cmd/fieldsync pack API.
+  http: ^1.2.2
+
+  # On-device pack access: open the server-built SQLite pack directly and query
+  # it with raw SQL (Slice 2a decision -- no Drift codegen for a read-only,
+  # fixed-schema pack; revisit Drift in Slice 3 when the dirty-overlay + outbox
+  # make reactive queries + migrations worth the build_runner step).
+  sqlite3: ^2.4.0
+  sqlite3_flutter_libs: ^0.5.24 # bundles the native libsqlite3 on Android/iOS
+
+  # Where downloaded packs live on the device.
+  path_provider: ^2.1.4
+  path: ^1.9.0
+
+  # NOTE: the API bearer token is a credential and ideally lives in the OS keystore
+  # (flutter_secure_storage). But no published version of that plugin (through 11.0.0)
+  # added the `if (agpMajor < 9) apply 'kotlin-android'` migration guard, so it fails to
+  # build under this AGP 9.0.1 / android.builtInKotlin=true toolchain -- and built-in
+  # Kotlin is required by maplibre_gl 0.27. Until it migrates, the token + baseUrl are
+  # stored in an app-private JSON file via path_provider (see settings_repository.dart);
+  # the app-private dir is per-app sandboxed on Android/iOS. Reinstate the keystore here
+  # once the plugin ships the AGP-9 fix (the SettingsRepository public API is unchanged).
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

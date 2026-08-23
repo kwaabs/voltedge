@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { useFeature } from "@/hooks/use-feature"
 import { type FieldSchema, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { ApiError, apiFetch } from "@/lib/api"
+import { useAssistantStore } from "@/stores/assistant-store"
 import { useEditStore } from "@/stores/edit-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
@@ -107,6 +108,11 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
   async function handleSave() {
     if (!canSave) return
     setSaving(true)
+    // Captured before the await: only a geometry change moves a feature near
+    // new candidates, so only then does the assistant ask for suggestions
+    // (Phase 19). An attribute-only edit leaves connectivity/relationship
+    // candidates unchanged, so it skips the round trip entirely.
+    const geometryChanged = dirtyGeometry !== null
     try {
       const changed: Record<string, unknown> = {}
       for (const key of changedKeys) changed[key] = attributes[key]
@@ -135,6 +141,14 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
       // tile after any successful save, not only a geometry change.
       useMapRefreshStore.getState().bump()
       useEditStore.getState().stop()
+      // Fire-and-forget: proactively surface any connections/relationships the
+      // feature's new geometry could now establish (assistant-suggestions.tsx
+      // renders the chips). Deliberately not awaited -- the save is already
+      // done and the assistant is advisory, so a slow or failing suggestion
+      // fetch must never hold up the form closing.
+      if (geometryChanged) {
+        void useAssistantStore.getState().requestSuggestions({ featureClassCode, featureId })
+      }
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save this feature.")
     } finally {

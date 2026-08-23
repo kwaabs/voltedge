@@ -230,6 +230,65 @@ not enforcement — the `features:write` RBAC gate in `handleToolsCall` is the
 actual boundary, and `validate_feature` remains available as a no-write
 pre-flight before a create.
 
+Slice 7 — establish writes (close the suggest→establish loop):
+
+| Tool | Backing engine call | Perm | Returns |
+|---|---|---|---|
+| `establish_connection` | `connectivity.EstablishConnection` | `connectivity:commit` | the committed connection (`id`, both endpoints, the authorizing `network_rule`) — the same zero-trust write the REST connectivity route performs |
+| `establish_relationship` | `relationship.EstablishRelationship` | `relationships:commit` | the committed relationship (`id`, class, kind, cardinality, both features) plus an optional `plausibility_warning` — the same explicit-confirm write the REST relationships route performs |
+
+`connectivity.EstablishConnection` (`connectivity/export.go`) and
+`relationship.EstablishRelationship` (`relationship/export.go`) are thin
+exported wrappers over those packages' existing unexported establish engines
+(`establishConnection`, `establishRelationship`) — the Slice 2/5 wrapper pattern
+applied to a write path. No authorization logic is reimplemented in the MCP
+layer: `establish_connection` commits only when an active `network_rules` row
+authorizes the from/to classes, subtypes, and terminals (absence, or a matching
+`is_valid=false` rule, rejects it); `establish_relationship` commits only when a
+matching `relationship_classes` row exists for the origin/destination pairing
+(and optional `kind`) and that class's cardinality isn't already exhausted.
+These are exactly the checks `suggest_connections`/`suggest_relationships`
+preview, so Slice 4's proposals and Slice 7's commits share one oracle — the
+suggest→establish loop closes without a second definition of "legal". The acting
+user is stamped into `established_by` from `auth.ActorID` (populated by
+`auth.WithUser` in `handleToolsCall`), identical to `create_feature`. Both gates
+are the REST route's own permission: `connectivity:commit` (the write permission
+the `/connectivity` mount requires, distinct from the `connectivity:read` the
+suggestion tool uses) and `relationships:commit`.
+
+**Write safety, same client-side annotation model as Slice 6**, with one
+distinction: both establish tools advertise `readOnlyHint:false` and
+`destructiveHint:false` (establishing is additive — it links, it never removes),
+but `idempotentHint:true` — re-establishing an already-existing edge is a no-op
+(the engine's `ON CONFLICT` keeps the original row and its `established_at`),
+unlike `create_feature`, where a repeat call creates a second feature.
+
+Slice 8 — the last CRUD write (`features:write`):
+
+| Tool | Backing engine call | Returns |
+|---|---|---|
+| `update_feature` | `crud.UpdateFeature` | the updated feature's full envelope — the same validated partial write the REST PATCH route performs (fetch current row → reject if deleted → validate changed geometry/attributes in update mode → published-completeness re-check → conditional territory re-resolve → write) |
+
+`crud.UpdateFeature` (`crud/update.go`) is the update counterpart to Slice 6's
+`crud.CreateFeature`: the update body was factored out of `updateHandler` into
+one exported function that both the REST handler and the MCP `update_feature`
+tool call, so the two front doors can't drift on what a partial update validates
+or writes. Unlike create, the *fetch of the current row* lives inside the shared
+function too — so the deleted-feature rejection, the update-mode field rules
+(post-publish-locked fields enforced against the feature's current status), and
+the published-completeness re-check are all shared, not just the write. Only the
+sent fields change: an absent `geometry`/`territory_id` is left alone, an absent
+`name` is kept (an explicit empty string clears it), and `subtype` is not
+updatable. The territory is re-resolved only on an explicit override or a
+geometry change. The acting user is stamped into `updated_by` from
+`auth.ActorID`, identical to `create_feature`.
+
+Write safety is the same client-side annotation model: `update_feature`
+advertises `readOnlyHint:false` and `destructiveHint:false` (a field update
+overwrites values but doesn't remove the feature), and `idempotentHint:true` —
+re-applying the same partial change yields the same state, unlike a repeated
+`create_feature`.
+
 ## Files
 
 - **`migrations/0037_create_api_tokens.sql`** — `iam.api_tokens` (opaque,
@@ -270,6 +329,13 @@ pre-flight before a create.
   territory → insert) extracted from `createHandler` so REST and the MCP
   `create_feature` tool share one write path. `createHandler` (`crud/handler.go`)
   now just decodes the body and calls it.
+- **`api/internal/crud/update.go`** (Slice 8) — `UpdateFeature` /
+  `UpdateFeatureInput`, the exported partial-update path (fetch current row →
+  deleted-check → validate → published-completeness → conditional territory
+  re-resolve → write) extracted from `updateHandler` so REST and the MCP
+  `update_feature` tool share one update path. The current-row fetch moved into
+  the shared function, so the deleted-check and completeness re-check are shared
+  too; `updateHandler` (`crud/handler.go`) now just decodes the body and calls it.
 - **`api/internal/connectivity/suggest.go`** (Slice 4) — `SuggestConnections` /
   `SuggestInput` / `ConnectionSuggestion`, the new ranked-candidate engine
   reusing this package's own `idMatches` / `ruleSpecificity` oracle and the
@@ -277,6 +343,14 @@ pre-flight before a create.
 - **`api/internal/relationship/suggest.go`** (Slice 4) — `SuggestRelationships` /
   `SuggestInput` / `RelationshipSuggestion`, the parallel engine reusing
   `checkCardinality` and `LoadRelationshipClasses`.
+- **`api/internal/connectivity/export.go`** (Slice 7) — `EstablishConnection` /
+  `Endpoint` / `EstablishConnectionInput` / `ConnectionResult`, the thin exported
+  wrapper over the unexported `establishConnection` (mapping to exported DTOs so
+  the handler's own request/response types stay untouched). No connectivity logic
+  here — only the DTO mapping.
+- **`api/internal/relationship/export.go`** (Slice 7) — `EstablishRelationship` /
+  `FeatureRef` / `EstablishRelationshipInput` / `RelationshipResult`, the parallel
+  wrapper over the unexported `establishRelationship`.
 - **`api/internal/mcpserver/server.go`** — the JSON-RPC 2.0 transport: request
   parsing, auth, dispatch, the RBAC gate, and result serialization. Slice 6 adds
   the `toolAnnotations` type + `markReadOnly` (stamps `readOnlyHint:true` on the
@@ -285,7 +359,10 @@ pre-flight before a create.
   descriptions + annotations) and handlers: four feature tools (Slice 1) + two
   trace tools (Slice 2) + `validate_feature` (Slice 3) + the two suggestion tools
   (Slice 4) + the three composite trace tools (Slice 5) + `create_feature`
-  (Slice 6, in `registerWriteTools`).
+  (Slice 6, in `registerWriteTools`) + `establish_connection` /
+  `establish_relationship` (Slice 7, also in `registerWriteTools`, gated
+  `connectivity:commit` / `relationships:commit`) + `update_feature` (Slice 8,
+  in `registerWriteTools`, gated `features:write`).
 - **`api/cmd/mcpserver/main.go`** — the process: `POST /mcp`, `/healthz`, env
   config.
 - **`api/cmd/authadmin/main.go`** — added `mint-token` / `list-tokens` /
@@ -454,17 +531,74 @@ pre-flight before a create.
   error, having written nothing. Confirm a token lacking `features:write` →
   `isError:true` "permission denied" while the read tools still work.
 
+- **Slice 7 — `establish_connection` / `establish_relationship` (close the
+  suggest→establish loop).** ✅ *Code complete (2026-08-21, verification owed —
+  Bash blocked).* The two commit writes that turn Slice 4's ranked candidates
+  into real, recorded edges. `establish_connection` (gated `connectivity:commit`)
+  commits a connection only when an active network rule authorizes the from/to
+  classes/subtypes/terminals; `establish_relationship` (gated
+  `relationships:commit`) commits a structural relationship only when a matching
+  relationship class exists and its cardinality isn't exhausted, returning a
+  `plausibility_warning` when the two geometries are further apart than expected.
+  Both are thin `connectivity.EstablishConnection` / `relationship.EstablishRelationship`
+  wrappers (`*/export.go`) over the unexported establish engines — no
+  authorization logic reimplemented, the same oracle the suggest tools preview.
+  Write safety is the Slice 6 client-side annotation model: `readOnlyHint:false`,
+  `destructiveHint:false` (additive), but `idempotentHint:true` (re-establishing
+  an existing edge is a no-op). Attributed to the token's user via `established_by`
+  (`auth.ActorID`).
+
+  *Verify:* `go build ./...` / `go vet ./...` (no migration — writes through
+  Phase 2's `runtime.feature_connectivity` / `runtime.feature_relationships`;
+  reuses `connectivity:commit` / `relationships:commit` from migration 0025).
+  With a Bearer token holding `connectivity:commit`: `tools/list` now shows
+  **fifteen** tools, and `establish_connection`'s entry carries
+  `annotations.readOnlyHint:false` + `idempotentHint:true`; run
+  `suggest_connections` on a real feature, then `tools/call establish_connection`
+  with that candidate's `{from, to}` (+ terminals the rule implies) → the
+  committed connection with its `id` and `network_rule_name`; re-run the identical
+  call → the same connection back (no error, no duplicate); an unauthorized pair
+  (no matching rule, or the `is_valid=false` T3 rule) → `isError:true`. With a
+  `relationships:commit` token, `establish_relationship` on a suggested
+  origin/destination → the committed relationship (with any `plausibility_warning`);
+  a pairing whose class cardinality is exhausted → `isError:true`. Confirm a token
+  holding only `connectivity:read` (the suggest permission) but not
+  `connectivity:commit` → `suggest_connections` works while `establish_connection`
+  returns `isError:true` "permission denied" — the read/commit split holds; same
+  for the relationship pair.
+
+- **Slice 8 — `update_feature` (the last CRUD write).** ✅ *Code complete
+  (2026-08-21, verification owed — Bash blocked).* The final mutating tool: it
+  updates a feature through the exact same validated partial-write path as the
+  REST PATCH route, via the shared `crud.UpdateFeature` (fetch → deleted-check →
+  validate in update mode → published-completeness → conditional territory
+  re-resolve → write) factored out of `updateHandler`. Gated `features:write`
+  (same as create and `validate_feature`). Only the sent fields change; `subtype`
+  is not updatable. Write safety is the Slice 6 annotation model: `readOnlyHint:false`,
+  `destructiveHint:false`, but `idempotentHint:true` (re-applying the same change
+  yields the same state). Attributed to the token's user via `updated_by`
+  (`auth.ActorID`). This completes the feature CRUD write surface over MCP.
+
+  *Verify:* `go build ./...` / `go vet ./...` (no migration — writes through the
+  existing feature tables; reuses `features:write` from migration 0025). Confirm
+  the REST PATCH still behaves identically after the `updateHandler` refactor
+  (change one attribute; clear a name with `""`; move geometry and see the
+  territory re-resolve; PATCH a deleted feature → rejected; PATCH a published
+  feature's post-publish-locked field → rejected; a published feature made
+  incomplete → rejected). With a Bearer token holding `features:write`:
+  `tools/list` now shows **sixteen** tools, and `update_feature`'s entry carries
+  `annotations.readOnlyHint:false` + `idempotentHint:true`;
+  `tools/call update_feature` with a real `{feature_class, id}` and one changed
+  attribute → the updated envelope (a follow-up `get_feature` shows the change and
+  `updated_by` = the token's user); re-run the identical call → the same state
+  back; an invalid change (unknown field, bad domain value, wrong geometry type,
+  a `subtype`… — not accepted) → `isError:true` with the first validation error,
+  nothing written; updating a soft-deleted feature → `isError:true` ("restore it
+  first"). Confirm a token lacking `features:write` → `isError:true` "permission
+  denied" while the read tools still work.
+
 ## Deferred to later slices
 
-- **`establish_connection` / `establish_relationship` / `update_feature`**
-  (mutating) — the remaining writes, each over its own already-exported engine
-  path (`connectivity`/`relationship` establish; `crud.updateFeature`, which
-  would first need extracting into an exported `UpdateFeature` the way Slice 6
-  did for create). The **write-confirmation model is now settled** (Slice 6):
-  client-side by MCP annotation — each new write tool advertises
-  `readOnlyHint:false` (and the apt `destructiveHint`, e.g. a delete would set it
-  true) and relies on the human's client to confirm, plus its `:commit`/`:write`
-  RBAC gate. `create_feature` shipped in Slice 6; these are the same pattern.
 - **Online token management** — a self-service endpoint / web UI for minting and
   revoking one's own tokens, replacing the CLI-only path. Slice 1 is deliberately
   admin-CLI-only.

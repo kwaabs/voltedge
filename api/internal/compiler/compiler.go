@@ -158,6 +158,21 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 			}
 		}
 
+		// Refresh the Martin tile function for this class so the map serves it
+		// as MVT filtered on deleted_at IS NULL -- migration 0038 and
+		// infra/martin/config.yaml. gis.sync_tile_function introspects the
+		// table's current columns, so calling it on every compile (a fresh
+		// CREATE TABLE or a field ADD COLUMN alike) keeps the function's
+		// properties in step with the table's shape -- the same
+		// single-source-of-truth reasoning as the column backfills above.
+		// Only geometric classes are tile sources; a geometry-less class has no
+		// geom column and is never published to Martin, so it gets no function.
+		if fc.GeometryType != "none" {
+			if _, err := tx.ExecContext(ctx, "SELECT gis.sync_tile_function(?, ?)", tableName, *fc.SRID); err != nil {
+				return fmt.Errorf("sync tile function: %w", err)
+			}
+		}
+
 		// published_by (text) carries the acting user's uuid when compile
 		// was triggered through the admin HTTP route (Slice E); it falls
 		// back to the "compiler-cli" system literal on the session-less

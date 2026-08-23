@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { Loader2 } from "lucide-react"
+import { Loader2, RefreshCw, ServerCrash } from "lucide-react"
 import { Navigate, Outlet, useLocation } from "react-router"
 
 import { ForbiddenPage } from "@/routes/forbidden"
@@ -22,7 +22,7 @@ import { isUnauthenticated, usePermission, useSession } from "@/hooks/use-auth"
  */
 export function RequireSession() {
   const location = useLocation()
-  const { data, isPending, isError, error, refetch } = useSession()
+  const { data, isPending, isError, error, refetch, isFetching } = useSession()
 
   if (isPending) {
     return (
@@ -37,14 +37,42 @@ export function RequireSession() {
       return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
     }
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-center">
-        <h1 className="text-lg font-semibold">Can't reach the server</h1>
-        <p className="text-muted-foreground max-w-sm text-sm">
-          The session couldn't be verified. This is usually a temporary connection problem, not a sign-in issue.
-        </p>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          Try again
-        </Button>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-6 text-center">
+        {/* An animated "reaching for the server" mark: radar rings ping
+            outward from a gently drifting server icon -- a live, hopeful
+            picture of the client trying to re-establish contact, rather than a
+            dead error glyph. Decorative, so hidden from assistive tech; the
+            heading below carries the meaning. Motion collapses to nothing under
+            prefers-reduced-motion (see index.css). */}
+        <div className="relative flex size-28 items-center justify-center" aria-hidden="true">
+          <span className="border-primary/40 absolute size-16 animate-ping rounded-full border [animation-duration:2.4s]" />
+          <span className="border-primary/30 absolute size-16 animate-ping rounded-full border [animation-delay:0.8s] [animation-duration:2.4s]" />
+          <span className="border-primary/20 absolute size-16 animate-ping rounded-full border [animation-delay:1.6s] [animation-duration:2.4s]" />
+          <span className="bg-card relative flex size-16 animate-float items-center justify-center rounded-full border shadow-sm">
+            <ServerCrash className="text-muted-foreground size-7" />
+          </span>
+        </div>
+
+        <div className="flex flex-col items-center gap-3">
+          <h1 className="animate-fade-up text-lg font-semibold [animation-delay:0.05s]">Can't reach the server</h1>
+          <p className="text-muted-foreground animate-fade-up max-w-sm text-sm [animation-delay:0.15s]">
+            The session couldn't be verified. This is usually a temporary connection problem, not a sign-in issue.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="animate-fade-up mt-1 [animation-delay:0.25s]"
+          >
+            {isFetching ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="size-4" />
+            )}
+            {isFetching ? "Retrying…" : "Try again"}
+          </Button>
+        </div>
       </div>
     )
   }

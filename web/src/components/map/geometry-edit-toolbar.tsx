@@ -1,4 +1,4 @@
-import { Move, Waypoints } from "lucide-react"
+import { Move, Scissors, Waypoints } from "lucide-react"
 
 import { SnapToggleButton } from "@/components/map/snap-toggle-button"
 import { Button } from "@/components/ui/button"
@@ -32,6 +32,10 @@ export function GeometryEditToolbar() {
   if (!editing || !schema || schema.geometry_type === "none") return null
 
   const showVertexTool = schema.geometry_type === "line" || schema.geometry_type === "polygon"
+  // Splitting only makes sense for a line -- a point/polygon has no "first
+  // and second part" to cut it into (Phase 20). The backend rejects a split
+  // of anything else too, but there's no reason to even offer the tool.
+  const showSplitTool = schema.geometry_type === "line"
 
   return (
     <div className="bg-popover text-popover-foreground fixed top-3 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1 rounded-md border p-1 shadow-lg">
@@ -55,10 +59,26 @@ export function GeometryEditToolbar() {
           Edit vertices
         </Button>
       )}
+      {showSplitTool && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(geometryTool === "split" && "bg-accent text-accent-foreground")}
+          onClick={() => useEditStore.getState().setGeometryTool(geometryTool === "split" ? null : "split")}
+        >
+          <Scissors className="size-4" />
+          Split
+        </Button>
+      )}
       <SnapToggleButton />
       {geometryTool === "vertices" && (
         <p className="text-muted-foreground border-l pl-2 text-xs whitespace-nowrap">
           Drag a vertex to move it, a segment to add one, Alt+click to delete one
+        </p>
+      )}
+      {geometryTool === "split" && (
+        <p className="text-muted-foreground border-l pl-2 text-xs whitespace-nowrap">
+          Click the line where you want to cut it into a new feature
         </p>
       )}
     </div>

@@ -11,11 +11,15 @@ export interface EditingFeature {
  * under edit -- "move" is a Translate interaction (drag the whole
  * geometry), "vertices" is a Modify interaction (drag a vertex to move
  * it, drag a segment midpoint to insert one, alt+click to delete one).
- * `null` means neither is attached yet -- the user hasn't picked a tool
- * from geometry-edit-toolbar.tsx. Only ever one at a time; both
- * interactions listen for drag gestures on the same feature and would
- * fight each other if both were active. */
-export type GeometryTool = "move" | "vertices" | null
+ * "split" is a one-off click that projects the clicked point onto the
+ * line (getClosestPoint) and opens a seeded create draft for the far
+ * half (Phase 20 -- see voltedge-map.tsx's split effect); unlike move/
+ * vertices it attaches no drag interaction and produces no dirtyGeometry
+ * (the backend truncates the original and creates the new part). Only
+ * offered for a line class. `null` means no tool is active yet -- the
+ * user hasn't picked one from geometry-edit-toolbar.tsx. Only ever one
+ * at a time; the drag tools would fight over the same gestures. */
+export type GeometryTool = "move" | "vertices" | "split" | null
 
 /**
  * Not persisted -- an in-progress edit has no meaning across a reload.

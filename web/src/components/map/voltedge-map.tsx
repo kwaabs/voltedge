@@ -43,6 +43,7 @@ import { useTerritoryBoundaries } from "@/hooks/use-territories"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { apiFetch } from "@/lib/api"
 import { applyBasemap, createBasemapSource } from "@/lib/basemaps"
+import { splitCoordinates } from "@/lib/geometry"
 import {
   createSymbologyStyle,
   draftStyleForFeature,
@@ -201,6 +202,27 @@ const MEASURE_STYLE = new Style({
   fill: new Fill({ color: "rgba(194, 86, 15, 0.12)" }),
   stroke: new Stroke({ color: "#c2560f", width: 2, lineDash: [6, 5] }),
   image: new CircleStyle({ radius: 4, fill: new Fill({ color: "#c2560f" }) }),
+})
+
+/**
+ * Scratch styles for the Split tool's live preview (Phase 20). While the user
+ * hovers/clicks a line in split mode, the two halves are drawn over it so the
+ * cut is visible before Save: the near half (stays on the original) solid blue,
+ * the far half (becomes the new feature) dashed green, with a marker dot at the
+ * cut point. Purely cosmetic -- PostGIS does the authoritative split on Save.
+ */
+const SPLIT_NEAR_STYLE = new Style({
+  stroke: new Stroke({ color: "#2563eb", width: 3 }),
+})
+const SPLIT_FAR_STYLE = new Style({
+  stroke: new Stroke({ color: "#16a34a", width: 3, lineDash: [8, 6] }),
+})
+const SPLIT_POINT_STYLE = new Style({
+  image: new CircleStyle({
+    radius: 5,
+    fill: new Fill({ color: "#ffffff" }),
+    stroke: new Stroke({ color: "#16a34a", width: 2 }),
+  }),
 })
 
 /**
@@ -367,6 +389,12 @@ export function VoltEdgeMap() {
   // refetched for an unrelated reason" (don't stomp the user's
   // in-progress drag).
   const editSeededForRef = useRef<string | null>(null)
+  // The original line's coordinates (EPSG:3857), captured when the Split tool
+  // (edit-store.ts's "split") is active, so the split-preview effect can keep
+  // drawing the two halves after edit mode ends and editFeatureRef is cleared
+  // -- while the create form for the new part is still open. The line doesn't
+  // change between entering split mode and Save, so a one-time capture is safe.
+  const splitPreviewCoordsRef = useRef<number[][] | null>(null)
   // The last focusToken the pan-to-feature effect below already handled
   // -- see that effect for why it needs this instead of just depending
   // on focusToken alone.
@@ -757,6 +785,44 @@ export function VoltEdgeMap() {
       document.removeEventListener("keydown", handleEscape)
     }
   }, [drawingFeatureClassCode, drawingGeometryType])
+
+  // Renders an already-placed draft into the draft layer and lets the user
+  // drag it (Phase 20 -- docs/phase-20-split-copy.md). The draw flow's own
+  // Draw interaction leaves the just-drawn feature sitting in draftSource, but
+  // a draft *seeded* from an existing feature (Duplicate -- draw-store.ts's
+  // startCopyDraft) has nothing there yet, so this seeds it from draft.geometry
+  // once. Either way a Translate keeps draft.geometry in sync as it's dragged,
+  // so feature-create-form.tsx's Save posts the final position. Not gated on a
+  // geometry-edit tool -- an unsaved draft is always freely movable. Snap is
+  // deliberately left off here (it only attaches while drawing or editing);
+  // positioning a copy is a coarse nudge, not a precise re-snap.
+  useEffect(() => {
+    const map = mapRef.current
+    const source = draftSourceRef.current
+    if (!map || !source || !draft?.geometry) return
+
+    // A drawn draft is already in the source (Draw put it there); a seeded
+    // copy draft is not -- add it once so it renders and can be grabbed.
+    let feature = source.getFeatures()[0] ?? null
+    if (!feature) {
+      const geometry = geoJSONToGeometry(draft.geometry)
+      if (!geometry) return
+      feature = new Feature(geometry)
+      source.addFeature(feature)
+    }
+
+    const dragged = feature
+    const translate = new Translate({ features: new Collection([dragged]) })
+    translate.on("translateend", () => {
+      const geometry = dragged.getGeometry()
+      const geojson = geometry && geometryToGeoJSON(geometry)
+      if (geojson) useDrawStore.getState().updateDraftGeometry(geojson)
+    })
+    map.addInteraction(translate)
+    return () => {
+      map.removeInteraction(translate)
+    }
+  }, [draft])
 
   // The ad-hoc measure tool (see src/components/map/measure-toolbar.tsx
   // and measure-store.ts). While a mode is armed this owns a throwaway
@@ -1401,6 +1467,12 @@ export function VoltEdgeMap() {
       }
     }
 
+    // "vertices" is the only other tool that attaches a drag interaction here.
+    // "split" is a one-off click handled by its own effect below and must not
+    // also get a Modify (that would let the user reshape the line mid-split),
+    // so bail without one for anything that isn't vertex editing.
+    if (geometryTool !== "vertices") return
+
     const modify = new Modify({ features })
     modify.on("modifyend", handleEnd)
     map.addInteraction(modify)
@@ -1432,7 +1504,10 @@ export function VoltEdgeMap() {
     const snapSource = snapSourceRef.current
     if (!map || !snapSource) return
     const drawingActive = Boolean(drawingFeatureClassCode)
-    const editingActive = Boolean(editing && geometryTool)
+    // Only the drag tools (Move/Edit vertices) have a gesture Snap can bend;
+    // "split" is a single click with no interaction to influence, so it doesn't
+    // arm snapping.
+    const editingActive = Boolean(editing && (geometryTool === "move" || geometryTool === "vertices"))
     if (!snapEnabled || (!drawingActive && !editingActive)) return
 
     refreshSnapSource(map, vectorLayersRef.current, snapSource)
@@ -1442,6 +1517,113 @@ export function VoltEdgeMap() {
       map.removeInteraction(snap)
     }
   }, [snapEnabled, drawingFeatureClassCode, editing, geometryTool])
+
+  // The Split tool (geometry-edit-toolbar.tsx, edit-store.ts's "split") with its
+  // live preview (Phase 20). Two phases share one scratch layer so the cut stays
+  // visible from hover straight through to the open create form:
+  //
+  //  1. Hover phase (editing && geometryTool === "split"): pointermove projects
+  //     the cursor perpendicularly onto the line under edit with getClosestPoint
+  //     (EPSG:3857, the geometry's own projection), splitCoordinates carves the
+  //     two halves at that point, and they're drawn -- near half solid, far half
+  //     dashed, plus a marker at the cut. A click within the pixel tolerance
+  //     commits: toLonLat brings the point back to the 4326 the API speaks,
+  //     startSplitDraft opens a create draft seeded from the original, and edit
+  //     mode ends (the far half PostGIS carves out on Save --
+  //     api/internal/crud/split.go). The global click-to-select handler already
+  //     bails while `editing` is set, so this is the only reaction to the click.
+  //  2. Draft phase (draft.split): edit mode is gone and editFeatureRef cleared,
+  //     but the create form is open -- keep the committed cut on screen using the
+  //     original line's coords cached in splitPreviewCoordsRef during the hover
+  //     phase and the frozen split point from the draft.
+  //
+  // There's no drag interaction either way (the Modify/Translate effect above
+  // skips "split"). Depends on editingFeature too, to re-run once that fetch
+  // resolves and editFeatureRef is set.
+  useEffect(() => {
+    const map = mapRef.current
+    const splitting = Boolean(editing && geometryTool === "split")
+    const draftSplit = draft?.split
+    if (!map || (!splitting && !draftSplit)) return
+
+    const source = new VectorSource()
+    const layer = new VectorLayer({ source, zIndex: 9 })
+    map.addLayer(layer)
+
+    // Draw the two halves + cut marker for a split at `point` (EPSG:3857)
+    // against `coords` (the original line, EPSG:3857). A null point clears.
+    const render = (coords: number[][] | null, point: number[] | null) => {
+      source.clear()
+      if (!coords || !point) return
+      const [near, far] = splitCoordinates(coords, point)
+      const nearFeature = new Feature(new LineString(near))
+      nearFeature.setStyle(SPLIT_NEAR_STYLE)
+      const farFeature = new Feature(new LineString(far))
+      farFeature.setStyle(SPLIT_FAR_STYLE)
+      const marker = new Feature(new Point(point))
+      marker.setStyle(SPLIT_POINT_STYLE)
+      source.addFeatures([nearFeature, farFeature, marker])
+    }
+
+    if (splitting) {
+      const feature = editFeatureRef.current
+      const line = feature?.getGeometry()
+      if (!(line instanceof LineString)) {
+        map.removeLayer(layer)
+        return
+      }
+      // Cache the original's coords so the preview survives into the draft
+      // phase, where editFeatureRef has been cleared.
+      const coords = line.getCoordinates()
+      splitPreviewCoordsRef.current = coords
+
+      // getClosestPoint always returns *some* point on the line, even for a
+      // cursor nowhere near it -- which would preview/split at a surprising
+      // spot. Ignore anything more than a small pixel tolerance off the line,
+      // so only a point actually on it previews or cuts.
+      const project = (evt: MapBrowserEvent<PointerEvent | KeyboardEvent | WheelEvent>) => {
+        const onLine = line.getClosestPoint(evt.coordinate)
+        const onLinePixel = map.getPixelFromCoordinate(onLine)
+        if (onLinePixel && Math.hypot(onLinePixel[0] - evt.pixel[0], onLinePixel[1] - evt.pixel[1]) > 12) return null
+        return onLine
+      }
+      const onMove = (evt: MapBrowserEvent<PointerEvent | KeyboardEvent | WheelEvent>) => {
+        render(coords, project(evt))
+      }
+      const onClick = (evt: MapBrowserEvent<PointerEvent | KeyboardEvent | WheelEvent>) => {
+        const onLine = project(evt)
+        if (!onLine) return
+        const [lng, lat] = toLonLat(onLine)
+        useDrawStore.getState().startSplitDraft(
+          editing!.featureClassCode,
+          editing!.featureId,
+          { lng, lat },
+          {
+            name: editingFeature?.name ?? undefined,
+            subtype: editingFeature?.subtype,
+            attributes: { ...(editingFeature?.attributes ?? {}) },
+          },
+        )
+        // Leave edit mode -- the create form (seeded above) takes over the
+        // panel; the draft-phase branch keeps the cut preview on screen.
+        useEditStore.getState().stop()
+      }
+      map.on("pointermove", onMove)
+      map.on("click", onClick)
+      return () => {
+        map.un("pointermove", onMove)
+        map.un("click", onClick)
+        map.removeLayer(layer)
+      }
+    }
+
+    // Draft phase: freeze-frame the committed cut. The original's coords were
+    // cached during the hover phase; the split point rides on the draft.
+    render(splitPreviewCoordsRef.current, fromLonLat([draftSplit!.splitPoint.lng, draftSplit!.splitPoint.lat]))
+    return () => {
+      map.removeLayer(layer)
+    }
+  }, [editing, geometryTool, editingFeature, draft])
 
   // Click-to-select: hit-test every vector layer at the clicked pixel,
   // resolve each hit's feature class (a layer's sourceId is always a

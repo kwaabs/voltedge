@@ -136,10 +136,31 @@ type endpoint struct {
 	seq     int
 }
 
+// topoStats is the observability signal for the union-find pass -- the sizes
+// operators watch to know how close a CIM export gets to the topology memory
+// ceiling (Phase 17 Slice 5, docs/phase-17-large-export.md). Slice 5 (a
+// persisted, incrementally-maintained topology table) was designed but NOT
+// built: no export has yet hit the bottleneck. This struct is the trigger
+// signal instead -- runExport logs it per CIM job, so the day a real export's
+// ParentBytes approaches the ~240MB projection (the estimate at 10M features),
+// there is a concrete number in the logs telling us Slice 5's time has come.
+type topoStats struct {
+	Conns     int // connectivity edges consumed
+	Endpoints int // graph vertices (Terminals) == union-find set size
+	Nodes     int // connected components == ConnectivityNodes emitted
+	// ParentBytes is a rough footprint of the union-find `parent` map, the
+	// dominant in-memory structure. A map[string]string entry costs ~48 bytes of
+	// header/bucket overhead plus the key bytes twice (key + a same-shaped root
+	// value), and every endpoint key is stored, so len(parent) == Endpoints.
+	// It is an order-of-magnitude gauge, not an exact allocation.
+	ParentBytes int64
+}
+
 // writeTopology builds the connectivity graph over the exported equipment, finds
 // its connected components, and emits the ConnectivityNodes, Terminals, and
-// PowerTransformerEnds. It appends to cw.b like the other passes.
-func (cw *cimWriter) writeTopology(layers []Layer, conns []connRow) {
+// PowerTransformerEnds. It appends to cw.b like the other passes, and returns
+// the topoStats trigger signal (Slice 5) for the caller to log.
+func (cw *cimWriter) writeTopology(layers []Layer, conns []connRow) topoStats {
 	feats := cw.indexFeatures(layers)
 
 	// Union-find over endpoint keys. A key is "T|<feature>|<terminalID>" for a
@@ -238,6 +259,20 @@ func (cw *cimWriter) writeTopology(layers []Layer, conns []connRow) {
 		members := comps[root]
 		sort.Strings(members)
 		cw.writeConnectivityNode(members, endpoints, feats)
+	}
+
+	// Estimate the parent map's footprint from its entry count (== len(endpoints),
+	// since every endpoint key is a parent key). ~48 bytes/entry of Go map
+	// overhead plus the key string held as both key and root value.
+	var keyBytes int64
+	for k := range parent {
+		keyBytes += int64(len(k)) * 2
+	}
+	return topoStats{
+		Conns:       len(conns),
+		Endpoints:   len(endpoints),
+		Nodes:       len(comps),
+		ParentBytes: int64(len(parent))*48 + keyBytes,
 	}
 }
 

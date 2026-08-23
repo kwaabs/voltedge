@@ -24,9 +24,17 @@
 // (docs/phase-18-mcp.md): read tools advertise readOnlyHint:true and the write
 // tool readOnlyHint:false, so the human's MCP client surfaces a write for
 // approval before calling it -- the server itself stays stateless and does not
-// implement a second confirmation round-trip. Each tool is gated by the same
-// RBAC permission its equivalent REST route requires; the remaining mutating
-// tools (establish_*/update_) land in later slices.
+// implement a second confirmation round-trip. Slice 7 adds the two establish
+// write tools that close the suggest->establish loop: establish_connection
+// (gated connectivity:commit) and establish_relationship (gated
+// relationships:commit), backed by connectivity.EstablishConnection and
+// relationship.EstablishRelationship; both advertise readOnlyHint:false but
+// idempotentHint:true, since re-establishing an existing edge is a no-op. Slice 8
+// adds update_feature (gated features:write, backed by the shared
+// crud.UpdateFeature extracted from updateHandler), completing the feature CRUD
+// write surface -- also idempotentHint:true, since re-applying the same partial
+// change yields the same state. Each tool is gated by the same RBAC permission
+// its equivalent REST route requires.
 //
 // Transport is a hand-rolled JSON-RPC 2.0 over the MCP streamable-HTTP
 // binding -- no third-party MCP SDK, matching this codebase's "minimal,
@@ -40,11 +48,13 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
 	"strings"
 
+	"github.com/kwaabs/voltedge/api/internal/agenttools"
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/uptrace/bun"
 )
@@ -124,32 +134,15 @@ type implementation struct {
 	Version string `json:"version"`
 }
 
-type toolDef struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	InputSchema json.RawMessage  `json:"inputSchema"`
-	Annotations *toolAnnotations `json:"annotations,omitempty"`
-}
-
-// toolAnnotations are the MCP behavioral hints a client uses to decide how to
-// present a tool -- crucially, whether a call needs human confirmation before
-// it runs. This server's chosen write-safety model (docs/phase-18-mcp.md) is
-// exactly client-side: read tools advertise readOnlyHint:true so a client can
-// run them freely, and a write tool advertises readOnlyHint:false (plus the
-// destructive/idempotent hints) so a client knows to surface it for approval
-// first. Each field is a pointer so an unset hint is omitted rather than sent
-// as a misleading explicit false. These are hints, not a security boundary --
-// the RBAC gate in handleToolsCall is the actual enforcement.
-type toolAnnotations struct {
-	Title           string `json:"title,omitempty"`
-	ReadOnlyHint    *bool  `json:"readOnlyHint,omitempty"`
-	DestructiveHint *bool  `json:"destructiveHint,omitempty"`
-	IdempotentHint  *bool  `json:"idempotentHint,omitempty"`
-	OpenWorldHint   *bool  `json:"openWorldHint,omitempty"`
-}
-
+// The tool wire shape (toolDef) and its MCP behavioral hints (toolAnnotations)
+// now live on agenttools.Tool / agenttools.Annotations, whose JSON tags match
+// the MCP tool object exactly -- so tools/list serializes an agenttools.Tool
+// verbatim and both front doors advertise identical hints. See
+// docs/phase-18-mcp.md for the write-safety model those hints express (read
+// tools readOnlyHint:true, write tools readOnlyHint:false); they are hints, not
+// a boundary -- agenttools.Execute's RequiredPerm check is the enforcement.
 type toolsListResult struct {
-	Tools []toolDef `json:"tools"`
+	Tools []agenttools.Tool `json:"tools"`
 }
 
 type callToolParams struct {
@@ -167,47 +160,18 @@ type contentBlock struct {
 	Text string `json:"text,omitempty"`
 }
 
-// Server holds the database handle and the tool registry shared across
-// requests. It carries no per-request state, so a single instance serves
-// every connection concurrently.
+// Server holds the database handle it runs tool calls against. The tool
+// registry itself lives in internal/agenttools (shared with the in-app
+// assistant); the Server just wraps it in JSON-RPC. It carries no per-request
+// state, so a single instance serves every connection concurrently.
 type Server struct {
-	db    *bun.DB
-	tools map[string]tool
+	db *bun.DB
 }
 
-// tool is one registered MCP tool: its wire definition, the RBAC permission
-// a caller must hold to invoke it, and the handler that runs it under an
-// already-authenticated user's context.
-type tool struct {
-	def          toolDef
-	requiredPerm string
-	handler      func(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error)
-}
-
-// NewServer builds a Server with the tool set registered: the read-only tools
-// first (stamped readOnlyHint via markReadOnly), then the write tools, which
-// declare their own annotations.
+// NewServer builds a Server over db. The tool set is the shared
+// agenttools registry -- no per-server registration.
 func NewServer(db *bun.DB) *Server {
-	s := &Server{db: db, tools: make(map[string]tool)}
-	s.registerReadTools()
-	s.markReadOnly()
-	s.registerWriteTools()
-	return s
-}
-
-// markReadOnly stamps readOnlyHint:true on every tool registered so far that
-// hasn't declared its own annotations -- i.e. all the discovery, query, trace,
-// and suggestion tools, none of which write. A client reads this hint to decide
-// a call needs no human confirmation. It must run before registerWriteTools so
-// the write tools (which set readOnlyHint:false themselves) aren't overwritten.
-func (s *Server) markReadOnly() {
-	readOnly := true
-	for name, t := range s.tools {
-		if t.def.Annotations == nil {
-			t.def.Annotations = &toolAnnotations{ReadOnlyHint: &readOnly}
-			s.tools[name] = t
-		}
-	}
+	return &Server{db: db}
 }
 
 // Handler is the http.Handler serving the MCP streamable-HTTP endpoint.
@@ -336,18 +300,21 @@ func (s *Server) handleInitialize(req *rpcRequest) *rpcResponse {
 			"To add a feature, use create_feature -- validate_feature first to " +
 			"check it, then create_feature to write it. create_feature is a write " +
 			"tool (readOnlyHint:false): confirm the change with a human before " +
+			"calling it. To change an existing feature, use update_feature (send only " +
+			"the fields you want to change) -- also a write tool needing the same " +
+			"confirmation. Having found a candidate with suggest_connections or " +
+			"suggest_relationships, commit it with establish_connection or " +
+			"establish_relationship -- also write tools requiring the same " +
+			"human confirmation before " +
 			"calling it.",
 	})
 }
 
 func (s *Server) handleToolsList(req *rpcRequest) *rpcResponse {
-	defs := make([]toolDef, 0, len(s.tools))
-	for _, name := range orderedToolNames {
-		if t, ok := s.tools[name]; ok {
-			defs = append(defs, t.def)
-		}
-	}
-	return rpcOK(req.ID, toolsListResult{Tools: defs})
+	// agenttools.All() is already in the advertised order and carries the MCP
+	// wire tags (name/description/inputSchema/annotations), so it serializes
+	// straight into the tools/list result.
+	return rpcOK(req.ID, toolsListResult{Tools: agenttools.All()})
 }
 
 func (s *Server) handleToolsCall(ctx context.Context, user *auth.SessionUser, req *rpcRequest) *rpcResponse {
@@ -355,28 +322,26 @@ func (s *Server) handleToolsCall(ctx context.Context, user *auth.SessionUser, re
 	if err := json.Unmarshal(req.Params, &p); err != nil {
 		return rpcErr(req.ID, codeInvalidParams, "invalid tools/call params")
 	}
-	t, ok := s.tools[p.Name]
-	if !ok {
-		return rpcErr(req.ID, codeInvalidParams, "unknown tool: "+p.Name)
-	}
 
-	// RBAC, defense in depth over the bearer gate: a tool runs only if the
-	// token's user holds the permission its REST equivalent requires. A
-	// denial is reported as a tool error (isError) rather than a transport
-	// error so the agent sees a readable reason, not a dropped connection.
-	if t.requiredPerm != "" && !user.Has(t.requiredPerm) {
-		return rpcOK(req.ID, toolError("permission denied: this token's user lacks "+t.requiredPerm))
-	}
-
-	// Thread the authenticated user onto the context so the engine's actor
-	// helpers (auth.ActorID) and any future write path see who is acting --
-	// identical to how the HTTP session middleware carries the user.
-	toolCtx := auth.WithUser(ctx, user)
-
-	result, err := t.handler(toolCtx, s.db, p.Arguments)
+	// agenttools.Execute is the shared choke point: it enforces the tool's RBAC
+	// permission against this token's user (defense in depth over the bearer
+	// gate) and threads the user onto the context so the engine's actor helpers
+	// (auth.ActorID) attribute any write -- identical to how the HTTP session
+	// middleware carries the user. The error kinds map onto MCP's two failure
+	// shapes: an unknown tool is a transport-level invalid-params, while a
+	// permission denial or an execution failure is reported in-band (isError) so
+	// the agent reads a reason rather than seeing a dropped call.
+	result, err := agenttools.Execute(ctx, s.db, user, p.Name, p.Arguments)
 	if err != nil {
-		// A well-formed call that failed at execution -- report in-band.
-		return rpcOK(req.ID, toolError(err.Error()))
+		var permErr *agenttools.PermissionError
+		switch {
+		case errors.Is(err, agenttools.ErrUnknownTool):
+			return rpcErr(req.ID, codeInvalidParams, "unknown tool: "+p.Name)
+		case errors.As(err, &permErr):
+			return rpcOK(req.ID, toolError("permission denied: this token's user lacks "+permErr.Perm))
+		default:
+			return rpcOK(req.ID, toolError(err.Error()))
+		}
 	}
 
 	// Tools return structured data; serialize it as JSON text content, the

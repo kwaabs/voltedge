@@ -22,6 +22,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/kwaabs/voltedge/api/internal/admin"
+	"github.com/kwaabs/voltedge/api/internal/assistant"
+	"github.com/kwaabs/voltedge/api/internal/assistant/llm"
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
@@ -64,6 +66,20 @@ func main() {
 	}
 	if err := exportStore.EnsureBucket(context.Background()); err != nil {
 		log.Printf("warning: could not ensure export bucket (exports fail until RustFS is reachable): %v", err)
+	}
+
+	// Phase 19 Slice 3: the assistant chat orchestrator's model. Optional --
+	// unset ASSISTANT_LLM_BASE_URL yields a nil provider, so the API boots fine
+	// with chat disabled (the deterministic suggestions still work); a non-nil
+	// error means a variable that *is* set is malformed, worth failing on.
+	llmProvider, err := llm.NewFromEnv()
+	if err != nil {
+		log.Fatalf("assistant llm: %v", err)
+	}
+	if llmProvider == nil {
+		log.Print("assistant chat disabled (ASSISTANT_LLM_BASE_URL unset)")
+	} else {
+		log.Printf("assistant chat enabled (%s)", llmProvider.Name())
 	}
 
 	r := chi.NewRouter()
@@ -119,6 +135,17 @@ func main() {
 	r.With(auth.RequirePermission(auth.PermDiagramsRead, auth.PermDiagramsWrite)).Mount("/diagrams", diagram.Routes(db))
 	r.With(auth.RequirePermission(auth.PermTraceRun, auth.PermTraceRun)).Mount("/trace", trace.Routes(db))
 	r.With(auth.RequirePermission(auth.PermAnalysisRun, auth.PermAnalysisRun)).Mount("/analysis", powerflow.Routes(db))
+	// Phase 19: the in-app AI assistant's backend (docs/phase-19-assistant.md).
+	// Only RequireAuth here, not a single RBAC gate -- /assistant/suggestions
+	// reads two capabilities at once (connectivity + relationships) and gates
+	// each independently on the session user's own commit permission inside the
+	// handler, so a user with one but not the other still gets the half they can
+	// act on. Every action it proposes is executed through the establish routes
+	// above (or the assistant's own /execute), which re-enforce those same commit
+	// permissions on the actual write. The Slice 3 chat orchestrator routes over
+	// llmProvider, which is nil when no model is configured (ASSISTANT_LLM_BASE_URL
+	// unset) -- chat then reports itself disabled while suggestions keep working.
+	r.With(auth.RequireAuth).Mount("/assistant", assistant.Routes(db, llmProvider))
 	r.With(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite)).Mount("/admin", admin.Routes(db))
 	r.Mount("/auth", auth.Routes(db, authCfg))
 

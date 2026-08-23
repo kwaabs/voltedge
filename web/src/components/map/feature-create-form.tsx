@@ -7,6 +7,7 @@ import { formatFieldLabel, inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { type FieldSchema, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { ApiError, apiFetch } from "@/lib/api"
+import { useAssistantStore } from "@/stores/assistant-store"
 import { useDrawStore } from "@/stores/draw-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
 import { useSelectionStore } from "@/stores/selection-store"
@@ -28,6 +29,7 @@ import { useErrorToast, useToastStore } from "@/stores/toast-store"
  */
 export function FeatureCreateForm() {
   const draft = useDrawStore((s) => s.draft)
+  const draftToken = useDrawStore((s) => s.draftToken)
   const clearDraft = useDrawStore((s) => s.clearDraft)
   const bumpMapRefresh = useMapRefreshStore((s) => s.bump)
   const select = useSelectionStore((s) => s.select)
@@ -42,12 +44,18 @@ export function FeatureCreateForm() {
 
   // Fresh form state for every new draft -- a leftover subtype pick or
   // attribute value from a just-canceled or just-saved draft has no
-  // business surviving into the next one.
+  // business surviving into the next one. Keyed on draftToken (bumped once
+  // per new draft), NOT on the draft object: a Duplicate draft dragged on
+  // the map re-writes draft.geometry every move, and re-running this then
+  // would wipe what's been typed. A seeded draft (Duplicate) pre-fills from
+  // its `seed`; a blank draw starts empty. Read live from the store so this
+  // needs no dependency on `draft` (whose identity churns on every drag).
   useEffect(() => {
-    setName("")
-    setSubtypeCode("")
-    setAttributes({})
-  }, [draft?.featureClassCode])
+    const seed = useDrawStore.getState().draft?.seed
+    setName(seed?.name ?? "")
+    setSubtypeCode(seed?.subtype ?? "")
+    setAttributes(seed?.attributes ? { ...seed.attributes } : {})
+  }, [draftToken])
 
   if (!draft) return null
 
@@ -77,7 +85,51 @@ export function FeatureCreateForm() {
     if (!draft || !schema) return
     setSaving(true)
     try {
-      const body: Record<string, unknown> = { attributes }
+      // Only send fields the class actually allows at create time. For a
+      // blank draw this is exactly what's in `attributes` already (the form
+      // only ever wrote visible fields), so it's a no-op; for a seeded
+      // Duplicate draft it drops any computed/invisible attributes copied
+      // off the source that the create validator (api/internal/crud) would
+      // reject outright.
+      const createAttributes: Record<string, unknown> = {}
+      for (const field of visibleFields) {
+        if (field.name in attributes) createAttributes[field.name] = attributes[field.name]
+      }
+
+      // A split draft doesn't create a plain feature -- it cuts an existing
+      // line in one transaction (api/internal/crud/split.go): the original
+      // keeps the near half, and this new_feature becomes the far half, whose
+      // geometry PostGIS computes from split_point (so no geometry is sent).
+      // Everything else -- the visible-only attribute filter, the subtype and
+      // name -- is exactly the create form's, since the far half is a create.
+      if (draft.split) {
+        const { sourceFeatureId, splitPoint } = draft.split
+        const newFeature: Record<string, unknown> = { attributes: createAttributes }
+        if (needsSubtype) newFeature.subtype = subtypeCode
+        if (name.trim()) newFeature.name = name.trim()
+        const created = await apiFetch<{ id: string }>(
+          `/features/${draft.featureClassCode}/${sourceFeatureId}/split`,
+          { method: "POST", body: JSON.stringify({ split_point: splitPoint, new_feature: newFeature }) },
+        )
+        bumpMapRefresh()
+        // The original was shortened server-side -- drop its cached row so the
+        // panel/map re-read the near half rather than the pre-split geometry.
+        queryClient.invalidateQueries({ queryKey: ["feature", draft.featureClassCode, sourceFeatureId] })
+        select(draft.featureClassCode, created.id)
+        // Re-suggest on the new far half only: it's the brand-new, disconnected
+        // part that needs re-connecting (the original kept all its connections
+        // and relationships, per docs/phase-20-split-copy.md). requestSuggestions
+        // replaces the whole set, so firing it for both halves would just race --
+        // the new part is the one that matters.
+        void useAssistantStore.getState().requestSuggestions({
+          featureClassCode: draft.featureClassCode,
+          featureId: created.id,
+        })
+        clearDraft()
+        return
+      }
+
+      const body: Record<string, unknown> = { attributes: createAttributes }
       if (draft.geometry) body.geometry = draft.geometry
       if (needsSubtype) body.subtype = subtypeCode
       if (name.trim()) body.name = name.trim()
@@ -96,6 +148,18 @@ export function FeatureCreateForm() {
         bumpMapRefresh()
       }
       select(draft.featureClassCode, created.id)
+      // Fire-and-forget: a just-drawn feature with real geometry (e.g. an LV
+      // conductor snapped to a pole) is exactly the moment the assistant should
+      // surface the connections/relationships it could now establish -- the same
+      // trigger feature-edit-form.tsx runs after a geometry edit, but for the
+      // create path, which is how a feature drawn on the map first lands.
+      // Skipped for a diagram-only draft: it has no map geometry to rank against.
+      if (draft.geometry) {
+        void useAssistantStore.getState().requestSuggestions({
+          featureClassCode: draft.featureClassCode,
+          featureId: created.id,
+        })
+      }
       clearDraft()
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save this feature.")

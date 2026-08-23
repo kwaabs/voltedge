@@ -284,14 +284,18 @@ func nearbyCandidates(ctx context.Context, db bun.IDB, sourceClass, targetClass 
 	var out []candidateRow
 	for rows.Next() {
 		var (
-			id, name string
-			subtype  sql.NullInt64
-			dist     sql.NullFloat64
+			id      string
+			name    sql.NullString
+			subtype sql.NullInt64
+			dist    sql.NullFloat64
 		)
 		if err := rows.Scan(&id, &name, &subtype, &dist); err != nil {
 			return nil, fmt.Errorf("relationship: suggest: scanning %s: %w", targetTable, err)
 		}
-		row := candidateRow{id: id, name: name}
+		// name is a nullable column (compiler: `name text`, no NOT NULL) --
+		// an unnamed feature scans as NULL, not "", so it needs NullString;
+		// candidateLabel falls back to the class code when it's empty anyway.
+		row := candidateRow{id: id, name: name.String}
 		if subtype.Valid {
 			code := int(subtype.Int64)
 			row.subtype = &code

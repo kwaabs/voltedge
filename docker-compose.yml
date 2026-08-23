@@ -46,6 +46,14 @@ services:
     image: ghcr.io/maplibre/martin:latest
     container_name: voltedge-martin
     restart: unless-stopped
+    # --config: publish tile *functions*, not raw tables. Martin's default is
+    # to auto-publish every geometry table directly, but a raw table source has
+    # no WHERE clause and so served soft-deleted rows (deleted_at set) to the
+    # map. infra/martin/config.yaml turns table auto-publish off and publishes
+    # the per-class gis.<code>(z,x,y) tile functions instead (migration 0038 +
+    # api/internal/compiler), which filter deleted_at IS NULL. The config reads
+    # DATABASE_URL by env substitution, so that env var below still drives it.
+    #
     # --cache-size 0: Martin's tile cache keys on (source, z, x, y) only,
     # not on the data underneath -- a tile fetched once (even an empty
     # one, before a feature existed there) is served stale forever,
@@ -58,7 +66,7 @@ services:
     # uncached tile request now costs a live Postgres query. Revisit if
     # that tradeoff stops being true (e.g. a large territory with rare
     # edits and real tile-serving load).
-    command: ["--cache-size", "0"]
+    command: ["--config", "/config/config.yaml", "--cache-size", "0"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,6 +74,8 @@ services:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
     ports:
       - "${MARTIN_PORT:-3701}:3000"
+    volumes:
+      - ./infra/martin/config.yaml:/config/config.yaml:ro
 
   rustfs:
     image: rustfs/rustfs:latest
@@ -97,14 +107,13 @@ services:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
       PORT: "8080"
       # Export storage (Phase 17). Inside the compose network RustFS is reached
-      # as rustfs:9000, so that is the endpoint here -- NOT the .env value
-      # (localhost:3702), which is for host-run dev + the browser. Caveat: the
-      # download presigned URL is signed for this same endpoint, so a browser
-      # (which can't resolve rustfs:9000) can't follow it from the in-compose
-      # API. Splitting the internal upload endpoint from the public presign
-      # endpoint is a documented follow-up; host-run `task api-dev` is the
-      # browser-facing dev path today.
+      # as rustfs:9000 for uploads. Download presigned URLs, though, are signed
+      # for RUSTFS_PUBLIC_ENDPOINT -- the host the *browser* reaches RustFS at
+      # (the published S3 port, localhost:3702 by default), since a browser can't
+      # resolve rustfs:9000. This is the internal/public endpoint split; override
+      # RUSTFS_PUBLIC_ENDPOINT with a LAN/public host for non-localhost clients.
       RUSTFS_ENDPOINT: rustfs:9000
+      RUSTFS_PUBLIC_ENDPOINT: ${RUSTFS_PUBLIC_ENDPOINT:-localhost:3702}
       RUSTFS_BUCKET: ${RUSTFS_BUCKET:-voltedge-exports}
       RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-voltedge}
       RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
@@ -155,6 +164,42 @@ services:
       MCP_PORT: "8090"
     ports:
       - "${MCP_PORT:-3705}:8090"
+
+  # The field-tool engine (Phase 21). Its OWN image (api/Dockerfile.fieldsync),
+  # not the shared api image: it bundles tippecanoe (built from Felt source in
+  # that Dockerfile) to compile each pack's MBTiles, which the other binaries
+  # have no need for. One process runs both the pack-build worker (drains
+  # ops.field_packs, SKIP LOCKED) and the device-facing HTTP surface on
+  # FIELDSYNC_PORT (8091), all under iam.api_tokens bearer auth. Scale the build
+  # throughput with `docker compose up -d --scale fieldsync=N`.
+  #
+  # Uploads go to rustfs:9000 (internal); pack download URLs are presigned for
+  # RUSTFS_PUBLIC_ENDPOINT (the same internal/public split as the api service).
+  # For a real field device, override RUSTFS_PUBLIC_ENDPOINT with the host's
+  # LAN/public address (e.g. 192.168.1.x:3702) so the device can resolve it --
+  # localhost:3702 only works for a browser on this machine.
+  fieldsync:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.fieldsync
+    container_name: voltedge-fieldsync
+    restart: unless-stopped
+    command: ["fieldsync"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+      FIELDSYNC_PORT: "8091"
+      RUSTFS_ENDPOINT: rustfs:9000
+      RUSTFS_PUBLIC_ENDPOINT: ${RUSTFS_PUBLIC_ENDPOINT:-localhost:3702}
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-voltedge-exports}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-voltedge}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
+      FIELDSYNC_WORKER_CONCURRENCY: ${FIELDSYNC_WORKER_CONCURRENCY:-2}
+      FIELDSYNC_JOB_LEASE: ${FIELDSYNC_JOB_LEASE:-60s}
+    ports:
+      - "${FIELDSYNC_PORT:-3706}:8091"
 
   gitbash:
     build:

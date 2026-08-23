@@ -376,8 +376,30 @@ poll-a-job pattern the app can reuse for any future long task.
   shows prior exports, not just the one just submitted. **Follow-up:** there is
   no toolbar affordance to *re-open* the panel after closing it (you reopen it by
   submitting another export); a small "Exports" toggle button could be added.
-- **Slice 5 — persisted/incremental topology (deferred, scale escape hatch).**
-  Only if a real dataset makes the in-worker union-find the bottleneck.
+- **Slice 5 — persisted/incremental topology (designed, not built — trigger
+  signal added instead).** ✅ *Closed as designed-not-needed (2026-08-22,
+  verification owed — Bash blocked).* The optimization (a persisted, incrementally
+  maintained topology table so the CIM export doesn't rebuild union-find from
+  scratch each time) stays **unbuilt on purpose**: no export has hit the in-worker
+  union-find as a bottleneck, the payoff is speculative, and the "incremental" part
+  hides the dynamic-connectivity hard problem (maintaining connected components
+  under edge *removal* is genuinely hard, unlike the append-only union-find the
+  batch export gets away with). Building it now would be correctness risk
+  (deterministic-mRID contract depends on ConnectivityNode identity; a denormalized
+  topology table must stay consistent with `runtime.feature_connectivity`) for no
+  observed gain. **Instead of building, we made the bottleneck observable:**
+  `writeTopology` now returns a `topoStats` (edges consumed, terminals/union-find
+  set size, ConnectivityNodes, and an estimated `parent_bytes` footprint), threaded
+  up through `writeCIM` → `runExport`, which logs one line per CIM export:
+  `export: CIM topology features=… conns=… terminals=… nodes=… parent_bytes=…`.
+  The union-find `parent` map is the dominant structure (~240MB projected at 10M
+  features); `parent_bytes` is an order-of-magnitude gauge (≈ `48·entries` plus the
+  key bytes held as key+root). So the day a real export's `parent_bytes` climbs
+  toward that ceiling, there is a concrete number in the logs (alertable) telling us
+  Slice 5's time has actually come — rather than discovering it via an OOM. All in
+  `export/topology.go` (`topoStats` + return), `export/cim.go` (`write`/`writeCIM`
+  thread the value), `export/runner.go` (the `log.Printf`). No schema, API, or
+  frontend change.
 - **Slice 6 — retention / cleanup sweep.** ✅ *Code complete (2026-08-21,
   verification owed — Bash blocked).* Closes the object leak: every succeeded
   export left its RustFS artifact behind forever. The worker now runs a periodic
@@ -434,24 +456,25 @@ poll-a-job pattern the app can reuse for any future long task.
 - ~~**Retention / cleanup.**~~ ✅ Done in **Slice 6** — the worker's retention
   sweep reaps aged terminal jobs' artifacts + rows (and the deterministic-key
   orphan) on a timer. See Slice 6 above.
-- **Internal-vs-public RustFS endpoint.** `storage.go` uses one `RUSTFS_ENDPOINT`
-  for both upload and presign. That works when the signer is host-reachable
-  (`task api-dev` on `localhost:3702`), but an in-compose API needs an *internal*
-  endpoint to upload (`rustfs:9000`) and a *public* one to sign browser-facing
-  download URLs. Split into two config vars (sign against the public host, PUT
-  against the internal one) when the API moves into the compose network.
+- ~~**Internal-vs-public RustFS endpoint.**~~ ✅ Done (2026-08-22, alongside
+  Phase 21). `storage.go` now signs download URLs with a second minio client bound
+  to `RUSTFS_PUBLIC_ENDPOINT` (PUTs still go through `RUSTFS_ENDPOINT`); unset falls
+  back to one endpoint, so host-run dev is unchanged. Wired into the in-compose
+  `api` + `fieldsync` services (`rustfs:9000` internal / `localhost:3702` public).
 - ~~**Job cancellation.**~~ ✅ Done in **Slice 7** — `POST
   /export/jobs/{id}/cancel` flips the `cancelled` state; a running job's worker
   aborts via the existing heartbeat lost-lease path. See Slice 7 above.
 - **Progress reporting.** `feature_count` lands at completion; a live
   percent-complete would need the worker to update a `progress` column as it
   streams. Nice-to-have, not v1.
-- **Persisted topology** (Slice 5 above) — the real answer if union-find memory
-  becomes the ceiling.
+- ~~**Persisted topology**~~ (Slice 5 above) — closed as *designed, not needed
+  yet*: no export has hit the union-find ceiling, so instead of building it we
+  added the `parent_bytes` trigger signal to the CIM export log. Revisit **when**
+  that number actually climbs toward the ~240MB projection, not before.
 
 ## Status
 
-**Slices 1–2 + 3a + 3b + 3c + 3d + 4 + 6 + 7 code-complete; Slice 5 designed, not yet implemented.**
+**Slices 1–2 + 3a + 3b + 3c + 3d + 4 + 6 + 7 code-complete; Slice 5 closed as designed-not-needed (trigger-signal logging added in its place).**
 Decisions locked (persistent worker service, Postgres `SKIP LOCKED` queue,
 RustFS + presigned URL, streaming prerequisite). Slice 1 retired the
 whole-document output buffer in `cim.go`/`dxf.go`/`kml.go` (`shapefile.go` stays

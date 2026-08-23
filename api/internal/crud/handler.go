@@ -45,6 +45,9 @@ const defaultListLimit = 50
 //	                             flat ?name=/?status= list params can't
 //	GET    /{code}/{id}          get, includes soft-deleted
 //	PATCH  /{code}/{id}          update, rejected if soft-deleted
+//	POST   /{code}/{id}/split     cut a line at a point: original keeps the
+//	                             near half, the far half becomes a new feature
+//	                             (one transaction; line classes only)
 //	POST   /{code}/{id}/publish   draft -> published, gated on completeness
 //	POST   /{code}/{id}/unpublish published -> draft, no gate
 //	DELETE /{code}/{id}          soft delete (sets deleted_at), no gate
@@ -60,6 +63,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/{code}/query", queryHandler(db))
 	r.Get("/{code}/{id}", getHandler(db))
 	r.Patch("/{code}/{id}", updateHandler(db))
+	r.Post("/{code}/{id}/split", splitHandler(db))
 	r.Post("/{code}/{id}/publish", publishHandler(db))
 	r.Post("/{code}/{id}/unpublish", unpublishHandler(db))
 	r.Delete("/{code}/{id}", deleteHandler(db))
@@ -203,81 +207,18 @@ func updateHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 
-		existing, err := getFeature(r.Context(), db, loaded, id)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		if existing["deleted_at"] != nil {
-			writeError(w, invalid("feature %s is deleted -- restore it before updating", id))
-			return
-		}
-		currentStatus, _ := existing["status"].(string)
-
 		var req updateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, invalid("request body is not valid JSON: %v", err))
 			return
 		}
-		if req.Attributes == nil {
-			req.Attributes = map[string]any{}
-		}
 
-		// Same type-matches-feature-class check create already runs --
-		// just skipped entirely when geometry wasn't sent, since absence
-		// means "not changing it" here, not "missing."
-		if len(req.Geometry) > 0 {
-			if err := validateGeometry(loaded, req.Geometry); err != nil {
-				writeError(w, err)
-				return
-			}
-		}
-
-		fields, err := validateAttributes(loaded, req.Attributes, writeUpdate, &currentStatus)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-
-		values := make(map[string]any, len(req.Attributes))
-		for name, raw := range req.Attributes {
-			f := fields[name]
-			coerced, err := validateValue(loaded, f, raw)
-			if err != nil {
-				writeError(w, err)
-				return
-			}
-			values[name] = coerced
-		}
-
-		if currentStatus == "published" {
-			if err := validateUpdateCompleteness(loaded, existing, values); err != nil {
-				writeError(w, err)
-				return
-			}
-		}
-
-		// Re-resolve the territory (Phase 11) only when there's a reason to:
-		// an explicit override, or a geometry change that could move the
-		// feature into a different territory. Absent both, the existing
-		// assignment is left untouched (assignTerritory stays false).
-		var territoryID *string
-		assignTerritory := false
-		if loaded.FeatureClass.GeometryType == "none" {
-			if req.TerritoryID != nil {
-				writeError(w, invalid("feature class %q has no geometry, so it can't belong to a territory", code))
-				return
-			}
-		} else if req.TerritoryID != nil || len(req.Geometry) > 0 {
-			assignTerritory = true
-			territoryID, err = territory.Assign(r.Context(), db, string(req.Geometry), *loaded.FeatureClass.SRID, req.TerritoryID)
-			if err != nil {
-				writeError(w, territoryError(err))
-				return
-			}
-		}
-
-		result, err := updateFeature(r.Context(), db, loaded, id, req.Geometry, req.Name, territoryID, assignTerritory, values)
+		result, err := UpdateFeature(r.Context(), db, loaded, id, UpdateFeatureInput{
+			Name:        req.Name,
+			Geometry:    req.Geometry,
+			TerritoryID: req.TerritoryID,
+			Attributes:  req.Attributes,
+		})
 		if err != nil {
 			writeError(w, err)
 			return

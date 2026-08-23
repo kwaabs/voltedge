@@ -1,6 +1,8 @@
-import { ArrowDown, ArrowUp, Download, Search, Upload } from "lucide-react"
+import { ArrowDown, ArrowUp, Download, Search, Sparkles, Upload } from "lucide-react"
 
 import { AmpacityPanel } from "@/components/map/ampacity-panel"
+import { AssistantChat } from "@/components/map/assistant-chat"
+import { AssistantSuggestions } from "@/components/map/assistant-suggestions"
 import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
 import { DiagramCanvas } from "@/components/map/diagram-canvas"
 import { ExportDialog } from "@/components/map/export-dialog"
@@ -23,8 +25,10 @@ import { TerritoryPanel } from "@/components/map/territory-panel"
 import { TraceResultTable } from "@/components/map/trace-result-table"
 import { VoltEdgeMap } from "@/components/map/voltedge-map"
 import { Button } from "@/components/ui/button"
+import { useAssistantStatus } from "@/hooks/use-assistant"
 import { useDiagramInstance } from "@/hooks/use-diagrams"
 import { cn } from "@/lib/utils"
+import { useAssistantChatStore } from "@/stores/assistant-chat-store"
 import { type DiagramPane, useDiagramStore } from "@/stores/diagram-store"
 import { useExportStore } from "@/stores/export-store"
 import { useImportStore } from "@/stores/import-store"
@@ -36,6 +40,11 @@ export function MapPage() {
   const diagramOpen = topTabs.length > 0 || bottomTabs.length > 0
   const split = topTabs.length > 0 && bottomTabs.length > 0
   const queryOpen = useQueryStore((s) => s.open)
+  const chatOpen = useAssistantChatStore((s) => s.open)
+  // The chat toolbar entry only appears when the server has a model configured;
+  // the deterministic suggestions work regardless, so a model-less deployment
+  // simply never shows a chat box (see use-assistant.ts).
+  const chatEnabled = useAssistantStatus().data?.chat_enabled ?? false
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -66,6 +75,16 @@ export function MapPage() {
             >
               <Download className="size-3.5" /> Export
             </Button>
+            {chatEnabled && (
+              <Button
+                variant={chatOpen ? "default" : "secondary"}
+                size="sm"
+                className="shadow-sm"
+                onClick={() => useAssistantChatStore.getState().toggle()}
+              >
+                <Sparkles className="size-3.5" /> Assistant
+              </Button>
+            )}
             <MeasureToolbar />
             <NewFeatureMenu />
             <LayersPanel />
@@ -88,6 +107,8 @@ export function MapPage() {
       <FeaturePanel />
       <TerritoryPanel />
       <ConnectConfirmPanel />
+      <AssistantSuggestions />
+      <AssistantChat />
       <GeometryEditToolbar />
       <TerritoryEditToolbar />
       <TraceResultTable />
