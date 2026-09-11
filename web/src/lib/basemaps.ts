@@ -1,47 +1,55 @@
 import type TileLayer from "ol/layer/Tile"
-import OSM from "ol/source/OSM"
 import type TileSource from "ol/source/Tile"
 import XYZ from "ol/source/XYZ"
 
-import type { BasemapId } from "@/stores/basemap-store"
+import type { BasemapRecord } from "@/hooks/use-basemaps"
+import { BLANK_BASEMAP } from "@/stores/basemap-store"
 
 /**
- * Builds the OpenLayers tile source for a basemap id, or `null` for the
- * blank/no-basemap choice (nothing to render). Attribution isn't set on
- * the source here -- voltedge-map.tsx disables OL's Attribution control
- * and status-bar.tsx renders each basemap's required attribution itself
- * (see basemap-store.ts's BASEMAP_OPTIONS), so a source-level attribution
- * would never be shown anyway.
+ * Resolves a chosen basemap `code` against the fetched catalog to the record
+ * whose tile source should render, or `null` for "no tiles" (the blank choice,
+ * or an empty catalog). An unknown code -- e.g. a persisted choice an admin has
+ * since deleted -- falls back to the first enabled basemap rather than going
+ * blank, so a stale localStorage value never leaves the map empty.
  */
-export function createBasemapSource(id: BasemapId): TileSource | null {
-  switch (id) {
-    case "osm":
-      return new OSM()
-    case "carto-voyager":
-      // Carto's non-subdomain raster host (their subdomained URLs are
-      // deprecated; HTTP/2 makes the single host fine). Voyager raster
-      // tiles top out around z20 -- past that OL over-zooms the last
-      // level rather than 404ing, matching how OSM behaves above its own
-      // max under the view's maxZoom: 22.
-      return new XYZ({
-        url: "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-        maxZoom: 20,
-      })
-    case "blank":
-      return null
-  }
+export function resolveBasemap(code: string, list: BasemapRecord[]): BasemapRecord | null {
+  if (code === BLANK_BASEMAP) return null
+  return list.find((b) => b.code === code) ?? list[0] ?? null
 }
 
 /**
- * Applies a basemap choice to the map's single base tile layer in place:
- * a real source swap for osm/carto (keeping the same layer, so it stays
- * at the bottom of the z-order under every feature layer), or hiding the
- * layer entirely for the blank choice rather than juggling a null source
- * through OL's types. Switching back off blank re-shows it with the new
- * source. Idempotent -- safe to call on every basemap-change render.
+ * Builds the OpenLayers tile source for a basemap record, or `null` for the
+ * blank/no-basemap choice (nothing to render). Generic XYZ over the record's
+ * url_template -- OL substitutes whichever {x}/{y}/{z} placeholders it carries,
+ * so provider tile-URL orders (Esri's {z}/{y}/{x}, cartocdn/OSM's {z}/{x}/{y})
+ * just work. Attribution isn't set on the source -- voltedge-map.tsx disables
+ * OL's Attribution control and status-bar.tsx renders the record's required
+ * attribution itself, so a source-level attribution would never be shown.
  */
-export function applyBasemap(layer: TileLayer<TileSource>, id: BasemapId): void {
-  const source = createBasemapSource(id)
+export function createBasemapSource(record: BasemapRecord | null): TileSource | null {
+  if (!record) return null
+  // TMS servers number tile rows from the bottom; OpenLayers reads the {-y}
+  // placeholder as that flipped row, so rewrite {y} when the record is TMS.
+  const url = record.tms ? record.url_template.replaceAll("{y}", "{-y}") : record.url_template
+  return new XYZ({
+    url,
+    // null max_zoom = no provider cap; OL over-zooms the last level (the view's
+    // own maxZoom still bounds it) rather than requesting tiles that 404.
+    maxZoom: record.max_zoom ?? undefined,
+    minZoom: record.min_zoom || undefined,
+  })
+}
+
+/**
+ * Applies a basemap choice to the map's single base tile layer in place: a real
+ * source swap for a tiled record (keeping the same layer, so it stays at the
+ * bottom of the z-order under every feature layer), or hiding the layer for the
+ * blank choice rather than juggling a null source through OL's types. Switching
+ * back off blank re-shows it with the new source. Idempotent -- safe to call on
+ * every basemap-change render.
+ */
+export function applyBasemap(layer: TileLayer<TileSource>, record: BasemapRecord | null): void {
+  const source = createBasemapSource(record)
   if (source) {
     layer.setSource(source)
     layer.setVisible(true)

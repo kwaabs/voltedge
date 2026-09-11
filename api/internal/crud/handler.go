@@ -44,6 +44,9 @@ const defaultListLimit = 50
 //	                             docs/phase-13-query-builder.md), where the
 //	                             flat ?name=/?status= list params can't
 //	GET    /{code}/{id}          get, includes soft-deleted
+//	GET    /{code}/{id}/history   append-only change timeline, newest first
+//	GET    /{code}/{id}/gps-captures  GNSS survey quality stamped on GPS-sourced
+//	                             placements (field tool), newest first
 //	PATCH  /{code}/{id}          update, rejected if soft-deleted
 //	POST   /{code}/{id}/split     cut a line at a point: original keeps the
 //	                             near half, the far half becomes a new feature
@@ -62,6 +65,9 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/{code}", createHandler(db))
 	r.Post("/{code}/query", queryHandler(db))
 	r.Get("/{code}/{id}", getHandler(db))
+	r.Get("/{code}/{id}/history", historyHandler(db))
+	r.Get("/{code}/{id}/gps-captures", gpsCapturesHandler(db))
+	r.Get("/{code}/{id}/capacity", capacityHandler(db))
 	r.Patch("/{code}/{id}", updateHandler(db))
 	r.Post("/{code}/{id}/split", splitHandler(db))
 	r.Post("/{code}/{id}/publish", publishHandler(db))
@@ -166,6 +172,89 @@ func getHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
+// historyHandler serves a feature's append-only change timeline (Phase 41).
+// It never 404s on a purged feature: the feature row may be gone but its
+// history outlives it, so an empty list and a purged-feature list are both
+// valid answers to the same URL. loadOrNotFound still guards an unknown class.
+func historyHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		id := chi.URLParam(r, "id")
+
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		entries, err := listFeatureHistory(r.Context(), db, loaded.FeatureClass.Code, id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if entries == nil {
+			entries = []historyEntry{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"history": entries})
+	}
+}
+
+// gpsCapturesHandler serves a feature's GNSS survey-quality captures (Phase
+// gnss-quality Slice 3): the fix DOP/accuracy/satellites recorded each time a
+// field crew placed or moved it at their device's position. Like the history
+// timeline it never 404s on a purged feature -- the capture record outlives the
+// row -- and an empty list is the normal answer for any feature never placed by
+// GPS (every map-drawn or REST-created feature). loadOrNotFound still guards an
+// unknown class.
+func gpsCapturesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		id := chi.URLParam(r, "id")
+
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		entries, err := ListFeatureGpsCaptures(r.Context(), db, loaded.FeatureClass.Code, id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if entries == nil {
+			entries = []gpsCaptureEntry{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"gps_captures": entries})
+	}
+}
+
+// capacityHandler serves a feature's coarse spare-way capacity (Phase 44 Slice
+// 3) -- way_count minus the count of cable_routing links pulled through it.
+// Registered on the generic /features sub-resource path, so it rides the
+// mount's features:read gate (no extra RBAC). It 400s for a class without a
+// way_count field (see ductCapacity), keeping the generic route honest for a
+// non-CABLE_DUCT class.
+func capacityHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		id := chi.URLParam(r, "id")
+
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		result, err := ductCapacity(r.Context(), db, loaded, id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
 func createHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		code := chi.URLParam(r, "code")
@@ -214,10 +303,11 @@ func updateHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := UpdateFeature(r.Context(), db, loaded, id, UpdateFeatureInput{
-			Name:        req.Name,
-			Geometry:    req.Geometry,
-			TerritoryID: req.TerritoryID,
-			Attributes:  req.Attributes,
+			Name:              req.Name,
+			Geometry:          req.Geometry,
+			TerritoryID:       req.TerritoryID,
+			Attributes:        req.Attributes,
+			ExpectedUpdatedAt: req.ExpectedUpdatedAt,
 		})
 		if err != nil {
 			writeError(w, err)
@@ -339,6 +429,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusBadRequest
 	case isNotFoundError(err):
 		status = http.StatusNotFound
+	case isConflictError(err):
+		status = http.StatusConflict
 	}
 	writeJSON(w, status, apiError{Error: err.Error()})
 }

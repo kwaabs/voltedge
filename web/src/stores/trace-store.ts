@@ -9,6 +9,21 @@ export interface TraceFeatureRef {
   feature_id: string
 }
 
+/** Mirrors api/internal/trace's tracedFeature -- a reached feature (the
+ * `features` list of every trace-family response) enriched with its stored
+ * circuit membership (Phase 37 circuit_id + human circuit_ref) and nominal
+ * operating voltage (a conductor's voltage_class / a transformer's primary
+ * side, parsed to volts). All three are optional: a class carrying neither a
+ * circuit_id field nor any voltage-class field, or one with no value set,
+ * omits them. nominal_voltage_v is the topology-intrinsic voltage the trace
+ * engine knows without a load-flow solve -- a *computed* per-node voltage is a
+ * separate load-flow artifact the table overlays from load-flow-store.ts. */
+export interface TracedFeature extends TraceFeatureRef {
+  circuit_id?: string
+  circuit_ref?: string
+  nominal_voltage_v?: number
+}
+
 /** Mirrors api/internal/trace's traceResponse -- see docs/phase-4-trace-engine.md.
  * `barriers` is always a subset of `features`: the nodes a trace
  * actually reached but a live trace_barrier_rules condition stopped it
@@ -20,7 +35,7 @@ export interface TraceResult {
   trace_configuration: string
   direction: string
   start: TraceFeatureRef
-  features: TraceFeatureRef[]
+  features: TracedFeature[]
   barriers: TraceFeatureRef[]
   path_found?: boolean
   targets?: TraceFeatureRef[]
@@ -41,16 +56,25 @@ export interface TraceResult {
  */
 interface TraceState {
   result: TraceResult | null
+  /** Computed per-node voltages overlaid onto the result table, keyed
+   * `feature_class:feature_id`, snapshotted from load-flow-store.ts at trace
+   * time when a load-flow result for the same start exists (see the trigger in
+   * feature-panel.tsx). Null when no matching load-flow result was available --
+   * the trace engine itself is decoupled from powerflow and never computes
+   * these, so this client-side overlay is the only place computed voltages
+   * meet a trace. Cleared alongside the result. */
+  computedVoltages: Record<string, number> | null
   loading: boolean
   setLoading: (loading: boolean) => void
-  setResult: (result: TraceResult) => void
+  setResult: (result: TraceResult, computedVoltages?: Record<string, number> | null) => void
   clear: () => void
 }
 
 export const useTraceStore = create<TraceState>((set) => ({
   result: null,
+  computedVoltages: null,
   loading: false,
   setLoading: (loading) => set({ loading }),
-  setResult: (result) => set({ result, loading: false }),
-  clear: () => set({ result: null, loading: false }),
+  setResult: (result, computedVoltages = null) => set({ result, computedVoltages, loading: false }),
+  clear: () => set({ result: null, computedVoltages: null, loading: false }),
 }))

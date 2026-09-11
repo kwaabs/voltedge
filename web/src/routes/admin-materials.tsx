@@ -24,6 +24,8 @@ interface NumberFields {
   emissivity: string
   absorptivity: string
   resistanceTempCoefficientPerC: string
+  costPerKm: string
+  unitCost: string
 }
 
 const EMPTY_NUMBERS: NumberFields = {
@@ -36,6 +38,8 @@ const EMPTY_NUMBERS: NumberFields = {
   emissivity: "",
   absorptivity: "",
   resistanceTempCoefficientPerC: "",
+  costPerKm: "",
+  unitCost: "",
 }
 
 function numberFieldsFrom(spec: AdminMaterialSpec): NumberFields {
@@ -50,6 +54,8 @@ function numberFieldsFrom(spec: AdminMaterialSpec): NumberFields {
     absorptivity: spec.absorptivity !== undefined ? String(spec.absorptivity) : "",
     resistanceTempCoefficientPerC:
       spec.resistance_temp_coefficient_per_c !== undefined ? String(spec.resistance_temp_coefficient_per_c) : "",
+    costPerKm: spec.cost_per_km !== undefined ? String(spec.cost_per_km) : "",
+    unitCost: spec.unit_cost !== undefined ? String(spec.unit_cost) : "",
   }
 }
 
@@ -65,6 +71,8 @@ function toBody(n: NumberFields): Record<string, unknown> {
     absorptivity: n.absorptivity.trim() === "" ? undefined : Number(n.absorptivity),
     resistance_temp_coefficient_per_c:
       n.resistanceTempCoefficientPerC.trim() === "" ? undefined : Number(n.resistanceTempCoefficientPerC),
+    cost_per_km: n.costPerKm.trim() === "" ? undefined : Number(n.costPerKm),
+    unit_cost: n.unitCost.trim() === "" ? undefined : Number(n.unitCost),
   }
 }
 
@@ -157,6 +165,29 @@ function NumberFieldsGrid({ value, onChange }: { value: NumberFields; onChange: 
               className={inputClass}
               value={value.resistanceTempCoefficientPerC}
               onChange={(e) => onChange({ ...value, resistanceTempCoefficientPerC: e.target.value })}
+            />
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        <p className="text-muted-foreground text-xs font-semibold uppercase">Cost</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Cost per km</label>
+            <input
+              type="number"
+              className={inputClass}
+              value={value.costPerKm}
+              onChange={(e) => onChange({ ...value, costPerKm: e.target.value })}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Unit cost (each)</label>
+            <input
+              type="number"
+              className={inputClass}
+              value={value.unitCost}
+              onChange={(e) => onChange({ ...value, unitCost: e.target.value })}
             />
           </div>
         </div>
@@ -432,6 +463,16 @@ export function AdminMaterialsPage() {
                     {m.resistance_temp_coefficient_per_c !== undefined && (
                       <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
                         α_R {m.resistance_temp_coefficient_per_c}/°C
+                      </span>
+                    )}
+                    {m.cost_per_km !== undefined && (
+                      <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+                        {m.cost_per_km}/km
+                      </span>
+                    )}
+                    {m.unit_cost !== undefined && (
+                      <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+                        {m.unit_cost}/ea
                       </span>
                     )}
                   </CardContent>

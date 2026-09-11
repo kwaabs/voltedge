@@ -10,10 +10,11 @@ import (
 )
 
 // defaultBoundaryClass is used when a request doesn't name one -- the
-// only class this app's seed data models as a sectionalizing/
-// protective device today. Overridable via the request for any
-// network that adds another (e.g. a fuse class).
-const defaultBoundaryClass = "DIST_SWITCH"
+// generic MV switch this app's seed data models as a sectionalizing/
+// protective device (the successor to the retired DIST_SWITCH).
+// Overridable via the request for any network that adds another (e.g.
+// a fuse class).
+const defaultBoundaryClass = "MV_SWITCH"
 
 // sectionRequest is the POST /trace/section body. BoundaryClass is
 // optional, defaulting to defaultBoundaryClass.
@@ -31,10 +32,10 @@ type sectionRequest struct {
 // simply runs to the edge of the modeled network in that direction
 // (e.g. no upstream switch exists before an unmodeled source).
 type sectionResponse struct {
-	Start              featureRef   `json:"start"`
-	Features           []featureRef `json:"features"`
-	UpstreamBoundary   *featureRef  `json:"upstream_boundary,omitempty"`
-	DownstreamBoundary *featureRef  `json:"downstream_boundary,omitempty"`
+	Start              featureRef      `json:"start"`
+	Features           []tracedFeature `json:"features"`
+	UpstreamBoundary   *featureRef     `json:"upstream_boundary,omitempty"`
+	DownstreamBoundary *featureRef     `json:"downstream_boundary,omitempty"`
 }
 
 // sectionTrace composes two bounded walks -- an UPSTREAM and a
@@ -86,11 +87,11 @@ func sectionTrace(ctx context.Context, db bun.IDB, req sectionRequest) (*section
 	}
 	loader := newFeatureClassLoader()
 
-	upstreamVisited, _, upstreamHits, _, _, err := bfs(ctx, db, start, "UPSTREAM", barriers, loader, nil, &boundaryClassID, false)
+	upstreamVisited, _, upstreamHits, _, _, err := bfs(ctx, db, start, "UPSTREAM", barriers, loader, nil, &boundaryClassID, false, nil)
 	if err != nil {
 		return nil, err
 	}
-	downstreamVisited, _, downstreamHits, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, &boundaryClassID, false)
+	downstreamVisited, _, downstreamHits, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, &boundaryClassID, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -116,9 +117,14 @@ func sectionTrace(ctx context.Context, db bun.IDB, req sectionRequest) (*section
 		return nil, err
 	}
 
+	features, err := toTracedFeatures(ctx, db, featureNodes, classCodes, loader)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := &sectionResponse{
 		Start:    req.Start,
-		Features: toFeatureRefs(featureNodes, classCodes),
+		Features: features,
 	}
 	if len(upstreamHits) > 0 {
 		refs := toFeatureRefs(upstreamHits[:1], classCodes)

@@ -130,6 +130,42 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 				result.ColumnsAdded = append(result.ColumnsAdded, "territory_id")
 			}
 
+			// geometry_optional (Phase 26): buildCreateTable emits a nullable
+			// geom for a fresh table, but a class already compiled with the
+			// historic NOT NULL needs its constraint relaxed on recompile once
+			// the flag is set. DROP NOT NULL is a safe, relaxing change and a
+			// no-op if the column is already nullable, so this runs whenever
+			// the flag is set on a geometric table -- the same
+			// single-source-of-truth reasoning as the column backfills above.
+			// The reverse (clearing the flag while null rows exist) is left to
+			// Postgres's own SET NOT NULL to reject loudly, matching
+			// syncCheckConstraints' narrowing philosophy.
+			if fc.GeometryType != "none" && fc.GeometryOptional && existingCols["geom"] {
+				stmt := fmt.Sprintf("ALTER TABLE %s ALTER COLUMN geom DROP NOT NULL", qualifiedTable)
+				if _, err := tx.ExecContext(ctx, stmt); err != nil {
+					return fmt.Errorf("drop not null on geom: %w", err)
+				}
+			}
+
+			// subtype -- a class first compiled with zero subtypes has no
+			// subtype column (buildCreateTable only emits it when subtypes
+			// exist); gaining its first subtype later must backfill the column
+			// before syncCheckConstraints can constrain it, mirroring the
+			// system-column backfills above. Added NOT NULL with no default,
+			// exactly as buildCreateTable emits it: on an empty table (a class
+			// typically gains subtypes before any features exist) this succeeds,
+			// and on a table that already has rows Postgres rejects it loudly --
+			// the correct outcome, since there is no sensible subtype to
+			// retro-assign existing rows. The CHECK is added right after by
+			// syncCheckConstraints, so only the bare column is added here.
+			if len(loaded.Subtypes) > 0 && !existingCols["subtype"] {
+				stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN subtype integer NOT NULL", qualifiedTable)
+				if _, err := tx.ExecContext(ctx, stmt); err != nil {
+					return fmt.Errorf("add column subtype: %w", err)
+				}
+				result.ColumnsAdded = append(result.ColumnsAdded, "subtype")
+			}
+
 			for _, f := range loaded.Fields {
 				if existingCols[f.Name] {
 					continue

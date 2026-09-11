@@ -23,6 +23,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/kwaabs/voltedge/api/internal/attachment"
 	"github.com/kwaabs/voltedge/api/internal/export"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
@@ -54,6 +55,15 @@ func main() {
 	// before returning, so a rolling restart doesn't strand a running export.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// The soft-deleted attachment sweep (Phase 22 Slice 6) rides this worker too:
+	// attachments reuse the export bucket, so the same store reaps them. It shares
+	// ctx (stops on the same shutdown signal). Disabled when retention is 0.
+	if retention, interval := attachment.SweepConfigFromEnv(); retention > 0 {
+		log.Printf("attachment sweep: every %s, reaping attachments deleted more than %s ago",
+			interval, retention)
+		go attachment.RunDeletedSweep(ctx, db, store, retention, interval)
+	}
 
 	if err := export.RunWorker(ctx, db, store, export.WorkerConfigFromEnv()); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("export worker: %v", err)

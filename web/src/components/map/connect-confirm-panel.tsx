@@ -211,6 +211,13 @@ export function ConnectConfirmPanel() {
         }
         queryClient.invalidateQueries({ queryKey: ["relationships", source.featureClassCode, source.featureId] })
         queryClient.invalidateQueries({ queryKey: ["relationships", target.featureClassCode, target.featureId] })
+        // A cable_routing establish consumes a duct way, so the spare-ways
+        // count (useDuctCapacity, Phase 44 Slice 3) needs to refetch. That
+        // hook keys off ["duct-capacity", ...] independently of the
+        // relationships list, so invalidate it for whichever side is the duct
+        // (either could be, depending on which end started the relationship).
+        queryClient.invalidateQueries({ queryKey: ["duct-capacity", source.featureClassCode, source.featureId] })
+        queryClient.invalidateQueries({ queryKey: ["duct-capacity", target.featureClassCode, target.featureId] })
       }
       cancel()
     } catch (err) {
@@ -266,7 +273,7 @@ export function ConnectConfirmPanel() {
           />
         ) : (
           <p className="text-muted-foreground border-input rounded-md border border-dashed px-2 py-3 text-center text-sm">
-            Click a second feature on the map to connect to.
+            Click a second feature on the map or diagram to {mode === "relationship" ? "relate to" : "connect to"}.
           </p>
         )}
 

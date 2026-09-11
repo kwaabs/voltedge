@@ -97,9 +97,15 @@ class _DownloadedTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return ListTile(
-      leading: const Icon(Icons.offline_pin, color: Colors.green),
-      title: Text('Pack ${shortId(pack.id)}'),
+    return Card(
+      child: ListTile(
+      leading: const CircleAvatar(
+        backgroundColor: Color(0x2234C759),
+        foregroundColor: Color(0xFF34C759),
+        child: Icon(Icons.offline_pin),
+      ),
+      title: Text('Pack ${shortId(pack.id)}',
+          style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(
         '${pack.featureCount ?? '?'} features · '
         'downloaded ${shortTime(pack.downloadedAt)}',
@@ -122,6 +128,7 @@ class _DownloadedTile extends ConsumerWidget {
       ),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => PackDetailScreen(pack: pack)),
+      ),
       ),
     );
   }
@@ -180,11 +187,14 @@ class _RemoteTileState extends ConsumerState<_RemoteTile> {
   @override
   Widget build(BuildContext context) {
     final pack = widget.pack;
-    return ListTile(
-      leading: _statusIcon(pack.status),
-      title: Text('Pack ${shortId(pack.id)}'),
-      subtitle: Text(_subtitle(pack)),
-      trailing: _trailing(pack),
+    return Card(
+      child: ListTile(
+        leading: _statusIcon(pack.status),
+        title: Text('Pack ${shortId(pack.id)}',
+            style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Text(_subtitle(pack)),
+        trailing: _trailing(pack),
+      ),
     );
   }
 
@@ -249,12 +259,17 @@ class _NotConfiguredBanner extends StatelessWidget {
   const _NotConfiguredBanner();
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
-      color: Theme.of(context).colorScheme.secondaryContainer,
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      decoration: BoxDecoration(
+        color: scheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(16),
+      ),
       padding: const EdgeInsets.all(16),
       child: Row(
         children: [
-          const Icon(Icons.info_outline),
+          Icon(Icons.info_outline, color: scheme.onSecondaryContainer),
           const SizedBox(width: 12),
           Expanded(
             child: Text(

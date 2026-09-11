@@ -18,6 +18,16 @@ import (
 // but it can never purge a live row outright, since purge always has a
 // soft-delete in between it and a row that still matters.
 
+// DeleteFeature is the exported entry point for a soft delete, mirroring
+// CreateFeature/UpdateFeature so callers outside this package (the field
+// tool's POST /sync delete op) have one function to replay a delete through.
+// It's a thin pass-through to softDeleteFeature: same idempotency, same
+// deleted_at = now() write, same returned envelope. The web CRUD handler
+// keeps calling softDeleteFeature directly (it's in-package).
+func DeleteFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) (map[string]any, error) {
+	return softDeleteFeature(ctx, db, loaded, id)
+}
+
 // softDeleteFeature marks a feature deleted_at = now(), without touching
 // its status -- a published row can be deleted without unpublishing
 // first, same as unpublish needs no completeness gate: deleted-ness and
@@ -77,6 +87,13 @@ func hardDeleteFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded,
 	if n == 0 {
 		return notFound("feature %s not found", id)
 	}
+	// Audit trail (Phase 41): the row is gone, so there's no post-write state to
+	// record -- snapshot the pre-delete `current` (fetched above) instead, so the
+	// history preserves what the feature looked like at the moment it was purged.
+	// gis.feature_history has no FK to the feature table, so this row outlives it.
+	if err := recordFeatureHistory(ctx, db, loaded, historyPurge, current); err != nil {
+		return fmt.Errorf("crud: purge: %w", err)
+	}
 	return nil
 }
 
@@ -112,5 +129,19 @@ func setDeletedAt(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id s
 	if len(results) == 0 {
 		return nil, notFound("feature %s not found", id)
 	}
-	return formatRow(loaded, results[0])
+	out, err := formatRow(loaded, results[0])
+	if err != nil {
+		return nil, err
+	}
+	// Audit trail (Phase 41): record the soft delete / restore by direction.
+	// softDeleteFeature/restoreFeature short-circuit an already-in-that-state
+	// row before reaching here, so a repeated delete or restore records nothing.
+	action := historyRestore
+	if deleted {
+		action = historyDelete
+	}
+	if err := recordFeatureHistory(ctx, db, loaded, action, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

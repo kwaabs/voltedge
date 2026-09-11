@@ -26,6 +26,15 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Only build ARM ABIs. The heavy cost of this project is compiling native libs
+        // (sqlite3_flutter_libs builds libsqlite3 via the NDK) for every ABI; x86/x86_64
+        // are emulator-only and wasted on a physical Samsung tablet. Dropping them roughly
+        // halves the native build. Narrow to just "arm64-v8a" once `adb shell getprop
+        // ro.product.cpu.abi` confirms the device is 64-bit (Samsung SM-T395).
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildTypes {

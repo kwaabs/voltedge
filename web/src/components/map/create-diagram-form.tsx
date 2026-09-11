@@ -4,8 +4,9 @@ import { Loader2 } from "lucide-react"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useAdminDomains } from "@/hooks/use-admin"
+import { useDiagramTemplates } from "@/hooks/use-diagram-templates"
 import { useCreateDiagramInstance } from "@/hooks/use-diagrams"
-import { ApiError } from "@/lib/api"
+import { ApiError, apiFetch } from "@/lib/api"
 import { useDiagramStore } from "@/stores/diagram-store"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -41,6 +42,8 @@ export function CreateDiagramForm({ featureClassCode, featureId, onDone }: Creat
   const diagramTypeValues = domainsData?.domains.find((d) => d.code === DIAGRAM_TYPE_DOMAIN)?.values ?? []
   const [diagramType, setDiagramType] = useState("")
   const [name, setName] = useState("")
+  const [templateId, setTemplateId] = useState("")
+  const templates = useDiagramTemplates()
   const { mutateAsync, isPending: saving } = useCreateDiagramInstance()
 
   const canCreate = diagramType.length > 0 && !saving
@@ -52,6 +55,22 @@ export function CreateDiagramForm({ featureClassCode, featureId, onDone }: Creat
         diagram_type: diagramType,
         name: name.trim() || undefined,
       })
+      if (templateId) {
+        // Applying a template is offered ONLY here, at creation: a template is a
+        // starting skeleton for a fresh diagram, never something layered onto an
+        // existing one. The diagram itself is already created, so a template
+        // failure just toasts and still opens the (blank) diagram.
+        try {
+          await apiFetch(`/diagrams/${created.id}/apply-template`, {
+            method: "POST",
+            body: JSON.stringify({ template_id: templateId }),
+          })
+        } catch (err) {
+          useToastStore
+            .getState()
+            .pushError(err instanceof ApiError ? err.message : "The diagram was created, but its template could not be applied.")
+        }
+      }
       useDiagramStore.getState().open(created.id)
       onDone()
     } catch (err) {
@@ -98,6 +117,20 @@ export function CreateDiagramForm({ featureClassCode, featureId, onDone }: Creat
           placeholder="optional"
         />
       </div>
+      {templates.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Start from template</label>
+          <select className={inputClass} value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+            <option value="">Blank diagram</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <p className="text-muted-foreground text-xs">Drops the template's furniture and empty slots to bind — only offered here, at creation.</p>
+        </div>
+      )}
       <div className="flex justify-end gap-2">
         <Button variant="outline" size="sm" onClick={onDone} disabled={saving}>
           Cancel

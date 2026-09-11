@@ -3,8 +3,14 @@ import { create } from "zustand"
 import type { TraceFeatureRef } from "@/stores/trace-store"
 
 /** One node's resolved electrical state -- mirrors api/internal/powerflow's
- * nodeResult exactly. VoltageV/VoltageDropPct are always present. The
- * conductor-only fields (CurrentAmps/AmpacityAmps) are only set for a
+ * nodeResult exactly. VoltageV/VoltageDropPct are always present.
+ * nominal_base_v is the voltage base voltage_v/voltage_drop_pct are
+ * expressed on -- the run's nominal for nodes on the source side of every
+ * transformer, a transformer's own secondary_voltage for nodes below it --
+ * so a single MV -> DIST_XFMR -> LV result reports each node's drop against
+ * its own side's nominal (LV nodes near their LV base, not a spurious ~95%
+ * from the MV nominal), and the UI can tell the two voltage levels apart.
+ * The conductor-only fields (CurrentAmps/AmpacityAmps) are only set for a
  * network_role = 'edge' node; RatedKVA is only set for a rated junction
  * node (today, a DIST_XFMR with its own rated_kva). A node is never
  * both, so both share one loading_pct -- displaying "how loaded" never
@@ -12,8 +18,13 @@ import type { TraceFeatureRef } from "@/stores/trace-store"
 export interface LoadFlowNodeResult {
   feature_class: string
   feature_id: string
+  /** The node's stored circuit membership (Phase 37), absent when its class
+   * carries no circuit field; the node's voltage is voltage_v / nominal_base_v. */
+  circuit_id?: string
+  circuit_ref?: string
   voltage_v: number
   voltage_drop_pct: number
+  nominal_base_v: number
   cumulative_kw: number
   cumulative_kvar: number
   current_amps?: number

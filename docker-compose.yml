@@ -88,6 +88,16 @@ services:
       RUSTFS_CONSOLE_ENABLE: "true"
       RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-voltedge}
       RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
+      # CORS for browser-direct attachment uploads (Phase 22). The web app PUTs
+      # attachment bytes straight to RustFS via a presigned URL; that fetch is
+      # preflighted, and RustFS answers the OPTIONS only for origins listed here.
+      # Unlike AWS S3/MinIO, RustFS has no per-bucket PutBucketCors subresource
+      # (rustfs/rustfs#1386) -- CORS is a server-level env, applied here. The
+      # presigned PUT carries no cookies/credentials, so wildcard "*" is safe for
+      # dev; set RUSTFS_CORS_ORIGINS to the web app origin(s) in production.
+      # NOTE: needs RustFS >= 1.0.0-beta.2, where unset means "no CORS headers"
+      # (older builds reflected any origin -- GHSA-x5xv-223c-8vm7).
+      RUSTFS_CORS_ALLOWED_ORIGINS: ${RUSTFS_CORS_ORIGINS:-*}
     ports:
       - "${RUSTFS_S3_PORT:-3702}:9000"
       - "${RUSTFS_CONSOLE_PORT:-3703}:9001"
@@ -198,6 +208,11 @@ services:
       RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
       FIELDSYNC_WORKER_CONCURRENCY: ${FIELDSYNC_WORKER_CONCURRENCY:-2}
       FIELDSYNC_JOB_LEASE: ${FIELDSYNC_JOB_LEASE:-60s}
+      # The sync-apply worker (Phase 23) runs as a second goroutine in this same
+      # process, draining ops.sync_inbox to production. Its own concurrency/lease
+      # knobs, sibling to the pack-build worker's above.
+      SYNC_WORKER_CONCURRENCY: ${SYNC_WORKER_CONCURRENCY:-2}
+      SYNC_JOB_LEASE: ${SYNC_JOB_LEASE:-60s}
     ports:
       - "${FIELDSYNC_PORT:-3706}:8091"
 

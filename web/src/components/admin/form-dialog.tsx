@@ -68,7 +68,11 @@ export function FormDialog({
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}
         </DialogHeader>
-        <div className="flex flex-col gap-3">{children}</div>
+        {/* Cap the body and let it scroll so a tall form (e.g. a point
+            symbology rule with the icon grid + labelling block) never runs
+            off the bottom of a centered dialog -- the footer stays pinned
+            below. Scroll only engages when the content actually overflows. */}
+        <div className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto pr-1">{children}</div>
         <DialogFooter>
           <Button
             variant="outline"

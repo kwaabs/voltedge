@@ -17,6 +17,13 @@ export interface AdminFeatureClassSummary {
   status: string
   is_diagram_container: boolean
   is_diagram_placeable: boolean
+  geometry_optional: boolean
+  /** Migration 0053: overrides the diagram draw shape (e.g. a point
+   * busbar drawn as a "line" bar on the one-line). Absent = inherit. */
+  diagram_geometry_type?: "point" | "line" | null
+  /** Migration 0074: admin-defined grouping for the map's "New feature"
+   * menu. Absent/null = uncategorised. */
+  category?: string | null
   physical_table?: string
   subtype_count: number
   field_count: number
@@ -66,6 +73,10 @@ export interface AdminMaterialSpec {
   emissivity?: number
   absorptivity?: number
   resistance_temp_coefficient_per_c?: number
+  /** migrations/0060 -- optional cost, bare numeric in the house currency.
+   * cost_per_km for per-length line materials, unit_cost for per-item. */
+  cost_per_km?: number
+  unit_cost?: number
 }
 
 /** Wire type for /admin/symbology-icons -- api/internal/admin's
@@ -78,6 +89,21 @@ export interface AdminMaterialSpec {
 export interface AdminSymbologyIcon {
   icon_ref: string
   svg: string
+}
+
+/** Wire type for /admin/symbology-stencils -- api/internal/admin's
+ * diagramStencilResponse. One row of the diagram stencil catalog
+ * (metadata.diagram_stencils) with its promote_class mapping: the feature
+ * class a stamped symbol of this stencil is promoted into on a diagram
+ * (Phase 25). promote_class absent = decoration only, not promotable. Same
+ * rows the canvas palette reads (useDiagramStencils), but this is the admin
+ * write-side list. See docs/phase-25-stencil-promotion.md. */
+export interface AdminDiagramStencil {
+  icon_ref: string
+  label: string
+  category: string
+  sort_order: number
+  promote_class?: string
 }
 
 /** The style half of a symbology rule -- mirrors api/internal/admin's
@@ -109,6 +135,23 @@ export interface AdminSymbologyRule {
   min_zoom?: number
   max_zoom?: number
   style_def: AdminStyleDef
+}
+
+/** Wire type for /admin/diagram-placement-rules -- api/internal/admin's
+ * diagramPlacementRuleResponse. One row = one feature class allowed on a
+ * given (container class × diagram type) pairing
+ * (metadata.diagram_placement_rules, migration 0068). A pairing with no
+ * rows is unconstrained (any is_diagram_placeable class); rows present
+ * restrict it to exactly the listed classes. Enforced in
+ * api/internal/diagram placeFeature. */
+export interface AdminDiagramPlacementRule {
+  id: string
+  container_class: string
+  container_name: string
+  diagram_type: string
+  diagram_type_label: string
+  feature_class: string
+  feature_class_name: string
 }
 
 /** Long staleTime, same reasoning useFeatureClasses/useCatalog use --
@@ -149,6 +192,15 @@ export function useAdminMaterialSpecs() {
   })
 }
 
+export function useAdminDiagramPlacementRules() {
+  return useQuery({
+    queryKey: ["admin", "diagram-placement-rules"],
+    queryFn: () =>
+      apiFetch<{ diagram_placement_rules: AdminDiagramPlacementRule[] }>("/admin/diagram-placement-rules"),
+    staleTime: ADMIN_STALE_TIME,
+  })
+}
+
 /** The icon library for the admin editor. Deliberately a SEPARATE query
  * key from useSymbologyIcons' public ["symbology-icons"] (the map's
  * registry): a mutation here invalidates both, so the library page and the
@@ -158,6 +210,18 @@ export function useAdminSymbologyIcons() {
   return useQuery({
     queryKey: ["admin", "symbology-icons"],
     queryFn: () => apiFetch<{ symbology_icons: AdminSymbologyIcon[] }>("/admin/symbology-icons"),
+    staleTime: ADMIN_STALE_TIME,
+  })
+}
+
+/** The stencil catalog for the admin promote-mapping editor. A separate
+ * query key from useDiagramStencils' public ["diagram-stencils"] (the canvas
+ * palette): a mutation here invalidates both, so the editor and the live
+ * canvas both refresh, but they stay independently cached. */
+export function useAdminDiagramStencils() {
+  return useQuery({
+    queryKey: ["admin", "symbology-stencils"],
+    queryFn: () => apiFetch<{ stencils: AdminDiagramStencil[] }>("/admin/symbology-stencils"),
     staleTime: ADMIN_STALE_TIME,
   })
 }

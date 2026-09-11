@@ -26,10 +26,22 @@ type node struct {
 type edgeRow struct {
 	bun.BaseModel `bun:"table:runtime.feature_connectivity,alias:feature_connectivity"`
 
-	FromFeatureClassID string `bun:"from_feature_class_id"`
-	FromFeatureID      string `bun:"from_feature_id"`
-	ToFeatureClassID   string `bun:"to_feature_class_id"`
-	ToFeatureID        string `bun:"to_feature_id"`
+	FromFeatureClassID string  `bun:"from_feature_class_id"`
+	FromFeatureID      string  `bun:"from_feature_id"`
+	FromTerminalID     *string `bun:"from_terminal_id"`
+	ToFeatureClassID   string  `bun:"to_feature_class_id"`
+	ToFeatureID        string  `bun:"to_feature_id"`
+}
+
+// terminalRoleRow is a minimal read-only projection of metadata.terminals --
+// just enough to resolve the winding role (primary/secondary/tertiary/...) of a
+// terminal id seen on a downstream edge, so the forward sweep can tell a
+// three-winding transformer's LV children from its TV children.
+type terminalRoleRow struct {
+	bun.BaseModel `bun:"table:metadata.terminals,alias:terminals"`
+
+	ID   string `bun:"id"`
+	Role string `bun:"role"`
 }
 
 // resolveNode validates a featureRef -- same shape as api/internal/trace's
@@ -190,21 +202,40 @@ func (l *featureClassLoader) loadedFor(ctx context.Context, db bun.IDB, classID 
 	return loaded, nil
 }
 
+// downstreamEdge is one downstream step: the reached node plus the terminal on
+// n's (the sending) side of the edge that reached it. fromTerminalID is "" when
+// the sending side has no terminal (an edge/conductor, most containers) -- only
+// a junction with terminals, like a transformer, carries one, and that is
+// exactly the case the sweep needs it for (which winding a child hangs off).
+type downstreamEdge struct {
+	to             node
+	fromTerminalID string
+}
+
 // downstreamNeighbors returns every node directly reachable from n by
 // following an edge where n is the "from" side -- this engine only
 // ever walks downstream (a load flow starts at a source and follows
 // power away from it), unlike trace's neighborsOf which branches on a
-// configurable direction.
-func downstreamNeighbors(ctx context.Context, db bun.IDB, n node) ([]node, error) {
+// configurable direction. The sending-side terminal comes back with each
+// neighbor so buildTree can record which winding of a transformer a child left
+// through.
+func downstreamNeighbors(ctx context.Context, db bun.IDB, n node) ([]downstreamEdge, error) {
 	var rows []edgeRow
 	if err := db.NewSelect().Model(&rows).
 		Where("from_feature_id = ? AND from_feature_class_id = ?", n.featureID, n.classID).
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("powerflow: loading neighbors: %w", err)
 	}
-	out := make([]node, 0, len(rows))
+	out := make([]downstreamEdge, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, node{classID: r.ToFeatureClassID, featureID: r.ToFeatureID})
+		terminalID := ""
+		if r.FromTerminalID != nil {
+			terminalID = *r.FromTerminalID
+		}
+		out = append(out, downstreamEdge{
+			to:             node{classID: r.ToFeatureClassID, featureID: r.ToFeatureID},
+			fromTerminalID: terminalID,
+		})
 	}
 	return out, nil
 }
@@ -222,6 +253,12 @@ type tree struct {
 	order    []node
 	parent   map[node]node
 	children map[node][]node
+	// childWinding is the winding role (primary/secondary/tertiary/ground/other,
+	// or "" for a terminal-less sending side) of the terminal each child left its
+	// parent through -- resolved from the discovering edge's from_terminal_id.
+	// Only meaningful for a child of a transformer; used by the sweep to route a
+	// three-winding transformer's children to the LV vs TV output.
+	childWinding map[node]string
 }
 
 // buildTree walks downstream from start, honoring live barriers
@@ -242,6 +279,7 @@ func buildTree(ctx context.Context, db bun.IDB, start node, barriers map[string]
 	visited := map[node]bool{start: true}
 	parent := map[node]node{}
 	children := map[node][]node{}
+	childTerminal := map[node]string{}
 	queue := []node{start}
 	order := []node{start}
 	var barrierHits []node
@@ -259,11 +297,12 @@ func buildTree(ctx context.Context, db bun.IDB, start node, barriers map[string]
 			continue
 		}
 
-		neighbors, err := downstreamNeighbors(ctx, db, current)
+		edges, err := downstreamNeighbors(ctx, db, current)
 		if err != nil {
 			return nil, nil, err
 		}
-		for _, n := range neighbors {
+		for _, e := range edges {
+			n := e.to
 			if visited[n] {
 				return nil, nil, invalid(
 					"the network downstream of the start feature is not radial (loop/mesh detected at feature class id %s, feature %s reached by more than one path) -- load flow requires a tree, run LOOP_CHECK_TRACE first to locate and eliminate the mesh",
@@ -273,12 +312,53 @@ func buildTree(ctx context.Context, db bun.IDB, start node, barriers map[string]
 			visited[n] = true
 			parent[n] = current
 			children[current] = append(children[current], n)
+			childTerminal[n] = e.fromTerminalID
 			order = append(order, n)
 			queue = append(queue, n)
 		}
 	}
 
-	return &tree{order: order, parent: parent, children: children}, barrierHits, nil
+	childWinding, err := resolveChildWindings(ctx, db, childTerminal)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &tree{order: order, parent: parent, children: children, childWinding: childWinding}, barrierHits, nil
+}
+
+// resolveChildWindings maps each child to the winding role of the terminal it
+// left its parent through, one batch query over the distinct terminal ids seen.
+// A child whose edge had no sending-side terminal (the common case -- a
+// conductor feeding a junction) maps to "" and the sweep treats it as an
+// ordinary inherited-voltage child.
+func resolveChildWindings(ctx context.Context, db bun.IDB, childTerminal map[node]string) (map[node]string, error) {
+	idSet := map[string]struct{}{}
+	for _, tid := range childTerminal {
+		if tid != "" {
+			idSet[tid] = struct{}{}
+		}
+	}
+
+	roleByID := make(map[string]string, len(idSet))
+	if len(idSet) > 0 {
+		ids := make([]string, 0, len(idSet))
+		for id := range idSet {
+			ids = append(ids, id)
+		}
+		var rows []terminalRoleRow
+		if err := db.NewSelect().Model(&rows).Where("id IN (?)", bun.In(ids)).Scan(ctx); err != nil {
+			return nil, fmt.Errorf("powerflow: resolving terminal roles: %w", err)
+		}
+		for _, r := range rows {
+			roleByID[r.ID] = r.Role
+		}
+	}
+
+	out := make(map[node]string, len(childTerminal))
+	for child, tid := range childTerminal {
+		out[child] = roleByID[tid] // "" for tid == "" or an unresolved id
+	}
+	return out, nil
 }
 
 // nodeClassCodes batch-resolves every distinct feature_class_id across

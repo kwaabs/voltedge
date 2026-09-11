@@ -85,6 +85,114 @@ type placementResponse struct {
 	Y            float64         `json:"y"`
 	Rotation     float64         `json:"rotation"`
 	Path         json.RawMessage `json:"path,omitempty"`
+	// LabelHidden is true when the canvas should not draw this placement's
+	// name label (migration 0054). Always emitted so the client never has to
+	// guess a default.
+	LabelHidden bool `json:"label_hidden"`
+	// Label transform (migration 0056): offset from the label's natural
+	// anchor in the glyph-local frame, its own rotation in degrees, and a
+	// font-size multiplier. Always emitted; 0/0/0/1 is the default pinned
+	// position.
+	LabelDX       float64 `json:"label_dx"`
+	LabelDY       float64 `json:"label_dy"`
+	LabelRotation float64 `json:"label_rotation"`
+	LabelScale    float64 `json:"label_scale"`
+}
+
+// updatePlacementRequest is the PATCH /diagrams/{id}/placements/{placementID}
+// body. It carries only geometry-free label state -- visibility (migration
+// 0054) and the label transform (migration 0056). A placement's own geometry
+// (x/y/rotation/path) is owned by the place/move upsert, not here. Every field
+// is a pointer so an omitted field is a no-op rather than a silent reset.
+type updatePlacementRequest struct {
+	LabelHidden   *bool    `json:"label_hidden"`
+	LabelDX       *float64 `json:"label_dx"`
+	LabelDY       *float64 `json:"label_dy"`
+	LabelRotation *float64 `json:"label_rotation"`
+	LabelScale    *float64 `json:"label_scale"`
+}
+
+// elementKinds is the closed set of diagram_elements.kind values the API
+// accepts, mirroring migrations 0046 + 0047 + 0050 + 0084's CHECK constraint so
+// a bad kind is rejected with a clear message before it ever reaches the
+// constraint. text/box/line (Slice 1), symbol (Slice 2, migration 0047), bus/tap
+// (Slice 5, migration 0050), and control (Phase 46 Slice 1, migration 0084) are
+// the line/box/glyph furniture; title_block/legend/slot are the template
+// furniture -- all rendered by the canvas today.
+var elementKinds = map[string]bool{
+	"text":        true,
+	"box":         true,
+	"line":        true,
+	"symbol":      true,
+	"bus":         true,
+	"tap":         true,
+	"control":     true,
+	"title_block": true,
+	"legend":      true,
+	"slot":        true,
+}
+
+// pathKinds is the subset of elementKinds whose geometry *is* a polyline: a
+// create request for one of these requires a `path` of at least two points
+// (there's nothing to draw otherwise). line is the original schematic-only
+// line; bus/tap (Slice 5) are the heavy busbar and its right-angle taps;
+// control (Phase 46) is the dashed, arrowheaded control/trip signal line -- all
+// stored the same way, an ordered [[x,y],...] run in the diagram's local space.
+// box/text/symbol/title_block/legend/slot anchor at x/y instead.
+var pathKinds = map[string]bool{
+	"line":    true,
+	"bus":     true,
+	"tap":     true,
+	"control": true,
+}
+
+// elementRequest is the POST/PATCH body for a diagram element (Phase 24
+// keystone). An element is diagram furniture that points at no real feature,
+// so unlike placeRequest it carries no feature_class/feature_id -- just where
+// it sits (x/y, optional width/height/rotation), what it is (kind), and how it
+// looks (style). Pointer fields distinguish "absent" from "zero/null" on a
+// PATCH: a nil field is left unchanged, a present one (including an explicit
+// null Text/Path) is applied. On POST, X/Y/Kind are required and the rest fall
+// back to their column defaults.
+type elementRequest struct {
+	Kind     string          `json:"kind"`
+	X        *float64        `json:"x,omitempty"`
+	Y        *float64        `json:"y,omitempty"`
+	Width    *float64        `json:"width,omitempty"`
+	Height   *float64        `json:"height,omitempty"`
+	Rotation *float64        `json:"rotation,omitempty"`
+	Path     json.RawMessage `json:"path,omitempty"`
+	Text     *string         `json:"text,omitempty"`
+	Style    json.RawMessage `json:"style,omitempty"`
+	ZIndex   *int            `json:"z_index,omitempty"`
+	// Slot expectation (kind = "slot"); ignored for other kinds. Binding
+	// (BoundClass/BoundID) is set in a later slice, not by Slice 1 callers,
+	// but the response carries it through once present.
+	SlotClass   *string `json:"slot_class,omitempty"`
+	SlotSubtype *int    `json:"slot_subtype,omitempty"`
+	SlotRole    *string `json:"slot_role,omitempty"`
+}
+
+// elementResponse is the shape returned for one element, from create, list,
+// or update. Style is always a JSON object (never null on the wire); Path is
+// omitted when absent, same as a placement's.
+type elementResponse struct {
+	ID          string          `json:"id"`
+	Kind        string          `json:"kind"`
+	X           float64         `json:"x"`
+	Y           float64         `json:"y"`
+	Width       *float64        `json:"width,omitempty"`
+	Height      *float64        `json:"height,omitempty"`
+	Rotation    float64         `json:"rotation"`
+	Path        json.RawMessage `json:"path,omitempty"`
+	Text        *string         `json:"text,omitempty"`
+	Style       json.RawMessage `json:"style"`
+	ZIndex      int             `json:"z_index"`
+	SlotClass   *string         `json:"slot_class,omitempty"`
+	SlotSubtype *int            `json:"slot_subtype,omitempty"`
+	SlotRole    *string         `json:"slot_role,omitempty"`
+	BoundClass  *string         `json:"bound_class,omitempty"`
+	BoundID     *string         `json:"bound_id,omitempty"`
 }
 
 // apiError is the JSON body returned for any 4xx/5xx response.

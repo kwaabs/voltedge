@@ -2,6 +2,7 @@ package crud
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -26,6 +27,16 @@ func isValidationError(err error) bool {
 	return ok
 }
 
+// IsValidationError lets another package (api/internal/panel's composite create)
+// map a crud validation failure -- a bad request body, unknown field, wrong
+// subtype -- to a 400 without crud exporting its whole error-type hierarchy, the
+// same way IsNotFoundError already exposes the not-found case. Uses errors.As so
+// it still classifies correctly when the caller has wrapped the error with %w.
+func IsValidationError(err error) bool {
+	var ve *validationError
+	return errors.As(err, &ve)
+}
+
 type notFoundError struct{ msg string }
 
 func (e *notFoundError) Error() string { return e.msg }
@@ -36,6 +47,24 @@ func notFound(format string, args ...any) error {
 
 func isNotFoundError(err error) bool {
 	_, ok := err.(*notFoundError)
+	return ok
+}
+
+// conflictError is an optimistic-concurrency failure: the caller edited a
+// version of the row that another write has since superseded (Phase 40). Its
+// own type so the HTTP layer returns 409 -- distinct from a 400 (the request
+// was well-formed, it just lost a race) and a 404 (the row does exist). The
+// client's contract on a 409 is reload-and-reapply.
+type conflictError struct{ msg string }
+
+func (e *conflictError) Error() string { return e.msg }
+
+func conflict(format string, args ...any) error {
+	return &conflictError{msg: fmt.Sprintf(format, args...)}
+}
+
+func isConflictError(err error) bool {
+	_, ok := err.(*conflictError)
 	return ok
 }
 
@@ -68,7 +97,14 @@ func validateGeometry(loaded *metadata.Loaded, geometry []byte) error {
 		return nil
 	}
 
+	// geometry_optional (Phase 26) lets a geometric class hold features with
+	// no map geometry (map-only / diagram-only / both, per feature), so an
+	// empty geometry is accepted here; a supplied one is still type-checked
+	// below. Default false keeps geometry mandatory.
 	if len(geometry) == 0 {
+		if fc.GeometryOptional {
+			return nil
+		}
 		return invalid("geometry is required for feature class %q", fc.Code)
 	}
 
@@ -202,6 +238,43 @@ func validateForCreate(loaded *metadata.Loaded, subtypeCode *int, geometry []byt
 		values[name] = coerced
 	}
 	return subtype, values, nil
+}
+
+// validateTransitions enforces coded-domain state-machine rules on an update:
+// for every field the request changes that is backed by a coded domain carrying
+// transition edges (metadata.domain_transitions, migration 0065), the old ->
+// new move must be a legal edge. A domain with no edges is unconstrained -- the
+// default for every coded field (device_state, phase, ...) -- so this is a no-op
+// unless an admin has actually authored a transition graph, which today is only
+// OPERATIONAL_STATE (Phase 38 Slice 2). Update-only by construction: it reads
+// the old value from the current row, so create (which has no prior value) never
+// reaches here. Setting a previously-unset value and clearing one back to NULL
+// are both allowed by TransitionAllowed -- first-declaration and un-declaration
+// aren't lifecycle transitions.
+//
+// existing is the getFeature/formatRow envelope, so the prior coded value lives
+// under existing["attributes"][name] (a string for a coded text column); values
+// is the coerced new attribute set. The 400 names the codes involved and the
+// domain, the same vocabulary validateValue's own membership error already uses.
+func validateTransitions(loaded *metadata.Loaded, existing map[string]any, values map[string]any) error {
+	existingAttrs, _ := existing["attributes"].(map[string]any)
+	for name, newRaw := range values {
+		f := loaded.FieldByName(name)
+		if f == nil || f.DomainID == nil {
+			continue
+		}
+		domain, ok := loaded.Domains[*f.DomainID]
+		if !ok || domain.DomainType != "coded" {
+			continue
+		}
+		newVal, _ := newRaw.(string)
+		oldVal, _ := existingAttrs[name].(string)
+		if loaded.TransitionAllowed(domain.ID, oldVal, newVal) {
+			continue
+		}
+		return invalid("field %q cannot change from %q to %q -- not a permitted %s transition", name, oldVal, newVal, domain.Code)
+	}
+	return nil
 }
 
 // validateValue does a light type check on a decoded JSON value against

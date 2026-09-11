@@ -100,13 +100,81 @@ compile: ## Compile one feature class's metadata into physical schema, e.g. make
 seed-pole: ## Load the POLE example metadata (seed/pole_example.sql) via the gitbash sidecar
 	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/pole_example.sql
 
+.PHONY: seed-tower
+seed-tower: ## Load the TOWER example metadata (seed/tower_example.sql) via the gitbash sidecar -- transmission support structure, leaner sibling of POLE; compile CODE=TOWER after
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/tower_example.sql
+
+.PHONY: seed-tower-relationship
+seed-tower-relationship: ## Load the TOWER supports MV_CONDUCTOR relationship class (seed/tower_relationship_example.sql) -- enables double-circuit towers (Phase 35); requires seed-tower + seed-connectivity first, no compile
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/tower_relationship_example.sql
+
 .PHONY: seed-connectivity
 seed-connectivity: ## Load the MV_CONDUCTOR/DIST_XFMR connectivity example metadata (seed/connectivity_example.sql) via the gitbash sidecar
 	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/connectivity_example.sql
 
+.PHONY: seed-service-point
+seed-service-point: ## Load the SERVICE_POINT class + DIST_XFMR T2 -> MV_CONDUCTOR rule (seed/service_point_example.sql) via the gitbash sidecar -- requires seed-connectivity first; compile CODE=SERVICE_POINT after
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/service_point_example.sql
+
 .PHONY: seed-relationships
 seed-relationships: ## Load the POLE/MV_CONDUCTOR relationship_classes example metadata (seed/relationship_example.sql) via the gitbash sidecar -- requires seed-pole and seed-connectivity first
 	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/relationship_example.sql
+
+.PHONY: seed-mv-metering
+seed-mv-metering: ## Load the MV metering point classes MV_METERING_POINT + MV_METER (Phase 43 Slice 1) via the gitbash sidecar -- requires migration 0080 + seed/mv_measuring_example.sql (MV_CT/MV_VT) + seed/connectivity_example.sql; compile CODE=MV_METERING_POINT and CODE=MV_METER after
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/mv_metering_example.sql
+
+.PHONY: seed-mv-metering-cubicle
+seed-mv-metering-cubicle: ## Load the MV_METERING_CUBICLE container class (Phase 43 Slice 2; contains MV_METER + MV_CT + MV_VT, owns a METERING_SCHEMATIC diagram) via the gitbash sidecar -- requires seed-mv-metering + seed-mv-measuring first; compile CODE=MV_METERING_CUBICLE after
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/mv_metering_cubicle_example.sql
+
+.PHONY: seed-mv-metering-symbology
+seed-mv-metering-symbology: ## Load map + diagram symbology for the Phase 43 metering classes MV_METERING_POINT/MV_METER/MV_METERING_CUBICLE (Slice 3) via the gitbash sidecar -- requires seed-mv-metering + seed-mv-metering-cubicle first; MV_CT/MV_VT already symbolized by seed-mv-symbology; no compile (symbology is client-side)
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/mv_metering_symbology.sql
+
+.PHONY: seed-test-network
+seed-test-network: ## Load the small radial test feeder -- the FIRST seed of real gis.* feature INSTANCES + runtime.feature_connectivity (SUB-SOURCE/SW-101/TX-101 -> LV-1 -> MTR-A/B -> SP-A/B + 3 poles) via the gitbash sidecar -- requires seed-connectivity/seed-load-flow-fields/seed-transformer-fields/seed-zero-seq-fields/seed-mv-conductor-specs/seed-mv-lv-switch/seed-lv-conductors/seed-lv-metering/seed-service-point/seed-pole applied AND the 7 classes compiled first; fails loudly if a prerequisite is missing
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/test_network_example.sql
+
+.PHONY: seed-substation-network
+seed-substation-network: ## Load the larger 33/11/0.4 kV SUBSTATION feeder -- a second seed of real gis.* feature INSTANCES + runtime.feature_connectivity built around a POWER_XFMR + MV_BUSBAR (GRID-SRC -> PTX-1 -> BUS-A -> two feeders w/ recloser/switches/3 DIST_XFMRs -> 4 LV runs + LV switch + 6 meters/service points + 4 poles) via the gitbash sidecar -- requires ALL seed-test-network prerequisites PLUS seed-power-transformer/seed-mv-busbar/seed-mv-recloser/seed-mv-lv-switch applied AND the 11 classes compiled first (DIST_XFMR/POWER_XFMR/MV_BUSBAR/MV_RECLOSER/MV_SWITCH/LV_SWITCH/MV_CONDUCTOR/LV_CONDUCTOR/METER/SERVICE_POINT/POLE); fails loudly if a prerequisite is missing; coexists with seed-test-network
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/substation_network_example.sql
+
+.PHONY: seed-protection-network
+seed-protection-network: ## Load the PROTECTION-COORDINATION feeder -- a third seed of real gis.* feature INSTANCES + runtime.feature_connectivity + runtime.feature_relationships built to exercise POST /analysis/coordination (SUB-SOURCE -> BRK-1[graded by RLY-1 relay via a protection_trip relationship] -> FUSE-1 -> TX-1 -> LV-1 -> MTR-1 -> SP-1, with MV_CT/MV_VT sensing the relay) via the gitbash sidecar -- requires migrations 0075+0076 (task migrate) PLUS all seed-test-network prerequisites PLUS seed-mv-switching/seed-mv-protection/seed-mv-measuring/seed-mv-relay/seed-protection-curves applied AND the classes compiled first (DIST_XFMR/MV_CONDUCTOR/LV_CONDUCTOR/METER/SERVICE_POINT/MV_BREAKER/MV_FUSE/MV_CT/MV_VT/PROTECTIVE_RELAY); fails loudly if a prerequisite is missing; coexists with the other network seeds
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/protection_network_example.sql
+
+.PHONY: seed-coupler-network
+seed-coupler-network: ## Load the BUS-COUPLER tie network -- a minimal seed of real gis.* feature INSTANCES + runtime.feature_connectivity that isolates the coupler (BUS-A =[CPLR-1 MV_BREAKER, switch_function=BUS_COUPLER, device_state=CLOSED]= BUS-B -> LOAD-FEED) so a downstream trace from BUS-A reaches BUS-B/LOAD-FEED ONLY across the closed tie (set CPLR-1 device_state=OPEN and re-trace to watch them drop out) via the gitbash sidecar -- requires seed-connectivity/seed-mv-switching/seed-mv-busbar/seed-bus-coupler-fields applied AND the classes compiled first (MV_CONDUCTOR/MV_BREAKER[after bus_coupler_fields]/MV_BUSBAR); fails loudly if a prerequisite is missing; coexists with the other network seeds; hand-built target state the POST /couplers endpoint produces
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/coupler_network_example.sql
+
+.PHONY: seed-bus-coupler-fields
+seed-bus-coupler-fields: ## Add the bus-coupler role fields to MV_BREAKER (switch_function FEEDER/INCOMER/BUS_COUPLER/BUS_SECTION/TRANSFORMER + normal_state NORMALLY_CLOSED/NORMALLY_OPEN; Bus coupler Slice 1) via the gitbash sidecar -- a coupler is a breaker wired bus<->bus, these fields just label it; nullable field-pack, no migration; requires seed-mv-switching first; compile CODE=MV_BREAKER after
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/bus_coupler_fields.sql
+
+.PHONY: seed-cable-management
+seed-cable-management: ## Load the Phase 44 Slice 1 CIVIL cable-management inventory classes CABLE_TRENCH/CABLE_DUCT/CABLE_CHAMBER (network_role='none', never traced -- ducts/trenches/chambers with way_count capacity field) via the gitbash sidecar -- no migration needed; compile CODE=CABLE_TRENCH+CABLE_DUCT+CABLE_CHAMBER after; symbology via seed-cable-management-symbology
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/cable_management_example.sql
+
+.PHONY: seed-cable-management-symbology
+seed-cable-management-symbology: ## Load the mandatory 'map' default symbology for the Phase 44 Slice 1 classes CABLE_TRENCH/CABLE_DUCT/CABLE_CHAMBER (publish gate; civil amber/slate/stone tones, no diagram rule) via the gitbash sidecar -- requires seed-cable-management first; no compile (symbology is client-side)
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/cable_management_symbology.sql
+
+.PHONY: seed-cable-joint
+seed-cable-joint: ## Load the Phase 44 Slice 2 ELECTRICAL cable-joint junction classes MV_CABLE_JOINT/LV_CABLE_JOINT (point, network_role='junction', zero-Z pass-through splice; subtypes straight/branch[+T3 tee]/transition/termination; feed-through network_rules to MV/LV_CONDUCTOR; CABLE_CHAMBER contains joints via existing containment kind) via the gitbash sidecar -- requires seed-connectivity + seed-lv-conductors + seed-cable-management (CABLE_CHAMBER) first; no migration; compile CODE=MV_CABLE_JOINT+LV_CABLE_JOINT after; symbology via seed-cable-joint-symbology
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/cable_joint_example.sql
+
+.PHONY: seed-cable-joint-symbology
+seed-cable-joint-symbology: ## Load the mandatory 'map' default symbology for the Phase 44 Slice 2 joint classes MV_CABLE_JOINT/LV_CABLE_JOINT (publish gate; deep-teal/slate splice dots, no diagram rule) via the gitbash sidecar -- requires seed-cable-joint first; no compile (symbology is client-side)
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/cable_joint_symbology.sql
+
+.PHONY: seed-cable-routing
+seed-cable-routing: ## Load the Phase 44 Slice 3 cable_routing relationship classes coupling the civil axis to the cables (CABLE_DUCT carries MV/LV_CONDUCTOR [way-consuming], CABLE_TRENCH carries CABLE_DUCT + MV/LV_CONDUCTOR direct-buried; all many_to_many) via the gitbash sidecar -- requires migration 0082 (task migrate) + seed-cable-management + seed-connectivity + seed-lv-conductors first; no compile (relationship_classes has no physical footprint)
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/cable_routing_example.sql
+
+.PHONY: seed-duct-way
+seed-duct-way: ## Load the Phase 44 Slice 4 DUCT_WAY per-way class (geometry_type='none' logical child) + relationship classes (CABLE_DUCT contains DUCT_WAY [containment]; DUCT_WAY carries MV/LV_CONDUCTOR [cable_routing, per-way]) via the gitbash sidecar -- requires seed-cable-management + migration 0082 + seed-connectivity + seed-lv-conductors first; compile CODE=DUCT_WAY after
+	$(COMPOSE) exec -T gitbash psql "$(CONTAINER_DATABASE_URL)" -f /workspace/seed/duct_way_example.sql
 
 ## ------------------------------------------------------------- frontend --
 

@@ -4,7 +4,7 @@ import { useMemo } from "react"
 import { type FeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { apiFetch } from "@/lib/api"
-import type { SymbologyRuleSchema } from "@/lib/symbology"
+import type { LabelDef, SymbologyRuleSchema } from "@/lib/symbology"
 
 /**
  * Symbology rules for every feature class at once, keyed by class code
@@ -39,6 +39,39 @@ export function useAllSymbology(): Record<string, SymbologyRuleSchema[]> {
     const out: Record<string, SymbologyRuleSchema[]> = {}
     results.forEach((result, i) => {
       if (result.data?.symbology) out[codes[i]] = result.data.symbology
+    })
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updatedAtKey])
+}
+
+/**
+ * Every feature class's map label config at once, keyed by class code --
+ * the labelling counterpart to useAllSymbology, reading the same warm
+ * ["feature-class-schema", code] cache (label_def rides the same schema
+ * response the map already fetches for symbology). voltedge-map.tsx feeds
+ * each class's label_def into its layer's createSymbologyStyle. Only
+ * classes that actually carry a label config appear in the map, so an
+ * unlabelled class is simply absent (createSymbologyStyle's labelDef arg
+ * is then undefined and it draws geometry only).
+ */
+export function useAllLabelDefs(): Record<string, LabelDef> {
+  const { data: featureClasses } = useFeatureClasses()
+  const codes = featureClasses?.feature_classes.map((fc) => fc.code) ?? []
+
+  const results = useQueries({
+    queries: codes.map((code) => ({
+      queryKey: ["feature-class-schema", code],
+      queryFn: () => apiFetch<FeatureClassSchema>(`/feature-classes/${code}/schema`),
+      staleTime: 5 * 60_000,
+    })),
+  })
+  const updatedAtKey = results.map((r) => r.dataUpdatedAt).join(",")
+
+  return useMemo(() => {
+    const out: Record<string, LabelDef> = {}
+    results.forEach((result, i) => {
+      if (result.data?.label_def) out[codes[i]] = result.data.label_def
     })
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -11,9 +11,14 @@ package fieldpack
 //   GET  /packs             the caller's recent packs
 //   GET  /packs/{id}        poll status; on success, the manifest (2 presigned URLs)
 //   POST /packs/{id}/cancel cancel the caller's own queued/running build
+//   GET  /feature-classes   the packable class catalog (for the device's pick-list)
+//   GET  /sync/status       poll the apply outcome of the caller's own ops (features:read)
+//   GET  /features/{code}/{id}/gps-captures  a feature's GNSS survey quality (features:read)
+//   POST /sync              capture a device's offline-edit outbox (features:write)
 //
-// POST /sync (edit replay) is deliberately NOT here yet -- it belongs to Slice 3
-// (offline edit + sync), alongside the outbox + overwrite-log design.
+// The pack lifecycle + the sync status pull sit behind features:read; /sync is a
+// write, so it sits behind features:write (see sync.go for the receive/apply split
+// and idempotency design, and syncworker.go for the drain-to-production worker).
 
 import (
 	"context"
@@ -26,6 +31,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/kwaabs/voltedge/api/internal/attachment"
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/export"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
@@ -50,6 +56,38 @@ func Routes(db *bun.DB, store *export.ObjectStore) http.Handler {
 		r.Get("/packs", listPacksHandler(db))
 		r.Get("/packs/{id}", getPackHandler(db, store))
 		r.Post("/packs/{id}/cancel", cancelPackHandler(db))
+		// The class catalog the device's "new pack" form picks from, so a
+		// user checks boxes instead of typing UPPERCASE codes (classes.go).
+		r.Get("/feature-classes", featureClassesHandler(db))
+		// The sync status pull is a read (a device reconciling the apply outcome of
+		// its own already-pushed ops), so it sits with the reads behind features:read
+		// -- separate from the POST /sync write below (Phase 23 Slice 1).
+		r.Get("/sync/status", statusHandler(db))
+		// A feature's GNSS survey-quality captures (Phase gnss-quality Slice 3b):
+		// server-only rows the device pulls on demand for the detail screen. Shares
+		// crud.ListFeatureGpsCaptures with the web route, so the JSON matches
+		// (gpscaptures.go). A plain read, so features:read.
+		r.Get("/features/{code}/{id}/gps-captures", gpsCapturesHandler(db))
+	})
+
+	// The edit-replay endpoint is a write, so it sits behind features:write --
+	// a device that can only pull packs (features:read) can't push edits back.
+	r.Group(func(r chi.Router) {
+		r.Use(bearerAuth(db))
+		r.Use(requirePerm("features:write"))
+		r.Post("/sync", syncHandler(db))
+	})
+
+	// The attachments surface (Phase 22 S4): the device lists a feature's images,
+	// uploads new photos (register -> presigned PUT -> commit), and fetches
+	// full-resolution originals on demand when online -- the offline preview rides
+	// the pack (builder v6). Shares the exact handlers the web uses (no CSRF here --
+	// a bearer request has no cookies), gated method-aware: GET -> attachments:read,
+	// POST/DELETE -> attachments:write.
+	r.Group(func(r chi.Router) {
+		r.Use(bearerAuth(db))
+		r.Use(requirePermMethod(auth.PermAttachmentsRead, auth.PermAttachmentsWrite))
+		r.Mount("/attachments", attachment.BearerRoutes(db, store))
 	})
 	return r
 }
@@ -94,6 +132,32 @@ func requirePerm(perm string) func(http.Handler) http.Handler {
 			if !ok {
 				unauthorized(w)
 				return
+			}
+			if !user.Has(perm) {
+				writeErr(w, http.StatusForbidden, "this token's user lacks "+perm)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// requirePermMethod is the method-aware sibling of requirePerm: a safe method
+// (GET/HEAD/OPTIONS) needs readPerm, anything mutating needs writePerm. It's the
+// bearer-side equivalent of auth.RequirePermission (which the cookie-authenticated
+// web mount uses), for a sub-router that mixes reads and writes.
+func requirePermMethod(readPerm, writePerm string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user, ok := auth.UserFrom(r.Context())
+			if !ok {
+				unauthorized(w)
+				return
+			}
+			perm := writePerm
+			switch r.Method {
+			case http.MethodGet, http.MethodHead, http.MethodOptions:
+				perm = readPerm
 			}
 			if !user.Has(perm) {
 				writeErr(w, http.StatusForbidden, "this token's user lacks "+perm)

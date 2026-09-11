@@ -134,6 +134,7 @@ func createFeatureClass(ctx context.Context, db *bun.DB, req createFeatureClassR
 			Status:             "draft",
 			IsDiagramContainer: req.IsDiagramContainer,
 			IsDiagramPlaceable: req.IsDiagramPlaceable,
+			GeometryOptional:   req.GeometryOptional,
 		}
 		if _, err := tx.NewInsert().Model(fc).ExcludeColumn("id", "physical_table", "metadata_version_id").Returning("id").Exec(ctx); err != nil {
 			return fmt.Errorf("insert feature class: %w", err)
@@ -320,6 +321,7 @@ func createMaterialSpec(ctx context.Context, db *bun.DB, req createMaterialSpecR
 			AmpacityAmps: req.AmpacityAmps, DiameterMm: req.DiameterMm, WeightKgPerKm: req.WeightKgPerKm,
 			MaxOperatingTempC: req.MaxOperatingTempC, Emissivity: req.Emissivity,
 			Absorptivity: req.Absorptivity, ResistanceTempCoefficientPerC: req.ResistanceTempCoefficientPerC,
+			CostPerKm: req.CostPerKm, UnitCost: req.UnitCost,
 		}
 		if _, err := tx.NewInsert().Model(m).ExcludeColumn("id").Exec(ctx); err != nil {
 			return fmt.Errorf("insert material spec: %w", err)
@@ -331,6 +333,7 @@ func createMaterialSpec(ctx context.Context, db *bun.DB, req createMaterialSpecR
 			AmpacityAmps: m.AmpacityAmps, DiameterMm: m.DiameterMm, WeightKgPerKm: m.WeightKgPerKm,
 			MaxOperatingTempC: m.MaxOperatingTempC, Emissivity: m.Emissivity,
 			Absorptivity: m.Absorptivity, ResistanceTempCoefficientPerC: m.ResistanceTempCoefficientPerC,
+			CostPerKm: m.CostPerKm, UnitCost: m.UnitCost,
 		}
 		return nil
 	})

@@ -2,6 +2,9 @@ package metadata
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/uptrace/bun"
@@ -18,6 +21,36 @@ type Loaded struct {
 	Terminals         []Terminal
 	Domains           map[string]*Domain  // by domain id
 	DomainValues      map[string][]string // by domain id -> coded values
+	// DomainTransitions holds a coded domain's optional state machine (migration
+	// 0065): domain id -> fromCode -> allowed toCodes. Almost always empty -- a
+	// domain only appears here when an admin has authored transition edges for
+	// it (Phase 38 wires OPERATIONAL_STATE). Codes, not value ids, so the CRUD
+	// update check can compare directly against a feature's stored coded value.
+	DomainTransitions map[string]map[string][]string // by domain id -> from code -> to codes
+}
+
+// TransitionAllowed reports whether a coded field backed by domainID may change
+// its value from `from` to `to`. Only edges explicitly authored in
+// metadata.domain_transitions are legal -- but a domain with no edges loaded is
+// unconstrained (returns true always), which is every coded domain except the
+// few that opt into a lifecycle. Setting a previously-unset value (from == "")
+// and clearing one (to == "") are always allowed: those are first-declaration
+// and un-declaration, not transitions between two declared states. A no-op
+// (from == to) is allowed too.
+func (l *Loaded) TransitionAllowed(domainID, from, to string) bool {
+	edges := l.DomainTransitions[domainID]
+	if len(edges) == 0 {
+		return true // no state machine defined for this domain
+	}
+	if from == "" || to == "" || from == to {
+		return true // first-declaration, clearing, or no change
+	}
+	for _, allowed := range edges[from] {
+		if allowed == to {
+			return true
+		}
+	}
+	return false
 }
 
 // Load fetches a feature class by code, its active fields, its subtypes
@@ -69,7 +102,7 @@ func Load(ctx context.Context, db bun.IDB, code string) (*Loaded, error) {
 		return nil, fmt.Errorf("metadata: loading terminals for %q: %w", code, err)
 	}
 
-	domains, domainValues, err := loadDomains(ctx, db, fields)
+	domains, domainValues, transitions, err := loadDomains(ctx, db, fields)
 	if err != nil {
 		return nil, fmt.Errorf("metadata: %q: %w", code, err)
 	}
@@ -82,6 +115,7 @@ func Load(ctx context.Context, db bun.IDB, code string) (*Loaded, error) {
 		Terminals:         terminals,
 		Domains:           domains,
 		DomainValues:      domainValues,
+		DomainTransitions: transitions,
 	}, nil
 }
 
@@ -130,9 +164,123 @@ func LoadSnappingRulesForClass(ctx context.Context, db bun.IDB, featureClassID s
 	return rules, nil
 }
 
-func loadDomains(ctx context.Context, db bun.IDB, fields []Field) (map[string]*Domain, map[string][]string, error) {
+// LoadPanelTemplate resolves the device fan-out recipe for one (panel feature
+// class, panel role) pairing (migration 0072) -- the ordered list of devices to
+// create when a panel of that class and role is placed. panelClassCode is the
+// panel's own feature class (e.g. MV_SWITCHGEAR_PANEL); roleCode is the panel's
+// role value on the shared BAY_ROLE domain (e.g. FEEDER). Each returned device
+// carries its class code (ready to metadata.Load), subtype, decoded default
+// attributes, and mimic offset, in position order. An empty result means no
+// template is defined for that pairing -- the caller (api/internal/panel) turns
+// that into a clear client error rather than creating an empty panel. Device
+// attributes are stored as jsonb and decoded here so the composite create can
+// merge them straight into a CreateFeatureInput.
+func LoadPanelTemplate(ctx context.Context, db bun.IDB, panelClassCode, roleCode string) ([]PanelTemplateDevice, error) {
+	const query = `
+SELECT dfc.code, pti.subtype_code, pti.attributes, pti.offset_x, pti.offset_y, pti.rotation
+FROM metadata.panel_template_items pti
+JOIN metadata.panel_templates pt ON pt.id = pti.template_id
+JOIN metadata.feature_classes pfc ON pfc.id = pt.panel_feature_class_id
+JOIN metadata.domain_values rv ON rv.id = pt.role_value_id
+JOIN metadata.feature_classes dfc ON dfc.id = pti.device_feature_class_id
+WHERE pfc.code = ? AND rv.code = ?
+ORDER BY pti.position`
+
+	rows, err := db.QueryContext(ctx, query, panelClassCode, roleCode)
+	if err != nil {
+		return nil, fmt.Errorf("metadata: loading panel template for %s/%s: %w", panelClassCode, roleCode, err)
+	}
+	defer rows.Close()
+
+	var devices []PanelTemplateDevice
+	for rows.Next() {
+		var (
+			d        PanelTemplateDevice
+			rawAttrs []byte
+		)
+		if err := rows.Scan(&d.DeviceFeatureClass, &d.SubtypeCode, &rawAttrs, &d.OffsetX, &d.OffsetY, &d.Rotation); err != nil {
+			return nil, fmt.Errorf("metadata: scanning panel template item: %w", err)
+		}
+		if len(rawAttrs) > 0 {
+			if err := json.Unmarshal(rawAttrs, &d.Attributes); err != nil {
+				return nil, fmt.Errorf("metadata: decoding panel template item attributes for %s: %w", d.DeviceFeatureClass, err)
+			}
+		}
+		devices = append(devices, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("metadata: reading panel template for %s/%s: %w", panelClassCode, roleCode, err)
+	}
+	return devices, nil
+}
+
+// LoadRMUTemplate resolves the fan-out recipe for one RMU (class, config): the
+// single internal bus class to create, plus every switched way in position
+// order (class code, subtype, decoded default attributes, the terminal wired to
+// the bus, and mimic offset). Returns a nil result with no error when the RMU
+// class/config pairing has no template row -- the caller treats that as "no
+// fan-out defined" and rejects it, the same way the panel endpoint does. This
+// is the RMU analogue of LoadPanelTemplate, with the added busbar class + per-
+// way bus_terminal the RMU's internal connectivity needs.
+func LoadRMUTemplate(ctx context.Context, db bun.IDB, rmuClassCode, configCode string) (*RMUTemplateResolved, error) {
+	const busQuery = `
+SELECT bfc.code
+FROM metadata.rmu_templates rt
+JOIN metadata.feature_classes rfc ON rfc.id = rt.rmu_feature_class_id
+JOIN metadata.domain_values cv ON cv.id = rt.config_value_id
+JOIN metadata.feature_classes bfc ON bfc.id = rt.busbar_feature_class_id
+WHERE rfc.code = ? AND cv.code = ?`
+
+	var busbarClass string
+	switch err := db.QueryRowContext(ctx, busQuery, rmuClassCode, configCode).Scan(&busbarClass); {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("metadata: loading rmu template for %s/%s: %w", rmuClassCode, configCode, err)
+	}
+
+	const wayQuery = `
+SELECT wfc.code, rti.subtype_code, rti.attributes, rti.bus_terminal, rti.offset_x, rti.offset_y, rti.rotation
+FROM metadata.rmu_template_items rti
+JOIN metadata.rmu_templates rt ON rt.id = rti.template_id
+JOIN metadata.feature_classes rfc ON rfc.id = rt.rmu_feature_class_id
+JOIN metadata.domain_values cv ON cv.id = rt.config_value_id
+JOIN metadata.feature_classes wfc ON wfc.id = rti.way_feature_class_id
+WHERE rfc.code = ? AND cv.code = ?
+ORDER BY rti.position`
+
+	rows, err := db.QueryContext(ctx, wayQuery, rmuClassCode, configCode)
+	if err != nil {
+		return nil, fmt.Errorf("metadata: loading rmu template ways for %s/%s: %w", rmuClassCode, configCode, err)
+	}
+	defer rows.Close()
+
+	resolved := &RMUTemplateResolved{BusbarFeatureClass: busbarClass}
+	for rows.Next() {
+		var (
+			w        RMUTemplateWay
+			rawAttrs []byte
+		)
+		if err := rows.Scan(&w.WayFeatureClass, &w.SubtypeCode, &rawAttrs, &w.BusTerminal, &w.OffsetX, &w.OffsetY, &w.Rotation); err != nil {
+			return nil, fmt.Errorf("metadata: scanning rmu template way: %w", err)
+		}
+		if len(rawAttrs) > 0 {
+			if err := json.Unmarshal(rawAttrs, &w.Attributes); err != nil {
+				return nil, fmt.Errorf("metadata: decoding rmu template way attributes for %s: %w", w.WayFeatureClass, err)
+			}
+		}
+		resolved.Ways = append(resolved.Ways, w)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("metadata: reading rmu template ways for %s/%s: %w", rmuClassCode, configCode, err)
+	}
+	return resolved, nil
+}
+
+func loadDomains(ctx context.Context, db bun.IDB, fields []Field) (map[string]*Domain, map[string][]string, map[string]map[string][]string, error) {
 	domains := map[string]*Domain{}
 	domainValues := map[string][]string{}
+	transitions := map[string]map[string][]string{}
 
 	for _, f := range fields {
 		if f.DomainID == nil {
@@ -144,7 +292,7 @@ func loadDomains(ctx context.Context, db bun.IDB, fields []Field) (map[string]*D
 
 		d := new(Domain)
 		if err := db.NewSelect().Model(d).Where("id = ?", *f.DomainID).Scan(ctx); err != nil {
-			return nil, nil, fmt.Errorf("field %s references missing domain %s: %w", f.Name, *f.DomainID, err)
+			return nil, nil, nil, fmt.Errorf("field %s references missing domain %s: %w", f.Name, *f.DomainID, err)
 		}
 		domains[d.ID] = d
 
@@ -157,16 +305,41 @@ func loadDomains(ctx context.Context, db bun.IDB, fields []Field) (map[string]*D
 			Where("domain_id = ?", d.ID).
 			Order("sort_order").
 			Scan(ctx); err != nil {
-			return nil, nil, fmt.Errorf("loading values for domain %s: %w", d.Code, err)
+			return nil, nil, nil, fmt.Errorf("loading values for domain %s: %w", d.Code, err)
 		}
 		codes := make([]string, len(values))
+		byID := make(map[string]string, len(values))
 		for i, v := range values {
 			codes[i] = v.Code
+			byID[v.ID] = v.Code
 		}
 		domainValues[d.ID] = codes
+
+		// Load any state-machine edges authored for this coded domain (migration
+		// 0065). Almost always none -- only a domain with a real lifecycle
+		// (OPERATIONAL_STATE) has rows, and then the CRUD update path enforces
+		// them. Resolve the value-id FKs back to codes here so the check can
+		// compare directly against a feature's stored coded value.
+		var edges []DomainTransition
+		if err := db.NewSelect().Model(&edges).
+			Where("domain_id = ?", d.ID).
+			Scan(ctx); err != nil {
+			return nil, nil, nil, fmt.Errorf("loading transitions for domain %s: %w", d.Code, err)
+		}
+		if len(edges) > 0 {
+			adj := map[string][]string{}
+			for _, e := range edges {
+				from, okFrom := byID[e.FromValueID]
+				to, okTo := byID[e.ToValueID]
+				if okFrom && okTo {
+					adj[from] = append(adj[from], to)
+				}
+			}
+			transitions[d.ID] = adj
+		}
 	}
 
-	return domains, domainValues, nil
+	return domains, domainValues, transitions, nil
 }
 
 // FieldByName looks up a loaded field by its physical column name.
@@ -202,6 +375,25 @@ func (l *Loaded) RequiredFieldNames(subtypeID string) []string {
 		}
 	}
 	return names
+}
+
+// RequiredSubtypeCodes returns the integer subtype codes for which the given
+// field is required (per subtype_field_rules.is_required) -- the inverse view of
+// RequiredFieldNames, keyed by field instead of subtype. This is what the web
+// schema exposes as required_for_subtypes, and what the field pack ships per
+// field so the offline editor can mark a field required for the feature's
+// actual subtype rather than guessing from column nullability.
+func (l *Loaded) RequiredSubtypeCodes(fieldID string) []int {
+	var codes []int
+	for _, r := range l.SubtypeFieldRules {
+		if r.FieldID != fieldID || !r.IsRequired {
+			continue
+		}
+		if s := l.subtypeByID(r.SubtypeID); s != nil {
+			codes = append(codes, s.Code)
+		}
+	}
+	return codes
 }
 
 // ListFeatureClasses returns every active feature class -- the code
@@ -291,6 +483,20 @@ func ListSymbologyIcons(ctx context.Context, db bun.IDB) ([]SymbologyIcon, error
 		return nil, fmt.Errorf("metadata: listing symbology icons: %w", err)
 	}
 	return icons, nil
+}
+
+// ListDiagramStencils returns every diagram_stencils row -- the whole symbol
+// stencil palette (Phase 24 Slice 2, migration 0048), served whole at GET
+// /symbology/stencils and cached client-side, same as ListSymbologyIcons. The
+// glyph markup itself comes from symbology_icons; this is only the catalog
+// (which icons are stencils, plus label/category/order). Ordered by category
+// then sort_order for a stable, grouped palette, icon_ref as the final tiebreak.
+func ListDiagramStencils(ctx context.Context, db bun.IDB) ([]DiagramStencil, error) {
+	var stencils []DiagramStencil
+	if err := db.NewSelect().Model(&stencils).Order("category", "sort_order", "icon_ref").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: listing diagram stencils: %w", err)
+	}
+	return stencils, nil
 }
 
 // LoadRelationshipClasses returns every relationship_classes row for a
@@ -451,6 +657,15 @@ func (l *Loaded) fieldByID(id string) *Field {
 	for i := range l.Fields {
 		if l.Fields[i].ID == id {
 			return &l.Fields[i]
+		}
+	}
+	return nil
+}
+
+func (l *Loaded) subtypeByID(id string) *Subtype {
+	for i := range l.Subtypes {
+		if l.Subtypes[i].ID == id {
+			return &l.Subtypes[i]
 		}
 	}
 	return nil

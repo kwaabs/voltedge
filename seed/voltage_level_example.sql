@@ -1,0 +1,16 @@
+-- seed/voltage_level_example.sql
+-- RETIRED (Phase 47 minimal-model correction, docs/phase-47-substation-site-model.md).
+--
+-- This file used to seed a VOLTAGE_LEVEL feature class -- an optional none-geometry
+-- container tier between a SUBSTATION and its busbars/bays. It has been retired: the
+-- container tree's only consumer is CIM export, and voltage level is DERIVABLE (every
+-- piece of equipment already carries its own nominal voltage), so modeling it as its
+-- own object bought no analytical value while adding a whole class plus a two-legal-
+-- parents ambiguity. The CIM export now conveys voltage through each equipment's
+-- BaseVoltage reference (unchanged since Phase 16) and keeps only the modeled BAY
+-- tier, giving Substation -> Bay -> equipment. See migration 0086, which removes the
+-- class + its containment edges on databases that already ran this seed.
+--
+-- The file is kept (not deleted) so the seed history stays stable and this comment
+-- records the decision; it intentionally seeds NOTHING. The matching Taskfile task
+-- (seed-voltage-level) has been removed. There is no CODE=VOLTAGE_LEVEL to compile.

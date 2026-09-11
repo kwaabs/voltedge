@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
@@ -155,7 +156,7 @@ func formatRow(loaded *metadata.Loaded, row map[string]any) (map[string]any, err
 // GET). Column/placeholder lists are built up in lockstep so a bug here
 // shows up as a Postgres arity error immediately rather than silently
 // writing the wrong value into the wrong column.
-func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, subtype *metadata.Subtype, geometry []byte, name *string, territoryID *string, values map[string]any) (map[string]any, error) {
+func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id *string, subtype *metadata.Subtype, geometry []byte, name *string, territoryID *string, values map[string]any) (map[string]any, error) {
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
 		return nil, err
@@ -170,6 +171,16 @@ func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, sub
 	// which Postgres then rejects with "there is no parameter $1".
 	var cols, placeholders []string
 	var args []any
+
+	// A caller-supplied primary key (the field-tool sync path, Phase 21) is
+	// written as the row's id instead of letting the column default mint one.
+	// Postgres casts the string to the uuid column implicitly. Absent (the
+	// normal REST create), the id column is omitted and the DB generates it.
+	if id != nil {
+		cols = append(cols, "id")
+		placeholders = append(placeholders, "?")
+		args = append(args, *id)
+	}
 
 	if subtype != nil {
 		cols = append(cols, "subtype")
@@ -217,11 +228,21 @@ func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, sub
 	placeholders = append(placeholders, "?", "?")
 	args = append(args, actor, actor)
 
+	// With a caller-supplied id, make the insert idempotent: a replayed sync
+	// op whose row already exists must be a no-op, not a duplicate-key error.
+	// ON CONFLICT (id) DO NOTHING suppresses the insert, and RETURNING then
+	// yields no row -- handled below by reading the existing feature back.
+	onConflict := ""
+	if id != nil {
+		onConflict = " ON CONFLICT (id) DO NOTHING"
+	}
+
 	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES (%s) RETURNING %s",
+		"INSERT INTO %s (%s) VALUES (%s)%s RETURNING %s",
 		table,
 		strings.Join(cols, ", "),
 		strings.Join(placeholders, ", "),
+		onConflict,
 		strings.Join(selectColumns(loaded), ", "),
 	)
 
@@ -233,17 +254,41 @@ func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, sub
 	if err != nil {
 		return nil, err
 	}
+	if len(results) == 0 {
+		// DO NOTHING fired: a row with this id already exists (an idempotent
+		// sync replay). Return it so the caller sees success, not a phantom
+		// "0 rows" error. Only reachable on the caller-supplied-id path.
+		if id != nil {
+			return getFeature(ctx, db, loaded, *id)
+		}
+		return nil, fmt.Errorf("crud: insert returned 0 rows, expected 1")
+	}
 	if len(results) != 1 {
 		return nil, fmt.Errorf("crud: insert returned %d rows, expected 1", len(results))
 	}
-	return formatRow(loaded, results[0])
+	out, err := formatRow(loaded, results[0])
+	if err != nil {
+		return nil, err
+	}
+	// Audit trail (Phase 41): one immutable row per write. The idempotent
+	// ON CONFLICT DO NOTHING replay above returns early without reaching here,
+	// so a re-applied sync create records no phantom second "create".
+	if err := recordFeatureHistory(ctx, db, loaded, historyCreate, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // updateFeature builds and executes a parameterized, partial UPDATE --
 // only the columns present in values (plus geom, if geometry is
-// non-empty) are touched. Always sets updated_at, since the physical
-// table has no trigger to do it automatically yet.
-func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string, geometry []byte, name *string, territoryID *string, assignTerritory bool, values map[string]any) (map[string]any, error) {
+// non-empty or being cleared) are touched. Always sets updated_at, since
+// the physical table has no trigger to do it automatically yet.
+//
+// clearGeometry (Phase 26 Slice 3) sets geom = NULL to demote a feature to
+// diagram-only; it's mutually exclusive with a non-empty geometry (the caller,
+// UpdateFeature, never sets both) and only reachable for a geometry_optional
+// class, which the compiler emitted with a nullable geom column.
+func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string, geometry []byte, clearGeometry bool, name *string, territoryID *string, assignTerritory bool, values map[string]any, expectedUpdatedAt *string) (map[string]any, error) {
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
 		return nil, err
@@ -252,7 +297,9 @@ func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 	var sets []string
 	var args []any
 
-	if len(geometry) > 0 {
+	if clearGeometry {
+		sets = append(sets, "geom = NULL")
+	} else if len(geometry) > 0 {
 		sets = append(sets, fmt.Sprintf("geom = ST_SetSRID(ST_GeomFromGeoJSON(?), %d)", *loaded.FeatureClass.SRID))
 		args = append(args, string(geometry))
 	}
@@ -296,11 +343,26 @@ func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 	sets = append(sets, "updated_by = ?")
 	args = append(args, actorArg(ctx))
 
+	// Optimistic concurrency (Phase 40): when the caller sent the updated_at it
+	// last read, the write is conditional on the row still carrying that exact
+	// value -- so an edit made against a stale copy affects 0 rows instead of
+	// silently overwriting whoever wrote in between. The token is compared as
+	// text cast to timestamptz, so the client just echoes the value it got back
+	// (any precision Postgres stored round-trips through the cast). Absent token
+	// leaves the write unconditional. The WHERE args go after every SET arg,
+	// matching bun's appearance-order placeholder formatting.
+	where := "id = ?"
 	args = append(args, id)
+	guarded := expectedUpdatedAt != nil && *expectedUpdatedAt != ""
+	if guarded {
+		where += " AND updated_at = ?::timestamptz"
+		args = append(args, *expectedUpdatedAt)
+	}
 	query := fmt.Sprintf(
-		"UPDATE %s SET %s WHERE id = ? RETURNING %s",
+		"UPDATE %s SET %s WHERE %s RETURNING %s",
 		table,
 		strings.Join(sets, ", "),
+		where,
 		strings.Join(selectColumns(loaded), ", "),
 	)
 
@@ -313,9 +375,23 @@ func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 		return nil, err
 	}
 	if len(results) == 0 {
+		// Under a concurrency guard, UpdateFeature already confirmed the row
+		// exists and isn't deleted moments before this write, so a 0-row result
+		// means the token no longer matches -- someone else changed the row.
+		// Report that as a conflict (409) rather than a misleading "not found".
+		if guarded {
+			return nil, conflict("this feature was changed by someone else since you opened it -- reload and reapply your changes")
+		}
 		return nil, notFound("feature %s not found", id)
 	}
-	return formatRow(loaded, results[0])
+	out, err := formatRow(loaded, results[0])
+	if err != nil {
+		return nil, err
+	}
+	if err := recordFeatureHistory(ctx, db, loaded, historyUpdate, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // GetFeature is the exported form of getFeature -- other packages (e.g.
@@ -332,6 +408,28 @@ func GetFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id str
 // this package exporting its whole error-type hierarchy.
 func IsNotFoundError(err error) bool {
 	return isNotFoundError(err)
+}
+
+// FeatureVersions reads just a feature's created_at / updated_at timestamps -- the
+// version stamps the field-sync worker compares against an op's base_version for
+// optimistic-concurrency conflict detection (Phase 23 Slice 4). exists is false when
+// no row has that id (the create it depends on hasn't applied, or it was hard-deleted);
+// the caller treats a missing row as "nothing to conflict with". Kept separate from
+// getFeature so the check is one cheap two-column read, not a full feature hydrate.
+func FeatureVersions(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) (created, updated time.Time, exists bool, err error) {
+	table, err := physicalTable(loaded.FeatureClass)
+	if err != nil {
+		return time.Time{}, time.Time{}, false, err
+	}
+	query := fmt.Sprintf("SELECT created_at, updated_at FROM %s WHERE id = ?", table)
+	row := db.QueryRowContext(ctx, query, id)
+	if err := row.Scan(&created, &updated); err != nil {
+		if err == sql.ErrNoRows {
+			return time.Time{}, time.Time{}, false, nil
+		}
+		return time.Time{}, time.Time{}, false, fmt.Errorf("crud: feature versions: %w", err)
+	}
+	return created, updated, true, nil
 }
 
 // getFeature reads one feature by id.

@@ -15,7 +15,7 @@
 -- key into web/src/lib/symbology-icons.ts's small hand-authored SVG
 -- registry, not a real sprite/asset pipeline (docs/open-items.md's own
 -- framing for that gap). Point classes get a shape; MV_CONDUCTOR (a
--- line) and SUBSTATION_YARD (a polygon) only ever get color/width or
+-- line) and SUBSTATION (a polygon) only ever get color/width or
 -- fill_color/stroke_color -- there's no icon_ref concept for a
 -- geometry that isn't a discrete point.
 --
@@ -65,7 +65,7 @@ WHERE fc.code = 'MV_CONDUCTOR'
 INSERT INTO metadata.symbology_rules (feature_class_id, render_context, style_def)
 SELECT fc.id, 'map', '{"fill_color": "#64748b", "stroke_color": "#64748b"}'::jsonb
 FROM metadata.feature_classes fc
-WHERE fc.code = 'SUBSTATION_YARD'
+WHERE fc.code = 'SUBSTATION'
   AND NOT EXISTS (
     SELECT 1 FROM metadata.symbology_rules
     WHERE feature_class_id = fc.id AND subtype_id IS NULL AND domain_value_id IS NULL AND render_context = 'map'

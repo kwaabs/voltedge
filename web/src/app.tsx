@@ -5,15 +5,22 @@ import { MapLayout } from "@/components/layout/map-layout"
 import { RequirePermission, RequireSession } from "@/components/layout/require-session"
 import { Toaster } from "@/components/ui/toaster"
 import { useThemeEffect } from "@/hooks/use-theme-effect"
+import { AdminCircuitsPage } from "@/routes/admin-circuits"
 import { AdminDomainsPage } from "@/routes/admin-domains"
+import { AdminExternalSystemsPage } from "@/routes/admin-external-systems"
 import { AdminFeatureClassDetailPage } from "@/routes/admin-feature-class-detail"
 import { AdminFeatureClassNewPage } from "@/routes/admin-feature-class-new"
 import { AdminFeatureClassesPage } from "@/routes/admin-feature-classes"
+import { AdminDiagramsPage } from "@/routes/admin-diagrams"
 import { AdminFieldGroupsPage } from "@/routes/admin-field-groups"
+import { AdminMapSettingsPage } from "@/routes/admin-map-settings"
+import { AdminFieldPacksPage } from "@/routes/admin-field-packs"
 import { AdminMaterialsPage } from "@/routes/admin-materials"
+import { AdminStencilsPage } from "@/routes/admin-stencils"
 import { AdminSymbologyIconsPage } from "@/routes/admin-symbology-icons"
 import { AdminTerritoriesPage } from "@/routes/admin-territories"
 import { AdminUsersPage } from "@/routes/admin-users"
+import { SyncReviewPage } from "@/routes/sync-review"
 import { ConnectivityPage } from "@/routes/connectivity"
 import { FeaturesPage } from "@/routes/features"
 import { LoginPage } from "@/routes/login"
@@ -70,8 +77,11 @@ export function App() {
             <Route path="admin/feature-classes/:code" element={<AdminFeatureClassDetailPage />} />
             <Route path="admin/domains" element={<AdminDomainsPage />} />
             <Route path="admin/field-groups" element={<AdminFieldGroupsPage />} />
+            <Route path="admin/diagrams" element={<AdminDiagramsPage />} />
             <Route path="admin/materials" element={<AdminMaterialsPage />} />
+            <Route path="admin/external-systems" element={<AdminExternalSystemsPage />} />
             <Route path="admin/symbology-icons" element={<AdminSymbologyIconsPage />} />
+            <Route path="admin/stencils" element={<AdminStencilsPage />} />
             <Route
               path="admin/territories"
               element={
@@ -81,10 +91,48 @@ export function App() {
               }
             />
             <Route
+              path="admin/circuits"
+              element={
+                <RequirePermission perm="circuits:write">
+                  <AdminCircuitsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
               path="admin/users"
               element={
                 <RequirePermission perm="admin:users">
                   <AdminUsersPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/field-packs"
+              element={
+                <RequirePermission perm="admin:field-packs">
+                  <AdminFieldPacksPage />
+                </RequirePermission>
+              }
+            />
+            {/* The default map view is admin config -- a pure-write page (the
+                only thing to see is the form you edit), so a route-level
+                metadata:write gate, matching its sidebar entry. */}
+            <Route
+              path="admin/map-settings"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminMapSettingsPage />
+                </RequirePermission>
+              }
+            />
+            {/* The review queue is gated at the route by sync:review (view); the
+                post/reject/policy-set controls inside self-gate on sync:post, so a
+                reviewer who can see but not act gets a read-only queue. */}
+            <Route
+              path="admin/sync-review"
+              element={
+                <RequirePermission perm="sync:review">
+                  <SyncReviewPage />
                 </RequirePermission>
               }
             />

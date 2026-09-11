@@ -11,6 +11,7 @@ vars:
   API_PORT: '{{.API_PORT | default "3704"}}'
   MCP_PORT: '{{.MCP_PORT | default "3705"}}'
   FIELDSYNC_PORT: '{{.FIELDSYNC_PORT | default "3706"}}'
+  RUSTFS_S3_PORT: '{{.RUSTFS_S3_PORT | default "3702"}}'
 
   LOCAL_DATABASE_URL: "postgres://postgres:{{.POSTGRES_PASSWORD}}@localhost:{{.POSTGRES_PORT}}/{{.POSTGRES_DB}}?sslmode=disable"
   CONTAINER_DATABASE_URL: "postgres://postgres:{{.POSTGRES_PASSWORD}}@postgres:5432/{{.POSTGRES_DB}}?sslmode=disable"
@@ -101,6 +102,23 @@ tasks:
     cmds:
       - go run ./cmd/fieldsync
 
+  adb-reverse:
+    desc: "Tunnel a USB-connected Android device to the host's field-tool ports (Phase 21). Run after each reconnect; needs adb on PATH + one device attached."
+    # A physical device (not the emulator) reaches host services over
+    # `adb reverse`, so the app's baseUrl is http://localhost:<port> -- NOT
+    # 10.0.2.2, which is emulator-only. Three ports:
+    #   FIELDSYNC_PORT (3706) -- the pack list/create/download HTTP API
+    #   RUSTFS_S3_PORT (3702) -- RustFS, where pack artifacts are presigned
+    #                            (RUSTFS_PUBLIC_ENDPOINT=localhost:3702), so
+    #                            without it the device gets a manifest but
+    #                            can't fetch the .mbtiles/.sqlite
+    #   API_PORT       (3704) -- the main cookie-session web API surface
+    cmds:
+      - adb reverse tcp:{{.FIELDSYNC_PORT}} tcp:{{.FIELDSYNC_PORT}}
+      - adb reverse tcp:{{.RUSTFS_S3_PORT}} tcp:{{.RUSTFS_S3_PORT}}
+      - adb reverse tcp:{{.API_PORT}} tcp:{{.API_PORT}}
+      - adb reverse --list
+
   api-test:
     desc: Run API tests
     dir: "{{.API_DIR}}"
@@ -136,6 +154,18 @@ tasks:
       DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
     cmds:
       - go run ./cmd/compile {{.CODE}}
+
+  uncompile:
+    desc: "Drop one feature class's physical table + tile function and reset it to draft (DESTRUCTIVE: discards all its rows). Follow with `task compile CODE=...` to rebuild fresh -- used to add a required field to a class that already has data."
+    dir: "{{.API_DIR}}"
+    requires:
+      vars:
+        - name: CODE
+          desc: Feature class code, e.g. MV_FUSE
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/uncompile {{.CODE}}
 
   authadmin-create:
     desc: "Bootstrap/create a break-glass admin (Phase 10). EMAIL + NAME vars; set AUTHADMIN_PASSWORD in your env/.env first"
@@ -255,6 +285,22 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/pole_example.sql
 
+  seed-tower:
+    desc: Load the TOWER example metadata through the gitbash sidecar -- a transmission support structure, leaner sibling of POLE (TOWER_MATERIAL steel-lattice/tubular/concrete, lattice/tubular/guyed/monopole subtypes, material+height_class+install_date+condition+last_inspected fields, no pole_use; compile CODE=TOWER after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/tower_example.sql
+
+  seed-tower-relationship:
+    desc: Load the TOWER supports MV_CONDUCTOR relationship class through the gitbash sidecar -- enables a tower to carry a double circuit (two conductor runs sharing one structure; Phase 35). Requires seed-tower + seed-connectivity first; no compile needed
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/tower_relationship_example.sql
+
   seed-connectivity:
     desc: Load the MV_CONDUCTOR/DIST_XFMR connectivity example metadata through the gitbash sidecar
     cmds:
@@ -272,12 +318,137 @@ tasks:
         -f /workspace/seed/relationship_example.sql
 
   seed-substation-yard:
-    desc: Load the SUBSTATION_YARD (polygon) example metadata through the gitbash sidecar
+    desc: Load the SUBSTATION (polygon site boundary; renamed from SUBSTATION_YARD in Phase 47 Slice 2, file keeps its historic name) example metadata through the gitbash sidecar -- compile CODE=SUBSTATION after; on a DB with existing yard rows apply migration 0085 first for the data-preserving table rename
     cmds:
       - >-
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/substation_yard_example.sql
+
+  seed-structure:
+    desc: Load the STRUCTURE (generic building/premises polygon) example metadata through the gitbash sidecar -- STRUCTURE_USE domain, permanent/temporary subtypes, use_type/storeys/has_basement fields, STRUCTURE-contains-SERVICE_POINT/METER containment (requires the metering seeds; compile CODE=STRUCTURE after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/structure_example.sql
+
+  seed-bay:
+    desc: Load the BAY (substation bay / control-building panel) example metadata through the gitbash sidecar (Phase 34 Slice 1; compile CODE=BAY after, then apply seed-bay-containment for the yard->bay->plant wiring)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/bay_example.sql
+
+  seed-bay-containment:
+    desc: Wire BAY containment through the gitbash sidecar (Phase 34 Slice 2; yard->bay->plant relationship_classes, retires the flat yard->plant rows; run after seed-bay + the MV plant seeds)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/bay_containment_example.sql
+
+  seed-substation-panel:
+    desc: Load the SUBSTATION_PANEL (control-building panel as a first-class inventoried asset -- protection/control/metering/RTU-SCADA/auxiliary/marshalling via panel_type; the physical enclosure, orthogonal to the logical BAY circuit) example metadata through the gitbash sidecar (Phase 45 Slice 1; geometry_type none like BAY; compile CODE=SUBSTATION_PANEL after, then apply seed-substation-panel-containment for the yard->panel->relay/meter + panel<->bay wiring)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/substation_panel_example.sql
+
+  seed-substation-panel-containment:
+    desc: Wire SUBSTATION_PANEL containment + the panel<->bay mapping through the gitbash sidecar (Phase 45 Slice 1; SUBSTATION_YARD contains SUBSTATION_PANEL + SUBSTATION_PANEL contains PROTECTIVE_RELAY/METER as physical enclosure, plus the many_to_many SUBSTATION_PANEL serves BAY association [kind panel_bay] that decouples panel from circuit; requires migration 0083 for the panel_bay kind + run after seed-substation-panel + seed-bay + protective-relay/metering seeds)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/substation_panel_containment_example.sql
+
+  seed-substation-panel-symbology:
+    desc: Load map + diagram symbology for SUBSTATION_PANEL through the gitbash sidecar (Phase 45 Slice 2 "just depiction"; flips is_diagram_placeable=true + adds the 'panel' cabinet glyph + a map default [publish gate] + per-panel_type diagram overrides keyed on panel_type; requires seed-substation-panel first; no compile -- symbology + placeable flag are read client-side/live)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/substation_panel_symbology.sql
+
+  seed-control-building:
+    desc: Load the CONTROL_BUILDING (optional control room/building of a substation -- polygon with optional geometry, holds SUBSTATION_PANEL as its physical home; num_floors/construction_type/floor_area attributes) example metadata through the gitbash sidecar (Phase 47 Slice 1; compile CODE=CONTROL_BUILDING after; panels get two legal parents -- building when present, yard when not, since not all substations have a building)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/control_building_example.sql
+
+  # seed-voltage-level removed: the VOLTAGE_LEVEL class was retired in the Phase 47
+  # minimal-model correction (migration 0086). seed/voltage_level_example.sql is now a
+  # documented no-op stub. Voltage is carried per equipment via BaseVoltage refs; BAY
+  # is the one modeled container tier.
+
+  seed-mv-switchgear-panels:
+    desc: Load the indoor MV switchgear catalog (MV_EARTH_SWITCH + MV_SWITCHBOARD + MV_SWITCHGEAR_PANEL classes, yard->board->panel->device containment, BOARD_SCHEMATIC diagram type + placement allow-list; Phase 42 Slice 1) through the gitbash sidecar (requires seed-substation-yard + the MV plant seeds + seed-mv-busbar; compile CODE=MV_EARTH_SWITCH, CODE=MV_SWITCHBOARD and CODE=MV_SWITCHGEAR_PANEL after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_switchgear_panel_example.sql
+
+  seed-mv-switchgear-panel-templates:
+    desc: Load the per-role panel device recipes (INCOMER/FEEDER/TRANSFORMER/BUS_SECTION/BUS_COUPLER -> standard device set) through the gitbash sidecar (Phase 42 Slice 2; requires migration 0072 + seed-mv-switchgear-panels + the MV device seeds; backs the composite POST /panels endpoint)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_switchgear_panel_templates.sql
+
+  seed-circuit-ref:
+    desc: Add circuit_ref to the conductor classes through the gitbash sidecar (Phase 35 Slice 1; double-circuit identity tag + demo label; recompile MV_CONDUCTOR + LV_CONDUCTOR after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/circuit_ref_example.sql
+
+  seed-circuit-membership:
+    desc: Stamp network (MV/LV) + add circuit_id to the electrical apparatus classes through the gitbash sidecar (Phase 37 Slice 2; circuit membership field + network-scoped picker; recompile each stamped class after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/circuit_membership_example.sql
+
+  seed-operational-state:
+    desc: Add the operational_state lifecycle field (PLANNED/IN_SERVICE/ISOLATED/RETIRED) to every physical asset class through the gitbash sidecar (Phase 38 Slice 1; recompile each stamped class, then run seed-operational-state-backfill)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/operational_state_example.sql
+
+  seed-operational-state-backfill:
+    desc: Map existing rows onto operational_state (published->IN_SERVICE, draft->PLANNED) through the gitbash sidecar (Phase 38 Slice 1; run AFTER seed-operational-state and recompiling the stamped classes)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/operational_state_backfill.sql
+
+  seed-operational-state-transitions:
+    desc: Enforce the operational_state lifecycle by authoring its legal transition edges (metadata.domain_transitions) through the gitbash sidecar (Phase 38 Slice 2; requires migration 0065 and seed-operational-state; metadata-only, no recompile)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/operational_state_transitions.sql
+
+  seed-operational-state-barriers:
+    desc: Make operational_state ISOLATED/RETIRED a downstream/upstream trace barrier (trace_barrier_rules on edge/junction classes) through the gitbash sidecar (Phase 38 Slice 3; requires seed-operational-state + seed/trace_configurations_example.sql applied first; metadata-only, no recompile)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/operational_state_barriers.sql
 
   seed-snapping:
     desc: Load the snapping_rules example metadata through the gitbash sidecar (requires seed-connectivity, and the switching-device/service-point seeds, first)
@@ -302,6 +473,14 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/lv_conductors_example.sql
+
+  seed-service-point:
+    desc: Load the SERVICE_POINT class + the DIST_XFMR T2 -> MV_CONDUCTOR network rule (seed/service_point_example.sql) through the gitbash sidecar (requires seed-connectivity first; compile CODE=SERVICE_POINT after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/service_point_example.sql
 
   seed-lv-devices:
     desc: Load the SERVICE_CUTOUT + LV_LINK_BOX classes (Phase 9 Slice 2) through the gitbash sidecar (requires seed-lv-conductors first; compile CODE=SERVICE_CUTOUT and CODE=LV_LINK_BOX after)
@@ -335,6 +514,46 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/load_flow_fields.sql
 
+  seed-transformer-fields:
+    desc: Add the transformer voltage-transformation fields (DIST_XFMR.secondary_voltage/impedance_pct/x_r_ratio; Phase 28 Slice 1a) through the gitbash sidecar (requires the DIST_XFMR seed + seed-load-flow-fields first; re-compile CODE=DIST_XFMR after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/transformer_model_fields.sql
+
+  seed-power-transformer:
+    desc: Load the POWER_XFMR class (two-/three-winding substation power transformer; POWER_XFMR Slice 1) through the gitbash sidecar (requires seed-connectivity + migration 0070 applied first; compile CODE=POWER_XFMR after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/power_transformer_example.sql
+
+  seed-earthing-transformer:
+    desc: Load the EARTHING_XFMR class (substation earthing/grounding transformer; zero-sequence data record-only) through the gitbash sidecar (requires seed-connectivity first; compile CODE=EARTHING_XFMR after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/earthing_transformer_example.sql
+
+  seed-mv-conductor-specs:
+    desc: Add MV conductor impedance (MV_LINE_SPEC material-backed domain + material_specs + MV_CONDUCTOR.conductor_spec + MV ACLineSegment.r/.x CIM mapping; Phase 28 Slice 1b) through the gitbash sidecar (requires seed-connectivity + migration 0021 first; re-compile CODE=MV_CONDUCTOR after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_conductor_specs.sql
+
+  seed-zero-seq-fields:
+    desc: Add the zero-sequence fields the ground-fault SLG calc reads (DIST_XFMR/POWER_XFMR.z0_pct + DIST_XFMR.source_r0_ohm/source_x0_ohm; ground-fault Slice 3) through the gitbash sidecar (requires the DIST_XFMR + POWER_XFMR seeds and migration 0071 first; re-compile CODE=DIST_XFMR and CODE=POWER_XFMR after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/zero_seq_fields.sql
+
   seed-cim-mapping:
     desc: Load the default CDPSM/CIM16 export mapping (profile + class/attribute mappings; Phase 16) through the gitbash sidecar (requires migration 0034 + 0035 and the feature-class seeds it maps first; no compile step -- pure metadata rows)
     cmds:
@@ -342,6 +561,286 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/cim_mapping_example.sql
+
+  seed-double-busbar:
+    desc: Load the built-in "Double busbar" diagram template through the gitbash sidecar (Phase 24 Slice 6; requires migration 0049 and seed/ansi_stencils.sql applied first for the disconnect/breaker glyphs; idempotent on template name)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/double_busbar_template.sql
+
+  seed-mv-switching:
+    desc: Load the MV_BREAKER + MV_ISOLATOR + MV_SECTIONALIZER classes (Phase 27 Slice 1) through the gitbash sidecar (requires seed-connectivity + seed/trace_configurations_example.sql applied first; compile CODE=MV_BREAKER, CODE=MV_ISOLATOR and CODE=MV_SECTIONALIZER after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_switching_example.sql
+
+  seed-bus-coupler-fields:
+    desc: Add the bus-coupler role fields to MV_BREAKER (switch_function FEEDER/INCOMER/BUS_COUPLER/BUS_SECTION/TRANSFORMER + normal_state NORMALLY_CLOSED/NORMALLY_OPEN; Bus coupler Slice 1) through the gitbash sidecar -- a coupler is a breaker wired bus<->bus, these fields just label it; nullable field-pack, no migration (requires seed-mv-switching first; compile CODE=MV_BREAKER after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/bus_coupler_fields.sql
+
+  seed-switch-normal-state:
+    desc: Extend the normal_state field (NORMALLY_CLOSED/NORMALLY_OPEN) to the switch family that carries genuine normally-open points -- MV_ISOLATOR (bus selector), MV_SWITCH, MV_SECTIONALIZER, MV_RECLOSER -- so the diagram's normally-open-point marker fires beyond the bus coupler (Phase 48 Slice 1b) through the gitbash sidecar -- deliberately narrow, nullable field-pack reusing bus_coupler_fields' NORMAL_STATE domain, no migration (requires seed-bus-coupler-fields + seed-mv-switching + seed-mv-lv-switch first; compile CODE=MV_ISOLATOR, CODE=MV_SWITCH, CODE=MV_SECTIONALIZER and CODE=MV_RECLOSER after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/switch_normal_state_fields.sql
+
+  seed-rmu:
+    desc: Load the RMU assembly catalog (RMU container + containment + the one internal MV_SWITCH.T2->MV_BUSBAR bus leg + RMU_CONFIG/rmu_config; the internal bus is a plain MV_BUSBAR and each switched way is a plain MV_SWITCH; Phase RMU Slice 1) through the gitbash sidecar (requires seed-connectivity + seed-mv-busbar + seed-mv-lv-switch + seed/trace_configurations_example.sql applied first; compile CODE=RMU after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/rmu_example.sql
+
+  collapse-rmu-busbar:
+    desc: "DESTRUCTIVE one-off -- collapse the RMU internal bus into MV_BUSBAR: relax MV_BUSBAR (drop air/gas subtype, make voltage_class/condition_rating nullable) then repoint the RMU template/containment/network-rules from RMU_BUSBAR to MV_BUSBAR and drop the RMU_BUSBAR class + table. Single txn, aborts unless gis.rmu_busbar has zero features. Run once against a DB seeded with the OLD RMU catalog; no compile step needed."
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}" -v ON_ERROR_STOP=1
+        -f /workspace/seed/collapse_rmu_busbar_into_mv_busbar.sql
+
+  collapse-rmu-way:
+    desc: "DESTRUCTIVE one-off -- collapse the RMU switched way into MV_SWITCH: migrate every RMU_WAY feature onto gis.mv_switch keeping its uuid (subtype flattened to standard, is_fused derived from the ring/transformer subtype), remap its T1/T2 connectivity by terminal code, repoint the RMU template/containment + the one internal T2->MV_BUSBAR rule (kept in place for its ON DELETE RESTRICT FK), drop RMU_WAY's redundant OPEN barrier, then drop the RMU_WAY class + table. Single txn, ON_ERROR_STOP, aborts unless every way copied and no RMU_WAY reference survives. Run once against a DB seeded with the OLD RMU catalog; requires MV_SWITCH seeded + compiled first; no compile step needed."
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}" -v ON_ERROR_STOP=1
+        -f /workspace/seed/collapse_rmu_way_into_mv_switch.sql
+
+  seed-rmu-templates:
+    desc: Load the per-config RMU way recipes (2W_1T/2W_2T -> ring+transformer ways + one bus; Phase RMU Slice 2, backs POST /rmus) through the gitbash sidecar (requires migration 0073 + seed-rmu applied first; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/rmu_templates.sql
+
+  seed-rmu-diagram-placement:
+    desc: Restrict the RMU one-line (RMU x ONE_LINE) to MV_BUSBAR + MV_SWITCH + MV_FUSE + MV_CONDUCTOR via metadata.diagram_placement_rules, and flip MV_CONDUCTOR's is_diagram_placeable on (Phase RMU diagram allow-list) through the gitbash sidecar (requires migration 0068 + seed-rmu + seed-mv-busbar + seed-mv-lv-switch + seed-mv-protection + seed-connectivity applied first; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/rmu_diagram_placement.sql
+
+  seed-feature-class-categories:
+    desc: Seed a default menu category (migration 0074) from each class's network (MV/LV) for the "New feature" menu grouping through the gitbash sidecar (requires migration 0074; idempotent, only fills NULL categories; no compile step -- pure presentation metadata, refine per-class in Admin afterwards)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/feature_class_categories_example.sql
+
+  seed-mv-protection:
+    desc: Load the MV_FUSE + MV_ARRESTER classes (Phase 27 Slice 2) through the gitbash sidecar (requires seed-connectivity + seed/trace_configurations_example.sql applied first; compile CODE=MV_FUSE and CODE=MV_ARRESTER after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_protection_example.sql
+
+  seed-mv-lv-switch:
+    desc: Load the generic MV_SWITCH + LV_SWITCH classes (device_state + is_fused protection flag, MV/LV network-scoped; successors to DIST_SWITCH) through the gitbash sidecar (requires seed-connectivity + seed-lv-conductors + seed/trace_configurations_example.sql applied first; compile CODE=MV_SWITCH and CODE=LV_SWITCH after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_lv_switch_example.sql
+
+  seed-mv-lv-switch-parity:
+    desc: Bring MV_SWITCH + LV_SWITCH up to DIST_SWITCH's full footprint (circuit_id + operational_state fields, snapping, PROTECTIVE_RELAY trips MV_SWITCH, map+diagram symbology, CIM LoadBreakSwitch) through the gitbash sidecar -- apply BEFORE the DIST_SWITCH->MV_SWITCH migration so no membership/lifecycle data is lost (requires seed-mv-lv-switch + circuit-membership + operational-state + snapping + mv-relay + cim-mapping seeds applied first; compile CODE=MV_SWITCH and CODE=LV_SWITCH after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_lv_switch_parity.sql
+
+  seed-mv-recloser:
+    desc: Load the MV_RECLOSER class (real auto-recloser -- shots/dead-times + fast/slow dual curve graded by the coordination engine; promoted from DIST_SWITCH's attribute-less automatic_recloser subtype) with its full footprint (circuit_id + operational_state, snapping, PROTECTIVE_RELAY trip, map+diagram symbology, CIM Recloser) through the gitbash sidecar (requires seed-connectivity + circuit-membership + operational-state + snapping + mv-relay + protection-curves + cim-mapping + ansi-stencils + trace-configurations applied first; compile CODE=MV_RECLOSER after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_recloser_example.sql
+
+  migrate-dist-switch-to-mv-switch:
+    desc: "DESTRUCTIVE + ONE-WAY: split every DIST_SWITCH feature into its successor BY SUBTYPE -- manual_switch -> MV_SWITCH, automatic_recloser -> MV_RECLOSER (id/geometry/attrs/connectivity/relationships/history preserved per-feature) then DROP the DIST_SWITCH class + gis.dist_switch table. TAKE A BACKUP AND DRY-RUN ON A COPY FIRST. Requires seed-mv-lv-switch + seed-mv-lv-switch-parity applied & both classes compiled; and IF any recloser features exist, seed-mv-recloser applied & MV_RECLOSER compiled (guards abort otherwise). Runs under a single transaction with ON_ERROR_STOP so any guard rolls the whole thing back."
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql -v ON_ERROR_STOP=1 "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/migrate_dist_switch_to_mv_switch.sql
+
+  seed-trace-barrier-resync:
+    desc: Resync OPEN-device trace barriers for every class with a device_state field across every barrier-respecting config, order-independently (fixes traces walking through an open switch/fuse/breaker when a device seed ran before its trace configs; requires all switching-device seeds + seed/trace_configurations_example.sql applied first; metadata-only, no recompile)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/trace_barrier_resync.sql
+
+  seed-mv-measuring:
+    desc: Load the MV_CT + MV_VT instrument-transformer classes (Phase 27 Slice 3; reuses CT_RATIO, adds VT_RATIO domain) through the gitbash sidecar (requires seed-connectivity first; compile CODE=MV_CT and CODE=MV_VT after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_measuring_example.sql
+
+  seed-mv-metering:
+    desc: Load the MV metering point classes MV_METERING_POINT + MV_METER (Phase 43 Slice 1; industrial/bulk supply metered at 11 kV+, meter fed by MV_CT/MV_VT via metering_sensing) through the gitbash sidecar (requires migration 0080 + seed-mv-measuring + seed-connectivity first; compile CODE=MV_METERING_POINT and CODE=MV_METER after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_metering_example.sql
+
+  seed-mv-metering-cubicle:
+    desc: Load the MV_METERING_CUBICLE container class (Phase 43 Slice 2; contains MV_METER + MV_CT + MV_VT, owns a METERING_SCHEMATIC diagram) through the gitbash sidecar (requires seed-mv-metering + seed-mv-measuring first; compile CODE=MV_METERING_CUBICLE after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_metering_cubicle_example.sql
+
+  seed-mv-metering-symbology:
+    desc: Load map + diagram symbology for the Phase 43 metering classes MV_METERING_POINT/MV_METER/MV_METERING_CUBICLE (Slice 3) through the gitbash sidecar (requires seed-mv-metering + seed-mv-metering-cubicle first; MV_CT/MV_VT already symbolized by seed-mv-symbology; no compile -- symbology is client-side)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_metering_symbology.sql
+
+  seed-test-network:
+    desc: Load the small radial test feeder -- the FIRST seed of real gis.* feature INSTANCES + runtime.feature_connectivity (SUB-SOURCE/SW-101/TX-101 -> LV-1 -> MTR-A/B -> SP-A/B, plus 3 poles) so tracing/load-flow/fault analysis have real data through the gitbash sidecar (requires seed-connectivity + seed-load-flow-fields + seed-transformer-fields + seed-zero-seq-fields + seed-mv-conductor-specs + seed-mv-lv-switch + seed-lv-conductors + seed-lv-metering + seed-service-point + seed-pole, then compile CODE=DIST_XFMR/MV_SWITCH/MV_CONDUCTOR/LV_CONDUCTOR/METER/SERVICE_POINT/POLE first; fails loudly if a prerequisite is missing)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/test_network_example.sql
+
+  seed-substation-network:
+    desc: Load the larger 33/11/0.4 kV SUBSTATION feeder -- a second seed of real gis.* feature INSTANCES + runtime.feature_connectivity built around a POWER_XFMR + MV_BUSBAR (GRID-SRC -> PTX-1 -> BUS-A -> two feeders w/ recloser/switches/3 DIST_XFMRs -> 4 LV runs + LV switch + 6 meters/service points, plus 4 poles) through the gitbash sidecar (requires ALL seed-test-network prerequisites PLUS seed-power-transformer + seed-mv-busbar + seed-mv-recloser + seed-mv-lv-switch, then compile CODE=DIST_XFMR/POWER_XFMR/MV_BUSBAR/MV_RECLOSER/MV_SWITCH/LV_SWITCH/MV_CONDUCTOR/LV_CONDUCTOR/METER/SERVICE_POINT/POLE first; fails loudly if a prerequisite is missing; coexists with seed-test-network)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/substation_network_example.sql
+
+  seed-protection-network:
+    desc: Load the PROTECTION-COORDINATION feeder -- a third seed of real gis.* feature INSTANCES + runtime.feature_connectivity + runtime.feature_relationships built to exercise POST /analysis/coordination (SUB-SOURCE -> BRK-1 [graded by RLY-1 relay via a protection_trip relationship] -> FUSE-1 -> TX-1 -> LV-1 -> MTR-1 -> SP-1, with MV_CT/MV_VT sensing the relay) through the gitbash sidecar (requires migrations 0075+0076 via `task migrate` PLUS all seed-test-network prerequisites PLUS seed-mv-switching + seed-mv-protection + seed-mv-measuring + seed-mv-relay + seed-protection-curves, then compile CODE=DIST_XFMR/MV_CONDUCTOR/LV_CONDUCTOR/METER/SERVICE_POINT/MV_BREAKER/MV_FUSE/MV_CT/MV_VT/PROTECTIVE_RELAY first; fails loudly if a prerequisite is missing; coexists with the other network seeds)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/protection_network_example.sql
+
+  seed-coupler-network:
+    desc: Load the BUS-COUPLER tie network -- a minimal seed of real gis.* feature INSTANCES + runtime.feature_connectivity that isolates the coupler (BUS-A =[CPLR-1 MV_BREAKER, switch_function=BUS_COUPLER, device_state=CLOSED]= BUS-B -> LOAD-FEED) so a downstream trace from BUS-A reaches BUS-B/LOAD-FEED ONLY across the closed tie (set CPLR-1 device_state=OPEN and re-trace to watch them drop out) through the gitbash sidecar (requires seed-connectivity + seed-mv-switching + seed-mv-busbar + seed-bus-coupler-fields, then compile CODE=MV_CONDUCTOR/MV_BREAKER[after bus_coupler_fields]/MV_BUSBAR first; fails loudly if a prerequisite is missing; coexists with the other network seeds; hand-built target state the POST /couplers endpoint produces)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/coupler_network_example.sql
+
+  seed-cable-management:
+    desc: Load the Phase 44 Slice 1 CIVIL cable-management inventory classes CABLE_TRENCH/CABLE_DUCT/CABLE_CHAMBER (network_role='none', never traced -- ducts/trenches/chambers with way_count capacity field) through the gitbash sidecar (no migration needed; compile CODE=CABLE_TRENCH + CABLE_DUCT + CABLE_CHAMBER after; symbology via seed-cable-management-symbology)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/cable_management_example.sql
+
+  seed-cable-management-symbology:
+    desc: Load the mandatory 'map' default symbology for the Phase 44 Slice 1 classes CABLE_TRENCH/CABLE_DUCT/CABLE_CHAMBER (publish gate; civil amber/slate/stone tones, no diagram rule) through the gitbash sidecar (requires seed-cable-management first; no compile -- symbology is client-side)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/cable_management_symbology.sql
+
+  seed-cable-joint:
+    desc: Load the Phase 44 Slice 2 ELECTRICAL cable-joint junction classes MV_CABLE_JOINT/LV_CABLE_JOINT (point, network_role='junction', zero-Z pass-through splice; subtypes straight/branch[+T3 tee]/transition/termination; feed-through network_rules to MV/LV_CONDUCTOR; CABLE_CHAMBER contains joints via existing containment kind) through the gitbash sidecar (requires seed-connectivity + seed-lv-conductors + seed-cable-management [CABLE_CHAMBER] first; no migration; compile CODE=MV_CABLE_JOINT + LV_CABLE_JOINT after; symbology via seed-cable-joint-symbology)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/cable_joint_example.sql
+
+  seed-cable-joint-symbology:
+    desc: Load the mandatory 'map' default symbology for the Phase 44 Slice 2 joint classes MV_CABLE_JOINT/LV_CABLE_JOINT (publish gate; deep-teal/slate splice dots, no diagram rule) through the gitbash sidecar (requires seed-cable-joint first; no compile -- symbology is client-side)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/cable_joint_symbology.sql
+
+  seed-cable-routing:
+    desc: Load the Phase 44 Slice 3 cable_routing relationship classes coupling the civil axis to the cables (CABLE_DUCT carries MV/LV_CONDUCTOR [way-consuming], CABLE_TRENCH carries CABLE_DUCT + MV/LV_CONDUCTOR direct-buried; all many_to_many) through the gitbash sidecar (requires migration 0082 [task migrate] + seed-cable-management + seed-connectivity + seed-lv-conductors first; no compile -- relationship_classes has no physical footprint)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/cable_routing_example.sql
+
+  seed-duct-way:
+    desc: Load the Phase 44 Slice 4 DUCT_WAY per-way class (geometry_type='none' logical child) + its relationship classes (CABLE_DUCT contains DUCT_WAY [containment], DUCT_WAY carries MV/LV_CONDUCTOR [cable_routing, per-way]) through the gitbash sidecar (requires seed-cable-management + migration 0082 + seed-connectivity + seed-lv-conductors first; compile CODE=DUCT_WAY after -- the class has a physical table even though it has no geometry)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/duct_way_example.sql
+
+  seed-mv-relay:
+    desc: Add PROTECTIVE_RELAY identity fields + protection_trip/protection_sensing relationship classes (Protection Slice A) through the gitbash sidecar (requires migration 0075 + seed/protective_relay_example.sql applied; apply seed-mv-switching/measuring first for full trip/sensing wiring; compile CODE=PROTECTIVE_RELAY after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_relay_example.sql
+
+  seed-protection-curves:
+    desc: Add relay/fuse/sectionalizer protection-settings fields + the tabulated TCC catalog (standard IEC/IEEE curves + example fuse) (Protection Slice B) through the gitbash sidecar (requires migration 0076 + seed-mv-relay + seed-mv-protection + seed-mv-switching; compile CODE=PROTECTIVE_RELAY, MV_FUSE, MV_SECTIONALIZER after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/protection_curves_example.sql
+
+  seed-mv-busbar:
+    desc: Load the MV_BUSBAR class + substation bus wiring + SUBSTATION containment (Phase 27 Slice 4) through the gitbash sidecar (requires seed-connectivity + seed-substation-yard; apply seed-mv-switching/protection/measuring first for the full wiring/containment; compile CODE=MV_BUSBAR after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_busbar_example.sql
+
+  seed-mv-symbology:
+    desc: Load map + diagram symbology rules and stencil->feature promotion for the eight Phase 27 MV plant classes (Slice 5) through the gitbash sidecar (requires seed-mv-switching/protection/measuring/busbar + seed/ansi_stencils.sql applied first; nothing to compile -- symbology + stencils resolve client-side)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_symbology_example.sql
+
+  seed-mv-cim-mapping:
+    desc: Load CDPSM/CIM16 class + attribute mappings for the eight Phase 27 MV plant classes (Slice 6) through the gitbash sidecar (requires the four MV class slices + seed-cim-mapping applied first; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_cim_mapping_example.sql
 
   # ------------------------------------------------------------- frontend --
 

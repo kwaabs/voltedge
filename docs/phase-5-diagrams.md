@@ -749,29 +749,115 @@ A tab strip only renders in a pane once 2+ diagrams are open *anywhere* (not jus
 
 Verified against a real, non-Docker Postgres + a real Martin binary + Vite, driven with Playwright: opened the seed one-line diagram, then two scratch diagrams on the same container -- confirmed the second split the panel 50/50 top/bottom, the third landed as a second tab in the top pane (tab strip appearing in *both* panes, including the bottom one that still only had a single tab), and clicking a tab's move button relocated it to the other pane, updating that pane's own header/active tab immediately. Selected "Switch S0" on the diagram (confirmed the existing `selected` ring still works unchanged) and ran a downstream trace from the header dropdown: the trace's own result table listed six features, and the diagram -- which has four of them placed -- correctly lit up exactly those four (the switch, a conductor segment, and a `SERVICE_POINT` placement all showing the `trace` role's halo) while a fifth placement on the same diagram that the trace never reached stayed uncolored. Purged the two scratch diagram instances afterward. `go build/vet/test`, `gofmt`, `npx tsc --noEmit`, and `npm run lint` all clean throughout (no backend changes this slice).
 
+## Grid and ortho drawing aids, added later
+
+Setting `MV_BUSBAR`'s diagram shape to `line` (see
+`docs/phase-27-mv-network.md`'s `diagram_geometry_type` follow-up) made
+the canvas able to *draw* a busbar as a multi-vertex bar, but drawing
+one freehand landed vertices at whatever pixel the cursor happened to
+be over -- a bar that should read as a clean horizontal run came out
+subtly diagonal, and two bars meant to align didn't. The existing snap
+infra didn't cover this: the Magnet toggle only snaps a *dragged*
+placement to another placement's exact x/y, and `orthoSnap` was only
+wired into the schematic bus/tap element tool -- neither helped while
+digitizing a new line-shaped feature vertex by vertex. Two opt-in
+toolbar toggles close the gap, both defaulting off so nothing shifts
+under a user who never asks for them:
+
+- **Grid** (`Grid3x3` toggle) -- draws a light `var(--border)` grid and
+  snaps every placed vertex/point/drag to the nearest cell. Cell size
+  is `gridStep = max(width, height, MIN_EXTENT) * GRID_FRACTION`
+  (`GRID_FRACTION = 0.04`, ~25 cells across), extent-relative for the
+  same reason icon/font sizing already is -- a diagram authored at any
+  coordinate scale gets a grid that reads and snaps consistently, not a
+  fixed cell that's invisible on one diagram and coarse on another. The
+  grid is an SVG `<pattern>` tiled `userSpaceOnUse` from the viewBox
+  origin so a painted cell lands exactly where `snapToGrid` rounds to,
+  rendered with `pointerEvents: "none"` -- `handleCanvasClick` bails
+  when `e.target !== e.currentTarget`, so a grid `<rect>` that
+  intercepted clicks would silently kill every placement.
+- **Ortho** (`CornerDownRight` toggle) -- locks each new line segment to
+  horizontal or vertical against the previous vertex (`orthoSnap(prev,
+  next)`, the same helper the element tool already used). A visual grid
+  alone does *not* guarantee right angles -- a segment between two grid
+  points on different rows *and* columns is still diagonal -- so ortho
+  is a separate concern, not something the grid subsumes; the two
+  compose (grid snaps the free coordinate, ortho then picks the axis).
+  Bus/tap element draws still force ortho on their non-line segments
+  regardless of the toggle (`forceOrtho || orthoEnabled`), unchanged.
+
+Both funnel through one helper, `applyDrawAids(pt, prev?)` -- grid
+first, then ortho if there's a previous vertex -- called from every
+vertex-collecting branch (place-from-map line, digitize-new-feature
+line, and the rubber-band preview) so the preview and the committed
+geometry always agree. Point placement and placement drags apply grid
+only (there's no "previous vertex" to run ortho against). PostGIS is
+still authoritative for real map geometry; these aids only shape the
+diagram-local placement `path`/`x`/`y`, which was always a hand-drawn
+coordinate space.
+
+Verification owed (Bash blocked in this environment -- `npx tsc
+--noEmit` / `npm run lint` / `npm run build` and a live pass not yet
+run): digitize a line-shaped `MV_BUSBAR` and confirm click-per-vertex
+drawing; toggle Grid and confirm vertices, point drops, and drags all
+snap to cells; toggle Ortho and confirm segments lock to H/V; both on
+together compose cleanly.
+
+## Per-diagram Layers control, added later
+
+The geographic map has a Layers/Legend control (`layers-panel.tsx`) that
+toggles each feature class on or off; diagrams now have the same, so a busy
+one-line can be read a class at a time. A `Layers` icon in the canvas header
+(next to Templates) opens a dropdown listing every feature class actually
+placed on the open diagram, each with the swatch the canvas draws it with (a
+glyph for a point/none class, a color bar for a line class). Unchecking a
+class hides all its placements — its devices AND their conductors — without
+deleting anything.
+
+- **web/src/stores/diagram-layers-store.ts** — zustand+persist store
+  (`voltedge-diagram-layers`). Visibility is keyed **per (diagram, class)**
+  (`diagramLayerKey(diagramId, classCode)`), unlike the map's single global
+  layer set: hiding a class on one diagram must not hide it on another.
+  Exception-only — an absent key means visible, so a newly placed class shows
+  without the store knowing it in advance.
+- **web/src/components/map/diagram-layers-menu.tsx** — `DiagramLayersMenu`,
+  the diagram counterpart to `LayersPanel`; renders nothing when the diagram
+  has no features (nothing to toggle). `DiagramLayerEntry { code, name, icon?,
+  color? }` is assembled by the canvas from the same resolved symbology it
+  draws with.
+- **web/src/components/map/diagram-canvas.tsx** — `diagramLayerEntries` memo
+  (distinct classes present, glyph via `iconDataUri` for point classes / color
+  for line classes, sorted by name) and a `hiddenClassSet` memo (the per-
+  diagram hidden classes). `pointItems` filters out hidden classes and
+  `conductorItems` early-returns on them, so both device glyphs and their
+  wires disappear together. Filtering is index-safe: both memos keep the
+  original `effectivePlacements` index used for `featureResults`/
+  `connectionResults` lookups, and `placementByKey`/`bounds` read the
+  unfiltered list, so conductor endpoint resolution and viewport fit are
+  unaffected by what's hidden.
+
 ## What's still open
 
-- **Multi-segment bus routing, not just a single-bend elbow.** Real
-  protection-scheme diagrams route wires off a shared vertical/
-  horizontal bus with T-junction taps, not just a point-to-point
-  right-angle connector -- `elbowPath` is a real improvement over a
-  straight line but still only connects exactly two placements.
-- **A real electrical-schematic symbol library.** The current icon set
-  (circle/square/triangle/diamond) is generic; a diagram like a
-  protection one-line needs ANSI device-number circles (27, 59, 50/51N,
-  86, 87, ...), CTs, PTs, disconnect switches, ground studs, and more --
-  a large, ongoing content task independent of the canvas's rendering
-  technology.
-- **Grouping/annotation boxes.** Real diagrams label logical groupings
-  (e.g. a relay panel) with a dashed box around several placements --
-  there's no such freeform, non-feature-backed annotation primitive in
-  the current data model (`diagram_placements` only ever points at a
-  real feature).
-- **Dual line semantics (power wiring vs. dashed control/trip
-  lines).** Every edge the canvas draws today comes from a real
-  `feature_connectivity` row. A protection scheme's dashed trip lines
-  with arrowheads aren't real network connectivity at all -- they're
-  schematic-only annotations, which the current model has no place for.
+- ~~**Multi-segment bus routing, not just a single-bend elbow.**~~
+  **Closed (Phase 24).** The `bus`/`tap` element kinds (migration 0050)
+  give a heavy multi-segment busbar and right-angle stub taps with a
+  T-junction dot -- real bus routing, no longer a point-to-point elbow.
+- ~~**A real electrical-schematic symbol library.**~~ **Closed
+  (Phase 24).** The `symbol` element kind (migration 0047) plus the ANSI
+  device-glyph library render the device-number circles, CTs/PTs,
+  switches, and ground studs a protection one-line needs.
+- ~~**Grouping/annotation boxes.**~~ **Closed (Phase 24).** The `box`
+  and `text` element kinds (migration 0046, `runtime.diagram_elements`)
+  are exactly the freeform, non-feature-backed annotation primitive that
+  was missing -- a dashed box around several placements, with a label.
+- ~~**Dual line semantics (power wiring vs. dashed control/trip
+  lines).**~~ **Addressed (Phase 46).** Two halves, both delivered: a
+  hand-drawn `control` element kind (migration 0084) draws a dashed,
+  arrowheaded schematic-only signal line by hand, and the canvas
+  additionally *derives* the same dashed-arrow lines from real
+  `protection_trip` / `protection_sensing` relationships between placed
+  features (a pure client render over `GET /relationships`, no schema
+  change). See docs/phase-46-control-trip-lines.md.
 - ~~No admin UI for authoring `DIAGRAM_TYPE` values, flipping
   `is_diagram_container`, or creating the first diagram instance for a
   container.~~ **Closed.** Turned out two of the three were already

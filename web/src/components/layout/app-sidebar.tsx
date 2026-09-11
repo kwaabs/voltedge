@@ -1,4 +1,4 @@
-import { Database, LandPlot, Layers, Link2, Map, Rows3, Settings, Shapes, Tags, UsersRound, Waypoints, Wrench, Zap } from "lucide-react"
+import { Cloud, Database, Inbox, LandPlot, Layers, Link2, Map, MapPin, Package, Rows3, Settings, Shapes, Stamp, Tags, UsersRound, Waypoints, Workflow, Wrench, Zap } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import {
@@ -40,9 +40,16 @@ const adminItems = [
   { to: "/admin/feature-classes", label: "Feature classes", icon: Layers, perm: "metadata:read" },
   { to: "/admin/domains", label: "Domains", icon: Tags, perm: "metadata:read" },
   { to: "/admin/field-groups", label: "Field groups", icon: Rows3, perm: "metadata:read" },
+  { to: "/admin/diagrams", label: "Diagram rules", icon: Workflow, perm: "metadata:read" },
   { to: "/admin/materials", label: "Materials", icon: Wrench, perm: "metadata:read" },
+  { to: "/admin/external-systems", label: "External systems", icon: Cloud, perm: "metadata:read" },
   { to: "/admin/symbology-icons", label: "Symbology icons", icon: Shapes, perm: "metadata:read" },
+  { to: "/admin/stencils", label: "Stencil promotion", icon: Stamp, perm: "metadata:read" },
   { to: "/admin/territories", label: "Territories", icon: LandPlot, perm: "territories:write" },
+  { to: "/admin/circuits", label: "Circuits", icon: Zap, perm: "circuits:write" },
+  { to: "/admin/field-packs", label: "Field packs", icon: Package, perm: "admin:field-packs" },
+  { to: "/admin/sync-review", label: "Sync review", icon: Inbox, perm: "sync:review" },
+  { to: "/admin/map-settings", label: "Map settings", icon: MapPin, perm: "metadata:write" },
   { to: "/admin/users", label: "Users", icon: UsersRound, perm: "admin:users" },
 ]
 

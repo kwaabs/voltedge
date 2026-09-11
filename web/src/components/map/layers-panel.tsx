@@ -1,4 +1,4 @@
-import { LandPlot, Layers, Shapes, Trash2 } from "lucide-react"
+import { LandPlot, Layers, PencilLine, Shapes, Tag, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -9,7 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useAllSymbology } from "@/hooks/use-all-symbology"
+import { useAllLabelDefs, useAllSymbology } from "@/hooks/use-all-symbology"
 import { useCatalog } from "@/hooks/use-catalog"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
@@ -18,8 +18,10 @@ import { territoryColorForRank } from "@/lib/map-layers"
 import { featureClassSourceIds } from "@/lib/martin"
 import { iconDataUri } from "@/lib/symbology-icons"
 import { resolveSymbology } from "@/lib/symbology"
+import { cn } from "@/lib/utils"
 import { useImportedOverlaysStore } from "@/stores/imported-overlays-store"
 import { useLayersStore } from "@/stores/layers-store"
+import { useMapAnnotationsStore } from "@/stores/map-annotations-store"
 import { useTerritoryOverlayStore } from "@/stores/territory-overlay-store"
 
 /** The mandatory class-level default rule's preview -- an icon for a
@@ -63,9 +65,12 @@ export function LayersPanel() {
   const { data: catalog } = useCatalog()
   const { data: featureClasses } = useFeatureClasses()
   const symbologyByClassCode = useAllSymbology()
+  const labelDefsByClassCode = useAllLabelDefs()
   const symbologyIcons = useSymbologyIcons()
   const hidden = useLayersStore((s) => s.hidden)
   const toggle = useLayersStore((s) => s.toggle)
+  const labelsHidden = useLayersStore((s) => s.labelsHidden)
+  const toggleLabels = useLayersStore((s) => s.toggleLabels)
   const territoryOverlayVisible = useTerritoryOverlayStore((s) => s.visible)
   const toggleTerritoryOverlay = useTerritoryOverlayStore((s) => s.toggle)
   const hiddenLevels = useTerritoryOverlayStore((s) => s.hiddenLevels)
@@ -73,6 +78,8 @@ export function LayersPanel() {
   const importedOverlays = useImportedOverlaysStore((s) => s.overlays)
   const toggleImported = useImportedOverlaysStore((s) => s.toggle)
   const removeImported = useImportedOverlaysStore((s) => s.remove)
+  const annotationsVisible = useMapAnnotationsStore((s) => s.visible)
+  const toggleAnnotations = useMapAnnotationsStore((s) => s.toggle)
   const { data: territoryLevels } = useTerritoryLevels()
   // Territories are auto-published by Martin but aren't a feature class --
   // they live in the Overlays section below, not this list (see
@@ -94,29 +101,59 @@ export function LayersPanel() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className="bg-background/90 gap-1.5 shadow-sm">
-          <Layers className="size-4" />
+          <Layers className="size-4 text-indigo-600" />
           Layers
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-52">
+      {/* Cap the menu at a bounded height and scroll -- the feature-class list
+          grows with every compiled class (20+ here) and would otherwise run off
+          the bottom of the viewport. max-h-[70vh] keeps it usable on short
+          screens; the whole list (headers included) scrolls as one. */}
+      <DropdownMenuContent align="end" className="max-h-[70vh] w-52 overflow-y-auto">
         <DropdownMenuLabel>Feature classes</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {sourceIds.length === 0 ? (
           <p className="text-muted-foreground px-2 py-1.5 text-sm">No layers compiled yet</p>
         ) : (
-          sourceIds.map((id) => (
-            <DropdownMenuCheckboxItem
-              key={id}
-              checked={!hidden[id]}
-              onSelect={(e) => e.preventDefault()}
-              onCheckedChange={() => toggle(id)}
-            >
-              <span className="flex min-w-0 items-center gap-1.5">
-                <LegendSwatch classCode={id.toUpperCase()} rules={symbologyByClassCode} icons={symbologyIcons} />
-                <span className="truncate">{nameByLowercaseCode.get(id) ?? id}</span>
-              </span>
-            </DropdownMenuCheckboxItem>
-          ))
+          sourceIds.map((id) => {
+            // Labels are only meaningful for a class that actually has a
+            // label template (Phase 30); the toggle is hidden otherwise so
+            // it never offers to turn off something that was never on.
+            const hasLabel = Boolean(labelDefsByClassCode[id.toUpperCase()]?.template)
+            const labelsOn = !labelsHidden[id]
+            return (
+              <DropdownMenuCheckboxItem
+                key={id}
+                checked={!hidden[id]}
+                onSelect={(e) => e.preventDefault()}
+                onCheckedChange={() => toggle(id)}
+              >
+                <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                  <LegendSwatch classCode={id.toUpperCase()} rules={symbologyByClassCode} icons={symbologyIcons} />
+                  <span className="truncate">{nameByLowercaseCode.get(id) ?? id}</span>
+                  {hasLabel && (
+                    <button
+                      type="button"
+                      aria-label={labelsOn ? `Hide ${nameByLowercaseCode.get(id) ?? id} labels` : `Show ${nameByLowercaseCode.get(id) ?? id} labels`}
+                      title={labelsOn ? "Hide labels" : "Show labels"}
+                      className={cn(
+                        "ml-auto shrink-0",
+                        labelsOn ? "text-foreground" : "text-muted-foreground/50",
+                      )}
+                      onClick={(e) => {
+                        // Stop the row's own visibility toggle / menu close.
+                        e.preventDefault()
+                        e.stopPropagation()
+                        toggleLabels(id)
+                      }}
+                    >
+                      <Tag className="size-3.5" />
+                    </button>
+                  )}
+                </span>
+              </DropdownMenuCheckboxItem>
+            )
+          })
         )}
 
         {/* The territory boundary overlay (Phase 11 Slice H) -- a single
@@ -158,6 +195,20 @@ export function LayersPanel() {
               </span>
             </DropdownMenuCheckboxItem>
           ))}
+
+        {/* The map-annotation (redlining) overlay (Phase 36) -- a single
+            non-feature layer of free-form markup, so a row in this Overlays
+            section beside Territories. Same no-close-on-toggle behavior. */}
+        <DropdownMenuCheckboxItem
+          checked={annotationsVisible}
+          onSelect={(e) => e.preventDefault()}
+          onCheckedChange={() => toggleAnnotations()}
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            <PencilLine className="size-4 shrink-0" style={{ color: "#dc2626" }} />
+            <span className="truncate">Annotations</span>
+          </span>
+        </DropdownMenuCheckboxItem>
 
         {/* Imported overlays (Phase 15 data import) -- user-supplied reference
             layers, each toggleable and removable. Only shown once at least one

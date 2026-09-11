@@ -36,6 +36,31 @@ type featureRef struct {
 	FeatureID    string `json:"feature_id"`
 }
 
+// tracedFeature is one node in a trace's Features list, enriched past the
+// bare featureRef with the two attributes a trace reader most often wants
+// alongside "what did the walk reach": the feature's stored circuit
+// membership (Phase 37) and its nominal operating voltage. All three extras
+// are omitempty -- a class carrying neither a circuit_id field nor any
+// voltage-class field (a POLE, a plain busbar), or one carrying the field
+// with no value set on this particular feature, reports just its ref.
+//
+// CircuitID is the stored circuit_id uuid, CircuitRef the human circuit name
+// (circuit_ref) the Phase 37 assign stamps alongside it. NominalVoltageV is
+// the element's own nameplate/operating voltage in volts -- a conductor's
+// voltage_class, a transformer's primary (source-side) voltage -- the
+// topology-intrinsic voltage a trace can know from stored attributes without
+// a load-flow solve. Deliberately NOT a computed per-node voltage: that only
+// a power-flow run produces, and this engine stays decoupled from powerflow
+// (see this package's own doc), so a client that wants computed voltages
+// overlays them from a load-flow result itself.
+type tracedFeature struct {
+	FeatureClass    string   `json:"feature_class"`
+	FeatureID       string   `json:"feature_id"`
+	CircuitID       string   `json:"circuit_id,omitempty"`
+	CircuitRef      string   `json:"circuit_ref,omitempty"`
+	NominalVoltageV *float64 `json:"nominal_voltage_v,omitempty"`
+}
+
 // traceRequest is the POST /trace body. Target is only meaningful (and
 // required) when the named trace_configurations row's direction is
 // SHORTEST_PATH -- validated in runTrace, not here, since knowing that
@@ -62,15 +87,19 @@ type traceRequest struct {
 // PathFound is only set for a SHORTEST_PATH trace. Targets is the
 // subset of Features whose feature class matched, e.g. every
 // transformer a "trace to transformer" run reached.
+// Features carries the enriched tracedFeature shape (circuit + nominal
+// voltage); Barriers/Targets stay bare featureRefs, since both are subsets
+// of Features a client cross-references by class:id rather than re-reading
+// the enrichment off.
 type traceResponse struct {
-	TraceConfiguration string       `json:"trace_configuration"`
-	Direction          string       `json:"direction"`
-	Start              featureRef   `json:"start"`
-	Features           []featureRef `json:"features"`
-	Barriers           []featureRef `json:"barriers"`
-	PathFound          *bool        `json:"path_found,omitempty"`
-	Targets            []featureRef `json:"targets,omitempty"`
-	TargetsFound       *bool        `json:"targets_found,omitempty"`
+	TraceConfiguration string          `json:"trace_configuration"`
+	Direction          string          `json:"direction"`
+	Start              featureRef      `json:"start"`
+	Features           []tracedFeature `json:"features"`
+	Barriers           []featureRef    `json:"barriers"`
+	PathFound          *bool           `json:"path_found,omitempty"`
+	Targets            []featureRef    `json:"targets,omitempty"`
+	TargetsFound       *bool           `json:"targets_found,omitempty"`
 }
 
 // traceConfigurationSummary is one row of GET /trace/configurations --

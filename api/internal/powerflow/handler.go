@@ -16,9 +16,16 @@ import (
 //	                        per-branch loading
 //	POST   /fault-current   accumulate series impedance from one source
 //	                        feature, returning the symmetrical bolted-
-//	                        fault current at every downstream node
+//	                        fault current at every downstream node; with
+//	                        fault_type = "slg" it also builds the zero-
+//	                        sequence network and returns the single-line-
+//	                        to-ground fault current per node
 //	POST   /ampacity        first-principles (IEEE 738) steady-state
 //	                        thermal ampacity for one conductor feature
+//	POST   /coordination    grade the time-overcurrent protective devices
+//	                        on the source->fault path for a fault at one
+//	                        node, checking each backup clears its primary
+//	                        by at least the coordination time interval
 //
 // Read-only, same as api/internal/trace -- neither route ever writes
 // anything, they only compute over what api/internal/connectivity and
@@ -28,6 +35,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/load-flow", loadFlowHandler(db))
 	r.Post("/fault-current", faultCurrentHandler(db))
 	r.Post("/ampacity", ampacityHandler(db))
+	r.Post("/coordination", coordinationHandler(db))
 	return r
 }
 
@@ -74,6 +82,23 @@ func ampacityHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := runAmpacity(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func coordinationHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req coordinationRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runCoordination(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

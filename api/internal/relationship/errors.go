@@ -1,6 +1,9 @@
 package relationship
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // validationError/notFoundError mirror api/internal/crud and
 // api/internal/connectivity's identical pattern -- kept as this
@@ -18,6 +21,15 @@ func invalid(format string, args ...any) error {
 func isValidationError(err error) bool {
 	_, ok := err.(*validationError)
 	return ok
+}
+
+// IsValidationError lets another package (api/internal/panel's composite create)
+// map a relationship validation failure -- no matching relationship class for the
+// pairing, or a cardinality already exhausted -- to a 400 without exporting the
+// error-type hierarchy. errors.As so a %w-wrapped error still classifies.
+func IsValidationError(err error) bool {
+	var ve *validationError
+	return errors.As(err, &ve)
 }
 
 type notFoundError struct{ msg string }

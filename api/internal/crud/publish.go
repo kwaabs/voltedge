@@ -151,5 +151,20 @@ func setStatus(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id, sta
 	if len(results) == 0 {
 		return nil, notFound("feature %s not found", id)
 	}
-	return formatRow(loaded, results[0])
+	out, err := formatRow(loaded, results[0])
+	if err != nil {
+		return nil, err
+	}
+	// Audit trail (Phase 41): record the transition by its direction, so the
+	// timeline distinguishes a publish from an unpublish without reading status
+	// out of the snapshot. "published" is the only publish target; every other
+	// value (today just "draft") is an unpublish.
+	action := historyUnpublish
+	if status == "published" {
+		action = historyPublish
+	}
+	if err := recordFeatureHistory(ctx, db, loaded, action, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

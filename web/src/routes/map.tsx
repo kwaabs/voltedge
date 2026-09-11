@@ -1,9 +1,12 @@
-import { ArrowDown, ArrowUp, Download, Search, Sparkles, Upload } from "lucide-react"
+import { ArrowDown, ArrowUp, ChevronRight, Download, Search, SlidersHorizontal, Sparkles, Upload, X } from "lucide-react"
+import { useState } from "react"
 
 import { AmpacityPanel } from "@/components/map/ampacity-panel"
+import { AnnotationEditPanel } from "@/components/map/annotation-edit-panel"
 import { AssistantChat } from "@/components/map/assistant-chat"
 import { AssistantSuggestions } from "@/components/map/assistant-suggestions"
 import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
+import { CoordinationPanel } from "@/components/map/coordination-panel"
 import { DiagramCanvas } from "@/components/map/diagram-canvas"
 import { ExportDialog } from "@/components/map/export-dialog"
 import { ExportJobsPanel } from "@/components/map/export-jobs-panel"
@@ -17,6 +20,7 @@ import { IsolationResultTable } from "@/components/map/isolation-result-table"
 import { LayersPanel } from "@/components/map/layers-panel"
 import { LoadFlowPanel } from "@/components/map/load-flow-panel"
 import { MeasureToolbar } from "@/components/map/measure-toolbar"
+import { NewAnnotationMenu } from "@/components/map/new-annotation-menu"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
 import { PeerPicker } from "@/components/map/peer-picker"
 import { StatusBar } from "@/components/map/status-bar"
@@ -27,6 +31,7 @@ import { VoltEdgeMap } from "@/components/map/voltedge-map"
 import { Button } from "@/components/ui/button"
 import { useAssistantStatus } from "@/hooks/use-assistant"
 import { useDiagramInstance } from "@/hooks/use-diagrams"
+import { useMapSettings } from "@/hooks/use-map-settings"
 import { cn } from "@/lib/utils"
 import { useAssistantChatStore } from "@/stores/assistant-chat-store"
 import { type DiagramPane, useDiagramStore } from "@/stores/diagram-store"
@@ -39,64 +44,115 @@ export function MapPage() {
   const bottomTabs = useDiagramStore((s) => s.panes.bottom)
   const diagramOpen = topTabs.length > 0 || bottomTabs.length > 0
   const split = topTabs.length > 0 && bottomTabs.length > 0
+  // Full-page diagram: one diagram fills the width (map hidden), the rest
+  // collapse into a carousel tab strip. Guard against a stale id whose diagram
+  // has since closed.
+  const maximizedId = useDiagramStore((s) => s.maximizedId)
+  const maximized = maximizedId != null && (topTabs.includes(maximizedId) || bottomTabs.includes(maximizedId))
   const queryOpen = useQueryStore((s) => s.open)
   const chatOpen = useAssistantChatStore((s) => s.open)
   // The chat toolbar entry only appears when the server has a model configured;
   // the deterministic suggestions work regardless, so a model-less deployment
   // simply never shows a chat box (see use-assistant.ts).
   const chatEnabled = useAssistantStatus().data?.chat_enabled ?? false
+  // The admin-configured default view. The map builds its View once at mount, so
+  // hold the map back until this settles (success or error) rather than mounting
+  // on the placeholder and re-centering -- that would flash and could race an
+  // early user pan. On error we still mount, falling back to the client default.
+  const mapSettings = useMapSettings()
+  // The top-right control cluster grows with every feature (Query, Import,
+  // Export, Assistant, Measure, New feature, New annotation, Layers ...) and
+  // was crowding the map. Collapse tucks it behind a single button so the
+  // canvas is unobstructed; local state -- it's a per-view toggle, not worth
+  // persisting.
+  const [controlsCollapsed, setControlsCollapsed] = useState(true)
 
   return (
     <div className="flex h-full w-full flex-col">
       <div className="flex min-h-0 flex-1">
-        <div className="relative min-h-0 flex-1">
+        <div className={cn("relative min-h-0", maximized ? "hidden" : "flex-1")}>
           <div className="pointer-events-auto absolute top-3 right-3 z-10 flex items-center gap-2">
-            <Button
-              variant={queryOpen ? "default" : "secondary"}
-              size="sm"
-              className="shadow-sm"
-              onClick={() => useQueryStore.getState().toggle()}
-            >
-              <Search className="size-3.5" /> Query
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="shadow-sm"
-              onClick={() => useImportStore.getState().openDialog()}
-            >
-              <Upload className="size-3.5" /> Import
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="shadow-sm"
-              onClick={() => useExportStore.getState().openDialog()}
-            >
-              <Download className="size-3.5" /> Export
-            </Button>
-            {chatEnabled && (
+            {controlsCollapsed ? (
               <Button
-                variant={chatOpen ? "default" : "secondary"}
+                variant="secondary"
                 size="sm"
                 className="shadow-sm"
-                onClick={() => useAssistantChatStore.getState().toggle()}
+                title="Show controls"
+                onClick={() => setControlsCollapsed(false)}
               >
-                <Sparkles className="size-3.5" /> Assistant
+                <SlidersHorizontal className="text-primary size-3.5" /> Controls
               </Button>
+            ) : (
+              <>
+                <Button
+                  variant={queryOpen ? "default" : "secondary"}
+                  size="sm"
+                  className="shadow-sm"
+                  onClick={() => useQueryStore.getState().toggle()}
+                >
+                  <Search className={cn("size-3.5", !queryOpen && "text-sky-600")} /> Query
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="shadow-sm"
+                  onClick={() => useImportStore.getState().openDialog()}
+                >
+                  <Upload className="size-3.5 text-emerald-600" /> Import
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="shadow-sm"
+                  onClick={() => useExportStore.getState().openDialog()}
+                >
+                  <Download className="size-3.5 text-amber-600" /> Export
+                </Button>
+                {chatEnabled && (
+                  <Button
+                    variant={chatOpen ? "default" : "secondary"}
+                    size="sm"
+                    className="shadow-sm"
+                    onClick={() => useAssistantChatStore.getState().toggle()}
+                  >
+                    <Sparkles className={cn("size-3.5", !chatOpen && "text-violet-600")} /> Assistant
+                  </Button>
+                )}
+                <MeasureToolbar />
+                <NewFeatureMenu />
+                <NewAnnotationMenu />
+                <LayersPanel />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="bg-background/90 size-8 shadow-sm"
+                  title="Hide controls"
+                  onClick={() => setControlsCollapsed(true)}
+                >
+                  <ChevronRight className="size-4" />
+                  <span className="sr-only">Hide controls</span>
+                </Button>
+              </>
             )}
-            <MeasureToolbar />
-            <NewFeatureMenu />
-            <LayersPanel />
           </div>
-          <VoltEdgeMap />
+          {!mapSettings.isPending && (
+            <VoltEdgeMap
+              initialCenter={
+                mapSettings.data ? [mapSettings.data.center_lng, mapSettings.data.center_lat] : undefined
+              }
+              initialZoom={mapSettings.data?.zoom}
+            />
+          )}
         </div>
-        {diagramOpen && (
-          <div className="flex h-full w-2/5 min-w-80 shrink-0 flex-col divide-y">
-            {topTabs.length > 0 && <DiagramColumn pane="top" heightClass={split ? "h-1/2" : "h-full"} />}
-            {bottomTabs.length > 0 && <DiagramColumn pane="bottom" heightClass={split ? "h-1/2" : "h-full"} />}
-          </div>
-        )}
+        {diagramOpen &&
+          (maximized ? (
+            <MaximizedDiagram />
+          ) : (
+            <div className="flex h-full w-2/5 min-w-80 shrink-0 flex-col divide-y">
+              {topTabs.length > 0 && <DiagramColumn pane="top" heightClass={split ? "h-1/2" : "h-full"} />}
+              {bottomTabs.length > 0 && <DiagramColumn pane="bottom" heightClass={split ? "h-1/2" : "h-full"} />}
+            </div>
+          ))}
       </div>
       {queryOpen && <FeatureQueryPanel />}
       <ExportDialog />
@@ -111,11 +167,13 @@ export function MapPage() {
       <AssistantChat />
       <GeometryEditToolbar />
       <TerritoryEditToolbar />
+      <AnnotationEditPanel />
       <TraceResultTable />
       <IsolationResultTable />
       <LoadFlowPanel />
       <FaultCurrentPanel />
       <AmpacityPanel />
+      <CoordinationPanel />
       <StatusBar />
     </div>
   )
@@ -150,6 +208,63 @@ function DiagramColumn({ pane, heightClass }: { pane: DiagramPane; heightClass: 
       <div className="min-h-0 flex-1">
         {activeId && <DiagramCanvas diagramId={activeId} onClose={() => useDiagramStore.getState().close(activeId)} />}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Full-page ("maximized") diagram view -- one diagram fills the whole diagram
+ * area while the map is hidden. Every other open diagram (across both panes)
+ * becomes a tab in a single strip, so maximizing turns the split into a
+ * carousel rather than stacking diagrams. Switching a tab just re-points
+ * `maximizedId`; the pane layout underneath is untouched, so restoring
+ * (the header's Exit-full-page button) returns to exactly the prior split.
+ */
+function MaximizedDiagram() {
+  const topTabs = useDiagramStore((s) => s.panes.top)
+  const bottomTabs = useDiagramStore((s) => s.panes.bottom)
+  const maximizedId = useDiagramStore((s) => s.maximizedId)
+  const ids = [...topTabs, ...bottomTabs]
+  const activeId = maximizedId && ids.includes(maximizedId) ? maximizedId : (ids[0] ?? null)
+  if (!activeId) return null
+
+  return (
+    <div className="flex h-full w-full min-w-0 flex-col">
+      {ids.length > 1 && (
+        <div className="bg-muted/30 flex shrink-0 items-center gap-0.5 overflow-x-auto border-b px-1">
+          {ids.map((id) => (
+            <MaximizedTab key={id} diagramId={id} active={id === activeId} />
+          ))}
+        </div>
+      )}
+      <div className="min-h-0 flex-1">
+        <DiagramCanvas diagramId={activeId} onClose={() => useDiagramStore.getState().close(activeId)} />
+      </div>
+    </div>
+  )
+}
+
+function MaximizedTab({ diagramId, active }: { diagramId: string; active: boolean }) {
+  const { data: instance } = useDiagramInstance(diagramId)
+
+  return (
+    <div
+      className={cn(
+        "group flex shrink-0 items-center gap-1 border-b-2 px-2 py-1 text-xs",
+        active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+      )}
+    >
+      <button onClick={() => useDiagramStore.getState().maximize(diagramId)} className="max-w-40 truncate">
+        {instance?.name || instance?.diagram_type || "Diagram"}
+      </button>
+      <button
+        onClick={() => useDiagramStore.getState().close(diagramId)}
+        title="Close diagram"
+        className="opacity-0 group-hover:opacity-100"
+      >
+        <X className="size-3" />
+        <span className="sr-only">Close diagram</span>
+      </button>
     </div>
   )
 }

@@ -23,11 +23,46 @@ type FeatureClass struct {
 	GeometryType       string  `bun:"geometry_type"`
 	SRID               *int    `bun:"srid"`
 	NetworkRole        string  `bun:"network_role"`
-	PhysicalTable      *string `bun:"physical_table"`
-	Status             string  `bun:"status"`
-	IsDiagramContainer bool    `bun:"is_diagram_container"`
-	IsDiagramPlaceable bool    `bun:"is_diagram_placeable"`
-	MetadataVersionID  *string `bun:"metadata_version_id"`
+	PhysicalTable       *string `bun:"physical_table"`
+	Status              string  `bun:"status"`
+	IsDiagramContainer  bool    `bun:"is_diagram_container"`
+	IsDiagramPlaceable  bool    `bun:"is_diagram_placeable"`
+	GeometryOptional    bool    `bun:"geometry_optional"`
+	DiagramGeometryType *string `bun:"diagram_geometry_type"`
+	MetadataVersionID   *string `bun:"metadata_version_id"`
+	// Phase 30 map label config (free-form jsonb, nullable) -- passed
+	// through untouched to the schema endpoint, like symbology style_def.
+	// nullzero so a cleared config (nil RawMessage) writes SQL NULL rather
+	// than a JSONB 'null' literal; a real object is non-zero and written
+	// verbatim.
+	LabelDef json.RawMessage `bun:"label_def,nullzero"`
+	// Network is the class's nominal voltage namespace, "MV" or "LV", or nil
+	// for structural / cross-network / unclassified classes (migration 0064,
+	// Phase 37 Slice 2). Distinct from NetworkRole, which is the class's
+	// connectivity role (edge/junction/container/none) -- orthogonal to
+	// voltage. Scopes the circuit_id picker to same-network circuits. Like
+	// label_def it's pure metadata (the compiler's DDL never reads it) that
+	// just rides along on this struct-model select.
+	Network *string `bun:"network"`
+	// Category is the admin-defined display grouping used to section the
+	// map's "New feature" menu (migration 0074) -- free text, nil for an
+	// uncategorised class (shown under "Other"). Pure presentation metadata:
+	// unrelated to NetworkRole (topology) or Network (voltage), and the
+	// compiler's DDL never reads it -- like label_def/network it just rides
+	// along on this struct-model select.
+	Category *string `bun:"category"`
+}
+
+// DiagramGeom returns how this class is drawn on a diagram: its
+// diagram_geometry_type override when set, else its geographic
+// GeometryType (migration 0053). The busbar case sets the override to
+// "line" so a point junction reads as a spanning bar on the one-line
+// without changing the map shape.
+func (fc *FeatureClass) DiagramGeom() string {
+	if fc.DiagramGeometryType != nil && *fc.DiagramGeometryType != "" {
+		return *fc.DiagramGeometryType
+	}
+	return fc.GeometryType
 }
 
 // Field mirrors metadata.fields -- see migrations/0008. Only rows with
@@ -111,6 +146,24 @@ type DomainValue struct {
 	MaterialSpecID *string `bun:"material_spec_id"`
 }
 
+// DomainTransition mirrors metadata.domain_transitions -- see migration 0065.
+// One row = one legal edge in a coded domain's state machine: a field backed by
+// DomainID may change its value from FromValueID to ToValueID, and no other move
+// between two set values is allowed. A domain with no rows is unconstrained --
+// the default for every coded domain (device_state, phase, ...), so the update
+// path enforces edges only when some exist. Phase 38 Slice 2 wires
+// OPERATIONAL_STATE's lifecycle this way; the mechanism is generic. Value ids
+// (not codes) are stored, the same FK shape trace_barrier_rules.halts_on_value_id
+// uses; metadata.Load resolves them back to codes for the CRUD check.
+type DomainTransition struct {
+	bun.BaseModel `bun:"table:metadata.domain_transitions"`
+
+	ID          string `bun:"id,pk"`
+	DomainID    string `bun:"domain_id"`
+	FromValueID string `bun:"from_value_id"`
+	ToValueID   string `bun:"to_value_id"`
+}
+
 // MaterialSpec mirrors metadata.material_specs -- see migrations/0021.
 // A catalog of real physical/electrical properties (resistance,
 // ampacity, ...) for one material+size combination, e.g. ACSR_50.
@@ -129,6 +182,13 @@ type MaterialSpec struct {
 	ResistanceOhmPerKm *float64 `bun:"resistance_ohm_per_km"`
 	ReactanceOhmPerKm  *float64 `bun:"reactance_ohm_per_km"`
 	AmpacityAmps       *float64 `bun:"ampacity_amps"`
+
+	// Zero-sequence series impedance per km (migrations/0071), the earth-return
+	// counterparts of the two positive-sequence columns above -- read by the
+	// single-line-to-ground calc (api/internal/powerflow/groundfault.go). NULL on
+	// either falls back to the engine's 3x-positive-sequence default.
+	ResistanceZeroOhmPerKm *float64 `bun:"resistance_zero_ohm_per_km"`
+	ReactanceZeroOhmPerKm  *float64 `bun:"reactance_zero_ohm_per_km"`
 	DiameterMm         *float64 `bun:"diameter_mm"`
 	WeightKgPerKm      *float64 `bun:"weight_kg_per_km"`
 
@@ -143,6 +203,13 @@ type MaterialSpec struct {
 	Emissivity                    *float64 `bun:"emissivity"`
 	Absorptivity                  *float64 `bun:"absorptivity"`
 	ResistanceTempCoefficientPerC *float64 `bun:"resistance_temp_coefficient_per_c"`
+
+	// migrations/0060 -- optional cost, bare numeric in the house currency.
+	// CostPerKm suits the per-length line materials this table holds today;
+	// UnitCost is a flat per-item price for a material catalogued per piece.
+	// Nothing consumes these yet -- catalog data ready for a future estimate.
+	CostPerKm *float64 `bun:"cost_per_km"`
+	UnitCost  *float64 `bun:"unit_cost"`
 }
 
 // FieldGroup mirrors metadata.field_groups -- see migrations/0005. A
@@ -252,6 +319,12 @@ type TraceConfiguration struct {
 	CrossTransformers bool    `bun:"cross_transformers"`
 	RespectPhase      bool    `bun:"respect_phase"`
 	TargetClassID     *string `bun:"target_class_id"`
+	// ScopeToCircuit (migration 0069) confines the walk to the start feature's
+	// stored circuit membership: when true, api/internal/trace admits a node
+	// only when its live circuit_id equals the start's. Orthogonal to direction
+	// and barriers, the same way TargetClassID is -- a "trace the circuit"
+	// primitive layered on a CONNECTED walk.
+	ScopeToCircuit bool `bun:"scope_to_circuit"`
 }
 
 // TraceBarrierRule mirrors metadata.trace_barrier_rules -- see
@@ -296,6 +369,93 @@ type SymbologyIcon struct {
 
 	IconRef string `bun:"icon_ref,pk"`
 	SVG     string `bun:"svg"`
+}
+
+// DiagramStencil mirrors metadata.diagram_stencils (migration 0048) -- one
+// entry in the diagram symbol stencil palette (Phase 24 Slice 2). IconRef is
+// an FK into metadata.symbology_icons: the SVG artwork is shared with feature
+// symbology rules, this row only marks the glyph as a palette stencil and
+// gives it a label/category/order. Served whole (like SymbologyIcon) and
+// resolved client-side.
+type DiagramStencil struct {
+	bun.BaseModel `bun:"table:metadata.diagram_stencils"`
+
+	IconRef   string `bun:"icon_ref,pk"`
+	Label     string `bun:"label"`
+	Category  string `bun:"category"`
+	SortOrder int    `bun:"sort_order"`
+	// PromoteClass is the feature class code a stamped symbol of this stencil
+	// can be promoted into (Phase 25, migration 0051), or nil when the stencil
+	// is decoration only. A code, not an FK -- resolved at promote time.
+	PromoteClass *string `bun:"promote_class"`
+}
+
+// PanelTemplate mirrors metadata.panel_templates -- see migration 0072. One
+// device-fan-out recipe per (panel feature class × panel role): placing a panel
+// of that class and role creates the device set its items list. Phase 42 Slice
+// 2 wires MV_SWITCHGEAR_PANEL's per-role recipes; the mechanism is generic.
+type PanelTemplate struct {
+	bun.BaseModel `bun:"table:metadata.panel_templates"`
+
+	ID                  string `bun:"id,pk"`
+	PanelFeatureClassID string `bun:"panel_feature_class_id"`
+	RoleValueID         string `bun:"role_value_id"`
+	Name                string `bun:"name"`
+}
+
+// PanelTemplateItem mirrors metadata.panel_template_items -- see migration 0072.
+// One device a template fans out: the class to create, its subtype, the default
+// attribute values its required fields need (so the created feature passes the
+// same validation a manual create does), and where it sits on the board mimic
+// relative to the panel's own column (drawn by Phase 42 Slice 3).
+type PanelTemplateItem struct {
+	bun.BaseModel `bun:"table:metadata.panel_template_items"`
+
+	ID                   string          `bun:"id,pk"`
+	TemplateID           string          `bun:"template_id"`
+	DeviceFeatureClassID string          `bun:"device_feature_class_id"`
+	SubtypeCode          *int            `bun:"subtype_code"`
+	Attributes           json.RawMessage `bun:"attributes"`
+	Position             int             `bun:"position"`
+	OffsetX              float64         `bun:"offset_x"`
+	OffsetY              float64         `bun:"offset_y"`
+	Rotation             float64         `bun:"rotation"`
+}
+
+// PanelTemplateDevice is one template item resolved for the fan-out: the device
+// class Code (not id, so the caller can metadata.Load it), its subtype and
+// decoded default attributes, and its mimic offset. LoadPanelTemplate returns
+// these in position order -- the ready-to-create device list for one panel role.
+type PanelTemplateDevice struct {
+	DeviceFeatureClass string
+	SubtypeCode        *int
+	Attributes         map[string]any
+	OffsetX            float64
+	OffsetY            float64
+	Rotation           float64
+}
+
+// RMUTemplateWay is one switched way resolved for the RMU fan-out: the way
+// class Code (not id, so the caller can metadata.Load it), its subtype and
+// decoded default attributes, the terminal wired to the internal bus, and its
+// mimic offset. LoadRMUTemplate returns these in position order.
+type RMUTemplateWay struct {
+	WayFeatureClass string
+	SubtypeCode     *int
+	Attributes      map[string]any
+	BusTerminal     string
+	OffsetX         float64
+	OffsetY         float64
+	Rotation        float64
+}
+
+// RMUTemplateResolved is one RMU configuration recipe ready for the fan-out:
+// the single internal bus class to create once, plus the ways in position
+// order. Unlike a panel template (containment only), it also names each way's
+// bus-side terminal so the fan-out can wire the internal connectivity.
+type RMUTemplateResolved struct {
+	BusbarFeatureClass string
+	Ways               []RMUTemplateWay
 }
 
 // Version mirrors metadata.metadata_versions -- see migrations/0006.

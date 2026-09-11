@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 470" font-family="Segoe UI, Arial, sans-serif">
+  <rect x="0" y="0" width="820" height="470" fill="#0d1420"/>
+  <text x="24" y="34" fill="#e6edf3" font-size="17" font-weight="600">Double-Busbar Substation — one-line (diagram view)</text>
+  <text x="24" y="54" fill="#8695a8" font-size="12">Map holds ONE substation feature · everything below lives in its diagram</text>
+
+  <!-- ===================== BUSES ===================== -->
+  <line x1="60" y1="90"  x2="770" y2="90"  stroke="#4aa3ff" stroke-width="6"/>
+  <line x1="60" y1="170" x2="770" y2="170" stroke="#f5a623" stroke-width="6"/>
+  <text x="60" y="82"  fill="#4aa3ff" font-size="13" font-weight="600">BUS A (MV_BUSBAR)</text>
+  <text x="60" y="188" fill="#f5a623" font-size="13" font-weight="600">BUS B (MV_BUSBAR)</text>
+
+  <!-- ===================== INCOMER (X=130, selects A) ===================== -->
+  <!-- Bus A selector (closed) -->
+  <circle cx="116" cy="90" r="3" fill="#4aa3ff"/>
+  <line x1="116" y1="90" x2="116" y2="120" stroke="#93a1b5" stroke-width="2"/>
+  <path d="M116 148 L116 164 A6 6 0 0 1 116 176 L116 240" fill="none" stroke="#93a1b5" stroke-width="2"/>
+  <line x1="116" y1="240" x2="130" y2="268" stroke="#93a1b5" stroke-width="2"/>
+  <circle cx="116" cy="120" r="2" fill="#cbd5e1"/><circle cx="116" cy="148" r="2" fill="#cbd5e1"/>
+  <line x1="116" y1="148" x2="116" y2="120" stroke="#37c871" stroke-width="3"/>
+  <!-- Bus B selector (open) -->
+  <circle cx="144" cy="170" r="3" fill="#f5a623"/>
+  <line x1="144" y1="170" x2="144" y2="190" stroke="#93a1b5" stroke-width="2"/>
+  <line x1="144" y1="218" x2="144" y2="240" stroke="#93a1b5" stroke-width="2"/>
+  <line x1="144" y1="240" x2="130" y2="268" stroke="#93a1b5" stroke-width="2"/>
+  <circle cx="144" cy="190" r="2" fill="#cbd5e1"/><circle cx="144" cy="218" r="2" fill="#cbd5e1"/>
+  <line x1="144" y1="218" x2="129" y2="193" stroke="#64748b" stroke-width="3"/>
+  <!-- node + breaker + terminal -->
+  <circle cx="130" cy="268" r="3" fill="#93a1b5"/>
+  <line x1="130" y1="268" x2="130" y2="292" stroke="#93a1b5" stroke-width="2"/>
+  <rect x="119" y="292" width="22" height="26" fill="none" stroke="#d5deea" stroke-width="2"/>
+  <line x1="130" y1="318" x2="130" y2="362" stroke="#93a1b5" stroke-width="2"/>
+  <polygon points="124,374 136,374 130,362" fill="#93a1b5"/>
+  <text x="130" y="392" fill="#c7d2e0" font-size="12" text-anchor="middle">INCOMER</text>
+
+  <!-- ===================== FEEDER 1 (X=330, selects A) ===================== -->
+  <circle cx="316" cy="90" r="3" fill="#4aa3ff"/>
+  <line x1="316" y1="90" x2="316" y2="120" stroke="#93a1b5" stroke-width="2"/>
+  <path d="M316 148 L316 164 A6 6 0 0 1 316 176 L316 240" fill="none" stroke="#93a1b5" stroke-width="2"/>
+  <line x1="316" y1="240" x2="330" y2="268" stroke="#93a1b5" stroke-width="2"/>
+  <circle cx="316" cy="120" r="2" fill="#cbd5e1"/><circle cx="316" cy="148" r="2" fill="#cbd5e1"/>
+  <line x1="316" y1="148" x2="316" y2="120" stroke="#37c871" stroke-width="3"/>
+  <circle cx="344" cy="170" r="3" fill="#f5a623"/>
+  <line x1="344" y1="170" x2="344" y2="190" stroke="#93a1b5" stroke-width="2"/>
+  <line x1="344" y1="218" x2="344" y2="240" stroke="#93a1b5" stroke-width="2"/>
+  <line x1="344" y1="240" x2="330" y2="268" stroke="#93a1b5" stroke-width="2"/>
+  <circle cx="344" cy="190" r="2" fill="#cbd5e1"/><circle cx="344" cy="218" r="2" fill="#cbd5e1"/>
+  <line x1="344" y1="218" x2="329" y2="193" stroke="#64748b" stroke-width="3"/>
+  <circle cx="330" cy="268" r="3" fill="#93a1b5"/>
+  <line x1="330" y1="268" x2="330" y2="292" stroke="#93a1b5" stroke-width="2"/>
+  <rect x="319" y="292" width="22" height="26" fill="none" stroke="#d5deea" stroke-width="2"/>
+  <line x1="330" y1="318" x2="330" y2="362" stroke="#93a1b5" stroke-width="2"/>
+  <polygon points="324,362 336,362 330,374" fill="#93a1b5"/>
+  <text x="330" y="392" fill="#c7d2e0" font-size="12" text-anchor="middle">FEEDER 1</text>
+
+  <!-- ===================== FEEDER 2 (X=500, selects B) ===================== -->
+  <circle cx="486" cy="90" r="3" fill="#4aa3ff"/>
+  <line x1="486" y1="90" x2="486" y2="120" stroke="#93a1b5" stroke-width="2"/>
+  <path d="M486 148 L486 164 A6 6 0 0 1 486 176 L486 240" fill="none" stroke="#93a1b5" stroke-width="2"/>
+  <line x1="486" y1="240" x2="500" y2="268" stroke="#93a1b5" stroke-width="2"/>
+  <circle cx="486" cy="120" r="2" fill="#cbd5e1"/><circle cx="486" cy="148" r="2" fill="#cbd5e1"/>
+  <line x1="486" y1="148" x2="471" y2="123" stroke="#64748b" stroke-width="3"/>
+  <circle cx="514" cy="170" r="3" fill="#f5a623"/>
+  <line x1="514" y1="170" x2="514" y2="190" stroke="#93a1b5" stroke-width="2"/>
+  <line x1="514" y1="218" x2="514" y2="240" stroke="#93a1b5" stroke-width="2"/>
+  <line x1="514" y1="240" x2="500" y2="268" stroke="#93a1b5" stroke-width="2"/>
+  <circle cx="514" cy="190" r="2" fill="#cbd5e1"/><circle cx="514" cy="218" r="2" fill="#cbd5e1"/>
+  <line x1="514" y1="218" x2="514" y2="190" stroke="#37c871" stroke-width="3"/>
+  <circle cx="500" cy="268" r="3" fill="#93a1b5"/>
+  <line x1="500" y1="268" x2="500" y2="292" stroke="#93a1b5" stroke-width="2"/>
+  <rect x="489" y="292" width="22" height="26" fill="none" stroke="#d5deea" stroke-width="2"/>
+  <line x1="500" y1="318" x2="500" y2="362" stroke="#93a1b5" stroke-width="2"/>
+  <polygon points="494,362 506,362 500,374" fill="#93a1b5"/>
+  <text x="500" y="392" fill="#c7d2e0" font-size="12" text-anchor="middle">FEEDER 2</text>
+
+  <!-- ===================== BUS COUPLER (X=690, closed) ===================== -->
+  <circle cx="690" cy="90" r="3" fill="#4aa3ff"/>
+  <circle cx="690" cy="170" r="3" fill="#f5a623"/>
+  <line x1="690" y1="90" x2="690" y2="102" stroke="#93a1b5" stroke-width="2"/>
+  <line x1="690" y1="118" x2="690" y2="122" stroke="#93a1b5" stroke-width="2"/>
+  <rect x="679" y="122" width="22" height="26" fill="none" stroke="#d5deea" stroke-width="2"/>
+  <line x1="690" y1="148" x2="690" y2="152" stroke="#93a1b5" stroke-width="2"/>
+  <line x1="690" y1="168" x2="690" y2="170" stroke="#93a1b5" stroke-width="2"/>
+  <circle cx="690" cy="102" r="2" fill="#cbd5e1"/><circle cx="690" cy="118" r="2" fill="#cbd5e1"/>
+  <circle cx="690" cy="152" r="2" fill="#cbd5e1"/><circle cx="690" cy="168" r="2" fill="#cbd5e1"/>
+  <line x1="690" y1="118" x2="690" y2="102" stroke="#37c871" stroke-width="3"/>
+  <line x1="690" y1="168" x2="690" y2="152" stroke="#37c871" stroke-width="3"/>
+  <text x="718" y="128" fill="#c7d2e0" font-size="12">BUS</text>
+  <text x="718" y="143" fill="#c7d2e0" font-size="12">COUPLER</text>
+
+  <!-- ===================== LEGEND ===================== -->
+  <line x1="24" y1="425" x2="44" y2="425" stroke="#37c871" stroke-width="3"/>
+  <text x="50" y="429" fill="#8695a8" font-size="11">closed selector (bus selected)</text>
+  <line x1="235" y1="431" x2="252" y2="419" stroke="#64748b" stroke-width="3"/>
+  <text x="260" y="429" fill="#8695a8" font-size="11">open selector</text>
+  <rect x="360" y="419" width="14" height="14" fill="none" stroke="#d5deea" stroke-width="2"/>
+  <text x="380" y="429" fill="#8695a8" font-size="11">circuit breaker (MV_BREAKER)</text>
+  <text x="24" y="452" fill="#6b7789" font-size="11">Model: 2x MV_BUSBAR + coupler MV_BREAKER (rules C/D) + per-feeder MV_ISOLATOR x2 as bus selectors · all geometry_optional, diagram-only</text>
+</svg>

@@ -26,12 +26,13 @@
 -- connects nothing.
 --
 -- Depends on seed/connectivity_example.sql (MV_CONDUCTOR, DIST_XFMR),
--- seed/switching_device_example.sql (DIST_SWITCH), and
--- seed/service_point_example.sql (SERVICE_POINT) having been applied.
--- No compile step: snapping_rules is pure metadata, never compiled into
--- a physical table.
+-- seed/switching_device_example.sql (DIST_SWITCH),
+-- seed/service_point_example.sql (SERVICE_POINT), and -- for the LV
+-- rules at the end (5-7) -- seed/lv_conductors_example.sql (LV_CONDUCTOR)
+-- having been applied. No compile step: snapping_rules is pure metadata,
+-- never compiled into a physical table.
 --
--- Apply with psql after those three seeds:
+-- Apply with psql after those seeds:
 --   task seed-snapping   (or the psql -f invocation directly)
 
 -- SNAP_TARGET_TYPE -- the domain migrations/0013 names for
@@ -138,6 +139,71 @@ JOIN metadata.terminals term ON term.feature_class_id = tgt.id AND term.code = '
 JOIN metadata.domain_values tt ON tt.code = 'point_feature'
   AND tt.domain_id = (SELECT id FROM metadata.domains WHERE code = 'SNAP_TARGET_TYPE')
 WHERE frm.code = 'SERVICE_POINT' AND tgt.code = 'DIST_XFMR'
+  AND NOT EXISTS (
+    SELECT 1 FROM metadata.snapping_rules sr
+    WHERE sr.from_feature_class_id = frm.id AND sr.to_feature_class_id = tgt.id
+      AND sr.to_terminal_id IS NOT DISTINCT FROM term.id
+      AND sr.target_type_value_id = tt.id
+  );
+
+-- LV_CONDUCTOR snap rules (added after this seed's original four, which
+-- predate the LV_CONDUCTOR class -- rule 4 above even notes "there's no
+-- distinct LV conductor class yet"). These mirror LV_CONDUCTOR's three
+-- network_rules in seed/lv_conductors_example.sql, so a digitized LV run
+-- snaps to exactly the things it may legally connect to. Depends on that
+-- seed having been applied; the CROSS JOINs simply find no LV_CONDUCTOR
+-- row and insert nothing if it hasn't.
+
+-- 5. Digitizing an LV_CONDUCTOR, its endpoint should snap to a DIST_XFMR's
+-- secondary (T2) -- the LV run is fed off the transformer's LV bus.
+-- Mirrors the DIST_XFMR T2 -> LV_CONDUCTOR network_rule. Optional: an LV
+-- run can be drawn before its transformer feed is wired in.
+INSERT INTO metadata.snapping_rules (from_feature_class_id, to_feature_class_id, to_terminal_id, target_type_value_id, tolerance_m, priority, is_required)
+SELECT frm.id, tgt.id, term.id, tt.id, 0.5, 1, false
+FROM metadata.feature_classes frm
+CROSS JOIN metadata.feature_classes tgt
+JOIN metadata.terminals term ON term.feature_class_id = tgt.id AND term.code = 'T2'
+JOIN metadata.domain_values tt ON tt.code = 'point_feature'
+  AND tt.domain_id = (SELECT id FROM metadata.domains WHERE code = 'SNAP_TARGET_TYPE')
+WHERE frm.code = 'LV_CONDUCTOR' AND tgt.code = 'DIST_XFMR'
+  AND NOT EXISTS (
+    SELECT 1 FROM metadata.snapping_rules sr
+    WHERE sr.from_feature_class_id = frm.id AND sr.to_feature_class_id = tgt.id
+      AND sr.to_terminal_id IS NOT DISTINCT FROM term.id
+      AND sr.target_type_value_id = tt.id
+  );
+
+-- 6. Digitizing an LV_CONDUCTOR, snap its endpoint to another
+-- LV_CONDUCTOR's endpoint -- a main splicing to a service drop, or two
+-- mains joined (mirrors the self-referential LV_CONDUCTOR -> LV_CONDUCTOR
+-- phase-matched network_rule). Self-referential, target_type endpoint (a
+-- conductor is a line, no single point), tighter tolerance and lower
+-- priority than a device snap -- same shape as rule 3 for MV_CONDUCTOR.
+INSERT INTO metadata.snapping_rules (from_feature_class_id, to_feature_class_id, to_terminal_id, target_type_value_id, tolerance_m, priority, is_required)
+SELECT frm.id, frm.id, NULL, tt.id, 0.3, 2, false
+FROM metadata.feature_classes frm
+JOIN metadata.domain_values tt ON tt.code = 'endpoint'
+  AND tt.domain_id = (SELECT id FROM metadata.domains WHERE code = 'SNAP_TARGET_TYPE')
+WHERE frm.code = 'LV_CONDUCTOR'
+  AND NOT EXISTS (
+    SELECT 1 FROM metadata.snapping_rules sr
+    WHERE sr.from_feature_class_id = frm.id AND sr.to_feature_class_id = frm.id
+      AND sr.to_terminal_id IS NULL
+      AND sr.target_type_value_id = tt.id
+  );
+
+-- 7. Digitizing an LV_CONDUCTOR, snap its endpoint to a SERVICE_POINT's
+-- single terminal (T1) -- the run terminates at the meter/service.
+-- Mirrors the LV_CONDUCTOR -> SERVICE_POINT T1 network_rule. Optional: a
+-- service point can exist before its feed is drawn.
+INSERT INTO metadata.snapping_rules (from_feature_class_id, to_feature_class_id, to_terminal_id, target_type_value_id, tolerance_m, priority, is_required)
+SELECT frm.id, tgt.id, term.id, tt.id, 0.5, 1, false
+FROM metadata.feature_classes frm
+CROSS JOIN metadata.feature_classes tgt
+JOIN metadata.terminals term ON term.feature_class_id = tgt.id AND term.code = 'T1'
+JOIN metadata.domain_values tt ON tt.code = 'point_feature'
+  AND tt.domain_id = (SELECT id FROM metadata.domains WHERE code = 'SNAP_TARGET_TYPE')
+WHERE frm.code = 'LV_CONDUCTOR' AND tgt.code = 'SERVICE_POINT'
   AND NOT EXISTS (
     SELECT 1 FROM metadata.snapping_rules sr
     WHERE sr.from_feature_class_id = frm.id AND sr.to_feature_class_id = tgt.id

@@ -37,7 +37,7 @@ import (
 //	DELETE /feature-classes/{code}         delete a draft (never-compiled) class
 //	POST   /feature-classes/{code}/subtypes add one subtype to an existing class (any status) -- recompile to actually enforce it
 //	POST   /feature-classes/{code}/fields  add one field to an existing class (any status) -- recompile to actually add the column
-//	PATCH  /feature-classes/{code}/fields/{name} edit an existing field's domain/group/nullable/visibility -- never name or data_type
+//	PATCH  /feature-classes/{code}/fields/{name} edit an existing field's domain/group/nullable/visibility/required-per-subtype -- never name or data_type; required_for_subtypes takes effect live (no recompile)
 //	POST   /feature-classes/{code}/compile compile/recompile -- wraps api/internal/compiler.Compile directly
 //	GET    /domains                        every domain with its values
 //	POST   /domains                        create a domain, optionally with initial coded values
@@ -57,10 +57,21 @@ import (
 //	POST   /symbology-icons                add one icon (name + svg markup)
 //	PATCH  /symbology-icons/{icon_ref}     replace an icon's svg markup in place
 //	DELETE /symbology-icons/{icon_ref}     delete an icon not referenced by any symbology rule
+//	GET    /symbology-stencils             every diagram stencil with its promote_class mapping
+//	PATCH  /symbology-stencils/{icon_ref}  set/clear a stencil's promote_class (the feature class a stamped symbol promotes into)
 //	GET    /feature-classes/{code}/symbology-rules  every rule for a class, id + code-shaped targeting
 //	POST   /feature-classes/{code}/symbology-rules  add one rule (targeting + style)
 //	PATCH  /symbology-rules/{id}           replace a rule wholesale
 //	DELETE /symbology-rules/{id}           delete a rule (no guard -- compiler re-validates the default at publish)
+//	GET    /diagram-placement-rules        every (container × diagram type) placement allow-list rule, code-shaped
+//	POST   /diagram-placement-rules        allow one feature class on one (container × diagram type) pairing
+//	DELETE /diagram-placement-rules/{id}   disallow one feature (remove one rule) -- emptying a pairing reverts it to unconstrained
+//	POST   /network-rules                  add one network (connectivity) rule -- from/to class + optional terminals, phase rule, valid flag
+//	DELETE /network-rules/{id}             remove one network rule
+//	POST   /relationship-classes           add one relationship class -- origin/destination + kind + cardinality
+//	DELETE /relationship-classes/{id}      remove one relationship class
+//	POST   /snapping-rules                 add one snapping rule -- from/to class + optional terminal, target type, tolerance, priority, required flag (display-only until the Snap UI consumes it)
+//	DELETE /snapping-rules/{id}            remove one snapping rule
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/feature-classes", listFeatureClassesHandler(db))
@@ -71,6 +82,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/feature-classes/{code}/fields", addFieldHandler(db))
 	r.Patch("/feature-classes/{code}/fields/{name}", updateFieldHandler(db))
 	r.Post("/feature-classes/{code}/compile", compileFeatureClassHandler(db))
+	r.Post("/feature-classes/{code}/uncompile", uncompileFeatureClassHandler(db))
 	r.Get("/domains", listDomainsHandler(db))
 	r.Post("/domains", createDomainHandler(db))
 	r.Patch("/domains/{code}", updateDomainHandler(db))
@@ -89,10 +101,21 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/symbology-icons", createSymbologyIconHandler(db))
 	r.Patch("/symbology-icons/{icon_ref}", updateSymbologyIconHandler(db))
 	r.Delete("/symbology-icons/{icon_ref}", deleteSymbologyIconHandler(db))
+	r.Get("/symbology-stencils", listDiagramStencilsHandler(db))
+	r.Patch("/symbology-stencils/{icon_ref}", updateDiagramStencilHandler(db))
 	r.Get("/feature-classes/{code}/symbology-rules", listSymbologyRulesHandler(db))
 	r.Post("/feature-classes/{code}/symbology-rules", createSymbologyRuleHandler(db))
 	r.Patch("/symbology-rules/{id}", updateSymbologyRuleHandler(db))
 	r.Delete("/symbology-rules/{id}", deleteSymbologyRuleHandler(db))
+	r.Get("/diagram-placement-rules", listDiagramPlacementRulesHandler(db))
+	r.Post("/diagram-placement-rules", createDiagramPlacementRuleHandler(db))
+	r.Delete("/diagram-placement-rules/{id}", deleteDiagramPlacementRuleHandler(db))
+	r.Post("/network-rules", createNetworkRuleHandler(db))
+	r.Delete("/network-rules/{id}", deleteNetworkRuleHandler(db))
+	r.Post("/relationship-classes", createRelationshipClassHandler(db))
+	r.Delete("/relationship-classes/{id}", deleteRelationshipClassHandler(db))
+	r.Post("/snapping-rules", createSnappingRuleHandler(db))
+	r.Delete("/snapping-rules/{id}", deleteSnappingRuleHandler(db))
 	return r
 }
 
@@ -382,6 +405,31 @@ func compileFeatureClassHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
+// uncompileFeatureClassHandler wraps compiler.Uncompile directly -- the
+// inverse of compileFeatureClassHandler, reachable over HTTP so an admin
+// can drop a class's physical table (and its tile function) and reset it
+// to draft without a terminal. This is the recovery for the additive
+// compiler's blind spot: adding a required (NOT NULL) field to a class
+// that already has rows fails (Postgres SQLSTATE 23502), so the table must
+// be dropped and recompiled fresh. DESTRUCTIVE -- it discards every row;
+// the response's rows_dropped says how many, and the UI confirms first.
+func uncompileFeatureClassHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		result, err := compiler.Uncompile(r.Context(), db, code)
+		if err != nil {
+			writeError(w, invalid("uncompile %s: %v", code, err))
+			return
+		}
+		writeJSON(w, http.StatusOK, uncompileResponse{
+			FeatureClassCode: result.FeatureClassCode,
+			PhysicalTable:    result.PhysicalTable,
+			TableExisted:     result.TableExisted,
+			RowsDropped:      result.RowsDropped,
+		})
+	}
+}
+
 func listSymbologyIconsHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		icons, err := listSymbologyIcons(r.Context(), db)
@@ -432,6 +480,33 @@ func deleteSymbologyIconHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func listDiagramStencilsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		stencils, err := listDiagramStencils(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"stencils": stencils})
+	}
+}
+
+func updateDiagramStencilHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		iconRef := chi.URLParam(r, "icon_ref")
+		var req updateDiagramStencilRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := updateDiagramStencil(r.Context(), db, iconRef, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 
@@ -490,6 +565,43 @@ func deleteSymbologyRuleHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
+func listDiagramPlacementRulesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rules, err := listDiagramPlacementRules(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"diagram_placement_rules": rules})
+	}
+}
+
+func createDiagramPlacementRuleHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req diagramPlacementRuleRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := createDiagramPlacementRule(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func deleteDiagramPlacementRuleHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if err := deleteDiagramPlacementRule(r.Context(), db, id); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 func listDomainsHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		domains, err := listDomains(r.Context(), db)
@@ -539,5 +651,83 @@ func createFieldGroupHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func createNetworkRuleHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req networkRuleRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := createNetworkRule(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func deleteNetworkRuleHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if err := deleteNetworkRule(r.Context(), db, id); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func createRelationshipClassHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req relationshipClassRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := createRelationshipClass(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func deleteRelationshipClassHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if err := deleteRelationshipClass(r.Context(), db, id); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func createSnappingRuleHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req snappingRuleRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := createSnappingRule(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func deleteSnappingRuleHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if err := deleteSnappingRule(r.Context(), db, id); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

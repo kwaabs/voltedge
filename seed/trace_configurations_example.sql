@@ -74,6 +74,27 @@ JOIN metadata.domains d ON d.id = dv.domain_id
 WHERE d.code = 'TRACE_DIRECTION' AND dv.code = 'SHORTEST_PATH'
 ON CONFLICT (code) DO NOTHING;
 
+-- MV Circuit trace (Phase 37, migration 0069's scope_to_circuit). Walks the
+-- CONNECTED graph but stays on the start feature's stored circuit: the trace
+-- engine reads the start's circuit_id and admits a neighbour only when its own
+-- circuit_id matches, so the result is exactly that one circuit's connected
+-- members (the membership api/internal/circuit.AssignCircuit stamped). No
+-- barriers and stop_at_open_devices = false on purpose: the circuit boundary is
+-- *membership*, not live switch state -- a feature past an open switch simply
+-- carries a different circuit_id (or none), so the scope gate already stops
+-- there. Depends on the Phase 37 Slice 2 seed having added circuit_id to the
+-- electrical apparatus classes and those classes being recompiled; a start with
+-- no circuit assigned returns a clear 400. Named "MV Circuit" per the common
+-- MV use, but the scope_to_circuit gate is network-agnostic (circuit_id already
+-- identifies one MV *or* LV circuit) -- an LV variant would be an identical row
+-- under a different code/name.
+INSERT INTO metadata.trace_configurations (code, name, direction_value_id, stop_at_open_devices, cross_transformers, respect_phase, scope_to_circuit)
+SELECT 'MV_CIRCUIT_TRACE', 'MV Circuit trace', dv.id, false, false, true, true
+FROM metadata.domain_values dv
+JOIN metadata.domains d ON d.id = dv.domain_id
+WHERE d.code = 'TRACE_DIRECTION' AND dv.code = 'CONNECTED'
+ON CONFLICT (code) DO NOTHING;
+
 -- trace_barrier_rules -- no unique constraint on this table (same
 -- reasoning as network_rules: a rule set is authored deliberately),
 -- guarded with WHERE NOT EXISTS. One row: on DIST_SWITCH, halt when

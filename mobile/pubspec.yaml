@@ -41,14 +41,38 @@ dependencies:
   path_provider: ^2.1.4
   path: ^1.9.0
 
-  # NOTE: the API bearer token is a credential and ideally lives in the OS keystore
-  # (flutter_secure_storage). But no published version of that plugin (through 11.0.0)
-  # added the `if (agpMajor < 9) apply 'kotlin-android'` migration guard, so it fails to
-  # build under this AGP 9.0.1 / android.builtInKotlin=true toolchain -- and built-in
-  # Kotlin is required by maplibre_gl 0.27. Until it migrates, the token + baseUrl are
-  # stored in an app-private JSON file via path_provider (see settings_repository.dart);
-  # the app-private dir is per-app sandboxed on Android/iOS. Reinstate the keystore here
-  # once the plugin ships the AGP-9 fix (the SettingsRepository public API is unchanged).
+  # Rasterizes the pack's DB-authored symbology icons (Slice 8): metadata
+  # .symbology_icons SVG rides in the pack (schema v5), and the map draws each
+  # point as its real shape by registering a rasterized bitmap per (icon, color)
+  # via MapLibre addImage. Used off-screen only (vg.loadPicture -> Picture ->
+  # toImage in src/map/icon_atlas.dart), not as an SvgPicture widget. The five
+  # built-in shapes stay Canvas-drawn (icon_atlas.dart) as the no-pack fallback.
+  flutter_svg: ^2.0.10
+
+  # Device GPS for feature placement (Slice 5b): the user can place a new feature
+  # at their current position instead of tapping the map, and recenter the map on
+  # themselves. Foreground-only; permission + service-enabled handled in
+  # src/geo/location_service.dart. Manifest/Info.plist carry the usage strings.
+  geolocator: ^13.0.1
+
+  # Camera + gallery capture for image attachments (Phase 22 Slice 5). The field
+  # tool is images-only: pick a photo from the camera or the gallery, copy it into
+  # the pack dir, and queue it in the local_attachments outbox for upload on sync
+  # (see src/attach/attachment_capture.dart). flutter.dev-maintained; camera/photo
+  # usage strings live in AndroidManifest + Info.plist. Chosen over the heavier
+  # `camera` plugin (no need for a live in-app preview / custom shutter here).
+  image_picker: ^1.1.2
+
+  # The API bearer token is a credential, so it lives in the OS keystore (Android
+  # Keystore-backed EncryptedSharedPreferences / iOS Keychain) rather than a plain
+  # file; non-secret prefs stay in ve_settings.json (see settings_repository.dart).
+  # This was briefly demoted to the JSON file while the toolchain sat on AGP 9 /
+  # android.builtInKotlin=true, which conflicts with this plugin's unconditional
+  # `apply 'kotlin-android'`. We are back on AGP 8 with builtInKotlin=false (see
+  # android/gradle.properties), where that apply is correct, so the keystore is
+  # reinstated. Version note: if `flutter pub get` can't resolve this against the
+  # current SDK, bump the caret -- any version works on AGP 8 (build verification owed).
+  flutter_secure_storage: ^9.2.2
 
 dev_dependencies:
   flutter_test:

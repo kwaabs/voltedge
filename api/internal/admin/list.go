@@ -37,11 +37,14 @@ func listFeatureClasses(ctx context.Context, db *bun.DB) ([]featureClassSummary,
 			SRID:               fc.SRID,
 			NetworkRole:        fc.NetworkRole,
 			Status:             fc.Status,
-			IsDiagramContainer: fc.IsDiagramContainer,
-			IsDiagramPlaceable: fc.IsDiagramPlaceable,
-			PhysicalTable:      fc.PhysicalTable,
-			SubtypeCount:       subtypeCounts[fc.ID],
-			FieldCount:         fieldCounts[fc.ID],
+			IsDiagramContainer:  fc.IsDiagramContainer,
+			IsDiagramPlaceable:  fc.IsDiagramPlaceable,
+			GeometryOptional:    fc.GeometryOptional,
+			DiagramGeometryType: fc.DiagramGeometryType,
+			Category:            fc.Category,
+			PhysicalTable:       fc.PhysicalTable,
+			SubtypeCount:        subtypeCounts[fc.ID],
+			FieldCount:          fieldCounts[fc.ID],
 		}
 	}
 	return out, nil
@@ -131,6 +134,7 @@ func listMaterialSpecs(ctx context.Context, db *bun.DB) ([]materialSpecResponse,
 			AmpacityAmps: m.AmpacityAmps, DiameterMm: m.DiameterMm, WeightKgPerKm: m.WeightKgPerKm,
 			MaxOperatingTempC: m.MaxOperatingTempC, Emissivity: m.Emissivity,
 			Absorptivity: m.Absorptivity, ResistanceTempCoefficientPerC: m.ResistanceTempCoefficientPerC,
+			CostPerKm: m.CostPerKm, UnitCost: m.UnitCost,
 		}
 	}
 	return out, nil

@@ -26,6 +26,19 @@ type FeatureRef struct {
 	FeatureID    string `json:"feature_id"`
 }
 
+// TracedFeature is the exported form of tracedFeature: a reached feature plus
+// its stored circuit membership and nominal operating voltage. Same wire shape
+// as the REST trace API's own Features entries, so an MCP consumer sees the
+// same circuit_id/circuit_ref/nominal_voltage_v a REST caller does. See
+// tracedFeature for the field meanings.
+type TracedFeature struct {
+	FeatureClass    string   `json:"feature_class"`
+	FeatureID       string   `json:"feature_id"`
+	CircuitID       string   `json:"circuit_id,omitempty"`
+	CircuitRef      string   `json:"circuit_ref,omitempty"`
+	NominalVoltageV *float64 `json:"nominal_voltage_v,omitempty"`
+}
+
 // RunTraceInput is the exported input to RunTrace, mirroring the POST /trace
 // body. Target is required only when the named trace configuration's
 // direction is SHORTEST_PATH (validated inside the engine, not here).
@@ -38,14 +51,14 @@ type RunTraceInput struct {
 // RunTraceResult is the exported form of traceResponse -- the full result of
 // one trace run. See traceResponse for the meaning of each field.
 type RunTraceResult struct {
-	TraceConfiguration string       `json:"trace_configuration"`
-	Direction          string       `json:"direction"`
-	Start              FeatureRef   `json:"start"`
-	Features           []FeatureRef `json:"features"`
-	Barriers           []FeatureRef `json:"barriers"`
-	PathFound          *bool        `json:"path_found,omitempty"`
-	Targets            []FeatureRef `json:"targets,omitempty"`
-	TargetsFound       *bool        `json:"targets_found,omitempty"`
+	TraceConfiguration string          `json:"trace_configuration"`
+	Direction          string          `json:"direction"`
+	Start              FeatureRef      `json:"start"`
+	Features           []TracedFeature `json:"features"`
+	Barriers           []FeatureRef    `json:"barriers"`
+	PathFound          *bool           `json:"path_found,omitempty"`
+	Targets            []FeatureRef    `json:"targets,omitempty"`
+	TargetsFound       *bool           `json:"targets_found,omitempty"`
 }
 
 // RunTrace runs one trace through the engine's single entry point (runTrace)
@@ -72,7 +85,7 @@ func RunTrace(ctx context.Context, db bun.IDB, in RunTraceInput) (*RunTraceResul
 		TraceConfiguration: resp.TraceConfiguration,
 		Direction:          resp.Direction,
 		Start:              toExportedRef(resp.Start),
-		Features:           toExportedRefs(resp.Features),
+		Features:           toExportedTracedFeatures(resp.Features),
 		Barriers:           toExportedRefs(resp.Barriers),
 		PathFound:          resp.PathFound,
 		Targets:            toExportedRefs(resp.Targets),
@@ -160,9 +173,9 @@ type FeederInput struct {
 // FeederResult is the exported form of feederResponse -- the whole feeder a
 // feature belongs to. See feederResponse for why Heads is a list.
 type FeederResult struct {
-	Start    FeatureRef   `json:"start"`
-	Heads    []FeatureRef `json:"heads"`
-	Features []FeatureRef `json:"features"`
+	Start    FeatureRef      `json:"start"`
+	Heads    []FeatureRef    `json:"heads"`
+	Features []TracedFeature `json:"features"`
 }
 
 // FeederTrace runs one feeder trace through the engine's feederTrace entry
@@ -179,7 +192,7 @@ func FeederTrace(ctx context.Context, db bun.IDB, in FeederInput) (*FeederResult
 	return &FeederResult{
 		Start:    toExportedRef(resp.Start),
 		Heads:    toExportedRefs(resp.Heads),
-		Features: toExportedRefs(resp.Features),
+		Features: toExportedTracedFeatures(resp.Features),
 	}, nil
 }
 
@@ -197,10 +210,10 @@ type SectionInput struct {
 // Either boundary may be absent (nil) when the section runs to the edge of
 // the modeled network in that direction.
 type SectionResult struct {
-	Start              FeatureRef   `json:"start"`
-	Features           []FeatureRef `json:"features"`
-	UpstreamBoundary   *FeatureRef  `json:"upstream_boundary,omitempty"`
-	DownstreamBoundary *FeatureRef  `json:"downstream_boundary,omitempty"`
+	Start              FeatureRef      `json:"start"`
+	Features           []TracedFeature `json:"features"`
+	UpstreamBoundary   *FeatureRef     `json:"upstream_boundary,omitempty"`
+	DownstreamBoundary *FeatureRef     `json:"downstream_boundary,omitempty"`
 }
 
 // SectionTrace runs one section trace through the engine's sectionTrace
@@ -217,7 +230,7 @@ func SectionTrace(ctx context.Context, db bun.IDB, in SectionInput) (*SectionRes
 	}
 	return &SectionResult{
 		Start:              toExportedRef(resp.Start),
-		Features:           toExportedRefs(resp.Features),
+		Features:           toExportedTracedFeatures(resp.Features),
 		UpstreamBoundary:   toExportedRefPtr(resp.UpstreamBoundary),
 		DownstreamBoundary: toExportedRefPtr(resp.DownstreamBoundary),
 	}, nil
@@ -244,4 +257,21 @@ func toExportedRefPtr(r *featureRef) *FeatureRef {
 	}
 	out := toExportedRef(*r)
 	return &out
+}
+
+func toExportedTracedFeatures(fs []tracedFeature) []TracedFeature {
+	if fs == nil {
+		return nil
+	}
+	out := make([]TracedFeature, len(fs))
+	for i, f := range fs {
+		out[i] = TracedFeature{
+			FeatureClass:    f.FeatureClass,
+			FeatureID:       f.FeatureID,
+			CircuitID:       f.CircuitID,
+			CircuitRef:      f.CircuitRef,
+			NominalVoltageV: f.NominalVoltageV,
+		}
+	}
+	return out
 }

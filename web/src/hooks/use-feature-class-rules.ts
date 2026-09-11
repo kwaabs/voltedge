@@ -13,6 +13,7 @@ import { apiFetch } from "@/lib/api"
  * for every feature of it -- so it's cached by featureClassCode alone.
  */
 export interface NetworkRuleSchema {
+  id: string
   name: string
   direction: "outgoing" | "incoming"
   from_class: string
@@ -26,6 +27,7 @@ export interface NetworkRuleSchema {
 }
 
 export interface RelationshipRuleSchema {
+  id: string
   name: string
   direction: "origin" | "destination"
   origin_class: string
@@ -35,6 +37,7 @@ export interface RelationshipRuleSchema {
 }
 
 export interface SnappingRuleSchema {
+  id: string
   direction: "from" | "to"
   from_class: string
   from_subtype?: string

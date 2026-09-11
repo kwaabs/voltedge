@@ -38,9 +38,11 @@ type createRequest struct {
 // have that problem (no subtype/required-field interaction at all), so
 // it's just a plain optional replace, same validation
 // (validateGeometry) as create, only skipped entirely when absent
-// rather than required. Name is the same kind of plain optional replace
-// as geometry -- absent means "not changing it", an explicit empty
-// string means "clear it".
+// rather than required. Geometry additionally accepts an explicit JSON
+// null to clear the map geometry (Phase 26 Slice 3, demote to
+// diagram-only) -- only allowed on a geometry_optional class. Name is
+// the same kind of plain optional replace as geometry -- absent means
+// "not changing it", an explicit empty string means "clear it".
 type updateRequest struct {
 	Name     *string         `json:"name,omitempty"`
 	Geometry json.RawMessage `json:"geometry,omitempty"`
@@ -50,6 +52,14 @@ type updateRequest struct {
 	// is re-resolved from the new geometry.
 	TerritoryID *string        `json:"territory_id,omitempty"`
 	Attributes  map[string]any `json:"attributes"`
+	// ExpectedUpdatedAt is the row's updated_at as the client last read it --
+	// the optimistic-concurrency token (Phase 40). Present makes the write
+	// conditional (it only applies if the row hasn't changed since), so two
+	// people editing the same feature can't silently clobber each other; a lost
+	// race returns 409 instead. Absent leaves the write unconditional
+	// (last-write-wins), which keeps every programmatic caller that doesn't send
+	// it behaving exactly as before.
+	ExpectedUpdatedAt *string `json:"expected_updated_at,omitempty"`
 }
 
 // queryRequest is the POST /{code}/query body -- the structured filter

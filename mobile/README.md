@@ -35,9 +35,10 @@ tap-to-select, responsive layout:
   source, one draw layer per feature class (fill / line / circle by geometry
   type; polygons under lines under points). Class ids ride in the tile `id`
   property, so a tap resolves tile → id → SQLite row.
-- `lib/src/map/pack_map_view.dart` — the `MaplibreMap` widget; `onMapClick` →
-  `queryRenderedFeatures` over the pack layers → `PackDatabase.featureById` →
-  `onFeatureTap`. Selection is highlighted via one GeoJSON overlay source.
+- `lib/src/map/pack_map_view.dart` — the `MapLibreMap` widget; `onMapClick` →
+  `queryRenderedFeaturesInRect` (a tolerance box) over the pack layers → each hit's
+  id → `PackDatabase.featureById` → `onFeaturesTapped` (one hit selects, a stack opens
+  a peer picker). Selection is highlighted via one GeoJSON overlay source.
 - `lib/src/ui/pack_map_page.dart` — responsive host: master/detail split at
   ≥720dp (tablet), dismissable bottom sheet below (phone). Reuses
   `FeatureDetailView`. Reached from the ⛁ **Open map** action on a downloaded

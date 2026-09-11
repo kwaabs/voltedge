@@ -26,9 +26,9 @@ type feederRequest struct {
 // either) would surface more than one. Features is every node the
 // whole feeder reaches downstream of every head, deduplicated.
 type feederResponse struct {
-	Start    featureRef   `json:"start"`
-	Heads    []featureRef `json:"heads"`
-	Features []featureRef `json:"features"`
+	Start    featureRef      `json:"start"`
+	Heads    []featureRef    `json:"heads"`
+	Features []tracedFeature `json:"features"`
 }
 
 // feederTrace answers "which whole feeder does this feature belong
@@ -78,7 +78,7 @@ func feederTrace(ctx context.Context, db bun.IDB, req feederRequest) (*feederRes
 
 	loader := newFeatureClassLoader()
 
-	upstreamVisited, _, _, _, _, err := bfs(ctx, db, start, "UPSTREAM", map[string]barrierCheck{}, loader, nil, nil, false)
+	upstreamVisited, _, _, _, _, err := bfs(ctx, db, start, "UPSTREAM", map[string][]barrierCheck{}, loader, nil, nil, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func feederTrace(ctx context.Context, db bun.IDB, req feederRequest) (*feederRes
 
 	featureSet := map[node]bool{}
 	for _, head := range heads {
-		visited, _, _, _, _, derr := bfs(ctx, db, head, "DOWNSTREAM", barriers, loader, nil, nil, false)
+		visited, _, _, _, _, derr := bfs(ctx, db, head, "DOWNSTREAM", barriers, loader, nil, nil, false, nil)
 		if derr != nil {
 			return nil, derr
 		}
@@ -128,9 +128,14 @@ func feederTrace(ctx context.Context, db bun.IDB, req feederRequest) (*feederRes
 		return nil, err
 	}
 
+	features, err := toTracedFeatures(ctx, db, featureNodes, classCodes, loader)
+	if err != nil {
+		return nil, err
+	}
+
 	return &feederResponse{
 		Start:    req.Start,
 		Heads:    toFeatureRefs(heads, classCodes),
-		Features: toFeatureRefs(featureNodes, classCodes),
+		Features: features,
 	}, nil
 }

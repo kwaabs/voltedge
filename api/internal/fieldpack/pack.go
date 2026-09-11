@@ -41,12 +41,23 @@ type FieldPack struct {
 	DataBytes      *int64  `bun:"data_bytes"`
 
 	FeatureCount *int       `bun:"feature_count"`
-	SnapshotAt   *time.Time `bun:"snapshot_at"`
-	Error        *string    `bun:"error"`
+	// AttachmentCount is how many image attachments the pack carried (migration
+	// 0042). NULL for packs built before that column existed; the true count still
+	// rides those packs' own manifests.
+	AttachmentCount *int       `bun:"attachment_count"`
+	SnapshotAt      *time.Time `bun:"snapshot_at"`
+	Error           *string    `bun:"error"`
 
 	Attempts       int        `bun:"attempts"`
 	WorkerID       *string    `bun:"worker_id"`
 	LeaseExpiresAt *time.Time `bun:"lease_expires_at"`
+
+	// DisabledAt is an admin "hide from the device" flag (migration 0040): a
+	// disabled pack is filtered out of listPacks so it stops crowding the field
+	// tech's tablet, but its artifacts stay in RustFS so it can be re-enabled.
+	// Set/cleared only by the admin:field-packs endpoints (admin.go); NULL =
+	// visible.
+	DisabledAt *time.Time `bun:"disabled_at"`
 
 	CreatedAt  time.Time  `bun:"created_at,nullzero"`
 	StartedAt  *time.Time `bun:"started_at"`
@@ -153,7 +164,7 @@ func heartbeatPack(ctx context.Context, db bun.IDB, id, workerID string, lease t
 // means a build cancelled out from under the worker is never resurrected to
 // 'succeeded' by a late-finishing build -- the WHERE simply matches no row, and
 // the already-uploaded artifacts are left to a retention sweep to reap as orphans.
-func completePack(ctx context.Context, db bun.IDB, id, tilesKey, dataKey string, tilesBytes, dataBytes int64, featureCount int, snapshotAt time.Time) error {
+func completePack(ctx context.Context, db bun.IDB, id, tilesKey, dataKey string, tilesBytes, dataBytes int64, featureCount, attachmentCount int, snapshotAt time.Time) error {
 	_, err := db.NewUpdate().Model((*FieldPack)(nil)).
 		Set("status = 'succeeded'").
 		Set("tiles_object_key = ?", tilesKey).
@@ -161,6 +172,7 @@ func completePack(ctx context.Context, db bun.IDB, id, tilesKey, dataKey string,
 		Set("tiles_bytes = ?", tilesBytes).
 		Set("data_bytes = ?", dataBytes).
 		Set("feature_count = ?", featureCount).
+		Set("attachment_count = ?", attachmentCount).
 		Set("snapshot_at = ?", snapshotAt).
 		Set("finished_at = now()").
 		Set("lease_expires_at = NULL").
@@ -227,11 +239,15 @@ func getPack(ctx context.Context, db bun.IDB, id, requestedBy string) (*FieldPac
 }
 
 // listPacks returns a caller's most recent builds, newest first, for the device's
-// pack history.
+// pack history. Admin-disabled packs (disabled_at set, migration 0040) are
+// filtered out so a pack an administrator hid stops crowding the field tech's
+// tablet -- the pack's artifacts remain in RustFS and re-enabling it makes it
+// reappear here.
 func listPacks(ctx context.Context, db bun.IDB, requestedBy string, limit int) ([]FieldPack, error) {
 	var packs []FieldPack
 	err := db.NewSelect().Model(&packs).
 		Where("requested_by = ?", requestedBy).
+		Where("disabled_at IS NULL").
 		OrderExpr("created_at DESC").
 		Limit(limit).
 		Scan(ctx)

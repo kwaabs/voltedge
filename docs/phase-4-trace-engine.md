@@ -149,6 +149,25 @@ not just closed.
     path_found?}`), mounted read-only, no write path at all -- a trace
     never establishes or revokes anything, it only walks what
     `api/internal/connectivity`/`relationship` have already committed.
+  - **Enriched `features` (later addition).** Each entry in `features`
+    (of `/trace`, `/trace/feeder`, `/trace/section`, and their exported
+    MCP forms) is no longer a bare `{feature_class, feature_id}` but a
+    `tracedFeature` carrying two optional display extras read from the
+    node's own live row at response time (`graph.go`'s `enrichNode`, one
+    `crud.GetFeature` per returned node -- the same per-node read cost a
+    barrier/circuit walk already pays): `circuit_id`/`circuit_ref` (its
+    Phase 37 circuit membership) and `nominal_voltage_v` (its stored
+    nominal operating voltage in volts -- a conductor's `voltage_class`,
+    else a transformer's `primary_voltage`, parsed from the coded
+    `VOLTAGE_CLASS` value; a transformer's stepped-down secondary shows up
+    as the nominal of the LV element below it, so one nominal per node
+    stays unambiguous). All three are omitted when the reached class
+    carries no such field or no value. `barriers`/`targets`/`start` stay
+    bare `featureRef`. A *computed* per-node voltage is deliberately NOT
+    here: the engine stays decoupled from `powerflow`, so the web table
+    overlays computed voltages client-side from `load-flow-store.ts`,
+    snapshotted at trace time when a load-flow result for the same start
+    exists (`feature-panel.tsx` -> `trace-store.ts` `computedVoltages`).
 - **`src/stores/trace-store.ts`** (new) -- the result, shared between
   the trigger and the map/banner the same cross-component pattern every
   other workflow store in this app already uses.

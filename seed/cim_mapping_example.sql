@@ -56,7 +56,12 @@ JOIN (VALUES
     ('STREET_LIGHT',     'EnergyConsumer',     'conducting_junction'),
     ('METER',            'UsagePoint',         'asset'),
     ('METER_CHAMBER',    'EquipmentContainer', 'container'),
-    ('SUBSTATION_YARD',  'Substation',         'container'),
+    ('SUBSTATION',       'Substation',         'container'),
+    -- No VOLTAGE_LEVEL mapping: the VOLTAGE_LEVEL class was retired in the Phase 47
+    -- minimal-model correction (migration 0086). Voltage level is derivable, so it is
+    -- no longer a modeled CIM tier -- voltage rides on each equipment's BaseVoltage
+    -- reference instead. BAY stays as the one real container tier.
+    ('BAY',              'Bay',                'container'),
     ('POLE',             'Pole',               'asset'),
     ('PROTECTIVE_RELAY', 'ProtectionEquipment', 'protection')
 ) AS v(fc_code, cim_class, cim_kind) ON v.fc_code = fc.code
@@ -96,6 +101,9 @@ JOIN metadata.feature_classes fc ON fc.id = f.feature_class_id
 JOIN (VALUES
     ('MV_CONDUCTOR',   'voltage_class',   'BaseVoltage.nominalVoltage', 'domain_map', '{"11KV":11000,"33KV":33000}', 'V'),
     ('DIST_XFMR',      'primary_voltage', 'BaseVoltage.nominalVoltage', 'domain_map', '{"11KV":11000,"33KV":33000}', 'V'),
+    -- (The VOLTAGE_LEVEL.nominal_voltage -> BaseVoltage mapping was removed with the
+    -- class in the Phase 47 minimal-model correction, migration 0086. Voltage is
+    -- carried per equipment via the BaseVoltage refs above, not by a modeled tier.)
     ('DIST_SWITCH',    'device_state',    'Switch.normalOpen',          'boolean',    '{"OPEN":true,"CLOSED":false}', NULL),
     ('SERVICE_CUTOUT', 'device_state',    'Switch.normalOpen',          'boolean',    '{"OPEN":true,"CLOSED":false}', NULL)
 ) AS v(fc_code, field_name, cim_attribute, transform, value_map, unit)

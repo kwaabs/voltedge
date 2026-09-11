@@ -214,3 +214,123 @@ from its `path`, label at its middle vertex, select-only (no midpoint drag).
 Reload → it still draws from `path`. Pick a *point* class → unchanged
 single-click drop. An existing line with no `path` still draws its
 connectivity elbow. Esc mid-draw discards the sketch.
+
+## Slice 6 — editing a drawn line's vertices
+
+A committed line placement with its own `path` can be reshaped in place, so you
+don't have to delete and redraw it to fix a bend. All three edits reuse the
+same place/move `POST /placements` upsert a fresh draw uses (they only change
+`path`, re-anchoring `x/y` to the first vertex), so nothing new is needed on the
+backend — `validatePlacementPath` already guards the ≥2-point, line-only shape.
+Handles show only while the line is **selected**, keeping the diagram clean
+otherwise, and only for a path-backed line (a connectivity-elbow line has no
+`path` of its own to edit).
+
+- **`web/src/components/map/diagram-canvas.tsx`**
+  - **Move a vertex** — drag a round handle at each vertex
+    (`handleVertexPointerDown/Move/Up`, `VertexDragState`); the dragged vertex
+    snaps to peer x/y (magnet) and the grid like a whole-placement drag.
+  - **Add a vertex** — a small "+" handle at each segment midpoint;
+    `insertVertex(placement, segIndex)` splices the segment's midpoint into
+    `path` between its two vertices, ready to be dragged.
+  - **Remove a vertex** — double-click a vertex; `removeVertex(placement,
+    index)` drops it, guarded so a line never falls below two points (the
+    handle's tooltip advertises this, and the "+"/vertex handles hint their
+    actions).
+  - `persistPath(placement, path)` is the shared optimistic writer behind all
+    three (re-anchor `x/y` to `path[0]` → POST), extracted from the old
+    vertex-drop path so drag, insert and remove stay identical on the wire.
+
+**Verify (owed — Bash is blocked in this environment):**
+`cd web && npm run typecheck && npm run lint`. In the app: select a drawn line
+→ drag a vertex to bend it; click a "+" midpoint handle → a new vertex appears
+there, drag it; double-click a vertex → it's removed (and a two-point line
+refuses to go lower). Reload → the reshaped `path` persists.
+
+## Slice 7 — header "Add" / "Connect" menus (declutter)
+
+The diagram header had grown a long row of single-purpose icon buttons. Five of
+them are folded into two dropdown menus so the header breathes; Annotate,
+Stencils, Templates and Close stay as they were. Pure frontend, no backend or
+schema change — every menu item fires exactly the same action its old button
+did.
+
+- **`web/src/components/map/diagram-canvas.tsx`**
+  - **`AddMenu`** (Plus trigger) replaces the three "add a feature" controls —
+    the old `AddFeatureButton` (search-by-name) and `DigitizeFeatureButton`
+    (new off-map feature) are inlined here, plus a **From map** item that arms
+    the map→diagram pick/place flow. When a digitize is armed the trigger is
+    swapped for the same "Click the canvas to place X · Esc" pill the standalone
+    button showed, so that feedback survives. Trigger highlights while a
+    map-pick is active.
+  - **`ConnectMenu`** (Cable trigger) replaces the Connect and Relate buttons —
+    two items, `Connect placements` / `Relate placements`, each arming its
+    authoring mode. The trigger (and the active item) highlight while that mode
+    is armed.
+  - `digitize-feature-tool.tsx` is now orphaned (its logic moved into
+    `AddMenu`); left in the tree as harmless dead code.
+  - **`DiagramViewToolbar` collapse toggle** — the floating view toolbar
+    (top-left overlay: select/pan, zoom, fit, snap, grid, ortho) gained a
+    `collapsed` state and a `ChevronsLeft` "Hide toolbar" button at its end;
+    collapsed it renders as a single `ChevronsRight` "Show toolbar" button in
+    the same corner, so it stops covering the drawing but is one click back.
+    **Starts collapsed on every diagram open** — `collapsed` defaults to `true`
+    and the parent keys the toolbar by `openDiagramId`, so switching to another
+    diagram remounts it back to collapsed; the user expands it when they want
+    the view controls.
+
+**Verify (owed — Bash is blocked in this environment):**
+`cd web && npm run typecheck && npm run lint && npm run build`. In the app: open
+a diagram → the header shows Add + Connect menus. Add → From map (pick a feature
+on the map, click the canvas), search by name, and (if any geometry-less classes
+exist) a "New off-map feature" list that arms digitize. Connect → Connect /
+Relate arm the respective two-placement flows; triggers highlight while active.
+
+## Slice 8 — full-page diagram (maximize) + carousel
+
+A diagram normally lives in a fixed 2/5-width column beside the geographic map
+(`map.tsx`). To read or edit a schematic without the map crowding it, the header
+gained a **full-page toggle** (`Maximize` / `Minimize`, next to Close): one
+diagram fills the whole width and the map hides.
+
+**Carousel when several are open.** Full-page shows a *single* diagram; every
+other open diagram (across both panes) collapses into a **tab strip** at the top
+of the full-page area, so maximizing turns the split into a carousel instead of
+stacking. Switching a tab just re-points which diagram is full-page; the
+underlying pane layout is untouched, so exiting full-page returns to the exact
+prior split.
+
+- **`web/src/stores/diagram-store.ts`** — `maximizedId: string | null` (the
+  diagram shown full-page, or null for the side-by-side split) with
+  `maximize(id)` / `restore()`. `maximize` also makes that diagram its pane's
+  active tab, so restoring lands on a sane split. `close` drops `maximizedId`
+  to another open diagram when the maximized one closes (stay full-page, like
+  closing a browser tab), else null.
+- **`web/src/routes/map.tsx`** — when maximized (and the id is still open) the
+  map column is `hidden` (kept mounted, not unmounted, so its OpenLayers view
+  survives — the map's own `ResizeObserver → updateSize()` re-fits it on
+  restore) and the diagram area renders `MaximizedDiagram`: a full-width column
+  with a `MaximizedTab` strip (all open diagrams, click to switch, ✕ to close)
+  over the active diagram's `DiagramCanvas`. Non-maximized keeps the old
+  top/bottom split.
+- **`web/src/components/map/diagram-canvas.tsx`** — the header toggle is
+  maximized when `maximizedId === this diagram`; it calls `maximize(id)` /
+  `restore()`, highlights while active, and swaps its icon/label between "Full
+  page" and "Exit full page".
+
+**Grid fills the full canvas (fix).** The drawing grid `<rect>` was sized
+exactly to the viewBox (`view.w/h`), but the SVG keeps its default
+`preserveAspectRatio` (xMidYMid meet), so a canvas whose aspect ratio differs
+from the viewBox — notably full-page — letterboxes the viewBox and left the
+margins gridless. The rect now over-covers a large margin around `view`
+(`view.x − 3·view.w … 7·view.w`, same for y), which fills those margins at any
+aspect ratio; a `<pattern>` fill is a single tiled paint the browser clips to
+the viewport, so the extra area costs nothing.
+
+**Verify (owed — Bash is blocked in this environment):**
+`cd web && npm run typecheck && npm run lint && npm run build`. In the app: open
+a diagram → Full page hides the map, diagram fills width, grid fills the whole
+canvas; Exit → map returns and re-renders (not blank). Open two diagrams →
+maximize one → only it shows, the other is a tab; click the tab → it takes over
+full-page; ✕ on a tab closes it; closing the shown one falls back to the other
+(still full-page); closing the last exits full-page.

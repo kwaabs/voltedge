@@ -7,6 +7,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../api/models.dart';
+import '../edit/edit_database.dart';
+import 'pack_database.dart';
 
 /// A pack that has been downloaded to the device.
 class LocalPack {
@@ -81,13 +83,120 @@ class PackStore {
     await File(p.join(dir.path, 'pack.json'))
         .writeAsString(jsonEncode(meta), flush: true);
 
-    return LocalPack(
+    final pack = LocalPack(
       id: packId,
       dir: dir.path,
       dataPath: dataPath,
       tilesPath: tilesPath,
       meta: meta,
     );
+
+    // A fresh snapshot makes older packs' already-synced local edits redundant.
+    // Prune them so the lingering green/amber "local truth" copy doesn't outlive
+    // the pack it was made against. Best-effort: never fail a good download over
+    // housekeeping.
+    try {
+      reconcileSyncedEdits(pack);
+    } catch (_) {}
+
+    return pack;
+  }
+
+  /// After [freshPack] downloads, sweep every OTHER downloaded pack and drop the
+  /// local overlays/creates whose feature the fresh snapshot now contains -- the
+  /// stale green (created) / amber (edited) copy that otherwise lingers until the
+  /// old pack is deleted (docs/phase-21-field-tool.md, Slice 4). It's cross-pack
+  /// by necessity: each pack has its own edits.sqlite, and a re-download is a NEW
+  /// pack id with a fresh empty one, so the edit to clean up always sits in the
+  /// PRIOR pack's dir. Membership-checked (not blind), so an unrelated-region pack
+  /// keeps a synced edit the fresh pack doesn't cover, and PENDING (unpushed) work
+  /// is never eligible (see EditDatabase.syncedFeatureIds).
+  void reconcileSyncedEdits(LocalPack freshPack) {
+    final packsRoot = Directory(p.dirname(freshPack.dir));
+    if (!packsRoot.existsSync()) return;
+    final fresh = PackDatabase.open(freshPack.dataPath);
+    try {
+      for (final entry in packsRoot.listSync()) {
+        if (entry is! Directory) continue;
+        if (p.basename(entry.path) == freshPack.id) continue;
+        final editsPath = p.join(entry.path, 'edits.sqlite');
+        if (!File(editsPath).existsSync()) continue;
+        final edits = EditDatabase.open(editsPath);
+        try {
+          final synced = edits.syncedFeatureIds();
+          if (synced.isNotEmpty) {
+            final present = fresh.existingFeatureIds(synced);
+            edits.dropSynced(present);
+          }
+          _reconcileSyncedAttachments(fresh, edits);
+          _reconcileSyncedConnections(fresh, edits);
+          _reconcileSyncedRelationships(fresh, edits);
+        } finally {
+          edits.close();
+        }
+      }
+    } finally {
+      fresh.close();
+    }
+  }
+
+  /// Drop an older pack's synced captured photos (local_attachments) that the
+  /// fresh pack now carries as packed thumbnails (Phase 22 Slice 6). The upload
+  /// kept the local file rendering as on-device truth until a fresh snapshot baked
+  /// the server thumbnail in; once it has, the local copy is pure redundancy, so
+  /// the row is dropped AND its on-device file deleted (unlike a feature overlay,
+  /// which has no file). Membership-checked against the pack's `attachments` table
+  /// so a photo the fresh pack doesn't cover (e.g. an unrelated-region pack) is
+  /// kept; pending (un-uploaded) captures are never eligible (syncedAttachments).
+  void _reconcileSyncedAttachments(PackDatabase fresh, EditDatabase edits) {
+    final synced = edits.syncedAttachments();
+    if (synced.isEmpty) return;
+    final present =
+        fresh.existingAttachmentIds([for (final a in synced) a.id]);
+    if (present.isEmpty) return;
+    final drop = [for (final a in synced) if (present.contains(a.id)) a];
+    for (final a in drop) {
+      try {
+        final f = File(a.localPath);
+        if (f.existsSync()) f.deleteSync();
+      } catch (_) {
+        // Best-effort: a stray file left behind is harmless housekeeping debt.
+      }
+    }
+    edits.dropSyncedAttachments([for (final a in drop) a.id]);
+  }
+
+  /// Drop an older pack's synced offline connections (Phase 21 Slice 13b) that the
+  /// fresh pack now carries in its connectivity graph. Symmetric to the feature and
+  /// attachment reconcile: membership-checked (the edge must be present in the fresh
+  /// pack, either direction) so a connection the new snapshot predates -- synced but
+  /// not yet baked in -- is kept rendering its local edge until a later pack covers
+  /// it; pending (un-pushed) connections are never eligible (syncedConnectionEdges).
+  void _reconcileSyncedConnections(PackDatabase fresh, EditDatabase edits) {
+    final synced = edits.syncedConnectionEdges();
+    if (synced.isEmpty) return;
+    final drop = [
+      for (final c in synced)
+        if (fresh.hasConnection(c.fromId, c.toId)) c.id,
+    ];
+    if (drop.isNotEmpty) edits.dropConnections(drop);
+  }
+
+  /// Drop an older pack's synced offline relationships (Phase 21 Slice 14) that the
+  /// fresh pack now carries in its relationships table. The relationship sibling of
+  /// [_reconcileSyncedConnections]: membership-checked (the edge must be present in
+  /// the fresh pack, either direction) so a relationship the new snapshot predates --
+  /// synced but not yet baked in -- keeps rendering its local edge until a later pack
+  /// covers it; pending (un-pushed) relationships are never eligible
+  /// (syncedRelationshipEdges).
+  void _reconcileSyncedRelationships(PackDatabase fresh, EditDatabase edits) {
+    final synced = edits.syncedRelationshipEdges();
+    if (synced.isEmpty) return;
+    final drop = [
+      for (final r in synced)
+        if (fresh.hasRelationship(r.originId, r.destinationId)) r.id,
+    ];
+    if (drop.isNotEmpty) edits.dropRelationships(drop);
   }
 
   /// Every pack already on disk, newest download first.

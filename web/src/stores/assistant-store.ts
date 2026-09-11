@@ -30,15 +30,20 @@ export interface SuggestionTargetFeature {
 }
 
 export interface SuggestionAction {
-  kind: "connection" | "relationship"
-  tool: "establish_connection" | "establish_relationship"
+  kind: "connection" | "relationship" | "split"
+  tool: "establish_connection" | "establish_relationship" | "split_line"
   title: string
   detail?: string
   target: SuggestionTargetFeature
   distance_meters?: number
-  // The prebuilt establish request body -- POSTed verbatim to /connectivity or
-  // /relationships. Opaque here on purpose: the frontend never reshapes it, it
-  // only forwards what the backend already assembled from the winning rule.
+  // For connection/relationship: the prebuilt establish request body, POSTed
+  // verbatim to /connectivity or /relationships -- opaque here on purpose, the
+  // frontend never reshapes it. For a `split` action it's NOT a ready-to-POST
+  // body but the input the frontend hands to the manual-split create form
+  // (assistant-suggestions.tsx opens draw-store.startSplitDraft from it):
+  // { feature_class, feature_id, split_point: { lng, lat } } -- the line to cut
+  // and where. The split commit needs the far half's own attributes, so it
+  // routes through that form rather than a one-click POST.
   args: unknown
 }
 

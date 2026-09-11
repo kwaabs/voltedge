@@ -10,6 +10,23 @@ import 'dart:typed_data';
 class WkbGeometry {
   WkbGeometry(this.type, this.coordinates);
 
+  /// Build one from a GeoJSON geometry object. The reader already surfaces
+  /// coordinates GeoJSON-style, so a plain geometry is a direct wrap; this lets a
+  /// feature CREATED offline (whose geometry is GeoJSON, not packed WKB) reuse the
+  /// exact same highlight/overlay path as a packed feature. GeometryCollection is
+  /// the one case whose members are sub-geometries rather than numbers.
+  factory WkbGeometry.fromGeoJson(Map<String, dynamic> json) {
+    final type = (json['type'] as String?) ?? '';
+    if (type == 'GeometryCollection') {
+      final members = <WkbGeometry>[
+        for (final g in (json['geometries'] as List? ?? const []))
+          if (g is Map<String, dynamic>) WkbGeometry.fromGeoJson(g),
+      ];
+      return WkbGeometry(type, members);
+    }
+    return WkbGeometry(type, json['coordinates']);
+  }
+
   /// GeoJSON-style type: Point, LineString, Polygon, MultiPoint,
   /// MultiLineString, MultiPolygon, GeometryCollection.
   final String type;

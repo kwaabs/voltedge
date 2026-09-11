@@ -31,6 +31,49 @@ export interface DiagramPlacement {
    * placement, or a line placed without a hand-drawn path (which the
    * canvas renders from connectivity instead). */
   path?: DiagramPathPoint[]
+  /** When true, the canvas omits this placement's name label (migration
+   * 0054). Toggled per-feature via PATCH; independent of geometry. */
+  label_hidden?: boolean
+  /** Per-placement label transform (migration 0056): offset from the
+   * label's natural anchor in the glyph-local frame (so it rotates with the
+   * glyph), the label's own rotation in degrees, and a font-size multiplier.
+   * Absent/0/0/0/1 = the default pinned position. Owned by PATCH, never the
+   * place/move upsert, so arranging a label survives a feature drag/rotate. */
+  label_dx?: number
+  label_dy?: number
+  label_rotation?: number
+  label_scale?: number
+}
+
+/** The non-feature-backed furniture on a diagram (Phase 24 keystone): a
+ * grouping box, a free text label, a schematic-only line, and later title
+ * blocks / legends / template slots. Unlike a placement it points at no real
+ * feature -- it exists only on the canvas, in the diagram's own local x/y
+ * space. Slice 1 uses the text/box/line kinds; the rest are model-ready. */
+export type DiagramElementKind = "text" | "box" | "line" | "symbol" | "bus" | "tap" | "control" | "title_block" | "legend" | "slot"
+
+export interface DiagramElement {
+  id: string
+  kind: DiagramElementKind
+  x: number
+  y: number
+  /** Box-like kinds only (box/title_block/legend); absent for text/line. */
+  width?: number
+  height?: number
+  rotation: number
+  /** kind === "line": the ordered polyline vertices in local space. */
+  path?: DiagramPathPoint[]
+  /** Text content for text kinds; the label a box/line may carry. */
+  text?: string | null
+  /** Kind-specific rendering hints (stroke, dash, fill, colour, fontSize) --
+   * always an object, never null on the wire. */
+  style: Record<string, unknown>
+  z_index: number
+  slot_class?: string | null
+  slot_subtype?: number | null
+  slot_role?: string | null
+  bound_class?: string | null
+  bound_id?: string | null
 }
 
 interface DiagramsResponse {
@@ -41,9 +84,13 @@ interface PlacementsResponse {
   placements: DiagramPlacement[]
 }
 
+interface ElementsResponse {
+  elements: DiagramElement[]
+}
+
 /**
  * Every diagram instance hosted by one container feature -- a
- * SUBSTATION_YARD can host more than one (a one-line and a
+ * SUBSTATION can host more than one (a one-line and a
  * control-scheme diagram for the same substation is a real case per
  * docs/metadata-core.md), so this is a list, not a single fetch.
  * Backs the "View diagram" trigger in feature-panel.tsx: only shown
@@ -103,6 +150,25 @@ export function useCreateDiagramInstance() {
 }
 
 /**
+ * Deletes a whole diagram instance (cascades to its placements server-side).
+ * Gated behind diagrams:delete -- the server refuses the DELETE for anyone
+ * without it (supervisor/admin/break-glass-admin only, migration 0078), and the
+ * only caller (diagram-canvas.tsx) hides its button unless usePermission agrees,
+ * so the two stay in step. Invalidates every container's diagram list (we don't
+ * know the container here, and the lists are small) so "View diagram" drops the
+ * deleted instance immediately.
+ */
+export function useDeleteDiagramInstance() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (diagramId: string) => apiFetch<void>(`/diagrams/${diagramId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["diagrams"] })
+    },
+  })
+}
+
+/**
  * Every feature placed on one diagram instance, with its own local
  * x/y/rotation -- entirely independent of whatever real geom the same
  * feature might also have on the map (docs/phase-5-diagrams.md). Backs
@@ -112,6 +178,21 @@ export function useDiagramPlacements(diagramId: string | undefined) {
   return useQuery({
     queryKey: ["diagram-placements", diagramId],
     queryFn: () => apiFetch<PlacementsResponse>(`/diagrams/${diagramId}/placements`),
+    enabled: Boolean(diagramId),
+  })
+}
+
+/**
+ * Every non-feature element on one diagram -- annotation boxes, free text,
+ * schematic-only lines (Phase 24 keystone). Fetched alongside the placements
+ * the canvas already loads; drawn back-to-front by z_index (the API already
+ * orders them that way). Separate query key from placements so a placement
+ * move doesn't refetch elements and vice versa.
+ */
+export function useDiagramElements(diagramId: string | undefined) {
+  return useQuery({
+    queryKey: ["diagram-elements", diagramId],
+    queryFn: () => apiFetch<ElementsResponse>(`/diagrams/${diagramId}/elements`),
     enabled: Boolean(diagramId),
   })
 }

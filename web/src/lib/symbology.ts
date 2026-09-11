@@ -24,6 +24,43 @@ export interface StyleDef {
   stroke_color?: string
 }
 
+/** A feature class's map label configuration (Phase 30) -- ONE per class,
+ * authored in its own dialog, stored as a free-form label_def jsonb on
+ * metadata.feature_classes (so no schema churn to tune it) and published
+ * on the same /feature-classes/{code}/schema response the map already
+ * reads for symbology. Distinct from StyleDef on purpose: labelling is
+ * orthogonal to which symbology rule a feature matches, so it's a single
+ * class-wide config rather than a per-rule key.
+ *
+ * `template` is the label expression -- literal text with {field}
+ * placeholders that are substituted with each feature's own tile
+ * properties (e.g. "{name} ({voltage} kV)"); an EMPTY/absent template is
+ * what turns labels off. The rest tune the drawn text and are all
+ * optional (map-layers.ts supplies defaults): size in px, color the
+ * fill, bold/italic the font weight/slant, halo the legibility outline
+ * (on by default) with its own color/width, and min_zoom a floor below
+ * which the label is suppressed (the declutter lever). Map only -- the
+ * diagram has its own per-placement label toggle. */
+export interface LabelDef {
+  template?: string
+  size?: number
+  color?: string
+  bold?: boolean
+  italic?: boolean
+  halo?: boolean
+  halo_color?: string
+  halo_width?: number
+  min_zoom?: number
+  /** Class-wide label placement (point/polygon labels only -- a line label
+   * rides the line and ignores these). offset_x/offset_y shift the label from
+   * its natural anchor in screen pixels (x right-positive, y down-positive);
+   * offset_y overrides the default 14px drop below the glyph. rotation spins
+   * the text, in degrees clockwise. */
+  offset_x?: number
+  offset_y?: number
+  rotation?: number
+}
+
 /** One symbology_rules row, pre-resolved server-side (see
  * api/cmd/server/main.go's resolveSymbologySchema) -- domain_field is
  * already the field *name* a rendered feature's own attribute should

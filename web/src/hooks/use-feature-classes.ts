@@ -9,6 +9,18 @@ export interface FeatureClassSummary {
   network_role: string
   is_diagram_container: boolean
   is_diagram_placeable: boolean
+  /** Phase 26: features of this class may exist without map geometry, so
+   * the class is creatable from inside a diagram (diagram-only feature)
+   * even though it has a real geom column. */
+  geometry_optional: boolean
+  /** Migration 0053: overrides how this class is drawn on a DIAGRAM
+   * ("line" makes a point junction like a busbar render as a spanning
+   * bar). Absent/undefined = inherit geometry_type (the map shape). */
+  diagram_geometry_type?: "point" | "line" | null
+  /** Migration 0074: admin-defined grouping for the "New feature" menu
+   * (e.g. "MV plant", "LV service"). Absent/null = uncategorised, bucketed
+   * under an "Other" section. */
+  category?: string | null
 }
 
 interface FeatureClassesResponse {

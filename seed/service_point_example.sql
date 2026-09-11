@@ -51,24 +51,30 @@ JOIN (VALUES (1, 'residential'), (2, 'commercial'), (3, 'industrial')) AS v(code
 WHERE fc.code = 'SERVICE_POINT'
 ON CONFLICT (feature_class_id, code) DO NOTHING;
 
-INSERT INTO metadata.fields (feature_class_id, name, data_type, domain_id, group_id, nullable)
-SELECT fc.id, v.name, v.data_type, d.id, fg.id, v.nullable
-FROM metadata.feature_classes fc
-JOIN (VALUES
-    ('meter_number', 'text', NULL, 'service', false)
-) AS v(name, data_type, domain_code, group_code, nullable) ON true
-LEFT JOIN metadata.domains d ON d.code = v.domain_code
-JOIN metadata.field_groups fg ON fg.code = v.group_code
-WHERE fc.code = 'SERVICE_POINT'
-ON CONFLICT (feature_class_id, name) DO NOTHING;
-
-INSERT INTO metadata.subtype_field_rules (subtype_id, field_id, is_required)
-SELECT s.id, f.id, true
-FROM metadata.subtypes s
-JOIN metadata.fields f ON f.feature_class_id = s.feature_class_id
-WHERE s.feature_class_id = (SELECT id FROM metadata.feature_classes WHERE code = 'SERVICE_POINT')
-  AND f.name = 'meter_number'
-ON CONFLICT (subtype_id, field_id) DO NOTHING;
+-- No attribute fields. A SERVICE_POINT deliberately carries NO meter_number:
+-- the meter is a first-class feature (METER, seed/lv_metering_example.sql), and
+-- the optional "this supply is metered" link is the composite
+-- `SERVICE_POINT owns METER` relationship_class -- not a text attribute
+-- duplicated on the service point. A meter_number column here was the old
+-- single-representation-of-a-meter and is dropped: an SP may have zero, one, or
+-- (one_to_many) several meters, none of which a scalar field could hold, and a
+-- meter can exist with no SP at all. See docs/phase-9-materials.md.
+--
+-- For a database seeded before this change, the already-compiled column is
+-- deprecated (not physically dropped) with:
+--   UPDATE metadata.fields SET status = 'deprecated'
+--    WHERE name = 'meter_number'
+--      AND feature_class_id = (SELECT id FROM metadata.feature_classes
+--                              WHERE code = 'SERVICE_POINT');
+-- status <> 'active' makes it invisible to the compiler and CRUD (the physical
+-- gis.service_point.meter_number column stays, per
+-- api/internal/metadata/load.go's active-only filter). The deprecation MUST be
+-- paired with relaxing the physical constraint --
+--   ALTER TABLE gis.service_point ALTER COLUMN meter_number DROP NOT NULL;
+-- -- otherwise, if that column was compiled NOT NULL, every new service_point
+-- insert fails (CRUD stops supplying the deprecated field, and the compiler
+-- never relaxes a deprecated column). Both steps live together in
+-- seed/migrate_meter_number_to_meter.sql; run that on any pre-Phase-9 DB.
 
 INSERT INTO metadata.terminals (feature_class_id, subtype_id, code, role, phase_capable)
 SELECT fc.id, NULL, 'T1', 'primary', true

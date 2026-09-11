@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'src/config/settings_repository.dart';
 import 'src/providers.dart';
 import 'src/ui/home_screen.dart';
+import 'src/ui/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,10 +30,9 @@ class VoltEdgeFieldApp extends StatelessWidget {
     return MaterialApp(
       title: 'VoltEdge Field',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorSchemeSeed: const Color(0xFF0B6BCB),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: ThemeMode.system,
       home: const HomeScreen(),
     );
   }

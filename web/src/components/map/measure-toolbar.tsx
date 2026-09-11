@@ -47,7 +47,7 @@ export function MeasureToolbar() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className="bg-background/90 gap-1.5 shadow-sm">
-          <Ruler className="size-4" />
+          <Ruler className="size-4 text-teal-600" />
           Measure
         </Button>
       </DropdownMenuTrigger>

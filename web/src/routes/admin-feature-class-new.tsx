@@ -63,6 +63,7 @@ export function AdminFeatureClassNewPage() {
   const [networkRole, setNetworkRole] = useState<(typeof NETWORK_ROLES)[number]>("none")
   const [isDiagramContainer, setIsDiagramContainer] = useState(false)
   const [isDiagramPlaceable, setIsDiagramPlaceable] = useState(false)
+  const [geometryOptional, setGeometryOptional] = useState(false)
 
   const [subtypes, setSubtypes] = useState<DraftSubtype[]>([])
   const [fields, setFields] = useState<DraftField[]>([])
@@ -101,6 +102,7 @@ export function AdminFeatureClassNewPage() {
           network_role: networkRole,
           is_diagram_container: isDiagramContainer,
           is_diagram_placeable: isDiagramPlaceable,
+          geometry_optional: geometryType === "none" ? false : geometryOptional,
           subtypes: subtypes.map((s) => ({ code: s.code, name: s.name.trim() })),
           fields: fields.map((f) => ({
             name: f.name.trim(),
@@ -256,6 +258,23 @@ export function AdminFeatureClassNewPage() {
               <input type="checkbox" checked={isDiagramPlaceable} onChange={(e) => setIsDiagramPlaceable(e.target.checked)} />
               Can be placed on a diagram (is_diagram_placeable)
             </label>
+            {geometryType !== "none" && (
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={geometryOptional}
+                  onChange={(e) => setGeometryOptional(e.target.checked)}
+                />
+                <span>
+                  Features may exist without map geometry (geometry_optional)
+                  <span className="block text-xs text-muted-foreground">
+                    Lets a feature be diagram-only or both map + diagram. The geom column is
+                    created nullable.
+                  </span>
+                </span>
+              </label>
+            )}
           </CardContent>
         </Card>
 

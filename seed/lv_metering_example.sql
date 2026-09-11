@@ -51,9 +51,22 @@
 --      completes the moment supply can flow through METER.T2 into it.
 --
 --   4. SERVICE_POINT -> METER is seeded as a `composite` (ownership)
---      relationship_class, one_to_one -- the single-dwelling contrast to
---      the chamber's `containment` (spatial). Both kinds now have a real
---      user, per docs/phase-9's "Decisions made".
+--      relationship_class, one_to_many -- an SP may own several meters
+--      (multi-rate / CT + check meter), or none. The contrast to the
+--      chamber's `containment` (spatial) is the kind, not the cardinality.
+--      Both kinds now have a real user, per docs/phase-9's "Decisions made".
+--
+--   5. METER_CHAMBER is a diagram container (is_diagram_container = true), and
+--      METER + LV_BUSBAR are diagram-placeable (is_diagram_placeable = true) --
+--      so a chamber can host its own schematic showing its busbar + meters.
+--      These flags are set explicitly here because migration 0032's one-time
+--      network_role backfill ran before this seed's classes existed, so they'd
+--      otherwise sit at the column DEFAULT false. The chamber schematic is
+--      RESTRICTED to exactly {LV_BUSBAR, METER} via the per-(container x diagram
+--      type) allow-list (migrations/0068): the CHAMBER_SCHEMATIC diagram type +
+--      its two allow-list rows are seeded at the foot of this file. A one-line
+--      diagram under a substation yard has no allow-list rows, so it stays open
+--      to any placeable class (the allow-list is opt-in by absence).
 --
 -- Depends on seed/lv_devices_example.sql (SERVICE_CUTOUT), and through it
 -- seed/lv_conductors_example.sql (LV_CONDUCTOR) and
@@ -108,8 +121,11 @@ ON CONFLICT (domain_id, code) DO NOTHING;
 -- service cutout (or busbar) and the point of supply. Subtypes are the
 -- metering arrangement (whole-current vs CT-metered); 1ph/3ph is `phase`.
 
-INSERT INTO metadata.feature_classes (code, name, geometry_type, srid, network_role, status, is_diagram_container)
-VALUES ('METER', 'Meter', 'point', 4326, 'junction', 'draft', false)
+-- is_diagram_placeable = true: a meter is a node on the chamber schematic
+-- (set explicitly -- migration 0032's backfill predates this seed; see header
+-- decision 5).
+INSERT INTO metadata.feature_classes (code, name, geometry_type, srid, network_role, status, is_diagram_container, is_diagram_placeable)
+VALUES ('METER', 'Meter', 'point', 4326, 'junction', 'draft', false, true)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO metadata.subtypes (feature_class_id, code, name)
@@ -162,8 +178,10 @@ ON CONFLICT (feature_class_id, subtype_id, code) DO NOTHING;
 -- The chamber's distribution board. T1 incoming, T2 the equipotential bar
 -- that fans out to every tenant meter (see decision 2 in the header).
 
-INSERT INTO metadata.feature_classes (code, name, geometry_type, srid, network_role, status, is_diagram_container)
-VALUES ('LV_BUSBAR', 'LV Busbar', 'point', 4326, 'junction', 'draft', false)
+-- is_diagram_placeable = true: the board is a node on the chamber schematic
+-- (set explicitly -- see header decision 5).
+INSERT INTO metadata.feature_classes (code, name, geometry_type, srid, network_role, status, is_diagram_container, is_diagram_placeable)
+VALUES ('LV_BUSBAR', 'LV Busbar', 'point', 4326, 'junction', 'draft', false, true)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO metadata.subtypes (feature_class_id, code, name)
@@ -207,10 +225,31 @@ ON CONFLICT (feature_class_id, subtype_id, code) DO NOTHING;
 -- no terminals). geometry 'point' (a chamber has a footprint; polygon is
 -- available but point is enough to locate it). The containment
 -- relationship_classes below are what tie it to its busbar + meters.
-
+--
+-- is_diagram_container = true: a chamber hosts its own schematic diagram of the
+-- busbar + meters inside it. Container role and diagram-container flag are
+-- orthogonal (network_role 'container' governs connectivity/relationships;
+-- is_diagram_container governs who can OWN a diagram) -- a container asset is a
+-- natural diagram host. See header decision 5 for the later per-type allow-list.
 INSERT INTO metadata.feature_classes (code, name, geometry_type, srid, network_role, status, is_diagram_container)
-VALUES ('METER_CHAMBER', 'Meter Chamber', 'point', 4326, 'container', 'draft', false)
+VALUES ('METER_CHAMBER', 'Meter Chamber', 'point', 4326, 'container', 'draft', true)
 ON CONFLICT (code) DO NOTHING;
+
+-- Reconcile the diagram flags on an ALREADY-SEEDED database. The three
+-- INSERTs above are `ON CONFLICT (code) DO NOTHING`, so on a DB where these
+-- classes predate this edit (they were first seeded with the flags at their
+-- column DEFAULT false) the new VALUES never take -- the row is skipped, not
+-- updated. Without this, METER_CHAMBER stays is_diagram_container=false and the
+-- feature panel never offers "Create diagram" (and METER/LV_BUSBAR would be
+-- rejected by placeFeature's is_diagram_placeable gate even if it did). These
+-- UPDATEs are idempotent and a no-op on a fresh install where the INSERT
+-- already set the flags. is_diagram_container / is_diagram_placeable are plain
+-- metadata columns -- no recompile needed, but the web app must refetch
+-- feature_classes (a reload) to see them.
+UPDATE metadata.feature_classes SET is_diagram_container = true
+ WHERE code = 'METER_CHAMBER' AND is_diagram_container IS DISTINCT FROM true;
+UPDATE metadata.feature_classes SET is_diagram_placeable = true
+ WHERE code IN ('METER', 'LV_BUSBAR') AND is_diagram_placeable IS DISTINCT FROM true;
 
 INSERT INTO metadata.subtypes (feature_class_id, code, name)
 SELECT fc.id, v.code, v.name
@@ -344,14 +383,56 @@ WHERE mc.code = 'METER_CHAMBER' AND m.code = 'METER'
     WHERE origin_feature_class_id = mc.id AND destination_feature_class_id = m.id AND kind = 'containment'
   );
 
--- The single-dwelling contrast: a point of supply OWNS its meter --
--- `composite` (ownership), one_to_one. Gives that kind its first real
--- user alongside containment's, per docs/phase-9's "Decisions made".
+-- A point of supply OWNS its meter(s) -- `composite` (ownership), one_to_many.
+-- one_to_many (not one_to_one): a single SP can be metered by several meters
+-- (multi-rate/dual-tariff, CT + check meter, phased sub-metering), and the meter
+-- is optional (an SP may own none). Cardinality is enforced in
+-- api/internal/relationship/cardinality.go -- one_to_many caps only the
+-- destination (a meter belongs to at most one SP), leaving the origin free to
+-- hold many. Gives `composite` its first real user alongside containment's, per
+-- docs/phase-9's "Decisions made".
 INSERT INTO metadata.relationship_classes (name, origin_feature_class_id, destination_feature_class_id, kind, cardinality)
-SELECT 'SERVICE_POINT owns METER (composite)', sp.id, m.id, 'composite', 'one_to_one'
+SELECT 'SERVICE_POINT owns METER (composite)', sp.id, m.id, 'composite', 'one_to_many'
 FROM metadata.feature_classes sp, metadata.feature_classes m
 WHERE sp.code = 'SERVICE_POINT' AND m.code = 'METER'
   AND NOT EXISTS (
     SELECT 1 FROM metadata.relationship_classes
     WHERE origin_feature_class_id = sp.id AND destination_feature_class_id = m.id AND kind = 'composite'
   );
+
+-- ------------------------------------------------ chamber diagram type --
+-- The meter chamber gets its OWN diagram type (a schematic of the board +
+-- meters inside it), distinct from the substation-yard ONE_LINE seeded in
+-- seed/diagram_example.sql. DIAGRAM_TYPE is an ordinary coded domain ("just
+-- another row in domains" -- docs/metadata-core.md), re-asserted idempotently
+-- here so this seed is self-sufficient whether or not diagram_example.sql ran.
+INSERT INTO metadata.domains (code, name, domain_type) VALUES
+    ('DIAGRAM_TYPE', 'Diagram type', 'coded')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO metadata.domain_values (domain_id, code, label, sort_order)
+SELECT d.id, 'CHAMBER_SCHEMATIC', 'Meter chamber schematic', 2
+FROM metadata.domains d
+WHERE d.code = 'DIAGRAM_TYPE'
+  AND NOT EXISTS (
+    SELECT 1 FROM metadata.domain_values
+    WHERE domain_id = d.id AND code = 'CHAMBER_SCHEMATIC'
+  );
+
+-- ------------------------------------------- diagram placement allow-list --
+-- Restrict the (METER_CHAMBER x CHAMBER_SCHEMATIC) pairing to exactly the two
+-- classes that belong on a chamber schematic: the board and the meters. Because
+-- this pairing now has rows, api/internal/diagram placeFeature rejects any other
+-- class on it -- even a globally is_diagram_placeable one (migrations/0068). A
+-- pairing left with NO rows (e.g. SUBSTATION x ONE_LINE) is unconstrained,
+-- so no other diagram is affected. Guarded on the (container, type, class) unique
+-- index so re-applying this seed is a no-op.
+INSERT INTO metadata.diagram_placement_rules (container_feature_class_id, diagram_type_value_id, feature_class_id)
+SELECT mc.id, dv.id, allowed.id
+FROM metadata.feature_classes mc
+CROSS JOIN metadata.domain_values dv
+JOIN metadata.domains d ON d.id = dv.domain_id AND d.code = 'DIAGRAM_TYPE'
+JOIN metadata.feature_classes allowed ON allowed.code IN ('LV_BUSBAR', 'METER')
+WHERE mc.code = 'METER_CHAMBER'
+  AND dv.code = 'CHAMBER_SCHEMATIC'
+ON CONFLICT (container_feature_class_id, diagram_type_value_id, feature_class_id) DO NOTHING;

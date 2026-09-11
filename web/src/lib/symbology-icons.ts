@@ -52,6 +52,18 @@ export type IconRegistry = Record<string, string>
  * DB's own refs so an admin picker offers the full set. */
 export const FALLBACK_ICON_REFS = Object.keys(FALLBACK_ICONS)
 
+/** The raw SVG markup an icon_ref resolves to, with `{{COLOR}}` still
+ * unsubstituted -- the DB set first, then the hardcoded fallback, then the
+ * default shape, exactly the chain iconDataUri uses. Exposed for consumers
+ * that need the geometry itself rather than a tinted data URI (the DXF
+ * exporter parses this to real glyph outlines, diagram-dxf.ts). Never
+ * returns undefined: an unknown/missing ref still yields the default shape,
+ * so a caller always has something to draw. */
+export function resolveIconMarkup(iconRef: string | undefined, icons?: IconRegistry): string {
+  const ref = iconRef ?? DEFAULT_ICON_REF
+  return icons?.[ref] ?? FALLBACK_ICONS[ref] ?? FALLBACK_ICONS[DEFAULT_ICON_REF]
+}
+
 /** Data-URI for an icon_ref tinted to a given color, suitable for OL
  * Icon's `src` (map-layers.ts) or a plain `<img src>` (layers-panel.tsx's
  * legend) alike. Resolves the markup from `icons` (the DB set) first,
@@ -65,8 +77,6 @@ export function iconDataUri(
   color: string = DEFAULT_COLOR,
   icons?: IconRegistry,
 ): string {
-  const ref = iconRef ?? DEFAULT_ICON_REF
-  const template = icons?.[ref] ?? FALLBACK_ICONS[ref] ?? FALLBACK_ICONS[DEFAULT_ICON_REF]
-  const svg = template.replaceAll("{{COLOR}}", color)
+  const svg = resolveIconMarkup(iconRef, icons).replaceAll("{{COLOR}}", color)
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }

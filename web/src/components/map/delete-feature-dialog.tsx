@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Loader2 } from "lucide-react"
 
 import {
@@ -40,6 +41,7 @@ export function DeleteFeatureDialog({
   onOpenChange,
 }: DeleteFeatureDialogProps) {
   const [deleting, setDeleting] = useState(false)
+  const queryClient = useQueryClient()
 
   async function handleDelete() {
     setDeleting(true)
@@ -50,6 +52,11 @@ export function DeleteFeatureDialog({
       // what actually makes it disappear from the map.
       useDeletedFeaturesStore.getState().markDeleted(featureId)
       useSelectionStore.getState().clear()
+      // A deleted feature must also drop off any open diagram: listPlacements
+      // filters out placements of deleted features, so refetch every diagram's
+      // placements (we don't know here which diagrams carried this feature) to
+      // pull the now-orphaned placement off the canvas without a manual reload.
+      queryClient.invalidateQueries({ queryKey: ["diagram-placements"] })
       onOpenChange(false)
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not delete this feature.")

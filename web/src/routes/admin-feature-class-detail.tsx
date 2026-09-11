@@ -25,6 +25,7 @@ import { type FeatureClassSchema, type FieldSchema, useFeatureClassSchema } from
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { ApiError, apiFetch } from "@/lib/api"
 import { LINE_DASH_STYLES } from "@/lib/line-dash"
+import type { LabelDef } from "@/lib/symbology"
 import { useToastStore } from "@/stores/toast-store"
 
 const labelClass = "text-xs font-medium"
@@ -309,8 +310,12 @@ function AddFieldRow({
 }
 
 /**
- * Edit an existing field's domain, nullable, and form-visibility flags --
- * api/internal/admin's PATCH .../fields/{name} (update.go). Name and
+ * Edit an existing field's domain, nullable, form-visibility flags, and
+ * per-subtype required rules -- api/internal/admin's PATCH .../fields/{name}
+ * (update.go). required_for_subtypes reconciles subtype_field_rules to
+ * exactly the checked set (is_required is read live by the CRUD engine, so no
+ * recompile is needed to make a field required, unlike a nullable flip). Name
+ * and data_type aren't editable here because the endpoint itself doesn't
  * data_type aren't editable here because the endpoint itself doesn't
  * accept them (the compiler has no rename/retype path). group_code is
  * also left out of this form: the Fields table has never displayed which
@@ -320,15 +325,35 @@ function AddFieldRow({
  * mean "clear the assignment", matching updateFieldRequest's own
  * sentinel convention (see its doc comment in api/internal/admin/types.go).
  */
-function EditFieldRow({ code, field, onDone }: { code: string; field: FieldSchema; onDone: () => void }) {
+function EditFieldRow({
+  code,
+  field,
+  subtypes,
+  onDone,
+}: {
+  code: string
+  field: FieldSchema
+  subtypes: { code: number; name: string }[]
+  onDone: () => void
+}) {
   const { data: domainsData } = useAdminDomains()
   const [domainCode, setDomainCode] = useState(field.domain_code ?? "")
   const [nullable, setNullable] = useState(field.nullable)
   const [visibleOnCreate, setVisibleOnCreate] = useState(field.visible_on_create)
   const [visibleOnUpdate, setVisibleOnUpdate] = useState(field.visible_on_update)
   const [editableAfterPublish, setEditableAfterPublish] = useState(field.editable_after_publish)
+  const [requiredFor, setRequiredFor] = useState<Set<number>>(new Set(field.required_for_subtypes ?? []))
   const [saving, setSaving] = useState(false)
   const queryClient = useQueryClient()
+
+  function toggleRequired(subtypeCode: number) {
+    setRequiredFor((prev) => {
+      const next = new Set(prev)
+      if (next.has(subtypeCode)) next.delete(subtypeCode)
+      else next.add(subtypeCode)
+      return next
+    })
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -341,6 +366,7 @@ function EditFieldRow({ code, field, onDone }: { code: string; field: FieldSchem
           visible_on_create: visibleOnCreate,
           visible_on_update: visibleOnUpdate,
           editable_after_publish: editableAfterPublish,
+          required_for_subtypes: [...requiredFor],
         }),
       })
       queryClient.invalidateQueries({ queryKey: ["feature-class-schema", code] })
@@ -400,6 +426,20 @@ function EditFieldRow({ code, field, onDone }: { code: string; field: FieldSchem
           Editable after publish
         </label>
       </div>
+
+      {subtypes.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Required for subtypes</label>
+          <div className="flex flex-wrap gap-3">
+            {subtypes.map((s) => (
+              <label key={s.code} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={requiredFor.has(s.code)} onChange={() => toggleRequired(s.code)} />
+                {s.name}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
     </FormDialog>
   )
 }
@@ -415,8 +455,51 @@ function EditFieldRow({ code, field, onDone }: { code: string; field: FieldSchem
  * endpoint fits a class-detail page as naturally as a feature panel: the
  * answer is the same either way.
  */
+// Mirrors metadata.relationship_classes' kind CHECK (migrations/0010, widened
+// by 0075 for protection, 0080 for metering_sensing, 0082 for cable_routing and
+// 0083 for panel_bay) and the API's validRelationshipKinds in
+// api/internal/admin/rules.go -- keep all three in sync when a kind is added, or
+// the authoring dropdown lags what the schema and seeds already allow.
+const RELATIONSHIP_KINDS = [
+  "spatial_support",
+  "containment",
+  "composite",
+  "protection_trip",
+  "protection_sensing",
+  "metering_sensing",
+  "cable_routing",
+  "panel_bay",
+] as const
+const CARDINALITIES = ["one_to_one", "one_to_many", "many_to_many"] as const
+// The SNAP_TARGET_TYPE domain values (seed/snapping_rules_example.sql):
+// point_feature (snap to a whole point feature), endpoint (a line's end),
+// edge (anywhere along a line), vertex (an interior shape vertex).
+const SNAP_TARGET_TYPES = ["point_feature", "endpoint", "edge", "vertex"] as const
+
+type RuleKind = "network" | "relationship" | "snapping"
+
+/**
+ * The three kinds of rule metadata for a class -- network (legal
+ * electrical connectivity), relationship (structural/spatial pairings),
+ * and snapping (digitizing coincidence). All three are now authorable in
+ * place (add + delete) via api/internal/admin's /network-rules,
+ * /relationship-classes, and /snapping-rules. Every write invalidates the
+ * class-scoped feature-class-rules query so the tables refresh. All three
+ * are pure metadata -- no recompile follows, the connectivity/relationship
+ * validators read the rows live. Caveat: snapping rules are display-only
+ * for now (the map's Snap interaction doesn't yet consume tolerance/target
+ * type -- docs/open-items.md), so authoring one shows here but doesn't
+ * change snap behavior until that wiring slice lands.
+ */
 function RulesSection({ code }: { code: string }) {
   const { data, isPending, isError } = useFeatureClassRules(code)
+  const { data: classesData } = useAdminFeatureClasses()
+  const canWrite = usePermission()("metadata:write")
+  const queryClient = useQueryClient()
+  const [adding, setAdding] = useState<RuleKind | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ kind: RuleKind; id: string; name: string } | null>(null)
+
+  const classes = classesData?.feature_classes ?? []
 
   if (isPending) {
     return (
@@ -430,17 +513,19 @@ function RulesSection({ code }: { code: string }) {
     return <p className="text-destructive text-sm">Could not load rules.</p>
   }
 
-  const hasNothing =
-    data.network_rules.length === 0 && data.relationship_rules.length === 0 && data.snapping_rules.length === 0
-  if (hasNothing) {
-    return <p className="text-muted-foreground text-sm">No rules configured for this class.</p>
-  }
-
   return (
     <div className="flex flex-col gap-4">
-      {data.network_rules.length > 0 && (
-        <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
           <h3 className="text-muted-foreground text-xs font-medium">Network</h3>
+          {canWrite && (
+            <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAdding("network")}>
+              <Plus className="size-3.5" />
+              Add network rule
+            </Button>
+          )}
+        </div>
+        {data.network_rules.length > 0 ? (
           <div className="overflow-hidden rounded-lg border">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
@@ -451,11 +536,12 @@ function RulesSection({ code }: { code: string }) {
                   <th className="px-3 py-2 font-medium">To</th>
                   <th className="px-3 py-2 font-medium">Phase rule</th>
                   <th className="px-3 py-2 font-medium">Valid</th>
+                  {canWrite && <th className="px-3 py-2" />}
                 </tr>
               </thead>
               <tbody>
-                {data.network_rules.map((r, i) => (
-                  <tr key={i} className="border-t">
+                {data.network_rules.map((r) => (
+                  <tr key={r.id} className="border-t">
                     <td className="px-3 py-2">{r.name}</td>
                     <td className="px-3 py-2">{r.direction === "outgoing" ? "Outgoing" : "Incoming"}</td>
                     <td className="px-3 py-2 font-mono text-xs">
@@ -468,17 +554,40 @@ function RulesSection({ code }: { code: string }) {
                     </td>
                     <td className="px-3 py-2 text-xs">{r.phase_rule ?? "—"}</td>
                     <td className="px-3 py-2">{r.is_valid ? "yes" : "no"}</td>
+                    {canWrite && (
+                      <td className="px-3 py-2 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive size-7"
+                          title="Delete"
+                          onClick={() => setDeleteTarget({ kind: "network", id: r.id, name: r.name })}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-muted-foreground text-sm">No network rules.</p>
+        )}
+      </div>
 
-      {data.relationship_rules.length > 0 && (
-        <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
           <h3 className="text-muted-foreground text-xs font-medium">Relationship</h3>
+          {canWrite && (
+            <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAdding("relationship")}>
+              <Plus className="size-3.5" />
+              Add relationship
+            </Button>
+          )}
+        </div>
+        {data.relationship_rules.length > 0 ? (
           <div className="overflow-hidden rounded-lg border">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
@@ -489,28 +598,52 @@ function RulesSection({ code }: { code: string }) {
                   <th className="px-3 py-2 font-medium">Destination</th>
                   <th className="px-3 py-2 font-medium">Kind</th>
                   <th className="px-3 py-2 font-medium">Cardinality</th>
+                  {canWrite && <th className="px-3 py-2" />}
                 </tr>
               </thead>
               <tbody>
-                {data.relationship_rules.map((r, i) => (
-                  <tr key={i} className="border-t">
+                {data.relationship_rules.map((r) => (
+                  <tr key={r.id} className="border-t">
                     <td className="px-3 py-2">{r.name}</td>
                     <td className="px-3 py-2">{r.direction === "origin" ? "Origin" : "Destination"}</td>
                     <td className="px-3 py-2 font-mono text-xs">{r.origin_class}</td>
                     <td className="px-3 py-2 font-mono text-xs">{r.destination_class}</td>
                     <td className="px-3 py-2 text-xs">{r.kind}</td>
                     <td className="px-3 py-2 text-xs">{r.cardinality}</td>
+                    {canWrite && (
+                      <td className="px-3 py-2 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive size-7"
+                          title="Delete"
+                          onClick={() => setDeleteTarget({ kind: "relationship", id: r.id, name: r.name })}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-muted-foreground text-sm">No relationship rules.</p>
+        )}
+      </div>
 
-      {data.snapping_rules.length > 0 && (
-        <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
           <h3 className="text-muted-foreground text-xs font-medium">Snapping</h3>
+          {canWrite && (
+            <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAdding("snapping")}>
+              <Plus className="size-3.5" />
+              Add snapping rule
+            </Button>
+          )}
+        </div>
+        {data.snapping_rules.length > 0 ? (
           <div className="overflow-hidden rounded-lg border">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
@@ -522,11 +655,12 @@ function RulesSection({ code }: { code: string }) {
                   <th className="px-3 py-2 font-medium">Tolerance</th>
                   <th className="px-3 py-2 font-medium">Priority</th>
                   <th className="px-3 py-2 font-medium">Required</th>
+                  {canWrite && <th className="px-3 py-2" />}
                 </tr>
               </thead>
               <tbody>
-                {data.snapping_rules.map((r, i) => (
-                  <tr key={i} className="border-t">
+                {data.snapping_rules.map((r) => (
+                  <tr key={r.id} className="border-t">
                     <td className="px-3 py-2">{r.direction === "from" ? "As source" : "As target"}</td>
                     <td className="px-3 py-2 font-mono text-xs">{r.from_class}</td>
                     <td className="px-3 py-2 font-mono text-xs">
@@ -537,14 +671,556 @@ function RulesSection({ code }: { code: string }) {
                     <td className="px-3 py-2 text-xs">{r.tolerance_m}m</td>
                     <td className="px-3 py-2 text-xs">{r.priority}</td>
                     <td className="px-3 py-2">{r.is_required ? "yes" : "no"}</td>
+                    {canWrite && (
+                      <td className="px-3 py-2 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive size-7"
+                          title="Delete"
+                          onClick={() =>
+                            setDeleteTarget({ kind: "snapping", id: r.id, name: `${r.from_class} → ${r.to_class}` })
+                          }
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
+        ) : (
+          <p className="text-muted-foreground text-sm">No snapping rules.</p>
+        )}
+      </div>
+
+      {adding === "network" && <AddNetworkRuleForm code={code} classes={classes} onDone={() => setAdding(null)} />}
+      {adding === "relationship" && (
+        <AddRelationshipForm code={code} classes={classes} onDone={() => setAdding(null)} />
       )}
+      {adding === "snapping" && <AddSnappingRuleForm code={code} classes={classes} onDone={() => setAdding(null)} />}
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        title={
+          deleteTarget?.kind === "network"
+            ? "Delete this network rule?"
+            : deleteTarget?.kind === "relationship"
+              ? "Delete this relationship rule?"
+              : "Delete this snapping rule?"
+        }
+        description={
+          deleteTarget?.kind === "network"
+            ? "This removes a legal connectivity pattern. Connections already established stay, but this pairing can no longer be validated as legal until re-added. This can't be undone."
+            : deleteTarget?.kind === "relationship"
+              ? "This removes a legal structural/spatial pairing. Relationships already established stay, but this pairing can no longer be established until re-added. This can't be undone."
+              : "This removes a digitizing snap target. Nothing already drawn changes; this pairing just won't be offered as a snap target once the map consumes these rules. This can't be undone."
+        }
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onConfirm={async () => {
+          if (!deleteTarget) return
+          const path =
+            deleteTarget.kind === "network"
+              ? "network-rules"
+              : deleteTarget.kind === "relationship"
+                ? "relationship-classes"
+                : "snapping-rules"
+          await apiFetch(`/admin/${path}/${deleteTarget.id}`, { method: "DELETE" })
+          queryClient.invalidateQueries({ queryKey: ["feature-class-rules", code] })
+        }}
+      />
     </div>
+  )
+}
+
+/** Distinct terminal codes for a class, so the network-rule form's
+ * terminal pickers list each code once even when the class carries
+ * duplicate/subtype-scoped terminal rows sharing a code. */
+function terminalCodeOptions(schema: FeatureClassSchema | undefined): string[] {
+  const seen = new Set<string>()
+  for (const t of schema?.terminals ?? []) seen.add(t.code)
+  return [...seen].sort()
+}
+
+/**
+ * Add one network (connectivity) rule -- api/internal/admin's POST
+ * /network-rules. A rule names a legal from-class -> to-class electrical
+ * connection, optionally narrowed to specific terminals (e.g.
+ * SERVICE_CUTOUT T2 -> METER T1). Terminals are optional: an edge (a
+ * conductor) has none. is_valid defaults on -- a rule is authored to
+ * permit a connection.
+ */
+function AddNetworkRuleForm({
+  code,
+  classes,
+  onDone,
+}: {
+  code: string
+  classes: AdminFeatureClassSummary[]
+  onDone: () => void
+}) {
+  const [name, setName] = useState("")
+  const [fromClass, setFromClass] = useState(code)
+  const [fromTerminal, setFromTerminal] = useState("")
+  const [toClass, setToClass] = useState("")
+  const [toTerminal, setToTerminal] = useState("")
+  const [phaseRule, setPhaseRule] = useState("")
+  const [isValid, setIsValid] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const queryClient = useQueryClient()
+
+  const { data: fromSchema } = useFeatureClassSchema(fromClass || undefined)
+  const { data: toSchema } = useFeatureClassSchema(toClass || undefined)
+  const fromTerminals = terminalCodeOptions(fromSchema)
+  const toTerminals = terminalCodeOptions(toSchema)
+
+  const canSave = name.trim().length > 0 && fromClass !== "" && toClass !== ""
+
+  async function handleAdd() {
+    setSaving(true)
+    try {
+      await apiFetch("/admin/network-rules", {
+        method: "POST",
+        body: JSON.stringify({
+          name: name.trim(),
+          from_class: fromClass,
+          from_terminal: fromTerminal || undefined,
+          to_class: toClass,
+          to_terminal: toTerminal || undefined,
+          phase_rule: phaseRule.trim() || undefined,
+          is_valid: isValid,
+        }),
+      })
+      queryClient.invalidateQueries({ queryKey: ["feature-class-rules", code] })
+      onDone()
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not add this network rule.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title="Add network rule"
+      onSubmit={handleAdd}
+      submitLabel="Add"
+      canSubmit={canSave}
+      saving={saving}
+      className="max-w-2xl"
+    >
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>
+            Name <span className="text-destructive">*</span>
+          </label>
+          <input
+            className={inputClass}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. SERVICE_CUTOUT T2 -> METER T1"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>
+              From class <span className="text-destructive">*</span>
+            </label>
+            <select
+              className={inputClass}
+              value={fromClass}
+              onChange={(e) => {
+                setFromClass(e.target.value)
+                setFromTerminal("")
+              }}
+            >
+              <option value="">Select a class…</option>
+              {classes.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>From terminal</label>
+            <select
+              className={inputClass}
+              value={fromTerminal}
+              onChange={(e) => setFromTerminal(e.target.value)}
+              disabled={fromTerminals.length === 0}
+            >
+              <option value="">{fromTerminals.length === 0 ? "(no terminals)" : "(none)"}</option>
+              {fromTerminals.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>
+              To class <span className="text-destructive">*</span>
+            </label>
+            <select
+              className={inputClass}
+              value={toClass}
+              onChange={(e) => {
+                setToClass(e.target.value)
+                setToTerminal("")
+              }}
+            >
+              <option value="">Select a class…</option>
+              {classes.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>To terminal</label>
+            <select
+              className={inputClass}
+              value={toTerminal}
+              onChange={(e) => setToTerminal(e.target.value)}
+              disabled={toTerminals.length === 0}
+            >
+              <option value="">{toTerminals.length === 0 ? "(no terminals)" : "(none)"}</option>
+              {toTerminals.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Phase rule</label>
+          <input
+            className={inputClass}
+            value={phaseRule}
+            onChange={(e) => setPhaseRule(e.target.value)}
+            placeholder="optional, free text (e.g. from.voltage_class = to.primary_voltage)"
+          />
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={isValid} onChange={(e) => setIsValid(e.target.checked)} />
+          Valid (permits the connection)
+        </label>
+      </div>
+    </FormDialog>
+  )
+}
+
+/**
+ * Add one relationship class -- api/internal/admin's POST
+ * /relationship-classes. Defines a legal structural/spatial pairing
+ * (e.g. STRUCTURE contains METER_CHAMBER) with a kind and cardinality;
+ * unlike a network rule, mere row-presence is the legality (no valid
+ * flag). name is unique across all relationship classes.
+ */
+function AddRelationshipForm({
+  code,
+  classes,
+  onDone,
+}: {
+  code: string
+  classes: AdminFeatureClassSummary[]
+  onDone: () => void
+}) {
+  const [name, setName] = useState("")
+  const [originClass, setOriginClass] = useState(code)
+  const [destinationClass, setDestinationClass] = useState("")
+  const [kind, setKind] = useState<(typeof RELATIONSHIP_KINDS)[number]>("containment")
+  const [cardinality, setCardinality] = useState<(typeof CARDINALITIES)[number]>("one_to_many")
+  const [saving, setSaving] = useState(false)
+  const queryClient = useQueryClient()
+
+  const canSave = name.trim().length > 0 && originClass !== "" && destinationClass !== ""
+
+  async function handleAdd() {
+    setSaving(true)
+    try {
+      await apiFetch("/admin/relationship-classes", {
+        method: "POST",
+        body: JSON.stringify({
+          name: name.trim(),
+          origin_class: originClass,
+          destination_class: destinationClass,
+          kind,
+          cardinality,
+        }),
+      })
+      queryClient.invalidateQueries({ queryKey: ["feature-class-rules", code] })
+      onDone()
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not add this relationship.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title="Add relationship"
+      onSubmit={handleAdd}
+      submitLabel="Add"
+      canSubmit={canSave}
+      saving={saving}
+      className="max-w-2xl"
+    >
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>
+            Name <span className="text-destructive">*</span>
+          </label>
+          <input
+            className={inputClass}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. STRUCTURE contains METER_CHAMBER"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>
+              Origin class <span className="text-destructive">*</span>
+            </label>
+            <select className={inputClass} value={originClass} onChange={(e) => setOriginClass(e.target.value)}>
+              <option value="">Select a class…</option>
+              {classes.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>
+              Destination class <span className="text-destructive">*</span>
+            </label>
+            <select
+              className={inputClass}
+              value={destinationClass}
+              onChange={(e) => setDestinationClass(e.target.value)}
+            >
+              <option value="">Select a class…</option>
+              {classes.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Kind</label>
+            <select className={inputClass} value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
+              {RELATIONSHIP_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Cardinality</label>
+            <select
+              className={inputClass}
+              value={cardinality}
+              onChange={(e) => setCardinality(e.target.value as typeof cardinality)}
+            >
+              {CARDINALITIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+    </FormDialog>
+  )
+}
+
+/**
+ * Add one snapping rule -- api/internal/admin's POST /snapping-rules. A
+ * rule says: while digitizing a from-class feature, its geometry should
+ * snap to a to-class target (optionally a specific terminal) of the given
+ * target type, within tolerance (meters). priority breaks ties when
+ * several targets are in range (lower wins); is_required flags a snap the
+ * digitizer shouldn't skip. Unlike the other two rule kinds this has no
+ * name and no valid flag -- a snap rule is its from/to/target pairing.
+ * Display-only for now: the map's Snap interaction doesn't yet consume
+ * these (docs/open-items.md), so a new rule shows in the table but won't
+ * change snap behavior until that wiring lands.
+ */
+function AddSnappingRuleForm({
+  code,
+  classes,
+  onDone,
+}: {
+  code: string
+  classes: AdminFeatureClassSummary[]
+  onDone: () => void
+}) {
+  const [fromClass, setFromClass] = useState(code)
+  const [toClass, setToClass] = useState("")
+  const [toTerminal, setToTerminal] = useState("")
+  const [targetType, setTargetType] = useState<(typeof SNAP_TARGET_TYPES)[number]>("point_feature")
+  const [toleranceM, setToleranceM] = useState("0.5")
+  const [priority, setPriority] = useState("1")
+  const [isRequired, setIsRequired] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const queryClient = useQueryClient()
+
+  const { data: toSchema } = useFeatureClassSchema(toClass || undefined)
+  const toTerminals = terminalCodeOptions(toSchema)
+
+  const tolNum = Number(toleranceM)
+  const canSave = fromClass !== "" && toClass !== "" && Number.isFinite(tolNum) && tolNum > 0
+
+  async function handleAdd() {
+    setSaving(true)
+    try {
+      await apiFetch("/admin/snapping-rules", {
+        method: "POST",
+        body: JSON.stringify({
+          from_class: fromClass,
+          to_class: toClass,
+          to_terminal: toTerminal || undefined,
+          target_type: targetType,
+          tolerance_m: tolNum,
+          priority: priority.trim() === "" ? undefined : Number(priority),
+          is_required: isRequired,
+        }),
+      })
+      queryClient.invalidateQueries({ queryKey: ["feature-class-rules", code] })
+      onDone()
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not add this snapping rule.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title="Add snapping rule"
+      onSubmit={handleAdd}
+      submitLabel="Add"
+      canSubmit={canSave}
+      saving={saving}
+      className="max-w-2xl"
+    >
+      <div className="flex flex-col gap-3">
+        <p className="text-muted-foreground text-xs">
+          Display-only for now — the map's snap interaction doesn't consume these yet, so this shows in the rules table
+          but won't change snapping behavior until that wiring lands.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>
+              From class <span className="text-destructive">*</span>
+            </label>
+            <select className={inputClass} value={fromClass} onChange={(e) => setFromClass(e.target.value)}>
+              <option value="">Select a class…</option>
+              {classes.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>
+              To class <span className="text-destructive">*</span>
+            </label>
+            <select
+              className={inputClass}
+              value={toClass}
+              onChange={(e) => {
+                setToClass(e.target.value)
+                setToTerminal("")
+              }}
+            >
+              <option value="">Select a class…</option>
+              {classes.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>To terminal</label>
+            <select
+              className={inputClass}
+              value={toTerminal}
+              onChange={(e) => setToTerminal(e.target.value)}
+              disabled={toTerminals.length === 0}
+            >
+              <option value="">{toTerminals.length === 0 ? "(no terminals)" : "(none)"}</option>
+              {toTerminals.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Target type</label>
+            <select
+              className={inputClass}
+              value={targetType}
+              onChange={(e) => setTargetType(e.target.value as typeof targetType)}
+            >
+              {SNAP_TARGET_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>
+              Tolerance (m) <span className="text-destructive">*</span>
+            </label>
+            <input
+              className={inputClass}
+              type="number"
+              step="0.1"
+              min="0"
+              value={toleranceM}
+              onChange={(e) => setToleranceM(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Priority</label>
+            <input
+              className={inputClass}
+              type="number"
+              step="1"
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+              placeholder="1 (lower wins)"
+            />
+          </div>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={isRequired} onChange={(e) => setIsRequired(e.target.checked)} />
+          Required (the digitizer shouldn't leave this snap unmade)
+        </label>
+      </div>
+    </FormDialog>
   )
 }
 
@@ -938,6 +1614,340 @@ function RuleForm({
  * enforced by the compiler at publish, not by blocking a delete, so a
  * class left without a default simply fails its next compile loudly.
  */
+const LABEL_DEFAULT_COLOR = "#1f2937"
+const LABEL_DEFAULT_HALO_COLOR = "#ffffff"
+const LABEL_DEFAULT_HALO_WIDTH = 3
+
+/** The label-editor form state -- strings for the numeric fields (empty
+ * stays empty, coerced only on save), mirroring StyleFields' discipline. */
+interface LabelFields {
+  template: string
+  size: string
+  color: string
+  bold: boolean
+  italic: boolean
+  halo: boolean
+  haloColor: string
+  haloWidth: string
+  minZoom: string
+  offsetX: string
+  offsetY: string
+  rotation: string
+}
+
+function labelFieldsFrom(def: LabelDef | undefined): LabelFields {
+  return {
+    template: def?.template ?? "",
+    size: def?.size !== undefined ? String(def.size) : "",
+    color: def?.color ?? LABEL_DEFAULT_COLOR,
+    bold: def?.bold ?? false,
+    italic: def?.italic ?? false,
+    // Halo defaults ON (map-layers.ts does the same) -- a never-configured
+    // class still gets a legible outline once labelling is turned on.
+    halo: def?.halo ?? true,
+    haloColor: def?.halo_color ?? LABEL_DEFAULT_HALO_COLOR,
+    haloWidth: def?.halo_width !== undefined ? String(def.halo_width) : "",
+    minZoom: def?.min_zoom !== undefined ? String(def.min_zoom) : "",
+    offsetX: def?.offset_x !== undefined ? String(def.offset_x) : "",
+    offsetY: def?.offset_y !== undefined ? String(def.offset_y) : "",
+    rotation: def?.rotation !== undefined ? String(def.rotation) : "",
+  }
+}
+
+/** Builds the label_def body -- only keys that differ from the map's own
+ * defaults are written, keeping the jsonb tight (same "only present keys"
+ * discipline as the symbology toStyleBody). template is the on-switch and
+ * always written when non-empty. */
+function toLabelDef(f: LabelFields): LabelDef {
+  return {
+    template: f.template.trim(),
+    size: f.size.trim() === "" ? undefined : Number(f.size),
+    color: f.color.trim() === "" || f.color === LABEL_DEFAULT_COLOR ? undefined : f.color.trim(),
+    bold: f.bold ? true : undefined,
+    italic: f.italic ? true : undefined,
+    // Only the non-default (off) needs recording; on is the default.
+    halo: f.halo ? undefined : false,
+    halo_color:
+      !f.halo || f.haloColor.trim() === "" || f.haloColor === LABEL_DEFAULT_HALO_COLOR ? undefined : f.haloColor.trim(),
+    halo_width: !f.halo || f.haloWidth.trim() === "" ? undefined : Number(f.haloWidth),
+    min_zoom: f.minZoom.trim() === "" ? undefined : Number(f.minZoom),
+    // Placement (point/polygon labels): only record a non-zero nudge/spin.
+    offset_x: f.offsetX.trim() === "" || Number(f.offsetX) === 0 ? undefined : Number(f.offsetX),
+    offset_y: f.offsetY.trim() === "" ? undefined : Number(f.offsetY),
+    rotation: f.rotation.trim() === "" || Number(f.rotation) === 0 ? undefined : Number(f.rotation),
+  }
+}
+
+/** A one-line summary of a class's current label config for the section
+ * header -- the template, or a muted "No label" when unset/empty. */
+function labelSummary(def: LabelDef | undefined): string {
+  return def?.template && def.template.trim() !== "" ? def.template : "No label"
+}
+
+/**
+ * The per-class map label editor. Labelling is one config per feature
+ * class (not per symbology rule), so it lives in its own section with a
+ * single Edit dialog rather than a list. Stored as label_def jsonb on the
+ * feature class (PATCH /admin/feature-classes/{code}); an empty template
+ * clears it (sent as label_def: null). Map only -- the diagram toggles
+ * labels per placement.
+ */
+function LabelSection({ code, schema }: { code: string; schema: FeatureClassSchema }) {
+  const canWrite = usePermission()("metadata:write")
+  const [editing, setEditing] = useState(false)
+  const def = schema.label_def
+  const hasLabel = !!def?.template && def.template.trim() !== ""
+
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold">Labelling</h2>
+        {canWrite && (
+          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+            <Pencil className="size-4" />
+            {hasLabel ? "Edit label" : "Add label"}
+          </Button>
+        )}
+      </div>
+
+      <p className={hasLabel ? "font-mono text-sm" : "text-muted-foreground text-sm"}>{labelSummary(def)}</p>
+
+      {editing && <LabelForm code={code} schema={schema} onDone={() => setEditing(false)} />}
+    </>
+  )
+}
+
+function LabelForm({ code, schema, onDone }: { code: string; schema: FeatureClassSchema; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [fields, setFields] = useState<LabelFields>(() => labelFieldsFrom(schema.label_def))
+  const [insertField, setInsertField] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  const hasTemplate = fields.template.trim() !== ""
+
+  // Append a {field} token -- a straightforward append (not cursor-aware)
+  // keeps this robust; the author can rearrange the template text freely.
+  function appendField(name: string) {
+    if (name === "") return
+    setFields((f) => ({ ...f, template: `${f.template}{${name}}` }))
+    setInsertField("")
+  }
+
+  const previewFont = `${fields.italic ? "italic " : ""}${fields.bold ? "bold " : ""}${
+    fields.size.trim() === "" ? 12 : Number(fields.size)
+  }px ui-sans-serif, system-ui, sans-serif`
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      // Empty template clears the config to SQL/JSON null; otherwise the
+      // built label_def rides the shared PATCH /admin/feature-classes.
+      const body = { label_def: hasTemplate ? toLabelDef(fields) : null }
+      await apiFetch(`/admin/feature-classes/${code}`, { method: "PATCH", body: JSON.stringify(body) })
+      queryClient.invalidateQueries({ queryKey: ["feature-class-schema", code] })
+      onDone()
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save the label.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title="Map label"
+      description="One label per feature class, drawn on the geographic map. Use {field} placeholders to insert attribute values."
+      onSubmit={handleSave}
+      submitLabel="Save"
+      canSubmit
+      saving={saving}
+      className="max-w-2xl"
+    >
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>Template</label>
+        <input
+          className={inputClass}
+          value={fields.template}
+          onChange={(e) => setFields({ ...fields, template: e.target.value })}
+          placeholder="{name} ({voltage} kV)"
+        />
+        <div className="flex items-center gap-2">
+          <select className={`${inputClass} w-auto`} value={insertField} onChange={(e) => appendField(e.target.value)}>
+            <option value="">Insert field…</option>
+            {/* Built-in gis columns (published as tile props, not in schema.fields) */}
+            <optgroup label="Built-in">
+              <option value="name">name</option>
+            </optgroup>
+            {schema.fields.length > 0 && (
+              <optgroup label="Fields">
+                {schema.fields.map((f) => (
+                  <option key={f.name} value={f.name}>
+                    {f.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <span className="text-muted-foreground text-xs">
+            Empty template removes the label. Missing values collapse out.
+          </span>
+        </div>
+      </div>
+
+      {/* Live styling preview -- shows font size/weight/slant/color over a
+          representative background; placeholders show literally since no
+          real feature values are available here. */}
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>Preview</label>
+        <div className="bg-muted/40 flex min-h-10 items-center rounded-md border px-3 py-2">
+          {hasTemplate ? (
+            <span
+              style={{
+                font: previewFont,
+                color: fields.color,
+                // Preview the rotation (a positive angle reads clockwise, like
+                // the map); offsets aren't meaningful without a real glyph anchor.
+                display: "inline-block",
+                transform: fields.rotation.trim() === "" ? undefined : `rotate(${Number(fields.rotation)}deg)`,
+              }}
+            >
+              {fields.template}
+            </span>
+          ) : (
+            <span className="text-muted-foreground text-sm">No label</span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3 border-t pt-3">
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Size</label>
+          <input
+            type="number"
+            step="1"
+            className={`${inputClass} w-20`}
+            value={fields.size}
+            onChange={(e) => setFields({ ...fields, size: e.target.value })}
+            placeholder="12"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Color</label>
+          <input
+            type="color"
+            value={fields.color || LABEL_DEFAULT_COLOR}
+            onChange={(e) => setFields({ ...fields, color: e.target.value })}
+            className="h-8 w-12 rounded-md border"
+          />
+        </div>
+        <label className="flex items-center gap-1.5 text-sm">
+          <input
+            type="checkbox"
+            checked={fields.bold}
+            onChange={(e) => setFields({ ...fields, bold: e.target.checked })}
+          />
+          Bold
+        </label>
+        <label className="flex items-center gap-1.5 text-sm">
+          <input
+            type="checkbox"
+            checked={fields.italic}
+            onChange={(e) => setFields({ ...fields, italic: e.target.checked })}
+          />
+          Italic
+        </label>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Min zoom</label>
+          <input
+            type="number"
+            className={`${inputClass} w-24`}
+            value={fields.minZoom}
+            onChange={(e) => setFields({ ...fields, minZoom: e.target.value })}
+            placeholder="any"
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3 border-t pt-3">
+        <label className="flex items-center gap-1.5 text-sm">
+          <input
+            type="checkbox"
+            checked={fields.halo}
+            onChange={(e) => setFields({ ...fields, halo: e.target.checked })}
+          />
+          Halo (outline)
+        </label>
+        {fields.halo && (
+          <>
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>Halo color</label>
+              <input
+                type="color"
+                value={fields.haloColor || LABEL_DEFAULT_HALO_COLOR}
+                onChange={(e) => setFields({ ...fields, haloColor: e.target.value })}
+                className="h-8 w-12 rounded-md border"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>Halo width</label>
+              <input
+                type="number"
+                step="1"
+                className={`${inputClass} w-20`}
+                value={fields.haloWidth}
+                onChange={(e) => setFields({ ...fields, haloWidth: e.target.value })}
+                placeholder="3"
+              />
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Placement -- shifts/spins the label for every feature of the class.
+          Point/polygon labels only; a line label rides the line and ignores
+          these. Offset Y blank = the default 14px drop below the glyph. */}
+      <div className="flex flex-wrap items-end gap-3 border-t pt-3">
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Offset X</label>
+          <input
+            type="number"
+            step="1"
+            className={`${inputClass} w-20`}
+            value={fields.offsetX}
+            onChange={(e) => setFields({ ...fields, offsetX: e.target.value })}
+            placeholder="0"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Offset Y</label>
+          <input
+            type="number"
+            step="1"
+            className={`${inputClass} w-20`}
+            value={fields.offsetY}
+            onChange={(e) => setFields({ ...fields, offsetY: e.target.value })}
+            placeholder="14"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Rotation°</label>
+          <input
+            type="number"
+            step="5"
+            className={`${inputClass} w-24`}
+            value={fields.rotation}
+            onChange={(e) => setFields({ ...fields, rotation: e.target.value })}
+            placeholder="0"
+          />
+        </div>
+        <span className="text-muted-foreground text-xs">Point/polygon labels only — lines ride the line.</span>
+      </div>
+    </FormDialog>
+  )
+}
+
 function SymbologySection({ code, schema }: { code: string; schema: FeatureClassSchema }) {
   const { data, isPending, isError } = useSymbologyRules(code)
   const icons = useSymbologyIcons()
@@ -1093,8 +2103,28 @@ function SymbologySection({ code, schema }: { code: string; schema: FeatureClass
 function DiagramSettingsForm({ summary, onDone }: { summary: AdminFeatureClassSummary; onDone: () => void }) {
   const [isDiagramContainer, setIsDiagramContainer] = useState(summary.is_diagram_container)
   const [isDiagramPlaceable, setIsDiagramPlaceable] = useState(summary.is_diagram_placeable)
+  const [geometryOptional, setGeometryOptional] = useState(summary.geometry_optional)
+  // "" = inherit geometry_type (the map shape); "point"/"line" = override
+  // just the diagram draw shape (migration 0053, the busbar case).
+  const [diagramGeometryType, setDiagramGeometryType] = useState<string>(summary.diagram_geometry_type ?? "")
+  // Admin-defined "New feature" menu grouping (migration 0074). "" clears it
+  // back to uncategorised; any other string sets the section it lands under.
+  const [category, setCategory] = useState<string>(summary.category ?? "")
   const [saving, setSaving] = useState(false)
   const queryClient = useQueryClient()
+
+  // Offer the categories other classes already use as autocomplete, so an
+  // admin reuses "MV plant" rather than inventing "MV Plant" and splitting
+  // the menu section. Distinct, sorted, non-blank.
+  const { data: classesData } = useAdminFeatureClasses()
+  const categorySuggestions = Array.from(
+    new Set((classesData?.feature_classes ?? []).map((c) => c.category?.trim()).filter((c): c is string => !!c)),
+  ).sort((a, b) => a.localeCompare(b))
+
+  // geometry_optional only has meaning for a class that HAS a geom column;
+  // a geometry_type = 'none' class is already geometry-less by definition,
+  // so the flag is hidden there (the compiler ignores it for those classes).
+  const supportsGeometryOptional = summary.geometry_type !== "none"
 
   async function handleSave() {
     setSaving(true)
@@ -1104,6 +2134,11 @@ function DiagramSettingsForm({ summary, onDone }: { summary: AdminFeatureClassSu
         body: JSON.stringify({
           is_diagram_container: isDiagramContainer,
           is_diagram_placeable: isDiagramPlaceable,
+          ...(supportsGeometryOptional ? { geometry_optional: geometryOptional } : {}),
+          // Always send it: "" clears the override back to inherit, a value sets it.
+          diagram_geometry_type: diagramGeometryType,
+          // Always send it: "" clears the category (uncategorised), a value sets it.
+          category: category.trim(),
         }),
       })
       // Refresh both the admin catalog (this page's own summary/badges) and
@@ -1122,7 +2157,7 @@ function DiagramSettingsForm({ summary, onDone }: { summary: AdminFeatureClassSu
     <FormDialog
       open
       onOpenChange={(next) => next || onDone()}
-      title={`Diagram settings — ${summary.code}`}
+      title={`Class settings — ${summary.code}`}
       onSubmit={handleSave}
       submitLabel="Save"
       canSubmit
@@ -1135,6 +2170,60 @@ function DiagramSettingsForm({ summary, onDone }: { summary: AdminFeatureClassSu
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={isDiagramPlaceable} onChange={(e) => setIsDiagramPlaceable(e.target.checked)} />
         Can be placed on a diagram (is_diagram_placeable)
+      </label>
+      {supportsGeometryOptional && (
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={geometryOptional}
+            onChange={(e) => setGeometryOptional(e.target.checked)}
+          />
+          <span>
+            Features may exist without map geometry (geometry_optional)
+            <span className="block text-xs text-muted-foreground">
+              Lets a feature be diagram-only or both map + diagram. Takes effect on the next compile,
+              which relaxes the geom column to nullable.
+            </span>
+          </span>
+        </label>
+      )}
+      <label className="flex flex-col gap-1 text-sm">
+        <span>Diagram draw shape (diagram_geometry_type)</span>
+        <select
+          className={inputClass}
+          value={diagramGeometryType}
+          onChange={(e) => setDiagramGeometryType(e.target.value)}
+        >
+          <option value="">Inherit map shape ({summary.geometry_type})</option>
+          <option value="point">Point</option>
+          <option value="line">Line (draw as a bar/wire on diagrams)</option>
+        </select>
+        <span className="text-xs text-muted-foreground">
+          Overrides how this class is drawn on a one-line/schematic only — the geographic map is
+          unchanged. Set "Line" for a busbar so a point junction reads as a spanning bar. No recompile
+          needed.
+        </span>
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        <span>Menu category</span>
+        <input
+          className={inputClass}
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          placeholder="e.g. MV plant, LV service, Structures"
+          list="feature-class-category-suggestions"
+        />
+        <datalist id="feature-class-category-suggestions">
+          {categorySuggestions.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+        <span className="text-xs text-muted-foreground">
+          Groups this class in the map's "New feature" menu. Classes sharing a category are listed
+          together under it; leave blank to file the class under "Other". Presentation only — no
+          recompile, no effect on topology.
+        </span>
       </label>
     </FormDialog>
   )
@@ -1152,7 +2241,7 @@ function DiagramSettingsSection({ summary, canWrite }: { summary: AdminFeatureCl
   return (
     <>
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">Diagram settings</h2>
+        <h2 className="text-sm font-semibold">Class settings</h2>
         {canWrite && (
           <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
             <Pencil className="size-4" />
@@ -1161,12 +2250,23 @@ function DiagramSettingsSection({ summary, canWrite }: { summary: AdminFeatureCl
         )}
       </div>
       <div className="flex flex-wrap gap-2">
+        <Badge variant={summary.category ? "success" : "outline"}>
+          {summary.category ? `Menu: ${summary.category}` : "Uncategorised"}
+        </Badge>
         <Badge variant={summary.is_diagram_container ? "success" : "outline"}>
           {summary.is_diagram_container ? "Hosts diagrams" : "Not a diagram container"}
         </Badge>
         <Badge variant={summary.is_diagram_placeable ? "success" : "outline"}>
           {summary.is_diagram_placeable ? "Placeable on diagrams" : "Not diagram-placeable"}
         </Badge>
+        {summary.geometry_type !== "none" && (
+          <Badge variant={summary.geometry_optional ? "success" : "outline"}>
+            {summary.geometry_optional ? "Geometry optional" : "Geometry required"}
+          </Badge>
+        )}
+        {summary.diagram_geometry_type && (
+          <Badge variant="success">Diagram shape: {summary.diagram_geometry_type}</Badge>
+        )}
       </div>
       {editing && <DiagramSettingsForm summary={summary} onDone={() => setEditing(false)} />}
     </>
@@ -1191,6 +2291,7 @@ export function AdminFeatureClassDetailPage() {
   // server; this page opens on metadata:read, so gate the write controls.
   const canWrite = usePermission()("metadata:write")
   const [compiling, setCompiling] = useState(false)
+  const [uncompileOpen, setUncompileOpen] = useState(false)
   const [addingSubtype, setAddingSubtype] = useState(false)
   const [addingField, setAddingField] = useState(false)
   const [editingFieldName, setEditingFieldName] = useState<string | null>(null)
@@ -1210,6 +2311,31 @@ export function AdminFeatureClassDetailPage() {
     } finally {
       setCompiling(false)
     }
+  }
+
+  // Uncompile is the destructive inverse of compile: it DROPs the physical
+  // table (and its tile function) and resets the class to draft. Its reason
+  // to exist is the additive compiler's blind spot -- it can't ADD a
+  // required (NOT NULL) field to a class that already has rows, so the
+  // table must be dropped and recompiled fresh. Confirmed first (row count
+  // discarded is irreversible); on success we recompile-by-hand is the
+  // user's next step, so the toast points at it.
+  async function handleUncompile() {
+    if (!code) return
+    const res = await apiFetch<{ rows_dropped: number; table_existed: boolean }>(
+      `/admin/feature-classes/${code}/uncompile`,
+      { method: "POST" },
+    )
+    queryClient.invalidateQueries({ queryKey: ["admin", "feature-classes"] })
+    queryClient.invalidateQueries({ queryKey: ["feature-classes"] })
+    queryClient.invalidateQueries({ queryKey: ["feature-class-schema", code] })
+    useToastStore
+      .getState()
+      .pushSuccess(
+        res.table_existed
+          ? `Uncompiled ${code} — dropped its table (${res.rows_dropped} row(s) discarded). Recompile to rebuild.`
+          : `Reset ${code} to draft (no table to drop). Compile to build.`,
+      )
   }
 
   if (!code) return null
@@ -1250,12 +2376,36 @@ export function AdminFeatureClassDetailPage() {
                 </p>
               </div>
               {canWrite && (
-                <Button size="sm" variant="outline" onClick={handleCompile} disabled={compiling}>
-                  {compiling && <Loader2 className="size-4 animate-spin" />}
-                  {summary?.status === "draft" ? "Compile" : "Recompile"}
-                </Button>
+                <div className="flex items-center gap-2">
+                  {/* Uncompile only makes sense once there's a physical table
+                      to drop -- a draft class has none, so hide it there. */}
+                  {summary && summary.status !== "draft" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-destructive"
+                      onClick={() => setUncompileOpen(true)}
+                      disabled={compiling}
+                    >
+                      Uncompile
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" onClick={handleCompile} disabled={compiling}>
+                    {compiling && <Loader2 className="size-4 animate-spin" />}
+                    {summary?.status === "draft" ? "Compile" : "Recompile"}
+                  </Button>
+                </div>
               )}
             </div>
+
+            <ConfirmDeleteDialog
+              open={uncompileOpen}
+              title={`Uncompile ${code}?`}
+              description="This DROPS the physical table for this class (and its map tile function) and resets it to draft. Every feature row in the table is permanently discarded — this cannot be undone. All other metadata (fields, subtypes, symbology, connectivity rules) is kept, so you can Recompile to rebuild an empty table. Use this to add a required field to a class that already has data."
+              confirmLabel="Uncompile"
+              onOpenChange={setUncompileOpen}
+              onConfirm={handleUncompile}
+            />
 
             {summary && <DiagramSettingsSection summary={summary} canWrite={canWrite} />}
 
@@ -1306,7 +2456,12 @@ export function AdminFeatureClassDetailPage() {
               (() => {
                 const editingField = schema.fields.find((f) => f.name === editingFieldName)
                 return editingField ? (
-                  <EditFieldRow code={code} field={editingField} onDone={() => setEditingFieldName(null)} />
+                  <EditFieldRow
+                    code={code}
+                    field={editingField}
+                    subtypes={schema.subtypes}
+                    onDone={() => setEditingFieldName(null)}
+                  />
                 ) : null
               })()}
             {schema.fields.length === 0 ? (
@@ -1369,8 +2524,8 @@ export function AdminFeatureClassDetailPage() {
               <>
                 <h2 className="text-sm font-semibold">Terminals</h2>
                 <div className="flex flex-wrap gap-1">
-                  {schema.terminals.map((t) => (
-                    <span key={`${t.code}:${t.subtype_code ?? "any"}`} className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
+                  {schema.terminals.map((t, i) => (
+                    <span key={`${t.code}:${t.subtype_code ?? "any"}:${i}`} className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
                       {t.code} ({t.role}
                       {t.subtype_code !== undefined ? `, subtype ${t.subtype_code}` : ""})
                     </span>
@@ -1380,6 +2535,8 @@ export function AdminFeatureClassDetailPage() {
             )}
 
             <SymbologySection code={code} schema={schema} />
+
+            <LabelSection code={code} schema={schema} />
 
             <h2 className="text-sm font-semibold">Rules</h2>
             <RulesSection code={code} />

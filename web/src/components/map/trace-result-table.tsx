@@ -28,10 +28,23 @@ function shortId(id: string): string {
   return id.length > 8 ? `${id.slice(0, 8)}…` : id
 }
 
+/** Renders volts compactly: kV once at/over 1000 (11kV, 0.4kV), plain V
+ * below (400 V). Trailing-zero-trimmed so 11000 -> "11 kV", not
+ * "11.00 kV". Used for both a feature's stored nominal voltage and its
+ * computed load-flow voltage so the two columns read the same way. */
+function formatVolts(v: number): string {
+  if (v >= 1000) {
+    return `${Number((v / 1000).toFixed(2))} kV`
+  }
+  return `${Number(v.toFixed(1))} V`
+}
+
 interface ResolvedRow {
   feature_class: string
   feature_id: string
   name: string | null
+  circuitRef: string | null
+  nominalVoltageV: number | null
   isBarrier: boolean
   isTarget: boolean
 }
@@ -56,6 +69,7 @@ interface ResolvedRow {
  */
 export function TraceResultTable() {
   const result = useTraceStore((s) => s.result)
+  const computedVoltages = useTraceStore((s) => s.computedVoltages)
   const { data: featureClasses } = useFeatureClasses()
   const [rows, setRows] = useState<ResolvedRow[] | null>(null)
 
@@ -90,6 +104,13 @@ export function TraceResultTable() {
             feature_class: ref.feature_class,
             feature_id: ref.feature_id,
             name,
+            // circuit_ref / nominal_voltage_v ride along on the trace
+            // response's own feature entries (api/internal/trace's
+            // tracedFeature) -- no extra fetch; the per-row GET above is
+            // only for the name. Absent when the reached class carries
+            // neither a circuit_id field nor any voltage-class field.
+            circuitRef: ref.circuit_ref ?? null,
+            nominalVoltageV: ref.nominal_voltage_v ?? null,
             isBarrier: barrierKeys.has(key),
             isTarget: targetKeys.has(key),
           }
@@ -109,9 +130,19 @@ export function TraceResultTable() {
 
   const directionLabel = DIRECTION_LABEL[result.direction] ?? result.direction
   const classNameFor = (code: string) => featureClasses?.feature_classes.find((fc) => fc.code === code)?.name ?? code
+  // Only give computed voltage its own column when a load-flow result for
+  // this trace's start was snapshotted at trace time (feature-panel.tsx) --
+  // otherwise the whole column would be "—" noise. Nominal voltage always
+  // shows: it's topology-intrinsic and needs no solve.
+  const hasComputed = computedVoltages !== null
 
   return (
-    <div className="bg-popover text-popover-foreground fixed bottom-10 left-1/2 z-40 max-h-64 w-[28rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-md border shadow-lg">
+    <div
+      className={cn(
+        "bg-popover text-popover-foreground fixed bottom-10 left-1/2 z-40 max-h-64 max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-md border shadow-lg",
+        hasComputed ? "w-[46rem]" : "w-[38rem]",
+      )}
+    >
       <div className="flex items-center justify-between border-b px-3 py-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{directionLabel} trace</p>
@@ -140,10 +171,15 @@ export function TraceResultTable() {
                 <th className="bg-popover px-3 py-1.5 font-medium">Feature class</th>
                 <th className="bg-popover px-3 py-1.5 font-medium">Feature ID</th>
                 <th className="bg-popover px-3 py-1.5 font-medium">Name</th>
+                <th className="bg-popover px-3 py-1.5 font-medium">Circuit</th>
+                <th className="bg-popover px-3 py-1.5 font-medium">Nominal V</th>
+                {hasComputed && <th className="bg-popover px-3 py-1.5 font-medium">Computed V</th>}
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.map((row) => {
+                const computed = computedVoltages?.[`${row.feature_class}:${row.feature_id}`]
+                return (
                 <tr
                   key={`${row.feature_class}:${row.feature_id}`}
                   onClick={() => useSelectionStore.getState().select(row.feature_class, row.feature_id, { focus: true })}
@@ -165,8 +201,18 @@ export function TraceResultTable() {
                   <td className="px-3 py-1.5">{classNameFor(row.feature_class)}</td>
                   <td className="px-3 py-1.5 font-mono">{shortId(row.feature_id)}</td>
                   <td className="text-muted-foreground px-3 py-1.5">{row.name || "—"}</td>
+                  <td className="text-muted-foreground px-3 py-1.5">{row.circuitRef || "—"}</td>
+                  <td className="text-muted-foreground px-3 py-1.5 tabular-nums">
+                    {row.nominalVoltageV != null ? formatVolts(row.nominalVoltageV) : "—"}
+                  </td>
+                  {hasComputed && (
+                    <td className="text-muted-foreground px-3 py-1.5 tabular-nums">
+                      {computed != null ? formatVolts(computed) : "—"}
+                    </td>
+                  )}
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         )}

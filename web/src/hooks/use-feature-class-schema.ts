@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { apiFetch } from "@/lib/api"
-import type { SymbologyRuleSchema } from "@/lib/symbology"
+import type { LabelDef, SymbologyRuleSchema } from "@/lib/symbology"
 
 export interface SubtypeSchema {
   code: number
@@ -55,6 +55,13 @@ export interface FeatureClassSchema {
   fields: FieldSchema[]
   terminals?: TerminalSchema[]
   symbology?: SymbologyRuleSchema[]
+  /** The class's map label configuration (Phase 30) -- one per class,
+   * edited in its own dialog, absent/empty template means no labels. */
+  label_def?: LabelDef
+  /** Nominal voltage namespace (Phase 37 Slice 2), "MV" or "LV", absent for
+   * structural / unclassified classes. The create/edit form passes it to the
+   * circuit_id field's picker to scope it to same-network circuits. */
+  network?: "MV" | "LV"
 }
 
 /**

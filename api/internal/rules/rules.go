@@ -22,6 +22,7 @@ import (
 )
 
 type networkRuleSchema struct {
+	ID           string  `json:"id"` // so the admin UI can delete this exact rule
 	Name         string  `json:"name"`
 	Direction    string  `json:"direction"` // "outgoing" if this class is the from-side, "incoming" if the to-side
 	FromClass    string  `json:"from_class"`
@@ -35,6 +36,7 @@ type networkRuleSchema struct {
 }
 
 type relationshipRuleSchema struct {
+	ID               string `json:"id"` // so the admin UI can delete this exact rule
 	Name             string `json:"name"`
 	Direction        string `json:"direction"` // "origin" or "destination"
 	OriginClass      string `json:"origin_class"`
@@ -44,6 +46,7 @@ type relationshipRuleSchema struct {
 }
 
 type snappingRuleSchema struct {
+	ID          string  `json:"id"`        // so the admin UI can delete this exact rule
 	Direction   string  `json:"direction"` // "from" (this class is what's being digitized) or "to" (this class is an eligible snap target)
 	FromClass   string  `json:"from_class"`
 	FromSubtype *string `json:"from_subtype,omitempty"`
@@ -241,6 +244,7 @@ func Handler(db *bun.DB) http.HandlerFunc {
 				direction = "outgoing"
 			}
 			resp.NetworkRules[i] = networkRuleSchema{
+				ID:           nr.ID,
 				Name:         nr.Name,
 				Direction:    direction,
 				FromClass:    res.className(nr.FromFeatureClassID),
@@ -260,6 +264,7 @@ func Handler(db *bun.DB) http.HandlerFunc {
 				direction = "origin"
 			}
 			resp.RelationshipRules[i] = relationshipRuleSchema{
+				ID:               rc.ID,
 				Name:             rc.Name,
 				Direction:        direction,
 				OriginClass:      res.className(rc.OriginFeatureClassID),
@@ -275,6 +280,7 @@ func Handler(db *bun.DB) http.HandlerFunc {
 				direction = "from"
 			}
 			resp.SnappingRules[i] = snappingRuleSchema{
+				ID:          sr.ID,
 				Direction:   direction,
 				FromClass:   res.className(sr.FromFeatureClassID),
 				FromSubtype: res.subtypeName(sr.FromSubtypeID),

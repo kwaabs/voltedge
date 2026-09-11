@@ -25,6 +25,15 @@ function formatCurrent(amps: number): string {
   return amps >= 1000 ? `${formatNumber(amps / 1000, 2)}kA` : `${formatNumber(amps, 0)}A`
 }
 
+/** A node's own voltage base (nominal_base_v) as a compact level label --
+ * "11 kV" / "400 V" -- so an MV-side fault level reads apart from the LV
+ * level below a DIST_XFMR (the accumulation now refers impedance across the
+ * transformer and reports current on each node's own base). */
+function formatVoltageLevel(volts: number): string {
+  if (volts >= 1000) return `${formatNumber(volts / 1000, volts % 1000 === 0 ? 0 : 1)} kV`
+  return `${formatNumber(volts, 0)} V`
+}
+
 /**
  * Floating panel for api/internal/powerflow's fault-current walk (see
  * docs/phase-8-load-flow.md) -- the symmetrical (3-phase bolted) fault-
@@ -73,7 +82,7 @@ export function FaultCurrentPanel() {
   }
 
   return (
-    <div className="bg-popover text-popover-foreground fixed bottom-10 left-1/2 z-40 max-h-80 w-[34rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-md border shadow-lg">
+    <div className="bg-popover text-popover-foreground fixed bottom-10 left-1/2 z-40 max-h-80 w-[36rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-md border shadow-lg">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <p className="truncate text-sm font-medium">Fault current</p>
         <Button variant="ghost" size="icon" className="size-6 shrink-0" onClick={() => useFaultCurrentStore.getState().clear()}>
@@ -108,6 +117,7 @@ export function FaultCurrentPanel() {
             <thead className="text-muted-foreground sticky top-0 border-b text-left text-xs">
               <tr>
                 <th className="bg-popover px-3 py-1.5 font-medium">Feature</th>
+                <th className="bg-popover px-3 py-1.5 font-medium">Level</th>
                 <th className="bg-popover px-3 py-1.5 font-medium">Impedance</th>
                 <th className="bg-popover px-3 py-1.5 font-medium">Fault current</th>
               </tr>
@@ -124,6 +134,12 @@ export function FaultCurrentPanel() {
                     <td className="px-3 py-1.5">
                       <div>{classNameFor(node.feature_class)}</div>
                       <div className="text-muted-foreground font-mono text-xs">{shortId(node.feature_id)}</div>
+                      {(node.circuit_ref || node.circuit_id) && (
+                        <div className="text-muted-foreground text-xs">{node.circuit_ref || shortId(node.circuit_id!)}</div>
+                      )}
+                    </td>
+                    <td className="text-muted-foreground px-3 py-1.5 text-xs whitespace-nowrap">
+                      {node.nominal_base_v > 0 ? formatVoltageLevel(node.nominal_base_v) : "—"}
                     </td>
                     <td className="px-3 py-1.5">
                       <div>{formatNumber(node.impedance_ohm, 3)}Ω</div>
@@ -162,7 +178,7 @@ export function FaultCurrentPanel() {
                     <div>{classNameFor(b.feature_class)}</div>
                     <div className="font-mono text-xs">{shortId(b.feature_id)}</div>
                   </td>
-                  <td className="px-3 py-1.5" colSpan={2}>
+                  <td className="px-3 py-1.5" colSpan={3}>
                     Stopped here (open device)
                   </td>
                 </tr>

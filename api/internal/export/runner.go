@@ -162,6 +162,7 @@ func runExport(ctx context.Context, db *bun.DB, scope ExportScope, w io.Writer) 
 		layers  []Layer
 		mapping *metadata.CIMMapping
 		conns   []connRow
+		contain map[string]string // child feature id -> container feature id (Phase 47 Slice 4)
 		specs   map[string]*metadata.MaterialSpec
 	)
 	err = db.RunInTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true},
@@ -180,6 +181,9 @@ func runExport(ctx context.Context, db *bun.DB, scope ExportScope, w io.Writer) 
 					return fmt.Errorf("CIM export is not configured: %w", err)
 				}
 				if conns, err = loadConnectivity(ctx, tx, layers); err != nil {
+					return err
+				}
+				if contain, err = loadContainment(ctx, tx, layers); err != nil {
 					return err
 				}
 				if specs, err = loadMaterialSpecs(ctx, tx); err != nil {
@@ -201,7 +205,7 @@ func runExport(ctx context.Context, db *bun.DB, scope ExportScope, w io.Writer) 
 		return count, spec.write(w, "VoltEdge export", layers)
 	}
 	// CIM: the nil-encoder format, encoded with its declarative mapping + topology.
-	stats, err := writeCIM(w, "VoltEdge export", layers, mapping, conns, specs, time.Now())
+	stats, err := writeCIM(w, "VoltEdge export", layers, mapping, conns, contain, specs, time.Now())
 	// Slice 5 trigger signal (docs/phase-17-large-export.md): the persisted-topology
 	// optimization was designed but not built because no export has hit the
 	// union-find memory ceiling. This line is how we find out when one does --

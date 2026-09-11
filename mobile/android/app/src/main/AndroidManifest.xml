@@ -1,4 +1,25 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Needed for the API/sync calls, the in-app loopback tile server, and
+         online basemap providers (OSM/Carto). Auto-added in debug builds, but
+         declared here so release builds have it too. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- GPS placement for offline features (Phase 21 Slice 5b). Fine location for
+         an accurate on-the-pole fix; coarse as the graceful fallback. No
+         background access: the app only reads a fix while the user is placing
+         or recentering in the foreground. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- Image attachment capture (Phase 22 Slice 5): the camera for taking a photo
+         of a feature in the field. Gallery pick needs no permission on modern
+         Android (image_picker uses the system photo picker). -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- External Bluetooth GNSS receiver (Phase gnss-quality Slice 4). We only
+         connect to devices already bonded in the OS Bluetooth settings (no
+         discovery/scan), so on Android 12+ we need only BLUETOOTH_CONNECT; the
+         legacy BLUETOOTH permission covers API <= 30 (normal, granted at install).
+         No neverForLocation / SCAN, because we never scan. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
     <application
         android:label="voltedge_field"
         android:name="${applicationName}"

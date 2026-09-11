@@ -164,7 +164,7 @@ func validateUpdateMaterialSpec(req updateMaterialSpecRequest) error {
 	if req.Name == nil && req.Category == nil && req.ResistanceOhmPerKm == nil && req.ReactanceOhmPerKm == nil &&
 		req.AmpacityAmps == nil && req.DiameterMm == nil && req.WeightKgPerKm == nil &&
 		req.MaxOperatingTempC == nil && req.Emissivity == nil && req.Absorptivity == nil &&
-		req.ResistanceTempCoefficientPerC == nil {
+		req.ResistanceTempCoefficientPerC == nil && req.CostPerKm == nil && req.UnitCost == nil {
 		return invalid("request must set at least one field")
 	}
 	return nil
@@ -280,6 +280,14 @@ func validateCreateFieldGroup(req createFieldGroupRequest) error {
 func validateUpdateFeatureClass(req updateFeatureClassRequest) error {
 	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
 		return invalid("name cannot be blank")
+	}
+
+	// diagram_geometry_type override (migration 0053): "" clears it, and
+	// only 'point'/'line' are meaningful diagram shapes (a diagram has no
+	// polygon or 'none' placement).
+	if req.DiagramGeometryType != nil && *req.DiagramGeometryType != "" &&
+		*req.DiagramGeometryType != "point" && *req.DiagramGeometryType != "line" {
+		return invalid("diagram_geometry_type must be point, line, or empty to inherit geometry_type")
 	}
 
 	geometryTouched := req.GeometryType != nil || req.SRID != nil || req.NetworkRole != nil

@@ -26,7 +26,58 @@ open and closed items worth tracking side by side -- it's not a full
 changelog back to each phase's original build (that history is
 already in `README.md` and each phase's own write-up doc).
 
-**Last updated:** 2026-08-19, the symmetrical (3-phase bolted) fault-
+**Last updated:** 2026-09-10, a new cross-cutting tech-debt item ("Substation
+composite-assembly fan-out duplication", see the Cross-cutting section) plus
+the Phase 5 diagram rows flipped to Done (multi-segment bus routing, grouping
+boxes -> Phase 24; dual line semantics -> Phase 46). Below, from 2026-09-02:
+a Phase 9 metering-model cleanup plus a
+newly-scoped diagram open item. Three confirmed decisions landed in the
+seeds (`seed/service_point_example.sql`, `seed/lv_metering_example.sql`):
+(1) **`meter_number` dropped from `SERVICE_POINT`** -- it was a
+single-scalar duplicate of the first-class `METER` feature; "is this
+supply metered" is the optional `SERVICE_POINT owns METER` composite
+relationship, not a text column. The field is removed from the seed for
+fresh installs; an already-compiled DB deprecates it non-destructively
+(`UPDATE metadata.fields SET status='deprecated'` -- the physical column
+stays but goes invisible to the compiler/CRUD per the `status='active'`
+load filter, `api/internal/metadata/load.go`). (2) **`SERVICE_POINT owns
+METER` cardinality `one_to_one` -> `one_to_many`** -- an SP may own
+several meters (multi-rate/CT+check) or none; enforced in
+`api/internal/relationship/cardinality.go`. (3) **`METER_CHAMBER` is now
+a diagram container** (`is_diagram_container=true`), with `METER` and
+`LV_BUSBAR` made `is_diagram_placeable=true` (set explicitly because
+migration 0032's one-time `network_role` backfill predates these seeded
+classes, so they sat at the column `DEFAULT false`). All three are
+insert-only seed edits (`ON CONFLICT DO NOTHING`), so an already-applied
+DB needs the equivalent `UPDATE`s run by hand -- listed in the seed
+comments. **Diagram placement allow-list -- now BUILT (was a same-day
+open item, size M):** placement used to be gated by a single global
+`is_diagram_placeable` flag, so any placeable class could be dropped on
+*any* diagram regardless of type. Added the decided
+**per-(container class x diagram type) allow-list**: new metadata table
+`metadata.diagram_placement_rules` (migration 0068) keyed on
+`(container_feature_class_id, diagram_type_value_id, feature_class_id)`,
+enforced in `api/internal/diagram/sql.go`'s `placeFeature`
+(`enforcePlacementAllowList`) alongside the existing global gate. It's
+additive/opt-in: a container+type pairing with **no** rows allows any
+placeable class (today's behavior, so the existing one-line under a
+substation yard needs no data migration); rows present = that pairing is
+restricted to exactly the listed classes. `seed/lv_metering_example.sql`
+now seeds a `CHAMBER_SCHEMATIC` `DIAGRAM_TYPE` value + two allow-list rows
+so a `METER_CHAMBER` schematic accepts *only* `LV_BUSBAR` + `METER`. An
+**admin UI to author rules is now built** (was the last open sub-item, size
+S): `/admin/diagrams` ("Diagram rules") lets an operator pick a container +
+diagram type and add/remove allowed feature classes, backed by
+`GET/POST/DELETE /admin/diagram-placement-rules` (`api/internal/admin/diagram_rules.go`,
+gated `metadata:read`/`metadata:write`). Diagram *types* themselves stay
+authored as `DIAGRAM_TYPE` domain values on the Domains page. Verification
+owed (Bash EPERMs): live `psql` apply of migration 0068 + the seeds +
+`task compile` + web `tsc`/build for the new page; a chamber-diagram
+placement check that a non-listed class (e.g. `SERVICE_POINT`) is rejected
+while `METER`/`LV_BUSBAR` are accepted, and that an unrestricted one-line is
+unaffected.
+
+Before that, 2026-08-19, the symmetrical (3-phase bolted) fault-
 current slice of the Phase 8 electrical-analysis plan closed, and the
 unbalanced-fault/protection-coordination row reclassified from Open to
 Deferred (out of scope). New `api/internal/powerflow/fault.go` (shares
@@ -590,6 +641,72 @@ dialog before removing a diagram placement, seeding the first real
 and the diagram-canvas fixes before that (conductors as wires, diagram
 naming, rotate, remove).
 
+## Cross-cutting — engine / plumbing debt
+
+| Item | Status | Size | Value | Detail |
+|---|---|---|---|---|
+| Substation composite-assembly fan-out duplication | Open | M | Four packages -- `api/internal/panel` (Phase 42), `api/internal/rmu` (Phase 43), `api/internal/coupler` (bus coupler), `api/internal/duct` (Phase 44) -- each hand-roll the *same* composite `RunInTx` fan-out spine ("validate → create container feature → create children from a template → wire containment/connectivity → return") plus identical support boilerplate, instead of sharing one orchestrator. The leaf writes *are* already shared (`crud.CreateFeature`, `relationship.EstablishRelationship`, `connectivity.EstablishConnection`); what's copy-pasted is the chassis around them. See the extraction plan below. NOTE: this is plumbing duplication only -- the classes themselves are legitimately distinct, and the three *non*-fan-out substation features (MV metering cubicle / Phase 45 `SUBSTATION_PANEL` / `POWER_XFMR`) correctly reuse the generic CRUD + `METER_CHAMBER` diagram-container machinery and are **not** part of this debt. | See extraction plan below |
+
+### Substation composite-assembly fan-out duplication — the surface + extraction plan
+
+Audited 2026-09-10. This is **plumbing duplication, not class/feature
+duplication** -- each assembly phase copied the fan-out chassis rather than
+extracting it. Concretely duplicated:
+
+- **The `RunInTx` fan-out spine, 4×.** `panel/fanout.go:149`,
+  `rmu/fanout.go:155`, `coupler/fanout.go:154`, plus `duct/`. No shared
+  orchestrator wraps the transaction; each hand-rolls the same
+  validate→create-container→create-children→wire→return sequence.
+- **Support boilerplate, verbatim per package:** `InvalidError`/`invalidf`/
+  `IsInvalid` (`panel/fanout.go:39`, `rmu/:47`, `coupler/:60`); the
+  `featureID(env)` byte-string switch (`panel/:238`, `rmu/:248`,
+  `coupler/:203` -- the last's own comment admits it is "the same helper shape
+  rmu / duct use"); the `containment()` helper (`panel/:207`, `rmu/:236`);
+  `writeJSON`/`writeError` (`panel/http.go:99`, `rmu/:95`, `coupler/:97`).
+- **Near-identical template tables:** `metadata.panel_templates` /
+  `panel_template_items` (migration 0072) vs `metadata.rmu_templates` /
+  `rmu_template_items` (migration 0073). 0073's own header says it is "the
+  `panel_templates` pattern with ONE addition"; the item tables differ by
+  exactly two columns (`busbar_feature_class_id`, `bus_terminal`). Loaders
+  `LoadPanelTemplate`/`LoadRMUTemplate` mirror the split (`metadata/load.go:178`,
+  `:225`).
+- **Four near-identical `.../options` endpoints** (`/panels`, `/rmus`,
+  `/couplers`, `/ducts`), each its own struct + SQL + React hook, all returning
+  the same "addable-composite list" shape (class code + display name +
+  optional discriminator/label). `PanelOption` and `RMUOption` differ only in
+  panel's being diagram-scoped (`panel/options.go:47`).
+- **Frontend dispatch duplicated on both the store and save paths:**
+  `draw-store.ts` carries parallel `panel?`/`rmu?`/`duct?`/`coupler?` draft
+  variants + parallel `start*Drawing` actions + a nested ternary in
+  `finishDrawing` (`:280`); `feature-create-form.tsx` has a linear
+  `if (draft.panel)…if (draft.rmu)…if (draft.duct)…if (draft.coupler)…` chain
+  (`:162`/`:216`/`:246`/`:274`), one bespoke POST block each; `new-feature-menu.tsx`
+  has a separate `DropdownMenuLabel` section per variant. They *do* share the
+  actual create-form widget -- only the dispatch is copied.
+
+**Extraction plan (no schema change, no class change, behavior-identical):**
+
+1. New `api/internal/assembly` package exposing `FanOut(ctx, tx, spec)` where
+   `spec` declares the container (class/subtype/attrs/geom) + an ordered list of
+   children + the containment/connectivity edges to write. It runs the single
+   `RunInTx` and calls the already-shared `crud.CreateFeature` /
+   `relationship.EstablishRelationship` / `connectivity.EstablishConnection`.
+2. Move `InvalidError`/`invalidf`/`IsInvalid`, `featureID`, `containment`, and
+   `writeJSON`/`writeError` into that package (or a small shared `httputil`).
+3. `panel`/`rmu`/`coupler`/`duct` shrink to: parse request → build a `spec` →
+   call `assembly.FanOut` → shape the response. (~200 lines → ~60 each.)
+4. *Leave the template tables and options endpoints as-is* for now -- merging
+   `panel_templates`+`rmu_templates` is a data migration with real risk for
+   little gain; the SQL/options divergence (diagram-scoped vs template-exists
+   vs rule-based gating) is genuine, not accidental.
+5. Frontend consolidation (collapsing the draft variants + if-chain into one
+   generic "composite draft" path) is a *separate, larger* follow-up with a
+   wider blast radius across `web/src` -- deferred; do the backend spine first.
+
+Risk: low for steps 1-3 (pure code move behind unchanged HTTP contracts,
+Go-compilable in isolation); the win is one place to fix a fan-out bug instead
+of four. Do it when someone is next in this code, not as standalone churn.
+
 ## Phase 1 — Metadata core
 
 | Item | Status | Size | Value | Detail |
@@ -655,10 +772,11 @@ naming, rotate, remove).
 
 | Item | Status | Size | Value | Detail |
 |---|---|---|---|---|
-| Multi-segment bus routing on the diagram canvas | Open | M | Edges now route as a single right-angle elbow (see the "Done" row below), not the multi-segment bus-tap routing a dense protection-scheme diagram needs -- every edge still only connects exactly two placements. | `docs/phase-5-diagrams.md` |
-| Electrical-schematic symbol library | Open | L | The current icon set (circle/square/triangle/diamond) is generic; a real protection one-line needs ANSI device-number circles, CTs, PTs, disconnect switches, ground studs, and more -- a large, ongoing content task independent of the canvas's rendering technology. | `docs/phase-5-diagrams.md` |
-| Grouping/annotation boxes on the diagram canvas | Open | M | Real diagrams label logical groupings (e.g. a relay panel) with a dashed box around several placements -- no such freeform, non-feature-backed annotation primitive exists in the data model yet. | `docs/phase-5-diagrams.md` |
-| Dual line semantics (power vs. dashed control/trip lines) | Open | M | Every edge today comes from a real `feature_connectivity` row (or, for a conductor, its own resolved endpoints); a protection scheme's dashed trip lines with arrowheads are schematic-only annotations with no real network connectivity behind them, which the current model has no place for. | `docs/phase-5-diagrams.md` |
+| Multi-segment bus routing on the diagram canvas | Done | M | Phase 24 Slice 5 (migration 0050) added the `bus`/`tap` element kinds: a heavy multi-segment busbar drawn as its own polyline plus right-angle stub taps with a T-junction dot -- real bus routing off a shared bus, no longer just a two-placement elbow. | `docs/phase-24-diagram-templates.md`, `docs/phase-5-diagrams.md` |
+| Electrical-schematic symbol library | In progress | L | Phase 24 Slice 2 landed the machinery (`metadata.diagram_stencils` catalog over `metadata.symbology_icons`, seeded by `seed/ansi_stencils.sql`, each glyph also reusable by feature `render_context = 'diagram'` symbology). The seed now carries ~35 curated ANSI/IEEE glyphs -- CTs, PTs, disconnect/load-break/grounding switches, circuit breaker, ground studs, three-winding transformer, series components, and ANSI device-number circles (50/51/87/67/27/59/81/79/86/25). Remaining is open-ended *content* only (more device numbers, IEC variants) -- growing the library never needs a migration or code, just more seed rows. | `seed/ansi_stencils.sql`, `docs/phase-5-diagrams.md` |
+| Stencil -> feature promotion | Done | M | A stamped ANSI `symbol` (decoration) can be double-clicked to become a real `geometry_type = 'none'` feature in place (Phase 25): `metadata.diagram_stencils.promote_class` (migration 0051) maps a glyph to a class, and the diagram digitize spine (create feature -> place -> delete glyph) is reused to materialise it, so the promoted device is first-class in trace/connectivity. Only `ansi-relay -> PROTECTIVE_RELAY` is wired end-to-end today; more mappings are content (a geometry-none class + one seed `UPDATE`), no code. | `docs/phase-25-stencil-promotion.md` |
+| Grouping/annotation boxes on the diagram canvas | Done | M | Phase 24 Slice 1 (migration 0046, `runtime.diagram_elements`) added the `box` and `text` element kinds -- exactly the freeform, non-feature-backed annotation primitive that was missing: a dashed box around several placements, optionally labelled. | `docs/phase-24-diagram-templates.md`, `docs/phase-5-diagrams.md` |
+| Dual line semantics (power vs. dashed control/trip lines) | Done | M | Phase 46, both halves: a hand-drawn `control` element kind (migration 0084) draws a dashed, arrowheaded schematic-only signal line as diagram furniture, and the canvas additionally *derives* the same dashed-arrow lines from real `protection_trip` / `protection_sensing` relationships between placed features (pure client render over `GET /relationships`, no schema change). | `docs/phase-46-control-trip-lines.md`, `docs/phase-5-diagrams.md` |
 | `geometry_type = 'none'` with a real feature class | Done | S | `PROTECTIVE_RELAY` (`seed/protective_relay_example.sql`) is the first feature class to actually exercise the no-map-geometry path the compiler and CRUD engine have supported since Phase 1 -- `srid = NULL`, no `geom` column, an ANSI device-number coded field, and its own `render_context = 'diagram'` symbology rule (the first ever authored in this project). | `docs/phase-5-diagrams.md` |
 | Conductors render as wires + no more generic auto-drawn edges | Done | M | A `geometry_type = 'line'` placement (e.g. `MV_CONDUCTOR`) no longer renders through the point-icon path -- it resolves its own real connectivity endpoints and draws *as* the line between them, styled with its own map/diagram color, falling back to a small draggable marker when fewer than two endpoints are placed. The old generic "one elbow per connectivity row" pass is gone entirely -- a wire only appears when its own conductor is actually placed, matching real one-line diagram convention. | `docs/phase-5-diagrams.md` |
 | Diagram naming: display + rename | Done | S | `runtime.diagram_instances.name` was already in every API response but never shown; the canvas header now shows the real name (falling back to `diagram_type`) and a new `PATCH /diagrams/{id}` endpoint lets it be renamed by clicking the title. | `docs/phase-5-diagrams.md` |

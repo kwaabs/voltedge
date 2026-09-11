@@ -45,19 +45,35 @@ type updateFeatureClassRequest struct {
 	Name               *string `json:"name"`
 	IsDiagramContainer *bool   `json:"is_diagram_container"`
 	IsDiagramPlaceable *bool   `json:"is_diagram_placeable"`
-	GeometryType       *string `json:"geometry_type"`
-	SRID               *int    `json:"srid"`
-	NetworkRole        *string `json:"network_role"`
+	GeometryOptional   *bool   `json:"geometry_optional"`
+	// DiagramGeometryType is three-state: nil = not touched, "" = clear
+	// back to inherit (NULL), "point"/"line" = set the override (migration
+	// 0053). Empty-string-means-clear because a JSON null unmarshals to a
+	// nil pointer, indistinguishable from omission.
+	DiagramGeometryType *string `json:"diagram_geometry_type"`
+	GeometryType        *string `json:"geometry_type"`
+	SRID                *int    `json:"srid"`
+	NetworkRole         *string `json:"network_role"`
+	// Phase 30 map label config, raw jsonb passthrough. nil = not touched;
+	// a JSON object sets it; JSON null (RawMessage "null") clears labels.
+	LabelDef *json.RawMessage `json:"label_def"`
+	// Category is the admin-defined "New feature" menu grouping (migration
+	// 0074). Three-state like DiagramGeometryType: nil = not touched, ""
+	// clears it back to uncategorised (NULL), any other string sets it.
+	Category *string `json:"category"`
 }
 
 type updateFeatureClassResponse struct {
-	Code               string `json:"code"`
-	Name               string `json:"name"`
-	GeometryType       string `json:"geometry_type"`
-	SRID               *int   `json:"srid,omitempty"`
-	NetworkRole        string `json:"network_role"`
-	IsDiagramContainer bool   `json:"is_diagram_container"`
-	IsDiagramPlaceable bool   `json:"is_diagram_placeable"`
+	Code                string  `json:"code"`
+	Name                string  `json:"name"`
+	GeometryType        string  `json:"geometry_type"`
+	SRID                *int    `json:"srid,omitempty"`
+	NetworkRole         string  `json:"network_role"`
+	IsDiagramContainer  bool    `json:"is_diagram_container"`
+	IsDiagramPlaceable  bool    `json:"is_diagram_placeable"`
+	GeometryOptional    bool    `json:"geometry_optional"`
+	DiagramGeometryType *string `json:"diagram_geometry_type,omitempty"`
+	Category            *string `json:"category,omitempty"`
 }
 
 // featureClassSummary is one row of the admin catalog view -- enough to
@@ -71,12 +87,15 @@ type featureClassSummary struct {
 	GeometryType       string  `json:"geometry_type"`
 	SRID               *int    `json:"srid,omitempty"`
 	NetworkRole        string  `json:"network_role"`
-	Status             string  `json:"status"`
-	IsDiagramContainer bool    `json:"is_diagram_container"`
-	IsDiagramPlaceable bool    `json:"is_diagram_placeable"`
-	PhysicalTable      *string `json:"physical_table,omitempty"`
-	SubtypeCount       int     `json:"subtype_count"`
-	FieldCount         int     `json:"field_count"`
+	Status              string  `json:"status"`
+	IsDiagramContainer  bool    `json:"is_diagram_container"`
+	IsDiagramPlaceable  bool    `json:"is_diagram_placeable"`
+	GeometryOptional    bool    `json:"geometry_optional"`
+	DiagramGeometryType *string `json:"diagram_geometry_type,omitempty"`
+	Category            *string `json:"category,omitempty"`
+	PhysicalTable       *string `json:"physical_table,omitempty"`
+	SubtypeCount        int     `json:"subtype_count"`
+	FieldCount          int     `json:"field_count"`
 }
 
 // domainValueRequest is one value of a coded domain, provided inline
@@ -227,6 +246,14 @@ type fieldResponse struct {
 // does -- JSON's null-vs-omitted can't tell "clear" from "don't touch"
 // through a plain *string alone, and no domain/group code is ever
 // legitimately blank, so "" is a safe sentinel for the missing state.
+//
+// RequiredForSubtypes is the one slice here: nil means "leave the field's
+// subtype_field_rules alone", a non-nil (even empty) slice means "reconcile
+// the field's is_required rules to exactly these subtype codes" -- so an
+// empty slice clears every required mark. Unlike nullable (a physical NOT
+// NULL baked at compile), is_required is read live by the CRUD engine
+// (api/internal/crud validateRequired), so editing it takes effect with no
+// recompile.
 type updateFieldRequest struct {
 	DomainCode           *string `json:"domain_code"`
 	GroupCode            *string `json:"group_code"`
@@ -234,6 +261,7 @@ type updateFieldRequest struct {
 	VisibleOnCreate      *bool   `json:"visible_on_create"`
 	VisibleOnUpdate      *bool   `json:"visible_on_update"`
 	EditableAfterPublish *bool   `json:"editable_after_publish"`
+	RequiredForSubtypes  *[]int  `json:"required_for_subtypes"`
 }
 
 // terminalRequest is one named connection point, only meaningful (and
@@ -266,6 +294,7 @@ type createFeatureClassRequest struct {
 	NetworkRole        string            `json:"network_role"`
 	IsDiagramContainer bool              `json:"is_diagram_container"`
 	IsDiagramPlaceable bool              `json:"is_diagram_placeable"`
+	GeometryOptional   bool              `json:"geometry_optional"`
 	Subtypes           []subtypeRequest  `json:"subtypes"`
 	Fields             []fieldRequest    `json:"fields"`
 	Terminals          []terminalRequest `json:"terminals"`
@@ -294,6 +323,16 @@ type compileResponse struct {
 	MetadataVersionID string   `json:"metadata_version_id"`
 }
 
+// uncompileResponse mirrors compiler.UncompileResult (same not-json-tagged
+// reason as compileResponse). RowsDropped is the count discarded by the
+// DROP TABLE, so the UI can report exactly how much data went.
+type uncompileResponse struct {
+	FeatureClassCode string `json:"feature_class_code"`
+	PhysicalTable    string `json:"physical_table"`
+	TableExisted     bool   `json:"table_existed"`
+	RowsDropped      int    `json:"rows_dropped"`
+}
+
 // createMaterialSpecRequest is POST /admin/material-specs' body -- a new
 // catalog entry (e.g. ACSR_50, see metadata.MaterialSpec's own doc
 // comment). Every engineering column is optional -- a spec can be
@@ -316,6 +355,10 @@ type createMaterialSpecRequest struct {
 	Emissivity                    *float64 `json:"emissivity"`
 	Absorptivity                  *float64 `json:"absorptivity"`
 	ResistanceTempCoefficientPerC *float64 `json:"resistance_temp_coefficient_per_c"`
+
+	// migrations/0060 -- optional cost, bare numeric in the house currency.
+	CostPerKm *float64 `json:"cost_per_km"`
+	UnitCost  *float64 `json:"unit_cost"`
 }
 
 // updateMaterialSpecRequest is PATCH /admin/material-specs/{code}'s
@@ -340,6 +383,9 @@ type updateMaterialSpecRequest struct {
 	Emissivity                    *float64 `json:"emissivity"`
 	Absorptivity                  *float64 `json:"absorptivity"`
 	ResistanceTempCoefficientPerC *float64 `json:"resistance_temp_coefficient_per_c"`
+
+	CostPerKm *float64 `json:"cost_per_km"`
+	UnitCost  *float64 `json:"unit_cost"`
 }
 
 type materialSpecResponse struct {
@@ -356,6 +402,9 @@ type materialSpecResponse struct {
 	Emissivity                    *float64 `json:"emissivity,omitempty"`
 	Absorptivity                  *float64 `json:"absorptivity,omitempty"`
 	ResistanceTempCoefficientPerC *float64 `json:"resistance_temp_coefficient_per_c,omitempty"`
+
+	CostPerKm *float64 `json:"cost_per_km,omitempty"`
+	UnitCost  *float64 `json:"unit_cost,omitempty"`
 }
 
 // createSymbologyIconRequest is POST /admin/symbology-icons' body -- one
@@ -382,6 +431,26 @@ type updateSymbologyIconRequest struct {
 type symbologyIconResponse struct {
 	IconRef string `json:"icon_ref"`
 	SVG     string `json:"svg"`
+}
+
+// updateDiagramStencilRequest is PATCH /admin/symbology-stencils/{icon_ref}'s
+// body. PromoteClass uses the same nil/""/value three-state sentinel
+// updateFieldRequest.DomainCode established: nil means "leave the mapping
+// alone", a pointer to "" clears it back to decoration-only (NULL), and a
+// pointer to any other string names the feature class a stamped symbol of
+// this stencil is promoted into (Phase 25 -- see updateDiagramStencil for
+// the geometry_type='none' rule enforced on that class). icon_ref (the
+// stencil's identity, the PK) is the path segment, never changed here.
+type updateDiagramStencilRequest struct {
+	PromoteClass *string `json:"promote_class"`
+}
+
+type diagramStencilResponse struct {
+	IconRef      string  `json:"icon_ref"`
+	Label        string  `json:"label"`
+	Category     string  `json:"category"`
+	SortOrder    int     `json:"sort_order"`
+	PromoteClass *string `json:"promote_class,omitempty"`
 }
 
 // styleDefRequest is the style half of one symbology rule -- the same

@@ -45,9 +45,9 @@ var cimUUIDNamespace = [16]byte{
 // CIM PositionPoint.xPosition; y = latitude -> yPosition.
 type coord struct{ x, y float64 }
 
-// cimSubstation is a SUBSTATION_YARD feature promoted to a CIM Substation: its
-// mRID (the yard's own feature id) and its outer ring, against which equipment
-// points are tested for point-in-polygon containment.
+// cimSubstation is a SUBSTATION feature promoted to a CIM Substation: its
+// mRID (the substation's own feature id) and its outer ring, against which
+// equipment points are tested for point-in-polygon containment.
 type cimSubstation struct {
 	mRID string
 	ring []coord
@@ -56,10 +56,11 @@ type cimSubstation struct {
 // writeCIM streams a single combined CIM RDF/XML document of every layer to w,
 // using the resolved declarative mapping. generated stamps the md:FullModel
 // header (passed in rather than read from the clock so the output is testable).
-func writeCIM(w io.Writer, docName string, layers []Layer, mapping *metadata.CIMMapping, conns []connRow, specs map[string]*metadata.MaterialSpec, generated time.Time) (topoStats, error) {
+func writeCIM(w io.Writer, docName string, layers []Layer, mapping *metadata.CIMMapping, conns []connRow, contain map[string]string, specs map[string]*metadata.MaterialSpec, generated time.Time) (topoStats, error) {
 	cw := &cimWriter{
 		mapping:   mapping,
 		specs:     specs,
+		contain:   contain,
 		generated: generated,
 		geoID:     uuidV5("geographical-region"),
 		subID:     uuidV5("sub-geographical-region"),
@@ -88,6 +89,7 @@ type cimWriter struct {
 	b         cimBuf
 	mapping   *metadata.CIMMapping
 	specs     map[string]*metadata.MaterialSpec // conductor spec code -> material spec (Slice 3 impedance)
+	contain   map[string]string                 // child feature id -> container feature id (Phase 47 Slice 4)
 	generated time.Time
 
 	geoID  string // GeographicalRegion mRID
@@ -97,6 +99,14 @@ type cimWriter struct {
 
 	substations []cimSubstation
 	subByID     map[string]bool // yard feature ids, to skip in the equipment pass
+
+	// containerClass maps every emitted CIM container feature id -> its CIM class
+	// ("Substation"/"VoltageLevel"/"Bay"/"EquipmentContainer"). Built before the
+	// equipment pass so an equipment's modeled parent (from cw.contain) can be
+	// used as its EquipmentContainer and a tier container can pick the right parent
+	// predicate (Bay.VoltageLevel vs Bay.Substation). Phase 47 Slice 4.
+	containerClass map[string]string
+	tierByID       map[string]bool // VoltageLevel/Bay feature ids, to skip in the equipment pass
 }
 
 func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []connRow) (topoStats, error) {
@@ -114,9 +124,14 @@ func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []
 	cw.writeHeader(docName)
 	cw.writeScaffold(profile)
 
-	// Pass 1: promote SUBSTATION_YARD features to Substations (containment
-	// parents) and record their rings for the point-in-polygon test below.
+	// Index every container feature (Substation/VoltageLevel/Bay/EquipmentContainer)
+	// by CIM class before anything is emitted, so the equipment pass can resolve a
+	// modeled parent to its mRID and a tier can pick the right parent predicate.
 	cw.collectSubstations(layers)
+	cw.indexContainers(layers)
+
+	// Pass 1: promote SUBSTATION features to Substations (containment
+	// parents) and record their rings for the point-in-polygon test below.
 	for _, layer := range layers {
 		for _, f := range layer.Features {
 			cm, ok := cw.mapping.ClassFor(layer.Code, f.SubtypeCode)
@@ -127,8 +142,17 @@ func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []
 		}
 	}
 
+	// Pass 1b (Phase 47 Slice 4): the modeled intermediate container tiers, each
+	// linked to its parent from the containment graph. Emitted before the equipment
+	// so the tree reads top-down (RDF tolerates forward refs regardless). Since the
+	// Phase 47 minimal-model correction (migration 0086) only BAY is a modeled tier
+	// -- VOLTAGE_LEVEL was retired -- so in practice this emits Substation -> Bay ->
+	// equipment. The VoltageLevel arm below is kept as a dormant generic path: it
+	// fires only if a container class is ever mapped to CIM VoltageLevel again.
+	cw.writeTiers(layers)
+
 	// Pass 2: distinct BaseVoltages across every feature, emitted once and
-	// referenced by mRID from the equipment.
+	// referenced by mRID from the equipment (and from each VoltageLevel).
 	cw.writeBaseVoltages(layers)
 
 	// Pass 3: the equipment/asset/protection objects themselves.
@@ -139,8 +163,8 @@ func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []
 			if !ok || cm.CimKind == "skip" {
 				continue
 			}
-			if cw.subByID[f.ID] {
-				continue // already emitted as a Substation in pass 1
+			if cw.subByID[f.ID] || cw.tierByID[f.ID] {
+				continue // already emitted as a Substation (pass 1) or tier (pass 1b)
 			}
 			cw.writeFeature(cm, f, attrs)
 		}
@@ -198,8 +222,8 @@ func (cw *cimWriter) writeScaffold(profile *metadata.CimProfile) {
 	cw.closeObj("Line")
 }
 
-// collectSubstations records each SUBSTATION_YARD feature's outer ring for the
-// point-in-polygon containment test. A yard with no polygon geometry still
+// collectSubstations records each SUBSTATION feature's outer ring for the
+// point-in-polygon containment test. A substation with no polygon geometry still
 // becomes a Substation (emitted in pass 1) but contains nothing.
 func (cw *cimWriter) collectSubstations(layers []Layer) {
 	cw.subByID = map[string]bool{}
@@ -214,6 +238,79 @@ func (cw *cimWriter) collectSubstations(layers []Layer) {
 			cw.substations = append(cw.substations, cimSubstation{mRID: f.ID, ring: ring})
 		}
 	}
+}
+
+// indexContainers records every container feature's CIM class by feature id
+// (Substation/VoltageLevel/Bay/EquipmentContainer -- all cim_kind 'container'),
+// and flags the VoltageLevel/Bay tiers so the equipment pass skips them (they are
+// emitted by writeTiers instead). Phase 47 Slice 4.
+func (cw *cimWriter) indexContainers(layers []Layer) {
+	cw.containerClass = map[string]string{}
+	cw.tierByID = map[string]bool{}
+	for _, layer := range layers {
+		for _, f := range layer.Features {
+			cm, ok := cw.mapping.ClassFor(layer.Code, f.SubtypeCode)
+			if !ok || cm.CimKind != "container" {
+				continue
+			}
+			cw.containerClass[f.ID] = cm.CimClass
+			if cm.CimClass == "VoltageLevel" || cm.CimClass == "Bay" {
+				cw.tierByID[f.ID] = true
+			}
+		}
+	}
+}
+
+// writeTiers emits the modeled intermediate container tiers -- VoltageLevels
+// first, then Bays (a Bay may reference a VoltageLevel, though RDF forward refs
+// are fine either way). Each is linked to its parent container via the
+// containment graph. Phase 47 Slice 4.
+func (cw *cimWriter) writeTiers(layers []Layer) {
+	for _, want := range []string{"VoltageLevel", "Bay"} {
+		for _, layer := range layers {
+			attrs := cw.mapping.AttributesFor(layer.Code)
+			for _, f := range layer.Features {
+				cm, ok := cw.mapping.ClassFor(layer.Code, f.SubtypeCode)
+				if !ok || cm.CimClass != want {
+					continue
+				}
+				cw.writeTier(cm.CimClass, f, attrs)
+			}
+		}
+	}
+}
+
+// writeTier emits one VoltageLevel or Bay with its parent linkage. A Bay sits in a
+// VoltageLevel when the model has that tier, else directly in the Substation -- CIM
+// Bay carries both associations. Under the current minimal model (migration 0086)
+// no class maps to VoltageLevel, so bays always take the Bay.Substation fallback and
+// the VoltageLevel case is dormant; both arms are kept so re-introducing a
+// VoltageLevel-mapped container needs no engine change. A VoltageLevel, when present,
+// is contained by a Substation and references its BaseVoltage (from nominal_voltage).
+func (cw *cimWriter) writeTier(cimClass string, f Feature, attrs []metadata.CimAttributeMapping) {
+	parent := cw.contain[f.ID]
+	parentClass := cw.containerClass[parent]
+
+	cw.openObj(cimClass, f.ID)
+	cw.idName(f.Name)
+	cw.mRID(f.ID)
+	switch cimClass {
+	case "VoltageLevel":
+		if parentClass == "Substation" {
+			cw.ref("VoltageLevel.Substation", parent)
+		}
+		if v, ok := nominalVoltage(f, attrs); ok {
+			cw.ref("VoltageLevel.BaseVoltage", uuidV5(fmt.Sprintf("basevoltage:%d", v)))
+		}
+	case "Bay":
+		switch parentClass {
+		case "VoltageLevel":
+			cw.ref("Bay.VoltageLevel", parent)
+		case "Substation":
+			cw.ref("Bay.Substation", parent)
+		}
+	}
+	cw.closeObj(cimClass)
 }
 
 // writeBaseVoltages emits one cim:BaseVoltage per distinct nominal voltage
@@ -274,7 +371,7 @@ func (cw *cimWriter) writeFeature(cm metadata.CimClassMapping, f Feature, attrs 
 	case "container":
 		// A non-Substation container (e.g. METER_CHAMBER -> EquipmentContainer):
 		// emitted, but not used as a containment parent in Slice 1 (containment
-		// is SUBSTATION_YARD-only), so no region link.
+		// is SUBSTATION-only), so no region link.
 		cw.writeContainerObject(cm.CimClass, f, "", "")
 		return
 	case "asset":
@@ -307,8 +404,16 @@ func (cw *cimWriter) writeFeature(cm metadata.CimClassMapping, f Feature, attrs 
 	if len(pts) > 0 {
 		locID = uuidV5("location:" + f.ID)
 	}
+	// Container resolution (Phase 47 Slice 4): the modeled containment parent wins
+	// -- a piece of equipment placed in a BAY (or straight in a VOLTAGE_LEVEL /
+	// SUBSTATION) is emitted under that exact container, giving the real
+	// Substation -> VoltageLevel -> Bay -> equipment tree. Point-in-polygon against
+	// the substation boundary is only the fallback for equipment with no modeled
+	// parent (the pre-tier behavior), and the default Line container if neither.
 	containerID := cw.lineID
-	if len(pts) > 0 {
+	if parent, ok := cw.contain[f.ID]; ok && cw.containerClass[parent] != "" {
+		containerID = parent
+	} else if len(pts) > 0 {
 		if sub, ok := cw.substationFor(pts[0]); ok {
 			containerID = sub
 		}

@@ -19,6 +19,15 @@ function formatNumber(n: number, digits = 1): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })
 }
 
+/** A node's own voltage base (nominal_base_v) as a compact level label --
+ * "11 kV" / "400 V" -- so MV nodes and the LV nodes below a DIST_XFMR read
+ * apart at a glance (the sweep now rebases voltage across the transformer,
+ * so a single result spans both levels). */
+function formatVoltageLevel(volts: number): string {
+  if (volts >= 1000) return `${formatNumber(volts / 1000, volts % 1000 === 0 ? 0 : 1)} kV`
+  return `${formatNumber(volts, 0)} V`
+}
+
 /**
  * Floating panel for api/internal/powerflow's load-flow engine (see
  * docs/phase-8-load-flow.md) -- prompts for the one required, honestly-
@@ -70,7 +79,7 @@ export function LoadFlowPanel() {
   }
 
   return (
-    <div className="bg-popover text-popover-foreground fixed bottom-10 left-1/2 z-40 max-h-80 w-[32rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-md border shadow-lg">
+    <div className="bg-popover text-popover-foreground fixed bottom-10 left-1/2 z-40 max-h-80 w-[36rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-md border shadow-lg">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <p className="truncate text-sm font-medium">Load flow</p>
         <Button variant="ghost" size="icon" className="size-6 shrink-0" onClick={() => useLoadFlowStore.getState().clear()}>
@@ -105,6 +114,7 @@ export function LoadFlowPanel() {
             <thead className="text-muted-foreground sticky top-0 border-b text-left text-xs">
               <tr>
                 <th className="bg-popover px-3 py-1.5 font-medium">Feature</th>
+                <th className="bg-popover px-3 py-1.5 font-medium">Level</th>
                 <th className="bg-popover px-3 py-1.5 font-medium">Voltage</th>
                 <th className="bg-popover px-3 py-1.5 font-medium">Current</th>
                 <th className="bg-popover px-3 py-1.5 font-medium">Loading</th>
@@ -127,6 +137,12 @@ export function LoadFlowPanel() {
                     <td className="px-3 py-1.5">
                       <div>{classNameFor(node.feature_class)}</div>
                       <div className="text-muted-foreground font-mono text-xs">{shortId(node.feature_id)}</div>
+                      {(node.circuit_ref || node.circuit_id) && (
+                        <div className="text-muted-foreground text-xs">{node.circuit_ref || shortId(node.circuit_id!)}</div>
+                      )}
+                    </td>
+                    <td className="text-muted-foreground px-3 py-1.5 text-xs whitespace-nowrap">
+                      {node.nominal_base_v > 0 ? formatVoltageLevel(node.nominal_base_v) : "—"}
                     </td>
                     <td className="px-3 py-1.5">
                       <div>{formatNumber(node.voltage_v)}V</div>
@@ -151,7 +167,7 @@ export function LoadFlowPanel() {
                       <div>{classNameFor(b.feature_class)}</div>
                       <div className="font-mono text-xs">{shortId(b.feature_id)}</div>
                     </td>
-                    <td className="px-3 py-1.5" colSpan={3}>
+                    <td className="px-3 py-1.5" colSpan={4}>
                       Stopped here (open device)
                     </td>
                   </tr>

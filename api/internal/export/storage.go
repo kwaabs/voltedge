@@ -128,16 +128,25 @@ func newRustFSClient(endpoint string, secure bool) (*minio.Client, error) {
 
 // EnsureBucket creates the export bucket if it does not exist. Called once at
 // boot; safe to call repeatedly (a present bucket is a no-op).
+//
+// Note on CORS: the web app PUTs attachment bytes straight to RustFS via a
+// presigned URL (the register -> PUT -> commit flow), and that cross-origin PUT
+// is preflighted -- so RustFS must answer the OPTIONS with the right CORS
+// headers. Unlike AWS S3/MinIO, RustFS has no per-bucket PutBucketCors
+// subresource (rustfs/rustfs#1386), so there is nothing to set here: CORS is a
+// server-level RustFS env (RUSTFS_CORS_ALLOWED_ORIGINS, wired in the compose
+// file), not a bucket policy. Cross-origin GETs (<img> thumbnails) aren't
+// preflighted, which is why downloads worked without any CORS config; the field
+// device (mobile) PUTs over native HTTP, which has no CORS at all.
 func (s *ObjectStore) EnsureBucket(ctx context.Context) error {
 	exists, err := s.client.BucketExists(ctx, s.bucket)
 	if err != nil {
 		return fmt.Errorf("checking bucket %q: %w", s.bucket, err)
 	}
-	if exists {
-		return nil
-	}
-	if err := s.client.MakeBucket(ctx, s.bucket, minio.MakeBucketOptions{}); err != nil {
-		return fmt.Errorf("creating bucket %q: %w", s.bucket, err)
+	if !exists {
+		if err := s.client.MakeBucket(ctx, s.bucket, minio.MakeBucketOptions{}); err != nil {
+			return fmt.Errorf("creating bucket %q: %w", s.bucket, err)
+		}
 	}
 	return nil
 }
@@ -181,4 +190,56 @@ func (s *ObjectStore) PresignGet(ctx context.Context, key, filename string) (str
 		return "", fmt.Errorf("presigning download URL: %w", err)
 	}
 	return u.String(), nil
+}
+
+// PresignGetInline mints a time-limited GET URL for key with NO
+// content-disposition, so RustFS serves the object inline under its stored
+// Content-Type -- an image the web app drops straight into an <img>, or a
+// thumbnail tile in the attachments grid. Use PresignGet instead when the intent
+// is a download saved under a chosen filename (documents). Pure signature math on
+// presignClient, like PresignGet.
+func (s *ObjectStore) PresignGetInline(ctx context.Context, key string) (string, error) {
+	u, err := s.presignClient.PresignedGetObject(ctx, s.bucket, key, s.urlTTL, nil)
+	if err != nil {
+		return "", fmt.Errorf("presigning inline URL: %w", err)
+	}
+	return u.String(), nil
+}
+
+// PresignPut mints a time-limited PUT URL for key, so a client (a browser, or a
+// field device off the compose network) can upload the bytes straight to RustFS
+// without proxying them through the API process. Like PresignGet it is pure
+// signature math signed by presignClient -- bound to the public endpoint when set
+// -- so the host in the URL is one the uploader can actually reach. The uploader
+// PUTs the raw body to this URL; RustFS stores it under key. The two-step
+// attachment flow (register -> PUT -> commit) uses this for the middle step.
+func (s *ObjectStore) PresignPut(ctx context.Context, key string) (string, error) {
+	u, err := s.presignClient.PresignedPutObject(ctx, s.bucket, key, s.urlTTL)
+	if err != nil {
+		return "", fmt.Errorf("presigning upload URL: %w", err)
+	}
+	return u.String(), nil
+}
+
+// Open returns a reader over the object at key; the caller must Close it. The
+// commit path uses it to read a just-uploaded image back for thumbnailing. Note
+// minio defers the real fetch to the first Read, so a missing key surfaces as a
+// read error, not here.
+func (s *ObjectStore) Open(ctx context.Context, key string) (io.ReadCloser, error) {
+	obj, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
+// Stat returns the stored object's size and content type, erroring if the key
+// does not exist. The commit path calls it to confirm the client's presigned PUT
+// actually landed (and to record the true byte size) before marking a row ready.
+func (s *ObjectStore) Stat(ctx context.Context, key string) (size int64, contentType string, err error) {
+	info, err := s.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
+	if err != nil {
+		return 0, "", err
+	}
+	return info.Size, info.ContentType, nil
 }

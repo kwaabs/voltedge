@@ -24,15 +24,28 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/admin"
 	"github.com/kwaabs/voltedge/api/internal/assistant"
 	"github.com/kwaabs/voltedge/api/internal/assistant/llm"
+	"github.com/kwaabs/voltedge/api/internal/attachment"
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/basemap"
+	"github.com/kwaabs/voltedge/api/internal/circuit"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
+	"github.com/kwaabs/voltedge/api/internal/coupler"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/diagram"
+	"github.com/kwaabs/voltedge/api/internal/duct"
 	"github.com/kwaabs/voltedge/api/internal/export"
+	"github.com/kwaabs/voltedge/api/internal/externallink"
+	"github.com/kwaabs/voltedge/api/internal/externalsystem"
+	"github.com/kwaabs/voltedge/api/internal/fieldpack"
+	"github.com/kwaabs/voltedge/api/internal/mapannotation"
+	"github.com/kwaabs/voltedge/api/internal/mapsettings"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/kwaabs/voltedge/api/internal/panel"
 	"github.com/kwaabs/voltedge/api/internal/powerflow"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
+	"github.com/kwaabs/voltedge/api/internal/rmu"
 	"github.com/kwaabs/voltedge/api/internal/rules"
+	"github.com/kwaabs/voltedge/api/internal/secretbox"
 	"github.com/kwaabs/voltedge/api/internal/territory"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
@@ -82,6 +95,19 @@ func main() {
 		log.Printf("assistant chat enabled (%s)", llmProvider.Name())
 	}
 
+	// Phase 32 Slice 2: at-rest encryption for external-system credentials.
+	// Optional, like the llm provider -- a nil cipher (EXTERNAL_SYSTEMS_
+	// ENCRYPTION_KEY unset) still boots; the catalog then refuses to store a
+	// secret rather than keeping it in the clear. A key that is set but
+	// malformed is a hard boot error.
+	credCipher, err := secretbox.NewFromEnv()
+	if err != nil {
+		log.Fatalf("external-systems encryption: %v", err)
+	}
+	if credCipher == nil {
+		log.Printf("external-system credential encryption disabled (%s unset); systems with auth can't be saved until it's set", secretbox.EnvKey)
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -109,6 +135,7 @@ func main() {
 		r.Get("/feature-classes/{code}/schema", featureClassSchemaHandler(db))
 		r.Get("/feature-classes/{code}/rules", rules.Handler(db))
 		r.Get("/symbology/icons", symbologyIconsHandler(db))
+		r.Get("/symbology/stencils", diagramStencilsHandler(db))
 	})
 
 	// Domain mounts, each wrapped in an RBAC gate. Mixed read/write mounts
@@ -130,9 +157,62 @@ func main() {
 	// list), so the read-only endpoint sits under the same features:read
 	// gate every map viewer already holds -- not the metadata admin gate.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermTerritoriesWrite)).Mount("/territories", territory.Routes(db))
+	// Circuits (Phase 37): the catalog of named, network-wide electrical
+	// circuits (e.g. the MV feeder "Old Age 2") many features across many
+	// classes belong to. Like territories, it's reference data read alongside
+	// features (a feature's circuit_id resolves to a circuit name here), so the
+	// read side rides features:read while curation needs circuits:write.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermCircuitsWrite)).Mount("/circuits", circuit.Routes(db))
+	// Phase 22: files attached to features (docs/phase-22-attachments.md). A
+	// method-aware attachments:read/write gate covers the mount; the bytes ride
+	// presigned URLs straight to/from RustFS (exportStore's bucket), so this
+	// process only issues URLs and records metadata. Scoped per feature by
+	// (class code, feature id), the same addressing the CRUD engine uses.
+	r.With(auth.RequirePermission(auth.PermAttachmentsRead, auth.PermAttachmentsWrite)).Mount("/attachments", attachment.Routes(db, exportStore))
 	r.With(auth.RequirePermission(auth.PermConnectivityRead, auth.PermConnectivityCommit)).Mount("/connectivity", connectivity.Routes(db))
 	r.With(auth.RequirePermission(auth.PermRelationshipsRead, auth.PermRelationshipsCommit)).Mount("/relationships", relationship.Routes(db))
+	// Phase 42 (indoor MV switchgear): the composite "place one switchgear panel
+	// and get its whole standard device set" endpoint. It creates
+	// features and writes containment relationships in one transaction, so it needs
+	// BOTH capabilities: the method-aware features gate here covers the feature
+	// writes, and panel.Routes adds an inner relationships:commit requirement --
+	// the same layered two-capability gate circuit's assign route uses.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/panels", panel.Routes(db))
+	// Phase RMU (docs/phase-rmu.md): the composite "place one Ring Main Unit and
+	// get its whole assembly of ways + internal bus" endpoint. Like /panels it
+	// creates features and writes containment, but it ALSO commits the internal
+	// way -> bus connections, so it needs THREE capabilities: the method-aware
+	// features gate here covers the feature writes, and rmu.Routes adds inner
+	// relationships:commit + connectivity:commit requirements -- the panel gate,
+	// one capability deeper because the RMU is the first fan-out wiring topology.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/rmus", rmu.Routes(db))
+	// Phase 44 Slice 4 (docs/phase-44-cable-management.md): the composite "create one
+	// cable duct and fan out its ways" endpoint. Like /panels it creates features and
+	// writes containment (duct -> each DUCT_WAY) in one transaction, so it needs BOTH
+	// capabilities: the method-aware features gate here covers the feature writes, and
+	// duct.Routes adds an inner relationships:commit requirement. Unlike /rmus it
+	// commits no connectivity -- duct ways are network_role='none', never traced.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/ducts", duct.Routes(db))
+	// Phase Bus-coupler Slice 2 (docs/phase-bus-coupler.md): the composite "place
+	// one bus coupler / bus tie" endpoint -- create an MV_BREAKER and wire it
+	// between two named buses (busbar rules C + D) in one transaction. It creates
+	// a feature and commits two connections (but no containment relationship), so
+	// the method-aware features gate here covers the create, and coupler.Routes
+	// adds an inner connectivity:commit requirement -- the /rmus gate, one
+	// capability shallower (no relationships:commit: a coupler wires no assembly).
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/couplers", coupler.Routes(db))
+	// Phase 32 (docs/phase-32-external-links.md): outbound links from a feature
+	// to external systems. Slice 1 is plain hyperlinks. Reading/writing a
+	// feature's links rides the same features:read/features:write gate every map
+	// user already holds -- a link is feature metadata, not its own capability.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/feature-links", externallink.Routes(db, credCipher))
 	r.With(auth.RequirePermission(auth.PermDiagramsRead, auth.PermDiagramsWrite)).Mount("/diagrams", diagram.Routes(db))
+	// Phase 36 (docs/phase-36-map-annotations.md): the map's redlining layer --
+	// free-form text/box/line/arrow markup drawn straight on the geographic map,
+	// each individually styled. Furniture (the geographic sibling of a diagram
+	// element), not a feature, so it gets its own annotations:read/write gate
+	// rather than riding features:*. A method-aware gate covers the mixed mount.
+	r.With(auth.RequirePermission(auth.PermAnnotationsRead, auth.PermAnnotationsWrite)).Mount("/map-annotations", mapannotation.Routes(db))
 	r.With(auth.RequirePermission(auth.PermTraceRun, auth.PermTraceRun)).Mount("/trace", trace.Routes(db))
 	r.With(auth.RequirePermission(auth.PermAnalysisRun, auth.PermAnalysisRun)).Mount("/analysis", powerflow.Routes(db))
 	// Phase 19: the in-app AI assistant's backend (docs/phase-19-assistant.md).
@@ -147,6 +227,43 @@ func main() {
 	// unset) -- chat then reports itself disabled while suggestions keep working.
 	r.With(auth.RequireAuth).Mount("/assistant", assistant.Routes(db, llmProvider))
 	r.With(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite)).Mount("/admin", admin.Routes(db))
+	// Phase 39 (docs/phase-39-map-settings.md): the admin-configurable default
+	// map view (center lon/lat + zoom at app start), replacing the client's
+	// hardcoded placeholder. A method-aware gate: GET needs only features:read
+	// -- every map user fetches the default at startup -- while the PUT that
+	// changes it needs metadata:write, the same admin gate as /admin. Its page
+	// lives under /admin/map-settings while the API sits top-level, the same
+	// split as external-systems and field-packs.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermMetadataWrite)).Mount("/map-settings", mapsettings.Routes(db))
+	// The admin-managed basemap catalog (migration 0077) -- the raster tile
+	// sources the geographic map can show, replacing the client's hardcoded
+	// list. Same method-aware gate as map-settings: GET needs features:read
+	// (every map user fetches the list to build its picker) while the mutating
+	// verbs need metadata:write, the admin gate. Managed from the same
+	// /admin/map-settings page.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermMetadataWrite)).Mount("/basemaps", basemap.Routes(db))
+	// Phase 32 Slice 2 (docs/phase-32-external-links.md): the external-systems
+	// catalog a feature's kind='api' links fetch from. Admin config like domains
+	// and material specs, so it rides the same metadata:read/write gate; its page
+	// lives under /admin/external-systems (frontend) while the API sits top-level,
+	// same split as field-packs. credCipher seals credentials at rest.
+	r.With(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite)).Mount("/external-systems", externalsystem.Routes(db, credCipher))
+	// Phase 21 pack management (docs/phase-21-field-tool.md): an admin lists
+	// every user's field-tool region packs and disables (hides from the device)
+	// or deletes them, so stale packs don't crowd a field tech's tablet. This is
+	// the web/session counterpart to cmd/fieldsync's bearer-authed, owner-scoped
+	// device surface -- a single admin:field-packs gate covers every method (the
+	// GET list and the disable/enable/delete actions are one administrative
+	// capability), and it reuses the exportStore to reap a deleted pack's RustFS
+	// artifacts.
+	r.With(auth.RequirePermission(auth.PermFieldPacksAdmin, auth.PermFieldPacksAdmin)).Mount("/field-packs", fieldpack.AdminRoutes(db, exportStore))
+	// Phase 23 Slice 3 (docs/phase-23-sync-inbox.md): the field-sync review queue --
+	// the QA/system-of-record face of ops.sync_inbox. When a feature class is set to
+	// 'review' mode, its device ops land pending_review and a supervisor posts (or
+	// rejects) them here before they reach production. A method-aware gate: GET (view
+	// the queue and the policy) needs sync:review; the post/reject/policy-set
+	// mutations need sync:post.
+	r.With(auth.RequirePermission(auth.PermSyncReview, auth.PermSyncPost)).Mount("/sync-review", fieldpack.AdminReviewRoutes(db))
 	r.Mount("/auth", auth.Routes(db, authCfg))
 
 	// Phase 17: export jobs are drained by the standalone cmd/exportworker
@@ -189,12 +306,18 @@ func healthzHandler(db *bun.DB) http.HandlerFunc {
 // couple of internal-only fields (MetadataVersionID) with no reason to
 // ever leave the API.
 type featureClassResponse struct {
-	Code               string `json:"code"`
-	Name               string `json:"name"`
-	GeometryType       string `json:"geometry_type"`
-	NetworkRole        string `json:"network_role"`
-	IsDiagramContainer bool   `json:"is_diagram_container"`
-	IsDiagramPlaceable bool   `json:"is_diagram_placeable"`
+	Code                string  `json:"code"`
+	Name                string  `json:"name"`
+	GeometryType        string  `json:"geometry_type"`
+	NetworkRole         string  `json:"network_role"`
+	IsDiagramContainer  bool    `json:"is_diagram_container"`
+	IsDiagramPlaceable  bool    `json:"is_diagram_placeable"`
+	GeometryOptional    bool    `json:"geometry_optional"`
+	DiagramGeometryType *string `json:"diagram_geometry_type,omitempty"`
+	// Category is the admin-defined "New feature" menu grouping (migration
+	// 0074); nil for an uncategorised class (the menu buckets it under
+	// "Other").
+	Category *string `json:"category,omitempty"`
 }
 
 // featureClassesHandler is what lets the frontend show a real,
@@ -214,12 +337,15 @@ func featureClassesHandler(db *bun.DB) http.HandlerFunc {
 		out := make([]featureClassResponse, len(classes))
 		for i, fc := range classes {
 			out[i] = featureClassResponse{
-				Code:               fc.Code,
-				Name:               fc.Name,
-				GeometryType:       fc.GeometryType,
-				NetworkRole:        fc.NetworkRole,
-				IsDiagramContainer: fc.IsDiagramContainer,
-				IsDiagramPlaceable: fc.IsDiagramPlaceable,
+				Code:                fc.Code,
+				Name:                fc.Name,
+				GeometryType:        fc.GeometryType,
+				NetworkRole:         fc.NetworkRole,
+				IsDiagramContainer:  fc.IsDiagramContainer,
+				IsDiagramPlaceable:  fc.IsDiagramPlaceable,
+				GeometryOptional:    fc.GeometryOptional,
+				DiagramGeometryType: fc.DiagramGeometryType,
+				Category:            fc.Category,
 			}
 		}
 
@@ -235,6 +361,47 @@ func featureClassesHandler(db *bun.DB) http.HandlerFunc {
 type symbologyIcon struct {
 	IconRef string `json:"icon_ref"`
 	SVG     string `json:"svg"`
+}
+
+// diagramStencil is one symbol stencil palette entry over the wire (Phase 24
+// Slice 2). Its glyph SVG is NOT included here -- it's the shared
+// symbology_icons asset the frontend already loads via GET /symbology/icons
+// and resolves by icon_ref, so the palette reuses that registry rather than
+// re-shipping markup. This carries only the catalog: which icon, and how the
+// picker labels and groups it.
+type diagramStencil struct {
+	IconRef   string `json:"icon_ref"`
+	Label     string `json:"label"`
+	Category  string `json:"category"`
+	SortOrder int    `json:"sort_order"`
+	// PromoteClass, when set, is the feature class code a stamped symbol of this
+	// stencil can be promoted into (Phase 25) -- the frontend offers "promote to
+	// a <class> feature" on double-click. Omitted for decoration-only stencils.
+	PromoteClass *string `json:"promote_class,omitempty"`
+}
+
+// diagramStencilsHandler serves the whole stencil palette at once (GET
+// /symbology/stencils), the same small-global-set / resolve-client-side shape
+// symbologyIconsHandler uses. Gated by features:read alongside it -- any
+// viewer who can load the map can see the palette.
+func diagramStencilsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		stencils, err := metadata.ListDiagramStencils(r.Context(), db)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		out := make([]diagramStencil, len(stencils))
+		for i, s := range stencils {
+			out[i] = diagramStencil{IconRef: s.IconRef, Label: s.Label, Category: s.Category, SortOrder: s.SortOrder, PromoteClass: s.PromoteClass}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"stencils": out})
+	}
 }
 
 // symbologyIconsHandler serves the whole icon set at once -- the frontend
@@ -377,6 +544,13 @@ type featureClassSchemaResponse struct {
 	Fields       []fieldSchema     `json:"fields"`
 	Terminals    []terminalSchema  `json:"terminals,omitempty"`
 	Symbology    []symbologySchema `json:"symbology,omitempty"`
+	// Phase 30 per-class map label config, raw jsonb passthrough (like
+	// symbologySchema.StyleDef). Omitted when the class has no label_def.
+	LabelDef json.RawMessage `json:"label_def,omitempty"`
+	// Phase 37 Slice 2 nominal voltage namespace ("MV"/"LV"), omitted when
+	// the class isn't network-classified. The create/edit form reads it to
+	// scope the circuit_id field's picker to same-network circuits.
+	Network *string `json:"network,omitempty"`
 }
 
 // resolveSymbologySchema loads every one of a feature class's symbology
@@ -574,6 +748,8 @@ func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 			Fields:       fields,
 			Terminals:    terminals,
 			Symbology:    symbology,
+			LabelDef:     loaded.FeatureClass.LabelDef,
+			Network:      loaded.FeatureClass.Network,
 		})
 	}
 }

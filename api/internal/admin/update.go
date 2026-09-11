@@ -49,6 +49,54 @@ func updateFeatureClass(ctx context.Context, db *bun.DB, code string, req update
 			fc.IsDiagramPlaceable = *req.IsDiagramPlaceable
 			cols = append(cols, "is_diagram_placeable")
 		}
+		// geometry_optional (Phase 26) is pure metadata like the two
+		// is_diagram flags -- safe to toggle on any class, draft or
+		// compiled. The physical effect (geom column nullability) only
+		// happens on the next recompile, where the compiler relaxes the
+		// NOT NULL; setting it here just records the intent.
+		if req.GeometryOptional != nil {
+			fc.GeometryOptional = *req.GeometryOptional
+			cols = append(cols, "geometry_optional")
+		}
+		// diagram_geometry_type (migration 0053) is pure metadata too --
+		// it only changes how the diagram canvas draws this class, never
+		// the physical table -- so it's editable at any status. "" clears
+		// it back to NULL (inherit geometry_type); a value sets the override.
+		if req.DiagramGeometryType != nil {
+			if *req.DiagramGeometryType == "" {
+				fc.DiagramGeometryType = nil
+			} else {
+				v := *req.DiagramGeometryType
+				fc.DiagramGeometryType = &v
+			}
+			cols = append(cols, "diagram_geometry_type")
+		}
+		// label_def (Phase 30) is pure metadata -- a map-render concern with
+		// no physical footprint -- so it's editable at any status, like the
+		// flags above. Raw jsonb passthrough; a JSON null (or empty) clears
+		// the column to SQL NULL (no labels), a JSON object sets the config.
+		if req.LabelDef != nil {
+			raw := *req.LabelDef
+			if len(raw) == 0 || string(raw) == "null" {
+				fc.LabelDef = nil
+			} else {
+				fc.LabelDef = raw
+			}
+			cols = append(cols, "label_def")
+		}
+		// category (migration 0074) is pure presentation metadata -- the menu
+		// grouping -- with no physical footprint, so it's editable at any
+		// status like the flags above. "" clears it back to uncategorised
+		// (NULL); any other string sets the grouping.
+		if req.Category != nil {
+			if *req.Category == "" {
+				fc.Category = nil
+			} else {
+				v := *req.Category
+				fc.Category = &v
+			}
+			cols = append(cols, "category")
+		}
 		if req.GeometryType != nil {
 			if fc.Status != "draft" {
 				return invalid("geometry_type/srid/network_role can only be changed while %q is still draft (not yet compiled) -- it's %s", code, fc.Status)
@@ -59,7 +107,7 @@ func updateFeatureClass(ctx context.Context, db *bun.DB, code string, req update
 			cols = append(cols, "geometry_type", "srid", "network_role")
 		}
 		if len(cols) == 0 {
-			return invalid("request must set at least one of name, is_diagram_container, is_diagram_placeable, geometry_type/srid/network_role")
+			return invalid("request must set at least one of name, is_diagram_container, is_diagram_placeable, geometry_optional, diagram_geometry_type, category, label_def, geometry_type/srid/network_role")
 		}
 
 		if _, err := tx.NewUpdate().Model(fc).Column(cols...).Where("code = ?", code).Exec(ctx); err != nil {
@@ -67,13 +115,16 @@ func updateFeatureClass(ctx context.Context, db *bun.DB, code string, req update
 		}
 
 		resp = updateFeatureClassResponse{
-			Code:               fc.Code,
-			Name:               fc.Name,
-			GeometryType:       fc.GeometryType,
-			SRID:               fc.SRID,
-			NetworkRole:        fc.NetworkRole,
-			IsDiagramContainer: fc.IsDiagramContainer,
-			IsDiagramPlaceable: fc.IsDiagramPlaceable,
+			Code:                fc.Code,
+			Name:                fc.Name,
+			GeometryType:        fc.GeometryType,
+			SRID:                fc.SRID,
+			NetworkRole:         fc.NetworkRole,
+			IsDiagramContainer:  fc.IsDiagramContainer,
+			IsDiagramPlaceable:  fc.IsDiagramPlaceable,
+			GeometryOptional:    fc.GeometryOptional,
+			DiagramGeometryType: fc.DiagramGeometryType,
+			Category:            fc.Category,
 		}
 		return nil
 	})
@@ -310,18 +361,85 @@ func updateField(ctx context.Context, db *bun.DB, featureClassCode, fieldName st
 			field.EditableAfterPublish = *req.EditableAfterPublish
 			cols = append(cols, "editable_after_publish")
 		}
-		if len(cols) == 0 {
-			return invalid("request must set at least one of domain_code, group_code, nullable, visible_on_create, visible_on_update, editable_after_publish")
+		if len(cols) == 0 && req.RequiredForSubtypes == nil {
+			return invalid("request must set at least one of domain_code, group_code, nullable, visible_on_create, visible_on_update, editable_after_publish, required_for_subtypes")
 		}
 
-		if _, err := tx.NewUpdate().Model(field).Column(cols...).Where("id = ?", field.ID).Exec(ctx); err != nil {
-			return fmt.Errorf("updating field %q: %w", fieldName, err)
+		if len(cols) > 0 {
+			if _, err := tx.NewUpdate().Model(field).Column(cols...).Where("id = ?", field.ID).Exec(ctx); err != nil {
+				return fmt.Errorf("updating field %q: %w", fieldName, err)
+			}
+		}
+
+		// Reconcile the field's per-subtype required rules to exactly the
+		// requested set, when provided. subtype_field_rules is read live by
+		// the CRUD engine (validateRequired), so this alone makes the field
+		// required -- no recompile, unlike a nullable flip. A rule row can
+		// also carry a default_override, so we never blindly delete: turning
+		// required off keeps a row that still has a default (just clears the
+		// flag) and only deletes rows that existed solely to mark required,
+		// matching addField's "a row means required" convention.
+		if req.RequiredForSubtypes != nil {
+			var subtypes []metadata.Subtype
+			if err := tx.NewSelect().Model(&subtypes).Where("feature_class_id = ?", fc.ID).Scan(ctx); err != nil {
+				return fmt.Errorf("loading subtypes for %q: %w", featureClassCode, err)
+			}
+			subtypeByCode := make(map[int]metadata.Subtype, len(subtypes))
+			for _, s := range subtypes {
+				subtypeByCode[s.Code] = s
+			}
+			wantRequired := make(map[string]bool, len(*req.RequiredForSubtypes))
+			for _, c := range *req.RequiredForSubtypes {
+				s, ok := subtypeByCode[c]
+				if !ok {
+					return invalid("required_for_subtypes references subtype code %d, which doesn't exist on this feature class", c)
+				}
+				wantRequired[s.ID] = true
+			}
+
+			var rules []metadata.SubtypeFieldRule
+			if err := tx.NewSelect().Model(&rules).Where("field_id = ?", field.ID).Scan(ctx); err != nil {
+				return fmt.Errorf("loading subtype_field_rules for field %q: %w", fieldName, err)
+			}
+			ruleBySubtype := make(map[string]metadata.SubtypeFieldRule, len(rules))
+			for _, r := range rules {
+				ruleBySubtype[r.SubtypeID] = r
+			}
+
+			for _, s := range subtypes {
+				r, hasRule := ruleBySubtype[s.ID]
+				switch {
+				case wantRequired[s.ID] && !hasRule:
+					rule := &metadata.SubtypeFieldRule{SubtypeID: s.ID, FieldID: field.ID, IsRequired: true}
+					if _, err := tx.NewInsert().Model(rule).ExcludeColumn("id").Exec(ctx); err != nil {
+						return fmt.Errorf("insert subtype_field_rule for subtype %d: %w", s.Code, err)
+					}
+				case wantRequired[s.ID] && hasRule && !r.IsRequired:
+					r.IsRequired = true
+					if _, err := tx.NewUpdate().Model(&r).Column("is_required").Where("id = ?", r.ID).Exec(ctx); err != nil {
+						return fmt.Errorf("update subtype_field_rule for subtype %d: %w", s.Code, err)
+					}
+				case !wantRequired[s.ID] && hasRule && r.IsRequired:
+					if r.DefaultOverride != nil {
+						r.IsRequired = false
+						if _, err := tx.NewUpdate().Model(&r).Column("is_required").Where("id = ?", r.ID).Exec(ctx); err != nil {
+							return fmt.Errorf("update subtype_field_rule for subtype %d: %w", s.Code, err)
+						}
+					} else if _, err := tx.NewDelete().Model(&r).Where("id = ?", r.ID).Exec(ctx); err != nil {
+						return fmt.Errorf("delete subtype_field_rule for subtype %d: %w", s.Code, err)
+					}
+				}
+			}
 		}
 
 		resp = fieldResponse{
 			Name: field.Name, DataType: field.DataType, Nullable: field.Nullable,
 			VisibleOnCreate: field.VisibleOnCreate, VisibleOnUpdate: field.VisibleOnUpdate,
 			EditableAfterPublish: field.EditableAfterPublish,
+		}
+		if req.RequiredForSubtypes != nil {
+			// We reconciled the rules to exactly this set, so echo it back.
+			resp.RequiredForSubtypes = *req.RequiredForSubtypes
 		}
 		if field.DomainID != nil {
 			var d metadata.Domain
@@ -367,7 +485,7 @@ func updateMaterialSpec(ctx context.Context, db *bun.DB, code string, req update
 			return fmt.Errorf("loading material spec %q: %w", code, err)
 		}
 
-		cols := make([]string, 0, 11)
+		cols := make([]string, 0, 13)
 		if req.Name != nil {
 			m.Name = *req.Name
 			cols = append(cols, "name")
@@ -412,6 +530,14 @@ func updateMaterialSpec(ctx context.Context, db *bun.DB, code string, req update
 			m.ResistanceTempCoefficientPerC = req.ResistanceTempCoefficientPerC
 			cols = append(cols, "resistance_temp_coefficient_per_c")
 		}
+		if req.CostPerKm != nil {
+			m.CostPerKm = req.CostPerKm
+			cols = append(cols, "cost_per_km")
+		}
+		if req.UnitCost != nil {
+			m.UnitCost = req.UnitCost
+			cols = append(cols, "unit_cost")
+		}
 
 		if _, err := tx.NewUpdate().Model(m).Column(cols...).Where("code = ?", code).Exec(ctx); err != nil {
 			return fmt.Errorf("updating material spec %q: %w", code, err)
@@ -423,6 +549,7 @@ func updateMaterialSpec(ctx context.Context, db *bun.DB, code string, req update
 			AmpacityAmps: m.AmpacityAmps, DiameterMm: m.DiameterMm, WeightKgPerKm: m.WeightKgPerKm,
 			MaxOperatingTempC: m.MaxOperatingTempC, Emissivity: m.Emissivity,
 			Absorptivity: m.Absorptivity, ResistanceTempCoefficientPerC: m.ResistanceTempCoefficientPerC,
+			CostPerKm: m.CostPerKm, UnitCost: m.UnitCost,
 		}
 		return nil
 	})

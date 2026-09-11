@@ -7,6 +7,15 @@ import (
 	"github.com/uptrace/bun"
 )
 
+// faultThreePhase / faultSLG are the two values faultCurrentRequest.FaultType
+// accepts: the symmetrical three-phase bolted fault (the default, positive-
+// sequence only) and the single-line-to-ground fault (which adds the zero-
+// sequence network -- see groundfault.go).
+const (
+	faultThreePhase = "three_phase"
+	faultSLG        = "slg"
+)
+
 // runFaultCurrent is POST /analysis/fault-current's single entry point:
 // the symmetrical (3-phase bolted) fault-current counterpart of
 // runLoadFlow, sharing the same radial-tree substrate. Where the load
@@ -25,6 +34,16 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 	}
 	if req.NominalVoltageV <= 0 {
 		return nil, invalid("nominal_voltage_v must be a positive number")
+	}
+	faultType := req.FaultType
+	if faultType == "" {
+		faultType = faultThreePhase
+	}
+	if faultType != faultThreePhase && faultType != faultSLG {
+		return nil, invalid("fault_type must be %q or %q", faultThreePhase, faultSLG)
+	}
+	if req.FaultImpedanceOhm < 0 {
+		return nil, invalid("fault_impedance_ohm must not be negative")
 	}
 
 	start, err := resolveNode(ctx, db, req.Start)
@@ -55,7 +74,23 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 	if startState := states[start]; startState != nil {
 		sourceR, sourceX = resolveSourceImpedance(startState.attrs)
 	}
-	paths := accumulateSeriesImpedance(tr, states, start, sourceR, sourceX)
+	paths := accumulateSeriesImpedance(tr, states, start, req.NominalVoltageV, sourceR, sourceX)
+
+	// Zero-sequence network only for an SLG run. The source Z0 is the start
+	// node's own source_r0_ohm/source_x0_ohm when set, else the positive-sequence
+	// source impedance (sourceR/sourceX) with the path flagged estimated. Nil for
+	// a three-phase run, which formatFaultResults takes to mean "no SLG fields."
+	var z0 map[node]zeroSeqPath
+	if faultType == faultSLG {
+		sourceR0, sourceX0, srcOK := sourceR, sourceX, false
+		if startState := states[start]; startState != nil {
+			if r0, x0, ok := resolveSourceZeroSeq(startState.attrs); ok {
+				sourceR0, sourceX0, srcOK = r0, x0, true
+			}
+		}
+		earthing := earthingShunts(tr, states)
+		z0 = accumulateZeroSeqImpedance(tr, states, start, req.NominalVoltageV, sourceR0, sourceX0, !srcOK, earthing)
+	}
 
 	allNodes := append(append([]node{}, tr.order...), barrierHits...)
 	classCodes, err := nodeClassCodes(ctx, db, allNodes)
@@ -63,23 +98,30 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 		return nil, err
 	}
 
-	nodes := formatFaultResults(tr, states, paths, classCodes, req.NominalVoltageV)
+	nodes := formatFaultResults(tr, states, paths, z0, req.FaultImpedanceOhm, classCodes)
 
 	return &faultCurrentResponse{
 		Start:           req.Start,
 		NominalVoltageV: req.NominalVoltageV,
+		FaultType:       faultType,
 		Nodes:           nodes,
 		Barriers:        toFeatureRefs(barrierHits, classCodes),
 	}, nil
 }
 
 // pathImpedance is the accumulated series R+jX from the source down to one
-// node, plus whether every conductor branch along that path had resolved
-// material impedance -- the fault-current analog of load flow's per-node
-// cumulative demand, except accumulated in the opposite direction.
+// node, referred to that node's own voltage base, plus whether every
+// impedance-bearing element along the path resolved -- the fault-current
+// analog of load flow's per-node cumulative demand, except accumulated in
+// the opposite direction. baseV is the voltage the accumulated R/X are
+// referred to: the run's nominal on the source side of every transformer,
+// a transformer's secondary below it -- so the prospective current at a
+// node is V_base / |Z| measured on that node's own side, and impedances
+// crossing a transformer are scaled to the local base before summing.
 type pathImpedance struct {
 	rOhm     float64
 	xOhm     float64
+	baseV    float64
 	resolved bool
 }
 
@@ -87,17 +129,25 @@ type pathImpedance struct {
 // parent's accumulated impedance is always in hand before its child's is
 // computed -- the mirror of backwardSweep's reverse walk) summing each
 // edge node's own branch R+jX onto its parent's running total. The start
-// node seeds the total with the source's own Thevenin impedance; a
-// junction/container node adds nothing (electrically a bolted node, same
-// pass-through it is for voltage drop). An edge node whose own impedance
-// didn't resolve adds zero but flips the path's resolved flag false, so
+// node seeds the total with the source's own Thevenin impedance on the
+// run's nominal base. A transformer node crossed mid-tree refers the
+// parent's accumulated impedance across the turns ratio (ohms scale by
+// ratio^2 from primary base to secondary base), adds the transformer's own
+// series impedance (already referred to the secondary), and rebases every
+// node below it to the secondary voltage -- so an LV fault level reflects
+// the transformer's own %Z, which dominates it. A junction/container node
+// adds nothing (electrically a bolted node, same pass-through it is for
+// voltage drop). An edge node whose own impedance didn't resolve, or a
+// transformer contributing zero series impedance (no nameplate %Z or
+// rating to compute it from -- the impedance that actually limits an LV
+// fault), adds zero but flips the path's resolved flag false, so
 // formatFaultResults can mark the resulting fault current as an optimistic
 // upper bound rather than a trustworthy figure.
-func accumulateSeriesImpedance(tr *tree, states map[node]*nodeState, start node, sourceR, sourceX float64) map[node]pathImpedance {
+func accumulateSeriesImpedance(tr *tree, states map[node]*nodeState, start node, nominalVoltageV, sourceR, sourceX float64) map[node]pathImpedance {
 	paths := make(map[node]pathImpedance, len(tr.order))
 	for _, n := range tr.order {
 		if n == start {
-			paths[n] = pathImpedance{rOhm: sourceR, xOhm: sourceX, resolved: true}
+			paths[n] = pathImpedance{rOhm: sourceR, xOhm: sourceX, baseV: nominalVoltageV, resolved: true}
 			continue
 		}
 
@@ -105,7 +155,19 @@ func accumulateSeriesImpedance(tr *tree, states map[node]*nodeState, start node,
 		acc := parent
 
 		st := states[n]
-		if st != nil && st.loaded.FeatureClass.NetworkRole == "edge" {
+		switch {
+		case st != nil && st.xfmr.ok:
+			// Refer the upstream (primary-base) impedance onto the secondary
+			// base, then add the transformer's own series impedance (which
+			// resolveTransformerModel already referred to the secondary).
+			ratioSq := st.xfmr.ratio * st.xfmr.ratio
+			acc.rOhm = parent.rOhm*ratioSq + st.xfmr.rOhm
+			acc.xOhm = parent.xOhm*ratioSq + st.xfmr.xOhm
+			acc.baseV = st.xfmr.secondaryV
+			if st.xfmr.rOhm == 0 && st.xfmr.xOhm == 0 {
+				acc.resolved = false
+			}
+		case st != nil && st.loaded.FeatureClass.NetworkRole == "edge":
 			if st.impedance.resolved {
 				acc.rOhm += st.impedance.rOhm
 				acc.xOhm += st.impedance.xOhm
@@ -119,13 +181,20 @@ func accumulateSeriesImpedance(tr *tree, states map[node]*nodeState, start node,
 }
 
 // formatFaultResults turns the accumulated per-node path impedances into
-// the response shape: the series R/X/|Z| to each node and the prospective
-// bolted-fault current there, I = V / |Z_total|. A node whose total path
-// impedance is exactly zero (an ideal source with no conductor yet between
-// it and the fault) reports no current rather than a division-by-zero or a
-// bogus infinity -- the honest read of "unbounded behind an ideal source,
-// set source_r_ohm/source_x_ohm on the start feature for a finite figure."
-func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pathImpedance, classCodes map[string]string, nominalVoltageV float64) []faultNodeResult {
+// the response shape: the series R/X/|Z| to each node (referred to that
+// node's own voltage base) and the prospective bolted-fault current there,
+// I = V_base / |Z_total|, measured on the node's own side of any
+// transformer. NominalBaseV reports that base so a client can tell an MV
+// fault level from an LV one in a single result set. A node whose total
+// path impedance is exactly zero (an ideal source with no conductor yet
+// between it and the fault) reports no current rather than a
+// division-by-zero or a bogus infinity -- the honest read of "unbounded
+// behind an ideal source, set source_r_ohm/source_x_ohm on the start
+// feature for a finite figure."
+// z0 is nil on a three-phase run (no SLG fields emitted) and the per-node
+// zero-sequence path on an SLG run; faultImpedanceOhm is the fault's own Zf,
+// entering the SLG denominator as the standard 3·Zf term.
+func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pathImpedance, z0 map[node]zeroSeqPath, faultImpedanceOhm float64, classCodes map[string]string) []faultNodeResult {
 	nodes := make([]faultNodeResult, 0, len(tr.order))
 	for _, n := range tr.order {
 		if _, ok := states[n]; !ok {
@@ -134,19 +203,59 @@ func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pat
 		p := paths[n]
 		impedanceOhm := math.Hypot(p.rOhm, p.xOhm)
 
+		circuitID, circuitRef := circuitIdentity(states[n])
 		res := faultNodeResult{
 			FeatureClass:     classCodes[n.classID],
 			FeatureID:        n.featureID,
+			CircuitID:        circuitID,
+			CircuitRef:       circuitRef,
 			ResistanceOhm:    p.rOhm,
 			ReactanceOhm:     p.xOhm,
 			ImpedanceOhm:     impedanceOhm,
+			NominalBaseV:     p.baseV,
 			MaterialResolved: p.resolved,
 		}
 		if impedanceOhm > 0 {
-			faultCurrentAmps := nominalVoltageV / impedanceOhm
+			faultCurrentAmps := p.baseV / impedanceOhm
 			res.FaultCurrentAmps = &faultCurrentAmps
+		}
+
+		if z0 != nil {
+			addGroundFaultFields(&res, p, z0[n], faultImpedanceOhm)
 		}
 		nodes = append(nodes, res)
 	}
 	return nodes
+}
+
+// addGroundFaultFields fills a node's single-line-to-ground result from its
+// positive-sequence path p and zero-sequence path zp (both on the same base).
+// The SLG current is I = 3·V / |Z1 + Z2 + Z0 + 3·Zf| with Z2 = Z1, so the
+// denominator is the complex sum (2·R1 + R0 + 3·Zf) + j(2·X1 + X0). An
+// ungrounded node (no zero-sequence return path) reports grounded = false and no
+// current -- an SLG fault there draws essentially nothing. A zero denominator
+// (an ideal source with no impedance yet to the fault) reports no current, the
+// same honest read as the three-phase case.
+func addGroundFaultFields(res *faultNodeResult, p pathImpedance, zp zeroSeqPath, faultImpedanceOhm float64) {
+	grounded := zp.grounded
+	res.Grounded = &grounded
+	if !grounded {
+		return
+	}
+
+	r0, x0 := zp.r0Ohm, zp.x0Ohm
+	res.ZeroSeqResistanceOhm = &r0
+	res.ZeroSeqReactanceOhm = &x0
+	groundResolved := p.resolved && zp.resolved
+	res.GroundPathResolved = &groundResolved
+	estimated := zp.estimated
+	res.ZeroSeqEstimated = &estimated
+
+	totalR := 2*p.rOhm + r0 + 3*faultImpedanceOhm
+	totalX := 2*p.xOhm + x0
+	totalZ := math.Hypot(totalR, totalX)
+	if totalZ > 0 {
+		slgAmps := 3 * p.baseV / totalZ
+		res.GroundFaultCurrentAmps = &slgAmps
+	}
 }

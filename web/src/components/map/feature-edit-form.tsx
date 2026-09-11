@@ -116,7 +116,10 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
     try {
       const changed: Record<string, unknown> = {}
       for (const key of changedKeys) changed[key] = attributes[key]
-      const body: Record<string, unknown> = { attributes: changed }
+      // Optimistic-concurrency token (Phase 40): echo the updated_at we loaded
+      // so the server can reject the save if someone else changed this feature
+      // in the meantime (409), rather than silently clobbering their edit.
+      const body: Record<string, unknown> = { attributes: changed, expected_updated_at: feature.updated_at }
       if (dirtyGeometry) body.geometry = dirtyGeometry
       // An explicit empty string clears the name (crud's updateRequest
       // treats a *present* name as "set it to exactly this", same as
@@ -150,7 +153,17 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
         void useAssistantStore.getState().requestSuggestions({ featureClassCode, featureId })
       }
     } catch (err) {
-      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save this feature.")
+      // A 409 is the concurrency guard (Phase 40): another user changed this
+      // feature since it was opened. Surface the server's reload-and-reapply
+      // message and refresh the underlying feature so the panel shows the
+      // current values -- the form keeps the in-progress edits so they can be
+      // reviewed and re-saved rather than lost.
+      if (err instanceof ApiError && err.status === 409) {
+        useToastStore.getState().pushError(err.message)
+        queryClient.invalidateQueries({ queryKey: ["feature", featureClassCode, featureId] })
+      } else {
+        useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save this feature.")
+      }
     } finally {
       setSaving(false)
     }
@@ -185,6 +198,7 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
               field={field}
               value={attributes[field.name]}
               onChange={(value) => setAttributes((a) => ({ ...a, [field.name]: value }))}
+              network={schema.network}
             />
           )}
         </div>

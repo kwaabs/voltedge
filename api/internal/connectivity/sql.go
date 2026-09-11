@@ -121,10 +121,16 @@ func resolveEndpoint(ctx context.Context, db bun.IDB, ref endpointRef) (*resolve
 	// Slice 0 only added it to phase-bearing classes, as a nullable
 	// field), so a missing/empty value is normal and simply leaves the
 	// phase gate inert for this endpoint rather than being an error here.
+	// crud.GetFeature nests every custom field under row["attributes"]
+	// (only system columns -- id/subtype/status/deleted_at/timestamps --
+	// sit at the top level, see crud.formatRow), so phase must be read
+	// from there, not from row["phase"] directly.
 	var phase *string
-	if raw, ok := row["phase"]; ok && raw != nil {
-		if s, ok := raw.(string); ok && s != "" {
-			phase = &s
+	if attrs, ok := row["attributes"].(map[string]any); ok {
+		if raw, ok := attrs["phase"]; ok && raw != nil {
+			if s, ok := raw.(string); ok && s != "" {
+				phase = &s
+			}
 		}
 	}
 

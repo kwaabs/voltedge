@@ -261,7 +261,7 @@ func readTools() []Tool {
 						"required":["feature_class","feature_id"],
 						"additionalProperties":false
 					},
-					"boundary_class":{"type":"string","description":"Feature class that bounds the section (a sectionalizing device); defaults to DIST_SWITCH."}
+					"boundary_class":{"type":"string","description":"Feature class that bounds the section (a sectionalizing device); defaults to MV_SWITCH."}
 				},
 				"required":["trace_configuration","start"],
 				"additionalProperties":false

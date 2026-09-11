@@ -172,7 +172,16 @@ func buildCreateTable(qualifiedTable string, fc *metadata.FeatureClass, fields [
 		if err != nil {
 			return "", err
 		}
-		cols = append(cols, fmt.Sprintf(`geom geometry(%s, %d) NOT NULL`, geomType, *fc.SRID))
+		// geometry_optional (Phase 26) lets a feature exist without map
+		// geometry (map-only / diagram-only / both, per feature), so the
+		// column is nullable; default false keeps the historic NOT NULL.
+		// geometry_type still decides the column's geometry type -- this only
+		// governs the null constraint.
+		nullability := " NOT NULL"
+		if fc.GeometryOptional {
+			nullability = ""
+		}
+		cols = append(cols, fmt.Sprintf(`geom geometry(%s, %d)%s`, geomType, *fc.SRID, nullability))
 	}
 
 	for _, f := range fields {

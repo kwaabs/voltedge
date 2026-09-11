@@ -13,6 +13,7 @@ import Point from "ol/geom/Point"
 import Polygon from "ol/geom/Polygon"
 import Draw, { type GeometryFunction } from "ol/interaction/Draw"
 import Modify from "ol/interaction/Modify"
+import PointerInteraction from "ol/interaction/Pointer"
 import Snap from "ol/interaction/Snap"
 import Translate from "ol/interaction/Translate"
 import type Layer from "ol/layer/Layer"
@@ -35,27 +36,34 @@ import View from "ol/View"
 import { Loader2 } from "lucide-react"
 import { useEffect, useRef } from "react"
 
-import { useAllSymbology } from "@/hooks/use-all-symbology"
+import { useAllLabelDefs, useAllSymbology } from "@/hooks/use-all-symbology"
+import { usePermission } from "@/hooks/use-auth"
 import { useCatalog } from "@/hooks/use-catalog"
 import { type FeatureGeometry, useFeature } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
+import { useBasemaps } from "@/hooks/use-basemaps"
+import { useCreateAnnotation, useMapAnnotations } from "@/hooks/use-map-annotations"
 import { useTerritoryBoundaries } from "@/hooks/use-territories"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { apiFetch } from "@/lib/api"
-import { applyBasemap, createBasemapSource } from "@/lib/basemaps"
+import { applyBasemap, resolveBasemap } from "@/lib/basemaps"
 import { splitCoordinates } from "@/lib/geometry"
 import {
+  type AnnotationKind,
+  annotationStyleForFeature,
   createSymbologyStyle,
   draftStyleForFeature,
   editStyleForFeature,
   type HighlightRole,
   highlightStyleForFeature,
   importedStyleForFeature,
+  pinStyleForFeature,
   territoryStyleForFeature,
 } from "@/lib/map-layers"
 import { featureClassSourceIds, tileUrlTemplate } from "@/lib/martin"
 import { formatArea, formatLength } from "@/lib/measure"
-import { useBasemapStore } from "@/stores/basemap-store"
+import { useAnnotationEditStore } from "@/stores/annotation-edit-store"
+import { BLANK_BASEMAP, useBasemapStore } from "@/stores/basemap-store"
 import { useConnectStore } from "@/stores/connect-store"
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
 import { useDiagramPlaceStore } from "@/stores/diagram-place-store"
@@ -67,6 +75,9 @@ import { useImportedOverlaysStore } from "@/stores/imported-overlays-store"
 import { useIsolateStore } from "@/stores/isolate-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useLoadFlowStore } from "@/stores/load-flow-store"
+import { useMapAnnotationsStore } from "@/stores/map-annotations-store"
+import { useMapGotoStore } from "@/stores/map-goto-store"
+import { useMapPinsStore } from "@/stores/map-pins-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
 import { type Bbox4326, useMapViewStore } from "@/stores/map-view-store"
@@ -77,6 +88,7 @@ import { useSelectionStore } from "@/stores/selection-store"
 import { useSnapStore } from "@/stores/snap-store"
 import { type TerritoryGeometry, useTerritoryEditStore } from "@/stores/territory-edit-store"
 import { useTerritoryOverlayStore } from "@/stores/territory-overlay-store"
+import { useToastStore } from "@/stores/toast-store"
 import { useTraceStore } from "@/stores/trace-store"
 import { useUnitsStore } from "@/stores/units-store"
 
@@ -86,6 +98,16 @@ const OL_DRAW_TYPE: Record<DrawGeometryType, "Point" | "LineString" | "Polygon">
   point: "Point",
   line: "LineString",
   polygon: "Polygon",
+}
+
+// The OL Draw geometry type for each annotation kind (Phase 36 Slice 4) -- the
+// client-side mirror of the server's kind->geom rule (mapannotation/sql.go):
+// a text note is a Point, a box a Polygon, a line/arrow a LineString.
+const OL_ANNOTATION_DRAW_TYPE: Record<AnnotationKind, "Point" | "LineString" | "Polygon"> = {
+  text: "Point",
+  box: "Polygon",
+  line: "LineString",
+  arrow: "LineString",
 }
 
 /**
@@ -298,9 +320,28 @@ const DEFAULT_ZOOM = 15
 /** Only ever hit-test the real feature layers, never the OSM base tile layer. */
 const isVectorLayer = (layer: Layer) => layer instanceof VectorTileLayer
 
-export function VoltEdgeMap() {
+/**
+ * initialCenter/initialZoom seed the map's starting View from the
+ * admin-configured default (map.tsx fetches it via useMapSettings and mounts
+ * this only once the setting has settled). Both optional -- absent falls back
+ * to the DEFAULT_CENTER/DEFAULT_ZOOM placeholder below. Captured into refs at
+ * mount (the View is built once), so a later settings change never yanks a live
+ * map's viewport.
+ */
+interface VoltEdgeMapProps {
+  /** [lon, lat] in EPSG:4326 -- the same order fromLonLat takes. */
+  initialCenter?: [number, number]
+  initialZoom?: number
+}
+
+export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<Map | null>(null)
+  // The initial View, resolved once from props (or the placeholder). Refs, not
+  // reactive state: the map is built a single time in the init effect and must
+  // not rebuild when the settings query later refetches.
+  const initialCenterRef = useRef(initialCenter ? fromLonLat(initialCenter) : DEFAULT_CENTER)
+  const initialZoomRef = useRef(initialZoom ?? DEFAULT_ZOOM)
   // The single base tile layer -- kept in a ref so the basemap-change
   // effect below can swap its source in place (see lib/basemaps.ts's
   // applyBasemap) without rebuilding the map or disturbing the z-order.
@@ -323,6 +364,20 @@ export function VoltEdgeMap() {
   // never written to the DB.
   const importedSourceRef = useRef<VectorSource | null>(null)
   const importedLayerRef = useRef<VectorLayer | null>(null)
+  // The map-annotation (redlining) overlay (Phase 36) -- one client-side
+  // VectorLayer/VectorSource pair holding every annotation, each rendered from
+  // its own per-instance style (see annotationStyleForFeature), kept in refs so
+  // the load effect below can repopulate/toggle it without rebuilding the map.
+  // A geographic sibling of the diagram furniture; read-only in this slice, its
+  // create/edit UX lands in Slice 4.
+  const annotationSourceRef = useRef<VectorSource | null>(null)
+  const annotationLayerRef = useRef<VectorLayer | null>(null)
+  // The user's saved-pin (bookmark) layer -- one client-side VectorLayer of
+  // teardrop markers, kept above everything else so a personal navigation pin
+  // is never hidden behind a feature. Per-browser, not network data (see
+  // map-pins-store.ts). Same clear-and-repopulate pattern; the pins effect
+  // below owns its contents.
+  const pinsSourceRef = useRef<VectorSource | null>(null)
   // The single OL Feature holding the MultiPolygon boundary currently
   // under authoring (Phase 11 Slice I) -- its own source/layer, kept
   // above the overlay so the in-progress boundary reads distinctly. The
@@ -411,6 +466,7 @@ export function VoltEdgeMap() {
   const { data: catalog } = useCatalog()
   const { data: featureClasses } = useFeatureClasses()
   const symbologyByClassCode = useAllSymbology()
+  const labelDefsByClassCode = useAllLabelDefs()
   const symbologyIcons = useSymbologyIcons()
   const drawingFeatureClassCode = useDrawStore((s) => s.drawingFeatureClassCode)
   const drawingGeometryType = useDrawStore((s) => s.drawingGeometryType)
@@ -427,6 +483,11 @@ export function VoltEdgeMap() {
   const deletedIds = useDeletedFeaturesStore((s) => s.ids)
   const snapEnabled = useSnapStore((s) => s.enabled)
   const basemap = useBasemapStore((s) => s.basemap)
+  // The admin-managed basemap catalog (hooks/use-basemaps.ts). The store only
+  // remembers which code is chosen; the actual tile source is resolved against
+  // this fetched list (an unknown/deleted code falls back to the first enabled
+  // basemap -- see resolveBasemap). undefined while the query is still loading.
+  const { data: basemaps } = useBasemaps()
   const traceResult = useTraceStore((s) => s.result)
   const isolateResult = useIsolateStore((s) => s.result)
   const loadFlowResult = useLoadFlowStore((s) => s.result)
@@ -434,6 +495,7 @@ export function VoltEdgeMap() {
   const queryResults = useQueryStore((s) => s.results)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
+  const labelsHidden = useLayersStore((s) => s.labelsHidden)
   const selected = useSelectionStore((s) => s.selected)
   const focusToken = useSelectionStore((s) => s.focusToken)
   const measureMode = useMeasureStore((s) => s.mode)
@@ -451,6 +513,25 @@ export function VoltEdgeMap() {
   const { data: territoryBoundaries } = useTerritoryBoundaries(
     territoryOverlayVisible || Boolean(territoryEditing),
   )
+
+  // The map-annotation (redlining) overlay (Phase 36) -- its visibility toggle
+  // and the annotations it draws. The fetch is gated on the same toggle, so an
+  // off overlay costs nothing.
+  const annotationsVisible = useMapAnnotationsStore((s) => s.visible)
+  const { data: annotationsData } = useMapAnnotations(annotationsVisible)
+
+  // Annotation authoring (Phase 36 Slice 4): the kind currently being drawn,
+  // the create mutation the Draw effect fires on drawend, and whether this
+  // caller may author at all -- a viewer without annotations:write never gets
+  // the draw interaction or the click-to-select edit path, matching the
+  // server's method-aware gate.
+  const annotationDrawingKind = useAnnotationEditStore((s) => s.drawingKind)
+  const annotationSelectedId = useAnnotationEditStore((s) => s.selectedId)
+  const annotationTool = useAnnotationEditStore((s) => s.tool)
+  // `mutate` is referentially stable across renders (React Query memoises it),
+  // so the Draw effect can depend on it without tearing down its interaction.
+  const { mutate: createAnnotation } = useCreateAnnotation()
+  const canAnnotate = usePermission()("annotations:write")
 
   // Whichever feature(s) the highlight layer needs a real geometry for
   // -- the plain-selected feature normally, or the connect/relate
@@ -484,28 +565,31 @@ export function VoltEdgeMap() {
   // render that render fresh data is not safe for.
   const hiddenLayersRef = useRef(hiddenLayers)
   hiddenLayersRef.current = hiddenLayers
+  // Same ref trick for the per-layer label suppression, for the same reason:
+  // the creation effect reads the current set to seed each layer's style
+  // without depending on it (a label toggle only needs a setStyle in place,
+  // the dedicated effect below), so toggling labels never rebuilds layers.
+  const labelsHiddenRef = useRef(labelsHidden)
+  labelsHiddenRef.current = labelsHidden
 
   // Base map + OL Map instance -- created once. attribution: false drops
   // the default Attribution control -- src/components/map/status-bar.tsx
   // renders the active basemap's required attribution text itself
   // instead, so it doesn't need to also float over the map in its own
-  // corner. The base layer starts on whichever basemap the user last
-  // chose (basemap-store.ts, persisted; osm by default), and the
-  // basemap-change effect below keeps its source in sync afterward.
+  // corner. The base layer is created empty and hidden; the basemap-change
+  // effect below applies the real source once the catalog (use-basemaps)
+  // has loaded and whenever the user picks a different basemap afterward --
+  // the source now depends on server data, not a synchronous store value.
   useEffect(() => {
     if (!containerRef.current) return
 
-    const initialSource = createBasemapSource(useBasemapStore.getState().basemap)
-    const baseLayer = new TileLayer<TileSource>({
-      source: initialSource ?? undefined,
-      visible: initialSource !== null,
-    })
+    const baseLayer = new TileLayer<TileSource>({ visible: false })
     baseLayerRef.current = baseLayer
 
     const map = new Map({
       target: containerRef.current,
       layers: [baseLayer],
-      view: new View({ center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM, maxZoom: 22 }),
+      view: new View({ center: initialCenterRef.current, zoom: initialZoomRef.current, maxZoom: 22 }),
       controls: defaultControls({ attribution: false }),
     })
     mapRef.current = map
@@ -583,6 +667,35 @@ export function VoltEdgeMap() {
     map.addLayer(importedLayer)
     importedSourceRef.current = importedSource
     importedLayerRef.current = importedLayer
+
+    // The map-annotation (redlining) overlay (Phase 36) -- one client-side
+    // VectorLayer holding every annotation, each drawn from its own per-instance
+    // style. At zIndex 7 it sits above the feature tiles, territory, imported
+    // overlays, and the analysis highlights (0-6), since redline markup is
+    // deliberate content meant to stay readable on top of them, but below the
+    // active-authoring draft/edit layers (8/10). Starts hidden; the load effect
+    // flips it on with the store. Same clear-and-repopulate pattern as the
+    // sources below; the load effect owns its contents.
+    const annotationSource = new VectorSource()
+    const annotationLayer = new VectorLayer({
+      source: annotationSource,
+      style: annotationStyleForFeature,
+      zIndex: 7,
+      visible: false,
+    })
+    map.addLayer(annotationLayer)
+    annotationSourceRef.current = annotationSource
+    annotationLayerRef.current = annotationLayer
+
+    // The saved-pins (bookmark) layer -- at zIndex 11, above even the
+    // draft/edit authoring layers (8/10), so a user's navigation pin is always
+    // visible on top of whatever else is on the map. Per-browser bookmarks, not
+    // network data (map-pins-store.ts). Same clear-and-repopulate pattern; the
+    // pins effect below owns its contents.
+    const pinsSource = new VectorSource()
+    const pinsLayer = new VectorLayer({ source: pinsSource, style: pinStyleForFeature, zIndex: 11 })
+    map.addLayer(pinsLayer)
+    pinsSourceRef.current = pinsSource
 
     // The boundary currently under authoring (Phase 11 Slice I) -- reuses
     // editStyleForFeature (its default branch is the polygon/multipolygon
@@ -712,6 +825,9 @@ export function VoltEdgeMap() {
       baseLayerRef.current = null
       territorySourceRef.current = null
       territoryLayerRef.current = null
+      annotationSourceRef.current = null
+      annotationLayerRef.current = null
+      pinsSourceRef.current = null
       territoryEditSourceRef.current = null
       territoryEditFeatureRef.current = null
       draftSourceRef.current = null
@@ -726,20 +842,17 @@ export function VoltEdgeMap() {
     }
   }, [])
 
-  // Swaps the base tile layer's source (or hides it, for the blank
-  // choice) whenever the user picks a different basemap, in place. The
-  // creation effect above already applied the initial basemap, so the
-  // mount run here is skipped (`didApplyBasemapRef`) to avoid pointlessly
-  // rebuilding that source and re-requesting its tiles -- only a genuine
-  // change past mount does any work.
-  const didApplyBasemapRef = useRef(false)
+  // Swaps the base tile layer's source (or hides it, for the blank choice) --
+  // when the user picks a different basemap, and once the catalog first loads
+  // (the layer is created empty, so this is what paints the initial tiles). It
+  // waits for the catalog: until use-basemaps resolves, `basemaps` is undefined
+  // and there's nothing to resolve a code against, so it holds the empty layer
+  // rather than flashing blank. applyBasemap is idempotent, so re-running on any
+  // catalog refetch is harmless.
   useEffect(() => {
-    if (!didApplyBasemapRef.current) {
-      didApplyBasemapRef.current = true
-      return
-    }
-    if (baseLayerRef.current) applyBasemap(baseLayerRef.current, basemap)
-  }, [basemap])
+    if (!baseLayerRef.current || basemaps === undefined) return
+    applyBasemap(baseLayerRef.current, resolveBasemap(basemap, basemaps))
+  }, [basemap, basemaps])
 
   // Adds/removes an OL Draw interaction for the feature class the user
   // picked to place (see src/components/map/new-feature-menu.tsx and
@@ -785,6 +898,61 @@ export function VoltEdgeMap() {
       document.removeEventListener("keydown", handleEscape)
     }
   }, [drawingFeatureClassCode, drawingGeometryType])
+
+  // Adds/removes an OL Draw interaction for the annotation kind the user picked
+  // to draw (Phase 36 Slice 4 -- see new-annotation-menu.tsx and
+  // annotation-edit-store.ts), typed to match the kind (text->Point,
+  // box->Polygon, line/arrow->LineString). Unlike a feature, an annotation has
+  // no attribute form: on drawend the geometry is converted to EPSG:4326 GeoJSON
+  // and POSTed straight away (a text note seeded with placeholder text the
+  // server will accept), then the created row is selected so
+  // annotation-edit-panel.tsx opens for captioning/styling. A throwaway scratch
+  // layer holds the in-progress shape; the real annotation layer repopulates
+  // from the refetch the mutation triggers.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !annotationDrawingKind) return
+
+    const source = new VectorSource()
+    const layer = new VectorLayer({ source, style: draftStyleForFeature, zIndex: 10 })
+    map.addLayer(layer)
+
+    const kind = annotationDrawingKind
+    const draw = new Draw({ source, type: OL_ANNOTATION_DRAW_TYPE[kind] })
+    draw.on("drawend", (evt: { feature: Feature }) => {
+      const geometry = evt.feature.getGeometry()
+      const geojson = geometry && geometryToGeoJSON(geometry)
+      if (!geojson) {
+        useAnnotationEditStore.getState().cancelDrawing()
+        return
+      }
+      createAnnotation(
+        // A text note must carry non-empty text; seed a placeholder the editor
+        // then replaces. The other kinds start caption-less.
+        { kind, geometry: geojson, ...(kind === "text" ? { text: "New note" } : {}) },
+        {
+          onSuccess: (created) => useAnnotationEditStore.getState().select(created.id),
+          onError: (err) =>
+            useToastStore.getState().pushError(err.message || "Could not create the annotation."),
+        },
+      )
+      // End the draw session immediately; the select() above (once the create
+      // resolves) opens the edit panel on the new annotation.
+      useAnnotationEditStore.getState().cancelDrawing()
+    })
+    map.addInteraction(draw)
+
+    const handleEscape = (evt: KeyboardEvent) => {
+      if (evt.key === "Escape") useAnnotationEditStore.getState().cancelDrawing()
+    }
+    document.addEventListener("keydown", handleEscape)
+
+    return () => {
+      map.removeInteraction(draw)
+      map.removeLayer(layer)
+      document.removeEventListener("keydown", handleEscape)
+    }
+  }, [annotationDrawingKind, createAnnotation])
 
   // Renders an already-placed draft into the draft layer and lets the user
   // drag it (Phase 20 -- docs/phase-20-split-copy.md). The draw flow's own
@@ -1352,6 +1520,41 @@ export function VoltEdgeMap() {
     fittedTokenRef.current = focusToken
   }, [focusToken, selectedFeature])
 
+  // Go-to-coordinates search (status-bar.tsx). Same one-shot token pattern as
+  // the focus pan above: a bumped token animates the view to the target lon/lat.
+  // With no explicit zoom it keeps the current scale but never stays so far out
+  // that the point is a speck -- so a jump from a whole-network view still lands
+  // somewhere useful.
+  const gotoToken = useMapGotoStore((s) => s.token)
+  const handledGotoRef = useRef(0)
+  useEffect(() => {
+    if (gotoToken === 0 || gotoToken === handledGotoRef.current) return
+    handledGotoRef.current = gotoToken
+    const map = mapRef.current
+    const target = useMapGotoStore.getState().target
+    if (!map || !target) return
+    const view = map.getView()
+    const zoom = target.zoom ?? Math.max(view.getZoom() ?? 15, 15)
+    view.animate({ center: fromLonLat([target.lng, target.lat]), zoom, duration: 500 })
+  }, [gotoToken])
+
+  // Renders the user's saved pins (bookmarks) -- one teardrop marker per pin,
+  // repopulated whenever the persisted list changes (add/remove/clear). Each OL
+  // Feature carries the pin's `name` so pinStyleForFeature can label it. Purely
+  // a client-side navigation aid; the list itself lives per-browser in
+  // map-pins-store.ts.
+  const pins = useMapPinsStore((s) => s.pins)
+  useEffect(() => {
+    const source = pinsSourceRef.current
+    if (!source) return
+    source.clear()
+    for (const pin of pins) {
+      const feature = new Feature({ geometry: new Point(fromLonLat([pin.lng, pin.lat])) })
+      feature.set("name", pin.name)
+      source.addFeature(feature)
+    }
+  }, [pins])
+
   // Forces every vector tile source to refetch -- bumped by
   // feature-create-form.tsx after a successful save, since the catalog
   // itself (which sources exist) doesn't change when a feature is
@@ -1696,6 +1899,14 @@ export function VoltEdgeMap() {
       const drawState = useDrawStore.getState()
       if (drawState.drawingFeatureClassCode || drawState.draft) return
 
+      // A click while drawing an annotation (Phase 36 Slice 4) belongs to that
+      // Draw interaction, not selection -- same reasoning as the feature-draw
+      // guard just above. A click while an annotation geometry gesture is armed
+      // (Slice 4b Move/Reshape) belongs to that Translate/Modify and must not
+      // reselect or clear out from under the in-progress edit.
+      const annotationEdit = useAnnotationEditStore.getState()
+      if (annotationEdit.drawingKind || annotationEdit.tool) return
+
       // A click while the ad-hoc measure tool is armed feeds the measure
       // Draw interaction (see the measure effect above), not selection --
       // same reasoning as the drawing guard just above.
@@ -1808,6 +2019,56 @@ export function VoltEdgeMap() {
         return
       }
 
+      // A map annotation (Phase 36 Slice 4) sits at the top of the stack
+      // (zIndex 7) and, for a caller who can author them, can be clicked to
+      // edit it (annotation-edit-panel.tsx). But a redline -- especially a
+      // filled box/area like a "working area" -- must NOT swallow a click that
+      // lands on a real feature under it: the network features are the primary
+      // content, so they win. We therefore only claim the click for the
+      // annotation when NO DB feature sits under the cursor. A large area
+      // annotation is still easily selectable via its (mostly feature-free)
+      // interior or its stroke; a line beneath it stays selectable, peer
+      // picker included. Gated on annotations:write so a viewer never selects
+      // an annotation at all. The annotation features carry their row id as
+      // the OL feature id (set by the GeoJSON reader in the load effect).
+      const annotationLayer = annotationLayerRef.current
+      if (canAnnotate && annotationLayer && annotationLayer.getVisible()) {
+        let featureUnderCursor = false
+        map.forEachFeatureAtPixel(
+          evt.pixel,
+          (feature, layer) => {
+            const sourceId = layer?.get("sourceId") as string | undefined
+            const code = sourceId ? codeBySourceId.get(sourceId) : undefined
+            if (code && feature.get("id")) {
+              featureUnderCursor = true
+              return true
+            }
+            return undefined
+          },
+          { layerFilter: isVectorLayer, hitTolerance: 5 },
+        )
+
+        if (!featureUnderCursor) {
+          let annotationHit: string | null = null
+          map.forEachFeatureAtPixel(
+            evt.pixel,
+            (feature) => {
+              const id = feature.getId() ?? (feature.get("id") as string | undefined)
+              if (id != null) {
+                annotationHit = String(id)
+                return true
+              }
+              return undefined
+            },
+            { layerFilter: (l) => l === annotationLayer, hitTolerance: 5 },
+          )
+          if (annotationHit) {
+            useAnnotationEditStore.getState().select(annotationHit)
+            return
+          }
+        }
+      }
+
       // An imported overlay feature (Phase 15) is a read-only reference layer
       // drawn on top of the DB feature tiles (zIndex 4). A click on one shows
       // its attributes in a lightweight popup (imported-feature-popup.tsx)
@@ -1904,7 +2165,7 @@ export function VoltEdgeMap() {
 
     map.on("click", handleClick)
     return () => map.un("click", handleClick)
-  }, [featureClasses])
+  }, [featureClasses, canAnnotate])
 
   // One VectorTileLayer per Martin catalog entry -- added/replaced
   // whenever the catalog changes, independent of the base map's own
@@ -1931,14 +2192,22 @@ export function VoltEdgeMap() {
           format: new MVT(),
           url: tileUrlTemplate(sourceId),
         }),
-        style: createSymbologyStyle(symbologyByClassCode[classCode], map.getView(), symbologyIcons),
+        style: createSymbologyStyle(
+          symbologyByClassCode[classCode],
+          map.getView(),
+          symbologyIcons,
+          // Omit the label def when this layer's labels are toggled off, so
+          // it's created label-less rather than flashing labels on first
+          // paint before the label effect below can strip them.
+          labelsHiddenRef.current[sourceId] ? undefined : labelDefsByClassCode[classCode],
+        ),
         visible: !hiddenLayersRef.current[sourceId],
         properties: { sourceId },
       })
       map.addLayer(layer)
       vectorLayersRef.current.push(layer)
     }
-  }, [catalog, symbologyByClassCode, symbologyIcons])
+  }, [catalog, symbologyByClassCode, labelDefsByClassCode, symbologyIcons])
 
   // Reacts to the layers store -- src/components/map/layers-panel.tsx
   // -- toggling an existing layer's visibility in place, independent of
@@ -1950,6 +2219,32 @@ export function VoltEdgeMap() {
       layer.setVisible(!hiddenLayers[sourceId])
     }
   }, [hiddenLayers])
+
+  // Reacts to the per-layer label toggle (layers-panel.tsx) by rebuilding
+  // each layer's style in place -- passing the label def through only when
+  // that layer's labels are on, so createSymbologyStyle renders (or omits)
+  // the label second style accordingly. Kept separate from visibility so a
+  // label toggle is a cheap setStyle, not a tile re-request. Re-runs on the
+  // same symbology/label/icon data the creation effect depends on so a
+  // toggle done before that data resolved still lands the right style; the
+  // creation effect (declared above, so it runs first on those shared deps)
+  // has already rebuilt the layers by then, this just re-styles them.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    for (const layer of vectorLayersRef.current) {
+      const sourceId = layer.get("sourceId") as string
+      const classCode = sourceId.toUpperCase()
+      layer.setStyle(
+        createSymbologyStyle(
+          symbologyByClassCode[classCode],
+          map.getView(),
+          symbologyIcons,
+          labelsHidden[sourceId] ? undefined : labelDefsByClassCode[classCode],
+        ),
+      )
+    }
+  }, [labelsHidden, symbologyByClassCode, labelDefsByClassCode, symbologyIcons])
 
   // Populates (or clears) the territory boundary overlay and toggles its
   // visibility (Phase 11 Slice H). ol/format/GeoJSON is used directly
@@ -1989,6 +2284,129 @@ export function VoltEdgeMap() {
       ),
     )
   }, [territoryOverlayVisible, territoryBoundaries, territoryHiddenLevels])
+
+  // The map-annotation (redlining) overlay (Phase 36) -- repopulate the single
+  // annotation layer from the fetched annotations whenever they change or the
+  // overlay is toggled. Each annotation's kind/text/style ride along as feature
+  // properties so annotationStyleForFeature can render it per-instance; stored
+  // geometry is canonical EPSG:4326, reprojected to the view CRS here. Same
+  // clear-and-repopulate pattern as the territory overlay above; the fetch is
+  // gated on `annotationsVisible`, so `annotationsData` is undefined while off.
+  useEffect(() => {
+    const source = annotationSourceRef.current
+    const layer = annotationLayerRef.current
+    if (!source || !layer) return
+
+    layer.setVisible(annotationsVisible)
+    if (!annotationsVisible) {
+      source.clear()
+      return
+    }
+    // Hold off repopulating while an in-map geometry gesture is live (Slice 4b):
+    // the Modify/Translate interaction is bound to a feature in this very source,
+    // and a background refetch landing mid-drag would otherwise clear it out from
+    // under the gesture. `annotationTool` is a dependency, so the moment the tool
+    // clears (Cancel or a successful Save) this re-runs and redraws with the
+    // freshest data, including the saved geometry.
+    if (annotationTool) return
+    if (!annotationsData) return
+
+    // Build one FeatureCollection so a single readFeatures reprojects the whole
+    // set in one pass (same shape the territory effect above uses). Each
+    // feature carries its kind/text/style as properties for
+    // annotationStyleForFeature to read per-instance.
+    const features = annotationsData.annotations.map((a) => ({
+      type: "Feature" as const,
+      id: a.id,
+      geometry: a.geometry,
+      properties: { id: a.id, kind: a.kind, text: a.text ?? null, style: a.style ?? {}, z_index: a.z_index },
+    }))
+
+    source.clear()
+    source.addFeatures(
+      new GeoJSON().readFeatures(
+        { type: "FeatureCollection", features },
+        { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" },
+      ),
+    )
+  }, [annotationsVisible, annotationsData, annotationTool])
+
+  // In-map geometry editing of the selected annotation (Phase 36 Slice 4b) --
+  // attaches whichever gesture annotation-edit-panel.tsx armed (Move->Translate,
+  // Reshape->Modify) to the selected annotation's own feature in the overlay
+  // source, and stages the result as EPSG:4326 GeoJSON for the panel's Save. The
+  // load effect above holds off repopulating while `tool` is set, so the bound
+  // feature survives across multiple drags. Text notes are a single Point with
+  // no vertices, so the panel only offers Move for them; Modify would be a no-op
+  // anyway.
+  useEffect(() => {
+    const map = mapRef.current
+    const source = annotationSourceRef.current
+    if (!map || !source || !annotationSelectedId || !annotationTool) return
+
+    const feature = source.getFeatureById(annotationSelectedId)
+    if (!feature) return
+
+    const features = new Collection([feature])
+    const handleEnd = () => {
+      const geometry = feature.getGeometry()
+      const geojson = geometry && geometryToGeoJSON(geometry)
+      if (geojson) useAnnotationEditStore.getState().setDirtyGeometry(geojson)
+    }
+
+    if (annotationTool === "move") {
+      const translate = new Translate({ features })
+      translate.on("translateend", handleEnd)
+      map.addInteraction(translate)
+      return () => {
+        map.removeInteraction(translate)
+      }
+    }
+
+    // Rotate (text notes only): a text note's angle is a STYLE value on a lone
+    // Point, not geometry, so there's no OL interaction for it -- we roll a
+    // Pointer that spins the note to face wherever the user drags. The angle is
+    // the screen-space bearing from the note's anchor pixel to the cursor
+    // (atan2 on y-down pixels = clockwise degrees, matching OL Text.rotation),
+    // so dragging right = horizontal, and the text tracks the drag direction.
+    // We live-write it onto the feature's `style` prop (re-renders through
+    // annotationStyleForFeature) and stage it in the store for the panel's Save.
+    if (annotationTool === "rotate") {
+      const anchor = () => {
+        const geom = feature.getGeometry()
+        const coord = geom instanceof Point ? geom.getCoordinates() : null
+        return coord ? map.getPixelFromCoordinate(coord) : null
+      }
+      const spinTo = (pixel: number[]) => {
+        const a = anchor()
+        if (!a) return
+        const deg = (Math.atan2(pixel[1] - a[1], pixel[0] - a[0]) * 180) / Math.PI
+        const current = (feature.get("style") ?? {}) as Record<string, unknown>
+        feature.set("style", { ...current, rotation: deg })
+        useAnnotationEditStore.getState().setDirtyRotation(deg)
+      }
+      const rotate = new PointerInteraction({
+        // Claim the gesture (return true) so DragPan doesn't also fire, and spin
+        // immediately so a click without a drag still orients the note.
+        handleDownEvent: (evt) => {
+          spinTo(evt.pixel)
+          return true
+        },
+        handleDragEvent: (evt) => spinTo(evt.pixel),
+      })
+      map.addInteraction(rotate)
+      return () => {
+        map.removeInteraction(rotate)
+      }
+    }
+
+    const modify = new Modify({ features })
+    modify.on("modifyend", handleEnd)
+    map.addInteraction(modify)
+    return () => {
+      map.removeInteraction(modify)
+    }
+  }, [annotationSelectedId, annotationTool])
 
   // Imported overlays (Phase 15) -- repopulate the single imported layer from
   // the store whenever an overlay is added, removed, toggled, or hydrated from
@@ -2153,7 +2571,17 @@ export function VoltEdgeMap() {
 
   return (
     <>
-      <div ref={containerRef} className="h-full w-full" />
+      {/* Suppress the browser context menu on the canvas -- a right-click
+          here has no app action, so the native menu only gets in the way
+          (and eats a right-drag). */}
+      {/* On the blank basemap there are no tiles to cover the container, so
+          the app's off-white --background shows through. Force a true white
+          canvas there; any tiled basemap paints over this anyway. */}
+      <div
+        ref={containerRef}
+        className={`h-full w-full ${basemap === BLANK_BASEMAP ? "bg-white" : ""}`}
+        onContextMenu={(e) => e.preventDefault()}
+      />
       {haloLoading && (
         <div className="text-muted-foreground bg-background/90 pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs shadow-sm">
           <Loader2 className="size-3.5 animate-spin" />

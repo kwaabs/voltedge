@@ -1,30 +1,30 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// A minimal smoke test: the app boots and renders its home screen. The default
+// `flutter create` counter test was removed -- this app has no counter and its
+// root widget is VoltEdgeFieldApp, not MyApp.
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:voltedge_field/main.dart';
+import 'package:voltedge_field/src/config/settings_repository.dart';
+import 'package:voltedge_field/src/providers.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('App boots to the home screen', (WidgetTester tester) async {
+    // settingsRepositoryProvider must be overridden (main() does this after
+    // loading from disk); a fresh in-memory repository is enough for the boot.
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsRepositoryProvider.overrideWithValue(SettingsRepository()),
+        ],
+        child: const VoltEdgeFieldApp(),
+      ),
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // One frame is enough to render the branded app bar; the pack lists resolve
+    // asynchronously (and may error without platform channels), which the home
+    // screen handles on its own -- so don't pumpAndSettle here.
+    expect(find.text('VoltEdge Field'), findsOneWidget);
   });
 }

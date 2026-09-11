@@ -1,6 +1,7 @@
 package crud
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 
@@ -17,11 +18,23 @@ import (
 // an absent Name means "not changing it" while an explicit empty string clears
 // it, and a nil Attributes is treated as an empty map (see updateRequest for
 // each field's meaning). Subtype is deliberately not updatable.
+//
+// Geometry has a third state beyond absent/replace: an explicit JSON null clears
+// the map geometry (Phase 26 Slice 3), demoting a feature to diagram-only. It's
+// only allowed on a geometry_optional class -- json.RawMessage preserves the
+// literal `null`, so "clear" (the bytes "null") is distinguishable from "leave
+// it" (empty) and "replace" (a geometry value).
 type UpdateFeatureInput struct {
 	Name        *string         `json:"name,omitempty"`
 	Geometry    json.RawMessage `json:"geometry,omitempty"`
 	TerritoryID *string         `json:"territory_id,omitempty"`
 	Attributes  map[string]any  `json:"attributes"`
+	// ExpectedUpdatedAt is the optimistic-concurrency token (Phase 40): the
+	// row's updated_at as the client last saw it. Present makes the write
+	// conditional on the row not having changed since (a lost race -> 409);
+	// absent leaves it unconditional (last-write-wins), so the MCP update_feature
+	// tool and any caller that doesn't send it are unaffected.
+	ExpectedUpdatedAt *string `json:"expected_updated_at,omitempty"`
 }
 
 // UpdateFeature runs the full partial-update path -- fetch the current row,
@@ -55,9 +68,35 @@ func UpdateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 		attrs = map[string]any{}
 	}
 
+	// Phase 26 Slice 3: an explicit JSON null clears the map geometry (demote to
+	// diagram-only), which is distinct from an absent geometry ("leave it") and a
+	// supplied one ("replace it"). json.RawMessage keeps the literal `null`, so
+	// clearGeometry is exactly the 4 bytes "null"; hasGeometry is a real value to
+	// write. Both false means the geometry column is left untouched.
+	clearGeometry := bytes.Equal(bytes.TrimSpace(in.Geometry), []byte("null"))
+	hasGeometry := len(in.Geometry) > 0 && !clearGeometry
+
+	// Clearing is only meaningful for a geometric class that opted into optional
+	// geometry -- on a "none" class there's no geom column to clear, and on a
+	// mandatory-geometry class the DB's NOT NULL would reject it anyway, so reject
+	// cleanly with a 400 rather than surfacing a raw Postgres error. A territory
+	// override alongside a clear is contradictory: a feature with no map geometry
+	// belongs to no territory.
+	if clearGeometry {
+		switch {
+		case loaded.FeatureClass.GeometryType == "none":
+			return nil, invalid("feature class %q has no map geometry to clear", loaded.FeatureClass.Code)
+		case !loaded.FeatureClass.GeometryOptional:
+			return nil, invalid("geometry is required for feature class %q -- it can't be cleared (enable geometry_optional to allow diagram-only features)", loaded.FeatureClass.Code)
+		case in.TerritoryID != nil:
+			return nil, invalid("can't set a territory while clearing geometry -- a feature with no map geometry belongs to no territory")
+		}
+	}
+
 	// Same type-matches-feature-class check create runs -- but skipped entirely
-	// when geometry wasn't sent, since absence means "not changing it" here.
-	if len(in.Geometry) > 0 {
+	// when geometry wasn't sent (absence means "not changing it") or is being
+	// cleared (handled above), since neither is a geometry to type-check.
+	if hasGeometry {
 		if err := validateGeometry(loaded, in.Geometry); err != nil {
 			return nil, err
 		}
@@ -78,6 +117,15 @@ func UpdateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 		values[name] = coerced
 	}
 
+	// Enforce any coded-domain state machine (Phase 38 Slice 2): a change to a
+	// field like operational_state must follow the legal transition graph
+	// (metadata.domain_transitions). No-op for every coded field without an
+	// authored graph, and for a request that doesn't touch such a field. Runs
+	// against the current row fetched above, so it's inherently update-only.
+	if err := validateTransitions(loaded, existing, values); err != nil {
+		return nil, err
+	}
+
 	if currentStatus == "published" {
 		if err := validateUpdateCompleteness(loaded, existing, values); err != nil {
 			return nil, err
@@ -90,11 +138,18 @@ func UpdateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 	// (assignTerritory stays false).
 	var territoryID *string
 	assignTerritory := false
-	if loaded.FeatureClass.GeometryType == "none" {
+	switch {
+	case loaded.FeatureClass.GeometryType == "none":
 		if in.TerritoryID != nil {
 			return nil, invalid("feature class %q has no geometry, so it can't belong to a territory", loaded.FeatureClass.Code)
 		}
-	} else if in.TerritoryID != nil || len(in.Geometry) > 0 {
+	case clearGeometry:
+		// Demoting to diagram-only: the feature leaves the map, so it belongs to
+		// no territory. Force the column to NULL (assignTerritory true so it's
+		// actually written, not left at its stale value).
+		assignTerritory = true
+		territoryID = nil
+	case in.TerritoryID != nil || hasGeometry:
 		assignTerritory = true
 		territoryID, err = territory.Assign(ctx, db, string(in.Geometry), *loaded.FeatureClass.SRID, in.TerritoryID)
 		if err != nil {
@@ -102,5 +157,5 @@ func UpdateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 		}
 	}
 
-	return updateFeature(ctx, db, loaded, id, in.Geometry, in.Name, territoryID, assignTerritory, values)
+	return updateFeature(ctx, db, loaded, id, in.Geometry, clearGeometry, in.Name, territoryID, assignTerritory, values, in.ExpectedUpdatedAt)
 }

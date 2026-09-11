@@ -68,18 +68,32 @@ type loadFlowRequest struct {
 }
 
 // nodeResult is one visited node's resolved electrical state.
-// VoltageV/VoltageDropPct are always populated. CurrentAmps/
-// AmpacityAmps only apply to a conductor (network_role = 'edge') node;
-// RatedKVA only applies to a rated junction node (today, a DIST_XFMR
-// with its own rated_kva set) -- a node is never both, so the two
-// loading sources share one LoadingPct rather than each needing their
-// own: a caller displaying "how loaded is this" doesn't need to know
-// which kind of equipment this particular node happens to be.
+// VoltageV/VoltageDropPct are always populated. NominalBaseV is the
+// voltage base VoltageV and VoltageDropPct are expressed on: the run's
+// nominal_voltage_v for nodes on the source side of every transformer,
+// and a transformer's own secondary_voltage for nodes below it -- so a
+// single result set spanning MV -> DIST_XFMR -> LV reports each node's
+// drop against its own side's nominal (LV nodes near their LV base, not
+// near the MV nominal), and a client can tell the two voltage levels
+// apart. CurrentAmps/AmpacityAmps only apply to a conductor
+// (network_role = 'edge') node; RatedKVA only applies to a rated
+// junction node (today, a DIST_XFMR with its own rated_kva set) -- a
+// node is never both, so the two loading sources share one LoadingPct
+// rather than each needing their own: a caller displaying "how loaded
+// is this" doesn't need to know which kind of equipment this particular
+// node happens to be.
 type nodeResult struct {
 	FeatureClass     string   `json:"feature_class"`
 	FeatureID        string   `json:"feature_id"`
+	// CircuitID / CircuitRef are the node's stored circuit membership (Phase 37),
+	// the same display extras an enriched trace and a coordination device carry;
+	// both empty when the node's class has no circuit field or it's unset. The
+	// per-node operating voltage is already reported as VoltageV / NominalBaseV.
+	CircuitID        string   `json:"circuit_id,omitempty"`
+	CircuitRef       string   `json:"circuit_ref,omitempty"`
 	VoltageV         float64  `json:"voltage_v"`
 	VoltageDropPct   float64  `json:"voltage_drop_pct"`
+	NominalBaseV     float64  `json:"nominal_base_v"`
 	CumulativeKW     float64  `json:"cumulative_kw"`
 	CumulativeKVAR   float64  `json:"cumulative_kvar"`
 	CurrentAmps      *float64 `json:"current_amps,omitempty"`
@@ -115,6 +129,16 @@ type loadFlowResponse struct {
 type faultCurrentRequest struct {
 	Start           featureRef `json:"start"`
 	NominalVoltageV float64    `json:"nominal_voltage_v"`
+
+	// FaultType selects the fault modelled: "three_phase" (default -- the
+	// symmetrical bolted fault this endpoint has always computed) or "slg"
+	// (single-line-to-ground, which adds the zero-sequence network). An SLG run
+	// still reports the three-phase figures too, plus its own ground-fault
+	// fields per node. FaultImpedanceOhm is the fault's own impedance Zf (the
+	// arc/earth resistance of the fault itself), 0 for a bolted fault; it enters
+	// the SLG result as the standard 3·Zf term and is ignored by three_phase.
+	FaultType         string  `json:"fault_type"`
+	FaultImpedanceOhm float64 `json:"fault_impedance_ohm"`
 }
 
 // faultNodeResult is one node's symmetrical (3-phase bolted) fault level:
@@ -122,22 +146,60 @@ type faultCurrentRequest struct {
 // prospective fault current a bolted fault at this point would draw,
 // I = V / |Z_total|. ResistanceOhm/ReactanceOhm are the accumulated
 // R and X of that path (source impedance + every conductor branch between
-// source and here); ImpedanceOhm is their magnitude. FaultCurrentAmps is
-// omitted only when |Z_total| is zero -- an ideal, zero-impedance source
-// with no conductor between it and this node, where a bolted fault current
-// is unbounded and no finite figure is honest. MaterialResolved is false
-// when any conductor branch on the path lacked resolved R/X (so its
-// impedance was taken as zero) -- the reported current is then an
-// optimistic upper bound, since a missing branch impedance can only make
+// source and here, plus any transformer's own series impedance), referred
+// to NominalBaseV -- the voltage base this node sits on: the run's nominal
+// above every transformer, a transformer's secondary below it, so an
+// MV-side and an LV-side fault level are each measured on their own base
+// and a client can tell them apart. ImpedanceOhm is their magnitude.
+// FaultCurrentAmps is omitted only when |Z_total| is zero -- an ideal,
+// zero-impedance source with no conductor between it and this node, where a
+// bolted fault current is unbounded and no finite figure is honest.
+// MaterialResolved is false when any conductor branch on the path lacked
+// resolved R/X, or a transformer on the path contributed no series
+// impedance (no nameplate %Z/rating) -- the reported current is then an
+// optimistic upper bound, since a missing series impedance can only make
 // the true |Z_total| larger and the true fault current smaller.
 type faultNodeResult struct {
 	FeatureClass     string   `json:"feature_class"`
 	FeatureID        string   `json:"feature_id"`
+	// CircuitID / CircuitRef are the node's stored circuit membership (Phase 37),
+	// the same display extras an enriched trace and a coordination device carry;
+	// both empty when the node's class has no circuit field or it's unset. The
+	// per-node fault voltage base is already reported as NominalBaseV.
+	CircuitID        string   `json:"circuit_id,omitempty"`
+	CircuitRef       string   `json:"circuit_ref,omitempty"`
 	ResistanceOhm    float64  `json:"resistance_ohm"`
 	ReactanceOhm     float64  `json:"reactance_ohm"`
 	ImpedanceOhm     float64  `json:"impedance_ohm"`
+	NominalBaseV     float64  `json:"nominal_base_v"`
 	FaultCurrentAmps *float64 `json:"fault_current_amps,omitempty"`
 	MaterialResolved bool     `json:"material_resolved"`
+
+	// Single-line-to-ground fields -- populated only on an SLG run
+	// (fault_type = "slg"), nil on the default three-phase run. ZeroSeq* are the
+	// accumulated zero-sequence R/X of the path from the nearest zero-sequence
+	// ground source down to this node (referred to NominalBaseV, the same base
+	// as the positive-sequence R/X above). Grounded is false when no
+	// zero-sequence return path reaches this node (an ungrounded section behind a
+	// delta / ungrounded-wye winding with no earthing transformer) -- an SLG
+	// fault there draws essentially no current, so GroundFaultCurrentAmps is then
+	// omitted. GroundFaultCurrentAmps is the prospective SLG current
+	// I = 3·V / |Z1 + Z2 + Z0 + 3·Zf|, with Z2 taken equal to Z1.
+	// GroundPathResolved is the SLG analog of MaterialResolved -- false when any
+	// element on the positive- OR zero-sequence path lacked resolved impedance,
+	// so the figure is an optimistic upper bound. ZeroSeqEstimated is a separate,
+	// independent signal: true when any element on the zero-sequence path fell
+	// back to a default (line Z0 = 3× its positive-sequence value, transformer
+	// Z0 = Z1, or source Z0 = its positive-sequence impedance) rather than
+	// measured zero-sequence data -- so a planner can tell an SLG figure resting
+	// on real r0/x0/z0_pct from one resting on planning estimates. A fully
+	// resolved path can still be estimated.
+	ZeroSeqResistanceOhm   *float64 `json:"zero_seq_resistance_ohm,omitempty"`
+	ZeroSeqReactanceOhm    *float64 `json:"zero_seq_reactance_ohm,omitempty"`
+	Grounded               *bool    `json:"grounded,omitempty"`
+	GroundFaultCurrentAmps *float64 `json:"ground_fault_current_amps,omitempty"`
+	GroundPathResolved     *bool    `json:"ground_path_resolved,omitempty"`
+	ZeroSeqEstimated       *bool    `json:"zero_seq_estimated,omitempty"`
 }
 
 // faultCurrentResponse is the full result of one fault-current walk.
@@ -148,6 +210,7 @@ type faultNodeResult struct {
 type faultCurrentResponse struct {
 	Start           featureRef        `json:"start"`
 	NominalVoltageV float64           `json:"nominal_voltage_v"`
+	FaultType       string            `json:"fault_type"`
 	Nodes           []faultNodeResult `json:"nodes"`
 	Barriers        []featureRef      `json:"barriers"`
 }

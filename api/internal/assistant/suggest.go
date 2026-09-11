@@ -60,6 +60,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/assistant/llm"
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
+	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
 	"github.com/uptrace/bun"
 )
@@ -195,6 +196,11 @@ func suggestionsHandler(db *bun.DB) http.HandlerFunc {
 
 		wantConnections := kindWanted(req.Kinds, "connection") && user.Has(auth.PermConnectivityCommit)
 		wantRelationships := kindWanted(req.Kinds, "relationship") && user.Has(auth.PermRelationshipsCommit)
+		// A split is a features:write, not a connectivity/relationship commit --
+		// the action it proposes ends in POST /features/{code}/{id}/split -- so it
+		// gates on that permission independently, same "don't propose what the user
+		// can't carry out" reasoning as the other two.
+		wantSplits := kindWanted(req.Kinds, "split") && user.Has(auth.PermFeaturesWrite)
 
 		actions := make([]action, 0, suggestLimit)
 
@@ -212,6 +218,14 @@ func suggestionsHandler(db *bun.DB) http.HandlerFunc {
 		}
 		if wantRelationships {
 			acts, err := relationshipActions(r.Context(), db, req)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			actions = append(actions, acts...)
+		}
+		if wantSplits {
+			acts, err := splitActions(r.Context(), db, req)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -311,6 +325,50 @@ func relationshipActions(ctx context.Context, db bun.IDB, req suggestRequest) ([
 			Detail:         s.RelationshipClassName,
 			Target:         suggestedFeature{FeatureClass: s.Feature.FeatureClass, FeatureID: s.Feature.FeatureID, Name: s.Feature.Name, Subtype: s.Feature.Subtype},
 			DistanceMeters: s.DistanceMeters,
+			Args:           args,
+		})
+	}
+	return out, nil
+}
+
+// splitActions runs the point-on-line split suggest engine for the request's
+// feature and maps every candidate line into a proposed split_line action. Unlike
+// connection/relationship, Args is not a ready-to-POST establish body: the split
+// commit takes the far half's own subtype/name/attributes, so the frontend hands
+// split_point plus the target line to the existing manual-split create form
+// (draw-store.startSplitDraft), pre-filled from that line, and the human confirms
+// before the write. Only a point source yields anything -- SuggestSplits returns
+// empty for a line/polygon/none source -- so this is a no-op for most edits.
+func splitActions(ctx context.Context, db bun.IDB, req suggestRequest) ([]action, error) {
+	candidates, err := crud.SuggestSplits(ctx, db, crud.SplitSuggestInput{
+		FeatureClass: req.FeatureClass,
+		FeatureID:    req.FeatureID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]action, 0, len(candidates))
+	for _, c := range candidates {
+		if !matchesTarget(req.Target, c.Feature.FeatureClass, c.Feature.FeatureID) {
+			continue
+		}
+		args, err := json.Marshal(map[string]any{
+			"feature_class": c.Feature.FeatureClass,
+			"feature_id":    c.Feature.FeatureID,
+			"split_point":   map[string]float64{"lng": c.SplitLng, "lat": c.SplitLat},
+		})
+		if err != nil {
+			return nil, err
+		}
+		d := c.DistanceMeters
+		out = append(out, action{
+			Kind:           "split",
+			Tool:           "split_line",
+			Title:          "Split " + candidateLabel(c.Feature.Name, c.Feature.FeatureClass) + " here",
+			Detail:         "Cut the line at this point",
+			Target:         suggestedFeature{FeatureClass: c.Feature.FeatureClass, FeatureID: c.Feature.FeatureID, Name: c.Feature.Name, Subtype: c.Feature.Subtype},
+			DistanceMeters: &d,
 			Args:           args,
 		})
 	}

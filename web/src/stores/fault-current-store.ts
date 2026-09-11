@@ -5,19 +5,29 @@ import type { TraceFeatureRef } from "@/stores/trace-store"
 /** One node's symmetrical (3-phase bolted) fault level -- mirrors
  * api/internal/powerflow's faultNodeResult exactly. resistance_ohm/
  * reactance_ohm are the accumulated series R and X from the source down
- * to this node; impedance_ohm is their magnitude. fault_current_amps is
- * absent only when |Z| is zero (an ideal source with no conductor yet
- * between it and this node -- an unbounded, un-reportable figure).
- * material_resolved is false when any conductor branch on the path lacked
- * resolved R/X, in which case the reported current is an optimistic upper
- * bound (a missing branch impedance can only lower the true fault
- * current). */
+ * to this node, referred to nominal_base_v; impedance_ohm is their
+ * magnitude. nominal_base_v is the voltage base this node sits on -- the
+ * run's nominal above every transformer, a transformer's secondary below
+ * it -- so an MV-side and an LV-side fault level are each measured on their
+ * own base and the UI can tell them apart. fault_current_amps is absent
+ * only when |Z| is zero (an ideal source with no conductor yet between it
+ * and this node -- an unbounded, un-reportable figure). material_resolved
+ * is false when any conductor branch on the path lacked resolved R/X, or a
+ * transformer on the path contributed no series impedance (no nameplate
+ * %Z/rating), in which case the reported current is an optimistic upper
+ * bound (a missing series impedance can only lower the true fault
+ * current). circuit_id / circuit_ref are the node's stored circuit
+ * membership (Phase 37), absent when its class carries no circuit field;
+ * the node's voltage base is nominal_base_v. */
 export interface FaultCurrentNodeResult {
   feature_class: string
   feature_id: string
+  circuit_id?: string
+  circuit_ref?: string
   resistance_ohm: number
   reactance_ohm: number
   impedance_ohm: number
+  nominal_base_v: number
   fault_current_amps?: number
   material_resolved: boolean
 }

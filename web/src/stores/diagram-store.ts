@@ -1,5 +1,7 @@
 import { create } from "zustand"
 
+import { useSelectionStore } from "@/stores/selection-store"
+
 /**
  * Which diagram instance(s) are open in the map route's side-by-side
  * split view, and where -- two panes ("top"/"bottom") split the
@@ -11,6 +13,12 @@ export type DiagramPane = "top" | "bottom"
 interface DiagramState {
   panes: Record<DiagramPane, string[]>
   active: Record<DiagramPane, string | null>
+  /** Full-page mode: the id of the single diagram shown at full width with
+   * the geographic map hidden (kept mounted so its view survives), or null for
+   * the normal side-by-side split. When 2+ diagrams are open, the others
+   * collapse into a tab strip and this is the active tab. Cleared when the
+   * maximized diagram closes (falls back to another open one, else null). */
+  maximizedId: string | null
   /** Opens a diagram: if it's already open somewhere, just brings its
    * own tab to the front (no duplicate tabs); otherwise adds it as a
    * new tab in whichever pane currently has fewer tabs, so opening
@@ -39,6 +47,11 @@ interface DiagramState {
    * way (top or bottom)" once there are 3+ diagrams open across two
    * panes that can only hold one tab strip each. */
   move: (diagramId: string) => void
+  /** Shows `diagramId` full-page (also makes it the active tab in its pane, so
+   * restoring returns to a sane split). Doubles as the carousel tab switcher. */
+  maximize: (diagramId: string) => void
+  /** Leaves full-page mode, back to the side-by-side split. */
+  restore: () => void
 }
 
 function paneOf(panes: Record<DiagramPane, string[]>, diagramId: string): DiagramPane | null {
@@ -50,8 +63,17 @@ function paneOf(panes: Record<DiagramPane, string[]>, diagramId: string): Diagra
 export const useDiagramStore = create<DiagramState>((set, get) => ({
   panes: { top: [], bottom: [] },
   active: { top: null, bottom: null },
+  maximizedId: null,
 
   open: (diagramId) => {
+    // Opening (or creating -> create-diagram-form.tsx opens on success) a
+    // diagram closes the feature/attribute panel: the two share the map's
+    // right-hand space, and the diagram is now the focus. Clearing the
+    // selection is what unmounts FeaturePanel (it renders null with no
+    // `selected`). Covers every open path -- View diagram + the create
+    // form -- so no call site has to remember to do it.
+    useSelectionStore.getState().clear()
+
     const { panes, active } = get()
     const existing = paneOf(panes, diagramId)
     if (existing) {
@@ -71,7 +93,16 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     if (!pane) return
     const remaining = panes[pane].filter((id) => id !== diagramId)
     const nextActive = active[pane] === diagramId ? (remaining.at(-1) ?? null) : active[pane]
-    set({ panes: { ...panes, [pane]: remaining }, active: { ...active, [pane]: nextActive } })
+    const nextPanes = { ...panes, [pane]: remaining }
+    set({
+      panes: nextPanes,
+      active: { ...active, [pane]: nextActive },
+      // If the full-page diagram is the one closing, fall back to another open
+      // diagram (stay full-page, like closing a browser tab), else keep as-is.
+      ...(get().maximizedId === diagramId
+        ? { maximizedId: [...nextPanes.top, ...nextPanes.bottom][0] ?? null }
+        : {}),
+    })
   },
 
   activate: (pane, diagramId) => set((s) => ({ active: { ...s.active, [pane]: diagramId } })),
@@ -88,4 +119,12 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       active: { ...active, [from]: fromNextActive, [to]: diagramId },
     })
   },
+
+  maximize: (diagramId) => {
+    const pane = paneOf(get().panes, diagramId)
+    if (!pane) return
+    set((s) => ({ maximizedId: diagramId, active: { ...s.active, [pane]: diagramId } }))
+  },
+
+  restore: () => set({ maximizedId: null }),
 }))

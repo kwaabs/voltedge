@@ -340,6 +340,29 @@ one genuinely new thing to prove — not assume — in this slice.
   leaf class.** It already *is* the customer connection; the only change
   is that it's fed through the LV chain instead of directly off the
   transformer.
+- **Metering-model cleanup (2026-09-02): `meter_number` dropped,
+  `SERVICE_POINT → METER` is `one_to_many`, the chamber gets a
+  *restricted* schematic.** Once `METER` became a first-class feature the
+  old `SERVICE_POINT.meter_number` scalar was a duplicate identity, so it's
+  removed from the seed and deprecated non-destructively on existing DBs
+  (`status='deprecated'`; the physical column stays but drops out of the
+  compiler/CRUD via the `status='active'` load filter). The ownership
+  relationship is `one_to_many` — an SP may own several meters (multi-rate,
+  CT + check) or none — enforced in
+  `api/internal/relationship/cardinality.go`. Existing `meter_number`
+  values are migrated into real `METER` features + ownership relationships
+  by the one-off `seed/migrate_meter_number_to_meter.sql` (idempotent, no
+  connectivity rewire, no `feature_history`). `METER_CHAMBER` becomes a
+  diagram container, and a new **per-(container class × diagram type)
+  placement allow-list** (`metadata.diagram_placement_rules`, migration
+  0068, enforced in `api/internal/diagram`'s `placeFeature`) restricts its
+  `CHAMBER_SCHEMATIC` diagram to exactly `LV_BUSBAR` + `METER`. The
+  allow-list is opt-in by absence: a container+type pairing with no rows is
+  unconstrained, so the substation-yard one-line and every existing diagram
+  are untouched. Rules are authored from the **Diagram rules** admin page
+  (`/admin/diagrams`), backed by `/admin/diagram-placement-rules`
+  (`api/internal/admin/diagram_rules.go`); diagram types stay authored as
+  `DIAGRAM_TYPE` domain values on the Domains page.
 
 ## Prerequisites and risks
 

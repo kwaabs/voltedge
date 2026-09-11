@@ -4,12 +4,15 @@
 // module, so building a region pack (async, CPU-heavy -- tippecanoe) never
 // competes with API request handling.
 //
-// One process does two jobs against the ops.field_packs queue:
-//   - a build WORKER (fieldpack.RunWorker) claims queued packs FOR UPDATE SKIP
-//     LOCKED, builds the two artifacts (MBTiles + SQLite pack), and uploads them
-//     to RustFS; and
-//   - an HTTP SURFACE (fieldpack.Routes) a device uses to enqueue a build, poll
-//     it, and fetch the manifest -- every route behind an iam.api_tokens bearer.
+// One process runs three jobs:
+//   - a build WORKER (fieldpack.RunWorker) claims queued packs off ops.field_packs
+//     FOR UPDATE SKIP LOCKED, builds the two artifacts (MBTiles + SQLite pack), and
+//     uploads them to RustFS;
+//   - a SYNC-APPLY WORKER (fieldpack.RunSyncWorker, Phase 23) drains ops.sync_inbox,
+//     committing each captured device op to production through the shared engines; and
+//   - an HTTP SURFACE (fieldpack.Routes) a device uses to enqueue a build, poll it,
+//     fetch the manifest, and push/poll its offline edits -- every route behind an
+//     iam.api_tokens bearer.
 //
 // Config (all via env, like the other binaries): DATABASE_URL and the RUSTFS_* /
 // EXPORT_URL_TTL block the storage layer reads, plus FIELDSYNC_PORT,
@@ -68,6 +71,18 @@ func main() {
 		}
 	}()
 
+	// The sync-apply worker (Phase 23 Slice 1) drains ops.sync_inbox to production.
+	// Co-located with POST /sync's capture in this process so a just-received op
+	// applies moments later (worker-immediate mode); it drives its own queue off the
+	// same DB and drains in-flight ops on shutdown, exactly like the build worker.
+	syncWorkerDone := make(chan struct{})
+	go func() {
+		defer close(syncWorkerDone)
+		if err := fieldpack.RunSyncWorker(ctx, db, fieldpack.SyncWorkerConfigFromEnv()); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("fieldsync sync worker: %v", err)
+		}
+	}()
+
 	port := os.Getenv("FIELDSYNC_PORT")
 	if port == "" {
 		port = "8091"
@@ -88,8 +103,9 @@ func main() {
 		log.Fatalf("fieldsync: %v", err)
 	}
 
-	// Let the worker finish draining before exiting, so a rolling restart doesn't
-	// strand a running build.
+	// Let both workers finish draining before exiting, so a rolling restart doesn't
+	// strand a running build or a mid-apply sync op.
 	<-workerDone
+	<-syncWorkerDone
 	log.Print("fieldsync: shut down cleanly")
 }

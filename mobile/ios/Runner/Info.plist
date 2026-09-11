@@ -4,6 +4,15 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- GPS placement for offline features (Phase 21 Slice 5b). Foreground only:
+	     the app reads a fix while the user is placing or recentering. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>VoltEdge Field uses your location to place features at where you're standing and to recenter the map on you.</string>
+	<!-- Image attachment capture (Phase 22 Slice 5). -->
+	<key>NSCameraUsageDescription</key>
+	<string>VoltEdge Field uses the camera to attach photos of a feature.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>VoltEdge Field lets you attach a photo from your library to a feature.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

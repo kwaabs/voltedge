@@ -3,7 +3,7 @@
 -- lives under /seed on purpose, same reasoning as the other seed
 -- files. Schema-level groundwork for the first real diagram: a
 -- DIAGRAM_TYPE domain ("just another row in domains, not a new lookup
--- table" -- docs/metadata-core.md), and flipping SUBSTATION_YARD to a
+-- table" -- docs/metadata-core.md), and flipping SUBSTATION to a
 -- real diagram container (is_diagram_container was already a column on
 -- metadata.feature_classes since Phase 1's very first migration, just
 -- never set true on anything until now).
@@ -33,4 +33,4 @@ WHERE d.code = 'DIAGRAM_TYPE'
 
 UPDATE metadata.feature_classes
 SET is_diagram_container = true
-WHERE code = 'SUBSTATION_YARD';
+WHERE code = 'SUBSTATION';

@@ -222,5 +222,17 @@ func updateGeometry(ctx context.Context, tx bun.Tx, loaded *metadata.Loaded, id,
 	if n, err := res.RowsAffected(); err == nil && n == 0 {
 		return notFound("feature %s not found", id)
 	}
+	// Audit trail (Phase 41): the split shortened this line, so record it as an
+	// edit -- the same "update" the far half's CreateFeature records for the new
+	// feature. This write has no RETURNING, so re-read the post-update row inside
+	// the same transaction for the snapshot; the history row commits atomically
+	// with the split.
+	out, err := getFeature(ctx, tx, loaded, id)
+	if err != nil {
+		return err
+	}
+	if err := recordFeatureHistory(ctx, tx, loaded, historyUpdate, out); err != nil {
+		return err
+	}
 	return nil
 }

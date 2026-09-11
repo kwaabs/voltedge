@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
@@ -41,11 +43,13 @@ type edgeRow struct {
 // barrierCheck is one feature class's live-stop condition, resolved
 // once per trace run (see resolveBarriers) from a trace_barrier_rules
 // row's field/value ids into names a live feature row's attributes can
-// actually be compared against. Only one check per feature class is
-// kept -- if a class ever has more than one trace_barrier_rules row for
-// the same trace_configurations profile, the last one loaded wins; not
-// a real scenario this pass's seed data or design anticipates, just
-// worth knowing if metadata authoring ever adds a second one.
+// actually be compared against. A class can carry MORE than one check --
+// resolveBarriers keys a slice per class, and checkBarrier stops the
+// traversal if ANY of them matches (OR-combined). That's what lets a
+// single class halt on two independent conditions: DIST_SWITCH stops a
+// downstream trace when device_state = OPEN *or* operational_state =
+// ISOLATED/RETIRED (Phase 38 Slice 3) -- two orthogonal reasons a device
+// isn't passing power, either of which should end the walk.
 type barrierCheck struct {
 	fieldName   string
 	haltsOnCode string
@@ -84,9 +88,9 @@ func resolveNode(ctx context.Context, db bun.IDB, ref featureRef) (node, error) 
 // Returns an empty map without even querying trace_barrier_rules when
 // stopAtOpenDevices is false -- a config that doesn't respect barriers
 // shouldn't have authored barrier rows silently take effect anyway.
-func resolveBarriers(ctx context.Context, db bun.IDB, traceConfigurationID string, stopAtOpenDevices bool) (map[string]barrierCheck, error) {
+func resolveBarriers(ctx context.Context, db bun.IDB, traceConfigurationID string, stopAtOpenDevices bool) (map[string][]barrierCheck, error) {
 	if !stopAtOpenDevices {
-		return map[string]barrierCheck{}, nil
+		return map[string][]barrierCheck{}, nil
 	}
 
 	rules, err := metadata.LoadTraceBarrierRules(ctx, db, traceConfigurationID)
@@ -94,7 +98,7 @@ func resolveBarriers(ctx context.Context, db bun.IDB, traceConfigurationID strin
 		return nil, err
 	}
 	if len(rules) == 0 {
-		return map[string]barrierCheck{}, nil
+		return map[string][]barrierCheck{}, nil
 	}
 
 	fieldIDs := make([]string, len(rules))
@@ -122,12 +126,12 @@ func resolveBarriers(ctx context.Context, db bun.IDB, traceConfigurationID strin
 		valueCodes[v.ID] = v.Code
 	}
 
-	out := make(map[string]barrierCheck, len(rules))
+	out := make(map[string][]barrierCheck, len(rules))
 	for _, r := range rules {
-		out[r.FeatureClassID] = barrierCheck{
+		out[r.FeatureClassID] = append(out[r.FeatureClassID], barrierCheck{
 			fieldName:   fieldNames[r.FieldID],
 			haltsOnCode: valueCodes[r.HaltsOnValueID],
-		}
+		})
 	}
 	return out, nil
 }
@@ -174,9 +178,9 @@ func (l *featureClassLoader) loadedFor(ctx context.Context, db bun.IDB, classID 
 // "device state is checked live at each hop, never baked into the
 // graph" (docs/metadata-core.md). A feature class with no barrier
 // condition at all short-circuits before ever touching the database.
-func checkBarrier(ctx context.Context, db bun.IDB, n node, barriers map[string]barrierCheck, loader *featureClassLoader) (bool, error) {
-	check, ok := barriers[n.classID]
-	if !ok {
+func checkBarrier(ctx context.Context, db bun.IDB, n node, barriers map[string][]barrierCheck, loader *featureClassLoader) (bool, error) {
+	checks, ok := barriers[n.classID]
+	if !ok || len(checks) == 0 {
 		return false, nil
 	}
 
@@ -196,11 +200,140 @@ func checkBarrier(ctx context.Context, db bun.IDB, n node, barriers map[string]b
 	}
 
 	// crud.GetFeature nests every custom column under "attributes"
-	// (see crud/sql.go's formatRow) -- device_state lives there, not at
-	// the row map's top level alongside id/status/geometry.
+	// (see crud/sql.go's formatRow) -- device_state/operational_state live
+	// there, not at the row map's top level alongside id/status/geometry.
+	// One live row read serves every check on this class; the node is a
+	// barrier if ANY of them matches (OR-combined, see barrierCheck's doc).
 	attrs, _ := row["attributes"].(map[string]any)
-	value, _ := attrs[check.fieldName].(string)
-	return value == check.haltsOnCode, nil
+	for _, check := range checks {
+		value, _ := attrs[check.fieldName].(string)
+		if value == check.haltsOnCode {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// nodeCircuitID returns a node's stored circuit membership -- the live
+// circuit_id attribute value (Phase 37 Slice 2), or "" when the feature's
+// class carries no circuit_id field, the value is unset, or the row has since
+// been purged. Only a circuit-scoped trace (scope_to_circuit) calls it, to keep
+// the walk on features sharing the start's circuit_id -- reading the *stored*
+// Phase 37 membership, not re-deriving it. Reuses the same live-row read and
+// class-loader cache checkBarrier uses, so a circuit trace pays one GetFeature
+// per visited node, exactly like a barrier-respecting one.
+func nodeCircuitID(ctx context.Context, db bun.IDB, n node, loader *featureClassLoader) (string, error) {
+	loaded, err := loader.loadedFor(ctx, db, n.classID)
+	if err != nil {
+		return "", err
+	}
+	row, err := crud.GetFeature(ctx, db, loaded, n.featureID)
+	if err != nil {
+		// A dangling connectivity row pointing at a since-purged feature is a
+		// dead end, not a trace failure -- same treatment as checkBarrier.
+		if crud.IsNotFoundError(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	// circuit_id is a custom column, nested under "attributes" by formatRow;
+	// scanRows normalizes the uuid to a string, so a set value compares cleanly
+	// and an unset one (SQL NULL -> nil) falls through to "".
+	attrs, _ := row["attributes"].(map[string]any)
+	id, _ := attrs["circuit_id"].(string)
+	return id, nil
+}
+
+// voltageClassFields are the attribute names a feature may carry its own
+// nominal operating voltage under, in resolution priority: a conductor's
+// voltage_class, then a transformer's primary_voltage (its source/high side
+// -- the feeder voltage it sits on; a transformer's stepped-down secondary
+// shows up as the nominal of the LV element below it, so one "nominal" per
+// node stays unambiguous). Both hold a coded VOLTAGE_CLASS value
+// ("11KV"/"400V") parsed by parseVoltageClassCode. A class carrying none of
+// these transforms no voltage and reports no nominal.
+var voltageClassFields = []string{"voltage_class", "primary_voltage"}
+
+// parseVoltageClassCode turns a coded VOLTAGE_CLASS value ("11KV", "33KV",
+// "400V") into volts -- a deliberate parse, not a fixed lookup, so any NkV/NV
+// code resolves as the domain grows. This is the trace package's own copy of
+// the same helper api/internal/powerflow already carries: kept local for the
+// same each-package-keeps-its-own reason featureRef is duplicated, rather than
+// importing powerflow into the trace engine the package doc deliberately keeps
+// it decoupled from. ok = false for an empty or non-numeric code.
+func parseVoltageClassCode(code string) (float64, bool) {
+	s := strings.ToUpper(strings.TrimSpace(code))
+	if s == "" {
+		return 0, false
+	}
+	mult := 1.0
+	switch {
+	case strings.HasSuffix(s, "KV"):
+		mult = 1000
+		s = strings.TrimSuffix(s, "KV")
+	case strings.HasSuffix(s, "V"):
+		s = strings.TrimSuffix(s, "V")
+	}
+	n, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n * mult, true
+}
+
+// enrichNode reads one node's live attributes once and pulls the two
+// trace-display extras out of them: stored circuit membership (Phase 37
+// circuit_id + circuit_ref) and nominal operating voltage. Reuses the same
+// GetFeature + class-loader cache checkBarrier/nodeCircuitID use, so an
+// enriched trace pays one live-row read per returned node -- the same cost a
+// barrier-respecting or circuit-scoped walk already does. A since-purged
+// feature (a dangling connectivity row) enriches to just its ref, the same
+// dead-end treatment those two give.
+func enrichNode(ctx context.Context, db bun.IDB, n node, code string, loader *featureClassLoader) (tracedFeature, error) {
+	tf := tracedFeature{FeatureClass: code, FeatureID: n.featureID}
+
+	loaded, err := loader.loadedFor(ctx, db, n.classID)
+	if err != nil {
+		return tf, err
+	}
+	row, err := crud.GetFeature(ctx, db, loaded, n.featureID)
+	if err != nil {
+		if crud.IsNotFoundError(err) {
+			return tf, nil
+		}
+		return tf, err
+	}
+
+	// Custom columns nest under "attributes" (crud/sql.go's formatRow);
+	// scanRows normalizes the circuit_id uuid to a string, so a set value
+	// reads cleanly and an unset one (SQL NULL -> nil) falls through to "".
+	attrs, _ := row["attributes"].(map[string]any)
+	tf.CircuitID, _ = attrs["circuit_id"].(string)
+	tf.CircuitRef, _ = attrs["circuit_ref"].(string)
+	for _, field := range voltageClassFields {
+		raw, _ := attrs[field].(string)
+		if v, ok := parseVoltageClassCode(raw); ok {
+			tf.NominalVoltageV = &v
+			break
+		}
+	}
+	return tf, nil
+}
+
+// toTracedFeatures is toFeatureRefs's enriching counterpart: the Features
+// list every trace-family response returns, each node carrying its circuit
+// membership and nominal voltage (see tracedFeature). One GetFeature per
+// node, cached through the shared loader.
+func toTracedFeatures(ctx context.Context, db bun.IDB, nodes []node, classCodes map[string]string, loader *featureClassLoader) ([]tracedFeature, error) {
+	out := make([]tracedFeature, 0, len(nodes))
+	for _, n := range nodes {
+		tf, err := enrichNode(ctx, db, n, classCodes[n.classID], loader)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, tf)
+	}
+	return out, nil
 }
 
 // neighborsOf returns every node directly reachable from n through
@@ -274,7 +407,15 @@ const maxTraceHops = 2000
 // default) stops expansion there, same as a barrier; true records the
 // hit but keeps walking past it -- the real, enforced meaning that
 // column only ever had as a stub before this.
-func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers map[string]barrierCheck, loader *featureClassLoader, target *node, targetClassID *string, crossTransformers bool) (order []node, barrierHits []node, targetHits []node, parent map[node]node, found bool, err error) {
+//
+// scopeCircuit, when non-nil (a scope_to_circuit config, migration 0069),
+// confines the walk to the start's stored circuit: a neighbour is only
+// enqueued/recorded when its own live circuit_id equals *scopeCircuit. An
+// off-circuit neighbour (different, unset, or no circuit_id field at all) is
+// the circuit boundary -- marked visited so a second edge to it isn't
+// re-checked, but never traversed or returned. The start is always kept
+// (resolved by the caller to carry *scopeCircuit in the first place).
+func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers map[string][]barrierCheck, loader *featureClassLoader, target *node, targetClassID *string, crossTransformers bool, scopeCircuit *string) (order []node, barrierHits []node, targetHits []node, parent map[node]node, found bool, err error) {
 	visited := map[node]bool{start: true}
 	parent = map[node]node{}
 	queue := []node{start}
@@ -313,6 +454,20 @@ func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers
 		for _, n := range neighbors {
 			if visited[n] {
 				continue
+			}
+			// Circuit-scoped: an off-circuit neighbour is the boundary. Mark it
+			// visited (so a second edge to it isn't re-read) but never enqueue
+			// or record it -- the walk stays on the start's circuit_id.
+			if scopeCircuit != nil {
+				cid, cerr := nodeCircuitID(ctx, db, n, loader)
+				if cerr != nil {
+					err = cerr
+					return
+				}
+				if cid != *scopeCircuit {
+					visited[n] = true
+					continue
+				}
 			}
 			visited[n] = true
 			parent[n] = current
@@ -472,7 +627,25 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 		return nil, err
 	}
 
-	visited, barrierHits, targetHits, parent, found, err := bfs(ctx, db, start, direction, barriers, newFeatureClassLoader(), target, tc.TargetClassID, tc.CrossTransformers)
+	loader := newFeatureClassLoader()
+
+	// A circuit-scoped config (scope_to_circuit) confines the walk to the start
+	// feature's stored circuit. Resolve that membership once here so bfs can gate
+	// every neighbour against it; a start with no circuit is a clear, actionable
+	// 400 (assign the circuit first) rather than a walk with nothing to scope to.
+	var scopeCircuit *string
+	if tc.ScopeToCircuit {
+		cid, err := nodeCircuitID(ctx, db, start, loader)
+		if err != nil {
+			return nil, err
+		}
+		if cid == "" {
+			return nil, invalid("start feature %s (%s) is not assigned to a circuit -- assign it to one before running a circuit trace", req.Start.FeatureID, req.Start.FeatureClass)
+		}
+		scopeCircuit = &cid
+	}
+
+	visited, barrierHits, targetHits, parent, found, err := bfs(ctx, db, start, direction, barriers, loader, target, tc.TargetClassID, tc.CrossTransformers, scopeCircuit)
 	if err != nil {
 		return nil, err
 	}
@@ -495,11 +668,16 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 		return nil, err
 	}
 
+	features, err := toTracedFeatures(ctx, db, featureNodes, classCodes, loader)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := &traceResponse{
 		TraceConfiguration: tc.Code,
 		Direction:          direction,
 		Start:              req.Start,
-		Features:           toFeatureRefs(featureNodes, classCodes),
+		Features:           features,
 		Barriers:           toFeatureRefs(barrierHits, classCodes),
 	}
 	if direction == "SHORTEST_PATH" {

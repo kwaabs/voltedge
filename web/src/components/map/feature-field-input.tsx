@@ -1,10 +1,16 @@
+import { CircuitPicker } from "@/components/map/circuit-picker"
 import { inputClass } from "@/components/map/field-utils"
+import type { CircuitNetwork } from "@/hooks/use-circuits"
 import type { FieldSchema } from "@/hooks/use-feature-class-schema"
 
 interface FieldInputProps {
   field: FieldSchema
   value: unknown
   onChange: (value: unknown) => void
+  /** The owning feature class's network (Phase 37 Slice 2), threaded through
+   * only so the `circuit_id` field can render a network-scoped circuit picker.
+   * Ignored by every other field. */
+  network?: CircuitNetwork
 }
 
 /**
@@ -17,7 +23,15 @@ interface FieldInputProps {
  * same field/data_type contract, just against a different starting
  * value and a different save verb (POST vs PATCH).
  */
-export function FieldInput({ field, value, onChange }: FieldInputProps) {
+export function FieldInput({ field, value, onChange, network }: FieldInputProps) {
+  // circuit_id (Phase 37 Slice 2) is a uuid field, but a raw uuid text box is
+  // useless -- a circuit is picked from the catalog by name, scoped to the
+  // class's network. Special-cased by field name (the same way circuit_ref
+  // rode the generic text path); everything else flows by data_type below.
+  if (field.name === "circuit_id") {
+    return <CircuitPicker value={value} onChange={onChange} network={network} />
+  }
+
   if (field.domain_values) {
     return (
       <select

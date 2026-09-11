@@ -1,10 +1,12 @@
-import { Circle, Fill, Icon, Stroke, Style, Text } from "ol/style"
+import { Circle, Fill, Icon, RegularShape, Stroke, Style, Text } from "ol/style"
 import type { FeatureLike } from "ol/Feature"
+import LineString from "ol/geom/LineString"
+import Point from "ol/geom/Point"
 import type View from "ol/View"
 
-import { lineDashArray } from "@/lib/line-dash"
+import { lineDashArray, type LineDashStyle } from "@/lib/line-dash"
 import { iconDataUri, type IconRegistry } from "@/lib/symbology-icons"
-import { resolveSymbology, type SymbologyRuleSchema } from "@/lib/symbology"
+import { resolveSymbology, type LabelDef, type SymbologyRuleSchema } from "@/lib/symbology"
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
 import { useEditStore } from "@/stores/edit-store"
 
@@ -319,6 +321,84 @@ function iconStyleFor(iconRef: string | undefined, color: string, scale: number,
   return style
 }
 
+/** Default text styling for a configured label, when the rule leaves a
+ * knob unset. Dark ink on a white halo (the same legibility trick the
+ * territory overlay uses) so a name reads over any basemap. */
+const LABEL_COLOR = "#1f2937"
+const LABEL_SIZE = 12
+const LABEL_HALO_COLOR = "#ffffff"
+const LABEL_HALO_WIDTH = 3
+
+/** Reused per resolved appearance rather than rebuilt every render pass --
+ * the layer style fn runs on every pass and per feature, same as the icon
+ * cache above. Text has no async image to load, so the only per-feature
+ * bit (the string) is set with setText on the shared style before it's
+ * returned, exactly the territory overlay's pattern below. Keyed to
+ * include every appearance input (font, halo, placement) because a line
+ * labels ALONG itself while a point/polygon labels at a single anchor. */
+const labelStyleCache = new Map<string, Style>()
+
+function labelStyleFor(def: LabelDef, placement: "point" | "line", pointOffsetY: number): Style {
+  const size = def.size ?? LABEL_SIZE
+  const color = def.color ?? LABEL_COLOR
+  const bold = def.bold === true
+  const italic = def.italic === true
+  // Halo defaults ON -- text over an arbitrary basemap needs it to stay
+  // readable; an author can turn it off explicitly.
+  const halo = def.halo !== false
+  const haloColor = def.halo_color ?? LABEL_HALO_COLOR
+  const haloWidth = def.halo_width ?? LABEL_HALO_WIDTH
+  // Class-wide placement (point/polygon only): the authored offset shifts the
+  // label from its anchor, offset_y overriding the default drop below the glyph;
+  // rotation spins the text. A line label rides the line, where OL ignores
+  // offset and rotation would fight the placement, so all three collapse to 0.
+  const isPoint = placement === "point"
+  const offsetX = isPoint ? (def.offset_x ?? 0) : 0
+  const offsetY = isPoint ? (def.offset_y ?? pointOffsetY) : 0
+  const rotation = isPoint ? ((def.rotation ?? 0) * Math.PI) / 180 : 0
+  const key = `${size}|${color}|${bold}|${italic}|${halo}|${haloColor}|${haloWidth}|${placement}|${offsetX}|${offsetY}|${rotation}`
+  const cached = labelStyleCache.get(key)
+  if (cached) return cached
+  // CSS font shorthand order: style (italic) then weight (bold) then size.
+  const font = `${italic ? "italic " : ""}${bold ? "bold " : ""}${size}px ui-sans-serif, system-ui, sans-serif`
+  const style = new Style({
+    text: new Text({
+      font,
+      placement,
+      rotation,
+      fill: new Fill({ color }),
+      stroke: halo ? new Stroke({ color: haloColor, width: haloWidth }) : undefined,
+      // A point/polygon name sits below the glyph by default (offset_y can
+      // move it); a line name rides the line itself (offset meaningless with
+      // placement:"line", so both offsets are 0 there).
+      offsetX,
+      offsetY,
+      textBaseline: isPoint ? "top" : "middle",
+      overflow: true,
+    }),
+  })
+  labelStyleCache.set(key, style)
+  return style
+}
+
+/** Resolves a label template against one feature's tile properties, or ""
+ * to draw nothing. Each {field} placeholder is replaced with that
+ * property coerced to a trimmed string (absent/null -> "" so a missing
+ * attribute collapses out rather than printing "null"); literal text
+ * between placeholders is kept verbatim. Runs of whitespace left by a
+ * dropped field are collapsed and the result trimmed, so a template like
+ * "{name} ({voltage} kV)" with no voltage reads "Feeder (kV)" rather than
+ * "Feeder (  kV)", and a template whose every field is empty yields ""
+ * (no label at all). */
+function renderLabelTemplate(template: string, props: Record<string, unknown>): string {
+  const filled = template.replace(/\{([^}]+)\}/g, (_, field: string) => {
+    const raw = props[field.trim()]
+    if (raw === null || raw === undefined) return ""
+    return String(raw).trim()
+  })
+  return filled.replace(/\s+/g, " ").trim()
+}
+
 /**
  * Builds one layer's style function, bound to that feature class's own
  * resolved symbology_rules (see symbology.ts's resolveSymbology and
@@ -340,8 +420,13 @@ function iconStyleFor(iconRef: string | undefined, color: string, scale: number,
  * projection/resolutions config the view uses, unlike a hardcoded
  * EPSG:3857 formula would).
  */
-export function createSymbologyStyle(rules: SymbologyRuleSchema[] | undefined, view: View, icons?: IconRegistry) {
-  return function symbologyStyleForFeature(feature: FeatureLike, resolution: number): Style {
+export function createSymbologyStyle(
+  rules: SymbologyRuleSchema[] | undefined,
+  view: View,
+  icons?: IconRegistry,
+  labelDef?: LabelDef,
+) {
+  return function symbologyStyleForFeature(feature: FeatureLike, resolution: number): Style | Style[] {
     if (isHiddenFeature(feature)) return hiddenStyle
 
     const geometryType = feature.getGeometry()?.getType()
@@ -349,35 +434,66 @@ export function createSymbologyStyle(rules: SymbologyRuleSchema[] | undefined, v
     const subtype = typeof props.subtype === "number" ? props.subtype : undefined
     const zoom = view.getZoomForResolution(resolution)
     const def = resolveSymbology(rules, subtype, props, "map", zoom ?? undefined)
-    if (!def) return styleForFeature(feature)
 
-    switch (geometryType) {
-      case "Point":
-      case "MultiPoint":
-        return iconStyleFor(def.icon_ref, def.color ?? POINT_COLOR, ICON_BASE_SCALE * (def.scale ?? 1), icons)
-      case "LineString":
-      case "MultiLineString": {
-        const lineDash = lineDashArray(def.dash)
-        return new Style({
-          stroke: new Stroke({
-            color: def.color ?? LINE_COLOR,
-            width: def.width ?? 3,
-            lineDash,
-            // A round cap turns the dotted pattern's near-zero dashes into
-            // real dots; harmless on solid/dashed (no lineDash or long
-            // dashes), so only forced on for dotted.
-            lineCap: def.dash === "dotted" ? "round" : undefined,
-          }),
-        })
-      }
-      default: {
-        const color = def.fill_color ?? def.color ?? POLYGON_COLOR
-        return new Style({
-          fill: new Fill({ color: `${color}33` }),
-          stroke: new Stroke({ color: def.stroke_color ?? color, width: def.width ?? 2 }),
-        })
+    // A line labels ALONG itself; a point/polygon labels at a single
+    // anchor just below the glyph. Derived from geometry alone so it holds
+    // whether or not a symbology rule resolved.
+    const isLine = geometryType === "LineString" || geometryType === "MultiLineString"
+    const labelPlacement: "point" | "line" = isLine ? "line" : "point"
+    const pointOffsetY = geometryType === "Point" || geometryType === "MultiPoint" ? 14 : 0
+
+    // The geometry appearance: the resolved symbology rule if one matched,
+    // else the plain geometry-type fallback. Labelling is orthogonal, so
+    // even an unstyled feature (no matching rule) can still carry a label.
+    let geometryStyle: Style
+    if (!def) {
+      geometryStyle = styleForFeature(feature)
+    } else {
+      switch (geometryType) {
+        case "Point":
+        case "MultiPoint":
+          geometryStyle = iconStyleFor(def.icon_ref, def.color ?? POINT_COLOR, ICON_BASE_SCALE * (def.scale ?? 1), icons)
+          break
+        case "LineString":
+        case "MultiLineString": {
+          const lineDash = lineDashArray(def.dash)
+          geometryStyle = new Style({
+            stroke: new Stroke({
+              color: def.color ?? LINE_COLOR,
+              width: def.width ?? 3,
+              lineDash,
+              // A round cap turns the dotted pattern's near-zero dashes into
+              // real dots; harmless on solid/dashed (no lineDash or long
+              // dashes), so only forced on for dotted.
+              lineCap: def.dash === "dotted" ? "round" : undefined,
+            }),
+          })
+          break
+        }
+        default: {
+          const color = def.fill_color ?? def.color ?? POLYGON_COLOR
+          geometryStyle = new Style({
+            fill: new Fill({ color: `${color}33` }),
+            stroke: new Stroke({ color: def.stroke_color ?? color, width: def.width ?? 2 }),
+          })
+        }
       }
     }
+
+    // Labels (Phase 30): the class-wide label_def (not the per-feature
+    // symbology rule) drives text -- only when it has a template, isn't
+    // zoom-gated out (min_zoom is the declutter lever), and the template
+    // resolves to non-empty text for this feature. Returned as a SECOND
+    // style so the shared/cached geometry style is never mutated per feature.
+    if (labelDef?.template && (labelDef.min_zoom === undefined || (zoom ?? Infinity) >= labelDef.min_zoom)) {
+      const text = renderLabelTemplate(labelDef.template, props)
+      if (text) {
+        const labelStyle = labelStyleFor(labelDef, labelPlacement, pointOffsetY)
+        labelStyle.getText()?.setText(text)
+        return [geometryStyle, labelStyle]
+      }
+    }
+    return geometryStyle
   }
 }
 
@@ -460,4 +576,233 @@ export function draftStyleForFeature(feature: FeatureLike): Style {
     default:
       return draftPolygonStyle
   }
+}
+
+/**
+ * The map-annotation (redlining) kinds, mirroring the server's CHECK
+ * constraint (migration 0060 / api/internal/mapannotation): text->Point,
+ * box->Polygon, line/arrow->LineString. Kept here (the rendering module) so the
+ * data hook (use-map-annotations.ts) and the style function below share one
+ * definition.
+ */
+export type AnnotationKind = "text" | "box" | "line" | "arrow"
+
+/**
+ * One annotation's per-instance appearance, the parsed shape of
+ * runtime.map_annotations.style. Every knob is optional -- an empty object is a
+ * valid style, falling back to the redline defaults below. This is what makes
+ * annotations a bespoke table rather than a feature class: a feature system
+ * styles per class, but redlining styles each mark individually.
+ */
+export interface AnnotationStyle {
+  /** Stroke / text colour (and the box outline). */
+  color?: string
+  stroke_width?: number
+  dash?: LineDashStyle
+  /** Box fill colour; falls back to `color` when unset. */
+  fill?: string
+  /** Box fill opacity, 0-1. */
+  fill_opacity?: number
+  font_size?: number
+  bold?: boolean
+  italic?: boolean
+  /** Text-note rotation, degrees clockwise (0 = upright). Only meaningful for
+   * kind='text'; the other kinds reshape via their geometry. */
+  rotation?: number
+  /** Arrow only: draw an arrowhead at the start vertex as well, so the mark
+   * reads as a double-headed arrow. Unset/false = a single head at the end (the
+   * plain directional arrow). */
+  double?: boolean
+  /** Text halo, defaulting on (a note over an arbitrary basemap needs it). */
+  halo?: boolean
+  halo_color?: string
+}
+
+/** The redline layer's defaults when a style knob is unset -- a warm red that
+ * reads as "markup", distinct from every feature/overlay/highlight role above
+ * (features copper/teal/slate, imported amber, territory blues, the highlight
+ * palette). */
+const ANNOTATION_COLOR = "#dc2626"
+const ANNOTATION_WIDTH = 2
+const ANNOTATION_FONT_SIZE = 14
+const ANNOTATION_HALO_COLOR = "#ffffff"
+const ANNOTATION_BOX_FILL_OPACITY = 0.15
+
+/** The redline defaults, exported so the style editor (annotation-edit-panel.tsx)
+ * seeds its controls from the same values the renderer falls back to -- an unset
+ * knob reads the same whether it's drawn or being edited. */
+export const ANNOTATION_DEFAULTS = {
+  color: ANNOTATION_COLOR,
+  strokeWidth: ANNOTATION_WIDTH,
+  fontSize: ANNOTATION_FONT_SIZE,
+  boxFillOpacity: ANNOTATION_BOX_FILL_OPACITY,
+} as const
+
+/** A two-digit hex alpha for an opacity in 0-1, appended to a #rrggbb colour
+ * so OL fills read as `#rrggbbaa`. Clamped so an out-of-range style value can't
+ * produce a malformed colour string. */
+function alphaHex(opacity: number): string {
+  const clamped = Math.max(0, Math.min(1, opacity))
+  return Math.round(clamped * 255)
+    .toString(16)
+    .padStart(2, "0")
+}
+
+/** The Text for a text annotation, built from its style (font/halo/colour). */
+function annotationText(text: string, style: AnnotationStyle, color: string): Text {
+  const size = style.font_size ?? ANNOTATION_FONT_SIZE
+  const bold = style.bold === true
+  const italic = style.italic === true
+  const halo = style.halo !== false
+  const haloColor = style.halo_color ?? ANNOTATION_HALO_COLOR
+  const font = `${italic ? "italic " : ""}${bold ? "bold " : ""}${size}px ui-sans-serif, system-ui, sans-serif`
+  // Degrees clockwise -> OL's radians (also clockwise-positive for Text), so a
+  // rotated label sits at the authored angle. Left rotateWithView at its default
+  // (false) so the label keeps its angle relative to the screen, not the map.
+  const rotation = ((style.rotation ?? 0) * Math.PI) / 180
+  return new Text({
+    text,
+    font,
+    rotation,
+    fill: new Fill({ color }),
+    stroke: halo ? new Stroke({ color: haloColor, width: 3 }) : undefined,
+    overflow: true,
+  })
+}
+
+/**
+ * An optional caption for a non-text annotation (box / line / arrow). The
+ * editor lets these kinds carry free-form text too, so we render it as a label
+ * at the geometry's label point -- OL point-places text at a line's midpoint and
+ * a polygon's interior point -- lifted a line-height above so it clears the
+ * stroke. Null when there's no caption, so the caller draws only its shape.
+ */
+function annotationCaption(feature: FeatureLike, style: AnnotationStyle, color: string): Style | null {
+  const text = ((feature.get("text") as string | null) ?? "").trim()
+  if (!text) return null
+  const label = annotationText(text, style, color)
+  label.setOffsetY(-(style.font_size ?? ANNOTATION_FONT_SIZE))
+  return new Style({ text: label })
+}
+
+/**
+ * A filled triangle at one end of an arrow annotation, rotated to the bearing of
+ * that end's segment so it points outward along the line -- a directional
+ * arrowhead. `atStart` puts it on the first vertex (pointing back off the start),
+ * else on the last (the default single-arrow head); a double-headed arrow draws
+ * both. Null when the geometry isn't a usable line (fewer than two vertices) --
+ * the caller then just draws the bare stroke. The rotation converts a map
+ * bearing (CCW from east) to RegularShape's screen convention (clockwise from
+ * up): an up-pointing triangle rotated by (pi/2 - bearing) points along the
+ * segment.
+ */
+function arrowHeadStyle(feature: FeatureLike, color: string, width: number, atStart = false): Style | null {
+  const geom = feature.getGeometry()
+  if (!(geom instanceof LineString)) return null
+  const coords = geom.getCoordinates()
+  if (coords.length < 2) return null
+  // The tip is the terminal vertex; `prev` is the vertex just inside it, so the
+  // bearing from prev->tip points outward off that end for either head.
+  const tip = atStart ? coords[0] : coords[coords.length - 1]
+  const prev = atStart ? coords[1] : coords[coords.length - 2]
+  const bearing = Math.atan2(tip[1] - prev[1], tip[0] - prev[0])
+  return new Style({
+    geometry: new Point(tip),
+    image: new RegularShape({
+      points: 3,
+      radius: 6 + width,
+      fill: new Fill({ color }),
+      rotation: Math.PI / 2 - bearing,
+    }),
+  })
+}
+
+/**
+ * The map-annotation overlay's style function (Phase 36) -- reads each
+ * annotation's own `kind`, `text`, and parsed `style` object off the feature
+ * (voltedge-map.tsx sets them as properties when it builds the layer from the
+ * fetched annotations) and renders per-instance markup: a text note, a filled/
+ * outlined box, a (optionally dashed) line, or a line with an arrowhead. Unlike
+ * every other style function here it branches on a `kind` property rather than
+ * geometry type alone, because arrow and line share a geometry type but differ
+ * only in styling.
+ */
+export function annotationStyleForFeature(feature: FeatureLike): Style | Style[] {
+  const kind = feature.get("kind") as AnnotationKind | undefined
+  const style = (feature.get("style") as AnnotationStyle | null) ?? {}
+  const color = style.color ?? ANNOTATION_COLOR
+  const width = style.stroke_width ?? ANNOTATION_WIDTH
+  const lineDash = lineDashArray(style.dash)
+  const lineCap = style.dash === "dotted" ? "round" : undefined
+
+  switch (kind) {
+    case "text": {
+      const text = (feature.get("text") as string | null) ?? ""
+      return new Style({ text: annotationText(text, style, color) })
+    }
+    case "box": {
+      const fillColor = style.fill ?? color
+      const fillOpacity = style.fill_opacity ?? ANNOTATION_BOX_FILL_OPACITY
+      const box = new Style({
+        fill: new Fill({ color: `${fillColor}${alphaHex(fillOpacity)}` }),
+        stroke: new Stroke({ color, width, lineDash, lineCap }),
+      })
+      const caption = annotationCaption(feature, style, color)
+      return caption ? [box, caption] : box
+    }
+    case "arrow": {
+      const line = new Style({ stroke: new Stroke({ color, width, lineDash, lineCap }) })
+      const head = arrowHeadStyle(feature, color, width)
+      // A double-headed arrow adds a second head at the start vertex.
+      const tail = style.double ? arrowHeadStyle(feature, color, width, true) : null
+      const caption = annotationCaption(feature, style, color)
+      return [line, ...(head ? [head] : []), ...(tail ? [tail] : []), ...(caption ? [caption] : [])]
+    }
+    default: {
+      // "line" and any unknown kind: a plain stroke, plus any caption.
+      const line = new Style({ stroke: new Stroke({ color, width, lineDash, lineCap }) })
+      const caption = annotationCaption(feature, style, color)
+      return caption ? [line, caption] : line
+    }
+  }
+}
+
+/** Violet -- a saved bookmark pin (map-pins-store.ts) is a personal navigation
+ * aid, not network data, so it deliberately reads as none of the feature/
+ * draft/edit/highlight colors above. */
+const PIN_COLOR = "#7c3aed"
+
+/** A teardrop marker whose tip sits on the coordinate, drawn as an OL Icon from
+ * an inline SVG so it needs no asset. 24x32 with the point at the bottom-center,
+ * anchored there. */
+const PIN_ICON_SRC =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="32" viewBox="0 0 24 32">` +
+      `<path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 20 12 20s12-11 12-20C24 5.4 18.6 0 12 0z" fill="${PIN_COLOR}" stroke="#ffffff" stroke-width="1.5"/>` +
+      `<circle cx="12" cy="12" r="4.5" fill="#ffffff"/>` +
+      `</svg>`,
+  )
+
+/**
+ * Style for a saved bookmark pin (voltedge-map.tsx's pins layer): the teardrop
+ * marker plus the pin's name lifted above it. The name comes off the feature's
+ * `name` property, set when the layer is populated from map-pins-store.ts.
+ */
+export function pinStyleForFeature(feature: FeatureLike): Style {
+  const name = ((feature.get("name") as string | null) ?? "").trim()
+  return new Style({
+    image: new Icon({ src: PIN_ICON_SRC, anchor: [0.5, 1], scale: 1 }),
+    text: name
+      ? new Text({
+          text: name,
+          font: "12px ui-sans-serif, system-ui, sans-serif",
+          // Above the 32px-tall pin so the label clears the marker.
+          offsetY: -38,
+          fill: new Fill({ color: PIN_COLOR }),
+          stroke: new Stroke({ color: "#ffffff", width: 3 }),
+          overflow: true,
+        })
+      : undefined,
+  })
 }

@@ -15,7 +15,16 @@ import (
 // describe an identical request. Name/Subtype/Geometry/TerritoryID are optional
 // exactly as they are on the REST path (see createRequest for each field's
 // meaning); a nil Attributes is treated as an empty map.
+//
+// ID is normally nil -- the server mints the primary key. It exists for the
+// field-tool sync path (Phase 21 Slice 3e, docs/phase-21-field-tool.md): a
+// device creates a feature offline with a client-minted UUID and later replays
+// it, so the supplied id is honoured and the insert is made idempotent
+// (ON CONFLICT (id) DO NOTHING) -- replaying the same op twice is a no-op that
+// returns the existing row, not a duplicate or an error. The REST create body
+// leaves it unset.
 type CreateFeatureInput struct {
+	ID          *string         `json:"id,omitempty"`
 	Subtype     *int            `json:"subtype,omitempty"`
 	Name        *string         `json:"name,omitempty"`
 	Geometry    json.RawMessage `json:"geometry,omitempty"`
@@ -47,21 +56,26 @@ func CreateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, in 
 		return nil, err
 	}
 
-	// Resolve the feature's territory (Phase 11). Only geometric classes have a
-	// territory_id column, so a supplied territory_id on a non-geometric class
-	// is a client error, and a geometric class always runs Assign -- override
-	// if given, else spatial auto-assign. Identical to the REST create path.
+	// Resolve the feature's territory (Phase 11). Territory assignment keys on
+	// whether THIS feature carries geometry, not just on the class: a
+	// geometry-less class ('none') never has the column, and a geometry_optional
+	// class (Phase 26) has it but this particular feature may have been created
+	// without geometry (diagram-only) -- in both cases there's nothing to place
+	// in a territory and a supplied territory_id is a client error. A feature
+	// with geometry always runs Assign -- override if given, else spatial
+	// auto-assign. Identical to the REST create path.
 	var territoryID *string
-	if loaded.FeatureClass.GeometryType == "none" {
+	switch {
+	case loaded.FeatureClass.GeometryType == "none" || len(in.Geometry) == 0:
 		if in.TerritoryID != nil {
-			return nil, invalid("feature class %q has no geometry, so it can't belong to a territory", loaded.FeatureClass.Code)
+			return nil, invalid("feature class %q has no geometry for this feature, so it can't belong to a territory", loaded.FeatureClass.Code)
 		}
-	} else {
+	default:
 		territoryID, err = territory.Assign(ctx, db, string(in.Geometry), *loaded.FeatureClass.SRID, in.TerritoryID)
 		if err != nil {
 			return nil, territoryError(err)
 		}
 	}
 
-	return insertFeature(ctx, db, loaded, subtype, in.Geometry, in.Name, territoryID, values)
+	return insertFeature(ctx, db, loaded, in.ID, subtype, in.Geometry, in.Name, territoryID, values)
 }

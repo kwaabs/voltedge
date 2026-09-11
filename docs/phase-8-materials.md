@@ -247,6 +247,42 @@ build (load flow, transformer loading %, symmetrical fault current,
 first-principles ampacity) -- see `docs/open-items.md`'s Phase 8
 section for the full plan and the design decisions locked for it.
 
+## Follow-up: cost columns
+
+`migrations/0060` adds two more nullable columns to
+`metadata.material_specs`: `cost_per_km` and `unit_cost`, both bare
+numeric in an assumed single house currency (no currency column —
+mixed-currency pricing, if ever needed, is a later migration adding a
+currency code, not a reinterpretation of these numbers). Both are
+`CHECK`ed `NULL or >= 0` (zero is a meaningful "free" price, unlike the
+engineering columns' `> 0`).
+
+Two cost bases rather than one so they don't fight over a column:
+`cost_per_km` suits the per-length line materials (conductor/cable) this
+catalog actually holds today — it multiplies by a run's length for a
+length-based estimate, the same way `resistance_ohm_per_km` scales by
+length — while `unit_cost` is a flat per-item price for a material
+catalogued per piece (a future pole/fitting). Nothing in the app
+consumes either yet: this is catalog data an admin edits (like
+`weight_kg_per_km`), ready for a future BOM/estimate calc to read. No
+compiler or CRUD-engine change — a domain value still just carries an id
+pointer to whichever `material_specs` row is current.
+
+Same admin CRUD surface as every other column: the Materials page's
+create/edit form gained a "Cost" section (two inputs, each optional and
+sent only when non-empty), the wire type (`AdminMaterialSpec`) and Go
+request/response types (`createMaterialSpecRequest`/
+`updateMaterialSpecRequest`/`materialSpecResponse`, plus the create/
+update/list handlers and the update-validate "at least one field" guard)
+gained `cost_per_km`/`unit_cost`, and each material card shows a
+`.../km` and/or `.../ea` chip when set.
+
+**Verification owed** (Bash blocked in this environment — user runs
+locally): apply `migrations/0060`; `go build ./... && go vet ./... &&
+gofmt -l .`; web `tsc --noEmit` + lint; manual — create/edit a spec with
+a cost per km and a unit cost, confirm both persist and render as chips,
+confirm a negative value is rejected by the `CHECK`.
+
 ## What's still out of scope
 
 - **Electrical analysis itself** (voltage drop, loading/capacity

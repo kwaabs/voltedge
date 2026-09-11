@@ -124,7 +124,7 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 	}
 	deEnergized := map[node]bool{}
 	for _, n := range downstreamNeighbors {
-		visited, _, _, _, _, err := bfs(ctx, db, n, "DOWNSTREAM", barriers, loader, nil, nil, false)
+		visited, _, _, _, _, err := bfs(ctx, db, n, "DOWNSTREAM", barriers, loader, nil, nil, false, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +150,7 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 	}
 	boundaryClassID := boundaryLoaded.FeatureClass.ID
 
-	_, _, boundaryHits, _, _, err := bfs(ctx, db, device, "UPSTREAM", map[string]barrierCheck{}, loader, nil, &boundaryClassID, false)
+	_, _, boundaryHits, _, _, err := bfs(ctx, db, device, "UPSTREAM", map[string][]barrierCheck{}, loader, nil, &boundaryClassID, false, nil)
 	if err != nil {
 		return nil, err
 	}
