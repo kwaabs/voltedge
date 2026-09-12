@@ -87,25 +87,43 @@ ON CONFLICT (feature_class_id, code) DO NOTHING;
 
 -- primary_voltage / secondary_voltage record the substation's voltage
 -- transformation -- its headline identity (a "33/11 kV substation"). Both draw
--- on the shared VOLTAGE_CLASS domain. primary_voltage is required (every
--- substation has an incoming voltage); secondary_voltage is nullable because a
--- pure switching substation transforms nothing (one voltage, no secondary).
--- Additive fields -- the compiler adds two nullable columns on recompile;
--- existing rows keep NULL and are unaffected (required is enforced on
--- create/update via subtype_field_rules, not as a DB NOT NULL).
+-- on the shared VOLTAGE_CLASS domain. primary_voltage is required in practice
+-- (every substation has an incoming voltage) but its DB column is NULLABLE:
+-- required is enforced on create/update via subtype_field_rules below, NOT as a
+-- DB NOT NULL. This is deliberate and load-bearing -- the compiler is
+-- additive-only and emits `NOT NULL` for a nullable=false field (ddl.go), and
+-- Postgres rejects `ALTER TABLE ... ADD COLUMN ... NOT NULL` on a gis.substation
+-- that already has rows (SQLSTATE 23502). Making the column nullable is what lets
+-- these two fields be ADD COLUMN'd onto an already-populated substation table on
+-- recompile; existing rows keep NULL and are unaffected. secondary_voltage is
+-- additionally optional at the app layer too (a pure switching substation
+-- transforms nothing -- one voltage, no secondary), so it is left off the
+-- required list further down.
 INSERT INTO metadata.fields (feature_class_id, name, data_type, domain_id, group_id, nullable)
 SELECT fc.id, v.name, v.data_type, d.id, fg.id, v.nullable
 FROM metadata.feature_classes fc
 JOIN (VALUES
     ('enclosure_type', 'text', 'YARD_ENCLOSURE', 'site', false),
     ('condition_rating', 'text', 'CONDITION_RATING', 'site', false),
-    ('primary_voltage', 'text', 'VOLTAGE_CLASS', 'site', false),
+    ('primary_voltage', 'text', 'VOLTAGE_CLASS', 'site', true),
     ('secondary_voltage', 'text', 'VOLTAGE_CLASS', 'site', true)
 ) AS v(name, data_type, domain_code, group_code, nullable) ON true
 LEFT JOIN metadata.domains d ON d.code = v.domain_code
 JOIN metadata.field_groups fg ON fg.code = v.group_code
 WHERE fc.code = 'SUBSTATION'
 ON CONFLICT (feature_class_id, name) DO NOTHING;
+
+-- Corrective UPDATE for a database that already seeded primary_voltage as
+-- nullable=false (the pre-2026-09-11 version of the VALUES above): the field
+-- INSERT is ON CONFLICT DO NOTHING, so re-running the seed alone would NOT flip
+-- an existing row. Without this, `task compile CODE=SUBSTATION` fails with
+-- SQLSTATE 23502 when gis.substation already holds rows. Idempotent -- a no-op
+-- once the column is nullable.
+UPDATE metadata.fields
+SET nullable = true
+WHERE feature_class_id = (SELECT id FROM metadata.feature_classes WHERE code = 'SUBSTATION')
+  AND name = 'primary_voltage'
+  AND nullable IS DISTINCT FROM true;
 
 INSERT INTO metadata.subtype_field_rules (subtype_id, field_id, is_required)
 SELECT s.id, f.id, true

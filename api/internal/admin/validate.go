@@ -282,6 +282,12 @@ func validateUpdateFeatureClass(req updateFeatureClassRequest) error {
 		return invalid("name cannot be blank")
 	}
 
+	// functional_role (migration 0091) is pure metadata, editable at any status;
+	// "" clears it to NULL, else it must be a taxonomy value.
+	if req.FunctionalRole != nil && *req.FunctionalRole != "" && !validFunctionalRoles[*req.FunctionalRole] {
+		return invalid("functional_role must be one of source, consumer, passthrough, transformer, controller, node, sensor, ground (or empty to clear)")
+	}
+
 	// diagram_geometry_type override (migration 0053): "" clears it, and
 	// only 'point'/'line' are meaningful diagram shapes (a diagram has no
 	// polygon or 'none' placement).
@@ -337,6 +343,9 @@ func validateCreateFeatureClass(req createFeatureClassRequest) error {
 	}
 	if !validNetworkRoles[req.NetworkRole] {
 		return invalid("network_role must be one of edge, junction, container, none")
+	}
+	if req.FunctionalRole != nil && *req.FunctionalRole != "" && !validFunctionalRoles[*req.FunctionalRole] {
+		return invalid("functional_role must be one of source, consumer, passthrough, transformer, controller, node, sensor, ground (or omitted)")
 	}
 
 	subtypeCodes := make(map[int]bool, len(req.Subtypes))

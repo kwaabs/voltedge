@@ -4,7 +4,7 @@ import { useMemo } from "react"
 import { type FeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { apiFetch } from "@/lib/api"
-import type { LabelDef, SymbologyRuleSchema } from "@/lib/symbology"
+import type { DisplayZoomBand, LabelDef, SymbologyRuleSchema } from "@/lib/symbology"
 
 /**
  * Symbology rules for every feature class at once, keyed by class code
@@ -72,6 +72,41 @@ export function useAllLabelDefs(): Record<string, LabelDef> {
     const out: Record<string, LabelDef> = {}
     results.forEach((result, i) => {
       if (result.data?.label_def) out[codes[i]] = result.data.label_def
+    })
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updatedAtKey])
+}
+
+/**
+ * Every feature class's map display-zoom band at once (migration 0090),
+ * keyed by class code -- the visibility counterpart to useAllLabelDefs,
+ * reading the same warm ["feature-class-schema", code] cache. voltedge-map.tsx
+ * feeds each class's band into its layer's createSymbologyStyle, which hides
+ * the whole feature outside the band. Only classes that actually declare a
+ * bound appear here; a class with neither bound is simply absent (its
+ * createSymbologyStyle displayZoom arg is then undefined -- draws at every
+ * zoom, today's behaviour).
+ */
+export function useAllDisplayZooms(): Record<string, DisplayZoomBand> {
+  const { data: featureClasses } = useFeatureClasses()
+  const codes = featureClasses?.feature_classes.map((fc) => fc.code) ?? []
+
+  const results = useQueries({
+    queries: codes.map((code) => ({
+      queryKey: ["feature-class-schema", code],
+      queryFn: () => apiFetch<FeatureClassSchema>(`/feature-classes/${code}/schema`),
+      staleTime: 5 * 60_000,
+    })),
+  })
+  const updatedAtKey = results.map((r) => r.dataUpdatedAt).join(",")
+
+  return useMemo(() => {
+    const out: Record<string, DisplayZoomBand> = {}
+    results.forEach((result, i) => {
+      const min = result.data?.min_display_zoom
+      const max = result.data?.max_display_zoom
+      if (min !== undefined || max !== undefined) out[codes[i]] = { min, max }
     })
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps

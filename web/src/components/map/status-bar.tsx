@@ -16,6 +16,7 @@ import { BLANK_BASEMAP, useBasemapStore } from "@/stores/basemap-store"
 import { useMapGotoStore } from "@/stores/map-goto-store"
 import { useMapPinsStore } from "@/stores/map-pins-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
+import { useMapViewStore } from "@/stores/map-view-store"
 import { PinsDialog } from "./pins-dialog"
 
 /** The picker's built-in "no basemap" entry -- appended to the server list, it
@@ -66,6 +67,18 @@ function CoordinateReadout() {
       Lat / Lon: {lat.toFixed(5)}°, {lon.toFixed(5)}°
     </span>
   )
+}
+
+/**
+ * The current map zoom level, pushed from voltedge-map.tsx's moveend handler
+ * (map-view-store.ts). Shown to one decimal because OL zoom is continuous
+ * (mouse-wheel/pinch land between integer levels), so "12.3" is honest where a
+ * rounded "12" would imply a snap that didn't happen. Em dash until the map has
+ * rendered once and published a zoom.
+ */
+function ZoomReadout() {
+  const zoom = useMapViewStore((s) => s.zoom)
+  return <span className="tabular-nums">Zoom: {zoom === null ? "—" : zoom.toFixed(1)}</span>
 }
 
 /**
@@ -267,6 +280,7 @@ export function StatusBar() {
       <ApiStatusIndicator />
       <div className="bg-border h-4 w-px" />
       <CoordinateReadout />
+      <ZoomReadout />
       <span className="text-muted-foreground">{MAP_PROJECTION}</span>
       <div className="bg-border h-4 w-px" />
       <GoToSearch />

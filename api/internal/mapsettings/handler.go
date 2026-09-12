@@ -35,6 +35,15 @@ const (
 	keyCenterLng = "map_default_center_lng"
 	keyCenterLat = "map_default_center_lat"
 	keyZoom      = "map_default_zoom"
+	// The global annotation visible-zoom band (map markup/redlines): below
+	// min / above max the whole annotations overlay hides, so notes don't
+	// clutter an overview zoom. Both are OPTIONAL -- an absent/blank row means
+	// "no bound on that side," so an unconfigured deployment shows annotations
+	// at every zoom exactly as before this existed. No migration seeds these
+	// (unlike the default-view keys); the PUT's upsert creates them on first
+	// save and readView degrades a missing row to nil.
+	keyAnnMinZoom = "map_annotation_min_zoom"
+	keyAnnMaxZoom = "map_annotation_max_zoom"
 
 	defaultCenterLng = -0.127
 	defaultCenterLat = 51.507
@@ -42,13 +51,18 @@ const (
 )
 
 // mapView is the wire shape for both GET (response) and PUT (request body).
-// Pointers on PUT would let a caller patch one axis, but the client always
-// sends all three (the form submits the whole view), so plain floats keep it
-// simple and the validation total.
+// The default-view trio stays plain floats -- the form always submits all
+// three, so there's no partial-patch case to model. The annotation band is
+// *float64 on purpose: nil is a real value here ("no bound on that side"),
+// distinct from a supplied 0, so it round-trips as JSON null rather than
+// collapsing an unset bound into zoom 0.
 type mapView struct {
 	CenterLng float64 `json:"center_lng"`
 	CenterLat float64 `json:"center_lat"`
 	Zoom      float64 `json:"zoom"`
+	// Optional global annotation visible-zoom band (see keyAnnMinZoom).
+	AnnotationMinZoom *float64 `json:"annotation_min_zoom"`
+	AnnotationMaxZoom *float64 `json:"annotation_max_zoom"`
 }
 
 // Routes returns the /map-settings router.
@@ -104,6 +118,18 @@ func validate(v mapView) string {
 	if v.Zoom < 0 || v.Zoom > 22 {
 		return "zoom must be between 0 and 22"
 	}
+	// Annotation band bounds are each optional; when present they share the
+	// view's 0..22 zoom domain, and a supplied min must not exceed a supplied
+	// max (an empty band that could never show anything).
+	if v.AnnotationMinZoom != nil && (*v.AnnotationMinZoom < 0 || *v.AnnotationMinZoom > 22) {
+		return "annotation_min_zoom must be between 0 and 22"
+	}
+	if v.AnnotationMaxZoom != nil && (*v.AnnotationMaxZoom < 0 || *v.AnnotationMaxZoom > 22) {
+		return "annotation_max_zoom must be between 0 and 22"
+	}
+	if v.AnnotationMinZoom != nil && v.AnnotationMaxZoom != nil && *v.AnnotationMinZoom > *v.AnnotationMaxZoom {
+		return "annotation_min_zoom must not exceed annotation_max_zoom"
+	}
 	return ""
 }
 
@@ -116,16 +142,18 @@ func readView(ctx context.Context, db *bun.DB) (mapView, error) {
 		return mapView{}, err
 	}
 	return mapView{
-		CenterLng: floatOr(settings[keyCenterLng], defaultCenterLng),
-		CenterLat: floatOr(settings[keyCenterLat], defaultCenterLat),
-		Zoom:      floatOr(settings[keyZoom], defaultZoom),
+		CenterLng:         floatOr(settings[keyCenterLng], defaultCenterLng),
+		CenterLat:         floatOr(settings[keyCenterLat], defaultCenterLat),
+		Zoom:              floatOr(settings[keyZoom], defaultZoom),
+		AnnotationMinZoom: floatPtrOrNil(settings[keyAnnMinZoom]),
+		AnnotationMaxZoom: floatPtrOrNil(settings[keyAnnMaxZoom]),
 	}, nil
 }
 
 func loadSettings(ctx context.Context, db *bun.DB) (map[string]string, error) {
 	var rows []auth.SystemSetting
 	err := db.NewSelect().Model(&rows).
-		Where("key IN (?)", bun.In([]string{keyCenterLng, keyCenterLat, keyZoom})).
+		Where("key IN (?)", bun.In([]string{keyCenterLng, keyCenterLat, keyZoom, keyAnnMinZoom, keyAnnMaxZoom})).
 		Scan(ctx)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
@@ -150,6 +178,10 @@ func writeView(ctx context.Context, db *bun.DB, v mapView, byUserID string) erro
 		{Key: keyCenterLng, Value: strconv.FormatFloat(v.CenterLng, 'f', -1, 64), UpdatedAt: now, UpdatedBy: actor},
 		{Key: keyCenterLat, Value: strconv.FormatFloat(v.CenterLat, 'f', -1, 64), UpdatedAt: now, UpdatedBy: actor},
 		{Key: keyZoom, Value: strconv.FormatFloat(v.Zoom, 'f', -1, 64), UpdatedAt: now, UpdatedBy: actor},
+		// An unset bound stores "" -- readView's floatPtrOrNil maps it straight
+		// back to nil, so clearing a bound in the UI persists as "no bound".
+		{Key: keyAnnMinZoom, Value: floatPtrToStr(v.AnnotationMinZoom), UpdatedAt: now, UpdatedBy: actor},
+		{Key: keyAnnMaxZoom, Value: floatPtrToStr(v.AnnotationMaxZoom), UpdatedAt: now, UpdatedBy: actor},
 	}
 	_, err := db.NewInsert().Model(&rows).
 		On("CONFLICT (key) DO UPDATE").
@@ -169,6 +201,28 @@ func floatOr(raw string, fallback float64) float64 {
 		return fallback
 	}
 	return v
+}
+
+// floatPtrOrNil parses an optional stored bound: a blank or corrupt row is nil
+// ("no bound"), which is a meaningful value here rather than a fallback to zero.
+func floatPtrOrNil(raw string) *float64 {
+	if raw == "" {
+		return nil
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return nil
+	}
+	return &v
+}
+
+// floatPtrToStr is floatPtrOrNil's inverse for persistence: nil stores as ""
+// (an unset bound), any value as its plain decimal.
+func floatPtrToStr(p *float64) string {
+	if p == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*p, 'f', -1, 64)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

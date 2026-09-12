@@ -169,3 +169,26 @@ Out of scope for the first cut, tracked here so the arc is visible:
 - A seed exercising an open vs closed selector on the same bay (the selection
   flip) is the proof Slice 1 renders the difference; the coupler open/closed flip
   is already proven for the trace engine (`phase-bus-coupler`).
+- **That seed now exists: `seed/double_busbar_network_example.sql`** (task
+  `seed-double-busbar-network`) — a full real-instance double-busbar substation
+  (two mains + coupler + per-bay selector isolators landing on per-bay buses +
+  two feeders). Its `SEL-1B` / `SEL-2A` selectors are `NORMALLY_OPEN`, so placing
+  those real features on a diagram is the live check that the amber NOP ring fires
+  on the open selectors and stays off the closed ones. It doubles as the trace
+  proof for the whole arrangement (bus selection, coupler tie, selection
+  transfer) and is the hand-built target state a future `double_busbar` fan-out
+  endpoint (Slice 3) would produce. Requires `seed/switch_normal_state_fields.sql`
+  (Slice 1b) applied + `MV_ISOLATOR` recompiled first.
+- **The draw is now seeded too: `seed/double_busbar_diagram_example.sql`** (task
+  `seed-double-busbar-diagram`) — the faithful/live counterpart to the decorative
+  "Double busbar" template. It creates a `SUBSTATION` host (`DBB-SUB`) to hang a
+  diagram off (a diagram is never freestanding — it needs an `is_diagram_container`
+  feature, migration 0019), a `ONE_LINE` instance on it, and places the eleven real
+  model features from the network seed as a legible one-line (buses/bay-buses/
+  feeders as `line` placements with a `path`, coupler + four selectors as `point`
+  placements). Opening `DBB-SUB`'s one-line is the direct visual check that the
+  amber NOP ring fires on the real `NORMALLY_OPEN` selectors `SEL-1B` / `SEL-2A`
+  and stays off the closed ones. It raw-INSERTs `runtime.diagram_instances` /
+  `diagram_placements` behind hard guards (same precedent the network seeds set
+  for `runtime.feature_connectivity`), so a live psql apply + opening the diagram
+  is the owed verification.

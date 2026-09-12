@@ -31,8 +31,10 @@
 -- 0051): the ansi-relay stencil promotes to PROTECTIVE_RELAY, the one
 -- geometry_type='none' diagram-native class -- so double-clicking a stamped
 -- relay glyph offers to turn it into a real relay feature (see the guarded
--- UPDATEs at the foot of this file). Every other glyph stays decoration until a
--- matching class is authored and mapped the same way.
+-- UPDATEs at the foot of this file). The switching/protection/instrument glyphs
+-- (breaker/disconnect/load-break/fuse/arrester/CT/VT) get their promote_class in
+-- seed/mv_symbology_example.sql (Phase 27), not here. Every other glyph stays
+-- decoration until a matching class is authored and mapped the same way.
 --
 -- Apply with psql after migrations 0001-0051 (and after seed/symbology_icons.sql,
 -- though these icon_refs don't overlap that file's five shapes).

@@ -730,6 +730,30 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/test_network_example.sql
 
+  seed-generator:
+    desc: Load the GENERATOR class -- Tier A embedded generation (generation_type subtypes diesel/solar_pv/wind/hydro/battery/gas_chp; rated_kw/dispatch_kw/power_factor injection fields; functional_role 'source'; LV_CONDUCTOR/DIST_XFMR-T2/MV_CONDUCTOR -> GENERATOR T1 rules) through the gitbash sidecar (requires seed-connectivity + seed-lv-conductors first; compile CODE=GENERATOR after; then seed-functional-roles to stamp the 'source' role)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/generator_example.sql
+
+  seed-generator-network:
+    desc: Load the embedded-generation validation feeder -- a radial LV feeder with one load AND one grid-tied GENERATOR on the same LV bus (GEN-SRC -> MV-G -> TX-G -> LV-G -> {MTR-G -> SP-G 50 kW load; GEN-1 solar_pv rated 40 kW / dispatch 30 kW}), for Tier A POST /analysis/load-flow. dispatch_kw 30 overrides rated_kw 40, so the hand-computable result has upstream flow = 50 - 30 = 20 kW (TX-G loading ~4 %, not 10 %) and the GEN-1 node reporting cumulative ~ -30 kW (requires seed-generator + all seed-lv-ring-network prerequisites, then compile CODE=DIST_XFMR/MV_CONDUCTOR/LV_CONDUCTOR/METER/SERVICE_POINT/GENERATOR first; fails loudly if a prerequisite is missing)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/generator_network_example.sql
+
+  seed-lv-ring-network:
+    desc: Load the closed-LV-ring validation feeder -- the FIRST seed with a genuine closed LV loop (RING-SRC -> MV-R -> TX-R -> LVA+LVB both -> MTR-R -> SP-R), for Phase 51 Tier 1 POST /analysis/meshed-load-flow. LVB is exactly 2x LVA's length at unity pf, so the hand-computable converged split is LVA:LVB = 2:1 (20 kW / 10 kW) with residual mismatch < 1e-4 V (requires seed-connectivity + seed-load-flow-fields + seed-transformer-fields + seed-mv-conductor-specs + seed-lv-conductors + seed-lv-metering + seed-service-point, then compile CODE=DIST_XFMR/MV_CONDUCTOR/LV_CONDUCTOR/METER/SERVICE_POINT first; fails loudly if a prerequisite is missing)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/lv_ring_network_example.sql
+
   seed-substation-network:
     desc: Load the larger 33/11/0.4 kV SUBSTATION feeder -- a second seed of real gis.* feature INSTANCES + runtime.feature_connectivity built around a POWER_XFMR + MV_BUSBAR (GRID-SRC -> PTX-1 -> BUS-A -> two feeders w/ recloser/switches/3 DIST_XFMRs -> 4 LV runs + LV switch + 6 meters/service points, plus 4 poles) through the gitbash sidecar (requires ALL seed-test-network prerequisites PLUS seed-power-transformer + seed-mv-busbar + seed-mv-recloser + seed-mv-lv-switch, then compile CODE=DIST_XFMR/POWER_XFMR/MV_BUSBAR/MV_RECLOSER/MV_SWITCH/LV_SWITCH/MV_CONDUCTOR/LV_CONDUCTOR/METER/SERVICE_POINT/POLE first; fails loudly if a prerequisite is missing; coexists with seed-test-network)
     cmds:
@@ -737,6 +761,54 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/substation_network_example.sql
+
+  seed-functional-roles:
+    desc: Stamp metadata.feature_classes.functional_role (migration 0091) onto today's electrical classes -- the class->role assignments for the electrical-function taxonomy (consumer/passthrough/transformer/controller/node/sensor/ground; no class maps to 'source' -- the network source is a slack DIST_XFMR instance). Read by the supply-path trace to identify serving transformers/switching devices/source by role instead of hardcoded class lists. Through the gitbash sidecar (requires `task migrate` for 0091 first; no gis.* table, no recompile; idempotent and tolerant of absent classes)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/functional_role_backfill.sql
+
+  seed-oms:
+    desc: Load the Phase 49 OMS demo data -- trouble calls that drive the predictive chain end to end (log calls -> POST /oms/incidents/predict -> a real RC-1-attributed incident -> confirm/restore). Sets customers_served on the substation network's Feeder-1 SP-1/2/3 (24/1/18) and logs 4 oms.trouble_calls (3 resolved on Feeder 1 that cluster onto RC-1, 1 address/location-only for snap-to-nearest) through the gitbash sidecar (requires migration 0087 via `task migrate` + gis.service_point compiled WITH customers_served + seed-substation-network first; fails loudly if a prerequisite is missing; idempotent)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/oms_example.sql
+
+  seed-oms-planned:
+    desc: Load the Phase 49 Slice 3 (planned outages + switching orders) demo -- ONE scheduled planned outage on the substation network's SW-1 (MV_SWITCH, Feeder 1) so you can drive the S3 chain end to end (Outages -> violet 'scheduled' incident -> Switching -> Generate switching order [open SW-1, verify 3 SPs, earth at RC-1, close SW-1] -> tick steps -> Begin outage -> Restore). Sets customers_served on SP-1/2/3 (24/1/18) and books one oms.incidents row (outage_type planned, status scheduled, window tomorrow) through the gitbash sidecar (requires migration 0089 via `task migrate` + gis.mv_switch compiled + seed-substation-network first; the switching order is generated live by the app, not seeded; fails loudly if a prerequisite is missing; idempotent)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/oms_planned_example.sql
+
+  seed-display-zoom-13:
+    desc: Stamp every MAP-drawable feature class (geometry_type point/line/polygon) with min_display_zoom = 13 so geographical features only draw at zoom 13 and above (migration 0090's per-class display-zoom band) -- a blanket declutter for the zoomed-out map. Skips geometry-none classes (no map tile) and any class already capped below zoom 13 (would violate the min<=max CHECK), reporting counts through the gitbash sidecar. Pure map-render metadata, no recompile; requires migration 0090 via `task migrate`; fails loudly if the column is missing; idempotent
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/feature_display_zoom_13.sql
+
+  drop-orphan-tile-functions:
+    desc: Drop orphaned Martin tile functions -- gis.<name>(z,x,y)->bytea functions whose backing gis.<name> table was dropped without dropping the function (e.g. dist_switch, retired by migrate_dist_switch_to_mv_switch.sql). Martin keeps advertising such a source and 500s on every tile request because the table is gone. Self-healing -- finds and drops every orphaned tile function through the gitbash sidecar, reporting each. Safe/idempotent (drops nothing on a clean DB). Afterwards restart Martin (docker compose restart martin) so its source catalog drops the retired source; the frontend catalog cache clears after ~5 min or a hard refresh
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/drop_orphan_tile_functions.sql
+
+  diagnose-dist-switch-tile:
+    desc: Read-only diagnostic for the "GET /tiles/dist_switch 500" report -- prints (via RAISE NOTICE) whether the DIST_SWITCH metadata class, the gis.dist_switch table and the Martin tile function still exist, the live row count, and crucially invokes gis.dist_switch(11,1021,680) exactly as Martin does to capture the real Postgres error behind the 500 (or reports that it runs clean, pointing at a stale browser catalog). Changes nothing
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/diagnose_dist_switch_tile.sql
 
   seed-protection-network:
     desc: Load the PROTECTION-COORDINATION feeder -- a third seed of real gis.* feature INSTANCES + runtime.feature_connectivity + runtime.feature_relationships built to exercise POST /analysis/coordination (SUB-SOURCE -> BRK-1 [graded by RLY-1 relay via a protection_trip relationship] -> FUSE-1 -> TX-1 -> LV-1 -> MTR-1 -> SP-1, with MV_CT/MV_VT sensing the relay) through the gitbash sidecar (requires migrations 0075+0076 via `task migrate` PLUS all seed-test-network prerequisites PLUS seed-mv-switching + seed-mv-protection + seed-mv-measuring + seed-mv-relay + seed-protection-curves, then compile CODE=DIST_XFMR/MV_CONDUCTOR/LV_CONDUCTOR/METER/SERVICE_POINT/MV_BREAKER/MV_FUSE/MV_CT/MV_VT/PROTECTIVE_RELAY first; fails loudly if a prerequisite is missing; coexists with the other network seeds)
@@ -753,6 +825,22 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/coupler_network_example.sql
+
+  seed-double-busbar-network:
+    desc: Load the DOUBLE-BUSBAR substation network -- real gis.* feature INSTANCES + runtime.feature_connectivity for a working double busbar (BUS-A/BUS-B tied by CPLR-1, FEEDER-1 selected onto Bus A and FEEDER-2 onto Bus B via bus-selector MV_ISOLATORs landing on per-bay buses). Trace downstream from BUS-A (reaches both feeders); open CPLR-1 to watch FEEDER-2 drop; close SEL-2A to transfer FEEDER-2 onto Bus A -- the defining double-busbar move. Also exercises the Phase 48 diagram NOP marker (SEL-1B/SEL-2A are NORMALLY_OPEN). Runs through the gitbash sidecar (requires seed-connectivity + seed-mv-switching + seed-mv-busbar + seed-bus-coupler-fields + seed-switch-normal-state, then compile CODE=MV_CONDUCTOR/MV_BREAKER[after bus_coupler_fields]/MV_ISOLATOR[after switch_normal_state]/MV_BUSBAR first; fails loudly if a prerequisite is missing; coexists with the other network seeds)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/double_busbar_network_example.sql
+
+  seed-double-busbar-diagram:
+    desc: DRAW the double busbar -- create a SUBSTATION host (DBB-SUB), a ONE_LINE diagram on it, and place the 11 real model features (BUS-A/BUS-B, CPLR-1, SEL-1A/1B/2A/2B, BAYBUS-1/2, FEEDER-1/2) as a legible one-line. The faithful/live draw (vs the decorative seed-double-busbar template) -- every glyph is a live feature, so the Phase 48 amber NOP ring fires on the real N/O selectors SEL-1B/SEL-2A. Runs through the gitbash sidecar (requires seed-double-busbar-network for the features, seed-substation-yard + compile CODE=SUBSTATION for the host class, and seed/diagram_example.sql for ONE_LINE + SUBSTATION.is_diagram_container; fails loudly if any is missing; idempotent)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/double_busbar_diagram_example.sql
 
   seed-cable-management:
     desc: Load the Phase 44 Slice 1 CIVIL cable-management inventory classes CABLE_TRENCH/CABLE_DUCT/CABLE_CHAMBER (network_role='none', never traced -- ducts/trenches/chambers with way_count capacity field) through the gitbash sidecar (no migration needed; compile CODE=CABLE_TRENCH + CABLE_DUCT + CABLE_CHAMBER after; symbology via seed-cable-management-symbology)
@@ -818,6 +906,22 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/protection_curves_example.sql
 
+  seed-pnc-control-devices:
+    desc: Register the P&C secondary / DC-auxiliary & control layer (STATION_BATTERY, BATTERY_CHARGER, CONTROL_IED, ANNUNCIATOR -- all geometry none / network none, contained by SUBSTATION_PANEL) through the gitbash sidecar (run seed-substation-panel first so the containment JOIN resolves; the extra relay ANSI_DEVICE_NUMBER values ship in seed-protective-relay -- re-run that task to pick them up; compile CODE=STATION_BATTERY, BATTERY_CHARGER, CONTROL_IED, ANNUNCIATOR after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/pnc_control_devices_example.sql
+
+  seed-pnc-devices-network:
+    desc: Seed real instances that PROVE the P&C secondary/DC-control layer is functional (2 SUBSTATION_PANELs -- PNL-DC + PNL-CTRL -- housing STATION_BATTERY/BATTERY_CHARGER + CONTROL_IED/ANNUNCIATOR via containment edges; no connectivity since these are network-none) through the gitbash sidecar (requires seed-substation-panel + seed-pnc-control-devices applied AND compiled via task compile CODE= for SUBSTATION_PANEL, STATION_BATTERY, BATTERY_CHARGER, CONTROL_IED, ANNUNCIATOR)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/pnc_devices_network_example.sql
+
   seed-mv-busbar:
     desc: Load the MV_BUSBAR class + substation bus wiring + SUBSTATION containment (Phase 27 Slice 4) through the gitbash sidecar (requires seed-connectivity + seed-substation-yard; apply seed-mv-switching/protection/measuring first for the full wiring/containment; compile CODE=MV_BUSBAR after)
     cmds:
@@ -833,6 +937,30 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/mv_symbology_example.sql
+
+  seed-stencils-extra:
+    desc: Add cable/joint + metering + transformer-variant (auto/earthing/tap-changer/NER) one-line stencils to the palette through the gitbash sidecar (requires seed/ansi_stencils.sql; decoration only, no promote mapping; nothing to compile -- stencils resolve client-side)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/one_line_stencils_extra.sql
+
+  seed-mv-conductor-diagram-promote:
+    desc: Make MV_CONDUCTOR diagram-placeable + geometry_optional so a schematic riser can be double-click-promoted into a real conductor with no map geometry through the gitbash sidecar (requires seed-connectivity; safe for trace/powerflow -- geometry-less conductor = zero-impedance ideal wire; nothing to compile -- metadata flags)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_conductor_diagram_promote.sql
+
+  seed-mv-busbar-voltage-symbology:
+    desc: Colour MV_BUSBAR by voltage_class (11 kV red / 33 kV blue) via domain-scoped symbology rules through the gitbash sidecar (requires seed-mv-busbar + seed-mv-symbology; live features only -- template furniture never colours; nothing to compile -- resolves client-side)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_busbar_voltage_symbology.sql
 
   seed-mv-cim-mapping:
     desc: Load CDPSM/CIM16 class + attribute mappings for the eight Phase 27 MV plant classes (Slice 6) through the gitbash sidecar (requires the four MV class slices + seed-cim-mapping applied first; no compile step -- pure metadata rows)

@@ -144,7 +144,15 @@ func loadFlowBarriers(ctx context.Context, db bun.IDB) (map[string]barrierCheck,
 // see that package's doc comment for the "checked live, never baked
 // into the graph" reasoning. loader resolves and caches a Loaded per
 // feature class encountered, same as trace's featureClassLoader.
-func checkBarrier(ctx context.Context, db bun.IDB, n node, barriers map[string]barrierCheck, loader *featureClassLoader) (bool, error) {
+func checkBarrier(ctx context.Context, db bun.IDB, n node, barriers map[string]barrierCheck, loader *featureClassLoader, closed map[node]bool) (bool, error) {
+	// A node the caller has hypothetically closed (a contingency study closing a
+	// normally-open tie to backfeed an outaged section) is never a barrier,
+	// regardless of its live device_state -- this is the one place the N-1
+	// analysis overrides the on-the-ground open state without touching the
+	// committed connectivity.
+	if closed[n] {
+		return false, nil
+	}
 	check, ok := barriers[n.classID]
 	if !ok {
 		return false, nil
@@ -261,21 +269,33 @@ type tree struct {
 	childWinding map[node]string
 }
 
+// meshBreak is one loop-closing edge found while building the tree: an edge
+// from an already-in-tree node (closer) to another already-visited node
+// (existing) that, if added, would give existing a second parent. The
+// weakly-meshed load flow (mesh.go) records these instead of failing, then
+// closes each loop by compensation; the radial-only callers never see them
+// (they pass breaks = nil and buildTree rejects the mesh as before).
+type meshBreak struct {
+	closer   node // the in-tree "from" node whose extra edge closed the loop
+	existing node // the already-visited "to" node the extra edge reached
+}
+
 // buildTree walks downstream from start, honoring live barriers
-// exactly like api/internal/trace's bfs, but -- unlike a plain
-// membership BFS -- rejects outright the moment a second, independent
-// path reaches an already-visited node. A load-flow sweep's backward/
+// exactly like api/internal/trace's bfs. When breaks is nil it -- unlike a
+// plain membership BFS -- rejects outright the moment a second, independent
+// path reaches an already-visited node: a load-flow sweep's backward/
 // forward passes both assume a single unambiguous parent per node
-// (Kersting's method is defined over a tree); a node reached two ways
-// is a mesh/loop in the section being analyzed, which this project
-// already has a dedicated detector for (LOOP_CHECK_TRACE) -- so rather
-// than silently picking one path (which would just be wrong) or
-// building a general-graph solver (a much bigger undertaking than this
-// slice), buildTree fails loudly and names the offending node, the
-// same "fail loudly rather than silently compute something incorrect"
-// precedent this project's compiler already established for a
-// narrowing CHECK constraint.
-func buildTree(ctx context.Context, db bun.IDB, start node, barriers map[string]barrierCheck, loader *featureClassLoader) (*tree, []node, error) {
+// (Kersting's method is defined over a tree), a node reached two ways
+// is a mesh/loop, and rather than silently picking one path (which would
+// just be wrong) it fails loudly and names the offending node.
+//
+// When breaks is non-nil (the weakly-meshed load flow, POST
+// /analysis/meshed-load-flow), a second path to an already-visited node is
+// not fatal: the loop-closing edge is recorded in *breaks and skipped,
+// leaving a radial spanning tree the ordinary sweep still solves, and
+// mesh.go then closes each recorded loop by compensation. Every other caller
+// passes nil and keeps the strict radial-only contract byte for byte.
+func buildTree(ctx context.Context, db bun.IDB, start node, barriers map[string]barrierCheck, loader *featureClassLoader, closed map[node]bool, breaks *[]meshBreak) (*tree, []node, error) {
 	visited := map[node]bool{start: true}
 	parent := map[node]node{}
 	children := map[node][]node{}
@@ -288,7 +308,7 @@ func buildTree(ctx context.Context, db bun.IDB, start node, barriers map[string]
 		current := queue[0]
 		queue = queue[1:]
 
-		isBarrier, err := checkBarrier(ctx, db, current, barriers, loader)
+		isBarrier, err := checkBarrier(ctx, db, current, barriers, loader, closed)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -304,6 +324,13 @@ func buildTree(ctx context.Context, db bun.IDB, start node, barriers map[string]
 		for _, e := range edges {
 			n := e.to
 			if visited[n] {
+				if breaks != nil {
+					// Weakly-meshed run: record the loop-closing edge and keep the
+					// spanning tree radial by not re-parenting n. existing keeps its
+					// first-discovered parent; mesh.go compensates the loop.
+					*breaks = append(*breaks, meshBreak{closer: current, existing: n})
+					continue
+				}
 				return nil, nil, invalid(
 					"the network downstream of the start feature is not radial (loop/mesh detected at feature class id %s, feature %s reached by more than one path) -- load flow requires a tree, run LOOP_CHECK_TRACE first to locate and eliminate the mesh",
 					n.classID, n.featureID,

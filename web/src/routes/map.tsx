@@ -5,6 +5,7 @@ import { AmpacityPanel } from "@/components/map/ampacity-panel"
 import { AnnotationEditPanel } from "@/components/map/annotation-edit-panel"
 import { AssistantChat } from "@/components/map/assistant-chat"
 import { AssistantSuggestions } from "@/components/map/assistant-suggestions"
+import { BoxZoomButton } from "@/components/map/box-zoom-button"
 import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
 import { CoordinationPanel } from "@/components/map/coordination-panel"
 import { DiagramCanvas } from "@/components/map/diagram-canvas"
@@ -17,8 +18,12 @@ import { ImportDialog } from "@/components/map/import-dialog"
 import { ImportedFeaturePopup } from "@/components/map/imported-feature-popup"
 import { GeometryEditToolbar } from "@/components/map/geometry-edit-toolbar"
 import { IsolationResultTable } from "@/components/map/isolation-result-table"
+import { OutageHighlightBanner } from "@/components/map/outage-highlight-banner"
 import { LayersPanel } from "@/components/map/layers-panel"
 import { LoadFlowPanel } from "@/components/map/load-flow-panel"
+import { VoltageProfilePanel } from "@/components/map/voltage-profile-panel"
+import { ContingencyPanel } from "@/components/map/contingency-panel"
+import { HostingPanel } from "@/components/map/hosting-panel"
 import { MeasureToolbar } from "@/components/map/measure-toolbar"
 import { NewAnnotationMenu } from "@/components/map/new-annotation-menu"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
@@ -118,6 +123,7 @@ export function MapPage() {
                     <Sparkles className={cn("size-3.5", !chatOpen && "text-violet-600")} /> Assistant
                   </Button>
                 )}
+                <BoxZoomButton />
                 <MeasureToolbar />
                 <NewFeatureMenu />
                 <NewAnnotationMenu />
@@ -170,10 +176,14 @@ export function MapPage() {
       <AnnotationEditPanel />
       <TraceResultTable />
       <IsolationResultTable />
+      <OutageHighlightBanner />
       <LoadFlowPanel />
       <FaultCurrentPanel />
       <AmpacityPanel />
       <CoordinationPanel />
+      <VoltageProfilePanel />
+      <ContingencyPanel />
+      <HostingPanel />
       <StatusBar />
     </div>
   )

@@ -51,7 +51,28 @@ JOIN (VALUES (1, 'residential'), (2, 'commercial'), (3, 'industrial')) AS v(code
 WHERE fc.code = 'SERVICE_POINT'
 ON CONFLICT (feature_class_id, code) DO NOTHING;
 
--- No attribute fields. A SERVICE_POINT deliberately carries NO meter_number:
+-- customers_served (Phase 49 / OMS): how many end customers this service point
+-- represents -- a single SP can front a whole LV block or a distribution
+-- transformer feeding many premises. Nullable, and a NULL is read as 1 by the
+-- OMS impact/indices code (a plain "one supply" SP); this is deliberately a
+-- coarse count, not a customer/account model (no CIS here). It is the
+-- denominator input for SAIDI/SAIFI, and is summed over the SPs a predicted
+-- outage de-energizes. Nullable at the DB per the additive-compile rule (adding
+-- a required column to an already-populated gis.service_point would fail 23502);
+-- there is no subtype_field_rules requiredness -- an unknown count is fine.
+
+INSERT INTO metadata.fields (feature_class_id, name, data_type, domain_id, group_id, nullable)
+SELECT fc.id, v.name, v.data_type, d.id, fg.id, v.nullable
+FROM metadata.feature_classes fc
+JOIN (VALUES
+    ('customers_served', 'integer', NULL, 'service', true)
+) AS v(name, data_type, domain_code, group_code, nullable) ON true
+LEFT JOIN metadata.domains d ON d.code = v.domain_code
+JOIN metadata.field_groups fg ON fg.code = v.group_code
+WHERE fc.code = 'SERVICE_POINT'
+ON CONFLICT (feature_class_id, name) DO NOTHING;
+
+-- Beyond customers_served, a SERVICE_POINT deliberately carries NO meter_number:
 -- the meter is a first-class feature (METER, seed/lv_metering_example.sql), and
 -- the optional "this supply is metered" link is the composite
 -- `SERVICE_POINT owns METER` relationship_class -- not a text attribute

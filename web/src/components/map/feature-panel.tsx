@@ -24,11 +24,15 @@ import {
   RefreshCw,
   Route,
   Satellite,
+  Shuffle,
+  Sun,
   Thermometer,
   Trash2,
+  TrendingDown,
   TriangleAlert,
   Undo2,
   Unlink2,
+  Waypoints,
   Workflow,
   Wrench,
   X,
@@ -90,6 +94,9 @@ import { useSelectionStore } from "@/stores/selection-store"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
 import { type TraceFeatureRef, type TracedFeature, type TraceResult, useTraceStore } from "@/stores/trace-store"
 import { useUnitsStore } from "@/stores/units-store"
+import { useVoltageProfileStore } from "@/stores/voltage-profile-store"
+import { useContingencyStore } from "@/stores/contingency-store"
+import { useHostingStore } from "@/stores/hosting-store"
 
 type TabId = "attributes" | "terminals" | "relationships" | "materials" | "files" | "links" | "history" | "gps"
 
@@ -1442,6 +1449,9 @@ export function FeaturePanel() {
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
     useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<TraceResult>("/trace", {
@@ -1471,6 +1481,9 @@ export function FeaturePanel() {
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
     useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
     useIsolateStore.getState().setLoading(true)
     try {
       const result = await apiFetch<IsolationResult>("/trace/isolate", {
@@ -1507,6 +1520,9 @@ export function FeaturePanel() {
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
     useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{ start: TraceFeatureRef; heads: TraceFeatureRef[]; features: TracedFeature[] }>(
@@ -1546,6 +1562,9 @@ export function FeaturePanel() {
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
     useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{
@@ -1581,6 +1600,71 @@ export function FeaturePanel() {
     }
   }
 
+  // Supply-path trace (api/internal/trace/supply.go) -- from this
+  // feature (a service point / meter, but any feature is accepted) walk
+  // UPSTREAM barrier-free to report the supply chain: the LV switching
+  // devices in the way, the serving distribution transformer, then on to
+  // the MV devices, power transformer, and source. Needs no
+  // trace_configuration (it's a fixed topological walk, not a
+  // config-driven one), so unlike feeder/section it's available even
+  // without isolationConfig. Its response is normalized into the same
+  // TraceResult shape trace-result-table.tsx renders: features come back
+  // nearest-first so the table reads consumption-point -> ... -> source,
+  // and the milestones (transformer/switches/source) become `targets` so
+  // they get the same visually-distinct highlight a target_class hit does.
+  async function runSupplyPathTrace() {
+    if (!selected) return
+    const start = { feature_class: selected.featureClassCode, feature_id: selected.featureId }
+    const computed = snapshotComputedVoltages(start)
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
+    useTraceStore.getState().setLoading(true)
+    try {
+      const result = await apiFetch<{
+        start: TraceFeatureRef
+        features: TracedFeature[]
+        // Each milestone carries the functional_role (migration 0091) that made
+        // it significant -- "transformer" | "controller" | "source" -- so the
+        // chain can be labelled/grouped; a plain TraceFeatureRef for the map
+        // highlight, plus role. The engine derives these from class role, not a
+        // hardcoded class list (api/internal/trace/supply.go).
+        milestones: (TraceFeatureRef & { role: string })[]
+        serving_transformer?: TraceFeatureRef
+        source?: TraceFeatureRef
+        reached_transformer: boolean
+      }>("/trace/supply-path", {
+        method: "POST",
+        body: JSON.stringify({ start }),
+      })
+      useTraceStore.getState().setResult(
+        {
+          trace_configuration: "SUPPLY_PATH",
+          direction: "SUPPLY_PATH",
+          start: result.start,
+          features: result.features,
+          barriers: [],
+          targets: result.milestones,
+          targets_found: result.milestones.length > 0,
+        },
+        computed,
+      )
+      if (!result.reached_transformer) {
+        useToastStore
+          .getState()
+          .pushWarning("No distribution transformer found upstream of this feature.")
+      }
+    } catch (err) {
+      useTraceStore.getState().setLoading(false)
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not trace the supply path.")
+    }
+  }
+
   // Arms the load-flow panel (load-flow-panel.tsx) for the selected
   // feature -- doesn't run anything itself, since the engine needs
   // nominal_voltage_v first and there's no honest default across MV/LV
@@ -1594,6 +1678,9 @@ export function FeaturePanel() {
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
     useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
     useLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1609,6 +1696,9 @@ export function FeaturePanel() {
     useLoadFlowStore.getState().clear()
     useAmpacityStore.getState().clear()
     useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
     useFaultCurrentStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1625,6 +1715,9 @@ export function FeaturePanel() {
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
     useAmpacityStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1642,7 +1735,68 @@ export function FeaturePanel() {
     useLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().clear()
     useAmpacityStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
     useCoordinationStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the voltage-profile panel (voltage-profile-panel.tsx) for the
+  // selected feature as the sweep's source. Like load-flow it only arms
+  // (the report needs nominal_voltage_v first, no honest MV/LV default);
+  // the panel's own Run button makes the POST /analysis/voltage-profile
+  // call. Clears the other six mutually-exclusive workflows.
+  function armVoltageProfile() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
+    useVoltageProfileStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the contingency panel (contingency-panel.tsx) with the selected
+  // feature as the donor feeder's source. Like load-flow it only arms (the
+  // study needs nominal_voltage_v first, no honest MV/LV default); the
+  // panel's own Run button makes the POST /analysis/contingency call, which
+  // sweeps the feeder and, for every normally-open tie it halts at,
+  // simulates closing it to report the restorable outaged load. Clears the
+  // other seven mutually-exclusive workflows.
+  function armContingency() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useHostingStore.getState().clear()
+    useContingencyStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the DER hosting-capacity panel (hosting-panel.tsx) with the selected
+  // feature as the feeder's source. Like load-flow it only arms (the study
+  // needs nominal_voltage_v first, no honest MV/LV default); the panel's own
+  // Run button makes the POST /analysis/hosting-capacity call, which
+  // binary-searches the largest DER injection each interconnection node can
+  // accept before over-voltage or thermal overload binds. Clears the other
+  // eight mutually-exclusive workflows.
+  function armHosting() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
   // Runnable trace_configurations for the dropdown -- SHORTEST_PATH
@@ -1859,9 +2013,18 @@ export function FeaturePanel() {
                     </>
                   )}
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={runSupplyPathTrace}>
+                    <Waypoints className="size-4" />
+                    Supply path (to source)
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={armLoadFlow}>
                     <Activity className="size-4" />
                     Run load flow…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={armVoltageProfile}>
+                    <TrendingDown className="size-4" />
+                    Voltage profile &amp; losses…
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={armFaultCurrent}>
                     <TriangleAlert className="size-4" />
@@ -1876,6 +2039,14 @@ export function FeaturePanel() {
                   <DropdownMenuItem onSelect={armCoordination}>
                     <ChartSpline className="size-4" />
                     Protection coordination…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={armContingency}>
+                    <Shuffle className="size-4" />
+                    Contingency &amp; backfeed…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={armHosting}>
+                    <Sun className="size-4" />
+                    DER hosting capacity…
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

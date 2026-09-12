@@ -1484,7 +1484,7 @@ function RuleForm({
             </div>
           )}
           <div className="flex flex-col gap-1">
-            <label className={labelClass}>Min zoom</label>
+            <label className={labelClass}>Apply rule from zoom</label>
             <input
               type="number"
               className={inputClass}
@@ -1494,7 +1494,7 @@ function RuleForm({
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className={labelClass}>Max zoom</label>
+            <label className={labelClass}>Apply rule to zoom</label>
             <input
               type="number"
               className={inputClass}
@@ -1503,6 +1503,11 @@ function RuleForm({
               placeholder="any"
             />
           </div>
+          <p className="text-muted-foreground col-span-full text-xs">
+            Limits the zoom range this <em>style</em> applies over — outside it another rule (or the
+            default) still paints the feature. This does not hide anything; to hide the class at some
+            zooms use “Display zoom” instead.
+          </p>
         </div>
 
         <div className="flex flex-col gap-2 border-t pt-3">
@@ -1714,6 +1719,117 @@ function LabelSection({ code, schema }: { code: string; schema: FeatureClassSche
 
       {editing && <LabelForm code={code} schema={schema} onDone={() => setEditing(false)} />}
     </>
+  )
+}
+
+/**
+ * The per-class map display-zoom band (migration 0090) -- a min and/or max
+ * zoom outside which the whole feature is hidden on the geographic map (glyph
+ * and label alike), not merely restyled. One config per class, stored as two
+ * columns on the feature class and edited here like Labelling. Map only; the
+ * diagram one-line always shows. Distinct from a symbology rule's own zoom band
+ * (which picks a style), so it lives in its own section rather than the rule
+ * editor.
+ */
+function DisplayZoomSection({ code, schema }: { code: string; schema: FeatureClassSchema }) {
+  const canWrite = usePermission()("metadata:write")
+  const [editing, setEditing] = useState(false)
+  const min = schema.min_display_zoom
+  const max = schema.max_display_zoom
+  const hasBand = min !== undefined || max !== undefined
+  const summary = hasBand ? `Visible zoom ${min ?? "0"}…${max ?? "max"}` : "Visible at every zoom"
+
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold">Display zoom</h2>
+        {canWrite && (
+          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+            <Pencil className="size-4" />
+            {hasBand ? "Edit range" : "Set range"}
+          </Button>
+        )}
+      </div>
+
+      <p className={hasBand ? "text-sm" : "text-muted-foreground text-sm"}>{summary}</p>
+
+      {editing && <DisplayZoomForm code={code} schema={schema} onDone={() => setEditing(false)} />}
+    </>
+  )
+}
+
+function DisplayZoomForm({ code, schema, onDone }: { code: string; schema: FeatureClassSchema; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [minZoom, setMinZoom] = useState(schema.min_display_zoom !== undefined ? String(schema.min_display_zoom) : "")
+  const [maxZoom, setMaxZoom] = useState(schema.max_display_zoom !== undefined ? String(schema.max_display_zoom) : "")
+  const [saving, setSaving] = useState(false)
+
+  const minNum = minZoom.trim() === "" ? undefined : Number(minZoom)
+  const maxNum = maxZoom.trim() === "" ? undefined : Number(maxZoom)
+  const minValid = minNum === undefined || (Number.isInteger(minNum) && minNum >= 0 && minNum <= 24)
+  const maxValid = maxNum === undefined || (Number.isInteger(maxNum) && maxNum >= 0 && maxNum <= 24)
+  const bandValid = minNum === undefined || maxNum === undefined || minNum <= maxNum
+  const canSave = minValid && maxValid && bandValid
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      // Sentinel-encoded PATCH (see updateFeatureClassRequest): both sides are
+      // always sent so either can be cleared; an empty input becomes -1, which
+      // the server writes as SQL NULL (no bound), any 0..24 sets the bound.
+      const body = { min_display_zoom: minNum ?? -1, max_display_zoom: maxNum ?? -1 }
+      await apiFetch(`/admin/feature-classes/${code}`, { method: "PATCH", body: JSON.stringify(body) })
+      queryClient.invalidateQueries({ queryKey: ["feature-class-schema", code] })
+      onDone()
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save the display zoom.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title="Map display zoom"
+      description="Hide this class's features on the geographic map outside a zoom range. Leave a bound empty for no limit; clear both to show at every zoom. This hides the whole feature (glyph and label), unlike a symbology rule's own zoom band."
+      onSubmit={handleSave}
+      submitLabel="Save"
+      canSubmit={canSave}
+      saving={saving}
+    >
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Min zoom</label>
+          <input
+            type="number"
+            min="0"
+            max="24"
+            step="1"
+            className={`${inputClass} w-24`}
+            value={minZoom}
+            onChange={(e) => setMinZoom(e.target.value)}
+            placeholder="any"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Max zoom</label>
+          <input
+            type="number"
+            min="0"
+            max="24"
+            step="1"
+            className={`${inputClass} w-24`}
+            value={maxZoom}
+            onChange={(e) => setMaxZoom(e.target.value)}
+            placeholder="any"
+          />
+        </div>
+      </div>
+      {!bandValid && <p className="text-destructive text-xs">Min zoom must not exceed max zoom.</p>}
+      {(!minValid || !maxValid) && <p className="text-destructive text-xs">Zoom levels must be whole numbers from 0 to 24.</p>}
+    </FormDialog>
   )
 }
 
@@ -2089,6 +2205,24 @@ function SymbologySection({ code, schema }: { code: string; schema: FeatureClass
 }
 
 /**
+ * The functional_role vocabulary (migration 0091) offered in the class-settings
+ * editor. Each is an ELECTRICAL function on the traced network, orthogonal to
+ * the structural network_role. "source" is intentionally offered even though no
+ * class carries it today -- it's reserved for a future generation/grid-infeed
+ * class (today's source is an instance-level slack transformer, not a class).
+ */
+const FUNCTIONAL_ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "source", label: "Source — injects power (generation / grid infeed)" },
+  { value: "consumer", label: "Consumer — load / sink (service point, meter)" },
+  { value: "passthrough", label: "Passthrough — carries flow, no state (conductor)" },
+  { value: "transformer", label: "Transformer — voltage/circuit boundary" },
+  { value: "controller", label: "Controller — open/closed state gates flow (switch, breaker)" },
+  { value: "node", label: "Node — many-way meeting point (busbar)" },
+  { value: "sensor", label: "Sensor — observes, off-path (CT/VT, relay)" },
+  { value: "ground", label: "Ground — return/reference path (NER, earthing transformer)" },
+]
+
+/**
  * Edit this class's two pure-metadata diagram flags -- whether it can
  * host a one-line/schematic diagram (is_diagram_container) and whether
  * its features can be placed onto one (is_diagram_placeable). Both are
@@ -2110,6 +2244,10 @@ function DiagramSettingsForm({ summary, onDone }: { summary: AdminFeatureClassSu
   // Admin-defined "New feature" menu grouping (migration 0074). "" clears it
   // back to uncategorised; any other string sets the section it lands under.
   const [category, setCategory] = useState<string>(summary.category ?? "")
+  // Migration 0091: the class's electrical FUNCTION on the traced network,
+  // orthogonal to network_role. "" clears it to unclassified (non-electrical);
+  // a value stamps the role the supply-path / section / isolate traces read.
+  const [functionalRole, setFunctionalRole] = useState<string>(summary.functional_role ?? "")
   const [saving, setSaving] = useState(false)
   const queryClient = useQueryClient()
 
@@ -2139,6 +2277,9 @@ function DiagramSettingsForm({ summary, onDone }: { summary: AdminFeatureClassSu
           diagram_geometry_type: diagramGeometryType,
           // Always send it: "" clears the category (uncategorised), a value sets it.
           category: category.trim(),
+          // Always send it: "" clears functional_role to NULL (unclassified),
+          // a value stamps the electrical role. Pure metadata -- no recompile.
+          functional_role: functionalRole,
         }),
       })
       // Refresh both the admin catalog (this page's own summary/badges) and
@@ -2225,6 +2366,27 @@ function DiagramSettingsForm({ summary, onDone }: { summary: AdminFeatureClassSu
           recompile, no effect on topology.
         </span>
       </label>
+      <label className="flex flex-col gap-1 text-sm">
+        <span>Electrical role (functional_role)</span>
+        <select
+          className={inputClass}
+          value={functionalRole}
+          onChange={(e) => setFunctionalRole(e.target.value)}
+        >
+          <option value="">Unclassified (non-electrical)</option>
+          {FUNCTIONAL_ROLE_OPTIONS.map((r) => (
+            <option key={r.value} value={r.value}>
+              {r.label}
+            </option>
+          ))}
+        </select>
+        <span className="text-xs text-muted-foreground">
+          The class's electrical FUNCTION on the traced network — what the supply-path, section and
+          isolation traces read to treat it as a transformer boundary, a switching device, an
+          off-path sensor, etc. Orthogonal to the structural network role ({summary.network_role}).
+          Leave unclassified for non-electrical classes (containers, structures, civil). No recompile.
+        </span>
+      </label>
     </FormDialog>
   )
 }
@@ -2252,6 +2414,9 @@ function DiagramSettingsSection({ summary, canWrite }: { summary: AdminFeatureCl
       <div className="flex flex-wrap gap-2">
         <Badge variant={summary.category ? "success" : "outline"}>
           {summary.category ? `Menu: ${summary.category}` : "Uncategorised"}
+        </Badge>
+        <Badge variant={summary.functional_role ? "success" : "outline"}>
+          {summary.functional_role ? `Role: ${summary.functional_role}` : "No electrical role"}
         </Badge>
         <Badge variant={summary.is_diagram_container ? "success" : "outline"}>
           {summary.is_diagram_container ? "Hosts diagrams" : "Not a diagram container"}
@@ -2537,6 +2702,8 @@ export function AdminFeatureClassDetailPage() {
             <SymbologySection code={code} schema={schema} />
 
             <LabelSection code={code} schema={schema} />
+
+            <DisplayZoomSection code={code} schema={schema} />
 
             <h2 className="text-sm font-semibold">Rules</h2>
             <RulesSection code={code} />

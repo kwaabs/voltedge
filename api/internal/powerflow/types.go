@@ -153,7 +153,10 @@ type faultCurrentRequest struct {
 // and a client can tell them apart. ImpedanceOhm is their magnitude.
 // FaultCurrentAmps is omitted only when |Z_total| is zero -- an ideal,
 // zero-impedance source with no conductor between it and this node, where a
-// bolted fault current is unbounded and no finite figure is honest.
+// bolted fault current is unbounded and no finite figure is honest. It is the
+// TOTAL prospective current: grid infeed PLUS any embedded-generation
+// contribution (see GridContributionAmps / GeneratorContributionAmps) -- the
+// figure switchgear duty is checked against.
 // MaterialResolved is false when any conductor branch on the path lacked
 // resolved R/X, or a transformer on the path contributed no series
 // impedance (no nameplate %Z/rating) -- the reported current is then an
@@ -174,6 +177,17 @@ type faultNodeResult struct {
 	NominalBaseV     float64  `json:"nominal_base_v"`
 	FaultCurrentAmps *float64 `json:"fault_current_amps,omitempty"`
 	MaterialResolved bool     `json:"material_resolved"`
+
+	// GridContributionAmps / GeneratorContributionAmps split FaultCurrentAmps
+	// into its grid-infeed and embedded-generation parts. Both are populated only
+	// when one or more GENERATORs actually contribute to the fault at this node
+	// (by superposition, genfault.go); both are omitted on a network with no
+	// embedded generation, where FaultCurrentAmps is entirely grid infeed and
+	// reads exactly as it always has. The generator part is a conservative
+	// superposition estimate. NOTE: the SLG (ground-fault) figures below do NOT
+	// include generator infeed -- a documented Tier A limit.
+	GridContributionAmps      *float64 `json:"grid_contribution_amps,omitempty"`
+	GeneratorContributionAmps *float64 `json:"generator_contribution_amps,omitempty"`
 
 	// Single-line-to-ground fields -- populated only on an SLG run
 	// (fault_type = "slg"), nil on the default three-phase run. ZeroSeq* are the

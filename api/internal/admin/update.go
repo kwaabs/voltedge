@@ -97,6 +97,54 @@ func updateFeatureClass(ctx context.Context, db *bun.DB, code string, req update
 			}
 			cols = append(cols, "category")
 		}
+		// functional_role (migration 0091) is the class's electrical function --
+		// pure metadata the compiler's DDL never reads, so editable at any status
+		// (unlike network_role). "" clears it back to NULL (unclassified); any
+		// taxonomy value sets it.
+		if req.FunctionalRole != nil {
+			if *req.FunctionalRole == "" {
+				fc.FunctionalRole = nil
+			} else {
+				v := *req.FunctionalRole
+				fc.FunctionalRole = &v
+			}
+			cols = append(cols, "functional_role")
+		}
+		// min/max_display_zoom (migration 0090) is pure map-render metadata,
+		// editable at any status like the flags above. Sentinel-encoded (see
+		// updateFeatureClassRequest): a negative value clears the bound to
+		// NULL, a value in 0..24 sets it. Validated as a band once both
+		// resolved values are known so min <= max is enforced whichever side
+		// this request touches (an untouched side reads the stored value).
+		if req.MinDisplayZoom != nil || req.MaxDisplayZoom != nil {
+			if req.MinDisplayZoom != nil {
+				if *req.MinDisplayZoom < 0 {
+					fc.MinDisplayZoom = nil
+				} else {
+					v := *req.MinDisplayZoom
+					fc.MinDisplayZoom = &v
+				}
+				cols = append(cols, "min_display_zoom")
+			}
+			if req.MaxDisplayZoom != nil {
+				if *req.MaxDisplayZoom < 0 {
+					fc.MaxDisplayZoom = nil
+				} else {
+					v := *req.MaxDisplayZoom
+					fc.MaxDisplayZoom = &v
+				}
+				cols = append(cols, "max_display_zoom")
+			}
+			if fc.MinDisplayZoom != nil && (*fc.MinDisplayZoom < 0 || *fc.MinDisplayZoom > 24) {
+				return invalid("min_display_zoom must be between 0 and 24")
+			}
+			if fc.MaxDisplayZoom != nil && (*fc.MaxDisplayZoom < 0 || *fc.MaxDisplayZoom > 24) {
+				return invalid("max_display_zoom must be between 0 and 24")
+			}
+			if fc.MinDisplayZoom != nil && fc.MaxDisplayZoom != nil && *fc.MinDisplayZoom > *fc.MaxDisplayZoom {
+				return invalid("min_display_zoom (%d) must not exceed max_display_zoom (%d)", *fc.MinDisplayZoom, *fc.MaxDisplayZoom)
+			}
+		}
 		if req.GeometryType != nil {
 			if fc.Status != "draft" {
 				return invalid("geometry_type/srid/network_role can only be changed while %q is still draft (not yet compiled) -- it's %s", code, fc.Status)
@@ -107,7 +155,7 @@ func updateFeatureClass(ctx context.Context, db *bun.DB, code string, req update
 			cols = append(cols, "geometry_type", "srid", "network_role")
 		}
 		if len(cols) == 0 {
-			return invalid("request must set at least one of name, is_diagram_container, is_diagram_placeable, geometry_optional, diagram_geometry_type, category, label_def, geometry_type/srid/network_role")
+			return invalid("request must set at least one of name, is_diagram_container, is_diagram_placeable, geometry_optional, diagram_geometry_type, category, functional_role, label_def, min_display_zoom/max_display_zoom, geometry_type/srid/network_role")
 		}
 
 		if _, err := tx.NewUpdate().Model(fc).Column(cols...).Where("code = ?", code).Exec(ctx); err != nil {
@@ -120,6 +168,7 @@ func updateFeatureClass(ctx context.Context, db *bun.DB, code string, req update
 			GeometryType:        fc.GeometryType,
 			SRID:                fc.SRID,
 			NetworkRole:         fc.NetworkRole,
+			FunctionalRole:      fc.FunctionalRole,
 			IsDiagramContainer:  fc.IsDiagramContainer,
 			IsDiagramPlaceable:  fc.IsDiagramPlaceable,
 			GeometryOptional:    fc.GeometryOptional,

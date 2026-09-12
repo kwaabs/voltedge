@@ -517,12 +517,16 @@ WHERE origin_feature_class_id      = (SELECT id FROM metadata.feature_classes WH
 DELETE FROM metadata.feature_classes WHERE code = 'DIST_SWITCH';
 
 -- ---------------------------------------------------------------------------
--- Finally drop the now-empty physical table. Its per-class tile function
--- (gis.sync_tile_function created one at compile time) is a plpgsql function
--- whose body isn't a tracked dependency, so it lingers harmlessly and
--- unreferenced (no published class points at it); drop it by hand if your
--- deployment tracks tile functions by name.
+-- Finally drop the now-empty physical table AND its per-class Martin tile
+-- function. The tile function gis.dist_switch(z,x,y)->bytea was created at
+-- compile time (migration 0038 / gis.sync_tile_function); it is NOT a tracked
+-- dependency of the table, so DROP TABLE alone leaves it behind. Martin
+-- auto-discovers it and keeps advertising `dist_switch` as a tile source, then
+-- 500s on every /tiles/dist_switch/z/x/y request because the backing table is
+-- gone. Drop the function first (same order as Uncompile / the RMU collapse
+-- seeds) so a failure rolls back rather than orphaning a function.
 -- ---------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS gis.dist_switch(integer, integer, integer);
 DROP TABLE IF EXISTS gis.dist_switch;
 
 COMMIT;

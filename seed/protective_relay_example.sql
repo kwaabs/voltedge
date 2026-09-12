@@ -42,7 +42,21 @@ JOIN (VALUES
     ('50_51', '50/51 - Phase overcurrent', 3),
     ('50_51N', '50/51N - Ground overcurrent', 4),
     ('86', '86 - Lockout', 5),
-    ('87', '87 - Differential', 6)
+    ('87', '87 - Differential', 6),
+    -- Added 2026-09-11: common distribution/substation protection & control
+    -- functions so a relay instance can declare its primary role. A modern
+    -- numerical relay is multi-function; device_number captures its PRIMARY
+    -- ANSI function (the single-value model is unchanged -- one row per relay).
+    ('25', '25 - Synchronism check', 7),
+    ('32', '32 - Directional power', 8),
+    ('37', '37 - Undercurrent / underpower', 9),
+    ('46', '46 - Negative-sequence / phase unbalance', 10),
+    ('49', '49 - Thermal overload', 11),
+    ('64', '64 - Earth-fault / restricted earth-fault', 12),
+    ('67', '67 - Directional phase overcurrent', 13),
+    ('67N', '67N - Directional ground overcurrent', 14),
+    ('79', '79 - Auto-reclose', 15),
+    ('81', '81 - Over/under frequency', 16)
 ) AS v(code, label, sort_order) ON true
 WHERE d.code = 'ANSI_DEVICE_NUMBER'
 ON CONFLICT (domain_id, code) DO NOTHING;

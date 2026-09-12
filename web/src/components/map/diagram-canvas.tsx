@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQueries, useQueryClient } from "@tanstack/react-query"
 import { Cable, ChevronsLeft, ChevronsRight, CornerDownRight, Crosshair, Download, Grid3x3, Hand, LayoutTemplate, Link2, List, Loader2, Magnet, Maximize, Maximize2, Minimize, Minus, MousePointer2, PenLine, Plus, Shapes, Spline, Square, Table, Trash2, Type, Waypoints, X, ZoomIn, ZoomOut } from "lucide-react"
 
@@ -1448,7 +1448,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // digitizing a *new* line-shaped feature) is computed further down, once
   // digitizingClass and geometryTypeByClass exist.
   const isPlaceLineDrawing = isPlacingHere && placeArmedGeometry === "line"
-  const svgRef = useRef<SVGSVGElement>(null)
+  const svgRef = useRef<SVGSVGElement | null>(null)
   const [dragState, setDragState] = useState<DragState | null>(null)
   const [rotateState, setRotateState] = useState<RotateState | null>(null)
   // Live per-vertex reshape of a drawn line placement (a busbar/conductor):
@@ -2667,31 +2667,47 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
     })
   }
 
-  // Stencil->feature promotion (Phase 25): double-click a stamped symbol whose
-  // stencil declares a promote_class to turn the decoration into a real
-  // feature. Reuses the diagram digitize spine -- startDiagramDraft seeds the
-  // shared create form (feature-panel.tsx renders it) targeted at the mapped
-  // class, carrying the glyph's position and rotation so the placement lands
-  // exactly where the symbol was, plus the element id to delete once the form
-  // saves (so the glyph is swapped for the feature, not doubled). A symbol with
-  // no mapping -- most are pure decoration -- is a no-op.
-  function promoteSymbol(element: DiagramElement) {
+  // Element->feature promotion (Phase 25): double-click a decorative element
+  // that maps to a feature class to turn it into a real feature. A `symbol`
+  // glyph maps via its stencil (promote_class); a line-shaped `bus`/`line`
+  // element carries an explicit promoteClass and promotes to a LINE feature
+  // keeping its whole drawn polyline (so a template busbar becomes a real
+  // MV_BUSBAR at the same length, no re-digitizing). Reuses the diagram
+  // digitize spine -- startDiagramDraft seeds the shared create form
+  // (feature-panel.tsx renders it) targeted at the mapped class, carrying the
+  // element's position/rotation (and path, for a line) so the placement lands
+  // exactly where the decoration was, plus the element id to delete once the
+  // form saves (so the decoration is swapped for the feature, not doubled). An
+  // element with no mapping -- most are pure decoration -- is a no-op.
+  function promoteElement(element: DiagramElement) {
     if (canvasMode === "pan" || !openDiagramId) return
+    // Two ways an element maps to a feature class. A `symbol` glyph maps via
+    // its stencil (iconRef -> promote_class, promoteClassByRef). A line-shaped
+    // element (`bus`/`line`) has no stencil, so it carries an explicit
+    // `promoteClass` on its own style instead (e.g. the "Double busbar"
+    // template tags its buses MV_BUSBAR). Prefer the explicit one; fall back to
+    // the stencil mapping so symbols keep working unchanged.
+    const explicit = typeof element.style?.promoteClass === "string" ? element.style.promoteClass : undefined
     const iconRef = typeof element.style?.iconRef === "string" ? element.style.iconRef : undefined
-    const promoteClass = iconRef ? promoteClassByRef[iconRef] : undefined
+    const promoteClass = explicit ?? (iconRef ? promoteClassByRef[iconRef] : undefined)
     if (!promoteClass) {
-      // Deliberate double-click on a symbol that carries no promote mapping:
+      // Deliberate double-click on an element that carries no promote mapping:
       // tell the user rather than silently doing nothing (also surfaces a
       // stale API/seed, where even a mapped glyph arrives without promote_class).
-      useToastStore.getState().pushWarning("This symbol isn't linked to a feature class, so there's nothing to promote it to.")
+      useToastStore.getState().pushWarning("This element isn't linked to a feature class, so there's nothing to promote it to.")
       return
     }
+    // A line-shaped element promotes to a line feature keeping its whole drawn
+    // polyline (the create form POSTs the placement with this `path`, migration
+    // 0053); a point glyph promotes with no path and drops at its x/y.
+    const path = element.path && element.path.length >= 2 ? element.path : undefined
     useDrawStore.getState().startDiagramDraft(promoteClass, {
       diagramId: openDiagramId,
       x: element.x,
       y: element.y,
       rotation: element.rotation,
       promoteFromElementId: element.id,
+      ...(path ? { path } : {}),
     })
   }
 
@@ -2981,13 +2997,26 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // a stale camera/fitBox.
   const wheelHandlerRef = useRef(handleWheelZoom)
   wheelHandlerRef.current = handleWheelZoom
-  useEffect(() => {
-    const svg = svgRef.current
-    if (!svg) return
-    const onWheelNative = (e: WheelEvent) => wheelHandlerRef.current(e)
-    svg.addEventListener("wheel", onWheelNative, { passive: false })
-    return () => svg.removeEventListener("wheel", onWheelNative)
-  }, [])
+  // A stable listener (always calls through to the latest closure) so the
+  // callback ref below can add AND remove the exact same function reference.
+  const onWheelNative = useCallback((e: WheelEvent) => wheelHandlerRef.current(e), [])
+  // Callback ref, NOT a mount effect: the <svg> renders CONDITIONALLY -- it's
+  // behind the `isPending`/`isError` gate further down, so it doesn't exist on
+  // the first render (placements are still loading). A `useEffect(..., [])`
+  // binds once, at mount, when svgRef.current is still null, and with empty
+  // deps never retries once the svg finally mounts -- so wheel-zoom silently
+  // never attached. A callback ref fires exactly when the node mounts and
+  // again (with null) when it unmounts, immune to *why* it was absent. It also
+  // mirrors the node into svgRef so clientToSvgPoint and the pan handlers keep
+  // reading svgRef.current.
+  const attachSvgRef = useCallback(
+    (node: SVGSVGElement | null) => {
+      if (svgRef.current) svgRef.current.removeEventListener("wheel", onWheelNative)
+      svgRef.current = node
+      if (node) node.addEventListener("wheel", onWheelNative, { passive: false })
+    },
+    [onWheelNative],
+  )
 
   // The pan tool's own drag, on the SVG element itself rather than a
   // placement's <g> -- active only in "pan" mode (handlePlacementPointerDown
@@ -3525,7 +3554,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
               />
             )}
             <svg
-              ref={svgRef}
+              ref={attachSvgRef}
               viewBox={viewBox}
               className={cn(
                 "h-full w-full",
@@ -3666,6 +3695,11 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                 if (pts.length < 2) return null
                 const stroke = (style.stroke as string) ?? "var(--foreground)"
                 const mid = polylineMidpoint(pts)
+                // Promotable (Phase 25) when it carries a promoteClass: double-
+                // click turns the drawn line into a real LINE feature keeping
+                // its whole length (e.g. a template riser -> MV_CONDUCTOR).
+                const promoteClass = typeof style.promoteClass === "string" ? style.promoteClass : undefined
+                const promoteClassName = promoteClass ? (classNameByCode[promoteClass] ?? promoteClass) : undefined
                 return (
                   <g key={element.id} className={cn("group touch-none", dragCursor)}>
                     <path
@@ -3679,7 +3713,14 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                       onPointerMove={handleElementPointerMove}
                       onPointerUp={handleElementPointerUp}
                       onPointerCancel={() => setElementDrag(null)}
-                    />
+                      onDoubleClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        promoteElement(element)
+                      }}
+                    >
+                      {promoteClassName && <title>Double-click to promote to a {promoteClassName} feature</title>}
+                    </path>
                     <RemoveControl
                       x={mid.x + removeSize * 2}
                       y={mid.y - removeSize * 2}
@@ -3734,10 +3775,15 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                 // A busbar (Slice 5): the same stored polyline as a line, drawn
                 // heavy with rounded joins so a shared bus reads as the spine
                 // devices tap onto. Draggable as one piece, hover-"x" to remove.
+                // Promotable (Phase 25) when it carries a promoteClass: double-
+                // click turns the drawn bar into a real LINE feature keeping its
+                // whole length (e.g. a template bus -> MV_BUSBAR).
                 const pts = element.path ?? []
                 if (pts.length < 2) return null
                 const stroke = (style.stroke as string) ?? "var(--foreground)"
                 const mid = polylineMidpoint(pts)
+                const promoteClass = typeof style.promoteClass === "string" ? style.promoteClass : undefined
+                const promoteClassName = promoteClass ? (classNameByCode[promoteClass] ?? promoteClass) : undefined
                 return (
                   <g key={element.id} className={cn("group touch-none", dragCursor)}>
                     <path
@@ -3752,7 +3798,14 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                       onPointerMove={handleElementPointerMove}
                       onPointerUp={handleElementPointerUp}
                       onPointerCancel={() => setElementDrag(null)}
-                    />
+                      onDoubleClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        promoteElement(element)
+                      }}
+                    >
+                      {promoteClassName && <title>Double-click to promote to a {promoteClassName} feature</title>}
+                    </path>
                     <RemoveControl
                       x={mid.x + removeSize * 2}
                       y={mid.y - removeSize * 2}
@@ -3832,7 +3885,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                     onDoubleClick={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
-                      promoteSymbol(element)
+                      promoteElement(element)
                     }}
                   >
                     {promoteClassName && <title>Double-click to promote to a {promoteClassName} feature</title>}

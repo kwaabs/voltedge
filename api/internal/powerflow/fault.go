@@ -57,7 +57,7 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 	}
 	loader := newFeatureClassLoader()
 
-	tr, barrierHits, err := buildTree(ctx, db, start, barriers, loader)
+	tr, barrierHits, err := buildTree(ctx, db, start, barriers, loader, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -75,6 +75,13 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 		sourceR, sourceX = resolveSourceImpedance(startState.attrs)
 	}
 	paths := accumulateSeriesImpedance(tr, states, start, req.NominalVoltageV, sourceR, sourceX)
+
+	// Embedded-generation fault infeed (Tier A): every GENERATOR in the tree is
+	// a second fault source, contributing to the three-phase fault at each node
+	// by superposition through its own path. Empty (all zero) on a network with
+	// no generation, so the grid-only figures are unchanged there. SLG figures
+	// stay grid-only -- see genfault.go.
+	genContribs := generatorFaultContributions(tr, states, paths, start, sourceR, sourceX)
 
 	// Zero-sequence network only for an SLG run. The source Z0 is the start
 	// node's own source_r0_ohm/source_x0_ohm when set, else the positive-sequence
@@ -98,7 +105,7 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 		return nil, err
 	}
 
-	nodes := formatFaultResults(tr, states, paths, z0, req.FaultImpedanceOhm, classCodes)
+	nodes := formatFaultResults(tr, states, paths, genContribs, z0, req.FaultImpedanceOhm, classCodes)
 
 	return &faultCurrentResponse{
 		Start:           req.Start,
@@ -194,7 +201,7 @@ func accumulateSeriesImpedance(tr *tree, states map[node]*nodeState, start node,
 // z0 is nil on a three-phase run (no SLG fields emitted) and the per-node
 // zero-sequence path on an SLG run; faultImpedanceOhm is the fault's own Zf,
 // entering the SLG denominator as the standard 3·Zf term.
-func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pathImpedance, z0 map[node]zeroSeqPath, faultImpedanceOhm float64, classCodes map[string]string) []faultNodeResult {
+func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pathImpedance, genContribs map[node]float64, z0 map[node]zeroSeqPath, faultImpedanceOhm float64, classCodes map[string]string) []faultNodeResult {
 	nodes := make([]faultNodeResult, 0, len(tr.order))
 	for _, n := range tr.order {
 		if _, ok := states[n]; !ok {
@@ -216,8 +223,22 @@ func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pat
 			MaterialResolved: p.resolved,
 		}
 		if impedanceOhm > 0 {
-			faultCurrentAmps := p.baseV / impedanceOhm
-			res.FaultCurrentAmps = &faultCurrentAmps
+			// Grid infeed (the figure this endpoint has always reported), plus any
+			// embedded-generation contribution to this node's fault by
+			// superposition. FaultCurrentAmps is the TOTAL -- the prospective duty
+			// switchgear here must interrupt. The split is surfaced only when a
+			// generator actually contributes, so a network with no generation reads
+			// exactly as before.
+			gridAmps := p.baseV / impedanceOhm
+			genAmps := genContribs[n]
+			totalAmps := gridAmps + genAmps
+			res.FaultCurrentAmps = &totalAmps
+			if genAmps > 0 {
+				grid := gridAmps
+				gen := genAmps
+				res.GridContributionAmps = &grid
+				res.GeneratorContributionAmps = &gen
+			}
 		}
 
 		if z0 != nil {

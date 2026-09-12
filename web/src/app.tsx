@@ -26,6 +26,7 @@ import { FeaturesPage } from "@/routes/features"
 import { LoginPage } from "@/routes/login"
 import { MapPage } from "@/routes/map"
 import { NotFoundPage } from "@/routes/not-found"
+import { OutagesPage } from "@/routes/outages"
 import { RelationshipsPage } from "@/routes/relationships"
 import { SettingsPage } from "@/routes/settings"
 
@@ -58,6 +59,17 @@ export function App() {
           </Route>
           <Route element={<AppLayout />}>
             <Route path="features" element={<FeaturesPage />} />
+            {/* The outage board is gated at the route by oms:read (view); the
+                log/predict/lifecycle controls inside self-gate on oms:write, so
+                a read-only viewer sees the board without the action buttons. */}
+            <Route
+              path="outages"
+              element={
+                <RequirePermission perm="oms:read">
+                  <OutagesPage />
+                </RequirePermission>
+              }
+            />
             <Route path="connectivity" element={<ConnectivityPage />} />
             <Route path="relationships" element={<RelationshipsPage />} />
             <Route path="admin/feature-classes" element={<AdminFeatureClassesPage />} />

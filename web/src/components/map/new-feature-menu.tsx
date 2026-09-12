@@ -15,6 +15,7 @@ import { useCouplerOptions } from "@/hooks/use-couplers"
 import { useDuctOptions } from "@/hooks/use-ducts"
 import { type FeatureClassSummary, useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useRMUOptions } from "@/hooks/use-rmus"
+import { useTieOptions } from "@/hooks/use-ties"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
 
 const DRAWABLE_GEOMETRY_TYPES: readonly DrawGeometryType[] = ["point", "line", "polygon"]
@@ -72,10 +73,12 @@ export function NewFeatureMenu() {
   const { data: rmuOptions } = useRMUOptions()
   const { data: ductOptions } = useDuctOptions()
   const { data: couplerOptions } = useCouplerOptions()
+  const { data: tieOptions } = useTieOptions()
   const startDrawing = useDrawStore((s) => s.startDrawing)
   const startRMUDrawing = useDrawStore((s) => s.startRMUDrawing)
   const startDuctDrawing = useDrawStore((s) => s.startDuctDrawing)
   const startCouplerDrawing = useDrawStore((s) => s.startCouplerDrawing)
+  const startTieDrawing = useDrawStore((s) => s.startTieDrawing)
   const cancelDrawing = useDrawStore((s) => s.cancelDrawing)
   const drawing = useDrawStore((s) => s.drawingFeatureClassCode)
   const drawingGeometryType = useDrawStore((s) => s.drawingGeometryType)
@@ -207,6 +210,27 @@ export function NewFeatureMenu() {
                 onSelect={() => startCouplerDrawing(o.breaker_feature_class, o.bus_feature_classes)}
               >
                 {o.breaker_feature_class_name}
+              </DropdownMenuItem>
+            ))}
+          </>
+        )}
+        {tieOptions && tieOptions.length > 0 && (
+          // A feeder tie places as a point (the switch) but its Save wires the
+          // switch between two picked feeders and forces it normally-open (POST
+          // /ties). Like the coupler the switch class stays in the generic list
+          // above -- you still place ordinary switches there; this is the extra
+          // "wired across two feeders, born NORMALLY_OPEN" affordance, passing the
+          // option's eligible feeder classes so the create form knows which
+          // classes to pick the two conductors from.
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Feeder tie (NOP)</DropdownMenuLabel>
+            {tieOptions.map((o) => (
+              <DropdownMenuItem
+                key={o.switch_feature_class}
+                onSelect={() => startTieDrawing(o.switch_feature_class, o.feeder_feature_classes)}
+              >
+                {o.switch_feature_class_name}
               </DropdownMenuItem>
             ))}
           </>

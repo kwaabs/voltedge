@@ -61,6 +61,16 @@ export interface LabelDef {
   rotation?: number
 }
 
+/** A feature class's map display-zoom band (migration 0090) -- the map hides
+ * the whole feature (glyph + label) below `min` / above `max`. Either bound
+ * may be absent (no bound on that side). A true visibility gate applied in
+ * createSymbologyStyle, distinct from a symbology rule's own min_zoom/max_zoom
+ * (which pick a style, never hide). */
+export interface DisplayZoomBand {
+  min?: number
+  max?: number
+}
+
 /** One symbology_rules row, pre-resolved server-side (see
  * api/cmd/server/main.go's resolveSymbologySchema) -- domain_field is
  * already the field *name* a rendered feature's own attribute should

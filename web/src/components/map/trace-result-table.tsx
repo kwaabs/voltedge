@@ -22,6 +22,12 @@ const DIRECTION_LABEL: Record<string, string> = {
   // a real trace_configurations direction.
   FEEDER: "Feeder",
   SECTION: "Section",
+  // Not a real trace_configurations direction either -- feature-panel.tsx's
+  // "Supply path" trigger hits POST /trace/supply-path (a fixed barrier-free
+  // upstream walk) and normalizes its response into this same TraceResult
+  // display, with the serving transformer / switching devices / source as
+  // `targets`.
+  SUPPLY_PATH: "Supply path",
 }
 
 function shortId(id: string): string {

@@ -261,7 +261,7 @@ func runCoordination(ctx context.Context, db bun.IDB, req coordinationRequest) (
 	}
 	loader := newFeatureClassLoader()
 
-	tr, barrierHits, err := buildTree(ctx, db, start, barriers, loader)
+	tr, barrierHits, err := buildTree(ctx, db, start, barriers, loader, nil, nil)
 	if err != nil {
 		return nil, err
 	}

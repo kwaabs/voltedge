@@ -27,6 +27,10 @@ import (
 //	POST   /section        the section a feature sits in -- everything
 //	                       between the nearest bounding device upstream
 //	                       and downstream of it
+//	POST   /supply-path    the upstream supply chain feeding a
+//	                       consumption point -- LV switching devices, the
+//	                       serving distribution transformer, then on to
+//	                       the MV devices, power transformer, and source
 //
 // Read-only -- unlike api/internal/connectivity and
 // api/internal/relationship, there's nothing here to establish or
@@ -39,6 +43,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/isolate", isolateHandler(db))
 	r.Post("/feeder", feederHandler(db))
 	r.Post("/section", sectionHandler(db))
+	r.Post("/supply-path", supplyPathHandler(db))
 	return r
 }
 
@@ -102,6 +107,23 @@ func sectionHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := sectionTrace(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func supplyPathHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req supplyPathRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := supplyPathTrace(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

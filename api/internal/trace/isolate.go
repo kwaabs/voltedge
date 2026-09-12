@@ -137,20 +137,21 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 		deEnergizedNodes = append(deEnergizedNodes, n)
 	}
 
-	boundaryClassCode := req.BoundaryClass
-	if boundaryClassCode == "" {
-		boundaryClassCode = req.Device.FeatureClass
-	}
-	boundaryLoaded, err := metadata.Load(ctx, db, boundaryClassCode)
+	// Upstream isolation boundary: the nearest switching device above Device.
+	// A request that names a boundary_class is honored as exactly that one
+	// class. Otherwise the boundary is the nearest CONTROLLER -- any class
+	// carrying functional_role='controller' (migration 0091), which spans
+	// every switch/breaker/recloser/isolator/fuse rather than only Device's
+	// own class, so isolating an MV_BREAKER correctly stops at an upstream
+	// MV_SWITCH (or vice versa), whatever the nearest switching device is.
+	// Falls back to Device's own class when no controller role is stamped yet,
+	// preserving the pre-role behavior on an unclassified deployment.
+	boundaryClassIDs, err := boundaryClassSet(ctx, db, req.BoundaryClass, req.Device.FeatureClass)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, notFound("boundary feature class %q does not exist", boundaryClassCode)
-		}
 		return nil, err
 	}
-	boundaryClassID := boundaryLoaded.FeatureClass.ID
 
-	_, _, boundaryHits, _, _, err := bfs(ctx, db, device, "UPSTREAM", map[string][]barrierCheck{}, loader, nil, &boundaryClassID, false, nil)
+	_, _, boundaryHits, _, _, err := bfs(ctx, db, device, "UPSTREAM", map[string][]barrierCheck{}, loader, nil, boundaryClassIDs, false, nil)
 	if err != nil {
 		return nil, err
 	}

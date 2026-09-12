@@ -38,6 +38,32 @@ func readFloatAttr(attrs map[string]any, name string) (float64, bool) {
 	}
 }
 
+// readIntAttr reads an integer attribute (today only the subtype code) out of a
+// feature row defensively -- the driver may hand a small integer back as any of
+// int/int64/int32, a float64 (json-style), or a numeric string, and this
+// package has no reason to care which. Anything else, absent, or null isn't a
+// usable code.
+func readIntAttr(v any) (int, bool) {
+	switch t := v.(type) {
+	case int:
+		return t, true
+	case int64:
+		return int(t), true
+	case int32:
+		return int(t), true
+	case float64:
+		return int(t), true
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(t))
+		if err != nil {
+			return 0, false
+		}
+		return n, true
+	default:
+		return 0, false
+	}
+}
+
 // resolveMaterialSpecByCode looks up the material spec (if any) one
 // specific domain value code resolves to -- the same domain_values.
 // material_spec_id link api/cmd/server/main.go's resolveMaterialSpecs
@@ -70,6 +96,7 @@ func resolveMaterialSpecByCode(ctx context.Context, db bun.IDB, domainID, code s
 type conductorImpedance struct {
 	rOhm         float64
 	xOhm         float64
+	lengthM      float64
 	ampacityAmps *float64
 	resolved     bool
 
@@ -150,7 +177,7 @@ func resolveConductorImpedance(ctx context.Context, db bun.IDB, loaded *metadata
 			x0 = *spec.ReactanceZeroOhmPerKm * lengthKm
 		}
 		return conductorImpedance{
-			rOhm: r, xOhm: x, r0Ohm: r0, x0Ohm: x0,
+			rOhm: r, xOhm: x, lengthM: lengthM, r0Ohm: r0, x0Ohm: x0,
 			zeroSeqResolved: zeroSeqResolved, ampacityAmps: spec.AmpacityAmps, resolved: true,
 		}, nil
 	}
@@ -186,6 +213,187 @@ func resolveDemand(attrs map[string]any) (kw, kvar float64) {
 	}
 	kvar = kw * math.Tan(math.Acos(pf))
 	return kw, kvar
+}
+
+// genFieldRatedKW/genFieldDispatchKW/genFieldPF are the field names an
+// embedded-generation asset (a GENERATOR feature class, Tier A) carries.
+// rated_kw is the nameplate; dispatch_kw is an optional actual-output
+// override (curtailment, a diesel run at part load, a PV inverter
+// clipping); power_factor is the operating pf (reused field name -- a
+// generator node carries power_factor just like a load does, and the
+// two never collide because a node is a load *or* a generator by which
+// kW field it carries, resolveDemand keying off demand_kw and this off
+// rated_kw/dispatch_kw).
+const (
+	genFieldRatedKW    = "rated_kw"
+	genFieldDispatchKW = "dispatch_kw"
+	genFieldPF         = "power_factor"
+)
+
+// resolveGeneration reads a node's own embedded-generation *injection*
+// magnitude (P, Q) -- zero for any node that doesn't carry a generation
+// field (every load/junction/edge). A generator is modelled exactly as
+// hosting.go's DER study models a candidate: negative demand at its
+// node. The sweep already handles a node whose net own power is negative
+// (voltage rises, upstream flow drops) -- this just makes the injection
+// a permanent, asset-driven fact (nameplate/dispatch) rather than a
+// search knob. The caller (resolveNodeStates) subtracts these from the
+// node's demand, so the sign lives at the netting site, not here: this
+// returns the injection as a positive magnitude.
+//
+// dispatch_kw, when *present*, is authoritative even at 0 (a curtailed
+// or offline unit injects nothing); only its absence falls back to the
+// rated_kw nameplate (a unit assumed at full output). Q is derived from
+// P and pf exactly as resolveDemand does (Q = P * tan(acos(pf))), so at
+// pf < 1 the generator also injects reactive power, lifting voltage
+// further -- the same qPerKW = tan(acos(pf)) hosting.go uses. A leading
+// (VAR-absorbing) inverter mode is a Tier B refinement, not modelled
+// here; Tier A injects P and Q at the stated pf.
+func resolveGeneration(attrs map[string]any) (kw, kvar float64) {
+	kw, ok := readFloatAttr(attrs, genFieldDispatchKW)
+	if !ok {
+		kw, ok = readFloatAttr(attrs, genFieldRatedKW)
+	}
+	if !ok || kw <= 0 {
+		return 0, 0
+	}
+	pf, ok := readFloatAttr(attrs, genFieldPF)
+	if !ok || pf <= 0 || pf > 1 {
+		pf = 1
+	}
+	kvar = kw * math.Tan(math.Acos(pf))
+	return kw, kvar
+}
+
+// genFieldFaultKA/genFieldXdppPct are the two field names a GENERATOR carries
+// its fault-current *contribution* under (distinct from resolveGeneration's
+// load-flow injection fields). A generator is a SECOND fault source: during a
+// bolted fault it feeds current in through its own internal impedance plus the
+// network between it and the fault. fault_contribution_ka is the explicit,
+// authoritative figure (the interconnection-study number, and the natural fit
+// for a current-limited inverter); subtransient_reactance_pct is the classic
+// synchronous-machine X''d on the machine's own kVA base, the derived fallback.
+const (
+	genFieldFaultKA = "fault_contribution_ka"
+	genFieldXdppPct = "subtransient_reactance_pct"
+)
+
+// inverterFaultMultiple is the fault current an inverter-interfaced generator
+// (solar_pv / battery) contributes as a multiple of its rated current when no
+// explicit fault_contribution_ka is set -- power electronics current-limit at
+// ~1.1-1.5x rated rather than presenting a voltage behind a sub-transient
+// reactance the way a rotating machine does, so a representative 1.2x is the
+// graceful-degradation default. A synchronous machine gets NO such default (it
+// needs X''d or an explicit kA), because assuming one would badly misstate its
+// far larger contribution.
+const inverterFaultMultiple = 1.2
+
+// genFaultMode records how a generator's fault contribution was characterised
+// -- which of the precedence branches resolveGeneratorFaultSpec took.
+type genFaultMode int
+
+const (
+	genFaultNone         genFaultMode = iota
+	genFaultExplicitKA                // fault_contribution_ka, authoritative
+	genFaultSubtransient              // subtransient_reactance_pct on the machine kVA base
+	genFaultInverter                  // inverter default: inverterFaultMultiple x rated current
+)
+
+// genFaultSpec is a generator node's resolved fault-contribution *inputs*, kept
+// as inputs rather than a final ohm value because turning a %reactance or a
+// rated current into ohms needs the machine's terminal voltage, which is only
+// known once the fault walk has referred a voltage base to the node.
+// genfault.go finishes the job (genFaultImpedanceOhm). ok = false for every
+// non-generator node and for a generator carrying no usable fault data (no
+// infeed modelled -- an inert leaf in the fault study, same as it is when it
+// carries no injection in a load flow).
+type genFaultSpec struct {
+	ok      bool
+	mode    genFaultMode
+	faultKA float64 // explicit contribution (kA), mode genFaultExplicitKA
+	xdppPct float64 // sub-transient reactance %, mode genFaultSubtransient
+	sVA     float64 // rated apparent power (VA), modes genFaultSubtransient/Inverter
+}
+
+// resolveGeneratorFaultSpec reads a node's embedded-generation fault-contribution
+// inputs. Precedence mirrors the dispatch_kw->rated_kw graceful-degradation
+// contract: an explicit fault_contribution_ka wins; else a synchronous machine's
+// subtransient_reactance_pct on its rated-kVA base; else an inverter subtype
+// (solar_pv/battery) falls back to inverterFaultMultiple x rated current; else no
+// contribution. The rated apparent power is derived from the *nameplate*
+// rated_kw (NOT dispatch_kw -- a curtailed or part-loaded machine that is still
+// connected contributes its full sub-transient fault current; only removing it
+// from the network, e.g. operational_state ISOLATED barring it from the tree,
+// zeroes the infeed) and power_factor (unity when unset). subtypeName is the
+// generation_type subtype slug, used only to classify inverter vs machine.
+func resolveGeneratorFaultSpec(attrs map[string]any, subtypeName string) genFaultSpec {
+	if faultKA, ok := readFloatAttr(attrs, genFieldFaultKA); ok && faultKA > 0 {
+		return genFaultSpec{ok: true, mode: genFaultExplicitKA, faultKA: faultKA}
+	}
+	ratedKW, okKW := readFloatAttr(attrs, genFieldRatedKW)
+	if !okKW || ratedKW <= 0 {
+		return genFaultSpec{} // no nameplate -> no rated current to derive from
+	}
+	pf, ok := readFloatAttr(attrs, genFieldPF)
+	if !ok || pf <= 0 || pf > 1 {
+		pf = 1
+	}
+	sVA := ratedKW * 1000 / pf
+	if xdpp, ok := readFloatAttr(attrs, genFieldXdppPct); ok && xdpp > 0 {
+		return genFaultSpec{ok: true, mode: genFaultSubtransient, xdppPct: xdpp, sVA: sVA}
+	}
+	if isInverterGeneration(subtypeName) {
+		return genFaultSpec{ok: true, mode: genFaultInverter, sVA: sVA}
+	}
+	return genFaultSpec{}
+}
+
+// isInverterGeneration classifies a generation_type subtype as inverter-
+// interfaced (current-limited fault behaviour) vs a rotating machine. solar_pv
+// and battery are inverter-coupled; diesel/hydro/gas_chp are synchronous
+// machines; wind is treated as a machine (its fault behaviour depends on the
+// turbine type -- a Type 1/2 induction machine contributes like a rotating
+// machine, a Type 3/4 converter like an inverter -- so the conservative machine
+// model applies unless an explicit fault_contribution_ka is given).
+func isInverterGeneration(subtypeName string) bool {
+	switch subtypeName {
+	case "solar_pv", "battery":
+		return true
+	default:
+		return false
+	}
+}
+
+// genFaultImpedanceOhm turns a resolved spec into the generator's internal
+// per-phase fault impedance in ohms on its terminal base vTermV, on the SAME
+// V^2/S convention the source impedance (resolveSourceImpedance) and transformer
+// %Z (resolveTransformerModel) use -- so the engine's own I = V/|Z| formula
+// yields a contribution current on the same (line-to-line-referred) basis as the
+// grid infeed and the two combine coherently, and a later fix to that basis
+// scales both together. Returned as a reactance magnitude: a synchronous
+// machine's sub-transient impedance and an inverter's notional source impedance
+// are both predominantly reactive (the same simplification groundfault.go makes
+// for an earthing transformer's Z0). Zero (no contribution) for an unresolved
+// spec or a non-positive terminal voltage.
+func (s genFaultSpec) genFaultImpedanceOhm(vTermV float64) float64 {
+	if !s.ok || vTermV <= 0 {
+		return 0
+	}
+	switch s.mode {
+	case genFaultExplicitKA:
+		// fault_contribution_ka is the physical terminal contribution; its ohm
+		// equivalent on the source's own V^2/S basis is V/(sqrt3*I) -- the same
+		// V_LL^2/S_fault reasoning a grid source's ohms are specced from.
+		return vTermV / (math.Sqrt(3) * s.faultKA * 1000)
+	case genFaultSubtransient:
+		// X''d(pu) * Z_base, Z_base = V^2/S (per-phase, 3-phase base).
+		return (s.xdppPct / 100) * vTermV * vTermV / s.sVA
+	case genFaultInverter:
+		// inverterFaultMultiple x rated current -> Z = V^2/(mult*S).
+		return vTermV * vTermV / (inverterFaultMultiple * s.sVA)
+	default:
+		return 0
+	}
 }
 
 // sourceFieldR/sourceFieldX are the two field names the sweep's own

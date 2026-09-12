@@ -1,4 +1,4 @@
-import { Cloud, Database, Inbox, LandPlot, Layers, Link2, Map, MapPin, Package, Rows3, Settings, Shapes, Stamp, Tags, UsersRound, Waypoints, Workflow, Wrench, Zap } from "lucide-react"
+import { Cloud, Database, Inbox, LandPlot, Layers, Link2, Map, MapPin, Package, Rows3, Settings, Shapes, Siren, Stamp, Tags, UsersRound, Waypoints, Workflow, Wrench, Zap } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import {
@@ -23,6 +23,7 @@ import { usePermission } from "@/hooks/use-auth"
  */
 const dataItems = [
   { to: "/features", label: "Feature classes", icon: Database, perm: "features:read" },
+  { to: "/outages", label: "Outages", icon: Siren, perm: "oms:read" },
   { to: "/connectivity", label: "Connectivity", icon: Waypoints, perm: "connectivity:read" },
   { to: "/relationships", label: "Relationships", icon: Link2, perm: "relationships:read" },
 ]

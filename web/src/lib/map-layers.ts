@@ -6,7 +6,7 @@ import type View from "ol/View"
 
 import { lineDashArray, type LineDashStyle } from "@/lib/line-dash"
 import { iconDataUri, type IconRegistry } from "@/lib/symbology-icons"
-import { resolveSymbology, type LabelDef, type SymbologyRuleSchema } from "@/lib/symbology"
+import { resolveSymbology, type DisplayZoomBand, type LabelDef, type SymbologyRuleSchema } from "@/lib/symbology"
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
 import { useEditStore } from "@/stores/edit-store"
 
@@ -187,6 +187,7 @@ export type HighlightRole =
   | "fault-current"
   | "fault-current-barrier"
   | "query-result"
+  | "outage-affected"
 
 /** Exported so diagram-canvas.tsx can highlight a selected/connect-role
  * placement with the exact same colors the map's own highlight layer
@@ -210,6 +211,11 @@ export const HIGHLIGHT_COLORS: Record<HighlightRole, string> = {
   // no other highlight role uses, so a query result set never reads as a
   // trace, isolation, or selection halo.
   "query-result": "#ec4899",
+  // The service points in a selected OMS incident's outage cone (Phase 49
+  // map overlay). Rose -- distinct from the orange isolation/load-flow
+  // roles and the pink query-result -- so an affected-customer set reads as
+  // its own thing, not a trace or isolation.
+  "outage-affected": "#e11d48",
 }
 
 function highlightStyleFor(color: string, geometryType: string | undefined): Style {
@@ -425,6 +431,7 @@ export function createSymbologyStyle(
   view: View,
   icons?: IconRegistry,
   labelDef?: LabelDef,
+  displayZoom?: DisplayZoomBand,
 ) {
   return function symbologyStyleForFeature(feature: FeatureLike, resolution: number): Style | Style[] {
     if (isHiddenFeature(feature)) return hiddenStyle
@@ -433,6 +440,18 @@ export function createSymbologyStyle(
     const props = feature.getProperties() as Record<string, unknown>
     const subtype = typeof props.subtype === "number" ? props.subtype : undefined
     const zoom = view.getZoomForResolution(resolution)
+
+    // Per-class display-zoom band (migration 0090): a true visibility gate --
+    // outside the class's declared band the whole feature (glyph AND label)
+    // draws nothing, so it's also not hittable for click/select on the tile.
+    // Unlike a symbology rule's own min_zoom/max_zoom (which only pick which
+    // style applies, never hide), this returns before geometry or label is
+    // built. undefined band or unresolvable zoom = no gate (draw as normal).
+    if (displayZoom && zoom !== undefined) {
+      if (displayZoom.min !== undefined && zoom < displayZoom.min) return hiddenStyle
+      if (displayZoom.max !== undefined && zoom > displayZoom.max) return hiddenStyle
+    }
+
     const def = resolveSymbology(rules, subtype, props, "map", zoom ?? undefined)
 
     // A line labels ALONG itself; a point/polygon labels at a single

@@ -62,6 +62,13 @@ export interface FeatureClassSchema {
    * structural / unclassified classes. The create/edit form passes it to the
    * circuit_id field's picker to scope it to same-network circuits. */
   network?: "MV" | "LV"
+  /** Map display-zoom band (migration 0090) -- the geographic map hides the
+   * whole feature (glyph + label) below min_display_zoom / above
+   * max_display_zoom. Each absent = no bound; both absent = draw at every
+   * zoom. Consumed by createSymbologyStyle (map-layers.ts). Distinct from a
+   * symbology rule's own min_zoom/max_zoom, which pick a style not visibility. */
+  min_display_zoom?: number
+  max_display_zoom?: number
 }
 
 /**

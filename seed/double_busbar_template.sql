@@ -39,13 +39,13 @@ SELECT
   $$
   {
     "elements": [
-      { "kind": "bus", "x": 100, "y": 140, "rotation": 0, "z_index": 0, "path": [[100,140],[900,140]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "bus", "x": 100, "y": 340, "rotation": 0, "z_index": 0, "path": [[100,340],[900,340]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "bus", "x": 100, "y": 140, "rotation": 0, "z_index": 0, "path": [[100,140],[900,140]], "style": {"stroke": "var(--foreground)", "promoteClass": "MV_BUSBAR"} },
+      { "kind": "bus", "x": 100, "y": 340, "rotation": 0, "z_index": 0, "path": [[100,340],[900,340]], "style": {"stroke": "var(--foreground)", "promoteClass": "MV_BUSBAR"} },
 
-      { "kind": "line", "x": 250, "y": 140, "rotation": 0, "z_index": 0, "path": [[250,140],[250,500]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 470, "y": 140, "rotation": 0, "z_index": 0, "path": [[470,140],[470,500]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 690, "y": 140, "rotation": 0, "z_index": 0, "path": [[690,140],[690,500]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 850, "y": 140, "rotation": 0, "z_index": 0, "path": [[850,140],[850,340]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 250, "y": 140, "rotation": 0, "z_index": 0, "path": [[250,140],[250,500]], "style": {"stroke": "var(--foreground)", "promoteClass": "MV_CONDUCTOR"} },
+      { "kind": "line", "x": 470, "y": 140, "rotation": 0, "z_index": 0, "path": [[470,140],[470,500]], "style": {"stroke": "var(--foreground)", "promoteClass": "MV_CONDUCTOR"} },
+      { "kind": "line", "x": 690, "y": 140, "rotation": 0, "z_index": 0, "path": [[690,140],[690,500]], "style": {"stroke": "var(--foreground)", "promoteClass": "MV_CONDUCTOR"} },
+      { "kind": "line", "x": 850, "y": 140, "rotation": 0, "z_index": 0, "path": [[850,140],[850,340]], "style": {"stroke": "var(--foreground)", "promoteClass": "MV_CONDUCTOR"} },
 
       { "kind": "symbol", "x": 250, "y": 230, "rotation": 0, "z_index": 10, "style": {"iconRef": "ansi-disconnect", "color": "#334155"} },
       { "kind": "symbol", "x": 250, "y": 380, "rotation": 0, "z_index": 10, "style": {"iconRef": "ansi-disconnect", "color": "#334155"} },

@@ -30,6 +30,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/circuit"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/coupler"
+	"github.com/kwaabs/voltedge/api/internal/tie"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/diagram"
 	"github.com/kwaabs/voltedge/api/internal/duct"
@@ -40,6 +41,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/mapannotation"
 	"github.com/kwaabs/voltedge/api/internal/mapsettings"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/kwaabs/voltedge/api/internal/oms"
 	"github.com/kwaabs/voltedge/api/internal/panel"
 	"github.com/kwaabs/voltedge/api/internal/powerflow"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
@@ -163,6 +165,11 @@ func main() {
 	// features (a feature's circuit_id resolves to a circuit name here), so the
 	// read side rides features:read while curation needs circuits:write.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermCircuitsWrite)).Mount("/circuits", circuit.Routes(db))
+	// Outage Management (Phase 49): the outage board -- trouble-call intake,
+	// call-to-device prediction, and incident lifecycle. Its own oms:read/
+	// oms:write capability (an outage is an operational transaction, not feature
+	// data), gated method-aware here so this router carries no auth of its own.
+	r.With(auth.RequirePermission(auth.PermOMSRead, auth.PermOMSWrite)).Mount("/oms", oms.Routes(db))
 	// Phase 22: files attached to features (docs/phase-22-attachments.md). A
 	// method-aware attachments:read/write gate covers the mount; the bytes ride
 	// presigned URLs straight to/from RustFS (exportStore's bucket), so this
@@ -201,6 +208,15 @@ func main() {
 	// adds an inner connectivity:commit requirement -- the /rmus gate, one
 	// capability shallower (no relationships:commit: a coupler wires no assembly).
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/couplers", coupler.Routes(db))
+	// Phase 50 Slice 2 Part A (docs/phase-50-advanced-analysis.md): the composite
+	// "create one feeder-to-feeder tie" endpoint -- create an MV_SWITCH and wire it
+	// between two named conductors (switch rules 1 + 3) in one transaction, born
+	// normal_state=NORMALLY_OPEN + device_state=OPEN so it is a standby (NOP) path.
+	// Same shape as /couplers: creates a feature and commits two connections (no
+	// containment), so the method-aware features gate here covers the create and
+	// tie.Routes adds an inner connectivity:commit requirement. The N-1 contingency
+	// analysis (Part B) is these ties' first engine consumer.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/ties", tie.Routes(db))
 	// Phase 32 (docs/phase-32-external-links.md): outbound links from a feature
 	// to external systems. Slice 1 is plain hyperlinks. Reading/writing a
 	// feature's links rides the same features:read/features:write gate every map
@@ -310,6 +326,9 @@ type featureClassResponse struct {
 	Name                string  `json:"name"`
 	GeometryType        string  `json:"geometry_type"`
 	NetworkRole         string  `json:"network_role"`
+	// FunctionalRole is the class's electrical function (migration 0091), nil for
+	// an unclassified / non-electrical class -- orthogonal to network_role.
+	FunctionalRole      *string `json:"functional_role,omitempty"`
 	IsDiagramContainer  bool    `json:"is_diagram_container"`
 	IsDiagramPlaceable  bool    `json:"is_diagram_placeable"`
 	GeometryOptional    bool    `json:"geometry_optional"`
@@ -341,6 +360,7 @@ func featureClassesHandler(db *bun.DB) http.HandlerFunc {
 				Name:                fc.Name,
 				GeometryType:        fc.GeometryType,
 				NetworkRole:         fc.NetworkRole,
+				FunctionalRole:      fc.FunctionalRole,
 				IsDiagramContainer:  fc.IsDiagramContainer,
 				IsDiagramPlaceable:  fc.IsDiagramPlaceable,
 				GeometryOptional:    fc.GeometryOptional,
@@ -551,6 +571,12 @@ type featureClassSchemaResponse struct {
 	// the class isn't network-classified. The create/edit form reads it to
 	// scope the circuit_id field's picker to same-network circuits.
 	Network *string `json:"network,omitempty"`
+	// Map display-zoom band (migration 0090) -- the map hides the whole
+	// feature below min_display_zoom / above max_display_zoom. Each omitted
+	// when unset (no bound). The map's style function (createSymbologyStyle)
+	// reads these; unrelated to a symbology rule's own min_zoom/max_zoom.
+	MinDisplayZoom *int `json:"min_display_zoom,omitempty"`
+	MaxDisplayZoom *int `json:"max_display_zoom,omitempty"`
 }
 
 // resolveSymbologySchema loads every one of a feature class's symbology
@@ -748,8 +774,10 @@ func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 			Fields:       fields,
 			Terminals:    terminals,
 			Symbology:    symbology,
-			LabelDef:     loaded.FeatureClass.LabelDef,
-			Network:      loaded.FeatureClass.Network,
+			LabelDef:       loaded.FeatureClass.LabelDef,
+			Network:        loaded.FeatureClass.Network,
+			MinDisplayZoom: loaded.FeatureClass.MinDisplayZoom,
+			MaxDisplayZoom: loaded.FeatureClass.MaxDisplayZoom,
 		})
 	}
 }

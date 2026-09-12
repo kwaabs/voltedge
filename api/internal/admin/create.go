@@ -136,6 +136,11 @@ func createFeatureClass(ctx context.Context, db *bun.DB, req createFeatureClassR
 			IsDiagramPlaceable: req.IsDiagramPlaceable,
 			GeometryOptional:   req.GeometryOptional,
 		}
+		// functional_role (migration 0091): optional, "" means unclassified (NULL).
+		if req.FunctionalRole != nil && *req.FunctionalRole != "" {
+			v := *req.FunctionalRole
+			fc.FunctionalRole = &v
+		}
 		if _, err := tx.NewInsert().Model(fc).ExcludeColumn("id", "physical_table", "metadata_version_id").Returning("id").Exec(ctx); err != nil {
 			return fmt.Errorf("insert feature class: %w", err)
 		}

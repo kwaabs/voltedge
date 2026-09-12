@@ -5,11 +5,13 @@ import { Loader2 } from "lucide-react"
 import { type BusPick, CouplerBusPicker } from "@/components/map/coupler-bus-picker"
 import { FieldInput } from "@/components/map/feature-field-input"
 import { formatFieldLabel, inputClass } from "@/components/map/field-utils"
+import { type FeederPick, TieFeederPicker } from "@/components/map/tie-feeder-picker"
 import { Button } from "@/components/ui/button"
 import type { CreateCouplerResult } from "@/hooks/use-couplers"
 import { type FieldSchema, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import type { CreateDuctResult } from "@/hooks/use-ducts"
 import type { CreatePanelResult } from "@/hooks/use-panels"
+import type { CreateTieResult } from "@/hooks/use-ties"
 import { ApiError, apiFetch } from "@/lib/api"
 import { useAssistantStore } from "@/stores/assistant-store"
 import { useDrawStore } from "@/stores/draw-store"
@@ -50,6 +52,11 @@ export function FeatureCreateForm() {
   // CouplerBusPicker inputs, and sent as bus_a/bus_b on Save.
   const [busA, setBusA] = useState<BusPick | null>(null)
   const [busB, setBusB] = useState<BusPick | null>(null)
+  // The two feeders a tie draft bridges (Phase 50 Slice 2). Only ever set for a
+  // draft.tie; picked in the form via the two TieFeederPicker inputs and sent as
+  // feeder_a/feeder_b on Save. The mirror of busA/busB for cross-feeder ties.
+  const [feederA, setFeederA] = useState<FeederPick | null>(null)
+  const [feederB, setFeederB] = useState<FeederPick | null>(null)
 
   // Fresh form state for every new draft -- a leftover subtype pick or
   // attribute value from a just-canceled or just-saved draft has no
@@ -74,6 +81,10 @@ export function FeatureCreateForm() {
     // alongside the rest of the form state.
     setBusA(null)
     setBusB(null)
+    // A tie draft picks its two feeders in the form -- reset them per new draft
+    // alongside the buses.
+    setFeederA(null)
+    setFeederB(null)
   }, [draftToken])
 
   if (!draft) return null
@@ -101,7 +112,10 @@ export function FeatureCreateForm() {
   // A coupler needs both buses picked (and distinct -- CouplerBusPicker already
   // excludes the other pick, but guard anyway) before it can be wired.
   const missingCouplerBuses = !!draft.coupler && (!busA || !busB || busA.featureId === busB.featureId)
-  const canSave = !missingSubtype && !missingRequiredField && !missingCouplerBuses && !saving
+  // A tie needs both feeders picked (and distinct) before it can be wired --
+  // same gate the coupler uses, for the two conductors instead of two buses.
+  const missingTieFeeders = !!draft.tie && (!feederA || !feederB || feederA.featureId === feederB.featureId)
+  const canSave = !missingSubtype && !missingRequiredField && !missingCouplerBuses && !missingTieFeeders && !saving
 
   async function handleSave() {
     if (!draft || !schema) return
@@ -294,6 +308,37 @@ export function FeatureCreateForm() {
         return
       }
 
+      // A tie draft fans out a feeder-to-feeder normally-open tie (the switch
+      // plus the two connections wiring it between the picked feeders via the
+      // switch<->conductor rules) in one transaction via /ties
+      // (api/internal/tie). Like a coupler it carries map geometry -- the switch
+      // is a placed point -- and reuses the shared create form; normal_state and
+      // device_state rode in via the seed (NORMALLY_OPEN / OPEN), so they're
+      // already in createAttributes. The two feeder picks come from the form's
+      // own feederA/feederB state (gated non-null above).
+      if (draft.tie) {
+        const tieBody: Record<string, unknown> = {
+          switch_feature_class: draft.featureClassCode,
+          geometry: draft.geometry,
+          attributes: createAttributes,
+          feeder_a: { feature_class: feederA!.featureClass, feature_id: feederA!.featureId },
+          feeder_b: { feature_class: feederB!.featureClass, feature_id: feederB!.featureId },
+        }
+        if (needsSubtype) tieBody.subtype = subtypeCode
+        if (name.trim()) tieBody.name = name.trim()
+        const result = await apiFetch<CreateTieResult>("/ties", {
+          method: "POST",
+          body: JSON.stringify(tieBody),
+        })
+        bumpMapRefresh()
+        // Select the placed switch. No requestSuggestions: the tie's two
+        // connections are already wired by the fan-out, so there's nothing left
+        // to suggest -- the whole point of picking both feeders up front.
+        select(draft.featureClassCode, result.switch.id)
+        clearDraft()
+        return
+      }
+
       const body: Record<string, unknown> = { attributes: createAttributes }
       if (draft.geometry) body.geometry = draft.geometry
       if (needsSubtype) body.subtype = subtypeCode
@@ -403,6 +448,29 @@ export function FeatureCreateForm() {
             value={busB}
             onChange={setBusB}
             excludeId={busA?.featureId}
+          />
+        </>
+      )}
+
+      {draft.tie && (
+        // A tie bridges two feeders -- pick both conductors (from the option's
+        // eligible classes) before Save. These map to POST /ties' feeder_a /
+        // feeder_b; each picker excludes the other's pick so a tie can't wire a
+        // feeder to itself.
+        <>
+          <TieFeederPicker
+            label="Feeder A"
+            feederFeatureClasses={draft.tie.feederFeatureClasses}
+            value={feederA}
+            onChange={setFeederA}
+            excludeId={feederB?.featureId}
+          />
+          <TieFeederPicker
+            label="Feeder B"
+            feederFeatureClasses={draft.tie.feederFeatureClasses}
+            value={feederB}
+            onChange={setFeederB}
+            excludeId={feederA?.featureId}
           />
         </>
       )}

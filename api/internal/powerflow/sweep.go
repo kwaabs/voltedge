@@ -40,6 +40,13 @@ type nodeState struct {
 	ratedKVA    float64
 	hasRating   bool
 
+	// genFault is the node's resolved embedded-generation fault-contribution
+	// inputs (ok=false for every non-generator node). Read only by the
+	// fault-current study (genfault.go), which turns it into a fault infeed
+	// once the walk has referred a voltage base to the node; the load flow
+	// ignores it.
+	genFault genFaultSpec
+
 	// three-winding transformer working state (nil/empty for every other node).
 	// windingKW/windingKVAR are per-output-winding-role through-power, summed in
 	// the backward pass so each arm's own drop uses only its own load. windingOut
@@ -65,20 +72,49 @@ const (
 	windingTertiary  = "tertiary"
 )
 
-// runLoadFlow is this package's whole engine, POST /analysis/load-flow's
-// single entry point: resolve the start feature, walk it into a tree
-// (rejecting a non-radial section outright), resolve every node's own
-// electrical inputs, sweep backward to accumulate demand, sweep
-// forward to derive voltage, and format the result.
-func runLoadFlow(ctx context.Context, db bun.IDB, req loadFlowRequest) (*loadFlowResponse, error) {
-	if req.Start.FeatureClass == "" || req.Start.FeatureID == "" {
+// sweptTree is one fully-solved radial study: the tree, every node's
+// swept electrical state, the resolved start node, class codes for
+// formatting, and the barrier hits where the walk stopped. It is what
+// runSweep hands back so more than one endpoint can format the same
+// solve differently -- load-flow reports per-node voltage/loading, the
+// voltage-profile report sums per-branch losses off the same states --
+// without either re-running the (query-heavy) solve.
+type sweptTree struct {
+	tr          *tree
+	states      map[node]*nodeState
+	start       node
+	classCodes  map[string]string
+	barrierHits []node
+	nominalV    float64
+}
+
+// runSweep is the shared engine core: resolve the start feature, walk it
+// into a tree (rejecting a non-radial section outright), resolve every
+// node's own electrical inputs, sweep backward to accumulate demand, and
+// sweep forward to derive voltage. Both POST /analysis/load-flow and
+// POST /analysis/voltage-profile run exactly this and then format its
+// result their own way.
+//
+// closed is a set of nodes to treat as closed (never a barrier) for this
+// sweep only, regardless of their live device_state -- the hook the N-1
+// contingency study (POST /analysis/contingency) uses to hypothetically
+// close a normally-open tie and re-solve the picked-up section without
+// mutating runtime.feature_connectivity. Pass nil for a plain sweep.
+//
+// breaks, when non-nil, switches buildTree from "reject a mesh" to "record
+// the loop-closing edges and build a radial spanning tree anyway" -- the hook
+// the weakly-meshed load flow (POST /analysis/meshed-load-flow) uses to solve
+// a radial base case it then closes by compensation (mesh.go). Every radial
+// caller passes nil and keeps the strict radial-only behaviour.
+func runSweep(ctx context.Context, db bun.IDB, startRef featureRef, nominalV float64, closed map[node]bool, breaks *[]meshBreak) (*sweptTree, error) {
+	if startRef.FeatureClass == "" || startRef.FeatureID == "" {
 		return nil, invalid("start.feature_class and start.feature_id are required")
 	}
-	if req.NominalVoltageV <= 0 {
+	if nominalV <= 0 {
 		return nil, invalid("nominal_voltage_v must be a positive number")
 	}
 
-	start, err := resolveNode(ctx, db, req.Start)
+	start, err := resolveNode(ctx, db, startRef)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +125,7 @@ func runLoadFlow(ctx context.Context, db bun.IDB, req loadFlowRequest) (*loadFlo
 	}
 	loader := newFeatureClassLoader()
 
-	tr, barrierHits, err := buildTree(ctx, db, start, barriers, loader)
+	tr, barrierHits, err := buildTree(ctx, db, start, barriers, loader, closed, breaks)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +141,7 @@ func runLoadFlow(ctx context.Context, db bun.IDB, req loadFlowRequest) (*loadFlo
 	if startState := states[start]; startState != nil {
 		sourceR, sourceX = resolveSourceImpedance(startState.attrs)
 	}
-	forwardSweep(tr, states, start, req.NominalVoltageV, sourceR, sourceX)
+	forwardSweep(tr, states, start, nominalV, sourceR, sourceX)
 
 	allNodes := append(append([]node{}, tr.order...), barrierHits...)
 	classCodes, err := nodeClassCodes(ctx, db, allNodes)
@@ -113,14 +149,28 @@ func runLoadFlow(ctx context.Context, db bun.IDB, req loadFlowRequest) (*loadFlo
 		return nil, err
 	}
 
-	nodes, overloaded := formatResults(tr, states, classCodes)
+	return &sweptTree{
+		tr: tr, states: states, start: start,
+		classCodes: classCodes, barrierHits: barrierHits, nominalV: nominalV,
+	}, nil
+}
+
+// runLoadFlow is POST /analysis/load-flow: run the shared sweep and
+// format it into per-node voltage and per-branch loading.
+func runLoadFlow(ctx context.Context, db bun.IDB, req loadFlowRequest) (*loadFlowResponse, error) {
+	swept, err := runSweep(ctx, db, req.Start, req.NominalVoltageV, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	nodes, overloaded := formatResults(swept.tr, swept.states, swept.classCodes)
 
 	return &loadFlowResponse{
 		Start:           req.Start,
 		NominalVoltageV: req.NominalVoltageV,
 		Iterations:      sweepIterations,
 		Nodes:           nodes,
-		Barriers:        toFeatureRefs(barrierHits, classCodes),
+		Barriers:        toFeatureRefs(swept.barrierHits, swept.classCodes),
 		Overloaded:      overloaded,
 	}, nil
 }
@@ -157,12 +207,38 @@ func resolveNodeStates(ctx context.Context, db bun.IDB, tr *tree, loader *featur
 			}
 		}
 		ownKW, ownKVAR := resolveDemand(attrs)
+		// Net embedded generation in as negative demand (Tier A): a
+		// GENERATOR injects (P, Q) at its node, so the node's net own
+		// power is demand minus generation. A pure generator (no
+		// demand_kw) ends up with a negative ownKW, which backwardSweep
+		// carries up the tree as a reduction in upstream flow and
+		// forwardSweep reads as a local voltage rise -- the exact
+		// negative-demand model hosting.go uses, now asset-driven. A
+		// node carrying both fields nets them (behind-the-meter PV under
+		// a load), which is correct.
+		genKW, genKVAR := resolveGeneration(attrs)
+		ownKW -= genKW
+		ownKVAR -= genKVAR
 		ratedKVA, hasRating := resolveTransformerRating(attrs)
 		xfmr := resolveTransformerModel(attrs, ratedKVA, hasRating)
 
+		// The generation subtype (generation_type slug) classifies inverter vs
+		// synchronous for the fault-contribution fallback; resolved generically
+		// off the row's subtype code so no class is hardcoded here (a non-
+		// generator node simply has no fault fields, so the spec is inert).
+		var subtypeName string
+		if raw, ok := row["subtype"]; ok && raw != nil {
+			if code, ok := readIntAttr(raw); ok {
+				if s := loaded.SubtypeByCode(code); s != nil {
+					subtypeName = s.Name
+				}
+			}
+		}
+		genFault := resolveGeneratorFaultSpec(attrs, subtypeName)
+
 		states[n] = &nodeState{
 			loaded: loaded, attrs: attrs, impedance: imp, xfmr: xfmr, ownKW: ownKW, ownKVAR: ownKVAR,
-			ratedKVA: ratedKVA, hasRating: hasRating,
+			ratedKVA: ratedKVA, hasRating: hasRating, genFault: genFault,
 		}
 	}
 	return states, nil

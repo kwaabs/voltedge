@@ -105,6 +105,16 @@ export interface DraftFeature {
    * the form rather than on the map. switch_function=BUS_COUPLER is seeded so the
    * form opens self-labelling. */
   coupler?: { busFeatureClasses: string[] }
+  /** Set only for an add-a-feeder-tie draft (Phase 50 Slice 2). Like a coupler
+   * this draft DOES carry `geometry` -- the tie switch is a map-placed point --
+   * but its Save POSTs to /ties (the composite that also wires the switch between
+   * two named conductors via switch rules 1 + 3) instead of the plain create
+   * route. `feederFeatureClasses` are the classes the two feeders may be picked
+   * from (from the tie option); the two actual feeder picks live in the create
+   * form's own state (feature-create-form.tsx). normal_state=NORMALLY_OPEN and
+   * device_state=OPEN are seeded so the form opens with the tie born as an open
+   * standby (NOP) path. */
+  tie?: { feederFeatureClasses: string[] }
 }
 
 /**
@@ -142,6 +152,12 @@ interface DrawState {
    * every ordinary draw. Cleared alongside the other drawing state on
    * finish/cancel. */
   drawingCouplerBusClasses: string[] | null
+  /** Set only while an "Create tie" draw is in flight (startTieDrawing): the
+   * eligible feeder classes stashed until the map click lands, so finishDrawing
+   * can mark the resulting draft as a /ties fan-out carrying them. null for
+   * every ordinary draw. Cleared alongside the other drawing state on
+   * finish/cancel. */
+  drawingTieFeederClasses: string[] | null
   draft: DraftFeature | null
   /** Bumped every time a *new* draft opens (finishDrawing / startCopyDraft /
    * startDiagramDraft) but NOT when the draft's geometry is merely dragged
@@ -160,6 +176,10 @@ interface DrawState {
    * stashes the eligible bus classes so the finished draft is marked as a
    * /couplers fan-out (Phase Bus-coupler Slice 2). */
   startCouplerDrawing: (breakerFeatureClass: string, busFeatureClasses: string[]) => void
+  /** Begin placing a feeder tie: draws like a plain point (the switch), but
+   * stashes the eligible feeder classes so the finished draft is marked as a
+   * /ties fan-out (Phase 50 Slice 2). */
+  startTieDrawing: (switchFeatureClass: string, feederFeatureClasses: string[]) => void
   cancelDrawing: () => void
   finishDrawing: (geometry: NonNullable<DraftFeature["geometry"]>) => void
   startCopyDraft: (
@@ -202,6 +222,7 @@ export const useDrawStore = create<DrawState>((set, get) => ({
   drawingRmuConfig: null,
   drawingDuct: false,
   drawingCouplerBusClasses: null,
+  drawingTieFeederClasses: null,
   draft: null,
   draftToken: 0,
   startDrawing: (featureClassCode, geometryType) =>
@@ -211,6 +232,7 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       drawingRmuConfig: null,
       drawingDuct: false,
       drawingCouplerBusClasses: null,
+      drawingTieFeederClasses: null,
       draft: null,
     }),
   // An RMU draws as a plain point; the only difference from startDrawing is the
@@ -222,6 +244,7 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       drawingRmuConfig: config,
       drawingDuct: false,
       drawingCouplerBusClasses: null,
+      drawingTieFeederClasses: null,
       draft: null,
     }),
   // A cable duct draws as a plain line; the only difference from startDrawing is
@@ -234,6 +257,7 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       drawingRmuConfig: null,
       drawingDuct: true,
       drawingCouplerBusClasses: null,
+      drawingTieFeederClasses: null,
       draft: null,
     }),
   // A coupler draws as a plain point (the breaker); the only difference from
@@ -246,6 +270,21 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       drawingRmuConfig: null,
       drawingDuct: false,
       drawingCouplerBusClasses: busFeatureClasses,
+      drawingTieFeederClasses: null,
+      draft: null,
+    }),
+  // A tie draws as a plain point (the switch); the only difference from
+  // startDrawing is the stashed feeder classes, which finishDrawing reads to
+  // mark the draft as a /ties fan-out carrying the feeders the form may pick
+  // from.
+  startTieDrawing: (switchFeatureClass, feederFeatureClasses) =>
+    set({
+      drawingFeatureClassCode: switchFeatureClass,
+      drawingGeometryType: "point",
+      drawingRmuConfig: null,
+      drawingDuct: false,
+      drawingCouplerBusClasses: null,
+      drawingTieFeederClasses: feederFeatureClasses,
       draft: null,
     }),
   cancelDrawing: () =>
@@ -255,6 +294,7 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       drawingRmuConfig: null,
       drawingDuct: false,
       drawingCouplerBusClasses: null,
+      drawingTieFeederClasses: null,
     }),
   finishDrawing: (geometry) => {
     const featureClassCode = get().drawingFeatureClassCode
@@ -262,12 +302,14 @@ export const useDrawStore = create<DrawState>((set, get) => ({
     const rmuConfig = get().drawingRmuConfig
     const isDuct = get().drawingDuct
     const couplerBusClasses = get().drawingCouplerBusClasses
+    const tieFeederClasses = get().drawingTieFeederClasses
     set((s) => ({
       drawingFeatureClassCode: null,
       drawingGeometryType: null,
       drawingRmuConfig: null,
       drawingDuct: false,
       drawingCouplerBusClasses: null,
+      drawingTieFeederClasses: null,
       // A stashed config means this was an "Add RMU" draw: carry the geometry
       // (an RMU is a real placed unit) plus the rmu marker + seeded rmu_config
       // so Save routes to /rmus and the form opens with the config chosen. A duct
@@ -276,7 +318,11 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       // attribute the form collects). Stashed bus classes mean an "Add bus coupler"
       // draw: carry the breaker point geometry plus the coupler marker (the bus
       // classes the form picks from) + seeded switch_function so Save routes to
-      // /couplers with the breaker self-labelled as the coupler.
+      // /couplers with the breaker self-labelled as the coupler. Stashed feeder
+      // classes mean a "Create tie" draw: carry the switch point geometry plus
+      // the tie marker (the feeder classes the form picks from) + seeded
+      // normal_state/device_state so Save routes to /ties with the switch born
+      // as an open standby (NOP).
       draft: rmuConfig
         ? {
             featureClassCode,
@@ -293,7 +339,14 @@ export const useDrawStore = create<DrawState>((set, get) => ({
                 seed: { attributes: { switch_function: "BUS_COUPLER" } },
                 coupler: { busFeatureClasses: couplerBusClasses },
               }
-            : { featureClassCode, geometry },
+            : tieFeederClasses
+              ? {
+                  featureClassCode,
+                  geometry,
+                  seed: { attributes: { normal_state: "NORMALLY_OPEN", device_state: "OPEN" } },
+                  tie: { feederFeatureClasses: tieFeederClasses },
+                }
+              : { featureClassCode, geometry },
       draftToken: s.draftToken + 1,
     }))
   },

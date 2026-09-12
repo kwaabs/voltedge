@@ -396,13 +396,16 @@ const maxTraceHops = 2000
 // for shortest-path because BFS discovers nodes in non-decreasing
 // distance order, so the first discovery is already a shortest path.
 //
-// targetClassID is a different, later-added concept from target above:
+// targetClassIDs is a different, later-added concept from target above:
 // target names one specific feature (shortest_path's destination),
-// targetClassID names a whole feature *class* to stop at the first
-// node of -- e.g. "walk upstream until you reach a DIST_XFMR." The
-// start node itself never counts as a class-target hit even if its own
-// class matches, so a trace started AT a transformer correctly finds
-// the *next* one, not itself. crossTransformers controls what happens
+// targetClassIDs names a SET of feature *classes* to stop at the first
+// node of ANY of -- e.g. "walk upstream until you reach a DIST_XFMR,"
+// or, spanning a whole functional_role, "until you reach the nearest
+// controller" (any of MV_SWITCH/MV_BREAKER/MV_RECLOSER/...). A single
+// named class is just a one-element set; nil/empty means no class
+// target. The start node itself never counts as a class-target hit even
+// if its own class matches, so a trace started AT a transformer
+// correctly finds the *next* one, not itself. crossTransformers controls what happens
 // once a class-target node is reached: false (the trace_configurations
 // default) stops expansion there, same as a barrier; true records the
 // hit but keeps walking past it -- the real, enforced meaning that
@@ -415,7 +418,7 @@ const maxTraceHops = 2000
 // the circuit boundary -- marked visited so a second edge to it isn't
 // re-checked, but never traversed or returned. The start is always kept
 // (resolved by the caller to carry *scopeCircuit in the first place).
-func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers map[string][]barrierCheck, loader *featureClassLoader, target *node, targetClassID *string, crossTransformers bool, scopeCircuit *string) (order []node, barrierHits []node, targetHits []node, parent map[node]node, found bool, err error) {
+func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers map[string][]barrierCheck, loader *featureClassLoader, target *node, targetClassIDs map[string]bool, crossTransformers bool, scopeCircuit *string) (order []node, barrierHits []node, targetHits []node, parent map[node]node, found bool, err error) {
 	visited := map[node]bool{start: true}
 	parent = map[node]node{}
 	queue := []node{start}
@@ -438,7 +441,7 @@ func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers
 			continue
 		}
 
-		isClassTarget := targetClassID != nil && current != start && current.classID == *targetClassID
+		isClassTarget := len(targetClassIDs) > 0 && current != start && targetClassIDs[current.classID]
 		if isClassTarget {
 			targetSet[current] = true
 			if !crossTransformers {
@@ -538,6 +541,37 @@ func nodeClassCodes(ctx context.Context, db bun.IDB, nodes []node) (map[string]s
 	out := make(map[string]string, len(fcs))
 	for _, fc := range fcs {
 		out[fc.ID] = fc.Code
+	}
+	return out, nil
+}
+
+// nodeClassRoles batch-resolves every distinct feature_class_id across a set of
+// nodes into its functional_role (migration 0091), for role-driven traces like
+// supply-path. Same one-query-per-set shape as nodeClassCodes; a class with no
+// declared role (NULL functional_role) is simply absent from the map, so a
+// lookup returns "" and the caller treats it as unclassified.
+func nodeClassRoles(ctx context.Context, db bun.IDB, nodes []node) (map[string]string, error) {
+	idSet := map[string]struct{}{}
+	for _, n := range nodes {
+		idSet[n.classID] = struct{}{}
+	}
+	if len(idSet) == 0 {
+		return map[string]string{}, nil
+	}
+	ids := make([]string, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+
+	var fcs []metadata.FeatureClass
+	if err := db.NewSelect().Model(&fcs).Where("id IN (?)", bun.In(ids)).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("trace: loading feature class roles: %w", err)
+	}
+	out := make(map[string]string, len(fcs))
+	for _, fc := range fcs {
+		if fc.FunctionalRole != nil {
+			out[fc.ID] = *fc.FunctionalRole
+		}
 	}
 	return out, nil
 }
@@ -645,7 +679,7 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 		scopeCircuit = &cid
 	}
 
-	visited, barrierHits, targetHits, parent, found, err := bfs(ctx, db, start, direction, barriers, loader, target, tc.TargetClassID, tc.CrossTransformers, scopeCircuit)
+	visited, barrierHits, targetHits, parent, found, err := bfs(ctx, db, start, direction, barriers, loader, target, singleClassSet(tc.TargetClassID), tc.CrossTransformers, scopeCircuit)
 	if err != nil {
 		return nil, err
 	}

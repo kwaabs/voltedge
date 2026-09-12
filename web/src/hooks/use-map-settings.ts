@@ -13,6 +13,12 @@ export interface MapView {
   center_lng: number
   center_lat: number
   zoom: number
+  /** Optional global annotation visible-zoom band (api/internal/mapsettings):
+   * below min / above max the whole annotations overlay hides. Either bound
+   * null = no bound on that side; both null = annotations show at every zoom
+   * (the default). Distinct from the default-view zoom above. */
+  annotation_min_zoom: number | null
+  annotation_max_zoom: number | null
 }
 
 /**

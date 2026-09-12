@@ -68,18 +68,17 @@ func sectionTrace(ctx context.Context, db bun.IDB, req sectionRequest) (*section
 		return nil, err
 	}
 
-	boundaryClassCode := req.BoundaryClass
-	if boundaryClassCode == "" {
-		boundaryClassCode = defaultBoundaryClass
-	}
-	boundaryLoaded, err := metadata.Load(ctx, db, boundaryClassCode)
+	// Section boundaries: the nearest bounding switching device on each side.
+	// A named boundary_class is honored as exactly that one class; otherwise
+	// the section runs to the nearest CONTROLLER (functional_role='controller',
+	// migration 0091) -- the whole switching family, not just MV_SWITCH, so a
+	// recloser or breaker bounds a section as it should rather than being
+	// crossed. Falls back to defaultBoundaryClass when no controller role is
+	// stamped yet.
+	boundaryClassIDs, err := boundaryClassSet(ctx, db, req.BoundaryClass, defaultBoundaryClass)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, notFound("boundary feature class %q does not exist", boundaryClassCode)
-		}
 		return nil, err
 	}
-	boundaryClassID := boundaryLoaded.FeatureClass.ID
 
 	barriers, err := resolveBarriers(ctx, db, tc.ID, tc.StopAtOpenDevices)
 	if err != nil {
@@ -87,11 +86,11 @@ func sectionTrace(ctx context.Context, db bun.IDB, req sectionRequest) (*section
 	}
 	loader := newFeatureClassLoader()
 
-	upstreamVisited, _, upstreamHits, _, _, err := bfs(ctx, db, start, "UPSTREAM", barriers, loader, nil, &boundaryClassID, false, nil)
+	upstreamVisited, _, upstreamHits, _, _, err := bfs(ctx, db, start, "UPSTREAM", barriers, loader, nil, boundaryClassIDs, false, nil)
 	if err != nil {
 		return nil, err
 	}
-	downstreamVisited, _, downstreamHits, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, &boundaryClassID, false, nil)
+	downstreamVisited, _, downstreamHits, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, boundaryClassIDs, false, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -8,6 +8,13 @@ import "encoding/json"
 var (
 	validGeometryTypes = map[string]bool{"point": true, "line": true, "polygon": true, "none": true}
 	validNetworkRoles  = map[string]bool{"edge": true, "junction": true, "container": true, "none": true}
+	// validFunctionalRoles mirrors migration 0091's functional_role CHECK -- the
+	// class's electrical function, orthogonal to network_role. An empty string
+	// on a request clears it back to NULL (unclassified / non-electrical).
+	validFunctionalRoles = map[string]bool{
+		"source": true, "consumer": true, "passthrough": true, "transformer": true,
+		"controller": true, "node": true, "sensor": true, "ground": true,
+	}
 	validDataTypes     = map[string]bool{
 		"text": true, "numeric": true, "integer": true, "boolean": true,
 		"date": true, "timestamp": true, "uuid": true, "jsonb": true,
@@ -54,6 +61,11 @@ type updateFeatureClassRequest struct {
 	GeometryType        *string `json:"geometry_type"`
 	SRID                *int    `json:"srid"`
 	NetworkRole         *string `json:"network_role"`
+	// FunctionalRole (migration 0091) is the class's electrical function -- pure
+	// metadata, editable at any status (unlike network_role, which shapes the
+	// DDL and is draft-only). Three-state: nil = not touched, "" clears it back
+	// to NULL (unclassified), any taxonomy value sets it.
+	FunctionalRole *string `json:"functional_role"`
 	// Phase 30 map label config, raw jsonb passthrough. nil = not touched;
 	// a JSON object sets it; JSON null (RawMessage "null") clears labels.
 	LabelDef *json.RawMessage `json:"label_def"`
@@ -61,6 +73,14 @@ type updateFeatureClassRequest struct {
 	// 0074). Three-state like DiagramGeometryType: nil = not touched, ""
 	// clears it back to uncategorised (NULL), any other string sets it.
 	Category *string `json:"category"`
+	// MinDisplayZoom / MaxDisplayZoom set the map display-zoom band (migration
+	// 0090). Three-state, sentinel-encoded because a JSON null is
+	// indistinguishable from omission on an *int: nil = not touched, a
+	// negative value clears the bound to NULL (no bound), a value in 0..24
+	// sets it. The display-zoom editor always sends both together (empty
+	// input -> -1), mirroring how the label editor sends the whole label_def.
+	MinDisplayZoom *int `json:"min_display_zoom"`
+	MaxDisplayZoom *int `json:"max_display_zoom"`
 }
 
 type updateFeatureClassResponse struct {
@@ -69,6 +89,7 @@ type updateFeatureClassResponse struct {
 	GeometryType        string  `json:"geometry_type"`
 	SRID                *int    `json:"srid,omitempty"`
 	NetworkRole         string  `json:"network_role"`
+	FunctionalRole      *string `json:"functional_role,omitempty"`
 	IsDiagramContainer  bool    `json:"is_diagram_container"`
 	IsDiagramPlaceable  bool    `json:"is_diagram_placeable"`
 	GeometryOptional    bool    `json:"geometry_optional"`
@@ -87,6 +108,7 @@ type featureClassSummary struct {
 	GeometryType       string  `json:"geometry_type"`
 	SRID               *int    `json:"srid,omitempty"`
 	NetworkRole        string  `json:"network_role"`
+	FunctionalRole      *string `json:"functional_role,omitempty"`
 	Status              string  `json:"status"`
 	IsDiagramContainer  bool    `json:"is_diagram_container"`
 	IsDiagramPlaceable  bool    `json:"is_diagram_placeable"`
@@ -292,6 +314,9 @@ type createFeatureClassRequest struct {
 	GeometryType       string            `json:"geometry_type"`
 	SRID               *int              `json:"srid"`
 	NetworkRole        string            `json:"network_role"`
+	// FunctionalRole (migration 0091) is optional on create -- omit or "" for an
+	// unclassified / non-electrical class; else a taxonomy value.
+	FunctionalRole     *string           `json:"functional_role"`
 	IsDiagramContainer bool              `json:"is_diagram_container"`
 	IsDiagramPlaceable bool              `json:"is_diagram_placeable"`
 	GeometryOptional   bool              `json:"geometry_optional"`

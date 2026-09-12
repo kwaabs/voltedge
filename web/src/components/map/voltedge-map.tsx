@@ -11,7 +11,7 @@ import LineString from "ol/geom/LineString"
 import MultiPolygon from "ol/geom/MultiPolygon"
 import Point from "ol/geom/Point"
 import Polygon from "ol/geom/Polygon"
-import Draw, { type GeometryFunction } from "ol/interaction/Draw"
+import Draw, { createBox, type GeometryFunction } from "ol/interaction/Draw"
 import Modify from "ol/interaction/Modify"
 import PointerInteraction from "ol/interaction/Pointer"
 import Snap from "ol/interaction/Snap"
@@ -36,13 +36,15 @@ import View from "ol/View"
 import { Loader2 } from "lucide-react"
 import { useEffect, useRef } from "react"
 
-import { useAllLabelDefs, useAllSymbology } from "@/hooks/use-all-symbology"
+import { useAllDisplayZooms, useAllLabelDefs, useAllSymbology } from "@/hooks/use-all-symbology"
 import { usePermission } from "@/hooks/use-auth"
 import { useCatalog } from "@/hooks/use-catalog"
 import { type FeatureGeometry, useFeature } from "@/hooks/use-feature"
+import type { AffectedArea } from "@/hooks/use-oms"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useBasemaps } from "@/hooks/use-basemaps"
 import { useCreateAnnotation, useMapAnnotations } from "@/hooks/use-map-annotations"
+import { useMapSettings } from "@/hooks/use-map-settings"
 import { useTerritoryBoundaries } from "@/hooks/use-territories"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { apiFetch } from "@/lib/api"
@@ -64,6 +66,7 @@ import { featureClassSourceIds, tileUrlTemplate } from "@/lib/martin"
 import { formatArea, formatLength } from "@/lib/measure"
 import { useAnnotationEditStore } from "@/stores/annotation-edit-store"
 import { BLANK_BASEMAP, useBasemapStore } from "@/stores/basemap-store"
+import { useBoxZoomStore } from "@/stores/box-zoom-store"
 import { useConnectStore } from "@/stores/connect-store"
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
 import { useDiagramPlaceStore } from "@/stores/diagram-place-store"
@@ -82,6 +85,7 @@ import { useMapPointerStore } from "@/stores/map-pointer-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
 import { type Bbox4326, useMapViewStore } from "@/stores/map-view-store"
 import { useMeasureStore } from "@/stores/measure-store"
+import { useOmsHighlightStore } from "@/stores/oms-highlight-store"
 import { useOrthoStore } from "@/stores/ortho-store"
 import { useQueryStore } from "@/stores/query-store"
 import { useSelectionStore } from "@/stores/selection-store"
@@ -224,6 +228,17 @@ const MEASURE_STYLE = new Style({
   fill: new Fill({ color: "rgba(194, 86, 15, 0.12)" }),
   stroke: new Stroke({ color: "#c2560f", width: 2, lineDash: [6, 5] }),
   image: new CircleStyle({ radius: 4, fill: new Fill({ color: "#c2560f" }) }),
+})
+
+/**
+ * Style for the box-zoom tool's rubber-band rectangle (see box-zoom-store.ts) --
+ * a translucent sky-blue fill with a dashed sky stroke, distinct from the copper
+ * measure sketch so the two tools don't read alike. Scratch geometry, discarded
+ * the moment the box is committed and the view fits to it.
+ */
+const BOX_ZOOM_STYLE = new Style({
+  fill: new Fill({ color: "rgba(2, 132, 199, 0.12)" }),
+  stroke: new Stroke({ color: "#0284c7", width: 2, lineDash: [6, 5] }),
 })
 
 /**
@@ -426,6 +441,13 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   // re-fetch), but it still gets its own source so it never clobbers, or
   // is clobbered by, the sync selected/connect halo on highlightSource.
   const queryResultSourceRef = useRef<VectorSource | null>(null)
+  // Affected service points of a selected OMS incident (oms-highlight-store.ts,
+  // Phase 49 map overlay) -- its own async-fetched source, same reasoning as
+  // the analysis sources above. The /oms/incidents/{id}/affected response
+  // already carries each SP's lon/lat, so there's no per-feature re-fetch, but
+  // it still gets its own source so it never clobbers, or is clobbered by, the
+  // sync selected/connect halo or the other analysis layers.
+  const affectedSourceRef = useRef<VectorSource | null>(null)
   // Snap candidates -- never added to the map as a rendered layer, just
   // a plain VectorSource for the Snap interaction below to read (see
   // refreshSnapSource for why this indirection is needed at all: every
@@ -454,6 +476,10 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   // -- see that effect for why it needs this instead of just depending
   // on focusToken alone.
   const fittedTokenRef = useRef(0)
+  // The last OMS-highlight focusToken the affected-area effect already fit the
+  // view to -- same one-shot idiom as fittedTokenRef, so a "Show on map" fits
+  // once and a manual pan afterward isn't yanked back on a later re-render.
+  const affectedFittedTokenRef = useRef(0)
   // Finalized measure-tool labels (the frozen tooltip Overlays left
   // behind by each completed measurement), kept in a ref so the
   // units-change effect below can re-format them all in place without
@@ -467,6 +493,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   const { data: featureClasses } = useFeatureClasses()
   const symbologyByClassCode = useAllSymbology()
   const labelDefsByClassCode = useAllLabelDefs()
+  const displayZoomByClassCode = useAllDisplayZooms()
   const symbologyIcons = useSymbologyIcons()
   const drawingFeatureClassCode = useDrawStore((s) => s.drawingFeatureClassCode)
   const drawingGeometryType = useDrawStore((s) => s.drawingGeometryType)
@@ -493,12 +520,15 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   const loadFlowResult = useLoadFlowStore((s) => s.result)
   const faultCurrentResult = useFaultCurrentStore((s) => s.result)
   const queryResults = useQueryStore((s) => s.results)
+  const omsIncidentId = useOmsHighlightStore((s) => s.incidentId)
+  const omsFocusToken = useOmsHighlightStore((s) => s.focusToken)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
   const labelsHidden = useLayersStore((s) => s.labelsHidden)
   const selected = useSelectionStore((s) => s.selected)
   const focusToken = useSelectionStore((s) => s.focusToken)
   const measureMode = useMeasureStore((s) => s.mode)
+  const boxZoomActive = useBoxZoomStore((s) => s.active)
   const units = useUnitsStore((s) => s.units)
   const territoryOverlayVisible = useTerritoryOverlayStore((s) => s.visible)
   const territoryHiddenLevels = useTerritoryOverlayStore((s) => s.hiddenLevels)
@@ -519,6 +549,16 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   // off overlay costs nothing.
   const annotationsVisible = useMapAnnotationsStore((s) => s.visible)
   const { data: annotationsData } = useMapAnnotations(annotationsVisible)
+
+  // The global annotation visible-zoom band (admin Map settings) and the live
+  // zoom, both read reactively so the annotation overlay hides/shows as the user
+  // zooms across the band or an admin retunes it. useMapSettings dedupes the
+  // query map.tsx already issued for the initial view; the band is a rarely-set
+  // pair of optional bounds, null = no bound on that side.
+  const { data: mapSettings } = useMapSettings()
+  const annMinZoom = mapSettings?.annotation_min_zoom ?? null
+  const annMaxZoom = mapSettings?.annotation_max_zoom ?? null
+  const currentZoom = useMapViewStore((s) => s.zoom)
 
   // Annotation authoring (Phase 36 Slice 4): the kind currently being drawn,
   // the create mutation the Draw effect fires on drawend, and whether this
@@ -775,6 +815,15 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     map.addLayer(queryResultLayer)
     queryResultSourceRef.current = queryResultSource
 
+    // Affected service points of a selected OMS incident (see the effect below
+    // and oms-highlight-store.ts) -- same style function and zIndex as the
+    // analysis layers; its "outage-affected" role gives it its own rose color
+    // (see HIGHLIGHT_COLORS).
+    const affectedSource = new VectorSource()
+    const affectedLayer = new VectorLayer({ source: affectedSource, style: highlightStyleForFeature, zIndex: 6 })
+    map.addLayer(affectedLayer)
+    affectedSourceRef.current = affectedSource
+
     // The one feature currently under geometry edit (see
     // editStyleForFeature) -- above the highlight layer so its cyan
     // isn't washed out underneath a selected halo, below the draft
@@ -811,8 +860,13 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     const pushViewBbox = () => {
       const size = map.getSize()
       if (!size) return
-      const extent = transformExtent(map.getView().calculateExtent(size), "EPSG:3857", "EPSG:4326")
+      const view = map.getView()
+      const extent = transformExtent(view.calculateExtent(size), "EPSG:3857", "EPSG:4326")
       useMapViewStore.getState().setBbox(extent as Bbox4326)
+      // Publish the current zoom too (same handler, same cadence) so the status
+      // bar can show it -- undefined only before the view has a resolution.
+      const zoom = view.getZoom()
+      if (zoom !== undefined) useMapViewStore.getState().setZoom(zoom)
     }
     map.on("moveend", pushViewBbox)
     map.once("rendercomplete", pushViewBbox)
@@ -837,6 +891,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       loadFlowSourceRef.current = null
       faultCurrentSourceRef.current = null
       queryResultSourceRef.current = null
+      affectedSourceRef.current = null
       editSourceRef.current = null
       snapSourceRef.current = null
     }
@@ -1102,6 +1157,51 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     }
   }, [measureMode])
 
+  // The box-zoom tool (see src/components/map/box-zoom-button.tsx and
+  // box-zoom-store.ts). While armed this owns a throwaway scratch layer +
+  // Draw interaction that rubber-bands a rectangle -- press one corner, drag
+  // (or click-move-click) to the opposite corner -- and on drawend fits the
+  // view to that box's extent, then DISARMS itself (single-shot: one box per
+  // arm, so it never fights the pan/select interactions once you're done).
+  // Nothing is created; like the measure tool it never touches feature data,
+  // and handleClick bails while it's armed so the box clicks feed the Draw,
+  // not selection. Escape cancels without zooming. maxZoom caps how far a
+  // tiny box can dive so a stray flick can't bury the view.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !boxZoomActive) return
+
+    const source = new VectorSource()
+    const layer = new VectorLayer({ source, style: BOX_ZOOM_STYLE, zIndex: 9 })
+    map.addLayer(layer)
+
+    // freehand: press one corner, drag to the opposite, release -- Draw owns
+    // the whole pointer gesture so DragPan doesn't pan the map underneath it.
+    const draw = new Draw({ source, type: "Circle", geometryFunction: createBox(), freehand: true })
+
+    draw.on("drawend", (evt: { feature: Feature }) => {
+      const geometry = evt.feature.getGeometry()
+      if (geometry) {
+        map.getView().fit(geometry.getExtent(), { duration: 300, maxZoom: 22 })
+      }
+      // Single-shot: disarm after one box (this tears the effect down).
+      useBoxZoomStore.getState().deactivate()
+    })
+
+    map.addInteraction(draw)
+
+    const handleEscape = (evt: KeyboardEvent) => {
+      if (evt.key === "Escape") useBoxZoomStore.getState().deactivate()
+    }
+    document.addEventListener("keydown", handleEscape)
+
+    return () => {
+      map.removeInteraction(draw)
+      map.removeLayer(layer)
+      document.removeEventListener("keydown", handleEscape)
+    }
+  }, [boxZoomActive])
+
   // Re-labels every frozen measurement in place when the metric/imperial
   // toggle flips (see units-store.ts). The measure effect above owns the
   // Overlays' lifecycle; this only rewrites their text from the raw
@@ -1344,6 +1444,62 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       cancelled = true
     }
   }, [isolateResult])
+
+  // Affected-service-point highlight for a selected OMS incident
+  // (oms-highlight-store.ts, Phase 49). Same async-fetch-into-a-dedicated-source
+  // shape as the trace/isolation effects above, but the affected endpoint
+  // already returns each SP's lon/lat, so it's a single fetch drawing Point
+  // features -- no per-feature geometry re-fetch. Re-runs on either the
+  // selected incident OR the focusToken changing, so "Show on map" on the
+  // already-selected incident still re-fetches and re-fits. The fit is a
+  // one-shot per focusToken (affectedFittedTokenRef), like the pan-to-feature
+  // effect, so a manual pan afterward isn't yanked back.
+  useEffect(() => {
+    const source = affectedSourceRef.current
+    if (!source) return
+
+    if (!omsIncidentId) {
+      source.clear()
+      return
+    }
+
+    const src: VectorSource = source
+    const id = omsIncidentId
+    const token = omsFocusToken
+    let cancelled = false
+
+    async function loadAffectedArea() {
+      let area: AffectedArea
+      try {
+        area = await apiFetch<AffectedArea>(`/oms/incidents/${id}/affected`)
+      } catch {
+        return
+      }
+      if (cancelled) return
+
+      src.clear()
+      for (const sp of area.service_points) {
+        const feature = new Feature(new Point(fromLonLat([sp.longitude, sp.latitude])))
+        feature.set("role", "outage-affected")
+        src.addFeature(feature)
+      }
+
+      // Fit the view to the outage cone once per "Show on map" request.
+      if (token !== 0 && token !== affectedFittedTokenRef.current) {
+        const map = mapRef.current
+        const extent = src.getExtent()
+        if (map && !isEmptyExtent(extent)) {
+          map.getView().fit(extent, { padding: [80, 80, 80, 80], maxZoom: 18, duration: 400 })
+        }
+        affectedFittedTokenRef.current = token
+      }
+    }
+
+    loadAffectedArea()
+    return () => {
+      cancelled = true
+    }
+  }, [omsIncidentId, omsFocusToken])
 
   // Load-flow results (see load-flow-store.ts) -- same async-fetch-into-
   // a-dedicated-source shape as the trace/isolation effects above.
@@ -1912,6 +2068,10 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       // same reasoning as the drawing guard just above.
       if (useMeasureStore.getState().mode) return
 
+      // Likewise a click while the box-zoom tool is armed belongs to that
+      // tool's rubber-band Draw (see the box-zoom effect above), not selection.
+      if (useBoxZoomStore.getState().active) return
+
       // A click while a feature is under edit (see edit-store.ts,
       // feature-edit-form.tsx) shouldn't silently change the selection
       // out from under an in-progress, unsaved edit either -- same
@@ -2200,6 +2360,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
           // it's created label-less rather than flashing labels on first
           // paint before the label effect below can strip them.
           labelsHiddenRef.current[sourceId] ? undefined : labelDefsByClassCode[classCode],
+          displayZoomByClassCode[classCode],
         ),
         visible: !hiddenLayersRef.current[sourceId],
         properties: { sourceId },
@@ -2207,7 +2368,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       map.addLayer(layer)
       vectorLayersRef.current.push(layer)
     }
-  }, [catalog, symbologyByClassCode, labelDefsByClassCode, symbologyIcons])
+  }, [catalog, symbologyByClassCode, labelDefsByClassCode, displayZoomByClassCode, symbologyIcons])
 
   // Reacts to the layers store -- src/components/map/layers-panel.tsx
   // -- toggling an existing layer's visibility in place, independent of
@@ -2241,10 +2402,11 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
           map.getView(),
           symbologyIcons,
           labelsHidden[sourceId] ? undefined : labelDefsByClassCode[classCode],
+          displayZoomByClassCode[classCode],
         ),
       )
     }
-  }, [labelsHidden, symbologyByClassCode, labelDefsByClassCode, symbologyIcons])
+  }, [labelsHidden, symbologyByClassCode, labelDefsByClassCode, displayZoomByClassCode, symbologyIcons])
 
   // Populates (or clears) the territory boundary overlay and toggles its
   // visibility (Phase 11 Slice H). ol/format/GeoJSON is used directly
@@ -2297,7 +2459,8 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     const layer = annotationLayerRef.current
     if (!source || !layer) return
 
-    layer.setVisible(annotationsVisible)
+    // Layer visibility is owned by the zoom-band effect below (it depends on the
+    // live zoom too); this effect only manages the source's contents.
     if (!annotationsVisible) {
       source.clear()
       return
@@ -2330,6 +2493,23 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       ),
     )
   }, [annotationsVisible, annotationsData, annotationTool])
+
+  // Annotation overlay visibility = the store toggle AND the global zoom band
+  // (admin Map settings). The single owner of the annotation layer's visibility,
+  // split out from the load effect above so it can react to the live zoom
+  // without re-clearing/repopulating the source on every pan/zoom. Both band
+  // bounds are optional (null = no bound); an unknown zoom (before the first
+  // render publishes one) fails open so annotations aren't hidden by a
+  // not-yet-known level. Same inclusive min..max semantics as a feature class's
+  // Display zoom band.
+  useEffect(() => {
+    const layer = annotationLayerRef.current
+    if (!layer) return
+    const withinBand =
+      currentZoom === null ||
+      ((annMinZoom === null || currentZoom >= annMinZoom) && (annMaxZoom === null || currentZoom <= annMaxZoom))
+    layer.setVisible(annotationsVisible && withinBand)
+  }, [annotationsVisible, currentZoom, annMinZoom, annMaxZoom])
 
   // In-map geometry editing of the selected annotation (Phase 36 Slice 4b) --
   // attaches whichever gesture annotation-edit-panel.tsx armed (Move->Translate,

@@ -44,6 +44,28 @@ type FeatureClass struct {
 	// label_def it's pure metadata (the compiler's DDL never reads it) that
 	// just rides along on this struct-model select.
 	Network *string `bun:"network"`
+	// FunctionalRole is the class's ELECTRICAL FUNCTION (migration 0091): one of
+	// source/consumer/passthrough/transformer/controller/node/sensor/ground, or
+	// nil for a class with no electrical function (containers, civil assets,
+	// furniture). Orthogonal to NetworkRole, which is the class's connectivity-
+	// graph role (edge/junction/container/none) -- a DIST_XFMR and an
+	// MV_CONDUCTOR are both network_role='edge' but functionally a transformer
+	// versus a wire. Read by the supply-path trace (api/internal/trace/supply.go)
+	// to identify serving transformers, switching devices and the source by role
+	// rather than a hardcoded class-code list. Like label_def/network/category
+	// it's pure metadata the compiler's DDL never reads; it rides along on this
+	// struct-model select and passes straight through to the schema endpoint.
+	FunctionalRole *string `bun:"functional_role"`
+	// MinDisplayZoom / MaxDisplayZoom are the class's map display-zoom band
+	// (migration 0090): the geographic map hides the whole feature (glyph +
+	// label) below MinDisplayZoom or above MaxDisplayZoom. nil on either side
+	// means no bound; both nil (the default) is "draw at every zoom". Pure
+	// map-render metadata like label_def/network/category -- the compiler's
+	// DDL never reads it, it just rides along on this struct-model select and
+	// passes straight through to the schema endpoint. Distinct from a symbology
+	// rule's own min_zoom/max_zoom (which pick a style, not visibility).
+	MinDisplayZoom *int `bun:"min_display_zoom"`
+	MaxDisplayZoom *int `bun:"max_display_zoom"`
 	// Category is the admin-defined display grouping used to section the
 	// map's "New feature" menu (migration 0074) -- free text, nil for an
 	// uncategorised class (shown under "Other"). Pure presentation metadata:

@@ -24,6 +24,11 @@ export interface AdminFeatureClassSummary {
   /** Migration 0074: admin-defined grouping for the map's "New feature"
    * menu. Absent/null = uncategorised. */
   category?: string | null
+  /** Migration 0091: the class's electrical FUNCTION on the traced network
+   * (source/consumer/passthrough/transformer/controller/node/sensor/ground).
+   * Orthogonal to the structural network_role. Absent/null = unclassified
+   * (non-electrical: containers, civil, DC-auxiliary). */
+  functional_role?: string | null
   physical_table?: string
   subtype_count: number
   field_count: number
