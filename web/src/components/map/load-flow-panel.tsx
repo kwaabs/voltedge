@@ -4,6 +4,7 @@ import { X } from "lucide-react"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
+import { useFloatingPanel } from "@/hooks/use-floating-panel"
 import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { LoadFlowResult } from "@/stores/load-flow-store"
@@ -49,6 +50,7 @@ export function LoadFlowPanel() {
   const result = useLoadFlowStore((s) => s.result)
   const { data: featureClasses } = useFeatureClasses()
   const [voltageInput, setVoltageInput] = useState("230")
+  const fp = useFloatingPanel(576, "max-h-80")
 
   if (!armed && !result) return null
 
@@ -79,9 +81,12 @@ export function LoadFlowPanel() {
   }
 
   return (
-    <div className="bg-popover text-popover-foreground fixed bottom-10 left-1/2 z-40 max-h-80 w-[36rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-md border shadow-lg">
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <p className="truncate text-sm font-medium">Load flow</p>
+    <div ref={fp.panelRef} style={fp.shellStyle} className={fp.shellClassName}>
+      <div onPointerDown={fp.onHeaderPointerDown} className={fp.headerClassName}>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {fp.grip}
+          <p className="truncate text-sm font-medium">Load flow</p>
+        </div>
         <Button variant="ghost" size="icon" className="size-6 shrink-0" onClick={() => useLoadFlowStore.getState().clear()}>
           <X className="size-3.5" />
           <span className="sr-only">Close</span>
@@ -103,7 +108,7 @@ export function LoadFlowPanel() {
           </Button>
         </div>
       ) : (
-        <div className="max-h-[16rem] overflow-y-auto">
+        <div className={cn("overflow-y-auto", fp.resized ? "min-h-0 flex-1" : "max-h-[16rem]")}>
           <div className="text-muted-foreground flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
             <span>Nominal {formatNumber(result.nominal_voltage_v, 0)}V</span>
             <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => useLoadFlowStore.getState().rearm()}>
@@ -176,6 +181,7 @@ export function LoadFlowPanel() {
           </table>
         </div>
       )}
+      {fp.resizeHandle}
     </div>
   )
 }

@@ -183,65 +183,83 @@ func runLoadFlow(ctx context.Context, db bun.IDB, req loadFlowRequest) (*loadFlo
 func resolveNodeStates(ctx context.Context, db bun.IDB, tr *tree, loader *featureClassLoader) (map[node]*nodeState, error) {
 	states := make(map[node]*nodeState, len(tr.order))
 	for _, n := range tr.order {
-		loaded, err := loader.loadedFor(ctx, db, n.classID)
+		st, err := resolveNodeState(ctx, db, loader, n)
 		if err != nil {
 			return nil, err
 		}
-		row, err := crud.GetFeature(ctx, db, loaded, n.featureID)
-		if err != nil {
-			if crud.IsNotFoundError(err) {
-				// A dangling connectivity row pointing at a since-purged
-				// feature -- skip it, same as trace's own checkBarrier
-				// treats this as a dead end rather than a failed run.
-				continue
-			}
-			return nil, err
+		if st == nil {
+			// A dangling connectivity row pointing at a since-purged
+			// feature -- skip it, same as trace's own checkBarrier
+			// treats this as a dead end rather than a failed run.
+			continue
 		}
-		attrs, _ := row["attributes"].(map[string]any)
-
-		var imp conductorImpedance
-		if loaded.FeatureClass.NetworkRole == "edge" {
-			imp, err = resolveConductorImpedance(ctx, db, loaded, n, attrs)
-			if err != nil {
-				return nil, err
-			}
-		}
-		ownKW, ownKVAR := resolveDemand(attrs)
-		// Net embedded generation in as negative demand (Tier A): a
-		// GENERATOR injects (P, Q) at its node, so the node's net own
-		// power is demand minus generation. A pure generator (no
-		// demand_kw) ends up with a negative ownKW, which backwardSweep
-		// carries up the tree as a reduction in upstream flow and
-		// forwardSweep reads as a local voltage rise -- the exact
-		// negative-demand model hosting.go uses, now asset-driven. A
-		// node carrying both fields nets them (behind-the-meter PV under
-		// a load), which is correct.
-		genKW, genKVAR := resolveGeneration(attrs)
-		ownKW -= genKW
-		ownKVAR -= genKVAR
-		ratedKVA, hasRating := resolveTransformerRating(attrs)
-		xfmr := resolveTransformerModel(attrs, ratedKVA, hasRating)
-
-		// The generation subtype (generation_type slug) classifies inverter vs
-		// synchronous for the fault-contribution fallback; resolved generically
-		// off the row's subtype code so no class is hardcoded here (a non-
-		// generator node simply has no fault fields, so the spec is inert).
-		var subtypeName string
-		if raw, ok := row["subtype"]; ok && raw != nil {
-			if code, ok := readIntAttr(raw); ok {
-				if s := loaded.SubtypeByCode(code); s != nil {
-					subtypeName = s.Name
-				}
-			}
-		}
-		genFault := resolveGeneratorFaultSpec(attrs, subtypeName)
-
-		states[n] = &nodeState{
-			loaded: loaded, attrs: attrs, impedance: imp, xfmr: xfmr, ownKW: ownKW, ownKVAR: ownKVAR,
-			ratedKVA: ratedKVA, hasRating: hasRating, genFault: genFault,
-		}
+		states[n] = st
 	}
 	return states, nil
+}
+
+// resolveNodeState resolves one node's own electrical inputs (branch impedance
+// if it's a conductor, netted demand/generation if it carries any, transformer
+// model + rating if it's a rated junction, generator fault spec if it's a
+// GENERATOR) -- everything the sweeps and the nodal solver (nodal.go) need,
+// computed once from the live feature row. Returns (nil, nil) for a node whose
+// feature row has since been purged (a dangling connectivity row), which the
+// callers treat as a dead end rather than a failed run.
+func resolveNodeState(ctx context.Context, db bun.IDB, loader *featureClassLoader, n node) (*nodeState, error) {
+	loaded, err := loader.loadedFor(ctx, db, n.classID)
+	if err != nil {
+		return nil, err
+	}
+	row, err := crud.GetFeature(ctx, db, loaded, n.featureID)
+	if err != nil {
+		if crud.IsNotFoundError(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	attrs, _ := row["attributes"].(map[string]any)
+
+	var imp conductorImpedance
+	if loaded.FeatureClass.NetworkRole == "edge" {
+		imp, err = resolveConductorImpedance(ctx, db, loaded, n, attrs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	ownKW, ownKVAR := resolveDemand(attrs)
+	// Net embedded generation in as negative demand (Tier A): a
+	// GENERATOR injects (P, Q) at its node, so the node's net own
+	// power is demand minus generation. A pure generator (no
+	// demand_kw) ends up with a negative ownKW, which backwardSweep
+	// carries up the tree as a reduction in upstream flow and
+	// forwardSweep reads as a local voltage rise -- the exact
+	// negative-demand model hosting.go uses, now asset-driven. A
+	// node carrying both fields nets them (behind-the-meter PV under
+	// a load), which is correct.
+	genKW, genKVAR := resolveGeneration(attrs)
+	ownKW -= genKW
+	ownKVAR -= genKVAR
+	ratedKVA, hasRating := resolveTransformerRating(attrs)
+	xfmr := resolveTransformerModel(attrs, ratedKVA, hasRating)
+
+	// The generation subtype (generation_type slug) classifies inverter vs
+	// synchronous for the fault-contribution fallback; resolved generically
+	// off the row's subtype code so no class is hardcoded here (a non-
+	// generator node simply has no fault fields, so the spec is inert).
+	var subtypeName string
+	if raw, ok := row["subtype"]; ok && raw != nil {
+		if code, ok := readIntAttr(raw); ok {
+			if s := loaded.SubtypeByCode(code); s != nil {
+				subtypeName = s.Name
+			}
+		}
+	}
+	genFault := resolveGeneratorFaultSpec(attrs, subtypeName)
+
+	return &nodeState{
+		loaded: loaded, attrs: attrs, impedance: imp, xfmr: xfmr, ownKW: ownKW, ownKVAR: ownKVAR,
+		ratedKVA: ratedKVA, hasRating: hasRating, genFault: genFault,
+	}, nil
 }
 
 // backwardSweep accumulates each node's own demand plus everything

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react"
-import { X } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { GripHorizontal, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -55,15 +55,33 @@ interface ResolvedRow {
   isTarget: boolean
 }
 
+/** Default anchor (bottom-center) used until the user drags the panel
+ * somewhere else -- the same spot the count-only banner it replaced used,
+ * clear of the attribute panel's bottom-right corner and the top-center
+ * edit toolbar. Dropped the moment `position` is set (a manual drag). */
+const DEFAULT_POSITION_CLASS = "bottom-10 left-1/2 -translate-x-1/2"
+
+/** Floors a manual resize can't shrink past -- small enough to still show the
+ * header plus a row or two, not so small the table collapses. The default
+ * width is computed per-render (wider when a computed-voltage column shows). */
+const MIN_WIDTH = 320
+const MIN_HEIGHT = 160
+
 /**
  * Floating data table listing every feature a trace reached -- feature
  * class, id, and (if the feature has one) its human-assigned name --
- * replacing an earlier count-only summary banner. Fixed bottom-center,
- * same position the banner it replaces used (clear of the floating
- * attribute panel's own default corner and geometry-edit-toolbar.tsx's
- * top-center). Self-contained, same pattern as every other floating
- * overlay in this app -- reads trace-store.ts directly and returns null
- * rather than being conditionally rendered by a parent.
+ * replacing an earlier count-only summary banner. Opens bottom-center
+ * (DEFAULT_POSITION_CLASS), but is draggable (grab the header) and
+ * resizable (drag the bottom-right grip) -- the same mechanics
+ * feature-panel.tsx uses -- so it can be moved clear of whatever the user
+ * is working on and grown to show a long trace. `position`/`size` live in
+ * this component's own state, which React preserves across re-renders (and
+ * across successive traces, since the component stays mounted and only
+ * returns null when there's no result), so a panel the user has moved or
+ * sized stays put for the next trace rather than snapping back.
+ * Self-contained, same pattern as every other floating overlay in this app
+ * -- reads trace-store.ts directly and returns null rather than being
+ * conditionally rendered by a parent.
  *
  * Resolves each row's name with its own fetch, independent of
  * voltedge-map.tsx's own per-feature fetch for the highlight geometry
@@ -78,6 +96,62 @@ export function TraceResultTable() {
   const computedVoltages = useTraceStore((s) => s.computedVoltages)
   const { data: featureClasses } = useFeatureClasses()
   const [rows, setRows] = useState<ResolvedRow[] | null>(null)
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Grab the header and drag -- pointer-capture mechanics identical to
+  // feature-panel.tsx's own header drag. `origX/origY` come from the live
+  // bounding rect when the panel is still at its default anchor (position
+  // null), so the first drag continues smoothly from wherever the anchor
+  // put it rather than jumping.
+  function handleHeaderPointerDown(e: React.PointerEvent) {
+    const rect = panelRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const startX = e.clientX
+    const startY = e.clientY
+    const origX = position?.x ?? rect.left
+    const origY = position?.y ?? rect.top
+
+    const handleMove = (moveEvt: PointerEvent) => {
+      setPosition({ x: origX + (moveEvt.clientX - startX), y: origY + (moveEvt.clientY - startY) })
+    }
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove)
+      window.removeEventListener("pointerup", handleUp)
+    }
+    window.addEventListener("pointermove", handleMove)
+    window.addEventListener("pointerup", handleUp)
+  }
+
+  // Same mechanics, writing `size` instead of `position`. Pin the panel to
+  // its current top-left first if it's still on the centered default anchor,
+  // so a bottom-right resize grows down/right intuitively rather than the
+  // centered panel appearing to grow symmetrically off its anchor. Floored
+  // at MIN_WIDTH/MIN_HEIGHT.
+  function handleResizePointerDown(e: React.PointerEvent) {
+    e.stopPropagation()
+    const rect = panelRef.current?.getBoundingClientRect()
+    if (!rect) return
+    if (!position) setPosition({ x: rect.left, y: rect.top })
+    const startX = e.clientX
+    const startY = e.clientY
+    const startWidth = size?.width ?? rect.width
+    const startHeight = size?.height ?? rect.height
+
+    const handleMove = (moveEvt: PointerEvent) => {
+      setSize({
+        width: Math.max(MIN_WIDTH, startWidth + (moveEvt.clientX - startX)),
+        height: Math.max(MIN_HEIGHT, startHeight + (moveEvt.clientY - startY)),
+      })
+    }
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove)
+      window.removeEventListener("pointerup", handleUp)
+    }
+    window.addEventListener("pointermove", handleMove)
+    window.addEventListener("pointerup", handleUp)
+  }
 
   useEffect(() => {
     if (!result) {
@@ -142,19 +216,39 @@ export function TraceResultTable() {
   // shows: it's topology-intrinsic and needs no solve.
   const hasComputed = computedVoltages !== null
 
+  // Default width matches the former fixed w-[46rem]/w-[38rem] classes (px, so
+  // a manual resize has a live numeric value to grow from). Once resized the
+  // panel takes an explicit height; until then it shrink-wraps under max-h-64.
+  const defaultWidth = hasComputed ? 736 : 608
+  const resized = size?.height != null
+  const shellStyle: React.CSSProperties = {
+    ...(position ? { left: position.x, top: position.y } : {}),
+    width: size?.width ?? defaultWidth,
+    ...(resized ? { height: size?.height } : {}),
+  }
+
   return (
     <div
+      ref={panelRef}
+      style={shellStyle}
       className={cn(
-        "bg-popover text-popover-foreground fixed bottom-10 left-1/2 z-40 max-h-64 max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-md border shadow-lg",
-        hasComputed ? "w-[46rem]" : "w-[38rem]",
+        "bg-popover text-popover-foreground fixed z-40 flex flex-col max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border shadow-lg",
+        !resized && "max-h-64",
+        !position && DEFAULT_POSITION_CLASS,
       )}
     >
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{directionLabel} trace</p>
-          {result.direction === "SHORTEST_PATH" && (
-            <p className="text-muted-foreground text-xs">{result.path_found ? "Path found" : "No path found"}</p>
-          )}
+      <div
+        onPointerDown={handleHeaderPointerDown}
+        className="flex cursor-grab items-center justify-between border-b px-3 py-2 select-none active:cursor-grabbing"
+      >
+        <div className="flex min-w-0 items-center gap-1.5">
+          <GripHorizontal className="text-muted-foreground size-3.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{directionLabel} trace</p>
+            {result.direction === "SHORTEST_PATH" && (
+              <p className="text-muted-foreground text-xs">{result.path_found ? "Path found" : "No path found"}</p>
+            )}
+          </div>
         </div>
         <Button
           variant="ghost"
@@ -167,7 +261,7 @@ export function TraceResultTable() {
         </Button>
       </div>
 
-      <div className="max-h-[13rem] overflow-y-auto">
+      <div className={cn("overflow-y-auto", resized ? "min-h-0 flex-1" : "max-h-[13rem]")}>
         {rows === null ? (
           <p className="text-muted-foreground p-3 text-sm">Loading…</p>
         ) : (
@@ -222,6 +316,18 @@ export function TraceResultTable() {
             </tbody>
           </table>
         )}
+      </div>
+
+      {/* Bottom-right resize grip -- same affordance and mechanics as
+          feature-panel.tsx's. stopPropagation in the handler keeps a resize
+          drag from also starting a header move. */}
+      <div
+        onPointerDown={handleResizePointerDown}
+        title="Resize"
+        style={{ touchAction: "none" }}
+        className="absolute right-0 bottom-0 z-50 flex size-4 cursor-nwse-resize items-end justify-end p-0.5"
+      >
+        <span className="border-muted-foreground/40 size-2 border-r-2 border-b-2" />
       </div>
     </div>
   )

@@ -43,6 +43,14 @@ import (
 //	                        tree, then close each loop (a ring main / closed
 //	                        link box) by compensation, returning the same per-
 //	                        node voltage/loading as load-flow plus the loops
+//	POST   /nodal-load-flow full nodal (Y-bus) load flow (Phase 52, Tier 2): a
+//	                        distinct solver that assembles a per-unit admittance
+//	                        matrix over the GENERAL graph and solves it by
+//	                        Gauss-Seidel -- so a densely meshed LV network is
+//	                        solved directly, not refused. Single slack, PQ buses
+//	                        (loads + embedded generation as negative-demand PQ);
+//	                        multi-slack / PV buses and Newton-Raphson are later
+//	                        slices
 //
 // Read-only, same as api/internal/trace -- neither route ever writes
 // anything, they only compute over what api/internal/connectivity and
@@ -57,6 +65,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/contingency", contingencyHandler(db))
 	r.Post("/hosting-capacity", hostingHandler(db))
 	r.Post("/meshed-load-flow", meshedLoadFlowHandler(db))
+	r.Post("/nodal-load-flow", nodalLoadFlowHandler(db))
 	return r
 }
 
@@ -188,6 +197,23 @@ func meshedLoadFlowHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := runMeshLoadFlow(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func nodalLoadFlowHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req nodalLoadFlowRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runNodalLoadFlow(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

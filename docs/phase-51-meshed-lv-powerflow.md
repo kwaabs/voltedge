@@ -123,6 +123,11 @@ load-flow's).
 
 ### Tier 2 — Full nodal solver (a distinct engine)
 
+**Scoped in full in `docs/phase-52-nodal-powerflow.md`** (Phase 52 — the same
+engine `gap-embedded-generation` calls "Tier B" grid-forming/multi-slack; build
+once, both gaps close). The summary below stands; the phase doc adds the slice
+plan, reuse map, linear-solver decision, and validation-seed requirement.
+
 For **dense urban secondary/network grids** (multi-source, heavily meshed). Needs
 a genuine nodal method:
 

@@ -4,6 +4,7 @@ import { X } from "lucide-react"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
+import { useFloatingPanel } from "@/hooks/use-floating-panel"
 import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { HostingCandidate, HostingResult } from "@/stores/hosting-store"
@@ -60,6 +61,7 @@ export function HostingPanel() {
   const [pfInput, setPfInput] = useState("1.0")
   const [minPuInput, setMinPuInput] = useState("0.95")
   const [maxPuInput, setMaxPuInput] = useState("1.05")
+  const fp = useFloatingPanel(704, "max-h-[24rem]")
 
   if (!armed && !result) return null
 
@@ -113,9 +115,12 @@ export function HostingPanel() {
   const ranked = result ? [...result.candidates].sort((a, b) => b.hosting_capacity_kw - a.hosting_capacity_kw) : []
 
   return (
-    <div className="bg-popover text-popover-foreground fixed bottom-10 left-1/2 z-40 max-h-[24rem] w-[44rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-md border shadow-lg">
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <p className="truncate text-sm font-medium">DER hosting capacity</p>
+    <div ref={fp.panelRef} style={fp.shellStyle} className={fp.shellClassName}>
+      <div onPointerDown={fp.onHeaderPointerDown} className={fp.headerClassName}>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {fp.grip}
+          <p className="truncate text-sm font-medium">DER hosting capacity</p>
+        </div>
         <Button variant="ghost" size="icon" className="size-6 shrink-0" onClick={() => useHostingStore.getState().clear()}>
           <X className="size-3.5" />
           <span className="sr-only">Close</span>
@@ -169,7 +174,7 @@ export function HostingPanel() {
           </Button>
         </div>
       ) : (
-        <div className="flex max-h-[21rem] flex-col overflow-hidden">
+        <div className={cn("flex flex-col overflow-hidden", fp.resized ? "min-h-0 flex-1" : "max-h-[21rem]")}>
           <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-xs">
             <span>{formatNumber(result.nominal_voltage_v, 0)} V nominal</span>
             <span>pf {formatNumber(result.power_factor, 2)}</span>
@@ -183,7 +188,7 @@ export function HostingPanel() {
               Run again
             </Button>
           </div>
-          <div className="overflow-y-auto">
+          <div className={cn("overflow-y-auto", fp.resized && "min-h-0 flex-1")}>
             {ranked.length === 0 ? (
               <p className="text-muted-foreground px-3 py-4 text-sm">
                 No interconnection nodes on this feeder to size.
@@ -208,6 +213,7 @@ export function HostingPanel() {
           </div>
         </div>
       )}
+      {fp.resizeHandle}
     </div>
   )
 }

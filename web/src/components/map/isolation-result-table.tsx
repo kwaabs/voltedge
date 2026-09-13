@@ -3,6 +3,7 @@ import { AlertTriangle, ShieldAlert, X, Zap } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
+import { useFloatingPanel } from "@/hooks/use-floating-panel"
 import { apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useIsolateStore } from "@/stores/isolate-store"
@@ -43,6 +44,7 @@ export function IsolationResultTable() {
   const result = useIsolateStore((s) => s.result)
   const { data: featureClasses } = useFeatureClasses()
   const [rows, setRows] = useState<ResolvedRow[] | null>(null)
+  const fp = useFloatingPanel(448, "max-h-80")
 
   useEffect(() => {
     if (!result) {
@@ -95,9 +97,10 @@ export function IsolationResultTable() {
   const backfeedCount = result.possible_backfeed_paths?.length ?? 0
 
   return (
-    <div className="bg-popover text-popover-foreground fixed bottom-10 left-1/2 z-40 max-h-80 w-[28rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-md border shadow-lg">
-      <div className="flex items-center justify-between border-b px-3 py-2">
+    <div ref={fp.panelRef} style={fp.shellStyle} className={fp.shellClassName}>
+      <div onPointerDown={fp.onHeaderPointerDown} className={fp.headerClassName}>
         <div className="flex min-w-0 items-center gap-1.5">
+          {fp.grip}
           <Zap className="text-muted-foreground size-3.5 shrink-0" />
           <p className="truncate text-sm font-medium">Isolation</p>
         </div>
@@ -129,7 +132,7 @@ export function IsolationResultTable() {
         </div>
       )}
 
-      <div className="max-h-[13rem] overflow-y-auto">
+      <div className={cn("overflow-y-auto", fp.resized ? "min-h-0 flex-1" : "max-h-[13rem]")}>
         {rows === null ? (
           <p className="text-muted-foreground p-3 text-sm">Loading…</p>
         ) : rows.length === 0 ? (
@@ -179,6 +182,7 @@ export function IsolationResultTable() {
           </table>
         )}
       </div>
+      {fp.resizeHandle}
     </div>
   )
 }

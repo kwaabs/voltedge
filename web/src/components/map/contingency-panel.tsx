@@ -4,6 +4,7 @@ import { X } from "lucide-react"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
+import { useFloatingPanel } from "@/hooks/use-floating-panel"
 import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { ContingencyResult, RestorationOption } from "@/stores/contingency-store"
@@ -44,6 +45,7 @@ export function ContingencyPanel() {
   const [voltageInput, setVoltageInput] = useState("11000")
   const [minPuInput, setMinPuInput] = useState("0.95")
   const [maxPuInput, setMaxPuInput] = useState("1.05")
+  const fp = useFloatingPanel(672, "max-h-[24rem]")
 
   if (!armed && !result) return null
 
@@ -87,9 +89,12 @@ export function ContingencyPanel() {
   }
 
   return (
-    <div className="bg-popover text-popover-foreground fixed bottom-10 left-1/2 z-40 max-h-[24rem] w-[42rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-md border shadow-lg">
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <p className="truncate text-sm font-medium">Contingency &amp; backfeed restoration</p>
+    <div ref={fp.panelRef} style={fp.shellStyle} className={fp.shellClassName}>
+      <div onPointerDown={fp.onHeaderPointerDown} className={fp.headerClassName}>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {fp.grip}
+          <p className="truncate text-sm font-medium">Contingency &amp; backfeed restoration</p>
+        </div>
         <Button
           variant="ghost"
           size="icon"
@@ -138,7 +143,7 @@ export function ContingencyPanel() {
           </Button>
         </div>
       ) : (
-        <div className="flex max-h-[21rem] flex-col overflow-hidden">
+        <div className={cn("flex flex-col overflow-hidden", fp.resized ? "min-h-0 flex-1" : "max-h-[21rem]")}>
           {/* Base-case summary -- the donor feeder's own load and reach before
               any transfer, plus the candidate-tie count. */}
           <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-xs">
@@ -156,7 +161,7 @@ export function ContingencyPanel() {
               Run again
             </Button>
           </div>
-          <div className="overflow-y-auto">
+          <div className={cn("overflow-y-auto", fp.resized && "min-h-0 flex-1")}>
             {result.options.length === 0 ? (
               <p className="text-muted-foreground px-3 py-4 text-sm">
                 No open boundary ties on this feeder -- nothing to restore from here.
@@ -181,6 +186,7 @@ export function ContingencyPanel() {
           </div>
         </div>
       )}
+      {fp.resizeHandle}
     </div>
   )
 }

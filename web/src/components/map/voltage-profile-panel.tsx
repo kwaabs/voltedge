@@ -4,6 +4,7 @@ import { X } from "lucide-react"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
+import { useFloatingPanel } from "@/hooks/use-floating-panel"
 import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useSelectionStore } from "@/stores/selection-store"
@@ -48,6 +49,7 @@ export function VoltageProfilePanel() {
   const [voltageInput, setVoltageInput] = useState("230")
   const [minPuInput, setMinPuInput] = useState("0.95")
   const [maxPuInput, setMaxPuInput] = useState("1.05")
+  const fp = useFloatingPanel(640, "max-h-[22rem]")
 
   if (!armed && !result) return null
 
@@ -94,9 +96,12 @@ export function VoltageProfilePanel() {
   }
 
   return (
-    <div className="bg-popover text-popover-foreground fixed bottom-10 left-1/2 z-40 max-h-[22rem] w-[40rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-md border shadow-lg">
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <p className="truncate text-sm font-medium">Voltage profile &amp; losses</p>
+    <div ref={fp.panelRef} style={fp.shellStyle} className={fp.shellClassName}>
+      <div onPointerDown={fp.onHeaderPointerDown} className={fp.headerClassName}>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {fp.grip}
+          <p className="truncate text-sm font-medium">Voltage profile &amp; losses</p>
+        </div>
         <Button
           variant="ghost"
           size="icon"
@@ -145,7 +150,7 @@ export function VoltageProfilePanel() {
           </Button>
         </div>
       ) : (
-        <div className="flex max-h-[19rem] flex-col overflow-hidden">
+        <div className={cn("flex flex-col overflow-hidden", fp.resized ? "min-h-0 flex-1" : "max-h-[19rem]")}>
           {/* Feeder summary -- total load, total series losses, loss %,
               worst node's per-unit voltage, and the violation count. */}
           <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-xs">
@@ -174,7 +179,7 @@ export function VoltageProfilePanel() {
               Run again
             </Button>
           </div>
-          <div className="overflow-y-auto">
+          <div className={cn("overflow-y-auto", fp.resized && "min-h-0 flex-1")}>
             <table className="w-full text-sm">
               <thead className="text-muted-foreground sticky top-0 border-b text-left text-xs">
                 <tr>
@@ -243,6 +248,7 @@ export function VoltageProfilePanel() {
           </div>
         </div>
       )}
+      {fp.resizeHandle}
     </div>
   )
 }

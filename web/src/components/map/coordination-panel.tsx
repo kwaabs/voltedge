@@ -4,6 +4,7 @@ import { Crosshair, X } from "lucide-react"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
+import { useFloatingPanel } from "@/hooks/use-floating-panel"
 import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { CoordinationDevice, CoordinationResult } from "@/stores/coordination-store"
@@ -243,6 +244,7 @@ export function CoordinationPanel() {
   const { data: featureClasses } = useFeatureClasses()
   const [voltageInput, setVoltageInput] = useState("11000")
   const [ctiInput, setCtiInput] = useState("0.3")
+  const fp = useFloatingPanel(736, "max-h-[80vh]")
 
   if (!armed && !result) return null
 
@@ -294,9 +296,12 @@ export function CoordinationPanel() {
   const deviceLabel = (d: CoordinationDevice) => `${classNameFor(d.feature_class)} ${shortId(d.feature_id)}`
 
   return (
-    <div className="bg-popover text-popover-foreground fixed bottom-10 left-1/2 z-40 max-h-[80vh] w-[46rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-md border shadow-lg">
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <p className="truncate text-sm font-medium">Protection coordination</p>
+    <div ref={fp.panelRef} style={fp.shellStyle} className={fp.shellClassName}>
+      <div onPointerDown={fp.onHeaderPointerDown} className={fp.headerClassName}>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {fp.grip}
+          <p className="truncate text-sm font-medium">Protection coordination</p>
+        </div>
         <Button variant="ghost" size="icon" className="size-6 shrink-0" onClick={() => useCoordinationStore.getState().clear()}>
           <X className="size-3.5" />
           <span className="sr-only">Close</span>
@@ -363,7 +368,7 @@ export function CoordinationPanel() {
           </div>
         </div>
       ) : (
-        <div className="max-h-[calc(80vh-2.5rem)] overflow-y-auto">
+        <div className={cn("overflow-y-auto", fp.resized ? "min-h-0 flex-1" : "max-h-[calc(80vh-2.5rem)]")}>
           <div className="text-muted-foreground flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
             <div className="flex items-center gap-2">
               {result.coordinated === undefined ? (
@@ -458,6 +463,7 @@ export function CoordinationPanel() {
           )}
         </div>
       )}
+      {fp.resizeHandle}
     </div>
   )
 }

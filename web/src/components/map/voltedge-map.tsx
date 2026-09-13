@@ -79,6 +79,8 @@ import { useIsolateStore } from "@/stores/isolate-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useLoadFlowStore } from "@/stores/load-flow-store"
 import { useMapAnnotationsStore } from "@/stores/map-annotations-store"
+import { useMeshedLoadFlowStore } from "@/stores/meshed-load-flow-store"
+import { useNodalLoadFlowStore } from "@/stores/nodal-load-flow-store"
 import { useMapGotoStore } from "@/stores/map-goto-store"
 import { useMapPinsStore } from "@/stores/map-pins-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
@@ -518,6 +520,8 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   const traceResult = useTraceStore((s) => s.result)
   const isolateResult = useIsolateStore((s) => s.result)
   const loadFlowResult = useLoadFlowStore((s) => s.result)
+  const meshedLoadFlowResult = useMeshedLoadFlowStore((s) => s.result)
+  const nodalLoadFlowResult = useNodalLoadFlowStore((s) => s.result)
   const faultCurrentResult = useFaultCurrentStore((s) => s.result)
   const queryResults = useQueryStore((s) => s.results)
   const omsIncidentId = useOmsHighlightStore((s) => s.incidentId)
@@ -1514,13 +1518,19 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     const source = loadFlowSourceRef.current
     if (!source) return
 
-    if (!loadFlowResult) {
+    // The radial load flow, the weakly-meshed load flow (meshed-load-flow-
+    // store.ts) and the nodal Y-bus load flow (nodal-load-flow-store.ts) are
+    // mutually exclusive in the UI (arming one clears the others) and all three
+    // report the same node/overloaded/barrier shape, so they share this one
+    // highlight source and the load-flow roles/styles -- whichever has a result
+    // is the active one.
+    const result = loadFlowResult ?? meshedLoadFlowResult ?? nodalLoadFlowResult
+    if (!result) {
       source.clear()
       return
     }
 
     const src: VectorSource = source
-    const result: NonNullable<typeof loadFlowResult> = loadFlowResult
 
     let cancelled = false
     const overloadedKeys = new Set(result.overloaded.map((r) => `${r.feature_class}:${r.feature_id}`))
@@ -1565,7 +1575,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     return () => {
       cancelled = true
     }
-  }, [loadFlowResult])
+  }, [loadFlowResult, meshedLoadFlowResult, nodalLoadFlowResult])
 
   // Fault-current results (see fault-current-store.ts) -- same async-
   // fetch-into-a-dedicated-source shape as the load-flow effect above.

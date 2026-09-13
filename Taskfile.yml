@@ -754,6 +754,22 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/lv_ring_network_example.sql
 
+  seed-generator-pv-fields:
+    desc: Add the grid-forming (PV bus) input fields to GENERATOR -- the asset-driven half of the Phase 52 Tier 2 "Both" PV model (nullable voltage_setpoint_pu = per-unit voltage the generator regulates its bus to, and reactive_limit_kvar = optional symmetric +/- Q bound for PV->PQ switching). resolvePVSpec (nodal.go) reads these names; absent => grid-following Tier A PQ, unchanged. Through the gitbash sidecar (requires seed-generator first; RECOMPILE with compile CODE=GENERATOR after so the columns materialise on gis.generator; idempotent)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/generator_pv_fields.sql
+
+  seed-nodal-multi-source:
+    desc: Load the multi-slack + PV validation network -- the Phase 52 Tier 2 Slice S3 acceptance fixture for POST /analysis/nodal-load-flow. TWO ideal 400 V slacks (SRC-A, SRC-B) feed one common LV bus via conductors in EXACTLY 1:2 impedance (LVA:LVB), plus a grid-forming PV generator GEN-P (voltage_setpoint_pu 1.02) on its own bus. Run start=SRC-A sources=[SRC-B] nominal_voltage_v=400; the hand-computable answer is EXACT -- slack_count=2, supplied_kw(SRC-A)=2*supplied_kw(SRC-B) (invariant of load/gen/pf), and GEN-P role=pv held at 1.02*400=408.0 V above both slacks (requires seed-connectivity + seed-load-flow-fields + seed-transformer-fields + seed-lv-conductors + seed-lv-metering + seed-service-point + seed-generator + seed-generator-pv-fields, then compile CODE=DIST_XFMR/LV_CONDUCTOR/METER/SERVICE_POINT/GENERATOR first; fails loudly if a prerequisite is missing)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/nodal_multi_source_example.sql
+
   seed-substation-network:
     desc: Load the larger 33/11/0.4 kV SUBSTATION feeder -- a second seed of real gis.* feature INSTANCES + runtime.feature_connectivity built around a POWER_XFMR + MV_BUSBAR (GRID-SRC -> PTX-1 -> BUS-A -> two feeders w/ recloser/switches/3 DIST_XFMRs -> 4 LV runs + LV switch + 6 meters/service points, plus 4 poles) through the gitbash sidecar (requires ALL seed-test-network prerequisites PLUS seed-power-transformer + seed-mv-busbar + seed-mv-recloser + seed-mv-lv-switch, then compile CODE=DIST_XFMR/POWER_XFMR/MV_BUSBAR/MV_RECLOSER/MV_SWITCH/LV_SWITCH/MV_CONDUCTOR/LV_CONDUCTOR/METER/SERVICE_POINT/POLE first; fails loudly if a prerequisite is missing; coexists with seed-test-network)
     cmds:
