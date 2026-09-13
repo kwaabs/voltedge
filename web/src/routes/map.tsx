@@ -26,6 +26,7 @@ import { ContingencyPanel } from "@/components/map/contingency-panel"
 import { HostingPanel } from "@/components/map/hosting-panel"
 import { MeshedLoadFlowPanel } from "@/components/map/meshed-load-flow-panel"
 import { NodalLoadFlowPanel } from "@/components/map/nodal-load-flow-panel"
+import { AutoLoadFlowPanel } from "@/components/map/auto-load-flow-panel"
 import { MeasureToolbar } from "@/components/map/measure-toolbar"
 import { NewAnnotationMenu } from "@/components/map/new-annotation-menu"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
@@ -188,6 +189,7 @@ export function MapPage() {
       <HostingPanel />
       <MeshedLoadFlowPanel />
       <NodalLoadFlowPanel />
+      <AutoLoadFlowPanel />
       <StatusBar />
     </div>
   )

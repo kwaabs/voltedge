@@ -109,6 +109,10 @@ export function NodalLoadFlowPanel() {
   const result = useNodalLoadFlowStore((s) => s.result)
   const { data: featureClasses } = useFeatureClasses()
   const [voltageInput, setVoltageInput] = useState("11000")
+  // S5 solver selector. Gauss-Seidel is the default (the proven engine whose
+  // numbers S2/S3 were hand-verified against); "newton" opts into the
+  // Newton-Raphson solver, which converges quadratically on stiff meshed grids.
+  const [solver, setSolver] = useState<"gauss-seidel" | "newton">("gauss-seidel")
   // Each row's human-assigned name + circuit membership, resolved per feature
   // the same way trace-result-table.tsx does -- the solver response carries only
   // feature_class/feature_id, and a feature's own name and Phase 37 circuit ride
@@ -190,6 +194,7 @@ export function NodalLoadFlowPanel() {
         body: JSON.stringify({
           start,
           nominal_voltage_v: nominalVoltageV,
+          ...(solver === "newton" && { solver }),
           ...(sources.length > 0 && { sources }),
           ...(regulated.length > 0 && { regulated }),
         }),
@@ -225,6 +230,15 @@ export function NodalLoadFlowPanel() {
               onChange={(e) => setVoltageInput(e.target.value)}
               autoFocus
             />
+            <label className="text-muted-foreground shrink-0 text-sm">Solver</label>
+            <select
+              className={cn(inputClass, "w-32")}
+              value={solver}
+              onChange={(e) => setSolver(e.target.value as "gauss-seidel" | "newton")}
+            >
+              <option value="gauss-seidel">Gauss-Seidel</option>
+              <option value="newton">Newton-Raphson</option>
+            </select>
             <Button size="sm" className="ml-auto" onClick={runNodalLoadFlow} disabled={loading}>
               {loading ? "Running…" : "Run"}
             </Button>

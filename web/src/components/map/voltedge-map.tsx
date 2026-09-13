@@ -81,6 +81,7 @@ import { useLoadFlowStore } from "@/stores/load-flow-store"
 import { useMapAnnotationsStore } from "@/stores/map-annotations-store"
 import { useMeshedLoadFlowStore } from "@/stores/meshed-load-flow-store"
 import { useNodalLoadFlowStore } from "@/stores/nodal-load-flow-store"
+import { activeInner, useAutoLoadFlowStore } from "@/stores/auto-load-flow-store"
 import { useMapGotoStore } from "@/stores/map-goto-store"
 import { useMapPinsStore } from "@/stores/map-pins-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
@@ -522,6 +523,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   const loadFlowResult = useLoadFlowStore((s) => s.result)
   const meshedLoadFlowResult = useMeshedLoadFlowStore((s) => s.result)
   const nodalLoadFlowResult = useNodalLoadFlowStore((s) => s.result)
+  const autoLoadFlowResult = useAutoLoadFlowStore((s) => s.result)
   const faultCurrentResult = useFaultCurrentStore((s) => s.result)
   const queryResults = useQueryStore((s) => s.results)
   const omsIncidentId = useOmsHighlightStore((s) => s.incidentId)
@@ -1519,12 +1521,13 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     if (!source) return
 
     // The radial load flow, the weakly-meshed load flow (meshed-load-flow-
-    // store.ts) and the nodal Y-bus load flow (nodal-load-flow-store.ts) are
-    // mutually exclusive in the UI (arming one clears the others) and all three
-    // report the same node/overloaded/barrier shape, so they share this one
-    // highlight source and the load-flow roles/styles -- whichever has a result
-    // is the active one.
-    const result = loadFlowResult ?? meshedLoadFlowResult ?? nodalLoadFlowResult
+    // store.ts), the nodal Y-bus load flow (nodal-load-flow-store.ts) and the
+    // dispatch router (auto-load-flow-store.ts, whose active engine's inner
+    // result is one of those same shapes) are mutually exclusive in the UI
+    // (arming one clears the others) and all report the same node/overloaded/
+    // barrier shape, so they share this one highlight source and the load-flow
+    // roles/styles -- whichever has a result is the active one.
+    const result = loadFlowResult ?? meshedLoadFlowResult ?? nodalLoadFlowResult ?? activeInner(autoLoadFlowResult)
     if (!result) {
       source.clear()
       return
@@ -1575,7 +1578,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     return () => {
       cancelled = true
     }
-  }, [loadFlowResult, meshedLoadFlowResult, nodalLoadFlowResult])
+  }, [loadFlowResult, meshedLoadFlowResult, nodalLoadFlowResult, autoLoadFlowResult])
 
   // Fault-current results (see fault-current-store.ts) -- same async-
   // fetch-into-a-dedicated-source shape as the load-flow effect above.

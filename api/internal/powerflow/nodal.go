@@ -61,6 +61,18 @@ const (
 	gsTolerancePU = 1e-9
 )
 
+// Newton-Raphson controls (newton.go). Newton converges quadratically -- a
+// well-conditioned distribution network reaches machine-tolerance power balance in
+// a handful of iterations, so the cap is small. newtonTolerancePU is the largest
+// per-unit power mismatch (real or reactive injection residual) below which the
+// solve is declared converged -- a different, and stricter, criterion than the GS
+// voltage-change tolerance (a power mismatch is the physical residual Newton drives
+// to zero).
+const (
+	newtonMaxIter     = 40
+	newtonTolerancePU = 1e-9
+)
+
 // idealXfmrXPU is the tiny per-unit series reactance stamped for a transformer
 // that resolved a turns ratio but no nameplate %Z (an un-surveyed unit). With the
 // voltage bases chosen in the turns ratio an ideal transformer is 1:1 in per-unit,
@@ -94,7 +106,22 @@ type nodalLoadFlowRequest struct {
 	// overrides the per-unit setpoint and reactive limits per-run. VoltagePU
 	// defaults to the asset value, else 1.0.
 	Regulated []regulatedGen `json:"regulated,omitempty"`
+
+	// Solver selects the numerical method: "gauss-seidel" (default -- proven,
+	// slow-but-monotonic) or "newton" (Newton-Raphson, newton.go -- quadratic
+	// convergence, the standard method for a meshed AC power flow). Both solve the
+	// same assembled Y-bus model and report the same result shape; the response
+	// echoes which ran. "" defaults to gauss-seidel so an existing caller's numbers
+	// are unchanged until it opts into Newton.
+	Solver string `json:"solver,omitempty"`
 }
+
+// Solver identifiers for nodalLoadFlowRequest.Solver and the response's Solver
+// field.
+const (
+	solverGaussSeidel = "gauss-seidel"
+	solverNewton      = "newton"
+)
 
 // regulatedGen is one per-run PV designation/override. Feature is the generator
 // node; VoltagePU is the per-unit magnitude it regulates its bus to (0 = fall
@@ -334,7 +361,19 @@ func runNodalLoadFlow(ctx context.Context, db bun.IDB, req nodalLoadFlowRequest)
 		return nil, err
 	}
 
-	sol := solveGaussSeidel(model)
+	// Solver selection (S5). Default and any unrecognised value fall back to the
+	// proven Gauss-Seidel so an existing caller's numbers are unchanged; "newton"
+	// opts into the Newton-Raphson solver (newton.go). Both consume the same model
+	// and return the same nodalSolution shape.
+	solverName := solverGaussSeidel
+	var sol nodalSolution
+	switch req.Solver {
+	case solverNewton:
+		solverName = solverNewton
+		sol = solveNewton(model)
+	default:
+		sol = solveGaussSeidel(model)
+	}
 
 	classCodes, err := nodeClassCodes(ctx, db, append(append([]node{}, nodes...), barrierHits...))
 	if err != nil {
@@ -346,7 +385,7 @@ func runNodalLoadFlow(ctx context.Context, db bun.IDB, req nodalLoadFlowRequest)
 	return &nodalLoadFlowResponse{
 		Start:           req.Start,
 		NominalVoltageV: req.NominalVoltageV,
-		Solver:          "gauss-seidel",
+		Solver:          solverName,
 		Converged:       sol.converged,
 		Iterations:      sol.iterations,
 		MaxMismatch:     sol.maxMismatch,
@@ -902,9 +941,14 @@ func edgeKey(e graphEdge) string {
 	return e.a.classID + "|" + e.a.featureID + "~" + e.b.classID + "|" + e.b.featureID
 }
 
-// gsSolution is the outcome of the iterative solve: the per-unit bus voltages and
-// the convergence telemetry.
-type gsSolution struct {
+// nodalSolution is the outcome of an iterative solve -- the per-unit bus voltages
+// and the convergence telemetry -- shared by both solvers (Gauss-Seidel below and
+// Newton-Raphson in newton.go), so formatNodalResults / busInjectionPower read
+// whichever ran without caring which. maxMismatch is the solver's own residual:
+// the largest per-unit voltage change on the final GS pass, or the largest
+// per-unit power mismatch on the final Newton iteration (both -> 0 as the solve
+// converges).
+type nodalSolution struct {
 	vPU         []complex128
 	converged   bool
 	iterations  int
@@ -920,7 +964,7 @@ type gsSolution struct {
 // admittance to it, a zero-base island) is left at its start -- it carries no
 // branch so its exact voltage is meaningless, and dividing by its zero diagonal is
 // avoided.
-func solveGaussSeidel(model *nodalModel) gsSolution {
+func solveGaussSeidel(model *nodalModel) nodalSolution {
 	n := len(model.buses)
 	v := make([]complex128, n)
 	for i := range v {
@@ -1001,14 +1045,14 @@ func solveGaussSeidel(model *nodalModel) gsSolution {
 		}
 	}
 
-	return gsSolution{vPU: v, converged: converged, iterations: iter, maxMismatch: maxDelta}
+	return nodalSolution{vPU: v, converged: converged, iterations: iter, maxMismatch: maxDelta}
 }
 
 // formatNodalResults maps the solved buses/branches back to one result per feature
 // node: a bus member reports its bus voltage; a branch (conductor/transformer)
 // reports its through-current/power and loading. Overloaded collects any branch
 // over 100% of its ampacity (conductor) or rated kVA (transformer).
-func formatNodalResults(model *nodalModel, states map[node]*nodeState, sol gsSolution, classCodes map[string]string) ([]nodalNodeResult, []featureRef) {
+func formatNodalResults(model *nodalModel, states map[node]*nodeState, sol nodalSolution, classCodes map[string]string) ([]nodalNodeResult, []featureRef) {
 	results := make([]nodalNodeResult, 0, len(model.busOfNode)+len(model.branches))
 	overloaded := make([]featureRef, 0)
 
@@ -1126,7 +1170,7 @@ func formatNodalResults(model *nodalModel, states map[node]*nodeState, sol gsSol
 // at the solved operating point: S = V_i · conj(Σ_j Y_ij V_j), converted to
 // kW/kVAR. For a slack it is the power that infeed supplies; for a PV bus, its
 // generation (real) and the reactive the solver found to hold its setpoint.
-func busInjectionPower(model *nodalModel, sol gsSolution, bi int) (kw, kvar float64) {
+func busInjectionPower(model *nodalModel, sol nodalSolution, bi int) (kw, kvar float64) {
 	var inj complex128
 	for j := range model.yBus[bi] {
 		inj += model.yBus[bi][j] * sol.vPU[j]

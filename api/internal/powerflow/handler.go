@@ -51,6 +51,13 @@ import (
 //	                        (loads + embedded generation as negative-demand PQ);
 //	                        multi-slack / PV buses and Newton-Raphson are later
 //	                        slices
+//	POST   /load-flow-auto  dispatch ROUTER (Phase 52, S4): classify the network's
+//	                        topology once (buildTree's radial/mesh verdict) and
+//	                        auto-select the engine -- radial tree -> the fast
+//	                        ladder, a few loops -> Tier 1 mesh compensation, a
+//	                        dense mesh or a multi-slack/PV request -> Tier 2 nodal
+//	                        Y-bus -- so one entry solves any shape and reports
+//	                        which engine ran (an "engine" override forces one)
 //
 // Read-only, same as api/internal/trace -- neither route ever writes
 // anything, they only compute over what api/internal/connectivity and
@@ -66,6 +73,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/hosting-capacity", hostingHandler(db))
 	r.Post("/meshed-load-flow", meshedLoadFlowHandler(db))
 	r.Post("/nodal-load-flow", nodalLoadFlowHandler(db))
+	r.Post("/load-flow-auto", dispatchLoadFlowHandler(db))
 	return r
 }
 
@@ -214,6 +222,23 @@ func nodalLoadFlowHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := runNodalLoadFlow(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func dispatchLoadFlowHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req dispatchLoadFlowRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runDispatchLoadFlow(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

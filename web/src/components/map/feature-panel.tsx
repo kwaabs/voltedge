@@ -101,6 +101,7 @@ import { useContingencyStore } from "@/stores/contingency-store"
 import { useHostingStore } from "@/stores/hosting-store"
 import { useMeshedLoadFlowStore } from "@/stores/meshed-load-flow-store"
 import { useNodalLoadFlowStore } from "@/stores/nodal-load-flow-store"
+import { useAutoLoadFlowStore } from "@/stores/auto-load-flow-store"
 
 type TabId = "attributes" | "terminals" | "relationships" | "materials" | "files" | "links" | "history" | "gps"
 
@@ -1458,6 +1459,7 @@ export function FeaturePanel() {
     useHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<TraceResult>("/trace", {
@@ -1492,6 +1494,7 @@ export function FeaturePanel() {
     useHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useIsolateStore.getState().setLoading(true)
     try {
       const result = await apiFetch<IsolationResult>("/trace/isolate", {
@@ -1533,6 +1536,7 @@ export function FeaturePanel() {
     useHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{ start: TraceFeatureRef; heads: TraceFeatureRef[]; features: TracedFeature[] }>(
@@ -1577,6 +1581,7 @@ export function FeaturePanel() {
     useHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{
@@ -1638,6 +1643,7 @@ export function FeaturePanel() {
     useHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{
@@ -1697,6 +1703,7 @@ export function FeaturePanel() {
     useHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1717,6 +1724,7 @@ export function FeaturePanel() {
     useHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1738,6 +1746,7 @@ export function FeaturePanel() {
     useHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useAmpacityStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1760,6 +1769,7 @@ export function FeaturePanel() {
     useHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useCoordinationStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1780,6 +1790,7 @@ export function FeaturePanel() {
     useHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useVoltageProfileStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1802,6 +1813,7 @@ export function FeaturePanel() {
     useHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useContingencyStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1824,6 +1836,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useHostingStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1845,6 +1858,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useMeshedLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1868,7 +1882,30 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // The dispatch router (Phase 52, S4): the engine-agnostic entry. Classifies the
+  // network's topology once and auto-selects the engine (radial ladder / Tier 1
+  // mesh compensation / Tier 2 nodal Y-bus), so the caller need not know the
+  // shape. Like the others it only arms (the panel's Run makes the POST
+  // /analysis/load-flow-auto call); clears every other mutually-exclusive
+  // workflow, including the three individual engines.
+  function armAutoLoadFlow() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
+    useMeshedLoadFlowStore.getState().clear()
+    useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
   // Runnable trace_configurations for the dropdown -- SHORTEST_PATH
@@ -2090,6 +2127,10 @@ export function FeaturePanel() {
                     Supply path (to source)
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={armAutoLoadFlow}>
+                    <Workflow className="size-4" />
+                    Load flow (auto)…
+                  </DropdownMenuItem>
                   <DropdownMenuItem onSelect={armLoadFlow}>
                     <Activity className="size-4" />
                     Run load flow…
