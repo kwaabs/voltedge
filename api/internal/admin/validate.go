@@ -419,3 +419,115 @@ func validateCreateFeatureClass(req createFeatureClassRequest) error {
 
 	return nil
 }
+
+// ---- CIM export mapping validation (Phase 55) -----------------------------
+// Request-only structural rules -- the enum whitelists mirror the 0034/0035
+// CHECK constraints so a bad value is a friendly 400, not a raw Postgres
+// constraint-violation 500. Cross-references (a feature_class_code/field_name/
+// subtype_code resolving to a real row) are DB questions, checked in cim.go's
+// resolvers where the rows are available.
+
+func validateCreateCimProfile(req createCimProfileRequest) error {
+	if err := validateCode("CIM profile code", req.Code); err != nil {
+		return err
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return invalid("CIM profile name is required")
+	}
+	if strings.TrimSpace(req.CimNamespace) == "" {
+		return invalid("cim_namespace is required")
+	}
+	if strings.TrimSpace(req.ProfileURI) == "" {
+		return invalid("profile_uri is required")
+	}
+	if strings.TrimSpace(req.ModelAuthority) == "" {
+		return invalid("model_authority is required")
+	}
+	// coordinate_crs/unmapped_attr_policy are optional (they carry DB
+	// defaults when omitted); an empty string means "use the default" too.
+	if req.UnmappedAttrPolicy != nil && *req.UnmappedAttrPolicy != "" && !validUnmappedAttrPolicies[*req.UnmappedAttrPolicy] {
+		return invalid("unmapped_attr_policy must be one of drop, carry")
+	}
+	return nil
+}
+
+func validateUpdateCimProfile(req updateCimProfileRequest) error {
+	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
+		return invalid("name cannot be blank")
+	}
+	if req.CimNamespace != nil && strings.TrimSpace(*req.CimNamespace) == "" {
+		return invalid("cim_namespace cannot be blank")
+	}
+	if req.ProfileURI != nil && strings.TrimSpace(*req.ProfileURI) == "" {
+		return invalid("profile_uri cannot be blank")
+	}
+	if req.ModelAuthority != nil && strings.TrimSpace(*req.ModelAuthority) == "" {
+		return invalid("model_authority cannot be blank")
+	}
+	if req.CoordinateCRS != nil && strings.TrimSpace(*req.CoordinateCRS) == "" {
+		return invalid("coordinate_crs cannot be blank")
+	}
+	if req.UnmappedAttrPolicy != nil && !validUnmappedAttrPolicies[*req.UnmappedAttrPolicy] {
+		return invalid("unmapped_attr_policy must be one of drop, carry")
+	}
+	if req.Name == nil && req.CimNamespace == nil && req.ProfileURI == nil && req.ModelAuthority == nil &&
+		req.CoordinateCRS == nil && req.UnmappedAttrPolicy == nil && req.IsDefault == nil {
+		return invalid("request must set at least one field")
+	}
+	return nil
+}
+
+func validateCreateCimClassMapping(req createCimClassMappingRequest) error {
+	if err := validateCode("feature_class_code", req.FeatureClassCode); err != nil {
+		return err
+	}
+	if strings.TrimSpace(req.CimClass) == "" {
+		return invalid("cim_class is required")
+	}
+	if !validCimKinds[req.CimKind] {
+		return invalid("cim_kind must be one of conducting_edge, conducting_junction, container, asset, protection, skip")
+	}
+	return nil
+}
+
+func validateUpdateCimClassMapping(req updateCimClassMappingRequest) error {
+	if req.CimClass != nil && strings.TrimSpace(*req.CimClass) == "" {
+		return invalid("cim_class cannot be blank")
+	}
+	if req.CimKind != nil && !validCimKinds[*req.CimKind] {
+		return invalid("cim_kind must be one of conducting_edge, conducting_junction, container, asset, protection, skip")
+	}
+	if req.CimClass == nil && req.CimKind == nil {
+		return invalid("request must set at least one of cim_class, cim_kind")
+	}
+	return nil
+}
+
+func validateCreateCimAttributeMapping(req createCimAttributeMappingRequest) error {
+	if err := validateCode("feature_class_code", req.FeatureClassCode); err != nil {
+		return err
+	}
+	if !fieldNamePattern.MatchString(req.FieldName) {
+		return invalid("field_name %q must be lower-case letters, digits, and underscores, starting with a letter", req.FieldName)
+	}
+	if strings.TrimSpace(req.CimAttribute) == "" {
+		return invalid("cim_attribute is required")
+	}
+	if !validCimTransforms[req.Transform] {
+		return invalid("transform must be one of direct, scale, domain_map, boolean, from_geometry, material_spec, phase")
+	}
+	return nil
+}
+
+func validateUpdateCimAttributeMapping(req updateCimAttributeMappingRequest) error {
+	if req.CimAttribute != nil && strings.TrimSpace(*req.CimAttribute) == "" {
+		return invalid("cim_attribute cannot be blank")
+	}
+	if req.Transform != nil && !validCimTransforms[*req.Transform] {
+		return invalid("transform must be one of direct, scale, domain_map, boolean, from_geometry, material_spec, phase")
+	}
+	if req.CimAttribute == nil && req.Transform == nil && req.ScaleFactor == nil && req.Unit == nil && req.ValueMap == nil {
+		return invalid("request must set at least one of cim_attribute, transform, scale_factor, unit, value_map")
+	}
+	return nil
+}

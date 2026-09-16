@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kwaabs/voltedge/api/internal/compiler"
+	"github.com/kwaabs/voltedge/api/internal/export"
 	"github.com/uptrace/bun"
 )
 
@@ -72,6 +73,20 @@ import (
 //	DELETE /relationship-classes/{id}      remove one relationship class
 //	POST   /snapping-rules                 add one snapping rule -- from/to class + optional terminal, target type, tolerance, priority, required flag (display-only until the Snap UI consumes it)
 //	DELETE /snapping-rules/{id}            remove one snapping rule
+//	GET    /cim-profiles                   every CIM export profile (Phase 55)
+//	POST   /cim-profiles                   create a CIM export profile
+//	PATCH  /cim-profiles/{code}            edit a CIM profile (all columns NOT NULL, set-only)
+//	DELETE /cim-profiles/{code}            delete a CIM profile
+//	GET    /cim-class-mappings             every feature-class -> CIM-class mapping, code-shaped, id in each row
+//	POST   /cim-class-mappings             map a feature class (optionally one subtype) to a CIM class + kind
+//	PATCH  /cim-class-mappings/{id}        edit a class mapping's cim_class/cim_kind
+//	DELETE /cim-class-mappings/{id}        delete a class mapping
+//	GET    /cim-attribute-mappings         every field -> CIM-attribute mapping, code-shaped, id in each row
+//	POST   /cim-attribute-mappings         map a feature field to a CIM attribute + transform
+//	PATCH  /cim-attribute-mappings/{id}    edit an attribute mapping's cim_attribute/transform/scale_factor/unit/value_map
+//	DELETE /cim-attribute-mappings/{id}    delete an attribute mapping
+//	GET    /cim-coverage                   feature classes with no CIM class mapping (silently dropped from export)
+//	GET    /cim-preview/{code}             one real feature of a class rendered through the CIM encoder (byte-exact CIM/XML preview; ?profile= optional)
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/feature-classes", listFeatureClassesHandler(db))
@@ -116,6 +131,20 @@ func Routes(db *bun.DB) chi.Router {
 	r.Delete("/relationship-classes/{id}", deleteRelationshipClassHandler(db))
 	r.Post("/snapping-rules", createSnappingRuleHandler(db))
 	r.Delete("/snapping-rules/{id}", deleteSnappingRuleHandler(db))
+	r.Get("/cim-profiles", listCimProfilesHandler(db))
+	r.Post("/cim-profiles", createCimProfileHandler(db))
+	r.Patch("/cim-profiles/{code}", updateCimProfileHandler(db))
+	r.Delete("/cim-profiles/{code}", deleteCimProfileHandler(db))
+	r.Get("/cim-class-mappings", listCimClassMappingsHandler(db))
+	r.Post("/cim-class-mappings", createCimClassMappingHandler(db))
+	r.Patch("/cim-class-mappings/{id}", updateCimClassMappingHandler(db))
+	r.Delete("/cim-class-mappings/{id}", deleteCimClassMappingHandler(db))
+	r.Get("/cim-attribute-mappings", listCimAttributeMappingsHandler(db))
+	r.Post("/cim-attribute-mappings", createCimAttributeMappingHandler(db))
+	r.Patch("/cim-attribute-mappings/{id}", updateCimAttributeMappingHandler(db))
+	r.Delete("/cim-attribute-mappings/{id}", deleteCimAttributeMappingHandler(db))
+	r.Get("/cim-coverage", listCimCoverageHandler(db))
+	r.Get("/cim-preview/{code}", getCimPreviewHandler(db))
 	return r
 }
 
@@ -729,5 +758,201 @@ func deleteSnappingRuleHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// ---- CIM export mapping (Phase 55) ----------------------------------------
+
+func listCimProfilesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		profiles, err := listCimProfiles(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"cim_profiles": profiles})
+	}
+}
+
+func createCimProfileHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req createCimProfileRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := createCimProfile(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func updateCimProfileHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		var req updateCimProfileRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := updateCimProfile(r.Context(), db, code, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func deleteCimProfileHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		if err := deleteCimProfile(r.Context(), db, code); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func listCimClassMappingsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		mappings, err := listCimClassMappings(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"cim_class_mappings": mappings})
+	}
+}
+
+func createCimClassMappingHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req createCimClassMappingRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := createCimClassMapping(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func updateCimClassMappingHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var req updateCimClassMappingRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := updateCimClassMapping(r.Context(), db, id, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func deleteCimClassMappingHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if err := deleteCimClassMapping(r.Context(), db, id); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func listCimAttributeMappingsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		mappings, err := listCimAttributeMappings(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"cim_attribute_mappings": mappings})
+	}
+}
+
+func createCimAttributeMappingHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req createCimAttributeMappingRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := createCimAttributeMapping(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func updateCimAttributeMappingHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var req updateCimAttributeMappingRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := updateCimAttributeMapping(r.Context(), db, id, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func deleteCimAttributeMappingHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if err := deleteCimAttributeMapping(r.Context(), db, id); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func listCimCoverageHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		classes, err := listCimCoverage(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"unmapped_classes": classes})
+	}
+}
+
+// getCimPreviewHandler renders one real feature of the class through the actual
+// CIM encoder (export.PreviewFeature) so the editor can show the byte-exact
+// CIM/XML a full export produces for it, not just the mapping rule table. The
+// optional ?profile= query names a non-default CIM profile. A geometry-less
+// class or one with no rows is not an error -- the response carries sampled=false
+// with a note.
+func getCimPreviewHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		preview, err := export.PreviewFeature(r.Context(), db, code, r.URL.Query().Get("profile"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, cimPreviewResponse{
+			ClassCode: preview.ClassCode,
+			FeatureID: preview.FeatureID,
+			Xml:       preview.XML,
+			Sampled:   preview.Sampled,
+			Note:      preview.Note,
+		})
 	}
 }

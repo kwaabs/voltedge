@@ -66,6 +66,7 @@ func writeCIM(w io.Writer, docName string, layers []Layer, mapping *metadata.CIM
 		subID:     uuidV5("sub-geographical-region"),
 		csID:      uuidV5("coordinate-system"),
 		lineID:    uuidV5("default-line-container"),
+		unmapped:  map[string]int{},
 	}
 	return cw.write(w, docName, layers, conns)
 }
@@ -107,6 +108,13 @@ type cimWriter struct {
 	// predicate (Bay.VoltageLevel vs Bay.Substation). Phase 47 Slice 4.
 	containerClass map[string]string
 	tierByID       map[string]bool // VoltageLevel/Bay feature ids, to skip in the equipment pass
+
+	// unmapped tallies features dropped from the equipment pass because their
+	// class has no cim_class_mappings row (Phase 55 Slice 2): feature_class_code
+	// -> dropped count. Surfaced via topoStats.Unmapped so runExport can log the
+	// otherwise-silent drop. Classes with an explicit cim_kind='skip' row are not
+	// counted -- their omission is intentional, not an accident.
+	unmapped map[string]int
 }
 
 func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []connRow) (topoStats, error) {
@@ -160,7 +168,15 @@ func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []
 		attrs := cw.mapping.AttributesFor(layer.Code)
 		for _, f := range layer.Features {
 			cm, ok := cw.mapping.ClassFor(layer.Code, f.SubtypeCode)
-			if !ok || cm.CimKind == "skip" {
+			if !ok {
+				// No mapping row at all -- this feature is silently dropped from
+				// the export. Count it so runExport can surface the drop (Phase 55
+				// Slice 2); a cim_kind='skip' row below is a deliberate omission,
+				// not counted.
+				cw.unmapped[layer.Code]++
+				continue
+			}
+			if cm.CimKind == "skip" {
 				continue
 			}
 			if cw.subByID[f.ID] || cw.tierByID[f.ID] {
@@ -173,6 +189,7 @@ func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []
 	// Pass 4 (Slice 2): synthesize the topology -- ConnectivityNodes from the
 	// connectivity graph, one Terminal per equipment endpoint, PowerTransformerEnds.
 	stats := cw.writeTopology(layers, conns)
+	stats.Unmapped = cw.unmapped
 
 	cw.b.WriteString("</rdf:RDF>\n")
 	return stats, bw.Flush()

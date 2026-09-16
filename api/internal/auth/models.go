@@ -34,8 +34,12 @@ type User struct {
 	BreakGlass       bool       `bun:"break_glass"`
 	FailedLoginCount int        `bun:"failed_login_count"`
 	LockedUntil      *time.Time `bun:"locked_until"`
-	CreatedAt        time.Time  `bun:"created_at,nullzero"`
-	UpdatedAt        time.Time  `bun:"updated_at,nullzero"`
+	// ManagerID is this user's manager in the org tree (Phase 58,
+	// migration 0094) -- the edge spatial access cascades up. NULL at the
+	// top of the org.
+	ManagerID *string   `bun:"manager_id"`
+	CreatedAt time.Time `bun:"created_at,nullzero"`
+	UpdatedAt time.Time `bun:"updated_at,nullzero"`
 }
 
 // Identity mirrors iam.user_identities -- one way a user can prove

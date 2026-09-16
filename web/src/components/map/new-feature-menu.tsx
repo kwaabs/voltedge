@@ -1,5 +1,7 @@
-import { Plus, X } from "lucide-react"
+import { useState } from "react"
+import { Plus, Search, X } from "lucide-react"
 
+import { inputClass } from "@/components/map/field-utils"
 import { OrthoToggleButton } from "@/components/map/ortho-toggle-button"
 import { SnapToggleButton } from "@/components/map/snap-toggle-button"
 import { Button } from "@/components/ui/button"
@@ -11,12 +13,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useCouplerOptions } from "@/hooks/use-couplers"
 import { useDuctOptions } from "@/hooks/use-ducts"
 import { type FeatureClassSummary, useFeatureClasses } from "@/hooks/use-feature-classes"
+import { usePackagedSubstationOptions } from "@/hooks/use-packaged-substations"
 import { useRMUOptions } from "@/hooks/use-rmus"
-import { useTieOptions } from "@/hooks/use-ties"
+import { cn } from "@/lib/utils"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
+import { useToolbarMenuStore } from "@/stores/toolbar-menu-store"
 
 const DRAWABLE_GEOMETRY_TYPES: readonly DrawGeometryType[] = ["point", "line", "polygon"]
 
@@ -67,21 +70,26 @@ function groupByCategory(classes: FeatureClassSummary[]): ClassGroup[] {
  * draw session; src/components/map/voltedge-map.tsx owns the actual OL
  * Draw interaction, keyed off draw-store's drawingFeatureClassCode/
  * drawingGeometryType.
+ *
+ * Plain single-feature placement only. The guided-assembly workflows
+ * (Ring Main Unit, Cable duct, Bus coupler, Feeder tie) live in the
+ * separate NewAssemblyMenu -- but RMU/duct classes are still filtered
+ * OUT of this list here (drawing one plainly would skip its fan-out),
+ * which is why this component still reads their options.
  */
 export function NewFeatureMenu() {
   const { data: featureClasses } = useFeatureClasses()
   const { data: rmuOptions } = useRMUOptions()
+  const { data: packagedOptions } = usePackagedSubstationOptions()
   const { data: ductOptions } = useDuctOptions()
-  const { data: couplerOptions } = useCouplerOptions()
-  const { data: tieOptions } = useTieOptions()
   const startDrawing = useDrawStore((s) => s.startDrawing)
-  const startRMUDrawing = useDrawStore((s) => s.startRMUDrawing)
-  const startDuctDrawing = useDrawStore((s) => s.startDuctDrawing)
-  const startCouplerDrawing = useDrawStore((s) => s.startCouplerDrawing)
-  const startTieDrawing = useDrawStore((s) => s.startTieDrawing)
   const cancelDrawing = useDrawStore((s) => s.cancelDrawing)
   const drawing = useDrawStore((s) => s.drawingFeatureClassCode)
   const drawingGeometryType = useDrawStore((s) => s.drawingGeometryType)
+  // Only one toolbar dropdown open at a time -- see toolbar-menu-store.ts.
+  const menuOpen = useToolbarMenuStore((s) => s.open === "feature")
+  const setMenuOpen = useToolbarMenuStore((s) => s.setOpen)
+  const [query, setQuery] = useState("")
   // RMU classes are placed through the dedicated "Ring Main Unit" section below
   // (which POSTs /rmus to fan out the ways + internal bus), so keep them out of
   // the generic list -- drawing one there would POST a bare RMU with no
@@ -89,6 +97,13 @@ export function NewFeatureMenu() {
   // (i.e. appears in the options), so an RMU class with no seeded template still
   // shows in the generic list rather than vanishing entirely.
   const rmuClassCodes = new Set((rmuOptions ?? []).map((o) => o.rmu_feature_class))
+  // Packaged-substation classes place through the dedicated "Packaged substation"
+  // section (which POSTs /packaged-substations to fan out the components + wiring),
+  // so keep them out of the generic list -- drawing one there would POST a bare unit
+  // with no assembly. Same data-driven gate as RMUs: a class only counts once it has
+  // a fan-out template (i.e. appears in the options), so one with no seeded template
+  // still shows in the generic list rather than vanishing entirely.
+  const packagedClassCodes = new Set((packagedOptions ?? []).map((o) => o.packaged_feature_class))
   // Cable-duct classes fan out DUCT_WAY children (Phase 44 Slice 4), so they're
   // placed through the dedicated "Cable duct" section below (POSTs /ducts) and
   // kept out of the generic list -- drawing one there would create a bare duct
@@ -96,14 +111,29 @@ export function NewFeatureMenu() {
   // has a `contains DUCT_WAY` containment class (i.e. appears in the options).
   const ductClassCodes = new Set((ductOptions ?? []).map((o) => o.duct_feature_class))
   const drawableClasses = (featureClasses?.feature_classes ?? []).filter(
-    (fc) => isDrawGeometryType(fc.geometry_type) && !rmuClassCodes.has(fc.code) && !ductClassCodes.has(fc.code),
+    (fc) =>
+      isDrawGeometryType(fc.geometry_type) &&
+      !rmuClassCodes.has(fc.code) &&
+      !packagedClassCodes.has(fc.code) &&
+      !ductClassCodes.has(fc.code),
   )
+  // Search filter -- match on class name or code, so a code-savvy user can type
+  // "MV_" and a plain user can type "busbar". Narrows what's grouped/shown; the
+  // menu's presence keys off the unfiltered list (below), so a non-match only
+  // empties the list, never hides the trigger.
+  const q = query.trim().toLowerCase()
+  const filteredClasses =
+    q === ""
+      ? drawableClasses
+      : drawableClasses.filter(
+          (fc) => fc.name.toLowerCase().includes(q) || fc.code.toLowerCase().includes(q),
+        )
   // Section the flat list by the admin-defined category (migration 0074).
   // Uncategorised classes fall under a single "Other" bucket, always pinned
   // last; every named category sorts alphabetically above it. A category with
   // one class still gets its own header -- the point is a scannable structure,
   // not the shortest possible list.
-  const groupedClasses = groupByCategory(drawableClasses)
+  const groupedClasses = groupByCategory(filteredClasses)
 
   if (drawing) {
     return (
@@ -121,7 +151,7 @@ export function NewFeatureMenu() {
   }
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={menuOpen} onOpenChange={(o) => setMenuOpen("feature", o)}>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className="bg-background/90 gap-1.5 shadow-sm">
           <Plus className="text-primary size-4" />
@@ -130,15 +160,36 @@ export function NewFeatureMenu() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuLabel>Feature class</DropdownMenuLabel>
-        <DropdownMenuSeparator />
         {drawableClasses.length === 0 ? (
-          <p className="text-muted-foreground px-2 py-1.5 text-sm">No feature classes compiled yet</p>
+          <>
+            <DropdownMenuSeparator />
+            <p className="text-muted-foreground px-2 py-1.5 text-sm">No feature classes compiled yet</p>
+          </>
         ) : (
-          // Cap the list and scroll -- with every MV/LV class compiled this
-          // runs well past a screenful, so pin the top label above and let
-          // only the grouped items scroll.
-          <div className="max-h-72 overflow-x-hidden overflow-y-auto">
-            {groupedClasses.map((group, i) => (
+          <>
+            {/* Search box, pinned above the scroll. stopPropagation on keydown
+                keeps Radix's menu typeahead from stealing what you type. */}
+            <div className="px-2 pb-1.5">
+              <div className="relative">
+                <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2" />
+                <input
+                  className={cn(inputClass, "pl-8")}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  placeholder="Search classes…"
+                />
+              </div>
+            </div>
+            <DropdownMenuSeparator />
+            {/* Cap the list and scroll -- with every MV/LV class compiled this
+                runs well past a screenful, so pin the label/search above and let
+                only the grouped items scroll. */}
+            <div className="max-h-72 overflow-x-hidden overflow-y-auto">
+              {groupedClasses.length === 0 && (
+                <p className="text-muted-foreground px-2 py-3 text-center text-sm">No matching classes</p>
+              )}
+              {groupedClasses.map((group, i) => (
               <div key={group.category ?? "__other__"}>
                 {/* A separator only between groups, not above the first --
                     the DropdownMenuLabel above already opens the list. */}
@@ -156,83 +207,9 @@ export function NewFeatureMenu() {
                     {fc.name}
                   </DropdownMenuItem>
                 ))}
-              </div>
-            ))}
-          </div>
-        )}
-        {rmuOptions && rmuOptions.length > 0 && (
-          // Ring Main Units place as a point but fan out into an assembly, so
-          // each seeded (class, config) is its own menu item that starts an RMU
-          // draw carrying that config -- the Save then POSTs /rmus.
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Ring Main Unit</DropdownMenuLabel>
-            {rmuOptions.map((o) => (
-              <DropdownMenuItem
-                key={`${o.rmu_feature_class}:${o.config}`}
-                onSelect={() => startRMUDrawing(o.rmu_feature_class, o.config)}
-              >
-                {o.rmu_feature_class_name} — {o.config_label}
-              </DropdownMenuItem>
-            ))}
-          </>
-        )}
-        {ductOptions && ductOptions.length > 0 && (
-          // Cable ducts draw as a line but fan out into DUCT_WAY children, so each
-          // duct class is its own menu item that starts a duct draw -- the Save
-          // then POSTs /ducts, creating the duct plus the ways its way_count sets.
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Cable duct</DropdownMenuLabel>
-            {ductOptions.map((o) => (
-              <DropdownMenuItem
-                key={o.duct_feature_class}
-                onSelect={() => startDuctDrawing(o.duct_feature_class)}
-              >
-                {o.duct_feature_class_name}
-              </DropdownMenuItem>
-            ))}
-          </>
-        )}
-        {couplerOptions && couplerOptions.length > 0 && (
-          // A bus coupler places as a point (the breaker) but its Save wires the
-          // breaker between two picked buses (POST /couplers). Unlike RMUs/ducts the
-          // breaker class is NOT removed from the generic list above -- you still
-          // place ordinary feeder breakers there; this section is the extra "wired
-          // between two buses" affordance, passing the option's eligible bus classes
-          // so the create form knows which classes to pick the two buses from.
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Bus coupler</DropdownMenuLabel>
-            {couplerOptions.map((o) => (
-              <DropdownMenuItem
-                key={o.breaker_feature_class}
-                onSelect={() => startCouplerDrawing(o.breaker_feature_class, o.bus_feature_classes)}
-              >
-                {o.breaker_feature_class_name}
-              </DropdownMenuItem>
-            ))}
-          </>
-        )}
-        {tieOptions && tieOptions.length > 0 && (
-          // A feeder tie places as a point (the switch) but its Save wires the
-          // switch between two picked feeders and forces it normally-open (POST
-          // /ties). Like the coupler the switch class stays in the generic list
-          // above -- you still place ordinary switches there; this is the extra
-          // "wired across two feeders, born NORMALLY_OPEN" affordance, passing the
-          // option's eligible feeder classes so the create form knows which
-          // classes to pick the two conductors from.
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Feeder tie (NOP)</DropdownMenuLabel>
-            {tieOptions.map((o) => (
-              <DropdownMenuItem
-                key={o.switch_feature_class}
-                onSelect={() => startTieDrawing(o.switch_feature_class, o.feeder_feature_classes)}
-              >
-                {o.switch_feature_class_name}
-              </DropdownMenuItem>
-            ))}
+                </div>
+              ))}
+            </div>
           </>
         )}
       </DropdownMenuContent>

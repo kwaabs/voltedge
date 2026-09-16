@@ -116,12 +116,18 @@ export function useFloatingPanel(defaultWidth: number, defaultMaxHeightClass: st
     ...(resized ? { height: size?.height } : {}),
   }
   const shellClassName = cn(
-    "bg-popover text-popover-foreground fixed z-40 flex flex-col max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border shadow-lg",
+    // Floating card chrome: a copper top-edge accent (the theme's --primary)
+    // over the popover surface, a defined border, and a soft raised shadow so
+    // the panel reads as a distinct floating object rather than a flat grey box.
+    "bg-popover text-popover-foreground fixed z-40 flex flex-col max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-primary shadow-xl ring-1 ring-black/5",
     !resized && defaultMaxHeightClass,
     !position && DEFAULT_POSITION_CLASS,
   )
-  const headerClassName = "flex cursor-grab items-center justify-between border-b px-3 py-2 select-none active:cursor-grabbing"
-  const grip = <GripHorizontal className="text-muted-foreground size-3.5 shrink-0" />
+  // Warm accent header band (matching feature-panel.tsx) so the title/close row
+  // reads as a themed header rather than another sheet of white/grey.
+  const headerClassName =
+    "flex cursor-grab items-center justify-between gap-2 border-b border-primary/15 bg-gradient-to-b from-accent/50 to-accent/20 px-3 py-2 text-foreground select-none active:cursor-grabbing"
+  const grip = <GripHorizontal className="text-primary/70 size-3.5 shrink-0" />
   const resizeHandle = (
     <div
       onPointerDown={onResizePointerDown}

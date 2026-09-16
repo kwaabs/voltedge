@@ -562,6 +562,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/cim_mapping_example.sql
 
+  seed-cim-mapping-coverage:
+    desc: Load the Phase 55 Slice 3 CIM coverage fill (maps the ~25 classes added since the base seeds -- POWER_XFMR/EARTHING_XFMR/GENERATOR/EV_CHARGING_STATION/MV_EARTH_SWITCH/cable joints/panels/cubicles/TOWER -- and records explicit cim_kind='skip' for EV sub-equipment, P&C DC-control devices, cable-management civil, CONTROL_BUILDING) through the gitbash sidecar (requires migration 0034+0035 and the classes it names seeded first; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/cim_mapping_coverage.sql
+
   seed-double-busbar:
     desc: Load the built-in "Double busbar" diagram template through the gitbash sidecar (Phase 24 Slice 6; requires migration 0049 and seed/ansi_stencils.sql applied first for the disconnect/breaker glyphs; idempotent on template name)
     cmds:
@@ -625,6 +633,38 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/rmu_templates.sql
+
+  seed-packaged-substation:
+    desc: Load the Phase 56 packaged (movable) substation catalog -- PACKAGED_SUBSTATION class (point/container/MV), permanent+mobile subtypes, PACKAGED_SUB_CONFIG domain, package_config field, containment rules for MV_SWITCH/DIST_XFMR/LV_BUSBAR, the two internal network rules (MV_SWITCH T2->DIST_XFMR T1, DIST_XFMR T2->LV_BUSBAR T1) and its CIM Substation-container mapping -- through the gitbash sidecar (requires the MV_SWITCH/DIST_XFMR/LV_BUSBAR class seeds applied first; then task compile CODE=PACKAGED_SUBSTATION)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/packaged_substation_example.sql
+
+  seed-packaged-substation-templates:
+    desc: Load the COMPACT packaged-substation chain recipe (MV_SWITCH -> DIST_XFMR -> LV_BUSBAR wired in series; Phase 56 Slice 2, backs POST /packaged-substations) through the gitbash sidecar (requires migration 0092 + seed-packaged-substation applied first; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/packaged_substation_templates.sql
+
+  seed-overhead-pole-transformer:
+    desc: Load the Phase 57 POLE_MOUNT_STD kit -- POLE spatial_support {MV_FUSE/DIST_XFMR/MV_ARRESTER/LV_BUSBAR}, the internal network legs (MV_FUSE T2->DIST_XFMR T1, DIST_XFMR T1->MV_ARRESTER T1, DIST_XFMR T2->LV_BUSBAR T1) and the assembly template that backs POST /assemblies -- through the gitbash sidecar (requires migration 0093 + the POLE/MV_FUSE/MV_ARRESTER/DIST_XFMR/LV_BUSBAR class seeds applied first; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/overhead_pole_transformer.sql
+
+  seed-pad-mount-urd:
+    desc: Load the Phase 57 PAD_MOUNT_URD kit -- the DIST_XFMR T2->LV_LINK_BOX T1 leg and the assembly template (pad-mount transformer anchor forced to subtype pad_mounted + one feeder-pillar item; backs POST /assemblies) -- through the gitbash sidecar (requires migration 0093 + the DIST_XFMR/LV_LINK_BOX class seeds applied first; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/pad_mount_urd.sql
 
   seed-rmu-diagram-placement:
     desc: Restrict the RMU one-line (RMU x ONE_LINE) to MV_BUSBAR + MV_SWITCH + MV_FUSE + MV_CONDUCTOR via metadata.diagram_placement_rules, and flip MV_CONDUCTOR's is_diagram_placeable on (Phase RMU diagram allow-list) through the gitbash sidecar (requires migration 0068 + seed-rmu + seed-mv-busbar + seed-mv-lv-switch + seed-mv-protection + seed-connectivity applied first; no compile step -- pure metadata rows)
@@ -761,6 +801,14 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/generator_pv_fields.sql
+
+  seed-arc-flash-geometry-fields:
+    desc: Add the declared per-feature arc-flash geometry fields (Phase 53 S2, the asset-driven half of the "Both" model) to DIST_XFMR / POWER_XFMR / MV_BUSBAR / MV_SWITCHGEAR_PANEL -- nullable arc_electrode_configuration (coded), arc_conductor_gap_mm, arc_working_distance_mm, arc_system_grounded. arcflash.go reads these off the faulted node; precedence declared > request override > IEEE typical default, absent => the S1 typical-value study, unchanged. Through the gitbash sidecar (RECOMPILE each touched class -- compile CODE=DIST_XFMR etc -- after so the columns materialise; idempotent; classes absent on this DB are skipped)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/arc_flash_geometry_fields.sql
 
   seed-nodal-multi-source:
     desc: Load the multi-slack + PV validation network -- the Phase 52 Tier 2 Slice S3 acceptance fixture for POST /analysis/nodal-load-flow. TWO ideal 400 V slacks (SRC-A, SRC-B) feed one common LV bus via conductors in EXACTLY 1:2 impedance (LVA:LVB), plus a grid-forming PV generator GEN-P (voltage_setpoint_pu 1.02) on its own bus. Run start=SRC-A sources=[SRC-B] nominal_voltage_v=400; the hand-computable answer is EXACT -- slack_count=2, supplied_kw(SRC-A)=2*supplied_kw(SRC-B) (invariant of load/gen/pf), and GEN-P role=pv held at 1.02*400=408.0 V above both slacks (requires seed-connectivity + seed-load-flow-fields + seed-transformer-fields + seed-lv-conductors + seed-lv-metering + seed-service-point + seed-generator + seed-generator-pv-fields, then compile CODE=DIST_XFMR/LV_CONDUCTOR/METER/SERVICE_POINT/GENERATOR first; fails loudly if a prerequisite is missing)
@@ -929,6 +977,14 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/pnc_control_devices_example.sql
+
+  seed-ev-charging:
+    desc: Register EV charging (Phase 54 S1) -- EV_CHARGING_STATION (point / network junction, LV-fed load like SERVICE_POINT) containing EV_CHARGER containing EV_CONNECTOR (both geometry none / network none, inventory) -- through the gitbash sidecar (pure metadata seed, no migration; run the SERVICE_POINT + DIST_XFMR seeds first so the DIST_XFMR feed rule resolves; compile CODE=EV_CHARGING_STATION after -- the two none-geometry classes need no gis table)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/ev_charging_example.sql
 
   seed-pnc-devices-network:
     desc: Seed real instances that PROVE the P&C secondary/DC-control layer is functional (2 SUBSTATION_PANELs -- PNL-DC + PNL-CTRL -- housing STATION_BATTERY/BATTERY_CHARGER + CONTROL_IED/ANNUNCIATOR via containment edges; no connectivity since these are network-none) through the gitbash sidecar (requires seed-substation-panel + seed-pnc-control-devices applied AND compiled via task compile CODE= for SUBSTATION_PANEL, STATION_BATTERY, BATTERY_CHARGER, CONTROL_IED, ANNUNCIATOR)

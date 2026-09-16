@@ -35,6 +35,14 @@ func Routes(db *bun.DB) chi.Router {
 	r.Get("/", listTerritoriesHandler(db))
 	r.Get("/levels", listLevelsHandler(db))
 	r.Get("/boundaries", boundariesHandler(db))
+	// Phase 58 rollout: coverage is a read (features:read via the method-aware
+	// mount) surfacing the "unassigned features" review view; backfill and the
+	// enforcement toggle are writes (territories:write) -- the two staged steps
+	// an admin runs, in order, before turning scoping on.
+	r.Get("/coverage", coverageHandler(db))
+	r.Post("/backfill", backfillHandler(db))
+	r.Get("/enforcement", getEnforcementHandler(db))
+	r.Put("/enforcement", setEnforcementHandler(db))
 	r.Post("/", createTerritoryHandler(db))
 	r.Patch("/{id}", updateTerritoryHandler(db))
 	r.Delete("/{id}", deleteTerritoryHandler(db))
@@ -244,6 +252,78 @@ func deleteTerritoryHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// coverageHandler returns the per-class unassigned-feature report plus the
+// current enforcement state, so the admin review view can show both "here's
+// what would go dark" and "enforcement is still off" in one fetch.
+func coverageHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := Coverage(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		enforced, err := EnforcementEnabled(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"classes":     rows,
+			"enforcement": enforced,
+		})
+	}
+}
+
+// backfillHandler runs the spatial sweep and returns what it assigned and what
+// remains uncovered per class -- the step an admin runs before flipping the
+// flag, and can safely re-run after drawing any missing boundaries.
+func backfillHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		result, err := Backfill(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+// getEnforcementHandler reports whether territory scoping is currently on.
+func getEnforcementHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		enforced, err := EnforcementEnabled(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"enforcement": enforced})
+	}
+}
+
+// setEnforcementRequest is the PUT /enforcement body: the desired flag state.
+type setEnforcementRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+// setEnforcementHandler flips the territory_enforcement_enabled toggle -- the
+// final rollout step. It deliberately does NOT guard against remaining
+// unassigned features (an admin may knowingly turn it on with stragglers still
+// pending manual review); the coverage report is how they see that first.
+func setEnforcementHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req setEnforcementRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		if err := SetEnforcement(r.Context(), db, req.Enabled); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"enforcement": req.Enabled})
 	}
 }
 

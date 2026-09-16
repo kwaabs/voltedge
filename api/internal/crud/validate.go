@@ -68,6 +68,25 @@ func isConflictError(err error) bool {
 	return ok
 }
 
+// forbiddenError is a spatial-access denial (Phase 58): the request was
+// well-formed and the row exists, but the acting user's territory scope
+// doesn't cover the feature they're trying to write. Its own type so the HTTP
+// layer returns 403 -- distinct from a 400 (well-formed) and a 404 (a read of
+// an out-of-scope feature, which is deliberately hidden as not-found; a write
+// names a territory the user demonstrably knows about, so 403 is honest).
+type forbiddenError struct{ msg string }
+
+func (e *forbiddenError) Error() string { return e.msg }
+
+func forbidden(format string, args ...any) error {
+	return &forbiddenError{msg: fmt.Sprintf(format, args...)}
+}
+
+func isForbiddenError(err error) bool {
+	_, ok := err.(*forbiddenError)
+	return ok
+}
+
 // validateSubtype checks the request's subtype against what the feature
 // class actually defines. A feature class with no subtypes must not
 // receive one; a feature class with subtypes must receive a valid code.

@@ -239,6 +239,19 @@ func queryFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, req
 		args = append(args, condArgs...)
 	}
 
+	// Phase 58 spatial read enforcement: same territory constraint as
+	// listFeatures, ANDed on top of the user's own conditions (a no-op unless
+	// enforcement is on and the user is scoped; fail-closed for a
+	// scoped-to-nothing user). See readScope.
+	scopeIDs, scopeApply, err := readScope(ctx, db, loaded)
+	if err != nil {
+		return nil, err
+	}
+	if clause, scopeArgs := scopeWhere(scopeIDs, scopeApply); clause != "" {
+		where = append(where, clause)
+		args = append(args, scopeArgs...)
+	}
+
 	// Sort/paging: identical handling to listFeatures -- an unrecognized
 	// sort column silently falls back to created_at, id is always appended
 	// as a tiebreaker, limit clamps to [1,500] defaulting to defaultListLimit.

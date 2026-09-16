@@ -2768,11 +2768,13 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
           here has no app action, so the native menu only gets in the way
           (and eats a right-drag). */}
       {/* On the blank basemap there are no tiles to cover the container, so
-          the app's off-white --background shows through. Force a true white
-          canvas there; any tiled basemap paints over this anyway. */}
+          the container's own background shows through. Force a clean canvas --
+          true white in light mode, near-black in dark mode (otherwise the
+          hardcoded white glared through when the app was themed dark). Any
+          tiled basemap paints over this anyway. */}
       <div
         ref={containerRef}
-        className={`h-full w-full ${basemap === BLANK_BASEMAP ? "bg-white" : ""}`}
+        className={`h-full w-full ${basemap === BLANK_BASEMAP ? "bg-white dark:bg-neutral-950" : ""}`}
         onContextMenu={(e) => e.preventDefault()}
       />
       {haloLoading && (

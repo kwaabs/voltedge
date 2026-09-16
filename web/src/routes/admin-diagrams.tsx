@@ -125,7 +125,7 @@ export function AdminDiagramsPage() {
 
   return (
     <div className="h-full overflow-y-auto p-4">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
         <div>
           <h1 className="text-lg font-semibold">Diagram placement rules</h1>
           <p className="text-muted-foreground text-sm">

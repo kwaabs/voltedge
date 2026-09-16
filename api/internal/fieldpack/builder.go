@@ -74,7 +74,15 @@ const (
 	// the codes the pack stores, so the offline editor picks a relationship KIND
 	// and soft-warns before an illegal connection. These are advisory on-device;
 	// the server re-validates every edge on sync (guide-offline + backstop-on-sync).
-	packSchemaVersion = 7
+	// v8 added the WAM tables (wam_defects, wam_work_orders, wam_inspection_templates,
+	// wam_inspection_template_items -- Phase 59 offline WAM), shipped only when the
+	// pack requester holds wam:read (scope.IncludeWAM). They carry the open defects on
+	// the packed assets, the requester's own open work orders (their field "work
+	// board"), and the active inspection checklists, so a field-technician works
+	// jobs / logs findings / runs inspections offline; captures ride back through new
+	// wam_* sync op kinds. Additive: an older pack has no rows and the app hides the
+	// work board.
+	packSchemaVersion = 8
 
 	defaultMinZoom = 6
 	defaultMaxZoom = 16
@@ -93,6 +101,10 @@ type buildResult struct {
 	attachmentCount  int
 	relClassCount    int
 	netRuleCount     int
+	defectCount      int
+	workOrderCount   int
+	inspTemplateCount     int
+	inspTemplateItemCount int
 	snapshotAt       time.Time
 }
 
@@ -160,8 +172,8 @@ func buildPack(ctx context.Context, db *bun.DB, store *export.ObjectStore, pack 
 		log.Printf("fieldpack: pack %s uploaded but marking complete failed: %v", pack.ID, err)
 		return
 	}
-	log.Printf("fieldpack: pack %s built: features=%d conns=%d rels=%d domainvals=%d symbology=%d icons=%d attachments=%d relclasses=%d netrules=%d tiles=%dB data=%dB",
-		pack.ID, res.featureCount, res.connCount, res.relCount, res.domainValueCount, res.symbologyCount, res.iconCount, res.attachmentCount, res.relClassCount, res.netRuleCount, tilesBytes, dataBytes)
+	log.Printf("fieldpack: pack %s built: features=%d conns=%d rels=%d domainvals=%d symbology=%d icons=%d attachments=%d relclasses=%d netrules=%d defects=%d workorders=%d insptemplates=%d/%d tiles=%dB data=%dB",
+		pack.ID, res.featureCount, res.connCount, res.relCount, res.domainValueCount, res.symbologyCount, res.iconCount, res.attachmentCount, res.relClassCount, res.netRuleCount, res.defectCount, res.workOrderCount, res.inspTemplateCount, res.inspTemplateItemCount, tilesBytes, dataBytes)
 }
 
 // buildArtifacts does the read + encode: it writes the SQLite pack and the
@@ -280,6 +292,38 @@ func buildArtifacts(ctx context.Context, db *bun.DB, store *export.ObjectStore, 
 		return buildResult{}, err
 	}
 	defer attStmt.Close()
+	defectStmt, err := stx.PrepareContext(ctx, `INSERT INTO wam_defects
+		(id, asset_class, asset_id, defect_type, severity, status, source, title, description, reported_at, notes)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		stx.Rollback()
+		return buildResult{}, err
+	}
+	defer defectStmt.Close()
+	workOrderStmt, err := stx.PrepareContext(ctx, `INSERT INTO wam_work_orders
+		(id, reference, work_type, status, priority, title, description, asset_class, asset_id, defect_id, assigned_to, scheduled_for, due_by, started_at, completion_notes)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		stx.Rollback()
+		return buildResult{}, err
+	}
+	defer workOrderStmt.Close()
+	inspTmplStmt, err := stx.PrepareContext(ctx, `INSERT INTO wam_inspection_templates
+		(id, code, name, description, asset_class, active)
+		VALUES (?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		stx.Rollback()
+		return buildResult{}, err
+	}
+	defer inspTmplStmt.Close()
+	inspItemStmt, err := stx.PrepareContext(ctx, `INSERT INTO wam_inspection_template_items
+		(id, template_id, position, prompt, response_type, fail_severity, guidance)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		stx.Rollback()
+		return buildResult{}, err
+	}
+	defer inspItemStmt.Close()
 
 	packed := map[string]struct{}{}
 	// The coded domains referenced by any packed field, collected across all
@@ -440,6 +484,27 @@ func buildArtifacts(ctx context.Context, db *bun.DB, store *export.ObjectStore, 
 			attachMetas, err = loadPackAttachments(ctx, tx, packed)
 			if err != nil {
 				return fmt.Errorf("loading attachments: %w", err)
+			}
+
+			// The WAM read-context (Phase 59 offline WAM), shipped only when the
+			// requester holds wam:read (frozen into the scope at enqueue). Defects
+			// are asset-centric (filtered to the packed features); the work board is
+			// person-centric (the requester's own open orders, regardless of bbox);
+			// inspection templates are global reference data. Advisory read-only
+			// context -- captures ride back through the wam_* sync ops.
+			if scope.IncludeWAM {
+				res.defectCount, err = loadPackDefects(ctx, tx, packed, defectStmt)
+				if err != nil {
+					return fmt.Errorf("loading defects: %w", err)
+				}
+				res.workOrderCount, err = loadPackWorkOrders(ctx, tx, requestedBy, workOrderStmt)
+				if err != nil {
+					return fmt.Errorf("loading work orders: %w", err)
+				}
+				res.inspTemplateCount, res.inspTemplateItemCount, err = loadPackInspectionTemplates(ctx, tx, inspTmplStmt, inspItemStmt)
+				if err != nil {
+					return fmt.Errorf("loading inspection templates: %w", err)
+				}
 			}
 			return nil
 		})
@@ -604,6 +669,69 @@ func initPackSchema(ctx context.Context, sq *sql.DB) error {
 			is_valid      INTEGER NOT NULL,
 			name          TEXT
 		)`,
+		// The open asset defects on the packed features (pack schema v8, Phase 59
+		// offline WAM). One row per open/work_ordered defect whose asset is in the
+		// pack, so the field tool shows known problems on the assets in hand.
+		// Resolved/dismissed defects are omitted. Timestamps are RFC3339 text.
+		// Shipped only when scope.IncludeWAM (requester holds wam:read); an older
+		// pack or a surveyor has no rows.
+		`CREATE TABLE wam_defects (
+			id            TEXT PRIMARY KEY,
+			asset_class   TEXT NOT NULL,
+			asset_id      TEXT NOT NULL,
+			defect_type   TEXT,
+			severity      TEXT NOT NULL,
+			status        TEXT NOT NULL,
+			source        TEXT,
+			title         TEXT,
+			description   TEXT,
+			reported_at   TEXT,
+			notes         TEXT
+		)`,
+		// The pack requester's own open work orders (pack schema v8) -- their field
+		// "work board". One row per work order assigned to the requester that is not
+		// yet completed/cancelled, regardless of bbox (a job is a job wherever its
+		// asset sits). The device lists these, and a status change / completion rides
+		// back as a wam_workorder_update sync op.
+		`CREATE TABLE wam_work_orders (
+			id               TEXT PRIMARY KEY,
+			reference        TEXT,
+			work_type        TEXT NOT NULL,
+			status           TEXT NOT NULL,
+			priority         TEXT,
+			title            TEXT,
+			description      TEXT,
+			asset_class      TEXT,
+			asset_id         TEXT,
+			defect_id        TEXT,
+			assigned_to      TEXT,
+			scheduled_for    TEXT,
+			due_by           TEXT,
+			started_at       TEXT,
+			completion_notes TEXT
+		)`,
+		// The active inspection checklists (pack schema v8) + their ordered items, so
+		// the field tool runs an inspection against a packed asset offline. A failing
+		// item that carries a fail_severity auto-raises a defect on sync (server-side
+		// RecordInspection). Ships all active templates (small); the device filters by
+		// asset_class when offering one for a given feature.
+		`CREATE TABLE wam_inspection_templates (
+			id          TEXT PRIMARY KEY,
+			code        TEXT,
+			name        TEXT,
+			description TEXT,
+			asset_class TEXT,
+			active      INTEGER
+		)`,
+		`CREATE TABLE wam_inspection_template_items (
+			id            TEXT PRIMARY KEY,
+			template_id   TEXT NOT NULL,
+			position      INTEGER,
+			prompt        TEXT,
+			response_type TEXT,
+			fail_severity TEXT,
+			guidance      TEXT
+		)`,
 		`CREATE TABLE manifest (
 			key   TEXT PRIMARY KEY,
 			value TEXT
@@ -630,6 +758,9 @@ func createPackIndexes(ctx context.Context, sq *sql.DB) error {
 		`CREATE INDEX attachments_feature_idx  ON attachments (feature_id)`,
 		`CREATE INDEX relationship_classes_pair_idx ON relationship_classes (origin_class, destination_class)`,
 		`CREATE INDEX network_rules_pair_idx        ON network_rules (from_class, to_class)`,
+		`CREATE INDEX wam_defects_asset_idx         ON wam_defects (asset_id)`,
+		`CREATE INDEX wam_work_orders_status_idx    ON wam_work_orders (status)`,
+		`CREATE INDEX wam_insp_items_template_idx   ON wam_inspection_template_items (template_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := sq.ExecContext(ctx, s); err != nil {
@@ -1087,6 +1218,163 @@ func writePackAttachments(ctx context.Context, store *export.ObjectStore, stmt *
 	return n, nil
 }
 
+// nullTimeText renders a nullable timestamp as RFC3339Nano text for the pack, or
+// nil (SQL NULL) when absent -- the device parses these back as ISO-8601. Pack
+// WAM timestamps ride as text (unlike the binary geom column) so the pure-Go
+// SQLite driver stores a stable, unambiguous value across platforms.
+func nullTimeText(t sql.NullTime) any {
+	if !t.Valid {
+		return nil
+	}
+	return t.Time.UTC().Format(time.RFC3339Nano)
+}
+
+// loadPackDefects streams the open defects and keeps those on a packed asset, so
+// the field tool shows known problems on the assets in hand -- the same
+// stream-and-membership-filter pattern loadConnectivity uses, so a big defects
+// table never becomes a giant IN (...) over the packed ids. Resolved and
+// dismissed defects are omitted; the field worker only needs live findings.
+func loadPackDefects(ctx context.Context, db bun.IDB, packed map[string]struct{}, stmt *sql.Stmt) (int, error) {
+	const q = `
+SELECT id::text, asset_class, asset_id::text, defect_type, severity, status, source,
+       title, description, reported_at, notes
+FROM wam.defects
+WHERE status IN ('open', 'work_ordered')`
+	rows, err := db.QueryContext(ctx, q)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	n := 0
+	for rows.Next() {
+		var id, assetClass, assetID, severity, status string
+		var defectType, source, title, description, notes sql.NullString
+		var reportedAt sql.NullTime
+		if err := rows.Scan(&id, &assetClass, &assetID, &defectType, &severity, &status, &source, &title, &description, &reportedAt, &notes); err != nil {
+			return n, err
+		}
+		if _, ok := packed[assetID]; !ok {
+			continue
+		}
+		if _, err := stmt.ExecContext(ctx, id, assetClass, assetID, defectType, severity, status, source, title, description, nullTimeText(reportedAt), notes); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, rows.Err()
+}
+
+// loadPackWorkOrders writes the requester's own open work orders -- their field
+// "work board". Person-centric (assigned_to_user_id = the pack requester),
+// independent of the pack bbox: a job is a job wherever its asset sits.
+// Completed/cancelled orders are omitted; an empty assignee ships nothing.
+func loadPackWorkOrders(ctx context.Context, db bun.IDB, assigneeID string, stmt *sql.Stmt) (int, error) {
+	if assigneeID == "" {
+		return 0, nil
+	}
+	const q = `
+SELECT id::text, reference, work_type, status, priority, title, description,
+       asset_class, asset_id::text, defect_id::text, assigned_to,
+       scheduled_for, due_by, started_at, completion_notes
+FROM wam.work_orders
+WHERE assigned_to_user_id::text = ?
+  AND status NOT IN ('completed', 'cancelled')
+ORDER BY COALESCE(scheduled_for, due_by, created_at)`
+	rows, err := db.QueryContext(ctx, q, assigneeID)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	n := 0
+	for rows.Next() {
+		var id, workType, status string
+		var reference, priority, title, description, assetClass, assetID, defectID, assignedTo, completionNotes sql.NullString
+		var scheduledFor, dueBy, startedAt sql.NullTime
+		if err := rows.Scan(&id, &reference, &workType, &status, &priority, &title, &description,
+			&assetClass, &assetID, &defectID, &assignedTo, &scheduledFor, &dueBy, &startedAt, &completionNotes); err != nil {
+			return n, err
+		}
+		if _, err := stmt.ExecContext(ctx, id, reference, workType, status, priority, title, description,
+			assetClass, assetID, defectID, assignedTo, nullTimeText(scheduledFor), nullTimeText(dueBy), nullTimeText(startedAt), completionNotes); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, rows.Err()
+}
+
+// loadPackInspectionTemplates writes the active inspection checklists and their
+// ordered items into the pack, so the field tool runs an inspection against a
+// packed asset offline. All active templates ship (the set is small); the device
+// filters by asset_class when offering one for a given feature. A failing item
+// with a fail_severity auto-raises a defect server-side on sync. Returns the
+// template + item counts. The template rows are fully drained (and the cursor
+// closed) before the item query, so both run on the tx's single connection.
+func loadPackInspectionTemplates(ctx context.Context, db bun.IDB, tmplStmt, itemStmt *sql.Stmt) (int, int, error) {
+	const tq = `
+SELECT id::text, code, name, description, asset_class, active
+FROM wam.inspection_templates
+WHERE active = true
+ORDER BY name`
+	rows, err := db.QueryContext(ctx, tq)
+	if err != nil {
+		return 0, 0, err
+	}
+	tmplN := 0
+	for rows.Next() {
+		var id, code, name string
+		var description, assetClass sql.NullString
+		var active bool
+		if err := rows.Scan(&id, &code, &name, &description, &assetClass, &active); err != nil {
+			rows.Close()
+			return tmplN, 0, err
+		}
+		activeInt := 0
+		if active {
+			activeInt = 1
+		}
+		if _, err := tmplStmt.ExecContext(ctx, id, code, name, description, assetClass, activeInt); err != nil {
+			rows.Close()
+			return tmplN, 0, err
+		}
+		tmplN++
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return tmplN, 0, err
+	}
+	rows.Close()
+
+	const iq = `
+SELECT i.id::text, i.template_id::text, i.position, i.prompt, i.response_type, i.fail_severity, i.guidance
+FROM wam.inspection_template_items i
+JOIN wam.inspection_templates t ON t.id = i.template_id
+WHERE t.active = true
+ORDER BY i.template_id, i.position`
+	irows, err := db.QueryContext(ctx, iq)
+	if err != nil {
+		return tmplN, 0, err
+	}
+	defer irows.Close()
+
+	itemN := 0
+	for irows.Next() {
+		var id, templateID, prompt, responseType string
+		var position int
+		var failSeverity, guidance sql.NullString
+		if err := irows.Scan(&id, &templateID, &position, &prompt, &responseType, &failSeverity, &guidance); err != nil {
+			return tmplN, itemN, err
+		}
+		if _, err := itemStmt.ExecContext(ctx, id, templateID, position, prompt, responseType, failSeverity, guidance); err != nil {
+			return tmplN, itemN, err
+		}
+		itemN++
+	}
+	return tmplN, itemN, irows.Err()
+}
+
 // writeManifest records the single-row build facts the device reads on open: the
 // schema version, snapshot instant, scope, and counts.
 func writeManifest(ctx context.Context, stx *sql.Tx, packID, requestedBy string, scope PackScope, res buildResult) error {
@@ -1114,8 +1402,13 @@ func writeManifest(ctx context.Context, stx *sql.Tx, packID, requestedBy string,
 		{"attachment_count", strconv.Itoa(res.attachmentCount)},
 		{"relationship_class_count", strconv.Itoa(res.relClassCount)},
 		{"network_rule_count", strconv.Itoa(res.netRuleCount)},
+		{"defect_count", strconv.Itoa(res.defectCount)},
+		{"work_order_count", strconv.Itoa(res.workOrderCount)},
+		{"inspection_template_count", strconv.Itoa(res.inspTemplateCount)},
+		{"inspection_template_item_count", strconv.Itoa(res.inspTemplateItemCount)},
 		{"include_connectivity", strconv.FormatBool(scope.IncludeConnectivity)},
 		{"include_relationships", strconv.FormatBool(scope.IncludeRelationships)},
+		{"include_wam", strconv.FormatBool(scope.IncludeWAM)},
 	}
 	stmt, err := stx.PrepareContext(ctx, `INSERT INTO manifest (key, value) VALUES (?, ?)`)
 	if err != nil {

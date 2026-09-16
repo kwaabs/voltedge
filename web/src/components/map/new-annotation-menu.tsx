@@ -12,6 +12,7 @@ import {
 import { usePermission } from "@/hooks/use-auth"
 import type { AnnotationKind } from "@/lib/map-layers"
 import { useAnnotationEditStore } from "@/stores/annotation-edit-store"
+import { useToolbarMenuStore } from "@/stores/toolbar-menu-store"
 
 /** The four redline kinds, in the order they appear in the menu, each with its
  * icon, label, and the one-line instruction shown while drawing. */
@@ -36,6 +37,9 @@ export function NewAnnotationMenu() {
   const drawingKind = useAnnotationEditStore((s) => s.drawingKind)
   const startDrawing = useAnnotationEditStore((s) => s.startDrawing)
   const cancelDrawing = useAnnotationEditStore((s) => s.cancelDrawing)
+  // Only one toolbar dropdown open at a time -- see toolbar-menu-store.ts.
+  const menuOpen = useToolbarMenuStore((s) => s.open === "annotation")
+  const setMenuOpen = useToolbarMenuStore((s) => s.setOpen)
 
   if (!canWrite) return null
 
@@ -54,7 +58,7 @@ export function NewAnnotationMenu() {
   }
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={menuOpen} onOpenChange={(o) => setMenuOpen("annotation", o)}>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className="bg-background/90 gap-1.5 shadow-sm">
           <PencilLine className="size-4" style={{ color: "#dc2626" }} />

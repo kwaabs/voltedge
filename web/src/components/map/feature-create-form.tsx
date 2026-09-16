@@ -7,9 +7,11 @@ import { FieldInput } from "@/components/map/feature-field-input"
 import { formatFieldLabel, inputClass } from "@/components/map/field-utils"
 import { type FeederPick, TieFeederPicker } from "@/components/map/tie-feeder-picker"
 import { Button } from "@/components/ui/button"
+import type { CreateAssemblyResult } from "@/hooks/use-assemblies"
 import type { CreateCouplerResult } from "@/hooks/use-couplers"
 import { type FieldSchema, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import type { CreateDuctResult } from "@/hooks/use-ducts"
+import type { CreatePackagedSubstationResult } from "@/hooks/use-packaged-substations"
 import type { CreatePanelResult } from "@/hooks/use-panels"
 import type { CreateTieResult } from "@/hooks/use-ties"
 import { ApiError, apiFetch } from "@/lib/api"
@@ -247,6 +249,74 @@ export function FeatureCreateForm() {
         // bus, already wired to each other by the fan-out; the external ring
         // cables connect through the normal post-placement connect action.
         select(draft.featureClassCode, result.rmu.id)
+        clearDraft()
+        return
+      }
+
+      // A packaged-substation draft doesn't create one feature -- it fans out the
+      // whole unit (the placed substation plus its config's components and the
+      // internal wiring, all connectivity-wired) in one transaction via
+      // /packaged-substations (api/internal/packagedsub). Like an RMU it carries map
+      // geometry -- the unit is a placed point -- and reuses the shared create form.
+      // package_config selects the component template: it rode in via the seed, so
+      // it's already in createAttributes if the class shows it on create; fall back
+      // to the menu's choice otherwise so the backend always gets it. The tenure
+      // subtype rode in via seed.subtype (so the picker opened on it) and is always
+      // sent top-level, falling back to the menu's choice if the form ever cleared it.
+      if (draft.packagedSubstation) {
+        const packagedAttributes: Record<string, unknown> = { ...createAttributes }
+        if (!("package_config" in packagedAttributes))
+          packagedAttributes.package_config = draft.packagedSubstation.config
+        const packagedBody: Record<string, unknown> = {
+          packaged_feature_class: draft.featureClassCode,
+          subtype: subtypeCode === "" ? draft.packagedSubstation.subtype : subtypeCode,
+          geometry: draft.geometry,
+          attributes: packagedAttributes,
+        }
+        if (name.trim()) packagedBody.name = name.trim()
+        const result = await apiFetch<CreatePackagedSubstationResult>("/packaged-substations", {
+          method: "POST",
+          body: JSON.stringify(packagedBody),
+        })
+        bumpMapRefresh()
+        // Select the placed unit. No requestSuggestions: the packaged substation is
+        // a container carrying no topology of its own -- its components are already
+        // wired to each other by the fan-out; external cables connect through the
+        // normal post-placement connect action.
+        select(draft.featureClassCode, result.packaged_substation.id)
+        clearDraft()
+        return
+      }
+
+      // An assembly draft doesn't create one feature -- it fans out a whole kit
+      // (the placed anchor plus its config's components and the wiring/support
+      // relationships tying them to the anchor) in one transaction via /assemblies.
+      // Like a packaged substation it carries map geometry -- the anchor is a placed
+      // point (an overhead POLE or a pad-mount DIST_XFMR) -- and reuses the shared
+      // create form to collect the anchor's own required fields. config selects the
+      // component template and rides only on the body (it isn't an anchor attribute).
+      // The anchor subtype, when the option pins one, rode in via seed.subtype (so the
+      // picker opened on it); it's sent top-level, falling back to the option's pinned
+      // subtype if the form ever cleared it, and simply omitted when neither is set.
+      if (draft.assembly) {
+        const assemblyBody: Record<string, unknown> = {
+          anchor_feature_class: draft.featureClassCode,
+          config: draft.assembly.config,
+          geometry: draft.geometry,
+          attributes: createAttributes,
+        }
+        const anchorSubtype = subtypeCode === "" ? draft.assembly.anchorSubtype : subtypeCode
+        if (anchorSubtype != null) assemblyBody.subtype = anchorSubtype
+        if (name.trim()) assemblyBody.name = name.trim()
+        const result = await apiFetch<CreateAssemblyResult>("/assemblies", {
+          method: "POST",
+          body: JSON.stringify(assemblyBody),
+        })
+        bumpMapRefresh()
+        // Select the placed anchor. No requestSuggestions: the kit's components are
+        // already wired to the anchor by the fan-out; external cables connect through
+        // the normal post-placement connect action.
+        select(draft.featureClassCode, result.anchor.id)
         clearDraft()
         return
       }

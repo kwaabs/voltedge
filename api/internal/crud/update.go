@@ -61,6 +61,12 @@ func UpdateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 	if existing["deleted_at"] != nil {
 		return nil, invalid("feature %s is deleted -- restore it before updating", id)
 	}
+	// Phase 58 spatial write enforcement (part 1): a scoped user may not edit a
+	// feature outside their territories. Treated as not-found, exactly as a GET
+	// of the same feature would be, so an edit reveals no more than a read.
+	if err := enforceReadScope(ctx, db, loaded, existing); err != nil {
+		return nil, err
+	}
 	currentStatus, _ := existing["status"].(string)
 
 	attrs := in.Attributes
@@ -154,6 +160,19 @@ func UpdateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 		territoryID, err = territory.Assign(ctx, db, string(in.Geometry), *loaded.FeatureClass.SRID, in.TerritoryID)
 		if err != nil {
 			return nil, territoryError(err)
+		}
+	}
+
+	// Phase 58 spatial write enforcement (part 2): when the edit moves the
+	// feature (new geometry or explicit override), the DESTINATION territory
+	// must also be one the user holds -- a scoped user can't push a feature into
+	// a territory they don't own. A denial here is a 403, not a 404: the user
+	// demonstrably owns the feature (it passed the read check above) and is
+	// being refused the destination. Clearing geometry (territoryID nil) is
+	// exempt.
+	if assignTerritory {
+		if err := enforceWriteScope(ctx, db, loaded, territoryID); err != nil {
+			return nil, err
 		}
 	}
 

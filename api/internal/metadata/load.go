@@ -277,6 +277,130 @@ ORDER BY rti.position`
 	return resolved, nil
 }
 
+// LoadPackagedSubTemplate resolves the fan-out recipe for one packaged
+// substation (class, config): every internal component in chain (position)
+// order -- class code, subtype, decoded default attributes, the two terminals
+// wiring it to the previous component, and mimic offset. Returns a nil result
+// with no error when the class/config pairing has no template row -- the caller
+// treats that as "no fan-out defined" and rejects it, the same way the RMU and
+// panel endpoints do. This is the chain analogue of LoadRMUTemplate: instead of
+// one shared-bus terminal per way, each item carries own_terminal +
+// upstream_terminal so the fan-out can wire it to the PRECEDING component.
+func LoadPackagedSubTemplate(ctx context.Context, db bun.IDB, packagedClassCode, configCode string) (*PackagedSubTemplateResolved, error) {
+	const headerQuery = `
+SELECT 1
+FROM metadata.packaged_substation_templates pt
+JOIN metadata.feature_classes pfc ON pfc.id = pt.packaged_feature_class_id
+JOIN metadata.domain_values cv ON cv.id = pt.config_value_id
+WHERE pfc.code = ? AND cv.code = ?`
+
+	var exists int
+	switch err := db.QueryRowContext(ctx, headerQuery, packagedClassCode, configCode).Scan(&exists); {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("metadata: loading packaged substation template for %s/%s: %w", packagedClassCode, configCode, err)
+	}
+
+	const itemQuery = `
+SELECT cfc.code, psi.subtype_code, psi.attributes, psi.own_terminal, psi.upstream_terminal, psi.offset_x, psi.offset_y, psi.rotation
+FROM metadata.packaged_substation_items psi
+JOIN metadata.packaged_substation_templates pt ON pt.id = psi.template_id
+JOIN metadata.feature_classes pfc ON pfc.id = pt.packaged_feature_class_id
+JOIN metadata.domain_values cv ON cv.id = pt.config_value_id
+JOIN metadata.feature_classes cfc ON cfc.id = psi.component_feature_class_id
+WHERE pfc.code = ? AND cv.code = ?
+ORDER BY psi.position`
+
+	rows, err := db.QueryContext(ctx, itemQuery, packagedClassCode, configCode)
+	if err != nil {
+		return nil, fmt.Errorf("metadata: loading packaged substation items for %s/%s: %w", packagedClassCode, configCode, err)
+	}
+	defer rows.Close()
+
+	resolved := &PackagedSubTemplateResolved{}
+	for rows.Next() {
+		var (
+			it       PackagedSubItem
+			rawAttrs []byte
+		)
+		if err := rows.Scan(&it.ComponentFeatureClass, &it.SubtypeCode, &rawAttrs, &it.OwnTerminal, &it.UpstreamTerminal, &it.OffsetX, &it.OffsetY, &it.Rotation); err != nil {
+			return nil, fmt.Errorf("metadata: scanning packaged substation item: %w", err)
+		}
+		if len(rawAttrs) > 0 {
+			if err := json.Unmarshal(rawAttrs, &it.Attributes); err != nil {
+				return nil, fmt.Errorf("metadata: decoding packaged substation item attributes for %s: %w", it.ComponentFeatureClass, err)
+			}
+		}
+		resolved.Items = append(resolved.Items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("metadata: reading packaged substation items for %s/%s: %w", packagedClassCode, configCode, err)
+	}
+	return resolved, nil
+}
+
+// LoadAssemblyTemplate resolves one general kit-assembly recipe (Phase 57) for the
+// (anchor class, code) pair: the anchor subtype override plus every component in
+// position order, each with its structural link (support_*) and electrical target
+// (wire_to_position + terminals). Returns (nil, nil) when no template exists for
+// the pair so the caller can answer "no kit defined" with a clean 400. Read by
+// api/internal/assembly.
+func LoadAssemblyTemplate(ctx context.Context, db bun.IDB, anchorClassCode, code string) (*AssemblyTemplateResolved, error) {
+	const headerQuery = `
+SELECT at.anchor_subtype_code
+FROM metadata.assembly_templates at
+JOIN metadata.feature_classes afc ON afc.id = at.anchor_feature_class_id
+WHERE afc.code = ? AND at.code = ?`
+
+	resolved := &AssemblyTemplateResolved{}
+	switch err := db.QueryRowContext(ctx, headerQuery, anchorClassCode, code).Scan(&resolved.AnchorSubtypeCode); {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("metadata: loading assembly template for %s/%s: %w", anchorClassCode, code, err)
+	}
+
+	const itemQuery = `
+SELECT cfc.code, ai.subtype_code, ai.attributes, ai.support_kind, ai.support_parent_position,
+       ai.wire_to_position, ai.own_terminal, ai.upstream_terminal, ai.position,
+       ai.offset_x, ai.offset_y, ai.rotation
+FROM metadata.assembly_items ai
+JOIN metadata.assembly_templates at ON at.id = ai.template_id
+JOIN metadata.feature_classes afc ON afc.id = at.anchor_feature_class_id
+JOIN metadata.feature_classes cfc ON cfc.id = ai.component_feature_class_id
+WHERE afc.code = ? AND at.code = ?
+ORDER BY ai.position`
+
+	rows, err := db.QueryContext(ctx, itemQuery, anchorClassCode, code)
+	if err != nil {
+		return nil, fmt.Errorf("metadata: loading assembly items for %s/%s: %w", anchorClassCode, code, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			it       AssemblyItem
+			rawAttrs []byte
+		)
+		if err := rows.Scan(&it.ComponentFeatureClass, &it.SubtypeCode, &rawAttrs, &it.SupportKind, &it.SupportParentPosition,
+			&it.WireToPosition, &it.OwnTerminal, &it.UpstreamTerminal, &it.Position,
+			&it.OffsetX, &it.OffsetY, &it.Rotation); err != nil {
+			return nil, fmt.Errorf("metadata: scanning assembly item: %w", err)
+		}
+		if len(rawAttrs) > 0 {
+			if err := json.Unmarshal(rawAttrs, &it.Attributes); err != nil {
+				return nil, fmt.Errorf("metadata: decoding assembly item attributes for %s: %w", it.ComponentFeatureClass, err)
+			}
+		}
+		resolved.Items = append(resolved.Items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("metadata: reading assembly items for %s/%s: %w", anchorClassCode, code, err)
+	}
+	return resolved, nil
+}
+
 func loadDomains(ctx context.Context, db bun.IDB, fields []Field) (map[string]*Domain, map[string][]string, map[string]map[string][]string, error) {
 	domains := map[string]*Domain{}
 	domainValues := map[string][]string{}

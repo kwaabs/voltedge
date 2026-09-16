@@ -112,6 +112,18 @@ func splitHandler(db *bun.DB) http.HandlerFunc {
 func SplitLine(ctx context.Context, db *bun.DB, loaded *metadata.Loaded, id string, req splitRequest) (map[string]any, error) {
 	var created map[string]any
 	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		// Phase 58 spatial write enforcement: a scoped user may only split a line
+		// they can see. Not-found for an out-of-scope original, matching read; the
+		// far half's CreateFeature below independently guards the destination
+		// territory (a scoped user can't spawn the new part into an unowned one).
+		existing, err := getFeature(ctx, tx, loaded, id)
+		if err != nil {
+			return err
+		}
+		if err := enforceReadScope(ctx, tx, loaded, existing); err != nil {
+			return err
+		}
+
 		nearHalf, farHalf, err := computeSplitHalves(ctx, tx, loaded, id, *req.SplitPoint.Lng, *req.SplitPoint.Lat)
 		if err != nil {
 			return err

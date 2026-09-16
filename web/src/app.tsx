@@ -1,10 +1,13 @@
 import { BrowserRouter, Route, Routes } from "react-router"
 
+import { AdminLayout } from "@/components/layout/admin-layout"
 import { AppLayout } from "@/components/layout/app-layout"
 import { MapLayout } from "@/components/layout/map-layout"
 import { RequirePermission, RequireSession } from "@/components/layout/require-session"
 import { Toaster } from "@/components/ui/toaster"
 import { useThemeEffect } from "@/hooks/use-theme-effect"
+import { AdminCimMappingsPage } from "@/routes/admin-cim-mappings"
+import { AdminHomePage } from "@/routes/admin-home"
 import { AdminCircuitsPage } from "@/routes/admin-circuits"
 import { AdminDomainsPage } from "@/routes/admin-domains"
 import { AdminExternalSystemsPage } from "@/routes/admin-external-systems"
@@ -29,6 +32,7 @@ import { NotFoundPage } from "@/routes/not-found"
 import { OutagesPage } from "@/routes/outages"
 import { RelationshipsPage } from "@/routes/relationships"
 import { SettingsPage } from "@/routes/settings"
+import { WorksPage } from "@/routes/works"
 
 /**
  * Toaster is mounted once here, above every route, not inside
@@ -70,8 +74,29 @@ export function App() {
                 </RequirePermission>
               }
             />
+            {/* The work board is gated at the route by wam:read (view); the
+                log/create/lifecycle controls inside self-gate on wam:write, so
+                a read-only viewer sees the board without the action buttons
+                (the same arrangement the outage board uses above). */}
+            <Route
+              path="works"
+              element={
+                <RequirePermission perm="wam:read">
+                  <WorksPage />
+                </RequirePermission>
+              }
+            />
             <Route path="connectivity" element={<ConnectivityPage />} />
             <Route path="relationships" element={<RelationshipsPage />} />
+            {/* The admin landing page -- the single sidebar entry that fans
+                out to every admin destination. It self-filters its cards to
+                the caller's permissions (see admin-home.tsx), so it needs no
+                route-level gate; the individual destinations keep theirs. */}
+            <Route path="admin" element={<AdminHomePage />} />
+            {/* Every admin sub-page sits under a shared layout that adds a
+                "Back to Admin" bar routing to the landing page above; that
+                landing page is deliberately left outside this wrapper. */}
+            <Route element={<AdminLayout />}>
             <Route path="admin/feature-classes" element={<AdminFeatureClassesPage />} />
             {/* The create wizard is a pure-write page -- nothing to view --
                 so it gets a route-level metadata:write gate rather than
@@ -88,6 +113,7 @@ export function App() {
             />
             <Route path="admin/feature-classes/:code" element={<AdminFeatureClassDetailPage />} />
             <Route path="admin/domains" element={<AdminDomainsPage />} />
+            <Route path="admin/cim-mappings" element={<AdminCimMappingsPage />} />
             <Route path="admin/field-groups" element={<AdminFieldGroupsPage />} />
             <Route path="admin/diagrams" element={<AdminDiagramsPage />} />
             <Route path="admin/materials" element={<AdminMaterialsPage />} />
@@ -148,6 +174,7 @@ export function App() {
                 </RequirePermission>
               }
             />
+            </Route>
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>

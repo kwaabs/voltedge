@@ -85,6 +85,17 @@ type PackScope struct {
 	// privilege leak; the pack is still fully usable for view + attribute/move edit.
 	IncludeConnectivity  bool `json:"include_connectivity"`
 	IncludeRelationships bool `json:"include_relationships"`
+
+	// IncludeWAM is the work-&-asset-management inclusion decision (Phase 59
+	// offline WAM), resolved at enqueue from the requester's wam:read and frozen
+	// into the scope for the same reason as the graph flags: the detached build
+	// worker holds no SessionUser to re-check. When set, the pack carries the open
+	// defects on the packed assets, the requester's own open work orders (their
+	// field "work board"), and the active inspection templates -- so a
+	// field-technician works their jobs, logs findings, and runs checklists
+	// offline. A field-surveyor (features:read but not wam:read) gets no WAM
+	// tables rather than a privilege leak.
+	IncludeWAM bool `json:"include_wam"`
 }
 
 // enqueuePack inserts a queued build for requestedBy and returns its id.

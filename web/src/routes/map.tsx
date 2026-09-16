@@ -24,11 +24,13 @@ import { LoadFlowPanel } from "@/components/map/load-flow-panel"
 import { VoltageProfilePanel } from "@/components/map/voltage-profile-panel"
 import { ContingencyPanel } from "@/components/map/contingency-panel"
 import { HostingPanel } from "@/components/map/hosting-panel"
+import { EvHostingPanel } from "@/components/map/ev-hosting-panel"
 import { MeshedLoadFlowPanel } from "@/components/map/meshed-load-flow-panel"
 import { NodalLoadFlowPanel } from "@/components/map/nodal-load-flow-panel"
 import { AutoLoadFlowPanel } from "@/components/map/auto-load-flow-panel"
 import { MeasureToolbar } from "@/components/map/measure-toolbar"
 import { NewAnnotationMenu } from "@/components/map/new-annotation-menu"
+import { NewAssemblyMenu } from "@/components/map/new-assembly-menu"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
 import { PeerPicker } from "@/components/map/peer-picker"
 import { StatusBar } from "@/components/map/status-bar"
@@ -78,7 +80,7 @@ export function MapPage() {
   return (
     <div className="flex h-full w-full flex-col">
       <div className="flex min-h-0 flex-1">
-        <div className={cn("relative min-h-0", maximized ? "hidden" : "flex-1")}>
+        <div className={cn("relative flex min-h-0 flex-col", maximized ? "hidden" : "flex-1")}>
           <div className="pointer-events-auto absolute top-3 right-3 z-10 flex items-center gap-2">
             {controlsCollapsed ? (
               <Button
@@ -129,6 +131,7 @@ export function MapPage() {
                 <BoxZoomButton />
                 <MeasureToolbar />
                 <NewFeatureMenu />
+                <NewAssemblyMenu />
                 <NewAnnotationMenu />
                 <LayersPanel />
                 <Button
@@ -144,14 +147,23 @@ export function MapPage() {
               </>
             )}
           </div>
-          {!mapSettings.isPending && (
-            <VoltEdgeMap
-              initialCenter={
-                mapSettings.data ? [mapSettings.data.center_lng, mapSettings.data.center_lat] : undefined
-              }
-              initialZoom={mapSettings.data?.zoom}
-            />
-          )}
+          {/* Map viewport -- flex-1 so the status bar below shares this column;
+              both hide together when a diagram is maximized (this column is
+              `hidden`), and in split view the bar spans only the map's width. */}
+          <div className="relative min-h-0 flex-1">
+            {!mapSettings.isPending && (
+              <VoltEdgeMap
+                initialCenter={
+                  mapSettings.data ? [mapSettings.data.center_lng, mapSettings.data.center_lat] : undefined
+                }
+                initialZoom={mapSettings.data?.zoom}
+              />
+            )}
+          </div>
+          {/* Status bar is geographic-map chrome (coords, zoom, projection,
+              basemap), so it lives inside the map column rather than under the
+              whole page -- it must never show beneath a diagram. */}
+          <StatusBar />
         </div>
         {diagramOpen &&
           (maximized ? (
@@ -187,10 +199,10 @@ export function MapPage() {
       <VoltageProfilePanel />
       <ContingencyPanel />
       <HostingPanel />
+      <EvHostingPanel />
       <MeshedLoadFlowPanel />
       <NodalLoadFlowPanel />
       <AutoLoadFlowPanel />
-      <StatusBar />
     </div>
   )
 }

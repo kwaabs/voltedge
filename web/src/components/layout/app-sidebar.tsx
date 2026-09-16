@@ -1,6 +1,7 @@
-import { Cloud, Database, Inbox, LandPlot, Layers, Link2, Map, MapPin, Package, Rows3, Settings, Shapes, Siren, Stamp, Tags, UsersRound, Waypoints, Workflow, Wrench, Zap } from "lucide-react"
+import { Database, Link2, Map, Settings, Siren, Waypoints, Wrench, Zap } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
+import { AdminNavIcon, adminNavItems } from "@/components/layout/admin-nav"
 import {
   Sidebar,
   SidebarContent,
@@ -24,34 +25,9 @@ import { usePermission } from "@/hooks/use-auth"
 const dataItems = [
   { to: "/features", label: "Feature classes", icon: Database, perm: "features:read" },
   { to: "/outages", label: "Outages", icon: Siren, perm: "oms:read" },
+  { to: "/works", label: "Works", icon: Wrench, perm: "wam:read" },
   { to: "/connectivity", label: "Connectivity", icon: Waypoints, perm: "connectivity:read" },
   { to: "/relationships", label: "Relationships", icon: Link2, perm: "relationships:read" },
-]
-
-/**
- * Metadata configuration -- authoring what a feature class *is*
- * (subtypes, fields, domains, field groups), distinct from `dataItems`
- * above, which browse/edit real feature *data*. See
- * docs/phase-6-admin-metadata.md for why this is its own section: the
- * first real write path into metadata.* (every table it touches was
- * seed-SQL/migration-only before this), deliberately scoped to
- * additive-only operations the schema compiler already supports safely.
- */
-const adminItems = [
-  { to: "/admin/feature-classes", label: "Feature classes", icon: Layers, perm: "metadata:read" },
-  { to: "/admin/domains", label: "Domains", icon: Tags, perm: "metadata:read" },
-  { to: "/admin/field-groups", label: "Field groups", icon: Rows3, perm: "metadata:read" },
-  { to: "/admin/diagrams", label: "Diagram rules", icon: Workflow, perm: "metadata:read" },
-  { to: "/admin/materials", label: "Materials", icon: Wrench, perm: "metadata:read" },
-  { to: "/admin/external-systems", label: "External systems", icon: Cloud, perm: "metadata:read" },
-  { to: "/admin/symbology-icons", label: "Symbology icons", icon: Shapes, perm: "metadata:read" },
-  { to: "/admin/stencils", label: "Stencil promotion", icon: Stamp, perm: "metadata:read" },
-  { to: "/admin/territories", label: "Territories", icon: LandPlot, perm: "territories:write" },
-  { to: "/admin/circuits", label: "Circuits", icon: Zap, perm: "circuits:write" },
-  { to: "/admin/field-packs", label: "Field packs", icon: Package, perm: "admin:field-packs" },
-  { to: "/admin/sync-review", label: "Sync review", icon: Inbox, perm: "sync:review" },
-  { to: "/admin/map-settings", label: "Map settings", icon: MapPin, perm: "metadata:write" },
-  { to: "/admin/users", label: "Users", icon: UsersRound, perm: "admin:users" },
 ]
 
 export function AppSidebar() {
@@ -63,7 +39,10 @@ export function AppSidebar() {
   // the rest, so hiding them keeps the nav honest rather than offering dead
   // ends. The API remains the real gate; this just mirrors it.
   const visibleData = dataItems.filter((item) => can(item.perm))
-  const visibleAdmin = adminItems.filter((item) => can(item.perm))
+  // The admin menu now lives on its own /admin landing page (it had grown to
+  // fifteen entries -- too many for the sidebar). Show the single entry point
+  // whenever the caller can reach at least one admin destination.
+  const canAdmin = adminNavItems.some((item) => can(item.perm))
 
   return (
     <Sidebar>
@@ -117,24 +96,22 @@ export function AppSidebar() {
           </SidebarGroup>
         )}
 
-        {visibleAdmin.length > 0 && (
+        {canAdmin && (
           <SidebarGroup>
-            <SidebarGroupLabel>Admin</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {visibleAdmin.map((item) => {
-                  const isActive = pathname.startsWith(item.to)
-                  return (
-                    <SidebarMenuItem key={item.to}>
-                      <SidebarMenuButton asChild isActive={isActive} tooltip={item.label}>
-                        <NavLink to={item.to}>
-                          <item.icon />
-                          <span>{item.label}</span>
-                        </NavLink>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )
-                })}
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/admin" || pathname.startsWith("/admin/")}
+                    tooltip="Admin"
+                  >
+                    <NavLink to="/admin">
+                      <AdminNavIcon />
+                      <span>Admin</span>
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

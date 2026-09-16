@@ -160,3 +160,77 @@ export function useDeleteTerritory() {
     apiFetch(`/territories/${id}`, { method: "DELETE" }),
   )
 }
+
+// --- Phase 58 rollout: coverage, backfill, enforcement toggle --------------
+// The staged steps an admin runs before turning territory scoping on: review
+// which features are unassigned (coverage), assign the ones a boundary covers
+// (backfill), then flip the flag (enforcement). All under territories:write on
+// the mount, except the two GETs which ride features:read.
+
+/** One class's territory-assignment status from GET /territories/coverage:
+ * total live geometric features and how many still carry no territory_id
+ * (invisible to scoped users once enforcement is on). */
+export interface TerritoryCoverageRow {
+  class_code: string
+  total: number
+  unassigned: number
+}
+
+interface TerritoryCoverageResponse {
+  classes: TerritoryCoverageRow[]
+  enforcement: boolean
+}
+
+/** The unassigned-features review view + current enforcement state. Not cached
+ * long -- it reflects live feature data that a backfill changes, so it's
+ * invalidated by useBackfillTerritories. */
+export function useTerritoryCoverage() {
+  return useQuery({
+    queryKey: ["territory-coverage"],
+    queryFn: () => apiFetch<TerritoryCoverageResponse>("/territories/coverage"),
+    staleTime: 30_000,
+  })
+}
+
+/** Per-class result of the backfill sweep from POST /territories/backfill:
+ * how many features it newly assigned and how many remain uncovered. */
+export interface TerritoryBackfillClass {
+  class_code: string
+  assigned: number
+  remaining: number
+}
+
+export interface TerritoryBackfillResult {
+  classes: TerritoryBackfillClass[]
+  total_assigned: number
+  total_remaining: number
+}
+
+/** Runs the spatial backfill sweep, then refreshes the coverage report so the
+ * table shows the new (lower) unassigned counts. */
+export function useBackfillTerritories() {
+  const queryClient = useQueryClient()
+  return useMutation<TerritoryBackfillResult, ApiError, void>({
+    mutationFn: () => apiFetch<TerritoryBackfillResult>("/territories/backfill", { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["territory-coverage"] })
+    },
+  })
+}
+
+/** Flips the territory_enforcement_enabled flag (PUT /territories/enforcement).
+ * Invalidates coverage (which carries the enforcement state) so the toggle and
+ * banner reflect the new value. */
+export function useSetEnforcement() {
+  const queryClient = useQueryClient()
+  return useMutation<{ enforcement: boolean }, ApiError, boolean>({
+    mutationFn: (enabled) =>
+      apiFetch<{ enforcement: boolean }>("/territories/enforcement", {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["territory-coverage"] })
+    },
+  })
+}

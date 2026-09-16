@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { X } from "lucide-react"
 
+import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -41,6 +42,105 @@ function formatVoltageLevel(volts: number): string {
  * radial load flow needs); the result lists the closed loops above the node
  * table so a ring's two legs read as one energised feeder.
  */
+/**
+ * The dynamic "how this was calculated" body for a meshed-load-flow run: how
+ * many loops were closed by compensation (vs left open), over how many passes,
+ * the largest residual mismatch left across a break, and the worst (lowest-pu)
+ * node -- every figure read off THIS result, so it verifies this answer rather
+ * than describing the method generically. On a radial network (0 loops) it
+ * states the solve degraded to an ordinary radial sweep.
+ */
+function MeshedLoadFlowExplanation({
+  result,
+  classNameFor,
+}: {
+  result: MeshedLoadFlowResult
+  classNameFor: (code: string) => string
+}) {
+  const compensated = result.loops.filter((l) => l.compensated)
+  const openLoops = result.loops.filter((l) => !l.compensated)
+  const unresolved = result.loops.filter((l) => !l.impedance_resolved).length
+  const worstResidual = compensated.reduce((m, l) => Math.max(m, Math.abs(l.residual_mismatch_v)), 0)
+  const worst = result.nodes.reduce<(typeof result.nodes)[number] | null>((lo, n) => {
+    if (n.nominal_base_v <= 0) return lo
+    if (lo === null || n.voltage_v / n.nominal_base_v < lo.voltage_v / lo.nominal_base_v) return n
+    return lo
+  }, null)
+  const worstPu = worst ? worst.voltage_v / worst.nominal_base_v : 0
+
+  return (
+    <AnalysisExplanation>
+      <p>
+        A weak-mesh solve: the network is first reduced to a <b>radial spanning tree</b> and swept
+        forward/backward, then each loop is closed by <b>loop compensation</b> -- a circulating power is injected
+        at the loop break so the voltage mismatch across it vanishes (<code>V_closer − V_existing → 0</code>).
+      </p>
+      {result.loop_count === 0 ? (
+        <p>
+          This network is <b>radial</b> -- <b>0</b> loops were found, so the solve degraded to an ordinary radial
+          load flow (no compensation passes).
+        </p>
+      ) : (
+        <p>
+          <b>{result.loop_count}</b> loop{result.loop_count === 1 ? "" : "s"} found; <b>{compensated.length}</b>{" "}
+          closed by compensation over <b>{result.compensation_passes}</b> pass
+          {result.compensation_passes === 1 ? "" : "es"}
+          {openLoops.length > 0 && (
+            <>
+              {" "}
+              and <b>{openLoops.length}</b> left open (met at an open device / ideal-wire loop)
+            </>
+          )}
+          .
+          {worstResidual > 0 && (
+            <>
+              {" "}
+              The largest residual mismatch left across a break is <b>{formatNumber(worstResidual, 4)} V</b>{" "}
+              (<code>≈0</code> = the loop closed cleanly).
+            </>
+          )}
+        </p>
+      )}
+      {worst && (
+        <>
+          <p>
+            <b>{result.nodes.length}</b> node{result.nodes.length === 1 ? "" : "s"} solved. The lowest voltage is{" "}
+            <b>{formatNumber(worstPu, 3)} pu</b> ({formatNumber(worst.voltage_v)} V, -
+            {formatNumber(worst.voltage_drop_pct, 2)}%) at {classNameFor(worst.feature_class)} (
+            {formatVoltageLevel(worst.nominal_base_v)} base). Worked:
+          </p>
+          <Formula>{`${
+            result.loop_count > 0
+              ? `compensation:  max |V_existing − V_closer| = ${formatNumber(worstResidual, 4)} V   after ${result.compensation_passes} pass${result.compensation_passes === 1 ? "" : "es"}   (target → 0)\n`
+              : ""
+          }worst node:    V_pu = V / V_base = ${formatNumber(worst.voltage_v)} V / ${formatNumber(worst.nominal_base_v, 0)} V = ${formatNumber(worstPu, 3)} pu`}</Formula>
+        </>
+      )}
+      {(result.overloaded.length > 0 || unresolved > 0 || result.barriers.length > 0) && (
+        <p>
+          Honesty flags:{" "}
+          {result.overloaded.length > 0 && (
+            <>
+              <b>{result.overloaded.length}</b> conductor(s) over 100% loading.{" "}
+            </>
+          )}
+          {unresolved > 0 && (
+            <>
+              <b>{unresolved}</b> loop(s) had a branch with no resolved impedance, so their compensation is
+              approximate.{" "}
+            </>
+          )}
+          {result.barriers.length > 0 && (
+            <>
+              <b>{result.barriers.length}</b> open device(s) stopped the walk.
+            </>
+          )}
+        </p>
+      )}
+    </AnalysisExplanation>
+  )
+}
+
 export function MeshedLoadFlowPanel() {
   const armed = useMeshedLoadFlowStore((s) => s.armed)
   const loading = useMeshedLoadFlowStore((s) => s.loading)
@@ -105,6 +205,7 @@ export function MeshedLoadFlowPanel() {
           </Button>
         </div>
       ) : (
+        <>
         <div className={cn("flex flex-col overflow-hidden", fp.resized ? "min-h-0 flex-1" : "max-h-[21rem]")}>
           <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-xs">
             <span>{formatNumber(result.nominal_voltage_v, 0)} V nominal</span>
@@ -227,6 +328,8 @@ export function MeshedLoadFlowPanel() {
             </table>
           </div>
         </div>
+        <MeshedLoadFlowExplanation result={result} classNameFor={classNameFor} />
+        </>
       )}
       {fp.resizeHandle}
     </div>

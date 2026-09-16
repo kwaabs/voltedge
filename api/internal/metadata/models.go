@@ -480,6 +480,68 @@ type RMUTemplateResolved struct {
 	Ways               []RMUTemplateWay
 }
 
+// PackagedSubItem is one internal component resolved for the packaged-substation
+// fan-out: the component class Code (not id, so the caller can metadata.Load it),
+// its subtype and decoded default attributes, the two terminals wiring it to the
+// PREVIOUS component in the chain, and its mimic offset. OwnTerminal is the
+// terminal on THIS component; UpstreamTerminal the terminal on the previous one;
+// either may be nil (a terminal-less, bus-style leg), and both are unused on the
+// first item (the MV incomer has no upstream to wire). LoadPackagedSubTemplate
+// returns these in position (chain) order.
+type PackagedSubItem struct {
+	ComponentFeatureClass string
+	SubtypeCode           *int
+	Attributes            map[string]any
+	OwnTerminal           *string
+	UpstreamTerminal      *string
+	OffsetX               float64
+	OffsetY               float64
+	Rotation              float64
+}
+
+// PackagedSubTemplateResolved is one packaged-substation configuration recipe
+// ready for the fan-out: the internal components in chain (position) order. It
+// carries no shared-bus header (unlike RMUTemplateResolved) because a packaged
+// substation is a SERIES chain -- each component past the first wires to the
+// previous one, not to a common bus.
+type PackagedSubTemplateResolved struct {
+	Items []PackagedSubItem
+}
+
+// AssemblyItem is one component resolved for the general kit-assembly fan-out
+// (Phase 57, api/internal/assembly). Unlike PackagedSubItem it names BOTH a
+// structural link and an electrical target independently, so the same recipe shape
+// describes a star, a chain OR a branch. Position is the component's creation order
+// (1..N; the anchor is conceptual position 0). SupportKind, when non-nil, is the
+// relationship kind (e.g. "spatial_support") linking this item to
+// SupportParentPosition (nil = the anchor); nil SupportKind = no structural link.
+// WireToPosition, when non-nil, is which already-created feature this item connects
+// to (0 = the anchor, >=1 = an earlier item); nil = not wired. UpstreamTerminal is
+// the terminal on that target, OwnTerminal the terminal on THIS item; either may be
+// nil for a terminal-less leg. LoadAssemblyTemplate returns these in position order.
+type AssemblyItem struct {
+	ComponentFeatureClass string
+	SubtypeCode           *int
+	Attributes            map[string]any
+	SupportKind           *string
+	SupportParentPosition *int
+	WireToPosition        *int
+	OwnTerminal           *string
+	UpstreamTerminal      *string
+	Position              int
+	OffsetX               float64
+	OffsetY               float64
+	Rotation              float64
+}
+
+// AssemblyTemplateResolved is one kit recipe ready for the fan-out: the anchor
+// subtype override (nil = the placing user picks) plus the components in creation
+// (position) order.
+type AssemblyTemplateResolved struct {
+	AnchorSubtypeCode *int
+	Items             []AssemblyItem
+}
+
 // Version mirrors metadata.metadata_versions -- see migrations/0006.
 type Version struct {
 	bun.BaseModel `bun:"table:metadata.metadata_versions"`

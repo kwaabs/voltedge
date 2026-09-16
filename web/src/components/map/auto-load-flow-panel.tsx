@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { X } from "lucide-react"
 
+import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import type { FeatureRecord } from "@/hooks/use-feature"
@@ -10,6 +11,9 @@ import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { AutoLoadFlowResult, LoadFlowEngine } from "@/stores/auto-load-flow-store"
 import { activeInner, useAutoLoadFlowStore } from "@/stores/auto-load-flow-store"
+import type { LoadFlowResult } from "@/stores/load-flow-store"
+import type { MeshedLoadFlowResult } from "@/stores/meshed-load-flow-store"
+import type { NodalLoadFlowResult } from "@/stores/nodal-load-flow-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -55,6 +59,87 @@ const ENGINE_LABEL: Record<LoadFlowEngine, string> = {
  * shares (per-node voltage / drop / current / loading), so one table reads for
  * whichever engine the router picked.
  */
+/**
+ * The dynamic "how this was calculated" body for an auto (dispatch-router) run:
+ * which engine the router auto-selected and WHY (the loop count / topology
+ * classification it reported), followed by the key figures of the engine's own
+ * result -- the worst (lowest-pu) node and the overload/barrier counts. Every
+ * figure is read off THIS result, so it verifies the run rather than describing
+ * the router generically.
+ */
+function AutoLoadFlowExplanation({
+  result,
+  inner,
+  classNameFor,
+}: {
+  result: AutoLoadFlowResult
+  inner: LoadFlowResult | MeshedLoadFlowResult | NodalLoadFlowResult
+  classNameFor: (code: string) => string
+}) {
+  // All three engine results share these per-node fields, so the worst-node scan
+  // reads them uniformly regardless of which engine the router picked.
+  const nodes: Array<{ feature_class: string; voltage_v: number; voltage_drop_pct: number; nominal_base_v: number }> =
+    inner.nodes
+  const worst = nodes.reduce<(typeof nodes)[number] | null>((lo, n) => {
+    if (n.nominal_base_v <= 0 || n.voltage_v <= 0) return lo
+    if (lo === null || n.voltage_v / n.nominal_base_v < lo.voltage_v / lo.nominal_base_v) return n
+    return lo
+  }, null)
+  const worstPu = worst ? worst.voltage_v / worst.nominal_base_v : 0
+  const engineDetail =
+    result.engine === "radial"
+      ? "a forward/backward ladder sweep on the radial tree"
+      : result.engine === "meshed"
+        ? "Tier 1 weak-mesh loop compensation (radial spanning tree + circulating-power loop closure)"
+        : "the Tier 2 nodal Y-bus solver over the general graph"
+
+  return (
+    <AnalysisExplanation>
+      <p>
+        The <b>dispatch router</b> classifies the network by its independent <b>loop count</b> and auto-selects the
+        engine. Here it found <b>{result.loop_count}</b> loop{result.loop_count === 1 ? "" : "s"} and ran the{" "}
+        <b>{ENGINE_LABEL[result.engine]}</b> engine (<code>{result.engine}</code>) -- {engineDetail}.
+      </p>
+      <p>Router reason: {result.engine_reason}</p>
+      {worst && (
+        <p>
+          <b>{inner.nodes.length}</b> node{inner.nodes.length === 1 ? "" : "s"} solved. The lowest voltage is{" "}
+          <b>{formatNumber(worstPu, 3)} pu</b> ({formatNumber(worst.voltage_v)} V, -
+          {formatNumber(worst.voltage_drop_pct, 2)}%) at {classNameFor(worst.feature_class)} (
+          {formatVoltageLevel(worst.nominal_base_v)} base). Worked:
+        </p>
+      )}
+      <Formula>{`routing:      loop_count = ${result.loop_count} → ${result.engine}${
+        worst
+          ? `\nworst node:   V_pu = V / V_base = ${formatNumber(worst.voltage_v)} V / ${formatNumber(worst.nominal_base_v, 0)} V = ${formatNumber(worstPu, 3)} pu`
+          : ""
+      }`}</Formula>
+      {result.engine === "nodal" && result.nodal && !result.nodal.converged && (
+        <p>
+          The nodal solve <b>did not converge</b> after <b>{result.nodal.iterations}</b> iteration
+          {result.nodal.iterations === 1 ? "" : "s"} (max mismatch{" "}
+          <code>{result.nodal.max_mismatch_pu.toExponential(1)} pu</code>), so treat the voltages as unconverged.
+        </p>
+      )}
+      {(inner.overloaded.length > 0 || inner.barriers.length > 0) && (
+        <p>
+          Honesty flags:{" "}
+          {inner.overloaded.length > 0 && (
+            <>
+              <b>{inner.overloaded.length}</b> element(s) over 100% loading.{" "}
+            </>
+          )}
+          {inner.barriers.length > 0 && (
+            <>
+              <b>{inner.barriers.length}</b> open device(s) stopped the walk.
+            </>
+          )}
+        </p>
+      )}
+    </AnalysisExplanation>
+  )
+}
+
 export function AutoLoadFlowPanel() {
   const armed = useAutoLoadFlowStore((s) => s.armed)
   const loading = useAutoLoadFlowStore((s) => s.loading)
@@ -161,6 +246,7 @@ export function AutoLoadFlowPanel() {
           </div>
         </div>
       ) : (
+        <>
         <div className={cn("flex flex-col overflow-hidden", fp.resized ? "min-h-0 flex-1" : "max-h-[21rem]")}>
           <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-xs">
             <span className="text-foreground rounded border px-1.5 py-0.5 font-medium">{ENGINE_LABEL[result.engine]}</span>
@@ -241,6 +327,8 @@ export function AutoLoadFlowPanel() {
             </table>
           </div>
         </div>
+        <AutoLoadFlowExplanation result={result} inner={inner} classNameFor={classNameFor} />
+        </>
       )}
       {fp.resizeHandle}
     </div>

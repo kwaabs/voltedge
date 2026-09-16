@@ -159,6 +159,78 @@ export interface AdminDiagramPlacementRule {
   feature_class_name: string
 }
 
+/** Wire type for /admin/cim-profiles -- api/internal/admin's cimProfileResponse,
+ * mirroring metadata.cim_profiles (migration 0034). One export target (e.g. the
+ * seeded CDPSM_CIM16 default): the namespace/authority URIs a CIM RDF/XML header
+ * needs, the GL-profile coordinate CRS, and the policy for feature attributes
+ * that have no CIM mapping. See docs/phase-55-cim-mapping-admin.md. */
+export interface AdminCimProfile {
+  code: string
+  name: string
+  cim_namespace: string
+  profile_uri: string
+  model_authority: string
+  coordinate_crs?: string | null
+  /** 'drop' (v1 default) or 'carry' (unimplemented). */
+  unmapped_attr_policy?: string | null
+  is_default: boolean
+}
+
+/** Wire type for /admin/cim-class-mappings -- api/internal/admin's
+ * cimClassMappingResponse, mirroring metadata.cim_class_mappings. Maps a feature
+ * class (optionally one subtype) to a CIM class + kind; subtype_code null = class
+ * default, non-null overrides it for that subtype. cim_kind is the behavioral axis
+ * the export encoder switches on. A class with no row is silently dropped from CIM
+ * export (Phase 55 Slice 2 surfaces that). */
+export interface AdminCimClassMapping {
+  id: string
+  feature_class_code: string
+  subtype_code: number | null
+  cim_class: string
+  cim_kind: string
+}
+
+/** Wire type for /admin/cim-attribute-mappings -- api/internal/admin's
+ * cimAttributeMappingResponse, mirroring metadata.cim_attribute_mappings. Maps one
+ * feature field to one CIM attribute (dotted Class.attr) with a transform bridging
+ * the type/unit gap. scale_factor is meaningful for transform 'scale'; value_map
+ * (a JSON lookup) for 'domain_map'/'boolean'; unit is informational. */
+export interface AdminCimAttributeMapping {
+  id: string
+  feature_class_code: string
+  field_name: string
+  cim_attribute: string
+  transform: string
+  scale_factor: number | null
+  unit: string | null
+  value_map: Record<string, unknown> | null
+}
+
+/** Wire type for /admin/cim-coverage -- api/internal/admin's cimCoverageResponse.
+ * A feature class with NO cim_class_mappings row of any kind, so it is silently
+ * dropped from every CIM export (Phase 55 Slice 2 warn-on-unmapped). geometry_type
+ * and network_role hint whether the class plausibly should export. Resolve by
+ * mapping it (add a class mapping) or by marking it cim_kind 'skip' to make the
+ * exclusion deliberate. */
+export interface AdminCimCoverage {
+  code: string
+  name: string
+  geometry_type: string
+  network_role: string
+}
+
+/** One real feature of a class rendered through the actual CIM encoder -- the
+ * byte-exact CIM/XML a full export would produce for it. sampled is false (xml
+ * empty) when there was nothing to render (no instance, or a geometry-less class
+ * the CIM export never emits); note then explains which. */
+export interface AdminCimPreview {
+  class_code: string
+  feature_id: string
+  xml: string
+  sampled: boolean
+  note?: string
+}
+
 /** Long staleTime, same reasoning useFeatureClasses/useCatalog use --
  * this is admin-authored data that changes rarely (an explicit create
  * action), not something worth polling. Each admin mutation invalidates
@@ -242,5 +314,55 @@ export function useSymbologyRules(code: string | undefined) {
     queryFn: () => apiFetch<{ symbology_rules: AdminSymbologyRule[] }>(`/admin/feature-classes/${code}/symbology-rules`),
     enabled: !!code,
     staleTime: ADMIN_STALE_TIME,
+  })
+}
+
+/** The three CIM export mapping tables (metadata.cim_profiles /
+ * cim_class_mappings / cim_attribute_mappings) authored by the CIM mapping admin
+ * editor. Each admin mutation invalidates its own query key, matching every other
+ * admin resource here. See docs/phase-55-cim-mapping-admin.md. */
+export function useAdminCimProfiles() {
+  return useQuery({
+    queryKey: ["admin", "cim-profiles"],
+    queryFn: () => apiFetch<{ cim_profiles: AdminCimProfile[] }>("/admin/cim-profiles"),
+    staleTime: ADMIN_STALE_TIME,
+  })
+}
+
+export function useAdminCimClassMappings() {
+  return useQuery({
+    queryKey: ["admin", "cim-class-mappings"],
+    queryFn: () => apiFetch<{ cim_class_mappings: AdminCimClassMapping[] }>("/admin/cim-class-mappings"),
+    staleTime: ADMIN_STALE_TIME,
+  })
+}
+
+export function useAdminCimAttributeMappings() {
+  return useQuery({
+    queryKey: ["admin", "cim-attribute-mappings"],
+    queryFn: () => apiFetch<{ cim_attribute_mappings: AdminCimAttributeMapping[] }>("/admin/cim-attribute-mappings"),
+    staleTime: ADMIN_STALE_TIME,
+  })
+}
+
+export function useAdminCimCoverage() {
+  return useQuery({
+    queryKey: ["admin", "cim-coverage"],
+    queryFn: () => apiFetch<{ unmapped_classes: AdminCimCoverage[] }>("/admin/cim-coverage"),
+    staleTime: ADMIN_STALE_TIME,
+  })
+}
+
+/** A real-sample CIM/XML preview for one feature class, fetched on demand (the
+ * preview dialog passes the class code when it opens; disabled until then). Runs
+ * the actual encoder server-side, so it is deliberately NOT cached long -- it
+ * reflects live feature data, unlike the mapping tables. Keyed by class code so
+ * switching classes refetches. */
+export function useAdminCimPreview(classCode: string | null) {
+  return useQuery({
+    queryKey: ["admin", "cim-preview", classCode],
+    queryFn: () => apiFetch<AdminCimPreview>(`/admin/cim-preview/${classCode}`),
+    enabled: !!classCode,
+    staleTime: 0,
   })
 }

@@ -23,6 +23,7 @@ import { useImportedOverlaysStore } from "@/stores/imported-overlays-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useMapAnnotationsStore } from "@/stores/map-annotations-store"
 import { useTerritoryOverlayStore } from "@/stores/territory-overlay-store"
+import { useToolbarMenuStore } from "@/stores/toolbar-menu-store"
 
 /** The mandatory class-level default rule's preview -- an icon for a
  * point class (icon_ref set), or a plain color swatch for a line/
@@ -85,6 +86,9 @@ export function LayersPanel() {
   // they live in the Overlays section below, not this list (see
   // featureClassSourceIds).
   const sourceIds = featureClassSourceIds(catalog)
+  // Only one toolbar dropdown open at a time -- see toolbar-menu-store.ts.
+  const menuOpen = useToolbarMenuStore((s) => s.open === "layers")
+  const setMenuOpen = useToolbarMenuStore((s) => s.setOpen)
 
   // Top-first (utility -> plot), matching the map's own rank ordering.
   const levels = [...(territoryLevels?.levels ?? [])].sort((a, b) => a.rank - b.rank)
@@ -98,7 +102,7 @@ export function LayersPanel() {
   )
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={menuOpen} onOpenChange={(o) => setMenuOpen("layers", o)}>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className="bg-background/90 gap-1.5 shadow-sm">
           <Layers className="size-4 text-indigo-600" />

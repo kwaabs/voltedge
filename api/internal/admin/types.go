@@ -34,6 +34,27 @@ var (
 	// is the default a rule simply omits; it's accepted here so a
 	// raw-API/SQL author who writes it explicitly isn't rejected.
 	validLineDashes = map[string]bool{"solid": true, "dashed": true, "dotted": true, "dashdot": true}
+	// validCimKinds mirrors migrations/0034's cim_class_mappings.cim_kind
+	// CHECK -- how the CIM encoder treats a mapped feature class (an edge
+	// synthesizes two terminals, a container becomes an EquipmentContainer,
+	// skip is intentionally excluded, ...). See api/internal/metadata/cim.go.
+	validCimKinds = map[string]bool{
+		"conducting_edge": true, "conducting_junction": true,
+		"container": true, "asset": true, "protection": true, "skip": true,
+	}
+	// validCimTransforms mirrors cim_attribute_mappings.transform after
+	// migration 0035 widened it with 'phase' -- the coercion bridging a
+	// feature field and its CIM attribute (direct/scale/domain_map/boolean/
+	// from_geometry/material_spec/phase).
+	validCimTransforms = map[string]bool{
+		"direct": true, "scale": true, "domain_map": true, "boolean": true,
+		"from_geometry": true, "material_spec": true, "phase": true,
+	}
+	// validUnmappedAttrPolicies mirrors cim_profiles.unmapped_attr_policy's
+	// CHECK -- what a profile does with a feature attribute that has no
+	// mapping (drop it, v1 default, or carry it as a generic UserAttribute,
+	// not yet implemented by the encoder).
+	validUnmappedAttrPolicies = map[string]bool{"drop": true, "carry": true}
 )
 
 // updateFeatureClassRequest is PATCH /admin/feature-classes/{code}'s
@@ -529,4 +550,165 @@ type symbologyRuleResponse struct {
 	MinZoom         *int            `json:"min_zoom,omitempty"`
 	MaxZoom         *int            `json:"max_zoom,omitempty"`
 	StyleDef        json.RawMessage `json:"style_def"`
+}
+
+// ---- CIM export mapping (Phase 55, migrations/0034 + 0035) -----------------
+// The write path for the three metadata.cim_* tables that drive CIM/XML
+// export (api/internal/metadata/cim.go, api/internal/export). Authored only
+// by seed/SQL until now; these DTOs are the admin editor's wire shape. See
+// cim.go for the resolvers and the per-table CRUD.
+
+// cimProfileResponse is one metadata.cim_profiles row, keyed by code (the
+// natural key the profile URL uses, like domains). All columns are NOT NULL,
+// so nothing here is a nullable-clearable *pointer -- coordinate_crs and
+// unmapped_attr_policy simply carry their DB defaults when a create omits them.
+type cimProfileResponse struct {
+	Code               string `json:"code"`
+	Name               string `json:"name"`
+	CimNamespace       string `json:"cim_namespace"`
+	ProfileURI         string `json:"profile_uri"`
+	ModelAuthority     string `json:"model_authority"`
+	CoordinateCRS      string `json:"coordinate_crs"`
+	UnmappedAttrPolicy string `json:"unmapped_attr_policy"`
+	IsDefault          bool   `json:"is_default"`
+}
+
+// createCimProfileRequest is POST /admin/cim-profiles' body. CoordinateCRS
+// and UnmappedAttrPolicy are optional pointers only so an omitted one falls
+// back to the column's DB default (EPSG:4326 URN / 'drop') rather than an
+// empty string -- not a clear-to-null sentinel, since neither column is
+// nullable.
+type createCimProfileRequest struct {
+	Code               string  `json:"code"`
+	Name               string  `json:"name"`
+	CimNamespace       string  `json:"cim_namespace"`
+	ProfileURI         string  `json:"profile_uri"`
+	ModelAuthority     string  `json:"model_authority"`
+	CoordinateCRS      *string `json:"coordinate_crs"`
+	UnmappedAttrPolicy *string `json:"unmapped_attr_policy"`
+	IsDefault          *bool   `json:"is_default"`
+}
+
+// updateCimProfileRequest is PATCH /admin/cim-profiles/{code}'s body -- every
+// field optional, only what's present changes. Every cim_profiles column is
+// NOT NULL, so these are plain set-only pointers (nil = leave alone), never
+// the nil/""/value three-state a nullable column would use.
+type updateCimProfileRequest struct {
+	Name               *string `json:"name"`
+	CimNamespace       *string `json:"cim_namespace"`
+	ProfileURI         *string `json:"profile_uri"`
+	ModelAuthority     *string `json:"model_authority"`
+	CoordinateCRS      *string `json:"coordinate_crs"`
+	UnmappedAttrPolicy *string `json:"unmapped_attr_policy"`
+	IsDefault          *bool   `json:"is_default"`
+}
+
+// cimClassMappingResponse is one metadata.cim_class_mappings row -- code-shaped
+// over the wire (feature_class_code + integer subtype_code, the same keys
+// metadata.LoadCIMMapping resolves) but carrying the row id, since these are
+// global (no natural key) and edited/deleted by id.
+type cimClassMappingResponse struct {
+	ID               string `json:"id"`
+	FeatureClassCode string `json:"feature_class_code"`
+	SubtypeCode      *int   `json:"subtype_code,omitempty"`
+	CimClass         string `json:"cim_class"`
+	CimKind          string `json:"cim_kind"`
+}
+
+// createCimClassMappingRequest is POST /admin/cim-class-mappings' body. A nil
+// SubtypeCode is the class default (subtype_id NULL); a value scopes the
+// mapping to that subtype (resolved against feature_class_code's own subtypes).
+type createCimClassMappingRequest struct {
+	FeatureClassCode string `json:"feature_class_code"`
+	SubtypeCode      *int   `json:"subtype_code"`
+	CimClass         string `json:"cim_class"`
+	CimKind          string `json:"cim_kind"`
+}
+
+// updateCimClassMappingRequest is PATCH /admin/cim-class-mappings/{id}'s body.
+// Only cim_class/cim_kind are editable -- the identity keys (feature_class_id,
+// subtype_id) are not re-keyed here; re-target by deleting and recreating, the
+// same reasoning updateDomainValueRequest's own doc comment gives for a code.
+type updateCimClassMappingRequest struct {
+	CimClass *string `json:"cim_class"`
+	CimKind  *string `json:"cim_kind"`
+}
+
+// cimAttributeMappingResponse is one metadata.cim_attribute_mappings row --
+// code-shaped (feature_class_code + field_name) with the row id, plus the
+// coercion (transform + scale_factor/unit/value_map). value_map is returned
+// parsed (or omitted when NULL).
+type cimAttributeMappingResponse struct {
+	ID               string         `json:"id"`
+	FeatureClassCode string         `json:"feature_class_code"`
+	FieldName        string         `json:"field_name"`
+	CimAttribute     string         `json:"cim_attribute"`
+	Transform        string         `json:"transform"`
+	ScaleFactor      *float64       `json:"scale_factor,omitempty"`
+	Unit             *string        `json:"unit,omitempty"`
+	ValueMap         map[string]any `json:"value_map,omitempty"`
+}
+
+// createCimAttributeMappingRequest is POST /admin/cim-attribute-mappings' body.
+// ValueMap is accepted as a JSON object and marshalled to the value_map jsonb
+// column; an omitted one stores NULL.
+type createCimAttributeMappingRequest struct {
+	FeatureClassCode string         `json:"feature_class_code"`
+	FieldName        string         `json:"field_name"`
+	CimAttribute     string         `json:"cim_attribute"`
+	Transform        string         `json:"transform"`
+	ScaleFactor      *float64       `json:"scale_factor"`
+	Unit             *string        `json:"unit"`
+	ValueMap         map[string]any `json:"value_map"`
+}
+
+// updateCimAttributeMappingRequest is PATCH /admin/cim-attribute-mappings/{id}'s
+// body -- every field optional. The nullable columns use the sentinels JSON can
+// actually express: Unit (*string) is nil/""/value like updateFieldRequest's
+// DomainCode (nil = leave, "" = clear to NULL, else set); ValueMap
+// (*json.RawMessage) mirrors updateFeatureClassRequest.LabelDef (nil = leave, a
+// JSON null or empty clears the column to SQL NULL, a JSON object sets it) --
+// the one shape that keeps clear-to-NULL distinguishable from omission for a
+// jsonb value. ScaleFactor stays a plain set-only *float64 (nil = leave, a
+// value sets it): a JSON null and an omission both unmarshal to nil, so there's
+// no clear sentinel, matching updateMaterialSpecRequest's own numeric fields --
+// a stale scale_factor on a non-'scale' transform is simply ignored by the
+// encoder.
+type updateCimAttributeMappingRequest struct {
+	CimAttribute *string          `json:"cim_attribute"`
+	Transform    *string          `json:"transform"`
+	ScaleFactor  *float64         `json:"scale_factor"`
+	Unit         *string          `json:"unit"`
+	ValueMap     *json.RawMessage `json:"value_map"`
+}
+
+// cimCoverageResponse is one feature class with NO cim_class_mappings row of any
+// kind -- the Phase 55 Slice 2 warn-on-unmapped signal. Such a class is silently
+// dropped from every CIM export (metadata.CIMMapping.ClassFor returns ok=false),
+// so the editor lists these so an operator can either map the class (Slice 3) or
+// mark it cim_kind='skip' to make the exclusion deliberate. geometry_type and
+// network_role are carried so the UI can hint whether a class plausibly SHOULD
+// export (a none-geometry annotation class rarely does; a conducting one usually
+// does). A class that already has any mapping row -- including a skip -- is not
+// listed here (it's a decided class, covered or deliberately excluded).
+type cimCoverageResponse struct {
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	GeometryType string `json:"geometry_type"`
+	NetworkRole  string `json:"network_role"`
+}
+
+// cimPreviewResponse is one real feature of a class rendered through the actual
+// CIM encoder (export.PreviewFeature) -- the byte-for-byte CIM/XML a full export
+// would produce for it, so an operator can see the shape a mapping yields instead
+// of trusting the rule table. Sampled is false (Xml empty) when there was nothing
+// to render -- no instance, or a geometry-less class the CIM export never emits --
+// with Note explaining which. FeatureID is the sampled feature's id (blank when
+// not sampled).
+type cimPreviewResponse struct {
+	ClassCode string `json:"class_code"`
+	FeatureID string `json:"feature_id"`
+	Xml       string `json:"xml"`
+	Sampled   bool   `json:"sampled"`
+	Note      string `json:"note,omitempty"`
 }

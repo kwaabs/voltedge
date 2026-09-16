@@ -207,6 +207,20 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 			if _, err := tx.ExecContext(ctx, "SELECT gis.sync_tile_function(?, ?)", tableName, *fc.SRID); err != nil {
 				return fmt.Errorf("sync tile function: %w", err)
 			}
+
+			// Phase 58: the Go MVT tile server and the CRUD read/write scoping
+			// both filter on territory_id (`territory_id IN (...)` for a scoped
+			// user), so give every geometric table a btree index on it. IF NOT
+			// EXISTS makes this idempotent across recompiles and covers tables
+			// that predate the column's backfill above, the same
+			// single-source-of-truth reasoning as the tile function sync. The
+			// GIST geom index handles the bbox && filter; this handles the
+			// territory equality.
+			idxStmt := fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s ON %s (territory_id)`,
+				quoteIdent(tableName+"_territory_id_idx"), qualifiedTable)
+			if _, err := tx.ExecContext(ctx, idxStmt); err != nil {
+				return fmt.Errorf("create territory_id index: %w", err)
+			}
 		}
 
 		// published_by (text) carries the acting user's uuid when compile

@@ -2,8 +2,10 @@ import { Fragment, useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   Activity,
+  BatteryCharging,
   ChartSpline,
   CheckCircle2,
+  ClipboardList,
   ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -46,6 +48,7 @@ import { DeleteFeatureDialog } from "@/components/map/delete-feature-dialog"
 import { FeatureAttachments } from "@/components/map/feature-attachments"
 import { FeatureCreateForm } from "@/components/map/feature-create-form"
 import { FeatureEditForm } from "@/components/map/feature-edit-form"
+import { WorksTab } from "@/components/map/feature-works-tab"
 import { formatFieldLabel, formatValue } from "@/components/map/field-utils"
 import { RemoveGeometryDialog } from "@/components/map/remove-geometry-dialog"
 import { RevokeConnectionDialog } from "@/components/map/revoke-connection-dialog"
@@ -99,17 +102,28 @@ import { useUnitsStore } from "@/stores/units-store"
 import { useVoltageProfileStore } from "@/stores/voltage-profile-store"
 import { useContingencyStore } from "@/stores/contingency-store"
 import { useHostingStore } from "@/stores/hosting-store"
+import { useEvHostingStore } from "@/stores/ev-hosting-store"
 import { useMeshedLoadFlowStore } from "@/stores/meshed-load-flow-store"
 import { useNodalLoadFlowStore } from "@/stores/nodal-load-flow-store"
 import { useAutoLoadFlowStore } from "@/stores/auto-load-flow-store"
 
-type TabId = "attributes" | "terminals" | "relationships" | "materials" | "files" | "links" | "history" | "gps"
+type TabId =
+  | "attributes"
+  | "terminals"
+  | "relationships"
+  | "materials"
+  | "works"
+  | "files"
+  | "links"
+  | "history"
+  | "gps"
 
 const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
   { id: "attributes", label: "Attributes", icon: Info },
   { id: "terminals", label: "Terminals", icon: Plug },
   { id: "relationships", label: "Relationships", icon: Link2 },
   { id: "materials", label: "Materials", icon: Wrench },
+  { id: "works", label: "Works", icon: ClipboardList },
   { id: "files", label: "Files", icon: Paperclip },
   { id: "links", label: "Links", icon: ExternalLinkIcon },
   { id: "history", label: "History", icon: History },
@@ -1457,6 +1471,7 @@ export function FeaturePanel() {
     useVoltageProfileStore.getState().clear()
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -1492,6 +1507,7 @@ export function FeaturePanel() {
     useVoltageProfileStore.getState().clear()
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -1534,6 +1550,7 @@ export function FeaturePanel() {
     useVoltageProfileStore.getState().clear()
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -1579,6 +1596,7 @@ export function FeaturePanel() {
     useVoltageProfileStore.getState().clear()
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -1641,6 +1659,7 @@ export function FeaturePanel() {
     useVoltageProfileStore.getState().clear()
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -1701,6 +1720,7 @@ export function FeaturePanel() {
     useVoltageProfileStore.getState().clear()
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -1722,6 +1742,7 @@ export function FeaturePanel() {
     useVoltageProfileStore.getState().clear()
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -1744,6 +1765,7 @@ export function FeaturePanel() {
     useVoltageProfileStore.getState().clear()
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -1767,6 +1789,7 @@ export function FeaturePanel() {
     useVoltageProfileStore.getState().clear()
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -1788,6 +1811,7 @@ export function FeaturePanel() {
     useCoordinationStore.getState().clear()
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -1811,6 +1835,7 @@ export function FeaturePanel() {
     useCoordinationStore.getState().clear()
     useVoltageProfileStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -1837,7 +1862,32 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useHostingStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the EV feeder-headroom panel (ev-hosting-panel.tsx) with the selected
+  // feature as the feeder's source. The under-voltage mirror of DER hosting: it
+  // binary-searches the largest ADDITIONAL charging load each connection node
+  // can absorb before under-voltage (0.95 pu floor) or thermal overload binds.
+  // Like load-flow it only arms (needs nominal_voltage_v first); the panel's own
+  // Run button makes the POST /analysis/ev-hosting call. Clears the other
+  // mutually-exclusive workflows the same way they clear each other.
+  function armEvHosting() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
+    useMeshedLoadFlowStore.getState().clear()
+    useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
+    useEvHostingStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
   // Arms the meshed load-flow panel (meshed-load-flow-panel.tsx) with the
@@ -1857,6 +1907,7 @@ export function FeaturePanel() {
     useVoltageProfileStore.getState().clear()
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useMeshedLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
@@ -1881,6 +1932,7 @@ export function FeaturePanel() {
     useVoltageProfileStore.getState().clear()
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
@@ -1903,6 +1955,7 @@ export function FeaturePanel() {
     useVoltageProfileStore.getState().clear()
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
@@ -1932,7 +1985,15 @@ export function FeaturePanel() {
   // neither can hold a connection, so the Terminals tab is hidden for them
   // rather than offering a connect flow the server rules would reject.
   const isConnectable = selectedNetworkRole === "edge" || selectedNetworkRole === "junction"
-  const visibleTabs = TABS.filter((tab) => tab.id !== "terminals" || isConnectable)
+  // The Works tab surfaces this asset's WAM records (defects / work orders /
+  // inspections, api/internal/wam) and reads them over /wam, gated by wam:read
+  // -- a user without it never sees the tab rather than being shown one whose
+  // every query 403s. Unlike Terminals, Works applies to any feature (any asset
+  // can carry a defect or work order), so it's not restricted by network role.
+  const canReadWorks = usePermission()("wam:read")
+  const visibleTabs = TABS.filter(
+    (tab) => (tab.id !== "terminals" || isConnectable) && (tab.id !== "works" || canReadWorks),
+  )
 
   // Trace + every network analysis behind that same dropdown (isolate,
   // feeder/section trace, load flow, fault current, ampacity) only mean
@@ -1966,7 +2027,7 @@ export function FeaturePanel() {
     height: minimized ? undefined : (size?.height ?? DEFAULT_HEIGHT),
   }
   const positionClass = cn(
-    "bg-background fixed z-40 flex flex-col overflow-hidden rounded-md border border-primary/20 shadow-lg",
+    "bg-background fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-primary shadow-xl ring-1 ring-black/5",
     !position && DEFAULT_POSITION_CLASS,
   )
 
@@ -2024,7 +2085,7 @@ export function FeaturePanel() {
           className="from-accent/50 to-accent/20 flex cursor-grab items-center justify-between border-b border-primary/15 bg-gradient-to-b px-3 py-2 select-none active:cursor-grabbing"
         >
           <div className="flex min-w-0 items-center gap-1.5">
-            <GripHorizontal className="text-muted-foreground size-3.5 shrink-0" />
+            <GripHorizontal className="text-primary/70 size-3.5 shrink-0" />
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">New {className}</p>
               <p className="text-muted-foreground truncate text-xs">Unsaved</p>
@@ -2069,10 +2130,10 @@ export function FeaturePanel() {
     <div ref={panelRef} style={shellStyle} className={positionClass}>
       <div
         onPointerDown={handleHeaderPointerDown}
-        className="flex cursor-grab items-center justify-between border-b px-3 py-2 select-none active:cursor-grabbing"
+        className="flex cursor-grab items-center justify-between border-b border-primary/15 bg-gradient-to-b from-accent/50 to-accent/20 px-3 py-2 select-none active:cursor-grabbing"
       >
         <div className="flex min-w-0 items-center gap-1.5">
-          <GripHorizontal className="text-muted-foreground size-3.5 shrink-0" />
+          <GripHorizontal className="text-primary/70 size-3.5 shrink-0" />
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{primaryLabel}</p>
             <p className="text-muted-foreground truncate font-mono text-xs">{secondaryLabel}</p>
@@ -2160,6 +2221,10 @@ export function FeaturePanel() {
                   <DropdownMenuItem onSelect={armHosting}>
                     <Sun className="size-4" />
                     DER hosting capacity…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={armEvHosting}>
+                    <BatteryCharging className="size-4" />
+                    EV feeder headroom…
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={armMeshedLoadFlow}>
@@ -2309,6 +2374,7 @@ export function FeaturePanel() {
               {activeTab === "terminals" && isConnectable && <TerminalsTab />}
               {activeTab === "relationships" && <RelationshipsTab />}
               {activeTab === "materials" && <MaterialsTab onEditClick={() => setActiveTab("attributes")} />}
+              {activeTab === "works" && <WorksTab />}
               {activeTab === "files" && (
                 <FeatureAttachments
                   featureClassCode={selected.featureClassCode}

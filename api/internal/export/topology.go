@@ -154,6 +154,13 @@ type topoStats struct {
 	// value), and every endpoint key is stored, so len(parent) == Endpoints.
 	// It is an order-of-magnitude gauge, not an exact allocation.
 	ParentBytes int64
+	// Unmapped is the Phase 55 Slice 2 warn-on-drop signal, piggybacked on the
+	// same stats return runExport already logs: feature_class_code -> count of
+	// features silently dropped from this export because the class has no
+	// cim_class_mappings row (ClassFor returned ok=false). A class intentionally
+	// excluded via cim_kind='skip' is NOT counted here -- it has a mapping row and
+	// its omission is deliberate. Empty when every class with features was mapped.
+	Unmapped map[string]int
 }
 
 // writeTopology builds the connectivity graph over the exported equipment, finds
@@ -483,6 +490,25 @@ func groundTerminalIDs(layers []Layer) map[string]bool {
 		}
 	}
 	return ground
+}
+
+// formatUnmapped renders topoStats.Unmapped as a stable, code-sorted
+// "CODE=count" list for the runExport warning log (Phase 55 Slice 2). Empty
+// string when nothing was dropped, so the caller can skip the line entirely.
+func formatUnmapped(m map[string]int) string {
+	if len(m) == 0 {
+		return ""
+	}
+	codes := make([]string, 0, len(m))
+	for code := range m {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	parts := make([]string, len(codes))
+	for i, code := range codes {
+		parts[i] = fmt.Sprintf("%s=%d", code, m[code])
+	}
+	return strings.Join(parts, " ")
 }
 
 func termKey(feature, terminalID string) string { return "T|" + feature + "|" + terminalID }

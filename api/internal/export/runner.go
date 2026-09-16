@@ -214,5 +214,12 @@ func runExport(ctx context.Context, db *bun.DB, scope ExportScope, w io.Writer) 
 	// projection long before it OOMs, which is the concrete signal to build Slice 5.
 	log.Printf("export: CIM topology features=%d conns=%d terminals=%d nodes=%d parent_bytes=%d",
 		count, stats.Conns, stats.Endpoints, stats.Nodes, stats.ParentBytes)
+	// Phase 55 Slice 2 warn-on-drop: any class with features but no
+	// cim_class_mappings row was silently excluded. Log it (WARN) so a dropped
+	// class is visible in the export logs, not lost -- the admin editor's
+	// coverage view (GET /admin/cim-coverage) is the interactive counterpart.
+	if dropped := formatUnmapped(stats.Unmapped); dropped != "" {
+		log.Printf("export: CIM WARNING unmapped classes dropped from output (no cim_class_mappings row): %s", dropped)
+	}
 	return count, err
 }

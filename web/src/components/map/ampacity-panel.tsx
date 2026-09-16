@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { X } from "lucide-react"
 
+import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFloatingPanel } from "@/hooks/use-floating-panel"
@@ -11,6 +12,71 @@ import { useToastStore } from "@/stores/toast-store"
 
 function formatNumber(n: number, digits = 1): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })
+}
+
+/**
+ * The dynamic "how this was calculated" body for an ampacity run. The
+ * heat-balance terms and the resulting rating are read off THIS result -- the
+ * governing net cooling, the conductor's own resistance at temperature, and the
+ * catalog figure it's checked against -- so an engineer can reconstruct this
+ * rating rather than read a generic description of IEEE 738.
+ */
+function AmpacityExplanation({ result }: { result: AmpacityResult }) {
+  const netW = result.convective_loss_w_per_m + result.radiative_loss_w_per_m - result.solar_gain_w_per_m
+  const staticAmps = result.static_ampacity_amps
+  const deltaVsStatic =
+    staticAmps !== undefined && staticAmps > 0 ? (result.ampacity_amps / staticAmps - 1) * 100 : undefined
+
+  return (
+    <AnalysisExplanation>
+      <p>
+        Steady-state <b>IEEE 738</b> heat balance, evaluated directly at the conductor's rated maximum operating
+        temperature <b>{formatNumber(result.max_operating_temp_c, 0)}°C</b> against a{" "}
+        <b>{formatNumber(result.ambient_temp_c, 0)}°C</b> ambient (closed-form, no iteration -- with constant air
+        properties the losses don't depend on current). The conductor sheds heat by convection and radiation and
+        gains it from the sun; the ampacity is the current whose <code>I²R</code> exactly balances the net:{" "}
+        <code>I = √((qc + qr − qs) / R(Tc))</code>.
+      </p>
+      <p>
+        Convective <code>qc = {formatNumber(result.convective_loss_w_per_m, 1)}</code> W/m, radiative{" "}
+        <code>qr = {formatNumber(result.radiative_loss_w_per_m, 1)}</code> W/m, solar gain{" "}
+        <code>qs = {formatNumber(result.solar_gain_w_per_m, 1)}</code> W/m, so net cooling{" "}
+        <b>{formatNumber(netW, 1)} W/m</b>. With <code>R(Tc) = {formatNumber(result.resistance_ohm_per_m * 1000, 4)}</code>{" "}
+        Ω/km the rating comes out to <b>{formatNumber(result.ampacity_amps, 0)}A</b> for material spec{" "}
+        <code>{result.material_spec_code}</code>.
+      </p>
+      <Formula>{`I = √((qc + qr − qs) / R(Tc))
+  = √((${formatNumber(result.convective_loss_w_per_m, 1)} + ${formatNumber(result.radiative_loss_w_per_m, 1)} − ${formatNumber(result.solar_gain_w_per_m, 1)}) W/m ÷ ${formatNumber(result.resistance_ohm_per_m, 6)} Ω/m)
+  = √(${formatNumber(netW, 1)} / ${formatNumber(result.resistance_ohm_per_m, 6)})
+  = ${formatNumber(result.ampacity_amps, 0)} A`}</Formula>
+      {staticAmps !== undefined ? (
+        <p>
+          The material catalog's own static figure is <b>{formatNumber(staticAmps, 0)}A</b> (shown for comparison
+          only -- this calc never reads it)
+          {deltaVsStatic !== undefined && (
+            <>
+              , so this first-principles rating is{" "}
+              <b>
+                {deltaVsStatic >= 0 ? "+" : ""}
+                {formatNumber(deltaVsStatic, 0)}%
+              </b>{" "}
+              {deltaVsStatic >= 0 ? "above" : "below"} catalog under these conditions
+            </>
+          )}
+          .
+        </p>
+      ) : (
+        <p>No catalog static ampacity is set on this spec, so there is no reference figure to check against.</p>
+      )}
+      {result.solar_gain_w_per_m === 0 && (
+        <p>
+          Solar gain is <b>0 W/m</b> -- this is a <b>clear-night</b> rating. A daytime rating needs its own solar
+          flux; omitting it here does <b>not</b> fall back to a conservative default, so this figure would
+          <b> overstate</b> ampacity under sun.
+        </p>
+      )}
+    </AnalysisExplanation>
+  )
 }
 
 /**
@@ -140,7 +206,8 @@ export function AmpacityPanel() {
           </Button>
         </div>
       ) : (
-        <div className={cn("space-y-3 overflow-y-auto p-3", fp.resized && "min-h-0 flex-1")}>
+        <>
+          <div className={cn("space-y-3 overflow-y-auto p-3", fp.resized && "min-h-0 flex-1")}>
           <div className="flex items-center justify-between gap-2">
             <span className="text-muted-foreground text-xs">Material spec {result.material_spec_code}</span>
             <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => useAmpacityStore.getState().rearm()}>
@@ -172,7 +239,9 @@ export function AmpacityPanel() {
             <dt className="text-muted-foreground">Resistance</dt>
             <dd>{formatNumber(result.resistance_ohm_per_m * 1000, 4)} Ω/km</dd>
           </dl>
-        </div>
+          </div>
+          <AmpacityExplanation result={result} />
+        </>
       )}
       {fp.resizeHandle}
     </div>

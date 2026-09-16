@@ -28,6 +28,7 @@ import (
 //	GET    /users                          list accounts (roles, linked providers, status)
 //	GET    /roles                          the assignable role catalog
 //	POST   /users                          create an account (email, name, break_glass, role?, password?)
+//	PATCH  /users/{id}                      edit profile (display_name); email is immutable
 //	POST   /users/{id}/roles               assign a role            {"role":"editor"}
 //	DELETE /users/{id}/roles/{role}        revoke a role
 //	POST   /users/{id}/status              enable/disable           {"status":"disabled"}
@@ -47,11 +48,17 @@ func (s *service) adminRoutes() chi.Router {
 	r.Group(func(r chi.Router) {
 		r.Use(RequireCSRF)
 		r.Post("/users", s.adminCreateUserHandler)
+		r.Patch("/users/{id}", s.adminUpdateUserHandler)
 		r.Post("/users/{id}/roles", s.adminAssignRoleHandler)
 		r.Delete("/users/{id}/roles/{role}", s.adminRemoveRoleHandler)
 		r.Post("/users/{id}/status", s.adminSetStatusHandler)
 		r.Post("/users/{id}/password", s.adminSetPasswordHandler)
 		r.Delete("/users/{id}/identities/{provider}", s.adminUnlinkIdentityHandler)
+		// Phase 58 spatial access: territory grants + the org-tree manager
+		// edge (see useradmin_territories.go).
+		r.Post("/users/{id}/territories", s.adminGrantTerritoryHandler)
+		r.Delete("/users/{id}/territories/{territoryId}", s.adminRevokeTerritoryHandler)
+		r.Post("/users/{id}/manager", s.adminSetManagerHandler)
 	})
 
 	return r
@@ -68,7 +75,21 @@ type adminUserJSON struct {
 	BreakGlass  bool      `json:"break_glass"`
 	Roles       []string  `json:"roles"`
 	Providers   []string  `json:"providers"`
-	CreatedAt   time.Time `json:"created_at"`
+	// ManagerID is this user's manager (Phase 58), or null at the top of the
+	// org tree. Territories are the user's DIRECT territory grants (not the
+	// expanded/inherited effective set) -- what the management UI edits.
+	ManagerID   *string                 `json:"manager_id"`
+	Territories []adminTerritoryGrantJSON `json:"territories"`
+	CreatedAt   time.Time               `json:"created_at"`
+}
+
+// adminTerritoryGrantJSON is one direct territory grant in a user's admin
+// row -- the id the grant names plus a human label (territory name + level
+// code) so the UI needn't re-resolve the tree.
+type adminTerritoryGrantJSON struct {
+	TerritoryID   string `json:"territory_id"`
+	TerritoryName string `json:"territory_name"`
+	LevelCode     string `json:"level_code"`
 }
 
 // adminListUsersHandler is GET /auth/admin/users. It returns every account
@@ -125,16 +146,64 @@ func (s *service) adminListUsersHandler(w http.ResponseWriter, r *http.Request) 
 		providersByUser[row.UserID] = append(providersByUser[row.UserID], row.Provider)
 	}
 
+	// Phase 58: direct territory grants per user, one labelled join rather
+	// than a query per row (mirrors loadUserTerritories, grouped).
+	var grantRows []struct {
+		UserID        string `bun:"user_id"`
+		TerritoryID   string `bun:"territory_id"`
+		TerritoryName string `bun:"territory_name"`
+		LevelCode     string `bun:"level_code"`
+	}
+	err = s.db.NewSelect().
+		ColumnExpr("ut.user_id AS user_id").
+		ColumnExpr("ut.territory_id AS territory_id").
+		ColumnExpr("t.name AS territory_name").
+		ColumnExpr("lv.code AS level_code").
+		TableExpr("iam.user_territories AS ut").
+		Join("JOIN gis.territories AS t ON t.id = ut.territory_id").
+		Join("JOIN gis.territory_levels AS lv ON lv.id = t.level_id").
+		OrderExpr("ut.granted_at").
+		Scan(ctx, &grantRows)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	territoriesByUser := make(map[string][]adminTerritoryGrantJSON, len(users))
+	for _, row := range grantRows {
+		territoriesByUser[row.UserID] = append(territoriesByUser[row.UserID], adminTerritoryGrantJSON{
+			TerritoryID:   row.TerritoryID,
+			TerritoryName: row.TerritoryName,
+			LevelCode:     row.LevelCode,
+		})
+	}
+
 	out := make([]adminUserJSON, len(users))
 	for i, u := range users {
+		territories := territoriesByUser[u.ID]
+		if territories == nil {
+			territories = []adminTerritoryGrantJSON{}
+		}
+		// A user with no roles / no linked identity has a nil slice here, which
+		// marshals to JSON null; the admin UI treats roles/providers as arrays
+		// (user.roles.includes(...)), so emit [] rather than null.
+		roles := rolesByUser[u.ID]
+		if roles == nil {
+			roles = []string{}
+		}
+		providers := providersByUser[u.ID]
+		if providers == nil {
+			providers = []string{}
+		}
 		out[i] = adminUserJSON{
 			ID:          u.ID,
 			Email:       u.Email,
 			DisplayName: u.DisplayName,
 			Status:      u.Status,
 			BreakGlass:  u.BreakGlass,
-			Roles:       rolesByUser[u.ID],
-			Providers:   providersByUser[u.ID],
+			Roles:       roles,
+			Providers:   providers,
+			ManagerID:   u.ManagerID,
+			Territories: territories,
 			CreatedAt:   u.CreatedAt,
 		}
 	}
@@ -263,6 +332,44 @@ func (s *service) createManagedUser(ctx context.Context, email, name string, bre
 		return "", err
 	}
 	return userID, nil
+}
+
+type adminUpdateUserRequest struct {
+	DisplayName string `json:"display_name"`
+}
+
+// adminUpdateUserHandler is PATCH /auth/admin/users/{id} -- edit an account's
+// mutable profile. Only the display name is editable here; email is the
+// login identity and the SSO identity-link key, so it is deliberately
+// immutable through this API (changing it would orphan a linked provider).
+func (s *service) adminUpdateUserHandler(w http.ResponseWriter, r *http.Request) {
+	userID := chi.URLParam(r, "id")
+
+	var req adminUpdateUserRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	name := strings.TrimSpace(req.DisplayName)
+	if name == "" {
+		writeError(w, invalid("display name is required"))
+		return
+	}
+
+	if _, err := s.userByID(r.Context(), userID); err != nil {
+		writeError(w, err)
+		return
+	}
+	if _, err := s.db.NewUpdate().Model((*User)(nil)).
+		Set("display_name = ?", name).
+		Set("updated_at = ?", time.Now()).
+		Where("id = ?", userID).
+		Exec(r.Context()); err != nil {
+		writeError(w, err)
+		return
+	}
+	s.logEvent(r.Context(), r, eventRoleChanged, userID, "display name updated")
+	s.writeAdminUser(w, r, userID, http.StatusOK)
 }
 
 type adminAssignRoleRequest struct {
@@ -495,6 +602,23 @@ func (s *service) writeAdminUser(w http.ResponseWriter, r *http.Request, userID 
 		OrderExpr("provider").
 		Scan(ctx, &providers)
 
+	// A user with no roles / no identity leaves these nil, which marshals to
+	// JSON null; the admin UI treats them as arrays, so emit [] instead.
+	if roles == nil {
+		roles = []string{}
+	}
+	if providers == nil {
+		providers = []string{}
+	}
+
+	// Phase 58: direct territory grants (labelled) so the UI can render the
+	// scope chips without re-resolving the tree.
+	territories, err := s.loadUserTerritories(ctx, userID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
 	writeJSON(w, status, adminUserJSON{
 		ID:          user.ID,
 		Email:       user.Email,
@@ -503,6 +627,8 @@ func (s *service) writeAdminUser(w http.ResponseWriter, r *http.Request, userID 
 		BreakGlass:  user.BreakGlass,
 		Roles:       roles,
 		Providers:   providers,
+		ManagerID:   user.ManagerID,
+		Territories: territories,
 		CreatedAt:   user.CreatedAt,
 	})
 }

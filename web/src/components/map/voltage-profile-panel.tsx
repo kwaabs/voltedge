@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { X } from "lucide-react"
 
+import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -25,6 +26,89 @@ function formatNumber(n: number, digits = 1): string {
 function formatVoltageLevel(volts: number): string {
   if (volts >= 1000) return `${formatNumber(volts / 1000, volts % 1000 === 0 ? 0 : 1)} kV`
   return `${formatNumber(volts, 0)} V`
+}
+
+/**
+ * The dynamic "how this was calculated" body for a voltage-profile run. Every
+ * figure below (the min/max per-unit voltages, the worst node, the band and
+ * violation count, the total series loss) is read off the actual result, so it
+ * verifies THIS profile rather than describing the method generically.
+ */
+function VoltageProfileExplanation({
+  result,
+  classNameFor,
+}: {
+  result: VoltageProfileResult
+  classNameFor: (code: string) => string
+}) {
+  // Max pu across the profile -- the summary carries the min (worst) but not
+  // the max, so derive it from the rated nodes.
+  const rated = result.nodes.filter((n) => n.nominal_base_v > 0)
+  const maxPu = rated.reduce<number | undefined>((hi, n) => (hi === undefined || n.voltage_pu > hi ? n.voltage_pu : hi), undefined)
+  // The lowest-pu node carries the base/volts the min-pu figure is worked from.
+  const worst = rated.reduce<(typeof rated)[number] | null>(
+    (lo, n) => (lo === null || n.voltage_pu < lo.voltage_pu ? n : lo),
+    null,
+  )
+  const worstName = result.summary.worst_node ? classNameFor(result.summary.worst_node.feature_class) : undefined
+
+  return (
+    <AnalysisExplanation>
+      <p>
+        The same radial <b>backward-forward sweep</b> as load flow, read as a voltage profile: each node's{" "}
+        <code>voltage_pu = voltage_v / nominal_base_v</code> is judged against the{" "}
+        <b>
+          {formatNumber(result.min_voltage_pu, 2)}..{formatNumber(result.max_voltage_pu, 2)} pu
+        </b>{" "}
+        band (ANSI C84.1 default 0.95..1.05).
+      </p>
+      <p>
+        Across <b>{result.nodes.length} node(s)</b> the profile spans{" "}
+        <b>{formatNumber(result.summary.min_voltage_pu, 3)} pu</b>
+        {maxPu !== undefined && (
+          <>
+            {" "}
+            to <b>{formatNumber(maxPu, 3)} pu</b>
+          </>
+        )}
+        , the minimum at {worstName ?? "the worst node"}.{" "}
+        {result.summary.violation_count > 0 ? (
+          <>
+            <b>{result.summary.violation_count}</b> node(s) fall <b>outside the band</b>.
+          </>
+        ) : (
+          <>All nodes stay <b>inside the band</b>.</>
+        )}
+      </p>
+      <p>
+        Total series <code>I²R</code> losses are{" "}
+        <b>
+          {result.summary.losses_complete ? "" : "≥ "}
+          {formatNumber(result.summary.total_loss_kw, 2)} kW
+        </b>{" "}
+        ({formatNumber(result.summary.loss_pct, 1)}% of the {formatNumber(result.summary.total_load_kw)} kW load)
+        {!result.summary.losses_complete && (
+          <>
+            {" "}
+            -- a <b>lower bound</b>, since some branch had no resolved R/X
+          </>
+        )}
+        .
+        {result.barriers.length > 0 && (
+          <>
+            {" "}
+            <b>{result.barriers.length}</b> open device(s) stopped the sweep.
+          </>
+        )}
+      </p>
+      {worst && (
+        <Formula>{`V_min_pu = V_min / V_base
+         = ${formatNumber(worst.voltage_v)} V / ${formatNumber(worst.nominal_base_v, 0)} V
+         = ${formatNumber(worst.voltage_pu, 3)} pu   at ${worstName ?? classNameFor(worst.feature_class)}
+ΣI²R losses = ${result.summary.losses_complete ? "" : "≥ "}${formatNumber(result.summary.total_loss_kw, 2)} kW   (${formatNumber(result.summary.loss_pct, 1)}% of ${formatNumber(result.summary.total_load_kw)} kW load)`}</Formula>
+      )}
+    </AnalysisExplanation>
+  )
 }
 
 /**
@@ -150,6 +234,7 @@ export function VoltageProfilePanel() {
           </Button>
         </div>
       ) : (
+        <>
         <div className={cn("flex flex-col overflow-hidden", fp.resized ? "min-h-0 flex-1" : "max-h-[19rem]")}>
           {/* Feeder summary -- total load, total series losses, loss %,
               worst node's per-unit voltage, and the violation count. */}
@@ -247,6 +332,8 @@ export function VoltageProfilePanel() {
             </table>
           </div>
         </div>
+        <VoltageProfileExplanation result={result} classNameFor={classNameFor} />
+        </>
       )}
       {fp.resizeHandle}
     </div>

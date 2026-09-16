@@ -31,6 +31,11 @@ func publishFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id
 	if err != nil {
 		return nil, err
 	}
+	// Phase 58 spatial write enforcement: publish is an edit -- a scoped user
+	// can't publish a feature outside their territories. Not-found, matching read.
+	if err := enforceReadScope(ctx, db, loaded, current); err != nil {
+		return nil, err
+	}
 	if current["deleted_at"] != nil {
 		return nil, invalid("feature %s is deleted -- restore it before publishing", id)
 	}
@@ -51,6 +56,11 @@ func publishFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id
 func unpublishFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) (map[string]any, error) {
 	current, err := getFeature(ctx, db, loaded, id)
 	if err != nil {
+		return nil, err
+	}
+	// Phase 58 spatial write enforcement: unpublish is an edit -- a scoped user
+	// can't unpublish a feature outside their territories. Not-found, matching read.
+	if err := enforceReadScope(ctx, db, loaded, current); err != nil {
 		return nil, err
 	}
 	if current["deleted_at"] != nil {

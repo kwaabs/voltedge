@@ -46,8 +46,8 @@ export function TerritoryPanel() {
     .sort((a, b) => a.name.localeCompare(b.name))
 
   return (
-    <div className="bg-background fixed bottom-10 left-4 z-40 flex w-72 flex-col overflow-hidden rounded-md border border-primary/20 shadow-lg">
-      <div className="border-primary/15 flex items-center gap-2 border-b px-3 py-2">
+    <div className="bg-background fixed bottom-10 left-4 z-40 flex w-72 flex-col overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-primary shadow-xl ring-1 ring-black/5">
+      <div className="border-primary/15 flex items-center gap-2 border-b bg-gradient-to-b from-accent/50 to-accent/20 px-3 py-2">
         <LandPlot className="text-primary size-4 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">{selected.name}</div>

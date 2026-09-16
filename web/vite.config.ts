@@ -17,10 +17,15 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ""),
       },
+      // Phase 58 Route A: tiles now come from the Go API (session-authed,
+      // territory-scoped MVT), not Martin. The API mounts its tile router at
+      // /tiles, so the prefix is kept (no rewrite), unlike Martin which served
+      // sources at its root. The frontend no longer talks to Martin at all --
+      // the territory overlay is its own API endpoint (GET /territories/
+      // boundaries), not a tile source.
       "/tiles": {
-        target: "http://localhost:3701",
+        target: "http://localhost:3704",
         changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/tiles/, ""),
       },
     },
   },

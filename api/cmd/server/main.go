@@ -22,6 +22,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/kwaabs/voltedge/api/internal/admin"
+	"github.com/kwaabs/voltedge/api/internal/assembly"
 	"github.com/kwaabs/voltedge/api/internal/assistant"
 	"github.com/kwaabs/voltedge/api/internal/assistant/llm"
 	"github.com/kwaabs/voltedge/api/internal/attachment"
@@ -42,6 +43,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/mapsettings"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/oms"
+	"github.com/kwaabs/voltedge/api/internal/packagedsub"
 	"github.com/kwaabs/voltedge/api/internal/panel"
 	"github.com/kwaabs/voltedge/api/internal/powerflow"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
@@ -49,7 +51,9 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/rules"
 	"github.com/kwaabs/voltedge/api/internal/secretbox"
 	"github.com/kwaabs/voltedge/api/internal/territory"
+	"github.com/kwaabs/voltedge/api/internal/tiles"
 	"github.com/kwaabs/voltedge/api/internal/trace"
+	"github.com/kwaabs/voltedge/api/internal/wam"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
@@ -154,6 +158,12 @@ func main() {
 	// read, like trace/analysis -- POST only because the filter and scope don't
 	// fit query params -- so a single features:read gate covers every method.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/export", export.Routes(db, exportStore))
+	// Vector tiles (Phase 58 Route A): the map's per-class MVT layers and the
+	// catalog that lists them. Replaces Martin as the /tiles origin so tiles are
+	// generated in-process behind the session -- a scoped user is never sent the
+	// geometry of a feature outside their territories. GET-only, so features:read
+	// covers every method, the same gate the feature-class read layer above uses.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/tiles", tiles.Routes(db))
 	// Territories are fixed reference data read alongside features (the
 	// feature panel resolves a feature's territory_id to a name via this
 	// list), so the read-only endpoint sits under the same features:read
@@ -170,6 +180,13 @@ func main() {
 	// oms:write capability (an outage is an operational transaction, not feature
 	// data), gated method-aware here so this router carries no auth of its own.
 	r.With(auth.RequirePermission(auth.PermOMSRead, auth.PermOMSWrite)).Mount("/oms", oms.Routes(db))
+	// Phase 59: Work & Asset Management (WAM) -- asset defects and the one typed
+	// work order engine (inspection/corrective/preventive/construction), with the
+	// defect->corrective-order and defect<-OMS-incident links. Its own wam:read/
+	// wam:write capability (a defect or work order is an operational record about
+	// the assets, not feature data), gated method-aware here so this router
+	// carries no auth of its own -- the same arrangement OMS uses.
+	r.With(auth.RequirePermission(auth.PermWAMRead, auth.PermWAMWrite)).Mount("/wam", wam.Routes(db))
 	// Phase 22: files attached to features (docs/phase-22-attachments.md). A
 	// method-aware attachments:read/write gate covers the mount; the bytes ride
 	// presigned URLs straight to/from RustFS (exportStore's bucket), so this
@@ -193,6 +210,25 @@ func main() {
 	// relationships:commit + connectivity:commit requirements -- the panel gate,
 	// one capability deeper because the RMU is the first fan-out wiring topology.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/rmus", rmu.Routes(db))
+	// Phase 56 (docs/phase-56-packaged-substation.md): the composite "place one
+	// packaged (movable) substation and get its whole pre-wired kit" endpoint. Like
+	// /rmus it creates features, writes containment AND commits internal
+	// connectivity, so it needs the same THREE capabilities: the method-aware
+	// features gate here covers the feature writes, and packagedsub.Routes adds the
+	// inner relationships:commit + connectivity:commit requirements. The only
+	// difference from /rmus is topology -- a chain (switch -> transformer -> board)
+	// rather than a star of ways around one bus.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/packaged-substations", packagedsub.Routes(db))
+	// Phase 57 (docs/phase-57-overhead-urd-assemblies.md): the GENERAL kit-assembly
+	// endpoint -- place one anchor feature and fan out its templated kit (the pole-
+	// mounted overhead transformer, the pad-mount URD unit, and future recloser/
+	// capacitor/BESS kits). It generalises /rmus and /packaged-substations: each item
+	// names its own structural parent + relationship kind AND its electrical wiring
+	// target by position, so one engine describes a star, a chain OR a branch. Like
+	// them it creates features, writes relationships AND commits connectivity, so it
+	// carries the same THREE capabilities (features gate here + inner relationships:
+	// commit + connectivity:commit in assembly.Routes).
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/assemblies", assembly.Routes(db))
 	// Phase 44 Slice 4 (docs/phase-44-cable-management.md): the composite "create one
 	// cable duct and fan out its ways" endpoint. Like /panels it creates features and
 	// writes containment (duct -> each DUCT_WAY) in one transaction, so it needs BOTH

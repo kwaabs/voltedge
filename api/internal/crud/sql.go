@@ -517,6 +517,18 @@ func listFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, opts
 		args = append(args, opts.Status)
 	}
 
+	// Phase 58 spatial read enforcement: constrain to the acting user's
+	// territory scope. A no-op unless enforcement is on and the user is scoped
+	// (see readScope); fail-closed for a scoped-to-nothing user.
+	scopeIDs, scopeApply, err := readScope(ctx, db, loaded)
+	if err != nil {
+		return nil, err
+	}
+	if clause, scopeArgs := scopeWhere(scopeIDs, scopeApply); clause != "" {
+		where = append(where, clause)
+		args = append(args, scopeArgs...)
+	}
+
 	sortCol := "created_at"
 	if opts.Sort != "" && validSortColumns(loaded)[opts.Sort] {
 		sortCol = opts.Sort

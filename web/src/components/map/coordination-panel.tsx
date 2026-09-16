@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Crosshair, X } from "lucide-react"
 
+import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -224,6 +225,111 @@ function TccChart({ result }: { result: CoordinationResult }) {
 }
 
 /**
+ * The dynamic "how this was calculated" body for a coordination run. Every
+ * figure -- the fault node and current, the primary clearing device and its
+ * operate time, the device count, and the grading verdict -- is read off THIS
+ * result, so the strip verifies this study rather than describing the method
+ * generically.
+ */
+function CoordinationExplanation({
+  result,
+  classNameFor,
+}: {
+  result: CoordinationResult
+  classNameFor: (code: string) => string
+}) {
+  const primary = result.devices.find((d) => d.role === "primary")
+  const resolved = result.devices.filter((d) => d.operate_time_s !== undefined).length
+  const gradeable = result.pairs.filter((p) => p.margin_s !== undefined)
+  const failing = gradeable.filter((p) => p.coordinated === false)
+  const worst =
+    gradeable.length > 0
+      ? gradeable.reduce((a, b) => (b.margin_s! < a.margin_s! ? b : a))
+      : undefined
+  const deviceFor = (ref: { feature_class: string; feature_id: string }) =>
+    result.devices.find((d) => d.feature_class === ref.feature_class && d.feature_id === ref.feature_id)
+  const worstDown = worst ? deviceFor(worst.downstream) : undefined
+  const worstUp = worst ? deviceFor(worst.upstream) : undefined
+
+  return (
+    <AnalysisExplanation>
+      <p>
+        Along the path from the fault back to the source, each protective device's operate time is read off its
+        time-current (TCC) curve by <b>log-log interpolation</b> at the prospective fault current. The device
+        nearest the fault that resolves a trip is the <b>primary</b> clearing device; those upstream are
+        <b> backup</b>, and each adjacent pair is graded against the coordination time interval <code>CTI</code>.
+      </p>
+      <p>
+        Fault placed at <b>{classNameFor(result.fault.feature_class)} {shortId(result.fault.feature_id)}</b>
+        {result.fault_current_amps !== undefined && (
+          <>
+            {" "}with a prospective 3-phase bolted current of{" "}
+            <b>{formatCurrent(result.fault_current_amps)}</b> (referred to {formatVoltageLevel(result.common_base_v)}{" "}
+            base). Every device's curve is plotted on that common base, so the fault is a single vertical line each
+            curve crosses at its own operate time.
+          </>
+        )}
+        . <b>{result.devices.length}</b> device(s) sit on the path, <b>{resolved}</b> with a resolved operate time.
+      </p>
+      {primary && (
+        <p>
+          Primary clearing device: <b>{classNameFor(primary.feature_class)} {shortId(primary.feature_id)}</b>
+          {primary.curve && (
+            <>
+              {" "}(<code>{primary.curve}</code>)
+            </>
+          )}
+          , which operates in{" "}
+          <b>{primary.operate_time_s === 0 ? "instant (0 s)" : formatTime(primary.operate_time_s!)}</b>
+          {primary.extrapolated && " (≈ clamped off the tabulated range)"} at the fault current.
+        </p>
+      )}
+      <p>
+        Grading uses <code>margin = t_backup − t_primary</code> and calls a pair coordinated when{" "}
+        <code>margin ≥ CTI</code> (here <b>{formatNumber(result.cti_seconds, 2)}s</b>).{" "}
+        {result.coordinated === undefined ? (
+          <>Fewer than two devices resolved a trip, so there is nothing to grade.</>
+        ) : result.coordinated ? (
+          <>
+            All <b>{gradeable.length}</b> gradeable pair(s) clear the margin — the protection is{" "}
+            <b>coordinated</b>
+            {worst?.margin_s !== undefined && (
+              <> (tightest margin <b>{formatNumber(worst.margin_s, 2)}s</b>)</>
+            )}
+            .
+          </>
+        ) : (
+          <>
+            <b>Miscoordination:</b> <b>{failing.length}</b> pair(s) fall short of the CTI
+            {worst?.margin_s !== undefined && (
+              <>
+                {" "}— the worst margin is <b>{formatNumber(worst.margin_s, 2)}s</b> between{" "}
+                {classNameFor(worst.downstream.feature_class)} {shortId(worst.downstream.feature_id)} →{" "}
+                {classNameFor(worst.upstream.feature_class)} {shortId(worst.upstream.feature_id)}
+              </>
+            )}
+            , so the backup may trip before (or too close to) the device it protects.
+          </>
+        )}
+      </p>
+      {worst && worstDown?.operate_time_s !== undefined && worstUp?.operate_time_s !== undefined ? (
+        <Formula>{`margin = t_backup − t_primary
+       = ${formatNumber(worstUp.operate_time_s, 2)} s − ${formatNumber(worstDown.operate_time_s, 2)} s
+       = ${formatNumber(worst.margin_s!, 2)} s     ${
+         worst.coordinated
+           ? `(≥ CTI ${formatNumber(result.cti_seconds, 2)} s ✓)`
+           : `(< CTI ${formatNumber(result.cti_seconds, 2)} s ✗ miscoordination)`
+       }`}</Formula>
+      ) : primary?.operate_time_s !== undefined ? (
+        <Formula>{`t_primary(${classNameFor(primary.feature_class)} ${shortId(primary.feature_id)}) = ${
+          primary.operate_time_s === 0 ? "0" : formatNumber(primary.operate_time_s, 2)
+        } s${result.fault_current_amps !== undefined ? ` at Ibf = ${formatCurrent(result.fault_current_amps)}` : ""}`}</Formula>
+      ) : null}
+    </AnalysisExplanation>
+  )
+}
+
+/**
  * Floating panel for api/internal/powerflow's protection-coordination engine
  * (POST /analysis/coordination) -- the protection counterpart of the
  * fault-current panel, sharing its fixed bottom-centre slot and arm-then-run
@@ -368,7 +474,8 @@ export function CoordinationPanel() {
           </div>
         </div>
       ) : (
-        <div className={cn("overflow-y-auto", fp.resized ? "min-h-0 flex-1" : "max-h-[calc(80vh-2.5rem)]")}>
+        <>
+          <div className={cn("overflow-y-auto", fp.resized ? "min-h-0 flex-1" : "max-h-[calc(80vh-2.5rem)]")}>
           <div className="text-muted-foreground flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
             <div className="flex items-center gap-2">
               {result.coordinated === undefined ? (
@@ -461,7 +568,9 @@ export function CoordinationPanel() {
               </ul>
             </div>
           )}
-        </div>
+          </div>
+          <CoordinationExplanation result={result} classNameFor={classNameFor} />
+        </>
       )}
       {fp.resizeHandle}
     </div>

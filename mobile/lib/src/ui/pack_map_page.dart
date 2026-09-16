@@ -552,6 +552,10 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
           deleted: true,
           name: db.featureById(op.featureId)?.name,
         ));
+      } else if (EditDatabase.wamOpKinds.contains(op.kind)) {
+        // A WAM capture (defect/inspection/work-order) riding the shared outbox --
+        // no map feature to name, just a friendly label. Managed on the Work screen.
+        items.add(_PendingItem(op: op, created: false, wam: true, name: _wamOpTitle(op.kind)));
       } else {
         items.add(_PendingItem(
           op: op,
@@ -731,41 +735,47 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
                           ListTile(
                             dense: true,
                             leading: Icon(
-                              it.deleted
-                                  ? Icons.delete_forever_outlined
-                                  : it.connection
-                                      ? Icons.hub_outlined
-                                      : it.relationship
-                                          ? Icons.account_tree_outlined
-                                          : it.created
-                                              ? Icons.add_location_alt_outlined
-                                              : Icons.edit_outlined,
-                              color: it.deleted
-                                  ? const Color(0xFFFF453A)
-                                  : it.connection
-                                      ? const Color(0xFF30D158)
-                                      : it.relationship
-                                          ? const Color(0xFFBF5AF2)
-                                          : it.created
-                                              ? const Color(0xFF34C759)
-                                              : Colors.amber.shade800,
+                              it.wam
+                                  ? Icons.assignment_outlined
+                                  : it.deleted
+                                      ? Icons.delete_forever_outlined
+                                      : it.connection
+                                          ? Icons.hub_outlined
+                                          : it.relationship
+                                              ? Icons.account_tree_outlined
+                                              : it.created
+                                                  ? Icons.add_location_alt_outlined
+                                                  : Icons.edit_outlined,
+                              color: it.wam
+                                  ? Theme.of(sheetContext).colorScheme.primary
+                                  : it.deleted
+                                      ? const Color(0xFFFF453A)
+                                      : it.connection
+                                          ? const Color(0xFF30D158)
+                                          : it.relationship
+                                              ? const Color(0xFFBF5AF2)
+                                              : it.created
+                                                  ? const Color(0xFF34C759)
+                                                  : Colors.amber.shade800,
                             ),
                             title: Text(it.name?.isNotEmpty == true
                                 ? it.name!
                                 : shortId(it.op.featureId)),
-                            subtitle: Text(it.deleted
-                                ? '${it.op.featureClass} · delete'
-                                : it.connection
-                                    ? '${it.op.featureClass} · connect to '
-                                        '${it.connectionTo ?? 'feature'}'
-                                    : it.relationship
-                                        ? '${it.op.featureClass} · relate to '
-                                            '${it.relationshipTo ?? 'feature'}'
-                                        : it.created
-                                            ? '${it.op.featureClass} · new feature'
-                                            : '${it.op.featureClass} · '
-                                                '${it.changedCount} field'
-                                                '${it.changedCount == 1 ? '' : 's'} changed'),
+                            subtitle: Text(it.wam
+                                ? '${it.op.featureClass.isNotEmpty ? '${it.op.featureClass} · ' : ''}queued for sync'
+                                : it.deleted
+                                    ? '${it.op.featureClass} · delete'
+                                    : it.connection
+                                        ? '${it.op.featureClass} · connect to '
+                                            '${it.connectionTo ?? 'feature'}'
+                                        : it.relationship
+                                            ? '${it.op.featureClass} · relate to '
+                                                '${it.relationshipTo ?? 'feature'}'
+                                            : it.created
+                                                ? '${it.op.featureClass} · new feature'
+                                                : '${it.op.featureClass} · '
+                                                    '${it.changedCount} field'
+                                                    '${it.changedCount == 1 ? '' : 's'} changed'),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -830,10 +840,12 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
                                 ),
                               ],
                             ),
-                            onTap: () {
-                              Navigator.of(sheetContext).pop();
-                              _selectPending(it.op.featureId);
-                            },
+                            onTap: it.wam
+                                ? null
+                                : () {
+                                    Navigator.of(sheetContext).pop();
+                                    _selectPending(it.op.featureId);
+                                  },
                           ),
                       ],
                     ),
@@ -2960,6 +2972,22 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
 
 /// One row in the pending-changes sheet: a queued outbox op with a resolved
 /// display name and, for an edit, its changed-field count.
+/// A friendly title for a WAM capture op shown in the pending sheet.
+String _wamOpTitle(String kind) {
+  switch (kind) {
+    case 'wam_defect_create':
+      return 'Defect captured';
+    case 'wam_defect_status':
+      return 'Defect status change';
+    case 'wam_workorder_update':
+      return 'Work order update';
+    case 'wam_inspection_record':
+      return 'Inspection recorded';
+    default:
+      return 'Work update';
+  }
+}
+
 class _PendingItem {
   _PendingItem({
     required this.op,
@@ -2969,12 +2997,19 @@ class _PendingItem {
     this.relationship = false,
     this.relationshipTo,
     this.deleted = false,
+    this.wam = false,
     this.name,
     this.changedCount = 0,
   });
 
   final OutboxOp op;
   final bool created;
+
+  /// True for a queued WAM capture (a defect/inspection/work-order op,
+  /// [[offline-wam-field-pack-and-sync]]). It shares the outbox with feature
+  /// edits, so it shows here too -- but it targets no map feature, so [name]
+  /// carries a friendly label and the row doesn't try to select a feature on tap.
+  final bool wam;
 
   /// True for a queued 'delete' op (Slice 15) -- a packed feature marked deleted
   /// offline, soft-deleted on the server at sync.

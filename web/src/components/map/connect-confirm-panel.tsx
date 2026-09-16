@@ -237,13 +237,13 @@ export function ConnectConfirmPanel() {
       ref={panelRef}
       style={position ? { left: position.x, top: position.y } : undefined}
       className={cn(
-        "bg-popover text-popover-foreground fixed z-50 w-72 rounded-md border shadow-lg",
+        "bg-popover text-popover-foreground fixed z-50 w-72 overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-primary shadow-xl ring-1 ring-black/5",
         !position && "top-20 right-4",
       )}
     >
       <div
         onPointerDown={handleHeaderPointerDown}
-        className="flex cursor-grab items-center justify-between border-b px-3 py-2 select-none active:cursor-grabbing"
+        className="border-primary/15 flex cursor-grab items-center justify-between border-b bg-gradient-to-b from-accent/50 to-accent/20 px-3 py-2 select-none active:cursor-grabbing"
       >
         <p className="text-sm font-medium">{mode === "connectivity" ? "New connection" : "New relationship"}</p>
         <Button variant="ghost" size="icon" className="size-6 shrink-0" onClick={cancel}>

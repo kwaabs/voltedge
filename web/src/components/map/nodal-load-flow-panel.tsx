@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
-import { X } from "lucide-react"
+import { Search, X } from "lucide-react"
 
+import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import type { FeatureRecord } from "@/hooks/use-feature"
@@ -42,37 +43,56 @@ function FeaturePicker({
   onPick: (ref: TraceFeatureRef, name: string) => void
 }) {
   const [query, setQuery] = useState("")
+  const [focused, setFocused] = useState(false)
   const { results, loading } = useFeatureNameSearch(query)
-  const open = query.trim().length >= MIN_QUERY_LENGTH
+  // The dropdown opens whenever the box is focused (so it reads as a picker, not
+  // a bare text field); `querying` gates the actual search vs. the "type to
+  // search" hint. Blur closes it, but the results panel preventDefaults its
+  // mousedown so a pick keeps focus and the onClick still fires.
+  const querying = query.trim().length >= MIN_QUERY_LENGTH
   const filtered = results.filter((r) => !exclude.has(`${r.featureClassCode}:${r.featureId}`))
 
   return (
     <div className="relative">
+      <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
       <input
         type="text"
-        className={cn(inputClass, "w-full")}
+        className={cn(inputClass, "w-full pl-7")}
         placeholder={placeholder}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
       />
-      {open && (
-        <div className="bg-popover absolute z-10 mt-1 max-h-44 w-full overflow-y-auto rounded-md border shadow-lg">
-          {loading && <p className="text-muted-foreground px-2 py-1.5 text-xs">Searching…</p>}
-          {!loading && filtered.length === 0 && <p className="text-muted-foreground px-2 py-1.5 text-xs">No matches</p>}
-          {filtered.map((r) => (
-            <button
-              key={`${r.featureClassCode}:${r.featureId}`}
-              type="button"
-              onClick={() => {
-                onPick({ feature_class: r.featureClassCode, feature_id: r.featureId }, r.name)
-                setQuery("")
-              }}
-              className="hover:bg-accent flex w-full flex-col items-start rounded-sm px-2 py-1 text-left"
-            >
-              <span className="text-sm">{r.name}</span>
-              <span className="text-muted-foreground text-xs">{r.className}</span>
-            </button>
-          ))}
+      {focused && (
+        <div
+          className="bg-popover absolute z-10 mt-1 max-h-44 w-full overflow-y-auto rounded-md border shadow-lg"
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          {!querying && (
+            <p className="text-muted-foreground px-2 py-1.5 text-xs">
+              Type at least {MIN_QUERY_LENGTH} characters to search…
+            </p>
+          )}
+          {querying && loading && <p className="text-muted-foreground px-2 py-1.5 text-xs">Searching…</p>}
+          {querying && !loading && filtered.length === 0 && (
+            <p className="text-muted-foreground px-2 py-1.5 text-xs">No matches</p>
+          )}
+          {querying &&
+            filtered.map((r) => (
+              <button
+                key={`${r.featureClassCode}:${r.featureId}`}
+                type="button"
+                onClick={() => {
+                  onPick({ feature_class: r.featureClassCode, feature_id: r.featureId }, r.name)
+                  setQuery("")
+                }}
+                className="hover:bg-accent flex w-full flex-col items-start rounded-sm px-2 py-1 text-left"
+              >
+                <span className="text-sm">{r.name}</span>
+                <span className="text-muted-foreground text-xs">{r.className}</span>
+              </button>
+            ))}
         </div>
       )}
     </div>
@@ -102,6 +122,95 @@ function formatVoltageLevel(volts: number): string {
  * solver's convergence telemetry -- a non-converged solve is flagged, not
  * silently trusted -- above the same per-node voltage/current/loading table.
  */
+/**
+ * The dynamic "how this was calculated" body for a nodal (Y-bus) run: which
+ * solver ran, whether it converged (and in how many iterations / to what
+ * mismatch tolerance), the slack and PV bus counts, and the worst-voltage bus.
+ * Every figure is read off THIS result so an engineer can verify the run.
+ */
+function NodalLoadFlowExplanation({
+  result,
+  classNameFor,
+}: {
+  result: NodalLoadFlowResult
+  classNameFor: (code: string) => string
+}) {
+  const pvNodes = result.nodes.filter((n) => n.role === "pv")
+  const busNodes = result.nodes.filter((n) => n.role === "bus" || n.role === "slack" || n.role === "pv")
+  const worst = busNodes.reduce<(typeof busNodes)[number] | null>((lo, n) => {
+    if (n.nominal_base_v <= 0 || n.voltage_v <= 0) return lo
+    if (lo === null || n.voltage_v / n.nominal_base_v < lo.voltage_v / lo.nominal_base_v) return n
+    return lo
+  }, null)
+  const worstPu = worst ? worst.voltage_v / worst.nominal_base_v : 0
+
+  return (
+    <AnalysisExplanation>
+      <p>
+        A per-unit <b>nodal (Y-bus)</b> solve: a bus admittance matrix <code>Y</code> is assembled over the
+        general graph and <code>Y·V = I</code> is solved iteratively for every bus voltage, so a densely meshed
+        network is solved directly rather than reduced to a radial tree.
+      </p>
+      <p>
+        Solver: <b>{result.solver}</b>.{" "}
+        {result.converged ? (
+          <>
+            It <b>converged</b> in <b>{result.iterations}</b> iteration{result.iterations === 1 ? "" : "s"} (max
+            power mismatch <code>{result.max_mismatch_pu.toExponential(1)} pu</code>).
+          </>
+        ) : (
+          <>
+            It <b>did not converge</b> after <b>{result.iterations}</b> iteration{result.iterations === 1 ? "" : "s"}{" "}
+            -- the max power mismatch was <code>{result.max_mismatch_pu.toExponential(1)} pu</code>, so treat the
+            voltages below as <b>unconverged</b>.
+          </>
+        )}
+      </p>
+      <p>
+        <b>{result.bus_count}</b> bus{result.bus_count === 1 ? "" : "es"}, <b>{result.branch_count}</b> branch
+        {result.branch_count === 1 ? "" : "es"}, <b>{result.slack_count}</b> slack source
+        {result.slack_count === 1 ? "" : "s"}
+        {pvNodes.length > 0 && (
+          <>
+            {" "}
+            and <b>{pvNodes.length}</b> PV-regulated bus(es)
+          </>
+        )}
+        .
+        {worst && (
+          <>
+            {" "}
+            The lowest bus voltage is <b>{formatNumber(worstPu, 3)} pu</b> ({formatNumber(worst.voltage_v)} V, -
+            {formatNumber(worst.voltage_drop_pct, 2)}%) at {classNameFor(worst.feature_class)} (
+            {formatVoltageLevel(worst.nominal_base_v)} base).
+          </>
+        )}
+      </p>
+      <Formula>{`Y·V = I  solved by ${result.solver}
+max mismatch = ${result.max_mismatch_pu.toExponential(1)} pu  ${result.converged ? "≤ tol   → converged in " : "> tol   → did NOT converge ("}${result.iterations} iteration${result.iterations === 1 ? "" : "s"}${result.converged ? "" : ")"}${
+        worst
+          ? `\nworst bus:    V_pu = V / V_base = ${formatNumber(worst.voltage_v)} V / ${formatNumber(worst.nominal_base_v, 0)} V = ${formatNumber(worstPu, 3)} pu`
+          : ""
+      }`}</Formula>
+      {(result.overloaded.length > 0 || result.barriers.length > 0) && (
+        <p>
+          Honesty flags:{" "}
+          {result.overloaded.length > 0 && (
+            <>
+              <b>{result.overloaded.length}</b> element(s) over 100% loading.{" "}
+            </>
+          )}
+          {result.barriers.length > 0 && (
+            <>
+              <b>{result.barriers.length}</b> open device(s) stopped the walk.
+            </>
+          )}
+        </p>
+      )}
+    </AnalysisExplanation>
+  )
+}
+
 export function NodalLoadFlowPanel() {
   const armed = useNodalLoadFlowStore((s) => s.armed)
   const armedStart = useNodalLoadFlowStore((s) => s.armedStart)
@@ -319,6 +428,7 @@ export function NodalLoadFlowPanel() {
           </div>
         </div>
       ) : (
+        <>
         <div className={cn("flex flex-col overflow-hidden", fp.resized ? "min-h-0 flex-1" : "max-h-[21rem]")}>
           <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-xs">
             <span>{formatNumber(result.nominal_voltage_v, 0)} V nominal</span>
@@ -429,6 +539,8 @@ export function NodalLoadFlowPanel() {
             </table>
           </div>
         </div>
+        <NodalLoadFlowExplanation result={result} classNameFor={classNameFor} />
+        </>
       )}
       {fp.resizeHandle}
     </div>

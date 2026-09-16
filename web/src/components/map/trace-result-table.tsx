@@ -232,17 +232,17 @@ export function TraceResultTable() {
       ref={panelRef}
       style={shellStyle}
       className={cn(
-        "bg-popover text-popover-foreground fixed z-40 flex flex-col max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border shadow-lg",
+        "bg-popover text-popover-foreground fixed z-40 flex flex-col max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-primary shadow-xl ring-1 ring-black/5",
         !resized && "max-h-64",
         !position && DEFAULT_POSITION_CLASS,
       )}
     >
       <div
         onPointerDown={handleHeaderPointerDown}
-        className="flex cursor-grab items-center justify-between border-b px-3 py-2 select-none active:cursor-grabbing"
+        className="flex cursor-grab items-center justify-between gap-2 border-b border-primary/15 bg-gradient-to-b from-accent/50 to-accent/20 px-3 py-2 select-none active:cursor-grabbing"
       >
         <div className="flex min-w-0 items-center gap-1.5">
-          <GripHorizontal className="text-muted-foreground size-3.5 shrink-0" />
+          <GripHorizontal className="text-primary/70 size-3.5 shrink-0" />
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{directionLabel} trace</p>
             {result.direction === "SHORTEST_PATH" && (

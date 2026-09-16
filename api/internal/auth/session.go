@@ -91,6 +91,15 @@ func (s *service) loadSession(ctx context.Context, rawToken string) (*SessionUse
 		return nil, permErr
 	}
 
+	// The spatial-access scope (Phase 58): whether this user bypasses
+	// territory scoping, and if not, the effective territory-id set the
+	// request is confined to. A read failure fails the request closed, same
+	// as the permission load above.
+	allowed, unscoped, scopeErr := loadScopeFields(ctx, s.db, sess.UserID, perms)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+
 	// Slide the idle window forward, capped at the absolute expiry. Best
 	// effort -- a failed refresh must not fail the request.
 	newIdle := now.Add(s.cfg.IdleTimeout)
@@ -104,13 +113,15 @@ func (s *service) loadSession(ctx context.Context, rawToken string) (*SessionUse
 		Exec(ctx)
 
 	return &SessionUser{
-		ID:          user.ID,
-		Email:       user.Email,
-		DisplayName: user.DisplayName,
-		BreakGlass:  user.BreakGlass,
-		Permissions: perms,
-		SessionID:   sess.ID,
-		CSRFToken:   sess.CSRFToken,
+		ID:                 user.ID,
+		Email:              user.Email,
+		DisplayName:        user.DisplayName,
+		BreakGlass:         user.BreakGlass,
+		Permissions:        perms,
+		AllowedTerritories: allowed,
+		Unscoped:           unscoped,
+		SessionID:          sess.ID,
+		CSRFToken:          sess.CSRFToken,
 	}, nil
 }
 

@@ -39,6 +39,12 @@ func softDeleteFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded,
 	if err != nil {
 		return nil, err
 	}
+	// Phase 58 spatial write enforcement: a scoped user may not delete a feature
+	// outside their territories. Surfaced as not-found, exactly as a GET of the
+	// same feature would be, so a delete reveals no more than a read.
+	if err := enforceReadScope(ctx, db, loaded, current); err != nil {
+		return nil, err
+	}
 	if current["deleted_at"] != nil {
 		return current, nil
 	}
@@ -53,6 +59,11 @@ func restoreFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id
 	if err != nil {
 		return nil, err
 	}
+	// Phase 58 spatial write enforcement: restore is an edit too -- a scoped user
+	// can't restore a feature outside their territories. Not-found, matching read.
+	if err := enforceReadScope(ctx, db, loaded, current); err != nil {
+		return nil, err
+	}
 	if current["deleted_at"] == nil {
 		return current, nil
 	}
@@ -65,6 +76,12 @@ func restoreFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id
 func hardDeleteFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) error {
 	current, err := getFeature(ctx, db, loaded, id)
 	if err != nil {
+		return err
+	}
+	// Phase 58 spatial write enforcement: a scoped user may not purge a feature
+	// outside their territories. Not-found, matching read (and the soft-delete
+	// gate above), so a purge attempt reveals no more than a GET would.
+	if err := enforceReadScope(ctx, db, loaded, current); err != nil {
 		return err
 	}
 	if current["deleted_at"] == nil {

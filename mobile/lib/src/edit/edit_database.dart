@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:sqlite3/sqlite3.dart';
 
+import '../wam/wam_models.dart';
+
 /// One pending local edit to a feature, kept in the WRITABLE edit DB that lives
 /// beside the read-only pack (Phase 21 Slice 3a, docs/phase-21-field-tool.md).
 ///
@@ -463,6 +465,72 @@ class EditDatabase {
         'ON relationships (origin_id)');
     db.execute('CREATE INDEX IF NOT EXISTS relationships_dest_idx '
         'ON relationships (destination_id)');
+    // WAM captures made offline (Phase 59 mobile, [[offline-wam-field-pack-and-sync]]).
+    // These are the WRITABLE mirror of the read-only pack's wam_* tables: the crew's
+    // new defects, defect-status changes, work-order updates, and recorded
+    // inspections. Each capture also queues a wam_* outbox op (see putWam*), so these
+    // mirrors exist purely for optimistic UI -- the store merges them over the packed
+    // truth so a just-captured defect shows immediately, before POST /sync lands it.
+    //
+    // Two shapes, matching how the ops idempotency-key: CREATE captures
+    // (wam_local_defects / wam_local_inspections) key by the device-minted row id
+    // (which is also the outbox op id and the server PK); OVERRIDE captures
+    // (wam_defect_status_overrides / wam_wo_overrides) key by the EXISTING server id
+    // they target, latest-write-wins, since each is a deterministic write the outbox
+    // carries as its own distinct op. None are pruned on a fresh pack yet (WAM
+    // reconcile is deferred, mirroring the delete-tombstone story) -- they live until
+    // the pack dir is deleted.
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS wam_local_defects (
+        id           TEXT PRIMARY KEY,
+        asset_class  TEXT NOT NULL,
+        asset_id     TEXT NOT NULL,
+        defect_type  TEXT,
+        severity     TEXT NOT NULL,
+        source       TEXT,
+        title        TEXT,
+        description  TEXT,
+        status       TEXT NOT NULL,
+        reported_at  TEXT,
+        notes        TEXT,
+        created_at   TEXT NOT NULL
+      )
+    ''');
+    db.execute('CREATE INDEX IF NOT EXISTS wam_local_defects_asset_idx '
+        'ON wam_local_defects (asset_id)');
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS wam_defect_status_overrides (
+        defect_id   TEXT PRIMARY KEY,
+        status      TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      )
+    ''');
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS wam_wo_overrides (
+        work_order_id    TEXT PRIMARY KEY,
+        status           TEXT,
+        priority         TEXT,
+        completion_notes TEXT,
+        scheduled_for    TEXT,
+        due_by           TEXT,
+        updated_at       TEXT NOT NULL
+      )
+    ''');
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS wam_local_inspections (
+        id             TEXT PRIMARY KEY,
+        work_order_id  TEXT,
+        template_id    TEXT,
+        asset_class    TEXT NOT NULL,
+        asset_id       TEXT NOT NULL,
+        overall_result TEXT,
+        inspected_at   TEXT,
+        notes          TEXT,
+        created_at     TEXT NOT NULL
+      )
+    ''');
+    db.execute('CREATE INDEX IF NOT EXISTS wam_local_inspections_asset_idx '
+        'ON wam_local_inspections (asset_id)');
   }
 
   /// True if [table] already has a column named [column] -- used to make an
@@ -833,11 +901,48 @@ class EditDatabase {
         [dismissedAt.toIso8601String(), opId]);
   }
 
+  /// The four WAM capture op kinds (Phase 59 mobile). They ride the SAME outbox as
+  /// feature edits -- pushed, acked, and status-polled by the identical machinery --
+  /// but they target WAM records (defects/work-orders/inspections), NOT gis features.
+  /// [pendingFeatureIds] excludes them so a captured defect never tints its asset
+  /// amber as if the asset itself had an unsynced GIS edit; the WAM store tracks its
+  /// own pending tally instead. Centralized so the exclusion and the put* kinds
+  /// can't drift apart.
+  static const List<String> wamOpKinds = [
+    'wam_defect_create',
+    'wam_defect_status',
+    'wam_workorder_update',
+    'wam_inspection_record',
+  ];
+
   /// Feature ids that still have an un-synced op -- the store's "pending" set,
-  /// which drives the amber/green map tint and the panel's "not synced" chip.
+  /// which drives the amber/green map tint and the panel's "not synced" chip. WAM
+  /// capture ops are excluded ([wamOpKinds]): they share the outbox but their
+  /// feature_id is a WAM record id, not a gis feature, so counting them here would
+  /// wrongly tint a defect's asset (or nothing, for a work-order/inspection id).
   Set<String> pendingFeatureIds() {
-    final rows = _db
-        .select('SELECT DISTINCT feature_id FROM outbox WHERE synced_at IS NULL');
+    final placeholders = List.filled(wamOpKinds.length, '?').join(', ');
+    final rows = _db.select(
+      'SELECT DISTINCT feature_id FROM outbox WHERE synced_at IS NULL '
+      'AND kind NOT IN ($placeholders)',
+      wamOpKinds,
+    );
+    return {for (final r in rows) r['feature_id'] as String};
+  }
+
+  /// WAM record ids (a defect / work-order / inspection id) that still have an
+  /// un-synced capture op -- the complement of [pendingFeatureIds] over
+  /// [wamOpKinds]. The WAM store paints these with a "not synced" chip without
+  /// touching the gis feature tint. Both a defect_create and a later defect_status
+  /// for the same defect share the defect id here, so it stays pending until BOTH
+  /// have been acked.
+  Set<String> pendingWamRecordIds() {
+    final placeholders = List.filled(wamOpKinds.length, '?').join(', ');
+    final rows = _db.select(
+      'SELECT DISTINCT feature_id FROM outbox WHERE synced_at IS NULL '
+      'AND kind IN ($placeholders)',
+      wamOpKinds,
+    );
     return {for (final r in rows) r['feature_id'] as String};
   }
 
@@ -1206,6 +1311,325 @@ class EditDatabase {
       createdAt:
           DateTime.tryParse(r['created_at'] as String? ?? '') ?? DateTime.now(),
     );
+  }
+
+  // ---- WAM captures (Phase 59 mobile) ---------------------------------------
+  //
+  // Each put* writes the optimistic mirror row AND queues the wam_* outbox op in
+  // ONE tx (mirroring putConnection), so the UI's view and what gets pushed can't
+  // drift. [payload] is built by the WAM store to match the Go payload struct in
+  // internal/fieldpack/sync.go byte-for-byte. CREATE ops (defect/inspection) set
+  // op_id == feature_id == the device UUID, so a re-push is doubly idempotent (op_id
+  // is the inbox PK; feature_id becomes the server row PK). OVERRIDE ops (status/
+  // work-order) mint a FRESH op_id per action and target an existing id via
+  // feature_id -- and, unlike putEdit, are NEVER deduped where order matters.
+
+  /// Insert a defect captured offline AND its pending `wam_defect_create` op in one
+  /// tx. Keyed by the device UUID [LocalWamDefect.id] (also the op id and server PK):
+  /// re-saving the same offline defect upserts the mirror and refreshes the single
+  /// pending create op, never piling up duplicates. [payload] is the
+  /// wamDefectCreatePayload shape.
+  void putWamDefect(
+    LocalWamDefect d, {
+    required Map<String, dynamic> payload,
+    String? baseVersion,
+  }) {
+    _inTx(() {
+      _db.execute(
+        'INSERT OR REPLACE INTO wam_local_defects '
+        '(id, asset_class, asset_id, defect_type, severity, source, title, '
+        'description, status, reported_at, notes, created_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          d.id,
+          d.assetClass,
+          d.assetId,
+          d.defectType,
+          d.severity,
+          d.source,
+          d.title,
+          d.description,
+          d.status,
+          d.reportedAt,
+          d.notes,
+          d.createdAt.toIso8601String(),
+        ],
+      );
+      // op_id == feature_id == d.id, so a re-save replaces the still-pending create.
+      _db.execute(
+        "DELETE FROM outbox WHERE op_id = ? AND synced_at IS NULL",
+        [d.id],
+      );
+      _db.execute(
+        'INSERT INTO outbox '
+        '(op_id, feature_id, feature_class, kind, payload, base_version, created_at, synced_at) '
+        "VALUES (?, ?, ?, 'wam_defect_create', ?, ?, ?, NULL)",
+        [
+          d.id,
+          d.id,
+          d.assetClass,
+          jsonEncode(payload),
+          baseVersion,
+          d.createdAt.toIso8601String(),
+        ],
+      );
+    });
+  }
+
+  /// Record a defect STATUS change offline AND queue its `wam_defect_status` op in
+  /// one tx. The mirror ([wam_defect_status_overrides], keyed by defect id) keeps the
+  /// LATEST status for optimistic UI; the outbox carries ONE pending op per defect --
+  /// deduped (replace) because a defect status is pure last-write-wins with no ordered
+  /// side effect (unlike a work order's start->complete), so only the final status
+  /// need reach the server. [defectId] is the packed-or-local defect being changed,
+  /// [assetClass] is carried as the op's feature_class for context, [opId] is freshly
+  /// minted. [payload] is the wamDefectStatusPayload shape ({"status": ...}).
+  void putWamDefectStatus({
+    required String defectId,
+    required String status,
+    required String assetClass,
+    required String opId,
+    required Map<String, dynamic> payload,
+    required DateTime updatedAt,
+    String? baseVersion,
+  }) {
+    _inTx(() {
+      _db.execute(
+        'INSERT OR REPLACE INTO wam_defect_status_overrides '
+        '(defect_id, status, updated_at) VALUES (?, ?, ?)',
+        [defectId, status, updatedAt.toIso8601String()],
+      );
+      _db.execute(
+        "DELETE FROM outbox WHERE feature_id = ? AND kind = 'wam_defect_status' "
+        'AND synced_at IS NULL',
+        [defectId],
+      );
+      _db.execute(
+        'INSERT INTO outbox '
+        '(op_id, feature_id, feature_class, kind, payload, base_version, created_at, synced_at) '
+        "VALUES (?, ?, ?, 'wam_defect_status', ?, ?, ?, NULL)",
+        [
+          opId,
+          defectId,
+          assetClass,
+          jsonEncode(payload),
+          baseVersion,
+          updatedAt.toIso8601String(),
+        ],
+      );
+    });
+  }
+
+  /// Record a work-order UPDATE offline AND queue its `wam_workorder_update` op in
+  /// one tx. The mirror ([wam_wo_overrides], keyed by work order id) MERGES the change
+  /// into the latest optimistic state (COALESCE upsert -- a later "complete" doesn't
+  /// erase an earlier "reschedule"). Unlike a defect status, the outbox op is APPENDED
+  /// (never deduped): a start then a complete are two distinct actions whose ordered
+  /// replay drives the server's own started_at/completed_at side effects, so both must
+  /// reach it. [workOrderId] targets the existing order, [assetClass] is the op's
+  /// feature_class ('' when unknown), [opId] is freshly minted, [payload] is the
+  /// wamWorkOrderUpdatePayload shape.
+  void putWamWorkOrderUpdate({
+    required String workOrderId,
+    required String assetClass,
+    required String opId,
+    required Map<String, dynamic> payload,
+    required DateTime updatedAt,
+    String? baseVersion,
+    String? status,
+    String? priority,
+    String? completionNotes,
+    String? scheduledFor,
+    String? dueBy,
+  }) {
+    _inTx(() {
+      _db.execute(
+        'INSERT INTO wam_wo_overrides '
+        '(work_order_id, status, priority, completion_notes, scheduled_for, due_by, updated_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?) '
+        'ON CONFLICT(work_order_id) DO UPDATE SET '
+        '  status = COALESCE(excluded.status, wam_wo_overrides.status), '
+        '  priority = COALESCE(excluded.priority, wam_wo_overrides.priority), '
+        '  completion_notes = COALESCE(excluded.completion_notes, wam_wo_overrides.completion_notes), '
+        '  scheduled_for = COALESCE(excluded.scheduled_for, wam_wo_overrides.scheduled_for), '
+        '  due_by = COALESCE(excluded.due_by, wam_wo_overrides.due_by), '
+        '  updated_at = excluded.updated_at',
+        [
+          workOrderId,
+          status,
+          priority,
+          completionNotes,
+          scheduledFor,
+          dueBy,
+          updatedAt.toIso8601String(),
+        ],
+      );
+      _db.execute(
+        'INSERT INTO outbox '
+        '(op_id, feature_id, feature_class, kind, payload, base_version, created_at, synced_at) '
+        "VALUES (?, ?, ?, 'wam_workorder_update', ?, ?, ?, NULL)",
+        [
+          opId,
+          workOrderId,
+          assetClass,
+          jsonEncode(payload),
+          baseVersion,
+          updatedAt.toIso8601String(),
+        ],
+      );
+    });
+  }
+
+  /// Insert an inspection RECORDED offline AND its pending `wam_inspection_record` op
+  /// in one tx. Keyed by the device UUID [LocalWamInspection.id] (also the op id and
+  /// server PK): re-saving upserts the mirror and refreshes the single pending op.
+  /// [payload] is the wamInspectionRecordPayload shape, carrying the per-item
+  /// responses in its `items` array (the mirror row is only the summary for UI).
+  void putWamInspection(
+    LocalWamInspection i, {
+    required Map<String, dynamic> payload,
+    String? baseVersion,
+  }) {
+    _inTx(() {
+      _db.execute(
+        'INSERT OR REPLACE INTO wam_local_inspections '
+        '(id, work_order_id, template_id, asset_class, asset_id, overall_result, '
+        'inspected_at, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          i.id,
+          i.workOrderId,
+          i.templateId,
+          i.assetClass,
+          i.assetId,
+          i.overallResult,
+          i.inspectedAt,
+          i.notes,
+          i.createdAt.toIso8601String(),
+        ],
+      );
+      _db.execute(
+        "DELETE FROM outbox WHERE op_id = ? AND synced_at IS NULL",
+        [i.id],
+      );
+      _db.execute(
+        'INSERT INTO outbox '
+        '(op_id, feature_id, feature_class, kind, payload, base_version, created_at, synced_at) '
+        "VALUES (?, ?, ?, 'wam_inspection_record', ?, ?, ?, NULL)",
+        [
+          i.id,
+          i.id,
+          i.assetClass,
+          jsonEncode(payload),
+          baseVersion,
+          i.createdAt.toIso8601String(),
+        ],
+      );
+    });
+  }
+
+  /// Discard a not-yet-synced WAM CREATE capture (defect or inspection) before it
+  /// syncs: drop its mirror row AND its still-pending op (op_id == the row id). A
+  /// synced op is history and left alone, matching discardConnection.
+  void discardWamCreate(String id) {
+    _inTx(() {
+      _db.execute('DELETE FROM wam_local_defects WHERE id = ?', [id]);
+      _db.execute('DELETE FROM wam_local_inspections WHERE id = ?', [id]);
+      _db.execute(
+        'DELETE FROM outbox WHERE op_id = ? AND synced_at IS NULL',
+        [id],
+      );
+    });
+  }
+
+  /// Every defect captured offline -- loaded once at open into the store's map so
+  /// the merged defect list (packed + local) is a pure-memory read.
+  List<LocalWamDefect> allLocalWamDefects() {
+    final rows = _db.select(
+      'SELECT id, asset_class, asset_id, defect_type, severity, source, title, '
+      'description, status, reported_at, notes, created_at FROM wam_local_defects '
+      'ORDER BY created_at',
+    );
+    return [
+      for (final r in rows)
+        LocalWamDefect(
+          id: r['id'] as String,
+          assetClass: (r['asset_class'] as String?) ?? '',
+          assetId: (r['asset_id'] as String?) ?? '',
+          severity: (r['severity'] as String?) ?? '',
+          status: (r['status'] as String?) ?? '',
+          createdAt: DateTime.tryParse(r['created_at'] as String? ?? '') ??
+              DateTime.now(),
+          defectType: r['defect_type'] as String?,
+          source: r['source'] as String?,
+          title: r['title'] as String?,
+          description: r['description'] as String?,
+          reportedAt: r['reported_at'] as String?,
+          notes: r['notes'] as String?,
+        ),
+    ];
+  }
+
+  /// Every offline defect-status override (keyed by defect id, latest wins) -- the
+  /// optimistic status the store paints over a packed/local defect's own status.
+  List<WamDefectStatusOverride> allWamDefectStatusOverrides() {
+    final rows = _db.select(
+      'SELECT defect_id, status, updated_at FROM wam_defect_status_overrides',
+    );
+    return [
+      for (final r in rows)
+        WamDefectStatusOverride(
+          defectId: r['defect_id'] as String,
+          status: (r['status'] as String?) ?? '',
+          updatedAt: DateTime.tryParse(r['updated_at'] as String? ?? '') ??
+              DateTime.now(),
+        ),
+    ];
+  }
+
+  /// Every offline work-order override (keyed by work order id, merged latest) --
+  /// the optimistic state the store paints over a packed work order.
+  List<WamWorkOrderOverride> allWamWorkOrderOverrides() {
+    final rows = _db.select(
+      'SELECT work_order_id, status, priority, completion_notes, scheduled_for, '
+      'due_by, updated_at FROM wam_wo_overrides',
+    );
+    return [
+      for (final r in rows)
+        WamWorkOrderOverride(
+          workOrderId: r['work_order_id'] as String,
+          updatedAt: DateTime.tryParse(r['updated_at'] as String? ?? '') ??
+              DateTime.now(),
+          status: r['status'] as String?,
+          priority: r['priority'] as String?,
+          completionNotes: r['completion_notes'] as String?,
+          scheduledFor: r['scheduled_for'] as String?,
+          dueBy: r['due_by'] as String?,
+        ),
+    ];
+  }
+
+  /// Every inspection recorded offline -- loaded once at open into the store's map.
+  List<LocalWamInspection> allLocalWamInspections() {
+    final rows = _db.select(
+      'SELECT id, work_order_id, template_id, asset_class, asset_id, '
+      'overall_result, inspected_at, notes, created_at FROM wam_local_inspections '
+      'ORDER BY created_at',
+    );
+    return [
+      for (final r in rows)
+        LocalWamInspection(
+          id: r['id'] as String,
+          assetClass: (r['asset_class'] as String?) ?? '',
+          assetId: (r['asset_id'] as String?) ?? '',
+          createdAt: DateTime.tryParse(r['created_at'] as String? ?? '') ??
+              DateTime.now(),
+          workOrderId: r['work_order_id'] as String?,
+          templateId: r['template_id'] as String?,
+          overallResult: r['overall_result'] as String?,
+          inspectedAt: r['inspected_at'] as String?,
+          notes: r['notes'] as String?,
+        ),
+    ];
   }
 
   LocalAttachment _toAttachment(Row r) {

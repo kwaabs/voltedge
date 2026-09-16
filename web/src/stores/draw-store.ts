@@ -88,6 +88,31 @@ export interface DraftFeature {
    * pre-selected and still collects the RMU's remaining fields (name, subtype)
    * with no bespoke form. */
   rmu?: { config: string }
+  /** Set only for an add-a-Packaged-Substation draft (Phase 56). Like an RMU this
+   * draft DOES carry `geometry` -- a packaged substation is a map-placed unit, so
+   * it's drawn like any point feature -- but its Save POSTs to /packaged-substations
+   * (the composite fan-out that also creates the internal components + wiring)
+   * instead of the plain create route. `config` (the package config chosen in the
+   * menu) selects the component template; it's also seeded onto
+   * `seed.attributes.package_config` so the shared create form opens with it
+   * pre-selected. `subtype` (the tenure -- Permanent vs Mobile -- chosen in the same
+   * menu item) is seeded onto `seed.subtype` so the form's subtype picker opens on
+   * it and it always rides top-level on the POST, and still collects the unit's
+   * remaining fields (name) with no bespoke form. */
+  packagedSubstation?: { config: string; subtype: number }
+  /** Set only for an add-a-Kit-Assembly draft. Like a packaged substation this
+   * draft DOES carry `geometry` -- the anchor is a map-placed point (an overhead
+   * POLE or a pad-mount DIST_XFMR) -- but its Save POSTs to /assemblies (the
+   * composite fan-out that also creates the kit's components + wiring) instead of
+   * the plain create route. `anchorFeatureClass` is the anchor's own class (the
+   * draft's featureClassCode, kept here too so the Save reads straight from the
+   * marker); `config` (the kit config chosen in the menu) selects the component
+   * template. `anchorSubtype`, when the option pins one, rides onto `seed.subtype`
+   * so the form's subtype picker opens on it and it always rides top-level on the
+   * POST; options with no fixed subtype leave the picker free. The anchor's own
+   * required fields (a POLE's material/use/height/condition, a DIST_XFMR's primary
+   * voltage/condition) are collected by the shared create form with no bespoke form. */
+  assembly?: { anchorFeatureClass: string; config: string; anchorSubtype?: number }
   /** Set only for an add-a-cable-duct draft (Phase 44 Slice 4). Like an RMU this
    * draft DOES carry `geometry` -- a duct is a map-placed line -- but its Save POSTs
    * to /ducts (the composite fan-out that also creates the DUCT_WAY children the
@@ -141,6 +166,21 @@ interface DrawState {
    * can mark the resulting draft as an RMU fan-out. null for every ordinary
    * draw. Cleared alongside the other drawing state on finish/cancel. */
   drawingRmuConfig: string | null
+  /** Set only while an "Add packaged substation" draw is in flight
+   * (startPackagedSubstationDrawing): the chosen package config + tenure subtype,
+   * stashed until the map click lands so finishDrawing can mark the resulting draft
+   * as a /packaged-substations fan-out. null for every ordinary draw. Cleared
+   * alongside the other drawing state on finish/cancel. */
+  drawingPackagedConfig: string | null
+  drawingPackagedSubtype: number | null
+  /** Set only while an "Add kit assembly" draw is in flight (startAssemblyDrawing):
+   * the chosen anchor class + kit config + (optional) anchor subtype, stashed until
+   * the map click lands so finishDrawing can mark the resulting draft as an
+   * /assemblies fan-out. null for every ordinary draw. Cleared alongside the other
+   * drawing state on finish/cancel. */
+  drawingAssemblyAnchorClass: string | null
+  drawingAssemblyConfig: string | null
+  drawingAssemblySubtype: number | null
   /** Set only while an "Add cable duct" draw is in flight (startDuctDrawing):
    * marks the drawn line as a duct fan-out so finishDrawing tags the resulting
    * draft with `duct: true` and its Save routes to /ducts. false for every
@@ -169,6 +209,22 @@ interface DrawState {
   /** Begin placing an RMU: draws like a plain point, but stashes `config` so the
    * finished draft is marked as an /rmus fan-out (Phase RMU Slice 3). */
   startRMUDrawing: (rmuFeatureClass: string, config: string) => void
+  /** Begin placing a packaged substation: draws like a plain point, but stashes
+   * `config` + `subtype` so the finished draft is marked as a
+   * /packaged-substations fan-out (Phase 56). */
+  startPackagedSubstationDrawing: (
+    packagedFeatureClass: string,
+    config: string,
+    subtype: number,
+  ) => void
+  /** Begin placing a kit assembly: draws like a plain point (the anchor), but
+   * stashes the anchor class + kit config + (optional) anchor subtype so the
+   * finished draft is marked as an /assemblies fan-out. */
+  startAssemblyDrawing: (
+    anchorFeatureClass: string,
+    config: string,
+    anchorSubtype?: number,
+  ) => void
   /** Begin placing a cable duct: draws like a plain line, but flags the draft so
    * the finished draft is marked as a /ducts fan-out (Phase 44 Slice 4). */
   startDuctDrawing: (ductFeatureClass: string) => void
@@ -220,6 +276,11 @@ export const useDrawStore = create<DrawState>((set, get) => ({
   drawingFeatureClassCode: null,
   drawingGeometryType: null,
   drawingRmuConfig: null,
+  drawingPackagedConfig: null,
+  drawingPackagedSubtype: null,
+  drawingAssemblyAnchorClass: null,
+  drawingAssemblyConfig: null,
+  drawingAssemblySubtype: null,
   drawingDuct: false,
   drawingCouplerBusClasses: null,
   drawingTieFeederClasses: null,
@@ -230,6 +291,11 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       drawingFeatureClassCode: featureClassCode,
       drawingGeometryType: geometryType,
       drawingRmuConfig: null,
+      drawingPackagedConfig: null,
+      drawingPackagedSubtype: null,
+      drawingAssemblyAnchorClass: null,
+      drawingAssemblyConfig: null,
+      drawingAssemblySubtype: null,
       drawingDuct: false,
       drawingCouplerBusClasses: null,
       drawingTieFeederClasses: null,
@@ -242,6 +308,48 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       drawingFeatureClassCode: rmuFeatureClass,
       drawingGeometryType: "point",
       drawingRmuConfig: config,
+      drawingPackagedConfig: null,
+      drawingPackagedSubtype: null,
+      drawingAssemblyAnchorClass: null,
+      drawingAssemblyConfig: null,
+      drawingAssemblySubtype: null,
+      drawingDuct: false,
+      drawingCouplerBusClasses: null,
+      drawingTieFeederClasses: null,
+      draft: null,
+    }),
+  // A packaged substation draws as a plain point; the only difference from
+  // startDrawing is the stashed config + tenure subtype, which finishDrawing reads
+  // to mark the draft as a /packaged-substations fan-out.
+  startPackagedSubstationDrawing: (packagedFeatureClass, config, subtype) =>
+    set({
+      drawingFeatureClassCode: packagedFeatureClass,
+      drawingGeometryType: "point",
+      drawingRmuConfig: null,
+      drawingPackagedConfig: config,
+      drawingPackagedSubtype: subtype,
+      drawingAssemblyAnchorClass: null,
+      drawingAssemblyConfig: null,
+      drawingAssemblySubtype: null,
+      drawingDuct: false,
+      drawingCouplerBusClasses: null,
+      drawingTieFeederClasses: null,
+      draft: null,
+    }),
+  // A kit assembly draws as a plain point (the anchor pole or pad-mount
+  // transformer); the only difference from startDrawing is the stashed anchor
+  // class + kit config + optional anchor subtype, which finishDrawing reads to
+  // mark the draft as an /assemblies fan-out.
+  startAssemblyDrawing: (anchorFeatureClass, config, anchorSubtype) =>
+    set({
+      drawingFeatureClassCode: anchorFeatureClass,
+      drawingGeometryType: "point",
+      drawingRmuConfig: null,
+      drawingPackagedConfig: null,
+      drawingPackagedSubtype: null,
+      drawingAssemblyAnchorClass: anchorFeatureClass,
+      drawingAssemblyConfig: config,
+      drawingAssemblySubtype: anchorSubtype ?? null,
       drawingDuct: false,
       drawingCouplerBusClasses: null,
       drawingTieFeederClasses: null,
@@ -255,6 +363,9 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       drawingFeatureClassCode: ductFeatureClass,
       drawingGeometryType: "line",
       drawingRmuConfig: null,
+      drawingAssemblyAnchorClass: null,
+      drawingAssemblyConfig: null,
+      drawingAssemblySubtype: null,
       drawingDuct: true,
       drawingCouplerBusClasses: null,
       drawingTieFeederClasses: null,
@@ -268,6 +379,11 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       drawingFeatureClassCode: breakerFeatureClass,
       drawingGeometryType: "point",
       drawingRmuConfig: null,
+      drawingPackagedConfig: null,
+      drawingPackagedSubtype: null,
+      drawingAssemblyAnchorClass: null,
+      drawingAssemblyConfig: null,
+      drawingAssemblySubtype: null,
       drawingDuct: false,
       drawingCouplerBusClasses: busFeatureClasses,
       drawingTieFeederClasses: null,
@@ -282,6 +398,11 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       drawingFeatureClassCode: switchFeatureClass,
       drawingGeometryType: "point",
       drawingRmuConfig: null,
+      drawingPackagedConfig: null,
+      drawingPackagedSubtype: null,
+      drawingAssemblyAnchorClass: null,
+      drawingAssemblyConfig: null,
+      drawingAssemblySubtype: null,
       drawingDuct: false,
       drawingCouplerBusClasses: null,
       drawingTieFeederClasses: feederFeatureClasses,
@@ -292,6 +413,11 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       drawingFeatureClassCode: null,
       drawingGeometryType: null,
       drawingRmuConfig: null,
+      drawingPackagedConfig: null,
+      drawingPackagedSubtype: null,
+      drawingAssemblyAnchorClass: null,
+      drawingAssemblyConfig: null,
+      drawingAssemblySubtype: null,
       drawingDuct: false,
       drawingCouplerBusClasses: null,
       drawingTieFeederClasses: null,
@@ -300,6 +426,10 @@ export const useDrawStore = create<DrawState>((set, get) => ({
     const featureClassCode = get().drawingFeatureClassCode
     if (!featureClassCode) return
     const rmuConfig = get().drawingRmuConfig
+    const packagedConfig = get().drawingPackagedConfig
+    const packagedSubtype = get().drawingPackagedSubtype
+    const assemblyConfig = get().drawingAssemblyConfig
+    const assemblySubtype = get().drawingAssemblySubtype
     const isDuct = get().drawingDuct
     const couplerBusClasses = get().drawingCouplerBusClasses
     const tieFeederClasses = get().drawingTieFeederClasses
@@ -307,6 +437,11 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       drawingFeatureClassCode: null,
       drawingGeometryType: null,
       drawingRmuConfig: null,
+      drawingPackagedConfig: null,
+      drawingPackagedSubtype: null,
+      drawingAssemblyAnchorClass: null,
+      drawingAssemblyConfig: null,
+      drawingAssemblySubtype: null,
       drawingDuct: false,
       drawingCouplerBusClasses: null,
       drawingTieFeederClasses: null,
@@ -323,6 +458,19 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       // the tie marker (the feeder classes the form picks from) + seeded
       // normal_state/device_state so Save routes to /ties with the switch born
       // as an open standby (NOP).
+      // A stashed package config means this was an "Add packaged substation" draw:
+      // carry the geometry (a packaged substation is a real placed unit) plus the
+      // packagedSubstation marker + seeded package_config so Save routes to
+      // /packaged-substations and the form opens with the config chosen; the tenure
+      // subtype rides along on seed.subtype so the form's subtype picker opens on it
+      // and it's always sent top-level on the POST.
+      // A stashed assembly config means this was an "Add kit assembly" draw: carry
+      // the geometry (the anchor pole/transformer is a real placed point) plus the
+      // assembly marker (anchor class + kit config) so Save routes to /assemblies;
+      // config isn't an anchor attribute (unlike rmu_config/package_config), so it
+      // rides only on the marker, not in seed.attributes. When the option pins an
+      // anchor subtype it rides on seed.subtype so the picker opens on it and it's
+      // sent top-level; options with no fixed subtype leave the picker free.
       draft: rmuConfig
         ? {
             featureClassCode,
@@ -330,7 +478,31 @@ export const useDrawStore = create<DrawState>((set, get) => ({
             seed: { attributes: { rmu_config: rmuConfig } },
             rmu: { config: rmuConfig },
           }
-        : isDuct
+        : packagedConfig != null
+          ? {
+              featureClassCode,
+              geometry,
+              seed: {
+                subtype: packagedSubtype ?? undefined,
+                attributes: { package_config: packagedConfig },
+              },
+              packagedSubstation: { config: packagedConfig, subtype: packagedSubtype ?? 0 },
+            }
+          : assemblyConfig != null
+          ? {
+              featureClassCode,
+              geometry,
+              seed: {
+                subtype: assemblySubtype ?? undefined,
+                attributes: {},
+              },
+              assembly: {
+                anchorFeatureClass: featureClassCode,
+                config: assemblyConfig,
+                anchorSubtype: assemblySubtype ?? undefined,
+              },
+            }
+          : isDuct
           ? { featureClassCode, geometry, duct: true }
           : couplerBusClasses
             ? {

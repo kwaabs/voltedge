@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:sqlite3/sqlite3.dart';
 
 import '../geo/wkb.dart';
+import '../wam/wam_models.dart';
 
 /// A count of features in one class within the pack.
 class ClassCount {
@@ -934,6 +935,214 @@ class PackDatabase {
       return const {};
     }
   }
+
+  // ---- WAM read-context (pack schema v8, requester had wam:read) -----------
+  //
+  // The four wam_* device tables ship ONLY when the pack requester holds
+  // wam:read (see internal/fieldpack/builder.go PackScope.IncludeWAM). A pre-v8
+  // pack -- or a v8 pack built for a user without the perm -- has no such table,
+  // so every read below swallows the missing-table SqliteException and degrades
+  // to empty, exactly as [domainValuesFor]/[symbologyByClass] do for their gated
+  // tables. WAM never FKs into gis; an asset is a bare (asset_class, asset_id)
+  // ref the caller resolves against `features` when it needs to show it.
+
+  /// Whether this pack ships WAM read-context at all -- the `wam_work_orders`
+  /// table exists (v8 pack built for a wam:read user). The mobile WAM surfaces
+  /// gate their entry point on this so a plain pack simply hides the work board
+  /// rather than showing an empty one. Cached for the life of the open pack.
+  bool get packsWam => _packsWam ??= _tableExists('wam_work_orders');
+  bool? _packsWam;
+
+  /// The requester's own field work board: every work order the pack carries
+  /// (the server already filtered to the requester's non-terminal orders, any
+  /// bbox -- a job is a job wherever its asset sits). Newest scheduled first,
+  /// then by id for stability. Empty on a pack with no WAM context.
+  List<PackWorkOrder> workOrders() {
+    try {
+      final rows = _db.select('''
+        SELECT id, reference, work_type, status, priority, title, description,
+               asset_class, asset_id, defect_id, assigned_to, scheduled_for,
+               due_by, started_at, completion_notes
+        FROM wam_work_orders
+        ORDER BY scheduled_for IS NULL, scheduled_for, id
+      ''');
+      return [for (final r in rows) _toWorkOrder(r)];
+    } on SqliteException {
+      return const [];
+    }
+  }
+
+  /// One work order by id, or null when the pack has no WAM context or no such
+  /// order. Index-backed by the primary key.
+  PackWorkOrder? workOrderById(String id) {
+    try {
+      final rows = _db.select(
+        '''
+        SELECT id, reference, work_type, status, priority, title, description,
+               asset_class, asset_id, defect_id, assigned_to, scheduled_for,
+               due_by, started_at, completion_notes
+        FROM wam_work_orders WHERE id = ?
+        ''',
+        [id],
+      );
+      if (rows.isEmpty) return null;
+      return _toWorkOrder(rows.first);
+    } on SqliteException {
+      return null;
+    }
+  }
+
+  /// The open/work-ordered defects the pack carries for one asset (by id;
+  /// `wam_defects_asset_idx` makes this index-backed). Empty on a pack with no
+  /// WAM context. The class is carried for context but the id alone identifies
+  /// the asset -- WAM defect ids are globally unique.
+  List<PackDefect> defectsForAsset(String assetId) {
+    try {
+      final rows = _db.select(
+        '''
+        SELECT id, asset_class, asset_id, defect_type, severity, status,
+               source, title, description, reported_at, notes
+        FROM wam_defects WHERE asset_id = ?
+        ORDER BY reported_at IS NULL, reported_at DESC, id
+        ''',
+        [assetId],
+      );
+      return [for (final r in rows) _toDefect(r)];
+    } on SqliteException {
+      return const [];
+    }
+  }
+
+  /// Every defect the pack carries (the whole packed defect backlog, for a
+  /// standalone defects list). Empty on a pack with no WAM context.
+  List<PackDefect> defects() {
+    try {
+      final rows = _db.select('''
+        SELECT id, asset_class, asset_id, defect_type, severity, status,
+               source, title, description, reported_at, notes
+        FROM wam_defects
+        ORDER BY reported_at IS NULL, reported_at DESC, id
+      ''');
+      return [for (final r in rows) _toDefect(r)];
+    } on SqliteException {
+      return const [];
+    }
+  }
+
+  /// The active inspection checklists the pack ships. When [assetClass] is given,
+  /// only templates that apply to it are returned -- a template scoped to that
+  /// class OR an any-asset template (null asset_class). Empty on a pack with no
+  /// WAM context. The ordered items are read separately via [templateItems].
+  List<PackInspectionTemplate> inspectionTemplates({String? assetClass}) {
+    try {
+      final rows = assetClass == null
+          ? _db.select('''
+              SELECT id, code, name, description, asset_class, active
+              FROM wam_inspection_templates
+              WHERE active = 1
+              ORDER BY name IS NULL, name, id
+            ''')
+          : _db.select(
+              '''
+              SELECT id, code, name, description, asset_class, active
+              FROM wam_inspection_templates
+              WHERE active = 1
+                AND (asset_class = ? OR asset_class IS NULL)
+              ORDER BY name IS NULL, name, id
+              ''',
+              [assetClass],
+            );
+      return [
+        for (final r in rows)
+          PackInspectionTemplate(
+            id: r['id'] as String,
+            code: r['code'] as String?,
+            name: r['name'] as String?,
+            description: r['description'] as String?,
+            assetClass: r['asset_class'] as String?,
+            active: (r['active'] as num?)?.toInt() != 0,
+          ),
+      ];
+    } on SqliteException {
+      return const [];
+    }
+  }
+
+  /// The ordered prompts of one inspection checklist (by template id;
+  /// `wam_insp_items_template_idx` makes this index-backed), ascending by
+  /// position. Empty on a pack with no WAM context or an unknown template.
+  List<PackInspectionTemplateItem> templateItems(String templateId) {
+    try {
+      final rows = _db.select(
+        '''
+        SELECT id, template_id, position, prompt, response_type,
+               fail_severity, guidance
+        FROM wam_inspection_template_items
+        WHERE template_id = ?
+        ORDER BY position, id
+        ''',
+        [templateId],
+      );
+      return [
+        for (final r in rows)
+          PackInspectionTemplateItem(
+            id: r['id'] as String,
+            templateId: r['template_id'] as String,
+            position: (r['position'] as num?)?.toInt() ?? 0,
+            prompt: r['prompt'] as String?,
+            responseType: r['response_type'] as String?,
+            failSeverity: r['fail_severity'] as String?,
+            guidance: r['guidance'] as String?,
+          ),
+      ];
+    } on SqliteException {
+      return const [];
+    }
+  }
+
+  /// Whether [table] exists in the pack (any row count, including zero). Distinct
+  /// from [_tableHasRows]: a WAM pack can legitimately carry an empty work board,
+  /// so "ships WAM context" is table presence, not row presence.
+  bool _tableExists(String table) {
+    try {
+      _db.select('SELECT 1 FROM $table LIMIT 1');
+      return true;
+    } on SqliteException {
+      return false;
+    }
+  }
+
+  PackWorkOrder _toWorkOrder(Row r) => PackWorkOrder(
+        id: r['id'] as String,
+        workType: (r['work_type'] as String?) ?? '',
+        status: (r['status'] as String?) ?? '',
+        reference: r['reference'] as String?,
+        priority: r['priority'] as String?,
+        title: r['title'] as String?,
+        description: r['description'] as String?,
+        assetClass: r['asset_class'] as String?,
+        assetId: r['asset_id'] as String?,
+        defectId: r['defect_id'] as String?,
+        assignedTo: r['assigned_to'] as String?,
+        scheduledFor: r['scheduled_for'] as String?,
+        dueBy: r['due_by'] as String?,
+        startedAt: r['started_at'] as String?,
+        completionNotes: r['completion_notes'] as String?,
+      );
+
+  PackDefect _toDefect(Row r) => PackDefect(
+        id: r['id'] as String,
+        assetClass: (r['asset_class'] as String?) ?? '',
+        assetId: (r['asset_id'] as String?) ?? '',
+        severity: (r['severity'] as String?) ?? '',
+        status: (r['status'] as String?) ?? '',
+        defectType: r['defect_type'] as String?,
+        source: r['source'] as String?,
+        title: r['title'] as String?,
+        description: r['description'] as String?,
+        reportedAt: r['reported_at'] as String?,
+        notes: r['notes'] as String?,
+      );
 
   /// Rows in a table (for the manifest/detail summaries). Cheap COUNT(*).
   int countTable(String table) {

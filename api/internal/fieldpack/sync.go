@@ -33,12 +33,14 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
+	"github.com/kwaabs/voltedge/api/internal/wam"
 	"github.com/uptrace/bun"
 )
 
@@ -310,8 +312,73 @@ func validOpKind(kind string) bool {
 	switch kind {
 	case "create", "update_attrs", "delete", "establish_connection", "establish_relationship":
 		return true
+	case "wam_defect_create", "wam_defect_status", "wam_workorder_update", "wam_inspection_record":
+		// Offline work-&-asset-management capture (Phase 59 offline WAM): a field
+		// technician logs defects, advances their assigned work orders, and runs
+		// inspection checklists offline; each is replayed through the shared wam
+		// engine in applyWAMOp.
+		return true
 	}
 	return false
+}
+
+// WAM offline-capture op payloads (Phase 59 offline WAM). A field technician's
+// device pushes these alongside the feature/graph ops; they're sync-local
+// snake_case mirrors of the wam engine's param structs (kept separate so the
+// mobile client writes clean JSON, exactly as the establish payloads are). The
+// record-creating ops (defect_create, inspection_record) carry their new row's
+// device-minted UUID in the op's feature_id so replay is idempotent; the
+// mutating ops (defect_status, workorder_update) target an existing row's id.
+type wamDefectCreatePayload struct {
+	AssetClass  string     `json:"asset_class"`
+	AssetID     string     `json:"asset_id"`
+	DefectType  *string    `json:"defect_type,omitempty"`
+	Severity    string     `json:"severity,omitempty"`
+	Source      string     `json:"source,omitempty"`
+	Title       string     `json:"title"`
+	Description *string    `json:"description,omitempty"`
+	Longitude   *float64   `json:"longitude,omitempty"`
+	Latitude    *float64   `json:"latitude,omitempty"`
+	ReportedAt  *time.Time `json:"reported_at,omitempty"`
+	Notes       *string    `json:"notes,omitempty"`
+}
+
+type wamDefectStatusPayload struct {
+	Status string `json:"status"`
+}
+
+type wamWorkOrderUpdatePayload struct {
+	Status          *string    `json:"status,omitempty"`
+	Priority        *string    `json:"priority,omitempty"`
+	CompletionNotes *string    `json:"completion_notes,omitempty"`
+	ScheduledFor    *time.Time `json:"scheduled_for,omitempty"`
+	DueBy           *time.Time `json:"due_by,omitempty"`
+}
+
+type wamInspectionItemPayload struct {
+	TemplateItemID *string  `json:"template_item_id,omitempty"`
+	Position       int      `json:"position,omitempty"`
+	Prompt         string   `json:"prompt"`
+	ResponseType   string   `json:"response_type,omitempty"`
+	Passed         *bool    `json:"passed,omitempty"`
+	ValueText      *string  `json:"value_text,omitempty"`
+	ValueNumeric   *float64 `json:"value_numeric,omitempty"`
+	FailSeverity   *string  `json:"fail_severity,omitempty"`
+	Notes          *string  `json:"notes,omitempty"`
+}
+
+type wamInspectionRecordPayload struct {
+	WorkOrderID       *string                    `json:"work_order_id,omitempty"`
+	TemplateID        *string                    `json:"template_id,omitempty"`
+	AssetClass        string                     `json:"asset_class"`
+	AssetID           string                     `json:"asset_id"`
+	InspectedAt       *time.Time                 `json:"inspected_at,omitempty"`
+	Notes             *string                    `json:"notes,omitempty"`
+	Longitude         *float64                   `json:"longitude,omitempty"`
+	Latitude          *float64                   `json:"latitude,omitempty"`
+	OverallResult     *string                    `json:"overall_result,omitempty"`
+	CompleteWorkOrder bool                       `json:"complete_work_order,omitempty"`
+	Items             []wamInspectionItemPayload `json:"items"`
 }
 
 // applySyncOp replays one op in its own transaction, so a failure rolls back just
@@ -332,6 +399,17 @@ func applySyncOp(ctx context.Context, db *bun.DB, cache *metaCache, op syncOp, s
 		res.Status = "error"
 		res.Error = "op is missing op_id"
 		return res
+	}
+
+	// WAM capture ops (Phase 59 offline WAM) replay through the shared wam engine,
+	// not the feature CRUD path. Each wam write is already atomic on its own (a
+	// single statement, or RecordInspection's own transaction) and carries the
+	// device-minted record id for idempotent replay, so they run on db directly --
+	// wrapping them in the feature-op transaction below would nest RecordInspection's
+	// RunInTx inside another and buy nothing.
+	switch op.Kind {
+	case "wam_defect_create", "wam_defect_status", "wam_workorder_update", "wam_inspection_record":
+		return applyWAMOp(ctx, db, op, submittedBy)
 	}
 
 	// A GPS-sourced placement/move (field tool "place at my location") nests the
@@ -470,4 +548,172 @@ func applySyncOp(ctx context.Context, db *bun.DB, cache *metaCache, op syncOp, s
 	res.Status = "applied"
 	res.Feature = feature
 	return res
+}
+
+// applyWAMOp replays one work-&-asset-management capture op (Phase 59 offline
+// WAM) through the shared wam engine. It's called from applySyncOp for the wam_*
+// kinds. Each write is idempotent on replay: defect/inspection creates carry the
+// device-minted row id (op.FeatureID) so a re-applied op is an ON CONFLICT / row-
+// exists no-op; status/update ops are deterministic writes on an existing id.
+// The submitting user is recorded as the reporter/inspector when the payload
+// carries none. Like every apply path, errors are returned in the result, never
+// propagated -- one bad op must not strand the ops queued behind it.
+//
+// WAM ops are not subject to the feature optimistic-concurrency check
+// (detectSyncConflict only guards feature update_attrs/delete), so they follow
+// today's last-write-wins semantics -- acceptable because the field flow is
+// capture-oriented (new defects, own work orders, own inspections) rather than
+// contended edits of shared rows.
+func applyWAMOp(ctx context.Context, db *bun.DB, op syncOp, submittedBy string) syncOpResult {
+	res := syncOpResult{OpID: op.OpID}
+	var actor *string
+	if strings.TrimSpace(submittedBy) != "" {
+		a := strings.TrimSpace(submittedBy)
+		actor = &a
+	}
+
+	switch op.Kind {
+	case "wam_defect_create":
+		var p wamDefectCreatePayload
+		if err := json.Unmarshal(op.Payload, &p); err != nil {
+			return wamErr(res, fmt.Errorf("wam_defect_create payload: %w", err))
+		}
+		d, err := wam.CreateDefect(ctx, db, wam.CreateDefectParams{
+			ID:          nilIfBlank(op.FeatureID),
+			AssetClass:  p.AssetClass,
+			AssetID:     p.AssetID,
+			DefectType:  p.DefectType,
+			Severity:    p.Severity,
+			Source:      p.Source,
+			Title:       p.Title,
+			Description: p.Description,
+			Longitude:   p.Longitude,
+			Latitude:    p.Latitude,
+			ReportedBy:  actor,
+			ReportedAt:  p.ReportedAt,
+			Notes:       p.Notes,
+		})
+		if err != nil {
+			return wamErr(res, err)
+		}
+		return wamOK(res, d)
+
+	case "wam_defect_status":
+		if strings.TrimSpace(op.FeatureID) == "" {
+			return wamErr(res, fmt.Errorf("wam_defect_status op is missing feature_id"))
+		}
+		var p wamDefectStatusPayload
+		if err := json.Unmarshal(op.Payload, &p); err != nil {
+			return wamErr(res, fmt.Errorf("wam_defect_status payload: %w", err))
+		}
+		d, err := wam.SetDefectStatus(ctx, db, strings.TrimSpace(op.FeatureID), p.Status)
+		if err != nil {
+			return wamErr(res, err)
+		}
+		return wamOK(res, d)
+
+	case "wam_workorder_update":
+		if strings.TrimSpace(op.FeatureID) == "" {
+			return wamErr(res, fmt.Errorf("wam_workorder_update op is missing feature_id"))
+		}
+		var p wamWorkOrderUpdatePayload
+		if err := json.Unmarshal(op.Payload, &p); err != nil {
+			return wamErr(res, fmt.Errorf("wam_workorder_update payload: %w", err))
+		}
+		o, err := wam.UpdateWorkOrder(ctx, db, strings.TrimSpace(op.FeatureID), wam.UpdateWorkOrderParams{
+			Status:          p.Status,
+			Priority:        p.Priority,
+			CompletionNotes: p.CompletionNotes,
+			ScheduledFor:    p.ScheduledFor,
+			DueBy:           p.DueBy,
+		})
+		if err != nil {
+			return wamErr(res, err)
+		}
+		return wamOK(res, o)
+
+	case "wam_inspection_record":
+		var p wamInspectionRecordPayload
+		if err := json.Unmarshal(op.Payload, &p); err != nil {
+			return wamErr(res, fmt.Errorf("wam_inspection_record payload: %w", err))
+		}
+		items := make([]wam.RecordItemInput, len(p.Items))
+		for i, it := range p.Items {
+			items[i] = wam.RecordItemInput{
+				TemplateItemID: it.TemplateItemID,
+				Position:       it.Position,
+				Prompt:         it.Prompt,
+				ResponseType:   it.ResponseType,
+				Passed:         it.Passed,
+				ValueText:      it.ValueText,
+				ValueNumeric:   it.ValueNumeric,
+				FailSeverity:   it.FailSeverity,
+				Notes:          it.Notes,
+			}
+		}
+		insp, err := wam.RecordInspection(ctx, db, wam.RecordInspectionParams{
+			ID:                nilIfBlank(op.FeatureID),
+			WorkOrderID:       p.WorkOrderID,
+			TemplateID:        p.TemplateID,
+			AssetClass:        p.AssetClass,
+			AssetID:           p.AssetID,
+			InspectedBy:       actor,
+			InspectedAt:       p.InspectedAt,
+			Notes:             p.Notes,
+			Longitude:         p.Longitude,
+			Latitude:          p.Latitude,
+			OverallResult:     p.OverallResult,
+			CompleteWorkOrder: p.CompleteWorkOrder,
+			Items:             items,
+		})
+		if err != nil {
+			return wamErr(res, err)
+		}
+		return wamOK(res, insp)
+
+	default:
+		return wamErr(res, fmt.Errorf("unknown wam op kind %q", op.Kind))
+	}
+}
+
+// wamOK marks a WAM op applied, projecting the engine's returned row into the
+// generic feature map the result carries (reusing the struct's own JSON tags, so
+// the device reads back the same shape the REST /wam surface returns).
+func wamOK(res syncOpResult, row any) syncOpResult {
+	res.Status = "applied"
+	res.Feature = toFeatureMap(row)
+	return res
+}
+
+// wamErr marks a WAM op errored (quarantined by the worker, same as any apply
+// failure).
+func wamErr(res syncOpResult, err error) syncOpResult {
+	res.Status = "error"
+	res.Error = err.Error()
+	return res
+}
+
+// toFeatureMap round-trips a typed row through JSON into the map[string]any the
+// sync result carries. A marshal error yields nil (the op still counts applied --
+// the row is committed; only the echoed-back feature is dropped).
+func toFeatureMap(v any) map[string]any {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil
+	}
+	return m
+}
+
+// nilIfBlank returns a trimmed *string, or nil when the input is empty -- so an
+// absent device-minted id lets the wam engine default it.
+func nilIfBlank(s string) *string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	t := strings.TrimSpace(s)
+	return &t
 }

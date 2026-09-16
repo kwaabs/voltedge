@@ -5,6 +5,7 @@ import '../pack/pack_store.dart';
 import 'feature_detail_screen.dart';
 import 'format.dart';
 import 'pack_map_page.dart';
+import 'wam_screen.dart';
 
 /// Opens a downloaded pack's data.sqlite and shows what's inside: the manifest
 /// facts, the graph-table row counts, and the per-class feature list. Proves the
@@ -59,6 +60,18 @@ class _PackDetailScreenState extends State<PackDetailScreen> {
       appBar: AppBar(
         title: Text('Pack ${shortId(widget.pack.id)}'),
         actions: [
+          // The offline WAM surface (work board / defects / inspections), shown
+          // only when this pack shipped WAM read-context (a wam:read build).
+          if (_db?.packsWam == true)
+            IconButton(
+              icon: const Icon(Icons.assignment_outlined),
+              tooltip: 'Work & assets',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => WamScreen(pack: widget.pack),
+                ),
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.map_outlined),
             tooltip: 'Open map',

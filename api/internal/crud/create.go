@@ -77,5 +77,12 @@ func CreateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, in 
 		}
 	}
 
+	// Phase 58 spatial write enforcement: a scoped user may only create a
+	// feature inside a territory they hold. A no-op unless enforcement is on and
+	// the user is scoped; geometry-less features (nil territoryID) are exempt.
+	if err := enforceWriteScope(ctx, db, loaded, territoryID); err != nil {
+		return nil, err
+	}
+
 	return insertFeature(ctx, db, loaded, in.ID, subtype, in.Geometry, in.Name, territoryID, values)
 }

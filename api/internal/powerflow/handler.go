@@ -58,6 +58,18 @@ import (
 //	                        dense mesh or a multi-slack/PV request -> Tier 2 nodal
 //	                        Y-bus -- so one entry solves any shape and reports
 //	                        which engine ran (an "engine" override forces one)
+//	POST   /arc-flash       IEEE 1584-2002 arc-flash hazard study (Phase 53): a
+//	                        DERIVED analysis reusing the fault engine (bolted
+//	                        fault current + voltage) and the coordination engine's
+//	                        device evaluators (clearing time at the ARCING current)
+//	                        to report per-node incident energy (cal/cm2), arc-flash
+//	                        boundary, and NFPA 70E PPE category, on IEEE typical
+//	                        geometry until per-feature fields exist (S2)
+//	POST   /ev-hosting      EV feeder-headroom study (Phase 54): the under-voltage
+//	                        mirror of /hosting-capacity -- for a node (or every
+//	                        connection node on a feeder) binary-search the largest
+//	                        additional charging load it can absorb before the first
+//	                        under-voltage (0.95 pu floor) or thermal overload binds
 //
 // Read-only, same as api/internal/trace -- neither route ever writes
 // anything, they only compute over what api/internal/connectivity and
@@ -74,6 +86,8 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/meshed-load-flow", meshedLoadFlowHandler(db))
 	r.Post("/nodal-load-flow", nodalLoadFlowHandler(db))
 	r.Post("/load-flow-auto", dispatchLoadFlowHandler(db))
+	r.Post("/arc-flash", arcFlashHandler(db))
+	r.Post("/ev-hosting", evHostingHandler(db))
 	return r
 }
 
@@ -103,6 +117,23 @@ func faultCurrentHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := runFaultCurrent(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func arcFlashHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req arcFlashRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runArcFlash(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

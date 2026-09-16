@@ -194,6 +194,27 @@ const (
 	demandFieldPF = "power_factor"
 )
 
+// EV managed-charging fields (Phase 54 S2, docs/phase-54-ev-charging.md). An
+// EV_CHARGING_STATION models smart / managed charging: its effective coincident
+// demand is the installed charger load, diversified, then clamped by a
+// controllable service / EVSE-management cap --
+//
+//	effective_kw = min(managed_demand_cap_kw, connected_load_kw * diversity_factor)
+//
+// All three are read off the station's OWN attributes (the roll-up
+// connected_load_kw is maintained when chargers are attached, denormalised on
+// purpose), so no containment walk happens in the sweep -- the same discipline
+// hosting.go keeps so its per-trial re-sweep stays query-free. Every field is
+// optional: connected_load_kw absent falls back to a plain demand_kw;
+// diversity_factor absent means 1.0 (no diversity); managed_demand_cap_kw absent
+// means no cap. A station modelled with only a plain demand_kw is unaffected --
+// this is inert for every non-EV load.
+const (
+	evFieldConnectedKW = "connected_load_kw"
+	evFieldDiversity   = "diversity_factor"
+	evFieldCapKW       = "managed_demand_cap_kw"
+)
+
 // resolveDemand reads a node's own (P, Q) contribution to the sweep --
 // zero for any node that doesn't carry demand_kw (every junction/edge
 // class except whichever ones an admin has added the field to), or
@@ -201,9 +222,10 @@ const (
 // feature. Q is derived from P and power factor
 // (Q = P * tan(acos(pf))); a demand_kw with no power_factor set
 // defaults to unity (pf = 1, Q = 0) rather than treating the whole
-// demand as unusable.
+// demand as unusable. The real-power magnitude comes from resolveDemandKW,
+// which also applies EV managed-charging clamping when those fields are present.
 func resolveDemand(attrs map[string]any) (kw, kvar float64) {
-	kw, ok := readFloatAttr(attrs, demandFieldKW)
+	kw, ok := resolveDemandKW(attrs)
 	if !ok || kw == 0 {
 		return 0, 0
 	}
@@ -213,6 +235,41 @@ func resolveDemand(attrs map[string]any) (kw, kvar float64) {
 	}
 	kvar = kw * math.Tan(math.Acos(pf))
 	return kw, kvar
+}
+
+// resolveDemandKW returns a node's real-power demand magnitude (kW), applying
+// EV managed-charging clamping when the node carries the managed fields. For an
+// ordinary load (no EV fields) this is exactly demand_kw, so SERVICE_POINT and
+// every other load are unchanged. ok is false when the node carries neither a
+// plain demand_kw nor an EV connected_load_kw.
+func resolveDemandKW(attrs map[string]any) (kw float64, ok bool) {
+	connected, hasConnected := readFloatAttr(attrs, evFieldConnectedKW)
+	plain, hasPlain := readFloatAttr(attrs, demandFieldKW)
+
+	var base float64
+	switch {
+	case hasConnected:
+		// Managed EV base: installed charger load diversified. A station is
+		// defined by its charger roll-up, so this takes precedence over any
+		// plain demand_kw the same feature might also carry.
+		div, okDiv := readFloatAttr(attrs, evFieldDiversity)
+		if !okDiv || div <= 0 || div > 1 {
+			div = 1
+		}
+		base = connected * div
+	case hasPlain:
+		base = plain
+	default:
+		return 0, false
+	}
+
+	// Smart charging holds coincident draw at or below the managed / service
+	// cap. Applies whether the base came from the EV roll-up or a plain
+	// demand_kw that carries a cap (a station specified as a lump load + a cap).
+	if capKW, okCap := readFloatAttr(attrs, evFieldCapKW); okCap && capKW > 0 && base > capKW {
+		base = capKW
+	}
+	return base, true
 }
 
 // genFieldRatedKW/genFieldDispatchKW/genFieldPF are the field names an

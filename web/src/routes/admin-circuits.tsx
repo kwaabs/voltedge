@@ -230,7 +230,7 @@ export function AdminCircuitsPage() {
 
   return (
     <div className="h-full overflow-y-auto p-4">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-semibold">Circuits</h1>

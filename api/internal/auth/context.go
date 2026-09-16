@@ -27,6 +27,20 @@ type SessionUser struct {
 	// role is assigned), which authorizes nothing.
 	Permissions map[string]struct{}
 
+	// AllowedTerritories is the set of territory ids this request is scoped
+	// to (Phase 58): the union of every territory granted to the user or to
+	// anyone who reports up to them, expanded to whole subtrees
+	// (access.EffectiveIDs). Enforcement sites build a
+	// `territory_id = ANY(...)` predicate from it. Nil/empty means "scoped to
+	// nothing" (fail closed) -- NOT "no filter" -- UNLESS Unscoped is set.
+	// Left nil when Unscoped, since no predicate is applied then.
+	AllowedTerritories []string
+
+	// Unscoped is true when the user holds access.PermUnscoped: territory
+	// scoping is bypassed entirely (every feature is visible/editable), so
+	// enforcement sites skip the predicate. Admin/break-glass hold it.
+	Unscoped bool
+
 	// SessionID and CSRFToken back logout (revoke this session) and the
 	// double-submit CSRF check respectively.
 	SessionID string
@@ -37,6 +51,17 @@ type SessionUser struct {
 func (u *SessionUser) Has(perm string) bool {
 	_, ok := u.Permissions[perm]
 	return ok
+}
+
+// TerritoryFilter returns the territory ids this request is scoped to and
+// whether the user bypasses scoping (Phase 58). An enforcement site applies
+// `territory_id = ANY(ids)` when unscoped is false, and no predicate at all
+// when it is true. A false unscoped with an empty ids means "scoped to
+// nothing" (fail closed). The caller is still responsible for checking whether
+// enforcement is switched on at all (territory.EnforcementEnabled); when it is
+// off, no predicate should be applied regardless of what this returns.
+func (u *SessionUser) TerritoryFilter() (ids []string, unscoped bool) {
+	return u.AllowedTerritories, u.Unscoped
 }
 
 // withUser returns a child context carrying u as the authenticated user.

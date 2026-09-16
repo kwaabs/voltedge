@@ -161,6 +161,14 @@ func ResolveAPIToken(ctx context.Context, db bun.IDB, rawToken string) (*Session
 		return nil, permErr
 	}
 
+	// The spatial-access scope (Phase 58), resolved exactly as the cookie
+	// path does (scope.go) so a bearer client is confined to the same
+	// territories -- a token can never see more than its owning user.
+	allowed, unscoped, scopeErr := loadScopeFields(ctx, db, tok.UserID, perms)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+
 	// Record use, best effort -- a failed stamp must not fail the request.
 	_, _ = db.NewUpdate().Model((*APIToken)(nil)).
 		Set("last_used_at = ?", now).
@@ -168,11 +176,13 @@ func ResolveAPIToken(ctx context.Context, db bun.IDB, rawToken string) (*Session
 		Exec(ctx)
 
 	return &SessionUser{
-		ID:          user.ID,
-		Email:       user.Email,
-		DisplayName: user.DisplayName,
-		BreakGlass:  user.BreakGlass,
-		Permissions: perms,
+		ID:                 user.ID,
+		Email:              user.Email,
+		DisplayName:        user.DisplayName,
+		BreakGlass:         user.BreakGlass,
+		Permissions:        perms,
+		AllowedTerritories: allowed,
+		Unscoped:           unscoped,
 	}, nil
 }
 

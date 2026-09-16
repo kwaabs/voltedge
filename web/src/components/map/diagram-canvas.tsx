@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
 import { useQueries, useQueryClient } from "@tanstack/react-query"
 import { Cable, ChevronsLeft, ChevronsRight, CornerDownRight, Crosshair, Download, Grid3x3, Hand, LayoutTemplate, Link2, List, Loader2, Magnet, Maximize, Maximize2, Minimize, Minus, MousePointer2, PenLine, Plus, Shapes, Spline, Square, Table, Trash2, Type, Waypoints, X, ZoomIn, ZoomOut } from "lucide-react"
 
@@ -561,6 +561,41 @@ function DiagramViewToolbar({
     </div>
   )
 }
+
+/** Imperative handle for the per-canvas status bar. The canvas pushes the
+ * cursor's diagram-space position through `set` on every pointer move (and
+ * `set(null)` when the pointer leaves). */
+export interface DiagramStatusBarHandle {
+  set: (pos: { x: number; y: number } | null) => void
+}
+
+/** The diagram canvas's own status bar -- a live readout of the cursor's X/Y
+ * in the diagram's local coordinate space (the same x/y a placement stores),
+ * pinned to the bottom of the canvas the way the map has its own status bar.
+ *
+ * Each DiagramCanvas renders exactly one of these, so when several diagrams are
+ * open side by side each shows the coordinates for its own cursor -- the spaces
+ * are independent (every canvas has its own camera/viewBox), so a single shared
+ * readout couldn't serve them all. That is the answer to "do we get multiple
+ * status bars?": yes, one per open diagram.
+ *
+ * Updated imperatively (forwardRef `set`) from the canvas's pointer-move
+ * handler rather than through the canvas's own React state: the canvas is a
+ * large SVG and re-rendering it on every mouse move just to repaint one label
+ * would be wasteful, so only this small component re-renders. This mirrors, in
+ * spirit, the map's store-backed CoordinateReadout (isolate the high-frequency
+ * update) -- scoped per canvas instead of through a global store. */
+const DiagramStatusBar = forwardRef<DiagramStatusBarHandle>(function DiagramStatusBar(_props, ref) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  useImperativeHandle(ref, () => ({ set: setPos }), [])
+  return (
+    <div className="bg-background text-muted-foreground flex h-7 shrink-0 items-center gap-4 border-t px-3 text-xs">
+      <span className="tabular-nums">
+        X: {pos ? Math.round(pos.x) : "—"} Y: {pos ? Math.round(pos.y) : "—"}
+      </span>
+    </div>
+  )
+})
 
 /** The diagram's own editable name -- `runtime.diagram_instances.name`
  * has existed since the backend slice and was already in every API
@@ -1449,6 +1484,9 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // digitizingClass and geometryTypeByClass exist.
   const isPlaceLineDrawing = isPlacingHere && placeArmedGeometry === "line"
   const svgRef = useRef<SVGSVGElement | null>(null)
+  // The canvas's status bar is updated imperatively (see DiagramStatusBar) so
+  // pointer moves repaint one label, not the whole SVG.
+  const statusBarRef = useRef<DiagramStatusBarHandle | null>(null)
   const [dragState, setDragState] = useState<DragState | null>(null)
   const [rotateState, setRotateState] = useState<RotateState | null>(null)
   // Live per-vertex reshape of a drawn line placement (a busbar/conductor):
@@ -2130,6 +2168,9 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // does work mid line-draft; otherwise it's the pan handler alone.
   function handleCanvasPointerMove(e: React.PointerEvent<SVGSVGElement>) {
     handleCanvasPanPointerMove(e)
+    // Feed the status-bar readout on every move (before the draw-preview early
+    // returns below), imperatively so only that small label repaints.
+    statusBarRef.current?.set(clientToSvgPoint(e.clientX, e.clientY))
     if (drawingElementLine && elemLineDraft) {
       const svgPoint = clientToSvgPoint(e.clientX, e.clientY)
       if (svgPoint) {
@@ -3567,6 +3608,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
               onContextMenu={(e) => e.preventDefault()}
               onPointerDown={handleCanvasPanPointerDown}
               onPointerMove={handleCanvasPointerMove}
+              onPointerLeave={() => statusBarRef.current?.set(null)}
               onPointerUp={handleCanvasPanPointerUp}
               onPointerCancel={handleCanvasPanPointerUp}
             >
@@ -4741,6 +4783,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
           </>
         )}
       </div>
+      <DiagramStatusBar ref={statusBarRef} />
       <RemovePlacementDialog
         diagramId={openDiagramId}
         placement={pendingRemoval}

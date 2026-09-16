@@ -663,6 +663,34 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 
 	loader := newFeatureClassLoader()
 
+	// Phase 58 spatial gate: a scoped user may not trace from a feature outside
+	// their territories, and no out-of-scope feature is ever surfaced in the
+	// result. A no-op unless enforcement is on and the user is scoped. The start
+	// (and any shortest-path target) must be in scope up front -- an
+	// out-of-scope start reads as a 404, the same answer GET gives.
+	scope, err := resolveTraceScope(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	if scope.apply {
+		ok, err := scope.permits(ctx, db, start, loader)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, notFound("feature %s (%s) not found", req.Start.FeatureID, req.Start.FeatureClass)
+		}
+		if target != nil {
+			ok, err := scope.permits(ctx, db, *target, loader)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				return nil, notFound("feature %s (%s) not found", req.Target.FeatureID, req.Target.FeatureClass)
+			}
+		}
+	}
+
 	// A circuit-scoped config (scope_to_circuit) confines the walk to the start
 	// feature's stored circuit. Resolve that membership once here so bfs can gate
 	// every neighbour against it; a start with no circuit is a clear, actionable
@@ -691,6 +719,21 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 		}
 	} else {
 		featureNodes = visited
+	}
+
+	// Phase 58: drop any out-of-scope feature the walk passed through so the
+	// response discloses only features within the user's territories (a no-op
+	// when the gate doesn't apply). Barriers and targets are filtered too.
+	if scope.apply {
+		if featureNodes, err = scope.filter(ctx, db, featureNodes, loader); err != nil {
+			return nil, err
+		}
+		if barrierHits, err = scope.filter(ctx, db, barrierHits, loader); err != nil {
+			return nil, err
+		}
+		if targetHits, err = scope.filter(ctx, db, targetHits, loader); err != nil {
+			return nil, err
+		}
 	}
 
 	allNodes := make([]node, 0, len(featureNodes)+len(barrierHits)+len(targetHits))

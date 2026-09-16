@@ -216,6 +216,9 @@ func enqueuePackHandler(db *bun.DB) http.HandlerFunc {
 			// the detached build worker holds no SessionUser to re-check.
 			IncludeConnectivity:  user.Has("connectivity:read"),
 			IncludeRelationships: user.Has("relationships:read"),
+			// Phase 59 offline WAM: ship the field worker's defects/work-orders/
+			// inspection templates only when they may read WAM.
+			IncludeWAM: user.Has("wam:read"),
 		}
 		id, err := enqueuePack(r.Context(), db, user.ID, scope)
 		if err != nil {
@@ -344,6 +347,7 @@ type manifestView struct {
 	SnapshotAt           *time.Time `json:"snapshot_at,omitempty"`
 	IncludeConnectivity  bool       `json:"include_connectivity"`
 	IncludeRelationships bool       `json:"include_relationships"`
+	IncludeWAM           bool       `json:"include_wam"`
 }
 
 func toPackView(p *FieldPack) packView {
@@ -382,6 +386,7 @@ func buildManifest(ctx context.Context, store *export.ObjectStore, p *FieldPack)
 		SnapshotAt:           p.SnapshotAt,
 		IncludeConnectivity:  scope.IncludeConnectivity,
 		IncludeRelationships: scope.IncludeRelationships,
+		IncludeWAM:           scope.IncludeWAM,
 	}, nil
 }
 

@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { X } from "lucide-react"
 
+import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -27,6 +28,81 @@ function formatNumber(n: number, digits = 1): string {
 function formatVoltageLevel(volts: number): string {
   if (volts >= 1000) return `${formatNumber(volts / 1000, volts % 1000 === 0 ? 0 : 1)} kV`
   return `${formatNumber(volts, 0)} V`
+}
+
+/**
+ * The dynamic "how this was calculated" body for a load-flow run. Every figure
+ * below (the slack voltage, the worst node's per-unit voltage, the overload and
+ * barrier counts) is read off the actual result, so it verifies THIS sweep, not
+ * a generic description of the backward-forward method.
+ */
+function LoadFlowExplanation({
+  result,
+  classNameFor,
+}: {
+  result: LoadFlowResult
+  classNameFor: (code: string) => string
+}) {
+  // Worst node = lowest per-unit voltage on its own base (voltage_v /
+  // nominal_base_v), the one the operator cares about first.
+  const rated = result.nodes.filter((n) => n.nominal_base_v > 0)
+  const worst = rated.reduce<(typeof rated)[number] | null>(
+    (lo, n) => (lo === null || n.voltage_v / n.nominal_base_v < lo.voltage_v / lo.nominal_base_v ? n : lo),
+    null,
+  )
+  const worstPu = worst ? worst.voltage_v / worst.nominal_base_v : undefined
+
+  return (
+    <AnalysisExplanation>
+      <p>
+        Radial <b>backward-forward sweep</b> from the slack source at{" "}
+        <b>{formatNumber(result.nominal_voltage_v, 0)} V</b> nominal. Each pass accumulates load current
+        back to the source (<code>backward</code>), then re-computes the volt-drop <code>ΔV = I·Z</code> forward to
+        every node, converging in <b>{result.iterations}</b> iteration{result.iterations === 1 ? "" : "s"}.
+      </p>
+      <p>
+        <b>{result.nodes.length} node(s)</b> reached. Per node the sweep reports voltage (V and pu of its own base),
+        volt drop, branch current, and conductor loading.
+      </p>
+      {worst && worstPu !== undefined && (
+        <>
+          <p>
+            Lowest voltage is <b>{formatNumber(worstPu, 3)} pu</b> (
+            <b>{formatNumber(worst.voltage_v)} V</b> on a {formatVoltageLevel(worst.nominal_base_v)} base,{" "}
+            -{formatNumber(worst.voltage_drop_pct, 2)}% drop) at {classNameFor(worst.feature_class)}
+            {worstPu < 0.95 && (
+              <>
+                {" "}
+                -- <b>below the 0.95 pu</b> normal band
+              </>
+            )}
+            . Worked at that node:
+          </p>
+          <Formula>{`V_pu = V / V_base
+     = ${formatNumber(worst.voltage_v)} V / ${formatNumber(worst.nominal_base_v, 0)} V
+     = ${formatNumber(worstPu, 3)} pu
+drop = V_base − V = ${formatNumber(worst.nominal_base_v, 0)} − ${formatNumber(worst.voltage_v)} = ${formatNumber(worst.nominal_base_v - worst.voltage_v)} V   (-${formatNumber(worst.voltage_drop_pct, 2)}%)`}</Formula>
+        </>
+      )}
+      {(result.overloaded.length > 0 || result.barriers.length > 0) && (
+        <p>
+          Honesty flags:{" "}
+          {result.overloaded.length > 0 && (
+            <>
+              <b>{result.overloaded.length}</b> conductor(s) exceed their own <code>ampacity</code> (loading &gt;
+              100%).{" "}
+            </>
+          )}
+          {result.barriers.length > 0 && (
+            <>
+              <b>{result.barriers.length}</b> open device(s) stopped the sweep -- nodes beyond them are un-energised
+              and absent from the table.
+            </>
+          )}
+        </p>
+      )}
+    </AnalysisExplanation>
+  )
 }
 
 /**
@@ -108,6 +184,7 @@ export function LoadFlowPanel() {
           </Button>
         </div>
       ) : (
+        <>
         <div className={cn("overflow-y-auto", fp.resized ? "min-h-0 flex-1" : "max-h-[16rem]")}>
           <div className="text-muted-foreground flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
             <span>Nominal {formatNumber(result.nominal_voltage_v, 0)}V</span>
@@ -180,6 +257,8 @@ export function LoadFlowPanel() {
             </tbody>
           </table>
         </div>
+        <LoadFlowExplanation result={result} classNameFor={classNameFor} />
+        </>
       )}
       {fp.resizeHandle}
     </div>

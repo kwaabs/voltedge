@@ -1,6 +1,15 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "react-router"
-import { FolderInput, Loader2, Map as MapIcon, Pencil, Plus, Trash2 } from "lucide-react"
+import {
+  AlertTriangle,
+  FolderInput,
+  Loader2,
+  Map as MapIcon,
+  Pencil,
+  Plus,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { FormDialog } from "@/components/admin/form-dialog"
@@ -10,9 +19,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import {
   type TerritoryLevel,
   type TerritorySummary,
+  useBackfillTerritories,
   useCreateTerritory,
   useDeleteTerritory,
+  useSetEnforcement,
   useTerritories,
+  useTerritoryCoverage,
   useTerritoryLevels,
   useUpdateTerritory,
 } from "@/hooks/use-territories"
@@ -294,6 +306,127 @@ function TerritoryRow({
   )
 }
 
+/**
+ * Access rollout (Phase 58). Turning territory scoping on hides every feature
+ * with no territory_id from scoped users, so this panel walks the admin through
+ * the safe sequence: review the unassigned counts, run the spatial backfill to
+ * assign everything a boundary covers, then flip the enforcement flag. The
+ * toggle intentionally isn't blocked on remaining stragglers -- the coverage
+ * table is how the admin sees them and decides.
+ */
+function AccessRolloutCard() {
+  const { data, isPending, isError } = useTerritoryCoverage()
+  const backfill = useBackfillTerritories()
+  const setEnforcement = useSetEnforcement()
+
+  const classes = data?.classes ?? []
+  const enforcement = data?.enforcement ?? false
+  const withGaps = useMemo(() => classes.filter((c) => c.unassigned > 0), [classes])
+  const totalUnassigned = useMemo(() => classes.reduce((sum, c) => sum + c.unassigned, 0), [classes])
+
+  function handleBackfill() {
+    backfill.mutate(undefined, {
+      onSuccess: (result) =>
+        useToastStore
+          .getState()
+          .pushSuccess(
+            `Assigned ${result.total_assigned} feature${result.total_assigned === 1 ? "" : "s"}. ` +
+              `${result.total_remaining} still uncovered.`,
+          ),
+      onError: (err) => toastError(err, "Backfill failed."),
+    })
+  }
+
+  function handleToggle() {
+    const next = !enforcement
+    setEnforcement.mutate(next, {
+      onSuccess: () =>
+        useToastStore
+          .getState()
+          .pushSuccess(next ? "Territory enforcement is now ON." : "Territory enforcement is now OFF."),
+      onError: (err) => toastError(err, "Could not change enforcement."),
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">Access rollout</CardTitle>
+        <CardDescription>
+          Assign existing features to territories, then turn spatial access control on. While enforcement is on, a
+          feature with no territory is invisible to scoped users -- back-fill first.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 pt-0">
+        <div className="flex items-center justify-between rounded-md border p-3">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className={enforcement ? "size-4 text-emerald-600" : "text-muted-foreground size-4"} />
+            <div>
+              <p className="text-sm font-medium">Enforcement {enforcement ? "on" : "off"}</p>
+              <p className="text-muted-foreground text-xs">
+                {enforcement
+                  ? "Scoped users only see and edit features in their granted territories."
+                  : "Scoping is dark -- every user sees every feature, as before."}
+              </p>
+            </div>
+          </div>
+          <Button size="sm" variant={enforcement ? "outline" : "default"} onClick={handleToggle} disabled={setEnforcement.isPending}>
+            {setEnforcement.isPending && <Loader2 className="size-4 animate-spin" />}
+            Turn {enforcement ? "off" : "on"}
+          </Button>
+        </div>
+
+        {!enforcement && totalUnassigned > 0 && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <p className="text-xs">
+              {totalUnassigned} feature{totalUnassigned === 1 ? "" : "s"} across {withGaps.length} class
+              {withGaps.length === 1 ? "" : "es"} have no territory. They will vanish for scoped users once enforcement
+              is on. Run the backfill to place the ones a boundary covers.
+            </p>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between">
+          <p className="text-muted-foreground text-xs">
+            Backfill assigns each unassigned feature to the deepest territory whose boundary contains it. Safe to re-run.
+          </p>
+          <Button size="sm" variant="outline" onClick={handleBackfill} disabled={backfill.isPending}>
+            {backfill.isPending && <Loader2 className="size-4 animate-spin" />}
+            Run backfill
+          </Button>
+        </div>
+
+        {isPending ? (
+          <div className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Loader2 className="size-4 animate-spin" />
+            Loading coverage...
+          </div>
+        ) : isError ? (
+          <p className="text-destructive text-sm">Could not load coverage.</p>
+        ) : withGaps.length === 0 ? (
+          <p className="text-sm text-emerald-700">Every geometric feature has a territory. Ready to enforce.</p>
+        ) : (
+          <div className="flex flex-col gap-1">
+            <div className="text-muted-foreground grid grid-cols-[1fr_auto_auto] gap-x-4 border-b pb-1 text-xs font-medium">
+              <span>Feature class</span>
+              <span className="text-right">Unassigned</span>
+              <span className="text-right">Total</span>
+            </div>
+            {withGaps.map((c) => (
+              <div key={c.class_code} className="grid grid-cols-[1fr_auto_auto] gap-x-4 text-sm">
+                <span className="font-mono text-xs">{c.class_code}</span>
+                <span className="text-right font-medium text-amber-700">{c.unassigned}</span>
+                <span className="text-muted-foreground text-right">{c.total}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function AdminTerritoriesPage() {
   const navigate = useNavigate()
   const { data, isPending, isError } = useTerritories()
@@ -334,7 +467,7 @@ export function AdminTerritoriesPage() {
 
   return (
     <div className="h-full overflow-y-auto p-4">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-semibold">Territories</h1>
@@ -382,6 +515,8 @@ export function AdminTerritoriesPage() {
             )}
           </CardContent>
         </Card>
+
+        <AccessRolloutCard />
       </div>
 
       {creating !== null && (

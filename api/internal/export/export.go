@@ -164,6 +164,17 @@ func enqueueHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 
+		// Phase 58 spatial enforcement: constrain the export to the acting
+		// user's territory scope. A no-op when enforcement is off or the user
+		// bypasses scoping; otherwise the requested set is intersected with the
+		// user's effective territories (or, if they requested no filter,
+		// replaced by it) so a scoped user can never export beyond their scope.
+		territoryIDs, err = enforceExportScope(r.Context(), db, user, territoryIDs)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
 		// CIM: fail synchronously if the declarative mapping isn't seeded, so the
 		// caller learns now rather than via a failed job. The runner reloads it.
 		if req.Format == "cim" {
@@ -359,6 +370,53 @@ func resolveTerritories(ctx context.Context, db *bun.DB, ids []string) ([]string
 		expanded = []string{}
 	}
 	return expanded, nil
+}
+
+// enforceExportScope constrains an export's territory scope to the acting
+// user's spatial access (Phase 58). It returns requested unchanged when
+// enforcement is off, there is no user, or the user bypasses scoping
+// (territories:unscoped). Otherwise:
+//
+//   - requested == nil (the caller asked for no territory filter) is replaced
+//     by the user's whole effective set, so an unfiltered scoped export yields
+//     exactly what the user may see -- never everything;
+//   - a non-nil requested set is intersected with the user's effective set, so
+//     asking for territories outside one's scope silently drops them rather
+//     than exporting features the user can't otherwise read.
+//
+// Both the user's effective set (resolved at session load) and requested (from
+// resolveTerritories) are already expanded to subtrees, so intersecting the two
+// flat id lists is correct. An empty result means "match nothing" (fail closed),
+// which crud.ExportFeatures honors.
+func enforceExportScope(ctx context.Context, db *bun.DB, user *auth.SessionUser, requested []string) ([]string, error) {
+	enforced, err := territory.EnforcementEnabled(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	if !enforced || user == nil {
+		return requested, nil
+	}
+	allowed, unscoped := user.TerritoryFilter()
+	if unscoped {
+		return requested, nil
+	}
+	if requested == nil {
+		if allowed == nil {
+			return []string{}, nil
+		}
+		return allowed, nil
+	}
+	allowSet := make(map[string]struct{}, len(allowed))
+	for _, id := range allowed {
+		allowSet[id] = struct{}{}
+	}
+	out := make([]string, 0, len(requested))
+	for _, id := range requested {
+		if _, ok := allowSet[id]; ok {
+			out = append(out, id)
+		}
+	}
+	return out, nil
 }
 
 // gatherLayers loads and reads every requested class. On success it returns

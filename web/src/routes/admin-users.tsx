@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { KeyRound, Loader2, Plus, ShieldAlert, Unlink, UserPlus, X } from "lucide-react"
+import { KeyRound, Loader2, MapPin, Pencil, Plus, ShieldAlert, Unlink, UserPlus, X } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { FormDialog } from "@/components/admin/form-dialog"
@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { usePermission, useSession } from "@/hooks/use-auth"
+import { useTerritories } from "@/hooks/use-territories"
 import {
   type AdminRole,
   type AdminUser,
@@ -22,11 +23,15 @@ import {
   useAdminUsers,
   useAssignRole,
   useCreateUser,
+  useGrantTerritory,
   useRemoveRole,
+  useRevokeTerritory,
+  useSetManager,
   useSetUserPassword,
   useSetUserStatus,
   useToggleLocalAuth,
   useUnlinkIdentity,
+  useUpdateUser,
 } from "@/hooks/use-users"
 import { ApiError } from "@/lib/api"
 import { useToastStore } from "@/stores/toast-store"
@@ -281,19 +286,206 @@ function SetPasswordRow({ user, onDone }: { user: AdminUser; onDone: () => void 
   )
 }
 
+/** "Edit account" form, revealed per user as a dialog. Only the display name
+ * is editable; email is the login + SSO-link key and is shown read-only. */
+function EditNameRow({ user, onDone }: { user: AdminUser; onDone: () => void }) {
+  const [name, setName] = useState(user.display_name)
+  const update = useUpdateUser()
+  const trimmed = name.trim()
+  const canSave = trimmed.length > 0 && trimmed !== user.display_name
+
+  function handleSave() {
+    update.mutate(
+      { userId: user.id, displayName: trimmed },
+      { onSuccess: onDone, onError: (err) => toastError(err, "Could not update the account.") },
+    )
+  }
+
+  return (
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onDone()}
+      title="Edit account"
+      description={`Update the display name for ${user.email}.`}
+      onSubmit={handleSave}
+      submitLabel="Save"
+      canSubmit={canSave}
+      saving={update.isPending}
+    >
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>Display name</label>
+        <input
+          className={inputClass}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Ama Mensah"
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>Email</label>
+        <input className={inputClass} value={user.email} disabled />
+        <span className="text-muted-foreground text-xs">
+          Email is the sign-in and SSO-link identity and can't be changed here.
+        </span>
+      </div>
+    </FormDialog>
+  )
+}
+
+/**
+ * Phase 58 spatial access: the user's manager (the org-tree edge access
+ * cascades UP) and their direct territory grants (each cascades DOWN to its
+ * whole subtree). Enforcement is gated on the territory_enforcement_enabled
+ * flag, so on a fresh install these controls are informational until an admin
+ * flips it on -- the copy says as much.
+ */
+function SpatialAccessSection({ user, allUsers }: { user: AdminUser; allUsers: AdminUser[] }) {
+  const { data: territoriesData } = useTerritories()
+  const grantTerritory = useGrantTerritory()
+  const revokeTerritory = useRevokeTerritory()
+  const setManager = useSetManager()
+  const [addingTerritory, setAddingTerritory] = useState("")
+
+  const territories = territoriesData?.territories ?? []
+  const grantedIds = new Set(user.territories.map((t) => t.territory_id))
+  // A user can't manage themselves, and the picker offers every other account;
+  // the server also rejects a cycle, this just trims the obvious self case.
+  const managerOptions = allUsers.filter((u) => u.id !== user.id)
+  // Territories not already granted, ordered top-first (level_rank) then name
+  // so the picker reads like the tree.
+  const assignable = territories
+    .filter((t) => !grantedIds.has(t.id))
+    .sort((a, b) => a.level_rank - b.level_rank || a.name.localeCompare(b.name))
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Manager (org-tree edge) */}
+      <div className="flex flex-col gap-1.5">
+        <span className={labelClass}>Manager</span>
+        <div className="flex items-center gap-2">
+          <select
+            className={`${inputClass} h-7 max-w-xs py-0`}
+            value={user.manager_id ?? ""}
+            disabled={setManager.isPending}
+            onChange={(e) =>
+              setManager.mutate(
+                { userId: user.id, managerId: e.target.value || null },
+                { onError: (err) => toastError(err, "Could not set the manager.") },
+              )
+            }
+          >
+            <option value="">no manager (top of the org)</option>
+            {managerOptions.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.display_name} ({u.email})
+              </option>
+            ))}
+          </select>
+          {setManager.isPending && <Loader2 className="text-muted-foreground size-4 animate-spin" />}
+        </div>
+        <span className="text-muted-foreground text-xs">
+          A manager inherits every territory granted to their reports, down the whole org tree.
+        </span>
+      </div>
+
+      {/* Territory grants */}
+      <div className="flex flex-col gap-1.5">
+        <span className={labelClass}>Territories</span>
+        <div className="flex flex-wrap items-center gap-1">
+          {user.territories.length === 0 && (
+            <span className="text-muted-foreground text-xs">none granted -- this account can see no features when scoping is on</span>
+          )}
+          {user.territories.map((t) => (
+            <span
+              key={t.territory_id}
+              className="bg-muted text-muted-foreground group flex items-center gap-1 rounded-md py-0.5 pr-0.5 pl-1.5 text-xs"
+              title={`${t.level_code}: ${t.territory_name}`}
+            >
+              <MapPin className="size-3" />
+              {t.territory_name}
+              <button
+                type="button"
+                className="hover:text-destructive rounded p-0.5"
+                title="Revoke this territory"
+                onClick={() =>
+                  revokeTerritory.mutate(
+                    { userId: user.id, territoryId: t.territory_id },
+                    { onError: (err) => toastError(err, "Could not revoke the territory.") },
+                  )
+                }
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+          {assignable.length > 0 && (
+            <div className="flex items-center gap-1">
+              <select
+                className={`${inputClass} h-7 py-0`}
+                value={addingTerritory}
+                onChange={(e) => setAddingTerritory(e.target.value)}
+              >
+                <option value="">grant territory...</option>
+                {assignable.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({t.level_code})
+                  </option>
+                ))}
+              </select>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                disabled={!addingTerritory || grantTerritory.isPending}
+                onClick={() =>
+                  grantTerritory.mutate(
+                    { userId: user.id, territoryId: addingTerritory },
+                    {
+                      onSuccess: () => setAddingTerritory(""),
+                      onError: (err) => toastError(err, "Could not grant the territory."),
+                    },
+                  )
+                }
+              >
+                <Plus className="size-4" />
+              </Button>
+            </div>
+          )}
+        </div>
+        <span className="text-muted-foreground text-xs">
+          A granted territory covers its whole subtree. Access takes effect immediately.
+        </span>
+      </div>
+    </div>
+  )
+}
+
 /** One account card: identity, roles, linked providers, and actions. */
-function UserRow({ user, roles, isSelf }: { user: AdminUser; roles: AdminRole[]; isSelf: boolean }) {
+function UserRow({
+  user,
+  roles,
+  isSelf,
+  allUsers,
+}: {
+  user: AdminUser
+  roles: AdminRole[]
+  isSelf: boolean
+  allUsers: AdminUser[]
+}) {
   const assignRole = useAssignRole()
   const removeRole = useRemoveRole()
   const setStatus = useSetUserStatus()
   const unlink = useUnlinkIdentity()
   const [addingRole, setAddingRole] = useState("")
+  const [showEdit, setShowEdit] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [unlinkTarget, setUnlinkTarget] = useState<string | null>(null)
   const [disableConfirm, setDisableConfirm] = useState(false)
 
   const disabled = user.status === "disabled"
-  const assignable = roles.filter((r) => !user.roles.includes(r.key))
+  const userRoles = user.roles ?? []
+  const userProviders = user.providers ?? []
+  const assignable = roles.filter((r) => !userRoles.includes(r.key))
 
   return (
     <Card className={disabled ? "opacity-60" : undefined}>
@@ -313,6 +505,9 @@ function UserRow({ user, roles, isSelf }: { user: AdminUser; roles: AdminRole[];
           <CardDescription className="truncate">{user.email}</CardDescription>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <Button variant="ghost" size="icon" className="size-7" title="Edit account" onClick={() => setShowEdit(true)}>
+            <Pencil className="size-4" />
+          </Button>
           <Button variant="ghost" size="icon" className="size-7" title="Set password" onClick={() => setShowPassword((v) => !v)}>
             <KeyRound className="size-4" />
           </Button>
@@ -342,10 +537,10 @@ function UserRow({ user, roles, isSelf }: { user: AdminUser; roles: AdminRole[];
         <div className="flex flex-col gap-1.5">
           <span className={labelClass}>Roles</span>
           <div className="flex flex-wrap items-center gap-1">
-            {user.roles.length === 0 && (
+            {userRoles.length === 0 && (
               <span className="text-muted-foreground text-xs">none -- this account is authorized for nothing</span>
             )}
-            {user.roles.map((r) => (
+            {userRoles.map((r) => (
               <span
                 key={r}
                 className="bg-muted text-muted-foreground group flex items-center gap-1 rounded-md py-0.5 pr-0.5 pl-1.5 text-xs"
@@ -406,10 +601,10 @@ function UserRow({ user, roles, isSelf }: { user: AdminUser; roles: AdminRole[];
         <div className="flex flex-col gap-1.5">
           <span className={labelClass}>Sign-in identities</span>
           <div className="flex flex-wrap items-center gap-1">
-            {user.providers.length === 0 && (
+            {userProviders.length === 0 && (
               <span className="text-muted-foreground text-xs">none linked yet</span>
             )}
-            {user.providers.map((p) => {
+            {userProviders.map((p) => {
               const isSSO = p === "azuread" || p === "google"
               return (
                 <span
@@ -437,6 +632,10 @@ function UserRow({ user, roles, isSelf }: { user: AdminUser; roles: AdminRole[];
           </span>
         </div>
 
+        {/* Spatial access: manager edge + territory grants (Phase 58) */}
+        <SpatialAccessSection user={user} allUsers={allUsers} />
+
+        {showEdit && <EditNameRow user={user} onDone={() => setShowEdit(false)} />}
         {showPassword && <SetPasswordRow user={user} onDone={() => setShowPassword(false)} />}
       </CardContent>
 
@@ -480,7 +679,7 @@ export function AdminUsersPage() {
 
   return (
     <div className="h-full overflow-y-auto p-4">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-semibold">Users</h1>
@@ -510,7 +709,7 @@ export function AdminUsersPage() {
         ) : (
           <div className="flex flex-col gap-2">
             {data.users.map((u) => (
-              <UserRow key={u.id} user={u} roles={roles} isSelf={u.email === selfEmail} />
+              <UserRow key={u.id} user={u} roles={roles} isSelf={u.email === selfEmail} allUsers={data.users} />
             ))}
           </div>
         )}

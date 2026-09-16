@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { X } from "lucide-react"
 
+import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -37,6 +38,84 @@ function formatNumber(n: number, digits = 1): string {
  * lists each candidate tie ranked NORMALLY_OPEN-first, with the restorable
  * load and whether the move is feasible as-is.
  */
+
+/**
+ * The dynamic "how this was calculated" body for a contingency run. Every
+ * figure is read off the actual result -- the donor feeder's base load/reach,
+ * the count of candidate ties, and the top-ranked tie's own restoration
+ * outcome -- so it verifies THIS study, not a generic description of N-1.
+ */
+function ContingencyExplanation({
+  result,
+  classNameFor,
+}: {
+  result: ContingencyResult
+  classNameFor: (code: string) => string
+}) {
+  const best = result.options[0]
+  return (
+    <AnalysisExplanation>
+      <p>
+        <b>N-1 / backfeed restoration.</b> The donor feeder is swept as it stands -- it carries{" "}
+        <b>{formatNumber(result.base_load_kw)} kW</b> across <b>{result.base_node_count} node(s)</b> -- then each open
+        boundary point the base sweep halted at is re-swept with that tie <b>hypothetically closed</b> (an in-memory{" "}
+        <code>closed</code> override; no connectivity is mutated) to see what outaged section this feeder could pick up.
+      </p>
+      <p>
+        <b>{result.options.length} candidate tie{result.options.length === 1 ? "" : "s"}</b> considered, ranked{" "}
+        <code>NORMALLY_OPEN</code>-first (a purpose-built standby path is offered before any incidentally-open switch),
+        then by class/id. Each candidate&apos;s post-transfer voltage is judged against the{" "}
+        <b>
+          {formatNumber(result.min_voltage_pu, 2)}–{formatNumber(result.max_voltage_pu, 2)} pu
+        </b>{" "}
+        band and its branches against <code>100%</code> loading.
+      </p>
+      {best && (
+        <>
+        <p>
+          Top-ranked: <b>{classNameFor(best.tie.feature_class)}</b>
+          {best.normal_state === "NORMALLY_OPEN" ? (
+            <>
+              {" "}
+              -- it ranks first because it is declared <code>NORMALLY_OPEN</code>
+            </>
+          ) : (
+            <>
+              {" "}
+              (no <code>NORMALLY_OPEN</code> tie here, so ranked by class/id)
+            </>
+          )}
+          .{" "}
+          {best.note ? (
+            <>{best.note}.</>
+          ) : best.restored_node_count > 0 ? (
+            <>
+              Closing it restores <b>{formatNumber(best.restored_load_kw)} kW</b> across{" "}
+              <b>{best.restored_node_count} node(s)</b>, worst voltage <b>{formatNumber(best.min_voltage_pu, 3)} pu</b> --{" "}
+              {best.feasible ? (
+                <b>feasible as-is</b>
+              ) : (
+                <>
+                  <b>{best.violations.length}</b> voltage violation(s) and <b>{best.overloaded.length}</b> overload(s)
+                </>
+              )}
+              .
+            </>
+          ) : (
+            <>closing it energizes no additional load.</>
+          )}
+        </p>
+        {best.restored_node_count > 0 && (
+          <Formula>{`restored = ${formatNumber(best.restored_load_kw)} kW across ${best.restored_node_count} node(s)
+worst V  = ${formatNumber(best.min_voltage_pu, 3)} pu     (band ${formatNumber(result.min_voltage_pu, 2)}–${formatNumber(result.max_voltage_pu, 2)} pu)
+verdict  = ${best.feasible ? "Feasible" : "Infeasible"} — ${best.violations.length} violation(s) / ${best.overloaded.length} overload(s)`}</Formula>
+        )}
+        </>
+      )}
+    </AnalysisExplanation>
+  )
+}
+
 export function ContingencyPanel() {
   const armed = useContingencyStore((s) => s.armed)
   const loading = useContingencyStore((s) => s.loading)
@@ -143,6 +222,7 @@ export function ContingencyPanel() {
           </Button>
         </div>
       ) : (
+        <>
         <div className={cn("flex flex-col overflow-hidden", fp.resized ? "min-h-0 flex-1" : "max-h-[21rem]")}>
           {/* Base-case summary -- the donor feeder's own load and reach before
               any transfer, plus the candidate-tie count. */}
@@ -185,6 +265,8 @@ export function ContingencyPanel() {
             )}
           </div>
         </div>
+        <ContingencyExplanation result={result} classNameFor={classNameFor} />
+        </>
       )}
       {fp.resizeHandle}
     </div>

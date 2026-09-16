@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { X } from "lucide-react"
 
+import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -49,6 +50,79 @@ function formatVoltageLevel(volts: number): string {
  * data is flagged, since its fault current is then an optimistic upper
  * bound.
  */
+/**
+ * The dynamic "how this was calculated" body for a fault-current run. Every
+ * figure below is read off the actual result -- the governing node, its
+ * impedance, the reached/flagged counts -- so it verifies THIS answer, not a
+ * generic description of the method.
+ */
+function FaultCurrentExplanation({
+  result,
+  classNameFor,
+}: {
+  result: FaultCurrentResult
+  classNameFor: (code: string) => string
+}) {
+  const vLN = result.nominal_voltage_v / Math.sqrt(3)
+  const withCurrent = result.nodes.filter((n) => n.fault_current_amps !== undefined)
+  const governing = withCurrent.reduce<(typeof withCurrent)[number] | null>(
+    (best, n) => (best === null || n.fault_current_amps! > best.fault_current_amps! ? n : best),
+    null,
+  )
+  const flagged = result.nodes.filter((n) => !n.material_resolved).length
+  const ideal = result.nodes.length - withCurrent.length
+
+  return (
+    <AnalysisExplanation>
+      <p>
+        Symmetrical <b>3-phase bolted</b> fault (IEC 60909 style, zero fault impedance). The pre-fault line
+        voltage is <b>{formatNumber(result.nominal_voltage_v, 0)} V</b>, so the driving phase-to-neutral
+        voltage is <code>{formatNumber(result.nominal_voltage_v, 0)}/√3 = {formatNumber(vLN, 0)} V</code>.
+      </p>
+      <p>
+        For each reached node the engine walks the path back to the source, accumulates the series impedance
+        <code> Z = R + jX</code>, refers it across any transformer to that node's <b>own</b> voltage base, and
+        computes <code>Ibf = V_LN / |Z|</code>.
+      </p>
+      {governing && (
+        <>
+          <p>
+            <b>{result.nodes.length} node(s)</b> reached. The highest fault level here is{" "}
+            <b>{formatCurrent(governing.fault_current_amps!)}</b> at {classNameFor(governing.feature_class)}{" "}
+            ({formatVoltageLevel(governing.nominal_base_v)} base). Worked at that node:
+          </p>
+          <Formula>{`Ibf = V_LN / |Z|
+    = ${formatNumber(governing.nominal_base_v / Math.sqrt(3), 0)} V / ${formatNumber(governing.impedance_ohm, 3)} Ω     (V_LN = ${formatNumber(governing.nominal_base_v, 0)} V / √3)
+    = ${formatCurrent(governing.fault_current_amps!)}     (|Z| = R ${formatNumber(governing.resistance_ohm, 3)} + jX ${formatNumber(governing.reactance_ohm, 3)})`}</Formula>
+          <p>Fault current falls as |Z| grows with distance from the source.</p>
+        </>
+      )}
+      {(flagged > 0 || ideal > 0 || result.barriers.length > 0) && (
+        <p>
+          Honesty flags:{" "}
+          {flagged > 0 && (
+            <>
+              <b>{flagged}</b> node(s) show <code>≤</code> because a conductor on their path had no resolved
+              impedance, so their fault current is an <b>optimistic upper bound</b>.{" "}
+            </>
+          )}
+          {ideal > 0 && (
+            <>
+              <b>{ideal}</b> node(s) sit behind an ideal source (no <code>source_r_ohm</code>/<code>source_x_ohm</code>{" "}
+              on the start feature) so read <code>∞</code>.{" "}
+            </>
+          )}
+          {result.barriers.length > 0 && (
+            <>
+              <b>{result.barriers.length}</b> open device(s) stopped the walk.
+            </>
+          )}
+        </p>
+      )}
+    </AnalysisExplanation>
+  )
+}
+
 export function FaultCurrentPanel() {
   const armed = useFaultCurrentStore((s) => s.armed)
   const loading = useFaultCurrentStore((s) => s.loading)
@@ -111,7 +185,8 @@ export function FaultCurrentPanel() {
           </Button>
         </div>
       ) : (
-        <div className={cn("overflow-y-auto", fp.resized ? "min-h-0 flex-1" : "max-h-[16rem]")}>
+        <>
+          <div className={cn("overflow-y-auto", fp.resized ? "min-h-0 flex-1" : "max-h-[16rem]")}>
           <div className="text-muted-foreground flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
             <span>Nominal {formatNumber(result.nominal_voltage_v, 0)}V (3-phase bolted)</span>
             <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => useFaultCurrentStore.getState().rearm()}>
@@ -190,7 +265,9 @@ export function FaultCurrentPanel() {
               ))}
             </tbody>
           </table>
-        </div>
+          </div>
+          <FaultCurrentExplanation result={result} classNameFor={classNameFor} />
+        </>
       )}
       {fp.resizeHandle}
     </div>

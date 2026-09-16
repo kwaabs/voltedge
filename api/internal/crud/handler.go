@@ -168,6 +168,15 @@ func getHandler(db *bun.DB) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		// Phase 58 spatial read enforcement: a scoped user may not read a
+		// feature outside their territory set. getFeature itself stays
+		// unscoped (internal callers depend on it), so the check is a
+		// post-filter here -- an out-of-scope (or unassigned) feature reads as
+		// a 404, the same answer a scoped user gets from list.
+		if err := enforceReadScope(r.Context(), db, loaded, result); err != nil {
+			writeError(w, err)
+			return
+		}
 		writeJSON(w, http.StatusOK, result)
 	}
 }
@@ -431,6 +440,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusNotFound
 	case isConflictError(err):
 		status = http.StatusConflict
+	case isForbiddenError(err):
+		status = http.StatusForbidden
 	}
 	writeJSON(w, status, apiError{Error: err.Error()})
 }

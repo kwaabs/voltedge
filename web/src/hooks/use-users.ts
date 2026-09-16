@@ -7,6 +7,14 @@ import { ApiError, apiFetch } from "@/lib/api"
  * all behind the admin:users permission. Mirrored here per this app's
  * convention of each hook holding its own copy of the API shape.
  */
+/** One direct territory grant on a user (Phase 58), carrying a label so the
+ * UI needn't re-resolve the tree. */
+export interface AdminTerritoryGrant {
+  territory_id: string
+  territory_name: string
+  level_code: string
+}
+
 export interface AdminUser {
   id: string
   email: string
@@ -15,6 +23,11 @@ export interface AdminUser {
   break_glass: boolean
   roles: string[]
   providers: string[]
+  /** Phase 58 spatial access: the user's manager in the org tree (null at the
+   * top), and their DIRECT territory grants (not the expanded/inherited
+   * effective set). */
+  manager_id: string | null
+  territories: AdminTerritoryGrant[]
   created_at: string
 }
 
@@ -76,6 +89,17 @@ export function useCreateUser() {
   )
 }
 
+/** Edit an account's display name. Email is immutable through the admin API
+ * (it's the login + SSO-link key), so it's not part of the body. */
+export function useUpdateUser() {
+  return useUsersMutation<{ userId: string; displayName: string }>(({ userId, displayName }) =>
+    apiFetch<AdminUser>(`/auth/admin/users/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ display_name: displayName }),
+    }),
+  )
+}
+
 export function useAssignRole() {
   return useUsersMutation<{ userId: string; role: string }>(({ userId, role }) =>
     apiFetch<AdminUser>(`/auth/admin/users/${userId}/roles`, { method: "POST", body: JSON.stringify({ role }) }),
@@ -103,6 +127,38 @@ export function useSetUserPassword() {
 export function useUnlinkIdentity() {
   return useUsersMutation<{ userId: string; provider: string }>(({ userId, provider }) =>
     apiFetch<AdminUser>(`/auth/admin/users/${userId}/identities/${encodeURIComponent(provider)}`, { method: "DELETE" }),
+  )
+}
+
+// --- Phase 58 spatial access: territory grants + manager edge --------------
+// All behind admin:users + CSRF (useradmin_territories.go). Each returns the
+// fresh account row; useUsersMutation re-fetches the list on settle so the
+// scope chips and org column stay honest.
+
+export function useGrantTerritory() {
+  return useUsersMutation<{ userId: string; territoryId: string }>(({ userId, territoryId }) =>
+    apiFetch<AdminUser>(`/auth/admin/users/${userId}/territories`, {
+      method: "POST",
+      body: JSON.stringify({ territory_id: territoryId }),
+    }),
+  )
+}
+
+export function useRevokeTerritory() {
+  return useUsersMutation<{ userId: string; territoryId: string }>(({ userId, territoryId }) =>
+    apiFetch<AdminUser>(`/auth/admin/users/${userId}/territories/${encodeURIComponent(territoryId)}`, {
+      method: "DELETE",
+    }),
+  )
+}
+
+/** Set (managerId) or clear (managerId === null) a user's manager. */
+export function useSetManager() {
+  return useUsersMutation<{ userId: string; managerId: string | null }>(({ userId, managerId }) =>
+    apiFetch<AdminUser>(`/auth/admin/users/${userId}/manager`, {
+      method: "POST",
+      body: JSON.stringify({ manager_id: managerId }),
+    }),
   )
 }
 

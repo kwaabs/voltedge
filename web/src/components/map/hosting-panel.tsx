@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { X } from "lucide-react"
 
+import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -52,6 +53,92 @@ function bindingLabel(constraint: string): string {
  * (best-hosting first) with its capacity, the binding constraint, and how
  * close each limit sits at that capacity.
  */
+
+/**
+ * The dynamic "how this was calculated" body for a hosting-capacity run. Every
+ * figure is read off the actual result -- the feeder slack/band/PF assumed, the
+ * count of nodes sized, and the best node's capacity and the limit that binds
+ * it -- so it verifies THIS study, not a generic description of the method.
+ */
+function HostingExplanation({
+  result,
+  classNameFor,
+}: {
+  result: HostingResult
+  classNameFor: (code: string) => string
+}) {
+  const best = result.candidates.reduce<HostingCandidate | null>(
+    (b, c) => (b === null || c.hosting_capacity_kw > b.hosting_capacity_kw ? c : b),
+    null,
+  )
+  // The best node's capacity worked with this run's own numbers: the binding
+  // constraint and how close it sits to its ceiling, so the result checks out.
+  const bestFormula = (() => {
+    if (!best) return null
+    const feature = best.binding_feature ? classNameFor(best.binding_feature.feature_class) : "—"
+    if (best.binding_constraint === "pre_existing") {
+      return `capacity = 0 kW     (pre-existing violation at ${feature})
+worst V  = ${formatNumber(best.worst_voltage_pu, 3)} pu, loading = ${formatNumber(best.worst_loading_pct)}% — no DER headroom`
+    }
+    if (best.unbounded) {
+      return `capacity ≥ ${formatNumber(best.hosting_capacity_kw, 0)} kW     (no limit binds up to the search cap)`
+    }
+    const margin =
+      best.binding_constraint === "thermal"
+        ? `${formatNumber(best.worst_loading_pct)}% vs ceiling 100%`
+        : `${formatNumber(best.worst_voltage_pu, 3)} pu vs ceiling ${formatNumber(result.max_voltage_pu, 2)} pu`
+    return `capacity = ${formatNumber(best.hosting_capacity_kw, 0)} kW     (binding: ${bindingLabel(best.binding_constraint)} at ${feature})
+found by bisection; ${margin}`
+  })()
+  return (
+    <AnalysisExplanation>
+      <p>
+        <b>DER hosting capacity.</b> A generator is modelled as <b>negative demand</b> injected at a candidate node.
+        The feeder (slack at <b>{formatNumber(result.nominal_voltage_v, 0)} V</b>, injection pf{" "}
+        <b>{formatNumber(result.power_factor, 2)}</b>) is resolved once, then re-swept <b>in memory</b> as the injection
+        grows -- a <b>bisection</b> pins the largest injection that keeps every node at or below{" "}
+        <b>{formatNumber(result.max_voltage_pu, 2)} pu</b> and every branch/transformer at or below{" "}
+        <code>100%</code> loading.
+      </p>
+      <p>
+        <b>
+          {result.candidates.length} interconnection node{result.candidates.length === 1 ? "" : "s"}
+        </b>{" "}
+        sized. The binding limit at capacity is whichever sits closest to its ceiling -- <code>overvoltage</code> at the{" "}
+        {formatNumber(result.max_voltage_pu, 2)}-pu ceiling, or <code>thermal</code> (ampacity).
+      </p>
+      {best && (
+        <>
+        <p>
+          Best node: <b>{classNameFor(best.node.feature_class)}</b> hosts{" "}
+          <b>
+            {formatNumber(best.hosting_capacity_kw, 0)} kW{best.unbounded ? "+" : ""}
+          </b>
+          {best.binding_constraint === "pre_existing" ? (
+            <> -- but {best.note ?? "the feeder already violates a limit, so there is no headroom here"}.</>
+          ) : best.unbounded ? (
+            <> -- no limit binds up to the search cap, so capacity is at least this.</>
+          ) : (
+            <>
+              , bound by <b>{bindingLabel(best.binding_constraint)}</b>
+              {best.binding_feature ? (
+                <>
+                  {" "}
+                  at <b>{classNameFor(best.binding_feature.feature_class)}</b>
+                </>
+              ) : null}{" "}
+              (worst <b>{formatNumber(best.worst_voltage_pu, 3)} pu</b>, <b>{formatNumber(best.worst_loading_pct)}%</b>{" "}
+              loaded at that capacity).
+            </>
+          )}
+        </p>
+        {bestFormula && <Formula>{bestFormula}</Formula>}
+        </>
+      )}
+    </AnalysisExplanation>
+  )
+}
+
 export function HostingPanel() {
   const armed = useHostingStore((s) => s.armed)
   const loading = useHostingStore((s) => s.loading)
@@ -174,6 +261,7 @@ export function HostingPanel() {
           </Button>
         </div>
       ) : (
+        <>
         <div className={cn("flex flex-col overflow-hidden", fp.resized ? "min-h-0 flex-1" : "max-h-[21rem]")}>
           <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-xs">
             <span>{formatNumber(result.nominal_voltage_v, 0)} V nominal</span>
@@ -212,6 +300,8 @@ export function HostingPanel() {
             )}
           </div>
         </div>
+        <HostingExplanation result={result} classNameFor={classNameFor} />
+        </>
       )}
       {fp.resizeHandle}
     </div>

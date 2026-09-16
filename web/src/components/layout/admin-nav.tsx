@@ -1,0 +1,183 @@
+import {
+  Cloud,
+  Inbox,
+  LandPlot,
+  Layers,
+  LayoutGrid,
+  type LucideIcon,
+  MapPin,
+  Package,
+  Rows3,
+  Shapes,
+  Share2,
+  Stamp,
+  Tags,
+  UsersRound,
+  Workflow,
+  Wrench,
+  Zap,
+} from "lucide-react"
+
+/** One admin destination. `perm` is the permission the API enforces; the
+ * sidebar and the /admin homepage both hide an item the caller can't use, so
+ * the nav never offers a dead end (the API stays the real gate). */
+export interface AdminNavItem {
+  to: string
+  label: string
+  description: string
+  icon: LucideIcon
+  perm: string
+}
+
+/** A titled cluster of admin destinations, rendered as one section on the
+ * /admin homepage. */
+export interface AdminNavGroup {
+  label: string
+  items: AdminNavItem[]
+}
+
+/**
+ * The admin menu, in one place so the sidebar's single "Admin" entry and the
+ * /admin homepage stay in lockstep. Grouped by what each destination governs,
+ * not by permission -- a section only renders when the caller can reach at
+ * least one item inside it (see filterAdminNav). Previously these lived inline
+ * in app-sidebar's `adminItems`; the list had grown long enough that a landing
+ * page reads better than fifteen stacked sidebar rows.
+ */
+export const adminNavGroups: AdminNavGroup[] = [
+  {
+    label: "Metadata & schema",
+    items: [
+      {
+        to: "/admin/feature-classes",
+        label: "Feature classes",
+        description: "Author what a feature class is — subtypes, fields, domains.",
+        icon: Layers,
+        perm: "metadata:read",
+      },
+      {
+        to: "/admin/domains",
+        label: "Domains",
+        description: "Coded-value lists that constrain feature attributes.",
+        icon: Tags,
+        perm: "metadata:read",
+      },
+      {
+        to: "/admin/field-groups",
+        label: "Field groups",
+        description: "Group fields into the sections shown on the attribute panel.",
+        icon: Rows3,
+        perm: "metadata:read",
+      },
+      {
+        to: "/admin/materials",
+        label: "Materials",
+        description: "The materials catalog features draw their specs from.",
+        icon: Wrench,
+        perm: "metadata:read",
+      },
+      {
+        to: "/admin/external-systems",
+        label: "External systems",
+        description: "APIs a feature's live links fetch data from (CIS, billing…).",
+        icon: Cloud,
+        perm: "metadata:read",
+      },
+      {
+        to: "/admin/cim-mappings",
+        label: "CIM export mapping",
+        description: "Map classes and attributes onto the CIM export profile.",
+        icon: Share2,
+        perm: "metadata:read",
+      },
+    ],
+  },
+  {
+    label: "Symbology & map",
+    items: [
+      {
+        to: "/admin/symbology-icons",
+        label: "Symbology icons",
+        description: "The icon library map symbology rules draw from.",
+        icon: Shapes,
+        perm: "metadata:read",
+      },
+      {
+        to: "/admin/stencils",
+        label: "Stencil promotion",
+        description: "Which diagram stencils promote to real map features.",
+        icon: Stamp,
+        perm: "metadata:read",
+      },
+      {
+        to: "/admin/diagrams",
+        label: "Diagram rules",
+        description: "Rules that drive one-line diagram placement.",
+        icon: Workflow,
+        perm: "metadata:read",
+      },
+      {
+        to: "/admin/map-settings",
+        label: "Map settings",
+        description: "The default map view, basemaps and annotation visibility.",
+        icon: MapPin,
+        perm: "metadata:write",
+      },
+    ],
+  },
+  {
+    label: "Access & operations",
+    items: [
+      {
+        to: "/admin/users",
+        label: "Users",
+        description: "User accounts, roles and spatial territory access.",
+        icon: UsersRound,
+        perm: "admin:users",
+      },
+      {
+        to: "/admin/territories",
+        label: "Territories",
+        description: "The territory hierarchy and scoping rollout.",
+        icon: LandPlot,
+        perm: "territories:write",
+      },
+      {
+        to: "/admin/circuits",
+        label: "Circuits",
+        description: "Circuit definitions features are assigned to.",
+        icon: Zap,
+        perm: "circuits:write",
+      },
+      {
+        to: "/admin/field-packs",
+        label: "Field packs",
+        description: "Offline field-pack builds for the field tool.",
+        icon: Package,
+        perm: "admin:field-packs",
+      },
+      {
+        to: "/admin/sync-review",
+        label: "Sync review",
+        description: "Review and post edits synced back from the field.",
+        icon: Inbox,
+        perm: "sync:review",
+      },
+    ],
+  },
+]
+
+/** All admin items flattened -- the sidebar uses this to decide whether to
+ * show its single "Admin" entry at all (any item reachable ⇒ show it). */
+export const adminNavItems: AdminNavItem[] = adminNavGroups.flatMap((g) => g.items)
+
+/** The grid icon stands in for the admin landing page in the sidebar. */
+export const AdminNavIcon = LayoutGrid
+
+/** Keep only the groups (and, within them, the items) the caller can reach.
+ * `can` is usePermission()'s predicate. */
+export function filterAdminNav(can: (perm: string) => boolean): AdminNavGroup[] {
+  return adminNavGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => can(item.perm)) }))
+    .filter((group) => group.items.length > 0)
+}

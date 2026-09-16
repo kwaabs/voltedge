@@ -7,6 +7,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/uptrace/bun"
+
+	"github.com/kwaabs/voltedge/api/internal/access"
 )
 
 // Routes returns the auth router, meant to be mounted at /auth:
@@ -78,7 +80,7 @@ func writeError(w http.ResponseWriter, err error) {
 	message := "internal server error"
 
 	switch {
-	case isValidationError(err):
+	case isValidationError(err), access.IsInvalid(err):
 		status = http.StatusBadRequest
 		message = err.Error()
 	case isUnauthorizedError(err):

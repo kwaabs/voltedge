@@ -44,6 +44,8 @@ const (
 	PermSyncPost            = "sync:post"
 	PermOMSRead             = "oms:read"
 	PermOMSWrite            = "oms:write"
+	PermWAMRead             = "wam:read"
+	PermWAMWrite            = "wam:write"
 )
 
 // RequirePermission gates a route (sub)tree by RBAC permission. A request
