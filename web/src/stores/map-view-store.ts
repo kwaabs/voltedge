@@ -6,23 +6,34 @@ export type Bbox4326 = [number, number, number, number]
 /**
  * The live map viewport, pushed from voltedge-map.tsx's moveend handler (the
  * OL Map is a component-local ref, never lifted into a store, so this is the
- * one computed value it publishes for siblings to read). Ephemeral view state,
- * not persisted -- it only means anything for what the map is showing right
- * now. Readers: the geographic export dialog clips a "current view" export to
- * `bbox`; the status bar shows `zoom`. Both are null until the map has rendered
- * once (so the export dialog can fall back to a whole-dataset export if it's
- * somehow opened before the first render).
+ * one computed value it publishes for siblings to read). This zustand store is
+ * module-level, so it OUTLIVES the map component: leaving the map route unmounts
+ * VoltEdgeMap, but the store keeps `center`/`zoom`, and the map seeds its View
+ * from them on the next mount -- so navigating away and back returns to where
+ * you left off instead of snapping to the admin default. All fields are null
+ * until the map has rendered once (before that the map falls back to the admin
+ * default, and the export dialog to a whole-dataset export).
+ *
+ * Readers: the map itself restores `center`/`zoom` on mount; the geographic
+ * export dialog clips a "current view" export to `bbox`; the status bar shows
+ * `zoom`. In-memory only (not localStorage) -- a full page reload starts fresh
+ * from the admin default, which is intended.
  */
 interface MapViewState {
   bbox: Bbox4326 | null
+  /** Last viewport center as [lon, lat] in EPSG:4326. */
+  center: [number, number] | null
   zoom: number | null
   setBbox: (bbox: Bbox4326) => void
+  setCenter: (center: [number, number]) => void
   setZoom: (zoom: number) => void
 }
 
 export const useMapViewStore = create<MapViewState>((set) => ({
   bbox: null,
+  center: null,
   zoom: null,
   setBbox: (bbox) => set({ bbox }),
+  setCenter: (center) => set({ center }),
   setZoom: (zoom) => set({ zoom }),
 }))

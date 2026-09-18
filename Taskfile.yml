@@ -155,6 +155,14 @@ tasks:
     cmds:
       - go run ./cmd/compile {{.CODE}}
 
+  compile-all:
+    desc: "Compile EVERY registered feature class into its physical gis.<code> table in one run (enumerates metadata.feature_classes). Idempotent; used by `task seed-all` after all class metadata is loaded and before the instance/network seeds. Fails loudly, naming any class that can't compile"
+    dir: "{{.API_DIR}}"
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/compile --all
+
   uncompile:
     desc: "Drop one feature class's physical table + tile function and reset it to draft (DESTRUCTIVE: discards all its rows). Follow with `task compile CODE=...` to rebuild fresh -- used to add a required field to a class that already has data."
     dir: "{{.API_DIR}}"
@@ -276,6 +284,32 @@ tasks:
       DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
     cmds:
       - go run ./cmd/authadmin revoke-token --email {{.EMAIL}} --id {{.ID}}
+
+  reset-data-plan:
+    desc: "DRY RUN of the break-glass factory reset -- authenticate and print what WOULD be wiped, change nothing. EMAIL var; set RESETDATA_PASSWORD in your env/.env first"
+    dir: "{{.API_DIR}}"
+    requires:
+      vars:
+        - name: EMAIL
+          desc: Break-glass admin email authorizing the reset
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/resetdata --admin-email {{.EMAIL}}
+
+  reset-data:
+    desc: "DESTRUCTIVE break-glass factory reset -- wipe ALL data, purge the object store, reduce to one admin. Config/templates/formulas are preserved. EMAIL var; set RESETDATA_PASSWORD first. Run `task reset-data-plan` to preview"
+    dir: "{{.API_DIR}}"
+    interactive: true
+    requires:
+      vars:
+        - name: EMAIL
+          desc: Break-glass admin email authorizing the reset (becomes the sole surviving account)
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - powershell -NoProfile -Command "$answer = Read-Host 'This ERASES all features, outages, works, attachments, and every account except the break-glass admin. Type YES to continue'; if ($answer -ne 'YES') { Write-Host 'Aborted.'; exit 1 }"
+      - go run ./cmd/resetdata --admin-email {{.EMAIL}} --yes
 
   seed-pole:
     desc: Load the POLE example metadata through the gitbash sidecar
@@ -1041,6 +1075,127 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/mv_cim_mapping_example.sql
+
+  seed-all:
+    desc: "Reseed a freshly-migrated (empty) dev DB end to end: load ALL metadata/config seeds, compile every class into its gis.<code> table, then load all instance/network seeds. Run `task migrate` first. Idempotent (every seed is ON CONFLICT-guarded and compile is additive). Excludes the destructive one-off migrations (collapse-rmu-*, migrate-dist-switch-to-mv-switch) and diagnostics -- those are only for migrating an EXISTING install, not building a fresh one"
+    cmds:
+      # --- Phase 1: metadata / config (classes, fields, subtypes, symbology,
+      # templates, rules, CIM mappings). No compiled gis table needed; order is
+      # the historical/dependency order these were authored in. -----------------
+      - task: seed-pole
+      - task: seed-tower
+      - task: seed-tower-relationship
+      - task: seed-connectivity
+      # base trace configs (no dedicated task) -- soft prereq of the barrier /
+      # switching-device seeds below; load it before them.
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/trace_configurations_example.sql
+      - task: seed-relationships
+      - task: seed-substation-yard
+      - task: seed-structure
+      - task: seed-bay
+      - task: seed-bay-containment
+      - task: seed-substation-panel
+      - task: seed-substation-panel-containment
+      - task: seed-substation-panel-symbology
+      - task: seed-control-building
+      - task: seed-mv-switchgear-panels
+      - task: seed-mv-switchgear-panel-templates
+      - task: seed-circuit-ref
+      - task: seed-circuit-membership
+      - task: seed-operational-state
+      - task: seed-operational-state-backfill
+      - task: seed-operational-state-transitions
+      - task: seed-operational-state-barriers
+      - task: seed-snapping
+      - task: seed-phase-model
+      - task: seed-lv-conductors
+      - task: seed-service-point
+      - task: seed-lv-devices
+      - task: seed-lv-metering
+      - task: seed-lv-unmetered-ct
+      - task: seed-load-flow-fields
+      - task: seed-transformer-fields
+      - task: seed-power-transformer
+      - task: seed-earthing-transformer
+      - task: seed-mv-conductor-specs
+      - task: seed-zero-seq-fields
+      - task: seed-cim-mapping
+      - task: seed-cim-mapping-coverage
+      - task: seed-double-busbar
+      - task: seed-mv-switching
+      - task: seed-bus-coupler-fields
+      - task: seed-switch-normal-state
+      - task: seed-rmu
+      - task: seed-rmu-templates
+      - task: seed-packaged-substation
+      - task: seed-packaged-substation-templates
+      - task: seed-overhead-pole-transformer
+      - task: seed-pad-mount-urd
+      - task: seed-rmu-diagram-placement
+      - task: seed-feature-class-categories
+      - task: seed-mv-protection
+      - task: seed-mv-lv-switch
+      - task: seed-mv-lv-switch-parity
+      - task: seed-mv-recloser
+      - task: seed-trace-barrier-resync
+      - task: seed-mv-measuring
+      - task: seed-mv-metering
+      - task: seed-mv-metering-cubicle
+      - task: seed-mv-metering-symbology
+      - task: seed-generator
+      - task: seed-generator-pv-fields
+      - task: seed-arc-flash-geometry-fields
+      - task: seed-functional-roles
+      - task: seed-display-zoom-13
+      - task: seed-cable-management
+      - task: seed-cable-management-symbology
+      - task: seed-cable-joint
+      - task: seed-cable-joint-symbology
+      - task: seed-cable-routing
+      - task: seed-duct-way
+      # base classes/metadata with no dedicated task, needed before the seeds
+      # that extend them: protective_relay creates PROTECTIVE_RELAY (seed-mv-relay
+      # adds fields; seed-protection-network instances it), diagram_example makes
+      # SUBSTATION a diagram container (seed-double-busbar-diagram needs it).
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/protective_relay_example.sql
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/diagram_example.sql
+      - task: seed-mv-relay
+      - task: seed-protection-curves
+      - task: seed-pnc-control-devices
+      - task: seed-ev-charging
+      - task: seed-mv-busbar
+      - task: seed-mv-symbology
+      - task: seed-stencils-extra
+      - task: seed-mv-conductor-diagram-promote
+      - task: seed-mv-busbar-voltage-symbology
+      - task: seed-mv-cim-mapping
+      # --- Phase 2: materialise every physical gis.<code> table now that all
+      # class metadata (incl. the field-add seeds above) is present. -------------
+      - task: compile-all
+      # --- Phase 3: instance / network data. These INSERT/UPDATE gis.<code>
+      # rows, so they need the tables from Phase 2. Kept in authoring order;
+      # each fails loudly if a prerequisite instance seed hasn't run. ------------
+      - task: seed-test-network
+      - task: seed-generator-network
+      - task: seed-lv-ring-network
+      - task: seed-nodal-multi-source
+      - task: seed-substation-network
+      - task: seed-oms
+      - task: seed-oms-planned
+      - task: seed-protection-network
+      - task: seed-coupler-network
+      - task: seed-double-busbar-network
+      - task: seed-double-busbar-diagram
+      - task: seed-pnc-devices-network
 
   # ------------------------------------------------------------- frontend --
 

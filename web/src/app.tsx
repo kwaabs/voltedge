@@ -7,6 +7,7 @@ import { RequirePermission, RequireSession } from "@/components/layout/require-s
 import { Toaster } from "@/components/ui/toaster"
 import { useThemeEffect } from "@/hooks/use-theme-effect"
 import { AdminCimMappingsPage } from "@/routes/admin-cim-mappings"
+import { AdminImportsPage } from "@/routes/admin-imports"
 import { AdminHomePage } from "@/routes/admin-home"
 import { AdminCircuitsPage } from "@/routes/admin-circuits"
 import { AdminDomainsPage } from "@/routes/admin-domains"
@@ -26,6 +27,7 @@ import { AdminUsersPage } from "@/routes/admin-users"
 import { SyncReviewPage } from "@/routes/sync-review"
 import { ConnectivityPage } from "@/routes/connectivity"
 import { FeaturesPage } from "@/routes/features"
+import { ImportRunPage } from "@/routes/imports"
 import { LoginPage } from "@/routes/login"
 import { MapPage } from "@/routes/map"
 import { NotFoundPage } from "@/routes/not-found"
@@ -86,6 +88,18 @@ export function App() {
                 </RequirePermission>
               }
             />
+            {/* Running an import writes features, so the whole wizard is a
+                pure-write surface -- a route-level features:write gate (its nav
+                entry is already hidden from a read-only user), matching the
+                feature-class create wizard's arrangement. */}
+            <Route
+              path="imports"
+              element={
+                <RequirePermission perm="features:write">
+                  <ImportRunPage />
+                </RequirePermission>
+              }
+            />
             <Route path="connectivity" element={<ConnectivityPage />} />
             <Route path="relationships" element={<RelationshipsPage />} />
             {/* The admin landing page -- the single sidebar entry that fans
@@ -114,6 +128,7 @@ export function App() {
             <Route path="admin/feature-classes/:code" element={<AdminFeatureClassDetailPage />} />
             <Route path="admin/domains" element={<AdminDomainsPage />} />
             <Route path="admin/cim-mappings" element={<AdminCimMappingsPage />} />
+            <Route path="admin/imports" element={<AdminImportsPage />} />
             <Route path="admin/field-groups" element={<AdminFieldGroupsPage />} />
             <Route path="admin/diagrams" element={<AdminDiagramsPage />} />
             <Route path="admin/materials" element={<AdminMaterialsPage />} />

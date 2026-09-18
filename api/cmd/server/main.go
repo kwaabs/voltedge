@@ -39,6 +39,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/externallink"
 	"github.com/kwaabs/voltedge/api/internal/externalsystem"
 	"github.com/kwaabs/voltedge/api/internal/fieldpack"
+	"github.com/kwaabs/voltedge/api/internal/importer"
 	"github.com/kwaabs/voltedge/api/internal/mapannotation"
 	"github.com/kwaabs/voltedge/api/internal/mapsettings"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
@@ -153,6 +154,12 @@ func main() {
 	// their own RequireAuth/RequireCSRF, and the switch checks
 	// admin:auth-settings/break-glass itself).
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/features", crud.Routes(db))
+		// ETL import engine (docs/etl-import-engine.md): stage an uploaded source
+		// artifact and pre-flight a mapping (S3), then run it (S4). Running an
+		// import writes features through the same validated crud path, so it rides
+		// the features:read/features:write gate -- authoring the mapping profile is
+		// separate metadata:write config under /admin.
+		r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/imports", importer.Routes(db, exportStore))
 	// Geographic export (Phase 14): reads features (optionally clipped to the
 	// map viewport) and streams them back as a KMZ/Shapefile/DXF download. A
 	// read, like trace/analysis -- POST only because the filter and scope don't

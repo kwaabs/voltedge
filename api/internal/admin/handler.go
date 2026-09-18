@@ -87,6 +87,14 @@ import (
 //	DELETE /cim-attribute-mappings/{id}    delete an attribute mapping
 //	GET    /cim-coverage                   feature classes with no CIM class mapping (silently dropped from export)
 //	GET    /cim-preview/{code}             one real feature of a class rendered through the CIM encoder (byte-exact CIM/XML preview; ?profile= optional)
+//	GET    /import-profiles                every ETL import profile, code-shaped (Phase / docs/etl-import-engine.md)
+//	POST   /import-profiles                create an import profile (target class + write policy + geometry mode)
+//	PATCH  /import-profiles/{code}         edit an import profile (name/format/write policy/geometry/status; not its target class)
+//	DELETE /import-profiles/{code}         delete an import profile (its field mappings cascade)
+//	GET    /import-profiles/{code}/field-mappings  every source-column -> target-field mapping of a profile
+//	POST   /import-profiles/{code}/field-mappings  add one field mapping (source column + transform) to a profile
+//	PATCH  /import-field-mappings/{id}     edit a field mapping's source_column/transform/parameter
+//	DELETE /import-field-mappings/{id}     delete a field mapping
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/feature-classes", listFeatureClassesHandler(db))
@@ -145,6 +153,14 @@ func Routes(db *bun.DB) chi.Router {
 	r.Delete("/cim-attribute-mappings/{id}", deleteCimAttributeMappingHandler(db))
 	r.Get("/cim-coverage", listCimCoverageHandler(db))
 	r.Get("/cim-preview/{code}", getCimPreviewHandler(db))
+	r.Get("/import-profiles", listImportProfilesHandler(db))
+	r.Post("/import-profiles", createImportProfileHandler(db))
+	r.Patch("/import-profiles/{code}", updateImportProfileHandler(db))
+	r.Delete("/import-profiles/{code}", deleteImportProfileHandler(db))
+	r.Get("/import-profiles/{code}/field-mappings", listImportFieldMappingsHandler(db))
+	r.Post("/import-profiles/{code}/field-mappings", createImportFieldMappingHandler(db))
+	r.Patch("/import-field-mappings/{id}", updateImportFieldMappingHandler(db))
+	r.Delete("/import-field-mappings/{id}", deleteImportFieldMappingHandler(db))
 	return r
 }
 

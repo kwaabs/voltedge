@@ -194,13 +194,20 @@ function DropdownMenuSubTrigger({
 
 function DropdownMenuSubContent({
   className,
+  collisionPadding = 8,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
   return (
     <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"
+      // `collisionPadding` keeps the submenu from spilling past a viewport edge
+      // (Radix shifts it up/down to stay clear instead of clipping at the
+      // bottom). The available-height cap + `overflow-y-auto` are the fallback
+      // for a submenu taller than the space that remains after shifting -- it
+      // scrolls inside itself rather than running off-screen.
+      collisionPadding={collisionPadding}
       className={cn(
-        "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out z-50 min-w-[8rem] overflow-hidden rounded-md border p-1 shadow-lg",
+        "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[8rem] overflow-y-auto rounded-md border p-1 shadow-lg",
         className,
       )}
       {...props}

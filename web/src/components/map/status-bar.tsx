@@ -133,7 +133,7 @@ function GoToSearch() {
           aria-label="Go to coordinates"
           aria-invalid={invalid}
           className={cn(
-            "border-input bg-background h-5 w-36 rounded border pr-1.5 pl-6 text-xs tabular-nums outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+            "border-input bg-background text-foreground placeholder:text-muted-foreground h-5 w-36 rounded border pr-1.5 pl-6 text-xs tabular-nums outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
             invalid && "border-destructive focus-visible:border-destructive focus-visible:ring-destructive/50",
           )}
         />
@@ -158,7 +158,7 @@ function PinsButton() {
         variant="ghost"
         size="sm"
         onClick={() => setOpen(true)}
-        className="text-muted-foreground hover:text-foreground h-5 gap-1.5 px-1.5 text-xs font-normal"
+        className="text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 gap-1.5 px-1.5 text-xs font-normal"
       >
         <MapPin className="size-3.5" />
         Pins
@@ -198,7 +198,7 @@ function BasemapPicker() {
         <Button
           variant="ghost"
           size="sm"
-          className="text-muted-foreground hover:text-foreground h-5 gap-1.5 px-1.5 text-xs font-normal"
+          className="text-slate-200 hover:text-white dark:text-muted-foreground dark:hover:text-foreground h-5 gap-1.5 px-1.5 text-xs font-normal"
         >
           <MapIcon className="size-3.5" />
           {activeLabel}
@@ -246,7 +246,7 @@ function BasemapAttribution() {
   if (attribution.length === 0) return null
 
   return (
-    <span className="text-muted-foreground flex items-center gap-1">
+    <span className="text-slate-200 dark:text-muted-foreground flex items-center gap-1">
       {attribution.map((link, i) => (
         <span key={link.href} className="flex items-center gap-1">
           {i > 0 && <span aria-hidden>·</span>}
@@ -275,13 +275,18 @@ function BasemapAttribution() {
  * voltedge-map.tsx so it isn't shown twice.
  */
 export function StatusBar() {
+  // Same medium dark-blue surface as the header (app-header.tsx) in LIGHT MODE
+  // ONLY, with light text so the readouts stay legible; dark mode is left
+  // untouched via `dark:` overrides back to the neutral theme tokens. Soft
+  // upward shadow lifts it off the map (custom -y shadow because Tailwind's
+  // shadow utilities only cast downward).
   return (
-    <div className="bg-background flex h-7 shrink-0 items-center gap-4 border-t px-3 text-xs">
+    <div className="bg-[oklch(0.45_0.10_252)] text-slate-100 dark:bg-background dark:text-foreground flex h-7 shrink-0 items-center gap-4 border-t border-white/10 dark:border-border px-3 text-xs shadow-[0_-1px_3px_rgb(0_0_0/0.15)]">
       <ApiStatusIndicator />
       <div className="bg-border h-4 w-px" />
       <CoordinateReadout />
       <ZoomReadout />
-      <span className="text-muted-foreground">{MAP_PROJECTION}</span>
+      <span className="text-slate-200 dark:text-muted-foreground">{MAP_PROJECTION}</span>
       <div className="bg-border h-4 w-px" />
       <GoToSearch />
       <div className="ml-auto flex items-center gap-3">

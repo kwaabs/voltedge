@@ -38,7 +38,11 @@ export function FeaturesPage() {
   )
 
   return (
-    <div className="flex h-full">
+    // Definite height (viewport minus the h-14 app header) rather than h-full:
+    // the app shell wrapper is min-h-svh, so a long class list would grow the
+    // document and the sidebar's overflow-y-auto would never engage. Capping
+    // here bounds both panes so each scrolls internally.
+    <div className="flex h-[calc(100svh-3.5rem)]">
       {/* Left: class list */}
       <div className="flex w-72 shrink-0 flex-col border-r">
         <div className="border-b p-3">

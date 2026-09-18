@@ -175,6 +175,49 @@ func (s *ObjectStore) Delete(ctx context.Context, key string) error {
 	return s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
 }
 
+// Purge removes every object in the bucket and returns the count removed. It is
+// the whole-store wipe the break-glass factory reset (api/cmd/resetdata) runs
+// after the DB rows that point at these blobs are truncated -- attachments,
+// image thumbnails, export artifacts, and field-pack outputs -- so no orphaned
+// bytes survive a clean-slate reset. Idempotent: an already-empty bucket removes
+// nothing and succeeds.
+//
+// Listing streams into RemoveObjects on a goroutine so a large bucket never
+// materialises every key in memory at once. count is written only by that
+// goroutine and read only after the RemoveObjects range returns -- which cannot
+// happen until the goroutine has closed objectsCh -- so the channel close
+// establishes the happens-before edge and the read is race-free.
+func (s *ObjectStore) Purge(ctx context.Context) (int, error) {
+	var count int
+	var listErr error
+	objectsCh := make(chan minio.ObjectInfo)
+	go func() {
+		defer close(objectsCh)
+		for obj := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Recursive: true}) {
+			if obj.Err != nil {
+				listErr = obj.Err
+				return
+			}
+			count++
+			objectsCh <- obj
+		}
+	}()
+
+	var rmErr error
+	for rerr := range s.client.RemoveObjects(ctx, s.bucket, objectsCh, minio.RemoveObjectsOptions{}) {
+		if rerr.Err != nil && rmErr == nil {
+			rmErr = fmt.Errorf("removing %q: %w", rerr.ObjectName, rerr.Err)
+		}
+	}
+	if listErr != nil {
+		return count, fmt.Errorf("listing bucket %q: %w", s.bucket, listErr)
+	}
+	if rmErr != nil {
+		return count, rmErr
+	}
+	return count, nil
+}
+
 // PresignGet mints a time-limited GET URL for key. The browser is redirected
 // here, so response-content-disposition is baked into the signature to force a
 // download with a friendly filename rather than an inline render. The call is

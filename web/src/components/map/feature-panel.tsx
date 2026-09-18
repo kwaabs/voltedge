@@ -59,6 +59,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { circuitNameMap, useCircuits } from "@/hooks/use-circuits"
@@ -2188,53 +2191,79 @@ export function FeaturePanel() {
                     Supply path (to source)
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={armAutoLoadFlow}>
-                    <Workflow className="size-4" />
-                    Load flow (auto)…
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={armLoadFlow}>
-                    <Activity className="size-4" />
-                    Run load flow…
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={armVoltageProfile}>
-                    <TrendingDown className="size-4" />
-                    Voltage profile &amp; losses…
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={armFaultCurrent}>
-                    <TriangleAlert className="size-4" />
-                    Fault current…
-                  </DropdownMenuItem>
-                  {selectedNetworkRole === "edge" && (
-                    <DropdownMenuItem onSelect={armAmpacity}>
-                      <Thermometer className="size-4" />
-                      Run ampacity…
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem onSelect={armCoordination}>
-                    <ChartSpline className="size-4" />
-                    Protection coordination…
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={armContingency}>
-                    <Shuffle className="size-4" />
-                    Contingency &amp; backfeed…
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={armHosting}>
-                    <Sun className="size-4" />
-                    DER hosting capacity…
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={armEvHosting}>
-                    <BatteryCharging className="size-4" />
-                    EV feeder headroom…
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={armMeshedLoadFlow}>
-                    <Spline className="size-4" />
-                    Meshed load flow…
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={armNodalLoadFlow}>
-                    <Network className="size-4" />
-                    Nodal load flow (Y-bus)…
-                  </DropdownMenuItem>
+                  {/* The numeric analyses are grouped into cascading submenus so the
+                      menu stays scannable as the analysis suite grows -- each arm
+                      handler is unchanged, only the layout differs. */}
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Activity className="size-4" />
+                      Load flow
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onSelect={armAutoLoadFlow}>
+                        <Workflow className="size-4" />
+                        Load flow (auto)…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={armLoadFlow}>
+                        <Activity className="size-4" />
+                        Run load flow…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={armVoltageProfile}>
+                        <TrendingDown className="size-4" />
+                        Voltage profile &amp; losses…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={armMeshedLoadFlow}>
+                        <Spline className="size-4" />
+                        Meshed load flow…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={armNodalLoadFlow}>
+                        <Network className="size-4" />
+                        Nodal load flow (Y-bus)…
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <TriangleAlert className="size-4" />
+                      Fault &amp; protection
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onSelect={armFaultCurrent}>
+                        <TriangleAlert className="size-4" />
+                        Fault current…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={armCoordination}>
+                        <ChartSpline className="size-4" />
+                        Protection coordination…
+                      </DropdownMenuItem>
+                      {selectedNetworkRole === "edge" && (
+                        <DropdownMenuItem onSelect={armAmpacity}>
+                          <Thermometer className="size-4" />
+                          Run ampacity…
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Sun className="size-4" />
+                      Capacity &amp; planning
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onSelect={armContingency}>
+                        <Shuffle className="size-4" />
+                        Contingency &amp; backfeed…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={armHosting}>
+                        <Sun className="size-4" />
+                        DER hosting capacity…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={armEvHosting}>
+                        <BatteryCharging className="size-4" />
+                        EV feeder headroom…
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                 </DropdownMenuContent>
               </DropdownMenu>
               )}

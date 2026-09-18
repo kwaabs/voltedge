@@ -366,3 +366,71 @@ export function useAdminCimPreview(classCode: string | null) {
     staleTime: 0,
   })
 }
+
+/** Wire type for /admin/import-profiles -- api/internal/admin's
+ * importProfileResponse, mirroring metadata.import_profiles (migration 0102).
+ * One reusable ETL import for a target feature class (optionally one subtype):
+ * the source format, the write policy (insert_only appends, upsert matches an
+ * existing feature on match_fields), and how each row's geometry is assembled
+ * (geometry_mode + its source columns). See docs/etl-import-engine.md. The
+ * inverse of AdminCimProfile: columns are mapped IN to our fields, not OUT. */
+export interface AdminImportProfile {
+  code: string
+  name: string
+  feature_class_code: string
+  subtype_code?: number | null
+  source_format: string
+  write_mode: string
+  /** Target field names forming the upsert natural key; empty for insert_only. */
+  match_fields: string[]
+  geometry_mode: string
+  geometry_lon_column?: string | null
+  geometry_lat_column?: string | null
+  geometry_wkt_column?: string | null
+  status: string
+}
+
+/** Wire type for /admin/import-profiles/{code}/field-mappings --
+ * api/internal/admin's importFieldMappingResponse, mirroring
+ * metadata.import_field_mappings. Maps one source column to one target field
+ * with a coercion transform (direct/constant/scale/domain_map); the parameter
+ * that matters depends on the transform (constant_value / scale_factor /
+ * value_map). Profile-scoped (unlike the global CIM attribute mappings), so it
+ * carries its profile_code. */
+export interface AdminImportFieldMapping {
+  id: string
+  profile_code: string
+  field_name: string
+  source_column?: string | null
+  transform: string
+  constant_value?: string | null
+  scale_factor?: number | null
+  value_map?: Record<string, unknown> | null
+}
+
+/** The ETL import engine's two config tables (metadata.import_profiles /
+ * import_field_mappings, migration 0102) authored by the import admin editor.
+ * Each mutation invalidates its own query key, matching every other admin
+ * resource here. See docs/etl-import-engine.md. */
+export function useAdminImportProfiles() {
+  return useQuery({
+    queryKey: ["admin", "import-profiles"],
+    queryFn: () => apiFetch<{ import_profiles: AdminImportProfile[] }>("/admin/import-profiles"),
+    staleTime: ADMIN_STALE_TIME,
+  })
+}
+
+/** Every field mapping of one profile (by code). Disabled until a profile is
+ * selected, the same shape useSymbologyRules uses. A mutation invalidates this
+ * per-profile key. */
+export function useAdminImportFieldMappings(profileCode: string | null) {
+  return useQuery({
+    queryKey: ["admin", "import-field-mappings", profileCode],
+    queryFn: () =>
+      apiFetch<{ import_field_mappings: AdminImportFieldMapping[] }>(
+        `/admin/import-profiles/${profileCode}/field-mappings`,
+      ),
+    enabled: !!profileCode,
+    staleTime: ADMIN_STALE_TIME,
+  })
+}

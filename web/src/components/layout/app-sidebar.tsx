@@ -1,4 +1,4 @@
-import { Database, Link2, Map, Settings, Siren, Waypoints, Wrench, Zap } from "lucide-react"
+import { Database, FileUp, Link2, Map, Settings, Siren, Waypoints, Wrench, Zap } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import { AdminNavIcon, adminNavItems } from "@/components/layout/admin-nav"
@@ -24,6 +24,7 @@ import { usePermission } from "@/hooks/use-auth"
  */
 const dataItems = [
   { to: "/features", label: "Feature classes", icon: Database, perm: "features:read" },
+  { to: "/imports", label: "Import data", icon: FileUp, perm: "features:write" },
   { to: "/outages", label: "Outages", icon: Siren, perm: "oms:read" },
   { to: "/works", label: "Works", icon: Wrench, perm: "wam:read" },
   { to: "/connectivity", label: "Connectivity", icon: Waypoints, perm: "connectivity:read" },

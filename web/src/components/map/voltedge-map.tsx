@@ -355,11 +355,21 @@ interface VoltEdgeMapProps {
 export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<Map | null>(null)
-  // The initial View, resolved once from props (or the placeholder). Refs, not
-  // reactive state: the map is built a single time in the init effect and must
-  // not rebuild when the settings query later refetches.
-  const initialCenterRef = useRef(initialCenter ? fromLonLat(initialCenter) : DEFAULT_CENTER)
-  const initialZoomRef = useRef(initialZoom ?? DEFAULT_ZOOM)
+  // The initial View, resolved once at mount. Precedence: the last viewport
+  // this session (map-view-store, which outlives the component so returning to
+  // the map route restores where you left off) > the admin-configured default
+  // (props) > the hardcoded placeholder. Refs, not reactive state: the map is
+  // built a single time in the init effect and must not rebuild when the
+  // settings query later refetches.
+  const savedView = useMapViewStore.getState()
+  const initialCenterRef = useRef(
+    savedView.center
+      ? fromLonLat(savedView.center)
+      : initialCenter
+        ? fromLonLat(initialCenter)
+        : DEFAULT_CENTER,
+  )
+  const initialZoomRef = useRef(savedView.zoom ?? initialZoom ?? DEFAULT_ZOOM)
   // The single base tile layer -- kept in a ref so the basemap-change
   // effect below can swap its source in place (see lib/basemaps.ts's
   // applyBasemap) without rebuilding the map or disturbing the z-order.
@@ -873,6 +883,10 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       // bar can show it -- undefined only before the view has a resolution.
       const zoom = view.getZoom()
       if (zoom !== undefined) useMapViewStore.getState().setZoom(zoom)
+      // Publish the current center in lon/lat so leaving and returning to the
+      // map route restores this viewport (see map-view-store).
+      const center = view.getCenter()
+      if (center) useMapViewStore.getState().setCenter(toLonLat(center) as [number, number])
     }
     map.on("moveend", pushViewBbox)
     map.once("rendercomplete", pushViewBbox)

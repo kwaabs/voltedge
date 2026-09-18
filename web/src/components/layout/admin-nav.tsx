@@ -1,5 +1,6 @@
 import {
   Cloud,
+  FileInput,
   Inbox,
   LandPlot,
   Layers,
@@ -88,6 +89,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         label: "CIM export mapping",
         description: "Map classes and attributes onto the CIM export profile.",
         icon: Share2,
+        perm: "metadata:read",
+      },
+      {
+        to: "/admin/imports",
+        label: "Data import",
+        description: "Map external source columns onto feature-class fields and import.",
+        icon: FileInput,
         perm: "metadata:read",
       },
     ],

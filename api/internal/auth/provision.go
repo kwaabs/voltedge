@@ -113,6 +113,55 @@ func SetLocalPassword(ctx context.Context, db *bun.DB, email, password string) e
 	return err
 }
 
+// VerifyBreakGlassAdmin authenticates a break-glass admin by email + local
+// password, returning the user id on success. It is the authorization gate for
+// destructive out-of-band tools -- api/cmd/resetdata (the factory reset) uses it
+// to prove that whoever is wiping the system is a break-glass account, and that
+// same account becomes the sole survivor of the wipe.
+//
+// It fails closed and does not distinguish the reasons to the caller: a missing
+// user, a non-break-glass account, a non-active account, a missing local
+// identity, and a wrong password all return the same opaque error. Verification
+// stays in this package because it needs the unexported Argon2id verifier
+// (password.go), matching the design that only reviewed entry points are public.
+func VerifyBreakGlassAdmin(ctx context.Context, db *bun.DB, email, password string) (string, error) {
+	const authFailed = "break-glass authentication failed"
+	email = strings.ToLower(strings.TrimSpace(email))
+
+	var user User
+	err := db.NewSelect().Model(&user).Where("email = ?", email).Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errors.New(authFailed)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	var ident Identity
+	err = db.NewSelect().Model(&ident).
+		Where("user_id = ?", user.ID).
+		Where("provider = ?", "local").
+		Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errors.New(authFailed)
+	}
+	if err != nil {
+		return "", err
+	}
+	if ident.PasswordHash == nil {
+		return "", errors.New(authFailed)
+	}
+
+	ok, err := verifyPassword(password, *ident.PasswordHash)
+	if err != nil {
+		return "", errors.New(authFailed)
+	}
+	if !ok || !user.BreakGlass || user.Status != "active" {
+		return "", errors.New(authFailed)
+	}
+	return user.ID, nil
+}
+
 // AssignRole grants roleKey to the account with the given email
 // (idempotent -- a repeat grant is a no-op). This is the out-of-band role
 // path used by api/cmd/authadmin: it is how the bootstrap admin gets the
