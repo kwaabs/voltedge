@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:sqlite3/sqlite3.dart';
 
+import '../faults/faults_models.dart';
 import '../wam/wam_models.dart';
 
 /// One pending local edit to a feature, kept in the WRITABLE edit DB that lives
@@ -531,6 +532,50 @@ class EditDatabase {
     ''');
     db.execute('CREATE INDEX IF NOT EXISTS wam_local_inspections_asset_idx '
         'ON wam_local_inspections (asset_id)');
+    // Fault captures made offline (Faults module mobile, [[faults-module]] /
+    // [[offline-wam-field-pack-and-sync]]). The WRITABLE mirror of the read-only
+    // pack's `faults_events` table: the crew's newly-raised faults and their status
+    // changes. Each capture also queues a fault_* outbox op (see putFault*), so these
+    // mirrors exist purely for optimistic UI -- the faults store merges them over the
+    // packed truth so a just-raised fault shows immediately, before POST /sync lands
+    // it. Two shapes, matching how the ops idempotency-key: CREATE captures
+    // (fault_local) key by the device-minted row id (also the outbox op id and the
+    // server PK); OVERRIDE captures (fault_status_overrides) key by the EXISTING
+    // server fault id they target, latest-write-wins. Booking a defect from a fault is
+    // a fire-and-forget op with no mirror row here (the store tracks booked fault ids
+    // in memory). None are pruned on a fresh pack yet (reconcile deferred, mirroring
+    // the WAM/delete-tombstone story) -- they live until the pack dir is deleted.
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS fault_local (
+        id                      TEXT PRIMARY KEY,
+        reference               TEXT,
+        asset_class             TEXT NOT NULL,
+        asset_id                TEXT NOT NULL,
+        fault_type              TEXT,
+        cause                   TEXT,
+        status                  TEXT NOT NULL,
+        title                   TEXT,
+        description             TEXT,
+        detected_at             TEXT,
+        longitude               REAL,
+        latitude                REAL,
+        protective_device_class TEXT,
+        protective_device_id    TEXT,
+        fault_current_a         REAL,
+        clearing_time_ms        REAL,
+        incident_id             TEXT,
+        created_at              TEXT NOT NULL
+      )
+    ''');
+    db.execute('CREATE INDEX IF NOT EXISTS fault_local_asset_idx '
+        'ON fault_local (asset_id)');
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS fault_status_overrides (
+        fault_id    TEXT PRIMARY KEY,
+        status      TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      )
+    ''');
   }
 
   /// True if [table] already has a column named [column] -- used to make an
@@ -915,17 +960,32 @@ class EditDatabase {
     'wam_inspection_record',
   ];
 
+  /// The three fault capture op kinds (Faults module mobile). Like [wamOpKinds] they
+  /// ride the SAME outbox as feature edits -- pushed, acked, and status-polled by the
+  /// identical machinery -- but they target fault EVENTS (fault ids), NOT gis
+  /// features. [pendingFeatureIds] excludes them so a raised fault never tints its
+  /// asset amber as if the asset itself had an unsynced GIS edit; the faults store
+  /// tracks its own pending tally instead ([pendingFaultRecordIds]). Centralized so
+  /// the exclusion and the putFault* kinds can't drift apart.
+  static const List<String> faultOpKinds = [
+    'fault_create',
+    'fault_status',
+    'fault_book_defect',
+  ];
+
   /// Feature ids that still have an un-synced op -- the store's "pending" set,
   /// which drives the amber/green map tint and the panel's "not synced" chip. WAM
-  /// capture ops are excluded ([wamOpKinds]): they share the outbox but their
-  /// feature_id is a WAM record id, not a gis feature, so counting them here would
-  /// wrongly tint a defect's asset (or nothing, for a work-order/inspection id).
+  /// and fault capture ops are excluded ([wamOpKinds] + [faultOpKinds]): they share
+  /// the outbox but their feature_id is a WAM record / fault id, not a gis feature,
+  /// so counting them here would wrongly tint a defect's/fault's asset (or nothing,
+  /// for a work-order/inspection id).
   Set<String> pendingFeatureIds() {
-    final placeholders = List.filled(wamOpKinds.length, '?').join(', ');
+    final nonFeature = [...wamOpKinds, ...faultOpKinds];
+    final placeholders = List.filled(nonFeature.length, '?').join(', ');
     final rows = _db.select(
       'SELECT DISTINCT feature_id FROM outbox WHERE synced_at IS NULL '
       'AND kind NOT IN ($placeholders)',
-      wamOpKinds,
+      nonFeature,
     );
     return {for (final r in rows) r['feature_id'] as String};
   }
@@ -942,6 +1002,21 @@ class EditDatabase {
       'SELECT DISTINCT feature_id FROM outbox WHERE synced_at IS NULL '
       'AND kind IN ($placeholders)',
       wamOpKinds,
+    );
+    return {for (final r in rows) r['feature_id'] as String};
+  }
+
+  /// Fault record ids (a fault id) that still have an un-synced capture op -- the
+  /// complement of [pendingFeatureIds] over [faultOpKinds]. The faults store paints
+  /// these with a "not synced" chip without touching the gis feature tint. A
+  /// fault_create and a later fault_status for the same fault share the fault id
+  /// here, so it stays pending until BOTH have been acked.
+  Set<String> pendingFaultRecordIds() {
+    final placeholders = List.filled(faultOpKinds.length, '?').join(', ');
+    final rows = _db.select(
+      'SELECT DISTINCT feature_id FROM outbox WHERE synced_at IS NULL '
+      'AND kind IN ($placeholders)',
+      faultOpKinds,
     );
     return {for (final r in rows) r['feature_id'] as String};
   }
@@ -1628,6 +1703,219 @@ class EditDatabase {
           overallResult: r['overall_result'] as String?,
           inspectedAt: r['inspected_at'] as String?,
           notes: r['notes'] as String?,
+        ),
+    ];
+  }
+
+  // ---- Fault captures (Faults module mobile) --------------------------------
+  //
+  // The faults twin of the WAM captures above. Each put* writes the optimistic
+  // mirror row AND queues the fault_* outbox op in ONE tx (mirroring putWamDefect),
+  // so the UI's view and what gets pushed can't drift. [payload] is built by the
+  // faults store to match the Go payload struct in internal/fieldpack/sync.go
+  // byte-for-byte. The CREATE op (fault_create) sets op_id == feature_id == the
+  // device UUID, so a re-push is doubly idempotent (op_id is the inbox PK;
+  // feature_id becomes the server row PK). The OVERRIDE op (fault_status) mints a
+  // FRESH op_id and targets an existing fault via feature_id, deduped to the latest.
+  // The book-defect op (fault_book_defect) is APPENDED (never deduped) -- each
+  // booking is a distinct fact, like a work-order update.
+
+  /// Insert a fault raised offline AND its pending `fault_create` op in one tx.
+  /// Keyed by the device UUID [LocalFault.id] (also the op id and server PK):
+  /// re-saving the same offline fault upserts the mirror and refreshes the single
+  /// pending create op, never piling up duplicates. [payload] is the
+  /// faultCreatePayload shape.
+  void putFault(
+    LocalFault f, {
+    required Map<String, dynamic> payload,
+    String? baseVersion,
+  }) {
+    _inTx(() {
+      _db.execute(
+        'INSERT OR REPLACE INTO fault_local '
+        '(id, reference, asset_class, asset_id, fault_type, cause, status, title, '
+        'description, detected_at, longitude, latitude, protective_device_class, '
+        'protective_device_id, fault_current_a, clearing_time_ms, incident_id, '
+        'created_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          f.id,
+          f.reference,
+          f.assetClass,
+          f.assetId,
+          f.faultType,
+          f.cause,
+          f.status,
+          f.title,
+          f.description,
+          f.detectedAt,
+          f.longitude,
+          f.latitude,
+          f.protectiveDeviceClass,
+          f.protectiveDeviceId,
+          f.faultCurrentA,
+          f.clearingTimeMs,
+          f.incidentId,
+          f.createdAt.toIso8601String(),
+        ],
+      );
+      // op_id == feature_id == f.id, so a re-save replaces the still-pending create.
+      _db.execute(
+        "DELETE FROM outbox WHERE op_id = ? AND synced_at IS NULL",
+        [f.id],
+      );
+      _db.execute(
+        'INSERT INTO outbox '
+        '(op_id, feature_id, feature_class, kind, payload, base_version, created_at, synced_at) '
+        "VALUES (?, ?, ?, 'fault_create', ?, ?, ?, NULL)",
+        [
+          f.id,
+          f.id,
+          f.assetClass,
+          jsonEncode(payload),
+          baseVersion,
+          f.createdAt.toIso8601String(),
+        ],
+      );
+    });
+  }
+
+  /// Record a fault STATUS change offline AND queue its `fault_status` op in one tx.
+  /// The mirror ([fault_status_overrides], keyed by fault id) keeps the LATEST status
+  /// for optimistic UI; the outbox carries ONE pending op per fault -- deduped
+  /// (replace) because a fault status is pure last-write-wins with no ordered side
+  /// effect, so only the final status need reach the server. [faultId] is the
+  /// packed-or-local fault being changed, [assetClass] is carried as the op's
+  /// feature_class for context, [opId] is freshly minted. [payload] is the
+  /// faultStatusPayload shape ({"status": ...}).
+  void putFaultStatus({
+    required String faultId,
+    required String status,
+    required String assetClass,
+    required String opId,
+    required Map<String, dynamic> payload,
+    required DateTime updatedAt,
+    String? baseVersion,
+  }) {
+    _inTx(() {
+      _db.execute(
+        'INSERT OR REPLACE INTO fault_status_overrides '
+        '(fault_id, status, updated_at) VALUES (?, ?, ?)',
+        [faultId, status, updatedAt.toIso8601String()],
+      );
+      _db.execute(
+        "DELETE FROM outbox WHERE feature_id = ? AND kind = 'fault_status' "
+        'AND synced_at IS NULL',
+        [faultId],
+      );
+      _db.execute(
+        'INSERT INTO outbox '
+        '(op_id, feature_id, feature_class, kind, payload, base_version, created_at, synced_at) '
+        "VALUES (?, ?, ?, 'fault_status', ?, ?, ?, NULL)",
+        [
+          opId,
+          faultId,
+          assetClass,
+          jsonEncode(payload),
+          baseVersion,
+          updatedAt.toIso8601String(),
+        ],
+      );
+    });
+  }
+
+  /// Queue a `fault_book_defect` op (books a WAM defect against the fault's asset/
+  /// location and links it back). No mirror row: unlike a create/status this leaves
+  /// no local fault state -- the faults store just remembers the fault id was booked
+  /// (in memory) to hide the button. The op is APPENDED, never deduped: each booking
+  /// is a distinct fact. [faultId] targets the fault, [assetClass] is the op's
+  /// feature_class ('' when unknown), [opId] is freshly minted, [payload] is the
+  /// faultBookDefectPayload shape.
+  void putFaultBookDefect({
+    required String faultId,
+    required String assetClass,
+    required String opId,
+    required Map<String, dynamic> payload,
+    required DateTime createdAt,
+    String? baseVersion,
+  }) {
+    _db.execute(
+      'INSERT INTO outbox '
+      '(op_id, feature_id, feature_class, kind, payload, base_version, created_at, synced_at) '
+      "VALUES (?, ?, ?, 'fault_book_defect', ?, ?, ?, NULL)",
+      [
+        opId,
+        faultId,
+        assetClass,
+        jsonEncode(payload),
+        baseVersion,
+        createdAt.toIso8601String(),
+      ],
+    );
+  }
+
+  /// Discard a not-yet-synced fault CREATE capture before it syncs: drop its mirror
+  /// row AND its still-pending op (op_id == the row id). A synced op is history and
+  /// left alone, matching discardWamCreate.
+  void discardFaultCreate(String id) {
+    _inTx(() {
+      _db.execute('DELETE FROM fault_local WHERE id = ?', [id]);
+      _db.execute(
+        'DELETE FROM outbox WHERE op_id = ? AND synced_at IS NULL',
+        [id],
+      );
+    });
+  }
+
+  /// Every fault raised offline -- loaded once at open into the store's map so the
+  /// merged fault list (packed + local) is a pure-memory read.
+  List<LocalFault> allLocalFaults() {
+    final rows = _db.select(
+      'SELECT id, reference, asset_class, asset_id, fault_type, cause, status, '
+      'title, description, detected_at, longitude, latitude, '
+      'protective_device_class, protective_device_id, fault_current_a, '
+      'clearing_time_ms, incident_id, created_at FROM fault_local '
+      'ORDER BY created_at',
+    );
+    return [
+      for (final r in rows)
+        LocalFault(
+          id: r['id'] as String,
+          assetClass: (r['asset_class'] as String?) ?? '',
+          assetId: (r['asset_id'] as String?) ?? '',
+          status: (r['status'] as String?) ?? '',
+          createdAt: DateTime.tryParse(r['created_at'] as String? ?? '') ??
+              DateTime.now(),
+          reference: r['reference'] as String?,
+          faultType: r['fault_type'] as String?,
+          cause: r['cause'] as String?,
+          title: r['title'] as String?,
+          description: r['description'] as String?,
+          detectedAt: r['detected_at'] as String?,
+          longitude: (r['longitude'] as num?)?.toDouble(),
+          latitude: (r['latitude'] as num?)?.toDouble(),
+          protectiveDeviceClass: r['protective_device_class'] as String?,
+          protectiveDeviceId: r['protective_device_id'] as String?,
+          faultCurrentA: (r['fault_current_a'] as num?)?.toDouble(),
+          clearingTimeMs: (r['clearing_time_ms'] as num?)?.toDouble(),
+          incidentId: r['incident_id'] as String?,
+        ),
+    ];
+  }
+
+  /// Every offline fault-status override (keyed by fault id, latest wins) -- the
+  /// optimistic status the store paints over a packed/local fault's own status.
+  List<FaultStatusOverride> allFaultStatusOverrides() {
+    final rows = _db.select(
+      'SELECT fault_id, status, updated_at FROM fault_status_overrides',
+    );
+    return [
+      for (final r in rows)
+        FaultStatusOverride(
+          faultId: r['fault_id'] as String,
+          status: (r['status'] as String?) ?? '',
+          updatedAt: DateTime.tryParse(r['updated_at'] as String? ?? '') ??
+              DateTime.now(),
         ),
     ];
   }

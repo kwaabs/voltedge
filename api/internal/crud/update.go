@@ -17,7 +17,14 @@ import (
 // what's present is changed: an absent Geometry/TerritoryID means "leave it",
 // an absent Name means "not changing it" while an explicit empty string clears
 // it, and a nil Attributes is treated as an empty map (see updateRequest for
-// each field's meaning). Subtype is deliberately not updatable.
+// each field's meaning).
+//
+// Subtype (Phase 60) is now changeable: an absent (nil) Subtype leaves it, a
+// present one switches the feature to that subtype -- but only if the row then
+// still satisfies the new subtype's required fields (existing values, values in
+// this same request, or a default_override all count; see
+// validateRequiredForSubtypeChange). Requesting the subtype it already has is a
+// no-op. It stays forbidden on a class with no subtypes.
 //
 // Geometry has a third state beyond absent/replace: an explicit JSON null clears
 // the map geometry (Phase 26 Slice 3), demoting a feature to diagram-only. It's
@@ -29,6 +36,11 @@ type UpdateFeatureInput struct {
 	Geometry    json.RawMessage `json:"geometry,omitempty"`
 	TerritoryID *string         `json:"territory_id,omitempty"`
 	Attributes  map[string]any  `json:"attributes"`
+	// Subtype changes the feature's subtype (Phase 60). Absent leaves it; a
+	// present code switches to that subtype, gated on the new subtype's
+	// required fields (validateRequiredForSubtypeChange). Only meaningful for a
+	// class that defines subtypes.
+	Subtype *int `json:"subtype,omitempty"`
 	// ExpectedUpdatedAt is the optimistic-concurrency token (Phase 40): the
 	// row's updated_at as the client last saw it. Present makes the write
 	// conditional on the row not having changed since (a lost race -> 409);
@@ -72,6 +84,23 @@ func UpdateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 	attrs := in.Attributes
 	if attrs == nil {
 		attrs = map[string]any{}
+	}
+
+	// Subtype change (Phase 60): resolve the target subtype (nil = subtype not
+	// changing), then enforce the new subtype's required fields against the
+	// row-plus-request merge before anything is coerced -- the check the update
+	// path used to punt on. Runs before validateAttributes so any default_override
+	// this fills into attrs is validated and coerced by the same path as an
+	// explicitly-sent value.
+	subtypeChange, err := resolveSubtypeChange(loaded, existing, in.Subtype)
+	if err != nil {
+		return nil, err
+	}
+	if subtypeChange != nil {
+		existingAttrs, _ := existing["attributes"].(map[string]any)
+		if err := validateRequiredForSubtypeChange(loaded, subtypeChange, existingAttrs, attrs); err != nil {
+			return nil, err
+		}
 	}
 
 	// Phase 26 Slice 3: an explicit JSON null clears the map geometry (demote to
@@ -132,7 +161,12 @@ func UpdateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 		return nil, err
 	}
 
-	if currentStatus == "published" {
+	// A published row must stay complete on every write. When subtype is also
+	// changing, the completeness that matters is the NEW subtype's, which
+	// validateRequiredForSubtypeChange above already enforced (merge-aware and
+	// stricter -- it also fills defaults); validateUpdateCompleteness would check
+	// the old subtype's rules, which no longer apply, so it's skipped in that case.
+	if currentStatus == "published" && subtypeChange == nil {
 		if err := validateUpdateCompleteness(loaded, existing, values); err != nil {
 			return nil, err
 		}
@@ -176,5 +210,10 @@ func UpdateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 		}
 	}
 
-	return updateFeature(ctx, db, loaded, id, in.Geometry, clearGeometry, in.Name, territoryID, assignTerritory, values, in.ExpectedUpdatedAt)
+	var subtypeCode *int
+	if subtypeChange != nil {
+		subtypeCode = &subtypeChange.Code
+	}
+
+	return updateFeature(ctx, db, loaded, id, in.Geometry, clearGeometry, in.Name, territoryID, assignTerritory, subtypeCode, values, in.ExpectedUpdatedAt)
 }

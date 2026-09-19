@@ -257,6 +257,91 @@ export function highlightStyleForFeature(feature: FeatureLike): Style {
   return highlightStyleFor(HIGHLIGHT_COLORS[role], feature.getGeometry()?.getType())
 }
 
+/** Fault-marker colors, keyed by fault status (Faults Slice 3 map overlay).
+ * Color is the ONE visual variable the marker carries -- it reads status at a
+ * glance (hot red = live/unattended down to muted grey = closed), leaving fault
+ * TYPE for the popup rather than a second color axis. Hand-picked canvas
+ * constants (OpenLayers paints to <canvas>, so CSS tokens are unavailable), and
+ * distinct from the highlight-role palette above so a fault pin never reads as a
+ * trace or an affected-customer halo. */
+export const FAULT_STATUS_COLORS: Record<string, string> = {
+  detected: "#dc2626", // red-600  -- live, not yet being worked
+  investigating: "#f59e0b", // amber-500 -- being worked
+  cleared: "#2563eb", // blue-600 -- off the network
+  closed: "#6b7280", // gray-500 -- wrapped up
+}
+
+const FAULT_FALLBACK_COLOR = "#dc2626"
+
+/** Pixel displacement of a point fault's triangle marker (and its pulse ring) --
+ * up and to the RIGHT of the anchoring point, so the marker doesn't sit on top of
+ * and hide the feature's own symbol. OL `displacement` is [right, up] in pixels.
+ * Only point faults are offset; a line/area fault has no marker. */
+export const FAULT_MARKER_DISPLACEMENT: [number, number] = [12, 12]
+
+/** A #rrggbb hex color as an rgba() string at the given opacity -- for the
+ * translucent polygon fill of an area-asset fault highlight. */
+function faultFillAlpha(hex: string, alpha: number): string {
+  const h = hex.replace("#", "")
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+/** A fault status's color at the given opacity -- used by the map's "radar ping"
+ * pulse (voltedge-map.tsx) to fade an expanding ring out as it grows. */
+export function faultStatusColorRgba(status: string, alpha: number): string {
+  return faultFillAlpha(FAULT_STATUS_COLORS[status] ?? FAULT_FALLBACK_COLOR, alpha)
+}
+
+/** The fault overlay's style function, driven by the feature's geometry so a
+ * fault reads correctly whatever it is anchored to:
+ *
+ *   - a POINT (a point asset, or a location-only pin) -> a status-colored warning
+ *     triangle, distinct from the round selection/affected halos and real symbols;
+ *   - a LINE (a conductor / cable span) -> the whole faulted run highlighted in
+ *     the status color over a white casing, so it stands out from the network
+ *     lines beneath it -- a centroid triangle would just float mid-span and, on a
+ *     curved or multipart line, off the line entirely;
+ *   - a POLYGON (an area asset, e.g. a substation footprint) -> a status-colored
+ *     outline and translucent fill.
+ *
+ * voltedge-map.tsx tags every fault feature with a `faultStatus` property when it
+ * builds the overlay from /faults/map (and, for a line/polygon fault, adds a
+ * separate on-geometry point marker so the fault stays clickable and legible when
+ * zoomed out). OL calls the style function with the feature alone, so the status
+ * is read off the feature rather than passed in. */
+export function faultStyleForFeature(feature: FeatureLike): Style | Style[] {
+  const status = (feature.get("faultStatus") as string | undefined) ?? "detected"
+  const color = FAULT_STATUS_COLORS[status] ?? FAULT_FALLBACK_COLOR
+  const type = feature.getGeometry()?.getType()
+
+  if (type === "LineString" || type === "MultiLineString") {
+    return [
+      new Style({ stroke: new Stroke({ color: "#ffffff", width: 7 }) }),
+      new Style({ stroke: new Stroke({ color, width: 4 }) }),
+    ]
+  }
+
+  if (type === "Polygon" || type === "MultiPolygon") {
+    return new Style({
+      fill: new Fill({ color: faultFillAlpha(color, 0.25) }),
+      stroke: new Stroke({ color, width: 3 }),
+    })
+  }
+
+  return new Style({
+    image: new RegularShape({
+      points: 3,
+      radius: 9,
+      displacement: FAULT_MARKER_DISPLACEMENT,
+      fill: new Fill({ color }),
+      stroke: new Stroke({ color: "#ffffff", width: 1.5 }),
+    }),
+  })
+}
+
 /** Shared by styleForFeature and createSymbologyStyle -- a feature that's
  * soft-deleted (client-side hidden, see deleted-features-store.ts) or
  * currently under geometry edit (the cyan edit-geometry layer stands in

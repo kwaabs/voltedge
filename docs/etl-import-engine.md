@@ -18,11 +18,14 @@ beside `export_jobs`.
 Match-on-chosen-field upsert. Hybrid: the browser normalizes any format and
 previews it; the server runs the authoritative load.
 
-**v2 (later):** live DB connectors (**PostGIS, MSSQL**) reusing
-`metadata.external_systems` + `api/internal/secretbox` for sealed credentials,
-then **FGDB / GeoPackage**. The v1 schema is pre-shaped for these (the
-`source_format` enum is pre-widened; the job keys off an `object_key`) so they
-add no migration to a populated table.
+**v2:** richer sources, each adding only a new `rowSource` reader — server-side
+**GeoPackage** and **SpatiaLite** (SQLite-file family, done), then live-DB
+connectors **PostGIS** (done) and **MSSQL** (later). Live-DB credentials are
+sealed with `api/internal/secretbox` but stored **on the profile**, not reused
+from `metadata.external_systems`. **FGDB** stays deferred (native GDAL dep). The
+v1 schema is pre-shaped for these (the `source_format` CHECK is widened per
+slice; the job keys off an `object_key`, empty for live-DB) so they add no
+migration to a populated table. See "v2 — richer sources" below.
 
 ## Architecture
 
@@ -112,3 +115,58 @@ mappings); running an import writes features, so it is gated on `features:write`
   worker that streams the artifact and applies each row.
 - **S5 — the wizard**: pick class → upload/preview → map → match/upsert →
   dry-run → run → live progress + error report, saved as a reusable profile.
+
+## v2 — richer sources (each adds only a new reader)
+
+The whole v2 effort rests on one seam: `load.go` defines
+`rowSource { Read() (*Feature, int, error) }`, and `openRowSource` picks the
+reader by `source_format`. Every v2 slice adds a reader; the apply spine
+(`BuildAttributes → AssembleGeometry → crud validate → upsert`) never changes.
+
+- **V2-S1 — GeoPackage** *(done)*: server-side SQLite parse (a deliberate
+  departure from "browser normalises everything to NDJSON" — the browser now
+  uploads the raw `.gpkg`). `geopackage.go` streams a chosen layer via
+  `modernc.org/sqlite` (already a dep, no cgo); the GPB blob is decoded per-row
+  and converted through `ST_GeomFromWKB` (non-fatal, so a bad blob is a row
+  error). Adds `source_layer` (pinned on the profile, overridable per run) and a
+  `POST /imports/layers` inspect endpoint. Migration 0103 widens the
+  `source_format` CHECK to add `geopackage`.
+- **V2-S2 — SpatiaLite** *(done)*: reuses the whole S1 spine — the only new code
+  is `spatialite.go`'s non-standard blob decoder (`decodeSpatiaLiteBlob` → WKB →
+  the shared `wkbToGeoJSON`) and its own `geometry_columns` metadata query. The
+  reader carries a `rawGeomKind` discriminator so `AssembleGeometry` picks the
+  right decoder. Migration 0104 adds `spatialite` to the CHECK.
+- **V2-S3 — PostGIS (live database)** *(done)*: the first source that is **not a
+  file**. The worker opens an outbound, read-only connection to a remote
+  Postgres/PostGIS server (reusing bun's bundled `pgdriver` via `database/sql` —
+  no new dep) and streams rows straight out of a chosen table or a custom
+  read-only SELECT. Connection config lives **on the profile**
+  (host/port/db/user + a secretbox-sealed `db_password`, write-only, surfaced as
+  `has_credential`, never returned); it deliberately does **not** reuse
+  `metadata.external_systems`. Migration 0105 adds the `db_*` columns +
+  `source_query`. Security posture (`postgis.go`): an SSRF guard resolves the
+  host and dials the validated IP (allow-list via `IMPORT_DB_HOST_ALLOWLIST`,
+  private/loopback/link-local/metadata ranges blocked unless allow-listed); the
+  session is opened `default_transaction_read_only=on` with a
+  `statement_timeout` and idle-transaction timeout; a custom query is validated
+  to be a single read-only SELECT. Native-geometry table-pick emits
+  `ST_AsGeoJSON(ST_Transform(geomcol::geometry, classSRID))` so geometry lands in
+  the class SRID with the apply spine untouched. Admin gets `test-connection` and
+  `tables` endpoints (both operate on the saved profile).
+- **V2-S4 — MSSQL (live database)** *(done)*: the second live-DB connector,
+  mirroring S3 and reusing every dialect-independent piece (SSRF guard, identifier
+  guard, read-only query validator, `DBConnConfig`/`ResolveConnConfig`, the whole
+  admin + frontend surface). Migration-free — 0102 already admits `mssql` and the
+  `db_*`/`source_query` columns from 0105 are shared. Adds `mssql.go` and one new
+  dependency, `github.com/microsoft/go-mssqldb` (pure Go, cgo-free). SQL Server has
+  no `ST_AsGeoJSON`/in-SQL reprojection, so the reader emits the spatial column as
+  WKB (`col.STAsBinary()`) + SRID (`col.STSrid`); the WKB rides on the Feature
+  (`geomKindWKB`) and is converted + reprojected by the shared `wkbToGeoJSON`
+  round-trip. A **geography** column emits WKB in latitude-longitude order, so it
+  sets `rawGeomFlipXY` to swap axes via `ST_FlipCoordinates` during conversion.
+  Read-only note: SQL Server has no session read-only-transaction toggle like
+  Postgres, so the read-only posture rests on only-SELECT table reads + the
+  read-only custom-query validator + the recommendation to connect with a
+  least-privileged read-only login.
+- **FGDB** stays deferred — it needs a native GDAL/OGR dependency, which would
+  break the cgo-free build chain.

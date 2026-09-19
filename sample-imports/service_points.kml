@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Service points (sample import)</name>
+    <Placemark>
+      <name>SP-301</name>
+      <ExtendedData>
+        <Data name="site_ref"><value>SP-301</value></Data>
+        <Data name="num_customers"><value>12</value></Data>
+      </ExtendedData>
+      <Point><coordinates>-0.1870,5.6037,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>SP-302</name>
+      <ExtendedData>
+        <Data name="site_ref"><value>SP-302</value></Data>
+        <Data name="num_customers"><value>1</value></Data>
+      </ExtendedData>
+      <Point><coordinates>-0.1969,5.5560,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>SP-303</name>
+      <ExtendedData>
+        <Data name="site_ref"><value>SP-303</value></Data>
+        <Data name="num_customers"><value>240</value></Data>
+      </ExtendedData>
+      <Point><coordinates>-0.2010,5.6150,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>SP-304</name>
+      <ExtendedData>
+        <Data name="site_ref"><value>SP-304</value></Data>
+        <Data name="num_customers"><value>3</value></Data>
+      </ExtendedData>
+      <Point><coordinates>-0.1750,5.5900,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>SP-305</name>
+      <ExtendedData>
+        <Data name="site_ref"><value>SP-305</value></Data>
+        <Data name="num_customers"><value>85</value></Data>
+      </ExtendedData>
+      <Point><coordinates>-0.2200,5.6300,0</coordinates></Point>
+    </Placemark>
+  </Document>
+</kml>

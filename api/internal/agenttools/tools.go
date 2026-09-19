@@ -366,8 +366,10 @@ func writeTools() []Tool {
 			Description: "Update an existing feature -- the same validated partial write the REST " +
 				"PATCH route performs. Every field is optional and only what you send is changed: " +
 				"omit geometry or territory_id to leave them, omit name to keep it (send an empty " +
-				"string to clear it), and send only the attributes you want to change. Subtype " +
-				"cannot be changed. Fields locked after publish are rejected while the feature is " +
+				"string to clear it), and send only the attributes you want to change. Subtype can " +
+				"be changed by sending a new subtype code, but only if the feature still satisfies " +
+				"the new subtype's required fields (send those field values in the same call). " +
+				"Fields locked after publish are rejected while the feature is " +
 				"published, a published feature is re-checked for completeness, and a deleted " +
 				"feature must be restored first. Returns the updated feature's full envelope. This " +
 				"WRITES to the database: confirm the change with a human before calling it. Use " +
@@ -378,6 +380,7 @@ func writeTools() []Tool {
 					"feature_class":{"type":"string","description":"The feature class code the feature belongs to."},
 					"id":{"type":"string","description":"The feature's id (uuid)."},
 					"name":{"type":"string","description":"New label; omit to keep the current name, send an empty string to clear it."},
+					"subtype":{"type":"integer","description":"New subtype code; omit to keep the current subtype. Only valid for a class with subtypes, and only accepted if the feature still satisfies the new subtype's required fields."},
 					"geometry":{"type":"object","description":"Replacement GeoJSON geometry; omit to leave the geometry unchanged. Only valid for a geometric class."},
 					"territory_id":{"type":"string","description":"Territory override (uuid); omit to leave the assignment (re-resolved automatically if geometry changes). Only valid for a geometric class."},
 					"attributes":{"type":"object","description":"Only the field values to change, keyed by field name; omit or empty to change no attributes.","additionalProperties":true}

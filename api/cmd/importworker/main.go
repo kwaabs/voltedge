@@ -15,7 +15,9 @@
 //
 // Config (all via env, like the server): DATABASE_URL and the RUSTFS_* block the
 // storage layer reads, plus IMPORT_WORKER_CONCURRENCY and IMPORT_JOB_LEASE (see
-// internal/importer/worker.go for defaults).
+// internal/importer/worker.go for defaults). For live-DB imports (PostGIS) it
+// also reads EXTERNAL_SYSTEMS_ENCRYPTION_KEY (to unseal a profile's stored
+// database password) and honours IMPORT_DB_HOST_ALLOWLIST.
 package main
 
 import (
@@ -29,6 +31,7 @@ import (
 
 	"github.com/kwaabs/voltedge/api/internal/export"
 	"github.com/kwaabs/voltedge/api/internal/importer"
+	"github.com/kwaabs/voltedge/api/internal/secretbox"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
@@ -55,12 +58,23 @@ func main() {
 		log.Fatalf("import worker: %v", err)
 	}
 
+	// The credential cipher unseals a live-DB profile's stored password. It is
+	// optional (nil when EXTERNAL_SYSTEMS_ENCRYPTION_KEY is unset) -- a file import
+	// never needs it; a live-DB job whose profile has a sealed password fails with a
+	// clear error rather than connecting without auth.
+	cipher, err := secretbox.NewFromEnv()
+	if err != nil {
+		log.Fatalf("import worker: credential encryption: %v", err)
+	}
+
 	// SIGINT/SIGTERM cancels the loop; RunImportWorker drains its in-flight jobs
 	// before returning, so a rolling restart doesn't strand a running import.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := importer.RunImportWorker(ctx, db, store, importer.WorkerConfigFromEnv()); err != nil && !errors.Is(err, context.Canceled) {
+	cfg := importer.WorkerConfigFromEnv()
+	cfg.Cipher = cipher
+	if err := importer.RunImportWorker(ctx, db, store, cfg); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("import worker: %v", err)
 	}
 	log.Print("import worker: shut down cleanly")

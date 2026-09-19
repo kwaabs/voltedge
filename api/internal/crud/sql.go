@@ -288,7 +288,7 @@ func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 // diagram-only; it's mutually exclusive with a non-empty geometry (the caller,
 // UpdateFeature, never sets both) and only reachable for a geometry_optional
 // class, which the compiler emitted with a nullable geom column.
-func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string, geometry []byte, clearGeometry bool, name *string, territoryID *string, assignTerritory bool, values map[string]any, expectedUpdatedAt *string) (map[string]any, error) {
+func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string, geometry []byte, clearGeometry bool, name *string, territoryID *string, assignTerritory bool, subtypeCode *int, values map[string]any, expectedUpdatedAt *string) (map[string]any, error) {
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
 		return nil, err
@@ -296,6 +296,15 @@ func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 
 	var sets []string
 	var args []any
+
+	// Subtype change (Phase 60): the caller resolved and validated a new subtype
+	// code (UpdateFeature; nil when the request left subtype alone or it was
+	// unchanged), so all this does is write the column. Counts as a real change
+	// for the nothing-to-change guard below.
+	if subtypeCode != nil {
+		sets = append(sets, "subtype = ?")
+		args = append(args, *subtypeCode)
+	}
 
 	if clearGeometry {
 		sets = append(sets, "geom = NULL")

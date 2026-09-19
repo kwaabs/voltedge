@@ -70,10 +70,16 @@ type ImportJobError struct {
 // the requester's rights and never re-derive them. TerritoryIDs is tri-state,
 // matching the read path (nil = no filter, empty = scoped to nothing, populated
 // = the expanded set); json round-trips it faithfully.
+// SourceLayer is the effective feature layer to import from a multi-layer source
+// (GeoPackage): the run-time override if the operator chose one, else the
+// profile's pinned default, snapshotted here so the worker imports exactly what
+// was requested even if the profile default later changes. Empty for the
+// single-layer v1 file formats.
 type ImportScope struct {
 	ProfileCode  string   `json:"profile_code"`
 	TerritoryIDs []string `json:"territory_ids"`
 	Unscoped     bool     `json:"unscoped"`
+	SourceLayer  string   `json:"source_layer,omitempty"`
 }
 
 // importTally accumulates the per-row outcomes as the worker streams; it is

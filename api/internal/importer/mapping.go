@@ -301,6 +301,26 @@ func (rp *ResolvedProfile) AssembleGeometry(ctx context.Context, db bun.IDB, f *
 		return nil, nil
 
 	case "native":
+		// A SQLite-family row (GeoPackage / SpatiaLite) carries its geometry as a
+		// not-yet-decoded native blob (the reader leaves it raw so a bad blob fails
+		// here, per-row, rather than aborting the SQLite scan). Decode the blob to
+		// standard WKB per its kind, then convert to GeoJSON in the database with
+		// the same PostGIS round-trip the wkt mode uses, reprojecting from the
+		// blob's SRID to the target class's SRID.
+		if len(f.rawGeom) > 0 {
+			wkb, srsID, empty, err := decodeNativeGeom(f.rawGeomKind, f.rawGeom)
+			if err != nil {
+				return nil, invalidf("geometry: %v", err)
+			}
+			if empty || len(wkb) == 0 {
+				return nil, nil
+			}
+			srcSRID := srsID
+			if srcSRID <= 0 {
+				srcSRID = f.rawSRID
+			}
+			return wkbToGeoJSON(ctx, db, wkb, srcSRID, rp.srid(), f.rawGeomFlipXY)
+		}
 		if f.HasGeometry() {
 			return f.Geometry, nil
 		}

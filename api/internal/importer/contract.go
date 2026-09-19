@@ -36,6 +36,23 @@ type Feature struct {
 	Type       string          `json:"type"`
 	Properties map[string]any  `json:"properties"`
 	Geometry   json.RawMessage `json:"geometry,omitempty"`
+
+	// rawGeom carries a not-yet-decoded native geometry blob from a non-NDJSON
+	// source, distinguished by rawGeomKind: a GeoPackage GPB blob (geomKindGPKG,
+	// geopackage.go), a SpatiaLite BLOB (geomKindSpatiaLite, spatialite.go), or
+	// already-standard WKB from a live database (geomKindWKB, mssql.go). It is set
+	// only by those readers, never populated from NDJSON (unexported, so it does not
+	// marshal), and decoded by AssembleGeometry's native mode -- so a bad blob is a
+	// per-row error there, not a stream-killing decode failure in the reader.
+	// rawSRID is the source's declared SRID, used only as the fallback when the
+	// blob's own SRID is undefined (0/-1). rawGeomFlipXY requests an axis swap
+	// during the GeoJSON conversion: SQL Server's geography type emits WKB in
+	// latitude-longitude order, which must be flipped to the longitude-latitude
+	// order PostGIS/GeoJSON expect.
+	rawGeom       []byte
+	rawGeomKind   string
+	rawSRID       int
+	rawGeomFlipXY bool
 }
 
 // HasGeometry reports whether the row carries an inline GeoJSON geometry (i.e.

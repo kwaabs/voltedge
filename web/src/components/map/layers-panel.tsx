@@ -1,4 +1,4 @@
-import { LandPlot, Layers, PencilLine, Shapes, Tag, Trash2 } from "lucide-react"
+import { LandPlot, Layers, PencilLine, Shapes, Tag, Trash2, ZapOff } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -10,15 +10,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useAllLabelDefs, useAllSymbology } from "@/hooks/use-all-symbology"
+import { usePermission } from "@/hooks/use-auth"
 import { useCatalog } from "@/hooks/use-catalog"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { useTerritoryLevels } from "@/hooks/use-territories"
-import { territoryColorForRank } from "@/lib/map-layers"
+import { FAULT_STATUS_COLORS, territoryColorForRank } from "@/lib/map-layers"
 import { featureClassSourceIds } from "@/lib/martin"
 import { iconDataUri } from "@/lib/symbology-icons"
 import { resolveSymbology } from "@/lib/symbology"
 import { cn } from "@/lib/utils"
+import { FAULT_STATUS_ORDER, useFaultOverlayStore } from "@/stores/fault-overlay-store"
 import { useImportedOverlaysStore } from "@/stores/imported-overlays-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useMapAnnotationsStore } from "@/stores/map-annotations-store"
@@ -81,6 +83,14 @@ export function LayersPanel() {
   const removeImported = useImportedOverlaysStore((s) => s.remove)
   const annotationsVisible = useMapAnnotationsStore((s) => s.visible)
   const toggleAnnotations = useMapAnnotationsStore((s) => s.toggle)
+  const faultOverlayVisible = useFaultOverlayStore((s) => s.visible)
+  const toggleFaultOverlay = useFaultOverlayStore((s) => s.toggleVisible)
+  const faultStatuses = useFaultOverlayStore((s) => s.statuses)
+  const setFaultStatus = useFaultOverlayStore((s) => s.setStatus)
+  const faultPulse = useFaultOverlayStore((s) => s.pulse)
+  const setFaultPulse = useFaultOverlayStore((s) => s.setPulse)
+  const can = usePermission()
+  const canReadFaults = can("faults:read")
   const { data: territoryLevels } = useTerritoryLevels()
   // Territories are auto-published by Martin but aren't a feature class --
   // they live in the Overlays section below, not this list (see
@@ -213,6 +223,57 @@ export function LayersPanel() {
             <span className="truncate">Annotations</span>
           </span>
         </DropdownMenuCheckboxItem>
+
+        {/* The fault-event overlay (Faults Slice 3) -- fault markers colored by
+            status, drawn from /faults/map. A row in this Overlays section, gated
+            on faults:read (the data endpoint is too). The per-status toggles
+            below double as the legend, defaulting to the live statuses; the map
+            filters client-side so revealing cleared/closed never refetches. */}
+        {canReadFaults && (
+          <DropdownMenuCheckboxItem
+            checked={faultOverlayVisible}
+            onSelect={(e) => e.preventDefault()}
+            onCheckedChange={() => toggleFaultOverlay()}
+          >
+            <span className="flex min-w-0 items-center gap-1.5">
+              <ZapOff className="size-4 shrink-0" style={{ color: FAULT_STATUS_COLORS.detected }} />
+              <span className="truncate">Faults</span>
+            </span>
+          </DropdownMenuCheckboxItem>
+        )}
+
+        {canReadFaults &&
+          faultOverlayVisible &&
+          FAULT_STATUS_ORDER.map((status) => (
+            <DropdownMenuCheckboxItem
+              key={status}
+              className="pl-11"
+              checked={faultStatuses[status]}
+              onSelect={(e) => e.preventDefault()}
+              onCheckedChange={(checked) => setFaultStatus(status, checked === true)}
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className="size-3 shrink-0 rounded-sm"
+                  style={{ backgroundColor: FAULT_STATUS_COLORS[status] }}
+                />
+                <span className="truncate capitalize">{status}</span>
+              </span>
+            </DropdownMenuCheckboxItem>
+          ))}
+
+        {/* Pulse the live (detected/investigating) fault markers to draw the eye.
+            The OS "reduce motion" setting suppresses it regardless. */}
+        {canReadFaults && faultOverlayVisible && (
+          <DropdownMenuCheckboxItem
+            className="pl-11"
+            checked={faultPulse}
+            onSelect={(e) => e.preventDefault()}
+            onCheckedChange={(checked) => setFaultPulse(checked === true)}
+          >
+            <span className="truncate">Pulse live faults</span>
+          </DropdownMenuCheckboxItem>
+        )}
 
         {/* Imported overlays (Phase 15 data import) -- user-supplied reference
             layers, each toggleable and removable. Only shown once at least one

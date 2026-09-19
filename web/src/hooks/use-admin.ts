@@ -380,6 +380,9 @@ export interface AdminImportProfile {
   feature_class_code: string
   subtype_code?: number | null
   source_format: string
+  /** For SERVER-parsed multi-layer sources (geopackage): the pinned layer name,
+   * used as the default in the run wizard; null lets the operator pick per run. */
+  source_layer?: string | null
   write_mode: string
   /** Target field names forming the upsert natural key; empty for insert_only. */
   match_fields: string[]
@@ -388,6 +391,17 @@ export interface AdminImportProfile {
   geometry_lat_column?: string | null
   geometry_wkt_column?: string | null
   status: string
+
+  /** Live-DB connection config (source_format postgis/mssql). The password is
+   * never returned; has_credential is the read-side flag that one is stored. */
+  db_host?: string | null
+  db_port?: number | null
+  db_name?: string | null
+  db_user?: string | null
+  db_sslmode?: string
+  /** Optional custom read-only SELECT that replaces table-pick (source_layer). */
+  source_query?: string | null
+  has_credential: boolean
 }
 
 /** Wire type for /admin/import-profiles/{code}/field-mappings --
@@ -418,6 +432,35 @@ export function useAdminImportProfiles() {
     queryFn: () => apiFetch<{ import_profiles: AdminImportProfile[] }>("/admin/import-profiles"),
     staleTime: ADMIN_STALE_TIME,
   })
+}
+
+/** One remote table of a live-DB import profile's source database (mirrors
+ * importer.GpkgLayer, reused for the source-table picker). geometry_column is ""
+ * when the table has no geometry/geography column. */
+export interface AdminImportTable {
+  name: string
+  geometry_column: string
+  geometry_type: string
+  srid: number
+  feature_count: number
+}
+
+/** Opens and pings a live-DB import profile's saved connection (POST
+ * /admin/import-profiles/{code}/test-connection). Resolves on success; throws the
+ * server's validation error (bad host/credentials) on failure, for the editor to
+ * surface. The profile must be saved first (the connection is read from it). */
+export async function testAdminImportConnection(profileCode: string): Promise<void> {
+  await apiFetch(`/admin/import-profiles/${profileCode}/test-connection`, { method: "POST" })
+}
+
+/** Lists a live-DB import profile's remote tables (GET
+ * /admin/import-profiles/{code}/tables), each with its geometry column if any,
+ * for the source-table picker. */
+export async function listAdminImportTables(profileCode: string): Promise<AdminImportTable[]> {
+  const res = await apiFetch<{ tables: AdminImportTable[] }>(
+    `/admin/import-profiles/${profileCode}/tables`,
+  )
+  return res.tables ?? []
 }
 
 /** Every field mapping of one profile (by code). Disabled until a profile is

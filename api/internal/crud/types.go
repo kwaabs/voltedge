@@ -31,20 +31,22 @@ type createRequest struct {
 }
 
 // updateRequest is the PATCH body for updating a feature. Every field is
-// optional -- only what's present gets changed. Subtype is still
-// deliberately not updatable (changing a feature's subtype after
-// creation raises "does it still satisfy the new subtype's required
-// fields" questions this pass doesn't answer yet) -- geometry doesn't
-// have that problem (no subtype/required-field interaction at all), so
-// it's just a plain optional replace, same validation
-// (validateGeometry) as create, only skipped entirely when absent
-// rather than required. Geometry additionally accepts an explicit JSON
-// null to clear the map geometry (Phase 26 Slice 3, demote to
-// diagram-only) -- only allowed on a geometry_optional class. Name is
+// optional -- only what's present gets changed. Subtype is now updatable
+// (Phase 60): the "does it still satisfy the new subtype's required
+// fields" question the earlier pass punted on is answered by
+// validateRequiredForSubtypeChange -- a change is accepted only when the
+// row still satisfies the new subtype's required fields (existing values,
+// values sent in the same PATCH, or a default_override all count), and
+// rejected on a class with no subtypes. Geometry is a plain optional
+// replace, same validation (validateGeometry) as create, only skipped
+// entirely when absent rather than required; it additionally accepts an
+// explicit JSON null to clear the map geometry (Phase 26 Slice 3, demote
+// to diagram-only) -- only allowed on a geometry_optional class. Name is
 // the same kind of plain optional replace as geometry -- absent means
 // "not changing it", an explicit empty string means "clear it".
 type updateRequest struct {
 	Name     *string         `json:"name,omitempty"`
+	Subtype  *int            `json:"subtype,omitempty"`
 	Geometry json.RawMessage `json:"geometry,omitempty"`
 	// TerritoryID overrides the territory assignment (Phase 11). Present
 	// forces this territory; absent leaves the current assignment alone

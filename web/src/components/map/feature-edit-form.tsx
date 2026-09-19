@@ -55,6 +55,7 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
 
   const dirtyGeometry = useEditStore((s) => s.dirtyGeometry)
   const [name, setName] = useState("")
+  const [subtype, setSubtype] = useState<number | undefined>(undefined)
   const [attributes, setAttributes] = useState<Record<string, unknown>>({})
   const [saving, setSaving] = useState(false)
 
@@ -65,6 +66,7 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
   useEffect(() => {
     if (feature) {
       setName(feature.name ?? "")
+      setSubtype(feature.subtype)
       setAttributes({ ...feature.attributes })
     }
   }, [feature])
@@ -86,8 +88,12 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
   // just bounce off a 400 for.
   const isLocked = (field: FieldSchema) => feature.status === "published" && !field.editable_after_publish
   const visibleFields = schema.fields.filter((f) => f.visible_on_update)
+  // Required-ness follows the currently *selected* subtype, not the stored one,
+  // so switching subtype in this form immediately surfaces (and demands) the new
+  // subtype's required fields -- the same fields the server's
+  // validateRequiredForSubtypeChange will enforce on save.
   const isFieldRequired = (field: FieldSchema) =>
-    feature.subtype !== undefined && (field.required_for_subtypes ?? []).includes(feature.subtype)
+    subtype !== undefined && (field.required_for_subtypes ?? []).includes(subtype)
   const missingRequiredField = visibleFields.some((f) => {
     if (!isFieldRequired(f) || isLocked(f)) return false
     const v = attributes[f.name]
@@ -95,11 +101,13 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
   })
   const changedKeys = Object.keys(attributes).filter((k) => attributes[k] !== feature.attributes[k])
   const nameChanged = name !== (feature.name ?? "")
+  const subtypeChanged = subtype !== feature.subtype
   // Any kind of change alone is enough to save -- the user may touch
-  // just the name, just attributes, just geometry (via the map
-  // toolbar), or any combination, per the user's own framing of this
-  // feature.
-  const canSave = !missingRequiredField && (changedKeys.length > 0 || nameChanged || dirtyGeometry !== null) && !saving
+  // just the name, just attributes, just the subtype, just geometry (via
+  // the map toolbar), or any combination, per the user's own framing of
+  // this feature.
+  const canSave =
+    !missingRequiredField && (changedKeys.length > 0 || nameChanged || subtypeChanged || dirtyGeometry !== null) && !saving
 
   function handleCancel() {
     useEditStore.getState().stop()
@@ -127,6 +135,10 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
       // a user backspacing everything out reliably clears it rather
       // than leaving whitespace behind.
       if (nameChanged) body.name = name.trim()
+      // Subtype change (Phase 60): the server re-checks the new subtype's
+      // required fields against the row-plus-request merge, so any newly-required
+      // values the user filled above ride along in `attributes` in the same PATCH.
+      if (subtypeChanged && subtype !== undefined) body.subtype = subtype
 
       await apiFetch(`/features/${featureClassCode}/${featureId}`, {
         method: "PATCH",
@@ -181,6 +193,28 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
           placeholder="Optional -- a human-readable label"
         />
       </div>
+
+      {feature.subtype !== undefined && schema.subtypes.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium">Subtype</label>
+          <select
+            className={inputClass}
+            value={subtype ?? ""}
+            onChange={(e) => setSubtype(e.target.value === "" ? undefined : Number(e.target.value))}
+          >
+            {schema.subtypes.map((s) => (
+              <option key={s.code} value={s.code}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          {subtypeChanged && (
+            <p className="text-muted-foreground text-xs">
+              Changing the subtype — fill any newly required fields (marked *) before saving.
+            </p>
+          )}
+        </div>
+      )}
 
       {visibleFields.map((field) => (
         <div key={field.name} className="flex flex-col gap-1">

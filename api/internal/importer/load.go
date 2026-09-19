@@ -28,6 +28,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/export"
+	"github.com/kwaabs/voltedge/api/internal/secretbox"
 )
 
 // progressFlush is how many rows the worker streams between flushing its running
@@ -76,7 +77,7 @@ type loader struct {
 // flushing tallies as it goes. A job-level problem (corrupt scope, missing
 // profile, uncompiled class, unreadable artifact, malformed stream) marks the job
 // failed; a per-row problem is skip-and-reported and the run continues.
-func runClaimedImport(ctx context.Context, db *bun.DB, store *export.ObjectStore, job *ImportJob) {
+func runClaimedImport(ctx context.Context, db *bun.DB, store *export.ObjectStore, cipher *secretbox.Cipher, job *ImportJob) {
 	var scope ImportScope
 	if err := json.Unmarshal(job.Scope, &scope); err != nil {
 		markImportFailed(ctx, db, job.ID, fmt.Sprintf("corrupt job scope: %v", err))
@@ -104,15 +105,19 @@ func runClaimedImport(ctx context.Context, db *bun.DB, store *export.ObjectStore
 	}
 	applyCtx := auth.WithUser(ctx, user)
 
-	rc, err := store.Open(ctx, job.ObjectKey)
+	// Pick the ingest front-end by source format: the v1 formats stream the
+	// browser-normalized NDJSON artifact; a GeoPackage is opened server-side and
+	// its chosen layer streamed. Both yield the same *Feature, so everything below
+	// is identical. cleanup owns whatever the source held open (object stream, or
+	// the temp SQLite file + handle).
+	src, cleanup, err := openRowSource(ctx, store, rp, &scope, job.ObjectKey, cipher)
 	if err != nil {
 		markImportFailed(ctx, db, job.ID, fmt.Sprintf("opening source artifact: %v", err))
 		return
 	}
-	defer rc.Close()
+	defer cleanup()
 
 	l := &loader{db: db, rp: rp, job: job, table: *rp.Loaded.FeatureClass.PhysicalTable}
-	reader := NewReader(rc)
 
 	var t importTally
 	var fatal string
@@ -123,7 +128,7 @@ func runClaimedImport(ctx context.Context, db *bun.DB, store *export.ObjectStore
 			return
 		}
 
-		f, row, readErr := reader.Read()
+		f, row, readErr := src.Read()
 		if errors.Is(readErr, io.EOF) {
 			break
 		}
@@ -309,6 +314,47 @@ func matchExisting(ctx context.Context, db bun.IDB, table string, matchFields []
 // (idempotent via ON CONFLICT (id) DO NOTHING) rather than duplicating rows.
 func deterministicID(jobID string, row int) string {
 	return uuid.NewSHA1(importNamespace, []byte(jobID+":"+strconv.Itoa(row))).String()
+}
+
+// rowSource is the minimal streaming contract the load loop consumes: both the
+// NDJSON Reader (v1 formats) and the gpkgReader (v2 GeoPackage) implement it, so
+// the loop is format-agnostic. Read returns io.EOF when exhausted.
+type rowSource interface {
+	Read() (*Feature, int, error)
+}
+
+// openRowSource selects the ingest front-end by the profile's source format and
+// returns a streaming source plus a cleanup the caller must always defer. The v1
+// formats stream the browser-normalized NDJSON object; a GeoPackage is downloaded
+// and its chosen layer (the run-time override in scope, else the profile default)
+// opened server-side.
+func openRowSource(ctx context.Context, store *export.ObjectStore, rp *ResolvedProfile, scope *ImportScope, objectKey string, cipher *secretbox.Cipher) (rowSource, func(), error) {
+	if isLiveDBSourceFormat(rp.Profile.SourceFormat) {
+		// A live database (v2-S3 PostGIS): no artifact, an outbound read-only
+		// connection streamed straight from the remote table/query. limit 0 streams
+		// the whole source.
+		return openLiveDBSource(ctx, rp, scope, cipher, 0)
+	}
+	if isSQLiteSourceFormat(rp.Profile.SourceFormat) {
+		src, cleanup, err := openSQLiteSource(ctx, store, objectKey, scope.SourceLayer, rp.Profile.SourceFormat)
+		if err != nil {
+			return nil, nil, err
+		}
+		return src, cleanup, nil
+	}
+
+	rc, err := store.Open(ctx, objectKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("opening source artifact: %w", err)
+	}
+	return NewReader(rc), func() { _ = rc.Close() }, nil
+}
+
+// isSQLiteSourceFormat reports whether a source format is a server-side SQLite
+// database (opened locally) rather than a browser-normalized NDJSON artifact.
+// GeoPackage (S1) and SpatiaLite (S2) are both SQLite files.
+func isSQLiteSourceFormat(format string) bool {
+	return format == "geopackage" || format == "spatialite"
 }
 
 // markImportFailed records a job-level failure (empty tallies), logging if even

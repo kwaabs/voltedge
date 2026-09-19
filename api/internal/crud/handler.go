@@ -316,6 +316,7 @@ func updateHandler(db *bun.DB) http.HandlerFunc {
 			Geometry:          req.Geometry,
 			TerritoryID:       req.TerritoryID,
 			Attributes:        req.Attributes,
+			Subtype:           req.Subtype,
 			ExpectedUpdatedAt: req.ExpectedUpdatedAt,
 		})
 		if err != nil {

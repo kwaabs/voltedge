@@ -38,6 +38,8 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/export"
 	"github.com/kwaabs/voltedge/api/internal/externallink"
 	"github.com/kwaabs/voltedge/api/internal/externalsystem"
+	"github.com/kwaabs/voltedge/api/internal/faults"
+	"github.com/kwaabs/voltedge/api/internal/featureregistry"
 	"github.com/kwaabs/voltedge/api/internal/fieldpack"
 	"github.com/kwaabs/voltedge/api/internal/importer"
 	"github.com/kwaabs/voltedge/api/internal/mapannotation"
@@ -159,7 +161,7 @@ func main() {
 		// import writes features through the same validated crud path, so it rides
 		// the features:read/features:write gate -- authoring the mapping profile is
 		// separate metadata:write config under /admin.
-		r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/imports", importer.Routes(db, exportStore))
+		r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/imports", importer.Routes(db, exportStore, credCipher))
 	// Geographic export (Phase 14): reads features (optionally clipped to the
 	// map viewport) and streams them back as a KMZ/Shapefile/DXF download. A
 	// read, like trace/analysis -- POST only because the filter and scope don't
@@ -194,6 +196,20 @@ func main() {
 	// the assets, not feature data), gated method-aware here so this router
 	// carries no auth of its own -- the same arrangement OMS uses.
 	r.With(auth.RequirePermission(auth.PermWAMRead, auth.PermWAMWrite)).Mount("/wam", wam.Routes(db))
+	// Faults: the electrical fault event -- the causal hinge between OMS (the
+	// outage a fault causes) and WAM (the defect a fault triggers). Its own
+	// faults:read/faults:write capability (a fault straddles both subsystems but
+	// is neither an outage nor an asset-condition record), gated method-aware here
+	// so this router carries no auth of its own -- the same arrangement OMS/WAM use.
+	r.With(auth.RequirePermission(auth.PermFaultsRead, auth.PermFaultsWrite)).Mount("/faults", faults.Routes(db))
+		// Feature registry (migration 0108): a cross-class index of every feature
+		// id -> its class, maintained by the compiler-attached DB trigger. Backs
+		// the asset-id typeahead/resolve any form needs when a user references an
+		// asset by id (faults/oms/wam and the connectivity forms are the first
+		// consumers). Read-only and just an index of the features themselves, so it
+		// rides the same features:read gate the CRUD read layer uses -- GET-only, so
+		// features:read covers every method (the /tiles / /export arrangement).
+		r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/feature-registry", featureregistry.Routes(db))
 	// Phase 22: files attached to features (docs/phase-22-attachments.md). A
 	// method-aware attachments:read/write gate covers the mount; the bytes ride
 	// presigned URLs straight to/from RustFS (exportStore's bucket), so this
@@ -285,7 +301,7 @@ func main() {
 	// llmProvider, which is nil when no model is configured (ASSISTANT_LLM_BASE_URL
 	// unset) -- chat then reports itself disabled while suggestions keep working.
 	r.With(auth.RequireAuth).Mount("/assistant", assistant.Routes(db, llmProvider))
-	r.With(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite)).Mount("/admin", admin.Routes(db))
+	r.With(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite)).Mount("/admin", admin.Routes(db, credCipher))
 	// Phase 39 (docs/phase-39-map-settings.md): the admin-configurable default
 	// map view (center lon/lat + zoom at app start), replacing the client's
 	// hardcoded placeholder. A method-aware gate: GET needs only features:read

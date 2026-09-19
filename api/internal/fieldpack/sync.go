@@ -38,6 +38,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/faults"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
 	"github.com/kwaabs/voltedge/api/internal/wam"
@@ -318,6 +319,12 @@ func validOpKind(kind string) bool {
 		// inspection checklists offline; each is replayed through the shared wam
 		// engine in applyWAMOp.
 		return true
+	case "fault_create", "fault_status", "fault_book_defect":
+		// Offline faults capture (offline faults module): a fault-response crew
+		// raises fault events, marks them cleared, and books a WAM defect from one
+		// offline; each is replayed through the shared faults engine in
+		// applyFaultsOp.
+		return true
 	}
 	return false
 }
@@ -381,6 +388,44 @@ type wamInspectionRecordPayload struct {
 	Items             []wamInspectionItemPayload `json:"items"`
 }
 
+// Faults offline-capture op payloads (offline faults module). A fault-response
+// crew's device pushes these alongside the feature/WAM ops; they're sync-local
+// snake_case mirrors of the faults engine's param structs (kept separate for the
+// same clean-JSON reason as the WAM payloads). fault_create carries its new
+// event's device-minted UUID in the op's feature_id so replay is idempotent;
+// fault_status / fault_book_defect target an existing fault's id. detected_by /
+// reported_by are not on the wire -- the submitting user is stamped as the actor,
+// exactly as the WAM ops do.
+type faultCreatePayload struct {
+	Reference             *string    `json:"reference,omitempty"`
+	AssetClass            *string    `json:"asset_class,omitempty"`
+	AssetID               *string    `json:"asset_id,omitempty"`
+	Longitude             *float64   `json:"longitude,omitempty"`
+	Latitude              *float64   `json:"latitude,omitempty"`
+	FaultType             *string    `json:"fault_type,omitempty"`
+	Cause                 *string    `json:"cause,omitempty"`
+	FaultCurrentA         *float64   `json:"fault_current_a,omitempty"`
+	ProtectiveDeviceClass *string    `json:"protective_device_class,omitempty"`
+	ProtectiveDeviceID    *string    `json:"protective_device_id,omitempty"`
+	ClearingTimeMS        *float64   `json:"clearing_time_ms,omitempty"`
+	DetectedAt            *time.Time `json:"detected_at,omitempty"`
+	IncidentID            *string    `json:"incident_id,omitempty"`
+	Title                 string     `json:"title"`
+	Description           *string    `json:"description,omitempty"`
+	Notes                 *string    `json:"notes,omitempty"`
+}
+
+type faultStatusPayload struct {
+	Status string `json:"status"`
+}
+
+type faultBookDefectPayload struct {
+	Title       *string `json:"title,omitempty"`
+	DefectType  *string `json:"defect_type,omitempty"`
+	Severity    *string `json:"severity,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
 // applySyncOp replays one op in its own transaction, so a failure rolls back just
 // that op (and the create's territory assign stays atomic with its insert) while
 // the rest of the batch proceeds. Errors are returned in the result, never
@@ -410,6 +455,12 @@ func applySyncOp(ctx context.Context, db *bun.DB, cache *metaCache, op syncOp, s
 	switch op.Kind {
 	case "wam_defect_create", "wam_defect_status", "wam_workorder_update", "wam_inspection_record":
 		return applyWAMOp(ctx, db, op, submittedBy)
+	case "fault_create", "fault_status", "fault_book_defect":
+		// Offline faults ops replay through the shared faults engine for the same
+		// reason as the WAM ops: each is atomic on its own (a single statement, or
+		// BookDefectFromFault's own transaction) and carries the device-minted id
+		// for idempotent replay, so they run on db directly.
+		return applyFaultsOp(ctx, db, op, submittedBy)
 	}
 
 	// A GPS-sourced placement/move (field tool "place at my location") nests the
@@ -688,6 +739,124 @@ func wamOK(res syncOpResult, row any) syncOpResult {
 // wamErr marks a WAM op errored (quarantined by the worker, same as any apply
 // failure).
 func wamErr(res syncOpResult, err error) syncOpResult {
+	res.Status = "error"
+	res.Error = err.Error()
+	return res
+}
+
+// applyFaultsOp replays one offline faults op through the shared faults engine --
+// the exact twin of applyWAMOp for the fault_* kinds. fault_create carries the
+// new event's device-minted id (op.FeatureID) so a re-applied op is an ON CONFLICT
+// no-op; fault_status is a deterministic write on an existing id; fault_book_defect
+// dedupes on the fault's own defect_id (it mints a DB-defaulted defect, so it can't
+// dedupe on a device UUID). The submitting user is stamped as the detector/reporter.
+// Faults ops are not subject to the feature optimistic-concurrency check
+// (detectSyncConflict only guards feature update_attrs/delete), so they follow
+// today's last-write-wins semantics -- acceptable because the field flow is
+// capture-oriented (new faults, clearing own faults) rather than contended edits.
+func applyFaultsOp(ctx context.Context, db *bun.DB, op syncOp, submittedBy string) syncOpResult {
+	res := syncOpResult{OpID: op.OpID}
+	var actor *string
+	if strings.TrimSpace(submittedBy) != "" {
+		a := strings.TrimSpace(submittedBy)
+		actor = &a
+	}
+
+	switch op.Kind {
+	case "fault_create":
+		var p faultCreatePayload
+		if err := json.Unmarshal(op.Payload, &p); err != nil {
+			return faultErr(res, fmt.Errorf("fault_create payload: %w", err))
+		}
+		f, err := faults.CreateFault(ctx, db, faults.CreateFaultParams{
+			ID:                    nilIfBlank(op.FeatureID),
+			Reference:             p.Reference,
+			AssetClass:            p.AssetClass,
+			AssetID:               p.AssetID,
+			Longitude:             p.Longitude,
+			Latitude:              p.Latitude,
+			FaultType:             p.FaultType,
+			Cause:                 p.Cause,
+			FaultCurrentA:         p.FaultCurrentA,
+			ProtectiveDeviceClass: p.ProtectiveDeviceClass,
+			ProtectiveDeviceID:    p.ProtectiveDeviceID,
+			ClearingTimeMS:        p.ClearingTimeMS,
+			DetectedBy:            actor,
+			DetectedAt:            p.DetectedAt,
+			IncidentID:            p.IncidentID,
+			Title:                 p.Title,
+			Description:           p.Description,
+			Notes:                 p.Notes,
+		})
+		if err != nil {
+			return faultErr(res, err)
+		}
+		return faultOK(res, f)
+
+	case "fault_status":
+		if strings.TrimSpace(op.FeatureID) == "" {
+			return faultErr(res, fmt.Errorf("fault_status op is missing feature_id"))
+		}
+		var p faultStatusPayload
+		if err := json.Unmarshal(op.Payload, &p); err != nil {
+			return faultErr(res, fmt.Errorf("fault_status payload: %w", err))
+		}
+		f, err := faults.SetFaultStatus(ctx, db, strings.TrimSpace(op.FeatureID), p.Status)
+		if err != nil {
+			return faultErr(res, err)
+		}
+		return faultOK(res, f)
+
+	case "fault_book_defect":
+		if strings.TrimSpace(op.FeatureID) == "" {
+			return faultErr(res, fmt.Errorf("fault_book_defect op is missing feature_id"))
+		}
+		faultID := strings.TrimSpace(op.FeatureID)
+		// Idempotent replay: BookDefectFromFault mints a DB-defaulted defect id, so
+		// it can't dedupe on a device UUID the way create/status do. The fault's own
+		// defect_id is the dedupe key -- if it's already set (an earlier apply booked
+		// the defect), this replay is a no-op returning the fault as-is, rather than
+		// tripping the engine's "already has a booked defect" guard into an error.
+		existing, err := faults.GetFault(ctx, db, faultID)
+		if err != nil {
+			return faultErr(res, err)
+		}
+		if existing.DefectID != nil && strings.TrimSpace(*existing.DefectID) != "" {
+			return faultOK(res, existing)
+		}
+		var p faultBookDefectPayload
+		if err := json.Unmarshal(op.Payload, &p); err != nil {
+			return faultErr(res, fmt.Errorf("fault_book_defect payload: %w", err))
+		}
+		f, err := faults.BookDefectFromFault(ctx, db, faultID, faults.BookDefectFromFaultParams{
+			Title:       p.Title,
+			DefectType:  p.DefectType,
+			Severity:    p.Severity,
+			Description: p.Description,
+			ReportedBy:  actor,
+		})
+		if err != nil {
+			return faultErr(res, err)
+		}
+		return faultOK(res, f)
+
+	default:
+		return faultErr(res, fmt.Errorf("unknown faults op kind %q", op.Kind))
+	}
+}
+
+// faultOK marks a faults op applied, projecting the engine's returned row into the
+// generic feature map the result carries (reusing the FaultEvent JSON tags, so the
+// device reads back the same shape the REST /faults surface returns).
+func faultOK(res syncOpResult, row any) syncOpResult {
+	res.Status = "applied"
+	res.Feature = toFeatureMap(row)
+	return res
+}
+
+// faultErr marks a faults op errored (quarantined by the worker, same as any apply
+// failure).
+func faultErr(res syncOpResult, err error) syncOpResult {
 	res.Status = "error"
 	res.Error = err.Error()
 	return res

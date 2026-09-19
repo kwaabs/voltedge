@@ -223,6 +223,45 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 			}
 		}
 
+		// Keep runtime.feature_registry (migration 0108) in step with this
+		// class. The registry is a single cross-class (feature_class_code,
+		// feature_id) index that resolves an asset id without knowing which
+		// gis.<code> table holds it -- the asset-id picker and the bare
+		// (class, id) references faults/oms/wam carry both read from it. It is
+		// maintained by a per-table AFTER INSERT/UPDATE/DELETE trigger, NOT the
+		// Go CRUD layer, because features are also written by raw-SQL seeds and
+		// field-sync replay that never pass through crud; only a DB trigger
+		// catches every write path. Re-attaching on every compile (idempotent
+		// via DROP IF EXISTS) is the same single-source-of-truth reasoning as
+		// the tile-function sync above -- a freshly created table gets its
+		// trigger, an existing one keeps a correct one. All classes register,
+		// geometric or not (the picker indexes every asset). territory_id lives
+		// only on geometric tables, so the backfill's SELECT reads it only
+		// there; the trigger function itself reads it generically via to_jsonb.
+		regTrigger := quoteIdent(tableName + "_registry_sync")
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(
+			`DROP TRIGGER IF EXISTS %s ON %s`, regTrigger, qualifiedTable)); err != nil {
+			return fmt.Errorf("drop registry trigger: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(
+			`CREATE TRIGGER %s AFTER INSERT OR UPDATE OR DELETE ON %s `+
+				`FOR EACH ROW EXECUTE FUNCTION runtime.sync_feature_registry(%s)`,
+			regTrigger, qualifiedTable, quoteLiteral(fc.Code))); err != nil {
+			return fmt.Errorf("create registry trigger: %w", err)
+		}
+		territoryExpr := "NULL::uuid"
+		if fc.GeometryType != "none" {
+			territoryExpr = "territory_id"
+		}
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(
+			`INSERT INTO runtime.feature_registry `+
+				`(feature_id, feature_class_code, status, deleted_at, created_at, territory_id) `+
+				`SELECT id, %s, status, deleted_at, created_at, %s FROM %s `+
+				`ON CONFLICT (feature_id) DO NOTHING`,
+			quoteLiteral(fc.Code), territoryExpr, qualifiedTable)); err != nil {
+			return fmt.Errorf("backfill feature_registry: %w", err)
+		}
+
 		// published_by (text) carries the acting user's uuid when compile
 		// was triggered through the admin HTTP route (Slice E); it falls
 		// back to the "compiler-cli" system literal on the session-less

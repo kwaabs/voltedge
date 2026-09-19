@@ -27,6 +27,7 @@ import { AdminUsersPage } from "@/routes/admin-users"
 import { SyncReviewPage } from "@/routes/sync-review"
 import { ConnectivityPage } from "@/routes/connectivity"
 import { FeaturesPage } from "@/routes/features"
+import { FaultsPage } from "@/routes/faults"
 import { ImportRunPage } from "@/routes/imports"
 import { LoginPage } from "@/routes/login"
 import { MapPage } from "@/routes/map"
@@ -85,6 +86,17 @@ export function App() {
               element={
                 <RequirePermission perm="wam:read">
                   <WorksPage />
+                </RequirePermission>
+              }
+            />
+            {/* The fault board is gated at the route by faults:read (view); the
+                log/lifecycle/book-defect controls inside self-gate on
+                faults:write, matching the outage and work boards above. */}
+            <Route
+              path="faults"
+              element={
+                <RequirePermission perm="faults:read">
+                  <FaultsPage />
                 </RequirePermission>
               }
             />

@@ -41,6 +41,7 @@ import {
   Wrench,
   X,
   Zap,
+  ZapOff,
 } from "lucide-react"
 
 import { CreateDiagramForm } from "@/components/map/create-diagram-form"
@@ -48,6 +49,7 @@ import { DeleteFeatureDialog } from "@/components/map/delete-feature-dialog"
 import { FeatureAttachments } from "@/components/map/feature-attachments"
 import { FeatureCreateForm } from "@/components/map/feature-create-form"
 import { FeatureEditForm } from "@/components/map/feature-edit-form"
+import { FaultsTab } from "@/components/map/feature-faults-tab"
 import { WorksTab } from "@/components/map/feature-works-tab"
 import { formatFieldLabel, formatValue } from "@/components/map/field-utils"
 import { RemoveGeometryDialog } from "@/components/map/remove-geometry-dialog"
@@ -116,6 +118,7 @@ type TabId =
   | "relationships"
   | "materials"
   | "works"
+  | "faults"
   | "files"
   | "links"
   | "history"
@@ -127,6 +130,7 @@ const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
   { id: "relationships", label: "Relationships", icon: Link2 },
   { id: "materials", label: "Materials", icon: Wrench },
   { id: "works", label: "Works", icon: ClipboardList },
+  { id: "faults", label: "Faults", icon: ZapOff },
   { id: "files", label: "Files", icon: Paperclip },
   { id: "links", label: "Links", icon: ExternalLinkIcon },
   { id: "history", label: "History", icon: History },
@@ -1994,8 +1998,12 @@ export function FeaturePanel() {
   // every query 403s. Unlike Terminals, Works applies to any feature (any asset
   // can carry a defect or work order), so it's not restricted by network role.
   const canReadWorks = usePermission()("wam:read")
+  const canReadFaults = usePermission()("faults:read")
   const visibleTabs = TABS.filter(
-    (tab) => (tab.id !== "terminals" || isConnectable) && (tab.id !== "works" || canReadWorks),
+    (tab) =>
+      (tab.id !== "terminals" || isConnectable) &&
+      (tab.id !== "works" || canReadWorks) &&
+      (tab.id !== "faults" || canReadFaults),
   )
 
   // Trace + every network analysis behind that same dropdown (isolate,
@@ -2404,6 +2412,7 @@ export function FeaturePanel() {
               {activeTab === "relationships" && <RelationshipsTab />}
               {activeTab === "materials" && <MaterialsTab onEditClick={() => setActiveTab("attributes")} />}
               {activeTab === "works" && <WorksTab />}
+              {activeTab === "faults" && <FaultsTab />}
               {activeTab === "files" && (
                 <FeatureAttachments
                   featureClassCode={selected.featureClassCode}

@@ -82,7 +82,12 @@ const (
 	// jobs / logs findings / runs inspections offline; captures ride back through new
 	// wam_* sync op kinds. Additive: an older pack has no rows and the app hides the
 	// work board.
-	packSchemaVersion = 8
+	// v9 added the faults read-context table (faults_events), shipped only when the
+	// pack requester holds faults:read (scope.IncludeFaults). It carries the OPEN
+	// fault events on the packed assets, so a field worker sees the electrical faults
+	// standing on the assets in hand; cleared/closed faults are omitted. Additive: an
+	// older pack has no rows and the app hides the fault board.
+	packSchemaVersion = 9
 
 	defaultMinZoom = 6
 	defaultMaxZoom = 16
@@ -102,6 +107,7 @@ type buildResult struct {
 	relClassCount    int
 	netRuleCount     int
 	defectCount      int
+	faultCount       int
 	workOrderCount   int
 	inspTemplateCount     int
 	inspTemplateItemCount int
@@ -172,8 +178,8 @@ func buildPack(ctx context.Context, db *bun.DB, store *export.ObjectStore, pack 
 		log.Printf("fieldpack: pack %s uploaded but marking complete failed: %v", pack.ID, err)
 		return
 	}
-	log.Printf("fieldpack: pack %s built: features=%d conns=%d rels=%d domainvals=%d symbology=%d icons=%d attachments=%d relclasses=%d netrules=%d defects=%d workorders=%d insptemplates=%d/%d tiles=%dB data=%dB",
-		pack.ID, res.featureCount, res.connCount, res.relCount, res.domainValueCount, res.symbologyCount, res.iconCount, res.attachmentCount, res.relClassCount, res.netRuleCount, res.defectCount, res.workOrderCount, res.inspTemplateCount, res.inspTemplateItemCount, tilesBytes, dataBytes)
+	log.Printf("fieldpack: pack %s built: features=%d conns=%d rels=%d domainvals=%d symbology=%d icons=%d attachments=%d relclasses=%d netrules=%d defects=%d faults=%d workorders=%d insptemplates=%d/%d tiles=%dB data=%dB",
+		pack.ID, res.featureCount, res.connCount, res.relCount, res.domainValueCount, res.symbologyCount, res.iconCount, res.attachmentCount, res.relClassCount, res.netRuleCount, res.defectCount, res.faultCount, res.workOrderCount, res.inspTemplateCount, res.inspTemplateItemCount, tilesBytes, dataBytes)
 }
 
 // buildArtifacts does the read + encode: it writes the SQLite pack and the
@@ -300,6 +306,14 @@ func buildArtifacts(ctx context.Context, db *bun.DB, store *export.ObjectStore, 
 		return buildResult{}, err
 	}
 	defer defectStmt.Close()
+	faultStmt, err := stx.PrepareContext(ctx, `INSERT INTO faults_events
+		(id, reference, asset_class, asset_id, fault_type, cause, status, title, description, detected_at, longitude, latitude, protective_device_class, protective_device_id, incident_id, defect_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		stx.Rollback()
+		return buildResult{}, err
+	}
+	defer faultStmt.Close()
 	workOrderStmt, err := stx.PrepareContext(ctx, `INSERT INTO wam_work_orders
 		(id, reference, work_type, status, priority, title, description, asset_class, asset_id, defect_id, assigned_to, scheduled_for, due_by, started_at, completion_notes)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -504,6 +518,17 @@ func buildArtifacts(ctx context.Context, db *bun.DB, store *export.ObjectStore, 
 				res.inspTemplateCount, res.inspTemplateItemCount, err = loadPackInspectionTemplates(ctx, tx, inspTmplStmt, inspItemStmt)
 				if err != nil {
 					return fmt.Errorf("loading inspection templates: %w", err)
+				}
+			}
+
+			// The faults read-context (the Faults module), shipped only when the
+			// requester holds faults:read (frozen into the scope at enqueue). Faults
+			// are asset-centric (filtered to the packed features): the open fault
+			// events standing on the assets in hand. Advisory read-only context.
+			if scope.IncludeFaults {
+				res.faultCount, err = loadPackFaults(ctx, tx, packed, faultStmt)
+				if err != nil {
+					return fmt.Errorf("loading faults: %w", err)
 				}
 			}
 			return nil
@@ -732,6 +757,31 @@ func initPackSchema(ctx context.Context, sq *sql.DB) error {
 			fail_severity TEXT,
 			guidance      TEXT
 		)`,
+		// The open electrical fault events on the packed assets (pack schema v9, the
+		// Faults module). One row per fault whose asset is in the pack and whose status
+		// is not cleared/closed, so the field tool shows the live faults standing on the
+		// assets in hand. Cleared/closed faults are omitted. longitude/latitude are the
+		// projected `location` point (ST_X/ST_Y), NULL for an asset-only fault; detected_at
+		// is RFC3339 text. Shipped only when scope.IncludeFaults (requester holds
+		// faults:read); an older pack or a requester without the perm has no rows.
+		`CREATE TABLE faults_events (
+			id                      TEXT PRIMARY KEY,
+			reference               TEXT,
+			asset_class             TEXT,
+			asset_id                TEXT,
+			fault_type              TEXT,
+			cause                   TEXT,
+			status                  TEXT NOT NULL,
+			title                   TEXT,
+			description             TEXT,
+			detected_at             TEXT,
+			longitude               REAL,
+			latitude                REAL,
+			protective_device_class TEXT,
+			protective_device_id    TEXT,
+			incident_id             TEXT,
+			defect_id               TEXT
+		)`,
 		`CREATE TABLE manifest (
 			key   TEXT PRIMARY KEY,
 			value TEXT
@@ -759,6 +809,7 @@ func createPackIndexes(ctx context.Context, sq *sql.DB) error {
 		`CREATE INDEX relationship_classes_pair_idx ON relationship_classes (origin_class, destination_class)`,
 		`CREATE INDEX network_rules_pair_idx        ON network_rules (from_class, to_class)`,
 		`CREATE INDEX wam_defects_asset_idx         ON wam_defects (asset_id)`,
+		`CREATE INDEX faults_events_asset_idx       ON faults_events (asset_id)`,
 		`CREATE INDEX wam_work_orders_status_idx    ON wam_work_orders (status)`,
 		`CREATE INDEX wam_insp_items_template_idx   ON wam_inspection_template_items (template_id)`,
 	}
@@ -1265,6 +1316,64 @@ WHERE status IN ('open', 'work_ordered')`
 	return n, rows.Err()
 }
 
+// loadPackFaults streams the open fault events and keeps those on a packed asset,
+// so the field tool shows the live electrical faults standing on the assets in
+// hand -- the same stream-and-membership-filter pattern loadPackDefects uses, so a
+// big fault table never becomes a giant IN (...) over the packed ids. Cleared and
+// closed faults are omitted; the field worker only needs faults still on the
+// network. A fault anchored only by a location or an incident carries no asset_id;
+// it can't match a packed asset, so it is skipped. The `location` point is
+// projected to longitude/latitude via ST_X/ST_Y, the same split faultColumns uses.
+func loadPackFaults(ctx context.Context, db bun.IDB, packed map[string]struct{}, stmt *sql.Stmt) (int, error) {
+	const q = `
+SELECT id::text, reference, asset_class, asset_id::text, fault_type, cause, status,
+       title, description, detected_at, ST_X(location), ST_Y(location),
+       protective_device_class, protective_device_id::text, incident_id::text, defect_id::text
+FROM faults.fault_events
+WHERE status NOT IN ('cleared', 'closed')`
+	rows, err := db.QueryContext(ctx, q)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	n := 0
+	for rows.Next() {
+		var id, status string
+		var reference, assetClass, assetID, faultType, cause, title, description sql.NullString
+		var protectiveDeviceClass, protectiveDeviceID, incidentID, defectID sql.NullString
+		var detectedAt sql.NullTime
+		var longitude, latitude sql.NullFloat64
+		if err := rows.Scan(&id, &reference, &assetClass, &assetID, &faultType, &cause, &status,
+			&title, &description, &detectedAt, &longitude, &latitude,
+			&protectiveDeviceClass, &protectiveDeviceID, &incidentID, &defectID); err != nil {
+			return n, err
+		}
+		if !assetID.Valid {
+			continue
+		}
+		if _, ok := packed[assetID.String]; !ok {
+			continue
+		}
+		if _, err := stmt.ExecContext(ctx, id, reference, assetClass, assetID, faultType, cause, status,
+			title, description, nullTimeText(detectedAt), nullFloat(longitude), nullFloat(latitude),
+			protectiveDeviceClass, protectiveDeviceID, incidentID, defectID); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, rows.Err()
+}
+
+// nullFloat renders a nullable float as itself, or nil (SQL NULL) when absent --
+// the pack stores an unanchored fault's missing lng/lat as NULL rather than 0.
+func nullFloat(f sql.NullFloat64) any {
+	if !f.Valid {
+		return nil
+	}
+	return f.Float64
+}
+
 // loadPackWorkOrders writes the requester's own open work orders -- their field
 // "work board". Person-centric (assigned_to_user_id = the pack requester),
 // independent of the pack bbox: a job is a job wherever its asset sits.
@@ -1403,12 +1512,14 @@ func writeManifest(ctx context.Context, stx *sql.Tx, packID, requestedBy string,
 		{"relationship_class_count", strconv.Itoa(res.relClassCount)},
 		{"network_rule_count", strconv.Itoa(res.netRuleCount)},
 		{"defect_count", strconv.Itoa(res.defectCount)},
+		{"fault_count", strconv.Itoa(res.faultCount)},
 		{"work_order_count", strconv.Itoa(res.workOrderCount)},
 		{"inspection_template_count", strconv.Itoa(res.inspTemplateCount)},
 		{"inspection_template_item_count", strconv.Itoa(res.inspTemplateItemCount)},
 		{"include_connectivity", strconv.FormatBool(scope.IncludeConnectivity)},
 		{"include_relationships", strconv.FormatBool(scope.IncludeRelationships)},
 		{"include_wam", strconv.FormatBool(scope.IncludeWAM)},
+		{"include_faults", strconv.FormatBool(scope.IncludeFaults)},
 	}
 	stmt, err := stx.PrepareContext(ctx, `INSERT INTO manifest (key, value) VALUES (?, ?)`)
 	if err != nil {

@@ -552,9 +552,11 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
           deleted: true,
           name: db.featureById(op.featureId)?.name,
         ));
-      } else if (EditDatabase.wamOpKinds.contains(op.kind)) {
-        // A WAM capture (defect/inspection/work-order) riding the shared outbox --
-        // no map feature to name, just a friendly label. Managed on the Work screen.
+      } else if (EditDatabase.wamOpKinds.contains(op.kind) ||
+          EditDatabase.faultOpKinds.contains(op.kind)) {
+        // A WAM capture (defect/inspection/work-order) OR a fault capture
+        // (raise/status/book-defect) riding the shared outbox -- no map feature to
+        // name, just a friendly label. Managed on the Work / Faults screens.
         items.add(_PendingItem(op: op, created: false, wam: true, name: _wamOpTitle(op.kind)));
       } else {
         items.add(_PendingItem(
@@ -2983,6 +2985,12 @@ String _wamOpTitle(String kind) {
       return 'Work order update';
     case 'wam_inspection_record':
       return 'Inspection recorded';
+    case 'fault_create':
+      return 'Fault raised';
+    case 'fault_status':
+      return 'Fault status change';
+    case 'fault_book_defect':
+      return 'Defect booked from fault';
     default:
       return 'Work update';
   }

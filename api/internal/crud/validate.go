@@ -104,6 +104,72 @@ func validateSubtype(loaded *metadata.Loaded, subtype *int) (*metadata.Subtype, 
 	return st, nil
 }
 
+// resolveSubtypeChange decides whether an update actually changes the feature's
+// subtype and, if so, resolves the target subtype. requested is the update
+// request's subtype code (nil = the request didn't mention subtype, so leave it
+// alone). A class with no subtypes can't receive one; an invalid code is
+// rejected the same way create rejects it (validateSubtype). Requesting the
+// subtype the feature already has is a no-op -- returns nil so the writer leaves
+// the column untouched and the required-field re-check is skipped. existing is
+// the getFeature envelope, whose "subtype" holds the current code.
+func resolveSubtypeChange(loaded *metadata.Loaded, existing map[string]any, requested *int) (*metadata.Subtype, error) {
+	if requested == nil {
+		return nil, nil
+	}
+	if len(loaded.Subtypes) == 0 {
+		return nil, invalid("feature class %q has no subtypes, so subtype can't be changed", loaded.FeatureClass.Code)
+	}
+	st, err := validateSubtype(loaded, requested)
+	if err != nil {
+		return nil, err
+	}
+	if cur, ok := toInt(existing["subtype"]); ok && cur == *requested {
+		return nil, nil
+	}
+	return st, nil
+}
+
+// validateRequiredForSubtypeChange enforces the new subtype's required fields
+// when an update changes subtype -- the check the update path historically
+// punted on (types.go). It's merge-aware, unlike create's validateRequired: a
+// required field the row already carries counts as satisfied even when this
+// request doesn't resend it, and a field this request sets counts too, so the
+// caller can change subtype and supply the newly-required values in one PATCH.
+// A field neither present nor already set is filled from a default_override rule
+// (injected into attrs so it's written and coerced downstream, same as create);
+// with no default it's a 400 naming the field, so the caller knows exactly what
+// to send. existingAttrs is the row's stored attributes; attrs is the incoming
+// (raw, not yet coerced) request map, mutated in place for the default fill.
+func validateRequiredForSubtypeChange(loaded *metadata.Loaded, newSubtype *metadata.Subtype, existingAttrs, attrs map[string]any) error {
+	if newSubtype == nil {
+		return nil
+	}
+	for _, name := range loaded.RequiredFieldNames(newSubtype.ID) {
+		if v, present := attrs[name]; present && v != nil {
+			continue
+		}
+		if v, present := existingAttrs[name]; present && v != nil {
+			continue
+		}
+		f := loaded.FieldByName(name)
+		if f == nil {
+			continue
+		}
+		hasDefault := false
+		for _, r := range loaded.SubtypeFieldRules {
+			if r.SubtypeID == newSubtype.ID && r.FieldID == f.ID && r.DefaultOverride != nil {
+				attrs[name] = *r.DefaultOverride
+				hasDefault = true
+				break
+			}
+		}
+		if !hasDefault {
+			return invalid("field %q is required for subtype %q -- set it in this update to change the subtype", name, newSubtype.Name)
+		}
+	}
+	return nil
+}
+
 // validateGeometry checks that a geometry was supplied exactly when the
 // feature class expects one, and that its GeoJSON "type" matches.
 // Coordinate-level validity is left to PostGIS.

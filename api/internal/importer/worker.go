@@ -20,6 +20,7 @@ import (
 	"github.com/uptrace/bun"
 
 	"github.com/kwaabs/voltedge/api/internal/export"
+	"github.com/kwaabs/voltedge/api/internal/secretbox"
 )
 
 const (
@@ -36,12 +37,16 @@ const (
 )
 
 // WorkerConfig tunes RunImportWorker. ID identifies this worker in worker_id;
-// the rest bound concurrency and the lease/poll timing.
+// the rest bound concurrency and the lease/poll timing. Cipher unseals a live-DB
+// profile's stored password (v2-S3); it is nil when credential encryption is not
+// configured, in which case a job whose profile carries a sealed password fails
+// with a clear error rather than connecting without auth.
 type WorkerConfig struct {
 	ID          string
 	Concurrency int
 	Lease       time.Duration
 	Poll        time.Duration
+	Cipher      *secretbox.Cipher
 }
 
 // WorkerConfigFromEnv reads IMPORT_WORKER_CONCURRENCY and IMPORT_JOB_LEASE,
@@ -165,7 +170,7 @@ func runJobWithHeartbeat(parent context.Context, db *bun.DB, store *export.Objec
 		}
 	}()
 
-	runClaimedImport(jobCtx, db, store, job)
+	runClaimedImport(jobCtx, db, store, cfg.Cipher, job)
 	cancel()  // stop the heartbeat now the job is done (and its status changed)
 	hb.Wait() // don't leak the goroutine past this job
 }

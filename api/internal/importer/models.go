@@ -33,17 +33,34 @@ type Profile struct {
 	FeatureClassID    string    `bun:"feature_class_id"`
 	SubtypeID         *string   `bun:"subtype_id"`
 	SourceFormat      string    `bun:"source_format"`
+	SourceLayer       *string   `bun:"source_layer"`
 	WriteMode         string    `bun:"write_mode"`
 	MatchFields       []string  `bun:"match_fields,array"`
 	GeometryMode      string    `bun:"geometry_mode"`
 	GeometryLonColumn *string   `bun:"geometry_lon_column"`
 	GeometryLatColumn *string   `bun:"geometry_lat_column"`
 	GeometryWktColumn *string   `bun:"geometry_wkt_column"`
-	Status            string    `bun:"status"`
-	CreatedAt         time.Time `bun:"created_at,nullzero"`
-	UpdatedAt         time.Time `bun:"updated_at,nullzero"`
-	CreatedBy         *string   `bun:"created_by"`
-	UpdatedBy         *string   `bun:"updated_by"`
+
+	// Live-DB connection config (v2-S3, source_format postgis/mssql). Held on the
+	// profile itself rather than reused from metadata.external_systems (a locked
+	// decision). DBPasswordEnc is the secretbox-sealed password: write-only over
+	// the wire (never returned to the browser), unsealed only server-side by the
+	// worker. A nil DBPasswordEnc means no stored password (trust/peer auth).
+	// SourceQuery is an optional custom read-only SQL SELECT that, when set,
+	// replaces the table-pick (source_layer) addressing.
+	DBHost        *string `bun:"db_host"`
+	DBPort        *int    `bun:"db_port"`
+	DBName        *string `bun:"db_name"`
+	DBUser        *string `bun:"db_user"`
+	DBSSLMode     string  `bun:"db_sslmode"`
+	DBPasswordEnc []byte  `bun:"db_password_enc"`
+	SourceQuery   *string `bun:"source_query"`
+
+	Status    string    `bun:"status"`
+	CreatedAt time.Time `bun:"created_at,nullzero"`
+	UpdatedAt time.Time `bun:"updated_at,nullzero"`
+	CreatedBy *string   `bun:"created_by"`
+	UpdatedBy *string   `bun:"updated_by"`
 }
 
 // FieldMapping is one metadata.import_field_mappings row: one source column ->

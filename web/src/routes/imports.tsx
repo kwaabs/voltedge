@@ -21,15 +21,24 @@ import {
   type EtlImportJob,
   type EtlImportProfile,
   ETL_IMPORT_ACCEPT,
+  type GpkgLayer,
   type ParsedEtlSource,
   enqueueImportJob,
+  enqueueLiveImportJob,
   getImportJob,
+  isLiveDBFormat,
+  isServerParsedFormat,
   listImportJobs,
   listRunnableProfiles,
+  listServerParsedLayers,
   parseEtlSource,
   runImportDryRun,
+  runImportDryRunFromObject,
+  runImportDryRunLive,
   sampleFeatures,
+  serverParsedAccept,
   uploadEtlArtifact,
+  uploadServerParsedFile,
 } from "@/lib/etl-import"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -47,6 +56,11 @@ import { useToastStore } from "@/stores/toast-store"
 
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"])
 const PREVIEW_ROWS = 8
+
+/** Human label for a server-parsed source format, for wizard copy. */
+function serverParsedLabel(format: string): string {
+  return format === "spatialite" ? "SpatiaLite" : "GeoPackage"
+}
 
 /** Human summary of what a profile's write policy does, for the picker + banner. */
 function writePolicyText(p: EtlImportProfile): string {
@@ -67,11 +81,30 @@ export function ImportRunPage() {
   const [profileCode, setProfileCode] = useState<string | null>(null)
   const profile = profilesQuery.data?.find((p) => p.code === profileCode) ?? null
 
+  // A GeoPackage profile is parsed SERVER-side: the browser uploads the raw file
+  // and asks the server for its layers, rather than normalizing it to NDJSON.
+  const isGpkg = profile != null && isServerParsedFormat(profile.source_format)
+
+  // A live-DB profile (PostGIS) has no file at all: the worker connects out to
+  // the profile's saved connection and streams rows straight from its remote
+  // table/query. The wizard therefore skips the file/upload steps entirely.
+  const isLive = profile != null && isLiveDBFormat(profile.source_format)
+
   // Step 2: the picked + normalized source file.
   const [fileName, setFileName] = useState<string | null>(null)
   const [sourceCrs, setSourceCrs] = useState("")
   const [parsing, setParsing] = useState(false)
   const [parsed, setParsed] = useState<ParsedEtlSource | null>(null)
+
+  // Step 2 (GeoPackage branch): the raw file is uploaded up front (so the server
+  // can read its layers + dry-run sample); we then pick which layer to import.
+  const [gpkgObjectKey, setGpkgObjectKey] = useState<string | null>(null)
+  const [gpkgLayers, setGpkgLayers] = useState<GpkgLayer[] | null>(null)
+  const [gpkgLayer, setGpkgLayer] = useState<string | null>(null)
+
+  // Step 2 (live-DB branch): an optional source-table override, defaulting to the
+  // profile's pinned table; blank falls back to the profile's own table/query.
+  const [liveTable, setLiveTable] = useState("")
 
   // Step 3: the sample pre-flight report.
   const [dryRunning, setDryRunning] = useState(false)
@@ -107,6 +140,11 @@ export function ImportRunPage() {
     setProfileCode(code)
     setFileName(null)
     setParsed(null)
+    setGpkgObjectKey(null)
+    setGpkgLayers(null)
+    setGpkgLayer(null)
+    // Seed the live-DB table override from the newly chosen profile's pinned table.
+    setLiveTable(profilesQuery.data?.find((p) => p.code === code)?.source_layer ?? "")
     setDryReport(null)
     setActiveJobId(null)
   }
@@ -129,11 +167,49 @@ export function ImportRunPage() {
     }
   }
 
+  /** GeoPackage branch: upload the raw file, then read its layers server-side and
+   * default the layer to the profile's pinned one (or the sole layer). */
+  async function handleGpkgFile(file: File | undefined) {
+    if (!file || !profile) return
+    setGpkgObjectKey(null)
+    setGpkgLayers(null)
+    setGpkgLayer(null)
+    setDryReport(null)
+    setActiveJobId(null)
+    setFileName(file.name)
+    setParsing(true)
+    try {
+      const objectKey = await uploadServerParsedFile(file, profile.source_format)
+      const layers = await listServerParsedLayers(objectKey, profile.source_format)
+      setGpkgObjectKey(objectKey)
+      setGpkgLayers(layers)
+      const pinned = profile.source_layer && layers.some((l) => l.name === profile.source_layer)
+        ? profile.source_layer
+        : layers.length === 1
+          ? layers[0].name
+          : null
+      setGpkgLayer(pinned)
+    } catch (err) {
+      setFileName(null)
+      useToastStore
+        .getState()
+        .pushError(
+          err instanceof ApiError ? err.message : `Could not read that ${serverParsedLabel(profile.source_format)}.`,
+        )
+    } finally {
+      setParsing(false)
+    }
+  }
+
   async function handleDryRun() {
-    if (!profile || !parsed) return
+    if (!profile) return
     setDryRunning(true)
     try {
-      const report = await runImportDryRun(profile.code, sampleFeatures(parsed))
+      const report = isLive
+        ? await runImportDryRunLive(profile.code, liveTable.trim())
+        : isGpkg
+          ? await runImportDryRunFromObject(profile.code, gpkgObjectKey as string, gpkgLayer)
+          : await runImportDryRun(profile.code, sampleFeatures(parsed as ParsedEtlSource))
       setDryReport(report)
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "The pre-flight check failed.")
@@ -143,11 +219,20 @@ export function ImportRunPage() {
   }
 
   async function handleRun() {
-    if (!profile || !parsed || !fileName) return
+    if (!profile) return
     setEnqueuing(true)
     try {
-      const objectKey = await uploadEtlArtifact(parsed.features, fileName)
-      const jobId = await enqueueImportJob(profile.code, objectKey, validateOnly)
+      let jobId: string
+      if (isLive) {
+        // No artifact: the worker connects out to the profile's saved connection.
+        jobId = await enqueueLiveImportJob(profile.code, validateOnly, liveTable.trim())
+      } else if (isGpkg) {
+        // The raw GeoPackage is already staged; enqueue against its object key.
+        jobId = await enqueueImportJob(profile.code, gpkgObjectKey as string, validateOnly, gpkgLayer)
+      } else {
+        const objectKey = await uploadEtlArtifact((parsed as ParsedEtlSource).features, fileName as string)
+        jobId = await enqueueImportJob(profile.code, objectKey, validateOnly)
+      }
       setActiveJobId(jobId)
       // The new run belongs at the top of the history list once it settles.
       queryClient.invalidateQueries({ queryKey: ["import-run", "recent"] })
@@ -171,7 +256,19 @@ export function ImportRunPage() {
   const formatMismatch = profile != null && parsed != null && profile.source_format !== parsed.format
   const missingGeomColumns = useMemo(() => geometryColumnGaps(profile, parsed), [profile, parsed])
 
-  const stepDone = { profile: !!profile, source: !!parsed, preflight: !!dryReport }
+  // Source-ready differs by branch: the live-DB branch needs nothing beyond the
+  // profile (the connection is saved on it); the NDJSON branch needs a parsed
+  // file; the GeoPackage branch needs the raw file staged and a layer chosen.
+  const sourceReady = isLive
+    ? true
+    : isGpkg
+      ? gpkgObjectKey != null && gpkgLayer != null
+      : parsed != null
+  const selectedGpkgLayer = gpkgLayers?.find((l) => l.name === gpkgLayer) ?? null
+  // The live-DB row count is only known once the server counts it, so it stays null.
+  const rowCount = isLive ? null : isGpkg ? (selectedGpkgLayer?.feature_count ?? null) : (parsed?.features.length ?? null)
+
+  const stepDone = { profile: !!profile, source: sourceReady, preflight: !!dryReport }
 
   return (
     <div className="h-full overflow-y-auto p-4">
@@ -228,49 +325,126 @@ export function ImportRunPage() {
           </CardContent>
         </Card>
 
-        {/* Step 2 — source file */}
+        {/* Step 2 — source file (or, for a live-DB profile, the source table) */}
         {profile && (
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">2. Pick the source file</CardTitle>
+              <CardTitle className="text-sm">{isLive ? "2. Confirm the source table" : "2. Pick the source file"}</CardTitle>
               <CardDescription>
-                {profile.name} expects a <span className="font-medium">{profile.source_format}</span> file.{" "}
-                {writePolicyText(profile)}.
+                {isLive ? (
+                  <>
+                    {profile.name} connects to its saved <span className="font-medium">{profile.source_format}</span>{" "}
+                    database. {writePolicyText(profile)}.
+                  </>
+                ) : (
+                  <>
+                    {profile.name} expects a <span className="font-medium">{profile.source_format}</span> file.{" "}
+                    {writePolicyText(profile)}.
+                  </>
+                )}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 pt-0">
+              {isLive ? (
+                <div className="flex flex-col gap-1">
+                  <label className="text-muted-foreground text-xs">
+                    Source table (optional — overrides the profile's{" "}
+                    {profile.source_layer ? (
+                      <>
+                        pinned <span className="font-mono">{profile.source_layer}</span>
+                      </>
+                    ) : (
+                      "own table/query"
+                    )}
+                    )
+                  </label>
+                  <input
+                    className={`${inputClass} max-w-sm`}
+                    value={liveTable}
+                    onChange={(e) => {
+                      setLiveTable(e.target.value)
+                      setDryReport(null)
+                    }}
+                    placeholder="e.g. schema.table — blank uses the profile's own"
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    The row count is read from the database when the import runs.
+                  </p>
+                </div>
+              ) : (
+              <>
               <div className="flex flex-wrap items-center gap-2">
                 <label className="cursor-pointer">
                   <input
                     type="file"
-                    accept={ETL_IMPORT_ACCEPT}
+                    accept={isGpkg ? serverParsedAccept(profile.source_format) : ETL_IMPORT_ACCEPT}
                     className="hidden"
-                    onChange={(e) => handleFile(e.target.files?.[0])}
+                    onChange={(e) => (isGpkg ? handleGpkgFile(e.target.files?.[0]) : handleFile(e.target.files?.[0]))}
                   />
                   <span className="border-input bg-background hover:bg-muted/50 inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm">
                     <FileUp className="size-4" />
                     {fileName ? "Choose a different file" : "Choose file"}
                   </span>
                 </label>
-                {parsing && <InlineLoading label="file" />}
+                {parsing && <InlineLoading label={isGpkg ? serverParsedLabel(profile.source_format) : "file"} />}
                 {fileName && !parsing && <span className="text-muted-foreground text-sm">{fileName}</span>}
               </div>
 
               {/* Shapefile/DXF may carry no CRS -- let the operator name one to
-                  reproject from (mirrors the map overlay import). */}
-              <div className="flex flex-col gap-1">
-                <label className="text-muted-foreground text-xs">
-                  Source CRS (optional — for a shapefile with no .prj, or DXF)
-                </label>
-                <input
-                  className={`${inputClass} max-w-xs`}
-                  value={sourceCrs}
-                  onChange={(e) => setSourceCrs(e.target.value)}
-                  placeholder="e.g. EPSG:27700"
-                />
-              </div>
+                  reproject from (mirrors the map overlay import). GeoPackages carry
+                  their own SRID per layer, so the CRS box is hidden for them. */}
+              {!isGpkg && (
+                <div className="flex flex-col gap-1">
+                  <label className="text-muted-foreground text-xs">
+                    Source CRS (optional — for a shapefile with no .prj, or DXF)
+                  </label>
+                  <input
+                    className={`${inputClass} max-w-xs`}
+                    value={sourceCrs}
+                    onChange={(e) => setSourceCrs(e.target.value)}
+                    placeholder="e.g. EPSG:27700"
+                  />
+                </div>
+              )}
 
-              {parsed && (
+              {/* GeoPackage branch: a multi-layer file — pick which layer to import. */}
+              {isGpkg && gpkgLayers && (
+                <div className="flex flex-col gap-2">
+                  {gpkgLayers.length === 0 ? (
+                    <WarnBanner>This {serverParsedLabel(profile.source_format)} has no feature layers.</WarnBanner>
+                  ) : (
+                    <>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-muted-foreground text-xs">Layer to import</label>
+                        <select
+                          className={`${inputClass} max-w-sm`}
+                          value={gpkgLayer ?? ""}
+                          onChange={(e) => {
+                            setGpkgLayer(e.target.value || null)
+                            setDryReport(null)
+                          }}
+                        >
+                          <option value="">Select a layer…</option>
+                          {gpkgLayers.map((l) => (
+                            <option key={l.name} value={l.name}>
+                              {l.name} · {l.geometry_type} · {l.feature_count} rows
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {selectedGpkgLayer && (
+                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                          <Badge variant="secondary">{selectedGpkgLayer.feature_count} rows</Badge>
+                          <Badge variant="secondary">{selectedGpkgLayer.geometry_type}</Badge>
+                          <Badge variant="secondary">EPSG:{selectedGpkgLayer.srid}</Badge>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {!isGpkg && parsed && (
                 <div className="flex flex-col gap-2">
                   <div className="flex flex-wrap items-center gap-2 text-sm">
                     <Badge variant="secondary">{parsed.features.length} rows</Badge>
@@ -296,18 +470,21 @@ export function ImportRunPage() {
                   <SamplePreview parsed={parsed} />
                 </div>
               )}
+              </>
+              )}
             </CardContent>
           </Card>
         )}
 
         {/* Step 3 — pre-flight */}
-        {profile && parsed && (
+        {profile && sourceReady && (
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">3. Pre-flight check</CardTitle>
               <CardDescription>
-                Validates the first {Math.min(PREVIEW_ROWS + 12, parsed.features.length)} rows through the real mapping
-                and feature rules — writes nothing.
+                {isLive
+                  ? "Validates a sample of rows read from the source table through the real mapping and feature rules — writes nothing."
+                  : `Validates the first ${Math.min(PREVIEW_ROWS + 12, rowCount ?? 0)} rows through the real mapping and feature rules — writes nothing.`}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 pt-0">
@@ -323,13 +500,28 @@ export function ImportRunPage() {
         )}
 
         {/* Step 4 — run */}
-        {profile && parsed && (
+        {profile && sourceReady && (
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">4. Run the import</CardTitle>
               <CardDescription>
-                Uploads the normalized file and streams every row into{" "}
-                <span className="font-mono">{profile.feature_class_code}</span>.
+                {isLive ? (
+                  <>
+                    Connects to the source database and streams every row of{" "}
+                    <span className="font-mono">{liveTable.trim() || profile.source_layer || "the profile's table"}</span>{" "}
+                    into <span className="font-mono">{profile.feature_class_code}</span>.
+                  </>
+                ) : isGpkg ? (
+                  <>
+                    Streams every row of layer <span className="font-mono">{gpkgLayer}</span> into{" "}
+                    <span className="font-mono">{profile.feature_class_code}</span>.
+                  </>
+                ) : (
+                  <>
+                    Uploads the normalized file and streams every row into{" "}
+                    <span className="font-mono">{profile.feature_class_code}</span>.
+                  </>
+                )}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 pt-0">
@@ -340,7 +532,7 @@ export function ImportRunPage() {
                   onChange={(e) => setValidateOnly(e.target.checked)}
                   disabled={!!activeJobId && !jobDone}
                 />
-                Validate the whole file only (don't write anything)
+                {isLive ? "Validate the whole table only (don't write anything)" : "Validate the whole file only (don't write anything)"}
               </label>
               <div>
                 <Button size="sm" onClick={handleRun} disabled={enqueuing || (!!activeJobId && !jobDone)}>
@@ -349,9 +541,13 @@ export function ImportRunPage() {
                   ) : (
                     <Play className="size-4" />
                   )}
-                  {validateOnly
-                    ? `Validate ${parsed.features.length} rows`
-                    : `Import ${parsed.features.length} rows`}
+                  {isLive
+                    ? validateOnly
+                      ? "Validate the source table"
+                      : "Import the source table"
+                    : validateOnly
+                      ? `Validate ${rowCount ?? 0} rows`
+                      : `Import ${rowCount ?? 0} rows`}
                 </Button>
               </div>
               {job && <RunProgress job={job} />}

@@ -29,6 +29,7 @@ type ProfileSummary struct {
 	FeatureClassCode  string   `json:"feature_class_code"`
 	SubtypeCode       *int     `json:"subtype_code,omitempty"`
 	SourceFormat      string   `json:"source_format"`
+	SourceLayer       *string  `json:"source_layer,omitempty"`
 	WriteMode         string   `json:"write_mode"`
 	MatchFields       []string `json:"match_fields"`
 	GeometryMode      string   `json:"geometry_mode"`
@@ -48,6 +49,7 @@ func listActiveProfiles(ctx context.Context, db *bun.DB) ([]ProfileSummary, erro
 		FeatureClassCode  string   `bun:"fc_code"`
 		SubtypeCode       *int     `bun:"subtype_code"`
 		SourceFormat      string   `bun:"source_format"`
+		SourceLayer       *string  `bun:"source_layer"`
 		WriteMode         string   `bun:"write_mode"`
 		MatchFields       []string `bun:"match_fields,array"`
 		GeometryMode      string   `bun:"geometry_mode"`
@@ -62,6 +64,7 @@ func listActiveProfiles(ctx context.Context, db *bun.DB) ([]ProfileSummary, erro
 		ColumnExpr("fc.code AS fc_code").
 		ColumnExpr("st.code AS subtype_code").
 		ColumnExpr("ip.source_format AS source_format").
+		ColumnExpr("ip.source_layer AS source_layer").
 		ColumnExpr("ip.write_mode AS write_mode").
 		ColumnExpr("ip.match_fields AS match_fields").
 		ColumnExpr("ip.geometry_mode AS geometry_mode").
@@ -85,7 +88,8 @@ func listActiveProfiles(ctx context.Context, db *bun.DB) ([]ProfileSummary, erro
 		}
 		out[i] = ProfileSummary{
 			Code: r.Code, Name: r.Name, FeatureClassCode: r.FeatureClassCode,
-			SubtypeCode: r.SubtypeCode, SourceFormat: r.SourceFormat, WriteMode: r.WriteMode,
+			SubtypeCode: r.SubtypeCode, SourceFormat: r.SourceFormat, SourceLayer: r.SourceLayer,
+			WriteMode: r.WriteMode,
 			MatchFields: mf, GeometryMode: r.GeometryMode,
 			GeometryLonColumn: r.GeometryLonColumn, GeometryLatColumn: r.GeometryLatColumn,
 			GeometryWktColumn: r.GeometryWktColumn,

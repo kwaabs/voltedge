@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:sqlite3/sqlite3.dart';
 
+import '../faults/faults_models.dart';
 import '../geo/wkb.dart';
 import '../wam/wam_models.dart';
 
@@ -953,6 +954,15 @@ class PackDatabase {
   bool get packsWam => _packsWam ??= _tableExists('wam_work_orders');
   bool? _packsWam;
 
+  /// Whether this pack ships faults read-context at all -- the `faults_events`
+  /// table exists (built when the pack requester holds faults:read, see
+  /// internal/fieldpack/builder.go). The mobile faults surfaces gate their entry
+  /// point on this so a plain pack simply hides the fault board rather than showing
+  /// an empty one. Independent of [packsWam] -- a pack can carry faults, WAM, both,
+  /// or neither. Cached for the life of the open pack.
+  bool get packsFaults => _packsFaults ??= _tableExists('faults_events');
+  bool? _packsFaults;
+
   /// The requester's own field work board: every work order the pack carries
   /// (the server already filtered to the requester's non-terminal orders, any
   /// bbox -- a job is a job wherever its asset sits). Newest scheduled first,
@@ -1024,6 +1034,56 @@ class PackDatabase {
         ORDER BY reported_at IS NULL, reported_at DESC, id
       ''');
       return [for (final r in rows) _toDefect(r)];
+    } on SqliteException {
+      return const [];
+    }
+  }
+
+  // ---- Faults read-context (faults:read pack) -------------------------------
+  //
+  // The `faults_events` table ships ONLY when the pack requester holds faults:read
+  // (see internal/fieldpack/builder.go). A pack without it -- or one built for a
+  // user without the perm -- has no such table, so both reads below swallow the
+  // missing-table SqliteException and degrade to empty, exactly as the WAM reads do.
+  // The builder ships only OPEN faults (status NOT IN cleared/closed) that carry a
+  // matchable asset_id. Faults never FK into gis; an asset is a bare (asset_class,
+  // asset_id) ref the caller resolves against `features` when it needs to show it.
+
+  /// Every OPEN fault the pack carries (the whole packed fault backlog, for a
+  /// standalone fault board), newest by detected_at. Empty on a pack with no faults
+  /// context.
+  List<PackFault> faults() {
+    try {
+      final rows = _db.select('''
+        SELECT id, reference, asset_class, asset_id, fault_type, cause, status,
+               title, description, detected_at, longitude, latitude,
+               protective_device_class, protective_device_id, incident_id, defect_id
+        FROM faults_events
+        ORDER BY detected_at IS NULL, detected_at DESC, id
+      ''');
+      return [for (final r in rows) _toFault(r)];
+    } on SqliteException {
+      return const [];
+    }
+  }
+
+  /// The open faults the pack carries for one asset (by id; `faults_events_asset_idx`
+  /// makes this index-backed). Empty on a pack with no faults context. The class is
+  /// carried for context but the id alone identifies the asset -- fault ids are
+  /// globally unique.
+  List<PackFault> faultsForAsset(String assetId) {
+    try {
+      final rows = _db.select(
+        '''
+        SELECT id, reference, asset_class, asset_id, fault_type, cause, status,
+               title, description, detected_at, longitude, latitude,
+               protective_device_class, protective_device_id, incident_id, defect_id
+        FROM faults_events WHERE asset_id = ?
+        ORDER BY detected_at IS NULL, detected_at DESC, id
+        ''',
+        [assetId],
+      );
+      return [for (final r in rows) _toFault(r)];
     } on SqliteException {
       return const [];
     }
@@ -1142,6 +1202,25 @@ class PackDatabase {
         description: r['description'] as String?,
         reportedAt: r['reported_at'] as String?,
         notes: r['notes'] as String?,
+      );
+
+  PackFault _toFault(Row r) => PackFault(
+        id: r['id'] as String,
+        assetClass: (r['asset_class'] as String?) ?? '',
+        assetId: (r['asset_id'] as String?) ?? '',
+        status: (r['status'] as String?) ?? '',
+        reference: r['reference'] as String?,
+        faultType: r['fault_type'] as String?,
+        cause: r['cause'] as String?,
+        title: r['title'] as String?,
+        description: r['description'] as String?,
+        detectedAt: r['detected_at'] as String?,
+        longitude: (r['longitude'] as num?)?.toDouble(),
+        latitude: (r['latitude'] as num?)?.toDouble(),
+        protectiveDeviceClass: r['protective_device_class'] as String?,
+        protectiveDeviceId: r['protective_device_id'] as String?,
+        incidentId: r['incident_id'] as String?,
+        defectId: r['defect_id'] as String?,
       );
 
   /// Rows in a table (for the manifest/detail summaries). Cheap COUNT(*).

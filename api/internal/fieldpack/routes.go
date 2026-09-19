@@ -219,6 +219,9 @@ func enqueuePackHandler(db *bun.DB) http.HandlerFunc {
 			// Phase 59 offline WAM: ship the field worker's defects/work-orders/
 			// inspection templates only when they may read WAM.
 			IncludeWAM: user.Has("wam:read"),
+			// Offline faults: ship the open faults on the packed assets only when
+			// they may read faults -- the fault-response crew's live board.
+			IncludeFaults: user.Has("faults:read"),
 		}
 		id, err := enqueuePack(r.Context(), db, user.ID, scope)
 		if err != nil {
@@ -348,6 +351,7 @@ type manifestView struct {
 	IncludeConnectivity  bool       `json:"include_connectivity"`
 	IncludeRelationships bool       `json:"include_relationships"`
 	IncludeWAM           bool       `json:"include_wam"`
+	IncludeFaults        bool       `json:"include_faults"`
 }
 
 func toPackView(p *FieldPack) packView {
@@ -387,6 +391,7 @@ func buildManifest(ctx context.Context, store *export.ObjectStore, p *FieldPack)
 		IncludeConnectivity:  scope.IncludeConnectivity,
 		IncludeRelationships: scope.IncludeRelationships,
 		IncludeWAM:           scope.IncludeWAM,
+		IncludeFaults:        scope.IncludeFaults,
 	}, nil
 }
 

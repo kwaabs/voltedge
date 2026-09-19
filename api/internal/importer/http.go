@@ -15,6 +15,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/export"
+	"github.com/kwaabs/voltedge/api/internal/secretbox"
 )
 
 // maxJobErrorReport caps how many per-row errors the status endpoint returns --
@@ -28,7 +29,8 @@ const maxJobErrorReport = 500
 // where a holder of features:write stages an upload and pre-flights it.
 //
 //	GET  /profiles     the active profiles this operator can run (wizard picker)
-//	POST /uploads      mint an object key + presigned PUT URL for the NDJSON artifact
+//	POST /uploads      mint an object key + presigned PUT URL for the source artifact
+//	POST /layers       list a staged GeoPackage's feature layers (server-side parse)
 //	POST /dry-run      validate a sample of rows against a profile, writing nothing
 //	POST /jobs         enqueue a load run over an uploaded artifact
 //	GET  /jobs         the caller's recent runs (history panel)
@@ -37,11 +39,12 @@ const maxJobErrorReport = 500
 // The enqueued job is claimed and executed by the standalone cmd/importworker
 // (worker.go), which streams the artifact this upload step staged and applies
 // every row (load.go).
-func Routes(db *bun.DB, store *export.ObjectStore) chi.Router {
+func Routes(db *bun.DB, store *export.ObjectStore, cipher *secretbox.Cipher) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/profiles", listProfilesHandler(db))
 	r.Post("/uploads", registerUploadHandler(store))
-	r.Post("/dry-run", dryRunHandler(db))
+	r.Post("/layers", listLayersHandler(store))
+	r.Post("/dry-run", dryRunHandler(db, store, cipher))
 	r.Post("/jobs", enqueueJobHandler(db))
 	r.Get("/jobs", listJobsHandler(db))
 	r.Get("/jobs/{id}", jobStatusHandler(db))
@@ -63,11 +66,31 @@ func listProfilesHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
-// uploadRegisterRequest carries the source filename for logging/UX only; the
-// stored object key is server-minted (never client-controlled) so an upload can't
-// address another tenant's key.
+// uploadRegisterRequest carries the source filename for logging/UX only and an
+// optional artifact kind. The stored object key is server-minted (never
+// client-controlled) so an upload can't address another tenant's key. Artifact
+// distinguishes the ingest shapes: "ndjson" (default) for the v1 formats the
+// browser normalizes, or a raw SQLite-family file the browser uploads verbatim for
+// the server to parse ("geopackage" / "spatialite"). It only picks the key's
+// extension -- what actually parses the object is the run's profile source_format,
+// not the key.
 type uploadRegisterRequest struct {
 	Filename string `json:"filename"`
+	Artifact string `json:"artifact"`
+}
+
+// artifactExt maps an upload artifact kind to the object key's file extension. The
+// extension is cosmetic (the profile's source_format drives parsing), but a real
+// extension keeps staged objects legible.
+func artifactExt(artifact string) string {
+	switch artifact {
+	case "geopackage":
+		return ".gpkg"
+	case "spatialite":
+		return ".sqlite"
+	default:
+		return ".ndjson"
+	}
 }
 
 type uploadRegisterResponse struct {
@@ -76,10 +99,10 @@ type uploadRegisterResponse struct {
 }
 
 // registerUploadHandler mints a fresh object key and a short-lived presigned PUT
-// URL; the browser PUTs the normalized NDJSON artifact straight to RustFS (off
-// the API hot path, same as the attachment register->PUT->commit flow). No DB row
-// is created here -- the import_jobs row is minted when the run is enqueued (S4),
-// referencing this key.
+// URL; the browser PUTs the artifact straight to RustFS (off the API hot path,
+// same as the attachment register->PUT->commit flow). No DB row is created here
+// -- the import_jobs row is minted when the run is enqueued (S4), referencing this
+// key.
 func registerUploadHandler(store *export.ObjectStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req uploadRegisterRequest
@@ -89,7 +112,7 @@ func registerUploadHandler(store *export.ObjectStore) http.HandlerFunc {
 			_ = json.NewDecoder(r.Body).Decode(&req)
 		}
 
-		key := "imports/" + uuid.NewString() + ".ndjson"
+		key := "imports/" + uuid.NewString() + artifactExt(req.Artifact)
 		uploadURL, err := store.PresignPut(r.Context(), key)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "presigning upload URL: %v", err)
@@ -99,16 +122,58 @@ func registerUploadHandler(store *export.ObjectStore) http.HandlerFunc {
 	}
 }
 
-// dryRunRequest is a profile code plus a sample of already-normalized NDJSON rows
-// (the browser slices these off the file it parsed). The sample rides in the
-// request body rather than being read back from the uploaded object, so the
-// wizard can pre-flight a mapping before -- or without -- staging the full upload.
+// layersRequest names a staged SQLite-family object to introspect, plus which
+// format it is (so the server reads the right metadata catalog -- GeoPackage's
+// gpkg_* tables vs SpatiaLite's geometry_columns). SourceFormat defaults to
+// geopackage when omitted for backward compatibility.
+type layersRequest struct {
+	ObjectKey    string `json:"object_key"`
+	SourceFormat string `json:"source_format"`
+}
+
+// listLayersHandler opens a staged SQLite-family file (GeoPackage / SpatiaLite)
+// server-side and returns its feature layers (name, geometry column/type, SRID,
+// feature count) so the run wizard can pin or override which layer to import. The
+// browser can't read the file itself, which is exactly why this endpoint exists.
+// It is read-only (downloads to a temp file, opens it, removes it) and sits behind
+// the same features gate as the rest of this surface.
+func listLayersHandler(store *export.ObjectStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req layersRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, "request body is not valid JSON: %v", err)
+			return
+		}
+		if req.ObjectKey == "" {
+			writeErr(w, http.StatusBadRequest, "object_key is required")
+			return
+		}
+		format := req.SourceFormat
+		if format == "" {
+			format = "geopackage"
+		}
+		layers, err := inspectSQLiteLayers(r.Context(), store, req.ObjectKey, format)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"layers": layers})
+	}
+}
+
+// dryRunRequest is a profile code plus the rows to pre-flight, in one of two
+// shapes. For the v1 NDJSON formats the browser parses the file itself and sends
+// an inline Sample. For a GeoPackage the browser can't parse it, so it sends the
+// staged ObjectKey (+ optional SourceLayer) and the server reads the sample from
+// object storage. Sample takes precedence; ObjectKey is the server-side path.
 type dryRunRequest struct {
 	ProfileCode string     `json:"profile_code"`
 	Sample      []*Feature `json:"sample"`
+	ObjectKey   string     `json:"object_key"`
+	SourceLayer string     `json:"source_layer"`
 }
 
-func dryRunHandler(db *bun.DB) http.HandlerFunc {
+func dryRunHandler(db *bun.DB, store *export.ObjectStore, cipher *secretbox.Cipher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req dryRunRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -120,7 +185,39 @@ func dryRunHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 
-		report, err := DryRun(r.Context(), db, req.ProfileCode, req.Sample)
+		sample := req.Sample
+		if len(sample) == 0 {
+			// No inline sample: the source is one the browser can't parse itself, so
+			// the server reads the preview. Resolve the profile once for both its
+			// source_format (which reader) and its pinned default layer, so the
+			// pre-flight reads exactly what the run will. The effective layer is the
+			// run-time override if given, else that default.
+			rp, err := ResolveProfile(r.Context(), db, req.ProfileCode)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			layer := req.SourceLayer
+			if layer == "" && rp.Profile.SourceLayer != nil {
+				layer = *rp.Profile.SourceLayer
+			}
+			switch {
+			case isLiveDBSourceFormat(rp.Profile.SourceFormat):
+				// A live database (PostGIS): sample straight off the remote
+				// table/query -- no staged object at all.
+				scope := ImportScope{ProfileCode: req.ProfileCode, SourceLayer: layer}
+				sample, err = sampleLiveDB(r.Context(), rp, &scope, cipher, liveDryRunSample)
+			case req.ObjectKey != "":
+				// A staged SQLite-family file (GeoPackage / SpatiaLite).
+				sample, err = sampleSQLite(r.Context(), store, req.ObjectKey, layer, gpkgDryRunSample, rp.Profile.SourceFormat)
+			}
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+		}
+
+		report, err := DryRun(r.Context(), db, req.ProfileCode, sample)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -138,6 +235,10 @@ type enqueueJobRequest struct {
 	ProfileCode string `json:"profile_code"`
 	ObjectKey   string `json:"object_key"`
 	DryRun      bool   `json:"dry_run"`
+	// SourceLayer overrides which feature layer of a multi-layer source
+	// (GeoPackage) this run imports. Empty falls back to the profile's pinned
+	// default; ignored by the single-layer v1 formats.
+	SourceLayer string `json:"source_layer"`
 }
 
 type enqueueJobResponse struct {
@@ -166,10 +267,6 @@ func enqueueJobHandler(db *bun.DB) http.HandlerFunc {
 			writeErr(w, http.StatusBadRequest, "profile_code is required")
 			return
 		}
-		if req.ObjectKey == "" {
-			writeErr(w, http.StatusBadRequest, "object_key is required")
-			return
-		}
 
 		rp, err := ResolveProfile(r.Context(), db, req.ProfileCode)
 		if err != nil {
@@ -177,10 +274,26 @@ func enqueueJobHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 
+		// A file import needs the staged artifact's key; a live-DB import has no
+		// artifact (the worker connects out to the remote table/query), so it runs
+		// with an empty object key.
+		if !isLiveDBSourceFormat(rp.Profile.SourceFormat) && req.ObjectKey == "" {
+			writeErr(w, http.StatusBadRequest, "object_key is required")
+			return
+		}
+
 		// Snapshot the caller's Phase 58 territory scope so the worker enforces
 		// exactly the requester's rights when it writes each row.
 		ids, unscoped := user.TerritoryFilter()
-		scope := ImportScope{ProfileCode: req.ProfileCode, TerritoryIDs: ids, Unscoped: unscoped}
+
+		// Freeze the effective source layer: the run-time override if given, else
+		// the profile's pinned default, so the worker imports exactly what was
+		// requested even if the profile default later changes.
+		layer := req.SourceLayer
+		if layer == "" && rp.Profile.SourceLayer != nil {
+			layer = *rp.Profile.SourceLayer
+		}
+		scope := ImportScope{ProfileCode: req.ProfileCode, TerritoryIDs: ids, Unscoped: unscoped, SourceLayer: layer}
 
 		profileID := rp.Profile.ID
 		jobID, err := EnqueueImport(r.Context(), db, user.ID, &profileID, rp.Loaded.FeatureClass.Code, req.ObjectKey, req.DryRun, scope)

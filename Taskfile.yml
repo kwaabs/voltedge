@@ -884,6 +884,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/oms_planned_example.sql
 
+  seed-faults:
+    desc: Load the Faults module demo data -- three location-anchored fault_events spanning the lifecycle (detected / investigating / cleared) so the fault board is populated immediately. Deliberately portable -- depends ONLY on migration 0106 (no compiled feature tables, no prior network seed), anchored by location pins rather than real feature ids; the richer incident_id / defect_id links are exercised live through the API (RaiseFaultFromIncident / BookDefectFromFault), not seeded. Fails loudly if 0106 is missing; idempotent.
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/faults_example.sql
+
   seed-display-zoom-13:
     desc: Stamp every MAP-drawable feature class (geometry_type point/line/polygon) with min_display_zoom = 13 so geographical features only draw at zoom 13 and above (migration 0090's per-class display-zoom band) -- a blanket declutter for the zoomed-out map. Skips geometry-none classes (no map tile) and any class already capped below zoom 13 (would violate the min<=max CHECK), reporting counts through the gitbash sidecar. Pure map-render metadata, no recompile; requires migration 0090 via `task migrate`; fails loudly if the column is missing; idempotent
     cmds:

@@ -1,0 +1,30 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "site_ref": "SP-201", "num_customers": 12 },
+      "geometry": { "type": "Point", "coordinates": [-0.1870, 5.6037] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "site_ref": "SP-202", "num_customers": 1 },
+      "geometry": { "type": "Point", "coordinates": [-0.1969, 5.5560] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "site_ref": "SP-203", "num_customers": 240 },
+      "geometry": { "type": "Point", "coordinates": [-0.2010, 5.6150] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "site_ref": "SP-204", "num_customers": 3 },
+      "geometry": { "type": "Point", "coordinates": [-0.1750, 5.5900] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "site_ref": "SP-205", "num_customers": 85 },
+      "geometry": { "type": "Point", "coordinates": [-0.2200, 5.6300] }
+    }
+  ]
+}

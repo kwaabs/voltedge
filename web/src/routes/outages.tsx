@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { usePermission } from "@/hooks/use-auth"
 import { useCircuits } from "@/hooks/use-circuits"
+import { useRaiseFaultFromIncident } from "@/hooks/use-faults"
 import {
   type CallType,
   type Incident,
@@ -495,12 +496,29 @@ function deviceLabel(inc: Incident): string {
 
 function IncidentRow({ inc, canWrite }: { inc: Incident; canWrite: boolean }) {
   const action = useIncidentAction()
+  const raiseFault = useRaiseFaultFromIncident()
+  const canRaiseFault = usePermission()("faults:write")
   const navigate = useNavigate()
   const [showSwitching, setShowSwitching] = useState(false)
   const pending = action.isPending
 
   function run(kind: IncidentAction) {
     action.mutate({ id: inc.id, action: kind }, { onError: (err) => toastError(err, `Could not ${kind} the incident.`) })
+  }
+
+  // Raise a fault event for this outage -- the electrical cause behind it. The
+  // fault inherits the incident's predicted device + cause and links back by
+  // incident_id (api/internal/faults RaiseFaultFromIncident). faults:write, kept
+  // separate from oms:write: attributing a fault is an engineering act, not an
+  // outage-dispatch one.
+  function raiseFaultForIncident() {
+    raiseFault.mutate(
+      { incidentId: inc.id },
+      {
+        onSuccess: () => useToastStore.getState().pushSuccess("Fault raised for this outage."),
+        onError: (err) => toastError(err, "Could not raise a fault for this incident."),
+      },
+    )
   }
 
   // Highlight this incident's outage cone on the main map. A read action (no
@@ -549,6 +567,19 @@ function IncidentRow({ inc, canWrite }: { inc: Incident; canWrite: boolean }) {
           <ListChecks className="size-4" />
           Switching
         </Button>
+
+        {canRaiseFault && inc.status !== "cancelled" && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0"
+            disabled={raiseFault.isPending}
+            onClick={raiseFaultForIncident}
+          >
+            <Zap className="size-4" />
+            Raise fault
+          </Button>
+        )}
 
         {canWrite && !isTerminal && (
           <div className="flex shrink-0 items-center gap-1">

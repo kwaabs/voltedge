@@ -202,6 +202,81 @@ export async function uploadEtlArtifact(features: NdjsonFeature[], filename: str
   return target.object_key
 }
 
+// ---------------------------------------------------------------------------
+// GeoPackage (v2, server-parsed): upload the raw file, list its layers server-
+// side, dry-run + run reading the sample/rows from object storage by object key.
+// ---------------------------------------------------------------------------
+//
+// Unlike the v1 formats, the browser does NOT parse a GeoPackage: it uploads the
+// raw .gpkg verbatim and the server (api/internal/importer/geopackage.go) opens
+// it. So there is no browser-side column discovery or inline sample; the wizard
+// asks the server for the file's layers and lets it read the dry-run sample.
+
+/** `accept` list for the GeoPackage file picker. */
+export const ETL_GEOPACKAGE_ACCEPT = ".gpkg"
+/** `accept` list for the SpatiaLite file picker (SpatiaLite databases use a range
+ * of conventional SQLite extensions). */
+export const ETL_SPATIALITE_ACCEPT = ".sqlite,.sqlite3,.db"
+
+/** The file picker `accept` list for a server-parsed source format. */
+export function serverParsedAccept(sourceFormat: string): string {
+  return sourceFormat === "spatialite" ? ETL_SPATIALITE_ACCEPT : ETL_GEOPACKAGE_ACCEPT
+}
+
+/** Mints an upload slot for a RAW SQLite-family file (artifact = the source
+ * format, e.g. "geopackage" -> a .gpkg key, "spatialite" -> a .sqlite key),
+ * distinct from the NDJSON artifact slot. */
+export async function registerServerParsedUpload(
+  filename: string,
+  format: string,
+): Promise<ImportUploadTarget> {
+  return apiFetch<ImportUploadTarget>("/imports/uploads", {
+    method: "POST",
+    body: JSON.stringify({ filename, artifact: format }),
+  })
+}
+
+/** PUTs a raw file (the .gpkg/.sqlite blob) straight to RustFS via the presigned
+ * URL -- a raw cross-origin fetch, not apiFetch, for the same reason
+ * putNdjsonArtifact is (the URL carries its own signed auth). */
+export async function putRawArtifact(uploadUrl: string, file: Blob): Promise<void> {
+  const res = await fetch(uploadUrl, {
+    method: "PUT",
+    body: file,
+    headers: { "Content-Type": "application/octet-stream" },
+  })
+  if (!res.ok) throw new Error(`Uploading the file failed (HTTP ${res.status}).`)
+}
+
+/** Register + PUT a raw SQLite-family file (GeoPackage / SpatiaLite) in one step;
+ * returns the stored object key. */
+export async function uploadServerParsedFile(file: File, format: string): Promise<string> {
+  const target = await registerServerParsedUpload(file.name, format)
+  await putRawArtifact(target.upload_url, file)
+  return target.object_key
+}
+
+/** One feature layer of an uploaded SQLite-family file (mirrors importer.GpkgLayer). */
+export interface GpkgLayer {
+  name: string
+  geometry_column: string
+  geometry_type: string
+  srid: number
+  feature_count: number
+}
+
+/** Lists a staged SQLite-family file's feature layers server-side (POST
+ * /imports/layers) so the wizard can pin/override the source layer. The format
+ * tells the server which metadata catalog to read (GeoPackage vs SpatiaLite).
+ * features-gated. */
+export async function listServerParsedLayers(objectKey: string, format: string): Promise<GpkgLayer[]> {
+  const res = await apiFetch<{ layers: GpkgLayer[] }>("/imports/layers", {
+    method: "POST",
+    body: JSON.stringify({ object_key: objectKey, source_format: format }),
+  })
+  return res.layers ?? []
+}
+
 /** One active, runnable import profile (mirrors importer.ProfileSummary). This
  * is the wizard's picker source -- a features-gated read of the active profiles,
  * distinct from the metadata-gated admin authoring list (AdminImportProfile), so
@@ -212,12 +287,30 @@ export interface EtlImportProfile {
   feature_class_code: string
   subtype_code?: number | null
   source_format: string
+  /** For a multi-layer server-parsed source (GeoPackage): the profile's pinned
+   * default feature layer, if any. Null for the single-layer file formats. */
+  source_layer?: string | null
   write_mode: string
   match_fields: string[]
   geometry_mode: string
   geometry_lon_column?: string | null
   geometry_lat_column?: string | null
   geometry_wkt_column?: string | null
+}
+
+/** Source formats parsed server-side (the raw file is uploaded verbatim and the
+ * server opens it) rather than normalized to NDJSON in the browser. The
+ * SQLite-family formats GeoPackage (S1) and SpatiaLite (S2). */
+export function isServerParsedFormat(sourceFormat: string): boolean {
+  return sourceFormat === "geopackage" || sourceFormat === "spatialite"
+}
+
+/** Live-database source formats (v2-S3+): there is NO artifact at all -- the
+ * worker connects out to a remote database and streams rows. The wizard skips
+ * the file step entirely; the server samples/streams straight from the profile's
+ * saved connection (its source table/query). PostGIS (S3); MSSQL (S4) later. */
+export function isLiveDBFormat(sourceFormat: string): boolean {
+  return sourceFormat === "postgis" || sourceFormat === "mssql"
 }
 
 /** Lists the active import profiles the caller can run (GET /imports/profiles).
@@ -263,6 +356,41 @@ export async function runImportDryRun(
   })
 }
 
+/** Server-side dry-run for a server-parsed source (GeoPackage): the browser can't
+ * sample the file, so it hands the server the staged object key (+ optional layer
+ * override) and the server reads a preview off it and validates it exactly as the
+ * inline dry-run does. */
+export async function runImportDryRunFromObject(
+  profileCode: string,
+  objectKey: string,
+  sourceLayer?: string | null,
+): Promise<EtlDryRunReport> {
+  return apiFetch<EtlDryRunReport>("/imports/dry-run", {
+    method: "POST",
+    body: JSON.stringify({
+      profile_code: profileCode,
+      object_key: objectKey,
+      source_layer: sourceLayer ?? "",
+    }),
+  })
+}
+
+/** Server-side dry-run for a live-database source (PostGIS): there is no staged
+ * object, so the server samples straight off the profile's remote table/query (+
+ * optional table override) and validates it exactly as the inline dry-run does. */
+export async function runImportDryRunLive(
+  profileCode: string,
+  sourceLayer?: string | null,
+): Promise<EtlDryRunReport> {
+  return apiFetch<EtlDryRunReport>("/imports/dry-run", {
+    method: "POST",
+    body: JSON.stringify({
+      profile_code: profileCode,
+      source_layer: sourceLayer ?? "",
+    }),
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Load jobs (S4): enqueue a run over an uploaded artifact, then poll its status.
 // ---------------------------------------------------------------------------
@@ -299,6 +427,7 @@ export async function enqueueImportJob(
   profileCode: string,
   objectKey: string,
   dryRun = false,
+  sourceLayer?: string | null,
 ): Promise<string> {
   const res = await apiFetch<{ job_id: string }>("/imports/jobs", {
     method: "POST",
@@ -306,6 +435,28 @@ export async function enqueueImportJob(
       profile_code: profileCode,
       object_key: objectKey,
       dry_run: dryRun,
+      source_layer: sourceLayer ?? "",
+    }),
+  })
+  return res.job_id
+}
+
+/** Enqueues a load run for a live-database source (PostGIS): no artifact, so the
+ * object key is empty and the server connects out to the profile's saved
+ * connection. A table override (source_layer) is optional. Requires
+ * features:write. */
+export async function enqueueLiveImportJob(
+  profileCode: string,
+  dryRun = false,
+  sourceLayer?: string | null,
+): Promise<string> {
+  const res = await apiFetch<{ job_id: string }>("/imports/jobs", {
+    method: "POST",
+    body: JSON.stringify({
+      profile_code: profileCode,
+      object_key: "",
+      dry_run: dryRun,
+      source_layer: sourceLayer ?? "",
     }),
   })
   return res.job_id

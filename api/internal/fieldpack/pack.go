@@ -96,6 +96,18 @@ type PackScope struct {
 	// offline. A field-surveyor (features:read but not wam:read) gets no WAM
 	// tables rather than a privilege leak.
 	IncludeWAM bool `json:"include_wam"`
+
+	// IncludeFaults is the faults-module inclusion decision (offline faults),
+	// resolved at enqueue from the requester's faults:read and frozen into the
+	// scope for the same detached-worker reason as IncludeWAM. When set, the pack
+	// carries the open fault events on the packed assets so a fault-response crew
+	// sees live faults offline, raises new ones, marks them cleared, and books
+	// defects from them -- captures ride back through the faults_* sync ops. A
+	// crew without faults:read gets no fault tables rather than a privilege leak.
+	// Orthogonal to IncludeWAM: a pack can carry either, both, or neither, which
+	// is how one download serves a survey-only, a works-only, a fault-only, or an
+	// all-rounder crew (the "permitted modules" set is exactly these include flags).
+	IncludeFaults bool `json:"include_faults"`
 }
 
 // enqueuePack inserts a queued build for requestedBy and returns its id.

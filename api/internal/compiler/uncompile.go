@@ -82,9 +82,20 @@ func Uncompile(ctx context.Context, db *bun.DB, code string) (*UncompileResult, 
 			}
 
 			// CASCADE also removes the spatial index and anything else that
-			// depends on the table; a fresh Compile rebuilds them.
+			// depends on the table -- including the registry-sync trigger
+			// (migration 0108) -- and a fresh Compile rebuilds them.
 			if _, err := tx.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", qualifiedTable)); err != nil {
 				return fmt.Errorf("drop table: %w", err)
+			}
+
+			// Dropping the table takes its trigger with it but leaves this
+			// class's rows behind in runtime.feature_registry (the registry is
+			// a separate table, not a dependency of the gis table). Clear them
+			// so the registry doesn't advertise ids whose backing table is
+			// gone; a later Compile backfills them again from the rebuilt table.
+			if _, err := tx.ExecContext(ctx,
+				"DELETE FROM runtime.feature_registry WHERE feature_class_code = ?", fc.Code); err != nil {
+				return fmt.Errorf("clear feature_registry: %w", err)
 			}
 		}
 

@@ -25,6 +25,8 @@ import type MapBrowserEvent from "ol/MapBrowserEvent"
 import { unByKey } from "ol/Observable"
 import Overlay from "ol/Overlay"
 import { fromLonLat, toLonLat, transformExtent } from "ol/proj"
+import { getVectorContext } from "ol/render"
+import type RenderEvent from "ol/render/Event"
 import { toFeature } from "ol/render/Feature"
 import type TileSource from "ol/source/Tile"
 import VectorSource from "ol/source/Vector"
@@ -40,6 +42,7 @@ import { useAllDisplayZooms, useAllLabelDefs, useAllSymbology } from "@/hooks/us
 import { usePermission } from "@/hooks/use-auth"
 import { useCatalog } from "@/hooks/use-catalog"
 import { type FeatureGeometry, useFeature } from "@/hooks/use-feature"
+import { type FaultImpact, useFaultMapMarkers } from "@/hooks/use-faults"
 import type { AffectedArea } from "@/hooks/use-oms"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useBasemaps } from "@/hooks/use-basemaps"
@@ -56,6 +59,9 @@ import {
   createSymbologyStyle,
   draftStyleForFeature,
   editStyleForFeature,
+  FAULT_MARKER_DISPLACEMENT,
+  faultStatusColorRgba,
+  faultStyleForFeature,
   type HighlightRole,
   highlightStyleForFeature,
   importedStyleForFeature,
@@ -73,6 +79,7 @@ import { useDiagramPlaceStore } from "@/stores/diagram-place-store"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
 import { useFaultCurrentStore } from "@/stores/fault-current-store"
+import { useFaultOverlayStore } from "@/stores/fault-overlay-store"
 import { useImportedFeatureStore } from "@/stores/imported-feature-store"
 import { useImportedOverlaysStore } from "@/stores/imported-overlays-store"
 import { useIsolateStore } from "@/stores/isolate-store"
@@ -493,6 +500,16 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   // view to -- same one-shot idiom as fittedTokenRef, so a "Show on map" fits
   // once and a manual pan afterward isn't yanked back on a later re-render.
   const affectedFittedTokenRef = useRef(0)
+  // The fault map overlay (fault-overlay-store.ts, Faults Slice 3). Unlike the
+  // OMS affected halos above, the marker layer is CLICKABLE, so it keeps a layer
+  // ref (the click handler hit-tests it via a layerFilter, the same way the
+  // imported-overlay layer is picked). The impact source draws the selected
+  // fault's de-energized downstream section as rose halos (role "outage-affected",
+  // reusing the OMS affected-area style), fit once per click via its token ref.
+  const faultMarkerSourceRef = useRef<VectorSource | null>(null)
+  const faultMarkerLayerRef = useRef<VectorLayer | null>(null)
+  const faultImpactSourceRef = useRef<VectorSource | null>(null)
+  const faultImpactFittedTokenRef = useRef(0)
   // Finalized measure-tool labels (the frozen tooltip Overlays left
   // behind by each completed measurement), kept in a ref so the
   // units-change effect below can re-format them all in place without
@@ -538,6 +555,14 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   const queryResults = useQueryStore((s) => s.results)
   const omsIncidentId = useOmsHighlightStore((s) => s.incidentId)
   const omsFocusToken = useOmsHighlightStore((s) => s.focusToken)
+  const faultOverlayVisible = useFaultOverlayStore((s) => s.visible)
+  const faultOverlayStatuses = useFaultOverlayStore((s) => s.statuses)
+  const faultOverlayPulse = useFaultOverlayStore((s) => s.pulse)
+  const faultImpactId = useFaultOverlayStore((s) => s.impactFaultId)
+  const faultImpactToken = useFaultOverlayStore((s) => s.focusToken)
+  // The overlay only fetches while it's switched on (fault-overlay-store); the
+  // legend filters the result client-side, so toggling a status never refetches.
+  const faultMarkers = useFaultMapMarkers(faultOverlayVisible)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
   const labelsHidden = useLayersStore((s) => s.labelsHidden)
@@ -840,6 +865,30 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     map.addLayer(affectedLayer)
     affectedSourceRef.current = affectedSource
 
+    // The fault map overlay (Faults Slice 3, see the effects below and
+    // fault-overlay-store.ts). Two layers: the impact source draws a selected
+    // fault's de-energized downstream section as rose halos (same style/zIndex
+    // and "outage-affected" role as the OMS cone above); the marker layer draws
+    // the status-colored fault pins on top (zIndex 9, above the highlights) and,
+    // unlike the halos, is CLICKABLE -- so it keeps a layer ref the click handler
+    // hit-tests. Both start empty; the population effects own their contents and
+    // flip the marker layer's visibility with the store.
+    const faultImpactSource = new VectorSource()
+    const faultImpactLayer = new VectorLayer({ source: faultImpactSource, style: highlightStyleForFeature, zIndex: 6 })
+    map.addLayer(faultImpactLayer)
+    faultImpactSourceRef.current = faultImpactSource
+
+    const faultMarkerSource = new VectorSource()
+    const faultMarkerLayer = new VectorLayer({
+      source: faultMarkerSource,
+      style: faultStyleForFeature,
+      zIndex: 9,
+      visible: false,
+    })
+    map.addLayer(faultMarkerLayer)
+    faultMarkerSourceRef.current = faultMarkerSource
+    faultMarkerLayerRef.current = faultMarkerLayer
+
     // The one feature currently under geometry edit (see
     // editStyleForFeature) -- above the highlight layer so its cyan
     // isn't washed out underneath a selected halo, below the draft
@@ -912,6 +961,9 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       faultCurrentSourceRef.current = null
       queryResultSourceRef.current = null
       affectedSourceRef.current = null
+      faultMarkerSourceRef.current = null
+      faultMarkerLayerRef.current = null
+      faultImpactSourceRef.current = null
       editSourceRef.current = null
       snapSourceRef.current = null
     }
@@ -1520,6 +1572,178 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       cancelled = true
     }
   }, [omsIncidentId, omsFocusToken])
+
+  // Fault map overlay markers (fault-overlay-store.ts). Repopulates the marker
+  // source from the /faults/map response, drawing only the statuses the legend
+  // has enabled, and flips the layer's visibility with the store. Each feature is
+  // tagged with its fault's id + anchoring asset so the click handler can open
+  // the asset's panel and draw the impact, and with its status so the style
+  // function colors it.
+  //
+  // An asset-anchored fault on a LINE or POLYGON is drawn ONLY as its real
+  // geometry -- a status-colored highlight of the whole faulted run / area (no
+  // triangle: the highlight already shows exactly what faulted, and a marker on
+  // top just clutters it). A POINT asset, or a location-only fault, gets the
+  // triangle (there is no line/area to highlight). faultStyleForFeature styles
+  // each feature by its own geometry type.
+  useEffect(() => {
+    const source = faultMarkerSourceRef.current
+    const layer = faultMarkerLayerRef.current
+    if (!source || !layer) return
+
+    layer.setVisible(faultOverlayVisible)
+    source.clear()
+    if (!faultOverlayVisible) {
+      // Hiding the overlay also drops any drawn impact area (the impact effect
+      // clears its source once impactFaultId goes null).
+      useFaultOverlayStore.getState().clearImpact()
+      return
+    }
+
+    const geojson = new GeoJSON()
+    const markers = faultMarkers.data?.faults ?? []
+    for (const f of markers) {
+      if (f.longitude == null || f.latitude == null) continue
+      if (!faultOverlayStatuses[f.status]) continue
+      const tag = (feature: Feature) => {
+        feature.set("faultId", f.id)
+        feature.set("faultStatus", f.status)
+        feature.set("faultAssetClass", f.asset_class ?? "")
+        feature.set("faultAssetId", f.asset_id ?? "")
+        source.addFeature(feature)
+      }
+
+      // A line/area asset -> highlight its whole shape (no triangle). A point
+      // asset or a location-only pin -> a triangle at the point.
+      const geomType = f.geometry?.type
+      if (geomType && geomType !== "Point" && geomType !== "MultiPoint") {
+        const geometry = geojson.readGeometry(f.geometry as object, {
+          dataProjection: "EPSG:4326",
+          featureProjection: "EPSG:3857",
+        })
+        tag(new Feature(geometry))
+      } else {
+        tag(new Feature(new Point(fromLonLat([f.longitude, f.latitude]))))
+      }
+    }
+  }, [faultOverlayVisible, faultOverlayStatuses, faultMarkers.data])
+
+  // Pulse the LIVE faults -- a "radar ping" that fades as it grows, to draw the
+  // eye to faults that still need attention. Only detected/investigating pulse: a
+  // cleared/closed fault isn't urgent, so a steady marker is correct. A point
+  // fault pulses an expanding ring around its triangle; a line/area fault, which
+  // has no triangle, pulses an expanding "glow" stroke around its highlight, so
+  // both modalities ping the same way. Drawn per-frame on the marker layer's
+  // postrender via getVectorContext (the base marker/highlight stays static
+  // underneath), and the loop self-sustains by calling map.render() only while
+  // something is pulsing -- so it costs nothing when the overlay is hidden or
+  // shows no live faults. Suppressed when pulsing is toggled off
+  // (fault-overlay-store) or the OS asks for reduced motion.
+  useEffect(() => {
+    const layer = faultMarkerLayerRef.current
+    const map = mapRef.current
+    if (!layer || !map) return
+
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+    if (!faultOverlayPulse || reduceMotion) return
+
+    const PERIOD_MS = 1600 // one ping per 1.6s
+    const RING_BASE_RADIUS = 11 // px -- just outside the triangle
+    const RING_GROWTH = 16 // px the ring expands over a period
+    const GLOW_BASE_WIDTH = 6 // px -- just outside the highlight stroke
+    const GLOW_GROWTH = 14 // px the glow expands over a period
+    const LIVE_STATUSES = new Set(["detected", "investigating"])
+
+    const onPostRender = (event: RenderEvent) => {
+      const source = faultMarkerSourceRef.current
+      const frameTime = event.frameState?.time
+      if (!source || frameTime == null) return
+      const frac = (frameTime % PERIOD_MS) / PERIOD_MS
+      const alpha = 1 - frac // fade out as it grows
+      const vectorContext = getVectorContext(event)
+      let pulsing = false
+      for (const feature of source.getFeatures()) {
+        const geom = feature.getGeometry()
+        if (!geom) continue
+        const status = feature.get("faultStatus") as string | undefined
+        if (!status || !LIVE_STATUSES.has(status)) continue
+        const color = faultStatusColorRgba(status, alpha)
+        if (geom instanceof Point) {
+          // A point marker -> an expanding ring around the triangle. Displaced to
+          // match the triangle (which sits up-and-right of the anchoring point).
+          vectorContext.setStyle(
+            new Style({
+              image: new CircleStyle({
+                radius: RING_BASE_RADIUS + frac * RING_GROWTH,
+                displacement: FAULT_MARKER_DISPLACEMENT,
+                stroke: new Stroke({ color, width: 2 }),
+              }),
+            }),
+          )
+        } else {
+          // A line/area highlight -> an expanding glow stroke around its shape.
+          vectorContext.setStyle(new Style({ stroke: new Stroke({ color, width: GLOW_BASE_WIDTH + frac * GLOW_GROWTH }) }))
+        }
+        vectorContext.drawGeometry(geom)
+        pulsing = true
+      }
+      if (pulsing) map.render() // schedule the next frame only while there's something to pulse
+    }
+
+    const key = layer.on("postrender", onPostRender)
+    map.render() // kick off the first frame
+    return () => unByKey(key)
+  }, [faultOverlayPulse])
+
+  // A selected fault's de-energized downstream section (the cone below its
+  // protective device). Same async-fetch-into-a-dedicated-source shape as the
+  // OMS affected-area effect above, drawn with the same rose halos, and fit to
+  // the view once per marker click via faultImpactFittedTokenRef.
+  useEffect(() => {
+    const source = faultImpactSourceRef.current
+    if (!source) return
+
+    if (!faultImpactId) {
+      source.clear()
+      return
+    }
+
+    const src: VectorSource = source
+    const id = faultImpactId
+    const token = faultImpactToken
+    let cancelled = false
+
+    async function loadImpact() {
+      let impact: FaultImpact
+      try {
+        impact = await apiFetch<FaultImpact>(`/faults/${id}/impact`)
+      } catch {
+        return
+      }
+      if (cancelled) return
+
+      src.clear()
+      for (const sp of impact.service_points) {
+        const feature = new Feature(new Point(fromLonLat([sp.longitude, sp.latitude])))
+        feature.set("role", "outage-affected")
+        src.addFeature(feature)
+      }
+
+      if (token !== 0 && token !== faultImpactFittedTokenRef.current) {
+        const map = mapRef.current
+        const extent = src.getExtent()
+        if (map && !isEmptyExtent(extent)) {
+          map.getView().fit(extent, { padding: [80, 80, 80, 80], maxZoom: 18, duration: 400 })
+        }
+        faultImpactFittedTokenRef.current = token
+      }
+    }
+
+    loadImpact()
+    return () => {
+      cancelled = true
+    }
+  }, [faultImpactId, faultImpactToken])
 
   // Load-flow results (see load-flow-store.ts) -- same async-fetch-into-
   // a-dedicated-source shape as the trace/isolation effects above.
@@ -2253,6 +2477,38 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
             useAnnotationEditStore.getState().select(annotationHit)
             return
           }
+        }
+      }
+
+      // A fault-overlay marker (Faults Slice 3) sits above the feature tiles at
+      // zIndex 9, so it's hit-tested ahead of the imported/DB-selection branches
+      // below. Clicking one draws that fault's de-energized downstream section
+      // (fault-overlay-store -> the impact effect above) and,
+      // when the fault is anchored to a real asset, selects that asset -- which
+      // highlights it in place and opens its FeaturePanel (whose Faults tab shows
+      // this very fault). A location-only fault just draws its impact. Hit-tested
+      // on its own layer, excluded from the isVectorLayer DB filter.
+      const faultLayer = faultMarkerLayerRef.current
+      if (faultLayer && faultLayer.getVisible()) {
+        let faultHit: Feature | null = null
+        map.forEachFeatureAtPixel(
+          evt.pixel,
+          (feature) => {
+            faultHit = feature as Feature
+            return true
+          },
+          { layerFilter: (l) => l === faultLayer, hitTolerance: 6 },
+        )
+        if (faultHit) {
+          const hit = faultHit as Feature
+          const faultId = hit.get("faultId") as string | undefined
+          const assetClass = hit.get("faultAssetClass") as string | undefined
+          const assetId = hit.get("faultAssetId") as string | undefined
+          if (faultId) useFaultOverlayStore.getState().showImpact(faultId)
+          if (assetClass && assetId) {
+            useSelectionStore.getState().select(assetClass, assetId, { focus: true })
+          }
+          return
         }
       }
 

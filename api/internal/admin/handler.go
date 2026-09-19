@@ -26,6 +26,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/kwaabs/voltedge/api/internal/compiler"
 	"github.com/kwaabs/voltedge/api/internal/export"
+	"github.com/kwaabs/voltedge/api/internal/importer"
+	"github.com/kwaabs/voltedge/api/internal/secretbox"
 	"github.com/uptrace/bun"
 )
 
@@ -91,11 +93,17 @@ import (
 //	POST   /import-profiles                create an import profile (target class + write policy + geometry mode)
 //	PATCH  /import-profiles/{code}         edit an import profile (name/format/write policy/geometry/status; not its target class)
 //	DELETE /import-profiles/{code}         delete an import profile (its field mappings cascade)
+//	POST   /import-profiles/{code}/test-connection  open+ping a live-DB profile's saved connection
+//	GET    /import-profiles/{code}/tables  list a live-DB profile's remote tables (source-table picker)
 //	GET    /import-profiles/{code}/field-mappings  every source-column -> target-field mapping of a profile
 //	POST   /import-profiles/{code}/field-mappings  add one field mapping (source column + transform) to a profile
 //	PATCH  /import-field-mappings/{id}     edit a field mapping's source_column/transform/parameter
 //	DELETE /import-field-mappings/{id}     delete a field mapping
-func Routes(db *bun.DB) chi.Router {
+//
+// cipher seals/unseals a live-DB profile's stored password (v2-S3); it is nil
+// when credential encryption is not configured, in which case saving a profile
+// with a password (or testing a saved one) fails with a clear error.
+func Routes(db *bun.DB, cipher *secretbox.Cipher) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/feature-classes", listFeatureClassesHandler(db))
 	r.Post("/feature-classes", createFeatureClassHandler(db))
@@ -154,9 +162,11 @@ func Routes(db *bun.DB) chi.Router {
 	r.Get("/cim-coverage", listCimCoverageHandler(db))
 	r.Get("/cim-preview/{code}", getCimPreviewHandler(db))
 	r.Get("/import-profiles", listImportProfilesHandler(db))
-	r.Post("/import-profiles", createImportProfileHandler(db))
-	r.Patch("/import-profiles/{code}", updateImportProfileHandler(db))
+	r.Post("/import-profiles", createImportProfileHandler(db, cipher))
+	r.Patch("/import-profiles/{code}", updateImportProfileHandler(db, cipher))
 	r.Delete("/import-profiles/{code}", deleteImportProfileHandler(db))
+	r.Post("/import-profiles/{code}/test-connection", testImportConnectionHandler(db, cipher))
+	r.Get("/import-profiles/{code}/tables", listImportTablesHandler(db, cipher))
 	r.Get("/import-profiles/{code}/field-mappings", listImportFieldMappingsHandler(db))
 	r.Post("/import-profiles/{code}/field-mappings", createImportFieldMappingHandler(db))
 	r.Patch("/import-field-mappings/{id}", updateImportFieldMappingHandler(db))
@@ -173,9 +183,12 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 func writeError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {
-	case isValidationError(err):
+	// importer.IsInvalid / IsNotFound cover errors bubbled up from the importer
+	// package (live-DB connect/test/list, ResolveProfile) -- the admin editor's
+	// live-DB actions surface these, and they're the same 400/404 shape.
+	case isValidationError(err), importer.IsInvalid(err):
 		status = http.StatusBadRequest
-	case isNotFoundError(err):
+	case isNotFoundError(err), importer.IsNotFound(err):
 		status = http.StatusNotFound
 	}
 	writeJSON(w, status, apiError{Error: err.Error()})

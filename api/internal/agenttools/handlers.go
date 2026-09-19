@@ -481,6 +481,7 @@ func toolUpdateFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (a
 		FeatureClass string          `json:"feature_class"`
 		ID           string          `json:"id"`
 		Name         *string         `json:"name"`
+		Subtype      *int            `json:"subtype"`
 		Geometry     json.RawMessage `json:"geometry"`
 		TerritoryID  *string         `json:"territory_id"`
 		Attributes   map[string]any  `json:"attributes"`
@@ -503,6 +504,7 @@ func toolUpdateFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (a
 	// validation/not-found errors surface in-band as the tool error.
 	return crud.UpdateFeature(ctx, db, loaded, in.ID, crud.UpdateFeatureInput{
 		Name:        in.Name,
+		Subtype:     in.Subtype,
 		Geometry:    in.Geometry,
 		TerritoryID: in.TerritoryID,
 		Attributes:  in.Attributes,

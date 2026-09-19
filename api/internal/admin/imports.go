@@ -13,6 +13,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/importer"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/kwaabs/voltedge/api/internal/secretbox"
 	"github.com/uptrace/bun"
 )
 
@@ -44,6 +45,7 @@ import (
 var (
 	validImportSourceFormats = map[string]bool{
 		"csv": true, "geojson": true, "shapefile": true, "kml": true, "dxf": true,
+		"geopackage": true, "spatialite": true,
 		"postgis": true, "mssql": true,
 	}
 	validImportWriteModes    = map[string]bool{"insert_only": true, "upsert": true}
@@ -66,6 +68,7 @@ type importProfileResponse struct {
 	FeatureClassCode  string   `json:"feature_class_code"`
 	SubtypeCode       *int     `json:"subtype_code,omitempty"`
 	SourceFormat      string   `json:"source_format"`
+	SourceLayer       *string  `json:"source_layer,omitempty"`
 	WriteMode         string   `json:"write_mode"`
 	MatchFields       []string `json:"match_fields"`
 	GeometryMode      string   `json:"geometry_mode"`
@@ -73,6 +76,17 @@ type importProfileResponse struct {
 	GeometryLatColumn *string  `json:"geometry_lat_column,omitempty"`
 	GeometryWktColumn *string  `json:"geometry_wkt_column,omitempty"`
 	Status            string   `json:"status"`
+
+	// Live-DB connection config (v2-S3, source_format postgis/mssql). The password
+	// is deliberately never returned -- HasCredential is the read-side flag that a
+	// password is stored, so the editor can show "saved" without ever seeing it.
+	DBHost        *string `json:"db_host,omitempty"`
+	DBPort        *int    `json:"db_port,omitempty"`
+	DBName        *string `json:"db_name,omitempty"`
+	DBUser        *string `json:"db_user,omitempty"`
+	DBSSLMode     string  `json:"db_sslmode,omitempty"`
+	SourceQuery   *string `json:"source_query,omitempty"`
+	HasCredential bool    `json:"has_credential"`
 }
 
 // createImportProfileRequest is POST /admin/import-profiles' body. WriteMode,
@@ -88,6 +102,7 @@ type createImportProfileRequest struct {
 	FeatureClassCode  string   `json:"feature_class_code"`
 	SubtypeCode       *int     `json:"subtype_code"`
 	SourceFormat      *string  `json:"source_format"`
+	SourceLayer       *string  `json:"source_layer"`
 	WriteMode         *string  `json:"write_mode"`
 	MatchFields       []string `json:"match_fields"`
 	GeometryMode      *string  `json:"geometry_mode"`
@@ -95,6 +110,17 @@ type createImportProfileRequest struct {
 	GeometryLatColumn *string  `json:"geometry_lat_column"`
 	GeometryWktColumn *string  `json:"geometry_wkt_column"`
 	Status            *string  `json:"status"`
+
+	// Live-DB connection config (v2-S3). DBPassword is write-only: it is sealed
+	// with the credential cipher and never read back. DBSSLMode defaults to
+	// 'require' when omitted.
+	DBHost      *string `json:"db_host"`
+	DBPort      *int    `json:"db_port"`
+	DBName      *string `json:"db_name"`
+	DBUser      *string `json:"db_user"`
+	DBSSLMode   *string `json:"db_sslmode"`
+	DBPassword  *string `json:"db_password"`
+	SourceQuery *string `json:"source_query"`
 }
 
 // updateImportProfileRequest is PATCH /admin/import-profiles/{code}'s body --
@@ -108,6 +134,7 @@ type createImportProfileRequest struct {
 type updateImportProfileRequest struct {
 	Name              *string   `json:"name"`
 	SourceFormat      *string   `json:"source_format"`
+	SourceLayer       *string   `json:"source_layer"`
 	WriteMode         *string   `json:"write_mode"`
 	MatchFields       *[]string `json:"match_fields"`
 	GeometryMode      *string   `json:"geometry_mode"`
@@ -115,6 +142,21 @@ type updateImportProfileRequest struct {
 	GeometryLatColumn *string   `json:"geometry_lat_column"`
 	GeometryWktColumn *string   `json:"geometry_wkt_column"`
 	Status            *string   `json:"status"`
+
+	// Live-DB connection config (v2-S3). Host/name/user/query use the
+	// nil/""/value three-state (nil = leave, "" = clear to NULL, else set); DBPort
+	// and DBSSLMode are set-only. DBPassword is write-only: a non-empty value
+	// re-seals a new password; an explicit "" clears the stored one (ClearPassword
+	// is the unambiguous clear signal since "" also means "no change" for the
+	// three-state columns).
+	DBHost        *string `json:"db_host"`
+	DBPort        *int    `json:"db_port"`
+	DBName        *string `json:"db_name"`
+	DBUser        *string `json:"db_user"`
+	DBSSLMode     *string `json:"db_sslmode"`
+	DBPassword    *string `json:"db_password"`
+	ClearPassword bool    `json:"clear_password"`
+	SourceQuery   *string `json:"source_query"`
 }
 
 // listImportProfiles returns every profile, code-shaped, code-ordered.
@@ -132,6 +174,7 @@ func selectImportProfiles(ctx context.Context, db bun.IDB, code string) ([]impor
 		FeatureClassCode  string   `bun:"fc_code"`
 		SubtypeCode       *int     `bun:"subtype_code"`
 		SourceFormat      string   `bun:"source_format"`
+		SourceLayer       *string  `bun:"source_layer"`
 		WriteMode         string   `bun:"write_mode"`
 		MatchFields       []string `bun:"match_fields,array"`
 		GeometryMode      string   `bun:"geometry_mode"`
@@ -139,6 +182,13 @@ func selectImportProfiles(ctx context.Context, db bun.IDB, code string) ([]impor
 		GeometryLatColumn *string  `bun:"geometry_lat_column"`
 		GeometryWktColumn *string  `bun:"geometry_wkt_column"`
 		Status            string   `bun:"status"`
+		DBHost            *string  `bun:"db_host"`
+		DBPort            *int     `bun:"db_port"`
+		DBName            *string  `bun:"db_name"`
+		DBUser            *string  `bun:"db_user"`
+		DBSSLMode         string   `bun:"db_sslmode"`
+		SourceQuery       *string  `bun:"source_query"`
+		HasCredential     bool     `bun:"has_credential"`
 	}
 	q := db.NewSelect().
 		TableExpr("metadata.import_profiles AS ip").
@@ -147,6 +197,7 @@ func selectImportProfiles(ctx context.Context, db bun.IDB, code string) ([]impor
 		ColumnExpr("fc.code AS fc_code").
 		ColumnExpr("st.code AS subtype_code").
 		ColumnExpr("ip.source_format AS source_format").
+		ColumnExpr("ip.source_layer AS source_layer").
 		ColumnExpr("ip.write_mode AS write_mode").
 		ColumnExpr("ip.match_fields AS match_fields").
 		ColumnExpr("ip.geometry_mode AS geometry_mode").
@@ -154,6 +205,13 @@ func selectImportProfiles(ctx context.Context, db bun.IDB, code string) ([]impor
 		ColumnExpr("ip.geometry_lat_column AS geometry_lat_column").
 		ColumnExpr("ip.geometry_wkt_column AS geometry_wkt_column").
 		ColumnExpr("ip.status AS status").
+		ColumnExpr("ip.db_host AS db_host").
+		ColumnExpr("ip.db_port AS db_port").
+		ColumnExpr("ip.db_name AS db_name").
+		ColumnExpr("ip.db_user AS db_user").
+		ColumnExpr("ip.db_sslmode AS db_sslmode").
+		ColumnExpr("ip.source_query AS source_query").
+		ColumnExpr("(ip.db_password_enc IS NOT NULL) AS has_credential").
 		Join("JOIN metadata.feature_classes AS fc ON fc.id = ip.feature_class_id").
 		Join("LEFT JOIN metadata.subtypes AS st ON st.id = ip.subtype_id").
 		OrderExpr("ip.code")
@@ -171,10 +229,13 @@ func selectImportProfiles(ctx context.Context, db bun.IDB, code string) ([]impor
 		}
 		out[i] = importProfileResponse{
 			Code: r.Code, Name: r.Name, FeatureClassCode: r.FeatureClassCode,
-			SubtypeCode: r.SubtypeCode, SourceFormat: r.SourceFormat, WriteMode: r.WriteMode,
+			SubtypeCode: r.SubtypeCode, SourceFormat: r.SourceFormat, SourceLayer: r.SourceLayer,
+			WriteMode: r.WriteMode,
 			MatchFields: mf, GeometryMode: r.GeometryMode,
 			GeometryLonColumn: r.GeometryLonColumn, GeometryLatColumn: r.GeometryLatColumn,
 			GeometryWktColumn: r.GeometryWktColumn, Status: r.Status,
+			DBHost: r.DBHost, DBPort: r.DBPort, DBName: r.DBName, DBUser: r.DBUser,
+			DBSSLMode: r.DBSSLMode, SourceQuery: r.SourceQuery, HasCredential: r.HasCredential,
 		}
 	}
 	return out, nil
@@ -184,7 +245,7 @@ func selectImportProfiles(ctx context.Context, db bun.IDB, code string) ([]impor
 // code first (friendly 400 over the raw unique violation), the class/subtype
 // targeting resolved to real ids, and the combined write/geometry state
 // validated against the same shape rules the migration's CHECKs enforce.
-func createImportProfile(ctx context.Context, db *bun.DB, req createImportProfileRequest) (*importProfileResponse, error) {
+func createImportProfile(ctx context.Context, db *bun.DB, cipher *secretbox.Cipher, req createImportProfileRequest) (*importProfileResponse, error) {
 	if err := validateCreateImportProfile(req); err != nil {
 		return nil, err
 	}
@@ -193,6 +254,7 @@ func createImportProfile(ctx context.Context, db *bun.DB, req createImportProfil
 	writeMode := valueOr(req.WriteMode, "insert_only")
 	geometryMode := valueOr(req.GeometryMode, "native")
 	status := valueOr(req.Status, "active")
+	sslMode := valueOr(req.DBSSLMode, "require")
 	matchFields := req.MatchFields
 	if matchFields == nil {
 		matchFields = []string{}
@@ -200,13 +262,29 @@ func createImportProfile(ctx context.Context, db *bun.DB, req createImportProfil
 	lon := blankToNil(req.GeometryLonColumn)
 	lat := blankToNil(req.GeometryLatColumn)
 	wkt := blankToNil(req.GeometryWktColumn)
+	sourceLayer := blankToNil(req.SourceLayer)
+	dbHost := blankToNil(req.DBHost)
+	dbName := blankToNil(req.DBName)
+	dbUser := blankToNil(req.DBUser)
+	sourceQuery := blankToNil(req.SourceQuery)
 
 	if err := validateImportProfileState(writeMode, geometryMode, matchFields, lon, lat, wkt); err != nil {
 		return nil, err
 	}
+	if err := validateLiveDBState(sourceFormat, dbHost, dbName, dbUser); err != nil {
+		return nil, err
+	}
+
+	// Seal the password (if any) with the credential cipher; it is written once and
+	// never read back. A password supplied with no cipher configured is a clear
+	// error rather than a silent drop.
+	passwordEnc, err := sealDBPassword(cipher, req.DBPassword)
+	if err != nil {
+		return nil, err
+	}
 
 	var resp importProfileResponse
-	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err = db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		exists, err := codeExists(ctx, tx, (*importer.Profile)(nil), req.Code)
 		if err != nil {
 			return err
@@ -234,9 +312,12 @@ func createImportProfile(ctx context.Context, db *bun.DB, req createImportProfil
 		actor := actorPtr(ctx)
 		p := &importer.Profile{
 			Code: req.Code, Name: req.Name, FeatureClassID: fcID, SubtypeID: subtypeID,
-			SourceFormat: sourceFormat, WriteMode: writeMode, MatchFields: matchFields,
+			SourceFormat: sourceFormat, SourceLayer: sourceLayer, WriteMode: writeMode, MatchFields: matchFields,
 			GeometryMode: geometryMode, GeometryLonColumn: lon, GeometryLatColumn: lat,
-			GeometryWktColumn: wkt, Status: status, CreatedBy: actor, UpdatedBy: actor,
+			GeometryWktColumn: wkt, Status: status,
+			DBHost: dbHost, DBPort: req.DBPort, DBName: dbName, DBUser: dbUser,
+			DBSSLMode: sslMode, DBPasswordEnc: passwordEnc, SourceQuery: sourceQuery,
+			CreatedBy: actor, UpdatedBy: actor,
 		}
 		if _, err := tx.NewInsert().Model(p).
 			ExcludeColumn("id", "created_at", "updated_at").Exec(ctx); err != nil {
@@ -260,7 +341,7 @@ func createImportProfile(ctx context.Context, db *bun.DB, req createImportProfil
 // present in the request. The final combined write/geometry state (after the
 // patch) is re-validated so a partial update can't leave, say, upsert with no
 // match_fields or lonlat with only one column.
-func updateImportProfile(ctx context.Context, db *bun.DB, code string, req updateImportProfileRequest) (*importProfileResponse, error) {
+func updateImportProfile(ctx context.Context, db *bun.DB, cipher *secretbox.Cipher, code string, req updateImportProfileRequest) (*importProfileResponse, error) {
 	if err := validateUpdateImportProfile(req); err != nil {
 		return nil, err
 	}
@@ -283,6 +364,10 @@ func updateImportProfile(ctx context.Context, db *bun.DB, code string, req updat
 		if req.SourceFormat != nil {
 			p.SourceFormat = *req.SourceFormat
 			cols = append(cols, "source_format")
+		}
+		if req.SourceLayer != nil {
+			p.SourceLayer = blankToNil(req.SourceLayer)
+			cols = append(cols, "source_layer")
 		}
 		if req.WriteMode != nil {
 			p.WriteMode = *req.WriteMode
@@ -316,9 +401,50 @@ func updateImportProfile(ctx context.Context, db *bun.DB, code string, req updat
 			p.Status = *req.Status
 			cols = append(cols, "status")
 		}
+		if req.DBHost != nil {
+			p.DBHost = blankToNil(req.DBHost)
+			cols = append(cols, "db_host")
+		}
+		if req.DBPort != nil {
+			p.DBPort = req.DBPort
+			cols = append(cols, "db_port")
+		}
+		if req.DBName != nil {
+			p.DBName = blankToNil(req.DBName)
+			cols = append(cols, "db_name")
+		}
+		if req.DBUser != nil {
+			p.DBUser = blankToNil(req.DBUser)
+			cols = append(cols, "db_user")
+		}
+		if req.DBSSLMode != nil {
+			p.DBSSLMode = *req.DBSSLMode
+			cols = append(cols, "db_sslmode")
+		}
+		if req.SourceQuery != nil {
+			p.SourceQuery = blankToNil(req.SourceQuery)
+			cols = append(cols, "source_query")
+		}
+		// Password: an explicit clear wins; else a non-empty value re-seals a new
+		// one; an omitted/empty value leaves the stored password untouched.
+		switch {
+		case req.ClearPassword:
+			p.DBPasswordEnc = nil
+			cols = append(cols, "db_password_enc")
+		case req.DBPassword != nil && *req.DBPassword != "":
+			enc, err := sealDBPassword(cipher, req.DBPassword)
+			if err != nil {
+				return err
+			}
+			p.DBPasswordEnc = enc
+			cols = append(cols, "db_password_enc")
+		}
 
 		if err := validateImportProfileState(p.WriteMode, p.GeometryMode, p.MatchFields,
 			p.GeometryLonColumn, p.GeometryLatColumn, p.GeometryWktColumn); err != nil {
+			return err
+		}
+		if err := validateLiveDBState(p.SourceFormat, p.DBHost, p.DBName, p.DBUser); err != nil {
 			return err
 		}
 		if req.MatchFields != nil {
@@ -646,7 +772,7 @@ func validateCreateImportProfile(req createImportProfileRequest) error {
 		return err
 	}
 	if req.SourceFormat != nil && !validImportSourceFormats[*req.SourceFormat] {
-		return invalid("source_format must be one of csv, geojson, shapefile, kml, dxf, postgis, mssql")
+		return invalid("source_format must be one of csv, geojson, shapefile, kml, dxf, geopackage, spatialite, postgis, mssql")
 	}
 	if req.WriteMode != nil && !validImportWriteModes[*req.WriteMode] {
 		return invalid("write_mode must be one of insert_only, upsert")
@@ -656,6 +782,9 @@ func validateCreateImportProfile(req createImportProfileRequest) error {
 	}
 	if req.Status != nil && !validImportStatuses[*req.Status] {
 		return invalid("status must be one of active, deprecated")
+	}
+	if req.DBSSLMode != nil && !validImportSSLModes[*req.DBSSLMode] {
+		return invalid("db_sslmode must be one of disable, require, verify-full")
 	}
 	return nil
 }
@@ -665,7 +794,7 @@ func validateUpdateImportProfile(req updateImportProfileRequest) error {
 		return invalid("name cannot be blank")
 	}
 	if req.SourceFormat != nil && !validImportSourceFormats[*req.SourceFormat] {
-		return invalid("source_format must be one of csv, geojson, shapefile, kml, dxf, postgis, mssql")
+		return invalid("source_format must be one of csv, geojson, shapefile, kml, dxf, geopackage, spatialite, postgis, mssql")
 	}
 	if req.WriteMode != nil && !validImportWriteModes[*req.WriteMode] {
 		return invalid("write_mode must be one of insert_only, upsert")
@@ -676,9 +805,14 @@ func validateUpdateImportProfile(req updateImportProfileRequest) error {
 	if req.Status != nil && !validImportStatuses[*req.Status] {
 		return invalid("status must be one of active, deprecated")
 	}
-	if req.Name == nil && req.SourceFormat == nil && req.WriteMode == nil && req.MatchFields == nil &&
-		req.GeometryMode == nil && req.GeometryLonColumn == nil && req.GeometryLatColumn == nil &&
-		req.GeometryWktColumn == nil && req.Status == nil {
+	if req.DBSSLMode != nil && !validImportSSLModes[*req.DBSSLMode] {
+		return invalid("db_sslmode must be one of disable, require, verify-full")
+	}
+	if req.Name == nil && req.SourceFormat == nil && req.SourceLayer == nil && req.WriteMode == nil &&
+		req.MatchFields == nil && req.GeometryMode == nil && req.GeometryLonColumn == nil &&
+		req.GeometryLatColumn == nil && req.GeometryWktColumn == nil && req.Status == nil &&
+		req.DBHost == nil && req.DBPort == nil && req.DBName == nil && req.DBUser == nil &&
+		req.DBSSLMode == nil && req.DBPassword == nil && !req.ClearPassword && req.SourceQuery == nil {
 		return invalid("request must set at least one field")
 	}
 	return nil
@@ -702,6 +836,41 @@ func validateImportProfileState(writeMode, geometryMode string, matchFields []st
 		}
 	}
 	return nil
+}
+
+var validImportSSLModes = map[string]bool{"disable": true, "require": true, "verify-full": true}
+
+// validateLiveDBState mirrors migration 0105's import_profiles_livedb_conn_check
+// on the resolved final state: a live-DB source (postgis/mssql) must carry the
+// connection basics (host/name/user). File formats never set these, so the check
+// only bites the live-DB formats -- and it is checked here (not just in the DB) so
+// the operator gets a friendly 400.
+func validateLiveDBState(sourceFormat string, host, name, user *string) error {
+	if sourceFormat != "postgis" && sourceFormat != "mssql" {
+		return nil
+	}
+	if host == nil || name == nil || user == nil {
+		return invalid("source_format %q requires db_host, db_name, and db_user", sourceFormat)
+	}
+	return nil
+}
+
+// sealDBPassword encrypts a live-DB password for at-rest storage. An empty/absent
+// password seals to nil (no stored secret). A password with no cipher configured
+// is a clear error rather than a silent clear-text store -- the same posture the
+// external-systems catalog takes.
+func sealDBPassword(cipher *secretbox.Cipher, password *string) ([]byte, error) {
+	if password == nil || *password == "" {
+		return nil, nil
+	}
+	if cipher == nil {
+		return nil, invalid("a database password was provided but credential encryption is not configured (%s unset)", secretbox.EnvKey)
+	}
+	enc, err := cipher.Encrypt([]byte(*password))
+	if err != nil {
+		return nil, fmt.Errorf("sealing database password: %w", err)
+	}
+	return enc, nil
 }
 
 func validateCreateImportFieldMapping(req createImportFieldMappingRequest) error {
@@ -835,13 +1004,13 @@ func listImportProfilesHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
-func createImportProfileHandler(db *bun.DB) http.HandlerFunc {
+func createImportProfileHandler(db *bun.DB, cipher *secretbox.Cipher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createImportProfileRequest
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		result, err := createImportProfile(r.Context(), db, req)
+		result, err := createImportProfile(r.Context(), db, cipher, req)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -850,20 +1019,74 @@ func createImportProfileHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
-func updateImportProfileHandler(db *bun.DB) http.HandlerFunc {
+func updateImportProfileHandler(db *bun.DB, cipher *secretbox.Cipher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		code := chi.URLParam(r, "code")
 		var req updateImportProfileRequest
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		result, err := updateImportProfile(r.Context(), db, code, req)
+		result, err := updateImportProfile(r.Context(), db, cipher, code, req)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, result)
 	}
+}
+
+// testImportConnectionHandler opens (and pings, then closes) a live-DB profile's
+// saved connection, so an admin can confirm the host/credentials before running an
+// import. It operates on the saved profile by code -- the password is already
+// sealed on it and never crosses the wire in the clear.
+func testImportConnectionHandler(db *bun.DB, cipher *secretbox.Cipher) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		cfg, err := liveDBConfigForProfile(r.Context(), db, cipher, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if err := importer.TestConnection(r.Context(), cfg); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	}
+}
+
+// listImportTablesHandler lists a live-DB profile's remote tables (with each
+// table's geometry column, if any) so the profile editor can offer a source-table
+// picker. Operates on the saved profile by code.
+func listImportTablesHandler(db *bun.DB, cipher *secretbox.Cipher) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		cfg, err := liveDBConfigForProfile(r.Context(), db, cipher, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		tables, err := importer.ListTables(r.Context(), cfg)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tables": tables})
+	}
+}
+
+// liveDBConfigForProfile resolves a saved profile by code into a live-DB
+// connection config, unsealing its stored password. It refuses a profile that
+// isn't a live-DB source (a file profile has no connection to test).
+func liveDBConfigForProfile(ctx context.Context, db *bun.DB, cipher *secretbox.Cipher, code string) (importer.DBConnConfig, error) {
+	rp, err := importer.ResolveProfile(ctx, db, code)
+	if err != nil {
+		return importer.DBConnConfig{}, err
+	}
+	if rp.Profile.SourceFormat != "postgis" && rp.Profile.SourceFormat != "mssql" {
+		return importer.DBConnConfig{}, invalid("import profile %q is not a live-database source", code)
+	}
+	return importer.ResolveConnConfig(rp, cipher)
 }
 
 func deleteImportProfileHandler(db *bun.DB) http.HandlerFunc {

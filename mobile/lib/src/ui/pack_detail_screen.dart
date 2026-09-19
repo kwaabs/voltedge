@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../pack/pack_database.dart';
 import '../pack/pack_store.dart';
+import 'faults_screen.dart';
 import 'feature_detail_screen.dart';
 import 'format.dart';
 import 'pack_map_page.dart';
@@ -69,6 +70,19 @@ class _PackDetailScreenState extends State<PackDetailScreen> {
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => WamScreen(pack: widget.pack),
+                ),
+              ),
+            ),
+          // The offline Faults surface (fault board / raise / status / book defect),
+          // shown only when this pack shipped faults read-context (a faults:read
+          // build). Orthogonal to WAM -- a pack can carry faults, WAM, both, neither.
+          if (_db?.packsFaults == true)
+            IconButton(
+              icon: const Icon(Icons.bolt_outlined),
+              tooltip: 'Faults',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => FaultsScreen(pack: widget.pack),
                 ),
               ),
             ),

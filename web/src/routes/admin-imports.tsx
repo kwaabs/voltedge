@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react"
+import { Database, Loader2, Pencil, Plug, Plus, Table2, Trash2 } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { FormDialog } from "@/components/admin/form-dialog"
@@ -12,22 +12,37 @@ import {
   type AdminFeatureClassSummary,
   type AdminImportFieldMapping,
   type AdminImportProfile,
+  type AdminImportTable,
+  listAdminImportTables,
+  testAdminImportConnection,
   useAdminFeatureClasses,
   useAdminImportFieldMappings,
   useAdminImportProfiles,
 } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
+import { isLiveDBFormat } from "@/lib/etl-import"
 import { useToastStore } from "@/stores/toast-store"
 
 const labelClass = "text-xs font-medium"
 
 // Enum whitelists mirror migration 0102's CHECK constraints (and the S2 Go
-// validation) so the editor only ever offers a legal value. The two live-DB
-// formats (postgis/mssql) are pre-widened in the schema for v2 but not offered
-// here -- v1 is file uploads only (docs/etl-import-engine.md).
-const SOURCE_FORMATS = ["csv", "geojson", "shapefile", "kml", "dxf"] as const
+// validation) so the editor only ever offers a legal value. 'geopackage' (v2-S1)
+// and 'spatialite' (v2-S2) are file uploads like the rest, but parsed SERVER-side
+// and multi-layer, so they expose a source_layer default. 'postgis' (v2-S3) and
+// 'mssql' (v2-S4) are live-DB connectors -- no file at all: the worker connects
+// out to a remote database, so they instead expose a connection config + source
+// table/query (docs/etl-import-engine.md).
+const SOURCE_FORMATS = ["csv", "geojson", "shapefile", "kml", "dxf", "geopackage", "spatialite", "postgis", "mssql"] as const
+
+/** Source formats parsed server-side that carry named layers -- these expose the
+ * optional source_layer default in the profile dialog. Mirrors the frontend
+ * isServerParsedFormat() and the server's isSQLiteSourceFormat(). */
+const LAYERED_FORMATS = new Set<string>(["geopackage", "spatialite"])
 const WRITE_MODES = ["insert_only", "upsert"] as const
 const GEOMETRY_MODES = ["none", "native", "lonlat", "wkt"] as const
+/** libpq-style SSL modes the connection form offers (matches the server's
+ * validation); 'require' is the default an unset field takes. */
+const DB_SSLMODES = ["disable", "require", "verify-full"] as const
 const STATUSES = ["active", "deprecated"] as const
 const TRANSFORMS = ["direct", "constant", "scale", "domain_map"] as const
 
@@ -98,6 +113,7 @@ function ProfileDialog({
   const [featureClassCode, setFeatureClassCode] = useState(existing?.feature_class_code ?? "")
   const [subtypeCode, setSubtypeCode] = useState(existing?.subtype_code != null ? String(existing.subtype_code) : "")
   const [sourceFormat, setSourceFormat] = useState<string>(existing?.source_format ?? SOURCE_FORMATS[0])
+  const [sourceLayer, setSourceLayer] = useState(existing?.source_layer ?? "")
   const [writeMode, setWriteMode] = useState<string>(existing?.write_mode ?? WRITE_MODES[0])
   const [matchFields, setMatchFields] = useState((existing?.match_fields ?? []).join(", "))
   const [geometryMode, setGeometryMode] = useState<string>(existing?.geometry_mode ?? "native")
@@ -108,6 +124,27 @@ function ProfileDialog({
   const [saving, setSaving] = useState(false)
   const queryClient = useQueryClient()
 
+  // Live-DB (postgis) connection config + source addressing. The password is
+  // write-only: it never comes back from the server, so the input starts empty
+  // and a blank value on edit keeps the stored one (has_credential tells us one
+  // exists); clearPassword wipes it. source_query, if set, overrides the table.
+  const [dbHost, setDbHost] = useState(existing?.db_host ?? "")
+  const [dbPort, setDbPort] = useState(existing?.db_port != null ? String(existing.db_port) : "")
+  const [dbName, setDbName] = useState(existing?.db_name ?? "")
+  const [dbUser, setDbUser] = useState(existing?.db_user ?? "")
+  const [dbSslmode, setDbSslmode] = useState<string>(existing?.db_sslmode || "require")
+  const [dbPassword, setDbPassword] = useState("")
+  const [clearPassword, setClearPassword] = useState(false)
+  const [sourceQuery, setSourceQuery] = useState(existing?.source_query ?? "")
+  // Test-connection / list-tables both act on the SAVED profile, so they're only
+  // available once it exists; results are surfaced inline.
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [listingTables, setListingTables] = useState(false)
+  const [tables, setTables] = useState<AdminImportTable[] | null>(null)
+
+  const liveDB = isLiveDBFormat(sourceFormat)
+
   const parsedMatch = parseMatchFields(matchFields)
   // Mirror the migration's cross-field CHECKs so the dialog blocks a save the
   // server would bounce: upsert needs a match key; lonlat needs both columns;
@@ -116,12 +153,17 @@ function ProfileDialog({
     geometryMode !== "lonlat"
       ? geometryMode !== "wkt" || wktColumn.trim() !== ""
       : lonColumn.trim() !== "" && latColumn.trim() !== ""
+  // A live-DB profile needs enough to open a connection (host/database/user); the
+  // password is optional (some servers use trust auth) and the source table/query
+  // can be filled in after saving, via List tables.
+  const liveDBOk = !liveDB || (dbHost.trim() !== "" && dbName.trim() !== "" && dbUser.trim() !== "")
   const canSave =
     code.trim().length > 0 &&
     name.trim().length > 0 &&
     featureClassCode.trim().length > 0 &&
     (writeMode !== "upsert" || parsedMatch.length > 0) &&
-    geometryOk
+    geometryOk &&
+    liveDBOk
 
   async function handleSave() {
     setSaving(true)
@@ -129,6 +171,10 @@ function ProfileDialog({
       const body: Record<string, unknown> = {
         name: name.trim(),
         source_format: sourceFormat,
+        // Both layered (server-parsed) formats and live-DB connectors carry a
+        // source_layer (a pinned layer / the remote table); any other format
+        // sends "" so the server clears a stale value (blankToNil→null).
+        source_layer: LAYERED_FORMATS.has(sourceFormat) || liveDB ? sourceLayer.trim() : "",
         write_mode: writeMode,
         match_fields: parsedMatch,
         geometry_mode: geometryMode,
@@ -136,6 +182,20 @@ function ProfileDialog({
         geometry_lat_column: geometryMode === "lonlat" ? latColumn.trim() : "",
         geometry_wkt_column: geometryMode === "wkt" ? wktColumn.trim() : "",
         status,
+      }
+      // The db_* / source_query / clear_password fields only travel for a live-DB
+      // profile, the same way the geometry columns only travel for their mode.
+      if (liveDB) {
+        body.db_host = dbHost.trim()
+        body.db_port = dbPort.trim() === "" ? null : Number(dbPort)
+        body.db_name = dbName.trim()
+        body.db_user = dbUser.trim()
+        body.db_sslmode = dbSslmode
+        body.source_query = sourceQuery.trim()
+        // Only send a password when one was typed (blank on edit keeps the
+        // stored one); clearing wipes it and takes precedence over any typing.
+        if (existing && clearPassword) body.clear_password = true
+        else if (dbPassword !== "") body.db_password = dbPassword
       }
       if (existing) {
         await apiFetch(`/admin/import-profiles/${existing.code}`, { method: "PATCH", body: JSON.stringify(body) })
@@ -151,6 +211,37 @@ function ProfileDialog({
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save this profile.")
     } finally {
       setSaving(false)
+    }
+  }
+
+  /** Pings the saved connection (POST .../test-connection), surfacing the verdict
+   * inline. Only meaningful on an existing profile -- the server reads the saved
+   * connection, so unsaved edits aren't reflected until Save. */
+  async function handleTestConnection() {
+    if (!existing) return
+    setTesting(true)
+    setTestResult(null)
+    try {
+      await testAdminImportConnection(existing.code)
+      setTestResult({ ok: true, message: "Connection succeeded." })
+    } catch (err) {
+      setTestResult({ ok: false, message: err instanceof ApiError ? err.message : "Connection failed." })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  /** Lists the saved connection's remote tables for the source-table picker; like
+   * Test connection this reads the SAVED profile. */
+  async function handleListTables() {
+    if (!existing) return
+    setListingTables(true)
+    try {
+      setTables(await listAdminImportTables(existing.code))
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not list tables.")
+    } finally {
+      setListingTables(false)
     }
   }
 
@@ -235,6 +326,157 @@ function ProfileDialog({
         </div>
       </div>
 
+      {/* PostGIS (live-DB): the worker connects out to a remote database, so the
+          profile stores a connection + a source table (or a custom query). Test
+          connection / List tables read the SAVED profile, so they only work once
+          it exists (and after saving any edits). */}
+      {liveDB && (
+        <div className="flex flex-col gap-3 rounded-md border p-3">
+          <div className="flex items-center gap-2 text-xs font-medium">
+            <Database className="size-4" />
+            Database connection
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>
+                Host <span className="text-destructive">*</span>
+              </label>
+              <input className={inputClass} value={dbHost} onChange={(e) => setDbHost(e.target.value)} placeholder="e.g. gis-db.internal" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>Port</label>
+              <input
+                type="number"
+                className={inputClass}
+                value={dbPort}
+                onChange={(e) => setDbPort(e.target.value)}
+                placeholder={sourceFormat === "mssql" ? "1433" : "5432"}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>
+                Database <span className="text-destructive">*</span>
+              </label>
+              <input className={inputClass} value={dbName} onChange={(e) => setDbName(e.target.value)} placeholder="e.g. legacy_gis" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>
+                User <span className="text-destructive">*</span>
+              </label>
+              <input className={inputClass} value={dbUser} onChange={(e) => setDbUser(e.target.value)} placeholder="e.g. readonly" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>SSL mode</label>
+              <select className={inputClass} value={dbSslmode} onChange={(e) => setDbSslmode(e.target.value)}>
+                {DB_SSLMODES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>Password</label>
+              <input
+                type="password"
+                className={inputClass}
+                value={dbPassword}
+                onChange={(e) => setDbPassword(e.target.value)}
+                disabled={clearPassword}
+                placeholder={existing?.has_credential ? "•••• saved — leave blank to keep" : "leave blank for trust auth"}
+              />
+              {existing?.has_credential && (
+                <label className="text-muted-foreground flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={clearPassword} onChange={(e) => setClearPassword(e.target.checked)} />
+                  Clear stored password
+                </label>
+              )}
+            </div>
+          </div>
+
+          {/* Source addressing: a remote table (source_layer) OR a custom SELECT
+              (source_query) that overrides it. Test/List need a saved profile. */}
+          <div className="flex flex-col gap-2 border-t pt-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="sm" disabled={!existing || testing} onClick={handleTestConnection}>
+                {testing ? <Loader2 className="size-4 animate-spin" /> : <Plug className="size-4" />}
+                Test connection
+              </Button>
+              <Button type="button" variant="outline" size="sm" disabled={!existing || listingTables} onClick={handleListTables}>
+                {listingTables ? <Loader2 className="size-4 animate-spin" /> : <Table2 className="size-4" />}
+                List tables
+              </Button>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              {existing
+                ? "Test connection and List tables read the last-saved connection — save your edits first."
+                : "Save the profile first, then reopen it to test the connection or list its tables."}
+            </p>
+            {testResult && (
+              <p className={testResult.ok ? "text-xs text-green-600" : "text-destructive text-xs"}>{testResult.message}</p>
+            )}
+            {tables &&
+              (tables.length === 0 ? (
+                <p className="text-muted-foreground text-xs">No tables found on this connection.</p>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  <label className={labelClass}>Pick a table</label>
+                  <select
+                    className={inputClass}
+                    value={tables.some((t) => t.name === sourceLayer) ? sourceLayer : ""}
+                    onChange={(e) => setSourceLayer(e.target.value)}
+                  >
+                    <option value="">choose a table…</option>
+                    {tables.map((t) => (
+                      <option key={t.name} value={t.name}>
+                        {t.name}
+                        {t.geometry_column ? ` · ${t.geometry_column}` : " · (no geometry)"} · {t.feature_count} rows
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>Source table</label>
+              <input
+                className={inputClass}
+                value={sourceLayer}
+                onChange={(e) => setSourceLayer(e.target.value)}
+                placeholder="e.g. poles — schema-qualified as schema.table when not public"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>Custom query (optional)</label>
+              <textarea
+                className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-20 w-full rounded-md border px-2 py-1 font-mono text-sm outline-none focus-visible:ring-[3px]"
+                value={sourceQuery}
+                onChange={(e) => setSourceQuery(e.target.value)}
+                placeholder="a read-only SELECT that overrides the table above"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GeoPackage/SpatiaLite are multi-layer: pin a default layer here (an
+          operator can still override it per run), or leave blank to force a
+          per-run choice. Only shown for layered, server-parsed formats. */}
+      {LAYERED_FORMATS.has(sourceFormat) && (
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Default layer (optional)</label>
+          <input
+            className={inputClass}
+            value={sourceLayer}
+            onChange={(e) => setSourceLayer(e.target.value)}
+            placeholder="e.g. poles — blank = choose per run"
+          />
+        </div>
+      )}
+
       {writeMode === "upsert" && (
         <div className="flex flex-col gap-1">
           <label className={labelClass}>
@@ -263,8 +505,8 @@ function ProfileDialog({
           ))}
         </select>
         <p className="text-muted-foreground text-xs">
-          none: geometry-less class · native: the file already carries geometry (GeoJSON/Shapefile/KML/DXF) · lonlat:
-          two numeric columns · wkt: one WKT column.
+          none: geometry-less class · native: the source already carries geometry (GeoJSON/Shapefile/KML/DXF, or the
+          table's geometry column for PostGIS) · lonlat: two numeric columns · wkt: one WKT column.
         </p>
       </div>
 
