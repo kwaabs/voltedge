@@ -203,6 +203,16 @@ func buildCreateTable(qualifiedTable string, fc *metadata.FeatureClass, fields [
 	cols = append(cols, `created_by uuid`)
 	cols = append(cols, `updated_by uuid`)
 
+	// Private-drafts (Phase 61): published_at is the STICKY "has this feature
+	// ever been public" marker -- the CRUD publish path stamps it (and
+	// published_by) the FIRST time a row is published and never clears it, not
+	// even on unpublish. Privacy keys off published_at IS NULL (never public =>
+	// private to its author and their management chain), NOT off status, which
+	// toggles freely between draft/published. Nullable, no FK to iam.users --
+	// the same no-enforced-join convention as created_by/updated_by.
+	cols = append(cols, `published_at timestamptz`)
+	cols = append(cols, `published_by uuid`)
+
 	// The territory this feature belongs to (Phase 11) -- only for classes
 	// that actually carry a geometry to place; a geometry-less class has
 	// nothing to contain in a territory, so it never gets the column.

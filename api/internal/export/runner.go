@@ -145,7 +145,7 @@ func runExport(ctx context.Context, db *bun.DB, scope ExportScope, w io.Writer) 
 		count := 0
 		txErr := db.RunInTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true},
 			func(ctx context.Context, tx bun.Tx) error {
-				layers, status, msg := gatherStreamLayers(ctx, tx, scope.FeatureClasses, bbox, scope.TerritoryIDs)
+				layers, status, msg := gatherStreamLayers(ctx, tx, scope.FeatureClasses, bbox, scope.TerritoryIDs, scope.DraftAuthors)
 				if status != 0 {
 					return fmt.Errorf("%s", msg)
 				}
@@ -167,7 +167,7 @@ func runExport(ctx context.Context, db *bun.DB, scope ExportScope, w io.Writer) 
 	)
 	err = db.RunInTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true},
 		func(ctx context.Context, tx bun.Tx) error {
-			gathered, status, msg := gatherLayers(ctx, tx, scope.FeatureClasses, bbox, scope.TerritoryIDs)
+			gathered, status, msg := gatherLayers(ctx, tx, scope.FeatureClasses, bbox, scope.TerritoryIDs, scope.DraftAuthors)
 			if status != 0 {
 				return fmt.Errorf("%s", msg)
 			}

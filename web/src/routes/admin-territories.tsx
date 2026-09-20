@@ -2,6 +2,7 @@ import { useMemo, useState } from "react"
 import { useNavigate } from "react-router"
 import {
   AlertTriangle,
+  EyeOff,
   FolderInput,
   Loader2,
   Map as MapIcon,
@@ -28,6 +29,7 @@ import {
   useTerritoryLevels,
   useUpdateTerritory,
 } from "@/hooks/use-territories"
+import { usePrivateDraftsEnforcement, useSetPrivateDraftsEnforcement } from "@/hooks/use-private-drafts"
 import { ApiError } from "@/lib/api"
 import { useTerritoryEditStore } from "@/stores/territory-edit-store"
 import { useToastStore } from "@/stores/toast-store"
@@ -427,6 +429,77 @@ function AccessRolloutCard() {
   )
 }
 
+/**
+ * Private-drafts rollout (Phase 61). A companion access gate to territory
+ * enforcement: while on, a feature that has never been published is visible only
+ * to its author and the author's management chain -- and still only within the
+ * viewer's territory scope, so this composes with (never replaces) the card
+ * above. Off by default; turning it on retroactively privatizes every
+ * never-published feature, so it is a deliberate step, hence its own toggle.
+ */
+function PrivateDraftsRolloutCard() {
+  const { data } = usePrivateDraftsEnforcement()
+  const setEnforcement = useSetPrivateDraftsEnforcement()
+  const enabled = data?.enforcement ?? false
+
+  function handleToggle() {
+    const next = !enabled
+    setEnforcement.mutate(next, {
+      onSuccess: () =>
+        useToastStore
+          .getState()
+          .pushSuccess(next ? "Private drafts are now ON." : "Private drafts are now OFF."),
+      onError: (err) => toastError(err, "Could not change private drafts."),
+    })
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">Private drafts</CardTitle>
+        <CardDescription>
+          When on, a feature that has never been published is visible only to whoever created it and the people above
+          them in the management chain. It stays subject to territory scope on top of this.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 pt-0">
+        <div className="flex items-center justify-between rounded-md border p-3">
+          <div className="flex items-center gap-2">
+            <EyeOff className={enabled ? "size-4 text-emerald-600" : "text-muted-foreground size-4"} />
+            <div>
+              <p className="text-sm font-medium">Private drafts {enabled ? "on" : "off"}</p>
+              <p className="text-muted-foreground text-xs">
+                {enabled
+                  ? "Unpublished features are hidden from everyone outside the author's management chain."
+                  : "Every draft is visible to every user in scope, as before."}
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant={enabled ? "outline" : "default"}
+            onClick={handleToggle}
+            disabled={setEnforcement.isPending}
+          >
+            {setEnforcement.isPending && <Loader2 className="size-4 animate-spin" />}
+            Turn {enabled ? "off" : "on"}
+          </Button>
+        </div>
+
+        {!enabled && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <p className="text-xs">
+              Turning this on hides every existing unpublished feature from users outside its author's chain. Publish
+              anything that should stay shared first.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function AdminTerritoriesPage() {
   const navigate = useNavigate()
   const { data, isPending, isError } = useTerritories()
@@ -517,6 +590,7 @@ export function AdminTerritoriesPage() {
         </Card>
 
         <AccessRolloutCard />
+        <PrivateDraftsRolloutCard />
       </div>
 
       {creating !== null && (

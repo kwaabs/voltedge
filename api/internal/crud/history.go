@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 )
@@ -41,6 +43,17 @@ const (
 	historyDelete    = "delete"
 	historyRestore   = "restore"
 	historyPurge     = "purge"
+	// Private-drafts Phase B: a private edit/delete of an already-published
+	// feature lands in staging (runtime.feature_pending_edits), not the base gis
+	// row, so the base writers above never fire for it. These verbs keep the
+	// audit trail complete anyway -- staging a private change records the
+	// would-be state, discarding records the withdrawal, and applying then emits
+	// the ordinary historyUpdate/historyDelete as the change lands on the base
+	// row. So a feature's timeline reads faithfully: ... -> stage_edit -> update,
+	// with no blind spot for work done privately.
+	historyStageEdit   = "stage_edit"
+	historyStageDelete = "stage_delete"
+	historyDiscard     = "discard"
 )
 
 // recordHistory appends one audit row for a feature write. snapshot is the
@@ -92,18 +105,54 @@ type historyEntry struct {
 	Snapshot   json.RawMessage `bun:"snapshot" json:"snapshot"`
 }
 
+// stagingActions are the Phase B verbs whose history rows are private to their
+// actor's chain: a private edit/delete/discard is unpublished work that no peer
+// should see in another user's timeline. They're filtered out of the timeline
+// exactly as the pending overlay and Phase A draft filter hide the change
+// itself -- see the filter in listFeatureHistory.
+var stagingActions = []string{historyStageEdit, historyStageDelete, historyDiscard}
+
 // listFeatureHistory returns one feature's change timeline, newest first.
+//
+// Private-drafts Phase B: the staging verbs (stage_edit/stage_delete/discard)
+// record work an author did privately over an already-public feature, so they
+// must not leak into a peer's view of the timeline. They're kept only when the
+// row's actor is in the viewer's draft-visible set (the viewer or a subordinate,
+// the same set that governs Phase A draft visibility); when the rollout gate is
+// off or the viewer is an admin / break-glass account, VisibleAuthors doesn't
+// apply and the full timeline -- staging rows included -- is returned unchanged.
 func listFeatureHistory(ctx context.Context, db bun.IDB, classCode, featureID string) ([]historyEntry, error) {
-	var entries []historyEntry
-	err := db.NewSelect().
+	authors, apply, err := drafts.VisibleAuthors(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+
+	q := db.NewSelect().
 		ColumnExpr("h.id, h.action, h.actor_id, u.display_name AS actor_name, u.email AS actor_email, h.at, h.snapshot").
 		TableExpr("gis.feature_history AS h").
 		Join("LEFT JOIN iam.users AS u ON u.id = h.actor_id").
 		Where("h.feature_class_code = ?", classCode).
-		Where("h.feature_id = ?", featureID).
-		OrderExpr("h.at DESC, h.id DESC").
-		Scan(ctx, &entries)
-	if err != nil {
+		Where("h.feature_id = ?", featureID)
+
+	if apply {
+		// A staging row survives only when its actor is in the visible set;
+		// every non-staging row is unconditionally kept. actor_id::text so the
+		// uuid column compares against the string ids VisibleAuthors returns.
+		placeholders := make([]string, len(authors))
+		args := make([]any, 0, len(authors)+1)
+		args = append(args, bun.In(stagingActions))
+		for i := range authors {
+			placeholders[i] = "?"
+			args = append(args, authors[i])
+		}
+		q = q.Where(
+			"(h.action NOT IN (?) OR h.actor_id::text IN ("+strings.Join(placeholders, ", ")+"))",
+			args...,
+		)
+	}
+
+	var entries []historyEntry
+	if err := q.OrderExpr("h.at DESC, h.id DESC").Scan(ctx, &entries); err != nil {
 		return nil, fmt.Errorf("crud: list history: %w", err)
 	}
 	return entries, nil

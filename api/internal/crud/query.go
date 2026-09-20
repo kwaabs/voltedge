@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 )
@@ -250,6 +251,18 @@ func queryFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, req
 	if clause, scopeArgs := scopeWhere(scopeIDs, scopeApply); clause != "" {
 		where = append(where, clause)
 		args = append(args, scopeArgs...)
+	}
+
+	// Private-drafts (Phase 61): same draft-visibility constraint as
+	// listFeatures, ANDed on top of the user's conditions and the territory
+	// predicate. A no-op unless the rollout gate is on and the user is scoped.
+	draftAuthors, draftApply, err := drafts.VisibleAuthors(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	if clause, draftArgs := drafts.WhereClause(draftAuthors, draftApply, ""); clause != "" {
+		where = append(where, clause)
+		args = append(args, draftArgs...)
 	}
 
 	// Sort/paging: identical handling to listFeatures -- an unrecognized

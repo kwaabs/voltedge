@@ -283,6 +283,12 @@ class _WamScreenState extends ConsumerState<WamScreen>
         title: Text('Work · ${shortId(widget.pack.id)}'),
         bottom: TabBar(
           controller: _tabs,
+          // The AppBar is a solid colour, so default tab colours (selected =
+          // colorScheme.primary, unselected = onSurfaceVariant) are dark green-on-
+          // green and near-invisible. Pin readable on-primary colours instead.
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.white,
           tabs: const [
             Tab(text: 'Work', icon: Icon(Icons.assignment_outlined)),
             Tab(text: 'Defects', icon: Icon(Icons.report_outlined)),

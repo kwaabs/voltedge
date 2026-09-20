@@ -34,6 +34,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/tie"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/diagram"
+	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/duct"
 	"github.com/kwaabs/voltedge/api/internal/export"
 	"github.com/kwaabs/voltedge/api/internal/externallink"
@@ -310,6 +311,12 @@ func main() {
 	// lives under /admin/map-settings while the API sits top-level, the same
 	// split as external-systems and field-packs.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermMetadataWrite)).Mount("/map-settings", mapsettings.Routes(db))
+	// Phase 61 private-drafts rollout switch (private_drafts_enabled). Same
+	// method-aware gate as map-settings: GET is features:read so an admin screen
+	// can show the current state, while the PUT that flips it -- retroactively
+	// privatizing every never-published feature to its author chain -- needs
+	// metadata:write, the admin gate. Mirrors territory's /enforcement toggle.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermMetadataWrite)).Mount("/private-drafts", drafts.Routes(db))
 	// The admin-managed basemap catalog (migration 0077) -- the raster tile
 	// sources the geographic map can show, replacing the client's hardcoded
 	// list. Same method-aware gate as map-settings: GET needs features:read

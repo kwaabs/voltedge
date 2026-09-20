@@ -156,6 +156,16 @@ func establishRelationship(ctx context.Context, db bun.IDB, req establishRequest
 
 // listRelationships returns every relationship involving one feature, on
 // either side.
+//
+// Like the feature registry, this returns only the related features' REFS (id +
+// class + human name), never their attributes or geometry -- those stay gated by
+// the CRUD/tiles/export/pack read paths. It does not apply the Phase-58 territory
+// scope nor the Phase-61 private-drafts filter to the far side of each edge, so a
+// relationship touching a peer's out-of-scope or unpublished feature still lists
+// that ref. That is an id/existence leak only, and it is the same access-scoping
+// follow-up the registry documents: both want the far feature's created_by /
+// published_at / territory_id, which means a per-row join to each referenced
+// class's gis table. Deferred together so they land as one consistent pass.
 func listRelationships(ctx context.Context, db bun.IDB, featureClassCode, featureID string) ([]relationshipResponse, error) {
 	loaded, err := loadFeatureClass(ctx, db, featureClassCode)
 	if err != nil {

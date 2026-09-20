@@ -13,9 +13,10 @@ package fieldpack
 // mean either a new geometry dependency or a hand-rolled binary encoder this
 // package can't runtime-test. Letting PostGIS emit the WKB (ST_AsBinary) keeps
 // geometry correctness on PostGIS's side. The WHERE clause (soft-delete + optional
-// territory + optional bbox) is a faithful mirror of crud.exportQuery -- the same
-// filters the export/read path applies -- reproduced here because that builder is
-// unexported and this query needs a different column list.
+// territory + optional bbox + optional private-drafts author filter) is a faithful
+// mirror of crud.exportQuery + the drafts predicate -- the same filters the
+// export/read path applies -- reproduced here because that builder is unexported
+// and this query needs a different column list.
 
 import (
 	"context"
@@ -24,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 )
@@ -55,7 +57,7 @@ func quoteIdent(name string) string {
 // bbox against the spatial index) and ORDER BY id, but its column list differs:
 // system columns, geometry as BOTH wkb and geojson, then every active field. Only
 // geometric, already-compiled classes can be packed.
-func classQuery(loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs []string) (string, []any, error) {
+func classQuery(loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string) (string, []any, error) {
 	fc := loaded.FeatureClass
 	if fc.GeometryType == "none" {
 		return "", nil, fmt.Errorf("feature class %q has no geometry, so it can't be packed", fc.Code)
@@ -99,6 +101,20 @@ func classQuery(loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs []s
 		args = append(args, bbox.MinX, bbox.MinY, bbox.MaxX, bbox.MaxY)
 	}
 
+	// Private-drafts (Phase 61): don't bake another user's unpublished work into
+	// this pack. draftAuthors is the enqueuing user's visible-author set, frozen
+	// into the scope at request time (the build worker holds no session, so this
+	// can't be re-derived here -- see PackScope.DraftAuthors). nil means the filter
+	// doesn't apply (gate off / unscoped requester): pack every feature as before.
+	// When set it is non-empty, so a row survives if it is public (published or
+	// ever-published) OR authored by the requester or one of their subordinates.
+	if len(draftAuthors) > 0 {
+		if clause, draftArgs := drafts.WhereClause(draftAuthors, true, ""); clause != "" {
+			where = append(where, clause)
+			args = append(args, draftArgs...)
+		}
+	}
+
 	query := fmt.Sprintf(
 		"SELECT %s FROM %s WHERE %s ORDER BY id",
 		strings.Join(cols, ", "), table, strings.Join(where, " AND "),
@@ -111,8 +127,8 @@ func classQuery(loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs []s
 // cap and never materializes the result set -- the caller runs it inside a
 // REPEATABLE READ snapshot tx, so the cursor is a consistent point-in-time view.
 // If fn returns an error, iteration stops and that error is returned.
-func readClassFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs []string, fn func(packRow) error) (int, error) {
-	query, args, err := classQuery(loaded, bbox, territoryIDs)
+func readClassFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string, fn func(packRow) error) (int, error) {
+	query, args, err := classQuery(loaded, bbox, territoryIDs, draftAuthors)
 	if err != nil {
 		return 0, err
 	}

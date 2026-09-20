@@ -71,7 +71,7 @@ class HomeScreen extends ConsumerWidget {
             ),
             const _SectionHeader('Available from server'),
             if (!settings.isConfigured)
-              const _EmptyRow('Set a base URL and token first.')
+              const _EmptyRow('Set a base URL and sign in first.')
             else
               remote.when(
                 loading: () => const _Loading(),
@@ -273,7 +273,7 @@ class _NotConfiguredBanner extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Set the fieldsync base URL and API token to fetch packs.',
+              'Set the fieldsync base URL and sign in to fetch packs.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ),
@@ -281,7 +281,7 @@ class _NotConfiguredBanner extends StatelessWidget {
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const SettingsScreen()),
             ),
-            child: const Text('Set up'),
+            child: const Text('Sign in'),
           ),
         ],
       ),

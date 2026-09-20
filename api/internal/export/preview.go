@@ -57,11 +57,13 @@ func PreviewFeature(ctx context.Context, db *bun.DB, classCode, profileCode stri
 	)
 	txErr := db.RunInTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true},
 		func(ctx context.Context, tx bun.Tx) error {
-			// No bbox, no territory filter -- the preview samples from the whole
-			// class. gatherLayers reports a geometry-less class (and a bad code)
-			// via a non-zero status; for the preview that is "nothing to sample",
-			// not a failure, so surface the message as a Note and stop.
-			gathered, status, msg := gatherLayers(ctx, tx, []string{classCode}, nil, nil)
+			// No bbox, no territory filter, no draft filter -- the CIM-mapping
+			// preview is an admin config tool sampling one real feature to show the
+			// mapping's output shape, so it reads the whole class. gatherLayers
+			// reports a geometry-less class (and a bad code) via a non-zero status;
+			// for the preview that is "nothing to sample", not a failure, so surface
+			// the message as a Note and stop.
+			gathered, status, msg := gatherLayers(ctx, tx, []string{classCode}, nil, nil, nil)
 			if status != 0 {
 				out.Note = msg
 				return nil

@@ -2897,75 +2897,80 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
       color: theme.colorScheme.surfaceContainerHighest,
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: theme.textTheme.titleMedium,
-                    overflow: TextOverflow.ellipsis),
-                Text(f.featureClass,
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: theme.colorScheme.outline)),
+          // Actions get their own right-aligned row so the title + class below
+          // can use the panel's full width, instead of being squeezed into a
+          // sliver beside the icons (which forced the class to wrap letter by
+          // letter and the title to hard-ellipsize).
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              // The edit form carries its own Cancel/Save bar, so the header's Edit
+              // and Discard buttons are only shown in read-only mode -- and not while
+              // connecting, when the map's target-tap owns the interaction.
+              if (!_editing && !_connecting && !_relating) ...[
+                // A tombstoned feature offers only Undo -- editing/connecting a
+                // feature that's about to be soft-deleted makes no sense.
+                if (isDeleted)
+                  IconButton(
+                    icon: const Icon(Icons.restore_from_trash_outlined),
+                    tooltip: 'Undo delete',
+                    onPressed: _undoSelectedDelete,
+                  )
+                else ...[
+                  if (canDiscard)
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      tooltip: 'Discard unsynced feature',
+                      onPressed: _discardSelectedCreate,
+                    ),
+                  if (_canEditGeometry(f))
+                    IconButton(
+                      icon: const Icon(Icons.edit_location_alt_outlined),
+                      tooltip: 'Edit geometry',
+                      onPressed: _startGeomEdit,
+                    ),
+                  if (canConnect)
+                    IconButton(
+                      icon: const Icon(Icons.hub_outlined),
+                      tooltip: 'Connect to another feature',
+                      onPressed: () => _startConnect(f),
+                    ),
+                  IconButton(
+                    icon: const Icon(Icons.account_tree_outlined),
+                    tooltip: 'Relate to another feature',
+                    onPressed: () => _startRelate(f),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    tooltip: 'Edit attributes',
+                    onPressed: _startEdit,
+                  ),
+                  if (canDelete)
+                    IconButton(
+                      icon: const Icon(Icons.delete_forever_outlined),
+                      tooltip: 'Delete feature',
+                      onPressed: () => _deleteSelectedFeature(f),
+                    ),
+                ],
               ],
-            ),
-          ),
-          // The edit form carries its own Cancel/Save bar, so the header's Edit
-          // and Discard buttons are only shown in read-only mode -- and not while
-          // connecting, when the map's target-tap owns the interaction.
-          if (!_editing && !_connecting && !_relating) ...[
-            // A tombstoned feature offers only Undo -- editing/connecting a feature
-            // that's about to be soft-deleted makes no sense.
-            if (isDeleted)
               IconButton(
-                icon: const Icon(Icons.restore_from_trash_outlined),
-                tooltip: 'Undo delete',
-                onPressed: _undoSelectedDelete,
-              )
-            else ...[
-              if (canDiscard)
-                IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  tooltip: 'Discard unsynced feature',
-                  onPressed: _discardSelectedCreate,
-                ),
-              if (_canEditGeometry(f))
-                IconButton(
-                  icon: const Icon(Icons.edit_location_alt_outlined),
-                  tooltip: 'Edit geometry',
-                  onPressed: _startGeomEdit,
-                ),
-              if (canConnect)
-                IconButton(
-                  icon: const Icon(Icons.hub_outlined),
-                  tooltip: 'Connect to another feature',
-                  onPressed: () => _startConnect(f),
-                ),
-              IconButton(
-                icon: const Icon(Icons.account_tree_outlined),
-                tooltip: 'Relate to another feature',
-                onPressed: () => _startRelate(f),
+                icon: const Icon(Icons.close),
+                tooltip: _editing ? 'Close' : 'Clear selection',
+                onPressed: _clearSelection,
               ),
-              IconButton(
-                icon: const Icon(Icons.edit_outlined),
-                tooltip: 'Edit attributes',
-                onPressed: _startEdit,
-              ),
-              if (canDelete)
-                IconButton(
-                  icon: const Icon(Icons.delete_forever_outlined),
-                  tooltip: 'Delete feature',
-                  onPressed: () => _deleteSelectedFeature(f),
-                ),
             ],
-          ],
-          IconButton(
-            icon: const Icon(Icons.close),
-            tooltip: _editing ? 'Close' : 'Clear selection',
-            onPressed: _clearSelection,
           ),
+          // Title + class on their own full-width row below the actions.
+          Text(title,
+              style: theme.textTheme.titleMedium,
+              overflow: TextOverflow.ellipsis),
+          Text(f.featureClass,
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.outline)),
         ],
       ),
     );

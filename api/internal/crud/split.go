@@ -123,6 +123,11 @@ func SplitLine(ctx context.Context, db *bun.DB, loaded *metadata.Loaded, id stri
 		if err := enforceReadScope(ctx, tx, loaded, existing); err != nil {
 			return err
 		}
+		// Private-drafts (Phase 61): a peer can't split a private draft they can't
+		// see. Not-found, matching read.
+		if err := enforceDraftScope(ctx, tx, existing); err != nil {
+			return err
+		}
 
 		nearHalf, farHalf, err := computeSplitHalves(ctx, tx, loaded, id, *req.SplitPoint.Lng, *req.SplitPoint.Lat)
 		if err != nil {

@@ -25,6 +25,15 @@ type effectiveCacheEntry struct {
 var (
 	effectiveCacheMu sync.RWMutex
 	effectiveCache   = map[string]effectiveCacheEntry{}
+
+	// Private-drafts (Phase 61): the subordinate-set cache, keyed by user, under
+	// its own mutex. Same rationale as the effective-territory cache -- every
+	// scoped request (and every tile) resolves the viewer's subordinate set to
+	// build the draft-visibility predicate, so a burst shares one resolver run.
+	// Flushed by the same InvalidateAll, since a manager change reshapes exactly
+	// these sets too.
+	subordinateCacheMu sync.RWMutex
+	subordinateCache   = map[string]effectiveCacheEntry{}
 )
 
 // CachedEffectiveIDs is EffectiveIDs behind a process-local, TTL-bounded cache
@@ -55,6 +64,34 @@ func CachedEffectiveIDs(ctx context.Context, db bun.IDB, userID string) ([]strin
 	return ids, nil
 }
 
+// CachedSubordinates is Subordinates behind a process-local, TTL-bounded cache
+// keyed by user -- the draft-visibility counterpart of CachedEffectiveIDs. The
+// session/token resolvers call it to populate SessionUser.Subordinates, so a
+// burst of requests (or tiles) for one user shares a single resolver run.
+//
+// The returned slice is the cached instance -- callers read it (to build the
+// draft-visibility predicate) and MUST NOT mutate it.
+func CachedSubordinates(ctx context.Context, db bun.IDB, userID string) ([]string, error) {
+	now := time.Now()
+
+	subordinateCacheMu.RLock()
+	e, ok := subordinateCache[userID]
+	subordinateCacheMu.RUnlock()
+	if ok && now.Before(e.expiresAt) {
+		return e.ids, nil
+	}
+
+	ids, err := Subordinates(ctx, db, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	subordinateCacheMu.Lock()
+	subordinateCache[userID] = effectiveCacheEntry{ids: ids, expiresAt: now.Add(effectiveCacheTTL)}
+	subordinateCacheMu.Unlock()
+	return ids, nil
+}
+
 // InvalidateAll drops every cached effective set. It is called after any grant
 // or manager mutation COMMITS (a grant/revoke changes the grantee and everyone
 // who manages them up the org tree; a manager change reshapes whole subtrees),
@@ -68,4 +105,10 @@ func InvalidateAll() {
 	effectiveCacheMu.Lock()
 	effectiveCache = map[string]effectiveCacheEntry{}
 	effectiveCacheMu.Unlock()
+
+	// The subordinate-set cache (Private-drafts) is reshaped by the same manager
+	// mutations that reshape effective territories, so flush it in lockstep.
+	subordinateCacheMu.Lock()
+	subordinateCache = map[string]effectiveCacheEntry{}
+	subordinateCacheMu.Unlock()
 }

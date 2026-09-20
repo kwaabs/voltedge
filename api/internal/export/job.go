@@ -55,6 +55,17 @@ type ExportScope struct {
 	Bbox           []float64 `json:"bbox,omitempty"`
 	TerritoryIDs   []string  `json:"territory_ids"`
 	CimProfile     string    `json:"cim_profile,omitempty"`
+
+	// DraftAuthors is the Private-drafts (Phase 61) author allow-list, resolved at
+	// enqueue from the requester's session (their own id plus their subordinates)
+	// and frozen into the scope for the same detached-worker reason as
+	// TerritoryIDs: the export runner holds no SessionUser, so it can't re-derive
+	// which unpublished drafts the requester may see. nil = filter doesn't apply
+	// (rollout gate off, or the requester is unscoped / break-glass): export every
+	// feature as before. When non-nil it is always non-empty (contains at least the
+	// requester's own id): only public features plus features authored by someone
+	// in this set are exported.
+	DraftAuthors []string `json:"draft_authors"`
 }
 
 // enqueueExport inserts a queued job for requestedBy and returns its id.

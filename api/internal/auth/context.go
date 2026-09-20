@@ -41,6 +41,15 @@ type SessionUser struct {
 	// enforcement sites skip the predicate. Admin/break-glass hold it.
 	Unscoped bool
 
+	// Subordinates is the set of user ids who report up to this user
+	// (transitively, down the manager tree), NOT including this user's own id
+	// (Private-drafts, Phase 61). The draft-visibility predicate lets a viewer
+	// see a private (never-published) feature when its created_by is the viewer
+	// or one of these ids. Left nil for an Unscoped user (they bypass the draft
+	// predicate entirely, seeing every draft) and for a session-less internal
+	// caller (trusted, unscoped).
+	Subordinates []string
+
 	// SessionID and CSRFToken back logout (revoke this session) and the
 	// double-submit CSRF check respectively.
 	SessionID string

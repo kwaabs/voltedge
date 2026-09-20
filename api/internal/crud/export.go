@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 )
@@ -28,10 +29,14 @@ type ExportBBox struct {
 const maxExportFeatures = 50000
 
 // exportQuery builds the SELECT for one class's export read -- columns, table,
-// WHERE (soft-delete + optional territory + optional bbox), and a stable
-// ORDER BY id -- WITHOUT a LIMIT tail, which each reader appends (or omits) for
-// itself. Only geometric classes can be exported: a geometry-less class has
-// nothing to place in a DXF/KMZ/shapefile.
+// WHERE (soft-delete + optional territory + optional bbox + optional
+// private-drafts author filter), and a stable ORDER BY id -- WITHOUT a LIMIT
+// tail, which each reader appends (or omits) for itself. Only geometric classes
+// can be exported: a geometry-less class has nothing to place in a DXF/KMZ/shapefile.
+//
+// draftAuthors (Phase 61) is the requester's visible-draft author set, frozen
+// into the export job scope at enqueue. nil = no draft filter; non-empty keeps
+// only public features plus those authored by the requester or a subordinate.
 //
 // territoryIDs is the export's territory scope, ALREADY EXPANDED to include
 // descendants by the caller (territory.DescendantIDs). Its three states: nil
@@ -39,7 +44,7 @@ const maxExportFeatures = 50000
 // territory_id is in the set; an empty (non-nil) slice matches nothing (the
 // requested territories resolved to no ids) rather than silently falling back
 // to no filter.
-func exportQuery(loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs []string) (string, []any, error) {
+func exportQuery(loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs, draftAuthors []string) (string, []any, error) {
 	if loaded.FeatureClass.GeometryType == "none" {
 		return "", nil, invalid("feature class %q has no geometry, so it can't be exported to a geographic format", loaded.FeatureClass.Code)
 	}
@@ -82,6 +87,20 @@ func exportQuery(loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs []strin
 		args = append(args, bbox.MinX, bbox.MinY, bbox.MaxX, bbox.MaxY)
 	}
 
+	// Private-drafts (Phase 61): keep another user's unpublished work out of the
+	// export. draftAuthors is the requester's visible-author set, frozen into the
+	// job scope at enqueue (the export runner is detached and holds no session, so
+	// this can't be re-derived here). nil = filter doesn't apply (gate off /
+	// unscoped requester): export every feature as before. When set it is
+	// non-empty, so a row survives if public (published or ever-published) OR
+	// authored by the requester or one of their subordinates.
+	if len(draftAuthors) > 0 {
+		if clause, draftArgs := drafts.WhereClause(draftAuthors, true, ""); clause != "" {
+			where = append(where, clause)
+			args = append(args, draftArgs...)
+		}
+	}
+
 	// A stable id sort keeps repeated exports of the same extent byte-identical.
 	query := fmt.Sprintf(
 		"SELECT %s FROM %s WHERE %s ORDER BY id",
@@ -94,8 +113,8 @@ func exportQuery(loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs []strin
 // export (shapefile, CIM): the same read path as list/query
 // (selectColumns/scanRows/formatRow, so each row carries its GeoJSON geometry
 // and attributes), capped at maxExportFeatures. See exportQuery for the filters.
-func ExportFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs []string) ([]map[string]any, error) {
-	query, args, err := exportQuery(loaded, bbox, territoryIDs)
+func ExportFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs, draftAuthors []string) ([]map[string]any, error) {
+	query, args, err := exportQuery(loaded, bbox, territoryIDs, draftAuthors)
 	if err != nil {
 		return nil, err
 	}
@@ -131,8 +150,8 @@ func ExportFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bb
 // tx, so the cursor is a consistent point-in-time view for its whole lifetime.
 // If fn returns an error, iteration stops and that error is returned (with the
 // count so far).
-func ExportFeaturesStream(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs []string, fn func(map[string]any) error) (int, error) {
-	query, args, err := exportQuery(loaded, bbox, territoryIDs)
+func ExportFeaturesStream(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs, draftAuthors []string, fn func(map[string]any) error) (int, error) {
+	query, args, err := exportQuery(loaded, bbox, territoryIDs, draftAuthors)
 	if err != nil {
 		return 0, err
 	}

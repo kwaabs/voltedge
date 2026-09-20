@@ -95,7 +95,7 @@ func (s *service) loadSession(ctx context.Context, rawToken string) (*SessionUse
 	// territory scoping, and if not, the effective territory-id set the
 	// request is confined to. A read failure fails the request closed, same
 	// as the permission load above.
-	allowed, unscoped, scopeErr := loadScopeFields(ctx, s.db, sess.UserID, perms)
+	allowed, unscoped, subordinates, scopeErr := loadScopeFields(ctx, s.db, sess.UserID, perms)
 	if scopeErr != nil {
 		return nil, scopeErr
 	}
@@ -120,6 +120,7 @@ func (s *service) loadSession(ctx context.Context, rawToken string) (*SessionUse
 		Permissions:        perms,
 		AllowedTerritories: allowed,
 		Unscoped:           unscoped,
+		Subordinates:       subordinates,
 		SessionID:          sess.ID,
 		CSRFToken:          sess.CSRFToken,
 	}, nil

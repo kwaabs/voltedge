@@ -116,6 +116,31 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 				result.ColumnsAdded = append(result.ColumnsAdded, col)
 			}
 
+			// published_at / published_by (Private-drafts, Phase 61) -- the
+			// sticky first-publish markers buildCreateTable emits for a fresh
+			// table. Backfilled onto any table compiled before they existed,
+			// mirroring the created_by/updated_by pattern above so a recompile
+			// keeps the compiler the single source of truth for a feature
+			// table's shape. Both nullable with no default: an existing row
+			// gets published_at = NULL, which is exactly right -- a row that has
+			// never been through the publish path has never been public.
+			// published_at is timestamptz, published_by is a bare uuid (no FK,
+			// same convention as created_by).
+			if !existingCols["published_at"] {
+				stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN published_at timestamptz", qualifiedTable)
+				if _, err := tx.ExecContext(ctx, stmt); err != nil {
+					return fmt.Errorf("add column published_at: %w", err)
+				}
+				result.ColumnsAdded = append(result.ColumnsAdded, "published_at")
+			}
+			if !existingCols["published_by"] {
+				stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN published_by uuid", qualifiedTable)
+				if _, err := tx.ExecContext(ctx, stmt); err != nil {
+					return fmt.Errorf("add column published_by: %w", err)
+				}
+				result.ColumnsAdded = append(result.ColumnsAdded, "published_by")
+			}
+
 			// territory_id (Phase 11) -- only geometric classes get it; a
 			// geometry-less class has nothing to place in a territory.
 			// Mirrors the created_by backfill so a recompile also covers a

@@ -164,7 +164,7 @@ func ResolveAPIToken(ctx context.Context, db bun.IDB, rawToken string) (*Session
 	// The spatial-access scope (Phase 58), resolved exactly as the cookie
 	// path does (scope.go) so a bearer client is confined to the same
 	// territories -- a token can never see more than its owning user.
-	allowed, unscoped, scopeErr := loadScopeFields(ctx, db, tok.UserID, perms)
+	allowed, unscoped, subordinates, scopeErr := loadScopeFields(ctx, db, tok.UserID, perms)
 	if scopeErr != nil {
 		return nil, scopeErr
 	}
@@ -183,6 +183,7 @@ func ResolveAPIToken(ctx context.Context, db bun.IDB, rawToken string) (*Session
 		Permissions:        perms,
 		AllowedTerritories: allowed,
 		Unscoped:           unscoped,
+		Subordinates:       subordinates,
 	}, nil
 }
 

@@ -4,12 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/fieldsync_client.dart';
 import '../api/models.dart';
 import '../providers.dart';
+import 'bbox_picker_page.dart';
 
 /// The build-request form: a bbox + a set of feature classes. The classes are
 /// chosen from a checkbox pick-list populated by GET /feature-classes (the
 /// packable catalog) -- no more typing UPPERCASE, case-sensitive codes by hand,
-/// which was a stopgap and made a typo into a server 404. (Slice 2b's map still
-/// owes a draw-a-box UI for the bbox; the numeric fields stay for now.)
+/// which was a stopgap and made a typo into a server 404. The bbox can be typed
+/// into the four numeric fields OR drawn on a map ("Draw on map" opens
+/// [BboxPickerPage] and drops the result back into those same fields), so the two
+/// ways stay in sync.
 class NewPackScreen extends ConsumerStatefulWidget {
   const NewPackScreen({super.key});
 
@@ -37,6 +40,28 @@ class _NewPackScreenState extends ConsumerState<NewPackScreen> {
     _maxY.dispose();
     super.dispose();
   }
+
+  /// Open the map picker, seeded with whatever the fields currently hold (if
+  /// they parse to a real box), and write the drawn box back into the fields.
+  Future<void> _drawBbox() async {
+    final current = [_minX, _minY, _maxX, _maxY]
+        .map((c) => double.tryParse(c.text.trim()))
+        .toList();
+    final initial = current.every((v) => v != null) ? current.cast<double>() : null;
+    final result = await Navigator.of(context).push<List<double>>(
+      MaterialPageRoute(builder: (_) => BboxPickerPage(initial: initial)),
+    );
+    if (result == null || result.length != 4) return;
+    setState(() {
+      _minX.text = _fmt(result[0]);
+      _minY.text = _fmt(result[1]);
+      _maxX.text = _fmt(result[2]);
+      _maxY.text = _fmt(result[3]);
+      _error = null;
+    });
+  }
+
+  static String _fmt(double v) => v.toStringAsFixed(6);
 
   Future<void> _submit() async {
     final bbox = [_minX, _minY, _maxX, _maxY]
@@ -80,8 +105,19 @@ class _NewPackScreenState extends ConsumerState<NewPackScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('Bounding box (EPSG:4326)',
-              style: TextStyle(fontWeight: FontWeight.w600)),
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Bounding box (EPSG:4326)',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+              ),
+              TextButton.icon(
+                onPressed: _busy ? null : _drawBbox,
+                icon: const Icon(Icons.crop, size: 18),
+                label: const Text('Draw on map'),
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
           Row(children: [
             Expanded(child: _num(_minX, 'min X (lon)')),

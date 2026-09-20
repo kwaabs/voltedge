@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/territory"
 	"github.com/uptrace/bun"
@@ -188,12 +189,22 @@ func enqueueHandler(db *bun.DB) http.HandlerFunc {
 			}
 		}
 
+		// Private-drafts (Phase 61): resolve the requester's draft-visibility author
+		// set while their session is on the context; the detached runner can't. nil
+		// when the filter doesn't apply (gate off / unscoped / break-glass).
+		draftAuthors, _, err := drafts.VisibleAuthors(r.Context(), db)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
 		scope := ExportScope{
 			Format:         req.Format,
 			FeatureClasses: req.FeatureClasses,
 			Bbox:           req.Bbox,
 			TerritoryIDs:   territoryIDs,
 			CimProfile:     req.CimProfile,
+			DraftAuthors:   draftAuthors,
 		}
 		id, err := enqueueExport(r.Context(), db, user.ID, scope)
 		if err != nil {
@@ -422,7 +433,7 @@ func enforceExportScope(ctx context.Context, db *bun.DB, user *auth.SessionUser,
 // gatherLayers loads and reads every requested class. On success it returns
 // the layers and a zero status; on failure it returns a nil slice plus the
 // HTTP status and message the handler should send (before any file bytes).
-func gatherLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.ExportBBox, territoryIDs []string) ([]Layer, int, string) {
+func gatherLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string) ([]Layer, int, string) {
 	layers := make([]Layer, 0, len(codes))
 	for _, code := range codes {
 		loaded, err := metadata.Load(ctx, db, code)
@@ -436,7 +447,7 @@ func gatherLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.Ex
 			return nil, http.StatusBadRequest, fmt.Sprintf("feature class %q has no geometry, so it can't be exported", code)
 		}
 
-		rows, err := crud.ExportFeatures(ctx, db, loaded, bbox, territoryIDs)
+		rows, err := crud.ExportFeatures(ctx, db, loaded, bbox, territoryIDs, draftAuthors)
 		if err != nil {
 			if crud.IsNotFoundError(err) {
 				return nil, http.StatusNotFound, err.Error()
@@ -481,7 +492,7 @@ func gatherLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.Ex
 // its snapshot transaction while the encoder runs, so the features stream
 // straight from the cursor to the wire, uncapped and never materialized. On a
 // metadata failure it returns a nil slice plus the HTTP status and message.
-func gatherStreamLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.ExportBBox, territoryIDs []string) ([]StreamLayer, int, string) {
+func gatherStreamLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string) ([]StreamLayer, int, string) {
 	layers := make([]StreamLayer, 0, len(codes))
 	for _, code := range codes {
 		loaded, err := metadata.Load(ctx, db, code)
@@ -508,7 +519,7 @@ func gatherStreamLayers(ctx context.Context, db bun.IDB, codes []string, bbox *c
 			GeometryType: loaded.FeatureClass.GeometryType,
 			Fields:       fields,
 			Each: func(emit func(Feature) error) (int, error) {
-				return crud.ExportFeaturesStream(ctx, db, loaded, bbox, territoryIDs, func(row map[string]any) error {
+				return crud.ExportFeaturesStream(ctx, db, loaded, bbox, territoryIDs, draftAuthors, func(row map[string]any) error {
 					f, err := featureFrom(row)
 					if err != nil {
 						return err

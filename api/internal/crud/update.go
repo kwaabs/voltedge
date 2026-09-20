@@ -79,6 +79,11 @@ func UpdateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 	if err := enforceReadScope(ctx, db, loaded, existing); err != nil {
 		return nil, err
 	}
+	// Private-drafts (Phase 61): a peer can't edit a private draft they can't
+	// see. Not-found, matching read and the territory gate above.
+	if err := enforceDraftScope(ctx, db, existing); err != nil {
+		return nil, err
+	}
 	currentStatus, _ := existing["status"].(string)
 
 	attrs := in.Attributes
@@ -213,6 +218,19 @@ func UpdateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 	var subtypeCode *int
 	if subtypeChange != nil {
 		subtypeCode = &subtypeChange.Code
+	}
+
+	// Private-drafts Phase B: when the draft overlay is active for a scoped actor
+	// and the target is already public, this edit is staged privately instead of
+	// mutating the public row -- the change is visible only to its author until
+	// they apply it. Everything above (validation, territory, completeness) still
+	// runs, so a staged edit is exactly as well-formed as a written one; only the
+	// final write is diverted. A never-published draft is edited in place (Phase A
+	// already keeps it private), and an apply-in-progress bypasses this.
+	if author, staging, err := stagingActive(ctx, db, existing); err != nil {
+		return nil, err
+	} else if staging {
+		return stagePrivateEdit(ctx, db, loaded, author, id, existing, in.Geometry, clearGeometry, in.Name, territoryID, assignTerritory, subtypeCode, values)
 	}
 
 	return updateFeature(ctx, db, loaded, id, in.Geometry, clearGeometry, in.Name, territoryID, assignTerritory, subtypeCode, values, in.ExpectedUpdatedAt)

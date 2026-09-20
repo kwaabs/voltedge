@@ -36,6 +36,13 @@ func publishFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id
 	if err := enforceReadScope(ctx, db, loaded, current); err != nil {
 		return nil, err
 	}
+	// Private-drafts (Phase 61): a peer can't publish a private draft they can't
+	// see -- but the author and everyone up the author's management chain can,
+	// which is exactly how a stuck/orphaned draft gets recovered without the
+	// break-glass account. Not-found for anyone else, matching read.
+	if err := enforceDraftScope(ctx, db, current); err != nil {
+		return nil, err
+	}
 	if current["deleted_at"] != nil {
 		return nil, invalid("feature %s is deleted -- restore it before publishing", id)
 	}
@@ -61,6 +68,13 @@ func unpublishFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, 
 	// Phase 58 spatial write enforcement: unpublish is an edit -- a scoped user
 	// can't unpublish a feature outside their territories. Not-found, matching read.
 	if err := enforceReadScope(ctx, db, loaded, current); err != nil {
+		return nil, err
+	}
+	// Private-drafts (Phase 61): a peer can't unpublish a feature they can't see.
+	// (A published feature is visible to everyone in scope, so this only bites a
+	// private draft -- where unpublish is a no-op anyway -- but the gate stays
+	// for symmetry with the other write paths.) Not-found, matching read.
+	if err := enforceDraftScope(ctx, db, current); err != nil {
 		return nil, err
 	}
 	if current["deleted_at"] != nil {
@@ -146,11 +160,26 @@ func setStatus(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id, sta
 
 	// A status transition (publish/unpublish) is an edit too, so it stamps
 	// the actor into updated_by alongside updated_at (Slice E).
+	//
+	// Private-drafts (Phase 61): a publish also stamps the STICKY first-publish
+	// markers -- but only the first time. COALESCE(published_at, now()) leaves an
+	// already-set published_at in place on a re-publish, and unpublish (status =
+	// 'draft') never lists these columns at all, so a formerly-public feature
+	// keeps its published_at forever. That is what makes privacy key off "has it
+	// ever been public" (published_at IS NULL) rather than the freely-toggling
+	// status: unpublishing does NOT re-privatize a feature others have seen.
+	setStamp := ""
+	args := []any{status, actorArg(ctx)}
+	if status == "published" {
+		setStamp = ", published_at = COALESCE(published_at, now()), published_by = COALESCE(published_by, ?)"
+		args = append(args, actorArg(ctx))
+	}
 	query := fmt.Sprintf(
-		"UPDATE %s SET status = ?, updated_at = now(), updated_by = ? WHERE id = ? RETURNING %s",
-		table, strings.Join(selectColumns(loaded), ", "),
+		"UPDATE %s SET status = ?, updated_at = now(), updated_by = ?%s WHERE id = ? RETURNING %s",
+		table, setStamp, strings.Join(selectColumns(loaded), ", "),
 	)
-	rows, err := db.QueryContext(ctx, query, status, actorArg(ctx), id)
+	args = append(args, id)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("crud: set status: %w", err)
 	}

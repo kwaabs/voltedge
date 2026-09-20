@@ -36,6 +36,33 @@ class FieldsyncClient {
         if (json) 'Content-Type': 'application/json',
       };
 
+  /// POST /auth/field-login -- exchange an email + password for a long-lived
+  /// bearer token. This is the ONE unauthenticated call (it is what mints the
+  /// credential every other call carries), so it sends no bearer header -- only
+  /// the base URL must be set. The returned token is the same shape as one an
+  /// admin would mint with `authadmin mint-token`; the caller stores it in the
+  /// keystore and the app is "signed in". A bad credential is a generic 401.
+  Future<FieldLoginResult> login(String email, String password,
+      {String? deviceName}) async {
+    final res = await _http.post(
+      _uri('/auth/field-login'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'email': email,
+        'password': password,
+        if (deviceName != null && deviceName.trim().isNotEmpty)
+          'device_name': deviceName.trim(),
+      }),
+    );
+    _ensureOk(res);
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return FieldLoginResult(
+      token: body['token'] as String? ?? '',
+      email: body['email'] as String? ?? '',
+      displayName: body['display_name'] as String? ?? '',
+    );
+  }
+
   /// GET /packs -- the caller's recent builds, newest first.
   Future<List<PackSummary>> listPacks() async {
     final res = await _http.get(_uri('/packs'), headers: _headers());

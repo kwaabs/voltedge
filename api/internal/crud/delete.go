@@ -45,8 +45,22 @@ func softDeleteFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded,
 	if err := enforceReadScope(ctx, db, loaded, current); err != nil {
 		return nil, err
 	}
+	// Private-drafts (Phase 61): a peer can't delete a private draft they can't
+	// see. Not-found, matching read and the territory gate above.
+	if err := enforceDraftScope(ctx, db, current); err != nil {
+		return nil, err
+	}
 	if current["deleted_at"] != nil {
 		return current, nil
+	}
+	// Private-drafts Phase B: a scoped author retiring an already-public feature
+	// stages the delete privately -- the base row stays live for everyone else
+	// until the author applies it. A never-published draft (Phase A private) is
+	// deleted in place, and an apply-in-progress bypasses this (see stagingActive).
+	if author, staging, err := stagingActive(ctx, db, current); err != nil {
+		return nil, err
+	} else if staging {
+		return stagePrivateDelete(ctx, db, loaded, author, id, current)
 	}
 	return setDeletedAt(ctx, db, loaded, id, true)
 }
@@ -62,6 +76,11 @@ func restoreFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id
 	// Phase 58 spatial write enforcement: restore is an edit too -- a scoped user
 	// can't restore a feature outside their territories. Not-found, matching read.
 	if err := enforceReadScope(ctx, db, loaded, current); err != nil {
+		return nil, err
+	}
+	// Private-drafts (Phase 61): restore is an edit -- a peer can't restore a
+	// private draft they can't see. Not-found, matching read.
+	if err := enforceDraftScope(ctx, db, current); err != nil {
 		return nil, err
 	}
 	if current["deleted_at"] == nil {
@@ -82,6 +101,11 @@ func hardDeleteFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded,
 	// outside their territories. Not-found, matching read (and the soft-delete
 	// gate above), so a purge attempt reveals no more than a GET would.
 	if err := enforceReadScope(ctx, db, loaded, current); err != nil {
+		return err
+	}
+	// Private-drafts (Phase 61): a peer can't purge a private draft they can't
+	// see. Not-found, matching read and the soft-delete gate.
+	if err := enforceDraftScope(ctx, db, current); err != nil {
 		return err
 	}
 	if current["deleted_at"] == nil {

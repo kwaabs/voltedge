@@ -75,6 +75,11 @@ func Routes(db *bun.DB) chi.Router {
 	r.Delete("/{code}/{id}", deleteHandler(db))
 	r.Post("/{code}/{id}/restore", restoreHandler(db))
 	r.Delete("/{code}/{id}/purge", purgeHandler(db))
+	// Private-drafts Phase B: apply/discard the acting author's staged private
+	// edit of an already-published feature. apply-pending publishes the change
+	// onto the public row (conflict-checked); DELETE .../pending throws it away.
+	r.Post("/{code}/{id}/apply-pending", applyPendingHandler(db))
+	r.Delete("/{code}/{id}/pending", discardPendingHandler(db))
 	return r
 }
 
@@ -124,6 +129,13 @@ func listHandler(db *bun.DB) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		// Private-drafts Phase B: overlay this author's staged edits onto the page
+		// and drop rows they privately deleted (see overlayFeatures).
+		results, err = overlayFeatures(r.Context(), db, loaded, results)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"features": results})
 	}
 }
@@ -144,6 +156,12 @@ func queryHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		results, err := queryFeatures(r.Context(), db, loaded, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		// Private-drafts Phase B: same author overlay as list (see overlayFeatures).
+		results, err = overlayFeatures(r.Context(), db, loaded, results)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -175,6 +193,28 @@ func getHandler(db *bun.DB) http.HandlerFunc {
 		// a 404, the same answer a scoped user gets from list.
 		if err := enforceReadScope(r.Context(), db, loaded, result); err != nil {
 			writeError(w, err)
+			return
+		}
+		// Private-drafts (Phase 61): a never-published feature reads as a 404 for
+		// anyone but its author and the author's management chain. Same post-filter
+		// shape as the territory check above (getFeature stays unscoped for
+		// internal callers), and the same 404 so a private draft's id doesn't leak.
+		if err := enforceDraftScope(r.Context(), db, result); err != nil {
+			writeError(w, err)
+			return
+		}
+		// Private-drafts Phase B: overlay the acting author's private edit onto the
+		// public row (their own reads see their staged change), or 404 if they
+		// privately deleted it. A no-op unless the overlay is active and this
+		// author has a pending edit for this feature. getFeature stays raw for
+		// internal callers, so the overlay is applied here at the read boundary.
+		hidden, err := overlayFeature(r.Context(), db, loaded, result)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if hidden {
+			writeError(w, notFound("feature %s not found", id))
 			return
 		}
 		writeJSON(w, http.StatusOK, result)
@@ -419,6 +459,50 @@ func purgeHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		if err := hardDeleteFeature(r.Context(), db, loaded, id); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// applyPendingHandler publishes the acting author's staged private edit onto the
+// public feature (Private-drafts Phase B). A missing staged edit is a 404, a base
+// row changed since staging is a 409 (see ApplyPendingEdit).
+func applyPendingHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		id := chi.URLParam(r, "id")
+
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		result, err := ApplyPendingEdit(r.Context(), db, loaded, id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+// discardPendingHandler throws away the acting author's staged private edit
+// (Private-drafts Phase B), leaving the public feature untouched.
+func discardPendingHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		id := chi.URLParam(r, "id")
+
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		if err := DiscardPendingEdit(r.Context(), db, loaded, id); err != nil {
 			writeError(w, err)
 			return
 		}

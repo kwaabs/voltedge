@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/territory"
 	"github.com/uptrace/bun"
@@ -136,6 +137,7 @@ func tileHandler(db *bun.DB) http.HandlerFunc {
 // lowercased code that names both the tile source and the MVT layer.
 type tileClass struct {
 	sourceID      string
+	code          string // canonical class code (feature_pending_edits keys on it)
 	physicalTable string
 	srid          int
 }
@@ -157,6 +159,7 @@ func loadTileClass(ctx context.Context, db bun.IDB, sourceID string) (tileClass,
 	}
 	return tileClass{
 		sourceID:      strings.ToLower(fc.Code),
+		code:          fc.Code,
 		physicalTable: *fc.PhysicalTable,
 		srid:          *fc.SRID,
 	}, nil
@@ -213,11 +216,42 @@ func renderTile(ctx context.Context, db bun.IDB, fc tileClass, z, x, y int, ids 
 		colList = strings.Join(quoted, ", ")
 	}
 
+	// Private-drafts Phase B overlay: the acting author sees THEIR OWN private,
+	// unpublished edits of already-published features on their tiles -- a moved
+	// feature renders at its new position, a privately-deleted one disappears --
+	// while every other viewer sees the untouched public geometry. Attribute-only
+	// private edits are NOT overlaid on tiles (they show in the attribute panel,
+	// which is overlaid server-side); the map cares about position and presence.
+	// A no-op unless the overlay is active for this actor (see drafts.OverlayAuthor).
+	// Tiles are rendered per-session behind the API (never a shared cache), so an
+	// author's overlaid tile can't leak to anyone else.
+	overlayAuthor, overlayActive, err := drafts.OverlayAuthor(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	geomExpr := "t.geom"
+	joinSQL := ""
+	deleteMask := ""
+	var joinArgs []any
+	if overlayActive {
+		// The effective geometry: the author's privately moved geom if they staged
+		// one, else the public geom. Used in BOTH the MVT-geom projection and the
+		// bbox filter so a moved feature is tested against its new position.
+		geomExpr = fmt.Sprintf("COALESCE(ST_SetSRID(ST_GeomFromGeoJSON(pe.geom_json), %d), t.geom)", fc.srid)
+		joinSQL = "\n            LEFT JOIN runtime.feature_pending_edits pe" +
+			"\n              ON pe.feature_class_code = ? AND pe.feature_id = t.id AND pe.author_id = ?"
+		joinArgs = []any{fc.code, overlayAuthor}
+		deleteMask = "\n              AND pe.is_delete IS NOT TRUE"
+	}
+
 	// Params, in the order the placeholders appear: layer name, then z/x/y for
-	// the MVT-geom envelope, then z/x/y again for the bbox && filter, then the
-	// scope ids (if any). Table name and SRID are trusted (metadata, not request
-	// input) so they're interpolated; every request-derived value is a bind.
-	args := []any{fc.sourceID, z, x, y, z, x, y}
+	// the MVT-geom envelope, then the overlay join binds (if any), then z/x/y
+	// again for the bbox && filter, then the scope ids (if any), then the Phase A
+	// draft-visibility binds. Table name and SRID are trusted (metadata, not
+	// request input) so they're interpolated; every request-derived value is a bind.
+	args := []any{fc.sourceID, z, x, y}
+	args = append(args, joinArgs...)
+	args = append(args, z, x, y)
 
 	scope := ""
 	switch {
@@ -234,21 +268,38 @@ func renderTile(ctx context.Context, db bun.IDB, fc tileClass, z, x, y int, ids 
 		scope = "\n            AND t.territory_id::text IN (" + strings.Join(placeholders, ", ") + ")"
 	}
 
+	// Private-drafts (Phase 61): a never-published feature must not leak onto the
+	// map to anyone but its author and the author's management chain. The clause
+	// is AND-ed after the territory scope, and its author-id binds are appended
+	// after the scope ids so placeholder order stays aligned. A no-op unless the
+	// rollout gate is on and the viewer is scoped (see drafts.VisibleAuthors).
+	// Tiles are rendered per-session behind the API (never a shared Martin
+	// cache), so the predicate can't leak a private draft via a cached tile.
+	draftAuthors, draftApply, err := drafts.VisibleAuthors(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	draftScope := ""
+	if clause, draftArgs := drafts.WhereClause(draftAuthors, draftApply, "t."); clause != "" {
+		draftScope = "\n              AND " + clause
+		args = append(args, draftArgs...)
+	}
+
 	query := fmt.Sprintf(`
         SELECT ST_AsMVT(tile, ?, 4096, 'geom')
         FROM (
             SELECT
                 ST_AsMVTGeom(
-                    ST_Transform(t.geom, 3857),
+                    ST_Transform(%s, 3857),
                     ST_TileEnvelope(?, ?, ?),
                     4096, 64, true
                 ) AS geom,
                 %s
-            FROM %s t
+            FROM %s t%s
             WHERE t.deleted_at IS NULL
-              AND t.geom && ST_Transform(ST_TileEnvelope(?, ?, ?), %d)%s
+              AND %s && ST_Transform(ST_TileEnvelope(?, ?, ?), %d)%s%s%s
         ) AS tile
-        WHERE tile.geom IS NOT NULL`, colList, fc.physicalTable, fc.srid, scope)
+        WHERE tile.geom IS NOT NULL`, geomExpr, colList, fc.physicalTable, joinSQL, geomExpr, fc.srid, scope, draftScope, deleteMask)
 
 	var mvt []byte
 	if err := db.QueryRowContext(ctx, query, args...).Scan(&mvt); err != nil {

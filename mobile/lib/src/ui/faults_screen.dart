@@ -279,15 +279,34 @@ class _FaultsScreenState extends ConsumerState<FaultsScreen> {
             'with faults access to bring open faults offline.',
       );
     }
-    return _FaultBoardTab(store: store);
+    return _FaultBoardTab(store: store, onSaved: _offerSync);
+  }
+
+  /// Right after a fault is saved to the outbox, suggest sending it now -- a
+  /// non-blocking nudge so a crew with a connection can push immediately, while
+  /// "sync later" stays the default (ignore or dismiss it and the fault rides the
+  /// next batch). This is the only push prompt: capture itself never auto-syncs.
+  void _offerSync() {
+    if (!mounted || _syncing) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: const Text('Fault raised offline.'),
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(label: 'Sync now', onPressed: _sync),
+      ));
   }
 }
 
 // ---- Fault board tab --------------------------------------------------------
 
 class _FaultBoardTab extends StatelessWidget {
-  const _FaultBoardTab({required this.store});
+  const _FaultBoardTab({required this.store, required this.onSaved});
   final FaultsStore store;
+
+  /// Called after a capture lands in the outbox, so the parent screen (which owns
+  /// the shared-outbox sync) can offer an immediate "Sync now" push.
+  final VoidCallback onSaved;
 
   @override
   Widget build(BuildContext context) {
@@ -322,7 +341,7 @@ class _FaultBoardTab extends StatelessWidget {
     );
     if (asset == null || !context.mounted) return;
     final orphan = asset.assetClass.isEmpty || asset.assetId.isEmpty;
-    await Navigator.of(context).push(MaterialPageRoute(
+    final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
       builder: (_) => FaultCaptureScreen(
         store: store,
         assetClass: orphan ? null : asset.assetClass,
@@ -330,6 +349,8 @@ class _FaultBoardTab extends StatelessWidget {
         assetName: orphan ? null : asset.name,
       ),
     ));
+    // A fault landed in the outbox -- let the screen offer an immediate push.
+    if (saved == true) onSaved();
   }
 }
 
@@ -625,9 +646,11 @@ class _FaultCaptureScreenState extends State<FaultCaptureScreen> {
         incidentId: incident.isEmpty ? null : incident,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Fault raised.')));
-      Navigator.of(context).pop();
+      // Pop with `true` so the board knows a fault landed in the outbox and can
+      // offer an immediate push (the "Sync now" nudge). Capture still never
+      // auto-pushes -- the suggestion is the board's, and declining it just
+      // leaves the fault queued for a later batch sync.
+      Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);

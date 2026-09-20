@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 )
@@ -63,6 +64,16 @@ func selectColumns(loaded *metadata.Loaded) []string {
 		cols = append(cols, quoteIdent(f.Name))
 	}
 	cols = append(cols, "created_at", "updated_at")
+	// Audit actors (Slice E): stamped on every write. created_by is also read by
+	// the Private-drafts single-row gate (enforceDraftScope) to decide whether
+	// the viewer authored a private draft, so it must be selected, not just
+	// stored.
+	cols = append(cols, "created_by", "updated_by")
+	// Private-drafts (Phase 61): the sticky first-publish markers. published_at
+	// IS NULL means the feature has never been public -- the privacy predicate
+	// keys off it, and publishFeature reads it back here to decide whether this
+	// is a first publish (stamp) or a re-publish (leave alone).
+	cols = append(cols, "published_at", "published_by")
 	return cols
 }
 
@@ -120,6 +131,14 @@ func formatRow(loaded *metadata.Loaded, row map[string]any) (map[string]any, err
 		"deleted_at": row["deleted_at"],
 		"created_at": row["created_at"],
 		"updated_at": row["updated_at"],
+		// Audit actors (Slice E). created_by also drives the Private-drafts
+		// single-row visibility gate (enforceDraftScope).
+		"created_by": row["created_by"],
+		"updated_by": row["updated_by"],
+		// Private-drafts (Phase 61): sticky first-publish markers. Nil until the
+		// feature is first published, then set forever (an unpublish leaves them).
+		"published_at": row["published_at"],
+		"published_by": row["published_by"],
 	}
 	if v, ok := row["subtype"]; ok {
 		out["subtype"] = v
@@ -536,6 +555,19 @@ func listFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, opts
 	if clause, scopeArgs := scopeWhere(scopeIDs, scopeApply); clause != "" {
 		where = append(where, clause)
 		args = append(args, scopeArgs...)
+	}
+
+	// Private-drafts (Phase 61): hide never-published features from anyone but
+	// their author and the author's management chain. AND-ed with the territory
+	// predicate above; a no-op unless the rollout gate is on and the user is
+	// scoped (see draftScope).
+	draftAuthors, draftApply, err := drafts.VisibleAuthors(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	if clause, draftArgs := drafts.WhereClause(draftAuthors, draftApply, ""); clause != "" {
+		where = append(where, clause)
+		args = append(args, draftArgs...)
 	}
 
 	sortCol := "created_at"

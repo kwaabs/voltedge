@@ -90,11 +90,35 @@ tasks:
     cmds:
       - go run ./cmd/mcpserver
 
+  fieldsync:
+    desc: Start the field-tool engine as its bundled-tippecanoe container (the normal way to build packs)
+    # THE way to run fieldsync for building packs. Its image (Dockerfile.fieldsync)
+    # bundles tippecanoe; a bare host run (fieldsync-dev) does NOT, so a Windows
+    # host fails every pack build with "tippecanoe: not found in %PATH%". Serves
+    # the same localhost:FIELDSYNC_PORT the host run would. Only ONE fieldsync
+    # should run at a time -- both drain ops.field_packs (SKIP LOCKED).
+    cmds:
+      - docker compose up -d fieldsync
+
+  fieldsync-rebuild:
+    desc: Rebuild the fieldsync image (after worker code changes) and (re)start it
+    # Slow the first time -- Dockerfile.fieldsync compiles tippecanoe from source.
+    # Use plain `task fieldsync` when the image already exists and code is unchanged.
+    cmds:
+      - docker compose up -d --build fieldsync
+
+  fieldsync-logs:
+    desc: Tail the fieldsync container's logs (pack builds + sync apply)
+    cmds:
+      - docker compose logs -f fieldsync
+
   fieldsync-dev:
-    desc: Run the field-tool engine locally against dockerized postgres + rustfs (Phase 21)
+    desc: "Host go-run of the field-tool engine -- worker-dev ONLY; needs tippecanoe on PATH (use `task fieldsync` to build packs)"
     # RUSTFS_* come from .env (dotenv), same as exportworker-dev. tippecanoe must
     # be on PATH (or set TIPPECANOE_BIN) -- the compose image bundles it, but a
-    # host run uses your local install.
+    # host run uses your local install. On Windows there is NO tippecanoe build, so
+    # pack builds here always fail; use `task fieldsync` (the container) instead.
+    # Don't run this alongside the container: both claim jobs off ops.field_packs.
     dir: "{{.API_DIR}}"
     env:
       DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"

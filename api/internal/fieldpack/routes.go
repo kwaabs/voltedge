@@ -3,10 +3,14 @@ package fieldpack
 // The cmd/fieldsync HTTP surface (Phase 21 Slice 1, docs/phase-21-field-tool.md).
 //
 // A device asks for an offline region pack and polls until it can download it.
-// Every route authenticates an iam.api_tokens bearer (the Phase 18 trust
-// boundary, auth.ResolveAPIToken) and runs under the token owner's RBAC -- there
-// is no new authorization surface. This slice serves the pack lifecycle:
+// Every route EXCEPT /healthz and /auth/field-login authenticates an
+// iam.api_tokens bearer (the Phase 18 trust boundary, auth.ResolveAPIToken) and
+// runs under the token owner's RBAC -- there is no new authorization surface.
+// /auth/field-login is the unauthenticated exchange that MINTS that bearer from
+// an email + password (login.go), so the app never pastes a token. The pack
+// lifecycle:
 //
+//   POST /auth/field-login  email + password -> a long-lived bearer token
 //   POST /packs             enqueue a build for a bbox + class set -> {pack_id}
 //   GET  /packs             the caller's recent packs
 //   GET  /packs/{id}        poll status; on success, the manifest (2 presigned URLs)
@@ -33,6 +37,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/kwaabs/voltedge/api/internal/attachment"
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/export"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/territory"
@@ -48,6 +53,11 @@ func Routes(db *bun.DB, store *export.ObjectStore) http.Handler {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+
+	// The field-app front door: exchange an email + password for a bearer token
+	// (login.go). Unauthenticated -- it is what MINTS the credential the groups
+	// below require -- so it sits outside the bearer gate, beside /healthz.
+	r.Post("/auth/field-login", fieldLoginHandler(db))
 
 	r.Group(func(r chi.Router) {
 		r.Use(bearerAuth(db))
@@ -208,10 +218,23 @@ func enqueuePackHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 
+		// Private-drafts (Phase 61): resolve the requester's draft-visibility author
+		// set HERE, while their session is on the context. VisibleAuthors returns
+		// (nil, false) when the filter doesn't apply (gate off / unscoped /
+		// break-glass) and (authorSet, true) otherwise; either way draftAuthors is
+		// exactly what the detached build worker needs -- it can't re-derive it
+		// because it holds no session.
+		draftAuthors, _, err := drafts.VisibleAuthors(r.Context(), db)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
 		scope := PackScope{
 			Bbox:           req.Bbox,
 			FeatureClasses: req.FeatureClasses,
 			TerritoryIDs:   territoryIDs,
+			DraftAuthors:   draftAuthors,
 			// Freeze the graph-inclusion decision here, from the requester's RBAC:
 			// the detached build worker holds no SessionUser to re-check.
 			IncludeConnectivity:  user.Has("connectivity:read"),

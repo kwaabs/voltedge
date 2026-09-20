@@ -24,13 +24,21 @@ import (
 // keeps admin/break-glass reads and tiles fast. A resolver failure for an
 // otherwise-valid session is a real server fault, so it propagates and the
 // request fails closed rather than silently widening or narrowing scope.
-func loadScopeFields(ctx context.Context, db bun.IDB, userID string, perms map[string]struct{}) (allowed []string, unscoped bool, err error) {
+func loadScopeFields(ctx context.Context, db bun.IDB, userID string, perms map[string]struct{}) (allowed []string, unscoped bool, subordinates []string, err error) {
 	if _, ok := perms[access.PermUnscoped]; ok {
-		return nil, true, nil
+		return nil, true, nil, nil
 	}
 	allowed, err = access.CachedEffectiveIDs(ctx, db, userID)
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
-	return allowed, false, nil
+	// Private-drafts (Phase 61): resolve the viewer's subordinate set so the
+	// draft-visibility predicate can admit a private draft authored by anyone
+	// who reports up to this user. Only meaningful for a scoped user -- an
+	// unscoped one returned above sees every draft regardless.
+	subordinates, err = access.CachedSubordinates(ctx, db, userID)
+	if err != nil {
+		return nil, false, nil, err
+	}
+	return allowed, false, subordinates, nil
 }

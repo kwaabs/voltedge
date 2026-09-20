@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/territory"
 	"github.com/uptrace/bun"
@@ -124,6 +125,27 @@ func enforceWriteScope(ctx context.Context, db bun.IDB, loaded *metadata.Loaded,
 		}
 	}
 	return forbidden("you don't have access to the territory this feature belongs to")
+}
+
+// enforceDraftScope is the single-row Private-drafts (Phase 61) gate: given an
+// already-read feature row (formatRow's envelope), it returns a notFound when
+// the row is a private draft the acting user may not see -- hiding its existence
+// exactly as enforceReadScope hides an out-of-territory feature. Returns nil
+// (allow) when the filter doesn't apply or the row is public/authored-in-scope.
+// Called right after enforceReadScope at every single-row gate (GET, update,
+// delete, publish, unpublish) so draft privacy composes with territory privacy.
+// The shared filter (gate + author set) lives in package drafts.
+func enforceDraftScope(ctx context.Context, db bun.IDB, feature map[string]any) error {
+	authors, apply, err := drafts.VisibleAuthors(ctx, db)
+	if err != nil {
+		return err
+	}
+	status, _ := feature["status"].(string)
+	createdBy, _ := feature["created_by"].(string)
+	if drafts.IsVisible(status, feature["published_at"], createdBy, authors, apply) {
+		return nil
+	}
+	return notFound("feature %v not found", feature["id"])
 }
 
 // scopeWhere turns readScope's (ids, apply) into a WHERE fragment plus its bind

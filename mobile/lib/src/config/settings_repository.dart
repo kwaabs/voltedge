@@ -53,6 +53,8 @@ class SettingsRepository {
   static const _extGnssEnabledKey = 'externalGnssEnabled';
   static const _extGnssAddressKey = 'externalGnssAddress';
   static const _extGnssNameKey = 'externalGnssName';
+  static const _signedInEmailKey = 'signedInEmail';
+  static const _signedInNameKey = 'signedInName';
 
   /// The keystore entry the bearer token lives under.
   static const _secureTokenKey = 've_api_token';
@@ -98,6 +100,13 @@ class SettingsRepository {
   String? externalGnssAddress;
   String? externalGnssName;
 
+  /// Who the stored token belongs to, remembered from the field-login response
+  /// only so the UI can show "signed in as ..." without a round-trip. Not a
+  /// credential (the token is), so it rides the plain JSON prefs, not the
+  /// keystore; cleared on sign-out.
+  String? signedInEmail;
+  String? signedInName;
+
   bool get isConfigured => token != null && token!.isNotEmpty;
 
   Future<File> _resolveFile() async {
@@ -140,6 +149,12 @@ class SettingsRepository {
         final storedExtName = map[_extGnssNameKey] as String?;
         externalGnssName =
             (storedExtName == null || storedExtName.isEmpty) ? null : storedExtName;
+        final storedEmail = map[_signedInEmailKey] as String?;
+        signedInEmail =
+            (storedEmail == null || storedEmail.isEmpty) ? null : storedEmail;
+        final storedName = map[_signedInNameKey] as String?;
+        signedInName =
+            (storedName == null || storedName.isEmpty) ? null : storedName;
         final storedToken = map[_tokenKey] as String?;
         legacyToken =
             (storedToken == null || storedToken.isEmpty) ? null : storedToken;
@@ -176,6 +191,34 @@ class SettingsRepository {
     } else {
       await _writeToken(token!);
     }
+  }
+
+  /// Record a successful field login: store the minted [token] in the keystore
+  /// and remember who it belongs to for the "signed in as" label. The token is
+  /// the credential; the identity is just for display.
+  Future<void> signIn({
+    required String token,
+    String? email,
+    String? displayName,
+  }) async {
+    await setToken(token);
+    final e = email?.trim();
+    final n = displayName?.trim();
+    signedInEmail = (e == null || e.isEmpty) ? null : e;
+    signedInName = (n == null || n.isEmpty) ? null : n;
+    await _persist();
+  }
+
+  /// Sign out: drop the token from the keystore and forget the identity. The
+  /// base URL and other prefs are kept, so signing back in only needs
+  /// credentials. Server-side the token stays valid until an admin revokes it
+  /// (there is no per-token id on the device to self-revoke) -- a lost device is
+  /// handled by revoking centrally.
+  Future<void> signOut() async {
+    await setToken(null);
+    signedInEmail = null;
+    signedInName = null;
+    await _persist();
   }
 
   Future<void> setSnappingEnabled(bool value) async {
@@ -224,6 +267,8 @@ class SettingsRepository {
       _extGnssEnabledKey: externalGnssEnabled,
       if (externalGnssAddress != null) _extGnssAddressKey: externalGnssAddress,
       if (externalGnssName != null) _extGnssNameKey: externalGnssName,
+      if (signedInEmail != null) _signedInEmailKey: signedInEmail,
+      if (signedInName != null) _signedInNameKey: signedInName,
     };
     await file.writeAsString(jsonEncode(map), flush: true);
   }

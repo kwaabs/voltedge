@@ -23,6 +23,15 @@ import (
 // none). Wiring the session's resolved territories in is a documented follow-up;
 // until then a holder of features:read can look up any id, matching the read
 // scope the rest of the read surface grants today.
+//
+// For the same reason it does NOT apply the Phase-61 private-drafts filter: the
+// registry row carries status but not created_by/published_at, so a clean
+// author-chain predicate would need those columns added to feature_registry (a
+// migration + a change to the compiler-attached maintenance trigger). Deferred
+// to the same access-scoping follow-up as the territory wiring above; until then
+// the registry can surface the id of a peer's unpublished draft (an id/existence
+// leak only -- no attributes or geometry, which the CRUD/tiles/export/pack read
+// paths all gate). Tracked with the territory gap so both land together.
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	// Relative to the /feature-registry mount (see cmd/server/main.go) -- the

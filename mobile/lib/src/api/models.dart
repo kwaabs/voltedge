@@ -1,6 +1,21 @@
 /// Wire models for the cmd/fieldsync pack API. Field names mirror the Go
 /// packView / manifestView JSON exactly (internal/fieldpack/routes.go).
 
+/// FieldLoginResult is the answer to POST /auth/field-login: the minted bearer
+/// [token] the app stores in its keystore, plus the [email] / [displayName] the
+/// UI shows as "signed in as". Mirrors the Go handler's JSON (fieldpack/login.go).
+class FieldLoginResult {
+  const FieldLoginResult({
+    required this.token,
+    required this.email,
+    required this.displayName,
+  });
+
+  final String token;
+  final String email;
+  final String displayName;
+}
+
 /// PackManifest is the download envelope on a succeeded pack: two presigned
 /// artifact URLs + the scope facts the device renders from.
 class PackManifest {

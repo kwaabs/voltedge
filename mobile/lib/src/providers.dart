@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api/fieldsync_client.dart';
@@ -24,8 +26,25 @@ final packStoreProvider = Provider<PackStore>((ref) => PackStore());
 
 /// The caller's remote builds (GET /packs). autoDispose so it refetches each
 /// time the home screen is shown; invalidate it to force a refresh.
+///
+/// While any build is still in flight (queued/running -- not [PackSummary.isTerminal])
+/// this self-schedules a re-fetch every few seconds, so a finished build flips to
+/// "succeeded" (and shows its Download button) on its own -- without this the tile
+/// spins forever and the user never learns the pack is ready. Polling stops the
+/// moment every pack is terminal, and the timer is cancelled when the provider is
+/// disposed (the home screen is gone). The re-fetch is a refresh, so the UI keeps
+/// showing the current list rather than flashing a spinner (`when`'s default
+/// skipLoadingOnRefresh).
 final remotePacksProvider = FutureProvider.autoDispose<List<PackSummary>>(
-  (ref) => ref.watch(fieldsyncClientProvider).listPacks(),
+  (ref) async {
+    final packs = await ref.watch(fieldsyncClientProvider).listPacks();
+    if (packs.any((p) => !p.isTerminal)) {
+      final timer =
+          Timer(const Duration(seconds: 4), () => ref.invalidateSelf());
+      ref.onDispose(timer.cancel);
+    }
+    return packs;
+  },
 );
 
 /// Packs already downloaded to the device.

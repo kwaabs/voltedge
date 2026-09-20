@@ -108,6 +108,19 @@ type PackScope struct {
 	// is how one download serves a survey-only, a works-only, a fault-only, or an
 	// all-rounder crew (the "permitted modules" set is exactly these include flags).
 	IncludeFaults bool `json:"include_faults"`
+
+	// DraftAuthors is the Private-drafts (Phase 61) author allow-list, resolved at
+	// enqueue from the requester's session (their own id plus their subordinates)
+	// and frozen into the scope for the same detached-worker reason as the flags
+	// above: the build worker holds no SessionUser, so drafts.VisibleAuthors --
+	// which reads the session off the context -- would see NO session and bake
+	// every private draft into the pack, leaking other users' unpublished work.
+	// nil means the draft filter does not apply (rollout gate off, or the requester
+	// is unscoped / break-glass): the pack carries every feature as before. When
+	// non-nil it is always non-empty (it contains at least the requester's own id),
+	// and only public features (published, or ever-published) plus features
+	// authored by someone in this set are packed.
+	DraftAuthors []string `json:"draft_authors"`
 }
 
 // enqueuePack inserts a queued build for requestedBy and returns its id.
