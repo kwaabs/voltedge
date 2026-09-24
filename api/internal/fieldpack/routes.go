@@ -41,7 +41,9 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/export"
+	"github.com/kwaabs/voltedge/api/internal/httpx"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/kwaabs/voltedge/api/internal/ratelimit"
 	"github.com/kwaabs/voltedge/api/internal/territory"
 	"github.com/uptrace/bun"
 )
@@ -51,6 +53,13 @@ import (
 // features:read permission -- the same base read gate the export mount uses.
 func Routes(db *bun.DB, store *export.ObjectStore) http.Handler {
 	r := chi.NewRouter()
+	// A generous global body cap for the whole fieldsync surface -- a backstop so
+	// no endpoint can be made to buffer an unbounded body. The only legitimately
+	// large body here is a device's offline-edit outbox on POST /sync, so the cap
+	// is sized well above a realistic batch; the credential route below adds its
+	// own far tighter cap.
+	r.Use(httpx.MaxBytes(64 << 20))
+
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
@@ -58,8 +67,12 @@ func Routes(db *bun.DB, store *export.ObjectStore) http.Handler {
 
 	// The field-app front door: exchange an email + password for a bearer token
 	// (login.go). Unauthenticated -- it is what MINTS the credential the groups
-	// below require -- so it sits outside the bearer gate, beside /healthz.
-	r.Post("/auth/field-login", fieldLoginHandler(db))
+	// below require -- so it sits outside the bearer gate, beside /healthz. Per-IP
+	// throttled and body-capped like the browser login: the credential endpoint is
+	// the one unauthenticated write, so it gets both a spray/lockout-flood cap and
+	// a hard body-size limit on top of the generous global cap.
+	loginLimiter := ratelimit.New(10, 10)
+	r.With(loginLimiter.Middleware, httpx.MaxBytes(64<<10)).Post("/auth/field-login", fieldLoginHandler(db))
 
 	r.Group(func(r chi.Router) {
 		r.Use(bearerAuth(db))

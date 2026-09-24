@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import {
   Activity,
   BatteryCharging,
+  BatteryFull,
   ChartSpline,
   CheckCircle2,
   ClipboardList,
@@ -13,6 +14,7 @@ import {
   Copy,
   ExternalLink as ExternalLinkIcon,
   FileClock,
+  Gauge,
   GripHorizontal,
   History,
   Info,
@@ -30,6 +32,7 @@ import {
   Route,
   Satellite,
   Shuffle,
+  SlidersHorizontal,
   Spline,
   Sun,
   Thermometer,
@@ -117,7 +120,10 @@ import { useEvHostingStore } from "@/stores/ev-hosting-store"
 import { useMeshedLoadFlowStore } from "@/stores/meshed-load-flow-store"
 import { useNodalLoadFlowStore } from "@/stores/nodal-load-flow-store"
 import { useAutoLoadFlowStore } from "@/stores/auto-load-flow-store"
+import { useStorageDispatchStore } from "@/stores/storage-dispatch-store"
+import { useTapOptimizationStore } from "@/stores/tap-optimization-store"
 import { useUnbalancedLoadFlowStore } from "@/stores/unbalanced-load-flow-store"
+import { useVoltVarStore } from "@/stores/volt-var-store"
 
 type TabId =
   | "attributes"
@@ -1608,6 +1614,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<TraceResult>("/trace", {
@@ -1645,6 +1654,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useIsolateStore.getState().setLoading(true)
     try {
       const result = await apiFetch<IsolationResult>("/trace/isolate", {
@@ -1689,6 +1701,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{ start: TraceFeatureRef; heads: TraceFeatureRef[]; features: TracedFeature[] }>(
@@ -1736,6 +1751,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{
@@ -1800,6 +1818,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{
@@ -1862,6 +1883,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1885,6 +1909,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useFaultCurrentStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1909,6 +1936,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useAmpacityStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1934,6 +1964,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useCoordinationStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1957,6 +1990,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useVoltageProfileStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1982,6 +2018,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useContingencyStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2006,6 +2045,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useEvHostingStore.getState().clear()
     useHostingStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
@@ -2032,6 +2074,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useEvHostingStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2056,6 +2101,9 @@ export function FeaturePanel() {
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useMeshedLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2082,6 +2130,9 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useNodalLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2106,6 +2157,9 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useAutoLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2130,7 +2184,96 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the volt-VAR panel (volt-var-panel.tsx) with the selected feature as
+  // the feeder's source. The reactive twin of DER hosting: it sweeps the base
+  // case then re-sweeps each switched capacitor bank currently out of circuit as
+  // though switched in, reporting the voltage lift / loss reduction switching it
+  // on would buy. Like load-flow it only arms (needs nominal_voltage_v first);
+  // the panel's own Run button makes the POST /analysis/volt-var call. Clears the
+  // other mutually-exclusive workflows the same way they clear each other.
+  function armVoltVar() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
+    useMeshedLoadFlowStore.getState().clear()
+    useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
+    useVoltVarStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the tap-optimization panel (tap-optimization-panel.tsx) with the
+  // selected feature as the feeder's source. The series-voltage twin of volt-VAR:
+  // it sweeps the base case then, for each step voltage regulator, tries every
+  // tap in ±max_tap_steps and reports the tap that best holds the feeder in band.
+  // Like load-flow it only arms (needs nominal_voltage_v first); the panel's own
+  // Run button makes the POST /analysis/tap-optimization call. Clears the other
+  // mutually-exclusive workflows the same way they clear each other.
+  function armTapOptimization() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
+    useMeshedLoadFlowStore.getState().clear()
+    useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
+    useTapOptimizationStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the storage-dispatch panel (storage-dispatch-panel.tsx) with the
+  // selected feature as the feeder's source. The bidirectional-injection twin of
+  // volt-VAR / tap-optimization: it sweeps the base case then, for each
+  // battery-storage unit, tries every set-point from full charge to full
+  // discharge and reports the one that best holds the feeder in band and shaves
+  // the source draw. Like load-flow it only arms (needs nominal_voltage_v first);
+  // the panel's own Run button makes the POST /analysis/storage-dispatch call.
+  // Clears the other mutually-exclusive workflows the same way they clear each
+  // other.
+  function armStorageDispatch() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
+    useMeshedLoadFlowStore.getState().clear()
+    useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
   // Runnable trace_configurations for the dropdown -- SHORTEST_PATH
@@ -2449,6 +2592,18 @@ export function FeaturePanel() {
                       <DropdownMenuItem onSelect={armEvHosting}>
                         <BatteryCharging className="size-4" />
                         EV feeder headroom…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={armVoltVar}>
+                        <Gauge className="size-4" />
+                        Volt-VAR (capacitor switching)…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={armTapOptimization}>
+                        <SlidersHorizontal className="size-4" />
+                        Tap optimization (voltage regulators)…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={armStorageDispatch}>
+                        <BatteryFull className="size-4" />
+                        Storage dispatch (batteries)…
                       </DropdownMenuItem>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>

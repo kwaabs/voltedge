@@ -740,6 +740,62 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/pad_mount_urd.sql
 
+  seed-pole-mount-recloser:
+    desc: Load the POLE_MOUNT_RECLOSER kit -- POLE spatial_support {MV_RECLOSER/MV_ARRESTER}, the internal shunt legs (MV_RECLOSER T1->MV_ARRESTER T1 line-side, MV_RECLOSER T2->MV_ARRESTER T1 load-side) and the assembly template that backs POST /assemblies -- through the gitbash sidecar (requires migration 0093 + the POLE/MV_RECLOSER/MV_ARRESTER class seeds applied first; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/pole_mount_recloser.sql
+
+  seed-mv-capacitor-bank:
+    desc: Load the MV_CAP_BANK class -- a shunt capacitor bank (leading kVAr support) shaped like MV_ARRESTER (T1 line tap / T2 earth), rated_kvar + switched/fixed subtypes + device_state, one MV_CONDUCTOR->T1 rule, full footprint (circuit/operational/snapping/map-diamond/diagram-ansi-capacitor/CIM LinearShuntCompensator) -- through the gitbash sidecar (requires seed-connectivity for MV_CONDUCTOR; compile CODE=MV_CAP_BANK after). Backs the volt-VAR analysis in api/internal/powerflow.
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_capacitor_bank_example.sql
+
+  seed-pole-mount-capacitor-bank:
+    desc: Load the POLE_MOUNT_CAP_BANK kit -- POLE spatial_support {MV_SWITCH/MV_CAP_BANK}, the internal cap-switch leg (MV_SWITCH T2->MV_CAP_BANK T1) and the assembly template that backs POST /assemblies -- through the gitbash sidecar (requires migration 0093 + the POLE/MV_SWITCH/MV_CAP_BANK class seeds applied first; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/pole_mount_capacitor_bank.sql
+
+  seed-mv-voltage-regulator:
+    desc: Load the MV_VREG class -- a series step voltage regulator (autotransformer, same voltage base) shaped like MV_RECLOSER (T1 source / T2 load, series), regulator_step_pct + regulator_tap_position + device_state, single/three-phase subtypes, the three MV_CONDUCTOR<->MV_VREG series rules, full footprint (circuit/operational/snapping/map-square/diagram-ansi-transformer-2w/CIM PowerTransformer+RatioTapChanger) -- through the gitbash sidecar (requires seed-connectivity for MV_CONDUCTOR; compile CODE=MV_VREG after). Backs the tap-optimization analysis in api/internal/powerflow.
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_voltage_regulator_example.sql
+
+  seed-pole-mount-voltage-regulator:
+    desc: Load the POLE_MOUNT_REGULATOR kit -- POLE spatial_support {MV_VREG/MV_ARRESTER}, the internal shunt legs (MV_VREG T1->MV_ARRESTER T1 source-side, MV_VREG T2->MV_ARRESTER T1 load-side) and the assembly template that backs POST /assemblies -- through the gitbash sidecar (requires migration 0093 + the POLE/MV_VREG/MV_ARRESTER class seeds applied first; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/pole_mount_voltage_regulator.sql
+
+  seed-mv-bess:
+    desc: Load the MV_BESS class -- a bidirectional grid battery-storage unit shaped like GENERATOR (single terminal T1, leaf injector), rated_power_kw + signed storage_dispatch_kw + energy_capacity_kwh + state_of_charge_pct + power_factor, standalone/hybrid subtypes, three PCC rules (MV_CONDUCTOR/DIST_XFMR T2/LV_CONDUCTOR -> T1), full footprint (circuit/operational/snapping/map-square/diagram-ansi-battery/CIM BatteryUnit+PowerElectronicsConnection.ratedS) -- through the gitbash sidecar (requires seed-connectivity for MV_CONDUCTOR/DIST_XFMR + seed-lv-conductors for LV_CONDUCTOR; compile CODE=MV_BESS after). Backs the storage-dispatch analysis in api/internal/powerflow.
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/mv_bess_example.sql
+
+  seed-pole-mount-bess:
+    desc: Load the POLE_MOUNT_BESS kit -- POLE spatial_support {MV_SWITCH/MV_BESS/MV_ARRESTER}, the internal legs (MV_SWITCH T2->MV_BESS T1, MV_SWITCH T2->MV_ARRESTER T1) and the assembly template that backs POST /assemblies -- through the gitbash sidecar (requires migration 0093 + the POLE/MV_SWITCH/MV_BESS/MV_ARRESTER class seeds applied first; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/pole_mount_bess.sql
+
   seed-rmu-diagram-placement:
     desc: Restrict the RMU one-line (RMU x ONE_LINE) to MV_BUSBAR + MV_SWITCH + MV_FUSE + MV_CONDUCTOR via metadata.diagram_placement_rules, and flip MV_CONDUCTOR's is_diagram_placeable on (Phase RMU diagram allow-list) through the gitbash sidecar (requires migration 0068 + seed-rmu + seed-mv-busbar + seed-mv-lv-switch + seed-mv-protection + seed-connectivity applied first; no compile step -- pure metadata rows)
     cmds:
@@ -1190,6 +1246,13 @@ tasks:
       - task: seed-mv-lv-switch
       - task: seed-mv-lv-switch-parity
       - task: seed-mv-recloser
+      - task: seed-pole-mount-recloser
+      - task: seed-mv-capacitor-bank
+      - task: seed-pole-mount-capacitor-bank
+      - task: seed-mv-voltage-regulator
+      - task: seed-pole-mount-voltage-regulator
+      - task: seed-mv-bess
+      - task: seed-pole-mount-bess
       - task: seed-trace-barrier-resync
       - task: seed-mv-measuring
       - task: seed-mv-metering

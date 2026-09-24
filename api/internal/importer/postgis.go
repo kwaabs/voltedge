@@ -181,16 +181,28 @@ func parseHostAllowlist(raw string) map[string]bool {
 	return out
 }
 
+// cgnatRange (RFC 6598 shared space, 100.64.0.0/10) and nat64Range (RFC 6052
+// well-known prefix, 64:ff9b::/96) are non-public ranges the stdlib helpers below
+// don't flag but a live-DB import must still refuse -- CGNAT fronts carrier-internal
+// networks, and a NAT64 address embeds an arbitrary (incl. private) IPv4.
+var (
+	_, cgnatRange, _ = net.ParseCIDR("100.64.0.0/10")
+	_, nat64Range, _ = net.ParseCIDR("64:ff9b::/96")
+)
+
 // isBlockedIP reports whether an address is in a range a live-DB import must not
 // reach by default: loopback, RFC1918 / unique-local private, link-local
-// (including the cloud metadata 169.254.0.0/16), multicast, or unspecified.
+// (including the cloud metadata 169.254.0.0/16), multicast, unspecified, CGNAT
+// shared space, or the NAT64 well-known prefix.
 func isBlockedIP(ip net.IP) bool {
 	return ip.IsLoopback() ||
 		ip.IsPrivate() ||
 		ip.IsLinkLocalUnicast() ||
 		ip.IsLinkLocalMulticast() ||
 		ip.IsMulticast() ||
-		ip.IsUnspecified()
+		ip.IsUnspecified() ||
+		cgnatRange.Contains(ip) ||
+		nat64Range.Contains(ip)
 }
 
 // openRemotePostgres opens a validated, read-only connection to the remote

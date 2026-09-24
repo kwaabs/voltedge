@@ -27,7 +27,10 @@ import { EvHostingPanel } from "@/components/map/ev-hosting-panel"
 import { MeshedLoadFlowPanel } from "@/components/map/meshed-load-flow-panel"
 import { NodalLoadFlowPanel } from "@/components/map/nodal-load-flow-panel"
 import { AutoLoadFlowPanel } from "@/components/map/auto-load-flow-panel"
+import { StorageDispatchPanel } from "@/components/map/storage-dispatch-panel"
+import { TapOptimizationPanel } from "@/components/map/tap-optimization-panel"
 import { UnbalancedLoadFlowPanel } from "@/components/map/unbalanced-load-flow-panel"
+import { VoltVarPanel } from "@/components/map/volt-var-panel"
 import { NewAnnotationMenu } from "@/components/map/new-annotation-menu"
 import { NewAssemblyMenu } from "@/components/map/new-assembly-menu"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
@@ -209,6 +212,9 @@ export function MapPage() {
       <NodalLoadFlowPanel />
       <AutoLoadFlowPanel />
       <UnbalancedLoadFlowPanel />
+      <VoltVarPanel />
+      <TapOptimizationPanel />
+      <StorageDispatchPanel />
     </div>
   )
 }

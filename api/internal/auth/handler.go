@@ -9,6 +9,8 @@ import (
 	"github.com/uptrace/bun"
 
 	"github.com/kwaabs/voltedge/api/internal/access"
+	"github.com/kwaabs/voltedge/api/internal/httpx"
+	"github.com/kwaabs/voltedge/api/internal/ratelimit"
 )
 
 // Routes returns the auth router, meant to be mounted at /auth:
@@ -39,8 +41,17 @@ func Routes(db *bun.DB, cfg Config) chi.Router {
 
 	r := chi.NewRouter()
 
+	// Per-IP throttle on the credential endpoint: the account lockout stops
+	// guessing at one account, this caps a spray across many from one source and
+	// blunts a lockout-flood. Sized for a real person retyping a password (10
+	// bursts, then 10/min), not a scripted attempt rate.
+	loginLimiter := ratelimit.New(10, 10)
+
 	r.Get("/providers", s.providersHandler)
-	r.Post("/login", s.loginHandler)
+	// A login body is an email + password -- a few hundred bytes. Cap it hard so
+	// the unauthenticated endpoint can't be used to make the server buffer a large
+	// body (the rate limit bounds attempt count; this bounds each attempt's size).
+	r.With(loginLimiter.Middleware, httpx.MaxBytes(64<<10)).Post("/login", s.loginHandler)
 	r.Get("/oidc/{provider}/login", s.oidcLoginHandler)
 	r.Get("/oidc/{provider}/callback", s.oidcCallbackHandler)
 	r.With(RequireAuth, RequireCSRF).Post("/logout", s.logoutHandler)

@@ -6,8 +6,24 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/uptrace/bun"
 )
+
+// Scope carries the per-request visibility constraints the registry read path
+// applies, resolved from the caller's session so the registry hides exactly what
+// the CRUD read side hides: a Phase-58 territory set and a Phase-61 draft-author
+// set. Each has its own Apply flag because an empty slice is meaningful --
+// TerritoryIDs empty+apply means "scoped to nothing", and DraftAuthors is always
+// non-empty when it applies (it holds at least the caller's own id). A zero Scope
+// (both Apply false) is an unscoped caller: enforcement off, unscoped/break-glass,
+// or an internal no-session call.
+type Scope struct {
+	TerritoryIDs   []string
+	ApplyTerritory bool
+	DraftAuthors   []string
+	ApplyDrafts    bool
+}
 
 // baseSelect reads registry rows and left-joins the class's human name from
 // metadata.feature_classes (feature_registry stores only the code). territory_id
@@ -49,17 +65,41 @@ func scopeTerritory(q *bun.SelectQuery, ids []string, apply bool) *bun.SelectQue
 	return q.Where("fc.geometry_type = 'none' OR fr.territory_id IN (?)", bun.In(ids))
 }
 
+// scopeDrafts constrains a registry query to the Phase-61 private-drafts filter,
+// reusing the exact predicate the CRUD read side AND-s in (drafts.WhereClause with
+// the fr. alias): a row survives if it is public (currently published, or ever
+// published via the sticky published_at marker) OR authored by someone in the
+// caller's visible set (self + subordinates). Registry rows now carry created_by /
+// published_at (migration 0118), populated generically by the sync trigger, so an
+// out-of-scope peer draft is hidden by id here just as its attributes are hidden
+// elsewhere. apply is false -- no draft predicate -- when drafts are off, or the
+// caller is unscoped/break-glass, or an internal no-session call.
+func scopeDrafts(q *bun.SelectQuery, authors []string, apply bool) *bun.SelectQuery {
+	clause, args := drafts.WhereClause(authors, apply, "fr.")
+	if clause == "" {
+		return q
+	}
+	return q.Where(clause, args...)
+}
+
+// applyScope AND-s both visibility filters (territory + drafts) onto a query.
+func applyScope(q *bun.SelectQuery, sc Scope) *bun.SelectQuery {
+	q = scopeTerritory(q, sc.TerritoryIDs, sc.ApplyTerritory)
+	q = scopeDrafts(q, sc.DraftAuthors, sc.ApplyDrafts)
+	return q
+}
+
 // Lookup resolves a single feature by its exact id -- the "type in an asset id,
 // what is it?" path. Returns (nil, nil) when no such id exists (a soft-deleted
 // row is still returned; the caller decides whether a tombstone is acceptable),
 // so the HTTP layer can answer 404 without treating a miss as an error.
-func Lookup(ctx context.Context, db bun.IDB, id string, scope []string, applyScope bool) (*Entry, error) {
+func Lookup(ctx context.Context, db bun.IDB, id string, sc Scope) (*Entry, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, nil
 	}
 	var e Entry
-	q := scopeTerritory(baseSelect(db, &e).Where("fr.feature_id = ?", id), scope, applyScope)
+	q := applyScope(baseSelect(db, &e).Where("fr.feature_id = ?", id), sc)
 	err := q.Limit(1).Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Either no such id, or the id exists but is out of the caller's scope --
@@ -74,15 +114,15 @@ func Lookup(ctx context.Context, db bun.IDB, id string, scope []string, applySco
 
 // SearchFilter drives the typeahead. Q is an id prefix (case-insensitive), the
 // natural input as a user types a uuid; Class scopes to one feature class; Live
-// hides soft-deleted rows (the picker default). TerritoryIDs, when non-nil,
-// scopes to a Phase-58 user's accessible territories -- an empty slice means
-// "no accessible territory", which correctly returns nothing.
+// hides soft-deleted rows (the picker default). Scope carries the Phase-58
+// territory + Phase-61 draft visibility constraints, applied identically to the
+// CRUD read side so the picker can't surface an id the reader couldn't open.
 type SearchFilter struct {
-	Q            string
-	Class        string
-	Live         bool
-	TerritoryIDs []string
-	Limit        int
+	Q     string
+	Class string
+	Live  bool
+	Scope Scope
+	Limit int
 }
 
 // Search returns registry entries matching the filter, newest first, capped.
@@ -108,10 +148,10 @@ func Search(ctx context.Context, db bun.IDB, f SearchFilter) ([]Entry, error) {
 	if f.Live {
 		q = q.Where("fr.deleted_at IS NULL")
 	}
-	// A non-nil TerritoryIDs (even empty) is the Phase-58 apply signal; nil means
-	// an unscoped caller. scopeTerritory keeps geometry-less classes visible and
-	// hides out-of-territory geometry features, matching crud.enforceReadScope.
-	q = scopeTerritory(q, f.TerritoryIDs, f.TerritoryIDs != nil)
+	// AND in the same territory (Phase 58) + draft (Phase 61) visibility filters
+	// the CRUD read side applies, so the picker never surfaces an id its owner
+	// couldn't open.
+	q = applyScope(q, f.Scope)
 
 	if err := q.OrderExpr("fr.created_at DESC NULLS LAST").Limit(limit).Scan(ctx); err != nil {
 		return nil, err

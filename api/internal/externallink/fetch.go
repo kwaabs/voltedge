@@ -246,16 +246,28 @@ var safeRedirectHeaders = map[string]bool{
 	"User-Agent":      true,
 }
 
+// cgnatRange (RFC 6598 shared space, 100.64.0.0/10) and nat64Range (RFC 6052
+// well-known prefix, 64:ff9b::/96) are non-public ranges the stdlib helpers below
+// don't cover but an SSRF guard must still refuse -- CGNAT fronts carrier-internal
+// networks, and a NAT64 address embeds an arbitrary (incl. private) IPv4.
+var (
+	_, cgnatRange, _ = net.ParseCIDR("100.64.0.0/10")
+	_, nat64Range, _ = net.ParseCIDR("64:ff9b::/96")
+)
+
 // isBlockedIP reports whether an IP is one the proxy must not connect to:
-// loopback, private (RFC 1918 / ULA), link-local, unspecified, or
-// multicast. Only genuinely public unicast addresses are allowed out.
+// loopback, private (RFC 1918 / ULA), link-local, unspecified, multicast, CGNAT
+// shared space, or the NAT64 well-known prefix. Only genuinely public unicast
+// addresses are allowed out.
 func isBlockedIP(ip net.IP) bool {
 	return ip.IsLoopback() ||
 		ip.IsPrivate() ||
 		ip.IsLinkLocalUnicast() ||
 		ip.IsLinkLocalMulticast() ||
 		ip.IsMulticast() ||
-		ip.IsUnspecified()
+		ip.IsUnspecified() ||
+		cgnatRange.Contains(ip) ||
+		nat64Range.Contains(ip)
 }
 
 // normalizeBody turns an upstream body into a JSON-serializable value:

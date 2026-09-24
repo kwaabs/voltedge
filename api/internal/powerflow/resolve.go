@@ -38,6 +38,21 @@ func readFloatAttr(attrs map[string]any, name string) (float64, bool) {
 	}
 }
 
+// readStringAttr reads a string-valued attribute out of a feature row. Only a
+// genuine string (or a numeric coerced to its literal, which a coded enum like
+// device_state never is) counts; absent, null, or non-string returns ok=false
+// so a caller can distinguish "field carries no value" from "field is empty".
+func readStringAttr(attrs map[string]any, name string) (string, bool) {
+	v, ok := attrs[name]
+	if !ok || v == nil {
+		return "", false
+	}
+	if s, ok := v.(string); ok {
+		return s, true
+	}
+	return "", false
+}
+
 // readIntAttr reads an integer attribute (today only the subtype code) out of a
 // feature row defensively -- the driver may hand a small integer back as any of
 // int/int64/int32, a float64 (json-style), or a numeric string, and this
@@ -324,6 +339,129 @@ func resolveGeneration(attrs map[string]any) (kw, kvar float64) {
 	}
 	pf, ok := readFloatAttr(attrs, genFieldPF)
 	if !ok || pf <= 0 || pf > 1 {
+		pf = 1
+	}
+	kvar = kw * math.Tan(math.Acos(pf))
+	return kw, kvar
+}
+
+// Capacitor-bank field names. A shunt capacitor bank is modelled as a
+// pure reactive (VAR-supplying) source: it carries rated_kvar and, for a
+// switched bank, a device_state that gates whether it is in circuit. A
+// fixed bank (no device_state field) is always in; a switched bank injects
+// only while CLOSED. No class code is hardcoded -- a node "is" a capacitor
+// bank exactly when it carries rated_kvar, the same field-driven convention
+// resolveDemand/resolveGeneration use (demand_kw / rated_kw).
+const (
+	capFieldRatedKVAR   = "rated_kvar"
+	capFieldDeviceState = "device_state"
+	capStateClosed      = "CLOSED"
+)
+
+// resolveCapacitor reads a node's shunt-capacitor reactive *injection*
+// (positive kVAR magnitude), zero for any node that carries no rated_kvar.
+// The bank supplies leading VARs, so the caller nets it as *negative*
+// reactive demand (ownKVAR -= this), mirroring how resolveGeneration's Q is
+// netted -- the sign lives at the netting site, this returns a magnitude.
+// The capacitor injects no real power (P = 0), so unlike a generator it
+// only lifts ownKVAR: backwardSweep carries the reduced reactive flow up
+// the feeder and forwardSweep reads the local voltage rise, which is the
+// whole point of shunt compensation. A switched bank whose device_state is
+// anything other than CLOSED (OPEN, or absent-on-a-switched-subtype) is out
+// of circuit and injects nothing; a fixed bank carries no device_state and
+// is always in.
+func resolveCapacitor(attrs map[string]any) (kvar float64) {
+	rated, ok := readFloatAttr(attrs, capFieldRatedKVAR)
+	if !ok || rated <= 0 {
+		return 0
+	}
+	if state, ok := readStringAttr(attrs, capFieldDeviceState); ok {
+		if !strings.EqualFold(strings.TrimSpace(state), capStateClosed) {
+			return 0
+		}
+	}
+	return rated
+}
+
+const (
+	regFieldStepPct     = "regulator_step_pct"
+	regFieldTapPosition = "regulator_tap_position"
+	regFieldDeviceState = "device_state"
+	regStateClosed      = "CLOSED"
+)
+
+// regulatorModel is a node's resolved step-voltage-regulator behaviour: a
+// series autotransformer with a turns ratio near unity that boosts or bucks
+// the voltage while keeping the SAME voltage base (unlike a power transformer,
+// which rebases to a new nominal). ratio is the sending-to-receiving multiplier
+// 1 + tap·step/100; ok is false for every node that carries no regulator field,
+// leaving the forward sweep to treat it as a plain pass-through junction.
+type regulatorModel struct {
+	ratio float64 // receiving / sending voltage multiplier (same base)
+	ok    bool
+}
+
+// resolveRegulator reads a node's series step-voltage-regulator behaviour off
+// its own attributes, keyed on the presence of a regulator_step_pct field so no
+// class code is hardcoded (the same field-driven convention resolveCapacitor /
+// resolveGeneration use). The applied ratio is 1 + tap_position·step_pct/100 --
+// e.g. tap +4 on a 0.625% step boosts by 2.5% -- so an unset or zero tap leaves
+// the voltage untouched (nominal tap, ratio 1). A regulator whose device_state
+// is anything other than CLOSED (bypassed via its bypass switch, or OPEN) is out
+// of regulation and passes the voltage straight through (ratio 1) while still
+// conducting -- the series path is never broken, only the boost is removed. A
+// node with no regulator_step_pct field returns ok=false and is not a regulator.
+func resolveRegulator(attrs map[string]any) regulatorModel {
+	step, ok := readFloatAttr(attrs, regFieldStepPct)
+	if !ok || step == 0 {
+		return regulatorModel{}
+	}
+	if state, ok := readStringAttr(attrs, regFieldDeviceState); ok {
+		if !strings.EqualFold(strings.TrimSpace(state), regStateClosed) {
+			// Bypassed: still a regulator node (ok), but no boost applied.
+			return regulatorModel{ratio: 1, ok: true}
+		}
+	}
+	pos, _ := readFloatAttr(attrs, regFieldTapPosition)
+	return regulatorModel{ratio: 1 + pos*step/100, ok: true}
+}
+
+// Battery-storage (BESS) field names. A grid battery is modelled as a
+// BIDIRECTIONAL injection: unlike a generator (which only ever injects, so
+// resolveGeneration returns 0 for a non-positive value), a BESS can DISCHARGE
+// (inject, positive dispatch) or CHARGE (absorb, negative dispatch). It therefore
+// carries its OWN signed dispatch field rather than reusing dispatch_kw, so the
+// two never collide -- a node is a generator or a battery by which kW field it
+// carries (dispatch_kw/rated_kw vs storage_dispatch_kw/rated_power_kw), exactly
+// the demand_kw-vs-rated_kw convention. rated_power_kw is the PCS's max charge/
+// discharge magnitude (used by the dispatch study as the sweep bound); it is not
+// itself an injection.
+const (
+	storageFieldRatedPowerKW = "rated_power_kw"
+	storageFieldDispatchKW   = "storage_dispatch_kw"
+	storageFieldPF           = "power_factor"
+)
+
+// resolveStorage reads a node's own battery-storage *injection* (P, Q) as a
+// SIGNED value -- positive when discharging (injecting into the feeder, the
+// generation sign) and negative when charging (drawing extra load). Zero for any
+// node that carries no storage_dispatch_kw field (every load/junction/edge/
+// generator). The caller (resolveNodeStates) SUBTRACTS these from the node's own
+// demand exactly as it does resolveGeneration's output, so a positive (discharge)
+// value lowers net demand (voltage rises, upstream flow drops) and a negative
+// (charge) value raises it (an extra load) -- one signed line drives both
+// directions. An absent dispatch means idle (0); a present dispatch is
+// authoritative even at 0. Q follows P's sign at the operating power factor
+// (Q = P*tan(acos(pf))), so a discharging unit at pf < 1 also supports reactive
+// and a charging unit absorbs it; unset pf means unity (Q = 0), the same rule
+// resolveDemand/resolveGeneration use.
+func resolveStorage(attrs map[string]any) (kw, kvar float64) {
+	kw, ok := readFloatAttr(attrs, storageFieldDispatchKW)
+	if !ok {
+		return 0, 0
+	}
+	pf, okPF := readFloatAttr(attrs, storageFieldPF)
+	if !okPF || pf <= 0 || pf > 1 {
 		pf = 1
 	}
 	kvar = kw * math.Tan(math.Acos(pf))

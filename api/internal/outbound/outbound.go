@@ -95,16 +95,30 @@ func stripToSafeHeaders(h http.Header) {
 	}
 }
 
+// cgnatRange (RFC 6598 shared address space, 100.64.0.0/10) and nat64Range
+// (RFC 6052 well-known prefix, 64:ff9b::/96) are non-public ranges Go's stdlib
+// IsPrivate/IsLinkLocal* do not flag but an SSRF guard must still refuse: CGNAT
+// commonly fronts a carrier/ISP-internal network, and a NAT64 address embeds an
+// arbitrary IPv4 (private space included) the host would then reach on the far
+// side of its translator.
+var (
+	_, cgnatRange, _ = net.ParseCIDR("100.64.0.0/10")
+	_, nat64Range, _ = net.ParseCIDR("64:ff9b::/96")
+)
+
 // IsBlockedIP reports whether an IP is one an outbound request must not reach:
-// loopback, private (RFC 1918 / ULA), link-local, unspecified, or multicast.
-// Only genuinely public unicast addresses are allowed out.
+// loopback, private (RFC 1918 / ULA), link-local, unspecified, multicast, CGNAT
+// shared space, or the NAT64 well-known prefix. Only genuinely public unicast
+// addresses are allowed out.
 func IsBlockedIP(ip net.IP) bool {
 	return ip.IsLoopback() ||
 		ip.IsPrivate() ||
 		ip.IsLinkLocalUnicast() ||
 		ip.IsLinkLocalMulticast() ||
 		ip.IsMulticast() ||
-		ip.IsUnspecified()
+		ip.IsUnspecified() ||
+		cgnatRange.Contains(ip) ||
+		nat64Range.Contains(ip)
 }
 
 // Auth describes how to authenticate one outbound request. The secret is already

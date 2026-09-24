@@ -100,6 +100,9 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/arc-flash", arcFlashHandler(db))
 	r.Post("/ev-hosting", evHostingHandler(db))
 	r.Post("/unbalanced-load-flow", unbalancedLoadFlowHandler(db))
+	r.Post("/volt-var", voltVarHandler(db))
+	r.Post("/tap-optimization", tapOptimizationHandler(db))
+	r.Post("/storage-dispatch", storageDispatchHandler(db))
 	return r
 }
 
@@ -231,6 +234,57 @@ func hostingHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := runHosting(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func voltVarHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req voltVarRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runVoltVar(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func tapOptimizationHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req tapOptRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runTapOptimization(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func storageDispatchHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req storageRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runStorageDispatch(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

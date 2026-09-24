@@ -41,6 +41,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/externallink"
 	"github.com/kwaabs/voltedge/api/internal/externalsystem"
 	"github.com/kwaabs/voltedge/api/internal/faults"
+	"github.com/kwaabs/voltedge/api/internal/httpx"
 	"github.com/kwaabs/voltedge/api/internal/featureregistry"
 	"github.com/kwaabs/voltedge/api/internal/fieldpack"
 	"github.com/kwaabs/voltedge/api/internal/importer"
@@ -123,6 +124,12 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	// A generous global request-body cap: a backstop so no endpoint can be made to
+	// buffer an unbounded body. It is sized well above any legitimate JSON control
+	// payload (bulk feature bytes ride presigned PUT straight to the object store,
+	// never this process); endpoints with known-small bodies add tighter caps of
+	// their own (see auth.Routes).
+	r.Use(httpx.MaxBytes(32 << 20))
 
 	// Phase 10: the trust boundary. SecurityHeaders hardens every response;
 	// SessionLoader validates the session cookie (if any) and attaches the

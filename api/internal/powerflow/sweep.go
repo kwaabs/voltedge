@@ -31,6 +31,7 @@ type nodeState struct {
 	attrs       map[string]any
 	impedance   conductorImpedance
 	xfmr        transformerModel
+	reg         regulatorModel
 	ownKW       float64
 	ownKVAR     float64
 	cumKW       float64
@@ -239,8 +240,31 @@ func resolveNodeState(ctx context.Context, db bun.IDB, loader *featureClassLoade
 	genKW, genKVAR := resolveGeneration(attrs)
 	ownKW -= genKW
 	ownKVAR -= genKVAR
+	// Net a shunt capacitor bank in as negative reactive demand: it
+	// supplies leading VARs (P = 0), so only ownKVAR drops. A fixed bank
+	// always injects; a switched bank injects only while CLOSED (see
+	// resolveCapacitor). This is what makes every downstream sweep --
+	// load-flow, profile, hosting, volt-VAR -- and the nodal sInjPU see
+	// the compensation, with the sign owned here at the single netting
+	// site rather than in the resolver.
+	ownKVAR -= resolveCapacitor(attrs)
+	// Net a battery-storage (BESS) unit in the same way, but SIGNED and on
+	// both P and Q: resolveStorage returns a positive injection when the
+	// battery is discharging (net own power drops, like a generator) and a
+	// negative one when charging (net own power rises, an extra load). One
+	// subtraction therefore drives both directions -- the storage-dispatch
+	// study just varies storage_dispatch_kw and re-sweeps through this exact
+	// site, so every sweep (load-flow, profile, dispatch) already sees it.
+	stKW, stKVAR := resolveStorage(attrs)
+	ownKW -= stKW
+	ownKVAR -= stKVAR
 	ratedKVA, hasRating := resolveTransformerRating(attrs)
 	xfmr := resolveTransformerModel(attrs, ratedKVA, hasRating)
+	// A series step voltage regulator (autotransformer, ratio ~ 1) resolved off
+	// its own regulator_step_pct/tap fields. It keeps the same voltage base, so
+	// unlike xfmr it never rebases -- the forward sweep applies its boost/buck
+	// ratio to the parent output and passes the same base down.
+	reg := resolveRegulator(attrs)
 
 	// The generation subtype (generation_type slug) classifies inverter vs
 	// synchronous for the fault-contribution fallback; resolved generically
@@ -257,7 +281,7 @@ func resolveNodeState(ctx context.Context, db bun.IDB, loader *featureClassLoade
 	genFault := resolveGeneratorFaultSpec(attrs, subtypeName)
 
 	return &nodeState{
-		loaded: loaded, attrs: attrs, impedance: imp, xfmr: xfmr, ownKW: ownKW, ownKVAR: ownKVAR,
+		loaded: loaded, attrs: attrs, impedance: imp, xfmr: xfmr, reg: reg, ownKW: ownKW, ownKVAR: ownKVAR,
 		ratedKVA: ratedKVA, hasRating: hasRating, genFault: genFault,
 	}, nil
 }
@@ -380,6 +404,15 @@ func forwardSweep(tr *tree, states map[node]*nodeState, start node, nominalVolta
 				vSecondaryIdeal := pV * st.xfmr.ratio
 				st.voltageBase = st.xfmr.secondaryV
 				st.voltageV = vSecondaryIdeal - approxDropV(st.cumKW, st.cumKVAR, st.xfmr.rOhm, st.xfmr.xOhm, vSecondaryIdeal)
+			case st.reg.ok:
+				// Series step voltage regulator: an autotransformer with a ratio
+				// near unity that boosts/bucks the parent voltage while KEEPING the
+				// same voltage base (a regulator does not change voltage class). The
+				// tap ratio scales the sending-end voltage; the unit is modelled as
+				// ideal (a regulator's own series impedance is negligible against a
+				// feeder's), so no drop is subtracted here.
+				st.voltageBase = pBase
+				st.voltageV = pV * st.reg.ratio
 			case st.impedance.resolved:
 				st.voltageBase = pBase
 				st.voltageV = pV - approxDropV(st.cumKW, st.cumKVAR, st.impedance.rOhm, st.impedance.xOhm, pV)
