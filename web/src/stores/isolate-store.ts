@@ -1,6 +1,6 @@
 import { create } from "zustand"
 
-import type { TraceFeatureRef } from "@/stores/trace-store"
+import type { ServiceRollup, TraceFeatureRef } from "@/stores/trace-store"
 
 /** Mirrors api/internal/trace's isolationResponse -- see
  * docs/phase-4-utility-traces.md. `de_energized` is everything that
@@ -17,6 +17,10 @@ export interface IsolationResult {
   upstream_boundary?: TraceFeatureRef
   critical_facilities?: TraceFeatureRef[]
   possible_backfeed_paths?: TraceFeatureRef[]
+  /** Phase 62 consumption rollup of the de-energized SERVICE_POINTs -- the load
+   * (customers + kW/kVA, with the critical subset and per-tier split) that this
+   * isolation would drop. Always present; every tier zero if it reached no load. */
+  service?: ServiceRollup
 }
 
 /**

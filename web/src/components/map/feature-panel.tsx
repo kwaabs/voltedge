@@ -112,7 +112,13 @@ import { type IsolationResult, useIsolateStore } from "@/stores/isolate-store"
 import { useLoadFlowStore } from "@/stores/load-flow-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
-import { type TraceFeatureRef, type TracedFeature, type TraceResult, useTraceStore } from "@/stores/trace-store"
+import {
+  type ServiceTraceResult,
+  type TraceFeatureRef,
+  type TracedFeature,
+  type TraceResult,
+  useTraceStore,
+} from "@/stores/trace-store"
 import { useUnitsStore } from "@/stores/units-store"
 import { useVoltageProfileStore } from "@/stores/voltage-profile-store"
 import { useContingencyStore } from "@/stores/contingency-store"
@@ -1795,6 +1801,72 @@ export function FeaturePanel() {
     }
   }
 
+  // Service trace (api/internal/trace/service.go) -- a downstream walk
+  // (reusing the same DOWNSTREAM config isolation does) that collects the
+  // reached SERVICE_POINTs and their consumption. Normalized into the same
+  // TraceResult display every other trace uses: the reached service points
+  // become `features`, the critical ones (restoration rank <= P2) become
+  // `targets` so they get the distinct highlight, and the consumption rollup
+  // rides along on `service` where ServiceRollupSummary surfaces it. Answers
+  // "who/what does this feed, and how much of it is critical?".
+  async function runServiceTrace() {
+    if (!selected || !isolationConfig) return
+    const start = { feature_class: selected.featureClassCode, feature_id: selected.featureId }
+    const computed = snapshotComputedVoltages(start)
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
+    useMeshedLoadFlowStore.getState().clear()
+    useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
+    useTraceStore.getState().setLoading(true)
+    try {
+      const result = await apiFetch<ServiceTraceResult>("/trace/service", {
+        method: "POST",
+        body: JSON.stringify({
+          trace_configuration: isolationConfig.code,
+          start,
+        }),
+      })
+      const criticals = result.service_points
+        .filter((sp) => sp.critical)
+        .map((sp) => ({ feature_class: sp.feature_class, feature_id: sp.feature_id }))
+      useTraceStore.getState().setResult(
+        {
+          trace_configuration: "SERVICE",
+          direction: "SERVICE",
+          start: result.start,
+          features: result.service_points.map((sp) => ({
+            feature_class: sp.feature_class,
+            feature_id: sp.feature_id,
+          })),
+          barriers: [],
+          targets: criticals,
+          targets_found: criticals.length > 0,
+          service: result.service,
+        },
+        computed,
+      )
+      if (result.service_points.length === 0) {
+        useToastStore.getState().pushWarning("No service points downstream of this feature.")
+      }
+    } catch (err) {
+      useTraceStore.getState().setLoading(false)
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not run the service trace.")
+    }
+  }
+
   // Supply-path trace (api/internal/trace/supply.go) -- from this
   // feature (a service point / meter, but any feature is accepted) walk
   // UPSTREAM barrier-free to report the supply chain: the LV switching
@@ -2553,6 +2625,10 @@ export function FeaturePanel() {
                       {runnableConfigs.length > 0 && <DropdownMenuSeparator />}
                       <DropdownMenuItem onSelect={runFeederTrace}>Feeder trace</DropdownMenuItem>
                       <DropdownMenuItem onSelect={runSectionTrace}>Section trace</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={runServiceTrace}>
+                        <Gauge className="size-4" />
+                        Service trace (load served)
+                      </DropdownMenuItem>
                     </>
                   )}
                   {canIsolate && (

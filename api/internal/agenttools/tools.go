@@ -324,6 +324,36 @@ func readTools() []Tool {
 			Handler:      toolRunSectionTrace,
 		},
 		{
+			Name: "run_service_trace",
+			Description: "Find the consumption below a feature: walk downstream (respecting the " +
+				"configuration's barriers) to the load and roll the reached SERVICE_POINTs up by " +
+				"total demand (kW/kVA), customer count, and restoration priority tier (P1 life-" +
+				"support, P2 essential, P3 priority, P4 standard; critical = rank <= P2), with the " +
+				"per-service-point breakdown behind it. Answers 'how much load, how many customers, " +
+				"how much of it critical, sits below here'. Requires a DOWNSTREAM trace_configuration. " +
+				"Read-only. (Every other trace tool also returns this rollup under 'service'.)",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"trace_configuration":{"type":"string","description":"A DOWNSTREAM trace configuration code from list_trace_configurations."},
+					"start":{
+						"type":"object",
+						"description":"The feature to summarise consumption below.",
+						"properties":{
+							"feature_class":{"type":"string","description":"The start feature's class code."},
+							"feature_id":{"type":"string","description":"The start feature's id (uuid)."}
+						},
+						"required":["feature_class","feature_id"],
+						"additionalProperties":false
+					}
+				},
+				"required":["trace_configuration","start"],
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermTraceRun,
+			Handler:      toolRunServiceTrace,
+		},
+		{
 			Name: "suggest_connections",
 			Description: "Propose ranked candidate features the given feature could legally " +
 				"connect to, without establishing anything. A candidate is permitted by an " +

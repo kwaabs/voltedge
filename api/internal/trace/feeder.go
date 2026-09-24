@@ -29,6 +29,10 @@ type feederResponse struct {
 	Start    featureRef      `json:"start"`
 	Heads    []featureRef    `json:"heads"`
 	Features []tracedFeature `json:"features"`
+	// Service is the Phase 62 consumption rollup of the whole feeder's
+	// SERVICE_POINTs -- the load + customers, by restoration tier, the feeder
+	// carries. See ServiceRollup.
+	Service *ServiceRollup `json:"service,omitempty"`
 }
 
 // feederTrace answers "which whole feeder does this feature belong
@@ -133,9 +137,15 @@ func feederTrace(ctx context.Context, db bun.IDB, req feederRequest) (*feederRes
 		return nil, err
 	}
 
+	service, err := summarizeService(ctx, db, featureNodes, classCodes, loader)
+	if err != nil {
+		return nil, err
+	}
+
 	return &feederResponse{
 		Start:    req.Start,
 		Heads:    toFeatureRefs(heads, classCodes),
 		Features: features,
+		Service:  service,
 	}, nil
 }

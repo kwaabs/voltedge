@@ -33,6 +33,50 @@ export interface TracedFeature extends TraceFeatureRef {
   parent_feature_id?: string
 }
 
+/** Mirrors api/internal/trace's ServiceTotals -- an additive bag of consumption
+ * sums (Phase 62). demand_kva is the sum of each SP's own apparent power
+ * (kW / power_factor), not a re-derive off an averaged pf. Used for the whole
+ * set, the critical subset, and per tier. */
+export interface ServiceTotals {
+  service_points: number
+  customers: number
+  demand_kw: number
+  demand_kva: number
+}
+
+/** One restoration tier's totals plus its identity (P1..P4). */
+export interface ServiceTier extends ServiceTotals {
+  priority: string
+  label: string
+}
+
+/** Mirrors api/internal/trace's ServiceRollup -- the consumption summary that
+ * rides along on every trace-family response (and OMS energization/affected):
+ * the whole set's totals (inlined), the critical subset (restoration rank <= P2),
+ * and the per-tier breakdown (always all four, zeroed if unhit). */
+export interface ServiceRollup extends ServiceTotals {
+  critical: ServiceTotals
+  by_priority: ServiceTier[]
+}
+
+/** Mirrors api/internal/trace's ServicePoint -- one SERVICE_POINT's own line in
+ * the dedicated service trace's per-point breakdown. */
+export interface ServicePoint extends TraceFeatureRef {
+  priority: string
+  label: string
+  customers: number
+  demand_kw: number
+  demand_kva: number
+  critical: boolean
+}
+
+/** Mirrors api/internal/trace's serviceResponse -- POST /trace/service. */
+export interface ServiceTraceResult {
+  start: TraceFeatureRef
+  service: ServiceRollup
+  service_points: ServicePoint[]
+}
+
 /** Mirrors api/internal/trace's traceResponse -- see docs/phase-4-trace-engine.md.
  * `barriers` is always a subset of `features`: the nodes a trace
  * actually reached but a live trace_barrier_rules condition stopped it
@@ -49,6 +93,9 @@ export interface TraceResult {
   path_found?: boolean
   targets?: TraceFeatureRef[]
   targets_found?: boolean
+  /** Phase 62 consumption rollup of the reached SERVICE_POINTs -- always present
+   * (every tier zero on a trace that reached no load). See ServiceRollup. */
+  service?: ServiceRollup
 }
 
 /**

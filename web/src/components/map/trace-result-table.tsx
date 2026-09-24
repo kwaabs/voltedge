@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { GripHorizontal, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { ServiceRollupSummary } from "@/components/map/service-rollup-summary"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -28,6 +29,12 @@ const DIRECTION_LABEL: Record<string, string> = {
   // display, with the serving transformer / switching devices / source as
   // `targets`.
   SUPPLY_PATH: "Supply path",
+  // Not a real trace_configurations direction -- feature-panel.tsx's "Service
+  // trace" trigger hits POST /trace/service (a downstream walk that collects
+  // the reached SERVICE_POINTs) and normalizes its response into this same
+  // display, with the consumption rollup surfaced by ServiceRollupSummary and
+  // the reached service points listed as `features`/`targets`.
+  SERVICE: "Service",
 }
 
 function shortId(id: string): string {
@@ -260,6 +267,10 @@ export function TraceResultTable() {
           <span className="sr-only">Clear trace</span>
         </Button>
       </div>
+
+      {/* Phase 62 consumption rollup -- renders nothing when the trace reached
+          no SERVICE_POINTs, so purely-topological traces are unaffected. */}
+      <ServiceRollupSummary service={result.service} />
 
       <div className={cn("overflow-y-auto", resized ? "min-h-0 flex-1" : "max-h-[13rem]")}>
         {rows === null ? (

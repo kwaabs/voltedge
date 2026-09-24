@@ -59,6 +59,9 @@ type RunTraceResult struct {
 	PathFound          *bool           `json:"path_found,omitempty"`
 	Targets            []FeatureRef    `json:"targets,omitempty"`
 	TargetsFound       *bool           `json:"targets_found,omitempty"`
+	// Service is the Phase 62 consumption rollup -- same shape and meaning a
+	// REST caller sees. See ServiceRollup.
+	Service *ServiceRollup `json:"service,omitempty"`
 }
 
 // RunTrace runs one trace through the engine's single entry point (runTrace)
@@ -90,6 +93,7 @@ func RunTrace(ctx context.Context, db bun.IDB, in RunTraceInput) (*RunTraceResul
 		PathFound:          resp.PathFound,
 		Targets:            toExportedRefs(resp.Targets),
 		TargetsFound:       resp.TargetsFound,
+		Service:            resp.Service,
 	}, nil
 }
 
@@ -137,6 +141,7 @@ type IsolationResult struct {
 	UpstreamBoundary      *FeatureRef  `json:"upstream_boundary,omitempty"`
 	CriticalFacilities    []FeatureRef `json:"critical_facilities,omitempty"`
 	PossibleBackfeedPaths []FeatureRef `json:"possible_backfeed_paths,omitempty"`
+	Service               *ServiceRollup `json:"service,omitempty"`
 }
 
 // Isolate runs one isolation trace through the engine's isolate entry point
@@ -159,6 +164,7 @@ func Isolate(ctx context.Context, db bun.IDB, in IsolationInput) (*IsolationResu
 		UpstreamBoundary:      toExportedRefPtr(resp.UpstreamBoundary),
 		CriticalFacilities:    toExportedRefs(resp.CriticalFacilities),
 		PossibleBackfeedPaths: toExportedRefs(resp.PossibleBackfeedPaths),
+		Service:               resp.Service,
 	}, nil
 }
 
@@ -176,6 +182,7 @@ type FeederResult struct {
 	Start    FeatureRef      `json:"start"`
 	Heads    []FeatureRef    `json:"heads"`
 	Features []TracedFeature `json:"features"`
+	Service  *ServiceRollup  `json:"service,omitempty"`
 }
 
 // FeederTrace runs one feeder trace through the engine's feederTrace entry
@@ -193,6 +200,7 @@ func FeederTrace(ctx context.Context, db bun.IDB, in FeederInput) (*FeederResult
 		Start:    toExportedRef(resp.Start),
 		Heads:    toExportedRefs(resp.Heads),
 		Features: toExportedTracedFeatures(resp.Features),
+		Service:  resp.Service,
 	}, nil
 }
 
@@ -214,6 +222,7 @@ type SectionResult struct {
 	Features           []TracedFeature `json:"features"`
 	UpstreamBoundary   *FeatureRef     `json:"upstream_boundary,omitempty"`
 	DownstreamBoundary *FeatureRef     `json:"downstream_boundary,omitempty"`
+	Service            *ServiceRollup  `json:"service,omitempty"`
 }
 
 // SectionTrace runs one section trace through the engine's sectionTrace
@@ -233,6 +242,41 @@ func SectionTrace(ctx context.Context, db bun.IDB, in SectionInput) (*SectionRes
 		Features:           toExportedTracedFeatures(resp.Features),
 		UpstreamBoundary:   toExportedRefPtr(resp.UpstreamBoundary),
 		DownstreamBoundary: toExportedRefPtr(resp.DownstreamBoundary),
+		Service:            resp.Service,
+	}, nil
+}
+
+// ServiceInput is the exported input to ServiceTrace, mirroring the POST
+// /trace/service body. TraceConfiguration must name a DOWNSTREAM-direction row.
+type ServiceInput struct {
+	TraceConfiguration string
+	Start              FeatureRef
+}
+
+// ServiceResult is the exported form of serviceResponse -- the consumption below
+// a feature: the rollup by load/customers/tier plus the per-SERVICE_POINT
+// breakdown. See serviceResponse and ServiceRollup.
+type ServiceResult struct {
+	Start         FeatureRef     `json:"start"`
+	Service       *ServiceRollup `json:"service"`
+	ServicePoints []ServicePoint `json:"service_points"`
+}
+
+// ServiceTrace runs one dedicated service trace through the engine's serviceTrace
+// entry point and returns the result in exported form. Read-only. Errors are the
+// engine's own (validation / not-found).
+func ServiceTrace(ctx context.Context, db bun.IDB, in ServiceInput) (*ServiceResult, error) {
+	resp, err := serviceTrace(ctx, db, serviceRequest{
+		TraceConfiguration: in.TraceConfiguration,
+		Start:              featureRef{FeatureClass: in.Start.FeatureClass, FeatureID: in.Start.FeatureID},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ServiceResult{
+		Start:         toExportedRef(resp.Start),
+		Service:       resp.Service,
+		ServicePoints: resp.ServicePoints,
 	}, nil
 }
 

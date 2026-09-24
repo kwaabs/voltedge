@@ -23,8 +23,11 @@ import (
 // DeviceState is the blamed device's live position (OPEN/CLOSED), omitted when
 // the device models none. ServicePoints is the point geometry of every
 // currently-dead service point below the device (for the map); Customers totals
-// their customers_served. Both are empty whenever the device is closed (supply
-// is on) or the incident carries no device.
+// their customers_served. Service is the Phase 62 consumption rollup of that
+// same dead cone -- load + customers split by restoration priority, so the
+// console can show "N critical customers off" (rank <= P2), not just a raw
+// total. All are empty/zero whenever the device is closed (supply is on) or the
+// incident carries no device.
 type EnergizationState struct {
 	IncidentID    string                 `json:"incident_id"`
 	DeviceClass   *string                `json:"device_class"`
@@ -32,6 +35,7 @@ type EnergizationState struct {
 	DeviceState   *string                `json:"device_state,omitempty"`
 	ServicePoints []AffectedServicePoint `json:"service_points"`
 	Customers     int                    `json:"customers"`
+	Service       *trace.ServiceRollup   `json:"service,omitempty"`
 }
 
 // IncidentEnergization resolves an incident's LIVE de-energized cone from the
@@ -75,31 +79,33 @@ func IncidentEnergization(ctx context.Context, db bun.IDB, id string) (*Energiza
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]string, 0, len(cone))
+	// Every load-leaf CLASS in the dead cone (Phase 63: SERVICE_POINT and METER).
+	// The PRIMARY-only rule is applied downstream -- SummarizeService excludes a
+	// CHECK/role-unset meter from the counts and AffectedSupplyGeometry excludes
+	// it from the map -- so passing all meters here can't over-count or over-draw.
+	spRefs := make([]trace.FeatureRef, 0, len(cone))
 	for _, f := range cone {
-		if f.FeatureClass == ServicePointClass {
-			ids = append(ids, f.FeatureID)
+		if f.FeatureClass == ServicePointClass || f.FeatureClass == MeterClass {
+			spRefs = append(spRefs, f)
 		}
 	}
 
-	sps, err := ServicePointGeometry(ctx, db, ids)
+	sps, err := AffectedSupplyGeometry(ctx, db, spRefs)
 	if err != nil {
 		return nil, err
 	}
 	out.ServicePoints = sps
 
-	if len(ids) > 0 {
-		var customers int
-		if err := db.NewSelect().
-			ColumnExpr("coalesce(sum(coalesce(customers_served, 1)), 0)").
-			TableExpr("gis.service_point").
-			Where("id IN (?)", bun.In(ids)).
-			Where("deleted_at IS NULL").
-			Scan(ctx, &customers); err != nil {
-			return nil, fmt.Errorf("oms: totalling de-energized customers for incident %s: %w", id, err)
-		}
-		out.Customers = customers
+	// Phase 62: roll the dead cone up by restoration tier through the shared
+	// trace engine -- one definition of "critical load" across trace and OMS.
+	// Its total customer count (coalesce(customers_served, 1) per SP) is the
+	// same figure the old dedicated SUM produced, so it doubles as Customers.
+	rollup, err := trace.SummarizeService(ctx, db, spRefs)
+	if err != nil {
+		return nil, fmt.Errorf("oms: rolling up de-energized load for incident %s: %w", id, err)
 	}
+	out.Service = rollup
+	out.Customers = rollup.Customers
 	return out, nil
 }
 

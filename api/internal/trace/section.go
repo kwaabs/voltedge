@@ -36,6 +36,10 @@ type sectionResponse struct {
 	Features           []tracedFeature `json:"features"`
 	UpstreamBoundary   *featureRef     `json:"upstream_boundary,omitempty"`
 	DownstreamBoundary *featureRef     `json:"downstream_boundary,omitempty"`
+	// Service is the Phase 62 consumption rollup of the section's
+	// SERVICE_POINTs -- the load + customers, by restoration tier, that a
+	// planned outage on this section would interrupt. See ServiceRollup.
+	Service *ServiceRollup `json:"service,omitempty"`
 }
 
 // sectionTrace composes two bounded walks -- an UPSTREAM and a
@@ -121,9 +125,15 @@ func sectionTrace(ctx context.Context, db bun.IDB, req sectionRequest) (*section
 		return nil, err
 	}
 
+	service, err := summarizeService(ctx, db, featureNodes, classCodes, loader)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := &sectionResponse{
 		Start:    req.Start,
 		Features: features,
+		Service:  service,
 	}
 	if len(upstreamHits) > 0 {
 		refs := toFeatureRefs(upstreamHits[:1], classCodes)

@@ -15,6 +15,7 @@ import {
   Plus,
   PowerOff,
   RotateCcw,
+  ShieldAlert,
   Siren,
   Users,
   XCircle,
@@ -567,10 +568,25 @@ function LiveDeEnergized({ incidentId }: { incidentId: string }) {
       </span>
     )
   }
+  // Critical customers off supply right now (restoration rank <= P2), surfaced
+  // beside the raw count so control-room triage sees the life-support/essential
+  // load first (Phase 62 service rollup rides along on the energization state).
+  const criticalOff = d.service?.critical.customers ?? 0
   return (
-    <span className="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-medium text-red-800 dark:bg-red-950 dark:text-red-300">
-      <PowerOff className="size-3" />
-      {off.toLocaleString()} off supply now
+    <span className="inline-flex items-center gap-1">
+      <span className="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-medium text-red-800 dark:bg-red-950 dark:text-red-300">
+        <PowerOff className="size-3" />
+        {off.toLocaleString()} off supply now
+      </span>
+      {criticalOff > 0 && (
+        <span
+          className="inline-flex items-center gap-1 rounded bg-red-600 px-1.5 py-0.5 text-[11px] font-semibold text-white"
+          title="Critical customers (life-support / essential) off supply now"
+        >
+          <ShieldAlert className="size-3" />
+          {criticalOff.toLocaleString()} critical
+        </span>
+      )}
     </span>
   )
 }

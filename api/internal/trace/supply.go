@@ -85,6 +85,11 @@ type supplyPathResponse struct {
 	ServingTransformer *featureRef       `json:"serving_transformer,omitempty"`
 	Source             *featureRef       `json:"source,omitempty"`
 	ReachedTransformer bool              `json:"reached_transformer"`
+	// Service is the Phase 62 consumption rollup over the path's SERVICE_POINTs.
+	// For an upstream supply-path walk that is typically just the start
+	// consumption point itself -- so this reads as "what this meter draws, and
+	// at what restoration priority" alongside "what feeds it." See ServiceRollup.
+	Service *ServiceRollup `json:"service,omitempty"`
 }
 
 func supplyPathTrace(ctx context.Context, db bun.IDB, req supplyPathRequest) (*supplyPathResponse, error) {
@@ -129,9 +134,15 @@ func supplyPathTrace(ctx context.Context, db bun.IDB, req supplyPathRequest) (*s
 		return nil, err
 	}
 
+	service, err := summarizeService(ctx, db, orderedNodes, classCodes, loader)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := &supplyPathResponse{
 		Start:    req.Start,
 		Features: features,
+		Service:  service,
 	}
 
 	// One nearest-first pass over the reached nodes: collect the milestone

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { AlertTriangle, ShieldAlert, X, Zap } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { ServiceRollupSummary } from "@/components/map/service-rollup-summary"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useFloatingPanel } from "@/hooks/use-floating-panel"
 import { apiFetch } from "@/lib/api"
@@ -131,6 +132,10 @@ export function IsolationResultTable() {
           )}
         </div>
       )}
+
+      {/* Phase 62: the load this isolation would drop (customers + kW, critical
+          subset, per-tier). Renders nothing if no service point de-energizes. */}
+      <ServiceRollupSummary service={result.service} variant="deenergized" />
 
       <div className={cn("overflow-y-auto", fp.resized ? "min-h-0 flex-1" : "max-h-[13rem]")}>
         {rows === null ? (

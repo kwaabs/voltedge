@@ -209,6 +209,12 @@ type AffectedArea struct {
 	DeviceClass   *string                `json:"device_class"`
 	DeviceID      *string                `json:"device_id"`
 	ServicePoints []AffectedServicePoint `json:"service_points"`
+	// Service is the Phase 62 consumption rollup of the affected cone -- load +
+	// customers split by restoration priority, so the console can report how
+	// many CRITICAL customers this incident hit, not just a raw count. Frozen
+	// or live, it rolls up whatever ids the area resolved to. See
+	// trace.ServiceRollup.
+	Service *trace.ServiceRollup `json:"service,omitempty"`
 }
 
 // IncidentAffectedArea resolves an incident's affected service points for the
@@ -223,33 +229,55 @@ func IncidentAffectedArea(ctx context.Context, db bun.IDB, id string) (*Affected
 		return nil, err
 	}
 
-	// Frozen snapshot first (present once confirmed).
-	var ids []string
+	// Frozen snapshot first (present once confirmed), each supply carrying the
+	// class it was frozen as (Phase 63) so a PRIMARY-METER supply resolves to
+	// gis.meter, not gis.service_point.
+	var frozen []struct {
+		FeatureClass   string `bun:"feature_class"`
+		ServicePointID string `bun:"service_point_id"`
+	}
 	if err := db.NewSelect().
-		ColumnExpr("service_point_id").
+		ColumnExpr("feature_class, service_point_id").
 		TableExpr("oms.customer_interruptions").
 		Where("incident_id = ?", id).
-		Scan(ctx, &ids); err != nil {
+		Scan(ctx, &frozen); err != nil {
 		return nil, fmt.Errorf("oms: loading interruptions for incident %s: %w", id, err)
+	}
+	spRefs := make([]trace.FeatureRef, 0, len(frozen))
+	for _, f := range frozen {
+		spRefs = append(spRefs, trace.FeatureRef{FeatureClass: f.FeatureClass, FeatureID: f.ServicePointID})
 	}
 
 	// No frozen rows yet -> live downstream trace from the blamed device.
-	if len(ids) == 0 && inc.PredictedDeviceClass != nil && inc.PredictedDeviceID != nil {
-		ids, err = DownstreamServicePointIDs(ctx, db, *inc.PredictedDeviceClass, *inc.PredictedDeviceID)
+	if len(spRefs) == 0 && inc.PredictedDeviceClass != nil && inc.PredictedDeviceID != nil {
+		supplies, err := DownstreamSupplies(ctx, db, *inc.PredictedDeviceClass, *inc.PredictedDeviceID)
 		if err != nil {
 			return nil, err
 		}
+		for _, s := range supplies {
+			spRefs = append(spRefs, trace.FeatureRef{FeatureClass: s.FeatureClass, FeatureID: s.FeatureID})
+		}
 	}
 
-	sps, err := ServicePointGeometry(ctx, db, ids)
+	sps, err := AffectedSupplyGeometry(ctx, db, spRefs)
 	if err != nil {
 		return nil, err
 	}
+
+	// Phase 62/63: roll the affected supplies up by restoration tier. Same shared
+	// engine the live energization uses, so "critical customers affected" means
+	// the same thing on the frozen snapshot as on the live cone.
+	rollup, err := trace.SummarizeService(ctx, db, spRefs)
+	if err != nil {
+		return nil, fmt.Errorf("oms: rolling up affected load for incident %s: %w", id, err)
+	}
+
 	return &AffectedArea{
 		IncidentID:    id,
 		DeviceClass:   inc.PredictedDeviceClass,
 		DeviceID:      inc.PredictedDeviceID,
 		ServicePoints: sps,
+		Service:       rollup,
 	}, nil
 }
 
@@ -355,11 +383,23 @@ RETURNING id`
 	return created, nil
 }
 
-// ConfirmIncident advances an incident to confirmed and materialises the per-SP
-// customer_interruptions the reliability indices sum over: it re-traces the
-// blamed/chosen device's downstream service points and freezes each one's
-// customers_served (null -> 1). A manually raised incident with no device writes
-// no interruptions.
+// interruptionRow is the insert shape for oms.customer_interruptions (Phase 63:
+// feature_class distinguishes a SERVICE_POINT supply from a PRIMARY-METER one).
+// A bare struct with ModelTableExpr rather than a registered bun model, since
+// this table is otherwise only ever read via raw SQL in indices.go.
+type interruptionRow struct {
+	IncidentID     string    `bun:"incident_id"`
+	FeatureClass   string    `bun:"feature_class"`
+	ServicePointID string    `bun:"service_point_id"`
+	Customers      int       `bun:"customers"`
+	InterruptedAt  time.Time `bun:"interrupted_at"`
+}
+
+// ConfirmIncident advances an incident to confirmed and materialises the
+// per-supply customer_interruptions the reliability indices sum over: it
+// re-traces the blamed/chosen device's downstream supplies (SERVICE_POINTs and
+// PRIMARY METERs) and freezes each one's customer count (null -> 1). A manually
+// raised incident with no device writes no interruptions.
 //
 // It confirms both a PREDICTED unplanned incident (the interruption began at the
 // prediction time, inc.StartedAt) and a SCHEDULED planned outage (confirm = "the
@@ -385,19 +425,33 @@ func ConfirmIncident(ctx context.Context, db *bun.DB, id string) (*Incident, err
 		}
 
 		if inc.PredictedDeviceClass != nil && inc.PredictedDeviceID != nil {
-			sps, err := DownstreamServicePointIDs(ctx, tx, *inc.PredictedDeviceClass, *inc.PredictedDeviceID)
+			supplies, err := DownstreamSupplies(ctx, tx, *inc.PredictedDeviceClass, *inc.PredictedDeviceID)
 			if err != nil {
 				return err
 			}
-			if len(sps) > 0 {
-				const insertInt = `
-INSERT INTO oms.customer_interruptions
-    (incident_id, service_point_id, customers, interrupted_at)
-SELECT ?, sp.id, coalesce(sp.customers_served, 1), ?
-FROM gis.service_point sp
-WHERE sp.id IN (?) AND sp.deleted_at IS NULL
-ON CONFLICT (incident_id, service_point_id) DO NOTHING`
-				if _, err := tx.ExecContext(ctx, insertInt, id, interruptedAt, bun.In(sps)); err != nil {
+			if len(supplies) > 0 {
+				// Freeze one row per counting load leaf (SERVICE_POINT or PRIMARY
+				// METER), recording its class so the map overlay can draw it back
+				// and its customer count exactly as the shared rollup computed it
+				// -- no re-query of the gis tables, so the frozen customers can
+				// never disagree with the affected/energization counts that used
+				// the same trace.ServicePoint lines. ON CONFLICT keys on the
+				// widened (incident, class, id) uniqueness from migration 0119.
+				rows := make([]interruptionRow, 0, len(supplies))
+				for _, s := range supplies {
+					rows = append(rows, interruptionRow{
+						IncidentID:     id,
+						FeatureClass:   s.FeatureClass,
+						ServicePointID: s.FeatureID,
+						Customers:      s.Customers,
+						InterruptedAt:  interruptedAt,
+					})
+				}
+				if _, err := tx.NewInsert().
+					Model(&rows).
+					ModelTableExpr("oms.customer_interruptions").
+					On("CONFLICT (incident_id, feature_class, service_point_id) DO NOTHING").
+					Exec(ctx); err != nil {
 					return fmt.Errorf("oms: materialising interruptions for incident %s: %w", id, err)
 				}
 			}

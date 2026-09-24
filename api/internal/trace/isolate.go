@@ -10,17 +10,11 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// criticalFacilityClass and criticalFacilityField are the one
-// concrete "is this a critical facility" signal this app's seed data
-// models -- a plain boolean field on SERVICE_POINT, not a formal
-// metadata concept any feature class can opt into. Hardcoded rather
-// than made configurable since nothing else in this pass needed that
-// generality; worth revisiting if a second consumer-facing class is
-// ever added.
-const (
-	criticalFacilityClass = "SERVICE_POINT"
-	criticalFacilityField = "is_critical"
-)
+// The "is this a critical facility" signal is no longer a hardcoded pair here:
+// it is DERIVED from the graded load_priority tier (rank <= P2) across the load
+// leaves service.go defines (isLoadLeaf / meterCountsAsLoad -- SERVICE_POINTs
+// and PRIMARY METERs), with is_critical still honoured as a fallback inside
+// resolveServicePriority. See the critical-facility check in isolate below.
 
 // isolationRequest is the POST /trace/isolate body. TraceConfiguration
 // must name a DOWNSTREAM-direction row -- its barrier settings (stop at
@@ -57,6 +51,13 @@ type isolationResponse struct {
 	UpstreamBoundary      *featureRef  `json:"upstream_boundary,omitempty"`
 	CriticalFacilities    []featureRef `json:"critical_facilities,omitempty"`
 	PossibleBackfeedPaths []featureRef `json:"possible_backfeed_paths,omitempty"`
+	// Service is the Phase 62 consumption rollup of the de-energized set -- how
+	// much load, how many customers, of what restoration priority, this
+	// isolation drops. The graded successor to CriticalFacilities (which stays
+	// as the explicit list of the individual critical SPs); Service.Critical is
+	// that same set's totals plus the P1 life-support split within it. See
+	// ServiceRollup.
+	Service *ServiceRollup `json:"service,omitempty"`
 }
 
 // isolate composes two of the engine's existing primitives rather than
@@ -193,15 +194,21 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 		return nil, err
 	}
 
-	// Critical-facility check: which of the de-energized set is a
-	// SERVICE_POINT with is_critical set. A missing/unreadable
-	// attribute (e.g. a dangling reference to a since-purged feature)
-	// is treated as "not critical" rather than failing the whole
-	// isolation over one row -- same reasoning checkBarrier already
-	// uses for the same situation.
+	// Critical-facility check: which of the de-energized set is a critical load
+	// leaf. A load leaf is a SERVICE_POINT or a PRIMARY METER (Phase 63 --
+	// isLoadLeaf / meterCountsAsLoad, the same set the consumption rollup below
+	// counts), so a critical PRIMARY meter lands in this list too and stays in
+	// step with service.Critical. Critical is DERIVED from the graded
+	// load_priority tier (Phase 62) -- rank <= P2 (life-support or essential) --
+	// superseding the old is_critical boolean, which resolveServicePriority
+	// still honours as a fallback for any row not yet re-graded. A
+	// missing/unreadable attribute (e.g. a dangling reference to a since-purged
+	// feature) is treated as "not critical" rather than failing the whole
+	// isolation over one row -- same reasoning checkBarrier already uses.
 	var criticalNodes []node
 	for _, n := range deEnergizedNodes {
-		if classCodes[n.classID] != criticalFacilityClass {
+		code := classCodes[n.classID]
+		if !isLoadLeaf(code) {
 			continue
 		}
 		classLoaded, lerr := loader.loadedFor(ctx, db, n.classID)
@@ -213,14 +220,23 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 			continue
 		}
 		attrs, _ := row["attributes"].(map[string]any)
-		if critical, _ := attrs[criticalFacilityField].(bool); critical {
+		if !meterCountsAsLoad(code, attrs) {
+			continue
+		}
+		if priorityRank[resolveServicePriority(attrs)] <= criticalMaxRank {
 			criticalNodes = append(criticalNodes, n)
 		}
+	}
+
+	service, err := summarizeService(ctx, db, deEnergizedNodes, classCodes, loader)
+	if err != nil {
+		return nil, err
 	}
 
 	resp := &isolationResponse{
 		Device:      req.Device,
 		DeEnergized: toFeatureRefs(deEnergizedNodes, classCodes),
+		Service:     service,
 	}
 	if len(criticalNodes) > 0 {
 		resp.CriticalFacilities = toFeatureRefs(criticalNodes, classCodes)

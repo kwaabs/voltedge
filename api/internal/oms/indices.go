@@ -232,11 +232,32 @@ FROM clipped`, aggCircuitJoin)
 	}
 
 	// Denominator: total customers served on the live system (or in the circuit).
+	// Phase 63: metered customers now live on PRIMARY meters, so a WHOLE-SYSTEM
+	// denominator sums gis.service_point AND gis.meter(role=PRIMARY) -- matching
+	// the numerator, whose frozen ci.customers already includes meter
+	// interruptions. A PER-CIRCUIT report stays SP-only on BOTH sides: meters
+	// carry no circuit_id yet, so the scoped numerator's SP-join drops meter rows
+	// and the denominator must exclude them too, keeping the scope internally
+	// consistent (a documented limitation until meters carry circuit membership).
+	// The meter term is probed fail-soft, like the circuit_id guard above, so a
+	// deployment that has not applied seed/meter_load_leaf.sql still reports on
+	// service points alone rather than 500-ing on a missing gis.meter.meter_role.
 	var totalCustomers int
 	denomQuery := fmt.Sprintf(
 		`SELECT COALESCE(SUM(COALESCE(customers_served, 1)), 0) FROM gis.service_point WHERE deleted_at IS NULL %s`,
 		denomCircuitFilter,
 	)
+	if !scoped {
+		hasMeterLoad, err := meterLoadAvailable(ctx, db)
+		if err != nil {
+			return nil, err
+		}
+		if hasMeterLoad {
+			denomQuery = `SELECT
+    (SELECT COALESCE(SUM(COALESCE(customers_served, 1)), 0) FROM gis.service_point WHERE deleted_at IS NULL)
+  + (SELECT COALESCE(SUM(COALESCE(customers_served, 1)), 0) FROM gis.meter WHERE deleted_at IS NULL AND meter_role = 'PRIMARY')`
+		}
+	}
 	if err := db.NewRaw(denomQuery, denomArgs...).Scan(ctx, &totalCustomers); err != nil {
 		return nil, fmt.Errorf("oms: computing customer denominator: %w", err)
 	}
@@ -281,6 +302,24 @@ FROM clipped`, aggCircuitJoin)
 	}
 
 	return out, nil
+}
+
+// meterLoadAvailable reports whether gis.meter carries the meter_role column --
+// i.e. whether seed/meter_load_leaf.sql (Phase 63) has been applied and METER
+// recompiled. Used fail-soft to decide whether the whole-system customer
+// denominator should include PRIMARY meters, so the reliability report keeps
+// working on a deployment still on the SERVICE_POINT-only model. Same
+// information_schema probe posture as the circuit_id guard.
+func meterLoadAvailable(ctx context.Context, db bun.IDB) (bool, error) {
+	var ok bool
+	const q = `SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'gis' AND table_name = 'meter' AND column_name = 'meter_role'
+)`
+	if err := db.NewRaw(q).Scan(ctx, &ok); err != nil {
+		return false, fmt.Errorf("oms: checking gis.meter.meter_role column: %w", err)
+	}
+	return ok, nil
 }
 
 // attachFaultCauseBreakdown computes out.ByFaultCause: the same window's

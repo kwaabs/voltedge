@@ -441,6 +441,34 @@ func toolRunSectionTrace(ctx context.Context, db bun.IDB, args json.RawMessage) 
 	return result, nil
 }
 
+func toolRunServiceTrace(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		TraceConfiguration string `json:"trace_configuration"`
+		Start              struct {
+			FeatureClass string `json:"feature_class"`
+			FeatureID    string `json:"feature_id"`
+		} `json:"start"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.TraceConfiguration == "" {
+		return nil, fmt.Errorf("trace_configuration is required")
+	}
+	if in.Start.FeatureClass == "" || in.Start.FeatureID == "" {
+		return nil, fmt.Errorf("start.feature_class and start.feature_id are required")
+	}
+
+	result, err := trace.ServiceTrace(ctx, db, trace.ServiceInput{
+		TraceConfiguration: in.TraceConfiguration,
+		Start:              trace.FeatureRef{FeatureClass: in.Start.FeatureClass, FeatureID: in.Start.FeatureID},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func toolSuggestConnections(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
 	var in struct {
 		FeatureClass string  `json:"feature_class"`

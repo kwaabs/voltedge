@@ -31,6 +31,10 @@ import (
 //	                       consumption point -- LV switching devices, the
 //	                       serving distribution transformer, then on to
 //	                       the MV devices, power transformer, and source
+//	POST   /service        the consumption below a feature -- a downstream
+//	                       walk rolled up by load, customers, and
+//	                       restoration priority, with the per-SERVICE_POINT
+//	                       breakdown behind it
 //
 // Read-only -- unlike api/internal/connectivity and
 // api/internal/relationship, there's nothing here to establish or
@@ -44,6 +48,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/feeder", feederHandler(db))
 	r.Post("/section", sectionHandler(db))
 	r.Post("/supply-path", supplyPathHandler(db))
+	r.Post("/service", serviceHandler(db))
 	return r
 }
 
@@ -124,6 +129,23 @@ func supplyPathHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := supplyPathTrace(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func serviceHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req serviceRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := serviceTrace(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

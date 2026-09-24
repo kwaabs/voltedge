@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { ApiError, apiFetch } from "@/lib/api"
+import type { ServiceRollup } from "@/stores/trace-store"
 
 // Client mirror of the Outage Management API (api/internal/oms). An outage is
 // an operational transaction, not feature data, so it has its own /oms surface
@@ -75,6 +76,10 @@ export interface AffectedArea {
   device_class: string | null
   device_id: string | null
   service_points: AffectedServicePoint[]
+  /** Phase 62 consumption rollup of the affected cone -- load + customers split
+   * by restoration tier, so the console can show critical customers hit, not
+   * just a raw count. See ServiceRollup (trace-store.ts). */
+  service?: ServiceRollup
 }
 
 /** System reliability indices (IEEE 1366) over the confirmed interruption
@@ -131,6 +136,10 @@ export interface EnergizationState {
   device_state?: string
   service_points: AffectedServicePoint[]
   customers: number
+  /** Phase 62 consumption rollup of the live dead cone -- load + customers by
+   * restoration tier (service.critical = the rank <= P2 subset). See
+   * ServiceRollup (trace-store.ts). */
+  service?: ServiceRollup
 }
 
 /** An incident's live de-energized cone, for the console map + KPI. Skipped

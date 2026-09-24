@@ -75,7 +75,7 @@ func GenerateSwitchingOrder(ctx context.Context, db *bun.DB, incidentID string) 
 
 	// De-energized cone size (for the verify step) and the nearest upstream
 	// isolation point (for the source-side earth), both barrier-free.
-	sps, err := DownstreamServicePointIDs(ctx, db, deviceClass, deviceID)
+	supplies, err := DownstreamSupplies(ctx, db, deviceClass, deviceID)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func GenerateSwitchingOrder(ctx context.Context, db *bun.DB, incidentID string) 
 	drafts = append(drafts, stepDraft{StepPhaseIsolate, StepActionOpen,
 		fmt.Sprintf("Open %s to isolate the work area.", deviceLabel), &dc, &di})
 	drafts = append(drafts, stepDraft{StepPhaseIsolate, StepActionVerify,
-		fmt.Sprintf("Verify %d service point(s) downstream are de-energized.", len(sps)), nil, nil})
+		fmt.Sprintf("Verify %d supply(ies) downstream are de-energized.", len(supplies)), nil, nil})
 	if boundary != nil {
 		bc, bi := boundary.FeatureClass, boundary.FeatureID
 		drafts = append(drafts, stepDraft{StepPhaseIsolate, StepActionEarth,

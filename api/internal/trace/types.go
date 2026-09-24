@@ -110,6 +110,12 @@ type traceResponse struct {
 	PathFound          *bool           `json:"path_found,omitempty"`
 	Targets            []featureRef    `json:"targets,omitempty"`
 	TargetsFound       *bool           `json:"targets_found,omitempty"`
+	// Service is the consumption rollup of the SERVICE_POINTs this trace
+	// reached (Phase 62): total load + customers, the critical subset, and the
+	// per-restoration-tier breakdown. Always present, even on a trace that
+	// reached no load (every tier zero), so a client can render the summary
+	// unconditionally. See ServiceRollup.
+	Service *ServiceRollup `json:"service,omitempty"`
 }
 
 // traceConfigurationSummary is one row of GET /trace/configurations --

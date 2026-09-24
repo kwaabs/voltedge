@@ -548,6 +548,38 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/service_point_example.sql
 
+  seed-service-point-load-priority:
+    desc: Add the graded load_priority tier (P1 life-support / P2 essential / P3 priority / P4 standard) to SERVICE_POINT and hide the superseded is_critical from forms (Phase 62 Slice 1) through the gitbash sidecar (metadata-only; recompile CODE=SERVICE_POINT after, then run seed-service-point-load-priority-backfill)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/service_point_load_priority.sql
+
+  seed-service-point-load-priority-backfill:
+    desc: Map existing SERVICE_POINTs onto load_priority (is_critical=true -> P2, else -> P4) through the gitbash sidecar (Phase 62 Slice 1; run AFTER seed-service-point-load-priority and recompiling SERVICE_POINT)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/service_point_load_priority_backfill.sql
+
+  seed-meter-load-leaf:
+    desc: Give METER the load attributes (demand_kw/power_factor/customers_served/load_priority) + a PRIMARY/CHECK meter_role so a PRIMARY meter is a load-bearing leaf (Phase 63) through the gitbash sidecar (additive/non-destructive; recompile CODE=METER after -- the destructive meter<-SP data move is seed/meter_load_leaf_migrate.sql, run separately)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/meter_load_leaf.sql
+
+  seed-meter-load-leaf-migrate:
+    desc: "DESTRUCTIVE (Phase 63): move each trailing SERVICE_POINT's load onto its feeding meter (meter_role=PRIMARY), soft-delete the SP, drop the meter<->SP wiring. Run AFTER seed-meter-load-leaf + compile CODE=METER. Migrates only clean 1:1 dependency-free pairs; NOTICEs skips. Review against a backup first -- irreversible."
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/meter_load_leaf_migrate.sql
+
   seed-lv-devices:
     desc: Load the SERVICE_CUTOUT + LV_LINK_BOX classes (Phase 9 Slice 2) through the gitbash sidecar (requires seed-lv-conductors first; compile CODE=SERVICE_CUTOUT and CODE=LV_LINK_BOX after)
     cmds:
@@ -1226,6 +1258,7 @@ tasks:
       - task: seed-phase-model
       - task: seed-lv-conductors
       - task: seed-service-point
+      - task: seed-service-point-load-priority
       - task: seed-lv-devices
       - task: seed-lv-metering
       - task: seed-lv-unmetered-ct
@@ -1305,6 +1338,9 @@ tasks:
       # --- Phase 3: instance / network data. These INSERT/UPDATE gis.<code>
       # rows, so they need the tables from Phase 2. Kept in authoring order;
       # each fails loudly if a prerequisite instance seed hasn't run. ------------
+      # Backfills that UPDATE a just-compiled column go here (post-compile), not
+      # in Phase 1 -- load_priority only exists after compile-all above.
+      - task: seed-service-point-load-priority-backfill
       - task: seed-test-network
       - task: seed-generator-network
       - task: seed-lv-ring-network

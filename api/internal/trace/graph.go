@@ -772,12 +772,22 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 		features[i].ParentFeatureID = &pid
 	}
 
+	// Phase 62: roll the reached SERVICE_POINTs up by load + restoration tier,
+	// so every trace carries "what consumption sits below this" alongside the
+	// topology. Reuses the same nodes/classCodes/loader the walk already built,
+	// so it costs one live read per reached SP and nothing per non-load node.
+	service, err := summarizeService(ctx, db, featureNodes, classCodes, loader)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := &traceResponse{
 		TraceConfiguration: tc.Code,
 		Direction:          direction,
 		Start:              req.Start,
 		Features:           features,
 		Barriers:           toFeatureRefs(barrierHits, classCodes),
+		Service:            service,
 	}
 	if direction == "SHORTEST_PATH" {
 		resp.PathFound = &found
