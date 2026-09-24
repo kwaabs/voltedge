@@ -140,18 +140,32 @@ type phaseState struct {
 	cumKVAR     [phaseCount]float64
 	voltageV    [phaseCount]float64
 	voltageBase float64
+
+	// voltageC is the per-phase COMPLEX node voltage -- populated only by the
+	// Tier 2 coupled sweep (unbalanced_coupled.go), which needs phasors (not
+	// just magnitudes) for the mutual Carson terms to matter. The decoupled
+	// Tier 1 sweep leaves it zero and reads voltageV instead.
+	voltageC [phaseCount]complex128
 }
 
 // runUnbalancedLoadFlow is POST /analysis/unbalanced-load-flow. It shares the
 // balanced sweep's front half -- resolve the start, build the radial tree,
-// resolve every node's electrical inputs -- then runs the decoupled per-phase
-// passes instead of the scalar ones, and formats per-phase results.
-func runUnbalancedLoadFlow(ctx context.Context, db bun.IDB, req loadFlowRequest) (*unbalancedResponse, error) {
+// resolve every node's electrical inputs -- and the per-phase demand split and
+// backward power accumulation, then branches on req.Coupled: the Tier 1
+// decoupled scalar forward pass, or (Tier 2) a complex coupled forward pass
+// whose branch drops use each conductor's full 3x3 Carson matrix.
+func runUnbalancedLoadFlow(ctx context.Context, db bun.IDB, req unbalancedRequest) (*unbalancedResponse, error) {
 	if req.Start.FeatureClass == "" || req.Start.FeatureID == "" {
 		return nil, invalid("start.feature_class and start.feature_id are required")
 	}
 	if req.NominalVoltageV <= 0 {
 		return nil, invalid("nominal_voltage_v must be a positive number")
+	}
+	if req.FrequencyHz < 0 {
+		return nil, invalid("frequency_hz must not be negative")
+	}
+	if req.EarthResistivityOhmM < 0 {
+		return nil, invalid("earth_resistivity_ohm_m must not be negative")
 	}
 
 	start, err := resolveNode(ctx, db, req.Start)
@@ -185,7 +199,6 @@ func runUnbalancedLoadFlow(ctx context.Context, db bun.IDB, req loadFlowRequest)
 	if ss := states[start]; ss != nil {
 		sourceR, sourceX = resolveSourceImpedance(ss.attrs)
 	}
-	forwardSweepPhases(tr, states, pstates, start, req.NominalVoltageV, sourceR, sourceX)
 
 	allNodes := append(append([]node{}, tr.order...), barrierHits...)
 	classCodes, err := nodeClassCodes(ctx, db, allNodes)
@@ -193,11 +206,26 @@ func runUnbalancedLoadFlow(ctx context.Context, db bun.IDB, req loadFlowRequest)
 		return nil, err
 	}
 
-	nodes, unbalanced := formatUnbalanced(tr, states, pstates, classCodes)
+	var (
+		nodes      []unbalancedNodeResult
+		unbalanced []featureRef
+		coupling   = couplingDecoupled
+	)
+	if req.Coupled {
+		carsons := resolveCarsonMatrices(tr, states, req.FrequencyHz, req.EarthResistivityOhmM)
+		coupledForwardSweep(tr, states, pstates, carsons, start, req.NominalVoltageV, sourceR, sourceX)
+		nodes, unbalanced = formatUnbalancedCoupled(tr, states, pstates, carsons, classCodes)
+		coupling = couplingCarson
+	} else {
+		forwardSweepPhases(tr, states, pstates, start, req.NominalVoltageV, sourceR, sourceX)
+		nodes, unbalanced = formatUnbalanced(tr, states, pstates, classCodes)
+	}
+
 	return &unbalancedResponse{
 		Start:           req.Start,
 		NominalVoltageV: req.NominalVoltageV,
 		Iterations:      sweepIterations,
+		CouplingModel:   coupling,
 		Nodes:           nodes,
 		Barriers:        toFeatureRefs(barrierHits, classCodes),
 		Unbalanced:      unbalanced,

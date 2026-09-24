@@ -33,15 +33,21 @@ export interface UnbalancedNodeResult {
   neutral_current_amps?: number
   voltage_unbalance_pct?: number
   material_resolved: boolean
+  /** True only on a coupled (Carson) run, and only for a conductor whose spec
+   * carried enough line geometry to build a 3x3 -- i.e. this branch's drop
+   * genuinely included the phase-to-phase mutual terms. */
+  mutual_modeled: boolean
 }
 
 /** Mirrors api/internal/powerflow's unbalancedResponse. unbalanced is the subset
  * of nodes whose voltage unbalance exceeds the planning limit -- the per-phase
- * analog of the balanced result's overloaded list. */
+ * analog of the balanced result's overloaded list. coupling_model is which solver
+ * ran: "decoupled" (Tier 1) or "carson" (Tier 2, coupled). */
 export interface UnbalancedLoadFlowResult {
   start: TraceFeatureRef
   nominal_voltage_v: number
   iterations: number
+  coupling_model: string
   nodes: UnbalancedNodeResult[]
   barriers: TraceFeatureRef[]
   unbalanced: TraceFeatureRef[]

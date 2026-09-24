@@ -612,6 +612,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/mv_conductor_specs.sql
 
+  seed-material-line-geometry:
+    desc: Add Carson line geometry (phase/neutral GMR + wire positions) to the LV cable + MV overhead conductor specs so the Tier 2 coupled unbalanced load flow builds a real 3x3 (Phase 55 Tier 2) through the gitbash sidecar (requires seed-lv-conductors + seed-mv-conductor-specs + migration 0117 first; no compile needed -- catalog columns)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/material_line_geometry.sql
+
   seed-zero-seq-fields:
     desc: Add the zero-sequence fields the ground-fault SLG calc reads (DIST_XFMR/POWER_XFMR.z0_pct + DIST_XFMR.source_r0_ohm/source_x0_ohm; ground-fault Slice 3) through the gitbash sidecar (requires the DIST_XFMR + POWER_XFMR seeds and migration 0071 first; re-compile CODE=DIST_XFMR and CODE=POWER_XFMR after)
     cmds:
@@ -1162,6 +1170,7 @@ tasks:
       - task: seed-power-transformer
       - task: seed-earthing-transformer
       - task: seed-mv-conductor-specs
+      - task: seed-material-line-geometry
       - task: seed-zero-seq-fields
       - task: seed-cim-mapping
       - task: seed-cim-mapping-coverage

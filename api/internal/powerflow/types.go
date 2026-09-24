@@ -67,6 +67,23 @@ type loadFlowRequest struct {
 	NominalVoltageV float64    `json:"nominal_voltage_v"`
 }
 
+// unbalancedRequest is POST /analysis/unbalanced-load-flow's body. Start and
+// NominalVoltageV carry the same meaning (and basis freedom) as loadFlowRequest.
+// Coupled selects the solver fidelity: false (default) is the Tier 1 decoupled
+// per-phase sweep; true is the Tier 2 Carson-coupled complex sweep, which reads
+// each conductor's line geometry (metadata.MaterialSpec, migrations/0117) to
+// build a full 3x3 phase-impedance matrix with mutual terms. FrequencyHz and
+// EarthResistivityOhmM are the two Carson environmental inputs -- both optional,
+// defaulting to 50 Hz and 100 ohm-m (defaultFrequencyHz / defaultEarthResistivity
+// OhmM); both ignored on a decoupled run.
+type unbalancedRequest struct {
+	Start                featureRef `json:"start"`
+	NominalVoltageV      float64    `json:"nominal_voltage_v"`
+	Coupled              bool       `json:"coupled"`
+	FrequencyHz          float64    `json:"frequency_hz"`
+	EarthResistivityOhmM float64    `json:"earth_resistivity_ohm_m"`
+}
+
 // nodeResult is one visited node's resolved electrical state.
 // VoltageV/VoltageDropPct are always populated. NominalBaseV is the
 // voltage base VoltageV and VoltageDropPct are expressed on: the run's
@@ -262,6 +279,14 @@ type unbalancedNodeResult struct {
 	NeutralCurrentAmps  *float64      `json:"neutral_current_amps,omitempty"`
 	VoltageUnbalancePct *float64      `json:"voltage_unbalance_pct,omitempty"`
 	MaterialResolved    bool          `json:"material_resolved"`
+
+	// MutualModeled is true only on a Tier 2 (coupled) run, and only for a
+	// conductor node whose spec carried enough line geometry to build a Carson
+	// 3x3 -- i.e. this branch's drop actually included the phase-to-phase mutual
+	// terms. False on every decoupled run, every junction, and any conductor
+	// that fell back to its decoupled diagonal impedance for want of geometry;
+	// a client can tell which segments genuinely coupled.
+	MutualModeled bool `json:"mutual_modeled"`
 }
 
 // unbalancedResponse is the full result of one unbalanced (three-phase) sweep.
@@ -272,6 +297,11 @@ type unbalancedResponse struct {
 	Start           featureRef             `json:"start"`
 	NominalVoltageV float64                `json:"nominal_voltage_v"`
 	Iterations      int                    `json:"iterations"`
+	// CouplingModel is which solver ran: "decoupled" (Tier 1, three independent
+	// per-phase ladders) or "carson" (Tier 2, complex sweep over each conductor's
+	// Carson 3x3). It lets a client label the result without inferring it from
+	// the request.
+	CouplingModel   string                 `json:"coupling_model"`
 	Nodes           []unbalancedNodeResult `json:"nodes"`
 	Barriers        []featureRef           `json:"barriers"`
 	Unbalanced      []featureRef           `json:"unbalanced"`

@@ -50,6 +50,8 @@ function UnbalancedExplanation({
   classNameFor: (code: string) => string
 }) {
   const worst = worstUnbalance(result)
+  const isCarson = result.coupling_model === "carson"
+  const coupledSegments = result.nodes.filter((n) => n.mutual_modeled).length
   const worstFormula = (() => {
     if (!worst) return null
     const byPhase = new Map(worst.node.phases.map((p) => [p.phase, p.voltage_v]))
@@ -63,21 +65,50 @@ mean = ${formatNumber(mean)} V     unbalance = max|Vφ − mean| / mean = ${form
   })()
   return (
     <AnalysisExplanation>
+      {isCarson ? (
+        <p>
+          <b>Three-phase (unbalanced) load flow — Carson coupled.</b> A single <b>complex</b> forward-backward sweep on
+          the radial tree, where each conductor's voltage drop is the full matrix product{" "}
+          <code>ΔV = Z·I</code> over its <b>3×3 Carson phase-impedance matrix</b>, built from the conductor spec's line
+          geometry (phase/neutral positions + GMR) with an earth-return path and the neutral Kron-reduced in. The{" "}
+          <b>off-diagonal (mutual) terms</b> are what makes current on one phase pull the <i>other</i> phases' voltages
+          — the coupling the decoupled model omits.{" "}
+          {coupledSegments > 0 ? (
+            <>
+              <b>{coupledSegments}</b> conductor segment{coupledSegments === 1 ? "" : "s"} carried enough geometry to
+              couple; any without it fell back to a decoupled diagonal for that branch.
+            </>
+          ) : (
+            <>
+              No conductor on this feeder carried line geometry, so every branch fell back to a decoupled diagonal — the
+              result matches the Tier-1 solve. Seed <code>material_line_geometry.sql</code> to see the coupling.
+            </>
+          )}
+        </p>
+      ) : (
+        <p>
+          <b>Three-phase (unbalanced) load flow — decoupled.</b> Phases <b>A/B/C</b> are solved as three{" "}
+          <b>independent</b> ladders on the same radial tree the balanced sweep walks. Per phase, the drop is the same{" "}
+          <code>ΔV ≈ (P·R + Q·X) / V</code> the balanced engine uses — with <b>no mutual coupling</b> between phases
+          (the Tier-1 limit, exactly as the balanced sweep drops the branch current angle). Switch coupling to{" "}
+          <i>Carson</i> to model the phase-to-phase interaction from conductor geometry.
+        </p>
+      )}
       <p>
-        <b>Three-phase (unbalanced) load flow.</b> Phases <b>A/B/C</b> are solved as three <b>decoupled</b> ladders on
-        the same radial tree the balanced sweep walks. Each conductor's own <code>phase</code> designation narrows the
-        energized phase set going down the tree, so a single-phase lateral loads only its one phase; every load splits
-        its demand across the phases it is actually connected to (a <code>SERVICE_POINT</code> inherits the phases of the
-        conductor feeding it). Per phase, the drop is the same{" "}
-        <code>ΔV ≈ (P·R + Q·X) / V</code> the balanced engine uses.
+        Each conductor's own <code>phase</code> designation narrows the energized phase set going down the tree, so a
+        single-phase lateral loads only its one phase; every load splits its demand across the phases it is actually
+        connected to (a <code>SERVICE_POINT</code> inherits the phases of the conductor feeding it).
       </p>
       <p>
         <b>{result.nodes.length}</b> node{result.nodes.length === 1 ? "" : "s"} solved at{" "}
         <b>{formatNumber(result.nominal_voltage_v, 0)} V</b> nominal ({result.iterations} passes). Where all three phases
-        are present, the <b>neutral return current</b> is the phasor sum of the three phase currents (at their nominal
-        0/−120/+120° angles) and the <b>voltage unbalance</b> is the NEMA figure -- max deviation of any phase from the
-        three-phase mean. This is a Tier-1 estimate: the three phases carry <b>no mutual coupling</b> (that needs
-        conductor geometry the model does not hold), exactly as the balanced sweep drops the branch current angle.
+        are present, the <b>neutral return current</b> is the sum of the three phase currents
+        {isCarson ? (
+          <> (the exact complex phasor sum)</>
+        ) : (
+          <> (at their nominal 0/−120/+120° angles)</>
+        )}{" "}
+        and the <b>voltage unbalance</b> is the NEMA figure -- max deviation of any phase from the three-phase mean.
       </p>
       {worst && (
         <>
@@ -99,18 +130,20 @@ mean = ${formatNumber(mean)} V     unbalance = max|Vφ − mean| / mean = ${form
 
 /**
  * Floating panel for api/internal/powerflow's unbalanced (three-phase) load flow
- * (POST /analysis/unbalanced-load-flow, Phase 55 Tier 1). Armed on a feeder's
- * source, it solves phases A/B/C as three decoupled ladders and reports per-node
- * Va/Vb/Vc, the voltage unbalance between them, and the neutral return current --
- * the per-phase twin of the balanced load-flow panel. Same combined prompt+result
- * shape and bottom-center slot as the other analysis panels; the analysis
- * workflows are mutually exclusive, so feature-panel.tsx's triggers clear each
- * other's stores.
+ * (POST /analysis/unbalanced-load-flow, Phase 55). Armed on a feeder's source, it
+ * reports per-node Va/Vb/Vc, the voltage unbalance between them, and the neutral
+ * return current -- the per-phase twin of the balanced load-flow panel. Same
+ * combined prompt+result shape and bottom-center slot as the other analysis
+ * panels; the analysis workflows are mutually exclusive, so feature-panel.tsx's
+ * triggers clear each other's stores.
  *
- * The prompt asks only for nominal_voltage_v (the same un-guessable input the
- * balanced load flow needs) -- the per-phase split is driven entirely by the
- * model's own conductor `phase` fields. The result lists each node (most-unbalanced
- * first) with its per-phase voltages, unbalance %, and neutral current.
+ * The prompt asks for nominal_voltage_v (the same un-guessable input the balanced
+ * load flow needs) and a coupling model: "Carson (coupled 3×3)" -- Tier 2, a
+ * complex sweep over each conductor's full phase-impedance matrix from its line
+ * geometry (the default) -- or "Decoupled per-phase" -- Tier 1, three independent
+ * ladders. The per-phase split is driven entirely by the model's own conductor
+ * `phase` fields. The result lists each node (most-unbalanced first) with its
+ * per-phase voltages, unbalance %, and neutral current.
  */
 export function UnbalancedLoadFlowPanel() {
   const armed = useUnbalancedLoadFlowStore((s) => s.armed)
@@ -118,6 +151,10 @@ export function UnbalancedLoadFlowPanel() {
   const result = useUnbalancedLoadFlowStore((s) => s.result)
   const { data: featureClasses } = useFeatureClasses()
   const [voltageInput, setVoltageInput] = useState("400")
+  // Coupling model: "carson" (Tier 2, the mutual-coupling solve this panel was
+  // built for) is the default; "decoupled" is the Tier 1 three-independent-ladder
+  // fallback. Whichever the caller picks, the response echoes coupling_model back.
+  const [coupled, setCoupled] = useState(true)
   const fp = useFloatingPanel(720, "max-h-[24rem]")
 
   if (!armed && !result) return null
@@ -137,7 +174,7 @@ export function UnbalancedLoadFlowPanel() {
     try {
       const response = await apiFetch<UnbalancedLoadFlowResult>("/analysis/unbalanced-load-flow", {
         method: "POST",
-        body: JSON.stringify({ start, nominal_voltage_v: nominalVoltageV }),
+        body: JSON.stringify({ start, nominal_voltage_v: nominalVoltageV, coupled }),
       })
       useUnbalancedLoadFlowStore.getState().setResult(response)
     } catch (err) {
@@ -185,6 +222,17 @@ export function UnbalancedLoadFlowPanel() {
               autoFocus
             />
           </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-muted-foreground text-xs">Coupling</label>
+            <select
+              className={cn(inputClass, "w-52")}
+              value={coupled ? "carson" : "decoupled"}
+              onChange={(e) => setCoupled(e.target.value === "carson")}
+            >
+              <option value="carson">Carson (coupled 3×3)</option>
+              <option value="decoupled">Decoupled per-phase</option>
+            </select>
+          </div>
           <Button size="sm" className="ml-auto" onClick={runUnbalanced} disabled={loading}>
             {loading ? "Running…" : "Run"}
           </Button>
@@ -197,6 +245,17 @@ export function UnbalancedLoadFlowPanel() {
               <span>
                 {result.nodes.length} node{result.nodes.length === 1 ? "" : "s"}
               </span>
+              {result.coupling_model === "carson" ? (
+                <span className="text-primary font-medium">
+                  Carson coupled{" "}
+                  {(() => {
+                    const n = result.nodes.filter((x) => x.mutual_modeled).length
+                    return n > 0 ? `(${n} segment${n === 1 ? "" : "s"})` : "(no geometry — fell back)"
+                  })()}
+                </span>
+              ) : (
+                <span>Decoupled</span>
+              )}
               {result.unbalanced.length > 0 && (
                 <span className="text-amber-600 dark:text-amber-500">
                   {result.unbalanced.length} over 2%

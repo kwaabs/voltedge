@@ -232,6 +232,28 @@ type MaterialSpec struct {
 	// Nothing consumes these yet -- catalog data ready for a future estimate.
 	CostPerKm *float64 `bun:"cost_per_km"`
 	UnitCost  *float64 `bun:"unit_cost"`
+
+	// Line geometry (migrations/0117) -- the per-conductor-type input the
+	// Tier 2 coupled unbalanced load flow (api/internal/powerflow/carson.go)
+	// needs to build the asymmetric 3x3 phase-impedance matrix from Carson's
+	// equations. GmrPhaseMm is the phase wire's geometric mean radius; the
+	// neutral trio (GmrNeutralMm/ResistanceNeutralOhmPerKm + PosN) drives the
+	// Kron reduction when present, else the line is treated as 3-wire. Pos*
+	// are wire positions on the structure (m) from any consistent origin --
+	// only pairwise distances enter Carson. All NULL => the coupled solver
+	// falls back to the decoupled per-phase path for that segment; no other
+	// analysis reads these.
+	GmrPhaseMm                 *float64 `bun:"gmr_phase_mm"`
+	GmrNeutralMm               *float64 `bun:"gmr_neutral_mm"`
+	ResistanceNeutralOhmPerKm  *float64 `bun:"resistance_neutral_ohm_per_km"`
+	PosAX                      *float64 `bun:"pos_a_x_m"`
+	PosAY                      *float64 `bun:"pos_a_y_m"`
+	PosBX                      *float64 `bun:"pos_b_x_m"`
+	PosBY                      *float64 `bun:"pos_b_y_m"`
+	PosCX                      *float64 `bun:"pos_c_x_m"`
+	PosCY                      *float64 `bun:"pos_c_y_m"`
+	PosNX                      *float64 `bun:"pos_n_x_m"`
+	PosNY                      *float64 `bun:"pos_n_y_m"`
 }
 
 // FieldGroup mirrors metadata.field_groups -- see migrations/0005. A

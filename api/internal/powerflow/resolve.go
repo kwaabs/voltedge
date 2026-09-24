@@ -108,6 +108,13 @@ type conductorImpedance struct {
 	r0Ohm           float64
 	x0Ohm           float64
 	zeroSeqResolved bool
+
+	// spec is the material spec this impedance resolved from, retained so the
+	// Tier 2 coupled unbalanced solve can build the conductor's Carson 3x3 from
+	// its line-geometry columns (buildCarsonMatrix) without re-querying -- nil
+	// when Resolved is false. lengthM (above) is that conductor's real length,
+	// the same figure the per-km R/X was scaled by.
+	spec *metadata.MaterialSpec
 }
 
 // resolveConductorImpedance computes one edge-class node's own R+jX:
@@ -179,6 +186,7 @@ func resolveConductorImpedance(ctx context.Context, db bun.IDB, loaded *metadata
 		return conductorImpedance{
 			rOhm: r, xOhm: x, lengthM: lengthM, r0Ohm: r0, x0Ohm: x0,
 			zeroSeqResolved: zeroSeqResolved, ampacityAmps: spec.AmpacityAmps, resolved: true,
+			spec: spec,
 		}, nil
 	}
 	return conductorImpedance{}, nil

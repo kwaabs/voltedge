@@ -70,14 +70,17 @@ import (
 //	                        connection node on a feeder) binary-search the largest
 //	                        additional charging load it can absorb before the first
 //	                        under-voltage (0.95 pu floor) or thermal overload binds
-//	POST   /unbalanced-load-flow three-phase (unbalanced) load flow (Phase 55, Tier 1):
-//	                        the per-phase twin of /load-flow -- solves phases A/B/C as
-//	                        three DECOUPLED ladders driven by each conductor's own
-//	                        `phase` designation, reporting per-node Va/Vb/Vc, the NEMA
-//	                        voltage unbalance between them, and the neutral return
-//	                        current, so a single-phase-heavy LV feeder's imbalance is
-//	                        visible instead of averaged away. No mutual coupling (that
-//	                        needs conductor geometry the model lacks) -- Tier 2 later
+//	POST   /unbalanced-load-flow three-phase (unbalanced) load flow (Phase 55):
+//	                        the per-phase twin of /load-flow -- reports per-node
+//	                        Va/Vb/Vc, the NEMA voltage unbalance between them, and the
+//	                        neutral return current, so a single-phase-heavy LV feeder's
+//	                        imbalance is visible instead of averaged away. Default
+//	                        (Tier 1) solves phases A/B/C as three DECOUPLED ladders;
+//	                        `coupled:true` (Tier 2) runs a COMPLEX sweep over each
+//	                        conductor's full 3x3 Carson phase-impedance matrix
+//	                        (metadata.MaterialSpec line geometry, migrations/0117), so
+//	                        the phase-to-phase mutual coupling a real line has is
+//	                        modelled, not omitted
 //
 // Read-only, same as api/internal/trace -- neither route ever writes
 // anything, they only compute over what api/internal/connectivity and
@@ -289,10 +292,11 @@ func dispatchLoadFlowHandler(db *bun.DB) http.HandlerFunc {
 
 func unbalancedLoadFlowHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Same request shape as the balanced load flow (start + nominal_voltage_v):
-		// the per-phase split is driven entirely by the model's own conductor
-		// `phase` fields, so the caller supplies nothing extra.
-		var req loadFlowRequest
+		// start + nominal_voltage_v drive the per-phase split (from the model's own
+		// conductor `phase` fields); the optional `coupled` flag switches on the
+		// Tier 2 Carson-coupled solve, with optional frequency_hz / earth_
+		// resistivity_ohm_m tuning its earth-return terms.
+		var req unbalancedRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, invalid("request body is not valid JSON: %v", err))
 			return
