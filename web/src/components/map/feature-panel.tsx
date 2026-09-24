@@ -41,6 +41,7 @@ import {
   TriangleAlert,
   Undo2,
   Unlink2,
+  Wand2,
   Waves,
   Waypoints,
   Workflow,
@@ -121,6 +122,7 @@ import { useMeshedLoadFlowStore } from "@/stores/meshed-load-flow-store"
 import { useNodalLoadFlowStore } from "@/stores/nodal-load-flow-store"
 import { useAutoLoadFlowStore } from "@/stores/auto-load-flow-store"
 import { useStorageDispatchStore } from "@/stores/storage-dispatch-store"
+import { useVvoStore } from "@/stores/vvo-store"
 import { useTapOptimizationStore } from "@/stores/tap-optimization-store"
 import { useUnbalancedLoadFlowStore } from "@/stores/unbalanced-load-flow-store"
 import { useVoltVarStore } from "@/stores/volt-var-store"
@@ -1617,6 +1619,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<TraceResult>("/trace", {
@@ -1657,6 +1660,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useIsolateStore.getState().setLoading(true)
     try {
       const result = await apiFetch<IsolationResult>("/trace/isolate", {
@@ -1704,6 +1708,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{ start: TraceFeatureRef; heads: TraceFeatureRef[]; features: TracedFeature[] }>(
@@ -1754,6 +1759,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{
@@ -1821,6 +1827,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{
@@ -1886,6 +1893,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1912,6 +1920,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useFaultCurrentStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1939,6 +1948,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useAmpacityStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1967,6 +1977,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useCoordinationStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1993,6 +2004,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useVoltageProfileStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2021,6 +2033,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useContingencyStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2048,6 +2061,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useEvHostingStore.getState().clear()
     useHostingStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
@@ -2077,6 +2091,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useEvHostingStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2104,6 +2119,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useMeshedLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2133,6 +2149,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useNodalLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2160,6 +2177,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useAutoLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2187,6 +2205,7 @@ export function FeaturePanel() {
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2215,6 +2234,7 @@ export function FeaturePanel() {
     useUnbalancedLoadFlowStore.getState().clear()
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useVoltVarStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2243,6 +2263,7 @@ export function FeaturePanel() {
     useUnbalancedLoadFlowStore.getState().clear()
     useVoltVarStore.getState().clear()
     useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
     useTapOptimizationStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2273,7 +2294,38 @@ export function FeaturePanel() {
     useUnbalancedLoadFlowStore.getState().clear()
     useVoltVarStore.getState().clear()
     useTapOptimizationStore.getState().clear()
+    useVvoStore.getState().clear()
     useStorageDispatchStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the combined Volt-VAR Optimization panel (vvo-panel.tsx) with the
+  // selected feature as the feeder's source. Where volt-VAR / tap-optimization /
+  // storage-dispatch each tune one class of control, VVO co-optimizes every
+  // capacitor, regulator and battery on the feeder together by coordinate
+  // descent -- band first, then loss. Like load-flow it only arms (needs
+  // nominal_voltage_v first); the panel's own Run button makes the
+  // POST /analysis/vvo call. Clears the other mutually-exclusive workflows the
+  // same way they clear each other.
+  function armVvo() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
+    useMeshedLoadFlowStore.getState().clear()
+    useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
   // Runnable trace_configurations for the dropdown -- SHORTEST_PATH
@@ -2604,6 +2656,10 @@ export function FeaturePanel() {
                       <DropdownMenuItem onSelect={armStorageDispatch}>
                         <BatteryFull className="size-4" />
                         Storage dispatch (batteries)…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={armVvo}>
+                        <Wand2 className="size-4" />
+                        Volt-VAR Optimization (all controls)…
                       </DropdownMenuItem>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>

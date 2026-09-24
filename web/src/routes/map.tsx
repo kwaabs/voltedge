@@ -28,6 +28,7 @@ import { MeshedLoadFlowPanel } from "@/components/map/meshed-load-flow-panel"
 import { NodalLoadFlowPanel } from "@/components/map/nodal-load-flow-panel"
 import { AutoLoadFlowPanel } from "@/components/map/auto-load-flow-panel"
 import { StorageDispatchPanel } from "@/components/map/storage-dispatch-panel"
+import { VvoPanel } from "@/components/map/vvo-panel"
 import { TapOptimizationPanel } from "@/components/map/tap-optimization-panel"
 import { UnbalancedLoadFlowPanel } from "@/components/map/unbalanced-load-flow-panel"
 import { VoltVarPanel } from "@/components/map/volt-var-panel"
@@ -215,6 +216,7 @@ export function MapPage() {
       <VoltVarPanel />
       <TapOptimizationPanel />
       <StorageDispatchPanel />
+      <VvoPanel />
     </div>
   )
 }

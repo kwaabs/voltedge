@@ -103,6 +103,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/volt-var", voltVarHandler(db))
 	r.Post("/tap-optimization", tapOptimizationHandler(db))
 	r.Post("/storage-dispatch", storageDispatchHandler(db))
+	r.Post("/vvo", vvoHandler(db))
 	return r
 }
 
@@ -285,6 +286,23 @@ func storageDispatchHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := runStorageDispatch(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func vvoHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req vvoRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runVVO(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return
