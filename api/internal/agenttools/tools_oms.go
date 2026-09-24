@@ -120,6 +120,27 @@ func omsTools() []Tool {
 			Handler:      toolOMSIncidentAffectedArea,
 		},
 		{
+			Name: "oms_incident_energization",
+			Description: "Resolve an incident's LIVE de-energized cone -- what is cut off from " +
+				"supply RIGHT NOW given the network's CURRENT switch positions, the same read the " +
+				"REST GET /incidents/{id}/energization route returns. Unlike oms_incident_affected_area " +
+				"(the frozen interruption set), this tracks the crew's switching in real time: it is " +
+				"non-empty only while the blamed device is actually OPEN, and shrinks to nothing as " +
+				"open/close steps are executed (oms_set_switching_step_executed flips device_state). " +
+				"Returns the device's live state, each currently-dead service point's geometry, and " +
+				"the total customers off supply.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"id":{"type":"string","description":"The incident's id (uuid)."}
+				},
+				"required":["id"],
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermOMSRead,
+			Handler:      toolOMSIncidentEnergization,
+		},
+		{
 			Name: "oms_list_switching_orders",
 			Description: "List every switching order for an incident, newest-first, each with " +
 				"its ordered steps -- the same read the REST GET " +
@@ -161,7 +182,11 @@ func omsTools() []Tool {
 				"optional: from/to (RFC3339) narrow the analysis window (default the trailing " +
 				"12 months), avg_load_kw overrides the per-customer demand assumption behind " +
 				"the estimated ENS, and circuit_id scopes the whole report to one circuit's " +
-				"service points (per-feeder indices).",
+				"service points (per-feeder indices). The report also includes by_fault_cause: " +
+				"a decomposition of SAIDI/SAIFI into per-fault-cause contributions (equipment " +
+				"failure, lightning, vegetation, ...) whose buckets sum back to the system " +
+				"figures -- the fault-caused reliability rollup; absent when the faults module " +
+				"is not installed (fault_breakdown_available=false).",
 			InputSchema: json.RawMessage(`{
 				"type":"object",
 				"properties":{
@@ -516,6 +541,19 @@ func toolOMSIncidentAffectedArea(ctx context.Context, db bun.IDB, args json.RawM
 		return nil, fmt.Errorf("id is required")
 	}
 	return oms.IncidentAffectedArea(ctx, db, in.ID)
+}
+
+func toolOMSIncidentEnergization(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	return oms.IncidentEnergization(ctx, db, in.ID)
 }
 
 func toolOMSListSwitchingOrders(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {

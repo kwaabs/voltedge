@@ -1148,6 +1148,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/mv_symbology_example.sql
 
+  seed-switch-open-symbology:
+    desc: Give the four OMS switching classes (MV_SWITCH/MV_ISOLATOR/MV_RECLOSER/MV_BREAKER) a device_state=OPEN map override (red / hollow) so a switch opened by executing a switching step LOOKS open, through the gitbash sidecar (requires the switching-class seeds + their default map symbology; self-guarding + idempotent; nothing to compile -- resolves client-side)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/switch_open_symbology.sql
+
   seed-stencils-extra:
     desc: Add cable/joint + metering + transformer-variant (auto/earthing/tap-changer/NER) one-line stencils to the palette through the gitbash sidecar (requires seed/ansi_stencils.sql; decoration only, no promote mapping; nothing to compile -- stencils resolve client-side)
     cmds:

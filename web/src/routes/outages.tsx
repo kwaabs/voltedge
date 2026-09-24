@@ -1,22 +1,29 @@
-import { useMemo, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router"
 import {
+  Activity,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Gauge,
   ListChecks,
   Loader2,
   MapPin,
   MapPinned,
+  PhoneCall,
   Plus,
+  PowerOff,
   RotateCcw,
   Siren,
+  Users,
   XCircle,
   Zap,
 } from "lucide-react"
 
 import { FormDialog } from "@/components/admin/form-dialog"
 import { inputClass } from "@/components/map/field-utils"
+import { OutageMap } from "@/components/map/outage-map"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { usePermission } from "@/hooks/use-auth"
@@ -27,6 +34,7 @@ import {
   type Incident,
   type IncidentAction,
   type IncidentStatus,
+  type FaultCauseContribution,
   type SwitchingOrder,
   type SwitchingStep,
   type TroubleCall,
@@ -37,6 +45,7 @@ import {
   useExecuteStep,
   useGenerateSwitchingOrder,
   useIncidentAction,
+  useIncidentEnergization,
   useIncidents,
   usePredictIncidents,
   useReliabilityIndices,
@@ -44,6 +53,7 @@ import {
   useTroubleCalls,
 } from "@/hooks/use-oms"
 import { ApiError } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { useOmsHighlightStore } from "@/stores/oms-highlight-store"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -60,6 +70,45 @@ function shortId(id: string): string {
 
 function formatWhen(iso: string): string {
   return new Date(iso).toLocaleString()
+}
+
+/** Compact elapsed duration between a start and an end (defaults to now), for
+ * the "how long has this been running" column: 47m, 3h 12m, 2d 4h. */
+function elapsed(startIso: string, endIso?: string | null, now = Date.now()): string {
+  const start = new Date(startIso).getTime()
+  const end = endIso ? new Date(endIso).getTime() : now
+  const mins = Math.max(0, Math.floor((end - start) / 60_000))
+  if (mins < 60) return `${mins}m`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ${mins % 60}m`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ${hrs % 24}h`
+}
+
+/** A coarse re-render tick so live durations (elapsed time) advance on their own
+ * without a refetch. `ms` between ticks; the returned value only changes on the
+ * tick, so it's a cheap dependency to read. */
+function useTick(ms: number): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), ms)
+    return () => clearInterval(id)
+  }, [ms])
+  return now
+}
+
+const TERMINAL_STATUSES: IncidentStatus[] = ["restored", "cancelled"]
+function isOpenIncident(inc: Incident): boolean {
+  return !TERMINAL_STATUSES.includes(inc.status)
+}
+
+/** Severity tint for an incident row, by customers affected -- a quick triage
+ * read across the board (major/moderate/minor/none). */
+function severityAccent(customers: number): string {
+  if (customers >= 500) return "border-l-red-500"
+  if (customers >= 50) return "border-l-amber-500"
+  if (customers > 0) return "border-l-yellow-400"
+  return "border-l-transparent"
 }
 
 // --- status badges ---------------------------------------------------------
@@ -494,12 +543,55 @@ function deviceLabel(inc: Incident): string {
   return `${inc.predicted_device_class} · ${shortId(inc.predicted_device_id)}`
 }
 
-function IncidentRow({ inc, canWrite }: { inc: Incident; canWrite: boolean }) {
+/** The live de-energization readout for an active incident: how many customers
+ * are off supply RIGHT NOW given the network's current switch positions (which
+ * executing switching steps changes). Distinct from the frozen affected count on
+ * the incident itself -- this shrinks to "supply on" as the crew closes the
+ * device. Only mounted for an active incident that has a device to trace from. */
+function LiveDeEnergized({ incidentId }: { incidentId: string }) {
+  const energization = useIncidentEnergization(incidentId)
+  const d = energization.data
+
+  if (energization.isPending) {
+    return <span className="text-muted-foreground text-[11px]">checking supply…</span>
+  }
+  if (!d) return null
+
+  const off = d.customers
+  const open = d.device_state === "OPEN"
+  if (!open || off === 0) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+        <CheckCircle2 className="size-3" />
+        Supply on
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-medium text-red-800 dark:bg-red-950 dark:text-red-300">
+      <PowerOff className="size-3" />
+      {off.toLocaleString()} off supply now
+    </span>
+  )
+}
+
+function IncidentRow({
+  inc,
+  canWrite,
+  now,
+  selected,
+  onSelect,
+}: {
+  inc: Incident
+  canWrite: boolean
+  now: number
+  selected: boolean
+  onSelect: (id: string) => void
+}) {
   const action = useIncidentAction()
   const raiseFault = useRaiseFaultFromIncident()
   const canRaiseFault = usePermission()("faults:write")
   const navigate = useNavigate()
-  const [showSwitching, setShowSwitching] = useState(false)
   const pending = action.isPending
 
   function run(kind: IncidentAction) {
@@ -528,91 +620,110 @@ function IncidentRow({ inc, canWrite }: { inc: Incident; canWrite: boolean }) {
     navigate("/")
   }
 
+  const customers = inc.affected_customers ?? 0
   const hasArea = (inc.affected_service_points ?? 0) > 0
   const hasDevice = inc.predicted_device_class != null && inc.predicted_device_id != null
   const isPlanned = inc.outage_type === "planned"
   const isTerminal = inc.status === "restored" || inc.status === "cancelled"
+  const isActive = inc.status === "confirmed" || inc.status === "dispatched"
   // A predicted incident awaits confirm; a scheduled (planned) one awaits its
   // execution window, then "Begin outage" starts the interruption clock.
   const canConfirm = inc.status === "predicted" || inc.status === "scheduled"
 
   return (
-    <div className="flex flex-col">
-      <div className="hover:bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-2 py-2">
+    <div
+      className={cn(
+        "cursor-pointer border-l-2",
+        severityAccent(customers),
+        isTerminal && "opacity-70",
+        selected && "bg-primary/5 ring-primary/40 ring-1 ring-inset",
+      )}
+      onClick={() => onSelect(inc.id)}
+    >
+      <div className="hover:bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2 pl-3 pr-2">
+        {selected ? (
+          <ChevronDown className="text-primary size-4 shrink-0" />
+        ) : (
+          <ChevronRight className="text-muted-foreground size-4 shrink-0" />
+        )}
         <StatusBadge status={inc.status} />
         <span className="text-sm font-medium">{deviceLabel(inc)}</span>
-        <span className="text-muted-foreground text-xs">
-          {inc.affected_customers ?? 0} cust · {inc.affected_service_points ?? 0} SP
-          {inc.confidence != null && <> · {Math.round(inc.confidence * 100)}% conf</>}
-        </span>
-        <span className="text-muted-foreground ml-auto text-xs">
-          {isPlanned && inc.planned_start
-            ? `Planned ${formatWhen(inc.planned_start)}${inc.planned_end ? ` – ${formatWhen(inc.planned_end)}` : ""}`
-            : formatWhen(inc.started_at)}
-        </span>
 
-        {hasArea && (
-          <Button variant="ghost" size="sm" className="shrink-0" onClick={showOnMap}>
-            <MapPinned className="size-4" />
-            Show on map
-          </Button>
-        )}
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className="inline-flex items-center gap-1 tabular-nums" title="Customers affected">
+            <Users className="text-muted-foreground size-3.5" />
+            {customers.toLocaleString()}
+          </span>
+          <span className="text-muted-foreground tabular-nums" title="Service points affected">
+            · {inc.affected_service_points ?? 0} SP
+          </span>
+          {inc.confidence != null && (
+            <span className="text-muted-foreground tabular-nums">· {Math.round(inc.confidence * 100)}%</span>
+          )}
+        </div>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          className="shrink-0"
-          onClick={() => setShowSwitching((s) => !s)}
-        >
-          <ListChecks className="size-4" />
-          Switching
-        </Button>
+        {isActive && hasDevice && <LiveDeEnergized incidentId={inc.id} />}
 
-        {canRaiseFault && inc.status !== "cancelled" && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="shrink-0"
-            disabled={raiseFault.isPending}
-            onClick={raiseFaultForIncident}
-          >
-            <Zap className="size-4" />
-            Raise fault
-          </Button>
-        )}
+        <div className="text-muted-foreground ml-auto flex items-center gap-3 text-xs">
+          {!isPlanned && (
+            <span className="tabular-nums" title={`Started ${formatWhen(inc.started_at)}`}>
+              {elapsed(inc.started_at, inc.restored_at, now)}
+              {inc.restored_at ? " (restored)" : " elapsed"}
+            </span>
+          )}
+          <span title={isPlanned && inc.planned_start ? "Planned window" : "Started"}>
+            {isPlanned && inc.planned_start
+              ? `${formatWhen(inc.planned_start)}${inc.planned_end ? ` – ${formatWhen(inc.planned_end)}` : ""}`
+              : formatWhen(inc.started_at)}
+          </span>
+        </div>
 
-        {canWrite && !isTerminal && (
-          <div className="flex shrink-0 items-center gap-1">
-            {canConfirm && (
-              <Button variant="outline" size="sm" disabled={pending} onClick={() => run("confirm")}>
-                <CheckCircle2 className="size-4" />
-                {isPlanned ? "Begin outage" : "Confirm"}
-              </Button>
-            )}
-            {(inc.status === "confirmed" || inc.status === "dispatched") && (
-              <Button variant="outline" size="sm" disabled={pending} onClick={() => run("restore")}>
-                <RotateCcw className="size-4" />
-                Restore
-              </Button>
-            )}
+        <div className="flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          {hasArea && (
+            <Button variant="ghost" size="sm" className="shrink-0" onClick={showOnMap} title="Highlight on the main map">
+              <MapPinned className="size-4" />
+            </Button>
+          )}
+          {canRaiseFault && inc.status !== "cancelled" && (
             <Button
               variant="ghost"
               size="sm"
-              className="text-destructive"
-              disabled={pending}
-              onClick={() => run("cancel")}
+              className="shrink-0"
+              disabled={raiseFault.isPending}
+              onClick={raiseFaultForIncident}
+              title="Raise a fault event for this outage"
             >
-              <XCircle className="size-4" />
-              Cancel
+              <Zap className="size-4" />
             </Button>
-          </div>
-        )}
-      </div>
-      {showSwitching && (
-        <div className="px-2 pb-2">
-          <SwitchingOrdersPanel incidentId={inc.id} hasDevice={hasDevice} canWrite={canWrite} />
+          )}
+          {canWrite && !isTerminal && (
+            <>
+              {canConfirm && (
+                <Button variant="outline" size="sm" disabled={pending} onClick={() => run("confirm")}>
+                  <CheckCircle2 className="size-4" />
+                  {isPlanned ? "Begin" : "Confirm"}
+                </Button>
+              )}
+              {isActive && (
+                <Button variant="outline" size="sm" disabled={pending} onClick={() => run("restore")}>
+                  <RotateCcw className="size-4" />
+                  Restore
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive"
+                disabled={pending}
+                onClick={() => run("cancel")}
+                title="Cancel this incident"
+              >
+                <XCircle className="size-4" />
+              </Button>
+            </>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -742,7 +853,191 @@ function ReliabilityCard() {
               {d.ongoing_interruptions > 0 && ` · ${d.ongoing_interruptions} still ongoing`}. ENS is estimated from an
               assumed average demand; swap in measured load for a true figure.
             </p>
+            <FaultCauseBreakdown rows={d.by_fault_cause} saidi={d.saidi} />
           </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Human label for a fault-cause bucket. A recorded cause shows as-is; a fault
+ * with no cause reads "Uncategorised fault"; interruptions on an incident with no
+ * fault event at all read "No fault linked" (told apart from the former by
+ * fault_linked, not by the null cause). */
+function faultCauseLabel(row: FaultCauseContribution): string {
+  if (row.cause && row.cause.trim() !== "") return row.cause
+  return row.fault_linked ? "Uncategorised fault" : "No fault linked"
+}
+
+/** The fault-caused decomposition of SAIDI: which fault causes drove the outage
+ * minutes-per-customer, ranked, as share bars whose SAIDI sums back to the
+ * system figure. Hidden unless at least one interruption is actually attributed
+ * to a fault (otherwise the single "No fault linked" bucket just restates the
+ * headline and adds nothing). */
+function FaultCauseBreakdown({ rows, saidi }: { rows?: FaultCauseContribution[]; saidi: number }) {
+  if (!rows || rows.length === 0) return null
+  const hasFaultAttribution = rows.some((r) => r.fault_linked)
+  if (!hasFaultAttribution) return null
+
+  // Share of SAIDI (customer-minutes) per bucket; guard the all-zero window.
+  const maxSaidi = Math.max(...rows.map((r) => r.saidi), 0)
+  const totalSaidi = saidi > 0 ? saidi : rows.reduce((s, r) => s + r.saidi, 0)
+
+  return (
+    <div className="mt-3 border-t pt-3">
+      <p className="text-muted-foreground mb-2 text-[11px] font-medium">SAIDI by fault cause</p>
+      <div className="flex flex-col gap-1.5">
+        {rows.map((r, i) => {
+          const share = totalSaidi > 0 ? (r.saidi / totalSaidi) * 100 : 0
+          const barPct = maxSaidi > 0 ? (r.saidi / maxSaidi) * 100 : 0
+          return (
+            <div key={`${r.fault_linked}:${r.cause ?? "∅"}:${i}`} className="flex items-center gap-2 text-xs">
+              <span className={cn("w-40 shrink-0 truncate", !r.fault_linked && "text-muted-foreground italic")}>
+                {faultCauseLabel(r)}
+              </span>
+              <div className="bg-muted relative h-3 flex-1 overflow-hidden rounded-sm">
+                <div
+                  className={cn("h-full rounded-sm", r.fault_linked ? "bg-amber-500" : "bg-muted-foreground/40")}
+                  style={{ width: `${barPct}%` }}
+                />
+              </div>
+              <span className="w-24 shrink-0 text-right tabular-nums">
+                {fmt(r.saidi, 1)} <span className="text-muted-foreground">min/cust</span>
+              </span>
+              <span className="text-muted-foreground w-10 shrink-0 text-right tabular-nums">{fmt(share, 0)}%</span>
+            </div>
+          )
+        })}
+      </div>
+      <p className="text-muted-foreground mt-2 text-[11px]">
+        Each interruption is attributed to its incident's linked fault; buckets sum to the system SAIDI above.
+      </p>
+    </div>
+  )
+}
+
+// --- KPI strip -------------------------------------------------------------
+
+/** One headline figure in the control-room strip. `tone` tints the value when it
+ * signals something needing attention (customers off supply, calls waiting). */
+function KpiTile({
+  icon,
+  label,
+  value,
+  sub,
+  tone = "default",
+}: {
+  icon: ReactNode
+  label: string
+  value: string
+  sub?: string
+  tone?: "default" | "alert" | "warn"
+}) {
+  const valueTone =
+    tone === "alert"
+      ? "text-red-600 dark:text-red-400"
+      : tone === "warn"
+        ? "text-amber-600 dark:text-amber-400"
+        : "text-foreground"
+  return (
+    <Card className="flex-1">
+      <CardContent className="flex items-center gap-3 p-3">
+        <div className="text-muted-foreground shrink-0">{icon}</div>
+        <div className="flex min-w-0 flex-col">
+          <span className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">{label}</span>
+          <span className={cn("text-2xl font-semibold tabular-nums leading-tight", valueTone)}>{value}</span>
+          {sub && <span className="text-muted-foreground truncate text-[11px]">{sub}</span>}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** The at-a-glance operating picture across the top of the console: how many
+ * incidents are live, how many customers are off supply, how many calls are
+ * waiting to be worked, and the system SAIDI. Derived from the same data the
+ * board below shows, so it can never disagree with it. */
+function KpiStrip({ incidents, openCalls }: { incidents: Incident[]; openCalls: number }) {
+  const indices = useReliabilityIndices()
+  const active = incidents.filter(isOpenIncident)
+  const customersOff = active.reduce((sum, i) => sum + (i.affected_customers ?? 0), 0)
+  const saidi = indices.data ? fmt(indices.data.saidi, 1) : "—"
+
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row">
+      <KpiTile
+        icon={<Activity className="size-5" />}
+        label="Active incidents"
+        value={active.length.toLocaleString()}
+        sub={`${incidents.length.toLocaleString()} total on record`}
+        tone={active.length > 0 ? "warn" : "default"}
+      />
+      <KpiTile
+        icon={<Users className="size-5" />}
+        label="Customers off supply"
+        value={customersOff.toLocaleString()}
+        sub="across live incidents"
+        tone={customersOff > 0 ? "alert" : "default"}
+      />
+      <KpiTile
+        icon={<PhoneCall className="size-5" />}
+        label="Calls in queue"
+        value={openCalls.toLocaleString()}
+        sub="open trouble calls"
+        tone={openCalls > 0 ? "warn" : "default"}
+      />
+      <KpiTile
+        icon={<Gauge className="size-5" />}
+        label="SAIDI (12 mo)"
+        value={saidi}
+        sub="system minutes / customer"
+      />
+    </div>
+  )
+}
+
+// --- switching drawer ------------------------------------------------------
+
+/** The right-hand control drawer beside the embedded map: the selected
+ * incident's live de-energization readout and its switching program. Executing
+ * a step here flips the device's live state, which the map redraws -- the
+ * operator watches the cone shrink as they close the device. */
+function SwitchingDrawer({ incident, canWrite }: { incident: Incident | null; canWrite: boolean }) {
+  if (!incident) {
+    return (
+      <Card>
+        <CardContent className="text-muted-foreground p-4 text-sm">
+          Select an incident to drive its switching.
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const hasDevice = incident.predicted_device_class != null && incident.predicted_device_id != null
+  const isActive = incident.status === "confirmed" || incident.status === "dispatched"
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <StatusBadge status={incident.status} />
+          <CardTitle className="text-sm">{deviceLabel(incident)}</CardTitle>
+          {isActive && hasDevice && (
+            <span className="ml-auto">
+              <LiveDeEnergized incidentId={incident.id} />
+            </span>
+          )}
+        </div>
+        <CardDescription>Switching program</CardDescription>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {hasDevice ? (
+          <SwitchingOrdersPanel incidentId={incident.id} hasDevice={hasDevice} canWrite={canWrite} />
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            Unattributed incident — no device to switch. Attribute a device to build a switching order.
+          </p>
         )}
       </CardContent>
     </Card>
@@ -762,9 +1057,34 @@ export function OutagesPage() {
   const [logging, setLogging] = useState(false)
   const [scheduling, setScheduling] = useState(false)
   const [associating, setAssociating] = useState<TroubleCall | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  const incidentRows = useMemo(() => incidents.data?.incidents ?? [], [incidents.data])
+  const now = useTick(30_000)
+
+  // Open incidents first (the ones a controller acts on), each group newest
+  // first -- the board reads top-to-bottom as "what needs attention now".
+  const incidentRows = useMemo(() => {
+    const rows = incidents.data?.incidents ?? []
+    return [...rows].sort((a, b) => {
+      const aOpen = isOpenIncident(a)
+      const bOpen = isOpenIncident(b)
+      if (aOpen !== bOpen) return aOpen ? -1 : 1
+      return new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
+    })
+  }, [incidents.data])
+  const activeCount = useMemo(() => incidentRows.filter(isOpenIncident).length, [incidentRows])
   const callRows = useMemo(() => calls.data?.trouble_calls ?? [], [calls.data])
+  const openCallCount = useMemo(() => callRows.filter((c) => c.status === "open").length, [callRows])
+
+  // Keep a valid incident selected for the map/drawer: default to the first row
+  // (open incidents sort to the top) and drop a selection that has disappeared.
+  const selected = useMemo(
+    () => incidentRows.find((i) => i.id === selectedId) ?? null,
+    [incidentRows, selectedId],
+  )
+  useEffect(() => {
+    if (!selected && incidentRows.length > 0) setSelectedId(incidentRows[0].id)
+  }, [selected, incidentRows])
 
   function runPredict() {
     predict.mutate(undefined, {
@@ -780,16 +1100,16 @@ export function OutagesPage() {
 
   return (
     <div className="h-full overflow-y-auto p-4">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4">
         <div className="flex items-center justify-between gap-2">
           <div>
             <h1 className="flex items-center gap-2 text-lg font-semibold">
               <Siren className="size-5" />
-              Outages
+              Outage control
             </h1>
             <p className="text-muted-foreground text-sm">
-              Log trouble calls, roll them up to the protective device that likely operated, and manage each incident
-              through to restoration.
+              Log trouble calls, roll them up to the protective device that likely operated, and drive each incident
+              through switching to restoration.
             </p>
           </div>
           {canWrite && (
@@ -810,55 +1130,86 @@ export function OutagesPage() {
           )}
         </div>
 
-        <ReliabilityCard />
+        <KpiStrip incidents={incidentRows} openCalls={openCallCount} />
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Incidents</CardTitle>
-            <CardDescription>
-              {incidentRows.length === 0 ? "No incidents." : `${incidentRows.length} incident${incidentRows.length === 1 ? "" : "s"}.`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {incidents.isPending ? (
-              <LoadingRow label="Loading incidents…" />
-            ) : incidents.isError ? (
-              <p className="text-destructive text-sm">Could not load incidents.</p>
-            ) : incidentRows.length > 0 ? (
-              <div className="flex flex-col">
-                {incidentRows.map((inc) => (
-                  <IncidentRow key={inc.id} inc={inc} canWrite={canWrite} />
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-sm">Run prediction once open calls are logged and resolved.</p>
-            )}
-          </CardContent>
-        </Card>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_26rem]">
+          <div className="flex min-w-0 flex-col gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Incidents</CardTitle>
+                <CardDescription>
+                  {incidentRows.length === 0
+                    ? "No incidents."
+                    : `${activeCount} active · ${incidentRows.length} total`}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {incidents.isPending ? (
+                  <LoadingRow label="Loading incidents…" />
+                ) : incidents.isError ? (
+                  <p className="text-destructive text-sm">Could not load incidents.</p>
+                ) : incidentRows.length > 0 ? (
+                  <div className="flex flex-col">
+                    {incidentRows.map((inc) => (
+                      <IncidentRow
+                        key={inc.id}
+                        inc={inc}
+                        canWrite={canWrite}
+                        now={now}
+                        selected={inc.id === selected?.id}
+                        onSelect={setSelectedId}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-sm">
+                    Run prediction once open calls are logged and resolved.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Trouble calls</CardTitle>
-            <CardDescription>
-              {callRows.length === 0 ? "No calls." : `${callRows.length} call${callRows.length === 1 ? "" : "s"}.`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {calls.isPending ? (
-              <LoadingRow label="Loading calls…" />
-            ) : calls.isError ? (
-              <p className="text-destructive text-sm">Could not load trouble calls.</p>
-            ) : callRows.length > 0 ? (
-              <div className="flex flex-col">
-                {callRows.map((call) => (
-                  <TroubleCallRow key={call.id} call={call} canWrite={canWrite} onAssociate={setAssociating} />
-                ))}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Trouble calls</CardTitle>
+                <CardDescription>
+                  {callRows.length === 0 ? "No calls." : `${callRows.length} call${callRows.length === 1 ? "" : "s"}.`}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {calls.isPending ? (
+                  <LoadingRow label="Loading calls…" />
+                ) : calls.isError ? (
+                  <p className="text-destructive text-sm">Could not load trouble calls.</p>
+                ) : callRows.length > 0 ? (
+                  <div className="flex flex-col">
+                    {callRows.map((call) => (
+                      <TroubleCallRow key={call.id} call={call} canWrite={canWrite} onAssociate={setAssociating} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-sm">No trouble calls logged yet.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <details className="group rounded-lg border bg-card">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium select-none">
+                <ChevronRight className="size-4 transition-transform group-open:rotate-90" />
+                Reliability indices
+                <span className="text-muted-foreground font-normal">— IEEE 1366 over the last 12 months</span>
+              </summary>
+              <div className="border-t px-4 py-3">
+                <ReliabilityCard />
               </div>
-            ) : (
-              <p className="text-muted-foreground text-sm">No trouble calls logged yet.</p>
-            )}
-          </CardContent>
-        </Card>
+            </details>
+          </div>
+
+          <div className="flex flex-col gap-3 xl:sticky xl:top-4 xl:self-start">
+            <OutageMap incidentId={selected?.id ?? null} />
+            <SwitchingDrawer incident={selected} canWrite={canWrite} />
+          </div>
+        </div>
       </div>
 
       {logging && <LogCallDialog onClose={() => setLogging(false)} />}

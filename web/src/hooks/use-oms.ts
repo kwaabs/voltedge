@@ -97,6 +97,63 @@ export interface ReliabilityIndices {
   ens_kwh: number
   ens_estimated: boolean
   avg_load_kw: number
+  /** Per-fault-cause decomposition of SAIDI/SAIFI (buckets sum to the totals).
+   * Omitted when the faults module is not installed; see fault_breakdown_available. */
+  by_fault_cause?: FaultCauseContribution[]
+  fault_breakdown_available: boolean
+}
+
+/** One fault-cause bucket's share of the window's unreliability, over the same
+ * customer denominator as the system indices so the buckets sum to SAIDI/SAIFI.
+ * `cause` is the linked fault's recorded cause; null when the fault has no cause
+ * OR (fault_linked=false) when the incident had no fault event at all — the two
+ * are told apart by fault_linked, not by cause. */
+export interface FaultCauseContribution {
+  cause: string | null
+  fault_linked: boolean
+  customers_interrupted: number
+  interruption_events: number
+  customer_minutes: number
+  saifi: number
+  saidi: number
+}
+
+/** An incident's LIVE de-energized cone: what is cut off from supply right now
+ * given the network's current switch positions (as opposed to AffectedArea's
+ * frozen "who was out at confirmation"). device_state is the blamed device's
+ * live position; service_points are the currently-dead supplies (empty when the
+ * device is closed / supply restored). Grows and shrinks as switching steps are
+ * executed. */
+export interface EnergizationState {
+  incident_id: string
+  device_class: string | null
+  device_id: string | null
+  device_state?: string
+  service_points: AffectedServicePoint[]
+  customers: number
+}
+
+/** An incident's live de-energized cone, for the console map + KPI. Skipped
+ * until an incidentId is supplied. Short staleTime so it tracks switching. */
+export function useIncidentEnergization(incidentId: string | null) {
+  return useQuery({
+    queryKey: [...OMS_KEY, "energization", incidentId ?? ""],
+    queryFn: () => apiFetch<EnergizationState>(`/oms/incidents/${incidentId}/energization`),
+    enabled: incidentId != null,
+    staleTime: 10_000,
+  })
+}
+
+/** An incident's frozen affected area (blamed device + outage-cone service
+ * points), for the console map base layer. Skipped until an incidentId is
+ * supplied. */
+export function useAffectedArea(incidentId: string | null) {
+  return useQuery({
+    queryKey: [...OMS_KEY, "affected", incidentId ?? ""],
+    queryFn: () => apiFetch<AffectedArea>(`/oms/incidents/${incidentId}/affected`),
+    enabled: incidentId != null,
+    staleTime: 30_000,
+  })
 }
 
 export type SwitchingOrderStatus = "draft" | "issued" | "in_progress" | "completed" | "cancelled"

@@ -73,6 +73,37 @@ type ReliabilityIndices struct {
 	// ENS assumption, echoed so the estimate is auditable.
 	ENSEstimated bool    `json:"ens_estimated"`
 	AvgLoadKW    float64 `json:"avg_load_kw"`
+
+	// ByFaultCause decomposes SAIDI/SAIFI into per-cause contributions using the
+	// fault event linked to each interruption's incident -- so the operator can
+	// see WHAT drove the reliability (equipment failure, lightning, vegetation,
+	// ...), the "fault-caused reliability" rollup. Every in-window interruption
+	// lands in exactly one bucket (its incident's fault cause, an uncategorised
+	// fault, or "no fault linked"), so the buckets' SAIDI/SAIFI sum back to the
+	// system figures above -- a built-in consistency check. Nil when the faults
+	// module is not installed (faults.fault_events absent); an empty slice means
+	// no interruptions in the window. See FaultBreakdownAvailable.
+	ByFaultCause            []FaultCauseContribution `json:"by_fault_cause,omitempty"`
+	FaultBreakdownAvailable bool                     `json:"fault_breakdown_available"`
+}
+
+// FaultCauseContribution is one fault-cause bucket's share of the window's
+// unreliability, over the SAME customer denominator N as the system indices so
+// the buckets sum to the totals. Cause is the linked fault's recorded cause;
+// nil when the fault carries no cause OR (FaultLinked=false) when the incident
+// had no fault event at all -- the two are distinguished by FaultLinked, not by
+// Cause, so a genuinely uncategorised fault and an unattributed outage stay
+// separate.
+type FaultCauseContribution struct {
+	Cause       *string `json:"cause"`
+	FaultLinked bool    `json:"fault_linked"`
+
+	CustomersInterrupted int     `json:"customers_interrupted"`
+	InterruptionEvents   int     `json:"interruption_events"`
+	CustomerMinutes      float64 `json:"customer_minutes"`
+
+	SAIFI float64 `json:"saifi"`
+	SAIDI float64 `json:"saidi"`
 }
 
 // IndicesParams selects the analysis window and the ENS load assumption. Zero
@@ -234,5 +265,98 @@ FROM clipped`, aggCircuitJoin)
 	// ENS = interrupted customer-hours × assumed average demand.
 	out.ENS = (agg.CustomerMinutes / 60.0) * avgLoadKW
 
+	// Fault-cause decomposition. The faults module is a separate schema/migration
+	// (0106); a deployment may run OMS without it, so we probe for the table and
+	// simply skip the breakdown when it is absent rather than 500 the whole
+	// report -- the same fail-soft posture as the circuit_id column guard above.
+	var hasFaultTable bool
+	if err := db.NewRaw(`SELECT to_regclass('faults.fault_events') IS NOT NULL`).Scan(ctx, &hasFaultTable); err != nil {
+		return nil, fmt.Errorf("oms: checking for faults.fault_events: %w", err)
+	}
+	out.FaultBreakdownAvailable = hasFaultTable
+	if hasFaultTable {
+		if err := attachFaultCauseBreakdown(ctx, db, out, aggCircuitJoin, aggArgs); err != nil {
+			return nil, err
+		}
+	}
+
 	return out, nil
+}
+
+// attachFaultCauseBreakdown computes out.ByFaultCause: the same window's
+// interruptions grouped by the cause of the fault linked to each one's incident,
+// with each bucket's SAIFI/SAIDI over out.TotalCustomers so the buckets sum to
+// the system indices. It reuses the caller's window/circuit fragments and args
+// (ordered [from, to] or [from, to, circuitID]) so the scope matches the headline
+// figures exactly. rep_fault picks ONE representative fault per incident
+// (earliest detected, id tie-break) so an incident with several fault events is
+// not double-counted.
+func attachFaultCauseBreakdown(ctx context.Context, db bun.IDB, out *ReliabilityIndices, circuitJoin string, args []any) error {
+	query := fmt.Sprintf(`
+WITH params AS (
+    SELECT ?::timestamptz AS win_start, ?::timestamptz AS win_end
+),
+rep_fault AS (
+    SELECT DISTINCT ON (incident_id) incident_id, cause
+    FROM faults.fault_events
+    WHERE incident_id IS NOT NULL
+    ORDER BY incident_id, detected_at, id
+),
+clipped AS (
+    SELECT
+        ci.customers,
+        ci.interrupted_at,
+        GREATEST(ci.interrupted_at, p.win_start) AS eff_start,
+        LEAST(COALESCE(ci.restored_at, p.win_end), p.win_end) AS eff_end,
+        (rf.incident_id IS NOT NULL) AS fault_linked,
+        rf.cause,
+        p.win_start,
+        p.win_end
+    FROM oms.customer_interruptions ci
+    JOIN oms.incidents inc ON inc.id = ci.incident_id
+    %s
+    LEFT JOIN rep_fault rf ON rf.incident_id = inc.id
+    CROSS JOIN params p
+    WHERE inc.status <> 'cancelled'
+      AND inc.outage_type = 'unplanned'
+      AND ci.interrupted_at < p.win_end
+      AND COALESCE(ci.restored_at, p.win_end) > p.win_start
+)
+SELECT
+    fault_linked,
+    cause,
+    COALESCE(SUM(customers) FILTER (WHERE interrupted_at >= win_start AND interrupted_at < win_end), 0) AS customers_interrupted,
+    COALESCE(COUNT(*)       FILTER (WHERE interrupted_at >= win_start AND interrupted_at < win_end), 0) AS interruption_events,
+    COALESCE(SUM(customers * GREATEST(0, EXTRACT(EPOCH FROM (eff_end - eff_start)) / 60.0)) FILTER (WHERE eff_end > eff_start), 0) AS customer_minutes
+FROM clipped
+GROUP BY fault_linked, cause
+ORDER BY customer_minutes DESC, customers_interrupted DESC`, circuitJoin)
+
+	var rows []struct {
+		FaultLinked          bool    `bun:"fault_linked"`
+		Cause                *string `bun:"cause"`
+		CustomersInterrupted int     `bun:"customers_interrupted"`
+		InterruptionEvents   int     `bun:"interruption_events"`
+		CustomerMinutes      float64 `bun:"customer_minutes"`
+	}
+	if err := db.NewRaw(query, args...).Scan(ctx, &rows); err != nil {
+		return fmt.Errorf("oms: computing fault-cause breakdown: %w", err)
+	}
+
+	out.ByFaultCause = make([]FaultCauseContribution, 0, len(rows))
+	for _, r := range rows {
+		c := FaultCauseContribution{
+			Cause:                r.Cause,
+			FaultLinked:          r.FaultLinked,
+			CustomersInterrupted: r.CustomersInterrupted,
+			InterruptionEvents:   r.InterruptionEvents,
+			CustomerMinutes:      r.CustomerMinutes,
+		}
+		if out.TotalCustomers > 0 {
+			c.SAIFI = float64(r.CustomersInterrupted) / float64(out.TotalCustomers)
+			c.SAIDI = r.CustomerMinutes / float64(out.TotalCustomers)
+		}
+		out.ByFaultCause = append(out.ByFaultCause, c)
+	}
+	return nil
 }

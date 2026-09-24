@@ -19,6 +19,7 @@ import (
 //	GET  /incidents                  the incident board (?status=, ?open=true)
 //	GET  /incidents/{id}             one incident
 //	GET  /incidents/{id}/affected    the incident's affected service points (map overlay)
+//	GET  /incidents/{id}/energization  the incident's LIVE de-energized cone (current switch state)
 //	POST /incidents/predict          roll open calls up into predicted incidents
 //	POST /incidents/planned          schedule a planned outage around a device
 //	POST /incidents/{id}/confirm     confirm/execute + snapshot interruptions
@@ -47,6 +48,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/incidents/planned", createPlannedOutageHandler(db))
 	r.Get("/incidents/{id}", getIncidentHandler(db))
 	r.Get("/incidents/{id}/affected", affectedAreaHandler(db))
+	r.Get("/incidents/{id}/energization", energizationHandler(db))
 	r.Post("/incidents/{id}/confirm", incidentActionHandler(db, ConfirmIncident))
 	r.Post("/incidents/{id}/restore", incidentActionHandler(db, RestoreIncident))
 	r.Post("/incidents/{id}/cancel", incidentActionHandler(db, CancelIncident))
@@ -178,6 +180,20 @@ func affectedAreaHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, area)
+	}
+}
+
+// energizationHandler returns the selected incident's LIVE de-energized cone --
+// what is cut off from supply given the network's current switch positions, so
+// the map tracks the crew's switching in real time (see store.IncidentEnergization).
+func energizationHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		state, err := IncidentEnergization(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, state)
 	}
 }
 

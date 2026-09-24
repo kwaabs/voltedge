@@ -6,8 +6,22 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
+)
+
+// Live device_state (Phase 49 Slice 3, wired up 2026-09-24): executing an
+// open/close switching step now flips the operated device's device_state so
+// the connectivity graph -- every trace, the power-flow engine, and the outage
+// map -- reflects what the crew has actually done. These are the codes the
+// switch family's compiled device_state domain carries; a device class that
+// doesn't model a live position (no device_state field) is left untouched.
+const (
+	deviceStateField  = "device_state"
+	deviceStateOpen   = "OPEN"
+	deviceStateClosed = "CLOSED"
 )
 
 // Phase 49 Slice 3 -- switching orders. The ordered open/verify/close program a
@@ -209,19 +223,25 @@ func ListSwitchingOrders(ctx context.Context, db bun.IDB, incidentID string) ([]
 // or outstanding again (executed=false, executed_at=null). It nudges the parent
 // order's status to reflect progress: the first executed step moves a draft/issued
 // order to in_progress, and executing the last outstanding step completes it.
+//
+// Executing (or reverting) an open/close step also flips the operated device's
+// live device_state (applyStepDeviceState), so the switching order actually
+// moves the network -- traces, power flow and the outage map all read the new
+// position. The whole thing runs in one transaction, so the step tick and the
+// device flip commit together or not at all.
 func SetStepExecuted(ctx context.Context, db *bun.DB, stepID string, executed bool) (*SwitchingOrder, error) {
 	var out *SwitchingOrder
 	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		var orderID string
-		if err := tx.NewSelect().Model((*SwitchingStep)(nil)).
-			ColumnExpr("switching_order_id").
+		step := new(SwitchingStep)
+		if err := tx.NewSelect().Model(step).
 			Where("id = ?", stepID).
-			Scan(ctx, &orderID); err != nil {
+			Scan(ctx); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return invalidf("switching step %q does not exist", stepID)
 			}
 			return fmt.Errorf("oms: loading switching step %s: %w", stepID, err)
 		}
+		orderID := step.SwitchingOrderID
 
 		upd := tx.NewUpdate().Model((*SwitchingStep)(nil)).Where("id = ?", stepID)
 		if executed {
@@ -231,6 +251,11 @@ func SetStepExecuted(ctx context.Context, db *bun.DB, stepID string, executed bo
 		}
 		if _, err := upd.Exec(ctx); err != nil {
 			return fmt.Errorf("oms: updating switching step %s: %w", stepID, err)
+		}
+
+		// Move the network to match the operation the crew just recorded.
+		if err := applyStepDeviceState(ctx, tx, step, executed); err != nil {
+			return err
 		}
 
 		// Recompute the parent order's status from its steps.
@@ -276,6 +301,59 @@ func SetStepExecuted(ctx context.Context, db *bun.DB, stepID string, executed bo
 		return nil, err
 	}
 	return out, nil
+}
+
+// applyStepDeviceState flips the operated device's live device_state to match a
+// switching step being executed or reverted, so the network graph reflects the
+// crew's actions. Only open/close steps that name a device move state --
+// verify/earth/note steps carry no device or don't change its position.
+// Executing an "open" sets device_state=OPEN and executing a "close" sets
+// CLOSED; reverting either (executed=false) restores the opposite, so ticking a
+// step off and back on is a clean round trip. The write goes through
+// crud.UpdateFeature rather than a raw column poke, so it is validated and
+// history-logged (gis.feature_history) like any other edit -- auditable and
+// reversible. A device class that models no live position (no device_state
+// field) or a since-purged device is left untouched, never failing the step.
+func applyStepDeviceState(ctx context.Context, db bun.IDB, step *SwitchingStep, executed bool) error {
+	if step.DeviceClass == nil || step.DeviceID == nil {
+		return nil
+	}
+
+	var target string
+	switch step.Action {
+	case StepActionOpen:
+		if executed {
+			target = deviceStateOpen
+		} else {
+			target = deviceStateClosed
+		}
+	case StepActionClose:
+		if executed {
+			target = deviceStateClosed
+		} else {
+			target = deviceStateOpen
+		}
+	default:
+		return nil // verify/earth/note don't move a device's live position
+	}
+
+	loaded, err := metadata.Load(ctx, db, *step.DeviceClass)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil // device class is gone; nothing to flip
+		}
+		return fmt.Errorf("oms: loading device class %s: %w", *step.DeviceClass, err)
+	}
+	if loaded.FieldByName(deviceStateField) == nil {
+		return nil // this class doesn't model a live device_state
+	}
+
+	if _, err := crud.UpdateFeature(ctx, db, loaded, *step.DeviceID, crud.UpdateFeatureInput{
+		Attributes: map[string]any{deviceStateField: target},
+	}); err != nil {
+		return fmt.Errorf("oms: setting %s %s device_state=%s: %w", *step.DeviceClass, *step.DeviceID, target, err)
+	}
+	return nil
 }
 
 // CancelSwitchingOrder marks an order cancelled (steps are kept for the record).
