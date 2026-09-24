@@ -55,12 +55,43 @@ func SafeClient(timeout time.Duration) *http.Client {
 			TLSHandshakeTimeout:   timeout,
 			ResponseHeaderTimeout: timeout,
 		},
-		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return errors.New("too many redirects")
 			}
+			// On a cross-host redirect, drop request headers that must not leak to a
+			// different origin. Go's stdlib already strips Authorization/Cookie/
+			// WWW-Authenticate on a host change, but NOT a custom credential header --
+			// which is exactly the api_key header form Authorize sets (e.g.
+			// X-Api-Key). Without this, a redirecting/compromised upstream could bounce
+			// the request to an attacker-controlled public host and harvest the stored
+			// third-party key. Keep only a safe transport allowlist.
+			if len(via) > 0 && req.URL.Host != via[0].URL.Host {
+				stripToSafeHeaders(req.Header)
+			}
 			return nil
 		},
+	}
+}
+
+// safeRedirectHeaders is the allowlist of request headers preserved across a
+// cross-host redirect; every other header (notably any custom credential header)
+// is dropped by stripToSafeHeaders. Keys are canonical (net/http stores them so).
+var safeRedirectHeaders = map[string]bool{
+	"Accept":          true,
+	"Accept-Encoding": true,
+	"Accept-Language": true,
+	"User-Agent":      true,
+}
+
+// stripToSafeHeaders removes every header from h that is not in
+// safeRedirectHeaders -- used on a cross-host redirect so an outbound credential
+// (or any app-specific header) can't follow the request to a different origin.
+func stripToSafeHeaders(h http.Header) {
+	for name := range h {
+		if !safeRedirectHeaders[name] {
+			h.Del(name)
+		}
 	}
 }
 

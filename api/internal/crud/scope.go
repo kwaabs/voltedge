@@ -148,6 +148,58 @@ func enforceDraftScope(ctx context.Context, db bun.IDB, feature map[string]any) 
 	return notFound("feature %v not found", feature["id"])
 }
 
+// enforceSubResourceReadScope is the read gate for a feature SUB-resource
+// (history, GPS captures, capacity): endpoints that hang off a feature id but,
+// unlike GET-by-id, historically queried their child rows straight from the id
+// without loading and scoping the parent -- so they could be used to read a
+// feature the caller is not allowed to see (out-of-territory under Phase 58, or a
+// peer's private draft under Phase 61). It loads the feature and applies the same
+// enforceReadScope + enforceDraftScope checks the primary GET applies.
+//
+// It reports a PURGED feature (row physically gone -> getFeature returns
+// notFound) via purged=true rather than an error. That lets the append-only
+// timeline endpoints keep their documented "history outlives the row" contract
+// (a purged feature still returns its history) while every feature that still
+// exists -- including soft-deleted rows, which getFeature still returns -- is
+// scoped. A sub-resource that needs a live row (capacity) treats purged as a 404.
+// Residual: a scoped user can still read a *purged* feature's timeline; low risk,
+// as purged ids are not enumerable through the scoped list/query paths.
+func enforceSubResourceReadScope(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) (purged bool, err error) {
+	feature, err := getFeature(ctx, db, loaded, id)
+	if err != nil {
+		if isNotFoundError(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	if err := enforceReadScope(ctx, db, loaded, feature); err != nil {
+		return false, err
+	}
+	if err := enforceDraftScope(ctx, db, feature); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+// EnforceFeatureReadScope applies the Phase 58 territory + Phase 61 private-draft
+// read checks to a feature identified by (loaded class, id), for callers OUTSIDE
+// this package -- notably the attachments surface -- that hang off a feature id
+// and must not expose a feature the CRUD read side would hide. It returns a
+// not-found error (matched by IsNotFoundError) when the feature is missing OR out
+// of the caller's scope, so an out-of-scope id is indistinguishable from a
+// missing one. A purged feature (row gone) is reported as not-found too: unlike
+// the timeline endpoints, an attachment operation always needs a live feature.
+func EnforceFeatureReadScope(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) error {
+	purged, err := enforceSubResourceReadScope(ctx, db, loaded, id)
+	if err != nil {
+		return err
+	}
+	if purged {
+		return notFound("feature %s not found", id)
+	}
+	return nil
+}
+
 // scopeWhere turns readScope's (ids, apply) into a WHERE fragment plus its bind
 // args, appended to a query's existing predicates. It returns ("", nil) when the
 // scope doesn't apply. When it does, an empty id set yields "1 = 0" (match

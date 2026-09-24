@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/export"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
@@ -123,7 +124,7 @@ func listHandler(db *bun.DB, store *export.ObjectStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		code := chi.URLParam(r, "code")
 		featureID := chi.URLParam(r, "id")
-		if _, err := loadClass(r.Context(), db, code); err != nil {
+		if _, err := enforceFeatureReadScope(r.Context(), db, code, featureID); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -148,7 +149,7 @@ func registerHandler(db *bun.DB, store *export.ObjectStore) http.HandlerFunc {
 		code := chi.URLParam(r, "code")
 		featureID := chi.URLParam(r, "id")
 
-		loaded, err := loadClass(r.Context(), db, code)
+		loaded, err := enforceFeatureReadScope(r.Context(), db, code, featureID)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -239,7 +240,7 @@ func commitHandler(db *bun.DB, store *export.ObjectStore) http.HandlerFunc {
 		featureID := chi.URLParam(r, "id")
 		attachmentID := chi.URLParam(r, "attachmentID")
 
-		if _, err := loadClass(r.Context(), db, code); err != nil {
+		if _, err := enforceFeatureReadScope(r.Context(), db, code, featureID); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -287,6 +288,11 @@ func urlHandler(db *bun.DB, store *export.ObjectStore) http.HandlerFunc {
 		featureID := chi.URLParam(r, "id")
 		attachmentID := chi.URLParam(r, "attachmentID")
 
+		if _, err := enforceFeatureReadScope(r.Context(), db, code, featureID); err != nil {
+			writeError(w, err)
+			return
+		}
+
 		a, err := get(r.Context(), db, code, featureID, attachmentID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -318,6 +324,11 @@ func deleteHandler(db *bun.DB, store *export.ObjectStore) http.HandlerFunc {
 		code := chi.URLParam(r, "code")
 		featureID := chi.URLParam(r, "id")
 		attachmentID := chi.URLParam(r, "attachmentID")
+
+		if _, err := enforceFeatureReadScope(r.Context(), db, code, featureID); err != nil {
+			writeError(w, err)
+			return
+		}
 
 		if _, err := get(r.Context(), db, code, featureID, attachmentID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -377,6 +388,33 @@ func inferKind(contentType string) string {
 		return KindImage
 	}
 	return KindDocument
+}
+
+// enforceFeatureReadScope resolves the feature class and gates the operation on
+// the caller's ability to READ the parent feature (Phase 58 territory + Phase 61
+// private-draft checks, via crud.EnforceFeatureReadScope). The attachment surface
+// otherwise scoped only by (class, feature id, attachment id), so a caller who
+// learned such a triple -- ids are returned by the feature/attachment APIs --
+// could list or presign a file for a feature outside their territory grants, or on
+// a peer's private draft. An out-of-scope or missing feature is reported as
+// "attachment not found" (404), the same answer as an unknown attachment, so the
+// id isn't confirmed. Returns the loaded class for callers that need it.
+//
+// This gates reads and, as a floor, the writes too (register/commit/delete already
+// carry the attachments:write RBAC gate on the mount); tightening the writes to
+// the stricter territory WRITE scope (a 403) is a possible follow-up.
+func enforceFeatureReadScope(ctx context.Context, db *bun.DB, code, featureID string) (*metadata.Loaded, error) {
+	loaded, err := loadClass(ctx, db, code)
+	if err != nil {
+		return nil, err
+	}
+	if err := crud.EnforceFeatureReadScope(ctx, db, loaded, featureID); err != nil {
+		if crud.IsNotFoundError(err) {
+			return nil, &httpStatusError{status: http.StatusNotFound, msg: "attachment not found"}
+		}
+		return nil, err
+	}
+	return loaded, nil
 }
 
 // loadClass resolves a feature class by code, mapping an unknown class to a 404

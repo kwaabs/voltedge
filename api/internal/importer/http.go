@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -17,6 +18,24 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/export"
 	"github.com/kwaabs/voltedge/api/internal/secretbox"
 )
+
+// validStagedImportKey reports whether a CLIENT-supplied object key addresses a
+// staged import artifact rather than an arbitrary object in the shared bucket.
+//
+// POST /uploads mints keys as "imports/<uuid><ext>" server-side and returns each
+// only to the uploader. The introspection/run handlers (layers, dry-run, jobs)
+// take the key back from the client, so without this check a holder of
+// features:write could point them at ANY object in the shared export/import
+// bucket -- notably an attachment ("attachments/<featureID>/<id>", whose ids are
+// discoverable through the feature/attachment REST APIs) or another user's
+// export -- and read its contents (layer metadata + sample rows). Constraining
+// the key to the imports/ prefix blocks those cross-object reads; another user's
+// import key is a random uuid and not guessable, so this closes the practical
+// exposure. (Per-user staged-key ownership -- recording each minted key against
+// its uploader and checking it here -- is the fuller fix, tracked as a follow-up.)
+func validStagedImportKey(key string) bool {
+	return strings.HasPrefix(key, "imports/") && !strings.Contains(key, "..")
+}
 
 // maxJobErrorReport caps how many per-row errors the status endpoint returns --
 // enough to act on without shipping a pathological all-rows-failed report whole.
@@ -144,8 +163,8 @@ func listLayersHandler(store *export.ObjectStore) http.HandlerFunc {
 			writeErr(w, http.StatusBadRequest, "request body is not valid JSON: %v", err)
 			return
 		}
-		if req.ObjectKey == "" {
-			writeErr(w, http.StatusBadRequest, "object_key is required")
+		if !validStagedImportKey(req.ObjectKey) {
+			writeErr(w, http.StatusBadRequest, "object_key must reference a staged import artifact")
 			return
 		}
 		format := req.SourceFormat
@@ -208,7 +227,13 @@ func dryRunHandler(db *bun.DB, store *export.ObjectStore, cipher *secretbox.Ciph
 				scope := ImportScope{ProfileCode: req.ProfileCode, SourceLayer: layer}
 				sample, err = sampleLiveDB(r.Context(), rp, &scope, cipher, liveDryRunSample)
 			case req.ObjectKey != "":
-				// A staged SQLite-family file (GeoPackage / SpatiaLite).
+				// A staged SQLite-family file (GeoPackage / SpatiaLite). The key is
+				// client-supplied, so constrain it to a staged import artifact before
+				// opening it (see validStagedImportKey).
+				if !validStagedImportKey(req.ObjectKey) {
+					writeErr(w, http.StatusBadRequest, "object_key must reference a staged import artifact")
+					return
+				}
 				sample, err = sampleSQLite(r.Context(), store, req.ObjectKey, layer, gpkgDryRunSample, rp.Profile.SourceFormat)
 			}
 			if err != nil {
@@ -276,9 +301,11 @@ func enqueueJobHandler(db *bun.DB) http.HandlerFunc {
 
 		// A file import needs the staged artifact's key; a live-DB import has no
 		// artifact (the worker connects out to the remote table/query), so it runs
-		// with an empty object key.
-		if !isLiveDBSourceFormat(rp.Profile.SourceFormat) && req.ObjectKey == "" {
-			writeErr(w, http.StatusBadRequest, "object_key is required")
+		// with an empty object key. The key is client-supplied, so a file import
+		// must reference a staged import artifact -- the worker later streams this
+		// key, so an arbitrary bucket object here would be read at run time too.
+		if !isLiveDBSourceFormat(rp.Profile.SourceFormat) && !validStagedImportKey(req.ObjectKey) {
+			writeErr(w, http.StatusBadRequest, "object_key must reference a staged import artifact")
 			return
 		}
 

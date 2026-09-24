@@ -366,6 +366,14 @@ func historyHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 
+		// Phase 58/61: scope the timeline to a feature the caller may actually
+		// read. A purged feature (row gone) still returns its history by design,
+		// so purged is ignored here -- only a live-but-out-of-scope feature blocks.
+		if _, err := enforceSubResourceReadScope(r.Context(), db, loaded, id); err != nil {
+			writeError(w, err)
+			return
+		}
+
 		entries, err := listFeatureHistory(r.Context(), db, loaded.FeatureClass.Code, id)
 		if err != nil {
 			writeError(w, err)
@@ -396,6 +404,14 @@ func gpsCapturesHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 
+		// Phase 58/61: these captures carry position + (via the users join) the
+		// surveyor's email, so gate them to a feature the caller may read. Purged
+		// feature keeps returning its captures, matching the timeline's contract.
+		if _, err := enforceSubResourceReadScope(r.Context(), db, loaded, id); err != nil {
+			writeError(w, err)
+			return
+		}
+
 		entries, err := ListFeatureGpsCaptures(r.Context(), db, loaded.FeatureClass.Code, id)
 		if err != nil {
 			writeError(w, err)
@@ -422,6 +438,16 @@ func capacityHandler(db *bun.DB) http.HandlerFunc {
 		loaded, err := loadOrNotFound(r.Context(), db, code)
 		if err != nil {
 			writeError(w, err)
+			return
+		}
+
+		// Phase 58/61: scope to a feature the caller may read. Capacity needs a
+		// live row, so a purged (or out-of-scope) feature is a 404 either way.
+		if purged, err := enforceSubResourceReadScope(r.Context(), db, loaded, id); err != nil {
+			writeError(w, err)
+			return
+		} else if purged {
+			writeError(w, notFound("feature %s not found", id))
 			return
 		}
 

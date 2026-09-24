@@ -215,13 +215,35 @@ func safeClient() *http.Client {
 			TLSHandshakeTimeout:   fetchTimeout,
 			ResponseHeaderTimeout: fetchTimeout,
 		},
-		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return errors.New("too many redirects")
+			}
+			// On a cross-host redirect, drop request headers that must not leak to a
+			// different origin. Go strips Authorization/Cookie on a host change but NOT
+			// a custom credential header -- which is exactly the auth_header form
+			// applyAuth sets -- so a redirecting/compromised upstream could otherwise
+			// harvest the stored secret. Keep only a safe transport allowlist.
+			if len(via) > 0 && req.URL.Host != via[0].URL.Host {
+				for name := range req.Header {
+					if !safeRedirectHeaders[name] {
+						req.Header.Del(name)
+					}
+				}
 			}
 			return nil
 		},
 	}
+}
+
+// safeRedirectHeaders is the allowlist of request headers kept across a cross-host
+// redirect; every other header (notably the auth_header credential) is stripped.
+// Keys are canonical (net/http stores them so).
+var safeRedirectHeaders = map[string]bool{
+	"Accept":          true,
+	"Accept-Encoding": true,
+	"Accept-Language": true,
+	"User-Agent":      true,
 }
 
 // isBlockedIP reports whether an IP is one the proxy must not connect to:

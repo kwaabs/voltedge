@@ -25,18 +25,45 @@ func baseSelect(db bun.IDB, dst any) *bun.SelectQuery {
 		Join("LEFT JOIN metadata.feature_classes AS fc ON fc.code = fr.feature_class_code")
 }
 
+// scopeTerritory constrains a registry query to a Phase-58 scoped caller's
+// accessible territories, mirroring crud.readScope/enforceReadScope exactly so
+// the registry can't surface an id the CRUD read side would hide:
+//
+//   - a geometry-less class (fc.geometry_type = 'none') is never territory-scoped
+//     -- it has no territory_id -- so it stays visible, matching readScope's
+//     geometry-less exemption;
+//   - every other row must sit in the caller's territory set; a geometry feature
+//     with a NULL territory_id is therefore hidden (NULL IN (...) is never true),
+//     the same fail-closed answer enforceReadScope gives.
+//
+// An empty (non-nil) id set is "scoped to nothing": only the geometry-less
+// classes remain. Callers pass apply=false to skip scoping (enforcement off,
+// unscoped/break-glass user, or an internal no-session caller).
+func scopeTerritory(q *bun.SelectQuery, ids []string, apply bool) *bun.SelectQuery {
+	if !apply {
+		return q
+	}
+	if len(ids) == 0 {
+		return q.Where("fc.geometry_type = 'none'")
+	}
+	return q.Where("fc.geometry_type = 'none' OR fr.territory_id IN (?)", bun.In(ids))
+}
+
 // Lookup resolves a single feature by its exact id -- the "type in an asset id,
 // what is it?" path. Returns (nil, nil) when no such id exists (a soft-deleted
 // row is still returned; the caller decides whether a tombstone is acceptable),
 // so the HTTP layer can answer 404 without treating a miss as an error.
-func Lookup(ctx context.Context, db bun.IDB, id string) (*Entry, error) {
+func Lookup(ctx context.Context, db bun.IDB, id string, scope []string, applyScope bool) (*Entry, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, nil
 	}
 	var e Entry
-	err := baseSelect(db, &e).Where("fr.feature_id = ?", id).Limit(1).Scan(ctx)
+	q := scopeTerritory(baseSelect(db, &e).Where("fr.feature_id = ?", id), scope, applyScope)
+	err := q.Limit(1).Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
+		// Either no such id, or the id exists but is out of the caller's scope --
+		// both answer "not found", so an out-of-territory id can't be confirmed.
 		return nil, nil
 	}
 	if err != nil {
@@ -81,12 +108,10 @@ func Search(ctx context.Context, db bun.IDB, f SearchFilter) ([]Entry, error) {
 	if f.Live {
 		q = q.Where("fr.deleted_at IS NULL")
 	}
-	if f.TerritoryIDs != nil {
-		if len(f.TerritoryIDs) == 0 {
-			return []Entry{}, nil
-		}
-		q = q.Where("fr.territory_id IN (?)", bun.In(f.TerritoryIDs))
-	}
+	// A non-nil TerritoryIDs (even empty) is the Phase-58 apply signal; nil means
+	// an unscoped caller. scopeTerritory keeps geometry-less classes visible and
+	// hides out-of-territory geometry features, matching crud.enforceReadScope.
+	q = scopeTerritory(q, f.TerritoryIDs, f.TerritoryIDs != nil)
 
 	if err := q.OrderExpr("fr.created_at DESC NULLS LAST").Limit(limit).Scan(ctx); err != nil {
 		return nil, err
