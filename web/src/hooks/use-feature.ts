@@ -29,6 +29,15 @@ export interface FeatureRecord {
   // non-geometric class with no territory_id column at all.
   territory_id?: string | null
   attributes: Record<string, unknown>
+  // Private-drafts Phase B: set by the server's read overlay when the acting
+  // user has a private, unpublished edit of this already-published feature that
+  // only they can see. The values on this record are the overlaid (would-be)
+  // values, not the public row -- an Apply publishes them, a Discard throws them
+  // away (see use-pending-edits.ts). pending_private_delete additionally means
+  // the private change is a retirement: the public row is still live for
+  // everyone else. Both are absent (undefined) on a feature with no pending edit.
+  pending_private_edit?: boolean
+  pending_private_delete?: boolean
 }
 
 /**

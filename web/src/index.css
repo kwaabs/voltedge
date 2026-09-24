@@ -202,3 +202,27 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+/*
+ * Asset-tag label printing (tag-print-sheet.tsx). When printing, hide the whole
+ * app and reveal only the `.print-sheet` subtree, so a print / print-to-PDF
+ * yields a clean sheet of labels with no app chrome. Colours are forced exact so
+ * the black barcode/QR aren't lightened by the browser's ink-saving default.
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-sheet,
+  .print-sheet * {
+    visibility: visible;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .print-sheet {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 0;
+  }
+}

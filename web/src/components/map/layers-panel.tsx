@@ -1,4 +1,4 @@
-import { LandPlot, Layers, PencilLine, Shapes, Tag, Trash2, ZapOff } from "lucide-react"
+import { Globe, LandPlot, Layers, PencilLine, Shapes, Tag, Trash2, ZapOff } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -14,9 +14,11 @@ import { usePermission } from "@/hooks/use-auth"
 import { useCatalog } from "@/hooks/use-catalog"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
+import { useServiceLayers } from "@/hooks/use-service-layers"
 import { useTerritoryLevels } from "@/hooks/use-territories"
 import { FAULT_STATUS_COLORS, territoryColorForRank } from "@/lib/map-layers"
 import { featureClassSourceIds } from "@/lib/martin"
+import { isRenderableServiceType } from "@/lib/service-layers-source"
 import { iconDataUri } from "@/lib/symbology-icons"
 import { resolveSymbology } from "@/lib/symbology"
 import { cn } from "@/lib/utils"
@@ -24,6 +26,7 @@ import { FAULT_STATUS_ORDER, useFaultOverlayStore } from "@/stores/fault-overlay
 import { useImportedOverlaysStore } from "@/stores/imported-overlays-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useMapAnnotationsStore } from "@/stores/map-annotations-store"
+import { useServiceLayersStore } from "@/stores/service-layers-store"
 import { useTerritoryOverlayStore } from "@/stores/territory-overlay-store"
 import { useToolbarMenuStore } from "@/stores/toolbar-menu-store"
 
@@ -89,6 +92,11 @@ export function LayersPanel() {
   const setFaultStatus = useFaultOverlayStore((s) => s.setStatus)
   const faultPulse = useFaultOverlayStore((s) => s.pulse)
   const setFaultPulse = useFaultOverlayStore((s) => s.setPulse)
+  const { data: serviceLayerRecords } = useServiceLayers()
+  const serviceLayerVisible = useServiceLayersStore((s) => s.visible)
+  const toggleServiceLayer = useServiceLayersStore((s) => s.toggle)
+  const serviceLayerOpacity = useServiceLayersStore((s) => s.opacity)
+  const setServiceLayerOpacity = useServiceLayersStore((s) => s.setOpacity)
   const can = usePermission()
   const canReadFaults = can("faults:read")
   const { data: territoryLevels } = useTerritoryLevels()
@@ -273,6 +281,69 @@ export function LayersPanel() {
           >
             <span className="truncate">Pulse live faults</span>
           </DropdownMenuCheckboxItem>
+        )}
+
+        {/* External service layers (Slice 2) -- admin-catalogued 3rd-party
+            WMS/WMTS/XYZ/Esri overlays. Only shown once at least one enabled layer
+            exists. Each row is an opt-in visibility toggle (default off) with an
+            indented opacity slider while visible. A type this build can't render
+            yet (vector: wfs/esri_feature/vector_tile -> Slice 3) shows a disabled
+            row so the catalog stays visible without offering a no-op toggle. */}
+        {serviceLayerRecords && serviceLayerRecords.length > 0 && (
+          <>
+            <DropdownMenuLabel>Service layers</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {serviceLayerRecords.map((layer) => {
+              const renderable = isRenderableServiceType(layer.service_type)
+              const isVisible = Boolean(serviceLayerVisible[layer.id])
+              const opacity = serviceLayerOpacity[layer.id] ?? layer.default_opacity
+              return (
+                <div key={layer.id}>
+                  <DropdownMenuCheckboxItem
+                    checked={renderable && isVisible}
+                    disabled={!renderable}
+                    onSelect={(e) => e.preventDefault()}
+                    onCheckedChange={() => renderable && toggleServiceLayer(layer.id)}
+                  >
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                      <Globe className="size-4 shrink-0 text-sky-600" />
+                      <span className="truncate" title={layer.label}>
+                        {layer.label}
+                      </span>
+                      <span className="text-muted-foreground ml-auto shrink-0 text-[10px] uppercase">
+                        {renderable ? layer.service_type.replace("_", " ") : "soon"}
+                      </span>
+                    </span>
+                  </DropdownMenuCheckboxItem>
+
+                  {/* Opacity slider -- a plain row, not a menu item, so it can be
+                      dragged; stop pointer/click propagation so dragging it never
+                      toggles the row above or closes the menu. */}
+                  {renderable && isVisible && (
+                    <div
+                      className="flex items-center gap-2 py-1.5 pr-2 pl-11"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={opacity}
+                        aria-label={`${layer.label} opacity`}
+                        className="accent-primary h-1 flex-1 cursor-pointer"
+                        onChange={(e) => setServiceLayerOpacity(layer.id, Number(e.target.value))}
+                      />
+                      <span className="text-muted-foreground w-8 shrink-0 text-right text-xs tabular-nums">
+                        {Math.round(opacity * 100)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </>
         )}
 
         {/* Imported overlays (Phase 15 data import) -- user-supplied reference

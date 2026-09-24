@@ -63,6 +63,16 @@ dependencies:
   # `camera` plugin (no need for a live in-app preview / custom shutter here).
   image_picker: ^1.1.2
 
+  # Camera QR / barcode scanning for asset tags (asset-tagging module S5). A field
+  # worker scans the QR (encodes the deep-link `<origin>/t/<code>`) or the Code128
+  # (encodes the raw code) printed on the plant, and the app resolves it back to
+  # the GIS record -- offline against the pack's `asset_tags` index first, then the
+  # online GET /tags?code= as a fallback (see src/ui/scan_tag_screen.dart). Wraps
+  # MLKit (Android) / Vision (iOS); camera usage strings live in AndroidManifest +
+  # Info.plist. Chosen over a raw `camera` + decode-in-Dart pipeline: it decodes on
+  # the platform, handling both symbologies with one widget. (build verification owed.)
+  mobile_scanner: ^5.2.3
+
   # The API bearer token is a credential, so it lives in the OS keystore (Android
   # Keystore-backed EncryptedSharedPreferences / iOS Keychain) rather than a plain
   # file; non-secret prefs stay in ve_settings.json (see settings_repository.dart).

@@ -11,11 +11,26 @@
 --   * on the pole-head SCHEMATIC (a later slice), as the block identity.
 -- See docs/phase-35-double-circuit.md.
 --
--- circuit_ref is free text (no domain), nullable -- a single-circuit run just
--- leaves it blank (and then draws no circuit label). The physical left/right
--- offset lives in the digitized geometry (Option B), NOT in a field, so there
--- is deliberately no `circuit_side` column here (see the doc for why -- a side
--- field would only be needed if the map ever switched to render-time offset).
+-- circuit_ref is nullable text (no domain). It is DERIVED, not hand-entered:
+-- as of the circuit-membership consolidation it is is_computed = true and hidden
+-- from both forms (visible_on_create/update = false), so the CRUD engine rejects
+-- any attempt to set it directly (api/internal/crud/validate.go). The ONLY writer
+-- is the Phase 37 assign-by-trace (api/internal/circuit/assign.go), which stamps
+-- circuit_ref = the circuit's name onto every conductor a circuit reaches (and
+-- NULLs it on the full-sync clear). The single source of truth for membership is
+-- the circuit_id uuid (a proper catalog reference); circuit_ref is a denormalized
+-- copy of that circuit's *name*, kept only because the two no-join read paths --
+-- the map label below and the trace/analysis display (api/internal/trace/graph.go
+-- enrichNode) -- read it straight off the row. A double circuit is told apart by
+-- its two runs having distinct circuit_id (hence distinct names), NOT by a hand
+-- tag; see docs/phase-35-double-circuit.md. A run with no circuit_id draws no
+-- label. The physical left/right offset lives in the digitized geometry (Option
+-- B), NOT in a field, so there is deliberately no `circuit_side` column here.
+--
+-- (Historical note: this field began life in Phase 35 as a hand-entered
+-- free-text double-circuit tag. Phase 37's circuit_id + assign-by-trace made that
+-- redundant and introduced a second writer that silently clobbered hand values on
+-- re-sync; the fix was to make circuit_ref derive-only, leaving a single writer.)
 --
 -- Metadata-only field add + a guarded demo label_def. This is picked up by the
 -- metadata-driven create form and generic CRUD automatically -- no API/UI code.
@@ -31,12 +46,17 @@
 
 -- ---------------------------------------------------------------------------
 -- circuit_ref field on both conductor classes (nullable text, no domain,
--- existing 'electrical' group). One set-generating INSERT over the two edge
--- classes; ON CONFLICT keeps it idempotent. No subtype_field_rules row -- the
--- tag is optional for every subtype (a run need not belong to a named circuit).
+-- existing 'electrical' group). DERIVED: is_computed = true and hidden from both
+-- forms so only assign-by-trace can write it. One set-generating INSERT over the
+-- two edge classes; ON CONFLICT keeps it idempotent. No subtype_field_rules row.
+-- Existing installs (where the row already exists) are flipped to derived by
+-- seed/circuit_ref_derived.sql, since ON CONFLICT DO NOTHING won't touch them.
 -- ---------------------------------------------------------------------------
-INSERT INTO metadata.fields (feature_class_id, name, data_type, domain_id, group_id, nullable)
-SELECT fc.id, 'circuit_ref', 'text', NULL, fg.id, true
+INSERT INTO metadata.fields
+  (feature_class_id, name, data_type, domain_id, group_id, nullable,
+   is_computed, visible_on_create, visible_on_update)
+SELECT fc.id, 'circuit_ref', 'text', NULL, fg.id, true,
+       true, false, false
 FROM metadata.feature_classes fc
 JOIN metadata.field_groups fg ON fg.code = 'electrical'
 WHERE fc.code IN ('MV_CONDUCTOR', 'LV_CONDUCTOR')

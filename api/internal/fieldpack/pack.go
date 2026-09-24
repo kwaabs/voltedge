@@ -109,6 +109,16 @@ type PackScope struct {
 	// all-rounder crew (the "permitted modules" set is exactly these include flags).
 	IncludeFaults bool `json:"include_faults"`
 
+	// IncludeTags is the asset-tagging inclusion decision (asset-tagging module S5),
+	// resolved at enqueue from the requester's tags:read and frozen into the scope
+	// for the same detached-worker reason as the other flags. When set, the pack
+	// carries every resolvable tag code (active + superseded) on the packed assets,
+	// so a field worker scans a QR/Code128/typed tag and the device resolves it to a
+	// feature with no signal. tags:read is viewer-tier (any field tech scans), so
+	// this is set for virtually every pack; a caller without it gets no tag index
+	// and the device falls back to online-only resolution.
+	IncludeTags bool `json:"include_tags"`
+
 	// DraftAuthors is the Private-drafts (Phase 61) author allow-list, resolved at
 	// enqueue from the requester's session (their own id plus their subordinates)
 	// and frozen into the scope for the same detached-worker reason as the flags

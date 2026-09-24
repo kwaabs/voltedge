@@ -40,7 +40,14 @@ function AccountMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="text-foreground gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          // Green account chip in LIGHT MODE ONLY -- the `dark:` overrides restore
+          // the neutral outline look (bg-background / border-input / text-foreground
+          // + accent hover) so dark mode is unchanged.
+          className="gap-1.5 border-green-600 bg-green-600 text-white hover:bg-green-700 hover:text-white dark:border-input dark:bg-background dark:text-foreground dark:hover:bg-accent dark:hover:text-accent-foreground"
+        >
           <User className="size-4" />
           <span className="max-w-[12rem] truncate">{user.display_name}</span>
         </Button>

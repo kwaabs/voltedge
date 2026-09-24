@@ -461,12 +461,20 @@ tasks:
         -f /workspace/seed/mv_switchgear_panel_templates.sql
 
   seed-circuit-ref:
-    desc: Add circuit_ref to the conductor classes through the gitbash sidecar (Phase 35 Slice 1; double-circuit identity tag + demo label; recompile MV_CONDUCTOR + LV_CONDUCTOR after)
+    desc: Add circuit_ref to the conductor classes through the gitbash sidecar (Phase 35 Slice 1; derived circuit-name mirror + demo label; recompile MV_CONDUCTOR + LV_CONDUCTOR after)
     cmds:
       - >-
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/circuit_ref_example.sql
+
+  seed-circuit-ref-derived:
+    desc: Flip circuit_ref to derived/read-only on existing installs (is_computed + hidden from forms) so only assign-by-trace writes it; no recompile
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/circuit_ref_derived.sql
 
   seed-circuit-membership:
     desc: Stamp network (MV/LV) + add circuit_id to the electrical apparatus classes through the gitbash sidecar (Phase 37 Slice 2; circuit membership field + network-scoped picker; recompile each stamped class after)
@@ -1136,6 +1144,7 @@ tasks:
       - task: seed-mv-switchgear-panels
       - task: seed-mv-switchgear-panel-templates
       - task: seed-circuit-ref
+      - task: seed-circuit-ref-derived
       - task: seed-circuit-membership
       - task: seed-operational-state
       - task: seed-operational-state-backfill

@@ -96,6 +96,36 @@ func splitHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
+// SplitNewFeatureInput is the exported, geometry-less create body for the far
+// half, so a caller outside this package (the agent-tool adapter) can describe
+// the new feature without touching the package-private splitNewFeature. Mirrors
+// its fields one-for-one.
+type SplitNewFeatureInput struct {
+	Subtype     *int
+	Name        *string
+	TerritoryID *string
+	Attributes  map[string]any
+}
+
+// SplitLineFeature is the exported entry point for a line split, mirroring
+// CreateFeature/DeleteFeature so callers outside this package have one function
+// to split through. It takes the cut point as primitive lng/lat (the same
+// EPSG:4326 the wire speaks) and the far half's create body, assembles the
+// package-private splitRequest, and hands off to SplitLine. The caller must have
+// already checked the class is a line; SplitLine still enforces scope and draft
+// visibility inside its transaction.
+func SplitLineFeature(ctx context.Context, db *bun.DB, loaded *metadata.Loaded, id string, lng, lat float64, newFeature SplitNewFeatureInput) (map[string]any, error) {
+	return SplitLine(ctx, db, loaded, id, splitRequest{
+		SplitPoint: splitPoint{Lng: &lng, Lat: &lat},
+		NewFeature: splitNewFeature{
+			Subtype:     newFeature.Subtype,
+			Name:        newFeature.Name,
+			TerritoryID: newFeature.TerritoryID,
+			Attributes:  newFeature.Attributes,
+		},
+	})
+}
+
 // SplitLine performs the whole transactional split for one line feature and
 // returns the newly created (far-half) feature's envelope, the same shape a
 // create returns. The caller has already resolved metadata and checked the class

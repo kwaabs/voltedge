@@ -26,6 +26,20 @@ import (
 // a nullable column so a different subtype (which doesn't require it)
 // can still omit it -- so a required field going null via a later PATCH
 // isn't necessarily caught by a database NOT NULL constraint.
+// PublishFeature is the exported entry point for a draft->published
+// transition, mirroring DeleteFeature so callers outside this package (the
+// agent-tool adapter) have one function to publish through. Thin pass-through
+// to publishFeature; the in-package web handler keeps calling that directly.
+func PublishFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) (map[string]any, error) {
+	return publishFeature(ctx, db, loaded, id)
+}
+
+// UnpublishFeature is the exported entry point for a published->draft
+// transition, the twin of PublishFeature. Thin pass-through to unpublishFeature.
+func UnpublishFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) (map[string]any, error) {
+	return unpublishFeature(ctx, db, loaded, id)
+}
+
 func publishFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) (map[string]any, error) {
 	current, err := getFeature(ctx, db, loaded, id)
 	if err != nil {

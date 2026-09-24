@@ -12,6 +12,11 @@ export interface QueryResultRow {
   status: string | null
   geometry?: FeatureGeometry
   attributes: Record<string, unknown>
+  // The feature's primary (printable) asset-tag code, present only when the
+  // query carried a tag filter (the engine surfaces it so a code search shows
+  // which record a scan lands on). Absent otherwise, and absent for a feature
+  // with no active primary tag.
+  primary_tag_code?: string
 }
 
 /**

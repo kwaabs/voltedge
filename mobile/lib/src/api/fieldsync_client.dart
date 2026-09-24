@@ -190,6 +190,22 @@ class FieldsyncClient {
     return rows.map(GpsCapture.fromJson).toList();
   }
 
+  /// GET /tags?code= -- resolve a scanned asset-tag code online (asset-tagging
+  /// module S5), the fallback when the offline pack index has no such code (the
+  /// asset sits outside the downloaded pack, or the pack predates the tag index).
+  /// Uses the query form (not /tags/{code}) so a code with URL-reserved characters
+  /// resolves cleanly, matching the web hook. The server applies the same
+  /// scope/private-draft read gate a feature GET does, so an unknown/retired/
+  /// out-of-scope code answers 404 -> FieldsyncException(404); the caller shows a
+  /// friendly "not found" rather than treating it as a crash.
+  Future<TagResolution> resolveTag(String code) async {
+    final uri = Uri.parse('${_settings.baseUrl}/tags')
+        .replace(queryParameters: {'code': code});
+    final res = await _http.get(uri, headers: _headers());
+    _ensureOk(res);
+    return TagResolution.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
   // ---- Image attachments (Phase 22 Slice 5) ---------------------------------
 
   /// Upload one captured image through the bearer `/attachments` surface: the same

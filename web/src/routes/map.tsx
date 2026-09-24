@@ -5,7 +5,6 @@ import { AmpacityPanel } from "@/components/map/ampacity-panel"
 import { AnnotationEditPanel } from "@/components/map/annotation-edit-panel"
 import { AssistantChat } from "@/components/map/assistant-chat"
 import { AssistantSuggestions } from "@/components/map/assistant-suggestions"
-import { BoxZoomButton } from "@/components/map/box-zoom-button"
 import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
 import { CoordinationPanel } from "@/components/map/coordination-panel"
 import { DiagramCanvas } from "@/components/map/diagram-canvas"
@@ -28,11 +27,13 @@ import { EvHostingPanel } from "@/components/map/ev-hosting-panel"
 import { MeshedLoadFlowPanel } from "@/components/map/meshed-load-flow-panel"
 import { NodalLoadFlowPanel } from "@/components/map/nodal-load-flow-panel"
 import { AutoLoadFlowPanel } from "@/components/map/auto-load-flow-panel"
-import { MeasureToolbar } from "@/components/map/measure-toolbar"
+import { UnbalancedLoadFlowPanel } from "@/components/map/unbalanced-load-flow-panel"
 import { NewAnnotationMenu } from "@/components/map/new-annotation-menu"
 import { NewAssemblyMenu } from "@/components/map/new-assembly-menu"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
 import { PeerPicker } from "@/components/map/peer-picker"
+import { SelectToolButton } from "@/components/map/select-tool-button"
+import { ServiceIdentifyPanel } from "@/components/map/service-identify-panel"
 import { StatusBar } from "@/components/map/status-bar"
 import { TerritoryEditToolbar } from "@/components/map/territory-edit-toolbar"
 import { TerritoryPanel } from "@/components/map/territory-panel"
@@ -108,7 +109,7 @@ export function MapPage() {
                   className="shadow-sm"
                   onClick={() => useImportStore.getState().openDialog()}
                 >
-                  <Upload className="size-3.5 text-emerald-600" /> Import
+                  <Upload className="size-3.5 text-emerald-600" /> Attach
                 </Button>
                 <Button
                   variant="secondary"
@@ -128,8 +129,7 @@ export function MapPage() {
                     <Sparkles className={cn("size-3.5", !chatOpen && "text-violet-600")} /> Assistant
                   </Button>
                 )}
-                <BoxZoomButton />
-                <MeasureToolbar />
+                <SelectToolButton />
                 <NewFeatureMenu />
                 <NewAssemblyMenu />
                 <NewAnnotationMenu />
@@ -147,6 +147,12 @@ export function MapPage() {
               </>
             )}
           </div>
+          {/* Geometry/territory edit toolbars live INSIDE the map column so
+              their `absolute top-3` centers over the map (below the app header)
+              and they hide with the map when a diagram is maximized -- same
+              reasoning as the status bar belonging to this column. */}
+          <GeometryEditToolbar />
+          <TerritoryEditToolbar />
           {/* Map viewport -- flex-1 so the status bar below shares this column;
               both hide together when a diagram is maximized (this column is
               `hidden`), and in split view the bar spans only the map's width. */}
@@ -180,14 +186,13 @@ export function MapPage() {
       <ExportJobsPanel />
       <ImportDialog />
       <ImportedFeaturePopup />
+      <ServiceIdentifyPanel />
       <PeerPicker />
       <FeaturePanel />
       <TerritoryPanel />
       <ConnectConfirmPanel />
       <AssistantSuggestions />
       <AssistantChat />
-      <GeometryEditToolbar />
-      <TerritoryEditToolbar />
       <AnnotationEditPanel />
       <TraceResultTable />
       <IsolationResultTable />
@@ -203,6 +208,7 @@ export function MapPage() {
       <MeshedLoadFlowPanel />
       <NodalLoadFlowPanel />
       <AutoLoadFlowPanel />
+      <UnbalancedLoadFlowPanel />
     </div>
   )
 }

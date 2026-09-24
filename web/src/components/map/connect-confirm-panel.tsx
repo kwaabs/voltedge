@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { AlertTriangle, ArrowRight, CircleCheck, Loader2, X } from "lucide-react"
+import { AlertTriangle, ArrowLeftRight, ArrowRight, CircleCheck, Loader2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { useFeature } from "@/hooks/use-feature"
+import { useFeatureClassRules } from "@/hooks/use-feature-class-rules"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { terminalsForSubtype, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { ApiError, apiFetch } from "@/lib/api"
@@ -90,12 +91,28 @@ export function ConnectConfirmPanel() {
   const target = useConnectStore((s) => s.target)
   const cancel = useConnectStore((s) => s.cancel)
   const { data: featureClasses } = useFeatureClasses()
+  // The relationship_classes that could apply to this establish are the
+  // source class's rules whose ordered pairing matches the picked target
+  // (LoadRelationshipClasses matches origin AND destination, so the
+  // establish is directional: origin=source, destination=target). We fetch
+  // the source's rules and filter to the target below, turning the old
+  // free-text Kind box into a picker of exactly the valid kinds. Enabled
+  // only in relationship mode -- connectivity has no kind concept.
+  const { data: sourceRules, isLoading: rulesLoading } = useFeatureClassRules(
+    mode === "relationship" ? source?.featureClassCode : undefined,
+  )
   const queryClient = useQueryClient()
 
   const [sourceTerminal, setSourceTerminal] = useState("")
   const [targetTerminal, setTargetTerminal] = useState("")
   const [kind, setKind] = useState("")
   const [saving, setSaving] = useState(false)
+  // A just-established relationship that came back geometrically implausible
+  // (checkPlausibility, api/internal/relationship/plausibility.go). The
+  // warning is deliberately NOT persisted server-side (types.go) and never
+  // reappears on read-back, so instead of flashing a toast that's gone before
+  // it can be acted on, we hold it here and keep this card open with Undo/Keep.
+  const [warned, setWarned] = useState<{ id: string; message: string } | null>(null)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const [loopCheck, setLoopCheck] = useState<{ checking: boolean; pathFound: boolean | null }>({
     checking: false,
@@ -113,6 +130,7 @@ export function ConnectConfirmPanel() {
     setSourceTerminal("")
     setTargetTerminal("")
     setKind("")
+    setWarned(null)
     setPosition(null)
   }, [mode, source?.featureClassCode, source?.featureId])
 
@@ -121,11 +139,58 @@ export function ConnectConfirmPanel() {
   // whole workflow, already covered by the effect above) invalidates it.
   useEffect(() => {
     setLoopCheck({ checking: false, pathFound: null })
+    // The valid Kind set is target-specific -- a kind chosen for one target
+    // must not carry into a different one (whose kinds may differ or be a
+    // single auto-picked one), or Confirm could send a now-invalid kind.
+    setKind("")
   }, [target?.featureClassCode, target?.featureId])
 
   if (!mode || !source) return null
 
   const nameFor = (code: string) => featureClasses?.feature_classes.find((fc) => fc.code === code)?.name ?? code
+
+  // sourceRules carries every relationship rule where the source class
+  // appears on EITHER side, so from it alone we can read both directions of
+  // the picked pairing. Kinds are deduped (the same kind can appear under
+  // differently-named relationship_classes; matchClass keys on kind alone).
+  const dedupeKinds = (pred: (r: { origin_class: string; destination_class: string }) => boolean) =>
+    mode === "relationship" && target && sourceRules
+      ? Array.from(new Set(sourceRules.relationship_rules.filter(pred).map((r) => r.kind)))
+      : []
+  // Forward = source -> target, exactly what the picker order asks for.
+  const forwardKinds = dedupeKinds(
+    (r) => r.origin_class === source.featureClassCode && target != null && r.destination_class === target.featureClassCode,
+  )
+  // Reverse = target -> source, only considered when there's no forward class
+  // -- relationship_classes are one-way, but the pole<->transformer style
+  // pairing "means the same thing" either way, so if only the reverse
+  // direction is defined we establish it swapped rather than dead-ending.
+  const reverseKinds =
+    forwardKinds.length === 0
+      ? dedupeKinds(
+          (r) =>
+            target != null && r.origin_class === target.featureClassCode && r.destination_class === source.featureClassCode,
+        )
+      : []
+  // When we fall back to the reverse direction the POST must swap
+  // origin/destination so the stored relationship stays semantically correct
+  // (and its cardinality's "one" end stays on the right class).
+  const relationshipReversed = reverseKinds.length > 0
+  const applicableKinds = relationshipReversed ? reverseKinds : forwardKinds
+  // Only reachable once the rules have loaded (sourceRules set): no
+  // relationship_class permits this pairing in EITHER direction, so the
+  // establish would 400 -- flag it up front instead.
+  const noRelationshipClass =
+    mode === "relationship" &&
+    target != null &&
+    !rulesLoading &&
+    sourceRules != null &&
+    forwardKinds.length === 0 &&
+    reverseKinds.length === 0
+  // >1 kind is the genuinely-ambiguous case matchClass needs disambiguated;
+  // exactly 1 is auto-picked server-side with kind omitted, so no choice.
+  const needsKindChoice = applicableKinds.length > 1
+  const relationshipBlocked = mode === "relationship" && (noRelationshipClass || (needsKindChoice && kind === ""))
 
   function handleHeaderPointerDown(e: React.PointerEvent) {
     const rect = panelRef.current?.getBoundingClientRect()
@@ -189,26 +254,25 @@ export function ConnectConfirmPanel() {
         // relationship_classes has no terminal concept -- just origin,
         // destination, and an optional kind, only needed when more than
         // one relationship_classes row matches the same pairing
-        // (api/internal/relationship/rules.go's matchClass). Left blank,
-        // an ambiguous pairing comes back as a real 400 naming the valid
-        // kinds -- surfaced through the same toast as any other
-        // rejection, no separate UI for listing them out.
-        const result = await apiFetch<{ plausibility_warning?: string }>("/relationships", {
+        // (api/internal/relationship/rules.go's matchClass). The Kind picker
+        // above already constrains this to a valid kind (or omits it when
+        // exactly one applies), so `kind || undefined` is either that chosen
+        // kind or blank for the backend to auto-resolve. The free-text
+        // fallback (rules fetch failed) can still 400, surfaced via toast.
+        // relationshipReversed: only the target -> source direction has a
+        // relationship_class, so swap the ends (see the forward/reverse kinds
+        // computation) -- the pairing means the same thing either way, but the
+        // stored row must carry the defined direction.
+        const originEnd = relationshipReversed ? target : source
+        const destEnd = relationshipReversed ? source : target
+        const result = await apiFetch<{ id: string; plausibility_warning?: string }>("/relationships", {
           method: "POST",
           body: JSON.stringify({
-            origin: { feature_class: source.featureClassCode, feature_id: source.featureId },
-            destination: { feature_class: target.featureClassCode, feature_id: target.featureId },
+            origin: { feature_class: originEnd.featureClassCode, feature_id: originEnd.featureId },
+            destination: { feature_class: destEnd.featureClassCode, feature_id: destEnd.featureId },
             kind: kind || undefined,
           }),
         })
-        // A soft geometric sanity check (api/internal/relationship/plausibility.go)
-        // -- never blocks the establish above, which has already
-        // succeeded by this point; just flags a pairing worth a second
-        // look, in the same toast stack as an error but styled as a
-        // warning (nothing failed).
-        if (result.plausibility_warning) {
-          useToastStore.getState().pushWarning(result.plausibility_warning)
-        }
         queryClient.invalidateQueries({ queryKey: ["relationships", source.featureClassCode, source.featureId] })
         queryClient.invalidateQueries({ queryKey: ["relationships", target.featureClassCode, target.featureId] })
         // A cable_routing establish consumes a duct way, so the spare-ways
@@ -218,6 +282,15 @@ export function ConnectConfirmPanel() {
         // (either could be, depending on which end started the relationship).
         queryClient.invalidateQueries({ queryKey: ["duct-capacity", source.featureClassCode, source.featureId] })
         queryClient.invalidateQueries({ queryKey: ["duct-capacity", target.featureClassCode, target.featureId] })
+        // A soft geometric sanity check (plausibility.go) -- never blocks the
+        // establish, which has already succeeded. But rather than a toast that
+        // vanishes, hold it in the card: keep this panel open showing the
+        // warning inline with Undo/Keep, so "double check this is the right
+        // pairing" is actually actionable. No warning => clean close as before.
+        if (result.plausibility_warning) {
+          setWarned({ id: result.id, message: result.plausibility_warning })
+          return
+        }
       }
       cancel()
     } catch (err) {
@@ -232,18 +305,36 @@ export function ConnectConfirmPanel() {
     }
   }
 
+  // "Undo" on the plausibility warning: the relationship was really created,
+  // so backing out is a revoke (DELETE /relationships/{id}), same call and
+  // broad invalidation as revoke-relationship-dialog.tsx.
+  async function handleUndo() {
+    if (!warned) return
+    setSaving(true)
+    try {
+      await apiFetch(`/relationships/${warned.id}`, { method: "DELETE" })
+      queryClient.invalidateQueries({ queryKey: ["relationships"] })
+      setWarned(null)
+      cancel()
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not undo this relationship.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div
       ref={panelRef}
       style={position ? { left: position.x, top: position.y } : undefined}
       className={cn(
-        "bg-popover text-popover-foreground fixed z-50 w-72 overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-primary shadow-xl ring-1 ring-black/5",
+        "bg-popover text-popover-foreground fixed z-50 w-72 overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-[oklch(0.45_0.10_252)] dark:border-t-primary shadow-xl ring-1 ring-black/5",
         !position && "top-20 right-4",
       )}
     >
       <div
         onPointerDown={handleHeaderPointerDown}
-        className="border-primary/15 flex cursor-grab items-center justify-between border-b bg-gradient-to-b from-accent/50 to-accent/20 px-3 py-2 select-none active:cursor-grabbing"
+        className="border-[oklch(0.45_0.10_252)]/20 dark:border-primary/15 flex cursor-grab items-center justify-between border-b bg-gradient-to-b from-[oklch(0.45_0.10_252)]/15 to-[oklch(0.45_0.10_252)]/5 dark:from-accent/50 dark:to-accent/20 px-3 py-2 select-none active:cursor-grabbing"
       >
         <p className="text-sm font-medium">{mode === "connectivity" ? "New connection" : "New relationship"}</p>
         <Button variant="ghost" size="icon" className="size-6 shrink-0" onClick={cancel}>
@@ -277,16 +368,59 @@ export function ConnectConfirmPanel() {
           </p>
         )}
 
-        {mode === "relationship" && (
+        {!warned && relationshipReversed && target && (
+          // Relationship_classes are one-way; only target -> source is defined,
+          // so we quietly store it that way -- same real-world link, correct
+          // direction. Shown so the swap isn't a surprise.
+          <p className="text-muted-foreground flex items-start gap-1.5 rounded-md border border-dashed border-input px-2 py-2 text-xs">
+            <ArrowLeftRight className="size-3.5 shrink-0 translate-y-0.5" />
+            <span>
+              Stored as {nameFor(target.featureClassCode)} → {nameFor(source.featureClassCode)} (relationships are
+              one-way; this pairing is only defined in that direction).
+            </span>
+          </p>
+        )}
+
+        {!warned && mode === "relationship" && target && (
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium">Kind</label>
-            <input
-              type="text"
-              className={selectClass}
-              value={kind}
-              onChange={(e) => setKind(e.target.value)}
-              placeholder="Only needed if the pairing is ambiguous"
-            />
+            {rulesLoading ? (
+              <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                <Loader2 className="size-3.5 animate-spin" /> Checking valid relationship kinds…
+              </p>
+            ) : !sourceRules ? (
+              // Rules failed to load -- fall back to the old free-text box so
+              // a transient fetch error can't block establishing; the backend
+              // still validates whatever kind is typed.
+              <input
+                type="text"
+                className={selectClass}
+                value={kind}
+                onChange={(e) => setKind(e.target.value)}
+                placeholder="Only needed if the pairing is ambiguous"
+              />
+            ) : noRelationshipClass ? (
+              <p className="text-destructive flex items-start gap-1.5 text-xs">
+                <AlertTriangle className="size-3.5 shrink-0 translate-y-0.5" />
+                No relationship class links {nameFor(source.featureClassCode)} and{" "}
+                {nameFor(target.featureClassCode)} (in either direction).
+              </p>
+            ) : needsKindChoice ? (
+              <select className={selectClass} value={kind} onChange={(e) => setKind(e.target.value)}>
+                <option value="">Select kind…</option>
+                {applicableKinds.map((k) => (
+                  <option key={k} value={k}>
+                    {k}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              // Exactly one kind applies -- nothing to choose; shown read-only
+              // so it's clear what will be established (sent with kind omitted).
+              <p className="text-muted-foreground text-xs">
+                {applicableKinds[0]} <span className="opacity-70">(only kind for this pairing)</span>
+              </p>
+            )}
           </div>
         )}
 
@@ -311,14 +445,44 @@ export function ConnectConfirmPanel() {
           </div>
         )}
 
+        {warned && (
+          <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/40 bg-amber-50 px-2.5 py-2 dark:bg-amber-950/30">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="size-3.5 shrink-0" />
+              Relationship created — worth a second look
+            </p>
+            <p className="text-xs text-amber-800 dark:text-amber-300">{warned.message}</p>
+          </div>
+        )}
+
         <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" size="sm" onClick={cancel} disabled={saving}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleConfirm} disabled={saving || !target}>
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            Confirm
-          </Button>
+          {warned ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleUndo}
+                disabled={saving}
+                className="text-destructive hover:text-destructive"
+              >
+                {saving && <Loader2 className="size-4 animate-spin" />}
+                Undo
+              </Button>
+              <Button size="sm" onClick={cancel} disabled={saving}>
+                Keep
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" size="sm" onClick={cancel} disabled={saving}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleConfirm} disabled={saving || !target || relationshipBlocked}>
+                {saving && <Loader2 className="size-4 animate-spin" />}
+                Confirm
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>

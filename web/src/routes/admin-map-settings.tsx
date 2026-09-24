@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Loader2, Map as MapIcon, Save } from "lucide-react"
 
 import { BasemapsManager } from "@/components/admin/basemaps-manager"
+import { ServiceLayersManager } from "@/components/admin/service-layers-manager"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useMapSettings, useUpdateMapSettings } from "@/hooks/use-map-settings"
@@ -206,6 +207,12 @@ export function AdminMapSettingsPage() {
             so it lives beside the default-view form rather than under its
             query. */}
         <BasemapsManager />
+
+        {/* The external service-layer catalog -- 3rd-party WMS/WMTS/XYZ/vector-
+            tile/Esri/WFS overlays the map can stack on the basemap. Same
+            standalone shape as the basemap manager (own query + write path in
+            hooks/use-service-layers.ts). */}
+        <ServiceLayersManager />
       </div>
     </div>
   )

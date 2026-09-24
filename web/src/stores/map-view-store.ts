@@ -24,16 +24,22 @@ interface MapViewState {
   /** Last viewport center as [lon, lat] in EPSG:4326. */
   center: [number, number] | null
   zoom: number | null
+  /** Current view rotation in radians (0 = north up). Pushed live so the
+   * reset-north button can appear/point while the map is being twisted. */
+  rotation: number
   setBbox: (bbox: Bbox4326) => void
   setCenter: (center: [number, number]) => void
   setZoom: (zoom: number) => void
+  setRotation: (rotation: number) => void
 }
 
 export const useMapViewStore = create<MapViewState>((set) => ({
   bbox: null,
   center: null,
   zoom: null,
+  rotation: 0,
   setBbox: (bbox) => set({ bbox }),
   setCenter: (center) => set({ center }),
   setZoom: (zoom) => set({ zoom }),
+  setRotation: (rotation) => set({ rotation }),
 }))

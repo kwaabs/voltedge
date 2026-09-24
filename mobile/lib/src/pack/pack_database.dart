@@ -287,6 +287,28 @@ class NetworkRuleDef {
   final String? name;
 }
 
+/// One asset-tag row read from the pack's `asset_tags` index (pack schema v10+,
+/// asset-tagging module S5). The pack carries every RESOLVABLE tag code (active +
+/// superseded) on a packed feature -- void codes are omitted server-side (see
+/// internal/fieldpack/builder.go loadPackAssetTags), mirroring the online
+/// resolver. A field scan looks a code up here first ([PackDatabase.resolveTag])
+/// so the loop closes with no signal; the id then selects the feature on the map.
+class PackTag {
+  const PackTag({
+    required this.tagCode,
+    required this.featureClass,
+    required this.featureId,
+    required this.isPrimary,
+    required this.status,
+  });
+
+  final String tagCode;
+  final String featureClass;
+  final String featureId;
+  final bool isPrimary;
+  final String status; // active | superseded (void never rides the pack)
+}
+
 /// One feature row read from the pack. geom is decoded lazily via [geometry].
 class FeatureRecord {
   const FeatureRecord({
@@ -962,6 +984,73 @@ class PackDatabase {
   /// or neither. Cached for the life of the open pack.
   bool get packsFaults => _packsFaults ??= _tableExists('faults_events');
   bool? _packsFaults;
+
+  // ---- Asset-tag index (pack schema v10, requester had tags:read) -----------
+  //
+  // The `asset_tags` table ships ONLY when the pack requester holds tags:read
+  // (see internal/fieldpack/builder.go PackScope.IncludeTags). It carries every
+  // resolvable code (active + superseded, void omitted) on a packed feature, so a
+  // field scan resolves offline. A pack without it -- an older pre-v10 pack, or one
+  // built for a user without the perm -- has no such table, so both reads below
+  // swallow the missing-table SqliteException and degrade to empty/null, exactly as
+  // the WAM/faults reads do; the caller then falls back to the online resolver.
+
+  /// Whether this pack ships the asset-tag index at all -- the `asset_tags` table
+  /// exists (a v10 pack built for a tags:read user). The scan flow uses this to
+  /// decide whether an offline miss is authoritative (no table -> go straight
+  /// online). Cached for the life of the open pack.
+  bool get packsAssetTags => _packsAssetTags ??= _tableExists('asset_tags');
+  bool? _packsAssetTags;
+
+  /// Resolve a scanned tag [code] to its packed asset, or null when this pack has
+  /// no such code (an unknown/void code, a code on an unpacked feature, or a pack
+  /// with no tag index). Index-backed by the tag_code primary key. Note the pack
+  /// carries no scope/draft gate of its own -- it was built from the requester's
+  /// own authorized snapshot, so every code it holds is already one they may see.
+  PackTag? resolveTag(String code) {
+    try {
+      final rows = _db.select(
+        '''
+        SELECT tag_code, feature_class, feature_id, is_primary, status
+        FROM asset_tags WHERE tag_code = ?
+        ''',
+        [code],
+      );
+      if (rows.isEmpty) return null;
+      return _toTag(rows.first);
+    } on SqliteException {
+      return null;
+    }
+  }
+
+  /// The primary (printed) tag on a feature, or null when the feature has no
+  /// packed tag or this pack ships no tag index. Lets the detail view show the
+  /// code-of-record beside a scanned asset. `asset_tags_feature_idx` backs this.
+  PackTag? primaryTagFor(String featureId) {
+    try {
+      final rows = _db.select(
+        '''
+        SELECT tag_code, feature_class, feature_id, is_primary, status
+        FROM asset_tags WHERE feature_id = ?
+        ORDER BY is_primary DESC, tag_code
+        LIMIT 1
+        ''',
+        [featureId],
+      );
+      if (rows.isEmpty) return null;
+      return _toTag(rows.first);
+    } on SqliteException {
+      return null;
+    }
+  }
+
+  PackTag _toTag(Row r) => PackTag(
+        tagCode: r['tag_code'] as String,
+        featureClass: (r['feature_class'] as String?) ?? '',
+        featureId: (r['feature_id'] as String?) ?? '',
+        isPrimary: (r['is_primary'] as num?)?.toInt() == 1,
+        status: (r['status'] as String?) ?? 'active',
+      );
 
   /// The requester's own field work board: every work order the pack carries
   /// (the server already filtered to the requester's non-terminal orders, any

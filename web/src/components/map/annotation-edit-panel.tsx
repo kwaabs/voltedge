@@ -183,7 +183,7 @@ export function AnnotationEditPanel() {
   }
 
   return (
-    <div className="bg-popover text-popover-foreground fixed bottom-3 left-3 z-40 flex max-h-[calc(100vh-1.5rem)] w-72 flex-col gap-3 overflow-y-auto rounded-lg border border-border/70 border-t-2 border-t-primary p-3 shadow-xl ring-1 ring-black/5">
+    <div className="bg-popover text-popover-foreground fixed bottom-3 left-3 z-40 flex max-h-[calc(100vh-1.5rem)] w-72 flex-col gap-3 overflow-y-auto rounded-lg border border-border/70 border-t-2 border-t-[oklch(0.45_0.10_252)] dark:border-t-primary p-3 shadow-xl ring-1 ring-black/5">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium">{KIND_LABEL[kind] ?? "Annotation"}</span>
         <Button variant="ghost" size="icon" className="size-6" onClick={deselect}>

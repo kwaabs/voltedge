@@ -229,6 +229,54 @@ type faultCurrentResponse struct {
 	Barriers        []featureRef      `json:"barriers"`
 }
 
+// phaseResult is one phase (A, B, or C) of an unbalanced-load-flow node. It is
+// the per-phase analog of nodeResult's scalar voltage/current fields: only the
+// phases actually energized at the node appear (a single-phase lateral reports
+// one). CurrentAmps/AmpacityAmps/LoadingPct are populated only on a conductor
+// (network_role = 'edge') node, exactly as in the balanced result.
+type phaseResult struct {
+	Phase          string   `json:"phase"`
+	VoltageV       float64  `json:"voltage_v"`
+	VoltageDropPct float64  `json:"voltage_drop_pct"`
+	CumulativeKW   float64  `json:"cumulative_kw"`
+	CumulativeKVAR float64  `json:"cumulative_kvar"`
+	CurrentAmps    *float64 `json:"current_amps,omitempty"`
+	AmpacityAmps   *float64 `json:"ampacity_amps,omitempty"`
+	LoadingPct     *float64 `json:"loading_pct,omitempty"`
+}
+
+// unbalancedNodeResult is one node's three-phase state from the decoupled
+// per-phase sweep (unbalanced.go). Phases holds only the energized phases.
+// NeutralCurrentAmps and VoltageUnbalancePct are populated only when all three
+// phases are present at the node -- a neutral return or an unbalance figure over
+// a single- or two-phase node is not meaningful. NominalBaseV is the voltage base
+// the phase voltages are on (rebased below a transformer), same convention as
+// nodeResult.
+type unbalancedNodeResult struct {
+	FeatureClass        string        `json:"feature_class"`
+	FeatureID           string        `json:"feature_id"`
+	CircuitID           string        `json:"circuit_id,omitempty"`
+	CircuitRef          string        `json:"circuit_ref,omitempty"`
+	NominalBaseV        float64       `json:"nominal_base_v"`
+	Phases              []phaseResult `json:"phases"`
+	NeutralCurrentAmps  *float64      `json:"neutral_current_amps,omitempty"`
+	VoltageUnbalancePct *float64      `json:"voltage_unbalance_pct,omitempty"`
+	MaterialResolved    bool          `json:"material_resolved"`
+}
+
+// unbalancedResponse is the full result of one unbalanced (three-phase) sweep.
+// Unbalanced is a convenience subset of Nodes whose voltage unbalance exceeds the
+// planning limit (unbalanceLimitPct) -- the per-phase analog of loadFlowResponse's
+// Overloaded, so a client need not re-scan.
+type unbalancedResponse struct {
+	Start           featureRef             `json:"start"`
+	NominalVoltageV float64                `json:"nominal_voltage_v"`
+	Iterations      int                    `json:"iterations"`
+	Nodes           []unbalancedNodeResult `json:"nodes"`
+	Barriers        []featureRef           `json:"barriers"`
+	Unbalanced      []featureRef           `json:"unbalanced"`
+}
+
 // apiError is the JSON body returned for any 4xx/5xx response.
 type apiError struct {
 	Error string `json:"error"`

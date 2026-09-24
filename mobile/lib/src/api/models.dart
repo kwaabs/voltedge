@@ -301,6 +301,61 @@ class GpsCapture {
       );
 }
 
+/// The online resolution of a scanned asset tag (GET /tags?code=), mirroring the
+/// server's assettag.Resolution {tag, feature, tags}. Used only as the fallback
+/// when the offline pack index has no such code (asset-tagging module S5): the
+/// server applies the same scope/private-draft read gate a feature GET does, so a
+/// code the caller may not see comes back as a FieldsyncException(404). We keep
+/// just what the scan flow needs -- the scanned tag's feature ref, its primary
+/// code, and a display name pulled best-effort from the feature envelope.
+class TagResolution {
+  const TagResolution({
+    required this.tagCode,
+    required this.featureClass,
+    required this.featureId,
+    this.primaryCode,
+    this.featureName,
+  });
+
+  final String tagCode;
+  final String featureClass;
+  final String featureId;
+
+  /// The feature's primary (code-of-record) tag, if the tags list carried one.
+  final String? primaryCode;
+
+  /// A best-effort display name for the resolved feature, or null.
+  final String? featureName;
+
+  factory TagResolution.fromJson(Map<String, dynamic> j) {
+    final tag = (j['tag'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final feature = (j['feature'] as Map?)?.cast<String, dynamic>();
+    final tags = (j['tags'] as List? ?? const []).cast<Map>();
+    String? primary;
+    for (final t in tags) {
+      if (t['is_primary'] == true) {
+        primary = t['tag_code'] as String?;
+        break;
+      }
+    }
+    // The feature envelope shape follows GET /features/{code}/{id}: a top-level
+    // `name`, else a `name` inside the attribute bag. Either may be absent.
+    String? name = feature?['name'] as String?;
+    if ((name == null || name.isEmpty) && feature != null) {
+      final attrs = (feature['attributes'] as Map?)?.cast<String, dynamic>();
+      final a = attrs?['name'];
+      if (a is String && a.isNotEmpty) name = a;
+    }
+    return TagResolution(
+      tagCode: (tag['tag_code'] as String?) ?? '',
+      featureClass: (tag['feature_class_code'] as String?) ?? '',
+      featureId: (tag['feature_id'] as String?) ?? '',
+      primaryCode: primary,
+      featureName: (name != null && name.isNotEmpty) ? name : null,
+    );
+  }
+}
+
 /// parseServerTime tolerantly parses a Go time.Time RFC3339 string. Go emits up
 /// to nanosecond precision; Dart's DateTime.parse only accepts up to microsecond
 /// (6 fractional digits), so trim any extra digits before parsing.

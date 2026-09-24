@@ -431,6 +431,36 @@ func GetFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id str
 	return getFeature(ctx, db, loaded, id)
 }
 
+// GetFeatureScoped is GetFeature with the full HTTP read gate applied: it reads
+// the feature, then runs the Phase-58 territory check, the Phase-61 private-draft
+// check, and the Phase-61-B pending-edit overlay -- exactly the sequence
+// getHandler applies -- and returns a notFound (which IsNotFoundError reports)
+// when any of them hides the row. It exists so a caller OUTSIDE this package
+// (the asset-tag resolver, which turns a scanned code into a feature) gets the
+// same answer a scoped user would get from GET /features/{code}/{id}, without
+// re-implementing the gates or this package exporting them. getFeature itself
+// stays unscoped for internal callers that must read a row they just wrote.
+func GetFeatureScoped(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) (map[string]any, error) {
+	result, err := getFeature(ctx, db, loaded, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforceReadScope(ctx, db, loaded, result); err != nil {
+		return nil, err
+	}
+	if err := enforceDraftScope(ctx, db, result); err != nil {
+		return nil, err
+	}
+	hidden, err := overlayFeature(ctx, db, loaded, result)
+	if err != nil {
+		return nil, err
+	}
+	if hidden {
+		return nil, notFound("feature %s not found", id)
+	}
+	return result, nil
+}
+
 // IsNotFoundError lets another package (api/internal/connectivity) tell
 // a GetFeature "no such row" error apart from any other failure, without
 // this package exporting its whole error-type hierarchy.

@@ -213,6 +213,132 @@ func buildGroup(loaded *metadata.Loaded, g queryGroup, depth int) (string, []any
 	return "(" + strings.Join(frags, joiner) + ")", args, nil
 }
 
+// TagQuery is the exported asset-tag search shape FindFeaturesByTag accepts --
+// the tag predicate the REST /query body carries as queryTagFilter, re-declared
+// with exported fields so the agenttools front door (the MCP/assistant "find the
+// feature behind a scanned or partial code" tool) can build one without reaching
+// into this package's wire types. Code matches a tag_code exact, or as a
+// case-insensitive prefix when Match=="prefix"; Source narrows to
+// "generated"/"external"; Present=false flips to "has no such tag". Limit caps
+// the page (1-500, engine default when 0).
+type TagQuery struct {
+	Code    string
+	Match   string
+	Source  string
+	Present *bool
+	Limit   int
+}
+
+// FindFeaturesByTag is the exported entry point onto the query engine's asset-tag
+// filter, for the agenttools door. It runs a tag-only query (no field conditions)
+// over one class and returns the matching feature envelopes -- each carrying its
+// primary_tag_code -- under the same read scoping, private-draft visibility, and
+// soft-delete exclusion every other read applies (it shares queryFeatures). Boxed
+// as []map[string]any, the same envelope /query returns.
+func FindFeaturesByTag(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, q TagQuery) ([]map[string]any, error) {
+	return queryFeatures(ctx, db, loaded, queryRequest{
+		Tag: &queryTagFilter{
+			Code:    q.Code,
+			Match:   q.Match,
+			Source:  q.Source,
+			Present: q.Present,
+		},
+		Limit: q.Limit,
+	})
+}
+
+// buildTagFilter turns the optional asset-tag predicate into an EXISTS (or NOT
+// EXISTS) subquery correlated to the outer feature row by its physical table's
+// id column. Every operand is a bind param; the only things spliced into the SQL
+// are the fixed EXISTS/NOT EXISTS + operator tokens and the correlation
+// reference (the trusted, compiler-stamped physical table name that already
+// forms the query's FROM), so it adds nothing a client can steer.
+func buildTagFilter(loaded *metadata.Loaded, table string, f *queryTagFilter) (string, []any, error) {
+	// void tags are retired -- they never resolve (the resolver 404s on them) so
+	// they never satisfy the filter either. active + superseded both count.
+	inner := []string{
+		"_at.feature_class_code = ?",
+		"_at.feature_id = " + table + ".id",
+		"_at.status <> 'void'",
+	}
+	args := []any{loaded.FeatureClass.Code}
+
+	if src := strings.TrimSpace(f.Source); src != "" {
+		if src != "generated" && src != "external" {
+			return "", nil, invalid("tag source must be \"generated\" or \"external\", got %q", src)
+		}
+		inner = append(inner, "_at.source = ?")
+		args = append(args, src)
+	}
+
+	if code := strings.TrimSpace(f.Code); code != "" {
+		switch strings.ToLower(strings.TrimSpace(f.Match)) {
+		case "", "exact":
+			inner = append(inner, "_at.tag_code = ?")
+			args = append(args, code)
+		case "prefix":
+			// ILIKE for a case-insensitive prefix; "%"/"_" left unescaped and
+			// treated as harmless wildcards, same convention as starts_with.
+			inner = append(inner, "_at.tag_code ILIKE ?")
+			args = append(args, code+"%")
+		default:
+			return "", nil, invalid("tag match must be \"exact\" or \"prefix\", got %q", f.Match)
+		}
+	}
+
+	exists := "EXISTS"
+	if f.Present != nil && !*f.Present {
+		exists = "NOT EXISTS"
+	}
+	clause := exists + " (SELECT 1 FROM runtime.asset_tags _at WHERE " + strings.Join(inner, " AND ") + ")"
+	return clause, args, nil
+}
+
+// enrichPrimaryTags fills each row's primary_tag_code from runtime.asset_tags in
+// one batched lookup (the active, primary tag per feature), so a query that
+// filtered by tag reports which code a scan lands on. Written inline here rather
+// than calling the assettag package, which imports crud (an import cycle). Rows
+// with no active primary tag are simply left without the key.
+func enrichPrimaryTags(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, rows []map[string]any) error {
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if s, ok := r["id"].(string); ok && s != "" {
+			ids = append(ids, s)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	var recs []struct {
+		FeatureID string `bun:"feature_id"`
+		TagCode   string `bun:"tag_code"`
+	}
+	err := db.NewSelect().
+		ColumnExpr("feature_id::text AS feature_id").
+		ColumnExpr("tag_code").
+		TableExpr("runtime.asset_tags").
+		Where("feature_class_code = ?", loaded.FeatureClass.Code).
+		Where("feature_id IN (?)", bun.In(ids)).
+		Where("is_primary").
+		Where("status = ?", "active").
+		Scan(ctx, &recs)
+	if err != nil {
+		return fmt.Errorf("crud: primary tags: %w", err)
+	}
+	byID := make(map[string]string, len(recs))
+	for _, rec := range recs {
+		byID[rec.FeatureID] = rec.TagCode
+	}
+	for _, r := range rows {
+		if s, ok := r["id"].(string); ok {
+			if code, ok := byID[s]; ok {
+				r["primary_tag_code"] = code
+			}
+		}
+	}
+	return nil
+}
+
 // queryFeatures runs a structured query and returns the matching rows in
 // the same envelope as listFeatures -- it's the typed-operator/AND-OR
 // counterpart to that endpoint's flat name/status filter, sharing all of
@@ -265,6 +391,31 @@ func queryFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, req
 		args = append(args, draftArgs...)
 	}
 
+	// The optional spatial scope (territory / radius), same construction the
+	// aggregate uses (spatialScopeWhere). This is what lets a drill-down from an
+	// aggregate count reproduce that count's exact narrowing and list the rows
+	// behind it -- a query with no scope leaves it a no-op, unchanged.
+	spatialSQL, spatialArgs, err := spatialScopeWhere(ctx, db, loaded, req.Scope)
+	if err != nil {
+		return nil, err
+	}
+	if spatialSQL != "" {
+		where = append(where, spatialSQL)
+		args = append(args, spatialArgs...)
+	}
+
+	// Optional asset-tag predicate (find/exclude by scanned code or tag
+	// presence), ANDed on top like the scopes -- an EXISTS subquery against
+	// runtime.asset_tags correlated to this row. A no-op when absent.
+	if req.Tag != nil {
+		tagSQL, tagArgs, err := buildTagFilter(loaded, table, req.Tag)
+		if err != nil {
+			return nil, err
+		}
+		where = append(where, tagSQL)
+		args = append(args, tagArgs...)
+	}
+
 	// Sort/paging: identical handling to listFeatures -- an unrecognized
 	// sort column silently falls back to created_at, id is always appended
 	// as a tiebreaker, limit clamps to [1,500] defaulting to defaultListLimit.
@@ -312,6 +463,14 @@ func queryFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, req
 			return nil, err
 		}
 		out = append(out, formatted)
+	}
+
+	// When the query filtered by tag, surface each row's primary code so a code
+	// search shows which record a scan resolves to (one batched lookup).
+	if req.Tag != nil {
+		if err := enrichPrimaryTags(ctx, db, loaded, out); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }

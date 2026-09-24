@@ -189,6 +189,31 @@ func listRelationships(ctx context.Context, db bun.IDB, featureClassCode, featur
 // No soft-delete/restore pair, same reasoning as connectivity's revoke:
 // a relationship is a binary fact, established or not, with no
 // draft/published life cycle of its own to preserve.
+// ListRelationshipsForFeature returns every relationship touching the given
+// feature (on either the origin or destination end), in established order -- the
+// exported entry point the shared agent-tool surface calls, delegating to the
+// same query the REST GET /relationships?feature_class=&feature_id= handler uses.
+// It returns the rows as `any` (the concrete element type is package-private, but
+// its fields are exported so it serializes verbatim) plus the count, so a caller
+// can present the same list -- including each relationship's id, which the revoke
+// tool needs -- without this package exposing its response type.
+func ListRelationshipsForFeature(ctx context.Context, db bun.IDB, featureClassCode, featureID string) (any, int, error) {
+	rels, err := listRelationships(ctx, db, featureClassCode, featureID)
+	if err != nil {
+		return nil, 0, err
+	}
+	return rels, len(rels), nil
+}
+
+// RevokeRelationship permanently removes an established relationship by id. It is
+// the exported entry point the shared agent-tool surface (internal/agenttools)
+// calls, delegating to the exact path the REST DELETE /relationships/{id}
+// handler uses so both front doors behave identically (and both are gated on
+// relationships:commit by their callers).
+func RevokeRelationship(ctx context.Context, db bun.IDB, id string) error {
+	return revokeRelationship(ctx, db, id)
+}
+
 func revokeRelationship(ctx context.Context, db bun.IDB, id string) error {
 	res, err := db.NewDelete().Model((*FeatureRelationship)(nil)).Where("id = ?", id).Exec(ctx)
 	if err != nil {

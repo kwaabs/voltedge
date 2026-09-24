@@ -50,8 +50,8 @@ export function AssistantChat() {
   }
 
   return (
-    <div className="bg-popover text-popover-foreground fixed right-4 bottom-16 z-40 flex h-[28rem] w-96 flex-col overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-primary shadow-xl ring-1 ring-black/5">
-      <div className="border-primary/15 flex items-center justify-between border-b bg-gradient-to-b from-accent/50 to-accent/20 px-3 py-2">
+    <div className="bg-popover text-popover-foreground fixed right-4 bottom-16 z-40 flex h-[28rem] w-96 flex-col overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-[oklch(0.45_0.10_252)] dark:border-t-primary shadow-xl ring-1 ring-black/5">
+      <div className="border-[oklch(0.45_0.10_252)]/20 dark:border-primary/15 flex items-center justify-between border-b bg-gradient-to-b from-[oklch(0.45_0.10_252)]/15 to-[oklch(0.45_0.10_252)]/5 dark:from-accent/50 dark:to-accent/20 px-3 py-2">
         <span className="flex items-center gap-1.5 text-sm font-medium">
           <Sparkles className="size-4" />
           Assistant

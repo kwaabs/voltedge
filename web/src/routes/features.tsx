@@ -1,9 +1,14 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "react-router"
-import { ChevronDown, ChevronRight, Database, Loader2, MapPinned, MapPinOff, Search } from "lucide-react"
+import { ChevronDown, ChevronRight, Database, FileClock, Loader2, MapPinned, MapPinOff, Printer, Search, Trash2 } from "lucide-react"
 
+import { ClassWipeDialog } from "@/components/map/class-wipe-dialog"
 import { formatFieldLabel, formatValue, inputClass } from "@/components/map/field-utils"
+import { TagPrintSheet, type PrintTag } from "@/components/map/tag-print-sheet"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { useMarkManyPrinted, usePrimaryTagsBatch } from "@/hooks/use-asset-tags"
+import { usePermission } from "@/hooks/use-auth"
 import { type FeatureRecord } from "@/hooks/use-feature"
 import { type FeatureClassSummary, useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
@@ -89,7 +94,9 @@ export function FeaturesPage() {
       {/* Right: rows of the selected class */}
       <div className="flex-1 overflow-y-auto">
         {selectedClass ? (
-          <ClassRows fc={selectedClass} />
+          // Keyed by class so switching classes remounts and resets its local
+          // state (expanded row + the bulk-print selection).
+          <ClassRows key={selectedClass.code} fc={selectedClass} />
         ) : (
           <div className="text-muted-foreground flex h-full items-center justify-center p-6 text-sm">
             Select a feature class to browse its rows.
@@ -137,6 +144,23 @@ function ClassRows({ fc }: { fc: FeatureClassSummary }) {
   const { data, isPending, isError } = useFeatureRows(fc.code)
   const [expanded, setExpanded] = useState<string | undefined>(undefined)
 
+  // Bulk asset-tag print. Only a tags:read holder sees the checkboxes + print
+  // control (printing a label is a read); the print_count bump on the printed
+  // sheet additionally needs tags:write, so a read-only user can still print, it
+  // just won't count. See use-asset-tags.
+  const canReadTags = usePermission()("tags:read")
+  const canWriteTags = usePermission()("tags:write")
+  // Bulk class wipe (the "nuke") is admin-tier: only a features:wipe holder sees
+  // the Danger zone control. The server re-checks the same permission and
+  // territory scope, so this gate is a UI convenience, not the security boundary.
+  const canWipeClass = usePermission()("features:wipe")
+  const [wipeOpen, setWipeOpen] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [printTags, setPrintTags] = useState<PrintTag[] | null>(null)
+  const [shortfall, setShortfall] = useState(0)
+  const primaryBatch = usePrimaryTagsBatch()
+  const markManyPrinted = useMarkManyPrinted()
+
   const subtypeName = useMemo(() => {
     const map = new Map<number, string>()
     for (const s of schema?.subtypes ?? []) map.set(s.code, s.name)
@@ -145,12 +169,65 @@ function ClassRows({ fc }: { fc: FeatureClassSummary }) {
 
   const rows = data?.features ?? []
 
+  // Feature name by id, so a printed label's subtitle names the asset a crew is
+  // sticking it on rather than a bare uuid.
+  const nameById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const r of rows) m.set(r.id, r.name ?? "(unnamed)")
+    return m
+  }, [rows])
+
+  const allSelected = rows.length > 0 && selectedIds.size === rows.length
+  const someSelected = selectedIds.size > 0
+
+  function toggleOne(id: string, checked: boolean) {
+    setSelectedIds((cur) => {
+      const next = new Set(cur)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  function toggleAll(checked: boolean) {
+    setSelectedIds(checked ? new Set(rows.map((r) => r.id)) : new Set())
+  }
+
+  async function printSelected() {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    try {
+      const tags = await primaryBatch.mutateAsync({ featureClassCode: fc.code, featureIds: ids })
+      const pts: PrintTag[] = tags.map((t) => ({
+        code: t.tag_code,
+        subtitle: `${nameById.get(t.feature_id) ?? t.feature_id.slice(0, 8)} · ${fc.code}`,
+      }))
+      // A feature with no active tag is absent from the result; report the gap.
+      setShortfall(ids.length - pts.length)
+      setPrintTags(pts)
+    } catch {
+      // The mutation records the error (primaryBatch.isError); the bar surfaces it.
+    }
+  }
+
   return (
     <div className="flex flex-col">
       <div className="bg-background sticky top-0 z-10 border-b p-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold">{fc.name}</h2>
           <span className="text-muted-foreground font-mono text-xs">{fc.code}</span>
+          {canWipeClass && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive ml-auto"
+              onClick={() => setWipeOpen(true)}
+              title="Bulk soft-delete / purge every feature in this class"
+            >
+              <Trash2 className="size-4" />
+              Wipe class
+            </Button>
+          )}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <Badge variant="outline" className="text-[10px]">
@@ -165,6 +242,42 @@ function ClassRows({ fc }: { fc: FeatureClassSummary }) {
             </span>
           )}
         </div>
+
+        {/* Bulk print selection bar -- only for a tags:read holder, once rows load. */}
+        {canReadTags && !isPending && !isError && rows.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-3 border-t pt-2">
+            <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = someSelected && !allSelected
+                }}
+                onChange={(e) => toggleAll(e.target.checked)}
+              />
+              Select all
+            </label>
+            {someSelected && (
+              <>
+                <span className="text-muted-foreground text-xs">{selectedIds.size} selected</span>
+                <Button size="sm" onClick={printSelected} disabled={primaryBatch.isPending}>
+                  {primaryBatch.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Printer className="size-4" />
+                  )}
+                  Print tags ({selectedIds.size})
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+                  Clear
+                </Button>
+              </>
+            )}
+            {primaryBatch.isError && (
+              <span className="text-destructive text-xs">Could not load tags. Try again.</span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="p-3">
@@ -184,6 +297,9 @@ function ClassRows({ fc }: { fc: FeatureClassSummary }) {
                 key={row.id}
                 classCode={fc.code}
                 row={row}
+                selectable={canReadTags}
+                selected={selectedIds.has(row.id)}
+                onSelectChange={(checked) => toggleOne(row.id, checked)}
                 subtypeLabel={row.subtype != null ? (subtypeName.get(row.subtype) ?? String(row.subtype)) : "—"}
                 fieldOrder={schema?.fields.map((f) => f.name) ?? Object.keys(row.attributes)}
                 expanded={expanded === row.id}
@@ -193,6 +309,35 @@ function ClassRows({ fc }: { fc: FeatureClassSummary }) {
           </div>
         )}
       </div>
+
+      {canWipeClass && (
+        <ClassWipeDialog
+          featureClassCode={fc.code}
+          featureClassName={fc.name}
+          open={wipeOpen}
+          onOpenChange={setWipeOpen}
+        />
+      )}
+
+      {printTags && (
+        <TagPrintSheet
+          tags={printTags}
+          note={
+            shortfall > 0
+              ? `${shortfall} selected feature${shortfall === 1 ? "" : "s"} had no tag and ${shortfall === 1 ? "was" : "were"} skipped.`
+              : undefined
+          }
+          onClose={() => {
+            setPrintTags(null)
+            setShortfall(0)
+          }}
+          onPrinted={() => {
+            if (canWriteTags && printTags.length > 0) {
+              markManyPrinted.mutate({ codes: printTags.map((t) => t.code) })
+            }
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -200,6 +345,9 @@ function ClassRows({ fc }: { fc: FeatureClassSummary }) {
 function RowItem({
   classCode,
   row,
+  selectable,
+  selected,
+  onSelectChange,
   subtypeLabel,
   fieldOrder,
   expanded,
@@ -207,6 +355,9 @@ function RowItem({
 }: {
   classCode: string
   row: FeatureRecord
+  selectable: boolean
+  selected: boolean
+  onSelectChange: (checked: boolean) => void
   subtypeLabel: string
   fieldOrder: string[]
   expanded: boolean
@@ -230,6 +381,15 @@ function RowItem({
   return (
     <div className="border-b last:border-b-0">
       <div className="hover:bg-muted/50 flex w-full items-center gap-2 px-2 py-1.5">
+        {selectable && (
+          <input
+            type="checkbox"
+            className="shrink-0"
+            checked={selected}
+            onChange={(e) => onSelectChange(e.target.checked)}
+            aria-label={`Select ${row.name ?? "feature"} for tag printing`}
+          />
+        )}
         <button
           type="button"
           onClick={onToggle}
@@ -242,6 +402,22 @@ function RowItem({
           )}
           <span className="truncate text-sm font-medium">{row.name ?? "(unnamed)"}</span>
           <span className="text-muted-foreground ml-auto shrink-0 text-xs">{subtypeLabel}</span>
+          {/* Private-drafts Phase B: the acting user has a private, unpublished
+              edit/delete of this published row that only they see. */}
+          {row.pending_private_edit && (
+            <Badge
+              variant="outline"
+              className="border-primary/40 text-primary shrink-0 gap-1 text-[10px]"
+              title={
+                row.pending_private_delete
+                  ? "You have a private, unpublished deletion of this feature"
+                  : "You have a private, unpublished edit of this feature"
+              }
+            >
+              <FileClock className="size-3" />
+              {row.pending_private_delete ? "Private delete" : "Private edit"}
+            </Badge>
+          )}
           <Badge variant="outline" className="shrink-0 text-[10px]">
             {row.status}
           </Badge>

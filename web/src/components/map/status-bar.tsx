@@ -1,10 +1,11 @@
 import { type FormEvent, useState } from "react"
-import { ChevronsUpDown, Map as MapIcon, MapPin } from "lucide-react"
+import { ChevronsUpDown, Magnet, Map as MapIcon, MapPin, Ruler, Scan, ScanSearch, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
@@ -13,6 +14,10 @@ import { type AttributionLink, useBasemaps } from "@/hooks/use-basemaps"
 import { useHealth } from "@/hooks/use-health"
 import { cn } from "@/lib/utils"
 import { BLANK_BASEMAP, useBasemapStore } from "@/stores/basemap-store"
+import { useBoxZoomStore } from "@/stores/box-zoom-store"
+import { useMeasureStore } from "@/stores/measure-store"
+import { useSnapStore } from "@/stores/snap-store"
+import { useUnitsStore } from "@/stores/units-store"
 import { useMapGotoStore } from "@/stores/map-goto-store"
 import { useMapPinsStore } from "@/stores/map-pins-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
@@ -79,6 +84,146 @@ function CoordinateReadout() {
 function ZoomReadout() {
   const zoom = useMapViewStore((s) => s.zoom)
   return <span className="tabular-nums">Zoom: {zoom === null ? "—" : zoom.toFixed(1)}</span>
+}
+
+/**
+ * Box-zoom tool -- lives in the status bar beside the zoom readout because it's a
+ * pure viewport/navigation action (arm, then drag a rectangle; voltedge-map.tsx
+ * owns the OL Draw + fit off box-zoom-store's `mode`). One control to save bar
+ * space: idle it's a dropdown offering "Zoom in" (fit the box to the viewport --
+ * classic) and "Zoom out" (fit the current view into the box; a small box zooms
+ * out further). Both directions from one menu so touch devices, which can't hold
+ * Shift, still get zoom-out; on desktop, Shift+drag inverts whichever is armed.
+ * Once armed it swaps to a compact "drag a box" indicator with a cancel button,
+ * mirroring MeasureButton. Styled as a status-bar control (slim ghost,
+ * slate-on-blue).
+ */
+function BoxZoomButton() {
+  const mode = useBoxZoomStore((s) => s.mode)
+
+  if (mode) {
+    return (
+      <span className="flex items-center gap-1.5">
+        <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-sky-300 dark:bg-primary/70" />
+        <span className="whitespace-nowrap">
+          Box zoom {mode} — drag a box (Shift inverts)
+        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => useBoxZoomStore.getState().deactivate()}
+          title="Cancel box zoom"
+          className="text-slate-200 dark:text-muted-foreground hover:text-foreground size-5"
+        >
+          <X className="size-3.5" />
+          <span className="sr-only">Cancel box zoom</span>
+        </Button>
+      </span>
+    )
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Box zoom in or out"
+          className="text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 gap-1.5 px-1.5 text-xs font-normal"
+        >
+          <Scan className="size-3.5" />
+          Box zoom
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="start" className="w-44">
+        <DropdownMenuItem onSelect={() => useBoxZoomStore.getState().activate("in")}>
+          <Scan className="size-3.5" /> Zoom in
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => useBoxZoomStore.getState().activate("out")}>
+          <ScanSearch className="size-3.5" /> Zoom out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/**
+ * The ad-hoc measure tool, bar edition (moved here from the top control cluster
+ * to sit beside the other viewport tools). Idle: a Distance/Area dropdown opening
+ * up into the map. Active: a compact "measuring" indicator with a units toggle and
+ * a stop button. voltedge-map.tsx owns the OL Draw + live tooltips off measure-
+ * store's `mode`; this only sets it. Uses an inline units toggle rather than
+ * units-toggle-button.tsx (that one is h-8, too tall for this h-7 bar). The
+ * Snap toggle shares snap-store.ts's one flag with drawing/editing, so
+ * measuring can snap its vertices to nearby feature geometry (voltedge-map.tsx
+ * arms the OL Snap interaction on the measure Draw when this is on).
+ */
+function MeasureButton() {
+  const mode = useMeasureStore((s) => s.mode)
+  const setMode = useMeasureStore((s) => s.setMode)
+  const units = useUnitsStore((s) => s.units)
+  const snapEnabled = useSnapStore((s) => s.enabled)
+
+  if (mode) {
+    return (
+      <span className="flex items-center gap-1.5">
+        <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-sky-300 dark:bg-primary/70" />
+        <span className="whitespace-nowrap">Measuring {mode} — double-click to finish</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => useSnapStore.getState().toggle()}
+          title={snapEnabled ? "Snapping on — measure vertices snap to nearby features" : "Snapping off"}
+          className={cn(
+            "text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 gap-1 px-1.5 text-xs font-normal",
+            snapEnabled && "bg-white/20 text-white dark:bg-accent dark:text-accent-foreground",
+          )}
+        >
+          <Magnet className="size-3.5" />
+          Snap
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => useUnitsStore.getState().toggle()}
+          title="Toggle units (metric / imperial)"
+          className="text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 px-1.5 text-xs font-normal"
+        >
+          {units === "metric" ? "Metric" : "Imperial"}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setMode(null)}
+          title="Stop measuring"
+          className="text-slate-200 dark:text-muted-foreground hover:text-foreground size-5"
+        >
+          <X className="size-3.5" />
+          <span className="sr-only">Stop measuring</span>
+        </Button>
+      </span>
+    )
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Measure distance or area"
+          className="text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 gap-1.5 px-1.5 text-xs font-normal"
+        >
+          <Ruler className="size-3.5" />
+          Measure
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="start" className="w-44">
+        <DropdownMenuItem onSelect={() => setMode("distance")}>Distance</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setMode("area")}>Area</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 }
 
 /**
@@ -286,6 +431,8 @@ export function StatusBar() {
       <div className="bg-border h-4 w-px" />
       <CoordinateReadout />
       <ZoomReadout />
+      <BoxZoomButton />
+      <MeasureButton />
       <span className="text-slate-200 dark:text-muted-foreground">{MAP_PROJECTION}</span>
       <div className="bg-border h-4 w-px" />
       <GoToSearch />

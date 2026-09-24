@@ -257,6 +257,24 @@ export function highlightStyleForFeature(feature: FeatureLike): Style {
   return highlightStyleFor(HIGHLIGHT_COLORS[role], feature.getGeometry()?.getType())
 }
 
+/**
+ * The trace layer's own style function -- identical to highlightStyleForFeature
+ * except a traced LINE gets a wider, softer halo (14px @ 0x40 alpha vs the shared
+ * 9px @ 0x66) so it reads as a diffuse glow BEHIND the animated marching ants
+ * (see voltedge-map.tsx's trace postrender effect) rather than as a second solid
+ * dashed line competing with them. Points/polygons and every other highlight layer
+ * are left on the shared style -- only the trace layer points here.
+ */
+export function traceHighlightStyleForFeature(feature: FeatureLike): Style {
+  const role = (feature.get("role") as HighlightRole | undefined) ?? "trace"
+  const color = HIGHLIGHT_COLORS[role]
+  const geometryType = feature.getGeometry()?.getType()
+  if (geometryType === "LineString" || geometryType === "MultiLineString") {
+    return new Style({ stroke: new Stroke({ color: `${color}40`, width: 14, lineCap: "round" }) })
+  }
+  return highlightStyleFor(color, geometryType)
+}
+
 /** Fault-marker colors, keyed by fault status (Faults Slice 3 map overlay).
  * Color is the ONE visual variable the marker carries -- it reads status at a
  * glance (hot red = live/unattended down to muted grey = closed), leaving fault

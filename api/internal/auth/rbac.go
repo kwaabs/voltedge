@@ -20,6 +20,7 @@ import (
 const (
 	PermFeaturesRead        = "features:read"
 	PermFeaturesWrite       = "features:write"
+	PermFeaturesWipe        = "features:wipe"
 	PermConnectivityRead    = "connectivity:read"
 	PermConnectivityCommit  = "connectivity:commit"
 	PermRelationshipsRead   = "relationships:read"
@@ -48,6 +49,8 @@ const (
 	PermWAMWrite            = "wam:write"
 	PermFaultsRead          = "faults:read"
 	PermFaultsWrite         = "faults:write"
+	PermTagsRead            = "tags:read"
+	PermTagsWrite           = "tags:write"
 )
 
 // RequirePermission gates a route (sub)tree by RBAC permission. A request

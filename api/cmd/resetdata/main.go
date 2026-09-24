@@ -91,6 +91,7 @@ var staticDataTables = []string{
 	"runtime.diagram_elements",
 	"runtime.diagram_templates",
 	"runtime.map_annotations",
+	"runtime.asset_tags",
 	// oms: outages + planned switching.
 	"oms.incidents",
 	"oms.trouble_calls",

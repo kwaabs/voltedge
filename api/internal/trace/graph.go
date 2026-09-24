@@ -750,6 +750,28 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 		return nil, err
 	}
 
+	// Stamp each reached feature's BFS parent (the feature one hop closer to the
+	// start) so a client can orient trace direction per line without another
+	// query -- the map's directional marching-ants animation reads it. features
+	// is built 1:1 from featureNodes, in order, so index i lines up. Only a
+	// parent that is itself in the response is referenced (a scope-filtered
+	// parent is dropped, since a client couldn't resolve its geometry); the start
+	// node has no parent entry at all.
+	inResponse := make(map[node]bool, len(featureNodes))
+	for _, n := range featureNodes {
+		inResponse[n] = true
+	}
+	for i, n := range featureNodes {
+		p, ok := parent[n]
+		if !ok || !inResponse[p] {
+			continue
+		}
+		pc := classCodes[p.classID]
+		pid := p.featureID
+		features[i].ParentFeatureClass = &pc
+		features[i].ParentFeatureID = &pid
+	}
+
 	resp := &traceResponse{
 		TraceConfiguration: tc.Code,
 		Direction:          direction,

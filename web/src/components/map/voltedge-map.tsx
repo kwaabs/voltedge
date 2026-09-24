@@ -2,15 +2,17 @@ import Collection from "ol/Collection"
 import type { Coordinate } from "ol/coordinate"
 import { defaults as defaultControls } from "ol/control"
 import type { EventsKey } from "ol/events"
-import { isEmpty as isEmptyExtent } from "ol/extent"
+import { getCenter as getExtentCenter, getHeight as getExtentHeight, getWidth as getExtentWidth, isEmpty as isEmptyExtent } from "ol/extent"
 import Feature from "ol/Feature"
 import GeoJSON from "ol/format/GeoJSON"
 import MVT from "ol/format/MVT"
 import type Geometry from "ol/geom/Geometry"
 import LineString from "ol/geom/LineString"
+import MultiLineString from "ol/geom/MultiLineString"
 import MultiPolygon from "ol/geom/MultiPolygon"
 import Point from "ol/geom/Point"
-import Polygon from "ol/geom/Polygon"
+import Polygon, { circular as circularPolygon } from "ol/geom/Polygon"
+import DragBox from "ol/interaction/DragBox"
 import Draw, { createBox, type GeometryFunction } from "ol/interaction/Draw"
 import Modify from "ol/interaction/Modify"
 import PointerInteraction from "ol/interaction/Pointer"
@@ -46,12 +48,15 @@ import { type FaultImpact, useFaultMapMarkers } from "@/hooks/use-faults"
 import type { AffectedArea } from "@/hooks/use-oms"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useBasemaps } from "@/hooks/use-basemaps"
+import { useServiceLayers, type ServiceLayerRecord } from "@/hooks/use-service-layers"
 import { useCreateAnnotation, useMapAnnotations } from "@/hooks/use-map-annotations"
 import { useMapSettings } from "@/hooks/use-map-settings"
 import { useTerritoryBoundaries } from "@/hooks/use-territories"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { apiFetch } from "@/lib/api"
 import { applyBasemap, resolveBasemap } from "@/lib/basemaps"
+import { createServiceLayerObject } from "@/lib/service-layers-source"
+import { deriveFeatureLabel, identifyRasterLayer } from "@/lib/service-layers-identify"
 import { splitCoordinates } from "@/lib/geometry"
 import {
   type AnnotationKind,
@@ -62,8 +67,10 @@ import {
   FAULT_MARKER_DISPLACEMENT,
   faultStatusColorRgba,
   faultStyleForFeature,
+  HIGHLIGHT_COLORS,
   type HighlightRole,
   highlightStyleForFeature,
+  traceHighlightStyleForFeature,
   importedStyleForFeature,
   pinStyleForFeature,
   territoryStyleForFeature,
@@ -84,6 +91,8 @@ import { useImportedFeatureStore } from "@/stores/imported-feature-store"
 import { useImportedOverlaysStore } from "@/stores/imported-overlays-store"
 import { useIsolateStore } from "@/stores/isolate-store"
 import { useLayersStore } from "@/stores/layers-store"
+import { useServiceLayersStore } from "@/stores/service-layers-store"
+import { useIdentifyStore, type IdentifyFeatureResult, type IdentifyLayerGroup } from "@/stores/identify-store"
 import { useLoadFlowStore } from "@/stores/load-flow-store"
 import { useMapAnnotationsStore } from "@/stores/map-annotations-store"
 import { useMeshedLoadFlowStore } from "@/stores/meshed-load-flow-store"
@@ -93,18 +102,22 @@ import { useMapGotoStore } from "@/stores/map-goto-store"
 import { useMapPinsStore } from "@/stores/map-pins-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
 import { useMapRefreshStore } from "@/stores/map-refresh-store"
+import { useMapSelectStore } from "@/stores/map-select-store"
 import { type Bbox4326, useMapViewStore } from "@/stores/map-view-store"
 import { useMeasureStore } from "@/stores/measure-store"
 import { useOmsHighlightStore } from "@/stores/oms-highlight-store"
 import { useOrthoStore } from "@/stores/ortho-store"
 import { useQueryStore } from "@/stores/query-store"
-import { useSelectionStore } from "@/stores/selection-store"
+import { useRadiusQueryStore } from "@/stores/radius-query-store"
+import { type FeatureRef, useSelectionStore } from "@/stores/selection-store"
 import { useSnapStore } from "@/stores/snap-store"
 import { type TerritoryGeometry, useTerritoryEditStore } from "@/stores/territory-edit-store"
 import { useTerritoryOverlayStore } from "@/stores/territory-overlay-store"
 import { useToastStore } from "@/stores/toast-store"
-import { useTraceStore } from "@/stores/trace-store"
+import { useTraceStore, type TracedFeature } from "@/stores/trace-store"
 import { useUnitsStore } from "@/stores/units-store"
+
+import { ResetNorthButton } from "@/components/map/reset-north-button"
 
 import "ol/ol.css"
 
@@ -252,6 +265,18 @@ const BOX_ZOOM_STYLE = new Style({
 })
 
 /**
+ * Style for the radius-query tool's search circle (radius-query-store.ts) -- a
+ * faint sky fill under a solid sky ring, with a filled dot marking the dropped
+ * center. Redrawn from the store whenever the center or radius changes; purely a
+ * scratch overlay, the counts themselves come from the server aggregate.
+ */
+const RADIUS_QUERY_STYLE = new Style({
+  fill: new Fill({ color: "rgba(2, 132, 199, 0.08)" }),
+  stroke: new Stroke({ color: "#0284c7", width: 2 }),
+  image: new CircleStyle({ radius: 5, fill: new Fill({ color: "#0284c7" }) }),
+})
+
+/**
  * Scratch styles for the Split tool's live preview (Phase 20). While the user
  * hovers/clicks a line in split mode, the two halves are drawn over it so the
  * cut is visible before Save: the near half (stays on the original) solid blue,
@@ -382,6 +407,21 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   // applyBasemap) without rebuilding the map or disturbing the z-order.
   const baseLayerRef = useRef<TileLayer<TileSource> | null>(null)
   const vectorLayersRef = useRef<VectorTileLayer[]>([])
+  // The external service-layer overlays (Slice 2) -- one managed raster TileLayer
+  // per enabled, renderable catalog record, keyed by catalog id so the
+  // visibility/opacity effects can find each. Kept just above the base layer in
+  // the map's collection (see the reconcile effect) so they render over the
+  // basemap but under the feature tiles.
+  // Holds the managed overlay layer per service-layer id. Typed as the OL Layer
+  // base because a record can render as a raster TileLayer (Slice 2) OR a
+  // VectorLayer / VectorTileLayer (Slice 3, WFS/Esri-feature/vector-tile) -- the
+  // reconcile/visibility/opacity effects only call setVisible/setOpacity, which
+  // every Layer supports.
+  const serviceLayersRef = useRef<globalThis.Map<string, Layer>>(new window.Map())
+  // The enabled catalog, mirrored to a ref so the click handler (click-to-identify,
+  // Slice 4) can read the current records without re-binding on every catalog
+  // refetch. Kept in sync by the reconcile effect below.
+  const serviceLayerRecordsRef = useRef<ServiceLayerRecord[]>([])
   // The territory boundary overlay (Phase 11 Slice H) -- one client-side
   // VectorLayer/VectorSource pair (not a Martin tile layer: territories
   // are few and their boundaries are large MultiPolygons, so a single
@@ -438,6 +478,10 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   // happened to run on a given commit silently wins, clobbering the
   // other's features.
   const traceSourceRef = useRef<VectorSource | null>(null)
+  // The trace layer itself (not just its source) -- the directional
+  // "marching ants" animation attaches a postrender handler to it (see the
+  // effect below), the same way the fault pulse hangs off faultMarkerLayerRef.
+  const traceLayerRef = useRef<VectorLayer | null>(null)
   // Isolation results (isolate-store.ts) -- same reasoning as
   // traceSourceRef's own comment: fetched asynchronously, so it needs
   // its own source rather than sharing traceSource's, even though the
@@ -468,6 +512,12 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   // it still gets its own source so it never clobbers, or is clobbered by, the
   // sync selected/connect halo or the other analysis layers.
   const affectedSourceRef = useRef<VectorSource | null>(null)
+  // The "Select" tool's highlight-only pick set (map-select-store.ts, see the
+  // effect below) -- its own source for the same reason as the analysis
+  // sources: it's populated by an async per-feature geometry fetch, so it must
+  // never share a source with the sync selected/connect halo. Reuses the
+  // "selected" HighlightRole color.
+  const mapSelectSourceRef = useRef<VectorSource | null>(null)
   // Snap candidates -- never added to the map as a rendered layer, just
   // a plain VectorSource for the Snap interaction below to read (see
   // refreshSnapSource for why this indirection is needed at all: every
@@ -545,6 +595,12 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   // this fetched list (an unknown/deleted code falls back to the first enabled
   // basemap -- see resolveBasemap). undefined while the query is still loading.
   const { data: basemaps } = useBasemaps()
+  // The admin-managed external service-layer catalog (Slice 2). Enabled records
+  // only; the reconcile effect below builds one overlay TileLayer per renderable
+  // record. The store holds this viewer's per-layer visibility/opacity choices.
+  const { data: serviceLayerRecords } = useServiceLayers()
+  const serviceLayerVisible = useServiceLayersStore((s) => s.visible)
+  const serviceLayerOpacity = useServiceLayersStore((s) => s.opacity)
   const traceResult = useTraceStore((s) => s.result)
   const isolateResult = useIsolateStore((s) => s.result)
   const loadFlowResult = useLoadFlowStore((s) => s.result)
@@ -570,6 +626,9 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   const focusToken = useSelectionStore((s) => s.focusToken)
   const measureMode = useMeasureStore((s) => s.mode)
   const boxZoomActive = useBoxZoomStore((s) => s.active)
+  const boxZoomMode = useBoxZoomStore((s) => s.mode)
+  const radiusQueryCenter = useRadiusQueryStore((s) => s.center)
+  const radiusQueryRadiusM = useRadiusQueryStore((s) => s.radiusM)
   const units = useUnitsStore((s) => s.units)
   const territoryOverlayVisible = useTerritoryOverlayStore((s) => s.visible)
   const territoryHiddenLevels = useTerritoryOverlayStore((s) => s.hiddenLevels)
@@ -671,7 +730,9 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       target: containerRef.current,
       layers: [baseLayer],
       view: new View({ center: initialCenterRef.current, zoom: initialZoomRef.current, maxZoom: 22 }),
-      controls: defaultControls({ attribution: false }),
+      // rotate: false -- we render our own reset-north button under the zoom
+      // control (top-left) instead of OL's top-right one, so there's no duplicate.
+      controls: defaultControls({ attribution: false, rotate: false }),
     })
     mapRef.current = map
 
@@ -701,7 +762,8 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
         useDrawStore.getState().drawingFeatureClassCode ||
         useConnectStore.getState().mode ||
         useDiagramPlaceStore.getState().phase === "picking" ||
-        useTerritoryEditStore.getState().tool === "draw"
+        useTerritoryEditStore.getState().tool === "draw" ||
+        useRadiusQueryStore.getState().armed
       ) {
         target.style.cursor = "crosshair"
         return
@@ -811,16 +873,18 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     map.addLayer(highlightLayer)
     highlightSourceRef.current = highlightSource
 
-    // Trace results (see the effect below and trace-store.ts) -- same
-    // highlightStyleForFeature style function as the layer above (it
-    // only ever reads a feature's own `role` tag, indifferent to which
-    // source/layer it's attached to), just a separate source so an
-    // async trace fetch and the synchronous selected/connect halo
-    // effect never clobber each other's work.
+    // Trace results (see the effect below and trace-store.ts) -- like the
+    // highlight layer above it reads each feature's own `role` tag, but uses
+    // traceHighlightStyleForFeature so a traced LINE gets a wider, softer halo
+    // that reads as a diffuse glow BEHIND the animated marching ants (the trace
+    // postrender effect) rather than a competing dashed line. Separate source so
+    // an async trace fetch and the synchronous selected/connect halo effect never
+    // clobber each other's work.
     const traceSource = new VectorSource()
-    const traceLayer = new VectorLayer({ source: traceSource, style: highlightStyleForFeature, zIndex: 6 })
+    const traceLayer = new VectorLayer({ source: traceSource, style: traceHighlightStyleForFeature, zIndex: 6 })
     map.addLayer(traceLayer)
     traceSourceRef.current = traceSource
+    traceLayerRef.current = traceLayer
 
     // Isolation results (see the effect below and isolate-store.ts) --
     // same style function, own source, same zIndex as traceLayer (the
@@ -864,6 +928,15 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     const affectedLayer = new VectorLayer({ source: affectedSource, style: highlightStyleForFeature, zIndex: 6 })
     map.addLayer(affectedLayer)
     affectedSourceRef.current = affectedSource
+
+    // The "Select" tool's highlight-only pick set (see the effect below and
+    // map-select-store.ts) -- same style function and zIndex as the analysis
+    // layers; its features carry the default "selected" role for the sky-blue
+    // halo. Populated by an async per-feature geometry fetch.
+    const mapSelectSource = new VectorSource()
+    const mapSelectLayer = new VectorLayer({ source: mapSelectSource, style: highlightStyleForFeature, zIndex: 6 })
+    map.addLayer(mapSelectLayer)
+    mapSelectSourceRef.current = mapSelectSource
 
     // The fault map overlay (Faults Slice 3, see the effects below and
     // fault-overlay-store.ts). Two layers: the impact source draws a selected
@@ -914,7 +987,8 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       const drawingActive = Boolean(useDrawStore.getState().drawingFeatureClassCode)
       const editState = useEditStore.getState()
       const editingActive = Boolean(editState.editing && editState.geometryTool)
-      if (!useSnapStore.getState().enabled || (!drawingActive && !editingActive)) return
+      const measuringActive = Boolean(useMeasureStore.getState().mode)
+      if (!useSnapStore.getState().enabled || (!drawingActive && !editingActive && !measuringActive)) return
       refreshSnapSource(map, vectorLayersRef.current, snapSource)
     })
 
@@ -940,8 +1014,19 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     map.on("moveend", pushViewBbox)
     map.once("rendercomplete", pushViewBbox)
 
+    // Publish view rotation live (not just on moveend) so the reset-north button
+    // appears and its arrow leans while the map is being twisted, not only once
+    // the gesture settles.
+    const rotationKey = map.getView().on("change:rotation", () => {
+      useMapViewStore.getState().setRotation(map.getView().getRotation())
+    })
+
     return () => {
       resizeObserver.disconnect()
+      unByKey(rotationKey)
+      // The next mount rebuilds the view at rotation 0; clear the published value
+      // so the reset-north button isn't stale until the first twist.
+      useMapViewStore.getState().setRotation(0)
       map.getTargetElement()?.removeEventListener("mouseleave", clearPosition)
       map.setTarget(undefined)
       mapRef.current = null
@@ -956,11 +1041,13 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       draftSourceRef.current = null
       highlightSourceRef.current = null
       traceSourceRef.current = null
+      traceLayerRef.current = null
       isolateSourceRef.current = null
       loadFlowSourceRef.current = null
       faultCurrentSourceRef.current = null
       queryResultSourceRef.current = null
       affectedSourceRef.current = null
+      mapSelectSourceRef.current = null
       faultMarkerSourceRef.current = null
       faultMarkerLayerRef.current = null
       faultImpactSourceRef.current = null
@@ -1229,16 +1316,20 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     }
   }, [measureMode])
 
-  // The box-zoom tool (see src/components/map/box-zoom-button.tsx and
-  // box-zoom-store.ts). While armed this owns a throwaway scratch layer +
-  // Draw interaction that rubber-bands a rectangle -- press one corner, drag
-  // (or click-move-click) to the opposite corner -- and on drawend fits the
-  // view to that box's extent, then DISARMS itself (single-shot: one box per
-  // arm, so it never fights the pan/select interactions once you're done).
-  // Nothing is created; like the measure tool it never touches feature data,
-  // and handleClick bails while it's armed so the box clicks feed the Draw,
-  // not selection. Escape cancels without zooming. maxZoom caps how far a
-  // tiny box can dive so a stray flick can't bury the view.
+  // The box-zoom tool (see status-bar.tsx's BoxZoomButton and box-zoom-store.ts).
+  // While armed this owns a throwaway scratch layer + Draw interaction that
+  // rubber-bands a rectangle -- press one corner, drag (or click-move-click) to
+  // the opposite corner -- and on drawend fits the view to (mode "in") or from
+  // (mode "out") that box's extent, then DISARMS itself (single-shot: one box per
+  // arm, so it never fights the pan/select interactions once you're done). "in"
+  // fits the box to the viewport (a small box zooms in); "out" fits the current
+  // viewport into the box (a small box zooms out further). On desktop, holding
+  // Shift while dragging INVERTS the armed direction for that one box; touch
+  // devices use the two separate toggles instead. Nothing is created; like the
+  // measure tool it never touches feature data, and handleClick bails while it's
+  // armed so the box clicks feed the Draw, not selection. Escape cancels without
+  // zooming. maxZoom caps how far a tiny box can dive so a stray flick can't bury
+  // the view.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !boxZoomActive) return
@@ -1251,10 +1342,42 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     // the whole pointer gesture so DragPan doesn't pan the map underneath it.
     const draw = new Draw({ source, type: "Circle", geometryFunction: createBox(), freehand: true })
 
+    // Track Shift so drawend can invert the armed direction. Shift is desktop-only
+    // (touch has the two toggles), so keydown/keyup is enough.
+    let shiftHeld = false
+    const trackShift = (evt: KeyboardEvent) => {
+      if (evt.key === "Shift") shiftHeld = evt.type === "keydown"
+    }
+    document.addEventListener("keydown", trackShift)
+    document.addEventListener("keyup", trackShift)
+
     draw.on("drawend", (evt: { feature: Feature }) => {
       const geometry = evt.feature.getGeometry()
       if (geometry) {
-        map.getView().fit(geometry.getExtent(), { duration: 300, maxZoom: 22 })
+        const view = map.getView()
+        // Shift inverts the armed direction for this one box.
+        const zoomOut = (boxZoomMode === "out") !== shiftHeld
+        const boxExtent = geometry.getExtent()
+        if (zoomOut) {
+          // Fit the CURRENT viewport into the drawn box: scale the resolution up so
+          // what's on screen shrinks to (at least) the box footprint -- a smaller
+          // box means a larger scale, i.e. zoom out further. Center on the box.
+          const res = view.getResolution()
+          const size = map.getSize()
+          const boxWidth = getExtentWidth(boxExtent)
+          const boxHeight = getExtentHeight(boxExtent)
+          if (res && size && boxWidth > 0 && boxHeight > 0) {
+            const scale = Math.max((res * size[0]) / boxWidth, (res * size[1]) / boxHeight)
+            const target = res * scale
+            view.animate({
+              center: getExtentCenter(boxExtent),
+              resolution: view.getConstrainedResolution(target) ?? target,
+              duration: 300,
+            })
+          }
+        } else {
+          view.fit(boxExtent, { duration: 300, maxZoom: 22 })
+        }
       }
       // Single-shot: disarm after one box (this tears the effect down).
       useBoxZoomStore.getState().deactivate()
@@ -1271,8 +1394,44 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       map.removeInteraction(draw)
       map.removeLayer(layer)
       document.removeEventListener("keydown", handleEscape)
+      document.removeEventListener("keydown", trackShift)
+      document.removeEventListener("keyup", trackShift)
     }
-  }, [boxZoomActive])
+  }, [boxZoomActive, boxZoomMode])
+
+  // Draws the radius-scope search circle (radius-query-store.ts) whenever a
+  // center is dropped, redrawing it as the radius is tuned from the query panel's
+  // Aggregate "Radius of a point" scope. The
+  // circle is GEODESIC -- built with ol's `circular` from a lon/lat center and a
+  // true-metre radius, then transformed into the view projection -- so it encloses
+  // exactly the ground area the server's ST_DWithin(::geography) aggregate counts,
+  // not a projection-distorted approximation. A dot marks the center. Scratch
+  // overlay only; torn down when the center clears (tool closed). Escape here
+  // clears the whole tool (matching the other ad-hoc tools' cancel key).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !radiusQueryCenter) return
+
+    const source = new VectorSource()
+    const layer = new VectorLayer({ source, style: RADIUS_QUERY_STYLE, zIndex: 9 })
+    map.addLayer(layer)
+
+    const projection = map.getView().getProjection()
+    const circle = circularPolygon(radiusQueryCenter, radiusQueryRadiusM, 128)
+    circle.transform("EPSG:4326", projection)
+    source.addFeature(new Feature(circle))
+    source.addFeature(new Feature(new Point(fromLonLat(radiusQueryCenter, projection))))
+
+    const handleEscape = (evt: KeyboardEvent) => {
+      if (evt.key === "Escape") useRadiusQueryStore.getState().clear()
+    }
+    document.addEventListener("keydown", handleEscape)
+
+    return () => {
+      map.removeLayer(layer)
+      document.removeEventListener("keydown", handleEscape)
+    }
+  }, [radiusQueryCenter, radiusQueryRadiusM])
 
   // Re-labels every frozen measurement in place when the metric/imperial
   // toggle flips (see units-store.ts). The measure effect above owns the
@@ -1316,6 +1475,77 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     document.addEventListener("keydown", handleEscape)
     return () => document.removeEventListener("keydown", handleEscape)
   }, [diagramPlacePhase])
+
+  // Escape exits the "Select" tool (map-select-store.ts, select-tool-button.tsx)
+  // -- same affordance the other armed tools get. deactivate() also clears the
+  // highlight set, so no orphan halo is left behind (the population effect
+  // above clears mapSelectSource when the set empties).
+  const mapSelectActive = useMapSelectStore((s) => s.active)
+  useEffect(() => {
+    if (!mapSelectActive) return
+    const handleEscape = (evt: KeyboardEvent) => {
+      if (evt.key === "Escape") useMapSelectStore.getState().deactivate()
+    }
+    document.addEventListener("keydown", handleEscape)
+    return () => document.removeEventListener("keydown", handleEscape)
+  }, [mapSelectActive])
+
+  // Marquee (drag-a-box) selection for the "Select" tool. While armed, a
+  // DragBox lets the user rubber-band a rectangle and highlight every DB
+  // feature inside it in one gesture. DragBox only fires `boxend` on a real
+  // drag (past its minArea), so a plain click still falls through to
+  // handleClick's click-to-toggle -- the two coexist. The box selection is
+  // ADDITIVE (pickMany unions, never toggles), so dragging a second box, or
+  // clicking to add stragglers, keeps building one set.
+  //
+  // The DB layers are vector TILES, not a plain feature source, so there's no
+  // `forEachFeatureIntersectingExtent` to call -- instead each visible tile
+  // layer's source is asked for the features in the box extent from its
+  // currently-loaded tiles (the marquee is always within the viewport, whose
+  // tiles are loaded). A feature straddling a tile boundary comes back once per
+  // tile, so results are deduped by `code:id` (pickMany also collapses any that
+  // slip through). This uses the same rubber-band style as box-zoom.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapSelectActive || !featureClasses) return
+
+    // Same sourceId->code map the click handler builds (globalThis.Map, since
+    // `Map` here is ol/Map). sourceId is the lowercased class code.
+    const codeBySourceId = new globalThis.Map(
+      featureClasses.feature_classes.map((fc) => [fc.code.toLowerCase(), fc.code]),
+    )
+
+    const dragBox = new DragBox({ className: "ol-dragbox-select" })
+
+    dragBox.on("boxend", () => {
+      const extent = dragBox.getGeometry().getExtent()
+      const seen = new Set<string>()
+      const picked: FeatureRef[] = []
+      for (const layer of vectorLayersRef.current) {
+        if (!layer.getVisible()) continue
+        const sourceId = layer.get("sourceId") as string | undefined
+        const code = sourceId ? codeBySourceId.get(sourceId) : undefined
+        if (!code) continue
+        // On the LAYER, not the source: returns features from currently-cached
+        // tiles at the rendered zoom (exactly our in-viewport marquee case),
+        // possibly clipped/duplicated across tiles -- deduped by key below.
+        for (const feature of layer.getFeaturesInExtent(extent)) {
+          const id = feature.get("id") as string | undefined
+          if (!id) continue
+          const key = `${code}:${id}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          picked.push({ featureClassCode: code, featureId: id })
+        }
+      }
+      if (picked.length > 0) useMapSelectStore.getState().pickMany(picked)
+    })
+
+    map.addInteraction(dragBox)
+    return () => {
+      map.removeInteraction(dragBox)
+    }
+  }, [mapSelectActive, featureClasses])
 
   // Escape also cancels an already-placed draft waiting on
   // feature-create-form.tsx -- one step later than the drawing-in-progress
@@ -1418,6 +1648,31 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     const barrierKeys = new Set(result.barriers.map((b) => `${b.feature_class}:${b.feature_id}`))
     const targetKeys = new Set((result.targets ?? []).map((t) => `${t.feature_class}:${t.feature_id}`))
 
+    // Which way the directional marching ants crawl along one traced line:
+    // from the endpoint nearest its BFS parent's geometry (the side the walk
+    // arrived from) toward the other end, so the animation flows in the trace's
+    // own direction -- and uniformly so, since the parent is the incoming side
+    // whether the trace ran downstream or upstream. Returns +1 to crawl
+    // vertex[0]->last (forward along the stored line) or -1 for last->[0]; the
+    // trace-ants effect reads it. Defaults to +1 when the parent is unknown (the
+    // start feature, or a parent dropped by territory scope) -- arbitrary but stable.
+    const traceLineFlowSign = (
+      line: LineString | MultiLineString,
+      ref: TracedFeature,
+      geomByKey: Map<string, Geometry>,
+    ): 1 | -1 => {
+      if (!ref.parent_feature_class || !ref.parent_feature_id) return 1
+      const parentGeom = geomByKey.get(`${ref.parent_feature_class}:${ref.parent_feature_id}`)
+      if (!parentGeom) return 1
+      const first = line.getFirstCoordinate()
+      const last = line.getLastCoordinate()
+      const d2 = (a: number[], b: number[]) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+      const dFirst = d2(first, parentGeom.getClosestPoint(first))
+      const dLast = d2(last, parentGeom.getClosestPoint(last))
+      // The parent-adjacent end is the incoming side; ants crawl away from it.
+      return dFirst <= dLast ? 1 : -1
+    }
+
     async function loadTraceFeatures() {
       const fetched = await Promise.all(
         result.features.map(async (ref) => {
@@ -1437,13 +1692,22 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       )
       if (cancelled) return
 
-      src.clear()
+      // Build every reached feature's OL geometry first, keyed by ref, so a line
+      // can look up its BFS parent's geometry to orient the marching ants below.
+      const geomByKey = new Map<string, Geometry>()
+      const built: { ref: TracedFeature; geometry: Geometry }[] = []
       for (const f of fetched) {
         if (!f?.geometry) continue
         const olGeometry = geoJSONToGeometry(f.geometry)
         if (!olGeometry) continue
-        const feature = new Feature(olGeometry)
-        const key = `${f.ref.feature_class}:${f.ref.feature_id}`
+        geomByKey.set(`${f.ref.feature_class}:${f.ref.feature_id}`, olGeometry)
+        built.push({ ref: f.ref, geometry: olGeometry })
+      }
+
+      src.clear()
+      for (const { ref, geometry } of built) {
+        const feature = new Feature(geometry)
+        const key = `${ref.feature_class}:${ref.feature_id}`
         // Barrier takes precedence over target in the unlikely case a
         // node is somehow both -- the two are mutually exclusive in
         // every seeded scenario (a barrier halts expansion before a
@@ -1451,6 +1715,11 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
         // api/internal/trace/graph.go's bfs), this is just a
         // deterministic tie-break, not a real modeled case.
         feature.set("role", barrierKeys.has(key) ? "trace-barrier" : targetKeys.has(key) ? "trace-target" : "trace")
+        // Directional marching ants are lines-only (scope decision); points and
+        // polygons keep the static halo. flowSign orients the crawl per line.
+        if (geometry instanceof LineString || geometry instanceof MultiLineString) {
+          feature.set("flowSign", traceLineFlowSign(geometry, ref, geomByKey))
+        }
         src.addFeature(feature)
       }
     }
@@ -1460,6 +1729,119 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       cancelled = true
     }
   }, [traceResult])
+
+  // Directional "marching ants" over a finished trace's LINES: a crawling dashed
+  // stroke drawn on top of the static trace halo, animating so the dashes flow in
+  // the direction the trace actually walked (see flowSign, set per line in the
+  // effect above). Modeled on the fault-pulse loop below -- per-frame postrender
+  // via getVectorContext (the base halo stays static underneath), time-driven from
+  // frameState.time, self-sustaining by calling map.render() only while the trace
+  // layer has lines to animate (nothing when a trace is cleared), and suppressed
+  // entirely under prefers-reduced-motion (the base style's static halo stands in).
+  // Points/polygons are skipped -- lines only, per the scope decision.
+  useEffect(() => {
+    const layer = traceLayerRef.current
+    const map = mapRef.current
+    if (!layer || !map) return
+
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+    if (reduceMotion) return
+
+    const PERIOD_MS = 700 // one full dash-cycle crawl -- brisk, but not frantic
+    const DASH = [5, 7] // ant length / gap, px -- tighter so more ants show per line
+    const CYCLE = DASH[0] + DASH[1] // px the pattern repeats over
+    const CASING = "rgba(15,23,42,0.55)" // dark casing so the ants read on any basemap
+
+    const onPostRender = (event: RenderEvent) => {
+      const source = traceSourceRef.current
+      const frameTime = event.frameState?.time
+      if (!source || frameTime == null) return
+      // Position within one dash cycle, in px. flowSign flips the crawl per line
+      // so every ant marches in that line's trace direction.
+      const phase = ((frameTime % PERIOD_MS) / PERIOD_MS) * CYCLE
+      const vectorContext = getVectorContext(event)
+      let animating = false
+      for (const feature of source.getFeatures()) {
+        const geom = feature.getGeometry()
+        if (!(geom instanceof LineString || geom instanceof MultiLineString)) continue
+        const sign = (feature.get("flowSign") as 1 | -1 | undefined) ?? 1
+        const role = (feature.get("role") as HighlightRole | undefined) ?? "trace"
+        const offset = -phase * sign
+        // A dark casing under the bright role-colored ants, both offset by the
+        // same amount so they crawl as one and stay legible over the line's own
+        // color and the basemap beneath.
+        vectorContext.setStyle(
+          new Style({ stroke: new Stroke({ color: CASING, width: 4.5, lineDash: DASH, lineDashOffset: offset }) }),
+        )
+        vectorContext.drawGeometry(geom)
+        vectorContext.setStyle(
+          new Style({ stroke: new Stroke({ color: HIGHLIGHT_COLORS[role], width: 2.5, lineDash: DASH, lineDashOffset: offset }) }),
+        )
+        vectorContext.drawGeometry(geom)
+        animating = true
+      }
+      if (animating) map.render() // schedule the next frame only while there are trace lines
+    }
+
+    const key = layer.on("postrender", onPostRender)
+    map.render() // kick off (also re-fires as the async load adds features to the source)
+    return () => unByKey(key)
+  }, [traceResult])
+
+  // The "Select" tool's highlight-only pick set (map-select-store.ts) -- same
+  // async-fetch-into-a-dedicated-source shape as the trace effect above. Each
+  // picked FeatureRef's geometry is fetched imperatively (the store only holds
+  // class/id, not geometry) into mapSelectSource, all with the default
+  // "selected" role for the sky-blue halo. `cancelled` guards a slow fetch
+  // resolving after a newer pick (or Clear/exit) has superseded it.
+  const mapSelectSet = useMapSelectStore((s) => s.selected)
+  useEffect(() => {
+    const source = mapSelectSourceRef.current
+    if (!source) return
+
+    if (mapSelectSet.length === 0) {
+      source.clear()
+      return
+    }
+
+    const src: VectorSource = source
+    const refs = mapSelectSet
+    let cancelled = false
+
+    async function loadSelectedFeatures() {
+      const fetched = await Promise.all(
+        refs.map(async (ref) => {
+          try {
+            const feature = await apiFetch<{ geometry?: FeatureGeometry }>(
+              `/features/${ref.featureClassCode}/${ref.featureId}`,
+            )
+            return feature.geometry
+          } catch {
+            // A picked feature that fails to load individually (e.g. deleted
+            // since it was clicked) just doesn't get a halo -- not worth
+            // failing the whole set over one stale reference.
+            return null
+          }
+        }),
+      )
+      if (cancelled) return
+
+      src.clear()
+      for (const geometry of fetched) {
+        if (!geometry) continue
+        const olGeometry = geoJSONToGeometry(geometry)
+        if (!olGeometry) continue
+        const feature = new Feature(olGeometry)
+        feature.set("role", "selected")
+        src.addFeature(feature)
+      }
+    }
+
+    loadSelectedFeatures()
+    return () => {
+      cancelled = true
+    }
+  }, [mapSelectSet])
 
   // Isolation result highlight -- same async-fetch-into-a-dedicated-source
   // shape as the trace effect above, just three named lists
@@ -2091,24 +2473,26 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     }
   }, [geometryTool, editing, editingFeature])
 
-  // Attaches OL's Snap interaction whenever a workflow that manipulates
-  // geometry is active -- drawing a brand new feature (draft-store.ts's
-  // drawingFeatureClassCode) or geometry-edit-toolbar.tsx's Move/Edit
-  // vertices tools (edit-store.ts's geometryTool) -- and snap-store.ts's
-  // `enabled` flag is on. Both workflows share the one toggle and the
-  // one snap source, per the user's own framing: "when drawing a new
-  // feature, snapping should also be available."
+  // Attaches OL's Snap interaction whenever a workflow that lays down
+  // coordinates is active -- drawing a brand new feature (draft-store.ts's
+  // drawingFeatureClassCode), geometry-edit-toolbar.tsx's Move/Edit
+  // vertices tools (edit-store.ts's geometryTool), or the ad-hoc measure
+  // tool (measure-store.ts's mode) -- and snap-store.ts's `enabled` flag
+  // is on. All three workflows share the one toggle and the one snap
+  // source, per the user's own framing: "when drawing a new feature,
+  // snapping should also be available." Measuring snaps its vertices to
+  // nearby feature geometry so a distance/area reads off real features.
   //
-  // Placed textually after both the Draw effect above and the
-  // Modify/Translate effect just above this one -- not just logically
-  // gated to run after them. OL only lets a Snap interaction influence a
-  // drag already being handled by another interaction if Snap was added
-  // to the map *after* that interaction (confirmed by reading
-  // ol/interaction/Snap.js directly), and React runs a single commit's
-  // effects in the order they're defined in the component, regardless of
-  // which dependency actually changed -- so Snap has to physically sit
-  // below both to reliably attach after them on every render that
-  // recreates any of the three.
+  // Placed textually after the Draw effects above (both the feature-draw
+  // and measure Draw) and the Modify/Translate effect just above this one
+  // -- not just logically gated to run after them. OL only lets a Snap
+  // interaction influence a drag already being handled by another
+  // interaction if Snap was added to the map *after* that interaction
+  // (confirmed by reading ol/interaction/Snap.js directly), and React
+  // runs a single commit's effects in the order they're defined in the
+  // component, regardless of which dependency actually changed -- so Snap
+  // has to physically sit below all of them to reliably attach after them
+  // on every render that recreates any of them.
   useEffect(() => {
     const map = mapRef.current
     const snapSource = snapSourceRef.current
@@ -2118,7 +2502,8 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     // "split" is a single click with no interaction to influence, so it doesn't
     // arm snapping.
     const editingActive = Boolean(editing && (geometryTool === "move" || geometryTool === "vertices"))
-    if (!snapEnabled || (!drawingActive && !editingActive)) return
+    const measuringActive = Boolean(measureMode)
+    if (!snapEnabled || (!drawingActive && !editingActive && !measuringActive)) return
 
     refreshSnapSource(map, vectorLayersRef.current, snapSource)
     const snap = new Snap({ source: snapSource })
@@ -2126,7 +2511,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     return () => {
       map.removeInteraction(snap)
     }
-  }, [snapEnabled, drawingFeatureClassCode, editing, geometryTool])
+  }, [snapEnabled, drawingFeatureClassCode, editing, geometryTool, measureMode])
 
   // The Split tool (geometry-edit-toolbar.tsx, edit-store.ts's "split") with its
   // live preview (Phase 20). Two phases share one scratch layer so the cut stays
@@ -2298,6 +2683,72 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       return best
     }
 
+    // Click-to-identify for external service layers (Slice 4). Collects the
+    // visible, queryable service layers (gated on each layer's is_queryable flag)
+    // and reports what they hold under the click: vector layers
+    // (WFS/Esri-feature/vector-tile) by hit-testing their already-rendered
+    // features here, raster layers (WMS/Esri MapServer) via a server round-trip
+    // (service-layers-identify.ts). Returns true when it claimed the click --
+    // there was at least one queryable visible layer -- so the caller can skip
+    // the territory/clear fallbacks. Reads the catalog from a ref (kept fresh by
+    // the reconcile effect) so this handler needn't re-bind on catalog refetch.
+    const runServiceIdentify = (
+      evt: MapBrowserEvent<PointerEvent | KeyboardEvent | WheelEvent>,
+    ): boolean => {
+      const visibleState = useServiceLayersStore.getState().visible
+      const targets = serviceLayerRecordsRef.current.filter(
+        (r) => r.is_queryable && visibleState[r.id] && serviceLayersRef.current.has(r.id),
+      )
+      if (targets.length === 0) return false
+
+      const view = map.getView()
+      const size = (map.getSize() ?? [0, 0]) as [number, number]
+      const ctx = {
+        coordinate: evt.coordinate,
+        resolution: view.getResolution() ?? 1,
+        projection: view.getProjection(),
+        extent: view.calculateExtent(size),
+        sizePx: size,
+      }
+      useIdentifyStore.getState().begin(toLonLat(evt.coordinate) as [number, number])
+
+      const vectorGroups: IdentifyLayerGroup[] = []
+      const rasterTargets: { record: ServiceLayerRecord; layer: Layer }[] = []
+      for (const record of targets) {
+        const layer = serviceLayersRef.current.get(record.id)
+        if (!layer) continue
+        if (record.service_type === "wms" || record.service_type === "esri_map") {
+          rasterTargets.push({ record, layer })
+          continue
+        }
+        // Vector families: hit-test the layer's rendered features under the pixel.
+        const features: IdentifyFeatureResult[] = []
+        map.forEachFeatureAtPixel(
+          evt.pixel,
+          (feature) => {
+            const properties = { ...feature.getProperties() }
+            delete properties.geometry
+            features.push({ label: deriveFeatureLabel(properties), properties })
+            return undefined
+          },
+          { layerFilter: (l) => l === layer, hitTolerance: 5 },
+        )
+        if (features.length > 0) {
+          vectorGroups.push({
+            layerId: record.id,
+            layerLabel: record.label,
+            serviceType: record.service_type,
+            features,
+          })
+        }
+      }
+
+      void Promise.all(rasterTargets.map((t) => identifyRasterLayer(t.record, t.layer, ctx)))
+        .then((rasterGroups) => useIdentifyStore.getState().resolve([...vectorGroups, ...rasterGroups]))
+        .catch(() => useIdentifyStore.getState().resolve(vectorGroups))
+      return true
+    }
+
     const handleClick = (evt: MapBrowserEvent<PointerEvent | KeyboardEvent | WheelEvent>) => {
       // A click while drawing belongs to the Draw interaction (placing
       // the geometry), and a click while the create form is open for an
@@ -2322,6 +2773,50 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       // Likewise a click while the box-zoom tool is armed belongs to that
       // tool's rubber-band Draw (see the box-zoom effect above), not selection.
       if (useBoxZoomStore.getState().active) return
+
+      // A click while the radius-scope picker is armed (radius-query-store.ts,
+      // armed from the query panel's Aggregate "Radius of a point" scope) drops
+      // the search center at the clicked point rather than selecting: the click
+      // coordinate (map projection) is converted to WGS84 lon/lat -- what the
+      // /aggregate radius scope expects -- and setCenter disarms (one drop per
+      // arm). The circle-drawing effect and the query panel both react to the
+      // stored center from there.
+      if (useRadiusQueryStore.getState().armed) {
+        const [lon, lat] = toLonLat(evt.coordinate)
+        useRadiusQueryStore.getState().setCenter([lon, lat])
+        return
+      }
+
+      // A click while the "Select" tool is armed (map-select-store.ts,
+      // select-tool-button.tsx) toggles the topmost feature under the cursor
+      // into a highlight-only pick set -- it never opens the attribute panel
+      // (that's the whole point of this tool, vs. normal selection below). A
+      // click on empty space is a no-op (nothing to toggle), not a "clear," so
+      // an imprecise click doesn't wipe an accumulating set; the button/Escape
+      // exits and clears. Only the topmost DB feature is taken (no peer picker)
+      // -- click-to-toggle already makes fixing a mis-pick a single re-click.
+      const selectState = useMapSelectStore.getState()
+      if (selectState.active) {
+        let topHit: { code: string; id: string } | null = null
+        map.forEachFeatureAtPixel(
+          evt.pixel,
+          (feature, layer) => {
+            const sourceId = layer?.get("sourceId") as string | undefined
+            const id = feature.get("id") as string | undefined
+            const code = sourceId ? codeBySourceId.get(sourceId) : undefined
+            if (code && id) {
+              topHit = { code, id }
+              return true
+            }
+            return undefined
+          },
+          { layerFilter: isVectorLayer, hitTolerance: 5 },
+        )
+        if (topHit) {
+          selectState.pick({ featureClassCode: topHit.code, featureId: topHit.id })
+        }
+        return
+      }
 
       // A click while a feature is under edit (see edit-store.ts,
       // feature-edit-form.tsx) shouldn't silently change the selection
@@ -2577,6 +3072,16 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       )
 
       if (hits.length === 0) {
+        // Before the territory/clear fallbacks, offer the click to any visible,
+        // queryable service overlay (Slice 4 click-to-identify). If one claims it,
+        // the identify panel opens with what those layers report here and we drop
+        // the DB selection + any open territory panel -- the user is inspecting a
+        // third-party layer now, not a DB feature or an area.
+        if (runServiceIdentify(evt)) {
+          useSelectionStore.getState().clear()
+          useTerritoryOverlayStore.getState().clearSelected()
+          return
+        }
         // No feature under the click. If the boundary overlay is on and a
         // territory sits here, features lost the click to empty space, so
         // this unambiguously means "inspect this area" -- open the
@@ -2663,6 +3168,55 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       layer.setVisible(!hiddenLayers[sourceId])
     }
   }, [hiddenLayers])
+
+  // The external service-layer overlays (Slice 2): reconcile the managed
+  // TileLayer set against the enabled catalog. Rebuilds only when the record set
+  // itself changes (a non-renderable type builds no layer -- createServiceLayerObject
+  // returns null -- so vector types wait for Slice 3). Each layer is inserted
+  // just above the base layer (collection index 1+) so it renders over the
+  // basemap but under the feature tiles / territory / analysis overlays, whatever
+  // order those effects ran in. Initial visibility/opacity are seeded from the
+  // store here (read imperatively so a later toggle doesn't rebuild sources and
+  // refetch tiles); the two effects below drive live changes.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    for (const layer of serviceLayersRef.current.values()) map.removeLayer(layer)
+    serviceLayersRef.current = new window.Map()
+    serviceLayerRecordsRef.current = serviceLayerRecords ?? []
+    if (!serviceLayerRecords) return
+
+    const { visible, opacity } = useServiceLayersStore.getState()
+    let insertIndex = 1 // 0 is the base layer; keep service overlays just above it
+    for (const record of serviceLayerRecords) {
+      const layer = createServiceLayerObject(record)
+      if (!layer) continue
+      layer.setVisible(Boolean(visible[record.id]))
+      layer.setOpacity(opacity[record.id] ?? record.default_opacity)
+      map.getLayers().insertAt(insertIndex, layer)
+      insertIndex += 1
+      serviceLayersRef.current.set(record.id, layer)
+    }
+  }, [serviceLayerRecords])
+
+  // Reacts to the service-layers store (layers-panel.tsx) toggling one overlay's
+  // visibility in place -- default off, so absent means hidden.
+  useEffect(() => {
+    for (const [id, layer] of serviceLayersRef.current) {
+      layer.setVisible(Boolean(serviceLayerVisible[id]))
+    }
+  }, [serviceLayerVisible])
+
+  // Reacts to the per-layer opacity slider: a user value overrides the catalog's
+  // default_opacity. Depends on the record set too so a rebuilt layer re-applies
+  // the right opacity. setOpacity is a cheap render property -- no tile refetch.
+  useEffect(() => {
+    if (!serviceLayerRecords) return
+    const defaults = new window.Map(serviceLayerRecords.map((r) => [r.id, r.default_opacity] as [string, number]))
+    for (const [id, layer] of serviceLayersRef.current) {
+      layer.setOpacity(serviceLayerOpacity[id] ?? defaults.get(id) ?? 1)
+    }
+  }, [serviceLayerOpacity, serviceLayerRecords])
 
   // Reacts to the per-layer label toggle (layers-panel.tsx) by rebuilding
   // each layer's style in place -- passing the label def through only when
@@ -3053,6 +3607,14 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
           Loading feature…
         </div>
       )}
+      {/* Sits just below the zoom control (top-left); shows only when the view
+          has been rotated off north. Animates the view back to north-up. */}
+      <ResetNorthButton
+        onReset={() => {
+          const m = mapRef.current
+          if (m) m.getView().animate({ rotation: 0, duration: 250 })
+        }}
+      />
     </>
   )
 }

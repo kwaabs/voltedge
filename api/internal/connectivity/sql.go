@@ -251,6 +251,30 @@ func listConnections(ctx context.Context, db bun.IDB, featureClassCode, featureI
 // disconnection. No soft-delete/restore pair like features have:
 // unlike a feature, a connection carries no draft/published life cycle
 // of its own to preserve -- it's a binary fact, established or not.
+// ListConnectionsForFeature returns every connection touching the given feature,
+// in the same shape the REST GET /connectivity?feature_class=&feature_id= handler
+// returns -- the exported entry point the shared agent-tool surface calls. It
+// returns the rows as `any` (the concrete element type is package-private, but its
+// fields are exported so it serializes verbatim) plus the count, so a caller can
+// present the list -- including each connection's id, which the revoke tool needs
+// -- without this package exposing its response type.
+func ListConnectionsForFeature(ctx context.Context, db bun.IDB, featureClassCode, featureID string) (any, int, error) {
+	conns, err := listConnections(ctx, db, featureClassCode, featureID)
+	if err != nil {
+		return nil, 0, err
+	}
+	return conns, len(conns), nil
+}
+
+// RevokeConnection permanently removes an established connection by id. It is the
+// exported entry point the shared agent-tool surface (internal/agenttools) calls,
+// delegating to the exact path the REST DELETE /connectivity/{id} handler uses so
+// both front doors behave identically (and both are gated on connectivity:commit
+// by their callers).
+func RevokeConnection(ctx context.Context, db bun.IDB, id string) error {
+	return revokeConnection(ctx, db, id)
+}
+
 func revokeConnection(ctx context.Context, db bun.IDB, id string) error {
 	res, err := db.NewDelete().Model((*Connectivity)(nil)).Where("id = ?", id).Exec(ctx)
 	if err != nil {

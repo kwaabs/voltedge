@@ -1,6 +1,7 @@
 import { Eraser, PencilRuler, Save, Waypoints, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { useDraggableToolbar } from "@/hooks/use-draggable-toolbar"
 import { useUpdateTerritory } from "@/hooks/use-territories"
 import { cn } from "@/lib/utils"
 import { useTerritoryEditStore } from "@/stores/territory-edit-store"
@@ -28,6 +29,7 @@ export function TerritoryEditToolbar() {
   const dirtyGeometry = useTerritoryEditStore((s) => s.dirtyGeometry)
   const cleared = useTerritoryEditStore((s) => s.cleared)
   const update = useUpdateTerritory()
+  const drag = useDraggableToolbar()
 
   if (!editing) return null
 
@@ -47,8 +49,21 @@ export function TerritoryEditToolbar() {
     )
   }
 
+  // `absolute`, not `fixed`: rendered inside the map column (map.tsx) so it sits
+  // below the app header and centers over the map, not the viewport (a `fixed`
+  // top-3 overlapped the header).
   return (
-    <div className="bg-popover text-popover-foreground fixed top-3 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1 rounded-md border p-1 shadow-lg">
+    <div
+      ref={drag.ref}
+      style={drag.style}
+      className={cn(
+        "bg-popover text-popover-foreground absolute z-40 flex items-center gap-1 rounded-md border p-1 shadow-lg",
+        // Until dragged, stay centered at the top of the map; a drag pins an
+        // explicit left/top (drag.style) and drops this translate anchor.
+        !drag.positioned && "top-3 left-1/2 -translate-x-1/2",
+      )}
+    >
+      {drag.grip}
       <span className="max-w-40 truncate px-1.5 text-xs font-medium" title={editing.name}>
         {editing.name}
       </span>

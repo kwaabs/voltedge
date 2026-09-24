@@ -35,6 +35,7 @@ import { NotFoundPage } from "@/routes/not-found"
 import { OutagesPage } from "@/routes/outages"
 import { RelationshipsPage } from "@/routes/relationships"
 import { SettingsPage } from "@/routes/settings"
+import { TagResolvePage } from "@/routes/tag-resolve"
 import { WorksPage } from "@/routes/works"
 
 /**
@@ -114,6 +115,26 @@ export function App() {
             />
             <Route path="connectivity" element={<ConnectivityPage />} />
             <Route path="relationships" element={<RelationshipsPage />} />
+            {/* Asset-tag scan / deep-link landing (S4). A scanned QR points a
+                phone at /t/<code>; both this and the bare /t manual-entry form
+                need tags:read to hit the resolver, so gate the route (its nav
+                entry is already hidden from a caller without it). */}
+            <Route
+              path="t"
+              element={
+                <RequirePermission perm="tags:read">
+                  <TagResolvePage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="t/:code"
+              element={
+                <RequirePermission perm="tags:read">
+                  <TagResolvePage />
+                </RequirePermission>
+              }
+            />
             {/* The admin landing page -- the single sidebar entry that fans
                 out to every admin destination. It self-filters its cards to
                 the caller's permissions (see admin-home.tsx), so it needs no

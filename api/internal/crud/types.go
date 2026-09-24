@@ -74,13 +74,44 @@ type updateRequest struct {
 // (Slice 4) let a client express `(A AND B) OR C` by nesting. Sort/Order/
 // Limit/Offset mirror the list endpoint's own paging exactly.
 type queryRequest struct {
-	Match      string           `json:"match"`
-	Conditions []queryCondition `json:"conditions"`
-	Groups     []queryGroup     `json:"groups"`
-	Sort       string           `json:"sort"`
-	Order      string           `json:"order"`
-	Limit      int              `json:"limit"`
-	Offset     int              `json:"offset"`
+	Match      string             `json:"match"`
+	Conditions []queryCondition   `json:"conditions"`
+	Groups     []queryGroup       `json:"groups"`
+	Scope      *querySpatialScope `json:"scope"`
+	Tag        *queryTagFilter    `json:"tag"`
+	Sort       string             `json:"sort"`
+	Order      string             `json:"order"`
+	Limit      int                `json:"limit"`
+	Offset     int                `json:"offset"`
+}
+
+// queryTagFilter is the optional asset-tag predicate a query can carry, ANDed on
+// top of the field conditions and every scope. It restricts the result to the
+// features that DO (or, with Present=false, do NOT) carry a matching asset tag
+// -- the "find the feature behind a scanned code" and "list every feature still
+// missing an external asset number" searches the field conditions alone can't
+// express, because a tag lives in runtime.asset_tags, not on the feature table.
+//
+// It is realised as an EXISTS (or NOT EXISTS) subquery correlated to each
+// candidate row by (feature_class_code, id); void tags never count -- they are
+// retired, exactly as the resolver 404s on them. Every operand is bound; only
+// the fixed EXISTS/NOT EXISTS token and the trusted physical-table correlation
+// reference are spliced in, so it adds no injection surface. When a tag filter
+// is present, each returned row also carries its primary tag_code
+// (primary_tag_code) so a code search shows which record a scan lands on.
+type queryTagFilter struct {
+	// Code, when set, matches a tag_code -- exact by default, or as a
+	// case-insensitive prefix when Match=="prefix" (the partial-scan / typed
+	// fragment search). Empty matches any code (a pure presence test).
+	Code  string `json:"code"`
+	Match string `json:"match"` // "" / "exact" | "prefix"
+	// Source, when set, restricts which tags count: "generated" (system-minted)
+	// or "external" (a pre-existing utility asset number). Empty counts both.
+	Source string `json:"source"`
+	// Present flips the predicate: nil / true keeps rows that HAVE a matching
+	// tag; false keeps rows that have NONE (e.g. Source="external", Present=false
+	// finds plant still missing its external number). Pointer so absent == true.
+	Present *bool `json:"present"`
 }
 
 // queryGroup is one node of the condition tree: its own Match combinator
@@ -105,6 +136,82 @@ type queryCondition struct {
 	Op     string `json:"op"`
 	Value  any    `json:"value,omitempty"`
 	Values []any  `json:"values,omitempty"`
+}
+
+// aggregateRequest is the POST /{code}/aggregate body -- the numeric/spatial
+// analysis counterpart to /query (docs/phase-13-query-builder.md's guided
+// panel). It reuses the exact same filter tree as a query (Match + Conditions +
+// nested Groups, built by the shared buildGroup) to narrow the rows, then folds
+// what's left into counts instead of returning them:
+//
+//   - GroupBy (optional): a field to GROUP BY, so the response carries one row
+//     per distinct value with its count ("count by subtype/status/..."). Absent
+//     yields a single overall Total.
+//   - Aggregate (optional): a secondary roll-up beyond the always-present count
+//     (sum/avg/min/max over a numeric field), reported per group and overall.
+//   - Scope (optional): a spatial constraint ANDed on top of the filter --
+//     "in this territory (and its sub-territories)" or "within this radius of a
+//     dropped point" -- the map's spatial-query tools (Slice 2/3).
+//
+// Every field name is whitelisted through columnDataType before it reaches SQL,
+// exactly as a query condition is, so the endpoint adds no injection surface.
+// Limit caps how many group rows come back (see maxAggregateGroups).
+type aggregateRequest struct {
+	Match      string             `json:"match"`
+	Conditions []queryCondition   `json:"conditions"`
+	Groups     []queryGroup       `json:"groups"`
+	GroupBy    string             `json:"group_by"`
+	Aggregate  *aggregateSpec     `json:"aggregate"`
+	Scope      *querySpatialScope `json:"scope"`
+	Limit      int                `json:"limit"`
+}
+
+// aggregateSpec is the optional secondary roll-up: a function (sum/avg/min/max,
+// or count which is a no-op since a count always comes back) over a numeric
+// field. The field is whitelisted and its data_type checked (numeric/integer
+// only) before the SQL is built -- see aggregateExpr.
+type aggregateSpec struct {
+	Fn    string `json:"fn"`
+	Field string `json:"field"`
+}
+
+// querySpatialScope is the optional spatial constraint an aggregate or a query
+// can carry (the query path uses it to drill from an aggregate's count into the
+// very rows behind it, under the same narrowing). Kind selects the shape:
+//
+//   - "" / "none": no spatial constraint.
+//   - "territory": every feature stamped with TerritoryID or any territory
+//     beneath it (territory.DescendantIDs, matching the deepest-wins stamping).
+//   - "radius": every feature whose geometry lies within RadiusM metres of
+//     Center ([longitude, latitude], WGS84).
+//
+// Only meaningful for a geometric feature class; a geometry-less class 400s (see
+// spatialScopeWhere).
+type querySpatialScope struct {
+	Kind        string    `json:"kind"`
+	TerritoryID string    `json:"territory_id"`
+	Center      []float64 `json:"center"`
+	RadiusM     float64   `json:"radius_m"`
+}
+
+// aggregateResponse is the POST /{code}/aggregate result. Total is the row
+// count across the whole (filtered, scoped) set -- the true total even when
+// Groups is capped by Limit. Agg is the overall secondary aggregate, present
+// only when the request asked for one and GroupBy was absent. Groups is one
+// entry per distinct GroupBy value (empty when GroupBy was absent).
+type aggregateResponse struct {
+	Total  int              `json:"total"`
+	Agg    *float64         `json:"agg,omitempty"`
+	Groups []aggregateGroup `json:"groups"`
+}
+
+// aggregateGroup is one GROUP BY bucket: the distinct Value (a raw scalar --
+// domain code, status string, subtype int, etc.; the frontend maps it to a
+// label from the class schema), its Count, and the secondary Agg when requested.
+type aggregateGroup struct {
+	Value any      `json:"value"`
+	Count int      `json:"count"`
+	Agg   *float64 `json:"agg,omitempty"`
 }
 
 // geoJSONGeometry is enough of a GeoJSON Geometry object to check its

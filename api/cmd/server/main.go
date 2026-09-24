@@ -27,6 +27,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/assistant/llm"
 	"github.com/kwaabs/voltedge/api/internal/attachment"
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/assettag"
 	"github.com/kwaabs/voltedge/api/internal/basemap"
 	"github.com/kwaabs/voltedge/api/internal/circuit"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
@@ -54,6 +55,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/rmu"
 	"github.com/kwaabs/voltedge/api/internal/rules"
 	"github.com/kwaabs/voltedge/api/internal/secretbox"
+	"github.com/kwaabs/voltedge/api/internal/servicelayers"
 	"github.com/kwaabs/voltedge/api/internal/territory"
 	"github.com/kwaabs/voltedge/api/internal/tiles"
 	"github.com/kwaabs/voltedge/api/internal/trace"
@@ -211,6 +213,16 @@ func main() {
 		// rides the same features:read gate the CRUD read layer uses -- GET-only, so
 		// features:read covers every method (the /tiles / /export arrangement).
 		r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/feature-registry", featureregistry.Routes(db))
+		// Asset tagging (migrations 0114/0115): every feature carries scannable
+		// tag codes (QR + Code128 + human-readable) affixed on the physical asset;
+		// a scan resolves the code back to the feature. Codes are MINTED by a DB
+		// trigger on runtime.feature_registry (no endpoint mints), so this router is
+		// the read + lifecycle side: resolve (scope/draft-aware, so a code you can't
+		// see 404s), list a feature's tags, register a legacy number, set primary,
+		// void, reissue. Its own tags:read/tags:write capability -- a resolve is a
+		// field read anyone can do, tag lifecycle is an editor act, neither being a
+		// feature edit -- gated method-aware here, the oms/wam/faults arrangement.
+		r.With(auth.RequirePermission(auth.PermTagsRead, auth.PermTagsWrite)).Mount("/tags", assettag.Routes(db))
 	// Phase 22: files attached to features (docs/phase-22-attachments.md). A
 	// method-aware attachments:read/write gate covers the mount; the bytes ride
 	// presigned URLs straight to/from RustFS (exportStore's bucket), so this
@@ -324,6 +336,14 @@ func main() {
 	// verbs need metadata:write, the admin gate. Managed from the same
 	// /admin/map-settings page.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermMetadataWrite)).Mount("/basemaps", basemap.Routes(db))
+	// The admin-managed service-layer catalog (migration 0113) -- external/3rd-party
+	// WMS/WMTS/XYZ/vector-tile/Esri MapServer/Esri FeatureServer/WFS overlays the
+	// map can stack on top of the basemap. Same method-aware gate as basemaps: GET
+	// needs features:read (every map user fetches the list for its layers panel)
+	// while the mutating verbs need metadata:write, the admin gate. Managed from the
+	// same /admin/map-settings page. credCipher seals per-layer credentials at rest,
+	// exactly like external-systems.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermMetadataWrite)).Mount("/service-layers", servicelayers.Routes(db, credCipher))
 	// Phase 32 Slice 2 (docs/phase-32-external-links.md): the external-systems
 	// catalog a feature's kind='api' links fetch from. Admin config like domains
 	// and material specs, so it rides the same metadata:read/write gate; its page

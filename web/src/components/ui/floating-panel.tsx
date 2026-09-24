@@ -145,14 +145,14 @@ export function FloatingPanel({
         // Copper top-edge accent + soft raised shadow + ring so the window
         // reads as a distinct floating object, matching the analysis panels'
         // shared chrome (use-floating-panel.tsx) rather than a flat grey box.
-        "bg-popover text-popover-foreground pointer-events-auto fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-primary shadow-xl ring-1 ring-black/5",
+        "bg-popover text-popover-foreground pointer-events-auto fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-[oklch(0.45_0.10_252)] dark:border-t-primary shadow-xl ring-1 ring-black/5",
         className,
       )}
       style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
     >
       <div
         onPointerDown={startDrag}
-        className="border-primary/15 flex cursor-move items-center justify-between gap-2 border-b bg-gradient-to-b from-accent/50 to-accent/20 px-3 py-2 select-none"
+        className="border-[oklch(0.45_0.10_252)]/20 dark:border-primary/15 flex cursor-move items-center justify-between gap-2 border-b bg-gradient-to-b from-[oklch(0.45_0.10_252)]/15 to-[oklch(0.45_0.10_252)]/5 dark:from-accent/50 dark:to-accent/20 px-3 py-2 select-none"
       >
         <GripVertical className="text-primary/70 size-3.5 shrink-0" />
         <div className="min-w-0 flex-1 truncate text-sm font-medium">{title}</div>

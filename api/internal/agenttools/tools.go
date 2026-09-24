@@ -7,14 +7,20 @@ package agenttools
 // equivalent requires, which Execute enforces against the acting user before
 // running the handler.
 //
-// readTools returns the read-only surface in advertised order: the four feature
-// tools (features:read), validate_feature (features:write -- it previews a
-// create), the trace tools (trace:run), and the two suggestion tools
-// (connectivity:read / relationships:read); buildRegistry stamps them
-// readOnlyHint:true. writeTools returns the mutating surface (create_feature and
-// update_feature -> features:write, establish_connection -> connectivity:commit,
-// establish_relationship -> relationships:commit), each carrying its own
-// annotations (readOnlyHint:false) so a client confirms with a human first.
+// readTools returns the read-only surface in advertised order: the five feature
+// tools (features:read -- list/describe/search/get plus query_features_aggregate,
+// the count/count-by/spatial-scope analysis behind the map's Aggregate and Radius
+// tools), validate_feature (features:write -- it previews a
+// create), the trace tools (trace:run), the two suggestion tools and the two
+// existing-edge list tools (connectivity:read / relationships:read);
+// buildRegistry stamps them readOnlyHint:true. writeTools returns the mutating
+// surface -- the feature lifecycle create_feature / update_feature /
+// publish_feature / unpublish_feature / delete_feature / restore_feature /
+// purge_feature (all features:write), establish_connection / revoke_connection
+// -> connectivity:commit, and establish_relationship / revoke_relationship ->
+// relationships:commit -- each carrying its own annotations (readOnlyHint:false)
+// so a client confirms with a human first; the destructive writes (revoke_*,
+// delete_feature, purge_feature) additionally set destructiveHint:true.
 
 import (
 	"encoding/json"
@@ -101,6 +107,54 @@ func readTools() []Tool {
 			}`),
 			RequiredPerm: auth.PermFeaturesRead,
 			Handler:      toolGetFeature,
+		},
+		{
+			Name: "query_features_aggregate",
+			Description: "Count and aggregate a feature class instead of listing rows -- the " +
+				"numeric+spatial analysis behind the map's Aggregate and Radius query tools. " +
+				"With no group_by it returns one overall total; with group_by it returns a " +
+				"count per distinct value of that field (a \"count by subtype/status/...\"), " +
+				"biggest first. An optional aggregate {fn,field} adds a sum/avg/min/max over a " +
+				"numeric field (overall, or per group). An optional scope narrows to a " +
+				"territory and its whole subtree, or to a radius (metres) around a " +
+				"[longitude, latitude] point -- e.g. \"how many of each class are within 500 m " +
+				"of here\" (call this once per class) or \"count transformers by rating in this " +
+				"territory\". Respects the same read scoping as every other read. Use " +
+				"describe_feature_class to learn valid field names first.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code to aggregate."},
+					"group_by":{"type":"string","description":"A field (or system column) to count by; omit for a single overall total."},
+					"aggregate":{
+						"type":"object",
+						"description":"An optional secondary aggregate over a numeric field, computed overall and per group.",
+						"properties":{
+							"fn":{"type":"string","enum":["sum","avg","min","max"],"description":"The aggregate function."},
+							"field":{"type":"string","description":"The numeric field to aggregate."}
+						},
+						"required":["fn","field"],
+						"additionalProperties":false
+					},
+					"scope":{
+						"type":"object",
+						"description":"An optional spatial narrowing. Requires a class with geometry.",
+						"properties":{
+							"kind":{"type":"string","enum":["none","territory","radius"],"description":"The scope kind."},
+							"territory_id":{"type":"string","description":"For kind=territory: the territory whose subtree to count within."},
+							"center":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"For kind=radius: the [longitude, latitude] center."},
+							"radius_m":{"type":"number","description":"For kind=radius: the radius in metres."}
+						},
+						"required":["kind"],
+						"additionalProperties":false
+					},
+					"limit":{"type":"integer","description":"Max group rows to return when group_by is set (default/cap 1000); the total is always exact."}
+				},
+				"required":["feature_class"],
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermFeaturesRead,
+			Handler:      toolQueryFeaturesAggregate,
 		},
 		{
 			Name: "validate_feature",
@@ -318,6 +372,45 @@ func readTools() []Tool {
 			RequiredPerm: auth.PermRelationshipsRead,
 			Handler:      toolSuggestRelationships,
 		},
+		{
+			Name: "list_connections",
+			Description: "List the connections a feature currently has -- the same list the REST " +
+				"GET /connectivity route returns. Each entry includes the connection's id (pass " +
+				"it to revoke_connection to remove it), the two endpoints (feature class, id, and " +
+				"terminal), the authorizing network rule, and when it was established. Use this to " +
+				"see what a feature is already wired to before establishing or revoking anything.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code of the feature whose connections to list."},
+					"feature_id":{"type":"string","description":"The feature's id (uuid)."}
+				},
+				"required":["feature_class","feature_id"],
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermConnectivityRead,
+			Handler:      toolListConnections,
+		},
+		{
+			Name: "list_relationships",
+			Description: "List the structural/spatial relationships a feature currently has (on " +
+				"either end) -- the same list the REST GET /relationships route returns. Each entry " +
+				"includes the relationship's id (pass it to revoke_relationship to remove it), the " +
+				"relationship class with its kind and cardinality, the origin and destination " +
+				"features, and when it was established. Use this to see a feature's existing " +
+				"relationships before establishing or revoking anything.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code of the feature whose relationships to list."},
+					"feature_id":{"type":"string","description":"The feature's id (uuid)."}
+				},
+				"required":["feature_class","feature_id"],
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermRelationshipsRead,
+			Handler:      toolListRelationships,
+		},
 	}
 }
 
@@ -397,6 +490,294 @@ func writeTools() []Tool {
 			},
 			RequiredPerm: auth.PermFeaturesWrite,
 			Handler:      toolUpdateFeature,
+		},
+		{
+			Name: "publish_feature",
+			Description: "Publish a feature -- transition it from draft to published, the same write " +
+				"the REST POST /{code}/{id}/publish route performs (the feature panel's Publish " +
+				"action). The feature must satisfy its subtype's required fields; an incomplete " +
+				"draft is rejected. Idempotent: publishing an already-published feature returns " +
+				"its current state. Returns the feature's full envelope. This WRITES to the " +
+				"database: confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code the feature belongs to."},
+					"id":{"type":"string","description":"The feature's id (uuid)."}
+				},
+				"required":["feature_class","id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Publish feature",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // a status change, reversible via unpublish
+				IdempotentHint:  &trueHint,  // publishing an already-published row is a no-op
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermFeaturesWrite,
+			Handler:      toolPublishFeature,
+		},
+		{
+			Name: "unpublish_feature",
+			Description: "Unpublish a feature -- transition it from published back to draft, the same " +
+				"write the REST POST /{code}/{id}/unpublish route performs (the feature panel's " +
+				"Unpublish action). No completeness gate -- a published row can always return to " +
+				"draft. Idempotent: unpublishing an already-draft feature returns its current " +
+				"state. Returns the feature's full envelope. This WRITES to the database: confirm " +
+				"with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code the feature belongs to."},
+					"id":{"type":"string","description":"The feature's id (uuid)."}
+				},
+				"required":["feature_class","id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Unpublish feature",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // a status change, reversible via publish
+				IdempotentHint:  &trueHint,  // unpublishing an already-draft row is a no-op
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermFeaturesWrite,
+			Handler:      toolUnpublishFeature,
+		},
+		{
+			Name: "delete_feature",
+			Description: "Soft-delete a feature -- mark it deleted (deleted_at set) without removing " +
+				"the row, the same write the REST DELETE /{code}/{id} route performs (the feature " +
+				"panel's Delete action). This is REVERSIBLE with restore_feature, and orthogonal " +
+				"to status (a published feature can be deleted without unpublishing first). " +
+				"Idempotent: deleting an already-deleted feature returns its current state. " +
+				"Returns the feature's full envelope (with deleted_at set). This WRITES to the " +
+				"database: confirm with a human before calling. To permanently remove a row, use " +
+				"purge_feature after this.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code the feature belongs to."},
+					"id":{"type":"string","description":"The feature's id (uuid)."}
+				},
+				"required":["feature_class","id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Delete feature",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &trueHint,  // it removes the feature from active use (reversible, but a removal)
+				IdempotentHint:  &trueHint,  // deleting an already-deleted row is a no-op
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermFeaturesWrite,
+			Handler:      toolDeleteFeature,
+		},
+		{
+			Name: "restore_feature",
+			Description: "Restore a soft-deleted feature -- clear deleted_at so it's active again, the " +
+				"same write the REST POST /{code}/{id}/restore route performs (the feature panel's " +
+				"Restore action). Idempotent: restoring a feature that isn't deleted returns its " +
+				"current state. Returns the feature's full envelope. This WRITES to the database: " +
+				"confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code the feature belongs to."},
+					"id":{"type":"string","description":"The feature's id (uuid)."}
+				},
+				"required":["feature_class","id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Restore feature",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // it un-deletes, the additive inverse of delete
+				IdempotentHint:  &trueHint,  // restoring a non-deleted row is a no-op
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermFeaturesWrite,
+			Handler:      toolRestoreFeature,
+		},
+		{
+			Name: "purge_feature",
+			Description: "Permanently remove a feature row -- a hard delete, the same write the REST " +
+				"DELETE /{code}/{id}/purge route performs. The feature MUST already be soft-deleted " +
+				"(call delete_feature first); the engine rejects a live row. This is DESTRUCTIVE " +
+				"and NOT reversible -- there is no restore after a purge, the row is gone. Returns " +
+				"a small acknowledgement. This WRITES to the database: confirm with a human before " +
+				"calling, and prefer delete_feature (reversible) unless a permanent removal is " +
+				"truly intended.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code the feature belongs to."},
+					"id":{"type":"string","description":"The feature's id (uuid) -- must already be soft-deleted."}
+				},
+				"required":["feature_class","id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Purge feature",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &trueHint,  // it physically removes the row, no restore
+				IdempotentHint:  &falseHint, // a second purge of the same id is a not-found error
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermFeaturesWrite,
+			Handler:      toolPurgeFeature,
+		},
+		{
+			Name: "wipe_feature_class",
+			Description: "Bulk soft-delete EVERY feature in a class -- the class-scale twin of " +
+				"delete_feature, the same write the REST POST /features/{code}/wipe route performs " +
+				"(the Features browser's 'Wipe class' danger action). It marks every live feature " +
+				"deleted_at = now(); this is REVERSIBLE per feature via restore_feature until " +
+				"purge_deleted_feature_class permanently removes them. Respects territory scope: a " +
+				"scoped caller wipes only their own territory's rows, an unscoped admin the whole " +
+				"class. Returns the number soft-deleted. This is a DESTRUCTIVE bulk WRITE gated on " +
+				"the admin-tier features:wipe permission: always confirm with a human first.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code to wipe."}
+				},
+				"required":["feature_class"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Wipe feature class",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &trueHint,  // it removes every feature in the class from active use (reversible, but bulk)
+				IdempotentHint:  &trueHint,  // wiping an already-wiped class is a no-op (nothing live left)
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermFeaturesWipe,
+			Handler:      toolWipeFeatureClass,
+		},
+		{
+			Name: "purge_deleted_feature_class",
+			Description: "Permanently remove EVERY soft-deleted feature in a class -- the class-scale " +
+				"twin of purge_feature, the same write the REST POST /features/{code}/purge-deleted " +
+				"route performs. Only touches rows already soft-deleted (run wipe_feature_class or " +
+				"delete_feature first); live rows are left alone. It also cleans up the class's " +
+				"topology/relationship references. This is DESTRUCTIVE and NOT reversible -- there is " +
+				"no restore after a purge. Respects territory scope. Returns the number purged. Gated " +
+				"on the admin-tier features:wipe permission: always confirm with a human first, and " +
+				"prefer wipe_feature_class (reversible) unless permanent removal is truly intended.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code whose soft-deleted rows to purge."}
+				},
+				"required":["feature_class"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Purge deleted feature class",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &trueHint,  // it physically removes rows, no restore
+				IdempotentHint:  &falseHint, // a second purge finds nothing, but the first is a real removal
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermFeaturesWipe,
+			Handler:      toolPurgeDeletedFeatureClass,
+		},
+		{
+			Name: "split_line",
+			Description: "Split a line feature at a chosen point -- shorten the original to the near " +
+				"half and create a new feature from the far half, both in one transaction, the " +
+				"same write the REST POST /{code}/{id}/split route performs (the map's split tool). " +
+				"Only valid for a line class. The cut point is given as lng/lat (EPSG:4326); the " +
+				"far half's geometry is computed by PostGIS, so you supply only the new feature's " +
+				"subtype/name/attributes (no geometry), which validate exactly like a create. " +
+				"Connections and relationships stay on the original. Returns the new (far-half) " +
+				"feature's envelope. This WRITES to the database: confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The line feature class code."},
+					"id":{"type":"string","description":"The line feature's id (uuid)."},
+					"lng":{"type":"number","description":"Longitude (EPSG:4326) of the cut point; must land on the line's interior, not an endpoint."},
+					"lat":{"type":"number","description":"Latitude (EPSG:4326) of the cut point."},
+					"new_feature":{
+						"type":"object",
+						"description":"How to fill out the new feature the far half becomes -- no geometry (it's computed).",
+						"properties":{
+							"subtype":{"type":"integer","description":"Subtype code for the new part -- required when the class has subtypes."},
+							"name":{"type":"string","description":"Optional label for the new part."},
+							"territory_id":{"type":"string","description":"Optional territory override (uuid); omit to auto-assign from the computed geometry."},
+							"attributes":{"type":"object","description":"Field values for the new part, keyed by field name.","additionalProperties":true}
+						},
+						"additionalProperties":false
+					}
+				},
+				"required":["feature_class","id","lng","lat"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Split line",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // it shortens + adds, it doesn't delete the original
+				IdempotentHint:  &falseHint, // re-running it splits again / creates another feature
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermFeaturesWrite,
+			Handler:      toolSplitLine,
+		},
+		{
+			Name: "apply_pending_edit",
+			Description: "Apply your staged private edit of an already-published feature onto the " +
+				"public row (conflict-checked), the same write the REST POST /{code}/{id}/apply-pending " +
+				"route performs (the feature panel's Apply banner, Phase 61 private drafts). Only " +
+				"meaningful when you have a pending edit staged on this feature; publishes your " +
+				"private change so peers see it. Returns the updated public envelope. This WRITES " +
+				"to the database: confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code the feature belongs to."},
+					"id":{"type":"string","description":"The feature's id (uuid) -- must have your pending edit staged."}
+				},
+				"required":["feature_class","id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Apply pending edit",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // it publishes a staged change onto the public row
+				IdempotentHint:  &falseHint, // once applied there's no pending edit to re-apply
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermFeaturesWrite,
+			Handler:      toolApplyPendingEdit,
+		},
+		{
+			Name: "discard_pending_edit",
+			Description: "Throw away your staged private edit of an already-published feature without " +
+				"touching the public row, the same write the REST DELETE /{code}/{id}/pending route " +
+				"performs (the feature panel's Discard banner, Phase 61 private drafts). Only " +
+				"meaningful when you have a pending edit staged. Returns a small acknowledgement. " +
+				"This WRITES to the database: confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code the feature belongs to."},
+					"id":{"type":"string","description":"The feature's id (uuid) -- must have your pending edit staged."}
+				},
+				"required":["feature_class","id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Discard pending edit",
+				ReadOnlyHint:    &falseHint, // this tool writes (removes your staged edit)
+				DestructiveHint: &trueHint,  // it discards your staged change; there's no undo
+				IdempotentHint:  &falseHint, // a second discard has nothing to discard
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermFeaturesWrite,
+			Handler:      toolDiscardPendingEdit,
 		},
 		{
 			Name: "establish_connection",
@@ -496,6 +877,60 @@ func writeTools() []Tool {
 			},
 			RequiredPerm: auth.PermRelationshipsCommit,
 			Handler:      toolEstablishRelationship,
+		},
+		{
+			Name: "revoke_connection",
+			Description: "Permanently remove an established connection by its id -- the same write " +
+				"the REST DELETE /connectivity/{id} route performs (the frontend's un-connect " +
+				"action). A connection has no soft-delete/restore: this deletes the record " +
+				"outright, so it is DESTRUCTIVE and NOT reversible -- to restore the link you must " +
+				"establish it again. Use list_connections to find the id first. This WRITES to the " +
+				"database: confirm with a human before calling. Revoking an id that doesn't exist " +
+				"(e.g. already revoked) returns a not-found error.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"id":{"type":"string","description":"The connection's id (uuid), e.g. from list_connections."}
+				},
+				"required":["id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Revoke connection",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &trueHint,  // it deletes the connection outright, no restore
+				IdempotentHint:  &falseHint, // a second revoke of the same id is a not-found error
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermConnectivityCommit,
+			Handler:      toolRevokeConnection,
+		},
+		{
+			Name: "revoke_relationship",
+			Description: "Permanently remove an established relationship by its id -- the same write " +
+				"the REST DELETE /relationships/{id} route performs (the frontend's un-relate " +
+				"action). A relationship has no soft-delete/restore: this deletes the record " +
+				"outright, so it is DESTRUCTIVE and NOT reversible -- to restore it you must " +
+				"establish it again. Use list_relationships to find the id first. This WRITES to " +
+				"the database: confirm with a human before calling. Revoking an id that doesn't " +
+				"exist (e.g. already revoked) returns a not-found error.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"id":{"type":"string","description":"The relationship's id (uuid), e.g. from list_relationships."}
+				},
+				"required":["id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Revoke relationship",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &trueHint,  // it deletes the relationship outright, no restore
+				IdempotentHint:  &falseHint, // a second revoke of the same id is a not-found error
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermRelationshipsCommit,
+			Handler:      toolRevokeRelationship,
 		},
 	}
 }

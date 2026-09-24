@@ -87,7 +87,15 @@ const (
 	// fault events on the packed assets, so a field worker sees the electrical faults
 	// standing on the assets in hand; cleared/closed faults are omitted. Additive: an
 	// older pack has no rows and the app hides the fault board.
-	packSchemaVersion = 9
+	// v10 added the asset_tags index table (asset-tagging module S5), shipped only
+	// when the pack requester holds tags:read (scope.IncludeTags). It carries every
+	// resolvable tag code (active + superseded -- a damaged, reissued label still
+	// resolves offline, mirroring the online resolver where void=404 but superseded
+	// hits) on the packed assets, so a field worker SCANS a QR/Code128 tag and the
+	// device resolves it against the pack with no signal -- tag_code -> feature. Void
+	// tags are omitted (they must miss, as online). Additive: an older pack has no
+	// rows and the device falls back to online-only resolution.
+	packSchemaVersion = 10
 
 	defaultMinZoom = 6
 	defaultMaxZoom = 16
@@ -111,6 +119,7 @@ type buildResult struct {
 	workOrderCount   int
 	inspTemplateCount     int
 	inspTemplateItemCount int
+	assetTagCount    int
 	snapshotAt       time.Time
 }
 
@@ -178,8 +187,8 @@ func buildPack(ctx context.Context, db *bun.DB, store *export.ObjectStore, pack 
 		log.Printf("fieldpack: pack %s uploaded but marking complete failed: %v", pack.ID, err)
 		return
 	}
-	log.Printf("fieldpack: pack %s built: features=%d conns=%d rels=%d domainvals=%d symbology=%d icons=%d attachments=%d relclasses=%d netrules=%d defects=%d faults=%d workorders=%d insptemplates=%d/%d tiles=%dB data=%dB",
-		pack.ID, res.featureCount, res.connCount, res.relCount, res.domainValueCount, res.symbologyCount, res.iconCount, res.attachmentCount, res.relClassCount, res.netRuleCount, res.defectCount, res.faultCount, res.workOrderCount, res.inspTemplateCount, res.inspTemplateItemCount, tilesBytes, dataBytes)
+	log.Printf("fieldpack: pack %s built: features=%d conns=%d rels=%d domainvals=%d symbology=%d icons=%d attachments=%d relclasses=%d netrules=%d defects=%d faults=%d workorders=%d insptemplates=%d/%d assettags=%d tiles=%dB data=%dB",
+		pack.ID, res.featureCount, res.connCount, res.relCount, res.domainValueCount, res.symbologyCount, res.iconCount, res.attachmentCount, res.relClassCount, res.netRuleCount, res.defectCount, res.faultCount, res.workOrderCount, res.inspTemplateCount, res.inspTemplateItemCount, res.assetTagCount, tilesBytes, dataBytes)
 }
 
 // buildArtifacts does the read + encode: it writes the SQLite pack and the
@@ -338,6 +347,14 @@ func buildArtifacts(ctx context.Context, db *bun.DB, store *export.ObjectStore, 
 		return buildResult{}, err
 	}
 	defer inspItemStmt.Close()
+	assetTagStmt, err := stx.PrepareContext(ctx, `INSERT INTO asset_tags
+		(tag_code, feature_class, feature_id, is_primary, status)
+		VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		stx.Rollback()
+		return buildResult{}, err
+	}
+	defer assetTagStmt.Close()
 
 	packed := map[string]struct{}{}
 	// The coded domains referenced by any packed field, collected across all
@@ -529,6 +546,18 @@ func buildArtifacts(ctx context.Context, db *bun.DB, store *export.ObjectStore, 
 				res.faultCount, err = loadPackFaults(ctx, tx, packed, faultStmt)
 				if err != nil {
 					return fmt.Errorf("loading faults: %w", err)
+				}
+			}
+
+			// The asset-tag index (asset-tagging module S5), shipped only when the
+			// requester holds tags:read (frozen into the scope at enqueue). Tags are
+			// asset-centric (filtered to the packed features): every resolvable code on
+			// the assets in hand, so a scan resolves offline. Void tags are omitted so
+			// a scanned-but-retired label misses exactly as it does online.
+			if scope.IncludeTags {
+				res.assetTagCount, err = loadPackAssetTags(ctx, tx, packed, assetTagStmt)
+				if err != nil {
+					return fmt.Errorf("loading asset tags: %w", err)
 				}
 			}
 			return nil
@@ -782,6 +811,21 @@ func initPackSchema(ctx context.Context, sq *sql.DB) error {
 			incident_id             TEXT,
 			defect_id               TEXT
 		)`,
+		// The resolvable asset-tag codes on the packed features (pack schema v10, the
+		// asset-tagging module). One row per active-or-superseded tag whose feature is
+		// in the pack, so a field scan of a QR/Code128/typed code resolves to a feature
+		// offline. Void tags are omitted -- a retired label must miss offline exactly as
+		// it 404s online. is_primary flags the printed code-of-record (there is at most
+		// one per feature). Shipped only when scope.IncludeTags (requester holds
+		// tags:read); an older pack or a requester without the perm has no rows and the
+		// device falls back to online-only resolution.
+		`CREATE TABLE asset_tags (
+			tag_code      TEXT PRIMARY KEY,
+			feature_class TEXT NOT NULL,
+			feature_id    TEXT NOT NULL,
+			is_primary    INTEGER,
+			status        TEXT
+		)`,
 		`CREATE TABLE manifest (
 			key   TEXT PRIMARY KEY,
 			value TEXT
@@ -812,6 +856,7 @@ func createPackIndexes(ctx context.Context, sq *sql.DB) error {
 		`CREATE INDEX faults_events_asset_idx       ON faults_events (asset_id)`,
 		`CREATE INDEX wam_work_orders_status_idx    ON wam_work_orders (status)`,
 		`CREATE INDEX wam_insp_items_template_idx   ON wam_inspection_template_items (template_id)`,
+		`CREATE INDEX asset_tags_feature_idx        ON asset_tags (feature_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := sq.ExecContext(ctx, s); err != nil {
@@ -1365,6 +1410,46 @@ WHERE status NOT IN ('cleared', 'closed')`
 	return n, rows.Err()
 }
 
+// loadPackAssetTags streams the resolvable asset-tag codes and keeps those on a
+// packed asset, so a field scan resolves a code to a feature offline -- the same
+// stream-and-membership-filter pattern loadPackFaults uses, so a big tag table
+// never becomes a giant IN (...) over the packed ids. Only active and superseded
+// tags ship: a superseded (reissued) code still resolves, but a void code must
+// miss offline exactly as it 404s online. The registry mints a tag for every
+// feature, so every packed feature contributes at least its primary code.
+func loadPackAssetTags(ctx context.Context, db bun.IDB, packed map[string]struct{}, stmt *sql.Stmt) (int, error) {
+	const q = `
+SELECT tag_code, feature_class_code, feature_id::text, is_primary, status
+FROM runtime.asset_tags
+WHERE status IN ('active', 'superseded')`
+	rows, err := db.QueryContext(ctx, q)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	n := 0
+	for rows.Next() {
+		var tagCode, featureClass, featureID, status string
+		var isPrimary bool
+		if err := rows.Scan(&tagCode, &featureClass, &featureID, &isPrimary, &status); err != nil {
+			return n, err
+		}
+		if _, ok := packed[featureID]; !ok {
+			continue
+		}
+		primaryInt := 0
+		if isPrimary {
+			primaryInt = 1
+		}
+		if _, err := stmt.ExecContext(ctx, tagCode, featureClass, featureID, primaryInt, status); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, rows.Err()
+}
+
 // nullFloat renders a nullable float as itself, or nil (SQL NULL) when absent --
 // the pack stores an unanchored fault's missing lng/lat as NULL rather than 0.
 func nullFloat(f sql.NullFloat64) any {
@@ -1516,10 +1601,12 @@ func writeManifest(ctx context.Context, stx *sql.Tx, packID, requestedBy string,
 		{"work_order_count", strconv.Itoa(res.workOrderCount)},
 		{"inspection_template_count", strconv.Itoa(res.inspTemplateCount)},
 		{"inspection_template_item_count", strconv.Itoa(res.inspTemplateItemCount)},
+		{"asset_tag_count", strconv.Itoa(res.assetTagCount)},
 		{"include_connectivity", strconv.FormatBool(scope.IncludeConnectivity)},
 		{"include_relationships", strconv.FormatBool(scope.IncludeRelationships)},
 		{"include_wam", strconv.FormatBool(scope.IncludeWAM)},
 		{"include_faults", strconv.FormatBool(scope.IncludeFaults)},
+		{"include_tags", strconv.FormatBool(scope.IncludeTags)},
 	}
 	stmt, err := stx.PrepareContext(ctx, `INSERT INTO manifest (key, value) VALUES (?, ?)`)
 	if err != nil {

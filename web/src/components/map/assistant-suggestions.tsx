@@ -219,8 +219,8 @@ export function AssistantSuggestions() {
   }
 
   return (
-    <div className="bg-popover text-popover-foreground fixed bottom-10 left-4 z-40 flex w-72 flex-col overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-primary shadow-xl ring-1 ring-black/5">
-      <div className="text-muted-foreground border-primary/15 flex items-center justify-between gap-1 border-b bg-gradient-to-b from-accent/50 to-accent/20 px-2 py-1.5 text-xs font-medium">
+    <div className="bg-popover text-popover-foreground fixed bottom-10 left-4 z-40 flex w-72 flex-col overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-[oklch(0.45_0.10_252)] dark:border-t-primary shadow-xl ring-1 ring-black/5">
+      <div className="text-muted-foreground border-[oklch(0.45_0.10_252)]/20 dark:border-primary/15 flex items-center justify-between gap-1 border-b bg-gradient-to-b from-[oklch(0.45_0.10_252)]/15 to-[oklch(0.45_0.10_252)]/5 dark:from-accent/50 dark:to-accent/20 px-2 py-1.5 text-xs font-medium">
         <button
           onClick={() => setCollapsed((c) => !c)}
           className="hover:text-foreground flex flex-1 items-center gap-1.5"

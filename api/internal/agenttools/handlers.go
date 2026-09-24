@@ -223,6 +223,58 @@ func toolGetFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any,
 	return feature, nil
 }
 
+func toolQueryFeaturesAggregate(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		FeatureClass string `json:"feature_class"`
+		GroupBy      string `json:"group_by"`
+		Aggregate    *struct {
+			Fn    string `json:"fn"`
+			Field string `json:"field"`
+		} `json:"aggregate"`
+		Scope *struct {
+			Kind        string    `json:"kind"`
+			TerritoryID string    `json:"territory_id"`
+			Center      []float64 `json:"center"`
+			RadiusM     float64   `json:"radius_m"`
+		} `json:"scope"`
+		Limit int `json:"limit"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.FeatureClass == "" {
+		return nil, fmt.Errorf("feature_class is required")
+	}
+
+	loaded, err := metadata.Load(ctx, db, in.FeatureClass)
+	if err != nil {
+		return nil, fmt.Errorf("no such feature class %q: %w", in.FeatureClass, err)
+	}
+
+	opts := crud.AggregateOptions{GroupBy: in.GroupBy, Limit: in.Limit}
+	if in.Aggregate != nil {
+		opts.AggFn = in.Aggregate.Fn
+		opts.AggField = in.Aggregate.Field
+	}
+	if in.Scope != nil {
+		opts.Scope = &crud.AggregateScope{
+			Kind:        in.Scope.Kind,
+			TerritoryID: in.Scope.TerritoryID,
+			Center:      in.Scope.Center,
+			RadiusM:     in.Scope.RadiusM,
+		}
+	}
+
+	result, err := crud.AggregateFeatures(ctx, db, loaded, opts)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"feature_class": in.FeatureClass,
+		"result":        result,
+	}, nil
+}
+
 func toolValidateFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
 	var in struct {
 		FeatureClass string          `json:"feature_class"`
@@ -511,6 +563,254 @@ func toolUpdateFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (a
 	})
 }
 
+// featureRefIn is the shared {feature_class, id} body of the feature-lifecycle
+// tools (publish/unpublish/delete/restore/purge). Each loads the class and hands
+// the id to the matching exported crud engine function -- the same call the REST
+// POST .../publish|unpublish|restore, DELETE .../{id}, and DELETE .../purge
+// routes make. The acting user is on ctx via auth.WithUser in Execute, so scope
+// and draft enforcement (and history attribution) match the REST path exactly.
+type featureRefIn struct {
+	FeatureClass string `json:"feature_class"`
+	ID           string `json:"id"`
+}
+
+func (in featureRefIn) load(ctx context.Context, db bun.IDB) (*metadata.Loaded, error) {
+	if in.FeatureClass == "" || in.ID == "" {
+		return nil, fmt.Errorf("feature_class and id are required")
+	}
+	loaded, err := metadata.Load(ctx, db, in.FeatureClass)
+	if err != nil {
+		return nil, fmt.Errorf("no such feature class %q: %w", in.FeatureClass, err)
+	}
+	return loaded, nil
+}
+
+func toolPublishFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in featureRefIn
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	loaded, err := in.load(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	// Idempotent -- publishing an already-published row returns its current
+	// state; an incomplete draft is rejected in-band as the tool error.
+	return crud.PublishFeature(ctx, db, loaded, in.ID)
+}
+
+func toolUnpublishFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in featureRefIn
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	loaded, err := in.load(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	return crud.UnpublishFeature(ctx, db, loaded, in.ID)
+}
+
+func toolDeleteFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in featureRefIn
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	loaded, err := in.load(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	// Soft delete (deleted_at = now()); reversible via restore_feature.
+	// Idempotent -- deleting an already-deleted row returns its current state.
+	return crud.DeleteFeature(ctx, db, loaded, in.ID)
+}
+
+func toolRestoreFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in featureRefIn
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	loaded, err := in.load(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	return crud.RestoreFeature(ctx, db, loaded, in.ID)
+}
+
+func toolPurgeFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in featureRefIn
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	loaded, err := in.load(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	// Hard delete -- physically removes the row, and requires it to already be
+	// soft-deleted (the engine rejects a live row). Nothing to hand back on
+	// success, so acknowledge with the id.
+	if err := crud.PurgeFeature(ctx, db, loaded, in.ID); err != nil {
+		return nil, err
+	}
+	return map[string]any{"purged": true, "feature_class": in.FeatureClass, "id": in.ID}, nil
+}
+
+// classRefIn is the argument shape for the bulk class-wipe tools -- just the
+// feature class code, since these operate on the whole class rather than one row.
+type classRefIn struct {
+	FeatureClass string `json:"feature_class"`
+}
+
+func (in classRefIn) load(ctx context.Context, db bun.IDB) (*metadata.Loaded, error) {
+	if in.FeatureClass == "" {
+		return nil, fmt.Errorf("feature_class is required")
+	}
+	loaded, err := metadata.Load(ctx, db, in.FeatureClass)
+	if err != nil {
+		return nil, fmt.Errorf("no such feature class %q: %w", in.FeatureClass, err)
+	}
+	return loaded, nil
+}
+
+func toolWipeFeatureClass(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in classRefIn
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	loaded, err := in.load(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	// Bulk soft-delete (deleted_at = now()) of every live, in-scope row; reversible
+	// per-feature via restore_feature until purge_deleted_feature_class runs.
+	// WipeClass owns its own transaction, so it needs the concrete *bun.DB.
+	real, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	wiped, err := crud.WipeClass(ctx, real, loaded)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"soft_deleted": wiped, "feature_class": in.FeatureClass}, nil
+}
+
+func toolPurgeDeletedFeatureClass(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in classRefIn
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	loaded, err := in.load(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	// Permanent purge of every already-soft-deleted, in-scope row, with the
+	// topology/relationship cascade. NOT reversible. Owns its own transaction.
+	real, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	purged, err := crud.PurgeDeletedClass(ctx, real, loaded)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"purged": purged, "feature_class": in.FeatureClass}, nil
+}
+
+// asDB narrows the handler's bun.IDB to the concrete *bun.DB the
+// transaction-owning engines (split, apply/discard pending edit) need to open
+// their own RunInTx. Execute is always called with the app's real *bun.DB, so
+// this succeeds in practice; the checked assertion turns a hypothetical
+// tx-scoped caller into a clear tool error instead of a panic.
+func asDB(db bun.IDB) (*bun.DB, error) {
+	real, ok := db.(*bun.DB)
+	if !ok {
+		return nil, fmt.Errorf("this tool needs a top-level database handle")
+	}
+	return real, nil
+}
+
+func toolSplitLine(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		FeatureClass string  `json:"feature_class"`
+		ID           string  `json:"id"`
+		Lng          float64 `json:"lng"`
+		Lat          float64 `json:"lat"`
+		NewFeature   struct {
+			Subtype     *int           `json:"subtype"`
+			Name        *string        `json:"name"`
+			TerritoryID *string        `json:"territory_id"`
+			Attributes  map[string]any `json:"attributes"`
+		} `json:"new_feature"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.FeatureClass == "" || in.ID == "" {
+		return nil, fmt.Errorf("feature_class and id are required")
+	}
+
+	loaded, err := metadata.Load(ctx, db, in.FeatureClass)
+	if err != nil {
+		return nil, fmt.Errorf("no such feature class %q: %w", in.FeatureClass, err)
+	}
+	// Split only makes sense for a line -- reject anything else up front with the
+	// same message the REST split handler gives, rather than failing in PostGIS.
+	if loaded.FeatureClass.GeometryType != "line" {
+		return nil, fmt.Errorf("feature class %q is not a line, so it can't be split", loaded.FeatureClass.Code)
+	}
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	// The acting user is on ctx via auth.WithUser; SplitLineFeature owns the
+	// transaction, does the PostGIS math, and returns the new far-half feature's
+	// envelope. Scope/draft/validation errors surface in-band as the tool error.
+	return crud.SplitLineFeature(ctx, sdb, loaded, in.ID, in.Lng, in.Lat, crud.SplitNewFeatureInput{
+		Subtype:     in.NewFeature.Subtype,
+		Name:        in.NewFeature.Name,
+		TerritoryID: in.NewFeature.TerritoryID,
+		Attributes:  in.NewFeature.Attributes,
+	})
+}
+
+func toolApplyPendingEdit(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in featureRefIn
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	loaded, err := in.load(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	// Applies the acting author's staged private edit onto the public row
+	// (conflict-checked). The author is derived from ctx inside the engine.
+	return crud.ApplyPendingEdit(ctx, sdb, loaded, in.ID)
+}
+
+func toolDiscardPendingEdit(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in featureRefIn
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	loaded, err := in.load(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	if err := crud.DiscardPendingEdit(ctx, sdb, loaded, in.ID); err != nil {
+		return nil, err
+	}
+	return map[string]any{"discarded": true, "feature_class": in.FeatureClass, "id": in.ID}, nil
+}
+
 func toolEstablishConnection(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
 	var in struct {
 		From struct {
@@ -573,4 +873,85 @@ func toolEstablishRelationship(ctx context.Context, db bun.IDB, args json.RawMes
 		Destination: relationship.FeatureRef{FeatureClass: in.Destination.FeatureClass, FeatureID: in.Destination.FeatureID},
 		Kind:        in.Kind,
 	})
+}
+
+func toolListConnections(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		FeatureClass string `json:"feature_class"`
+		FeatureID    string `json:"feature_id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.FeatureClass == "" || in.FeatureID == "" {
+		return nil, fmt.Errorf("feature_class and feature_id are required")
+	}
+
+	// Same query as the REST GET /connectivity list; each row carries its id, so
+	// a caller can find the connection to pass to revoke_connection.
+	conns, count, err := connectivity.ListConnectionsForFeature(ctx, db, in.FeatureClass, in.FeatureID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"connections": conns, "count": count}, nil
+}
+
+func toolListRelationships(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		FeatureClass string `json:"feature_class"`
+		FeatureID    string `json:"feature_id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.FeatureClass == "" || in.FeatureID == "" {
+		return nil, fmt.Errorf("feature_class and feature_id are required")
+	}
+
+	// Same query as the REST GET /relationships list; each row carries its id, so
+	// a caller can find the relationship to pass to revoke_relationship.
+	rels, count, err := relationship.ListRelationshipsForFeature(ctx, db, in.FeatureClass, in.FeatureID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"relationships": rels, "count": count}, nil
+}
+
+func toolRevokeConnection(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+
+	// Same engine path as the REST DELETE /connectivity/{id}; a missing id
+	// surfaces in-band as the tool's not-found error. Returns a small
+	// acknowledgement (the delete itself yields no row).
+	if err := connectivity.RevokeConnection(ctx, db, in.ID); err != nil {
+		return nil, err
+	}
+	return map[string]any{"revoked": true, "id": in.ID}, nil
+}
+
+func toolRevokeRelationship(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+
+	// Same engine path as the REST DELETE /relationships/{id}; a missing id
+	// surfaces in-band as the tool's not-found error.
+	if err := relationship.RevokeRelationship(ctx, db, in.ID); err != nil {
+		return nil, err
+	}
+	return map[string]any{"revoked": true, "id": in.ID}, nil
 }

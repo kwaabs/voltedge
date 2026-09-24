@@ -2,6 +2,7 @@ import { Move, Scissors, Waypoints } from "lucide-react"
 
 import { SnapToggleButton } from "@/components/map/snap-toggle-button"
 import { Button } from "@/components/ui/button"
+import { useDraggableToolbar } from "@/hooks/use-draggable-toolbar"
 import { useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { cn } from "@/lib/utils"
 import { useEditStore } from "@/stores/edit-store"
@@ -14,6 +15,13 @@ import { useEditStore } from "@/stores/edit-store"
  * geometry. Deliberately reads `editing` itself and returns null rather
  * than being conditionally rendered by a parent, same self-contained
  * pattern as connect-confirm-panel.tsx.
+ *
+ * Positioned `absolute` -- it's rendered inside the map column (map.tsx), so
+ * it sits below the app header and centers over the MAP, not the whole
+ * viewport. A `fixed` position measured from the viewport top instead, which
+ * put it on top of the app-shell header and, in split view, off-centre from
+ * the map; the map column is the right frame of reference (same reasoning as
+ * the status bar living in that column).
  *
  * Which buttons render is geometry-type-specific, per the user's own
  * framing ("the drawing tool bar for line features should have certain
@@ -28,6 +36,7 @@ export function GeometryEditToolbar() {
   const editing = useEditStore((s) => s.editing)
   const geometryTool = useEditStore((s) => s.geometryTool)
   const { data: schema } = useFeatureClassSchema(editing?.featureClassCode)
+  const drag = useDraggableToolbar()
 
   if (!editing || !schema || schema.geometry_type === "none") return null
 
@@ -38,7 +47,17 @@ export function GeometryEditToolbar() {
   const showSplitTool = schema.geometry_type === "line"
 
   return (
-    <div className="bg-popover text-popover-foreground fixed top-3 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1 rounded-md border p-1 shadow-lg">
+    <div
+      ref={drag.ref}
+      style={drag.style}
+      className={cn(
+        "bg-popover text-popover-foreground absolute z-40 flex items-center gap-1 rounded-md border p-1 shadow-lg",
+        // Until dragged, stay centered at the top of the map; a drag pins an
+        // explicit left/top (drag.style) and drops this translate anchor.
+        !drag.positioned && "top-3 left-1/2 -translate-x-1/2",
+      )}
+    >
+      {drag.grip}
       <Button
         variant="ghost"
         size="sm"

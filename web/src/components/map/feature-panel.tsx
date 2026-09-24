@@ -12,6 +12,7 @@ import {
   Cloud,
   Copy,
   ExternalLink as ExternalLinkIcon,
+  FileClock,
   GripHorizontal,
   History,
   Info,
@@ -24,6 +25,7 @@ import {
   Pencil,
   Plug,
   Plus,
+  QrCode,
   RefreshCw,
   Route,
   Satellite,
@@ -36,6 +38,7 @@ import {
   TriangleAlert,
   Undo2,
   Unlink2,
+  Waves,
   Waypoints,
   Workflow,
   Wrench,
@@ -50,10 +53,12 @@ import { FeatureAttachments } from "@/components/map/feature-attachments"
 import { FeatureCreateForm } from "@/components/map/feature-create-form"
 import { FeatureEditForm } from "@/components/map/feature-edit-form"
 import { FaultsTab } from "@/components/map/feature-faults-tab"
+import { TagsTab } from "@/components/map/feature-tags-tab"
 import { WorksTab } from "@/components/map/feature-works-tab"
 import { formatFieldLabel, formatValue } from "@/components/map/field-utils"
 import { RemoveGeometryDialog } from "@/components/map/remove-geometry-dialog"
 import { RevokeConnectionDialog } from "@/components/map/revoke-connection-dialog"
+import { RevokeRelationshipDialog } from "@/components/map/revoke-relationship-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -84,7 +89,8 @@ import {
   useExternalLinks,
 } from "@/hooks/use-external-links"
 import { useExternalSystems } from "@/hooks/use-external-systems"
-import { useRelationships } from "@/hooks/use-relationships"
+import { useApplyPendingEdit, useDiscardPendingEdit } from "@/hooks/use-pending-edits"
+import { useRelationships, type Relationship } from "@/hooks/use-relationships"
 import { useTerritories, territoryNameMap } from "@/hooks/use-territories"
 import { useTraceConfigurations } from "@/hooks/use-trace-configurations"
 import { ApiError, apiFetch } from "@/lib/api"
@@ -111,6 +117,7 @@ import { useEvHostingStore } from "@/stores/ev-hosting-store"
 import { useMeshedLoadFlowStore } from "@/stores/meshed-load-flow-store"
 import { useNodalLoadFlowStore } from "@/stores/nodal-load-flow-store"
 import { useAutoLoadFlowStore } from "@/stores/auto-load-flow-store"
+import { useUnbalancedLoadFlowStore } from "@/stores/unbalanced-load-flow-store"
 
 type TabId =
   | "attributes"
@@ -119,6 +126,7 @@ type TabId =
   | "materials"
   | "works"
   | "faults"
+  | "tags"
   | "files"
   | "links"
   | "history"
@@ -131,6 +139,7 @@ const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
   { id: "materials", label: "Materials", icon: Wrench },
   { id: "works", label: "Works", icon: ClipboardList },
   { id: "faults", label: "Faults", icon: ZapOff },
+  { id: "tags", label: "Tags", icon: QrCode },
   { id: "files", label: "Files", icon: Paperclip },
   { id: "links", label: "Links", icon: ExternalLinkIcon },
   { id: "history", label: "History", icon: History },
@@ -179,6 +188,36 @@ function AttributesTab() {
     selected?.featureId,
   )
   useErrorToast(isError, error, "Could not load this feature")
+
+  // Private-drafts Phase B: apply/discard the acting user's private, unpublished
+  // edit of this already-published feature. Only rendered when the server's read
+  // overlay marks the feature pending_private_edit (see the banner below); the
+  // mutations refresh the feature, the row list and the map tiles.
+  const applyPending = useApplyPendingEdit()
+  const discardPending = useDiscardPendingEdit()
+  const pendingBusy = applyPending.isPending || discardPending.isPending
+  function handleApplyPending() {
+    if (!selected || pendingBusy) return
+    applyPending.mutate(
+      { featureClassCode: selected.featureClassCode, featureId: selected.featureId },
+      {
+        // A 409 is the stale-base conflict: someone else published a change since
+        // this edit was staged. Surface the server's discard-and-redo message.
+        onError: (err) =>
+          useToastStore.getState().pushError(err.message || "Could not apply your private edit."),
+      },
+    )
+  }
+  function handleDiscardPending() {
+    if (!selected || pendingBusy) return
+    discardPending.mutate(
+      { featureClassCode: selected.featureClassCode, featureId: selected.featureId },
+      {
+        onError: (err) =>
+          useToastStore.getState().pushError(err.message || "Could not discard your private edit."),
+      },
+    )
+  }
   // Resolve the feature's auto-assigned territory (Phase 11) to a name.
   // Fixed reference data, cached long -- no picker, read-only.
   const { data: territoriesData } = useTerritories()
@@ -283,7 +322,58 @@ function AttributesTab() {
   const showPublishControl = canPublish && !feature.deleted_at
 
   return (
-    <dl className="grid grid-cols-[max-content_1fr] gap-x-6 text-sm">
+    <>
+      {/* Private-drafts Phase B: this feature is public to everyone else, but
+          the values shown here are the acting user's own private, unpublished
+          edit (or a pending private retirement). Apply publishes it for
+          everyone; Discard throws it away and reveals the public row again. */}
+      {feature.pending_private_edit && (
+        <div className="border-primary/30 bg-accent/40 mb-3 rounded-md border px-3 py-2 text-xs">
+          <div className="flex items-center gap-1.5 font-medium">
+            <FileClock className="size-3.5" />
+            {feature.pending_private_delete ? "Private deletion pending" : "Private edit pending"}
+          </div>
+          <p className="text-muted-foreground mt-1">
+            {feature.pending_private_delete
+              ? "You've privately retired this feature. It's still live for everyone else until you apply the deletion."
+              : "These are your private, unpublished changes. Only you can see them until you apply them."}
+          </p>
+          {canPublish && (
+            <div className="mt-2 flex gap-2">
+              <Button
+                size="sm"
+                className="h-6 gap-1 px-2 text-xs"
+                disabled={pendingBusy}
+                onClick={handleApplyPending}
+                title="Publish your private change onto the public feature"
+              >
+                {applyPending.isPending ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="size-3" />
+                )}
+                Apply
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 gap-1 px-2 text-xs"
+                disabled={pendingBusy}
+                onClick={handleDiscardPending}
+                title="Throw away your private change and show the public feature"
+              >
+                {discardPending.isPending ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <Undo2 className="size-3" />
+                )}
+                Discard
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+      <dl className="grid grid-cols-[max-content_1fr] gap-x-6 text-sm">
       <dt className={dtClass}>Status</dt>
       <dd className={ddClass}>
         <div className="flex items-center justify-between gap-2">
@@ -425,7 +515,8 @@ function AttributesTab() {
 
       <dt className={dtClass}>Updated</dt>
       <dd className={ddClass}>{new Date(feature.updated_at).toLocaleString()}</dd>
-    </dl>
+      </dl>
+    </>
   )
 }
 
@@ -610,6 +701,7 @@ function RelationshipsTab() {
     selected?.featureId,
   )
   useErrorToast(isError, error, "Could not load relationships")
+  const [revokingRelationship, setRevokingRelationship] = useState<Relationship | null>(null)
   const counterpartNames = useCounterpartNames(
     data?.relationships.map((rel) => {
       const isOrigin =
@@ -630,6 +722,16 @@ function RelationshipsTab() {
     </Button>
   )
 
+  // Kept mounted across every branch below -- a successful revoke can flip
+  // data.relationships from non-empty to empty (switching which branch renders)
+  // while the dialog is still closing itself. Same reasoning as TerminalsTab.
+  const revokeDialog = (
+    <RevokeRelationshipDialog
+      relationship={revokingRelationship}
+      onOpenChange={(open) => !open && setRevokingRelationship(null)}
+    />
+  )
+
   if (isPending) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 text-sm">
@@ -644,6 +746,7 @@ function RelationshipsTab() {
       <div className="flex flex-col items-start gap-2">
         {newRelationshipButton}
         <p className="text-muted-foreground text-sm">No relationships.</p>
+        {revokeDialog}
       </div>
     )
   }
@@ -666,24 +769,37 @@ function RelationshipsTab() {
             : shortId(counterpart.feature_id)
 
           return (
-            <button
+            <div
               key={rel.id}
-              type="button"
-              onClick={() => useSelectionStore.getState().select(counterpart.feature_class, counterpart.feature_id, { focus: true })}
-              className="hover:bg-accent hover:text-accent-foreground w-full rounded-md border p-2 text-left text-sm transition-colors"
+              className="hover:bg-accent hover:text-accent-foreground group flex items-start gap-1 rounded-md border p-2 text-sm transition-colors"
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">{counterpartPrimary}</span>
-                <span className="text-muted-foreground shrink-0 text-xs">{isOrigin ? "Origin" : "Destination"}</span>
-              </div>
-              <p className="text-muted-foreground font-mono text-xs">{counterpartSecondary}</p>
-              <p className="text-muted-foreground mt-1 text-xs">
-                {rel.relationship_class_name} · {rel.kind} · {rel.cardinality}
-              </p>
-            </button>
+              <button
+                type="button"
+                onClick={() => useSelectionStore.getState().select(counterpart.feature_class, counterpart.feature_id, { focus: true })}
+                className="min-w-0 flex-1 text-left"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">{counterpartPrimary}</span>
+                  <span className="text-muted-foreground shrink-0 text-xs">{isOrigin ? "Origin" : "Destination"}</span>
+                </div>
+                <p className="text-muted-foreground font-mono text-xs">{counterpartSecondary}</p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  {rel.relationship_class_name} · {rel.kind} · {rel.cardinality}
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRevokingRelationship(rel)}
+                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 rounded p-1"
+              >
+                <Unlink2 className="size-3.5" />
+                <span className="sr-only">Revoke relationship</span>
+              </button>
+            </div>
           )
         })}
       </div>
+      {revokeDialog}
     </div>
   )
 }
@@ -976,6 +1092,15 @@ function historyActionLabel(action: string): { label: string; className: string 
       return { label: "Restored", className: "bg-blue-500/15 text-blue-600 dark:text-blue-400" }
     case "purge":
       return { label: "Purged", className: "bg-destructive/15 text-destructive" }
+    // Private-drafts Phase B: staging verbs, shown only in the author's own
+    // timeline (peers never receive these rows). A muted amber marks them as
+    // pending/private work, distinct from the emerald/blue of a public change.
+    case "stage_edit":
+      return { label: "Private edit", className: "bg-amber-500/15 text-amber-600 dark:text-amber-400" }
+    case "stage_delete":
+      return { label: "Private delete", className: "bg-amber-500/15 text-amber-600 dark:text-amber-400" }
+    case "discard":
+      return { label: "Discarded", className: "bg-muted text-muted-foreground" }
     default:
       // An unrecognized verb (a newer backend action this build doesn't know)
       // still renders -- shown verbatim rather than dropped.
@@ -1482,6 +1607,7 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<TraceResult>("/trace", {
@@ -1518,6 +1644,7 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useIsolateStore.getState().setLoading(true)
     try {
       const result = await apiFetch<IsolationResult>("/trace/isolate", {
@@ -1561,6 +1688,7 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{ start: TraceFeatureRef; heads: TraceFeatureRef[]; features: TracedFeature[] }>(
@@ -1607,6 +1735,7 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{
@@ -1670,6 +1799,7 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
       const result = await apiFetch<{
@@ -1731,6 +1861,7 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1753,6 +1884,7 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useFaultCurrentStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1776,6 +1908,7 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useAmpacityStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1800,6 +1933,7 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useCoordinationStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1822,6 +1956,7 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useVoltageProfileStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1846,6 +1981,7 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useContingencyStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1869,6 +2005,7 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useEvHostingStore.getState().clear()
     useHostingStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
@@ -1894,6 +2031,7 @@ export function FeaturePanel() {
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useEvHostingStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1917,6 +2055,7 @@ export function FeaturePanel() {
     useEvHostingStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useMeshedLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1942,6 +2081,7 @@ export function FeaturePanel() {
     useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -1965,7 +2105,32 @@ export function FeaturePanel() {
     useEvHostingStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the unbalanced (three-phase) load-flow panel
+  // (unbalanced-load-flow-panel.tsx) with the selected feature as the feeder's
+  // source. Like load-flow it only arms (needs nominal_voltage_v first); the
+  // panel's own Run makes the POST /analysis/unbalanced-load-flow call, which
+  // solves phases A/B/C as three decoupled ladders. Clears every other
+  // mutually-exclusive workflow.
+  function armUnbalancedLoadFlow() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
+    useMeshedLoadFlowStore.getState().clear()
+    useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
   // Runnable trace_configurations for the dropdown -- SHORTEST_PATH
@@ -1999,11 +2164,13 @@ export function FeaturePanel() {
   // can carry a defect or work order), so it's not restricted by network role.
   const canReadWorks = usePermission()("wam:read")
   const canReadFaults = usePermission()("faults:read")
+  const canReadTags = usePermission()("tags:read")
   const visibleTabs = TABS.filter(
     (tab) =>
       (tab.id !== "terminals" || isConnectable) &&
       (tab.id !== "works" || canReadWorks) &&
-      (tab.id !== "faults" || canReadFaults),
+      (tab.id !== "faults" || canReadFaults) &&
+      (tab.id !== "tags" || canReadTags),
   )
 
   // Trace + every network analysis behind that same dropdown (isolate,
@@ -2038,7 +2205,12 @@ export function FeaturePanel() {
     height: minimized ? undefined : (size?.height ?? DEFAULT_HEIGHT),
   }
   const positionClass = cn(
-    "bg-background fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-primary shadow-xl ring-1 ring-black/5",
+    // bg-popover (not bg-background) so the translucent accent header gradient
+    // tints over the SAME base as the trace-result/analysis panels -- otherwise
+    // the header reads a different shade here (popover is pure white in light
+    // mode, background a cooler off-white, and the warm accent bleeds the
+    // difference through). All floating map panels share the popover base.
+    "bg-popover text-popover-foreground fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-[oklch(0.45_0.10_252)] dark:border-t-primary shadow-xl ring-1 ring-black/5",
     !position && DEFAULT_POSITION_CLASS,
   )
 
@@ -2093,7 +2265,7 @@ export function FeaturePanel() {
       <div ref={panelRef} style={shellStyle} className={positionClass}>
         <div
           onPointerDown={handleHeaderPointerDown}
-          className="from-accent/50 to-accent/20 flex cursor-grab items-center justify-between border-b border-primary/15 bg-gradient-to-b px-3 py-2 select-none active:cursor-grabbing"
+          className="flex cursor-grab items-center justify-between border-b border-[oklch(0.45_0.10_252)]/20 bg-gradient-to-b from-[oklch(0.45_0.10_252)]/15 to-[oklch(0.45_0.10_252)]/5 dark:border-primary/15 dark:from-accent/50 dark:to-accent/20 px-3 py-2 select-none active:cursor-grabbing"
         >
           <div className="flex min-w-0 items-center gap-1.5">
             <GripHorizontal className="text-primary/70 size-3.5 shrink-0" />
@@ -2141,7 +2313,7 @@ export function FeaturePanel() {
     <div ref={panelRef} style={shellStyle} className={positionClass}>
       <div
         onPointerDown={handleHeaderPointerDown}
-        className="flex cursor-grab items-center justify-between border-b border-primary/15 bg-gradient-to-b from-accent/50 to-accent/20 px-3 py-2 select-none active:cursor-grabbing"
+        className="flex cursor-grab items-center justify-between border-b border-[oklch(0.45_0.10_252)]/20 bg-gradient-to-b from-[oklch(0.45_0.10_252)]/15 to-[oklch(0.45_0.10_252)]/5 dark:border-primary/15 dark:from-accent/50 dark:to-accent/20 px-3 py-2 select-none active:cursor-grabbing"
       >
         <div className="flex min-w-0 items-center gap-1.5">
           <GripHorizontal className="text-primary/70 size-3.5 shrink-0" />
@@ -2158,13 +2330,17 @@ export function FeaturePanel() {
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="ghost"
-                    size="icon"
-                    className="size-7"
+                    // Not size="icon" (a fixed square) -- this trigger holds an
+                    // icon AND a dropdown chevron, so it needs auto width to fit
+                    // both, else the content overflows the square and the ghost
+                    // hover fill stops short of the icons. h-7 keeps it level with
+                    // the sibling icon buttons; tight gap + slim px keep it compact.
+                    className="h-7 w-auto gap-0.5 px-1.5"
                     disabled={tracing || isolating || loadFlowLoading || faultCurrentLoading || ampacityLoading}
                     title="Run trace"
                   >
                     <Route className="size-4" />
-                    <ChevronDown className="size-3" />
+                    <ChevronDown className="size-3 opacity-70" />
                     <span className="sr-only">Run trace</span>
                   </Button>
                 </DropdownMenuTrigger>
@@ -2227,6 +2403,10 @@ export function FeaturePanel() {
                       <DropdownMenuItem onSelect={armNodalLoadFlow}>
                         <Network className="size-4" />
                         Nodal load flow (Y-bus)…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={armUnbalancedLoadFlow}>
+                        <Waves className="size-4" />
+                        Unbalanced load flow (3-phase)…
                       </DropdownMenuItem>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
@@ -2369,7 +2549,7 @@ export function FeaturePanel() {
 
       {!minimized && (
       <div className="flex min-h-0 flex-1">
-        <div className="bg-muted/40 flex w-32 shrink-0 flex-col gap-0.5 border-r border-primary/10 p-1">
+        <div className="bg-muted/40 flex w-32 shrink-0 flex-col gap-0.5 border-r border-[oklch(0.45_0.10_252)]/10 dark:border-primary/10 p-1">
           {visibleTabs.map((tab) => {
             // Terminals/Relationships unmount when the active tab
             // changes (see below) -- switching away mid-edit would
@@ -2388,8 +2568,14 @@ export function FeaturePanel() {
                 className={cn(
                   "flex items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs font-medium",
                   locked && "cursor-not-allowed opacity-40",
-                  !locked && activeTab === tab.id && "bg-accent text-accent-foreground",
-                  !locked && activeTab !== tab.id && "text-muted-foreground hover:bg-accent/50",
+                  // Selected/hover tints echo the light-mode blue chrome (the
+                  // panel header + app bars); dark: restores the warm accent.
+                  !locked &&
+                    activeTab === tab.id &&
+                    "bg-[oklch(0.45_0.10_252)]/15 text-[oklch(0.45_0.10_252)] dark:bg-accent dark:text-accent-foreground",
+                  !locked &&
+                    activeTab !== tab.id &&
+                    "text-muted-foreground hover:bg-[oklch(0.45_0.10_252)]/10 dark:hover:bg-accent/50",
                 )}
               >
                 <tab.icon className="size-3.5 shrink-0" />
@@ -2413,6 +2599,7 @@ export function FeaturePanel() {
               {activeTab === "materials" && <MaterialsTab onEditClick={() => setActiveTab("attributes")} />}
               {activeTab === "works" && <WorksTab />}
               {activeTab === "faults" && <FaultsTab />}
+              {activeTab === "tags" && <TagsTab />}
               {activeTab === "files" && (
                 <FeatureAttachments
                   featureClassCode={selected.featureClassCode}

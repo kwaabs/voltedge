@@ -70,6 +70,14 @@ import (
 //	                        connection node on a feeder) binary-search the largest
 //	                        additional charging load it can absorb before the first
 //	                        under-voltage (0.95 pu floor) or thermal overload binds
+//	POST   /unbalanced-load-flow three-phase (unbalanced) load flow (Phase 55, Tier 1):
+//	                        the per-phase twin of /load-flow -- solves phases A/B/C as
+//	                        three DECOUPLED ladders driven by each conductor's own
+//	                        `phase` designation, reporting per-node Va/Vb/Vc, the NEMA
+//	                        voltage unbalance between them, and the neutral return
+//	                        current, so a single-phase-heavy LV feeder's imbalance is
+//	                        visible instead of averaged away. No mutual coupling (that
+//	                        needs conductor geometry the model lacks) -- Tier 2 later
 //
 // Read-only, same as api/internal/trace -- neither route ever writes
 // anything, they only compute over what api/internal/connectivity and
@@ -88,6 +96,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/load-flow-auto", dispatchLoadFlowHandler(db))
 	r.Post("/arc-flash", arcFlashHandler(db))
 	r.Post("/ev-hosting", evHostingHandler(db))
+	r.Post("/unbalanced-load-flow", unbalancedLoadFlowHandler(db))
 	return r
 }
 
@@ -270,6 +279,26 @@ func dispatchLoadFlowHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := runDispatchLoadFlow(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func unbalancedLoadFlowHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Same request shape as the balanced load flow (start + nominal_voltage_v):
+		// the per-phase split is driven entirely by the model's own conductor
+		// `phase` fields, so the caller supplies nothing extra.
+		var req loadFlowRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runUnbalancedLoadFlow(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

@@ -22,6 +22,15 @@ export interface TracedFeature extends TraceFeatureRef {
   circuit_id?: string
   circuit_ref?: string
   nominal_voltage_v?: number
+  /** The reached feature's one-hop-upstream neighbour in the trace's BFS tree --
+   * the feature the walk arrived here from (mirrors api/internal/trace's
+   * tracedFeature.parent_feature_*). Absent on the start feature and on any node
+   * whose parent fell outside the caller's territory scope. voltedge-map.tsx uses
+   * it to orient the directional marching-ants animation: a line's upstream end is
+   * whichever endpoint sits nearer this parent's geometry, so the ants crawl from
+   * there outward (flipped for an upstream trace). */
+  parent_feature_class?: string
+  parent_feature_id?: string
 }
 
 /** Mirrors api/internal/trace's traceResponse -- see docs/phase-4-trace-engine.md.

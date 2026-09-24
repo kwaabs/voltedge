@@ -1,4 +1,4 @@
-import { Database, FileUp, Link2, Map, Settings, Siren, Waypoints, Wrench, Zap, ZapOff } from "lucide-react"
+import { Database, FileUp, Link2, Map, QrCode, Settings, Siren, Waypoints, Wrench, Zap, ZapOff } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import { AdminNavIcon, adminNavItems } from "@/components/layout/admin-nav"
@@ -30,6 +30,7 @@ const dataItems = [
   { to: "/works", label: "Works", icon: Wrench, perm: "wam:read" },
   { to: "/connectivity", label: "Connectivity", icon: Waypoints, perm: "connectivity:read" },
   { to: "/relationships", label: "Relationships", icon: Link2, perm: "relationships:read" },
+  { to: "/t", label: "Resolve tag", icon: QrCode, perm: "tags:read" },
 ]
 
 export function AppSidebar() {

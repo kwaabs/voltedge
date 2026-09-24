@@ -53,12 +53,22 @@ type featureRef struct {
 // a power-flow run produces, and this engine stays decoupled from powerflow
 // (see this package's own doc), so a client that wants computed voltages
 // overlays them from a load-flow result itself.
+// ParentFeatureClass/ParentFeatureID are the reached feature's one-hop-upstream
+// neighbour in the trace's BFS tree -- the feature the walk arrived here FROM
+// (toward the start for a downstream trace, away from it for an upstream one).
+// Only the main graph trace stamps them (see runTrace); the start node, and any
+// node whose parent fell outside the caller's territory scope, carry neither, so
+// both are omitempty pointers. A client uses this to orient direction without a
+// second query -- e.g. the map's directional "marching ants" trace animation
+// crawls each line from the endpoint nearest its parent's geometry outward.
 type tracedFeature struct {
-	FeatureClass    string   `json:"feature_class"`
-	FeatureID       string   `json:"feature_id"`
-	CircuitID       string   `json:"circuit_id,omitempty"`
-	CircuitRef      string   `json:"circuit_ref,omitempty"`
-	NominalVoltageV *float64 `json:"nominal_voltage_v,omitempty"`
+	FeatureClass       string   `json:"feature_class"`
+	FeatureID          string   `json:"feature_id"`
+	CircuitID          string   `json:"circuit_id,omitempty"`
+	CircuitRef         string   `json:"circuit_ref,omitempty"`
+	NominalVoltageV    *float64 `json:"nominal_voltage_v,omitempty"`
+	ParentFeatureClass *string  `json:"parent_feature_class,omitempty"`
+	ParentFeatureID    *string  `json:"parent_feature_id,omitempty"`
 }
 
 // traceRequest is the POST /trace body. Target is only meaningful (and

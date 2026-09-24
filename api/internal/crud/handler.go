@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/territory"
 	"github.com/uptrace/bun"
@@ -43,6 +44,11 @@ const defaultListLimit = 50
 //	                             AND/OR conditions (the map's query builder,
 //	                             docs/phase-13-query-builder.md), where the
 //	                             flat ?name=/?status= list params can't
+//	POST   /{code}/aggregate     the same filter tree folded into counts:
+//	                             an overall total, a count-by-<field> GROUP BY,
+//	                             an optional sum/avg/min/max, and an optional
+//	                             territory/radius spatial scope (the guided
+//	                             query panel's numeric + spatial analysis)
 //	GET    /{code}/{id}          get, includes soft-deleted
 //	GET    /{code}/{id}/history   append-only change timeline, newest first
 //	GET    /{code}/{id}/gps-captures  GNSS survey quality stamped on GPS-sourced
@@ -64,6 +70,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Get("/{code}", listHandler(db))
 	r.Post("/{code}", createHandler(db))
 	r.Post("/{code}/query", queryHandler(db))
+	r.Post("/{code}/aggregate", aggregateHandler(db))
 	r.Get("/{code}/{id}", getHandler(db))
 	r.Get("/{code}/{id}/history", historyHandler(db))
 	r.Get("/{code}/{id}/gps-captures", gpsCapturesHandler(db))
@@ -80,7 +87,100 @@ func Routes(db *bun.DB) chi.Router {
 	// onto the public row (conflict-checked); DELETE .../pending throws it away.
 	r.Post("/{code}/{id}/apply-pending", applyPendingHandler(db))
 	r.Delete("/{code}/{id}/pending", discardPendingHandler(db))
+	// Bulk class wipe (the "nuke" behind the Features browser). Two-step,
+	// soft-then-purge, and one tier above features:write: each is gated in-handler
+	// on features:wipe (admin / break-glass only, migration 0116) on top of the
+	// features:write the /features mount already requires. counts fuels the
+	// confirm dialog; wipe soft-deletes every live in-scope row; purge-deleted
+	// permanently removes every soft-deleted in-scope row with its cascade.
+	r.Get("/{code}/counts", classCountsHandler(db))
+	r.Post("/{code}/wipe", wipeClassHandler(db))
+	r.Post("/{code}/purge-deleted", purgeDeletedClassHandler(db))
 	return r
+}
+
+// requireWipePerm is the in-handler gate for the bulk class operations. The
+// /features mount already refused anyone without features:write; this adds the
+// stricter features:wipe check (admin / break-glass only) so an ordinary editor
+// can never trigger a class-scale erasure. Returns a forbidden (403) error to
+// feed straight into writeError; a missing session is treated as forbidden too
+// (the session middleware normally yields a 401 upstream of here).
+func requireWipePerm(r *http.Request) error {
+	user, ok := auth.UserFrom(r.Context())
+	if !ok || !user.Has(auth.PermFeaturesWipe) {
+		return forbidden("bulk class wipe requires the %s permission", auth.PermFeaturesWipe)
+	}
+	return nil
+}
+
+// classCountsHandler returns the in-scope live and soft-deleted row counts so the
+// confirm dialog can show how many features each step would touch.
+func classCountsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := requireWipePerm(r); err != nil {
+			writeError(w, err)
+			return
+		}
+		code := chi.URLParam(r, "code")
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		counts, err := CountClassFeatures(r.Context(), db, loaded)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, counts)
+	}
+}
+
+// wipeClassHandler soft-deletes every live, in-scope feature in the class (step
+// one, reversible via per-feature restore). Returns the number of rows wiped.
+func wipeClassHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := requireWipePerm(r); err != nil {
+			writeError(w, err)
+			return
+		}
+		code := chi.URLParam(r, "code")
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		wiped, err := WipeClass(r.Context(), db, loaded)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"soft_deleted": wiped})
+	}
+}
+
+// purgeDeletedClassHandler permanently removes every soft-deleted, in-scope
+// feature in the class and cleans its polymorphic references (step two,
+// irreversible). Returns the number of rows purged.
+func purgeDeletedClassHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := requireWipePerm(r); err != nil {
+			writeError(w, err)
+			return
+		}
+		code := chi.URLParam(r, "code")
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		purged, err := PurgeDeletedClass(r.Context(), db, loaded)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"purged": purged})
+	}
 }
 
 func loadOrNotFound(ctx context.Context, db *bun.DB, code string) (*metadata.Loaded, error) {
@@ -167,6 +267,36 @@ func queryHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"features": results})
+	}
+}
+
+// aggregateHandler serves POST /{code}/aggregate: the numeric/spatial analysis
+// counterpart to queryHandler. It's a read (a count, never a write) done via
+// POST because the filter/scope body doesn't fit query params -- it rides the
+// same features:read/features:write mount gate as /query. No overlayFeatures
+// pass: an aggregate returns counts, not the individual rows the private-edit
+// overlay rewrites (see aggregateWhere).
+func aggregateHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		var req aggregateRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		resp, err := aggregateFeatures(r.Context(), db, loaded, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
 }
 

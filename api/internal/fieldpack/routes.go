@@ -19,6 +19,7 @@ package fieldpack
 //   GET  /sync/status       poll the apply outcome of the caller's own ops (features:read)
 //   GET  /features/{code}/{id}/gps-captures  a feature's GNSS survey quality (features:read)
 //   POST /sync              capture a device's offline-edit outbox (features:write)
+//   GET  /tags/{code}       resolve a scanned asset tag -> feature (tags:read; POSTs tags:write)
 //
 // The pack lifecycle + the sync status pull sit behind features:read; /sync is a
 // write, so it sits behind features:write (see sync.go for the receive/apply split
@@ -35,6 +36,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/kwaabs/voltedge/api/internal/assettag"
 	"github.com/kwaabs/voltedge/api/internal/attachment"
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/drafts"
@@ -98,6 +100,20 @@ func Routes(db *bun.DB, store *export.ObjectStore) http.Handler {
 		r.Use(bearerAuth(db))
 		r.Use(requirePermMethod(auth.PermAttachmentsRead, auth.PermAttachmentsWrite))
 		r.Mount("/attachments", attachment.BearerRoutes(db, store))
+	})
+
+	// The asset-tag surface (asset-tagging module S5): the device resolves a
+	// scanned QR/Code128/typed code -> feature when ONLINE (the offline path reads
+	// the pack's `asset_tags` index instead). Shares the exact handlers the web
+	// uses -- GET resolves (?code= / {code}) and lists a feature's tags, the POSTs
+	// register/void/reissue/set-primary/mark-printed a legacy tag from the field --
+	// gated method-aware: GET -> tags:read, POST -> tags:write, the same shape the
+	// attachments mount above uses. Resolution runs the same scope/draft-aware read
+	// gate the web resolver does, so an out-of-scope scan answers 404.
+	r.Group(func(r chi.Router) {
+		r.Use(bearerAuth(db))
+		r.Use(requirePermMethod(auth.PermTagsRead, auth.PermTagsWrite))
+		r.Mount("/tags", assettag.Routes(db))
 	})
 	return r
 }
@@ -245,6 +261,9 @@ func enqueuePackHandler(db *bun.DB) http.HandlerFunc {
 			// Offline faults: ship the open faults on the packed assets only when
 			// they may read faults -- the fault-response crew's live board.
 			IncludeFaults: user.Has("faults:read"),
+			// Asset-tagging: ship the resolvable tag index on the packed assets only
+			// when they may read tags, so a field scan resolves offline.
+			IncludeTags: user.Has("tags:read"),
 		}
 		id, err := enqueuePack(r.Context(), db, user.ID, scope)
 		if err != nil {
@@ -375,6 +394,7 @@ type manifestView struct {
 	IncludeRelationships bool       `json:"include_relationships"`
 	IncludeWAM           bool       `json:"include_wam"`
 	IncludeFaults        bool       `json:"include_faults"`
+	IncludeTags          bool       `json:"include_tags"`
 }
 
 func toPackView(p *FieldPack) packView {
@@ -415,6 +435,7 @@ func buildManifest(ctx context.Context, store *export.ObjectStore, p *FieldPack)
 		IncludeRelationships: scope.IncludeRelationships,
 		IncludeWAM:           scope.IncludeWAM,
 		IncludeFaults:        scope.IncludeFaults,
+		IncludeTags:          scope.IncludeTags,
 	}, nil
 }
 

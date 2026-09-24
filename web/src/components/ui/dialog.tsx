@@ -53,6 +53,15 @@ function DialogContent({
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
+        // App-wide policy: a dialog must be dismissed with an explicit control
+        // (the X, a Cancel/Save button, etc.), never by clicking the backdrop.
+        // Preventing the default on both outside-interaction events keeps the
+        // dialog open on any click/press/focus outside it. Listed BEFORE the
+        // {...props} spread so an individual dialog can still opt out by passing
+        // its own onInteractOutside/onPointerDownOutside. (AlertDialog already
+        // has this behavior by default -- see ui/alert-dialog.tsx.)
+        onInteractOutside={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => e.preventDefault()}
         className={cn(
           "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-1/2 left-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border p-6 shadow-lg duration-200",
           className,

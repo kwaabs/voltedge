@@ -28,6 +28,21 @@ func DeleteFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 	return softDeleteFeature(ctx, db, loaded, id)
 }
 
+// RestoreFeature is the exported entry point for undoing a soft delete,
+// mirroring DeleteFeature so callers outside this package (the agent-tool
+// adapter) have one function to restore through. Thin pass-through to
+// restoreFeature; the in-package web handler keeps calling that directly.
+func RestoreFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) (map[string]any, error) {
+	return restoreFeature(ctx, db, loaded, id)
+}
+
+// PurgeFeature is the exported entry point for a hard delete, mirroring
+// DeleteFeature. Thin pass-through to hardDeleteFeature, which requires the
+// row to already be soft-deleted (see the package comment above).
+func PurgeFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) error {
+	return hardDeleteFeature(ctx, db, loaded, id)
+}
+
 // softDeleteFeature marks a feature deleted_at = now(), without touching
 // its status -- a published row can be deleted without unpublishing
 // first, same as unpublish needs no completeness gate: deleted-ness and

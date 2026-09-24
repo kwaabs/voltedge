@@ -68,12 +68,22 @@ type Annotations struct {
 // handler that runs it. RequiredPerm and Handler carry json:"-" so serializing a
 // Tool for a client emits only the public contract, never the internal wiring.
 type Tool struct {
-	Name         string          `json:"name"`
-	Description  string          `json:"description"`
-	InputSchema  json.RawMessage `json:"inputSchema"`
-	Annotations  *Annotations    `json:"annotations,omitempty"`
-	RequiredPerm string          `json:"-"`
-	Handler      Handler         `json:"-"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"inputSchema"`
+	Annotations *Annotations    `json:"annotations,omitempty"`
+	// RequiredPerm is the primary RBAC permission a caller must hold. ExtraPerms
+	// are additional permissions ALL of which are also required -- used by the
+	// composite builders (place an RMU / assembly / tie), whose REST routes layer
+	// relationships:commit and/or connectivity:commit on top of the features:write
+	// mount. The engine functions don't re-check RBAC (that's the HTTP
+	// middleware's job over REST), so a tool that maps to a multi-perm route MUST
+	// list every one here or an under-privileged caller could bypass the REST gate
+	// through this door. Both carry json:"-" so serializing a Tool emits only the
+	// public contract, never the internal wiring.
+	RequiredPerm string   `json:"-"`
+	ExtraPerms   []string `json:"-"`
+	Handler      Handler  `json:"-"`
 }
 
 // ErrUnknownTool wraps a call for a tool name not in the registry. Callers can
@@ -100,19 +110,48 @@ var (
 )
 
 // buildRegistry assembles the full tool set and bakes in the read-only
-// annotation stamping that used to live in mcpserver.markReadOnly: every read
-// tool without its own annotations advertises readOnlyHint:true. Write tools are
-// appended after, keeping the annotations they declare. Doing this here means
-// both front doors see identical hints.
+// annotation stamping that used to live in mcpserver.markReadOnly: every tool
+// without its own annotations advertises readOnlyHint:true. The core read tools
+// declare no annotations (so they're stamped here); the core write tools and the
+// module tools' writes declare their own (readOnlyHint:false + destructive/
+// idempotent), so stamping leaves them untouched. Stamping the whole
+// concatenated list uniformly lets each per-module file (tools_oms.go,
+// tools_wam.go, ...) mix its reads and writes freely: a module read carries no
+// annotations and gets stamped, a module write declares its own. Doing this here
+// means both front doors see identical hints.
 func buildRegistry() []Tool {
-	read := readTools()
+	var all []Tool
+	all = append(all, readTools()...)
+	all = append(all, writeTools()...)
+	all = append(all, moduleTools()...)
 	readOnly := true
-	for i := range read {
-		if read[i].Annotations == nil {
-			read[i].Annotations = &Annotations{ReadOnlyHint: &readOnly}
+	for i := range all {
+		if all[i].Annotations == nil {
+			all[i].Annotations = &Annotations{ReadOnlyHint: &readOnly}
 		}
 	}
-	return append(read, writeTools()...)
+	return all
+}
+
+// moduleTools aggregates the per-domain-module tool sets (each defined in its own
+// tools_<module>.go file so the surface stays browsable and edits don't collide).
+// Every one is the same thin-adapter contract as the core tools: a read/write
+// engine function wrapped, gated by exactly the RBAC permission its REST route
+// needs. Order here is the advertised order after the core tools.
+func moduleTools() []Tool {
+	var t []Tool
+	t = append(t, omsTools()...)
+	t = append(t, wamTools()...)
+	t = append(t, faultsTools()...)
+	t = append(t, circuitTools()...)
+	t = append(t, territoryTools()...)
+	t = append(t, builderTools()...)
+	t = append(t, diagramTools()...)
+	t = append(t, annotationTools()...)
+	t = append(t, externalLinkTools()...)
+	t = append(t, attachmentTools()...)
+	t = append(t, tagTools()...)
+	return t
 }
 
 func indexByName(tools []Tool) map[string]Tool {
@@ -163,6 +202,13 @@ func Execute(ctx context.Context, db bun.IDB, user *auth.SessionUser, name strin
 	}
 	if t.RequiredPerm != "" && (user == nil || !user.Has(t.RequiredPerm)) {
 		return nil, &PermissionError{Perm: t.RequiredPerm}
+	}
+	// A composite tool's REST route requires several permissions at once; enforce
+	// each here too, since the engine doesn't. First missing one is reported.
+	for _, p := range t.ExtraPerms {
+		if user == nil || !user.Has(p) {
+			return nil, &PermissionError{Perm: p}
+		}
 	}
 	ctx = auth.WithUser(ctx, user)
 	return t.Handler(ctx, db, args)

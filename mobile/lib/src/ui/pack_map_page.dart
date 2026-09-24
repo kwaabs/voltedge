@@ -27,6 +27,7 @@ import 'feature_edit_screen.dart';
 import 'format.dart';
 import 'gnss_readout.dart';
 import 'map_settings_screen.dart';
+import 'scan_tag_screen.dart';
 
 /// The map view of a downloaded pack: renders tiles.mbtiles offline and puts the
 /// tapped feature's SQLite record on screen. Responsive by width -- a master /
@@ -2261,6 +2262,91 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
     }
   }
 
+  // ---- Asset-tag scan (asset-tagging module S5) -----------------------------
+
+  /// Open the camera scanner, then resolve whatever code it returns. The scanner
+  /// normalizes a QR deep link or a Code128 to the bare code (see
+  /// [extractTagCode]); a dismissed scan returns null and we do nothing.
+  Future<void> _scanTag() async {
+    if (_db == null) return;
+    final code = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(builder: (_) => const ScanTagScreen()),
+    );
+    if (code == null || code.isEmpty || !mounted) return;
+    await _resolveScannedTag(code);
+  }
+
+  /// Resolve a scanned tag [code] OFFLINE FIRST against the pack's `asset_tags`
+  /// index -- the whole reason S5 ships that index -- then fall back to the online
+  /// GET /tags?code= resolver when the pack has no such code (the asset sits
+  /// outside the download, or an older pack predates the index). On a hit whose
+  /// feature is in the pack we select it on the map; an out-of-pack hit can't be
+  /// mapped here, so we name it instead. A genuine miss or an offline failure is
+  /// surfaced as a message rather than silently doing nothing.
+  Future<void> _resolveScannedTag(String code) async {
+    final db = _db;
+    if (db == null) return;
+
+    // Offline: the pack carries every resolvable code (active + superseded) on its
+    // packed features, already scope/draft-filtered when it was built.
+    final packed = db.resolveTag(code);
+    if (packed != null) {
+      final rec = db.featureById(packed.featureId);
+      if (rec != null) {
+        _select(rec);
+        _snack('Resolved $code'
+            '${packed.status == 'superseded' ? ' — superseded label' : ''}.');
+        return;
+      }
+    }
+
+    // Fall back to the server (online-only). A code the caller may not see, an
+    // unknown code, or a retired label answers 404 there.
+    TagResolution res;
+    try {
+      res = await ref.read(fieldsyncClientProvider).resolveTag(code);
+    } on FieldsyncException catch (e) {
+      _snack(e.statusCode == 404
+          ? 'No asset found for tag $code.'
+          : 'Could not resolve $code: ${e.message}');
+      return;
+    } catch (_) {
+      _snack('Could not resolve $code (are you online?).');
+      return;
+    }
+    if (!mounted) return;
+
+    // The server resolved it. If that feature is in this pack, select it; else it
+    // lies outside the download, so we can't put it on this map -- name it.
+    final rec = db.featureById(res.featureId);
+    if (rec != null) {
+      _select(rec);
+      _snack('Resolved $code.');
+      return;
+    }
+    final name = res.featureName?.isNotEmpty == true
+        ? res.featureName!
+        : shortId(res.featureId);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Tag $code'),
+        content: Text(
+          'Resolved to $name'
+          '${res.featureClass.isNotEmpty ? ' (${res.featureClass})' : ''}, '
+          "but this asset is outside the downloaded pack, so it can't be shown "
+          'on this map. Build a pack covering it to work with it offline.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // The badge folds feature edits + captured-but-unuploaded photos into one
@@ -2312,6 +2398,12 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
                         onPressed: _showPending,
                       ),
                     ),
+            ),
+          if (_db != null)
+            IconButton(
+              icon: const Icon(Icons.qr_code_scanner),
+              tooltip: 'Scan asset tag',
+              onPressed: _scanTag,
             ),
           if (_db != null && _edit != null)
             IconButton(
