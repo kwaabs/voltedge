@@ -628,6 +628,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/power_transformer_example.sql
 
+  seed-lvac-auxiliary:
+    desc: Load the AUX_TRANSFORMER + LVAC_BOARD classes (the station AC-auxiliary / LVAC layer -- station-service transformer stepping a MV tap to 400/230V + the AC low-voltage board it feeds; both traceable junctions, swept by the field-name-driven load flow) through the gitbash sidecar (requires seed-connectivity + seed-mv-busbar + seed-substation-yard first; compile CODE=AUX_TRANSFORMER and CODE=LVAC_BOARD after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/lvac_auxiliary_example.sql
+
   seed-earthing-transformer:
     desc: Load the EARTHING_XFMR class (substation earthing/grounding transformer; zero-sequence data record-only) through the gitbash sidecar (requires seed-connectivity first; compile CODE=EARTHING_XFMR after)
     cmds:
@@ -1327,6 +1335,7 @@ tasks:
       - task: seed-pnc-control-devices
       - task: seed-ev-charging
       - task: seed-mv-busbar
+      - task: seed-lvac-auxiliary
       - task: seed-mv-symbology
       - task: seed-stencils-extra
       - task: seed-mv-conductor-diagram-promote
