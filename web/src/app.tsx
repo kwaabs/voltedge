@@ -6,6 +6,7 @@ import { MapLayout } from "@/components/layout/map-layout"
 import { RequirePermission, RequireSession } from "@/components/layout/require-session"
 import { Toaster } from "@/components/ui/toaster"
 import { useThemeEffect } from "@/hooks/use-theme-effect"
+import { AdminAssetTagsPage } from "@/routes/admin-asset-tags"
 import { AdminCimMappingsPage } from "@/routes/admin-cim-mappings"
 import { AdminImportsPage } from "@/routes/admin-imports"
 import { AdminHomePage } from "@/routes/admin-home"
@@ -25,7 +26,6 @@ import { AdminSymbologyIconsPage } from "@/routes/admin-symbology-icons"
 import { AdminTerritoriesPage } from "@/routes/admin-territories"
 import { AdminUsersPage } from "@/routes/admin-users"
 import { SyncReviewPage } from "@/routes/sync-review"
-import { ConnectivityPage } from "@/routes/connectivity"
 import { FeaturesPage } from "@/routes/features"
 import { FaultsPage } from "@/routes/faults"
 import { ImportRunPage } from "@/routes/imports"
@@ -33,7 +33,6 @@ import { LoginPage } from "@/routes/login"
 import { MapPage } from "@/routes/map"
 import { NotFoundPage } from "@/routes/not-found"
 import { OutagesPage } from "@/routes/outages"
-import { RelationshipsPage } from "@/routes/relationships"
 import { SettingsPage } from "@/routes/settings"
 import { TagResolvePage } from "@/routes/tag-resolve"
 import { WorksPage } from "@/routes/works"
@@ -113,8 +112,6 @@ export function App() {
                 </RequirePermission>
               }
             />
-            <Route path="connectivity" element={<ConnectivityPage />} />
-            <Route path="relationships" element={<RelationshipsPage />} />
             {/* Asset-tag scan / deep-link landing (S4). A scanned QR points a
                 phone at /t/<code>; both this and the bare /t manual-entry form
                 need tags:read to hit the resolver, so gate the route (its nav
@@ -161,6 +158,14 @@ export function App() {
             <Route path="admin/feature-classes/:code" element={<AdminFeatureClassDetailPage />} />
             <Route path="admin/domains" element={<AdminDomainsPage />} />
             <Route path="admin/cim-mappings" element={<AdminCimMappingsPage />} />
+            <Route
+              path="admin/asset-tags"
+              element={
+                <RequirePermission perm="tags:read">
+                  <AdminAssetTagsPage />
+                </RequirePermission>
+              }
+            />
             <Route path="admin/imports" element={<AdminImportsPage />} />
             <Route path="admin/field-groups" element={<AdminFieldGroupsPage />} />
             <Route path="admin/diagrams" element={<AdminDiagramsPage />} />

@@ -89,6 +89,18 @@ func applyScope(q *bun.SelectQuery, sc Scope) *bun.SelectQuery {
 	return q
 }
 
+// ApplyScope AND-s the registry's territory + private-draft visibility filters
+// onto an EXTERNAL query -- one built in another package that has JOINed
+// runtime.feature_registry AS fr and metadata.feature_classes AS fc (the aliases
+// the predicates reference). It lets a joined read (e.g. the asset-tag console,
+// which lists tags joined to their feature's registry row) reuse the exact
+// filter this package applies to its own reads, so the joined query can never
+// surface a feature the registry itself would hide. The caller MUST provide the
+// fr/fc joins and aliases; pair it with ResolveScope to build the Scope.
+func ApplyScope(q *bun.SelectQuery, sc Scope) *bun.SelectQuery {
+	return applyScope(q, sc)
+}
+
 // Lookup resolves a single feature by its exact id -- the "type in an asset id,
 // what is it?" path. Returns (nil, nil) when no such id exists (a soft-deleted
 // row is still returned; the caller decides whether a tombstone is acceptable),

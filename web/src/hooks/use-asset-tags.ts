@@ -35,6 +35,44 @@ interface TagsResponse {
   tags: AssetTag[]
 }
 
+/** One row of the org-wide tag console (Admin → Asset Tags): a tag plus its
+ * feature's class display name. Mirrors assettag.TagRow. */
+export interface TagRow extends AssetTag {
+  class_name: string | null
+}
+
+/** Filters for the console browse/search. All optional; an empty field widens
+ * the result. Mirrors assettag.ListFilter (search / status / source / class /
+ * primary-only) plus paging. */
+export interface TagListParams {
+  search?: string
+  status?: TagStatus | ""
+  source?: TagSource | ""
+  feature_class_code?: string
+  primary_only?: boolean
+  limit?: number
+  offset?: number
+}
+
+/** One page of the console plus the unpaged total. Mirrors assettag.ListResult. */
+export interface TagListResult {
+  rows: TagRow[]
+  total: number
+  limit: number
+  offset: number
+}
+
+/** The console's KPI strip. Mirrors assettag.StatsResult. */
+export interface TagStats {
+  total: number
+  active: number
+  void: number
+  superseded: number
+  unprinted: number
+  external: number
+  generated: number
+}
+
 /** What resolving a scanned code returns: the exact tag, the feature it points
  * to (the full read envelope, same shape as GET /features/{code}/{id}), and
  * every tag on that feature. Mirrors assettag.Resolution. */
@@ -98,6 +136,38 @@ export function usePrimaryTagsBatch() {
       }
       return out
     },
+  })
+}
+
+/** Browse / search the whole tag population -- the Admin → Asset Tags console.
+ * Hits GET /tags?view=list; the server scopes it to the caller's territories and
+ * private-draft visibility, so a scoped user only sees tags they could resolve.
+ * keepPreviousData keeps the table populated while a filter or page changes,
+ * avoiding a flash to the loading state. */
+export function useTagList(params: TagListParams) {
+  const qs = new URLSearchParams({ view: "list" })
+  if (params.search) qs.set("search", params.search)
+  if (params.status) qs.set("status", params.status)
+  if (params.source) qs.set("source", params.source)
+  if (params.feature_class_code) qs.set("feature_class_code", params.feature_class_code)
+  if (params.primary_only) qs.set("primary_only", "true")
+  if (params.limit != null) qs.set("limit", String(params.limit))
+  if (params.offset != null) qs.set("offset", String(params.offset))
+  return useQuery({
+    queryKey: [...TAGS_KEY, "list", qs.toString()],
+    queryFn: () => apiFetch<TagListResult>(`/tags?${qs.toString()}`),
+    placeholderData: (prev) => prev,
+    staleTime: 10_000,
+  })
+}
+
+/** The console's KPI strip. Hits GET /tags?view=stats, scoped like useTagList so
+ * the counts match what the table can show. */
+export function useTagStats() {
+  return useQuery({
+    queryKey: [...TAGS_KEY, "stats"],
+    queryFn: () => apiFetch<TagStats>(`/tags?view=stats`),
+    staleTime: 10_000,
   })
 }
 

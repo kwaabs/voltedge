@@ -18,8 +18,6 @@ import { useLogout, useSession } from "@/hooks/use-auth"
 const TITLES: Record<string, string> = {
   "/": "Map",
   "/features": "Feature classes",
-  "/connectivity": "Connectivity",
-  "/relationships": "Relationships",
   "/admin/users": "Users",
   "/settings": "Settings",
 }

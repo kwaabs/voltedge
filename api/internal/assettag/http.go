@@ -3,12 +3,15 @@ package assettag
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/uptrace/bun"
 
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/featureregistry"
 )
 
 // Routes returns the asset-tag endpoints:
@@ -53,6 +56,19 @@ func Routes(db *bun.DB) chi.Router {
 func rootGetHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
+		// The org-wide management console (Admin -> Asset Tags): view=list is the
+		// filtered/paged browse, view=stats the KPI strip. Both are org-wide reads
+		// (no feature id), scoped to the caller's territories/drafts through the
+		// registry join, so they sit here on the read side of the mount's gate
+		// (tags:read) beside the per-feature reads.
+		switch strings.TrimSpace(q.Get("view")) {
+		case "list":
+			listTags(w, r, db, q)
+			return
+		case "stats":
+			tagStats(w, r, db)
+			return
+		}
 		if code := strings.TrimSpace(q.Get("code")); code != "" {
 			resolve(w, r, db, code)
 			return
@@ -88,6 +104,58 @@ func rootGetHandler(db *bun.DB) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"tags": tags})
 	}
+}
+
+// listTags serves the console's browse/search: GET /tags?view=list with optional
+// search / status / source / feature_class_code / primary_only filters and
+// limit+offset paging. It resolves the caller's registry scope (territory +
+// private-draft visibility) and passes it to List so the page shows only tags the
+// caller could resolve one at a time.
+func listTags(w http.ResponseWriter, r *http.Request, db *bun.DB, q url.Values) {
+	scope, err := featureregistry.ResolveScope(r.Context(), db)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	res, err := List(r.Context(), db, ListFilter{
+		Search:      q.Get("search"),
+		Status:      q.Get("status"),
+		Source:      q.Get("source"),
+		Class:       q.Get("feature_class_code"),
+		PrimaryOnly: q.Get("primary_only") == "true",
+		Limit:       atoiOr(q.Get("limit"), 0),
+		Offset:      atoiOr(q.Get("offset"), 0),
+	}, scope)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// tagStats serves the console's KPI strip: GET /tags?view=stats, scoped like
+// listTags so the counts match what the caller can browse.
+func tagStats(w http.ResponseWriter, r *http.Request, db *bun.DB) {
+	scope, err := featureregistry.ResolveScope(r.Context(), db)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	stats, err := Stats(r.Context(), db, scope)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
+// atoiOr parses a query-string integer, falling back to def on empty/garbage --
+// the store clamps the range, so a nonsense limit just becomes the default.
+func atoiOr(s string, def int) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+		return n
+	}
+	return def
 }
 
 // printedBatchHandler bumps print_count for a whole sheet of codes at once -- the

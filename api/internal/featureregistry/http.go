@@ -82,6 +82,14 @@ func listHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
+// ResolveScope builds the registry read scope from the caller's session for
+// callers OUTSIDE this package -- notably the asset-tag console's org-wide list,
+// which joins tags to the registry and must hide exactly what a feature read
+// would. It is the exported form of resolveScope; pair it with ApplyScope.
+func ResolveScope(ctx context.Context, db *bun.DB) (Scope, error) {
+	return resolveScope(ctx, db)
+}
+
 // resolveScope builds the registry read scope from the caller's session,
 // mirroring the CRUD read side so the registry hides exactly what a feature read
 // would: the Phase-58 territory set (resolveTerritoryScope) and the Phase-61

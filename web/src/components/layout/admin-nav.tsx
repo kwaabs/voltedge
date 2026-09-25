@@ -8,6 +8,7 @@ import {
   type LucideIcon,
   MapPin,
   Package,
+  QrCode,
   Rows3,
   Shapes,
   Share2,
@@ -156,6 +157,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         description: "Circuit definitions features are assigned to.",
         icon: Zap,
         perm: "circuits:write",
+      },
+      {
+        to: "/admin/asset-tags",
+        label: "Asset tags",
+        description: "Browse, search, print and manage every asset tag's lifecycle.",
+        icon: QrCode,
+        perm: "tags:read",
       },
       {
         to: "/admin/field-packs",

@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/uptrace/bun"
+
+	"github.com/kwaabs/voltedge/api/internal/featureregistry"
 )
 
 // tagColumns is the read shape. feature_id and created_by are uuid columns cast
@@ -104,6 +107,157 @@ func PrimaryForFeatures(ctx context.Context, db bun.IDB, class string, ids []str
 		return nil, err
 	}
 	return tags, nil
+}
+
+// TagRow is one row of the org-wide tag console (Admin -> Asset Tags): a tag
+// joined to its feature's class display name (from metadata.feature_classes, which
+// the registry join also gives us) so the table can show "MV Conductor" rather
+// than the bare class code. The lifecycle columns match Tag; class_name is the
+// only addition.
+type TagRow struct {
+	TagCode          string    `json:"tag_code" bun:"tag_code"`
+	FeatureClassCode string    `json:"feature_class_code" bun:"feature_class_code"`
+	ClassName        *string   `json:"class_name" bun:"class_name"`
+	FeatureID        string    `json:"feature_id" bun:"feature_id"`
+	Source           string    `json:"source" bun:"source"`
+	IsPrimary        bool      `json:"is_primary" bun:"is_primary"`
+	Status           string    `json:"status" bun:"status"`
+	PrintCount       int       `json:"print_count" bun:"print_count"`
+	CreatedBy        *string   `json:"created_by" bun:"created_by"`
+	CreatedAt        time.Time `json:"created_at" bun:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at" bun:"updated_at"`
+}
+
+// ListFilter drives the org-wide tag console. Every field is optional; an empty
+// field widens the result. Search is a case-insensitive substring on the tag
+// code (LIKE metacharacters in it are escaped, so a legacy code containing % or _
+// matches literally). Status / Source / Class pin to one value. PrimaryOnly keeps
+// only the single printed code per feature. Limit/Offset page the result.
+type ListFilter struct {
+	Search      string
+	Status      string
+	Source      string
+	Class       string
+	PrimaryOnly bool
+	Limit       int
+	Offset      int
+}
+
+// ListResult is one page of the console plus the unpaged total, so the UI can
+// show "1-50 of 812" and page through.
+type ListResult struct {
+	Rows   []TagRow `json:"rows"`
+	Total  int      `json:"total"`
+	Limit  int      `json:"limit"`
+	Offset int      `json:"offset"`
+}
+
+// tagConsoleJoins builds a tag query joined to the feature registry (INNER: a tag
+// whose feature was purged from the registry drops out -- an orphan code is not
+// worth surfacing in a management view) and, through it, to the class name. The
+// aliases fr / fc are exactly what featureregistry.ApplyScope's predicates
+// reference, so the same territory + private-draft visibility filter a feature
+// read applies is AND-ed on here: the console can never list a tag whose feature
+// the caller may not see.
+func tagConsoleBase(db bun.IDB, sc featureregistry.Scope) *bun.SelectQuery {
+	q := db.NewSelect().Model((*Tag)(nil)).
+		Join("JOIN runtime.feature_registry AS fr ON fr.feature_class_code = t.feature_class_code AND fr.feature_id = t.feature_id").
+		Join("LEFT JOIN metadata.feature_classes AS fc ON fc.code = t.feature_class_code")
+	return featureregistry.ApplyScope(q, sc)
+}
+
+// applyTagFilters AND-s the ListFilter predicates onto a console query.
+func applyTagFilters(q *bun.SelectQuery, f ListFilter) *bun.SelectQuery {
+	if s := strings.TrimSpace(f.Search); s != "" {
+		q = q.Where("t.tag_code ILIKE ?", "%"+escapeLike(s)+"%")
+	}
+	if st := strings.TrimSpace(f.Status); st != "" {
+		q = q.Where("t.status = ?", st)
+	}
+	if src := strings.TrimSpace(f.Source); src != "" {
+		q = q.Where("t.source = ?", src)
+	}
+	if cls := strings.TrimSpace(f.Class); cls != "" {
+		q = q.Where("t.feature_class_code = ?", cls)
+	}
+	if f.PrimaryOnly {
+		q = q.Where("t.is_primary")
+	}
+	return q
+}
+
+// List returns one filtered, paged slice of the whole tag population plus its
+// unpaged total, newest first -- the data behind the Admin -> Asset Tags console.
+// Scoped: sc carries the caller's territory + private-draft visibility (built by
+// featureregistry.ResolveScope), applied through the registry join so the console
+// mirrors exactly what the caller could resolve one code at a time. Limit is
+// clamped to [1, 200] (default 50); Offset floored at 0.
+func List(ctx context.Context, db bun.IDB, f ListFilter, sc featureregistry.Scope) (ListResult, error) {
+	limit := f.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	offset := f.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	total, err := applyTagFilters(tagConsoleBase(db, sc), f).Count(ctx)
+	if err != nil {
+		return ListResult{}, err
+	}
+
+	var rows []TagRow
+	err = applyTagFilters(tagConsoleBase(db, sc), f).
+		ColumnExpr("t.tag_code, t.feature_class_code, fc.name AS class_name, t.feature_id::text AS feature_id, t.source, t.is_primary, t.status, t.print_count, t.created_by::text AS created_by, t.created_at, t.updated_at").
+		OrderExpr("t.created_at DESC").
+		Limit(limit).Offset(offset).
+		Scan(ctx, &rows)
+	if err != nil {
+		return ListResult{}, err
+	}
+	return ListResult{Rows: rows, Total: total, Limit: limit, Offset: offset}, nil
+}
+
+// Stats is the KPI strip at the top of the console: the scoped population broken
+// down by lifecycle state and provenance, in one grouped scan. unprinted counts
+// only ACTIVE tags never sent to a printer (an active label a crew still needs to
+// produce); void/superseded are the retired/replaced codes; external vs generated
+// splits registered legacy numbers from system-minted ones. Same registry-join
+// scope as List, so the numbers match what the caller can browse.
+type StatsResult struct {
+	Total      int `json:"total" bun:"total"`
+	Active     int `json:"active" bun:"active"`
+	Void       int `json:"void" bun:"void"`
+	Superseded int `json:"superseded" bun:"superseded"`
+	Unprinted  int `json:"unprinted" bun:"unprinted"`
+	External   int `json:"external" bun:"external"`
+	Generated  int `json:"generated" bun:"generated"`
+}
+
+// Stats returns the console's KPI counts for the caller's scoped population.
+func Stats(ctx context.Context, db bun.IDB, sc featureregistry.Scope) (StatsResult, error) {
+	var out StatsResult
+	err := tagConsoleBase(db, sc).
+		ColumnExpr("count(*) AS total").
+		ColumnExpr("count(*) FILTER (WHERE t.status = 'active') AS active").
+		ColumnExpr("count(*) FILTER (WHERE t.status = 'void') AS void").
+		ColumnExpr("count(*) FILTER (WHERE t.status = 'superseded') AS superseded").
+		ColumnExpr("count(*) FILTER (WHERE t.status = 'active' AND t.print_count = 0) AS unprinted").
+		ColumnExpr("count(*) FILTER (WHERE t.source = 'external') AS external").
+		ColumnExpr("count(*) FILTER (WHERE t.source = 'generated') AS generated").
+		Scan(ctx, &out)
+	if err != nil {
+		return StatsResult{}, err
+	}
+	return out, nil
+}
+
+// escapeLike neutralizes the LIKE/ILIKE metacharacters in a user's search term so
+// a code containing % or _ (legacy asset numbers do) matches literally. Postgres
+// ILIKE treats \ as the default escape, so \% \_ \\ are the literals.
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
 // MarkManyPrinted bumps print_count for each of the given codes in one statement

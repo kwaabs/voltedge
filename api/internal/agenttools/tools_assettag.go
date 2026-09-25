@@ -28,6 +28,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/assettag"
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/featureregistry"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 )
@@ -126,6 +127,32 @@ func tagTools() []Tool {
 			RequiredPerm: auth.PermFeaturesRead,
 			ExtraPerms:   []string{auth.PermTagsRead},
 			Handler:      toolFindFeaturesByTag,
+		},
+		{
+			Name: "list_asset_tags",
+			Description: "Browse and search the whole asset-tag population -- the data behind the Admin -> Asset " +
+				"Tags console, the same read the REST GET /tags?view=list route returns. Unlike list_feature_tags " +
+				"(one feature) or resolve_asset_tag (one scanned code), this pages across every tag: filter by a " +
+				"case-insensitive tag_code substring (search), by lifecycle status (active|void|superseded), by " +
+				"source (generated|external), by feature class (feature_class_code), or to only the printed code " +
+				"per feature (primary_only). Applies the same territory + private-draft read scope as every other " +
+				"read, so it lists only tags whose feature the caller could resolve. Returns one page {rows, total, " +
+				"limit, offset}; page with limit (1-200, default 50) and offset. Read-only.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"search":{"type":"string","description":"Case-insensitive substring match on the tag code."},
+					"status":{"type":"string","enum":["active","void","superseded"],"description":"Restrict to one lifecycle status; omit for all."},
+					"source":{"type":"string","enum":["generated","external"],"description":"Restrict to system-minted (generated) or legacy (external) tags; omit for both."},
+					"feature_class_code":{"type":"string","description":"Restrict to one feature class."},
+					"primary_only":{"type":"boolean","description":"When true, keep only the single printed (primary) code per feature."},
+					"limit":{"type":"integer","description":"Page size, 1-200 (default 50)."},
+					"offset":{"type":"integer","description":"Rows to skip for paging (default 0)."}
+				},
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermTagsRead,
+			Handler:      toolListAssetTags,
 		},
 		{
 			Name: "register_asset_tag",
@@ -350,6 +377,40 @@ func toolFindFeaturesByTag(ctx context.Context, db bun.IDB, args json.RawMessage
 		"features":      rows,
 		"count":         len(rows),
 	}, nil
+}
+
+func toolListAssetTags(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		Search           string `json:"search"`
+		Status           string `json:"status"`
+		Source           string `json:"source"`
+		FeatureClassCode string `json:"feature_class_code"`
+		PrimaryOnly      bool   `json:"primary_only"`
+		Limit            int    `json:"limit"`
+		Offset           int    `json:"offset"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	// ResolveScope reads the acting user's territory/draft scope off ctx and needs
+	// the concrete *bun.DB, as List's registry join does.
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := featureregistry.ResolveScope(ctx, sdb)
+	if err != nil {
+		return nil, err
+	}
+	return assettag.List(ctx, sdb, assettag.ListFilter{
+		Search:      in.Search,
+		Status:      in.Status,
+		Source:      in.Source,
+		Class:       in.FeatureClassCode,
+		PrimaryOnly: in.PrimaryOnly,
+		Limit:       in.Limit,
+		Offset:      in.Offset,
+	}, scope)
 }
 
 func toolRegisterAssetTag(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
