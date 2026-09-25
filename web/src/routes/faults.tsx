@@ -1,11 +1,18 @@
 import { useMemo, useState } from "react"
-import { CheckCircle2, History, Loader2, Plus, RotateCcw, Search, TriangleAlert, Wrench, Zap, ZapOff } from "lucide-react"
+import { CheckCircle2, History, Loader2, MoreHorizontal, Plus, RotateCcw, Search, TriangleAlert, Wrench, Zap, ZapOff } from "lucide-react"
 
 import { FormDialog } from "@/components/admin/form-dialog"
 import { AssetIdField } from "@/components/map/asset-id-field"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { usePermission } from "@/hooks/use-auth"
 import {
   type FaultEvent,
@@ -223,73 +230,88 @@ function FaultRow({ fault, canWrite }: { fault: FaultEvent; canWrite: boolean })
   const asset = assetLabel(fault.asset_class, fault.asset_id)
 
   return (
-    <div className="hover:bg-muted/40 rounded-md">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2">
-      <Badge text={fault.status} cls={FAULT_STATUS_BADGE[fault.status]} />
-      {fault.fault_type && <span className="text-muted-foreground font-mono text-xs">{fault.fault_type}</span>}
-      <span className="text-sm font-medium">{fault.title}</span>
-      <span className="text-muted-foreground text-xs">
-        {asset ?? (hasLoc ? "pinned" : fault.incident_id ? `outage ${shortId(fault.incident_id)}` : "—")}
-        {fault.cause && <> · {humanize(fault.cause)}</>}
-        {fault.fault_current_a != null && <> · {fault.fault_current_a} A</>}
-        {fault.incident_id && asset && <> · outage {shortId(fault.incident_id)}</>}
-        {fault.defect_id && <> · defect {shortId(fault.defect_id)}</>}
-      </span>
-      <span className="text-muted-foreground ml-auto text-xs">{formatWhen(fault.detected_at)}</span>
-
-      <Button
-        variant="ghost"
-        size="sm"
-        className="text-muted-foreground shrink-0"
-        aria-expanded={showHistory}
-        onClick={() => setShowHistory((v) => !v)}
-      >
-        <History className="size-4" />
-        History
-      </Button>
-
-      {canWrite && (
-        <div className="flex shrink-0 items-center gap-1">
-          {canBookDefect && (
-            <Button variant="outline" size="sm" disabled={pending} onClick={bookDefect}>
-              <Wrench className="size-4" />
-              Book defect
-            </Button>
+    <>
+      <tr className="hover:bg-muted/40 border-border/50 border-b last:border-0 align-top">
+        <td className="py-2 pr-3">
+          <Badge text={fault.status} cls={FAULT_STATUS_BADGE[fault.status]} />
+        </td>
+        <td className="py-2 pr-3">
+          <span className="text-sm font-medium">{fault.title}</span>
+          {fault.fault_type && (
+            <span className="text-muted-foreground ml-2 font-mono text-xs">{fault.fault_type}</span>
           )}
-          {fault.status === "detected" && (
-            <Button variant="ghost" size="sm" disabled={pending} onClick={() => set("investigating")}>
-              <Search className="size-4" />
-              Investigate
-            </Button>
-          )}
-          {(fault.status === "detected" || fault.status === "investigating") && (
-            <Button variant="ghost" size="sm" disabled={pending} onClick={() => set("cleared")}>
-              <CheckCircle2 className="size-4" />
-              Mark cleared
-            </Button>
-          )}
-          {fault.status === "cleared" && (
-            <Button variant="ghost" size="sm" disabled={pending} onClick={() => set("closed")}>
-              <CheckCircle2 className="size-4" />
-              Close
-            </Button>
-          )}
-          {(fault.status === "cleared" || fault.status === "closed") && (
-            <Button variant="ghost" size="sm" className="text-muted-foreground" disabled={pending} onClick={() => set("investigating")}>
-              <RotateCcw className="size-4" />
-              Reopen
-            </Button>
-          )}
-        </div>
-      )}
-      </div>
-
+        </td>
+        <td className="text-muted-foreground py-2 pr-3 text-xs">
+          {asset ?? (hasLoc ? "pinned" : fault.incident_id ? `outage ${shortId(fault.incident_id)}` : "—")}
+          {fault.cause && <> · {humanize(fault.cause)}</>}
+          {fault.fault_current_a != null && <> · {fault.fault_current_a} A</>}
+          {fault.incident_id && asset && <> · outage {shortId(fault.incident_id)}</>}
+          {fault.defect_id && <> · defect {shortId(fault.defect_id)}</>}
+        </td>
+        <td className="text-muted-foreground py-2 pr-3 text-xs whitespace-nowrap">
+          {formatWhen(fault.detected_at)}
+        </td>
+        <td className="py-1 text-right">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="text-muted-foreground size-8 p-0" aria-label="Fault actions">
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onSelect={() => setShowHistory((v) => !v)}>
+                <History className="size-4" />
+                {showHistory ? "Hide history" : "History"}
+              </DropdownMenuItem>
+              {canWrite && (
+                <>
+                  <DropdownMenuSeparator />
+                  {canBookDefect && (
+                    <DropdownMenuItem disabled={pending} onSelect={bookDefect}>
+                      <Wrench className="size-4" />
+                      Book defect
+                    </DropdownMenuItem>
+                  )}
+                  {fault.status === "detected" && (
+                    <DropdownMenuItem disabled={pending} onSelect={() => set("investigating")}>
+                      <Search className="size-4" />
+                      Investigate
+                    </DropdownMenuItem>
+                  )}
+                  {(fault.status === "detected" || fault.status === "investigating") && (
+                    <DropdownMenuItem disabled={pending} onSelect={() => set("cleared")}>
+                      <CheckCircle2 className="size-4" />
+                      Mark cleared
+                    </DropdownMenuItem>
+                  )}
+                  {fault.status === "cleared" && (
+                    <DropdownMenuItem disabled={pending} onSelect={() => set("closed")}>
+                      <CheckCircle2 className="size-4" />
+                      Close
+                    </DropdownMenuItem>
+                  )}
+                  {(fault.status === "cleared" || fault.status === "closed") && (
+                    <DropdownMenuItem disabled={pending} onSelect={() => set("investigating")}>
+                      <RotateCcw className="size-4" />
+                      Reopen
+                    </DropdownMenuItem>
+                  )}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </td>
+      </tr>
       {showHistory && (
-        <div className="border-border/60 border-t px-3 pb-2">
-          <FaultHistoryPanel query={history} />
-        </div>
+        <tr>
+          <td colSpan={5} className="border-border/50 border-b">
+            <div className="bg-muted/20 px-3 pb-2">
+              <FaultHistoryPanel query={history} />
+            </div>
+          </td>
+        </tr>
       )}
-    </div>
+    </>
   )
 }
 
@@ -352,7 +374,7 @@ export function FaultsPage() {
 
   return (
     <div className="h-full overflow-y-auto p-4">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4">
+      <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-2">
           <div>
             <h1 className="flex items-center gap-2 text-lg font-semibold">
@@ -403,11 +425,22 @@ export function FaultsPage() {
             ) : faults.isError ? (
               <p className="text-destructive text-sm">Could not load faults.</p>
             ) : rows.length > 0 ? (
-              <div className="flex flex-col">
-                {rows.map((f) => (
-                  <FaultRow key={f.id} fault={f} canWrite={canWrite} />
-                ))}
-              </div>
+              <table className="w-full">
+                <thead>
+                  <tr className="text-muted-foreground border-border border-b text-left text-xs">
+                    <th className="py-1.5 pr-3 font-medium">Status</th>
+                    <th className="py-1.5 pr-3 font-medium">Fault</th>
+                    <th className="py-1.5 pr-3 font-medium">Asset / cause</th>
+                    <th className="py-1.5 pr-3 font-medium">Detected</th>
+                    <th className="w-8 py-1.5" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((f) => (
+                    <FaultRow key={f.id} fault={f} canWrite={canWrite} />
+                  ))}
+                </tbody>
+              </table>
             ) : (
               <p className="text-muted-foreground text-sm">
                 No faults{openOnly ? " open" : ""} yet. Log one here, or raise one from an outage on the Outages page.

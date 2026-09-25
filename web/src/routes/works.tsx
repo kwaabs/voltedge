@@ -1,10 +1,17 @@
-import { useMemo, useState } from "react"
-import { CheckCircle2, ClipboardList, Loader2, Play, Plus, TriangleAlert, Wrench, XCircle } from "lucide-react"
+import { type ReactNode, useMemo, useState } from "react"
+import { Activity, CheckCircle2, ClipboardList, Loader2, MoreHorizontal, Play, Plus, TriangleAlert, Wrench, XCircle } from "lucide-react"
 
 import { FormDialog } from "@/components/admin/form-dialog"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { usePermission } from "@/hooks/use-auth"
 import {
   type AssignableUser,
@@ -24,6 +31,7 @@ import {
   useWorkOrders,
 } from "@/hooks/use-wam"
 import { ApiError } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { InspectionsPanel } from "@/routes/works-inspections"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -386,38 +394,51 @@ function WorkOrderRow({ order, canWrite, assignees }: { order: WorkOrder; canWri
     )
   }
 
+  const assignee = assigneeLabel(order, assignees)
+
   return (
-    <div className="hover:bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-2 py-2">
-      <Badge text={order.status} cls={WORK_STATUS_BADGE[order.status]} />
-      <span className="text-muted-foreground text-xs capitalize">{humanize(order.work_type)}</span>
-      <span className="text-sm font-medium">{order.title}</span>
-      <span className="text-muted-foreground text-xs">
-        {order.priority} · {assetLabel(order.asset_class, order.asset_id)}
-        {assigneeLabel(order, assignees) && <> · {assigneeLabel(order, assignees)}</>}
-      </span>
-      <span className="text-muted-foreground ml-auto text-xs">
-        {order.scheduled_for ? `Scheduled ${formatWhen(order.scheduled_for)}` : formatWhen(order.created_at)}
-      </span>
+    <div className="hover:bg-muted/40 border-border/50 flex items-start gap-2 border-b px-2 py-2 last:border-0">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Badge text={order.status} cls={WORK_STATUS_BADGE[order.status]} />
+          <span className="text-muted-foreground text-xs capitalize">{humanize(order.work_type)}</span>
+          <span className="text-sm font-medium">{order.title}</span>
+        </div>
+        <div className="text-muted-foreground mt-0.5 text-xs">
+          <span className="capitalize">{order.priority}</span> · {assetLabel(order.asset_class, order.asset_id)}
+          {assignee && <> · {assignee}</>}
+          {" · "}
+          {order.scheduled_for ? `scheduled ${formatWhen(order.scheduled_for)}` : formatWhen(order.created_at)}
+        </div>
+      </div>
 
       {canWrite && !isTerminal && (
-        <div className="flex shrink-0 items-center gap-1">
-          {canStart && (
-            <Button variant="outline" size="sm" disabled={pending} onClick={() => set("in_progress")}>
-              <Play className="size-4" />
-              Start
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="text-muted-foreground size-8 shrink-0 p-0" aria-label="Work-order actions">
+              <MoreHorizontal className="size-4" />
             </Button>
-          )}
-          {order.status === "in_progress" && (
-            <Button variant="outline" size="sm" disabled={pending} onClick={() => set("completed")}>
-              <CheckCircle2 className="size-4" />
-              Complete
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" className="text-destructive" disabled={pending} onClick={() => set("cancelled")}>
-            <XCircle className="size-4" />
-            Cancel
-          </Button>
-        </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            {canStart && (
+              <DropdownMenuItem disabled={pending} onSelect={() => set("in_progress")}>
+                <Play className="size-4" />
+                Start
+              </DropdownMenuItem>
+            )}
+            {order.status === "in_progress" && (
+              <DropdownMenuItem disabled={pending} onSelect={() => set("completed")}>
+                <CheckCircle2 className="size-4" />
+                Complete
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-destructive" disabled={pending} onSelect={() => set("cancelled")}>
+              <XCircle className="size-4" />
+              Cancel
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
     </div>
   )
@@ -446,34 +467,125 @@ function DefectRow({
   }
 
   return (
-    <div className="hover:bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-2 py-2">
-      <Badge text={defect.severity} cls={SEVERITY_BADGE[defect.severity]} />
-      <Badge text={defect.status} cls={DEFECT_STATUS_BADGE[defect.status]} />
-      <span className="text-sm font-medium">{defect.title}</span>
-      <span className="text-muted-foreground text-xs">
-        {assetLabel(defect.asset_class, defect.asset_id)} · {humanize(defect.source)}
-        {defect.incident_id && <> · outage {shortId(defect.incident_id)}</>}
-      </span>
-      <span className="text-muted-foreground ml-auto text-xs">{formatWhen(defect.reported_at)}</span>
-
-      {canWrite && !isTerminal && (
-        <div className="flex shrink-0 items-center gap-1">
-          {defect.status === "open" && (
-            <Button variant="outline" size="sm" disabled={pending} onClick={() => onRaise(defect)}>
-              <Wrench className="size-4" />
-              Raise work order
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" disabled={pending} onClick={() => set("resolved")}>
-            <CheckCircle2 className="size-4" />
-            Resolve
-          </Button>
-          <Button variant="ghost" size="sm" className="text-muted-foreground" disabled={pending} onClick={() => set("dismissed")}>
-            <XCircle className="size-4" />
-            Dismiss
-          </Button>
+    <div className="hover:bg-muted/40 border-border/50 flex items-start gap-2 border-b px-2 py-2 last:border-0">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Badge text={defect.severity} cls={SEVERITY_BADGE[defect.severity]} />
+          <Badge text={defect.status} cls={DEFECT_STATUS_BADGE[defect.status]} />
+          <span className="text-sm font-medium">{defect.title}</span>
         </div>
+        <div className="text-muted-foreground mt-0.5 text-xs">
+          {assetLabel(defect.asset_class, defect.asset_id)} · {humanize(defect.source)}
+          {defect.incident_id && <> · outage {shortId(defect.incident_id)}</>}
+          {" · "}
+          {formatWhen(defect.reported_at)}
+        </div>
+      </div>
+
+      {canWrite && defect.status === "open" && (
+        <Button variant="outline" size="sm" className="shrink-0" disabled={pending} onClick={() => onRaise(defect)}>
+          <Wrench className="size-4" />
+          Raise
+        </Button>
       )}
+      {canWrite && !isTerminal && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="text-muted-foreground size-8 shrink-0 p-0" aria-label="Defect actions">
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            {defect.status === "open" && (
+              <DropdownMenuItem disabled={pending} onSelect={() => onRaise(defect)}>
+                <Wrench className="size-4" />
+                Raise work order
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem disabled={pending} onSelect={() => set("resolved")}>
+              <CheckCircle2 className="size-4" />
+              Resolve
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-muted-foreground" disabled={pending} onSelect={() => set("dismissed")}>
+              <XCircle className="size-4" />
+              Dismiss
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </div>
+  )
+}
+
+// --- KPI strip -------------------------------------------------------------
+
+type KpiTone = "default" | "alert" | "warn"
+
+function KpiTile({
+  icon,
+  label,
+  value,
+  sub,
+  tone = "default",
+}: {
+  icon: ReactNode
+  label: string
+  value: ReactNode
+  sub?: string
+  tone?: KpiTone
+}) {
+  const valueTone =
+    tone === "alert" ? "text-rose-600 dark:text-rose-400" : tone === "warn" ? "text-amber-600 dark:text-amber-400" : ""
+  return (
+    <Card className="flex-1">
+      <CardContent className="flex items-center gap-3 p-3">
+        <div className="text-muted-foreground shrink-0">{icon}</div>
+        <div className="flex min-w-0 flex-col">
+          <span className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">{label}</span>
+          <span className={cn("text-2xl font-semibold leading-tight tabular-nums", valueTone)}>{value}</span>
+          {sub && <span className="text-muted-foreground truncate text-[11px]">{sub}</span>}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function WorksKpiStrip({
+  openDefects,
+  activeOrders,
+  inProgress,
+  unassigned,
+}: {
+  openDefects: number
+  activeOrders: number
+  inProgress: number
+  unassigned: number
+}) {
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row">
+      <KpiTile
+        icon={<TriangleAlert className="size-5" />}
+        label="Open defects"
+        value={openDefects}
+        sub="awaiting a work order"
+        tone={openDefects > 0 ? "alert" : "default"}
+      />
+      <KpiTile icon={<ClipboardList className="size-5" />} label="Active orders" value={activeOrders} sub="not yet closed" />
+      <KpiTile
+        icon={<Play className="size-5" />}
+        label="In progress"
+        value={inProgress}
+        sub="crews on the job"
+        tone={inProgress > 0 ? "warn" : "default"}
+      />
+      <KpiTile
+        icon={<Activity className="size-5" />}
+        label="Unassigned"
+        value={unassigned}
+        sub="active, no worker"
+        tone={unassigned > 0 ? "warn" : "default"}
+      />
     </div>
   )
 }
@@ -496,10 +608,15 @@ export function WorksPage() {
   const orderRows = useMemo(() => orders.data?.work_orders ?? [], [orders.data])
   const defectRows = useMemo(() => defects.data?.defects ?? [], [defects.data])
   const openDefects = defectRows.filter((d) => d.status === "open").length
+  const activeOrders = orderRows.filter((o) => o.status !== "completed" && o.status !== "cancelled").length
+  const inProgress = orderRows.filter((o) => o.status === "in_progress").length
+  const unassigned = orderRows.filter(
+    (o) => o.status !== "completed" && o.status !== "cancelled" && !o.assigned_to_user_id && !o.assigned_to,
+  ).length
 
   return (
     <div className="h-full overflow-y-auto p-4">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4">
+      <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-2">
           <div>
             <h1 className="flex items-center gap-2 text-lg font-semibold">
@@ -525,73 +642,85 @@ export function WorksPage() {
           )}
         </div>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <ClipboardList className="size-4" />
-                  Work orders
-                </CardTitle>
-                <CardDescription>
-                  {orderRows.length === 0
-                    ? mineOnly
-                      ? "No work orders assigned to you."
-                      : "No work orders."
-                    : `${orderRows.length} work order${orderRows.length === 1 ? "" : "s"}${mineOnly ? " assigned to you" : ""}.`}
-                </CardDescription>
-              </div>
-              <label className="text-muted-foreground flex shrink-0 items-center gap-1.5 text-xs">
-                <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
-                My work orders
-              </label>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {orders.isPending ? (
-              <LoadingRow label="Loading work orders…" />
-            ) : orders.isError ? (
-              <p className="text-destructive text-sm">Could not load work orders.</p>
-            ) : orderRows.length > 0 ? (
-              <div className="flex flex-col">
-                {orderRows.map((o) => (
-                  <WorkOrderRow key={o.id} order={o} canWrite={canWrite} assignees={assignees} />
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-sm">No work orders yet. Raise one from a defect, or create one directly.</p>
-            )}
-          </CardContent>
-        </Card>
+        <WorksKpiStrip
+          openDefects={openDefects}
+          activeOrders={activeOrders}
+          inProgress={inProgress}
+          unassigned={unassigned}
+        />
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <TriangleAlert className="size-4" />
-              Defects
-            </CardTitle>
-            <CardDescription>
-              {defectRows.length === 0
-                ? "No defects."
-                : `${defectRows.length} defect${defectRows.length === 1 ? "" : "s"}${openDefects > 0 ? ` · ${openDefects} open` : ""}.`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {defects.isPending ? (
-              <LoadingRow label="Loading defects…" />
-            ) : defects.isError ? (
-              <p className="text-destructive text-sm">Could not load defects.</p>
-            ) : defectRows.length > 0 ? (
-              <div className="flex flex-col">
-                {defectRows.map((d) => (
-                  <DefectRow key={d.id} defect={d} canWrite={canWrite} onRaise={setRaising} />
-                ))}
+        {/* defect -> order flow board: incoming defects LEFT, work orders in flight RIGHT */}
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card className="flex min-h-0 flex-col">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <TriangleAlert className="size-4" />
+                Defects
+              </CardTitle>
+              <CardDescription>
+                {defectRows.length === 0
+                  ? "No defects."
+                  : `${defectRows.length} defect${defectRows.length === 1 ? "" : "s"}${openDefects > 0 ? ` · ${openDefects} open` : ""}.`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {defects.isPending ? (
+                <LoadingRow label="Loading defects…" />
+              ) : defects.isError ? (
+                <p className="text-destructive text-sm">Could not load defects.</p>
+              ) : defectRows.length > 0 ? (
+                <div className="flex flex-col">
+                  {defectRows.map((d) => (
+                    <DefectRow key={d.id} defect={d} canWrite={canWrite} onRaise={setRaising} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-sm">No defects logged yet.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="flex min-h-0 flex-col">
+            <CardHeader className="pb-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <ClipboardList className="size-4" />
+                    Work orders
+                  </CardTitle>
+                  <CardDescription>
+                    {orderRows.length === 0
+                      ? mineOnly
+                        ? "No work orders assigned to you."
+                        : "No work orders."
+                      : `${orderRows.length} work order${orderRows.length === 1 ? "" : "s"}${mineOnly ? " assigned to you" : ""}.`}
+                  </CardDescription>
+                </div>
+                <label className="text-muted-foreground flex shrink-0 items-center gap-1.5 text-xs">
+                  <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
+                  Mine
+                </label>
               </div>
-            ) : (
-              <p className="text-muted-foreground text-sm">No defects logged yet.</p>
-            )}
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {orders.isPending ? (
+                <LoadingRow label="Loading work orders…" />
+              ) : orders.isError ? (
+                <p className="text-destructive text-sm">Could not load work orders.</p>
+              ) : orderRows.length > 0 ? (
+                <div className="flex flex-col">
+                  {orderRows.map((o) => (
+                    <WorkOrderRow key={o.id} order={o} canWrite={canWrite} assignees={assignees} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No work orders yet. Raise one from a defect, or create one directly.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
         <InspectionsPanel canWrite={canWrite} workOrders={orderRows} />
       </div>

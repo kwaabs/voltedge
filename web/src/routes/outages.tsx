@@ -438,18 +438,41 @@ function SwitchingOrderCard({ order, canWrite }: { order: SwitchingOrder; canWri
   const isolate = order.steps.filter((s) => s.phase === "isolate")
   const restore = order.steps.filter((s) => s.phase === "restore")
 
+  // Terminal orders (cancelled/completed) collapse to their header by default so
+  // a history of superseded programs doesn't blow up the panel height; active
+  // ones stay open so the crew sees the steps they're executing. Click to toggle.
+  const [open, setOpen] = useState(!isTerminal)
+  const doneCount = order.steps.filter((s) => s.executed_at != null).length
+
   return (
     <div className="border-border rounded-md border p-2">
-      <div className="mb-1 flex items-center gap-2">
-        <span className={`rounded px-1.5 py-0.5 text-xs font-medium capitalize ${SWITCHING_BADGE[order.status]}`}>
-          {order.status.replace("_", " ")}
-        </span>
-        <span className="text-sm font-medium">{order.reference ?? "Switching order"}</span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+        >
+          {open ? (
+            <ChevronDown className="text-muted-foreground size-4 shrink-0" />
+          ) : (
+            <ChevronRight className="text-muted-foreground size-4 shrink-0" />
+          )}
+          <span className={`rounded px-1.5 py-0.5 text-xs font-medium capitalize ${SWITCHING_BADGE[order.status]}`}>
+            {order.status.replace("_", " ")}
+          </span>
+          <span className="truncate text-sm font-medium">{order.reference ?? "Switching order"}</span>
+          {!open && (
+            <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
+              {doneCount}/{order.steps.length} steps
+            </span>
+          )}
+        </button>
         {canWrite && !isTerminal && (
           <Button
             variant="ghost"
             size="sm"
-            className="text-destructive ml-auto"
+            className="text-destructive ml-auto shrink-0"
             disabled={cancel.isPending}
             onClick={() =>
               cancel.mutate(
@@ -463,20 +486,24 @@ function SwitchingOrderCard({ order, canWrite }: { order: SwitchingOrder; canWri
           </Button>
         )}
       </div>
-      {isolate.length > 0 && (
+      {open && (
         <>
-          <p className="text-muted-foreground mt-1 text-[11px] font-medium uppercase">Isolate</p>
-          {isolate.map((s) => (
-            <StepRow key={s.id} step={s} canWrite={canWrite} />
-          ))}
-        </>
-      )}
-      {restore.length > 0 && (
-        <>
-          <p className="text-muted-foreground mt-1 text-[11px] font-medium uppercase">Restore</p>
-          {restore.map((s) => (
-            <StepRow key={s.id} step={s} canWrite={canWrite} />
-          ))}
+          {isolate.length > 0 && (
+            <>
+              <p className="text-muted-foreground mt-1 text-[11px] font-medium uppercase">Isolate</p>
+              {isolate.map((s) => (
+                <StepRow key={s.id} step={s} canWrite={canWrite} />
+              ))}
+            </>
+          )}
+          {restore.length > 0 && (
+            <>
+              <p className="text-muted-foreground mt-1 text-[11px] font-medium uppercase">Restore</p>
+              {restore.map((s) => (
+                <StepRow key={s.id} step={s} canWrite={canWrite} />
+              ))}
+            </>
+          )}
         </>
       )}
     </div>
@@ -1116,7 +1143,7 @@ export function OutagesPage() {
 
   return (
     <div className="h-full overflow-y-auto p-4">
-      <div className="mx-auto flex max-w-7xl flex-col gap-4">
+      <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-2">
           <div>
             <h1 className="flex items-center gap-2 text-lg font-semibold">
