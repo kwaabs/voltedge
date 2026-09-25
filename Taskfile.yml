@@ -636,6 +636,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/lvac_auxiliary_example.sql
 
+  seed-oltc-tap-changer:
+    desc: Load the TAP_CHANGER class (discrete on-load tap changer / AVR controller as a geometry-none, network-none control+asset device composite-linked to POWER_XFMR; carries the AVR setpoints + maintenance identity while the live electrical tap stays on POWER_XFMR) through the gitbash sidecar (requires seed-power-transformer first; compile CODE=TAP_CHANGER after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/oltc_tap_changer_example.sql
+
   seed-earthing-transformer:
     desc: Load the EARTHING_XFMR class (substation earthing/grounding transformer; zero-sequence data record-only) through the gitbash sidecar (requires seed-connectivity first; compile CODE=EARTHING_XFMR after)
     cmds:
@@ -1336,6 +1344,7 @@ tasks:
       - task: seed-ev-charging
       - task: seed-mv-busbar
       - task: seed-lvac-auxiliary
+      - task: seed-oltc-tap-changer
       - task: seed-mv-symbology
       - task: seed-stencils-extra
       - task: seed-mv-conductor-diagram-promote
