@@ -173,6 +173,7 @@ export function editStyleForFeature(feature: FeatureLike): Style {
  * ever confused with each other or with a plain selection. */
 export type HighlightRole =
   | "selected"
+  | "peek"
   | "connect-source"
   | "connect-target"
   | "trace"
@@ -194,6 +195,12 @@ export type HighlightRole =
  * uses, instead of inventing a second palette for the same concepts. */
 export const HIGHLIGHT_COLORS: Record<HighlightRole, string> = {
   selected: "#38bdf8",
+  // A counterpart "located" from the feature panel's Terminals/Relationships
+  // list (feature-panel.tsx) -- clicking a row highlights the connected feature
+  // here without opening its panel (the row's info button does that). Emerald,
+  // a hue no other role uses, so it never reads as the cyan `selected` halo of
+  // the feature whose panel is actually open.
+  peek: "#10b981",
   "connect-source": "#f59e0b",
   "connect-target": "#a855f7",
   trace: "#84cc16",

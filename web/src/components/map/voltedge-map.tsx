@@ -649,6 +649,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   const hiddenLayers = useLayersStore((s) => s.hidden)
   const labelsHidden = useLayersStore((s) => s.labelsHidden)
   const selected = useSelectionStore((s) => s.selected)
+  const located = useSelectionStore((s) => s.located)
   const focusToken = useSelectionStore((s) => s.focusToken)
   const measureMode = useMeasureStore((s) => s.mode)
   const boxZoomActive = useBoxZoomStore((s) => s.active)
@@ -716,6 +717,9 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     selected?.featureClassCode,
     selected?.featureId,
   )
+  // The counterpart "located" (peeked) from the panel's Terminals/Relationships
+  // list -- fetched for its geometry so the peek halo below draws its real shape.
+  const { data: locatedFeature } = useFeature(located?.featureClassCode, located?.featureId)
   const { data: connectSourceFeature, isLoading: connectSourceLoading } = useFeature(
     connectSource?.featureClassCode,
     connectSource?.featureId,
@@ -1702,8 +1706,13 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       add(connectTargetFeature?.geometry, "connect-target")
     } else if (!isEditingSelected) {
       add(selectedFeature?.geometry, "selected")
+      // The peeked counterpart rides alongside the selected feature's halo (both
+      // are visible at once -- the whole point is to see which connected feature
+      // a list row means while staying on the current one). Not shown during a
+      // connect workflow, which owns the halo layer entirely.
+      add(locatedFeature?.geometry, "peek")
     }
-  }, [connectMode, connectSourceFeature, connectTargetFeature, selectedFeature, editing, selected])
+  }, [connectMode, connectSourceFeature, connectTargetFeature, selectedFeature, locatedFeature, editing, selected])
 
   // Fetches and highlights a trace result's own two feature sets (every
   // reached feature, and, distinctly, whichever of those a barrier

@@ -31,6 +31,15 @@ export interface ScreenPoint {
  */
 interface SelectionState {
   selected: FeatureRef | null
+  // A feature merely "located" (peeked) from the open panel's Terminals/
+  // Relationships list -- highlighted on the map (a `peek`-role halo, see
+  // voltedge-map.tsx) WITHOUT opening its own panel, so the user stays on the
+  // current feature while eyeing which counterpart a row refers to. Distinct
+  // from `selected` precisely so it does NOT drive FeaturePanel; the list row's
+  // info button still calls `select` when the user actually wants to open it.
+  // Cleared automatically by any real selection change (`select`/`clear`) so a
+  // peek halo never outlives the panel it was cast from.
+  located: FeatureRef | null
   candidates: FeatureRef[] | null
   candidatesPosition: ScreenPoint | null
   // Bumped only when `select` is called with `focus: true` -- a direct
@@ -43,6 +52,11 @@ interface SelectionState {
   // feature (the same row clicked twice) still both re-trigger the pan.
   focusToken: number
   select: (featureClassCode: string, featureId: string, options?: { focus?: boolean }) => void
+  // Highlight a counterpart on the map without opening its panel (see `located`).
+  locate: (featureClassCode: string, featureId: string) => void
+  // Drop the peek halo without touching `selected` -- used when the panel's tab
+  // that cast it (feature-panel.tsx's Terminals/Relationships list) unmounts.
+  clearLocated: () => void
   showCandidates: (candidates: FeatureRef[], position: ScreenPoint, options?: { clearSelected?: boolean }) => void
   // Dismisses the disambiguation list without touching `selected` --
   // peer-picker.tsx uses this once a connect-mode target has been
@@ -55,16 +69,22 @@ interface SelectionState {
 
 export const useSelectionStore = create<SelectionState>((set) => ({
   selected: null,
+  located: null,
   candidates: null,
   candidatesPosition: null,
   focusToken: 0,
   select: (featureClassCode, featureId, options) =>
     set((state) => ({
       selected: { featureClassCode, featureId },
+      // Opening a panel supersedes any peek -- the newly selected feature gets
+      // its own `selected` halo, so a leftover peek halo would be noise.
+      located: null,
       candidates: null,
       candidatesPosition: null,
       focusToken: options?.focus ? state.focusToken + 1 : state.focusToken,
     })),
+  locate: (featureClassCode, featureId) => set({ located: { featureClassCode, featureId } }),
+  clearLocated: () => set({ located: null }),
   showCandidates: (candidates, position, options) =>
     set((state) => ({
       candidates,
@@ -72,5 +92,5 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       selected: options?.clearSelected === false ? state.selected : null,
     })),
   clearCandidates: () => set({ candidates: null, candidatesPosition: null }),
-  clear: () => set({ selected: null, candidates: null, candidatesPosition: null }),
+  clear: () => set({ selected: null, located: null, candidates: null, candidatesPosition: null }),
 }))

@@ -590,6 +590,11 @@ function useCounterpartNames(refs: { feature_class: string; feature_id: string }
 
 function TerminalsTab() {
   const selected = useSelectionStore((s) => s.selected)
+  // The peeked counterpart (a row clicked to highlight it on the map without
+  // opening its panel -- the row's info button does that). Drives the active
+  // row styling below; cleared when this tab unmounts so no halo lingers.
+  const located = useSelectionStore((s) => s.located)
+  useEffect(() => () => useSelectionStore.getState().clearLocated(), [])
   const { data: featureClasses } = useFeatureClasses()
   const { data, isPending, isError, error } = useConnections(
     selected?.featureClassCode,
@@ -666,17 +671,25 @@ function TerminalsTab() {
             ? `${counterpartClassName} · ${shortId(counterpart.feature_id)}`
             : shortId(counterpart.feature_id)
 
+          const isLocated =
+            located?.featureClassCode === counterpart.feature_class &&
+            located?.featureId === counterpart.feature_id
+
           return (
             <div
               key={conn.id}
-              className="hover:bg-accent hover:text-accent-foreground group flex items-start gap-1 rounded-md border p-2 text-sm transition-colors"
+              className={cn(
+                "hover:bg-accent hover:text-accent-foreground group flex items-start gap-1 rounded-md border p-2 text-sm transition-colors",
+                isLocated && "border-emerald-500 ring-1 ring-emerald-500",
+              )}
             >
+              {/* Clicking the row LOCATES (highlights on the map) the connected
+                  feature without opening its panel; the info button below opens
+                  the panel. */}
               <button
                 type="button"
                 onClick={() =>
-                  useSelectionStore.getState().select(counterpart.feature_class, counterpart.feature_id, {
-                    focus: true,
-                  })
+                  useSelectionStore.getState().locate(counterpart.feature_class, counterpart.feature_id)
                 }
                 className="min-w-0 flex-1 text-left"
               >
@@ -689,6 +702,19 @@ function TerminalsTab() {
                   {thisTerminal && <>via {thisTerminal} · </>}
                   {conn.network_rule_name}
                 </p>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  useSelectionStore.getState().select(counterpart.feature_class, counterpart.feature_id, {
+                    focus: true,
+                  })
+                }
+                className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded p-1"
+                title="Open this feature's panel"
+              >
+                <Info className="size-3.5" />
+                <span className="sr-only">Open feature panel</span>
               </button>
               <button
                 type="button"
@@ -709,6 +735,10 @@ function TerminalsTab() {
 
 function RelationshipsTab() {
   const selected = useSelectionStore((s) => s.selected)
+  // Same peek-vs-open split as TerminalsTab -- clicking a row locates the
+  // counterpart on the map, the info button opens its panel.
+  const located = useSelectionStore((s) => s.located)
+  useEffect(() => () => useSelectionStore.getState().clearLocated(), [])
   const { data: featureClasses } = useFeatureClasses()
   const { data, isPending, isError, error } = useRelationships(
     selected?.featureClassCode,
@@ -782,14 +812,22 @@ function RelationshipsTab() {
             ? `${counterpartClassName} · ${shortId(counterpart.feature_id)}`
             : shortId(counterpart.feature_id)
 
+          const isLocated =
+            located?.featureClassCode === counterpart.feature_class &&
+            located?.featureId === counterpart.feature_id
+
           return (
             <div
               key={rel.id}
-              className="hover:bg-accent hover:text-accent-foreground group flex items-start gap-1 rounded-md border p-2 text-sm transition-colors"
+              className={cn(
+                "hover:bg-accent hover:text-accent-foreground group flex items-start gap-1 rounded-md border p-2 text-sm transition-colors",
+                isLocated && "border-emerald-500 ring-1 ring-emerald-500",
+              )}
             >
+              {/* Row locates on the map; info button opens the panel -- see TerminalsTab. */}
               <button
                 type="button"
-                onClick={() => useSelectionStore.getState().select(counterpart.feature_class, counterpart.feature_id, { focus: true })}
+                onClick={() => useSelectionStore.getState().locate(counterpart.feature_class, counterpart.feature_id)}
                 className="min-w-0 flex-1 text-left"
               >
                 <div className="flex items-center justify-between gap-2">
@@ -800,6 +838,17 @@ function RelationshipsTab() {
                 <p className="text-muted-foreground mt-1 text-xs">
                   {rel.relationship_class_name} · {rel.kind} · {rel.cardinality}
                 </p>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  useSelectionStore.getState().select(counterpart.feature_class, counterpart.feature_id, { focus: true })
+                }
+                className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded p-1"
+                title="Open this feature's panel"
+              >
+                <Info className="size-3.5" />
+                <span className="sr-only">Open feature panel</span>
               </button>
               <button
                 type="button"
