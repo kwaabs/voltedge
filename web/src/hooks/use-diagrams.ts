@@ -12,7 +12,22 @@ export interface DiagramInstance {
   container: DiagramFeatureRef
   diagram_type: string
   name: string | null
+  /** True when this diagram was auto-generated from a template (an assembly
+   * single-line) and can be rebuilt via useRegenerateDiagram; false for a
+   * hand-built diagram. The canvas shows the Regenerate control only when true. */
+  regenerable?: boolean
   created_at: string
+}
+
+/** What POST /diagrams/{id}/regenerate returns: the rebuilt diagram is a NEW
+ * instance (the old one is replaced), so callers must switch to instance_id.
+ * placed/unbound/skipped report a partial rebuild (a slot left with no matching
+ * component, or a component a placement rule rejected). */
+export interface RegenerateDiagramResult {
+  instance_id: string
+  placed: number
+  unbound: number
+  skipped: number
 }
 
 /** A single vertex in a drawn line placement's path -- [x, y] in the
@@ -162,6 +177,26 @@ export function useDeleteDiagramInstance() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (diagramId: string) => apiFetch<void>(`/diagrams/${diagramId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["diagrams"] })
+    },
+  })
+}
+
+/**
+ * Rebuild an auto-generated assembly single-line from the template it was built
+ * from (POST /diagrams/{id}/regenerate) -- back to the canonical layout, re-
+ * binding the same components. The rebuild REPLACES the instance, so the result
+ * carries a NEW instance_id the caller must switch to. Rides the /diagrams mount's
+ * diagrams:write gate (a POST). Invalidates every container's diagram list so the
+ * replaced instance drops out and the fresh one appears; the caller navigates to
+ * result.instance_id.
+ */
+export function useRegenerateDiagram() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (diagramId: string) =>
+      apiFetch<RegenerateDiagramResult>(`/diagrams/${diagramId}/regenerate`, { method: "POST" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["diagrams"] })
     },

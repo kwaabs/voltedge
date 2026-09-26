@@ -2,6 +2,7 @@ package panel
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -79,17 +80,23 @@ func createPanelHandler(db *bun.DB) http.HandlerFunc {
 			writeError(w, invalidf("request body is not valid JSON: %v", err))
 			return
 		}
-		result, err := CreatePanel(r.Context(), db, CreatePanelInput{
+		in := CreatePanelInput{
 			BoardFeatureClass: req.BoardFeatureClass,
 			BoardFeatureID:    req.BoardFeatureID,
 			PanelFeatureClass: req.PanelFeatureClass,
 			Subtype:           req.Subtype,
 			Name:              req.Name,
 			Attributes:        req.Attributes,
-		})
+		}
+		result, err := CreatePanel(r.Context(), db, in)
 		if err != nil {
 			writeError(w, err)
 			return
+		}
+		// Auto-build the panel's single-line diagram (best-effort): the panel is
+		// already committed, so a diagram failure is logged, never fatal.
+		if _, derr := buildAutoDiagram(r.Context(), db, in, result); derr != nil {
+			log.Printf("panel: auto single-line diagram: %v", derr)
 		}
 		writeJSON(w, http.StatusCreated, result)
 	}

@@ -2,6 +2,7 @@ package rmu
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -75,17 +76,23 @@ func createRMUHandler(db *bun.DB) http.HandlerFunc {
 			writeError(w, invalidf("request body is not valid JSON: %v", err))
 			return
 		}
-		result, err := CreateRMU(r.Context(), db, CreateRMUInput{
+		in := CreateRMUInput{
 			RMUFeatureClass: req.RMUFeatureClass,
 			Subtype:         req.Subtype,
 			Name:            req.Name,
 			Geometry:        req.Geometry,
 			TerritoryID:     req.TerritoryID,
 			Attributes:      req.Attributes,
-		})
+		}
+		result, err := CreateRMU(r.Context(), db, in)
 		if err != nil {
 			writeError(w, err)
 			return
+		}
+		// Auto-build the RMU's single-line diagram (best-effort): the assembly is
+		// already committed, so a diagram failure is logged, never fatal.
+		if _, derr := buildAutoDiagram(r.Context(), db, in, result); derr != nil {
+			log.Printf("rmu: auto single-line diagram: %v", derr)
 		}
 		writeJSON(w, http.StatusCreated, result)
 	}

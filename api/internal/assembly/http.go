@@ -2,6 +2,7 @@ package assembly
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -72,7 +73,7 @@ func createAssemblyHandler(db *bun.DB) http.HandlerFunc {
 			writeError(w, invalidf("request body is not valid JSON: %v", err))
 			return
 		}
-		result, err := CreateAssembly(r.Context(), db, CreateAssemblyInput{
+		in := CreateAssemblyInput{
 			AnchorFeatureClass: req.AnchorFeatureClass,
 			Config:             req.Config,
 			Subtype:            req.Subtype,
@@ -80,10 +81,16 @@ func createAssemblyHandler(db *bun.DB) http.HandlerFunc {
 			Geometry:           req.Geometry,
 			TerritoryID:        req.TerritoryID,
 			Attributes:         req.Attributes,
-		})
+		}
+		result, err := CreateAssembly(r.Context(), db, in)
 		if err != nil {
 			writeError(w, err)
 			return
+		}
+		// Auto-build the kit's single-line diagram (best-effort): the assembly is
+		// already committed, so a diagram failure is logged, never fatal.
+		if _, derr := buildAutoDiagram(r.Context(), db, in, result); derr != nil {
+			log.Printf("assembly: auto single-line diagram: %v", derr)
 		}
 		writeJSON(w, http.StatusCreated, result)
 	}

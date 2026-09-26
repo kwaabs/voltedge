@@ -2,6 +2,7 @@ package packagedsub
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -75,17 +76,23 @@ func createPackagedSubHandler(db *bun.DB) http.HandlerFunc {
 			writeError(w, invalidf("request body is not valid JSON: %v", err))
 			return
 		}
-		result, err := CreatePackagedSubstation(r.Context(), db, CreatePackagedSubInput{
+		in := CreatePackagedSubInput{
 			PackagedFeatureClass: req.PackagedFeatureClass,
 			Subtype:              req.Subtype,
 			Name:                 req.Name,
 			Geometry:             req.Geometry,
 			TerritoryID:          req.TerritoryID,
 			Attributes:           req.Attributes,
-		})
+		}
+		result, err := CreatePackagedSubstation(r.Context(), db, in)
 		if err != nil {
 			writeError(w, err)
 			return
+		}
+		// Auto-build the single-line (best-effort): the unit is already committed,
+		// so a diagram failure is logged, never fatal.
+		if _, derr := buildAutoDiagram(r.Context(), db, in, result); derr != nil {
+			log.Printf("packagedsub: auto single-line diagram: %v", derr)
 		}
 		writeJSON(w, http.StatusCreated, result)
 	}

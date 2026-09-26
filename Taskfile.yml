@@ -724,6 +724,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/double_busbar_template.sql
 
+  seed-assembly-diagram-templates:
+    desc: Load the built-in single-line diagram templates for every assembly/kit (RMU 2W_1T/2W_2T, packaged substation, the six pole/pad kits, switchgear-panel incomer + feeder) through the gitbash sidecar, so a diagram can Apply-template then bind each typed slot to the fan-out's geometry-less internal components (requires migration 0049; idempotent on template name; also flips is_diagram_placeable true for DIST_XFMR/LV_LINK_BOX/PROTECTIVE_RELAY -- a runtime flag, nothing to compile)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/assembly_diagram_templates.sql
+
   seed-mv-switching:
     desc: Load the MV_BREAKER + MV_ISOLATOR + MV_SECTIONALIZER classes (Phase 27 Slice 1) through the gitbash sidecar (requires seed-connectivity + seed/trace_configurations_example.sql applied first; compile CODE=MV_BREAKER, CODE=MV_ISOLATOR and CODE=MV_SECTIONALIZER after)
     cmds:
@@ -963,6 +971,14 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/mv_metering_symbology.sql
+
+  seed-network-meter:
+    desc: Load the NETWORK_METER class -- a network energy meter for energy accounting (non-commercial sibling of MV_METER; asset-registry only, no readings, voltage read from the metered element; meters DIST_XFMR/POWER_XFMR/MV_BUSBAR/MV_CONDUCTOR/LV_CONDUCTOR via metering_accounting) through the gitbash sidecar (requires migration 0121 first; compile CODE=NETWORK_METER after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/network_meter_example.sql
 
   seed-test-network:
     desc: Load the small radial test feeder -- the FIRST seed of real gis.* feature INSTANCES + runtime.feature_connectivity (SUB-SOURCE/SW-101/TX-101 -> LV-1 -> MTR-A/B -> SP-A/B, plus 3 poles) so tracing/load-flow/fault analysis have real data through the gitbash sidecar (requires seed-connectivity + seed-load-flow-fields + seed-transformer-fields + seed-zero-seq-fields + seed-mv-conductor-specs + seed-mv-lv-switch + seed-lv-conductors + seed-lv-metering + seed-service-point + seed-pole, then compile CODE=DIST_XFMR/MV_SWITCH/MV_CONDUCTOR/LV_CONDUCTOR/METER/SERVICE_POINT/POLE first; fails loudly if a prerequisite is missing)
@@ -1339,6 +1355,7 @@ tasks:
       - task: seed-mv-metering
       - task: seed-mv-metering-cubicle
       - task: seed-mv-metering-symbology
+      - task: seed-network-meter
       - task: seed-generator
       - task: seed-generator-pv-fields
       - task: seed-arc-flash-geometry-fields
@@ -1374,6 +1391,11 @@ tasks:
       - task: seed-mv-conductor-diagram-promote
       - task: seed-mv-busbar-voltage-symbology
       - task: seed-mv-cim-mapping
+      # Built-in single-line templates for the assembly/kit fan-outs. Runs last in
+      # Phase 1 so every component class it flips is_diagram_placeable on
+      # (DIST_XFMR/LV_LINK_BOX/PROTECTIVE_RELAY -- the relay is loaded just above)
+      # already exists; the templates themselves are class-free JSON payloads.
+      - task: seed-assembly-diagram-templates
       # --- Phase 2: materialise every physical gis.<code> table now that all
       # class metadata (incl. the field-add seeds above) is present. -------------
       - task: compile-all

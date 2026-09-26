@@ -92,7 +92,12 @@ type CreatedWay struct {
 type CreateRMUResult struct {
 	RMU    map[string]any `json:"rmu"`
 	Busbar map[string]any `json:"busbar"`
-	Ways   []CreatedWay   `json:"ways"`
+	// BusbarFeatureClass is the internal bus's class code (from the template's
+	// BusbarFeatureClass). Carried explicitly because the created-feature
+	// envelope holds only column values (id, ...), never its own class -- the
+	// auto-diagram builder needs the class to bind the bus into its slot.
+	BusbarFeatureClass string       `json:"busbar_feature_class"`
+	Ways               []CreatedWay `json:"ways"`
 }
 
 // CreateRMU creates one Ring Main Unit plus the internal bus and the set of
@@ -181,6 +186,7 @@ func CreateRMU(ctx context.Context, db *bun.DB, in CreateRMUInput) (*CreateRMURe
 			return err
 		}
 		result.Busbar = busEnv
+		result.BusbarFeatureClass = tmpl.BusbarFeatureClass
 		if _, err := relationship.EstablishRelationship(ctx, tx, containment(
 			in.RMUFeatureClass, rmuID, tmpl.BusbarFeatureClass, busID,
 		)); err != nil {

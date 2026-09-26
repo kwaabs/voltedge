@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
 import { useQueries, useQueryClient } from "@tanstack/react-query"
-import { Cable, ChevronsLeft, ChevronsRight, CornerDownRight, Crosshair, Download, Grid3x3, Hand, LayoutTemplate, Link2, List, Loader2, Magnet, Maximize, Maximize2, Minimize, Minus, MousePointer2, PenLine, Plus, Shapes, Spline, Square, Table, Trash2, Type, Waypoints, X, ZoomIn, ZoomOut } from "lucide-react"
+import { Cable, ChevronsLeft, ChevronsRight, CornerDownRight, Crosshair, Download, Grid3x3, Hand, LayoutTemplate, Link2, List, Loader2, Magnet, Maximize, Maximize2, Minimize, Minus, MousePointer2, PenLine, Plus, RefreshCw, Shapes, Spline, Square, Table, Trash2, Type, Waypoints, X, ZoomIn, ZoomOut } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DeleteDiagramDialog } from "@/components/map/delete-diagram-dialog"
@@ -24,6 +24,7 @@ import {
   useDiagramElements,
   useDiagramInstance,
   useDiagramPlacements,
+  useRegenerateDiagram,
 } from "@/hooks/use-diagrams"
 import { usePermission } from "@/hooks/use-auth"
 import { type FeatureRecord } from "@/hooks/use-feature"
@@ -1473,6 +1474,26 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // on this id (null = closed).
   const canDeleteDiagram = usePermission()("diagrams:delete")
   const [deletingDiagram, setDeletingDiagram] = useState(false)
+  // Regenerate rebuilds an auto-generated assembly single-line from its source
+  // template (only such diagrams report regenerable). It REPLACES the instance,
+  // so we open the returned new id and close this one -- rides diagrams:write,
+  // which every editor of this canvas already holds.
+  const regenerate = useRegenerateDiagram()
+  const handleRegenerate = useCallback(async () => {
+    try {
+      const result = await regenerate.mutateAsync(openDiagramId)
+      useDiagramStore.getState().open(result.instance_id)
+      if (result.instance_id !== openDiagramId) useDiagramStore.getState().close(openDiagramId)
+      const detail = [`${result.placed} placed`]
+      if (result.unbound) detail.push(`${result.unbound} slot${result.unbound === 1 ? "" : "s"} left unbound`)
+      if (result.skipped) detail.push(`${result.skipped} skipped`)
+      const message = `Diagram rebuilt — ${detail.join(", ")}.`
+      if (result.unbound || result.skipped) useToastStore.getState().pushWarning(message)
+      else useToastStore.getState().pushSuccess(message)
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not regenerate this diagram.")
+    }
+  }, [regenerate, openDiagramId])
   const diagramHidden = useDiagramLayersStore((s) => s.hidden)
   const stencils = useDiagramStencils()
   const placements = useMemo(() => placementsData?.placements ?? [], [placementsData])
@@ -3418,6 +3439,19 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
             {maximized ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
             <span className="sr-only">{maximized ? "Exit full page" : "Full page"}</span>
           </Button>
+          {diagramInstance?.regenerable && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              title="Regenerate — rebuild this single-line from its template"
+              disabled={regenerate.isPending}
+              onClick={handleRegenerate}
+            >
+              {regenerate.isPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              <span className="sr-only">Regenerate diagram</span>
+            </Button>
+          )}
           {canDeleteDiagram && (
             <Button
               variant="ghost"

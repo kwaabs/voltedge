@@ -28,6 +28,7 @@ import (
 //	DELETE /{id}/elements/{elementID} delete an element
 //	POST   /{id}/save-as-template     capture this diagram as a reusable template (Phase 24 Slice 4)
 //	POST   /{id}/apply-template       instantiate a template's slots + furniture onto this diagram
+//	POST   /{id}/regenerate           rebuild an auto-generated assembly single-line from its source template
 //	GET    /templates                 list the reusable template library
 //	DELETE /templates/{templateID}    delete one template from the library
 func Routes(db *bun.DB) chi.Router {
@@ -59,6 +60,7 @@ func Routes(db *bun.DB) chi.Router {
 		r.Delete("/elements/{elementID}", removeElementHandler(db))
 		r.Post("/save-as-template", saveAsTemplateHandler(db))
 		r.Post("/apply-template", applyTemplateHandler(db))
+		r.Post("/regenerate", regenerateHandler(db))
 	})
 	return r
 }
@@ -147,6 +149,25 @@ func deleteInstanceHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// regenerateHandler rebuilds an auto-generated assembly single-line from the
+// template it was built from, replacing the old instance atomically. It rides
+// the /diagrams mount's diagrams:write gate (a POST) -- a rebuild is a write, not
+// a delete, even though it internally replaces the instance. Returns the build
+// summary (new instance id + placed/unbound/skipped counts) so the canvas can
+// navigate to the fresh diagram and surface a partial rebuild.
+func regenerateHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+
+		result, err := RegenerateAssemblyDiagram(r.Context(), db, id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 

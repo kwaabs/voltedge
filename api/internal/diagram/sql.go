@@ -31,7 +31,12 @@ type DiagramInstance struct {
 	ContainerFeatureID      string    `bun:"container_feature_id"`
 	DiagramTypeValueID      string    `bun:"diagram_type_value_id"`
 	Name                    *string   `bun:"name"`
-	CreatedAt               time.Time `bun:"created_at,nullzero"`
+	// SourceTemplateID is the diagram_templates row this instance was
+	// auto-generated from (assembly single-line builder, migration 0122), or nil
+	// for a hand-built diagram. Regenerate re-applies this exact template; the SET
+	// NULL FK means deleting the template just disables regenerate, never the row.
+	SourceTemplateID *string   `bun:"source_template_id,nullzero"`
+	CreatedAt        time.Time `bun:"created_at,nullzero"`
 }
 
 // DiagramPlacement mirrors runtime.diagram_placements (migrations/0019).
@@ -155,6 +160,7 @@ func createInstance(ctx context.Context, db bun.IDB, req createInstanceRequest) 
 		ContainerFeatureID:      req.Container.FeatureID,
 		DiagramTypeValueID:      diagramType.ID,
 		Name:                    req.Name,
+		SourceTemplateID:        req.SourceTemplateID,
 	}
 	if _, err := db.NewInsert().Model(inst).Returning("*").Exec(ctx); err != nil {
 		return nil, fmt.Errorf("diagram: create instance: %w", err)
@@ -165,6 +171,7 @@ func createInstance(ctx context.Context, db bun.IDB, req createInstanceRequest) 
 		Container:   req.Container,
 		DiagramType: req.DiagramType,
 		Name:        inst.Name,
+		Regenerable: inst.SourceTemplateID != nil,
 		CreatedAt:   inst.CreatedAt,
 	}, nil
 }
@@ -926,6 +933,7 @@ func formatInstance(ctx context.Context, db bun.IDB, inst *DiagramInstance) (*in
 		},
 		DiagramType: diagramTypeCode,
 		Name:        inst.Name,
+		Regenerable: inst.SourceTemplateID != nil,
 		CreatedAt:   inst.CreatedAt,
 	}, nil
 }

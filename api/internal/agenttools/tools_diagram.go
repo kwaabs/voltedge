@@ -444,6 +444,35 @@ func diagramTools() []Tool {
 			Handler:      toolDiagramApplyTemplate,
 		},
 		{
+			Name: "diagram_regenerate",
+			Description: "Rebuild one auto-generated assembly single-line from the template it was built from " +
+				"-- the same write the REST POST /diagrams/{id}/regenerate route performs. Re-applies that " +
+				"template's canonical layout and re-binds the same components (read back from the diagram's " +
+				"own placements), REPLACING the old instance with a fresh one atomically. Use it to reset a " +
+				"single-line whose furniture drifted, a slot was deleted, or the template was reseeded. Only " +
+				"works on a diagram the assembly builders generated (diagram_get_instance reports " +
+				"regenerable=true); a hand-built diagram has no source template and is refused. Returns the " +
+				"NEW instance id plus placed/unbound/skipped counts. This WRITES to the database (it deletes " +
+				"and recreates the instance): confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"id":{"type":"string","description":"The auto-generated diagram instance's id (uuid) to rebuild."}
+				},
+				"required":["id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Regenerate diagram",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &trueHint,  // replaces the instance (old placements + furniture are discarded)
+				IdempotentHint:  &falseHint, // each call produces a fresh instance id
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermDiagramsWrite,
+			Handler:      toolDiagramRegenerate,
+		},
+		{
 			Name: "diagram_delete_template",
 			Description: "Delete one template from the reusable library -- the same write the REST DELETE " +
 				"/diagrams/templates/{templateID} route performs. Copies already applied to diagrams live as " +
@@ -779,6 +808,25 @@ func toolDiagramApplyTemplate(ctx context.Context, db bun.IDB, args json.RawMess
 		return nil, fmt.Errorf("diagram_id and template_id are required")
 	}
 	return diagram.ApplyTemplate(ctx, db, in.DiagramID, in.TemplateID)
+}
+
+func toolDiagramRegenerate(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	// RegenerateAssemblyDiagram owns its own transaction (delete + rebuild are
+	// atomic), so it needs the concrete *bun.DB, not the ambient IDB.
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	return diagram.RegenerateAssemblyDiagram(ctx, sdb, in.ID)
 }
 
 func toolDiagramDeleteTemplate(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {

@@ -37,6 +37,11 @@ type createInstanceRequest struct {
 	Container   featureRef `json:"container"`
 	DiagramType string     `json:"diagram_type"`
 	Name        *string    `json:"name,omitempty"`
+	// SourceTemplateID stamps the instance with the template it was built from
+	// (migration 0122), set only by the assembly auto-diagram builder so the
+	// diagram can later be regenerated. The REST create handler never sets it --
+	// hand-built diagrams have no source template. Not a JSON field (internal).
+	SourceTemplateID *string `json:"-"`
 }
 
 // instanceResponse is the shape returned for one diagram instance,
@@ -46,7 +51,12 @@ type instanceResponse struct {
 	Container   featureRef `json:"container"`
 	DiagramType string     `json:"diagram_type"`
 	Name        *string    `json:"name,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+	// Regenerable is true when this diagram was auto-generated from a template
+	// (its source_template_id is set, migration 0122) and so can be rebuilt via
+	// POST /{id}/regenerate. False for hand-built diagrams -- the canvas shows the
+	// Regenerate control only when this is true.
+	Regenerable bool      `json:"regenerable"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // renameInstanceRequest is the PATCH /diagrams/{id} body -- Name is a
