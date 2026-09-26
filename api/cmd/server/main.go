@@ -35,6 +35,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/tie"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/diagram"
+	"github.com/kwaabs/voltedge/api/internal/docs"
 	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/duct"
 	"github.com/kwaabs/voltedge/api/internal/export"
@@ -321,6 +322,15 @@ func main() {
 	// llmProvider, which is nil when no model is configured (ASSISTANT_LLM_BASE_URL
 	// unset) -- chat then reports itself disabled while suggestions keep working.
 	r.With(auth.RequireAuth).Mount("/assistant", assistant.Routes(db, llmProvider))
+	// In-app documentation viewer: the product manuals (docs/*.md, curated by
+	// docs/README.md) served to a signed-in user. Only RequireAuth here, not a
+	// single RBAC gate -- every authenticated user reaches the mount, and the
+	// per-document RequiredPerm inside docs.Routes is what restricts the
+	// administrative manuals (the Admin & Break-Glass guide needs admin:users, the
+	// CIM export guide needs metadata:read): a caller without the permission never
+	// sees the entry in the catalog and is refused 403 on a direct fetch. No db --
+	// the manuals are files on disk (DOCS_DIR), not database rows.
+	r.With(auth.RequireAuth).Mount("/docs", docs.Routes())
 	r.With(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite)).Mount("/admin", admin.Routes(db, credCipher))
 	// Phase 39 (docs/phase-39-map-settings.md): the admin-configurable default
 	// map view (center lon/lat + zoom at app start), replacing the client's

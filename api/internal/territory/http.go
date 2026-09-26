@@ -8,6 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/uptrace/bun"
+
+	"github.com/kwaabs/voltedge/api/internal/auth"
 )
 
 // Routes returns the territory endpoints:
@@ -33,6 +35,10 @@ import (
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/", listTerritoriesHandler(db))
+	// The territories the CALLING user may access (Phase 58), for the Territory
+	// Explorer panel -- the same features:read gate as the full list, but scoped
+	// to the caller's own grants.
+	r.Get("/mine", listMyTerritoriesHandler(db))
 	r.Get("/levels", listLevelsHandler(db))
 	r.Get("/boundaries", boundariesHandler(db))
 	// Phase 58 rollout: coverage is a read (features:read via the method-aware
@@ -84,6 +90,50 @@ func listTerritoriesHandler(db *bun.DB) http.HandlerFunc {
 		if err != nil {
 			writeError(w, err)
 			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"territories": summaries})
+	}
+}
+
+// listMyTerritoriesHandler serves only the territories the calling user may
+// access -- the tree behind the Territory Explorer panel, which shows an
+// operator just the areas they actually work in.
+//
+// When territory scoping is enforced AND the caller is not unscoped, the flat
+// list is filtered to the caller's effective territory set (the granted nodes
+// plus their subtrees, carried on the session as AllowedTerritories, Phase 58).
+// When enforcement is off or the caller is unscoped (admin/break-glass), it
+// returns the whole tree -- "available to you" is then everyone. The scope is
+// read straight off the SessionUser rather than recomputed, so this costs no
+// query beyond the list itself.
+func listMyTerritoriesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		summaries, err := ListSummaries(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		// An unscoped caller (or one behind disabled enforcement) sees the whole
+		// tree; only a scoped caller under active enforcement is narrowed.
+		if user, ok := auth.UserFrom(r.Context()); ok && !user.Unscoped {
+			enforced, err := EnforcementEnabled(r.Context(), db)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			if enforced {
+				allowed := make(map[string]struct{}, len(user.AllowedTerritories))
+				for _, id := range user.AllowedTerritories {
+					allowed[id] = struct{}{}
+				}
+				scoped := make([]Summary, 0, len(allowed))
+				for _, s := range summaries {
+					if _, in := allowed[s.ID]; in {
+						scoped = append(scoped, s)
+					}
+				}
+				summaries = scoped
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"territories": summaries})
 	}

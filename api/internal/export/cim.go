@@ -29,6 +29,13 @@ import (
 const (
 	rdfNS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 	mdNS  = "http://iec.ch/TC57/61970-552/ModelDescription/1#"
+	// veNS namespaces the VoltEdge-extension elements emitted for a feature's
+	// unmapped fields when a profile's unmapped_attr_policy is 'carry' (H3). It is
+	// deliberately NOT a CIM namespace: a consumer that only understands CDPSM
+	// ignores the ve:* elements, while one that wants the extra fields can read
+	// them. It is declared on the rdf:RDF root only in carry mode, so a 'drop'
+	// export (the default) is byte-for-byte unchanged.
+	veNS = "https://voltedge.local/CIM-extension/1#"
 )
 
 // cimUUIDNamespace is the fixed namespace UUID that seeds every UUIDv5 this
@@ -126,8 +133,15 @@ func (cw *cimWriter) write(w io.Writer, docName string, layers []Layer, conns []
 	profile := cw.mapping.Profile
 
 	cw.b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
-	fmt.Fprintf(&cw.b, "<rdf:RDF xmlns:rdf=%q xmlns:cim=%q xmlns:md=%q>\n",
-		rdfNS, profile.CimNamespace, mdNS)
+	// The ve: extension namespace is declared only when the profile carries
+	// unmapped fields (H3), keeping a default 'drop' export byte-for-byte unchanged.
+	if profile.UnmappedAttrPolicy == "carry" {
+		fmt.Fprintf(&cw.b, "<rdf:RDF xmlns:rdf=%q xmlns:cim=%q xmlns:md=%q xmlns:ve=%q>\n",
+			rdfNS, profile.CimNamespace, mdNS, veNS)
+	} else {
+		fmt.Fprintf(&cw.b, "<rdf:RDF xmlns:rdf=%q xmlns:cim=%q xmlns:md=%q>\n",
+			rdfNS, profile.CimNamespace, mdNS)
+	}
 
 	cw.writeHeader(docName)
 	cw.writeScaffold(profile)
@@ -343,6 +357,13 @@ func (cw *cimWriter) writeBaseVoltages(layers []Layer) {
 				seen[v] = true
 				volts = append(volts, v)
 			}
+			// A transformer's secondary (LV) winding references a BaseVoltage too,
+			// now that the LV end carries one (H2) -- collect those voltages as well
+			// so the object it points at exists.
+			if v, ok := secondaryNominalVoltage(f, attrs); ok && !seen[v] {
+				seen[v] = true
+				volts = append(volts, v)
+			}
 		}
 	}
 	sort.Ints(volts)
@@ -402,6 +423,7 @@ func (cw *cimWriter) writeFeature(cm metadata.CimClassMapping, f Feature, attrs 
 		if locID != "" {
 			cw.ref("PowerSystemResource.Location", locID)
 		}
+		cw.writeCarried(f, attrs) // H3: unmapped fields in 'carry' mode
 		cw.closeObj(cm.CimClass)
 		if locID != "" {
 			cw.writeLocation(locID, pointsOf(f.Geometry))
@@ -454,6 +476,9 @@ func (cw *cimWriter) writeFeature(cm metadata.CimClassMapping, f Feature, attrs 
 	for _, kv := range literalAttributes(f, attrs) {
 		cw.lit(kv[0], kv[1])
 	}
+	// H3: in 'carry' mode, a feature's unmapped fields ride along as ve:*
+	// extension elements (a no-op under the default 'drop' policy).
+	cw.writeCarried(f, attrs)
 	// Slice 3: a conductor's length (from geometry) and series impedance (from
 	// its material spec) -- emitted as literals inside the ACLineSegment.
 	cw.writeConductorDetail(cm, f, attrs, pts)
@@ -548,12 +573,42 @@ func uuidV5(name string) string {
 
 // --- attribute coercion (the transforms Slice 1 can serialize) ---
 
-// nominalVoltage resolves a feature's BaseVoltage.nominalVoltage (in volts)
-// from the first attribute mapping targeting it. domain_map/direct/scale are
-// the transforms that can yield a voltage in Slice 1.
+// nominalVoltage resolves a feature's primary BaseVoltage.nominalVoltage (in
+// volts) from the first attribute mapping targeting it. domain_map/direct/scale
+// are the transforms that can yield a voltage in Slice 1.
 func nominalVoltage(f Feature, attrs []metadata.CimAttributeMapping) (int, bool) {
+	return voltageForTarget(f, attrs, "BaseVoltage.nominalVoltage")
+}
+
+// secondaryNominalVoltage resolves a transformer's secondary (LV) winding voltage
+// from a mapping targeting the sentinel BaseVoltage.nominalVoltage.secondary
+// (e.g. DIST_XFMR.secondary_voltage -> 400). That target is a VoltEdge naming
+// convention, not a CIM attribute: it names the second winding's voltage channel
+// so a PowerTransformer's LV end can carry ratedU + BaseVoltage (H2). It resolves
+// with the same domain_map/direct/scale transforms as the primary.
+func secondaryNominalVoltage(f Feature, attrs []metadata.CimAttributeMapping) (int, bool) {
+	return voltageForTarget(f, attrs, "BaseVoltage.nominalVoltage.secondary")
+}
+
+// windingVoltage resolves the rated voltage for a transformer winding by its
+// endNumber: winding 1 (HV) from the primary voltage, winding 2 (LV) from the
+// secondary. Windings beyond 2 have no configured voltage channel.
+func windingVoltage(f Feature, attrs []metadata.CimAttributeMapping, seq int) (int, bool) {
+	switch seq {
+	case 1:
+		return nominalVoltage(f, attrs)
+	case 2:
+		return secondaryNominalVoltage(f, attrs)
+	}
+	return 0, false
+}
+
+// voltageForTarget resolves an integer voltage (volts) from the first attribute
+// mapping whose CIM target is `target`, applying the domain_map/direct/scale
+// transform.
+func voltageForTarget(f Feature, attrs []metadata.CimAttributeMapping, target string) (int, bool) {
 	for _, a := range attrs {
-		if a.CimAttribute != "BaseVoltage.nominalVoltage" {
+		if a.CimAttribute != target {
 			continue
 		}
 		raw, ok := f.Attributes[a.FieldName]
@@ -581,14 +636,17 @@ func nominalVoltage(f Feature, attrs []metadata.CimAttributeMapping) (int, bool)
 }
 
 // literalAttributes returns the (cimAttribute, value) pairs to emit as literal
-// child elements on a feature, sorted for deterministic output. It skips
-// BaseVoltage.nominalVoltage (handled via the shared BaseVoltage object) and
-// the transforms that emit their own objects rather than a literal on the
-// equipment (from_geometry, material_spec, phase -- Slices 3/4).
+// child elements on a feature, sorted for deterministic output. It skips both
+// BaseVoltage.nominalVoltage channels (handled via the shared BaseVoltage object
+// and the transformer windings) and the transforms that emit their own objects
+// rather than a literal on the equipment (from_geometry, material_spec, phase --
+// Slices 3/4).
 func literalAttributes(f Feature, attrs []metadata.CimAttributeMapping) [][2]string {
 	var out [][2]string
 	for _, a := range attrs {
-		if a.CimAttribute == "BaseVoltage.nominalVoltage" {
+		// Both voltage channels feed shared BaseVoltage objects / the transformer
+		// windings, not a literal on the equipment.
+		if a.CimAttribute == "BaseVoltage.nominalVoltage" || a.CimAttribute == "BaseVoltage.nominalVoltage.secondary" {
 			continue
 		}
 		if a.Transform == "material_spec" || a.Transform == "from_geometry" || a.Transform == "phase" {
@@ -604,6 +662,84 @@ func literalAttributes(f Feature, attrs []metadata.CimAttributeMapping) [][2]str
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i][0] < out[j][0] })
 	return out
+}
+
+// writeCarried emits a feature's UNMAPPED scalar fields as VoltEdge-extension
+// (ve:) elements inside the currently-open object -- but only when the profile's
+// unmapped_attr_policy is 'carry' (H3). Before this, 'carry' was loaded, admin
+// -editable and CHECK-constrained yet behaved identically to 'drop': the setting
+// was a silent no-op. A field is "unmapped" when no attribute mapping for the
+// class names it (a mapped field is already carried as its CIM attribute). Under
+// the default 'drop' this returns immediately, so a drop export is unchanged.
+// Fields emit in sorted order for determinism; composite (map/array) values are
+// skipped -- CIM literals are scalar.
+func (cw *cimWriter) writeCarried(f Feature, attrs []metadata.CimAttributeMapping) {
+	if cw.mapping.Profile.UnmappedAttrPolicy != "carry" {
+		return
+	}
+	mapped := make(map[string]bool, len(attrs))
+	for _, a := range attrs {
+		mapped[a.FieldName] = true
+	}
+	names := make([]string, 0, len(f.Attributes))
+	for name := range f.Attributes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if mapped[name] {
+			continue
+		}
+		raw := f.Attributes[name]
+		if raw == nil {
+			continue
+		}
+		val, ok := scalarString(raw)
+		if !ok {
+			continue
+		}
+		local := ncName(name)
+		if local == "" {
+			continue
+		}
+		fmt.Fprintf(&cw.b, "    <ve:%s>%s</ve:%s>\n", local, xmlEscape(val), local)
+	}
+}
+
+// scalarString renders a scalar attribute value as a CIM literal string, or
+// returns ok=false for a composite (map/array) value that has no literal form.
+func scalarString(v any) (string, bool) {
+	switch v.(type) {
+	case map[string]any, []any:
+		return "", false
+	}
+	return literalString(v), true
+}
+
+// ncName sanitizes a VoltEdge field name into a valid XML NCName for a ve:
+// element: it keeps ASCII letters, digits, '_', '-' and '.', maps anything else
+// to '_', and prefixes '_' when the result would start with a digit, '-' or '.'.
+// Snake_case field names (the norm) pass through unchanged; "" if nothing usable
+// remains.
+func ncName(s string) string {
+	b := make([]rune, 0, len(s))
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_':
+			b = append(b, r)
+		case r >= '0' && r <= '9', r == '-', r == '.':
+			b = append(b, r)
+		default:
+			b = append(b, '_')
+		}
+	}
+	if len(b) == 0 {
+		return ""
+	}
+	if c := b[0]; (c >= '0' && c <= '9') || c == '-' || c == '.' {
+		b = append([]rune{'_'}, b...)
+	}
+	return string(b)
 }
 
 // applyLiteral coerces one field value to its CIM literal string per transform.

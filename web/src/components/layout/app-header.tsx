@@ -19,7 +19,6 @@ const TITLES: Record<string, string> = {
   "/": "Map",
   "/features": "Feature classes",
   "/admin/users": "Users",
-  "/settings": "Settings",
 }
 
 /**

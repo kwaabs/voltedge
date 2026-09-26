@@ -200,8 +200,14 @@ WHERE fc.code = 'MV_CAP_BANK'
   );
 
 -- 6. CIM -- LinearShuntCompensator (the CIM class for a shunt cap bank),
---    conducting_junction; rated_kvar maps to ShuntCompensator.nomQ (VAr, so
---    scale kVAr -> VAr by 1e3), device_state to the section on/off.
+--    conducting_junction; rated_kvar maps to ShuntCompensatorInfo.ratedReactivePower
+--    (VAr, so scale kVAr -> VAr by 1e3), device_state to the section on/off.
+--    NOTE: current CIM has no ShuntCompensator.nomQ (a pre-CIM16 attribute dropped
+--    in favour of susceptance). ratedReactivePower is the real, semantically-exact
+--    attribute, but it lives on the AssetInfo class ShuntCompensatorInfo; the fully
+--    powerflow-correct field is LinearShuntCompensator.bPerSection, which needs a
+--    kVAr -> susceptance conversion (Q / nomU^2) we can't express as a declarative
+--    transform -- a follow-up if a solver needs the susceptance directly.
 INSERT INTO metadata.cim_class_mappings (feature_class_id, subtype_id, cim_class, cim_kind)
 SELECT fc.id, NULL, 'LinearShuntCompensator', 'conducting_junction'
 FROM metadata.feature_classes fc
@@ -212,7 +218,7 @@ WHERE fc.code = 'MV_CAP_BANK'
   );
 
 INSERT INTO metadata.cim_attribute_mappings (field_id, cim_attribute, transform, scale_factor, unit)
-SELECT f.id, 'ShuntCompensator.nomQ', 'scale', 1000, 'VAr'
+SELECT f.id, 'ShuntCompensatorInfo.ratedReactivePower', 'scale', 1000, 'VAr'
 FROM metadata.fields f
 JOIN metadata.feature_classes fc ON fc.id = f.feature_class_id
 WHERE fc.code = 'MV_CAP_BANK' AND f.name = 'rated_kvar'

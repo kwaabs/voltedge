@@ -26,6 +26,7 @@ import { AdminSymbologyIconsPage } from "@/routes/admin-symbology-icons"
 import { AdminTerritoriesPage } from "@/routes/admin-territories"
 import { AdminUsersPage } from "@/routes/admin-users"
 import { SyncReviewPage } from "@/routes/sync-review"
+import { DocsPage } from "@/routes/docs"
 import { FeaturesPage } from "@/routes/features"
 import { FaultsPage } from "@/routes/faults"
 import { ImportRunPage } from "@/routes/imports"
@@ -33,7 +34,6 @@ import { LoginPage } from "@/routes/login"
 import { MapPage } from "@/routes/map"
 import { NotFoundPage } from "@/routes/not-found"
 import { OutagesPage } from "@/routes/outages"
-import { SettingsPage } from "@/routes/settings"
 import { TagResolvePage } from "@/routes/tag-resolve"
 import { WorksPage } from "@/routes/works"
 
@@ -228,7 +228,11 @@ export function App() {
               }
             />
             </Route>
-            <Route path="settings" element={<SettingsPage />} />
+            {/* The documentation viewer is open to every signed-in user; the
+                server filters the manual list and refuses restricted guides
+                per-document (see api/internal/docs), so no route-level gate. */}
+            <Route path="docs" element={<DocsPage />} />
+            <Route path="docs/:id" element={<DocsPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Route>

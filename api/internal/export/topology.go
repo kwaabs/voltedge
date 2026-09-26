@@ -240,12 +240,28 @@ func (cw *cimWriter) writeTopology(layers []Layer, conns []connRow) topoStats {
 			continue
 		}
 		terms := resolveTerminals(ft.layer.Terminals, ft.layer.Subtypes, ft.subtypeCode)
+		windings := 0
 		if len(terms) == 0 {
 			ensure(termKey(ft.id, ""), endpoint{feature: ft.id, seq: 1})
-			continue
+			windings = 1
+		} else {
+			for i, t := range terms {
+				ensure(termKey(ft.id, t.ID), endpoint{feature: ft.id, seq: i + 1})
+			}
+			windings = len(terms)
 		}
-		for i, t := range terms {
-			ensure(termKey(ft.id, t.ID), endpoint{feature: ft.id, seq: i + 1})
+		// A PowerTransformer must have >= 2 windings (PowerTransformerEnds) to be a
+		// valid CIM transformer, but a distribution transformer modeled as a single
+		// junction feature typically defines fewer terminals than it has windings
+		// (often none) -- which previously emitted a malformed one-winding
+		// transformer (H1). Synthesize the missing winding endpoints under sentinel
+		// terminal ids ("@w2", ...) that never collide with a real terminal or the
+		// implicit no-terminal endpoint above; unconnected, each stays on its own
+		// isolated ConnectivityNode, exactly like an unconnected conductor end.
+		if ft.cim.CimClass == "PowerTransformer" {
+			for seq := windings + 1; seq <= 2; seq++ {
+				ensure(termKey(ft.id, fmt.Sprintf("@w%d", seq)), endpoint{feature: ft.id, seq: seq})
+			}
 		}
 	}
 
@@ -365,9 +381,11 @@ func (cw *cimWriter) writeTerminal(termID, feature, nodeID string, seq int) {
 // writeTransformerEnd emits the PowerTransformerEnd (winding) a transformer's
 // terminal belongs to: wired to its transformer and terminal with its endNumber,
 // plus (Slice 3) its ratings. End-targeted attribute mappings (e.g. rated_kva ->
-// PowerTransformerEnd.ratedS) apply to every end; the primary winding (endNumber
-// 1) additionally carries the rated voltage + BaseVoltage from primary_voltage
-// (there is no seeded secondary voltage, so the LV end gets none).
+// PowerTransformerEnd.ratedS) apply to every end; each winding additionally
+// carries its own rated voltage + BaseVoltage -- winding 1 (HV) from the primary
+// voltage, winding 2 (LV) from the secondary voltage channel
+// (BaseVoltage.nominalVoltage.secondary) -- so a consumer can read the turns
+// ratio. Previously only the primary winding carried voltage (H2).
 func (cw *cimWriter) writeTransformerEnd(ft *featTopo, memberKey string, ep endpoint, termID string) {
 	endID := uuidV5("ptend:" + memberKey)
 	attrs := cw.mapping.AttributesFor(ft.layer.Code)
@@ -390,11 +408,9 @@ func (cw *cimWriter) writeTransformerEnd(ft *featTopo, memberKey string, ep endp
 			cw.lit(a.CimAttribute, val)
 		}
 	}
-	if ep.seq == 1 {
-		if v, ok := nominalVoltage(*ft.feat, attrs); ok {
-			cw.lit("PowerTransformerEnd.ratedU", strconv.Itoa(v))
-			cw.ref("TransformerEnd.BaseVoltage", uuidV5(fmt.Sprintf("basevoltage:%d", v)))
-		}
+	if v, ok := windingVoltage(*ft.feat, attrs, ep.seq); ok {
+		cw.lit("PowerTransformerEnd.ratedU", strconv.Itoa(v))
+		cw.ref("TransformerEnd.BaseVoltage", uuidV5(fmt.Sprintf("basevoltage:%d", v)))
 	}
 	cw.closeObj("PowerTransformerEnd")
 }

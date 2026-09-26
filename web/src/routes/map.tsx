@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ChevronRight, Download, Search, SlidersHorizontal, Sparkles, Upload, X } from "lucide-react"
+import { ArrowDown, ArrowUp, ChevronRight, Download, LandPlot, Search, SlidersHorizontal, Sparkles, Upload, X } from "lucide-react"
 import { useState } from "react"
 
 import { AmpacityPanel } from "@/components/map/ampacity-panel"
@@ -13,6 +13,7 @@ import { ExportJobsPanel } from "@/components/map/export-jobs-panel"
 import { FaultCurrentPanel } from "@/components/map/fault-current-panel"
 import { FeaturePanel } from "@/components/map/feature-panel"
 import { FeatureQueryPanel } from "@/components/map/feature-query-panel"
+import { TerritoryExplorerPanel } from "@/components/map/territory-explorer-panel"
 import { ImportDialog } from "@/components/map/import-dialog"
 import { ImportedFeaturePopup } from "@/components/map/imported-feature-popup"
 import { GeometryEditToolbar } from "@/components/map/geometry-edit-toolbar"
@@ -36,7 +37,6 @@ import { NewAnnotationMenu } from "@/components/map/new-annotation-menu"
 import { NewAssemblyMenu } from "@/components/map/new-assembly-menu"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
 import { PeerPicker } from "@/components/map/peer-picker"
-import { SelectToolButton } from "@/components/map/select-tool-button"
 import { ServiceIdentifyPanel } from "@/components/map/service-identify-panel"
 import { StatusBar } from "@/components/map/status-bar"
 import { TerritoryEditToolbar } from "@/components/map/territory-edit-toolbar"
@@ -53,6 +53,7 @@ import { type DiagramPane, useDiagramStore } from "@/stores/diagram-store"
 import { useExportStore } from "@/stores/export-store"
 import { useImportStore } from "@/stores/import-store"
 import { useQueryStore } from "@/stores/query-store"
+import { useTerritoryExplorerStore } from "@/stores/territory-explorer-store"
 
 export function MapPage() {
   const topTabs = useDiagramStore((s) => s.panes.top)
@@ -65,6 +66,7 @@ export function MapPage() {
   const maximizedId = useDiagramStore((s) => s.maximizedId)
   const maximized = maximizedId != null && (topTabs.includes(maximizedId) || bottomTabs.includes(maximizedId))
   const queryOpen = useQueryStore((s) => s.open)
+  const explorerOpen = useTerritoryExplorerStore((s) => s.open)
   const chatOpen = useAssistantChatStore((s) => s.open)
   // The chat toolbar entry only appears when the server has a model configured;
   // the deterministic suggestions work regardless, so a model-less deployment
@@ -108,6 +110,14 @@ export function MapPage() {
                   <Search className={cn("size-3.5", !queryOpen && "text-sky-600")} /> Query
                 </Button>
                 <Button
+                  variant={explorerOpen ? "default" : "secondary"}
+                  size="sm"
+                  className="shadow-sm"
+                  onClick={() => useTerritoryExplorerStore.getState().toggle()}
+                >
+                  <LandPlot className={cn("size-3.5", !explorerOpen && "text-teal-600")} /> Territories
+                </Button>
+                <Button
                   variant="secondary"
                   size="sm"
                   className="shadow-sm"
@@ -133,7 +143,6 @@ export function MapPage() {
                     <Sparkles className={cn("size-3.5", !chatOpen && "text-violet-600")} /> Assistant
                   </Button>
                 )}
-                <SelectToolButton />
                 <NewFeatureMenu />
                 <NewAssemblyMenu />
                 <NewAnnotationMenu />
@@ -186,6 +195,7 @@ export function MapPage() {
           ))}
       </div>
       {queryOpen && <FeatureQueryPanel />}
+      {explorerOpen && <TerritoryExplorerPanel />}
       <ExportDialog />
       <ExportJobsPanel />
       <ImportDialog />

@@ -89,6 +89,8 @@ import (
 //	DELETE /cim-attribute-mappings/{id}    delete an attribute mapping
 //	GET    /cim-coverage                   feature classes with no CIM class mapping (silently dropped from export)
 //	GET    /cim-preview/{code}             one real feature of a class rendered through the CIM encoder (byte-exact CIM/XML preview; ?profile= optional)
+//	GET    /cim-dictionary/classes         the CIM reference dictionary's classes, each flagged in_profile (mig 0120; ?profile= optional)
+//	GET    /cim-dictionary/classes/{name}/attributes   the reference attributes of one CIM class, each flagged in_profile (?profile= optional)
 //	GET    /import-profiles                every ETL import profile, code-shaped (Phase / docs/etl-import-engine.md)
 //	POST   /import-profiles                create an import profile (target class + write policy + geometry mode)
 //	PATCH  /import-profiles/{code}         edit an import profile (name/format/write policy/geometry/status; not its target class)
@@ -161,6 +163,8 @@ func Routes(db *bun.DB, cipher *secretbox.Cipher) chi.Router {
 	r.Delete("/cim-attribute-mappings/{id}", deleteCimAttributeMappingHandler(db))
 	r.Get("/cim-coverage", listCimCoverageHandler(db))
 	r.Get("/cim-preview/{code}", getCimPreviewHandler(db))
+	r.Get("/cim-dictionary/classes", listCimRefClassesHandler(db))
+	r.Get("/cim-dictionary/classes/{name}/attributes", listCimRefAttributesHandler(db))
 	r.Get("/import-profiles", listImportProfilesHandler(db))
 	r.Post("/import-profiles", createImportProfileHandler(db, cipher))
 	r.Patch("/import-profiles/{code}", updateImportProfileHandler(db, cipher))
@@ -983,5 +987,35 @@ func getCimPreviewHandler(db *bun.DB) http.HandlerFunc {
 			Sampled:   preview.Sampled,
 			Note:      preview.Note,
 		})
+	}
+}
+
+// listCimRefClassesHandler serves the CIM reference dictionary's classes (mig
+// 0120) so the mapping editor can offer real CIM class names and flag free text
+// that isn't in the vocabulary. The optional ?profile= sets which profile's
+// membership decides in_profile (empty -> the default profile).
+func listCimRefClassesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		classes, err := listCimRefClasses(r.Context(), db, r.URL.Query().Get("profile"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"cim_ref_classes": classes})
+	}
+}
+
+// listCimRefAttributesHandler serves the reference attributes of one CIM class
+// (path {name}) so the editor can offer the real properties of a chosen CIM
+// class. An unknown class yields an empty list, not an error. ?profile= as above.
+func listCimRefAttributesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := chi.URLParam(r, "name")
+		attrs, err := listCimRefAttributes(r.Context(), db, name, r.URL.Query().Get("profile"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"cim_ref_attributes": attrs})
 	}
 }

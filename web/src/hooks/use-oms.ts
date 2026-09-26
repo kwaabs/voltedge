@@ -165,6 +165,49 @@ export function useAffectedArea(incidentId: string | null) {
   })
 }
 
+// --- Map overlay -----------------------------------------------------------
+// The GIS-map overlay (oms-overlay-store.ts) draws every incident anchored to a
+// resolvable predicted device, as a status-colored marker on the device geometry
+// -- the twin of the fault overlay. GET /oms/incidents/map returns only the
+// incidents that resolved to a point (longitude/latitude guaranteed non-null). It
+// fetches every status once; the legend filters client-side, so revealing
+// restored/cancelled incidents never re-hits the server. The two click-through
+// cones reuse useAffectedArea (frozen) + useIncidentEnergization (live) above.
+
+/** A GeoJSON geometry object (as OpenLayers' GeoJSON reader consumes it). Defined
+ * locally rather than shared with use-faults so the OMS overlay carries no
+ * dependency on the (optional) faults module. */
+export interface GeoJsonGeometry {
+  type: string
+  coordinates: unknown
+}
+
+/** One incident projected onto the map (GET /oms/incidents/map). Extends the
+ * incident with its predicted device's geometry: `geometry` is the device's full
+ * shape (line / polygon / point) for the highlight, and longitude/latitude are
+ * the marker point on that geometry. */
+export interface IncidentMapMarker extends Incident {
+  longitude: number
+  latitude: number
+  geometry: GeoJsonGeometry | null
+}
+
+interface IncidentMapResponse {
+  incidents: IncidentMapMarker[]
+}
+
+/** Every incident with a placeable marker, for the GIS-map Outages overlay.
+ * Disabled until `enabled` (the layer is toggled on) so a hidden overlay costs
+ * nothing. */
+export function useIncidentsForMap(enabled = true) {
+  return useQuery({
+    queryKey: [...OMS_KEY, "map"],
+    queryFn: () => apiFetch<IncidentMapResponse>(`/oms/incidents/map`),
+    enabled,
+    staleTime: 15_000,
+  })
+}
+
 export type SwitchingOrderStatus = "draft" | "issued" | "in_progress" | "completed" | "cancelled"
 export type StepPhase = "isolate" | "restore"
 export type StepAction = "open" | "close" | "earth" | "verify" | "note"

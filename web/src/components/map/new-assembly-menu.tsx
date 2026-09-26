@@ -19,6 +19,7 @@ import { useRMUOptions } from "@/hooks/use-rmus"
 import { useTieOptions } from "@/hooks/use-ties"
 import { cn } from "@/lib/utils"
 import { useDrawStore } from "@/stores/draw-store"
+import { useEditStore } from "@/stores/edit-store"
 import { useToolbarMenuStore } from "@/stores/toolbar-menu-store"
 
 /**
@@ -52,6 +53,9 @@ export function NewAssemblyMenu() {
   const startTieDrawing = useDrawStore((s) => s.startTieDrawing)
   const startAssemblyDrawing = useDrawStore((s) => s.startAssemblyDrawing)
   const drawing = useDrawStore((s) => s.drawingFeatureClassCode)
+  // Guided placement draws a new feature too, so it's blocked mid-edit for the
+  // same reason as the plain New feature menu -- see new-feature-menu.tsx.
+  const editing = useEditStore((s) => s.editing)
   // Only one toolbar dropdown open at a time -- see toolbar-menu-store.ts.
   const menuOpen = useToolbarMenuStore((s) => s.open === "assembly")
   const setMenuOpen = useToolbarMenuStore((s) => s.setOpen)
@@ -97,9 +101,15 @@ export function NewAssemblyMenu() {
     return null
 
   return (
-    <DropdownMenu open={menuOpen} onOpenChange={(o) => setMenuOpen("assembly", o)}>
+    <DropdownMenu open={menuOpen && !editing} onOpenChange={(o) => setMenuOpen("assembly", o)}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="bg-background/90 gap-1.5 shadow-sm">
+        <Button
+          variant="outline"
+          size="sm"
+          className="bg-background/90 gap-1.5 shadow-sm"
+          disabled={Boolean(editing)}
+          title={editing ? "Finish or cancel the current geometry edit first" : undefined}
+        >
           <Boxes className="text-primary size-4" />
           Assemblies
         </Button>

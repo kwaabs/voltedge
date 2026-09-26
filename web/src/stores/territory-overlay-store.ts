@@ -24,11 +24,16 @@ interface TerritoryOverlayState {
    * (hide districts, keep regions) instead of the master all-or-nothing.
    * Persisted alongside `visible`. */
   hiddenLevels: Record<string, boolean>
+  /** Whether each boundary is labelled with its territory name. On by
+   * default; some users want the coloured areas without the name clutter,
+   * especially with several levels stacked. Persisted alongside `visible`. */
+  showLabels: boolean
   /** The territory whose read-only panel is open (clicked on the overlay),
    * or null. Transient -- never persisted. */
   selected: TerritoryOverlaySelection | null
   toggle: () => void
   toggleLevel: (levelCode: string) => void
+  toggleLabels: () => void
   selectTerritory: (t: TerritoryOverlaySelection) => void
   clearSelected: () => void
 }
@@ -46,6 +51,7 @@ export const useTerritoryOverlayStore = create<TerritoryOverlayState>()(
     (set) => ({
       visible: false,
       hiddenLevels: {},
+      showLabels: true,
       selected: null,
       toggle: () => set((s) => ({ visible: !s.visible, selected: s.visible ? null : s.selected })),
       // Flip one level's visibility. Hiding the level whose territory is
@@ -59,12 +65,13 @@ export const useTerritoryOverlayStore = create<TerritoryOverlayState>()(
           const selected = nowHidden && s.selected?.level_code === levelCode ? null : s.selected
           return { hiddenLevels, selected }
         }),
+      toggleLabels: () => set((s) => ({ showLabels: !s.showLabels })),
       selectTerritory: (t) => set({ selected: t }),
       clearSelected: () => set({ selected: null }),
     }),
     {
       name: "voltedge-territory-overlay",
-      partialize: (s) => ({ visible: s.visible, hiddenLevels: s.hiddenLevels }),
+      partialize: (s) => ({ visible: s.visible, hiddenLevels: s.hiddenLevels, showLabels: s.showLabels }),
     },
   ),
 )

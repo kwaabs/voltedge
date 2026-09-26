@@ -17,6 +17,7 @@ import (
 //	POST /trouble-calls              log a call
 //	POST /trouble-calls/{id}/associate  resolve the call's SP (manual or snap)
 //	GET  /incidents                  the incident board (?status=, ?open=true)
+//	GET  /incidents/map              incidents projected onto their device (map overlay)
 //	GET  /incidents/{id}             one incident
 //	GET  /incidents/{id}/affected    the incident's affected service points (map overlay)
 //	GET  /incidents/{id}/energization  the incident's LIVE de-energized cone (current switch state)
@@ -44,6 +45,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/trouble-calls/{id}/associate", associateTroubleCallHandler(db))
 
 	r.Get("/incidents", listIncidentsHandler(db))
+	r.Get("/incidents/map", listIncidentsForMapHandler(db))
 	r.Post("/incidents/predict", predictIncidentsHandler(db))
 	r.Post("/incidents/planned", createPlannedOutageHandler(db))
 	r.Get("/incidents/{id}", getIncidentHandler(db))
@@ -155,6 +157,23 @@ func listIncidentsHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"incidents": incidents})
+	}
+}
+
+// listIncidentsForMapHandler returns incidents projected onto their predicted
+// device (an on-geometry marker point + the device geometry) for the GIS map
+// overlay -- the twin of the fault overlay's /faults/map. The overlay fetches
+// every status once and filters restored/cancelled client-side via the legend,
+// so no open-only filter is forced here.
+func listIncidentsForMapHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		markers, err := ListIncidentsForMap(r.Context(), db, q.Get("status"), q.Get("open") == "true")
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"incidents": markers})
 	}
 }
 

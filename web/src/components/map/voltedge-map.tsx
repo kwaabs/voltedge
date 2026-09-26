@@ -45,7 +45,7 @@ import { usePermission } from "@/hooks/use-auth"
 import { useCatalog } from "@/hooks/use-catalog"
 import { type FeatureGeometry, useFeature } from "@/hooks/use-feature"
 import { type FaultImpact, useFaultMapMarkers } from "@/hooks/use-faults"
-import type { AffectedArea } from "@/hooks/use-oms"
+import { type AffectedArea, type EnergizationState, useIncidentsForMap } from "@/hooks/use-oms"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useBasemaps } from "@/hooks/use-basemaps"
 import { useServiceLayers, type ServiceLayerRecord } from "@/hooks/use-service-layers"
@@ -67,6 +67,9 @@ import {
   FAULT_MARKER_DISPLACEMENT,
   faultStatusColorRgba,
   faultStyleForFeature,
+  INCIDENT_MARKER_DISPLACEMENT,
+  incidentStatusColorRgba,
+  incidentStyleForFeature,
   HIGHLIGHT_COLORS,
   type HighlightRole,
   highlightStyleForFeature,
@@ -106,12 +109,14 @@ import { useMapSelectStore } from "@/stores/map-select-store"
 import { type Bbox4326, useMapViewStore } from "@/stores/map-view-store"
 import { useMeasureStore } from "@/stores/measure-store"
 import { useOmsHighlightStore } from "@/stores/oms-highlight-store"
+import { useOmsOverlayStore } from "@/stores/oms-overlay-store"
 import { useOrthoStore } from "@/stores/ortho-store"
 import { useQueryStore } from "@/stores/query-store"
 import { useRadiusQueryStore } from "@/stores/radius-query-store"
 import { type FeatureRef, useSelectionStore } from "@/stores/selection-store"
 import { useSnapStore } from "@/stores/snap-store"
 import { type TerritoryGeometry, useTerritoryEditStore } from "@/stores/territory-edit-store"
+import { useTerritoryExplorerStore } from "@/stores/territory-explorer-store"
 import { useTerritoryOverlayStore } from "@/stores/territory-overlay-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useTraceStore, type TracedFeature } from "@/stores/trace-store"
@@ -560,6 +565,20 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   const faultMarkerLayerRef = useRef<VectorLayer | null>(null)
   const faultImpactSourceRef = useRef<VectorSource | null>(null)
   const faultImpactFittedTokenRef = useRef(0)
+  // The last Territory Explorer focus token the map fitted, so selecting a
+  // territory fits its boundary exactly once (not on every boundaries refetch).
+  const explorerFittedTokenRef = useRef(0)
+  // The outage (OMS incident) map overlay (oms-overlay-store.ts) -- the twin of
+  // the fault overlay above. The marker layer draws status-colored diamonds on
+  // each incident's predicted device and is CLICKABLE (its own layer ref, hit-
+  // tested via a layerFilter). Clicking a marker draws BOTH outage cones: the
+  // frozen affected area (amber) and the live de-energized subset (red), fit once
+  // per click via the token ref, exactly as the outage console's mini-map does.
+  const incidentMarkerSourceRef = useRef<VectorSource | null>(null)
+  const incidentMarkerLayerRef = useRef<VectorLayer | null>(null)
+  const incidentAffectedSourceRef = useRef<VectorSource | null>(null)
+  const incidentEnergizedSourceRef = useRef<VectorSource | null>(null)
+  const incidentConeFittedTokenRef = useRef(0)
   // Finalized measure-tool labels (the frozen tooltip Overlays left
   // behind by each completed measurement), kept in a ref so the
   // units-change effect below can re-format them all in place without
@@ -619,6 +638,13 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   // The overlay only fetches while it's switched on (fault-overlay-store); the
   // legend filters the result client-side, so toggling a status never refetches.
   const faultMarkers = useFaultMapMarkers(faultOverlayVisible)
+  // The outage (OMS incident) overlay -- the twin of the fault overlay above.
+  const omsOverlayVisible = useOmsOverlayStore((s) => s.visible)
+  const omsOverlayStatuses = useOmsOverlayStore((s) => s.statuses)
+  const omsOverlayPulse = useOmsOverlayStore((s) => s.pulse)
+  const omsConeIncidentId = useOmsOverlayStore((s) => s.coneIncidentId)
+  const omsConeToken = useOmsOverlayStore((s) => s.focusToken)
+  const incidentMarkers = useIncidentsForMap(omsOverlayVisible)
   const refreshVersion = useMapRefreshStore((s) => s.version)
   const hiddenLayers = useLayersStore((s) => s.hidden)
   const labelsHidden = useLayersStore((s) => s.labelsHidden)
@@ -632,16 +658,23 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   const units = useUnitsStore((s) => s.units)
   const territoryOverlayVisible = useTerritoryOverlayStore((s) => s.visible)
   const territoryHiddenLevels = useTerritoryOverlayStore((s) => s.hiddenLevels)
+  const territoryLabelsVisible = useTerritoryOverlayStore((s) => s.showLabels)
   const importedOverlays = useImportedOverlaysStore((s) => s.overlays)
   const territoryEditing = useTerritoryEditStore((s) => s.editing)
   const territoryEditTool = useTerritoryEditStore((s) => s.tool)
   const territoryEditCleared = useTerritoryEditStore((s) => s.cleared)
-  // Fetched while the overlay is on OR a boundary is being authored -- the
-  // authoring seed reads the territory's current boundary from this same
-  // collection (see the seed effect) rather than a second single-territory
-  // fetch.
+  // The Territory Explorer panel: a selected territory + a one-shot focus token
+  // the fit effect below reacts to, plus whether the panel is open (which also
+  // forces the boundaries fetch, so the fit can read the selected polygon).
+  const explorerOpen = useTerritoryExplorerStore((s) => s.open)
+  const explorerSelectedId = useTerritoryExplorerStore((s) => s.selectedId)
+  const explorerFocusToken = useTerritoryExplorerStore((s) => s.focusToken)
+  // Fetched while the overlay is on, a boundary is being authored, OR the
+  // Territory Explorer is open -- each reads the territory boundaries from this
+  // same collection (the authoring seed and the Explorer's fit-to-boundary)
+  // rather than a second single-territory fetch.
   const { data: territoryBoundaries } = useTerritoryBoundaries(
-    territoryOverlayVisible || Boolean(territoryEditing),
+    territoryOverlayVisible || Boolean(territoryEditing) || explorerOpen,
   )
 
   // The map-annotation (redlining) overlay (Phase 36) -- its visibility toggle
@@ -962,6 +995,56 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     faultMarkerSourceRef.current = faultMarkerSource
     faultMarkerLayerRef.current = faultMarkerLayer
 
+    // The outage (OMS incident) map overlay (oms-overlay-store.ts) -- the twin of
+    // the fault overlay above. Three layers, mirroring the console mini-map's
+    // amber/red split (outage-map.tsx): the frozen affected cone draws every
+    // affected service point in AMBER (zIndex 6), the live de-energized subset
+    // draws the currently-dead points in RED on top (zIndex 7, so a still-out
+    // point shows red over its amber base), and the marker layer draws the
+    // status-colored device diamonds on top (zIndex 9) -- the only CLICKABLE one,
+    // so it keeps a layer ref the click handler hit-tests. All start empty; the
+    // population effects own their contents and flip the marker layer's visibility.
+    const incidentAffectedSource = new VectorSource()
+    const incidentAffectedLayer = new VectorLayer({
+      source: incidentAffectedSource,
+      style: new Style({
+        image: new CircleStyle({
+          radius: 5,
+          fill: new Fill({ color: "#f59e0b" }),
+          stroke: new Stroke({ color: "#ffffff", width: 1.25 }),
+        }),
+      }),
+      zIndex: 6,
+    })
+    map.addLayer(incidentAffectedLayer)
+    incidentAffectedSourceRef.current = incidentAffectedSource
+
+    const incidentEnergizedSource = new VectorSource()
+    const incidentEnergizedLayer = new VectorLayer({
+      source: incidentEnergizedSource,
+      style: new Style({
+        image: new CircleStyle({
+          radius: 6,
+          fill: new Fill({ color: "#dc2626" }),
+          stroke: new Stroke({ color: "#ffffff", width: 1.25 }),
+        }),
+      }),
+      zIndex: 7,
+    })
+    map.addLayer(incidentEnergizedLayer)
+    incidentEnergizedSourceRef.current = incidentEnergizedSource
+
+    const incidentMarkerSource = new VectorSource()
+    const incidentMarkerLayer = new VectorLayer({
+      source: incidentMarkerSource,
+      style: incidentStyleForFeature,
+      zIndex: 9,
+      visible: false,
+    })
+    map.addLayer(incidentMarkerLayer)
+    incidentMarkerSourceRef.current = incidentMarkerSource
+    incidentMarkerLayerRef.current = incidentMarkerLayer
+
     // The one feature currently under geometry edit (see
     // editStyleForFeature) -- above the highlight layer so its cyan
     // isn't washed out underneath a selected halo, below the draft
@@ -1051,6 +1134,10 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       faultMarkerSourceRef.current = null
       faultMarkerLayerRef.current = null
       faultImpactSourceRef.current = null
+      incidentMarkerSourceRef.current = null
+      incidentMarkerLayerRef.current = null
+      incidentAffectedSourceRef.current = null
+      incidentEnergizedSourceRef.current = null
       editSourceRef.current = null
       snapSourceRef.current = null
     }
@@ -2127,6 +2214,177 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     }
   }, [faultImpactId, faultImpactToken])
 
+  // Outage (OMS incident) map overlay markers (oms-overlay-store.ts) -- the twin
+  // of the fault marker effect above. Repopulates the marker source from
+  // /oms/incidents/map, drawing only the statuses the legend has enabled, and
+  // flips the layer's visibility with the store. Each feature is tagged with its
+  // incident id + predicted device so the click handler can open the device's
+  // panel and draw the cones, and with its status so the style function colors it.
+  //
+  // An incident on a LINE or POLYGON device is drawn ONLY as its real geometry (a
+  // status-colored highlight of the whole device); a POINT device gets the diamond
+  // marker. incidentStyleForFeature styles each feature by its own geometry type.
+  useEffect(() => {
+    const source = incidentMarkerSourceRef.current
+    const layer = incidentMarkerLayerRef.current
+    if (!source || !layer) return
+
+    layer.setVisible(omsOverlayVisible)
+    source.clear()
+    if (!omsOverlayVisible) {
+      // Hiding the overlay also drops any drawn cone (the cone effect clears its
+      // sources once coneIncidentId goes null).
+      useOmsOverlayStore.getState().clearCone()
+      return
+    }
+
+    const geojson = new GeoJSON()
+    const markers = incidentMarkers.data?.incidents ?? []
+    for (const inc of markers) {
+      if (inc.longitude == null || inc.latitude == null) continue
+      if (!omsOverlayStatuses[inc.status]) continue
+      const tag = (feature: Feature) => {
+        feature.set("incidentId", inc.id)
+        feature.set("incidentStatus", inc.status)
+        feature.set("incidentDeviceClass", inc.predicted_device_class ?? "")
+        feature.set("incidentDeviceId", inc.predicted_device_id ?? "")
+        source.addFeature(feature)
+      }
+
+      // A line/area device -> highlight its whole shape (no diamond). A point
+      // device -> a diamond at the point.
+      const geomType = inc.geometry?.type
+      if (geomType && geomType !== "Point" && geomType !== "MultiPoint") {
+        const geometry = geojson.readGeometry(inc.geometry as object, {
+          dataProjection: "EPSG:4326",
+          featureProjection: "EPSG:3857",
+        })
+        tag(new Feature(geometry))
+      } else {
+        tag(new Feature(new Point(fromLonLat([inc.longitude, inc.latitude]))))
+      }
+    }
+  }, [omsOverlayVisible, omsOverlayStatuses, incidentMarkers.data])
+
+  // Pulse the LIVE incidents -- the same "radar ping" as the fault pulse, hung off
+  // the incident marker layer. Only predicted/confirmed/dispatched pulse: those
+  // are the incidents with customers currently out. A scheduled (future planned)
+  // or restored/cancelled incident isn't urgent, so it stays a steady diamond. A
+  // point device pulses an expanding ring around its diamond; a line/area device
+  // pulses an expanding glow around its highlight. Suppressed when pulsing is
+  // toggled off (oms-overlay-store) or the OS asks for reduced motion.
+  useEffect(() => {
+    const layer = incidentMarkerLayerRef.current
+    const map = mapRef.current
+    if (!layer || !map) return
+
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+    if (!omsOverlayPulse || reduceMotion) return
+
+    const PERIOD_MS = 1600 // one ping per 1.6s
+    const RING_BASE_RADIUS = 10 // px -- just outside the diamond
+    const RING_GROWTH = 16 // px the ring expands over a period
+    const GLOW_BASE_WIDTH = 6 // px -- just outside the highlight stroke
+    const GLOW_GROWTH = 14 // px the glow expands over a period
+    const LIVE_STATUSES = new Set(["predicted", "confirmed", "dispatched"])
+
+    const onPostRender = (event: RenderEvent) => {
+      const source = incidentMarkerSourceRef.current
+      const frameTime = event.frameState?.time
+      if (!source || frameTime == null) return
+      const frac = (frameTime % PERIOD_MS) / PERIOD_MS
+      const alpha = 1 - frac // fade out as it grows
+      const vectorContext = getVectorContext(event)
+      let pulsing = false
+      for (const feature of source.getFeatures()) {
+        const geom = feature.getGeometry()
+        if (!geom) continue
+        const status = feature.get("incidentStatus") as string | undefined
+        if (!status || !LIVE_STATUSES.has(status)) continue
+        const color = incidentStatusColorRgba(status, alpha)
+        if (geom instanceof Point) {
+          vectorContext.setStyle(
+            new Style({
+              image: new CircleStyle({
+                radius: RING_BASE_RADIUS + frac * RING_GROWTH,
+                displacement: INCIDENT_MARKER_DISPLACEMENT,
+                stroke: new Stroke({ color, width: 2 }),
+              }),
+            }),
+          )
+        } else {
+          vectorContext.setStyle(new Style({ stroke: new Stroke({ color, width: GLOW_BASE_WIDTH + frac * GLOW_GROWTH }) }))
+        }
+        vectorContext.drawGeometry(geom)
+        pulsing = true
+      }
+      if (pulsing) map.render() // schedule the next frame only while there's something to pulse
+    }
+
+    const key = layer.on("postrender", onPostRender)
+    map.render() // kick off the first frame
+    return () => unByKey(key)
+  }, [omsOverlayPulse])
+
+  // A selected incident's two outage cones, drawn on click (oms-overlay-store's
+  // coneIncidentId). The FROZEN affected area (/affected) draws AMBER into one
+  // source; the LIVE de-energized subset (/energization) draws RED into another,
+  // layered red-over-amber (see the layer zIndexes) so a still-out point reads red
+  // over its amber base and a restored one stays amber -- exactly the outage
+  // console's mini-map split. Both are fetched together and the combined extent is
+  // fit to the view once per click via incidentConeFittedTokenRef. Cleared when
+  // the selection (or the whole overlay, via clearCone) goes away.
+  useEffect(() => {
+    const affectedSource = incidentAffectedSourceRef.current
+    const energizedSource = incidentEnergizedSourceRef.current
+    if (!affectedSource || !energizedSource) return
+
+    if (!omsConeIncidentId) {
+      affectedSource.clear()
+      energizedSource.clear()
+      return
+    }
+
+    const affected: VectorSource = affectedSource
+    const energized: VectorSource = energizedSource
+    const id = omsConeIncidentId
+    const token = omsConeToken
+    let cancelled = false
+
+    async function loadCones() {
+      const [area, live] = await Promise.all([
+        apiFetch<AffectedArea>(`/oms/incidents/${id}/affected`).catch(() => null),
+        apiFetch<EnergizationState>(`/oms/incidents/${id}/energization`).catch(() => null),
+      ])
+      if (cancelled) return
+
+      affected.clear()
+      energized.clear()
+      for (const sp of area?.service_points ?? []) {
+        affected.addFeature(new Feature(new Point(fromLonLat([sp.longitude, sp.latitude]))))
+      }
+      for (const sp of live?.service_points ?? []) {
+        energized.addFeature(new Feature(new Point(fromLonLat([sp.longitude, sp.latitude]))))
+      }
+
+      if (token !== 0 && token !== incidentConeFittedTokenRef.current) {
+        const map = mapRef.current
+        // Fit to the frozen affected cone (the wider set); fall back to the live
+        // cone when the incident was never confirmed and has no frozen area.
+        const extent = !isEmptyExtent(affected.getExtent()) ? affected.getExtent() : energized.getExtent()
+        if (map && !isEmptyExtent(extent)) {
+          map.getView().fit(extent, { padding: [80, 80, 80, 80], maxZoom: 18, duration: 400 })
+        }
+        incidentConeFittedTokenRef.current = token
+      }
+    }
+
+    loadCones()
+    return () => {
+      cancelled = true
+    }
+  }, [omsConeIncidentId, omsConeToken])
+
   // Load-flow results (see load-flow-store.ts) -- same async-fetch-into-
   // a-dedicated-source shape as the trace/isolation effects above.
   // Every reached node gets the base "load-flow" role; a node whose own
@@ -2505,11 +2763,40 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     const measuringActive = Boolean(measureMode)
     if (!snapEnabled || (!drawingActive && !editingActive && !measuringActive)) return
 
-    refreshSnapSource(map, vectorLayersRef.current, snapSource)
+    const layers = vectorLayersRef.current
+    refreshSnapSource(map, layers, snapSource)
     const snap = new Snap({ source: snapSource })
     map.addInteraction(snap)
+
+    // The snap candidates are built once, above, from whatever tiles are
+    // loaded the instant the session starts. But saving a feature and then
+    // immediately drawing the next one (without panning) is the common case,
+    // and a save refetches every vector tile source (feature-create-form
+    // bumps refreshVersion -> setUrl -> the renderer discards and re-fetches
+    // its tiles). Those tiles arrive a network round trip later, so the
+    // just-saved feature isn't in the snap source yet -- and nothing else
+    // rebuilds it mid-session (refreshSnapSource otherwise only runs on
+    // moveend). Result: you can't snap to a conductor you just drew until you
+    // pan. So while the session is live, rebuild the snap candidates whenever
+    // any tile source finishes loading, coalesced to one rebuild per frame so
+    // a burst of tile loads costs a single pass.
+    let rafHandle = 0
+    const rebuild = () => {
+      if (rafHandle) return
+      rafHandle = requestAnimationFrame(() => {
+        rafHandle = 0
+        refreshSnapSource(map, layers, snapSource)
+      })
+    }
+    const tileKeys: EventsKey[] = []
+    for (const layer of layers) {
+      const source = layer.getSource()
+      if (source) tileKeys.push(source.on("tileloadend", rebuild))
+    }
     return () => {
       map.removeInteraction(snap)
+      for (const key of tileKeys) unByKey(key)
+      if (rafHandle) cancelAnimationFrame(rafHandle)
     }
   }, [snapEnabled, drawingFeatureClassCode, editing, geometryTool, measureMode])
 
@@ -3007,6 +3294,38 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
         }
       }
 
+      // An outage (OMS incident) marker -- the twin of the fault marker above,
+      // drawn on its own clickable layer (zIndex 9). Clicking one draws BOTH of
+      // the incident's cones (oms-overlay-store -> the cone effect above): the
+      // frozen affected area in amber and the live de-energized subset in red.
+      // It also selects the predicted device (if attributed), highlighting it in
+      // place and opening its FeaturePanel. Hit-tested on its own layer, excluded
+      // from the isVectorLayer DB filter. Checked after faults so a fault marker
+      // stacked over it still wins its own click.
+      const incidentLayer = incidentMarkerLayerRef.current
+      if (incidentLayer && incidentLayer.getVisible()) {
+        let incidentHit: Feature | null = null
+        map.forEachFeatureAtPixel(
+          evt.pixel,
+          (feature) => {
+            incidentHit = feature as Feature
+            return true
+          },
+          { layerFilter: (l) => l === incidentLayer, hitTolerance: 6 },
+        )
+        if (incidentHit) {
+          const hit = incidentHit as Feature
+          const incidentId = hit.get("incidentId") as string | undefined
+          const deviceClass = hit.get("incidentDeviceClass") as string | undefined
+          const deviceId = hit.get("incidentDeviceId") as string | undefined
+          if (incidentId) useOmsOverlayStore.getState().showCone(incidentId)
+          if (deviceClass && deviceId) {
+            useSelectionStore.getState().select(deviceClass, deviceId, { focus: true })
+          }
+          return
+        }
+      }
+
       // An imported overlay feature (Phase 15) is a read-only reference layer
       // drawn on top of the DB feature tiles (zIndex 4). A click on one shows
       // its attributes in a lightweight popup (imported-feature-popup.tsx)
@@ -3284,6 +3603,17 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     )
   }, [territoryOverlayVisible, territoryBoundaries, territoryHiddenLevels])
 
+  // Re-style the overlay when the label toggle flips. The layer's initial
+  // style (at creation) is the bare territoryStyleForFeature, which labels
+  // everything; here we swap in a closure carrying the showLabels choice so
+  // turning labels off (coloured areas, no name text) re-renders immediately.
+  // A style *function* (not a static style) keeps the per-feature rank colour.
+  useEffect(() => {
+    const layer = territoryLayerRef.current
+    if (!layer) return
+    layer.setStyle((f) => territoryStyleForFeature(f, territoryLabelsVisible))
+  }, [territoryLabelsVisible])
+
   // The map-annotation (redlining) overlay (Phase 36) -- repopulate the single
   // annotation layer from the fetched annotations whenever they change or the
   // overlay is toggled. Each annotation's kind/text/style ride along as feature
@@ -3522,6 +3852,36 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     if (!territoryEditCleared) return
     territoryEditFeatureRef.current?.setGeometry(new MultiPolygon([]))
   }, [territoryEditCleared])
+
+  // Territory Explorer: fit the map to the selected territory's boundary, once
+  // per selection (keyed on the store's focusToken, the same one-shot idiom the
+  // fault/OMS impact fits use, so a boundaries refetch doesn't re-stomp the
+  // view). The geometry comes from the boundaries collection the Explorer forces
+  // on; a territory with no drawn boundary simply can't be fitted (no-op).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const token = explorerFocusToken
+    if (token === 0 || token === explorerFittedTokenRef.current) return
+    if (!explorerSelectedId || !territoryBoundaries) return
+
+    const boundary = territoryBoundaries.features.find((f) => f.properties.id === explorerSelectedId)
+    if (!boundary) {
+      // Mark this selection handled so a later boundaries refetch doesn't retry
+      // fitting a territory that has no boundary drawn.
+      explorerFittedTokenRef.current = token
+      return
+    }
+    const geometry = new GeoJSON().readGeometry(boundary.geometry as object, {
+      dataProjection: "EPSG:4326",
+      featureProjection: "EPSG:3857",
+    })
+    const extent = geometry.getExtent()
+    if (!isEmptyExtent(extent)) {
+      map.getView().fit(extent, { padding: [80, 80, 80, 80], maxZoom: 18, duration: 400 })
+    }
+    explorerFittedTokenRef.current = token
+  }, [explorerFocusToken, explorerSelectedId, territoryBoundaries])
 
   // Attaches the picked boundary-authoring interaction (Phase 11 Slice I)
   // to the one MultiPolygon feature the seed effect produced. "vertices"

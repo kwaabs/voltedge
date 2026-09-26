@@ -88,6 +88,10 @@ WHERE fc.code = 'DIST_SWITCH'
 --   * BaseVoltage.nominalVoltage (domain_map): the coded voltage class ->
 --     nominal volts; feeds the shared BaseVoltage object the equipment
 --     references (the encoder special-cases this attribute).
+--   * BaseVoltage.nominalVoltage.secondary (direct): a transformer's LV winding
+--     voltage; a VoltEdge sentinel target the encoder routes to PowerTransformerEnd
+--     winding 2 so the LV end carries ratedU + BaseVoltage (H2). Special-cased like
+--     the primary channel above (never emitted as a plain literal).
 --   * Switch.normalOpen (boolean): the coded device_state -> the CIM boolean
 --     literal on the switch. Valid because LoadBreakSwitch/Recloser/Fuse are
 --     all CIM Switch subclasses.
@@ -101,6 +105,12 @@ JOIN metadata.feature_classes fc ON fc.id = f.feature_class_id
 JOIN (VALUES
     ('MV_CONDUCTOR',   'voltage_class',   'BaseVoltage.nominalVoltage', 'domain_map', '{"11KV":11000,"33KV":33000}', 'V'),
     ('DIST_XFMR',      'primary_voltage', 'BaseVoltage.nominalVoltage', 'domain_map', '{"11KV":11000,"33KV":33000}', 'V'),
+    -- The LV winding voltage (H2). secondary_voltage is numeric line-to-line volts
+    -- already (e.g. 415), so it maps DIRECT to the secondary voltage channel
+    -- BaseVoltage.nominalVoltage.secondary -- a VoltEdge sentinel target the encoder
+    -- reads for winding 2's ratedU + BaseVoltage. Without it the LV end carried no
+    -- voltage and the turns ratio was unknown.
+    ('DIST_XFMR',      'secondary_voltage', 'BaseVoltage.nominalVoltage.secondary', 'direct', NULL, 'V'),
     -- (The VOLTAGE_LEVEL.nominal_voltage -> BaseVoltage mapping was removed with the
     -- class in the Phase 47 minimal-model correction, migration 0086. Voltage is
     -- carried per equipment via the BaseVoltage refs above, not by a modeled tier.)

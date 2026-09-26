@@ -226,9 +226,13 @@ INSERT INTO metadata.cim_attribute_mappings (field_id, cim_attribute, transform,
 SELECT f.id, v.cim_attribute, 'direct', v.unit
 FROM metadata.fields f
 JOIN metadata.feature_classes fc ON fc.id = f.feature_class_id
+-- targetValue / targetDeadband are declared on RegulatingControl (TapChangerControl
+-- inherits them). CIM RDF/XML serializes each property under its declaring class,
+-- so the canonical targets are RegulatingControl.* -- a strict consumer drops the
+-- subclass-qualified cim:TapChangerControl.targetValue form.
 JOIN (VALUES
-    ('target_voltage_kv', 'TapChangerControl.targetValue',    'kV'),
-    ('bandwidth_pct',     'TapChangerControl.targetDeadband', 'percent')
+    ('target_voltage_kv', 'RegulatingControl.targetValue',    'kV'),
+    ('bandwidth_pct',     'RegulatingControl.targetDeadband', 'percent')
 ) AS v(field_name, cim_attribute, unit) ON v.field_name = f.name
 WHERE fc.code = 'TAP_CHANGER'
 ON CONFLICT (field_id, cim_attribute) DO NOTHING;

@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from "react"
-import { ChevronsUpDown, Magnet, Map as MapIcon, MapPin, Ruler, Scan, ScanSearch, X } from "lucide-react"
+import { ChevronsUpDown, Magnet, Map as MapIcon, MapPin, MousePointerClick, Ruler, Scan, ScanSearch, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +21,7 @@ import { useUnitsStore } from "@/stores/units-store"
 import { useMapGotoStore } from "@/stores/map-goto-store"
 import { useMapPinsStore } from "@/stores/map-pins-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
+import { useMapSelectStore } from "@/stores/map-select-store"
 import { useMapViewStore } from "@/stores/map-view-store"
 import { PinsDialog } from "./pins-dialog"
 
@@ -84,6 +85,58 @@ function CoordinateReadout() {
 function ZoomReadout() {
   const zoom = useMapViewStore((s) => s.zoom)
   return <span className="tabular-nums">Zoom: {zoom === null ? "—" : zoom.toFixed(1)}</span>
+}
+
+/**
+ * The Select tool, bar edition (moved here from the top control cluster to sit
+ * with the other viewport tools). Arm it, then click features to toggle them
+ * into a highlight-only set, or drag a box (marquee) to add every feature
+ * inside it at once -- voltedge-map.tsx owns the click/DragBox handling + halo
+ * layer, keyed off map-select-store's `active`; this only arms it. Unlike a
+ * normal map click this never opens the attribute panel. Styled as a status-bar
+ * control (slim ghost, slate-on-blue) with the same active highlight the Snap
+ * toggle uses; the count shows how many are highlighted. Click again or Escape
+ * to exit (which clears the set).
+ */
+function SelectButton() {
+  const active = useMapSelectStore((s) => s.active)
+  const count = useMapSelectStore((s) => s.selected.length)
+
+  return (
+    <span className="flex items-center">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => useMapSelectStore.getState().toggleActive()}
+        title={
+          active
+            ? "Click a feature, or drag a box, to highlight (Esc to exit)"
+            : "Select features (highlight only, no panel)"
+        }
+        className={cn(
+          "text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 gap-1.5 px-1.5 text-xs font-normal",
+          active && "bg-white/20 text-white dark:bg-accent dark:text-accent-foreground",
+        )}
+      >
+        <MousePointerClick className="size-3.5" />
+        Select{active && count > 0 ? ` (${count})` : ""}
+      </Button>
+      {/* Empties the highlight set but stays in select mode (clear vs. the
+          toggle's disarm). Shown only when there's something to clear. */}
+      {count > 0 && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => useMapSelectStore.getState().clear()}
+          title="Clear selection"
+          className="text-slate-200 dark:text-muted-foreground hover:text-foreground size-5"
+        >
+          <X className="size-3.5" />
+          <span className="sr-only">Clear selection</span>
+        </Button>
+      )}
+    </span>
+  )
 }
 
 /**
@@ -431,6 +484,7 @@ export function StatusBar() {
       <div className="bg-border h-4 w-px" />
       <CoordinateReadout />
       <ZoomReadout />
+      <SelectButton />
       <BoxZoomButton />
       <MeasureButton />
       <span className="text-slate-200 dark:text-muted-foreground">{MAP_PROJECTION}</span>

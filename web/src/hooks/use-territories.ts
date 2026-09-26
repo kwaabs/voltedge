@@ -37,6 +37,25 @@ export function useTerritories() {
   })
 }
 
+/**
+ * The territories the CURRENT user may access (GET /territories/mine): the
+ * same boundary-free TerritorySummary shape as the full list, but narrowed to
+ * the caller's granted set when territory scoping is enforced (Phase 58). An
+ * unscoped caller -- or one behind disabled enforcement -- gets the whole
+ * tree, exactly as useTerritories does. Backs the Territory Explorer panel,
+ * whose job is to show an operator only the areas they actually work in, so it
+ * uses this rather than the unscoped full list. Same long staleTime as the
+ * full list (grants change rarely, an admin action).
+ */
+export function useMyTerritories() {
+  return useQuery({
+    queryKey: ["territories", "mine"],
+    queryFn: () => apiFetch<TerritoriesResponse>("/territories/mine"),
+    staleTime: 5 * 60_000,
+    retry: 1,
+  })
+}
+
 /** Builds an id -> name lookup from the territory list, for resolving a
  * feature's territory_id to a human label. */
 export function territoryNameMap(territories: TerritorySummary[] | undefined): Record<string, string> {

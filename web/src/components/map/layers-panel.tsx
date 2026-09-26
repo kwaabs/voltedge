@@ -1,4 +1,4 @@
-import { Globe, LandPlot, Layers, PencilLine, Shapes, Tag, Trash2, ZapOff } from "lucide-react"
+import { Globe, LandPlot, Layers, PencilLine, Shapes, Siren, Tag, Trash2, ZapOff } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -16,13 +16,14 @@ import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { useServiceLayers } from "@/hooks/use-service-layers"
 import { useTerritoryLevels } from "@/hooks/use-territories"
-import { FAULT_STATUS_COLORS, territoryColorForRank } from "@/lib/map-layers"
+import { FAULT_STATUS_COLORS, INCIDENT_STATUS_COLORS, territoryColorForRank } from "@/lib/map-layers"
 import { featureClassSourceIds } from "@/lib/martin"
 import { isRenderableServiceType } from "@/lib/service-layers-source"
 import { iconDataUri } from "@/lib/symbology-icons"
 import { resolveSymbology } from "@/lib/symbology"
 import { cn } from "@/lib/utils"
 import { FAULT_STATUS_ORDER, useFaultOverlayStore } from "@/stores/fault-overlay-store"
+import { INCIDENT_STATUS_ORDER, useOmsOverlayStore } from "@/stores/oms-overlay-store"
 import { useImportedOverlaysStore } from "@/stores/imported-overlays-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useMapAnnotationsStore } from "@/stores/map-annotations-store"
@@ -81,6 +82,8 @@ export function LayersPanel() {
   const toggleTerritoryOverlay = useTerritoryOverlayStore((s) => s.toggle)
   const hiddenLevels = useTerritoryOverlayStore((s) => s.hiddenLevels)
   const toggleTerritoryLevel = useTerritoryOverlayStore((s) => s.toggleLevel)
+  const territoryLabelsVisible = useTerritoryOverlayStore((s) => s.showLabels)
+  const toggleTerritoryLabels = useTerritoryOverlayStore((s) => s.toggleLabels)
   const importedOverlays = useImportedOverlaysStore((s) => s.overlays)
   const toggleImported = useImportedOverlaysStore((s) => s.toggle)
   const removeImported = useImportedOverlaysStore((s) => s.remove)
@@ -92,6 +95,12 @@ export function LayersPanel() {
   const setFaultStatus = useFaultOverlayStore((s) => s.setStatus)
   const faultPulse = useFaultOverlayStore((s) => s.pulse)
   const setFaultPulse = useFaultOverlayStore((s) => s.setPulse)
+  const omsOverlayVisible = useOmsOverlayStore((s) => s.visible)
+  const toggleOmsOverlay = useOmsOverlayStore((s) => s.toggleVisible)
+  const omsStatuses = useOmsOverlayStore((s) => s.statuses)
+  const setOmsStatus = useOmsOverlayStore((s) => s.setStatus)
+  const omsPulse = useOmsOverlayStore((s) => s.pulse)
+  const setOmsPulse = useOmsOverlayStore((s) => s.setPulse)
   const { data: serviceLayerRecords } = useServiceLayers()
   const serviceLayerVisible = useServiceLayersStore((s) => s.visible)
   const toggleServiceLayer = useServiceLayersStore((s) => s.toggle)
@@ -99,6 +108,7 @@ export function LayersPanel() {
   const setServiceLayerOpacity = useServiceLayersStore((s) => s.setOpacity)
   const can = usePermission()
   const canReadFaults = can("faults:read")
+  const canReadOms = can("oms:read")
   const { data: territoryLevels } = useTerritoryLevels()
   // Territories are auto-published by Martin but aren't a feature class --
   // they live in the Overlays section below, not this list (see
@@ -131,7 +141,7 @@ export function LayersPanel() {
           grows with every compiled class (20+ here) and would otherwise run off
           the bottom of the viewport. max-h-[70vh] keeps it usable on short
           screens; the whole list (headers included) scrolls as one. */}
-      <DropdownMenuContent align="end" className="max-h-[70vh] w-52 overflow-y-auto">
+      <DropdownMenuContent align="end" className="max-h-[70vh] w-72 overflow-y-auto">
         <DropdownMenuLabel>Feature classes</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {sourceIds.length === 0 ? (
@@ -218,6 +228,23 @@ export function LayersPanel() {
             </DropdownMenuCheckboxItem>
           ))}
 
+        {/* Name-label toggle -- like the per-level rows, only meaningful while
+            the overlay is on. Off keeps the coloured areas but drops the name
+            text (handy with several levels stacked). Same no-close behavior. */}
+        {territoryOverlayVisible && (
+          <DropdownMenuCheckboxItem
+            className="pl-11"
+            checked={territoryLabelsVisible}
+            onSelect={(e) => e.preventDefault()}
+            onCheckedChange={() => toggleTerritoryLabels()}
+          >
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Tag className="text-muted-foreground size-3 shrink-0" />
+              <span className="truncate">Labels</span>
+            </span>
+          </DropdownMenuCheckboxItem>
+        )}
+
         {/* The map-annotation (redlining) overlay (Phase 36) -- a single
             non-feature layer of free-form markup, so a row in this Overlays
             section beside Territories. Same no-close-on-toggle behavior. */}
@@ -280,6 +307,59 @@ export function LayersPanel() {
             onCheckedChange={(checked) => setFaultPulse(checked === true)}
           >
             <span className="truncate">Pulse live faults</span>
+          </DropdownMenuCheckboxItem>
+        )}
+
+        {/* The OMS outage overlay -- the twin of the fault overlay above. Incident
+            markers colored by status, drawn from /oms/incidents/map on their
+            predicted device; clicking one draws both outage cones (frozen affected
+            + live de-energized). Gated on oms:read (the data endpoint is too). The
+            per-status toggles below double as the legend, defaulting to the open
+            statuses; the map filters client-side so revealing restored/cancelled
+            never refetches. */}
+        {canReadOms && (
+          <DropdownMenuCheckboxItem
+            checked={omsOverlayVisible}
+            onSelect={(e) => e.preventDefault()}
+            onCheckedChange={() => toggleOmsOverlay()}
+          >
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Siren className="size-4 shrink-0" style={{ color: INCIDENT_STATUS_COLORS.confirmed }} />
+              <span className="truncate">Outages</span>
+            </span>
+          </DropdownMenuCheckboxItem>
+        )}
+
+        {canReadOms &&
+          omsOverlayVisible &&
+          INCIDENT_STATUS_ORDER.map((status) => (
+            <DropdownMenuCheckboxItem
+              key={status}
+              className="pl-11"
+              checked={omsStatuses[status]}
+              onSelect={(e) => e.preventDefault()}
+              onCheckedChange={(checked) => setOmsStatus(status, checked === true)}
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className="size-3 shrink-0 rounded-sm"
+                  style={{ backgroundColor: INCIDENT_STATUS_COLORS[status] }}
+                />
+                <span className="truncate capitalize">{status}</span>
+              </span>
+            </DropdownMenuCheckboxItem>
+          ))}
+
+        {/* Pulse the live (predicted/confirmed/dispatched) incident markers to
+            draw the eye. The OS "reduce motion" setting suppresses it regardless. */}
+        {canReadOms && omsOverlayVisible && (
+          <DropdownMenuCheckboxItem
+            className="pl-11"
+            checked={omsPulse}
+            onSelect={(e) => e.preventDefault()}
+            onCheckedChange={(checked) => setOmsPulse(checked === true)}
+          >
+            <span className="truncate">Pulse live outages</span>
           </DropdownMenuCheckboxItem>
         )}
 

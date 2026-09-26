@@ -1,6 +1,6 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Eye, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
+import { Eye, Loader2, Pencil, Plus, Search, Trash2, X } from "lucide-react"
 import { Link } from "react-router"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
@@ -15,6 +15,9 @@ import { useToastStore } from "@/stores/toast-store"
 
 const GEOMETRY_TYPES = ["point", "line", "polygon", "none"] as const
 const NETWORK_ROLES = ["none", "edge", "junction", "container"] as const
+// Every status the catalog can hold (api/internal/admin); "all" is the
+// filter's no-filter sentinel, not a real status.
+const STATUSES = ["active", "draft", "deprecated"] as const
 
 const labelClass = "text-xs font-medium"
 
@@ -172,6 +175,42 @@ export function AdminFeatureClassesPage() {
   const [editingCode, setEditingCode] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminFeatureClassSummary | null>(null)
 
+  // Client-side filtering -- the whole catalog is already loaded (one
+  // query, ~60 rows), so there's nothing to fetch; narrowing is pure
+  // in-memory work. `query` matches code OR name (case-insensitive); the
+  // three selects each exact-match a column, with "all" meaning unset.
+  const [query, setQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState<"all" | (typeof STATUSES)[number]>("all")
+  const [geometryFilter, setGeometryFilter] = useState<"all" | (typeof GEOMETRY_TYPES)[number]>("all")
+  const [roleFilter, setRoleFilter] = useState<"all" | (typeof NETWORK_ROLES)[number]>("all")
+
+  const allClasses = data?.feature_classes
+  const filtered = useMemo(() => {
+    const rows = allClasses ?? []
+    const q = query.trim().toLowerCase()
+    return rows.filter((fc) => {
+      if (q && !fc.code.toLowerCase().includes(q) && !fc.name.toLowerCase().includes(q)) return false
+      if (statusFilter !== "all" && fc.status !== statusFilter) return false
+      if (geometryFilter !== "all" && fc.geometry_type !== geometryFilter) return false
+      if (roleFilter !== "all" && fc.network_role !== roleFilter) return false
+      return true
+    })
+  }, [allClasses, query, statusFilter, geometryFilter, roleFilter])
+
+  const filtersActive =
+    query.trim() !== "" || statusFilter !== "all" || geometryFilter !== "all" || roleFilter !== "all"
+  function clearFilters() {
+    setQuery("")
+    setStatusFilter("all")
+    setGeometryFilter("all")
+    setRoleFilter("all")
+  }
+
+  // Each control fills its grid column (inputClass carries w-full), so the
+  // grid -- not per-control widths -- decides the layout: one column stacked
+  // on narrow, two on sm, all four side by side on lg.
+  const selectClass = `${inputClass} h-9`
+
   async function handleCompile(code: string) {
     setCompiling(code)
     try {
@@ -223,7 +262,72 @@ export function AdminFeatureClassesPage() {
         ) : isError || !data ? (
           <p className="text-destructive text-sm">Could not load feature classes.</p>
         ) : (
-          <div className="overflow-hidden rounded-lg border">
+          <>
+            <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="relative">
+                  <Search className="text-muted-foreground pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2" />
+                  <input
+                    className={`${inputClass} h-9 pl-8`}
+                    placeholder="Filter by code or name..."
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </div>
+                <select
+                  className={selectClass}
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                  aria-label="Filter by status"
+                >
+                  <option value="all">All statuses</option>
+                  {STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className={selectClass}
+                  value={geometryFilter}
+                  onChange={(e) => setGeometryFilter(e.target.value as typeof geometryFilter)}
+                  aria-label="Filter by geometry"
+                >
+                  <option value="all">All geometry</option>
+                  {GEOMETRY_TYPES.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className={selectClass}
+                  value={roleFilter}
+                  onChange={(e) => setRoleFilter(e.target.value as typeof roleFilter)}
+                  aria-label="Filter by network role"
+                >
+                  <option value="all">All roles</option>
+                  {NETWORK_ROLES.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                {filtersActive && (
+                  <Button variant="ghost" size="sm" onClick={clearFilters}>
+                    <X className="size-4" />
+                    Clear
+                  </Button>
+                )}
+                <span className="text-muted-foreground ml-auto text-xs">
+                  {filtered.length} of {data.feature_classes.length}
+                </span>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-lg border">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
                 <tr>
@@ -238,7 +342,14 @@ export function AdminFeatureClassesPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.feature_classes.map((fc) => (
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="text-muted-foreground px-3 py-8 text-center text-sm">
+                      No feature classes match the current filter.
+                    </td>
+                  </tr>
+                ) : (
+                  filtered.map((fc) => (
                   <tr key={fc.code} className="border-t">
                     <td className="px-3 py-2 font-mono text-xs">{fc.code}</td>
                     <td className="px-3 py-2">
@@ -299,10 +410,12 @@ export function AdminFeatureClassesPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </div>
 

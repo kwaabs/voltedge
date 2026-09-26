@@ -381,6 +381,21 @@ export function FeatureQueryPanel() {
   const [drill, setDrill] = useState<DrillResult | null>(null)
   const { data: territories } = useTerritories()
 
+  // A hand-off from the Territory Explorer: open focused on a class, narrowed
+  // to a territory. Seed the class + territory scope in Aggregate mode (the
+  // only mode the spatial scope applies to -- Filter mode has none), then
+  // consume the preset so it can't re-fire on the next render. The user still
+  // presses Run: the panel lands ready, not mid-request.
+  const queryPreset = useQueryStore((s) => s.preset)
+  useEffect(() => {
+    if (!queryPreset) return
+    setCode(queryPreset.classCode)
+    setMode("aggregate")
+    setScopeKind("territory")
+    setScopeTerritory(queryPreset.territoryId)
+    useQueryStore.getState().clearPreset()
+  }, [queryPreset])
+
   // Radius scope shares the map's radius-query-store: arming it turns the next
   // map click into a dropped center (voltedge-map.tsx owns the crosshair, circle,
   // and click-to-drop), and the center + radius are read back here to build the

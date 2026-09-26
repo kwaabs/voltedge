@@ -17,12 +17,12 @@ saves the most time:
 
 | Tier | What it is | Read it when… |
 | --- | --- | --- |
-| **1. The manuals** | Six polished, comprehensive guides written to be *read* — how-to and reference. | You want to *use, administer, or model* the product. **This is where almost everyone should start.** |
+| **1. The manuals** | Seven polished, comprehensive guides written to be *read* — how-to and reference. | You want to *use, administer, or model* the product. **This is where almost everyone should start.** |
 | **2. Module deep-dives** | Design/architecture notes for one subsystem (asset tags, faults, the feature registry, import engine…). | You are extending or debugging that specific subsystem and want its rationale. |
 | **3. Phase build-notes** | The sequential engineering record — `phase-0` … `phase-58` — one file per build slice. | You are a developer tracing *why* or *when* something was built the way it is. |
 | **4. Operational references** | Short, practical lookups: the command cheatsheet and the open-items log. | You need to run the stack, or check what's deliberately unfinished. |
 
-If you only remember one thing: **the six manuals in Tier 1 are the
+If you only remember one thing: **the seven manuals in Tier 1 are the
 documentation**; Tiers 2–4 are the workshop behind them.
 
 ---
@@ -34,6 +34,7 @@ Find your task on the left; open the document on the right.
 | I want to… | Go to |
 | --- | --- |
 | Sign in, find assets, edit the network, run a trace, use the field app | **[User Handbook](user-handbook.md)** |
+| Get the *step-by-step recipe* for one map task — create, edit, measure, snap, connect, annotate | **[Everyday Operations](everyday-operations.md)** |
 | Understand what a load-flow / fault / arc-flash study actually computes | **[Engineering Studies](engineering-studies.md)** |
 | Provision users, author feature classes, stand up an environment, use break-glass | **[Admin & Break-Glass Guide](admin-break-glass-guide.md)** |
 | Log a defect, raise a work order, build an inspection checklist | **[Works, Inspections & Maintenance Guide](works-inspections-maintenance-guide.md)** |
@@ -45,7 +46,7 @@ Find your task on the left; open the document on the right.
 
 ---
 
-## Tier 1 — The six manuals
+## Tier 1 — The seven manuals
 
 These are the documents to read. Each is self-contained, chaptered, and written
 in the same house voice (see [Conventions](#conventions-shared-across-the-manuals)
@@ -126,6 +127,19 @@ and where it's drawn. Not a tutorial — a lookup.
 **Read it if:** you need the exact fields, terminals, or symbology of one class.
 **Pairs with:** the Substation Guide (narrative) and Engineering Studies (the
 engine that reads these classes).
+
+### 7. [Everyday Operations](everyday-operations.md) — *the task cookbook*
+
+The **hands-on companion to the User Handbook.** Where the handbook explains
+*what VoltEdge is* and *why* it behaves as it does, this book is organised around
+**what you actually do** — one self-contained recipe per task: creating features
+of every geometry, editing attributes and geometry, measuring, snapping,
+connecting and relating, and annotating the map. Each recipe pairs a **terse ▶
+quick-steps** block with a **comprehensive worked example** by the recurring cast,
+then a *how it works* and *tips & gotchas*. Ten chapters.
+
+**Read it if:** you know roughly what you want to do and just need the exact
+sequence. **Who's in it:** Dana (editor), Priya (viewer), Tom (field), Ada (admin).
 
 ---
 

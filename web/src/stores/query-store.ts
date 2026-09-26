@@ -33,11 +33,27 @@ export interface QueryResultRow {
  * doesn't -- a window's geometry is pure view state with no reason to outlive a
  * remount.
  */
+/** A one-shot instruction to seed the builder when it next opens: focus a
+ * feature class and narrow to a territory (aggregate mode, so the territory
+ * scope applies -- filter mode has no spatial scope). Set by the Territory
+ * Explorer's per-class "view" button; consumed and cleared by the panel on
+ * open. Not a persisted preference -- it's a single hand-off, like a
+ * navigation param. */
+export interface QueryPreset {
+  classCode: string
+  territoryId: string
+}
+
 interface QueryState {
   open: boolean
   resultClass: string | null
   results: QueryResultRow[] | null
+  preset: QueryPreset | null
   openPanel: () => void
+  /** Open the panel seeded to a class + territory scope (Territory Explorer). */
+  openWithPreset: (preset: QueryPreset) => void
+  /** Consume the preset once the panel has applied it. */
+  clearPreset: () => void
   closePanel: () => void
   toggle: () => void
   setResults: (resultClass: string, results: QueryResultRow[]) => void
@@ -48,12 +64,17 @@ export const useQueryStore = create<QueryState>((set) => ({
   open: false,
   resultClass: null,
   results: null,
+  preset: null,
   openPanel: () => set({ open: true }),
+  openWithPreset: (preset) => set({ open: true, preset }),
+  clearPreset: () => set({ preset: null }),
   // Closing the panel also drops the highlighted result set -- the matches
   // are the panel's output, so leaving them lit on the map after it's gone
-  // would strand a highlight the user can no longer clear from anywhere.
-  closePanel: () => set({ open: false, results: null, resultClass: null }),
-  toggle: () => set((s) => (s.open ? { open: false, results: null, resultClass: null } : { open: true })),
+  // would strand a highlight the user can no longer clear from anywhere. A
+  // pending preset is dropped too, so it can't leak into a later manual open.
+  closePanel: () => set({ open: false, results: null, resultClass: null, preset: null }),
+  toggle: () =>
+    set((s) => (s.open ? { open: false, results: null, resultClass: null, preset: null } : { open: true })),
   setResults: (resultClass, results) => set({ resultClass, results }),
   clearResults: () => set({ results: null, resultClass: null }),
 }))

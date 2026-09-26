@@ -1,4 +1,4 @@
-import { Database, FileUp, Map, QrCode, Settings, Siren, Wrench, Zap, ZapOff } from "lucide-react"
+import { BookOpen, Database, FileUp, Map, QrCode, Siren, Wrench, Zap, ZapOff } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import { AdminNavIcon, adminNavItems } from "@/components/layout/admin-nav"
@@ -121,11 +121,19 @@ export function AppSidebar() {
         <SidebarGroup className="mt-auto">
           <SidebarGroupContent>
             <SidebarMenu>
+              {/* Documentation is open to every signed-in user; the server
+                  filters the manual list, hiding the administrative guides
+                  from a caller without the permission (see api/internal/docs),
+                  so no route-level gate is needed here. */}
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname === "/settings"} tooltip="Settings">
-                  <NavLink to="/settings">
-                    <Settings />
-                    <span>Settings</span>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/docs" || pathname.startsWith("/docs/")}
+                  tooltip="Documentation"
+                >
+                  <NavLink to="/docs">
+                    <BookOpen />
+                    <span>Documentation</span>
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>

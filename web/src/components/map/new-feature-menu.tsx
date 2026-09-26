@@ -19,6 +19,7 @@ import { usePackagedSubstationOptions } from "@/hooks/use-packaged-substations"
 import { useRMUOptions } from "@/hooks/use-rmus"
 import { cn } from "@/lib/utils"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
+import { useEditStore } from "@/stores/edit-store"
 import { useToolbarMenuStore } from "@/stores/toolbar-menu-store"
 
 const DRAWABLE_GEOMETRY_TYPES: readonly DrawGeometryType[] = ["point", "line", "polygon"]
@@ -86,6 +87,13 @@ export function NewFeatureMenu() {
   const cancelDrawing = useDrawStore((s) => s.cancelDrawing)
   const drawing = useDrawStore((s) => s.drawingFeatureClassCode)
   const drawingGeometryType = useDrawStore((s) => s.drawingGeometryType)
+  // Modifying an existing feature's geometry and drawing a brand-new one are
+  // mutually exclusive workflows: both would attach their own OL interaction to
+  // the same map and fight over clicks (the same reason voltedge-map blocks
+  // click-to-select while editing). So while an edit is in progress, this menu
+  // is disabled -- the user must finish or cancel the edit (geometry-edit-toolbar)
+  // before starting a new feature.
+  const editing = useEditStore((s) => s.editing)
   // Only one toolbar dropdown open at a time -- see toolbar-menu-store.ts.
   const menuOpen = useToolbarMenuStore((s) => s.open === "feature")
   const setMenuOpen = useToolbarMenuStore((s) => s.setOpen)
@@ -151,9 +159,15 @@ export function NewFeatureMenu() {
   }
 
   return (
-    <DropdownMenu open={menuOpen} onOpenChange={(o) => setMenuOpen("feature", o)}>
+    <DropdownMenu open={menuOpen && !editing} onOpenChange={(o) => setMenuOpen("feature", o)}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="bg-background/90 gap-1.5 shadow-sm">
+        <Button
+          variant="outline"
+          size="sm"
+          className="bg-background/90 gap-1.5 shadow-sm"
+          disabled={Boolean(editing)}
+          title={editing ? "Finish or cancel the current geometry edit first" : undefined}
+        >
           <Plus className="text-primary size-4" />
           New feature
         </Button>

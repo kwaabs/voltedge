@@ -360,6 +360,86 @@ export function faultStyleForFeature(feature: FeatureLike): Style | Style[] {
   })
 }
 
+/** Incident-marker colors, keyed by OMS incident status (outage map overlay --
+ * the twin of FAULT_STATUS_COLORS). Color is the ONE visual variable the marker
+ * carries: it reads the incident's lifecycle at a glance (amber = inferred,
+ * through red/orange = live & being worked, to green/grey = done), leaving
+ * outage TYPE and cause for the click-through. Hand-picked canvas constants
+ * (OpenLayers paints to <canvas>, so CSS tokens are unavailable). An incident
+ * marker is drawn as a DIAMOND (see incidentStyleForFeature), a shape distinct
+ * from the fault triangle and the round selection/affected halos, so the two
+ * overlays never read as each other even where their hues overlap. */
+export const INCIDENT_STATUS_COLORS: Record<string, string> = {
+  predicted: "#f59e0b", // amber-500 -- inferred from calls, not yet confirmed
+  scheduled: "#3b82f6", // blue-500  -- a planned outage, booked for the future
+  confirmed: "#dc2626", // red-600   -- confirmed live outage
+  dispatched: "#ea580c", // orange-600 -- crew dispatched, still out
+  restored: "#16a34a", // green-600 -- supply back
+  cancelled: "#6b7280", // gray-500  -- stood down
+}
+
+const INCIDENT_FALLBACK_COLOR = "#dc2626"
+
+/** Pixel displacement of an incident's diamond marker (and its pulse ring) -- up
+ * and to the RIGHT of the anchoring device point, so the marker doesn't sit on
+ * top of and hide the device's own symbol. OL `displacement` is [right, up]. */
+export const INCIDENT_MARKER_DISPLACEMENT: [number, number] = [12, 12]
+
+/** An incident status's color at the given opacity -- used by the map's "radar
+ * ping" pulse (voltedge-map.tsx) to fade an expanding ring out as it grows.
+ * Reuses the fault block's faultFillAlpha (same #rrggbb -> rgba() conversion). */
+export function incidentStatusColorRgba(status: string, alpha: number): string {
+  return faultFillAlpha(INCIDENT_STATUS_COLORS[status] ?? INCIDENT_FALLBACK_COLOR, alpha)
+}
+
+/** The outage overlay's style function, driven by the feature's geometry so an
+ * incident reads correctly whatever its predicted device is anchored to:
+ *
+ *   - a POINT device (e.g. a switch / recloser) -> a status-colored DIAMOND,
+ *     distinct from the fault triangle and the round selection/affected halos;
+ *   - a LINE device (e.g. a sectionalized conductor) -> the whole run highlighted
+ *     in the status color over a white casing, so it stands out from the network
+ *     lines beneath it;
+ *   - a POLYGON device (an area asset) -> a status-colored outline + translucent fill.
+ *
+ * voltedge-map.tsx tags every incident feature with an `incidentStatus` property
+ * when it builds the overlay from /oms/incidents/map (and, for a line/polygon
+ * device, adds a separate on-geometry diamond marker so the incident stays
+ * clickable and legible when zoomed out). OL calls the style function with the
+ * feature alone, so the status is read off the feature rather than passed in. */
+export function incidentStyleForFeature(feature: FeatureLike): Style | Style[] {
+  const status = (feature.get("incidentStatus") as string | undefined) ?? "confirmed"
+  const color = INCIDENT_STATUS_COLORS[status] ?? INCIDENT_FALLBACK_COLOR
+  const type = feature.getGeometry()?.getType()
+
+  if (type === "LineString" || type === "MultiLineString") {
+    return [
+      new Style({ stroke: new Stroke({ color: "#ffffff", width: 7 }) }),
+      new Style({ stroke: new Stroke({ color, width: 4 }) }),
+    ]
+  }
+
+  if (type === "Polygon" || type === "MultiPolygon") {
+    return new Style({
+      fill: new Fill({ color: faultFillAlpha(color, 0.25) }),
+      stroke: new Stroke({ color, width: 3 }),
+    })
+  }
+
+  // A diamond (square rotated 45 degrees) -- deliberately NOT the fault triangle,
+  // so an outage marker and a fault marker never read as the same thing.
+  return new Style({
+    image: new RegularShape({
+      points: 4,
+      radius: 8,
+      angle: Math.PI / 4,
+      displacement: INCIDENT_MARKER_DISPLACEMENT,
+      fill: new Fill({ color }),
+      stroke: new Stroke({ color: "#ffffff", width: 1.5 }),
+    }),
+  })
+}
+
 /** Shared by styleForFeature and createSymbologyStyle -- a feature that's
  * soft-deleted (client-side hidden, see deleted-features-store.ts) or
  * currently under geometry edit (the cyan edit-geometry layer stands in
@@ -671,10 +751,17 @@ function territoryBaseStyle(rank: number): Style {
  * + a plain stroke so the real feature layers underneath stay legible;
  * this overlay is a reference backdrop, never a selection target for the
  * features it contains.
+ *
+ * `showLabels` (default on) gates the name label -- with it off the boundaries
+ * still draw in their level colours but without the name text, for users who
+ * want the areas without the clutter (territory-overlay-store's showLabels).
+ * Off is rendered as an empty label string rather than a separate style so the
+ * per-rank base style stays cached; the caller passes one value for the whole
+ * overlay, so there's no half-labelled state to worry about.
  */
-export function territoryStyleForFeature(feature: FeatureLike): Style {
+export function territoryStyleForFeature(feature: FeatureLike, showLabels = true): Style {
   const rank = (feature.get("level_rank") as number | undefined) ?? 0
-  const name = (feature.get("name") as string | undefined) ?? ""
+  const name = showLabels ? ((feature.get("name") as string | undefined) ?? "") : ""
   const style = territoryBaseStyle(rank)
   style.getText()?.setText(name)
   return style

@@ -248,8 +248,11 @@ JOIN metadata.feature_classes fc ON fc.id = f.feature_class_id
 WHERE fc.code = 'MV_VREG' AND f.name = 'regulator_step_pct'
 ON CONFLICT (field_id, cim_attribute) DO NOTHING;
 
+-- `step` is declared on TapChanger (RatioTapChanger inherits it). CIM RDF/XML
+-- serializes a property under its declaring class, so the canonical target is
+-- TapChanger.step -- a strict consumer drops a subclass-qualified cim:RatioTapChanger.step.
 INSERT INTO metadata.cim_attribute_mappings (field_id, cim_attribute, transform, unit)
-SELECT f.id, 'RatioTapChanger.step', 'direct', NULL
+SELECT f.id, 'TapChanger.step', 'direct', NULL
 FROM metadata.fields f
 JOIN metadata.feature_classes fc ON fc.id = f.feature_class_id
 WHERE fc.code = 'MV_VREG' AND f.name = 'regulator_tap_position'
