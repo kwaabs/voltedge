@@ -40,6 +40,7 @@ Find your task on the left; open the document on the right.
 | Log a defect, raise a work order, build an inspection checklist | **[Works, Inspections & Maintenance Guide](works-inspections-maintenance-guide.md)** |
 | Capture and wire up a substation, end to end | **[Substation Guide](substation-guide.md)** |
 | Look up one feature class — its fields, terminals, network role, symbology | **[Feature Catalog](feature-catalog.md)** |
+| Draw an SVG icon, attach it to a class, and style features by their field values | **[Symbology & Map Styling Guide](symbology-guide.md)** |
 | Understand how the asset-tag / faults / registry / import subsystem is built | The matching **module deep-dive** (see Tier 2 below) |
 | Run the database, compiler, or server by hand | **[Command cheatsheet](commands-cheatsheet.md)** |
 | See what's still outstanding across the project | **[Open-items log](open-items.md)** |

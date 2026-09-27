@@ -116,6 +116,17 @@ var manifest = []Doc{
 		RequiredPerm: auth.PermMetadataRead,
 	},
 	{
+		// Administrative: symbology and map styling are metadata configuration,
+		// authored on the /admin screens, so this manual is gated on the same
+		// read capability the CIM export guide uses.
+		ID:           "symbology-guide",
+		Title:        "Symbology & Map Styling Guide",
+		Description:  "Authoring the symbols features wear on the map: drawing SVG icons, attaching them to classes, and filtering by subtype and field value.",
+		Category:     "Administration",
+		Filename:     "symbology-guide.md",
+		RequiredPerm: auth.PermMetadataRead,
+	},
+	{
 		// Administrative: break-glass and access administration. Gated on the
 		// user-administration capability -- the audience for this manual.
 		ID:           "admin-break-glass-guide",
