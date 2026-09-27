@@ -35,6 +35,12 @@ type exportRequest struct {
 	// CimProfile names the metadata.cim_profiles row for a CIM export; empty
 	// selects the is_default profile. Ignored by the other formats.
 	CimProfile string `json:"cim_profile"`
+	// TargetSRID (export reprojection engine) reprojects the output geometry to
+	// this SRID via PostGIS ST_Transform. nil/absent keeps the stored 4326. Only
+	// the formats that can declare a CRS accept it (shapefile, DXF); KMZ rejects
+	// it (KML is WGS84-only) and CIM does not support it yet. Validated against
+	// spatial_ref_sys at enqueue.
+	TargetSRID *int `json:"target_srid"`
 }
 
 // format describes one supported output: its MIME type, file extension, and its
@@ -53,7 +59,9 @@ type exportRequest struct {
 type format struct {
 	contentType string
 	ext         string
-	write       func(w io.Writer, docName string, layers []Layer) error
+	// write is the materialized encoder (shapefile). prjWKT is the CRS WKT for
+	// the output (a shapefile .prj); the streaming/CIM formats don't take it.
+	write       func(w io.Writer, docName string, layers []Layer, prjWKT string) error
 	writeStream func(w io.Writer, docName string, layers []StreamLayer) (int, error)
 }
 
@@ -150,6 +158,24 @@ func enqueueHandler(db *bun.DB) http.HandlerFunc {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		// Export reprojection: a requested target CRS must be a format that can
+		// carry one and a SRID PostGIS actually knows. Both are checked here so a
+		// bad CRS is a synchronous 400, never a job that fails at encode time.
+		if req.TargetSRID != nil {
+			if !reprojectableFormats[req.Format] {
+				writeErr(w, http.StatusBadRequest, fmt.Sprintf("export format %q cannot be reprojected: KMZ is EPSG:4326-only", req.Format))
+				return
+			}
+			ok, err := sridExists(r.Context(), db, *req.TargetSRID)
+			if err != nil {
+				writeErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if !ok {
+				writeErr(w, http.StatusBadRequest, fmt.Sprintf("unknown target SRID %d (not present in PostGIS spatial_ref_sys)", *req.TargetSRID))
+				return
+			}
+		}
 		if status, msg := validateExportClasses(r.Context(), db, req.FeatureClasses); status != 0 {
 			writeErr(w, status, msg)
 			return
@@ -205,6 +231,7 @@ func enqueueHandler(db *bun.DB) http.HandlerFunc {
 			TerritoryIDs:   territoryIDs,
 			CimProfile:     req.CimProfile,
 			DraftAuthors:   draftAuthors,
+			TargetSRID:     req.TargetSRID,
 		}
 		id, err := enqueueExport(r.Context(), db, user.ID, scope)
 		if err != nil {
@@ -344,6 +371,25 @@ func downloadHandler(db *bun.DB, store *ObjectStore) http.HandlerFunc {
 	}
 }
 
+// reprojectableFormats are the export formats whose output can declare a
+// coordinate system, so a target SRID is meaningful. Shapefile stamps its .prj,
+// DXF plots the reprojected coordinates verbatim, and CIM writes its GL
+// PositionPoints in the target CRS and declares it on the CoordinateSystem
+// (crsUrn). KMZ is excluded: KML is spec-locked to EPSG:4326 lon/lat.
+var reprojectableFormats = map[string]bool{"shp": true, "dxf": true, "cim": true}
+
+// sridExists reports whether PostGIS knows the SRID (it has a spatial_ref_sys
+// row), which is the precondition for ST_Transform to it and for reading its
+// WKT into a shapefile .prj. Unqualified table name resolves via search_path,
+// wherever PostGIS is installed -- the same assumption every ST_* call here makes.
+func sridExists(ctx context.Context, db *bun.DB, srid int) (bool, error) {
+	var exists bool
+	if err := db.NewRaw("SELECT EXISTS (SELECT 1 FROM spatial_ref_sys WHERE srid = ?)", srid).Scan(ctx, &exists); err != nil {
+		return false, fmt.Errorf("export: validating target SRID: %w", err)
+	}
+	return exists, nil
+}
+
 // validateExportClasses cheaply checks every requested class exists and has
 // geometry -- enough to reject a bad request synchronously at enqueue without
 // the full feature read the runner does. Returns (0, "") when all pass, else an
@@ -433,7 +479,7 @@ func enforceExportScope(ctx context.Context, db *bun.DB, user *auth.SessionUser,
 // gatherLayers loads and reads every requested class. On success it returns
 // the layers and a zero status; on failure it returns a nil slice plus the
 // HTTP status and message the handler should send (before any file bytes).
-func gatherLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string) ([]Layer, int, string) {
+func gatherLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.ExportBBox, targetSRID *int, territoryIDs, draftAuthors []string) ([]Layer, int, string) {
 	layers := make([]Layer, 0, len(codes))
 	for _, code := range codes {
 		loaded, err := metadata.Load(ctx, db, code)
@@ -447,7 +493,7 @@ func gatherLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.Ex
 			return nil, http.StatusBadRequest, fmt.Sprintf("feature class %q has no geometry, so it can't be exported", code)
 		}
 
-		rows, err := crud.ExportFeatures(ctx, db, loaded, bbox, territoryIDs, draftAuthors)
+		rows, err := crud.ExportFeatures(ctx, db, loaded, bbox, targetSRID, territoryIDs, draftAuthors)
 		if err != nil {
 			if crud.IsNotFoundError(err) {
 				return nil, http.StatusNotFound, err.Error()
@@ -492,7 +538,7 @@ func gatherLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.Ex
 // its snapshot transaction while the encoder runs, so the features stream
 // straight from the cursor to the wire, uncapped and never materialized. On a
 // metadata failure it returns a nil slice plus the HTTP status and message.
-func gatherStreamLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string) ([]StreamLayer, int, string) {
+func gatherStreamLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.ExportBBox, targetSRID *int, territoryIDs, draftAuthors []string) ([]StreamLayer, int, string) {
 	layers := make([]StreamLayer, 0, len(codes))
 	for _, code := range codes {
 		loaded, err := metadata.Load(ctx, db, code)
@@ -519,7 +565,7 @@ func gatherStreamLayers(ctx context.Context, db bun.IDB, codes []string, bbox *c
 			GeometryType: loaded.FeatureClass.GeometryType,
 			Fields:       fields,
 			Each: func(emit func(Feature) error) (int, error) {
-				return crud.ExportFeaturesStream(ctx, db, loaded, bbox, territoryIDs, draftAuthors, func(row map[string]any) error {
+				return crud.ExportFeaturesStream(ctx, db, loaded, bbox, targetSRID, territoryIDs, draftAuthors, func(row map[string]any) error {
 					f, err := featureFrom(row)
 					if err != nil {
 						return err

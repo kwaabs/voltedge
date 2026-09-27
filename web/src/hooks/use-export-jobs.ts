@@ -61,6 +61,12 @@ export interface EnqueueExportBody {
   feature_classes: string[]
   bbox?: number[]
   territories?: string[]
+  /**
+   * Target CRS (a PostGIS spatial_ref_sys SRID) to reproject geometry into on
+   * the way out. Omitted keeps the stored EPSG:4326. The server accepts this
+   * only for the reprojectable formats (shp/dxf); it 400s a target on kmz/cim.
+   */
+  target_srid?: number
 }
 
 export function useEnqueueExport() {

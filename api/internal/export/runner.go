@@ -97,6 +97,27 @@ func runClaimedJob(ctx context.Context, db *bun.DB, store *ObjectStore, job *Exp
 	}
 }
 
+// crsWKT returns the CRS WKT to stamp into a shapefile .prj. With srid nil the
+// export kept its stored SRID (4326), so the canonical ESRI-flavoured WGS84 WKT
+// is used -- unchanged from before reprojection existed. With a target SRID the
+// WKT comes from PostGIS spatial_ref_sys.srtext, so a projected export (e.g. a
+// UTM zone in metres) is labelled with its true CRS. srtext is OGC WKT, which
+// QGIS/ArcGIS read from a .prj; the SRID was validated to exist at enqueue, so a
+// missing/empty srtext here is a genuine data problem worth surfacing.
+func crsWKT(ctx context.Context, db *bun.DB, srid *int) (string, error) {
+	if srid == nil {
+		return wgs84WKT, nil
+	}
+	var srtext string
+	if err := db.NewRaw("SELECT srtext FROM spatial_ref_sys WHERE srid = ?", *srid).Scan(ctx, &srtext); err != nil {
+		return "", fmt.Errorf("export: reading WKT for SRID %d: %w", *srid, err)
+	}
+	if srtext == "" {
+		return "", fmt.Errorf("export: SRID %d has no WKT in spatial_ref_sys, cannot write a .prj", *srid)
+	}
+	return srtext, nil
+}
+
 // objectKey is the RustFS key for a job's artifact: namespaced by job id so
 // keys never collide and a job maps to exactly one object.
 func objectKey(jobID, ext string) string {
@@ -139,13 +160,23 @@ func runExport(ctx context.Context, db *bun.DB, scope ExportScope, w io.Writer) 
 
 	spec := formats[scope.Format]
 
+	// Export reprojection: only a format validated as reprojectable at enqueue may
+	// carry a target SRID into the read path. Re-checking here (rather than
+	// trusting the frozen scope) keeps KMZ at its spec-mandated 4326 and CIM at
+	// 4326-until-its-slice even if a scope were hand-crafted, so the transform can
+	// never leak into a format that must not carry it.
+	readSRID := scope.TargetSRID
+	if !reprojectableFormats[scope.Format] {
+		readSRID = nil
+	}
+
 	// Streaming path: gather + encode both inside the snapshot tx, so the cursor
 	// stays live for the whole encode.
 	if spec.writeStream != nil {
 		count := 0
 		txErr := db.RunInTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true},
 			func(ctx context.Context, tx bun.Tx) error {
-				layers, status, msg := gatherStreamLayers(ctx, tx, scope.FeatureClasses, bbox, scope.TerritoryIDs, scope.DraftAuthors)
+				layers, status, msg := gatherStreamLayers(ctx, tx, scope.FeatureClasses, bbox, readSRID, scope.TerritoryIDs, scope.DraftAuthors)
 				if status != 0 {
 					return fmt.Errorf("%s", msg)
 				}
@@ -167,7 +198,7 @@ func runExport(ctx context.Context, db *bun.DB, scope ExportScope, w io.Writer) 
 	)
 	err = db.RunInTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true},
 		func(ctx context.Context, tx bun.Tx) error {
-			gathered, status, msg := gatherLayers(ctx, tx, scope.FeatureClasses, bbox, scope.TerritoryIDs, scope.DraftAuthors)
+			gathered, status, msg := gatherLayers(ctx, tx, scope.FeatureClasses, bbox, readSRID, scope.TerritoryIDs, scope.DraftAuthors)
 			if status != 0 {
 				return fmt.Errorf("%s", msg)
 			}
@@ -202,10 +233,19 @@ func runExport(ctx context.Context, db *bun.DB, scope ExportScope, w io.Writer) 
 	}
 
 	if spec.write != nil {
-		return count, spec.write(w, "VoltEdge export", layers)
+		// Shapefile carries its CRS in a .prj sidecar: with a reprojection target
+		// that is the target's WKT, otherwise the canonical WGS84 (the stored SRID).
+		prj, err := crsWKT(ctx, db, readSRID)
+		if err != nil {
+			return 0, err
+		}
+		return count, spec.write(w, "VoltEdge export", layers, prj)
 	}
 	// CIM: the nil-encoder format, encoded with its declarative mapping + topology.
-	stats, err := writeCIM(w, "VoltEdge export", layers, mapping, conns, contain, specs, time.Now())
+	// readSRID (nil unless a reprojection target was requested) tells the encoder
+	// which CRS its GL PositionPoints are now in, so it declares it on the
+	// CoordinateSystem's crsUrn instead of the profile's stored default.
+	stats, err := writeCIM(w, "VoltEdge export", layers, mapping, conns, contain, specs, readSRID, time.Now())
 	// Slice 5 trigger signal (docs/phase-17-large-export.md): the persisted-topology
 	// optimization was designed but not built because no export has hit the
 	// union-find memory ceiling. This line is how we find out when one does --

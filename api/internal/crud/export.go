@@ -44,7 +44,12 @@ const maxExportFeatures = 50000
 // territory_id is in the set; an empty (non-nil) slice matches nothing (the
 // requested territories resolved to no ids) rather than silently falling back
 // to no filter.
-func exportQuery(loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs, draftAuthors []string) (string, []any, error) {
+// targetSRID (Phase: export reprojection) is the SRID the output geometry is
+// reprojected to via PostGIS ST_Transform. nil keeps the stored SRID (4326 for
+// every seeded class) -- the historical behaviour. The caller (the export
+// enqueue path) validates a non-nil SRID against spatial_ref_sys before freezing
+// it into the job scope, so it is a trusted int by the time it lands here.
+func exportQuery(loaded *metadata.Loaded, bbox *ExportBBox, targetSRID *int, territoryIDs, draftAuthors []string) (string, []any, error) {
 	if loaded.FeatureClass.GeometryType == "none" {
 		return "", nil, invalid("feature class %q has no geometry, so it can't be exported to a geographic format", loaded.FeatureClass.Code)
 	}
@@ -104,7 +109,7 @@ func exportQuery(loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs, draftA
 	// A stable id sort keeps repeated exports of the same extent byte-identical.
 	query := fmt.Sprintf(
 		"SELECT %s FROM %s WHERE %s ORDER BY id",
-		strings.Join(selectColumns(loaded), ", "), table, strings.Join(where, " AND "),
+		strings.Join(selectColumnsGeom(loaded, targetSRID), ", "), table, strings.Join(where, " AND "),
 	)
 	return query, args, nil
 }
@@ -113,8 +118,8 @@ func exportQuery(loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs, draftA
 // export (shapefile, CIM): the same read path as list/query
 // (selectColumns/scanRows/formatRow, so each row carries its GeoJSON geometry
 // and attributes), capped at maxExportFeatures. See exportQuery for the filters.
-func ExportFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs, draftAuthors []string) ([]map[string]any, error) {
-	query, args, err := exportQuery(loaded, bbox, territoryIDs, draftAuthors)
+func ExportFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *ExportBBox, targetSRID *int, territoryIDs, draftAuthors []string) ([]map[string]any, error) {
+	query, args, err := exportQuery(loaded, bbox, targetSRID, territoryIDs, draftAuthors)
 	if err != nil {
 		return nil, err
 	}
@@ -150,8 +155,8 @@ func ExportFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bb
 // tx, so the cursor is a consistent point-in-time view for its whole lifetime.
 // If fn returns an error, iteration stops and that error is returned (with the
 // count so far).
-func ExportFeaturesStream(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *ExportBBox, territoryIDs, draftAuthors []string, fn func(map[string]any) error) (int, error) {
-	query, args, err := exportQuery(loaded, bbox, territoryIDs, draftAuthors)
+func ExportFeaturesStream(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *ExportBBox, targetSRID *int, territoryIDs, draftAuthors []string, fn func(map[string]any) error) (int, error) {
+	query, args, err := exportQuery(loaded, bbox, targetSRID, territoryIDs, draftAuthors)
 	if err != nil {
 		return 0, err
 	}

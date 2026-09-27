@@ -21,6 +21,7 @@ import { useEnqueueExport } from "@/hooks/use-export-jobs"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { type TerritorySummary, useTerritories } from "@/hooks/use-territories"
 import { ApiError } from "@/lib/api"
+import { CRS_GROUPS } from "@/lib/crs"
 import { cn } from "@/lib/utils"
 import { useExportStore } from "@/stores/export-store"
 import { useLayersStore } from "@/stores/layers-store"
@@ -35,6 +36,17 @@ const FORMATS: { value: FormatKey; label: string; hint: string }[] = [
   { value: "dxf", label: "DXF", hint: "AutoCAD / CAD" },
   { value: "cim", label: "CIM/XML", hint: "CDPSM RDF/XML, for power-system tools" },
 ]
+
+/**
+ * Formats whose geometry the server can reproject to a chosen target CRS on the
+ * way out (via PostGIS ST_Transform, see the export reprojection engine):
+ * Shapefile stamps the .prj, DXF plots the reprojected metres, and CIM writes
+ * its GL PositionPoints in the target CRS and declares it on the CoordinateSystem.
+ * KMZ is excluded -- KML is spec-locked to WGS 84 -- so it keeps the stored
+ * EPSG:4326 and the picker is hidden for it. The backend enforces the same rule
+ * (api/internal/export/export.go reprojectableFormats).
+ */
+const REPROJECTABLE_FORMATS: ReadonlySet<FormatKey> = new Set(["shp", "dxf", "cim"])
 
 /**
  * The three export scopes. "view" clips to the current map viewport (needs a
@@ -100,6 +112,9 @@ export function ExportDialog() {
   const enqueue = useEnqueueExport()
 
   const [format, setFormat] = useState<FormatKey>("kmz")
+  // Target CRS to reproject into on export; null keeps the stored EPSG:4326.
+  // Only meaningful for the reprojectable formats -- gated in the body below.
+  const [targetSrid, setTargetSrid] = useState<number | null>(null)
   const [scope, setScope] = useState<Scope>("view")
   const [selected, setSelected] = useState<Record<string, boolean>>({})
   const [selectedTerritories, setSelectedTerritories] = useState<Record<string, boolean>>({})
@@ -132,6 +147,7 @@ export function ExportDialog() {
     // the map hasn't reported a viewport yet (nothing to clip to).
     setScope(bbox != null ? "view" : "whole")
     setSelectedTerritories({})
+    setTargetSrid(null)
     seededRef.current = true
   }, [open, exportable, hidden, bbox])
 
@@ -148,6 +164,10 @@ export function ExportDialog() {
   // whole-dataset (or territory) export is possible.
   const canClip = bbox != null
   const clip = scope === "view" && canClip
+  // The target-CRS picker only shows for formats the server will reproject; the
+  // others always emit the stored EPSG:4326, so a target would be meaningless
+  // (and the backend would 400 it).
+  const supportsCrs = REPROJECTABLE_FORMATS.has(format)
   // A territory export must name at least one territory, or it would resolve to
   // "match nothing" and produce empty files.
   const territoryReady = scope !== "territory" || selectedTerritoryIds.length > 0
@@ -170,12 +190,16 @@ export function ExportDialog() {
         feature_classes: string[]
         bbox?: number[]
         territories?: string[]
+        target_srid?: number
       } = {
         format,
         feature_classes: selectedCodes,
       }
       if (clip && bbox) body.bbox = bbox
       if (scope === "territory") body.territories = selectedTerritoryIds
+      // Only carry a target CRS for the reprojectable formats; otherwise the
+      // export keeps the stored EPSG:4326.
+      if (supportsCrs && targetSrid != null) body.target_srid = targetSrid
       await enqueue.mutateAsync(body)
       // The export now runs server-side; close the config dialog and open the
       // jobs panel, which polls for the artifact and surfaces its download link.
@@ -221,6 +245,44 @@ export function ExportDialog() {
               ))}
             </select>
           </div>
+
+          {/* Coordinate system -- only for formats the server can reproject */}
+          {supportsCrs && (
+            <div className="space-y-1.5">
+              <label htmlFor="export-crs" className="text-sm font-medium">
+                Coordinate system
+              </label>
+              <select
+                id="export-crs"
+                className={inputClass}
+                value={targetSrid == null ? "" : String(targetSrid)}
+                onChange={(e) =>
+                  setTargetSrid(e.target.value === "" ? null : Number(e.target.value))
+                }
+                disabled={exporting}
+              >
+                <option value="">WGS 84 · EPSG:4326 (as stored — no reprojection)</option>
+                {CRS_GROUPS.map((g) => {
+                  // 4326 is the "as stored" default above; drop it from the list.
+                  const items = g.items.filter((c) => c.code !== "EPSG:4326")
+                  if (items.length === 0) return null
+                  return (
+                    <optgroup key={g.label} label={g.label}>
+                      {items.map((c) => (
+                        <option key={c.code} value={c.code.slice(5)}>
+                          {c.name} · {c.code}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )
+                })}
+              </select>
+              <p className="text-muted-foreground text-xs">
+                Reprojected on export. CAD and GIS targets usually want a
+                projected CRS in metres (e.g. the local UTM zone), not degrees.
+              </p>
+            </div>
+          )}
 
           {/* Scope */}
           <div className="space-y-1.5">

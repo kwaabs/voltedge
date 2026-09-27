@@ -195,7 +195,7 @@ func TestShapeTypeFor(t *testing.T) {
 func readShapefileZip(t *testing.T, layers []Layer) map[string][]byte {
 	t.Helper()
 	var b bytes.Buffer
-	if err := writeShapefiles(&b, "VoltEdge export", layers); err != nil {
+	if err := writeShapefiles(&b, "VoltEdge export", layers, wgs84WKT); err != nil {
 		t.Fatalf("writeShapefiles: %v", err)
 	}
 	zr, err := zip.NewReader(bytes.NewReader(b.Bytes()), int64(b.Len()))

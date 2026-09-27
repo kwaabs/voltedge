@@ -23,7 +23,11 @@ import (
 // entity (HATCH aside), and no native multipart entity. So a polygon's rings,
 // a MultiPolygon's polygons, and a MultiLineString's lines are each emitted as
 // their own entity, all carrying the same feature's XDATA. Coordinates are
-// EPSG:4326 degrees (see the CRS trade-off in the phase doc).
+// whatever CRS the read path emitted: EPSG:4326 degrees by default, or a
+// projected CRS in metres when the export reprojection engine reprojects to a
+// target SRID -- which is what CAD normally wants, since degrees plot as a
+// warped, near-microscopic drawing. This encoder plots the coordinates verbatim
+// either way; the reprojection happens upstream in SQL (ST_Transform).
 
 const (
 	dxfAppID   = "VOLTEDGE"

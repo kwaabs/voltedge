@@ -44,18 +44,42 @@ func physicalTable(fc *metadata.FeatureClass) (string, error) {
 	return *fc.PhysicalTable, nil
 }
 
+// geomSelectExpr returns the SELECT expression that renders a geometric class's
+// geom column to GeoJSON text (aliased geom_json). With targetSRID nil the
+// geometry is emitted verbatim in its stored SRID; with a target it is
+// reprojected first with PostGIS ST_Transform -- the single hinge of the export
+// reprojection engine, mirroring the import path's server-side ST_Transform
+// (importer/geopackage.go wkbToGeoJSON). targetSRID is an int spliced with %d
+// (not a bind param), same as the other SRIDs in this package; the export
+// enqueue path validates it against spatial_ref_sys before it ever reaches here,
+// so it is never attacker-controlled text.
+func geomSelectExpr(targetSRID *int) string {
+	if targetSRID != nil {
+		return fmt.Sprintf("ST_AsGeoJSON(ST_Transform(geom, %d))::text AS geom_json", *targetSRID)
+	}
+	return "ST_AsGeoJSON(geom)::text AS geom_json"
+}
+
 // selectColumns returns the column expressions for reading back a
 // feature row: system columns, geometry as GeoJSON text (aliased so it's
 // easy to pick out while scanning), then every active field in the same
-// order the compiler created them.
+// order the compiler created them. Geometry is emitted in its stored SRID;
+// the export read path uses selectColumnsGeom to reproject.
 func selectColumns(loaded *metadata.Loaded) []string {
+	return selectColumnsGeom(loaded, nil)
+}
+
+// selectColumnsGeom is selectColumns with an optional export reprojection: when
+// targetSRID is non-nil the geometry column is wrapped in ST_Transform to that
+// SRID. Every other column is identical, so scanRows/formatRow are unaffected.
+func selectColumnsGeom(loaded *metadata.Loaded, targetSRID *int) []string {
 	cols := []string{"id", "name"}
 	if len(loaded.Subtypes) > 0 {
 		cols = append(cols, "subtype")
 	}
 	cols = append(cols, "status", "deleted_at")
 	if loaded.FeatureClass.GeometryType != "none" {
-		cols = append(cols, "ST_AsGeoJSON(geom)::text AS geom_json")
+		cols = append(cols, geomSelectExpr(targetSRID))
 		// territory_id only exists on geometric tables (Phase 11) -- read it
 		// back so the API surfaces which territory a feature was assigned to.
 		cols = append(cols, "territory_id")

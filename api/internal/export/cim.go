@@ -48,8 +48,11 @@ var cimUUIDNamespace = [16]byte{
 	0xa1, 0x0c, 0x77, 0x2e, 0x6b, 0x90, 0x11, 0x3d,
 }
 
-// coord is one lon/lat point (EPSG:4326, GeoJSON axis order). x = longitude ->
-// CIM PositionPoint.xPosition; y = latitude -> yPosition.
+// coord is one point in GeoJSON axis order: x -> CIM PositionPoint.xPosition,
+// y -> yPosition. Usually EPSG:4326 (x = longitude, y = latitude), but when the
+// export reprojects it is the target CRS (e.g. x = easting, y = northing for a
+// UTM zone); the CoordinateSystem's crsUrn says which, and the numbers are used
+// verbatim regardless.
 type coord struct{ x, y float64 }
 
 // cimSubstation is a SUBSTATION feature promoted to a CIM Substation: its
@@ -63,17 +66,25 @@ type cimSubstation struct {
 // writeCIM streams a single combined CIM RDF/XML document of every layer to w,
 // using the resolved declarative mapping. generated stamps the md:FullModel
 // header (passed in rather than read from the clock so the output is testable).
-func writeCIM(w io.Writer, docName string, layers []Layer, mapping *metadata.CIMMapping, conns []connRow, contain map[string]string, specs map[string]*metadata.MaterialSpec, generated time.Time) (topoStats, error) {
+//
+// targetSRID is the export reprojection target: nil means the geometry is still
+// the stored EPSG:4326, so the CoordinateSystem keeps the profile's declared
+// crsUrn; non-nil means the GL PositionPoints were reprojected to that SRID on
+// the read path, so the CoordinateSystem instead declares urn:ogc:def:crs:EPSG::N.
+// The coordinate values themselves already carry the target CRS either way (they
+// come from the reprojected read); this only decides how the CRS is labelled.
+func writeCIM(w io.Writer, docName string, layers []Layer, mapping *metadata.CIMMapping, conns []connRow, contain map[string]string, specs map[string]*metadata.MaterialSpec, targetSRID *int, generated time.Time) (topoStats, error) {
 	cw := &cimWriter{
-		mapping:   mapping,
-		specs:     specs,
-		contain:   contain,
-		generated: generated,
-		geoID:     uuidV5("geographical-region"),
-		subID:     uuidV5("sub-geographical-region"),
-		csID:      uuidV5("coordinate-system"),
-		lineID:    uuidV5("default-line-container"),
-		unmapped:  map[string]int{},
+		mapping:    mapping,
+		specs:      specs,
+		contain:    contain,
+		generated:  generated,
+		targetSRID: targetSRID,
+		geoID:      uuidV5("geographical-region"),
+		subID:      uuidV5("sub-geographical-region"),
+		csID:       uuidV5("coordinate-system"),
+		lineID:     uuidV5("default-line-container"),
+		unmapped:   map[string]int{},
 	}
 	return cw.write(w, docName, layers, conns)
 }
@@ -99,6 +110,11 @@ type cimWriter struct {
 	specs     map[string]*metadata.MaterialSpec // conductor spec code -> material spec (Slice 3 impedance)
 	contain   map[string]string                 // child feature id -> container feature id (Phase 47 Slice 4)
 	generated time.Time
+
+	// targetSRID is the export reprojection target (nil = stored EPSG:4326). When
+	// set, PositionPoints are already in this CRS and writeScaffold declares it on
+	// the CoordinateSystem's crsUrn.
+	targetSRID *int
 
 	geoID  string // GeographicalRegion mRID
 	subID  string // SubGeographicalRegion mRID
@@ -240,10 +256,19 @@ func (cw *cimWriter) writeScaffold(profile *metadata.CimProfile) {
 	cw.ref("SubGeographicalRegion.Region", cw.geoID)
 	cw.closeObj("SubGeographicalRegion")
 
+	// The CoordinateSystem declares the CRS the GL PositionPoints are in. With no
+	// reprojection target that is the profile's stored crsUrn (WGS84 by default);
+	// with a target SRID the coordinates were reprojected to it on the read path,
+	// so declare that EPSG CRS as an OGC URN instead. The SRID was validated at
+	// enqueue, so it is a known EPSG code safe to splice into the URN.
+	crsUrn := profile.CoordinateCRS
+	if cw.targetSRID != nil {
+		crsUrn = fmt.Sprintf("urn:ogc:def:crs:EPSG::%d", *cw.targetSRID)
+	}
 	cw.openObj("CoordinateSystem", cw.csID)
-	cw.idName(profile.CoordinateCRS)
+	cw.idName(crsUrn)
 	cw.mRID(cw.csID)
-	cw.lit("CoordinateSystem.crsUrn", profile.CoordinateCRS)
+	cw.lit("CoordinateSystem.crsUrn", crsUrn)
 	cw.closeObj("CoordinateSystem")
 
 	cw.openObj("Line", cw.lineID)
@@ -817,7 +842,7 @@ func toInt(v any) (int, bool) {
 // toFloat lives in shapefile.go (shared across the encoders) -- it handles the
 // same numeric types plus the textual forms the DBF path needs.
 
-// --- geometry helpers (GeoJSON, EPSG:4326) ---
+// --- geometry helpers (GeoJSON; EPSG:4326, or the reprojection target CRS) ---
 
 // pointsOf returns every vertex of a geometry in document order, flattened
 // across the Multi*/Polygon-ring nesting. Slice 1 uses this both for the GL

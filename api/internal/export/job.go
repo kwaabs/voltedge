@@ -56,6 +56,14 @@ type ExportScope struct {
 	TerritoryIDs   []string  `json:"territory_ids"`
 	CimProfile     string    `json:"cim_profile,omitempty"`
 
+	// TargetSRID (export reprojection engine) is the SRID the OUTPUT geometry is
+	// reprojected to via PostGIS ST_Transform. nil = no reprojection: emit the
+	// stored SRID (4326), the historical behaviour. Validated against
+	// spatial_ref_sys at enqueue and permitted only for formats that can carry a
+	// CRS (shapefile/DXF; CIM lands later) -- never KMZ, which is spec-locked to
+	// WGS84. Rides in the scope jsonb, so no schema change was needed to add it.
+	TargetSRID *int `json:"target_srid,omitempty"`
+
 	// DraftAuthors is the Private-drafts (Phase 61) author allow-list, resolved at
 	// enqueue from the requester's session (their own id plus their subordinates)
 	// and frozen into the scope for the same detached-worker reason as

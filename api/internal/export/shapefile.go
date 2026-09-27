@@ -18,8 +18,10 @@ import (
 // design: a single .shp holds exactly one geometry type (so each feature class
 // becomes its own shapefile, all bundled in one zip), and DBF field names are
 // capped at 10 characters (so attribute names are truncated and de-duplicated).
-// Everything is EPSG:4326, matching the stored data, so the .prj is always
-// WGS84 and no transform happens. See docs/phase-14-export.md.
+// The .prj carries the CRS: by default EPSG:4326 (the stored SRID), but when the
+// export reprojection engine reprojects to a target SRID the caller passes that
+// SRID's WKT through instead, so a projected export is correctly labelled. See
+// docs/phase-14-export.md.
 
 // Shape type codes (ESRI spec, 2D variants only -- we never emit Z/M).
 const (
@@ -29,24 +31,27 @@ const (
 	shpPolygon  int32 = 5
 )
 
-// wgs84WKT is the ESRI-flavoured WKT for EPSG:4326, written verbatim into
-// every layer's .prj so GIS tools pick up the CRS.
+// wgs84WKT is the ESRI-flavoured WKT for EPSG:4326, written into every layer's
+// .prj when no reprojection target is set (the stored SRID), so GIS tools pick
+// up the CRS.
 const wgs84WKT = `GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]`
 
 // writeShapefiles streams a zip containing one shapefile (four files) per
-// layer. A layer whose geometry type can't be mapped to a shape type is an
-// error rather than a silently-dropped layer.
-func writeShapefiles(w io.Writer, _ string, layers []Layer) error {
+// layer. prjWKT is the CRS WKT stamped into every layer's .prj -- wgs84WKT for a
+// non-reprojected export, or the target SRID's WKT when reprojecting. A layer
+// whose geometry type can't be mapped to a shape type is an error rather than a
+// silently-dropped layer.
+func writeShapefiles(w io.Writer, _ string, layers []Layer, prjWKT string) error {
 	zw := zip.NewWriter(w)
 	for _, layer := range layers {
-		if err := writeLayerShapefile(zw, layer); err != nil {
+		if err := writeLayerShapefile(zw, layer, prjWKT); err != nil {
 			return err
 		}
 	}
 	return zw.Close()
 }
 
-func writeLayerShapefile(zw *zip.Writer, layer Layer) error {
+func writeLayerShapefile(zw *zip.Writer, layer Layer, prjWKT string) error {
 	shapeType, ok := shapeTypeFor(layer.GeometryType)
 	if !ok {
 		return fmt.Errorf("export: shapefile: feature class %q has geometry type %q, which has no shapefile shape type", layer.Code, layer.GeometryType)
@@ -70,7 +75,7 @@ func writeLayerShapefile(zw *zip.Writer, layer Layer) error {
 		{base + ".shp", shp},
 		{base + ".shx", shx},
 		{base + ".dbf", dbf},
-		{base + ".prj", []byte(wgs84WKT)},
+		{base + ".prj", []byte(prjWKT)},
 	}
 	for _, e := range entries {
 		f, err := zw.Create(e.name)

@@ -63,7 +63,9 @@ func PreviewFeature(ctx context.Context, db *bun.DB, classCode, profileCode stri
 			// reports a geometry-less class (and a bad code) via a non-zero status;
 			// for the preview that is "nothing to sample", not a failure, so surface
 			// the message as a Note and stop.
-			gathered, status, msg := gatherLayers(ctx, tx, []string{classCode}, nil, nil, nil)
+			// nil targetSRID: the preview never reprojects (it samples one feature
+			// to show a CIM mapping's output shape), so it reads the stored 4326.
+			gathered, status, msg := gatherLayers(ctx, tx, []string{classCode}, nil, nil, nil, nil)
 			if status != 0 {
 				out.Note = msg
 				return nil
@@ -101,7 +103,9 @@ func PreviewFeature(ctx context.Context, db *bun.DB, classCode, profileCode stri
 	}
 
 	var buf bytes.Buffer
-	if _, err := writeCIM(&buf, "VoltEdge CIM preview", layers, mapping, conns, contain, specs, time.Now()); err != nil {
+	// nil targetSRID: the preview samples one feature to show a mapping's output
+	// shape in the stored EPSG:4326, never reprojecting.
+	if _, err := writeCIM(&buf, "VoltEdge CIM preview", layers, mapping, conns, contain, specs, nil, time.Now()); err != nil {
 		return FeaturePreview{}, err
 	}
 	out.FeatureID = layers[0].Features[0].ID
