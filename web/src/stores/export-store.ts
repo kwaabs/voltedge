@@ -17,6 +17,7 @@ interface ExportState {
   toggle: () => void
   openJobsPanel: () => void
   closeJobsPanel: () => void
+  toggleJobsPanel: () => void
 }
 
 export const useExportStore = create<ExportState>((set) => ({
@@ -27,4 +28,5 @@ export const useExportStore = create<ExportState>((set) => ({
   toggle: () => set((s) => ({ open: !s.open })),
   openJobsPanel: () => set({ jobsPanelOpen: true }),
   closeJobsPanel: () => set({ jobsPanelOpen: false }),
+  toggleJobsPanel: () => set((s) => ({ jobsPanelOpen: !s.jobsPanelOpen })),
 }))

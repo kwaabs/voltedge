@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ChevronRight, Download, LandPlot, Search, SlidersHorizontal, Sparkles, Upload, X } from "lucide-react"
+import { ArrowDown, ArrowUp, ChevronRight, Download, LandPlot, ListChecks, Search, SlidersHorizontal, Sparkles, Upload, X } from "lucide-react"
 import { useState } from "react"
 
 import { AmpacityPanel } from "@/components/map/ampacity-panel"
@@ -46,6 +46,7 @@ import { VoltEdgeMap } from "@/components/map/voltedge-map"
 import { Button } from "@/components/ui/button"
 import { useAssistantStatus } from "@/hooks/use-assistant"
 import { useDiagramInstance } from "@/hooks/use-diagrams"
+import { useActiveExportCount } from "@/hooks/use-export-jobs"
 import { useMapSettings } from "@/hooks/use-map-settings"
 import { cn } from "@/lib/utils"
 import { useAssistantChatStore } from "@/stores/assistant-chat-store"
@@ -67,6 +68,8 @@ export function MapPage() {
   const maximized = maximizedId != null && (topTabs.includes(maximizedId) || bottomTabs.includes(maximizedId))
   const queryOpen = useQueryStore((s) => s.open)
   const explorerOpen = useTerritoryExplorerStore((s) => s.open)
+  const exportJobsOpen = useExportStore((s) => s.jobsPanelOpen)
+  const activeExports = useActiveExportCount()
   const chatOpen = useAssistantChatStore((s) => s.open)
   // The chat toolbar entry only appears when the server has a model configured;
   // the deterministic suggestions work regardless, so a model-less deployment
@@ -125,14 +128,40 @@ export function MapPage() {
                 >
                   <Upload className="size-3.5 text-emerald-600" /> Attach
                 </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="shadow-sm"
-                  onClick={() => useExportStore.getState().openDialog()}
-                >
-                  <Download className="size-3.5 text-amber-600" /> Export
-                </Button>
+                {/* Split button: the left half opens the export dialog, the
+                    attached right segment toggles the jobs panel and carries a
+                    live badge of how many exports are still running. */}
+                <div className="relative flex shadow-sm">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="rounded-r-none shadow-none"
+                    onClick={() => useExportStore.getState().openDialog()}
+                  >
+                    <Download className="size-3.5 text-amber-600" /> Export
+                  </Button>
+                  <Button
+                    variant={exportJobsOpen ? "default" : "secondary"}
+                    size="sm"
+                    className="border-background/40 rounded-l-none border-l px-2 shadow-none"
+                    title={
+                      activeExports > 0
+                        ? `${activeExports} export${activeExports === 1 ? "" : "s"} running — view jobs`
+                        : exportJobsOpen
+                          ? "Hide export jobs"
+                          : "Show export jobs (running & recent)"
+                    }
+                    onClick={() => useExportStore.getState().toggleJobsPanel()}
+                  >
+                    <ListChecks className={cn("size-3.5", !exportJobsOpen && "text-amber-600")} />
+                    <span className="sr-only">Export jobs</span>
+                  </Button>
+                  {activeExports > 0 && (
+                    <span className="bg-amber-600 pointer-events-none absolute -top-1.5 -right-1.5 flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] leading-none font-semibold text-white tabular-nums">
+                      {activeExports > 9 ? "9+" : activeExports}
+                    </span>
+                  )}
+                </div>
                 {chatEnabled && (
                   <Button
                     variant={chatOpen ? "default" : "secondary"}

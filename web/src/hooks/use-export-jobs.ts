@@ -52,6 +52,27 @@ export function useExportJobs(enabled: boolean) {
 }
 
 /**
+ * How many of the caller's exports are still queued or running -- the toolbar's
+ * jobs button reads this to show an activity badge without the panel being open.
+ * It shares the ["export-jobs"] cache with useExportJobs (one request, not two),
+ * so it fetches once on mount to learn the initial state and then self-polls
+ * every 2s only while something is pending, going quiet the moment all jobs are
+ * terminal. Enqueueing a new export invalidates the key, so the badge appears at
+ * once rather than waiting for the next poll.
+ */
+export function useActiveExportCount(): number {
+  const { data } = useQuery({
+    queryKey: ["export-jobs"],
+    queryFn: () => apiFetch<ExportJobsResponse>("/export/jobs"),
+    refetchInterval: (query) => {
+      const jobs = query.state.data?.jobs
+      return jobs?.some((j) => isJobPending(j.status)) ? 2000 : false
+    },
+  })
+  return data?.jobs.filter((j) => isJobPending(j.status)).length ?? 0
+}
+
+/**
  * Enqueues an export (POST /export -> 202 {job_id}). On success it invalidates
  * the jobs list so the freshly queued job shows up immediately, before the
  * poll interval would otherwise pick it up.
@@ -64,7 +85,8 @@ export interface EnqueueExportBody {
   /**
    * Target CRS (a PostGIS spatial_ref_sys SRID) to reproject geometry into on
    * the way out. Omitted keeps the stored EPSG:4326. The server accepts this
-   * only for the reprojectable formats (shp/dxf); it 400s a target on kmz/cim.
+   * only for the reprojectable formats (shp/dxf/cim); it 400s a target on kmz
+   * (KML is spec-locked to WGS84).
    */
   target_srid?: number
 }
