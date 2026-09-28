@@ -8,6 +8,7 @@ import (
 	"github.com/uptrace/bun"
 
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/crud"
 )
 
 // Routes returns a router for the diagram engine, meant to be mounted
@@ -22,6 +23,7 @@ import (
 //	GET    /{id}/placements           list every feature placed on a diagram
 //	DELETE /{id}/placements/{placementID}  un-place a feature from a diagram
 //	POST   /{id}/placements/{placementID}/sectionalize  cut a drawn busbar in two, dividing its connectivity (Phase 29 Slice 3)
+//	POST   /{id}/placements/{placementID}/replace-from-map  overwrite a placed stub with a real map feature (moves its wiring); requires metadata:write
 //	POST   /{id}/elements             add a non-feature element (box/text/line/...) to a diagram
 //	GET    /{id}/elements             list every element on a diagram
 //	PATCH  /{id}/elements/{elementID} move/resize/restyle/reshape an element
@@ -58,6 +60,19 @@ func Routes(db *bun.DB) chi.Router {
 		r.Get("/elements", listElementsHandler(db))
 		r.Patch("/elements/{elementID}", updateElementHandler(db))
 		r.Delete("/elements/{elementID}", removeElementHandler(db))
+		// Promoting a stencil into a real, permanent feature is escalated beyond
+		// the diagrams:write the /diagrams mount already requires: it additionally
+		// needs metadata:write, the model-authoring admin capability -- turning a
+		// decoration into shared org-wide data is an authoring act, not routine
+		// diagram editing (same escalation shape as DELETE / above).
+		r.With(auth.RequirePermission(auth.PermMetadataWrite, auth.PermMetadataWrite)).
+			Post("/elements/{elementID}/promote", promoteElementHandler(db))
+		// Overwriting a placed stub with a real map feature -- transferring its
+		// wiring and retiring the stub -- is the same authoring act as promotion
+		// (template scaffolding becoming real shared data), so it carries the same
+		// escalated metadata:write gate.
+		r.With(auth.RequirePermission(auth.PermMetadataWrite, auth.PermMetadataWrite)).
+			Post("/placements/{placementID}/replace-from-map", replaceFromMapHandler(db))
 		r.Post("/save-as-template", saveAsTemplateHandler(db))
 		r.Post("/apply-template", applyTemplateHandler(db))
 		r.Post("/regenerate", regenerateHandler(db))
@@ -313,6 +328,58 @@ func removeElementHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
+// promoteElementHandler turns one stencil on a diagram into a real, permanent
+// feature (admin-only; the route mount adds the metadata:write gate). The body
+// carries the new feature's subtype/name/attributes; the target class is
+// resolved from the element itself. Returns the new feature + its placement.
+func promoteElementHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		elementID := chi.URLParam(r, "elementID")
+
+		var req promoteRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := promoteElement(r.Context(), db, id, elementID, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+// replaceFromMapHandler overwrites one placed stub with a real map feature
+// (admin-only; the route mount adds the metadata:write gate). The placement id
+// in the URL is the stub; the body names the map feature it becomes. Returns
+// the re-pointed placement + how much wiring transferred.
+func replaceFromMapHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		placementID := chi.URLParam(r, "placementID")
+
+		var req replaceRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+		if req.FeatureClass == "" || req.FeatureID == "" {
+			writeError(w, invalid("feature_class and feature_id are required"))
+			return
+		}
+
+		result, err := replaceFromMap(r.Context(), db, id, placementID, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
 func saveAsTemplateHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -387,9 +454,12 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 func writeError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {
-	case isValidationError(err):
+	// crud.CreateFeature (the promote path) returns its own package's
+	// validation/not-found errors; recognise them too so a bad promote surfaces
+	// as 400/404, not 500, exactly as a native diagram error would.
+	case isValidationError(err) || crud.IsValidationError(err):
 		status = http.StatusBadRequest
-	case isNotFoundError(err):
+	case isNotFoundError(err) || crud.IsNotFoundError(err):
 		status = http.StatusNotFound
 	}
 	writeJSON(w, status, apiError{Error: err.Error()})

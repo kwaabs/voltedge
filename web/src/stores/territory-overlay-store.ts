@@ -28,12 +28,20 @@ interface TerritoryOverlayState {
    * default; some users want the coloured areas without the name clutter,
    * especially with several levels stacked. Persisted alongside `visible`. */
   showLabels: boolean
+  /** When true, clicking a territory area does NOT open its read-only
+   * attribute panel -- the boundary/label overlay still draws, but the
+   * inspect gesture is muted. Off by default (a click inspects, the
+   * original behavior). The details are needed sometimes, not always, so
+   * this lets the panel be locked away without hiding the overlay itself.
+   * Persisted alongside `visible`. */
+  inspectLocked: boolean
   /** The territory whose read-only panel is open (clicked on the overlay),
    * or null. Transient -- never persisted. */
   selected: TerritoryOverlaySelection | null
   toggle: () => void
   toggleLevel: (levelCode: string) => void
   toggleLabels: () => void
+  toggleInspectLock: () => void
   selectTerritory: (t: TerritoryOverlaySelection) => void
   clearSelected: () => void
 }
@@ -52,6 +60,7 @@ export const useTerritoryOverlayStore = create<TerritoryOverlayState>()(
       visible: false,
       hiddenLevels: {},
       showLabels: true,
+      inspectLocked: false,
       selected: null,
       toggle: () => set((s) => ({ visible: !s.visible, selected: s.visible ? null : s.selected })),
       // Flip one level's visibility. Hiding the level whose territory is
@@ -66,12 +75,22 @@ export const useTerritoryOverlayStore = create<TerritoryOverlayState>()(
           return { hiddenLevels, selected }
         }),
       toggleLabels: () => set((s) => ({ showLabels: !s.showLabels })),
+      // Locking inspect also closes any panel already open -- same "don't
+      // strand an inspector you can no longer reach" rule as the toggles
+      // above. Unlocking leaves the panel state untouched.
+      toggleInspectLock: () =>
+        set((s) => ({ inspectLocked: !s.inspectLocked, selected: s.inspectLocked ? s.selected : null })),
       selectTerritory: (t) => set({ selected: t }),
       clearSelected: () => set({ selected: null }),
     }),
     {
       name: "voltedge-territory-overlay",
-      partialize: (s) => ({ visible: s.visible, hiddenLevels: s.hiddenLevels, showLabels: s.showLabels }),
+      partialize: (s) => ({
+        visible: s.visible,
+        hiddenLevels: s.hiddenLevels,
+        showLabels: s.showLabels,
+        inspectLocked: s.inspectLocked,
+      }),
     },
   ),
 )

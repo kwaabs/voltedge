@@ -229,6 +229,69 @@ func revokeRelationship(ctx context.Context, db bun.IDB, id string) error {
 	return nil
 }
 
+// RepointFeature moves every relationship end that references
+// (classID, oldFeatureID) onto newFeatureID, staying within the same feature
+// class -- the row-level half of the diagram engine's "replace this stub with
+// the real map feature" swap (api/internal/diagram/replace.go), the sibling of
+// connectivity.RepointFeature. Only the feature id changes.
+//
+// The tuple (relationship_class_id, origin_feature_id, destination_feature_id)
+// is UNIQUE, so a rewrite that would duplicate a relationship the replacement
+// already carries is dropped instead of updated -- idempotent, and it never
+// trips the constraint. Returns the number of rows moved (rewrites + dropped
+// duplicates). The caller runs this inside the swap's transaction.
+func RepointFeature(ctx context.Context, db bun.IDB, classID, oldFeatureID, newFeatureID string) (int, error) {
+	if oldFeatureID == newFeatureID {
+		return 0, nil
+	}
+
+	var rows []FeatureRelationship
+	if err := db.NewSelect().Model(&rows).
+		Where("(origin_feature_class_id = ? AND origin_feature_id = ?) OR (destination_feature_class_id = ? AND destination_feature_id = ?)",
+			classID, oldFeatureID, classID, oldFeatureID).
+		Scan(ctx); err != nil {
+		return 0, fmt.Errorf("relationship: repoint: %w", err)
+	}
+
+	moved := 0
+	for i := range rows {
+		r := rows[i]
+		originID, destID := r.OriginFeatureID, r.DestinationFeatureID
+		if r.OriginFeatureClassID == classID && r.OriginFeatureID == oldFeatureID {
+			originID = newFeatureID
+		}
+		if r.DestinationFeatureClassID == classID && r.DestinationFeatureID == oldFeatureID {
+			destID = newFeatureID
+		}
+
+		exists, err := db.NewSelect().Model((*FeatureRelationship)(nil)).
+			Where("id <> ?", r.ID).
+			Where("relationship_class_id = ?", r.RelationshipClassID).
+			Where("origin_feature_id = ?", originID).
+			Where("destination_feature_id = ?", destID).
+			Exists(ctx)
+		if err != nil {
+			return moved, fmt.Errorf("relationship: repoint check: %w", err)
+		}
+		if exists {
+			if _, err := db.NewDelete().Model((*FeatureRelationship)(nil)).Where("id = ?", r.ID).Exec(ctx); err != nil {
+				return moved, fmt.Errorf("relationship: repoint drop dup: %w", err)
+			}
+			moved++
+			continue
+		}
+
+		if _, err := db.NewUpdate().Model((*FeatureRelationship)(nil)).
+			Set("origin_feature_id = ?", originID).
+			Set("destination_feature_id = ?", destID).
+			Where("id = ?", r.ID).Exec(ctx); err != nil {
+			return moved, fmt.Errorf("relationship: repoint update: %w", err)
+		}
+		moved++
+	}
+	return moved, nil
+}
+
 // formatRelationship builds the response for a relationship just
 // established, reusing the already-validated request-side featureRefs
 // verbatim.

@@ -61,17 +61,36 @@ ON CONFLICT (rmu_feature_class_id, config_value_id) DO NOTHING;
 -- ring-vs-transformer distinction is carried by is_fused: a tee (transformer)
 -- way is a fused switch protecting the distribution transformer (is_fused=true),
 -- a ring way is not (is_fused=false). kind below is that flag (0 = ring,
--- 1 = transformer). Idempotent on the (template, position) unique key.
+-- 1 = transformer).
+--
+-- Cable side (migration 0123): every way also names the EXTERNAL cable conductor
+-- the fan-out creates on its cable terminal (T1) -- promoting the bare, unwired
+-- T1 into a real MV_CONDUCTOR feature. cable_feature_class_id = MV_CONDUCTOR,
+-- cable_subtype_code = 2 (underground -- RMU ways are cabled, not overhead),
+-- cable_terminal = 'T1', and cable_attributes carries MV_CONDUCTOR's two required
+-- fields (voltage_class + condition_rating, seed/connectivity_example.sql) so the
+-- geometry-less create passes validation. This requires MV_CONDUCTOR to be
+-- geometry_optional AND recompiled first (seed/mv_conductor_diagram_promote.sql
+-- + `task compile CODE=MV_CONDUCTOR`) so gis.mv_conductor.geom drops NOT NULL.
+--
+-- Idempotent on the (template, position) unique key, and DO UPDATE on the cable
+-- columns so a re-apply over rows seeded before 0123 promotes them to carry the
+-- cable (the non-cable columns are already correct, so only the cable set moves).
 -- ---------------------------------------------------------------------------
 INSERT INTO metadata.rmu_template_items
-    (template_id, way_feature_class_id, subtype_code, attributes, bus_terminal, position, offset_x, offset_y, rotation)
+    (template_id, way_feature_class_id, subtype_code, attributes, bus_terminal, position, offset_x, offset_y, rotation,
+     cable_feature_class_id, cable_subtype_code, cable_attributes, cable_terminal)
 SELECT pt.id,
        way.id,
        1,
        jsonb_build_object('device_state', 'OPEN', 'condition_rating', 'GOOD',
                           'is_fused', (v.kind = 1)),
        'T2',
-       v.position, v.offset_x, v.offset_y, 0
+       v.position, v.offset_x, v.offset_y, 0,
+       cond.id,
+       2,
+       jsonb_build_object('voltage_class', '11KV', 'condition_rating', 'GOOD'),
+       'T1'
 FROM metadata.feature_classes rfc
 JOIN (VALUES
     -- 2W_1T -- two ring ways at the ends, one tee way below the bus.
@@ -88,5 +107,10 @@ JOIN metadata.domains cd ON cd.code = 'RMU_CONFIG'
 JOIN metadata.domain_values cv ON cv.domain_id = cd.id AND cv.code = v.config_code
 JOIN metadata.rmu_templates pt ON pt.rmu_feature_class_id = rfc.id AND pt.config_value_id = cv.id
 JOIN metadata.feature_classes way ON way.code = 'MV_SWITCH'
+JOIN metadata.feature_classes cond ON cond.code = 'MV_CONDUCTOR'
 WHERE rfc.code = 'RMU'
-ON CONFLICT (template_id, position) DO NOTHING;
+ON CONFLICT (template_id, position) DO UPDATE SET
+    cable_feature_class_id = EXCLUDED.cable_feature_class_id,
+    cable_subtype_code     = EXCLUDED.cable_subtype_code,
+    cable_attributes       = EXCLUDED.cable_attributes,
+    cable_terminal         = EXCLUDED.cable_terminal;

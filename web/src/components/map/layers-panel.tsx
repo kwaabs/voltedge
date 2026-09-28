@@ -1,4 +1,4 @@
-import { Globe, LandPlot, Layers, PencilLine, Shapes, Siren, Tag, Trash2, ZapOff } from "lucide-react"
+import { Globe, Info, LandPlot, Layers, PencilLine, Shapes, Siren, Tag, Trash2, ZapOff } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -84,6 +84,8 @@ export function LayersPanel() {
   const toggleTerritoryLevel = useTerritoryOverlayStore((s) => s.toggleLevel)
   const territoryLabelsVisible = useTerritoryOverlayStore((s) => s.showLabels)
   const toggleTerritoryLabels = useTerritoryOverlayStore((s) => s.toggleLabels)
+  const territoryInspectLocked = useTerritoryOverlayStore((s) => s.inspectLocked)
+  const toggleTerritoryInspectLock = useTerritoryOverlayStore((s) => s.toggleInspectLock)
   const importedOverlays = useImportedOverlaysStore((s) => s.overlays)
   const toggleImported = useImportedOverlaysStore((s) => s.toggle)
   const removeImported = useImportedOverlaysStore((s) => s.remove)
@@ -198,9 +200,50 @@ export function LayersPanel() {
           onSelect={(e) => e.preventDefault()}
           onCheckedChange={() => toggleTerritoryOverlay()}
         >
-          <span className="flex min-w-0 items-center gap-1.5">
+          <span className="flex min-w-0 flex-1 items-center gap-1.5">
             <LandPlot className="text-primary size-4 shrink-0" />
             <span className="truncate">Territories</span>
+            {/* Labels + inspect-on-click as trailing icon buttons on the parent
+                row (not their own lines), only meaningful while the overlay is
+                on. Each toggles its own state; clicking one must NOT fall through
+                to the row's visibility checkbox / close the menu -- preventDefault
+                + stopPropagation on onClick does that (matching the per-class
+                Labels button above; no onPointerDown, which would defeat Radix's
+                own select guard and let the row toggle anyway). */}
+            {territoryOverlayVisible && (
+              <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  aria-pressed={territoryLabelsVisible}
+                  title={territoryLabelsVisible ? "Hide territory name labels" : "Show territory name labels"}
+                  className={cn(territoryLabelsVisible ? "text-foreground" : "text-muted-foreground/50")}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    toggleTerritoryLabels()
+                  }}
+                >
+                  <Tag className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={!territoryInspectLocked}
+                  title={
+                    territoryInspectLocked
+                      ? "Click-to-inspect is off — turn it on to open a territory's details"
+                      : "Click a territory to inspect its details — click here to lock that off"
+                  }
+                  className={cn(territoryInspectLocked ? "text-muted-foreground/40" : "text-primary")}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    toggleTerritoryInspectLock()
+                  }}
+                >
+                  <Info className="size-3.5" />
+                </button>
+              </span>
+            )}
           </span>
         </DropdownMenuCheckboxItem>
 
@@ -227,23 +270,6 @@ export function LayersPanel() {
               </span>
             </DropdownMenuCheckboxItem>
           ))}
-
-        {/* Name-label toggle -- like the per-level rows, only meaningful while
-            the overlay is on. Off keeps the coloured areas but drops the name
-            text (handy with several levels stacked). Same no-close behavior. */}
-        {territoryOverlayVisible && (
-          <DropdownMenuCheckboxItem
-            className="pl-11"
-            checked={territoryLabelsVisible}
-            onSelect={(e) => e.preventDefault()}
-            onCheckedChange={() => toggleTerritoryLabels()}
-          >
-            <span className="flex min-w-0 items-center gap-1.5">
-              <Tag className="text-muted-foreground size-3 shrink-0" />
-              <span className="truncate">Labels</span>
-            </span>
-          </DropdownMenuCheckboxItem>
-        )}
 
         {/* The map-annotation (redlining) overlay (Phase 36) -- a single
             non-feature layer of free-form markup, so a row in this Overlays

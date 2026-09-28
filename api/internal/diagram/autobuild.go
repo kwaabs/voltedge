@@ -193,6 +193,38 @@ func GenerateAssemblyDiagram(ctx context.Context, db *bun.DB, in GenerateAssembl
 	return res, nil
 }
 
+// FindContainerInstanceID returns the id of the auto-generated single-line
+// rooted on the given container feature -- the instance carrying a
+// source_template_id (so it is the builder's own diagram, safe to replace on a
+// rebuild), most-recent first when a container somehow has more than one. It
+// returns "" (no error) when the container has no such diagram yet.
+//
+// It exists for out-of-band rebuilders that create new components for an
+// already-placed assembly and need the existing single-line to replace -- the
+// RMU cable backfill (api/internal/rmu) uses it to locate the diagram to rebuild
+// with the promoted conductors, since RegenerateAssemblyDiagram rebuilds only
+// from the instance's current placements and so would miss the new cables.
+func FindContainerInstanceID(ctx context.Context, db bun.IDB, containerClass, containerID string) (string, error) {
+	loaded, err := loadFeatureClass(ctx, db, containerClass)
+	if err != nil {
+		return "", err
+	}
+	inst := new(DiagramInstance)
+	err = db.NewSelect().Model(inst).
+		Where("container_feature_class_id = ? AND container_feature_id = ?", loaded.FeatureClass.ID, containerID).
+		Where("source_template_id IS NOT NULL").
+		Order("created_at DESC").
+		Limit(1).
+		Scan(ctx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("diagram: find container instance: %w", err)
+	}
+	return inst.ID, nil
+}
+
 // RegenerateAssemblyDiagram rebuilds an auto-generated assembly single-line from
 // scratch: it re-applies the exact template the diagram was built from (recorded
 // on the instance, migration 0122) and re-binds the same set of components, in

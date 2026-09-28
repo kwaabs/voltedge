@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
 import { useQueries, useQueryClient } from "@tanstack/react-query"
-import { Cable, ChevronsLeft, ChevronsRight, CornerDownRight, Crosshair, Download, Grid3x3, Hand, LayoutTemplate, Link2, List, Loader2, Magnet, Maximize, Maximize2, Minimize, Minus, MousePointer2, PenLine, Plus, RefreshCw, Shapes, Spline, Square, Table, Trash2, Type, Waypoints, X, ZoomIn, ZoomOut } from "lucide-react"
+import { Cable, ChevronsLeft, ChevronsRight, CornerDownRight, Crosshair, Download, Grid3x3, Hand, LayoutTemplate, Link2, List, Loader2, Magnet, Maximize, Maximize2, Minimize, Minus, MousePointer2, PenLine, Plus, Printer, RefreshCw, Replace, Shapes, Spline, Square, Table, Trash2, Type, Waypoints, X, ZoomIn, ZoomOut } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DeleteDiagramDialog } from "@/components/map/delete-diagram-dialog"
@@ -33,6 +33,7 @@ import { type PanelOption, usePanelOptions } from "@/hooks/use-panels"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { ApiError, apiFetch } from "@/lib/api"
 import { downloadDiagramDxf } from "@/lib/diagram-dxf"
+import { DiagramPrintDialog } from "@/components/map/diagram-print-dialog"
 import { offsetGeometry } from "@/lib/geometry"
 import { type HighlightRole, HIGHLIGHT_COLORS } from "@/lib/map-layers"
 import { iconDataUri } from "@/lib/symbology-icons"
@@ -1106,10 +1107,17 @@ function TemplatesMenu({ diagramId }: { diagramId: string }) {
 function SlotBindPanel({
   slot,
   onBind,
+  onCreateNew,
+  canCreate,
   onCancel,
 }: {
   slot: DiagramElement
   onBind: (featureId: string, featureClass: string) => void
+  // Promote this slot into a brand-new feature (admin-only). Undefined/!canCreate
+  // hides the affordance; an untyped slot (no slot_class) also hides it -- there's
+  // no class to create.
+  onCreateNew: () => void
+  canCreate: boolean
   onCancel: () => void
 }) {
   const [query, setQuery] = useState("")
@@ -1162,6 +1170,90 @@ function SlotBindPanel({
           ))
         )}
       </div>
+      {canCreate && slotClass && (
+        // Admin-only (metadata:write): promote this slot into a brand-new,
+        // permanent feature instead of binding an existing one. Opens the shared
+        // create form targeted at the slot's class; Save runs the atomic promote.
+        <div className="border-t p-2">
+          <button
+            type="button"
+            onClick={onCreateNew}
+            className="hover:bg-accent hover:text-accent-foreground flex w-full items-center justify-center gap-2 rounded-md border border-dashed py-2 text-sm font-medium transition-colors"
+          >
+            <Plus className="size-4" /> Create new {slotClass}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// PromoteClassPicker is the "Both" fallback for promotion (admin-only): when an
+// admin double-clicks a piece of decoration that carries no class of its own (a
+// plain drawn line, or a symbol whose stencil has no promote_class), this lets
+// them pick which feature class it becomes. A mapped stencil never reaches here
+// -- its baked class wins straight away. The offered classes are pre-filtered to
+// ones that can actually be born from this element (diagram-creatable, matching
+// shape), so any pick is placeable.
+function PromoteClassPicker({
+  element,
+  classes,
+  onPick,
+  onCancel,
+}: {
+  element: DiagramElement
+  classes: FeatureClassSummary[]
+  onPick: (code: string) => void
+  onCancel: () => void
+}) {
+  const [query, setQuery] = useState("")
+  const isLine = !!(element.path && element.path.length >= 2)
+  const q = query.trim().toLowerCase()
+  const matches = q
+    ? classes.filter((c) => c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q))
+    : classes
+
+  return (
+    <div className="bg-popover text-popover-foreground absolute top-2 left-1/2 z-20 w-72 -translate-x-1/2 rounded-md border shadow-lg">
+      <div className="flex items-center justify-between border-b px-3 py-2">
+        <p className="truncate text-sm font-medium">Promote to…</p>
+        <button type="button" onClick={onCancel} className="text-muted-foreground hover:text-foreground shrink-0">
+          <X className="size-4" />
+          <span className="sr-only">Cancel</span>
+        </button>
+      </div>
+      <div className="p-2">
+        <input
+          autoFocus
+          type="text"
+          className="border-input bg-background h-8 w-full rounded-md border px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+          placeholder="Search feature classes…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      <div className="max-h-64 overflow-y-auto border-t">
+        {matches.length === 0 ? (
+          <p className="text-muted-foreground p-3 text-sm">
+            No {isLine ? "line" : "point"} feature class matches.
+          </p>
+        ) : (
+          matches.map((fc) => (
+            <button
+              key={fc.code}
+              type="button"
+              onClick={() => onPick(fc.code)}
+              className="hover:bg-accent hover:text-accent-foreground block w-full border-b p-2 text-left text-sm transition-colors last:border-b-0"
+            >
+              <p className="truncate font-medium">{fc.name}</p>
+              <p className="text-muted-foreground truncate text-xs">{fc.code}</p>
+            </button>
+          ))
+        )}
+      </div>
+      <p className="text-muted-foreground border-t p-2 text-xs">
+        Turns this {isLine ? "line" : "marker"} into a real, permanent feature everyone sees.
+      </p>
     </div>
   )
 }
@@ -1444,6 +1536,11 @@ interface ControlLineRender {
  */
 export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { diagramId: string; onClose: () => void }) {
   const selected = useSelectionStore((s) => s.selected)
+  // A feature "located" (peeked) from the open panel's Terminals/Relationships
+  // list -- its counterpart gets an emerald `peek` halo on the map (see
+  // selection-store.ts). Track it here so the same halo also lands on the
+  // matching placement in this diagram, keeping map and diagram in step.
+  const located = useSelectionStore((s) => s.located)
   const maximized = useDiagramStore((s) => s.maximizedId) === openDiagramId
   const connectSource = useConnectStore((s) => s.source)
   const connectTarget = useConnectStore((s) => s.target)
@@ -1462,6 +1559,10 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   const placePicked = useDiagramPlaceStore((s) => s.picked)
   const placeArmedFeature = useDiagramPlaceStore((s) => s.feature)
   const placeArmedGeometry = useDiagramPlaceStore((s) => s.geometry)
+  // "Replace from map" (admin): when set, the same map-pick gesture overwrites
+  // this already-placed stub with the picked feature instead of adding a new
+  // one. The validation effect below routes the pick down the replace path.
+  const placeReplaceTarget = useDiagramPlaceStore((s) => s.replaceTarget)
   const { data: placementsData, isPending, isError } = useDiagramPlacements(openDiagramId ?? undefined)
   const { data: elementsData } = useDiagramElements(openDiagramId ?? undefined)
   const { data: featureClassesData } = useFeatureClasses()
@@ -1473,6 +1574,12 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // trigger for anyone the server would refuse anyway; the confirm dialog opens
   // on this id (null = closed).
   const canDeleteDiagram = usePermission()("diagrams:delete")
+  // Promoting a stencil into a real, permanent feature is admin-only
+  // (metadata:write, the model-authoring capability) -- gates the double-click
+  // promote and the slot "Create new" affordance. The server enforces the same
+  // permission on POST /diagrams/{id}/elements/{elementID}/promote, so this only
+  // hides controls the user couldn't use anyway.
+  const canPromote = usePermission()("metadata:write")
   const [deletingDiagram, setDeletingDiagram] = useState(false)
   // Regenerate rebuilds an auto-generated assembly single-line from its source
   // template (only such diagrams report regenerable). It REPLACES the instance,
@@ -1500,6 +1607,18 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   const elements = useMemo(() => elementsData?.elements ?? [], [elementsData])
   const isPickingHere = placePhase === "picking" && placeDiagramId === openDiagramId
   const isPlacingHere = placePhase === "placing" && placeDiagramId === openDiagramId
+  // Whether the in-flight pick is a replace (overwrite a stub) rather than an
+  // add. Scoped to this diagram like the others.
+  const isReplacingHere = isPickingHere && !!placeReplaceTarget
+  // The placement backing the current selection, if the selected feature is on
+  // this diagram -- the stub a "Replace from map" would overwrite.
+  const selectedPlacement = useMemo(
+    () =>
+      selected
+        ? placements.find((p) => p.feature_class === selected.featureClassCode && p.feature_id === selected.featureId)
+        : undefined,
+    [selected, placements],
+  )
   // A place-from-map line draw. The full `isLineDrawing` (which also covers
   // digitizing a *new* line-shaped feature) is computed further down, once
   // digitizingClass and geometryTypeByClass exist.
@@ -1535,6 +1654,11 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // The unbound template slot currently being bound (Slice 4): clicking a slot
   // opens the class-scoped feature picker overlay against it.
   const [slotBinding, setSlotBinding] = useState<DiagramElement | null>(null)
+  // The element awaiting a promote-target class, when it carries no mapping of
+  // its own (a plain decoration double-clicked by an admin). Holding the
+  // element + the classes it's eligible to become opens the picker overlay; a
+  // pick resumes promotion with that class.
+  const [promotePicker, setPromotePicker] = useState<{ element: DiagramElement; classes: FeatureClassSummary[] } | null>(null)
   const [pendingElementRemoval, setPendingElementRemoval] = useState<PendingElementRemoval | null>(null)
   // Which schematic polyline the user is drawing vertex-by-vertex, if any
   // (Phase 24): a plain schematic "line", or -- Slice 5 -- a heavy "bus" or a
@@ -1590,6 +1714,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
     if (selected?.featureClassCode === featureClass && selected?.featureId === featureId) return "selected"
     if (connectSource?.featureClassCode === featureClass && connectSource?.featureId === featureId) return "connect-source"
     if (connectTarget?.featureClassCode === featureClass && connectTarget?.featureId === featureId) return "connect-target"
+    if (located?.featureClassCode === featureClass && located?.featureId === featureId) return "peek"
 
     const matches = (ref: { feature_class: string; feature_id: string }) =>
       ref.feature_class === featureClass && ref.feature_id === featureId
@@ -1929,6 +2054,16 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [slotBinding])
 
+  // Escape closes the promote-class picker without promoting, same as above.
+  useEffect(() => {
+    if (!promotePicker) return
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setPromotePicker(null)
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [promotePicker])
+
   // Validates a feature the map just picked for this diagram (Phase 12),
   // the moment diagram-place-store hands one over: only this canvas knows
   // both the catalog (is it electrical / a line vs a point?) and what's
@@ -1938,6 +2073,13 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // pick is armed for placement, tagged with how its class draws.
   useEffect(() => {
     if (!isPickingHere || !placePicked) return
+    // Replace-from-map: the pick overwrites an already-placed stub in place
+    // rather than arming a fresh placement. Runs immediately (there's no
+    // "then click to drop it" step -- the stub already owns a spot).
+    if (placeReplaceTarget) {
+      void replaceStubFromMap(placeReplaceTarget, placePicked)
+      return
+    }
     const fc = featureClassesData?.feature_classes.find((c) => c.code === placePicked.featureClassCode)
     if (!fc) return // catalog still loading -- re-runs once it arrives
     const store = useDiagramPlaceStore.getState()
@@ -1955,7 +2097,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
     // (diagram_geometry_type = 'line') lets you draw a spanning bar even
     // though it's a point on the map (migration 0053).
     store.arm(placePicked, (fc.diagram_geometry_type ?? fc.geometry_type) === "line" ? "line" : "point")
-  }, [isPickingHere, placePicked, featureClassesData, placements])
+  }, [isPickingHere, placePicked, placeReplaceTarget, featureClassesData, placements])
 
   // Cancel an armed pick that belongs to this diagram if the canvas goes
   // away (closed, or switched out in a tab pane) -- otherwise the map
@@ -2005,6 +2147,54 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
       queryClient.invalidateQueries({ queryKey: ["diagram-placements", openDiagramId] })
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not place this feature on the diagram.")
+    }
+  }
+
+  // Overwrites an already-placed stub (`target`) with the real map feature the
+  // user just picked (`picked`), the sibling of placePickedFeature for the
+  // "Replace from map" gesture. The stub keeps its spot: the server re-points
+  // the placement in place, moves the stub's wiring onto the map feature, and
+  // retires the stub. Validated client-side first so a hopeless pick fails with
+  // a clear toast (the server enforces the same rules regardless).
+  async function replaceStubFromMap(target: FeatureRef, picked: FeatureRef) {
+    if (!openDiagramId) return
+    const store = useDiagramPlaceStore.getState()
+    const stub = placements.find(
+      (p) => p.feature_class === target.featureClassCode && p.feature_id === target.featureId,
+    )
+    if (!stub) {
+      useToastStore.getState().pushError("The feature to replace is no longer on this diagram.")
+      store.cancel()
+      return
+    }
+    if (picked.featureClassCode !== target.featureClassCode) {
+      useToastStore.getState().pushError("Replace needs the same feature class as the one you're overwriting.")
+      store.cancel()
+      return
+    }
+    if (picked.featureId === target.featureId) {
+      useToastStore.getState().pushError("That's the same feature — pick a different one to replace it with.")
+      store.cancel()
+      return
+    }
+    if (placements.some((p) => p.feature_class === picked.featureClassCode && p.feature_id === picked.featureId)) {
+      useToastStore.getState().pushError("That map feature is already on this diagram.")
+      store.cancel()
+      return
+    }
+    store.cancel()
+    try {
+      await apiFetch(`/diagrams/${openDiagramId}/placements/${stub.id}/replace-from-map`, {
+        method: "POST",
+        body: JSON.stringify({ feature_class: picked.featureClassCode, feature_id: picked.featureId }),
+      })
+      queryClient.invalidateQueries({ queryKey: ["diagram-placements", openDiagramId] })
+      // The stub is gone and the map feature now sits in its place -- follow the
+      // selection over so its panel/controls point at the surviving feature.
+      useSelectionStore.getState().select(picked.featureClassCode, picked.featureId)
+      useToastStore.getState().pushSuccess("Replaced with the map feature.")
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not replace this feature from the map.")
     }
   }
 
@@ -2729,48 +2919,98 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
     })
   }
 
-  // Element->feature promotion (Phase 25): double-click a decorative element
-  // that maps to a feature class to turn it into a real feature. A `symbol`
-  // glyph maps via its stencil (promote_class); a line-shaped `bus`/`line`
-  // element carries an explicit promoteClass and promotes to a LINE feature
-  // keeping its whole drawn polyline (so a template busbar becomes a real
-  // MV_BUSBAR at the same length, no re-digitizing). Reuses the diagram
-  // digitize spine -- startDiagramDraft seeds the shared create form
-  // (feature-panel.tsx renders it) targeted at the mapped class, carrying the
-  // element's position/rotation (and path, for a line) so the placement lands
-  // exactly where the decoration was, plus the element id to delete once the
-  // form saves (so the decoration is swapped for the feature, not doubled). An
-  // element with no mapping -- most are pure decoration -- is a no-op.
-  function promoteElement(element: DiagramElement) {
-    if (canvasMode === "pan" || !openDiagramId) return
-    // Two ways an element maps to a feature class. A `symbol` glyph maps via
-    // its stencil (iconRef -> promote_class, promoteClassByRef). A line-shaped
-    // element (`bus`/`line`) has no stencil, so it carries an explicit
-    // `promoteClass` on its own style instead (e.g. the "Double busbar"
-    // template tags its buses MV_BUSBAR). Prefer the explicit one; fall back to
-    // the stencil mapping so symbols keep working unchanged.
+  // Element->feature promotion (Phase 25, admin-only): double-click a stencil to
+  // turn it into a real feature. A stencil that maps to a class (a typed slot, a
+  // `symbol` via its stencil's promote_class, or a line-shaped `bus`/`line` with
+  // an explicit promoteClass) promotes straight to that class -- a template
+  // busbar becomes a real MV_BUSBAR at the same length, no re-digitizing. A plain
+  // decoration with no mapping opens the class picker so the admin chooses what
+  // it becomes. Either way it reuses the digitize spine: startDiagramDraft seeds
+  // the shared create form (feature-panel.tsx renders it) targeted at the class,
+  // carrying the element's position/rotation (and path, for a line) plus its id,
+  // so Save swaps the stencil for the feature in one atomic promote.
+  //
+  // The class a stencil intrinsically stands for, or undefined for pure
+  // decoration. Mirrors the server's bakedPromoteClass (diagram/promote.go): a
+  // typed `slot` -> its slot_class; a `symbol` glyph -> its stencil's
+  // promote_class (promoteClassByRef); a line-shaped element (`bus`/`line`) ->
+  // the explicit `promoteClass` on its own style (e.g. the "Double busbar"
+  // template tags its buses MV_BUSBAR).
+  function bakedPromoteClass(element: DiagramElement): string | undefined {
+    if (element.kind === "slot") return element.slot_class ?? undefined
     const explicit = typeof element.style?.promoteClass === "string" ? element.style.promoteClass : undefined
     const iconRef = typeof element.style?.iconRef === "string" ? element.style.iconRef : undefined
-    const promoteClass = explicit ?? (iconRef ? promoteClassByRef[iconRef] : undefined)
-    if (!promoteClass) {
-      // Deliberate double-click on an element that carries no promote mapping:
-      // tell the user rather than silently doing nothing (also surfaces a
-      // stale API/seed, where even a mapped glyph arrives without promote_class).
-      useToastStore.getState().pushWarning("This element isn't linked to a feature class, so there's nothing to promote it to.")
-      return
-    }
-    // A line-shaped element promotes to a line feature keeping its whole drawn
-    // polyline (the create form POSTs the placement with this `path`, migration
-    // 0053); a point glyph promotes with no path and drops at its x/y.
+    return explicit ?? (iconRef ? promoteClassByRef[iconRef] : undefined)
+  }
+
+  // The classes an unmapped element may be promoted into (the picker's list):
+  // diagram-creatable classes (geometry-less, so born diagram-only) whose
+  // DIAGRAM shape matches the element -- a drawn line can only become a line
+  // class, a point marker only a point/none one, so placeFeature's path-shape
+  // gate can't reject the result. Placeable classes only.
+  function eligiblePromoteClasses(element: DiagramElement): FeatureClassSummary[] {
+    const isLine = !!(element.path && element.path.length >= 2)
+    return geometryLessClasses.filter((fc) => {
+      if (fc.is_diagram_placeable === false) return false
+      const shape = fc.diagram_geometry_type ?? fc.geometry_type
+      return isLine ? shape === "line" : shape !== "line"
+    })
+  }
+
+  // Seed the shared create form to promote `element` into `promoteClass`,
+  // carrying the stencil's position/path and its id (so Save runs the atomic
+  // promote endpoint, which places the new feature where the stencil sat and
+  // consumes it). A line-shaped element keeps its whole drawn polyline
+  // (migration 0053); a point marker drops at its x/y. A typed slot seeds its
+  // pinned subtype so the form opens on it.
+  function beginPromote(element: DiagramElement, promoteClass: string) {
+    if (!openDiagramId) return
     const path = element.path && element.path.length >= 2 ? element.path : undefined
-    useDrawStore.getState().startDiagramDraft(promoteClass, {
+    const diagramPlacement = {
       diagramId: openDiagramId,
       x: element.x,
       y: element.y,
       rotation: element.rotation,
       promoteFromElementId: element.id,
       ...(path ? { path } : {}),
-    })
+    }
+    const subtypeSeed = element.kind === "slot" ? (element.slot_subtype ?? undefined) : undefined
+    if (subtypeSeed != null) {
+      useDrawStore.getState().startDiagramCopyDraft(promoteClass, { subtype: subtypeSeed }, diagramPlacement)
+    } else {
+      useDrawStore.getState().startDiagramDraft(promoteClass, diagramPlacement)
+    }
+    // Promotion may have been launched from either overlay -- close both.
+    setSlotBinding(null)
+    setPromotePicker(null)
+  }
+
+  function promoteElement(element: DiagramElement) {
+    if (canvasMode === "pan" || !openDiagramId) return
+    // Admin-only: promoting a decoration into shared org-wide data is a
+    // model-authoring act (metadata:write), enforced again on the server. Tell
+    // a non-admin why nothing happens rather than swallowing the gesture.
+    if (!canPromote) {
+      useToastStore
+        .getState()
+        .pushWarning("Turning a stencil into a real feature needs the metadata:write permission.")
+      return
+    }
+    // A stencil's own mapping wins; a plain decoration with none opens the
+    // class picker (the admin chooses what it becomes) instead of guessing.
+    const baked = bakedPromoteClass(element)
+    if (baked) {
+      beginPromote(element, baked)
+      return
+    }
+    const eligible = eligiblePromoteClasses(element)
+    if (eligible.length === 0) {
+      useToastStore
+        .getState()
+        .pushWarning("There's no diagram-native feature class this element can be promoted into.")
+      return
+    }
+    setPromotePicker({ element, classes: eligible })
   }
 
   // Sheet furniture (Phase 24 Slice 3). A title block drops as a bordered
@@ -3374,8 +3614,26 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
     })
   }
 
+  // Print the diagram to a vector PDF drawing sheet (print engine). Opens a
+  // preview dialog with paper/orientation controls; the dialog clones the LIVE
+  // canvas <svg> (so the plot never drifts from screen) and lays it
+  // scaled-to-fit inside a framed sheet, downloading only on confirm. WYSIWYG:
+  // the clone strips only interactive-only chrome (hover handles, remove-"x",
+  // inline edit inputs), so any analysis/selection halos on screen plot as shown.
+  const [printOpen, setPrintOpen] = useState(false)
+  const handlePrint = () => {
+    if (svgRef.current) setPrintOpen(true)
+  }
+
   return (
     <div className="bg-background flex h-full w-full min-w-0 flex-col border-l">
+      <DiagramPrintDialog
+        open={printOpen}
+        onOpenChange={setPrintOpen}
+        diagramName={diagramInstance?.name || diagramInstance?.diagram_type || "diagram"}
+        svg={svgRef.current}
+        fitBox={fitBox}
+      />
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <DiagramTitle diagramId={openDiagramId} />
         <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -3415,6 +3673,36 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
           <StencilPalette onPick={addSymbol} />
           <TemplatesMenu diagramId={openDiagramId} />
           <DiagramLayersMenu diagramId={openDiagramId} entries={diagramLayerEntries} />
+          {/* Replace from map (admin): overwrite the selected diagram feature
+              with a real feature picked on the geographic map -- the "add from
+              map" gesture, but onto a stub that already exists (its wiring moves
+              across, the stub is retired). Shown only when a placement is
+              selected and no other pick/place is mid-flight; while replacing it
+              stays lit and cancels the pick. */}
+          {canPromote && (isReplacingHere || (selectedPlacement && !isPickingHere && !isPlacingHere)) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn("size-7", isReplacingHere && "bg-accent text-accent-foreground")}
+              title={
+                isReplacingHere
+                  ? "Replace from map — click the real feature on the map (Esc to cancel)"
+                  : "Replace from map — overwrite this diagram feature with a real feature you pick on the map"
+              }
+              onClick={() =>
+                isReplacingHere
+                  ? useDiagramPlaceStore.getState().cancel()
+                  : selectedPlacement &&
+                    useDiagramPlaceStore.getState().startReplacing(openDiagramId, {
+                      featureClassCode: selectedPlacement.feature_class,
+                      featureId: selectedPlacement.feature_id,
+                    })
+              }
+            >
+              <Replace className="size-4" />
+              <span className="sr-only">Replace from map</span>
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -3424,6 +3712,16 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
           >
             <Download className="size-4" />
             <span className="sr-only">Export as DXF</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            title="Print — vector PDF drawing sheet"
+            onClick={handlePrint}
+          >
+            <Printer className="size-4" />
+            <span className="sr-only">Print to PDF</span>
           </Button>
           <Button
             variant="ghost"
@@ -3501,11 +3799,13 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
               <div className="bg-popover text-popover-foreground absolute top-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-md border px-3 py-1.5 text-xs shadow-sm">
                 <Crosshair className="text-muted-foreground size-3.5" />
                 <span>
-                  {isPickingHere
-                    ? "Click a feature on the map to place it here"
-                    : isLineDrawing
-                      ? "Click to add line points; double-click to finish"
-                      : "Click on the diagram to drop the feature"}
+                  {isReplacingHere
+                    ? "Click the real feature on the map to replace this one"
+                    : isPickingHere
+                      ? "Click a feature on the map to place it here"
+                      : isLineDrawing
+                        ? "Click to add line points; double-click to finish"
+                        : "Click on the diagram to drop the feature"}
                 </span>
                 {isLineDrawing && (lineDraft?.length ?? 0) >= 2 && (
                   <button
@@ -3625,7 +3925,17 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
               <SlotBindPanel
                 slot={slotBinding}
                 onBind={(featureId, featureClass) => void bindSlot(slotBinding, featureId, featureClass)}
+                onCreateNew={() => promoteElement(slotBinding)}
+                canCreate={canPromote}
                 onCancel={() => setSlotBinding(null)}
+              />
+            )}
+            {promotePicker && (
+              <PromoteClassPicker
+                element={promotePicker.element}
+                classes={promotePicker.classes}
+                onPick={(code) => beginPromote(promotePicker.element, code)}
+                onCancel={() => setPromotePicker(null)}
               />
             )}
             <svg
@@ -3795,7 +4105,11 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                         promoteElement(element)
                       }}
                     >
-                      {promoteClassName && <title>Double-click to promote to a {promoteClassName} feature</title>}
+                      {promoteClassName ? (
+                        <title>Double-click to promote to a {promoteClassName} feature</title>
+                      ) : canPromote ? (
+                        <title>Double-click to promote to a feature</title>
+                      ) : null}
                     </path>
                     <RemoveControl
                       x={mid.x + removeSize * 2}
@@ -3880,7 +4194,11 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                         promoteElement(element)
                       }}
                     >
-                      {promoteClassName && <title>Double-click to promote to a {promoteClassName} feature</title>}
+                      {promoteClassName ? (
+                        <title>Double-click to promote to a {promoteClassName} feature</title>
+                      ) : canPromote ? (
+                        <title>Double-click to promote to a feature</title>
+                      ) : null}
                     </path>
                     <RemoveControl
                       x={mid.x + removeSize * 2}
@@ -3964,7 +4282,11 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                       promoteElement(element)
                     }}
                   >
-                    {promoteClassName && <title>Double-click to promote to a {promoteClassName} feature</title>}
+                    {promoteClassName ? (
+                      <title>Double-click to promote to a {promoteClassName} feature</title>
+                    ) : canPromote ? (
+                      <title>Double-click to promote to a feature</title>
+                    ) : null}
                     <g transform={`rotate(${element.rotation})`}>
                       <image href={glyph} x={-iconSize / 2} y={-iconSize / 2} width={iconSize} height={iconSize} />
                     </g>

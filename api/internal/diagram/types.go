@@ -205,6 +205,59 @@ type elementResponse struct {
 	BoundID     *string         `json:"bound_id,omitempty"`
 }
 
+// promoteRequest is the POST /diagrams/{id}/elements/{elementID}/promote body.
+// It carries only what CreateFeature needs -- the new feature's subtype, name,
+// and attributes, the very fields the create form already gathers. The target
+// feature class is NOT in the request: it is resolved from the element itself
+// (slot_class, else style.promoteClass, else the stencil's promote_class), so an
+// admin can't aim a stencil at an arbitrary class. Same field names/tags as
+// crud.CreateFeatureInput so the two describe an identical create.
+type promoteRequest struct {
+	// FeatureClass is the class the caller chose to promote this element into.
+	// It is honoured ONLY as a fallback: a stencil that intrinsically maps to a
+	// class (a typed slot, or a decoration tagged with a promoteClass/stencil
+	// promote_class) always wins over the request, so a mapped stencil can never
+	// be redirected. It exists for the picker path -- promoting a piece of
+	// generic decoration (a plain line/box) that carries no mapping of its own.
+	FeatureClass *string        `json:"feature_class,omitempty"`
+	Subtype      *int           `json:"subtype,omitempty"`
+	Name         *string        `json:"name,omitempty"`
+	Attributes   map[string]any `json:"attributes"`
+}
+
+// promoteResponse is returned once an element is promoted: the new feature's
+// class + id, plus the placement that now sits where the stencil was (so the
+// canvas can select the feature and drop the vanished element in one refetch).
+type promoteResponse struct {
+	FeatureClass string            `json:"feature_class"`
+	FeatureID    string            `json:"feature_id"`
+	Placement    placementResponse `json:"placement"`
+}
+
+// replaceRequest is the POST /diagrams/{id}/placements/{placementID}/replace-from-map
+// body: the real map feature that overwrites the stub the placement currently
+// holds. The stub is identified by the placement id in the URL, not the body,
+// so a caller only names what the placement should become. The class must match
+// the stub's (enforced in replaceFromMap) -- the swap re-points by feature id.
+type replaceRequest struct {
+	FeatureClass string `json:"feature_class"`
+	FeatureID    string `json:"feature_id"`
+}
+
+// replaceResponse is returned once a stub is overwritten by a map feature: the
+// map feature's class + id, the placement that now holds it (re-pointed in
+// place, so same id/coordinates as before), and how much wiring transferred off
+// the retired stub -- so the canvas can refetch and confirm the topology held.
+type replaceResponse struct {
+	FeatureClass string            `json:"feature_class"`
+	FeatureID    string            `json:"feature_id"`
+	Placement    placementResponse `json:"placement"`
+	// ConnectionsMoved / RelationshipsMoved count the edges carried from the
+	// retired stub onto the map feature (rewrites plus dropped duplicates).
+	ConnectionsMoved   int `json:"connections_moved"`
+	RelationshipsMoved int `json:"relationships_moved"`
+}
+
 // apiError is the JSON body returned for any 4xx/5xx response.
 type apiError struct {
 	Error string `json:"error"`

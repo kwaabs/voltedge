@@ -33,13 +33,16 @@
 --                     pole_mount_bess.sql, pad_mount_urd.sql (metadata.assembly_items)
 --   Switchgear panel  seed/mv_switchgear_panel_templates.sql (metadata.panel_template_items)
 --
--- The bus is the only line-drawn class here: MV_BUSBAR sets diagram_geometry_type
--- = 'line', so its slot carries a 2-point `path` (validatePlacementPath accepts a
--- path only for a line diagram shape; every other slot is a point, no path). All
--- other elements are thin `line` risers, `control` (dashed trip) lines, and free
--- `text` labels -- purely schematic, NO electrical/connectivity meaning until real
--- features are bound. z_index orders the draw: lines behind (0), slots (20),
--- labels (30), matching double_busbar_template.sql.
+-- Two classes are line-drawn here and so carry a 2-point `path` on their slot
+-- (validatePlacementPath accepts a path only for a line diagram shape): the bus
+-- (MV_BUSBAR sets diagram_geometry_type = 'line') and, on the RMU templates, the
+-- external cable (MV_CONDUCTOR is a 'line' class -- seed/rmu_templates.sql now
+-- fans a real conductor onto each way's cable side, so each RMU way gets an
+-- MV_CONDUCTOR drop slot below its switch). Every other slot is a point, no path.
+-- All remaining elements are thin `line` risers, `control` (dashed trip) lines,
+-- and free `text` labels -- purely schematic, NO electrical/connectivity meaning
+-- until real features are bound. z_index orders the draw: lines behind (0), slots
+-- (20), labels (30), matching double_busbar_template.sql.
 --
 -- PLACEABILITY. placeFeature rejects any class with is_diagram_placeable = false
 -- (api/internal/diagram/sql.go), and that includes a slot bind. Every component
@@ -48,7 +51,10 @@
 -- fresh bootstrap): DIST_XFMR, LV_LINK_BOX, PROTECTIVE_RELAY. The UPDATE below
 -- flips ONLY those false rows to true -- a runtime metadata flag, so NO recompile
 -- is needed (unlike geometry_optional). All three are discrete devices/pillars/
--- relays that legitimately belong on a single-line.
+-- relays that legitimately belong on a single-line. MV_CONDUCTOR is in the list
+-- too (the RMU cable slot): seed/mv_conductor_diagram_promote.sql is its primary
+-- promotion (placeable + geometry_optional + `task compile CODE=MV_CONDUCTOR`),
+-- and this UPDATE is a harmless idempotent backstop for its placeable flag only.
 --
 -- Idempotent: each template is guarded on its name (re-applying never inserts a
 -- second copy or clobbers one edited in place), and the placeable UPDATE only
@@ -66,7 +72,7 @@ WHERE is_diagram_placeable = false
     'MV_BUSBAR', 'MV_SWITCH', 'DIST_XFMR', 'LV_BUSBAR', 'MV_FUSE', 'MV_ARRESTER',
     'MV_RECLOSER', 'MV_CAP_BANK', 'MV_VREG', 'MV_BESS', 'LV_LINK_BOX',
     'MV_ISOLATOR', 'MV_BREAKER', 'MV_CT', 'MV_EARTH_SWITCH', 'MV_VT',
-    'PROTECTIVE_RELAY'
+    'PROTECTIVE_RELAY', 'LV_FUSE', 'MV_CONDUCTOR'
   );
 
 -- ---------------------------------------------------------------------------
@@ -82,77 +88,110 @@ WHERE is_diagram_placeable = false
 UPDATE metadata.feature_classes
 SET is_diagram_container = true
 WHERE is_diagram_container = false
-  AND code IN ('POLE', 'DIST_XFMR', 'MV_SWITCHGEAR_PANEL');
+  AND code IN ('POLE', 'DIST_XFMR', 'MV_SWITCHGEAR_PANEL', 'LV_PILLAR');
 
 -- =========================================================================
--- RMU -- 2 ring + 1 transformer  (config 2W_1T: 1x MV_BUSBAR + 3x MV_SWITCH)
+-- RMU -- 2 ring + 1 transformer  (config 2W_1T: 1x MV_BUSBAR + 3x MV_SWITCH
+--   + 3x MV_CONDUCTOR, one external cable per way -- seed/rmu_templates.sql)
 -- =========================================================================
+-- UPDATE-in-place then INSERT-if-missing (not the bare INSERT ... WHERE NOT
+-- EXISTS the other kits use): existing RMU diagrams reference this row via
+-- source_template_id (FK ON DELETE SET NULL, migration 0122), so the row must be
+-- edited in place -- never deleted+recreated -- to add the cable slots without
+-- orphaning those regenerate links. The lower-riser lines the cable slots replace
+-- were plain schematic drops; each is now an MV_CONDUCTOR slot at the SAME x as
+-- its switch, left-to-right, so the binder pairs each cable under its own way.
+WITH tmpl(name, description, payload) AS (
+  VALUES (
+    'RMU — 2 ring + 1 transformer',
+    'Ring main unit single-line: internal MV busbar, two ring-way switches and one transformer tee-off switch, each with its external cable. Bind each slot to the RMU''s fan-out components.',
+    $$
+    {
+      "elements": [
+        { "kind": "line", "x": 160, "y": 120, "rotation": 0, "z_index": 0, "path": [[160,120],[160,230]], "style": {"stroke": "var(--foreground)"} },
+        { "kind": "line", "x": 360, "y": 120, "rotation": 0, "z_index": 0, "path": [[360,120],[360,230]], "style": {"stroke": "var(--foreground)"} },
+        { "kind": "line", "x": 560, "y": 120, "rotation": 0, "z_index": 0, "path": [[560,120],[560,230]], "style": {"stroke": "var(--foreground)"} },
+
+        { "kind": "slot", "x": 100, "y": 120, "rotation": 0, "z_index": 20, "slot_class": "MV_BUSBAR", "path": [[100,120],[620,120]] },
+        { "kind": "slot", "x": 160, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
+        { "kind": "slot", "x": 360, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
+        { "kind": "slot", "x": 560, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
+
+        { "kind": "slot", "x": 160, "y": 290, "rotation": 0, "z_index": 20, "slot_class": "MV_CONDUCTOR", "path": [[160,290],[160,380]] },
+        { "kind": "slot", "x": 360, "y": 290, "rotation": 0, "z_index": 20, "slot_class": "MV_CONDUCTOR", "path": [[360,290],[360,380]] },
+        { "kind": "slot", "x": 560, "y": 290, "rotation": 0, "z_index": 20, "slot_class": "MV_CONDUCTOR", "path": [[560,290],[560,380]] },
+
+        { "kind": "text", "x": 30, "y": 112, "rotation": 0, "z_index": 30, "text": "Internal bus" },
+        { "kind": "text", "x": 120, "y": 405, "rotation": 0, "z_index": 30, "text": "Ring way A cable" },
+        { "kind": "text", "x": 315, "y": 405, "rotation": 0, "z_index": 30, "text": "Transformer tee cable" },
+        { "kind": "text", "x": 520, "y": 405, "rotation": 0, "z_index": 30, "text": "Ring way B cable" }
+      ]
+    }
+    $$::jsonb
+  )
+),
+upd AS (
+  UPDATE runtime.diagram_templates d
+  SET description = t.description, payload = t.payload
+  FROM tmpl t
+  WHERE d.name = t.name
+  RETURNING d.id
+)
 INSERT INTO runtime.diagram_templates (name, description, payload)
-SELECT
-  'RMU — 2 ring + 1 transformer',
-  'Ring main unit single-line: internal MV busbar, two ring-way switches and one transformer tee-off switch. Bind each slot to the RMU''s fan-out components.',
-  $$
-  {
-    "elements": [
-      { "kind": "line", "x": 160, "y": 120, "rotation": 0, "z_index": 0, "path": [[160,120],[160,230]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 360, "y": 120, "rotation": 0, "z_index": 0, "path": [[360,120],[360,230]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 560, "y": 120, "rotation": 0, "z_index": 0, "path": [[560,120],[560,230]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 160, "y": 290, "rotation": 0, "z_index": 0, "path": [[160,290],[160,380]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 360, "y": 290, "rotation": 0, "z_index": 0, "path": [[360,290],[360,380]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 560, "y": 290, "rotation": 0, "z_index": 0, "path": [[560,290],[560,380]], "style": {"stroke": "var(--foreground)"} },
-
-      { "kind": "slot", "x": 100, "y": 120, "rotation": 0, "z_index": 20, "slot_class": "MV_BUSBAR", "path": [[100,120],[620,120]] },
-      { "kind": "slot", "x": 160, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
-      { "kind": "slot", "x": 360, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
-      { "kind": "slot", "x": 560, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
-
-      { "kind": "text", "x": 30, "y": 112, "rotation": 0, "z_index": 30, "text": "Internal bus" },
-      { "kind": "text", "x": 120, "y": 405, "rotation": 0, "z_index": 30, "text": "Ring way A" },
-      { "kind": "text", "x": 315, "y": 405, "rotation": 0, "z_index": 30, "text": "Transformer tee" },
-      { "kind": "text", "x": 520, "y": 405, "rotation": 0, "z_index": 30, "text": "Ring way B" }
-    ]
-  }
-  $$::jsonb
-WHERE NOT EXISTS (
-  SELECT 1 FROM runtime.diagram_templates WHERE name = 'RMU — 2 ring + 1 transformer'
-);
+SELECT t.name, t.description, t.payload FROM tmpl t
+WHERE NOT EXISTS (SELECT 1 FROM upd)
+  AND NOT EXISTS (SELECT 1 FROM runtime.diagram_templates WHERE name = t.name);
 
 -- =========================================================================
--- RMU -- 2 ring + 2 transformer  (config 2W_2T: 1x MV_BUSBAR + 4x MV_SWITCH)
+-- RMU -- 2 ring + 2 transformer  (config 2W_2T: 1x MV_BUSBAR + 4x MV_SWITCH
+--   + 4x MV_CONDUCTOR, one external cable per way -- seed/rmu_templates.sql)
 -- =========================================================================
+-- Same UPDATE-in-place-then-INSERT pattern and cable-slot reasoning as the
+-- 2W_1T template above (see that block's comment).
+WITH tmpl(name, description, payload) AS (
+  VALUES (
+    'RMU — 2 ring + 2 transformer',
+    'Ring main unit single-line: internal MV busbar, two ring-way switches and two transformer tee-off switches, each with its external cable. Bind each slot to the RMU''s fan-out components.',
+    $$
+    {
+      "elements": [
+        { "kind": "line", "x": 140, "y": 120, "rotation": 0, "z_index": 0, "path": [[140,120],[140,230]], "style": {"stroke": "var(--foreground)"} },
+        { "kind": "line", "x": 300, "y": 120, "rotation": 0, "z_index": 0, "path": [[300,120],[300,230]], "style": {"stroke": "var(--foreground)"} },
+        { "kind": "line", "x": 460, "y": 120, "rotation": 0, "z_index": 0, "path": [[460,120],[460,230]], "style": {"stroke": "var(--foreground)"} },
+        { "kind": "line", "x": 620, "y": 120, "rotation": 0, "z_index": 0, "path": [[620,120],[620,230]], "style": {"stroke": "var(--foreground)"} },
+
+        { "kind": "slot", "x": 80, "y": 120, "rotation": 0, "z_index": 20, "slot_class": "MV_BUSBAR", "path": [[80,120],[680,120]] },
+        { "kind": "slot", "x": 140, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
+        { "kind": "slot", "x": 300, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
+        { "kind": "slot", "x": 460, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
+        { "kind": "slot", "x": 620, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
+
+        { "kind": "slot", "x": 140, "y": 290, "rotation": 0, "z_index": 20, "slot_class": "MV_CONDUCTOR", "path": [[140,290],[140,380]] },
+        { "kind": "slot", "x": 300, "y": 290, "rotation": 0, "z_index": 20, "slot_class": "MV_CONDUCTOR", "path": [[300,290],[300,380]] },
+        { "kind": "slot", "x": 460, "y": 290, "rotation": 0, "z_index": 20, "slot_class": "MV_CONDUCTOR", "path": [[460,290],[460,380]] },
+        { "kind": "slot", "x": 620, "y": 290, "rotation": 0, "z_index": 20, "slot_class": "MV_CONDUCTOR", "path": [[620,290],[620,380]] },
+
+        { "kind": "text", "x": 20, "y": 112, "rotation": 0, "z_index": 30, "text": "Internal bus" },
+        { "kind": "text", "x": 100, "y": 405, "rotation": 0, "z_index": 30, "text": "Ring way A cable" },
+        { "kind": "text", "x": 255, "y": 405, "rotation": 0, "z_index": 30, "text": "Transformer tee 1 cable" },
+        { "kind": "text", "x": 415, "y": 405, "rotation": 0, "z_index": 30, "text": "Transformer tee 2 cable" },
+        { "kind": "text", "x": 580, "y": 405, "rotation": 0, "z_index": 30, "text": "Ring way B cable" }
+      ]
+    }
+    $$::jsonb
+  )
+),
+upd AS (
+  UPDATE runtime.diagram_templates d
+  SET description = t.description, payload = t.payload
+  FROM tmpl t
+  WHERE d.name = t.name
+  RETURNING d.id
+)
 INSERT INTO runtime.diagram_templates (name, description, payload)
-SELECT
-  'RMU — 2 ring + 2 transformer',
-  'Ring main unit single-line: internal MV busbar, two ring-way switches and two transformer tee-off switches. Bind each slot to the RMU''s fan-out components.',
-  $$
-  {
-    "elements": [
-      { "kind": "line", "x": 140, "y": 120, "rotation": 0, "z_index": 0, "path": [[140,120],[140,230]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 300, "y": 120, "rotation": 0, "z_index": 0, "path": [[300,120],[300,230]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 460, "y": 120, "rotation": 0, "z_index": 0, "path": [[460,120],[460,230]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 620, "y": 120, "rotation": 0, "z_index": 0, "path": [[620,120],[620,230]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 140, "y": 290, "rotation": 0, "z_index": 0, "path": [[140,290],[140,380]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 300, "y": 290, "rotation": 0, "z_index": 0, "path": [[300,290],[300,380]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 460, "y": 290, "rotation": 0, "z_index": 0, "path": [[460,290],[460,380]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 620, "y": 290, "rotation": 0, "z_index": 0, "path": [[620,290],[620,380]], "style": {"stroke": "var(--foreground)"} },
-
-      { "kind": "slot", "x": 80, "y": 120, "rotation": 0, "z_index": 20, "slot_class": "MV_BUSBAR", "path": [[80,120],[680,120]] },
-      { "kind": "slot", "x": 140, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
-      { "kind": "slot", "x": 300, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
-      { "kind": "slot", "x": 460, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
-      { "kind": "slot", "x": 620, "y": 260, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
-
-      { "kind": "text", "x": 20, "y": 112, "rotation": 0, "z_index": 30, "text": "Internal bus" },
-      { "kind": "text", "x": 100, "y": 405, "rotation": 0, "z_index": 30, "text": "Ring way A" },
-      { "kind": "text", "x": 255, "y": 405, "rotation": 0, "z_index": 30, "text": "Transformer tee 1" },
-      { "kind": "text", "x": 415, "y": 405, "rotation": 0, "z_index": 30, "text": "Transformer tee 2" },
-      { "kind": "text", "x": 580, "y": 405, "rotation": 0, "z_index": 30, "text": "Ring way B" }
-    ]
-  }
-  $$::jsonb
-WHERE NOT EXISTS (
-  SELECT 1 FROM runtime.diagram_templates WHERE name = 'RMU — 2 ring + 2 transformer'
-);
+SELECT t.name, t.description, t.payload FROM tmpl t
+WHERE NOT EXISTS (SELECT 1 FROM upd)
+  AND NOT EXISTS (SELECT 1 FROM runtime.diagram_templates WHERE name = t.name);
 
 -- =========================================================================
 -- Packaged substation (compact)
@@ -461,4 +500,92 @@ SELECT
   $$::jsonb
 WHERE NOT EXISTS (
   SELECT 1 FROM runtime.diagram_templates WHERE name = 'MV switchgear panel — Feeder'
+);
+
+-- =========================================================================
+-- LV feeder pillar -- 4-way  (config WAYS_4: 1x LV_BUSBAR + 4x LV_FUSE)
+--   Anchor = LV_PILLAR (a diagram container, no slot of its own). The bus is
+--   the one line-drawn slot; each fuse way hangs below it and feeds a feeder.
+-- =========================================================================
+INSERT INTO runtime.diagram_templates (name, description, payload)
+SELECT
+  'Feeder pillar — 4-way',
+  'LV feeder pillar single-line: an incoming main onto the internal LV busbar, fanning out to four fused outgoing ways. Bind the bus slot and each fuse slot to the pillar''s fan-out components.',
+  $$
+  {
+    "elements": [
+      { "kind": "line", "x": 400, "y": 40,  "rotation": 0, "z_index": 0, "path": [[400,40],[400,120]],  "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 160, "y": 120, "rotation": 0, "z_index": 0, "path": [[160,120],[160,180]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 320, "y": 120, "rotation": 0, "z_index": 0, "path": [[320,120],[320,180]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 480, "y": 120, "rotation": 0, "z_index": 0, "path": [[480,120],[480,180]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 640, "y": 120, "rotation": 0, "z_index": 0, "path": [[640,120],[640,180]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 160, "y": 240, "rotation": 0, "z_index": 0, "path": [[160,240],[160,340]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 320, "y": 240, "rotation": 0, "z_index": 0, "path": [[320,240],[320,340]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 480, "y": 240, "rotation": 0, "z_index": 0, "path": [[480,240],[480,340]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 640, "y": 240, "rotation": 0, "z_index": 0, "path": [[640,240],[640,340]], "style": {"stroke": "var(--foreground)"} },
+
+      { "kind": "slot", "x": 80,  "y": 120, "rotation": 0, "z_index": 20, "slot_class": "LV_BUSBAR", "path": [[80,120],[720,120]] },
+      { "kind": "slot", "x": 160, "y": 210, "rotation": 0, "z_index": 20, "slot_class": "LV_FUSE" },
+      { "kind": "slot", "x": 320, "y": 210, "rotation": 0, "z_index": 20, "slot_class": "LV_FUSE" },
+      { "kind": "slot", "x": 480, "y": 210, "rotation": 0, "z_index": 20, "slot_class": "LV_FUSE" },
+      { "kind": "slot", "x": 640, "y": 210, "rotation": 0, "z_index": 20, "slot_class": "LV_FUSE" },
+
+      { "kind": "text", "x": 420, "y": 34,  "rotation": 0, "z_index": 30, "text": "Incoming main" },
+      { "kind": "text", "x": 20,  "y": 112, "rotation": 0, "z_index": 30, "text": "Pillar busbar" },
+      { "kind": "text", "x": 130, "y": 365, "rotation": 0, "z_index": 30, "text": "Way 1" },
+      { "kind": "text", "x": 290, "y": 365, "rotation": 0, "z_index": 30, "text": "Way 2" },
+      { "kind": "text", "x": 450, "y": 365, "rotation": 0, "z_index": 30, "text": "Way 3" },
+      { "kind": "text", "x": 610, "y": 365, "rotation": 0, "z_index": 30, "text": "Way 4" }
+    ]
+  }
+  $$::jsonb
+WHERE NOT EXISTS (
+  SELECT 1 FROM runtime.diagram_templates WHERE name = 'Feeder pillar — 4-way'
+);
+
+-- =========================================================================
+-- LV feeder pillar -- 6-way  (config WAYS_6: 1x LV_BUSBAR + 6x LV_FUSE)
+-- =========================================================================
+INSERT INTO runtime.diagram_templates (name, description, payload)
+SELECT
+  'Feeder pillar — 6-way',
+  'LV feeder pillar single-line: an incoming main onto the internal LV busbar, fanning out to six fused outgoing ways. Bind the bus slot and each fuse slot to the pillar''s fan-out components.',
+  $$
+  {
+    "elements": [
+      { "kind": "line", "x": 400, "y": 40,  "rotation": 0, "z_index": 0, "path": [[400,40],[400,120]],  "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 100, "y": 120, "rotation": 0, "z_index": 0, "path": [[100,120],[100,180]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 220, "y": 120, "rotation": 0, "z_index": 0, "path": [[220,120],[220,180]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 340, "y": 120, "rotation": 0, "z_index": 0, "path": [[340,120],[340,180]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 460, "y": 120, "rotation": 0, "z_index": 0, "path": [[460,120],[460,180]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 580, "y": 120, "rotation": 0, "z_index": 0, "path": [[580,120],[580,180]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 700, "y": 120, "rotation": 0, "z_index": 0, "path": [[700,120],[700,180]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 100, "y": 240, "rotation": 0, "z_index": 0, "path": [[100,240],[100,340]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 220, "y": 240, "rotation": 0, "z_index": 0, "path": [[220,240],[220,340]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 340, "y": 240, "rotation": 0, "z_index": 0, "path": [[340,240],[340,340]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 460, "y": 240, "rotation": 0, "z_index": 0, "path": [[460,240],[460,340]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 580, "y": 240, "rotation": 0, "z_index": 0, "path": [[580,240],[580,340]], "style": {"stroke": "var(--foreground)"} },
+      { "kind": "line", "x": 700, "y": 240, "rotation": 0, "z_index": 0, "path": [[700,240],[700,340]], "style": {"stroke": "var(--foreground)"} },
+
+      { "kind": "slot", "x": 60,  "y": 120, "rotation": 0, "z_index": 20, "slot_class": "LV_BUSBAR", "path": [[60,120],[740,120]] },
+      { "kind": "slot", "x": 100, "y": 210, "rotation": 0, "z_index": 20, "slot_class": "LV_FUSE" },
+      { "kind": "slot", "x": 220, "y": 210, "rotation": 0, "z_index": 20, "slot_class": "LV_FUSE" },
+      { "kind": "slot", "x": 340, "y": 210, "rotation": 0, "z_index": 20, "slot_class": "LV_FUSE" },
+      { "kind": "slot", "x": 460, "y": 210, "rotation": 0, "z_index": 20, "slot_class": "LV_FUSE" },
+      { "kind": "slot", "x": 580, "y": 210, "rotation": 0, "z_index": 20, "slot_class": "LV_FUSE" },
+      { "kind": "slot", "x": 700, "y": 210, "rotation": 0, "z_index": 20, "slot_class": "LV_FUSE" },
+
+      { "kind": "text", "x": 420, "y": 34,  "rotation": 0, "z_index": 30, "text": "Incoming main" },
+      { "kind": "text", "x": 5,   "y": 112, "rotation": 0, "z_index": 30, "text": "Pillar busbar" },
+      { "kind": "text", "x": 75,  "y": 365, "rotation": 0, "z_index": 30, "text": "Way 1" },
+      { "kind": "text", "x": 195, "y": 365, "rotation": 0, "z_index": 30, "text": "Way 2" },
+      { "kind": "text", "x": 315, "y": 365, "rotation": 0, "z_index": 30, "text": "Way 3" },
+      { "kind": "text", "x": 435, "y": 365, "rotation": 0, "z_index": 30, "text": "Way 4" },
+      { "kind": "text", "x": 555, "y": 365, "rotation": 0, "z_index": 30, "text": "Way 5" },
+      { "kind": "text", "x": 675, "y": 365, "rotation": 0, "z_index": 30, "text": "Way 6" }
+    ]
+  }
+  $$::jsonb
+WHERE NOT EXISTS (
+  SELECT 1 FROM runtime.diagram_templates WHERE name = 'Feeder pillar — 6-way'
 );

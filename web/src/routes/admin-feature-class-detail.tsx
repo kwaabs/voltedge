@@ -456,8 +456,9 @@ function EditFieldRow({
  * answer is the same either way.
  */
 // Mirrors metadata.relationship_classes' kind CHECK (migrations/0010, widened
-// by 0075 for protection, 0080 for metering_sensing, 0082 for cable_routing and
-// 0083 for panel_bay) and the API's validRelationshipKinds in
+// by 0075 for protection, 0080 for metering_sensing, 0082 for cable_routing,
+// 0083 for panel_bay and 0121 for metering_accounting) and the API's
+// validRelationshipKinds in
 // api/internal/admin/rules.go -- keep all three in sync when a kind is added, or
 // the authoring dropdown lags what the schema and seeds already allow.
 const RELATIONSHIP_KINDS = [
@@ -469,6 +470,7 @@ const RELATIONSHIP_KINDS = [
   "metering_sensing",
   "cable_routing",
   "panel_bay",
+  "metering_accounting",
 ] as const
 const CARDINALITIES = ["one_to_one", "one_to_many", "many_to_many"] as const
 // The SNAP_TARGET_TYPE domain values (seed/snapping_rules_example.sql):

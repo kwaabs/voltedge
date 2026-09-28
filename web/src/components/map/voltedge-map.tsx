@@ -3418,8 +3418,11 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
         // one without stealing clicks from the features drawn on top of
         // them. Otherwise a click on true empty space clears both the
         // feature selection and any open territory panel.
+        // With inspect locked (layers panel), a territory click is muted: treat
+        // it like a click on empty space rather than opening the read-only panel,
+        // so the details stay out of the way until the user unlocks them.
         const territory = territoryAtPixel(evt.pixel)
-        if (territory) {
+        if (territory && !useTerritoryOverlayStore.getState().inspectLocked) {
           useTerritoryOverlayStore.getState().selectTerritory(territory)
         } else {
           useSelectionStore.getState().clear()

@@ -33,7 +33,7 @@ func buildAutoDiagram(ctx context.Context, db *bun.DB, in CreateRMUInput, result
 		return nil, err
 	}
 
-	components := make([]diagram.AssemblyComponent, 0, len(result.Ways)+1)
+	components := make([]diagram.AssemblyComponent, 0, len(result.Ways)*2+1)
 	if busID, err := featureID(result.Busbar); err == nil {
 		components = append(components, diagram.AssemblyComponent{
 			FeatureClass: result.BusbarFeatureClass,
@@ -48,6 +48,22 @@ func buildAutoDiagram(ctx context.Context, db *bun.DB, in CreateRMUInput, result
 		components = append(components, diagram.AssemblyComponent{
 			FeatureClass: w.FeatureClass,
 			FeatureID:    id,
+		})
+		// The way's external cable, when one was created (migration 0123). The
+		// binder buckets components by class and consumes each bucket FIFO in
+		// template element order, so appending conductors in way (position) order
+		// -- and placing the template's MV_CONDUCTOR slots left-to-right at the
+		// same x as their switch slots -- binds each cable under its own switch.
+		if w.ConductorFeatureClass == "" {
+			continue
+		}
+		condID, err := featureID(w.Conductor)
+		if err != nil {
+			return nil, err
+		}
+		components = append(components, diagram.AssemblyComponent{
+			FeatureClass: w.ConductorFeatureClass,
+			FeatureID:    condID,
 		})
 	}
 

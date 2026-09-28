@@ -23,6 +23,22 @@ interface FieldInputProps {
  * same field/data_type contract, just against a different starting
  * value and a different save verb (POST vs PATCH).
  */
+// A date / datetime field must never accept a FUTURE moment -- these record
+// when something happened (installed, inspected, commissioned, last read), not a
+// plan. `max` stops the native picker offering a later day/time; the onChange
+// guard additionally rejects a future value typed or pasted straight into the
+// box (where `max` alone only marks it invalid rather than blocking it).
+// today  -> YYYY-MM-DD  for <input type="date">
+// nowLocal -> YYYY-MM-DDTHH:mm for <input type="datetime-local"> (its own local,
+//             unzoned format -- NOT an ISO/UTC string, which the box won't parse).
+function localDateTimeBounds() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const nowLocal = `${today}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return { today, nowLocal }
+}
+
 export function FieldInput({ field, value, onChange, network }: FieldInputProps) {
   // circuit_id (Phase 37 Slice 2) is a uuid field, but a raw uuid text box is
   // useless -- a circuit is picked from the catalog by name, scoped to the
@@ -71,24 +87,40 @@ export function FieldInput({ field, value, onChange, network }: FieldInputProps)
           max={field.range_max}
         />
       )
-    case "date":
+    case "date": {
+      const { today } = localDateTimeBounds()
       return (
         <input
           type="date"
           className={inputClass}
           value={typeof value === "string" ? value : ""}
-          onChange={(e) => onChange(e.target.value || undefined)}
+          max={today}
+          onChange={(e) => {
+            const v = e.target.value
+            // YYYY-MM-DD compares lexicographically, so a plain string test is
+            // enough to reject a future day.
+            if (v && v > today) return
+            onChange(v || undefined)
+          }}
         />
       )
-    case "timestamp":
+    }
+    case "timestamp": {
+      const { nowLocal } = localDateTimeBounds()
       return (
         <input
           type="datetime-local"
           className={inputClass}
           value={typeof value === "string" ? value : ""}
-          onChange={(e) => onChange(e.target.value ? new Date(e.target.value).toISOString() : undefined)}
+          max={nowLocal}
+          onChange={(e) => {
+            const v = e.target.value
+            if (v && new Date(v).getTime() > Date.now()) return
+            onChange(v ? new Date(v).toISOString() : undefined)
+          }}
         />
       )
+    }
     default:
       return (
         <input

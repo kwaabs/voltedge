@@ -151,6 +151,7 @@ func moduleTools() []Tool {
 	t = append(t, externalLinkTools()...)
 	t = append(t, attachmentTools()...)
 	t = append(t, tagTools()...)
+	t = append(t, webhookTools()...)
 	return t
 }
 

@@ -28,20 +28,22 @@ import (
 // validRelationshipKinds / validCardinalities mirror the CHECK
 // constraints on metadata.relationship_classes (migrations/0010, widened by
 // 0075 for the protection kinds, 0080 for metering_sensing, 0082 for
-// cable_routing and 0083 for panel_bay). We validate here too so the API returns
+// cable_routing, 0083 for panel_bay and 0121 for metering_accounting). We
+// validate here too so the API returns
 // a clean 400 with the allowed set rather than letting Postgres reject it with a
 // raw constraint error -- keep this in sync with the DB CHECK whenever a new kind
 // is added, or admin authoring silently lags what the schema (and seeds) already
 // allow.
 var validRelationshipKinds = map[string]bool{
-	"spatial_support":    true,
-	"containment":        true,
-	"composite":          true,
-	"protection_trip":    true,
-	"protection_sensing": true,
-	"metering_sensing":   true,
-	"cable_routing":      true,
-	"panel_bay":          true,
+	"spatial_support":     true,
+	"containment":         true,
+	"composite":           true,
+	"protection_trip":     true,
+	"protection_sensing":  true,
+	"metering_sensing":    true,
+	"cable_routing":       true,
+	"panel_bay":           true,
+	"metering_accounting": true,
 }
 
 var validCardinalities = map[string]bool{
@@ -161,7 +163,7 @@ func createRelationshipClass(ctx context.Context, db *bun.DB, req relationshipCl
 		return nil, invalid("name is required")
 	}
 	if !validRelationshipKinds[req.Kind] {
-		return nil, invalid("kind must be one of spatial_support, containment, composite, protection_trip, protection_sensing, metering_sensing, cable_routing, panel_bay")
+		return nil, invalid("kind must be one of spatial_support, containment, composite, protection_trip, protection_sensing, metering_sensing, cable_routing, panel_bay, metering_accounting")
 	}
 	if !validCardinalities[req.Cardinality] {
 		return nil, invalid("cardinality must be one of one_to_one, one_to_many, many_to_many")

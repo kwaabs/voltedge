@@ -491,6 +491,17 @@ type RMUTemplateWay struct {
 	OffsetX         float64
 	OffsetY         float64
 	Rotation        float64
+
+	// Cable describes the external conductor the fan-out creates on this way's
+	// cable side and wires to CableTerminal (migration 0123). CableFeatureClass
+	// is nil when the template item defines no cable -- the fan-out then skips
+	// the cable step for this way, preserving the pre-0123 behaviour.
+	// CableAttributes supplies the conductor's required-field defaults (e.g.
+	// voltage_class, condition_rating) so the geometry-less create validates.
+	CableFeatureClass *string
+	CableSubtypeCode  *int
+	CableAttributes   map[string]any
+	CableTerminal     *string
 }
 
 // RMUTemplateResolved is one RMU configuration recipe ready for the fan-out:

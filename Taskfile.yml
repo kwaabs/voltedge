@@ -81,6 +81,14 @@ tasks:
     cmds:
       - go run ./cmd/exportworker
 
+  webhookworker-dev:
+    desc: Run the inbound-webhook ingestion worker locally against dockerized postgres (0124)
+    dir: "{{.API_DIR}}"
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/webhookworker
+
   mcp-dev:
     desc: Run the MCP server locally against dockerized postgres (Phase 18)
     dir: "{{.API_DIR}}"
@@ -198,6 +206,14 @@ tasks:
       DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
     cmds:
       - go run ./cmd/uncompile {{.CODE}}
+
+  rmu-backfill-cables:
+    desc: "Promote the bare cable side of EXISTING RMUs into real MV_CONDUCTOR features + wire them + rebuild each single-line (idempotent; the one-shot companion to the fan-out cable step). Prereqs: migration 0123 applied, MV_CONDUCTOR geometry_optional + `task compile CODE=MV_CONDUCTOR`, and `task seed-rmu-templates` re-run so the templates carry a cable. Pass DRY_RUN=--dry-run to preview."
+    dir: "{{.API_DIR}}"
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/rmubackfill {{.DRY_RUN}}
 
   authadmin-create:
     desc: "Bootstrap/create a break-glass admin (Phase 10). EMAIL + NAME vars; set AUTHADMIN_PASSWORD in your env/.env first"
@@ -724,6 +740,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/double_busbar_template.sql
 
+  seed-substation-templates:
+    desc: Load two more built-in substation diagram templates -- "33/11 kV substation" (two-voltage transformer substation) and "Switching station (33 kV)" (single-voltage, no transformer) -- through the gitbash sidecar (requires migration 0049; additive to "Double busbar", left untouched; typed slots bind to MV_BUSBAR/POWER_XFMR/MV_SWITCHGEAR_PANEL; idempotent on template name)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/substation_templates.sql
+
   seed-assembly-diagram-templates:
     desc: Load the built-in single-line diagram templates for every assembly/kit (RMU 2W_1T/2W_2T, packaged substation, the six pole/pad kits, switchgear-panel incomer + feeder) through the gitbash sidecar, so a diagram can Apply-template then bind each typed slot to the fan-out's geometry-less internal components (requires migration 0049; idempotent on template name; also flips is_diagram_placeable true for DIST_XFMR/LV_LINK_BOX/PROTECTIVE_RELAY -- a runtime flag, nothing to compile)
     cmds:
@@ -819,6 +843,22 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/pad_mount_urd.sql
+
+  seed-lv-pillar:
+    desc: Load the LV feeder-pillar assembly catalog (Phase 9 Slice 7) -- the NEW LV_PILLAR container + LV_FUSE fuse-way classes, FUSE_RATING domain, LV_PILLAR contains LV_BUSBAR/LV_FUSE containment, and the three legs (LV_CONDUCTOR->LV_BUSBAR T1 incoming, LV_BUSBAR T2->LV_FUSE T1 internal, LV_FUSE T2->LV_CONDUCTOR out) + OPEN-fuse trace barrier -- through the gitbash sidecar (requires seed-lv-metering for LV_BUSBAR + seed-lv-conductors for LV_CONDUCTOR applied first; also flips LV_BUSBAR to geometry_optional + diagram_geometry_type=line for the fan-out, so compile CODE=LV_PILLAR, CODE=LV_FUSE AND re-compile CODE=LV_BUSBAR after)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/lv_pillar_example.sql
+
+  seed-lv-pillar-templates:
+    desc: Load the per-config LV feeder-pillar recipes (WAYS_4/WAYS_6 -> one LV_BUSBAR + N fused LV_FUSE ways, all contained in the pillar and wired to the bus; backs POST /assemblies) through the gitbash sidecar (requires migration 0093 + seed-lv-pillar applied first; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/lv_pillar_templates.sql
 
   seed-pole-mount-recloser:
     desc: Load the POLE_MOUNT_RECLOSER kit -- POLE spatial_support {MV_RECLOSER/MV_ARRESTER}, the internal shunt legs (MV_RECLOSER T1->MV_ARRESTER T1 line-side, MV_RECLOSER T2->MV_ARRESTER T1 load-side) and the assembly template that backs POST /assemblies -- through the gitbash sidecar (requires migration 0093 + the POLE/MV_RECLOSER/MV_ARRESTER class seeds applied first; no compile step -- pure metadata rows)
@@ -1328,6 +1368,7 @@ tasks:
       - task: seed-cim-mapping
       - task: seed-cim-mapping-coverage
       - task: seed-double-busbar
+      - task: seed-substation-templates
       - task: seed-mv-switching
       - task: seed-bus-coupler-fields
       - task: seed-switch-normal-state
@@ -1337,6 +1378,8 @@ tasks:
       - task: seed-packaged-substation-templates
       - task: seed-overhead-pole-transformer
       - task: seed-pad-mount-urd
+      - task: seed-lv-pillar
+      - task: seed-lv-pillar-templates
       - task: seed-rmu-diagram-placement
       - task: seed-feature-class-categories
       - task: seed-mv-protection

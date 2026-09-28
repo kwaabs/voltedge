@@ -661,7 +661,16 @@ function TerminalsTab() {
           const isFrom =
             conn.from.feature_class === selected.featureClassCode && conn.from.feature_id === selected.featureId
           const counterpart = isFrom ? conn.to : conn.from
-          const thisTerminal = isFrom ? conn.from.terminal : conn.to.terminal
+          // The terminal on the viewed feature's side. The dedicated
+          // terminal field is authoritative, but the seeded network rules
+          // also bake it onto the end of the rule name (e.g. "... T1"), so
+          // fall back to parsing that suffix and always strip it from the
+          // displayed rule line -- the badge below is the single place it shows.
+          const ruleTerminalMatch = conn.network_rule_name.match(/\s+(T\d+)\s*$/i)
+          const thisTerminal = (isFrom ? conn.from.terminal : conn.to.terminal) || ruleTerminalMatch?.[1] || null
+          const ruleLabel = ruleTerminalMatch
+            ? conn.network_rule_name.slice(0, ruleTerminalMatch.index).trimEnd()
+            : conn.network_rule_name
           const counterpartClassName =
             featureClasses?.feature_classes.find((fc) => fc.code === counterpart.feature_class)?.name ??
             counterpart.feature_class
@@ -698,10 +707,7 @@ function TerminalsTab() {
                   <span className="text-muted-foreground shrink-0 text-xs">{isFrom ? "Outgoing" : "Incoming"}</span>
                 </div>
                 <p className="text-muted-foreground font-mono text-xs">{counterpartSecondary}</p>
-                <p className="text-muted-foreground mt-1 text-xs">
-                  {thisTerminal && <>via {thisTerminal} · </>}
-                  {conn.network_rule_name}
-                </p>
+                <p className="text-muted-foreground mt-1 text-xs">{ruleLabel}</p>
               </button>
               <button
                 type="button"
@@ -724,6 +730,17 @@ function TerminalsTab() {
                 <Unlink2 className="size-3.5" />
                 <span className="sr-only">Revoke connection</span>
               </button>
+              {/* The terminal this connection lands on (T1/T2 on the viewed
+                  feature) -- pinned to the card's extreme right edge, after the
+                  action buttons, in a big badge so it reads at a glance. */}
+              {thisTerminal && (
+                <span
+                  className="text-foreground shrink-0 self-center pl-1 text-lg font-semibold tabular-nums"
+                  title={`Terminal ${thisTerminal}`}
+                >
+                  {thisTerminal}
+                </span>
+              )}
             </div>
           )
         })}

@@ -84,6 +84,15 @@ type CreatedWay struct {
 	OffsetX      float64        `json:"offset_x"`
 	OffsetY      float64        `json:"offset_y"`
 	Rotation     float64        `json:"rotation"`
+
+	// Conductor is the external cable feature created on this way's cable side
+	// (T1) when the template defines one (migration 0123); ConductorFeatureClass
+	// is its class and CableConnectionID the id of the connection wiring the
+	// cable to the way's cable terminal. All three are zero-valued when the
+	// template item defines no cable, so a config without cables is unaffected.
+	ConductorFeatureClass string         `json:"conductor_feature_class,omitempty"`
+	Conductor             map[string]any `json:"conductor,omitempty"`
+	CableConnectionID     string         `json:"cable_connection_id,omitempty"`
 }
 
 // CreateRMUResult reports the whole assembly: the placed RMU, its internal bus,
@@ -145,15 +154,29 @@ func CreateRMU(ctx context.Context, db *bun.DB, in CreateRMUInput) (*CreateRMURe
 	// across items -- every way is a plain MV_SWITCH), before opening the
 	// transaction: read-only lookups don't belong inside it.
 	wayMeta := map[string]*metadata.Loaded{}
+	// cableMeta holds the metadata for each distinct cable conductor class a way
+	// defines (migration 0123). Loaded once up front, outside the tx, like the
+	// way classes -- a way without a cable contributes nothing here.
+	cableMeta := map[string]*metadata.Loaded{}
 	for _, w := range tmpl.Ways {
-		if _, ok := wayMeta[w.WayFeatureClass]; ok {
+		if _, ok := wayMeta[w.WayFeatureClass]; !ok {
+			loaded, err := metadata.Load(ctx, db, w.WayFeatureClass)
+			if err != nil {
+				return nil, invalidf("way feature class %q in template not found", w.WayFeatureClass)
+			}
+			wayMeta[w.WayFeatureClass] = loaded
+		}
+		if w.CableFeatureClass == nil {
 			continue
 		}
-		loaded, err := metadata.Load(ctx, db, w.WayFeatureClass)
-		if err != nil {
-			return nil, invalidf("way feature class %q in template not found", w.WayFeatureClass)
+		if _, ok := cableMeta[*w.CableFeatureClass]; ok {
+			continue
 		}
-		wayMeta[w.WayFeatureClass] = loaded
+		loaded, err := metadata.Load(ctx, db, *w.CableFeatureClass)
+		if err != nil {
+			return nil, invalidf("cable feature class %q in template not found", *w.CableFeatureClass)
+		}
+		cableMeta[*w.CableFeatureClass] = loaded
 	}
 
 	result := &CreateRMUResult{}
@@ -221,14 +244,52 @@ func CreateRMU(ctx context.Context, db *bun.DB, in CreateRMUInput) (*CreateRMURe
 			if err != nil {
 				return fmt.Errorf("wiring %s.%s to the bus: %w", wDef.WayFeatureClass, busTerminal, err)
 			}
-			result.Ways = append(result.Ways, CreatedWay{
+			created := CreatedWay{
 				FeatureClass: wDef.WayFeatureClass,
 				Feature:      env,
 				ConnectionID: conn.ID,
 				OffsetX:      wDef.OffsetX,
 				OffsetY:      wDef.OffsetY,
 				Rotation:     wDef.Rotation,
-			})
+			}
+
+			// 3b. the external cable, when the template defines one (migration
+			// 0123): create the geometry-less conductor (its class is
+			// geometry_optional, so no map geometry is required) and wire its
+			// terminal-less "from" end to the way's cable terminal (T1 by default).
+			// The rule MV_CONDUCTOR -> MV_SWITCH.T1 already exists; the connectivity
+			// engine is geometry-agnostic, so an edge with no geometry is a valid
+			// endpoint. This step is inside the tx: a cable failure rolls the whole
+			// RMU back, same as any other way step.
+			if wDef.CableFeatureClass != nil {
+				condEnv, err := crud.CreateFeature(ctx, tx, cableMeta[*wDef.CableFeatureClass], crud.CreateFeatureInput{
+					Subtype:    wDef.CableSubtypeCode,
+					Attributes: wDef.CableAttributes,
+				})
+				if err != nil {
+					return fmt.Errorf("creating %s cable for %s: %w", *wDef.CableFeatureClass, wDef.WayFeatureClass, err)
+				}
+				condID, err := featureID(condEnv)
+				if err != nil {
+					return err
+				}
+				cableTerminal := "T1"
+				if wDef.CableTerminal != nil && *wDef.CableTerminal != "" {
+					cableTerminal = *wDef.CableTerminal
+				}
+				cableConn, err := connectivity.EstablishConnection(ctx, tx, connectivity.EstablishConnectionInput{
+					From: connectivity.Endpoint{FeatureClass: *wDef.CableFeatureClass, FeatureID: condID},
+					To:   connectivity.Endpoint{FeatureClass: wDef.WayFeatureClass, FeatureID: wayID, Terminal: &cableTerminal},
+				})
+				if err != nil {
+					return fmt.Errorf("wiring %s cable to %s.%s: %w", *wDef.CableFeatureClass, wDef.WayFeatureClass, cableTerminal, err)
+				}
+				created.ConductorFeatureClass = *wDef.CableFeatureClass
+				created.Conductor = condEnv
+				created.CableConnectionID = cableConn.ID
+			}
+
+			result.Ways = append(result.Ways, created)
 		}
 		return nil
 	}); err != nil {

@@ -19,6 +19,8 @@ var assemblyDiagramTemplates = map[string]string{
 	"POLE_MOUNT_REGULATOR": "Pole-mount voltage regulator",
 	"POLE_MOUNT_BESS":      "Pole-mount battery storage",
 	"PAD_MOUNT_URD":        "Pad-mount transformer + feeder pillar (URD)",
+	"WAYS_4":               "Feeder pillar — 4-way",
+	"WAYS_6":               "Feeder pillar — 6-way",
 }
 
 // buildAutoDiagram stands up the kit's single-line right after a successful

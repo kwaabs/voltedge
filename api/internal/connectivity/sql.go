@@ -290,6 +290,77 @@ func revokeConnection(ctx context.Context, db bun.IDB, id string) error {
 	return nil
 }
 
+// RepointFeature moves every connectivity endpoint that references
+// (classID, oldFeatureID) onto newFeatureID, staying within the same feature
+// class -- the row-level half of the diagram engine's "replace this stub with
+// the real map feature" swap (api/internal/diagram/replace.go). Only the
+// feature id changes; the class and any terminal stay put, so a cable stub's
+// MV_SWITCH.T1 link simply re-anchors to the real conductor.
+//
+// The endpoint quadruple (from_feature_id, from_terminal_id, to_feature_id,
+// to_terminal_id) is UNIQUE NULLS NOT DISTINCT, so a rewrite that would
+// duplicate an edge the replacement already carries is dropped instead of
+// updated -- the transfer stays idempotent and never trips the constraint.
+// Returns the number of rows moved (rewrites + dropped duplicates). It is the
+// caller's job to run this inside the same transaction as the rest of the swap.
+func RepointFeature(ctx context.Context, db bun.IDB, classID, oldFeatureID, newFeatureID string) (int, error) {
+	if oldFeatureID == newFeatureID {
+		return 0, nil
+	}
+
+	var rows []Connectivity
+	if err := db.NewSelect().Model(&rows).
+		Where("(from_feature_class_id = ? AND from_feature_id = ?) OR (to_feature_class_id = ? AND to_feature_id = ?)",
+			classID, oldFeatureID, classID, oldFeatureID).
+		Scan(ctx); err != nil {
+		return 0, fmt.Errorf("connectivity: repoint: %w", err)
+	}
+
+	moved := 0
+	for i := range rows {
+		r := rows[i]
+		// The quadruple this row would hold once its stub side(s) point at the
+		// replacement -- a row can reference the stub on both sides (a self-loop),
+		// so rewrite whichever match.
+		fromID, toID := r.FromFeatureID, r.ToFeatureID
+		if r.FromFeatureClassID == classID && r.FromFeatureID == oldFeatureID {
+			fromID = newFeatureID
+		}
+		if r.ToFeatureClassID == classID && r.ToFeatureID == oldFeatureID {
+			toID = newFeatureID
+		}
+
+		exists, err := db.NewSelect().Model((*Connectivity)(nil)).
+			Where("id <> ?", r.ID).
+			Where("from_feature_id = ?", fromID).
+			Where("from_terminal_id IS NOT DISTINCT FROM ?", r.FromTerminalID).
+			Where("to_feature_id = ?", toID).
+			Where("to_terminal_id IS NOT DISTINCT FROM ?", r.ToTerminalID).
+			Exists(ctx)
+		if err != nil {
+			return moved, fmt.Errorf("connectivity: repoint check: %w", err)
+		}
+		if exists {
+			// The replacement already carries this exact edge -- drop the stub's
+			// duplicate rather than collide with the unique constraint.
+			if _, err := db.NewDelete().Model((*Connectivity)(nil)).Where("id = ?", r.ID).Exec(ctx); err != nil {
+				return moved, fmt.Errorf("connectivity: repoint drop dup: %w", err)
+			}
+			moved++
+			continue
+		}
+
+		if _, err := db.NewUpdate().Model((*Connectivity)(nil)).
+			Set("from_feature_id = ?", fromID).
+			Set("to_feature_id = ?", toID).
+			Where("id = ?", r.ID).Exec(ctx); err != nil {
+			return moved, fmt.Errorf("connectivity: repoint update: %w", err)
+		}
+		moved++
+	}
+	return moved, nil
+}
+
 // formatConnection builds the response for a connection just
 // established, reusing the already-validated request-side endpointRefs
 // verbatim (feature class code, feature id, terminal code) rather than

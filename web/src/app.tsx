@@ -19,6 +19,7 @@ import { AdminFeatureClassesPage } from "@/routes/admin-feature-classes"
 import { AdminDiagramsPage } from "@/routes/admin-diagrams"
 import { AdminFieldGroupsPage } from "@/routes/admin-field-groups"
 import { AdminMapSettingsPage } from "@/routes/admin-map-settings"
+import { AdminWebhooksPage } from "@/routes/admin-webhooks"
 import { AdminFieldPacksPage } from "@/routes/admin-field-packs"
 import { AdminMaterialsPage } from "@/routes/admin-materials"
 import { AdminStencilsPage } from "@/routes/admin-stencils"
@@ -171,6 +172,7 @@ export function App() {
             <Route path="admin/diagrams" element={<AdminDiagramsPage />} />
             <Route path="admin/materials" element={<AdminMaterialsPage />} />
             <Route path="admin/external-systems" element={<AdminExternalSystemsPage />} />
+            <Route path="admin/webhooks" element={<AdminWebhooksPage />} />
             <Route path="admin/symbology-icons" element={<AdminSymbologyIconsPage />} />
             <Route path="admin/stencils" element={<AdminStencilsPage />} />
             <Route

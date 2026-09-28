@@ -240,12 +240,14 @@ WHERE rfc.code = ? AND cv.code = ?`
 	}
 
 	const wayQuery = `
-SELECT wfc.code, rti.subtype_code, rti.attributes, rti.bus_terminal, rti.offset_x, rti.offset_y, rti.rotation
+SELECT wfc.code, rti.subtype_code, rti.attributes, rti.bus_terminal, rti.offset_x, rti.offset_y, rti.rotation,
+       cfc.code, rti.cable_subtype_code, rti.cable_attributes, rti.cable_terminal
 FROM metadata.rmu_template_items rti
 JOIN metadata.rmu_templates rt ON rt.id = rti.template_id
 JOIN metadata.feature_classes rfc ON rfc.id = rt.rmu_feature_class_id
 JOIN metadata.domain_values cv ON cv.id = rt.config_value_id
 JOIN metadata.feature_classes wfc ON wfc.id = rti.way_feature_class_id
+LEFT JOIN metadata.feature_classes cfc ON cfc.id = rti.cable_feature_class_id
 WHERE rfc.code = ? AND cv.code = ?
 ORDER BY rti.position`
 
@@ -258,15 +260,26 @@ ORDER BY rti.position`
 	resolved := &RMUTemplateResolved{BusbarFeatureClass: busbarClass}
 	for rows.Next() {
 		var (
-			w        RMUTemplateWay
-			rawAttrs []byte
+			w             RMUTemplateWay
+			rawAttrs      []byte
+			rawCableAttrs []byte
 		)
-		if err := rows.Scan(&w.WayFeatureClass, &w.SubtypeCode, &rawAttrs, &w.BusTerminal, &w.OffsetX, &w.OffsetY, &w.Rotation); err != nil {
+		// CableFeatureClass / CableSubtypeCode / CableTerminal are nullable
+		// columns scanned straight into their *string / *int fields -- a NULL
+		// lands as a nil pointer (the same way SubtypeCode already scans a
+		// nullable subtype_code), which the fan-out reads as "no cable".
+		if err := rows.Scan(&w.WayFeatureClass, &w.SubtypeCode, &rawAttrs, &w.BusTerminal, &w.OffsetX, &w.OffsetY, &w.Rotation,
+			&w.CableFeatureClass, &w.CableSubtypeCode, &rawCableAttrs, &w.CableTerminal); err != nil {
 			return nil, fmt.Errorf("metadata: scanning rmu template way: %w", err)
 		}
 		if len(rawAttrs) > 0 {
 			if err := json.Unmarshal(rawAttrs, &w.Attributes); err != nil {
 				return nil, fmt.Errorf("metadata: decoding rmu template way attributes for %s: %w", w.WayFeatureClass, err)
+			}
+		}
+		if len(rawCableAttrs) > 0 {
+			if err := json.Unmarshal(rawCableAttrs, &w.CableAttributes); err != nil {
+				return nil, fmt.Errorf("metadata: decoding rmu template cable attributes for %s: %w", w.WayFeatureClass, err)
 			}
 		}
 		resolved.Ways = append(resolved.Ways, w)

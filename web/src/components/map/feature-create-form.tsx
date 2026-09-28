@@ -409,6 +409,39 @@ export function FeatureCreateForm() {
         return
       }
 
+      // A promote draft turns a stencil (a typed slot, or a decorative
+      // line/bus/symbol) into a real feature. Unlike every other path this does
+      // NOT create the feature via /features first: the admin-only
+      // POST /diagrams/{id}/elements/{elementID}/promote endpoint creates it,
+      // places it where the stencil sat (carrying its path), and consumes the
+      // stencil -- all in one transaction (api/internal/diagram/promote.go), so
+      // the diagram can never end up half-promoted. The new feature is left
+      // unwired by design; the admin connects it afterward with the connect tool.
+      if (draft.diagramPlacement?.promoteFromElementId) {
+        const { diagramId, promoteFromElementId } = draft.diagramPlacement
+        // The class the form is targeting. A mapped stencil resolves its own
+        // class server-side and ignores this; a plain decoration promoted via
+        // the class picker has no mapping, so this is what tells the endpoint
+        // what to build (api/internal/diagram/promote.go resolvePromoteClass).
+        const promoteBody: Record<string, unknown> = {
+          feature_class: draft.featureClassCode,
+          attributes: createAttributes,
+        }
+        if (needsSubtype) promoteBody.subtype = subtypeCode
+        if (name.trim()) promoteBody.name = name.trim()
+        const result = await apiFetch<{ feature_id: string; feature_class: string }>(
+          `/diagrams/${diagramId}/elements/${promoteFromElementId}/promote`,
+          { method: "POST", body: JSON.stringify(promoteBody) },
+        )
+        // The stencil vanished and a placement appeared -- refetch both so the
+        // canvas swaps the marker for the feature in one pass.
+        queryClient.invalidateQueries({ queryKey: ["diagram-elements", diagramId] })
+        queryClient.invalidateQueries({ queryKey: ["diagram-placements", diagramId] })
+        select(result.feature_class, result.feature_id)
+        clearDraft()
+        return
+      }
+
       const body: Record<string, unknown> = { attributes: createAttributes }
       if (draft.geometry) body.geometry = draft.geometry
       if (needsSubtype) body.subtype = subtypeCode
@@ -418,7 +451,11 @@ export function FeatureCreateForm() {
         body: JSON.stringify(body),
       })
       if (draft.diagramPlacement) {
-        const { diagramId, x, y, rotation, promoteFromElementId, path } = draft.diagramPlacement
+        // A plain diagram draft (digitizing a brand-new feature straight onto a
+        // diagram): create the feature above, then place it. Stencil promotion
+        // is NOT handled here -- it returns early through the atomic promote
+        // endpoint above, so this path never carries a promoteFromElementId.
+        const { diagramId, x, y, rotation, path } = draft.diagramPlacement
         await apiFetch(`/diagrams/${diagramId}/placements`, {
           method: "POST",
           body: JSON.stringify({
@@ -433,15 +470,6 @@ export function FeatureCreateForm() {
             ...(path ? { path } : {}),
           }),
         })
-        // Stencil->feature promotion (Phase 25): the just-placed feature is
-        // taking the spot of a decoration symbol. Now that the real placement
-        // exists, delete that symbol element so the glyph is swapped for the
-        // feature rather than doubled up. Elements are their own query key, so
-        // invalidate them too for the canvas to drop the removed glyph.
-        if (promoteFromElementId) {
-          await apiFetch(`/diagrams/${diagramId}/elements/${promoteFromElementId}`, { method: "DELETE" })
-          queryClient.invalidateQueries({ queryKey: ["diagram-elements", diagramId] })
-        }
         queryClient.invalidateQueries({ queryKey: ["diagram-placements", diagramId] })
       } else {
         bumpMapRefresh()

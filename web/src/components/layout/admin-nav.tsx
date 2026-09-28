@@ -15,6 +15,7 @@ import {
   Stamp,
   Tags,
   UsersRound,
+  Webhook,
   Workflow,
   Wrench,
   Zap,
@@ -83,6 +84,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         label: "External systems",
         description: "APIs a feature's live links fetch data from (CIS, billing…).",
         icon: Cloud,
+        perm: "metadata:read",
+      },
+      {
+        to: "/admin/webhooks",
+        label: "Webhooks",
+        description: "Inbound endpoints external systems push feature changes into.",
+        icon: Webhook,
         perm: "metadata:read",
       },
       {

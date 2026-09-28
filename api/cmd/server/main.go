@@ -53,6 +53,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/packagedsub"
 	"github.com/kwaabs/voltedge/api/internal/panel"
 	"github.com/kwaabs/voltedge/api/internal/powerflow"
+	"github.com/kwaabs/voltedge/api/internal/ratelimit"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
 	"github.com/kwaabs/voltedge/api/internal/rmu"
 	"github.com/kwaabs/voltedge/api/internal/rules"
@@ -62,6 +63,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/tiles"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/kwaabs/voltedge/api/internal/wam"
+	"github.com/kwaabs/voltedge/api/internal/webhook"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
@@ -145,6 +147,19 @@ func main() {
 	// /healthz stays public -- container orchestration probes it with no
 	// session, and it exposes nothing but DB reachability.
 	r.Get("/healthz", healthzHandler(db))
+
+	// Inbound webhook receiver (0124, internal/webhook): the PUBLIC ingestion
+	// surface external systems push feature (later reading/work/fault) changes to.
+	// It sits OUTSIDE the session/RBAC stack on purpose -- each endpoint carries
+	// its own per-endpoint credential (HMAC signature and/or bearer token verified
+	// in the handler), and every applied write still runs as the endpoint's
+	// configured service user, so it can never exceed that user's permissions or
+	// territory scope. A coarse per-IP limiter (the login limiter's cousin) and a
+	// tight 1 MiB body cap wrap it, since an unauthenticated caller reaches it: the
+	// receiver only authenticates + enqueues, so payloads are control-sized, not
+	// bulk. The out-of-process cmd/webhookworker drains the queue and applies.
+	webhookLimiter := ratelimit.New(300, 100)
+	r.With(webhookLimiter.Middleware, httpx.MaxBytes(1<<20)).Mount("/webhooks", webhook.ReceiverRoutes(db, credCipher))
 
 	// The map/forms read layer: the feature-class catalog, per-class schema
 	// and rules, and the global symbology icon set. All GET, all gated by
@@ -367,6 +382,14 @@ func main() {
 	// lives under /admin/external-systems (frontend) while the API sits top-level,
 	// same split as field-packs. credCipher seals credentials at rest.
 	r.With(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite)).Mount("/external-systems", externalsystem.Routes(db, credCipher))
+	// Inbound webhook management (0124, internal/webhook): the admin surface that
+	// configures the ingestion endpoints the public /webhooks receiver above
+	// serves, plus each endpoint's delivery log, the paste-and-apply tester, and
+	// delivery replay. Admin config like external-systems, so it rides the same
+	// metadata:read/write gate; its page lives under /admin/webhooks (frontend)
+	// while the API sits top-level, the same split as external-systems.
+	// credCipher seals each endpoint's HMAC signing secret at rest.
+	r.With(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite)).Mount("/webhook-endpoints", webhook.AdminRoutes(db, credCipher))
 	// Phase 21 pack management (docs/phase-21-field-tool.md): an admin lists
 	// every user's field-tool region packs and disables (hides from the device)
 	// or deletes them, so stale packs don't crowd a field tech's tablet. This is
