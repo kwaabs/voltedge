@@ -13,6 +13,21 @@ import { ApiError, apiFetch } from "@/lib/api"
 export type WebhookDirection = "push" | "pull"
 export type WebhookTarget = "feature" | "reading" | "work" | "fault"
 export type WebhookAuthMode = "hmac" | "bearer" | "both"
+/** Outbound auth shape for a pull endpoint (mirrors the Go outbound.Auth). */
+export type WebhookPullAuthType = "none" | "api_key" | "basic" | "bearer"
+
+/** Pull-direction settings carried in config: where to fetch and how to
+ * authenticate. The credential itself rides the sealed signing_secret column, so
+ * it is never present here. */
+export interface WebhookPullConfig {
+  pull_url?: string
+  pull_auth?: {
+    type?: WebhookPullAuthType
+    header?: string
+    query_param?: string
+    username?: string
+  }
+}
 
 export interface WebhookEndpoint {
   id: string
@@ -24,8 +39,9 @@ export interface WebhookEndpoint {
   /** The signing secret is never returned -- only whether one is stored. */
   has_signing_secret: boolean
   service_user_id: string
-  /** Opaque per-endpoint config; the feature adapter reads config.feature_class. */
-  config?: { feature_class?: string } & Record<string, unknown>
+  /** Opaque per-endpoint config; the feature adapter reads config.feature_class,
+   * a pull endpoint reads config.pull_url / config.pull_auth. */
+  config?: { feature_class?: string } & WebhookPullConfig & Record<string, unknown>
   mapping?: unknown
   created_at: string
   updated_at: string

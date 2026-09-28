@@ -160,12 +160,12 @@ type readingAdapter struct{ featureAdapter }
 
 // parseChanges normalizes an endpoint's raw payload into a list of raw per-change
 // objects, each of which the target adapter decodes into its own typed shape.
-// With no mapping spec the payload is native: either {"changes":[...]} or a
-// single bare change object. A mapping spec is rejected for now -- optional
-// field-mapping is a later slice; this release accepts native payloads only.
+// When the endpoint carries a mapping spec, the sender's own JSON is transformed
+// into native change objects first (mapping.go). Otherwise the payload is already
+// native: either {"changes":[...]} or a single bare change object.
 func parseChanges(ep *Endpoint, payload json.RawMessage) ([]json.RawMessage, error) {
 	if len(ep.Mapping) > 0 {
-		return nil, invalid("this endpoint has a mapping spec, but payload mapping isn't supported yet (send VoltEdge-native payloads for now)")
+		return applyMapping(ep.Mapping, payload)
 	}
 
 	// {"changes":[...]} -- a non-nil array (even empty) means the sender used the

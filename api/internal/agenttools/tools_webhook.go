@@ -15,8 +15,9 @@ package agenttools
 // signing secret needs the at-rest cipher, which the stateless tool registry
 // (a bare *bun.DB) can't supply -- exactly why feature_link's live fetch is
 // omitted. Endpoints are configured from the admin UI/REST surface, which has the
-// cipher; these tools cover inspection and the operational actions (test, replay,
-// delete).
+// cipher; these tools cover inspection and the operational actions (test, pull,
+// replay, delete). An authenticated pull still needs the cipher, so webhook_pull
+// serves only unauthenticated pull URLs -- see its note.
 
 import (
 	"context"
@@ -89,9 +90,11 @@ func webhookTools() []Tool {
 		},
 		{
 			Name: "webhook_test",
-			Description: "Paste-and-apply a native VoltEdge payload against an endpoint INLINE -- the " +
+			Description: "Paste-and-apply a payload against an endpoint INLINE -- the " +
 				"same validated apply the admin POST /webhook-endpoints/{id}/test route performs, " +
-				"without sending a real push. The payload is a JSON object with a `changes` array " +
+				"without sending a real push. For an endpoint with a field-mapping spec, pass the " +
+				"sender's OWN payload shape (it is mapped to native first); otherwise pass a native " +
+				"VoltEdge payload: a JSON object with a `changes` array " +
 				"(each change: op create/update/delete/upsert, external_id, optional feature_class " +
 				"[falls back to the endpoint's config.feature_class], subtype, name, geometry, " +
 				"attributes); a single bare change object is also accepted. It runs as the endpoint's " +
@@ -117,6 +120,36 @@ func webhookTools() []Tool {
 			},
 			RequiredPerm: auth.PermMetadataWrite,
 			Handler:      toolWebhookTest,
+		},
+		{
+			Name: "webhook_pull",
+			Description: "Trigger a pull-direction endpoint's outbound fetch NOW -- the same action the " +
+				"admin POST /webhook-endpoints/{id}/pull route performs. VoltEdge GETs the endpoint's " +
+				"configured pull_url (through an SSRF-hardened client) and applies the response INLINE " +
+				"as the endpoint's service user, inheriting that user's permissions, territory scope, " +
+				"and validation, so it really creates/updates/deletes entities. Returns the new delivery " +
+				"id and the per-item result. Only a pull endpoint (direction=pull) with a pull_url can " +
+				"be pulled; a push endpoint is rejected. Note: an endpoint whose pull_auth needs a " +
+				"stored credential can't be pulled from here (the credential can't be decrypted in the " +
+				"tool context) -- run an authenticated pull from the admin UI. This WRITES to the " +
+				"database: confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"endpoint_id":{"type":"string","description":"The pull endpoint's id (uuid) to fetch now."}
+				},
+				"required":["endpoint_id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Pull webhook endpoint now (applies the response)",
+				ReadOnlyHint:    &falseHint, // it applies the fetched changes
+				DestructiveHint: &trueHint,  // the fetched payload may include deletes
+				IdempotentHint:  &falseHint, // each pull enqueues and applies a fresh delivery
+				OpenWorldHint:   &trueHint,  // it reaches out to a third-party URL
+			},
+			RequiredPerm: auth.PermMetadataWrite,
+			Handler:      toolWebhookPull,
 		},
 		{
 			Name: "webhook_delivery_replay",
@@ -222,6 +255,19 @@ func toolWebhookTest(ctx context.Context, db bun.IDB, args json.RawMessage) (any
 	// The engine re-validates the payload against the live model as the service
 	// user; its 400s surface in-band as the tool error.
 	return webhook.AgentTestApply(ctx, db, in.EndpointID, in.Payload)
+}
+
+func toolWebhookPull(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		EndpointID string `json:"endpoint_id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.EndpointID == "" {
+		return nil, fmt.Errorf("endpoint_id is required")
+	}
+	return webhook.AgentPull(ctx, db, in.EndpointID)
 }
 
 func toolWebhookDeliveryReplay(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {

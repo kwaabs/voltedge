@@ -112,6 +112,25 @@ func AgentTestApply(ctx context.Context, db bun.IDB, endpointID string, payload 
 	return map[string]any{"delivery_id": deliveryID, "result": result}, nil
 }
 
+// AgentPull triggers a pull endpoint's outbound fetch and applies the response
+// inline as the service user -- mirrors POST /webhook-endpoints/{id}/pull. The
+// stateless registry supplies no cipher, so an UNAUTHENTICATED pull works but an
+// endpoint whose pull_auth needs a stored credential returns a clean error (the
+// secret can't be unsealed here) -- configure/run an authenticated pull from the
+// admin UI / REST surface, which has the cipher. A failure dead-letters the
+// delivery (never requeued) and surfaces as the tool error.
+func AgentPull(ctx context.Context, db bun.IDB, endpointID string) (any, error) {
+	d, err := agentDB(db)
+	if err != nil {
+		return nil, err
+	}
+	deliveryID, result, err := pullFetch(ctx, &store{db: d}, endpointID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"delivery_id": deliveryID, "result": result}, nil
+}
+
 // AgentReplayDelivery re-enqueues a stored delivery's payload as a NEW
 // source="replay" delivery for the async worker -- mirrors POST
 // .../deliveries/{id}/replay. The original row is left untouched as the audit

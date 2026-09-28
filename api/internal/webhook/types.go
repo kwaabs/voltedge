@@ -158,6 +158,25 @@ type deliveryResponse struct {
 	FinishedAt     *time.Time      `json:"finished_at,omitempty"`
 }
 
+// --- pull config (pull-direction endpoints) ---
+
+// pullConfig is the pull-direction slice of an endpoint's opaque Config jsonb:
+// where VoltEdge fetches from and how it authenticates. The auth SECRET is not
+// stored here -- a pull endpoint keeps it in the sealed signing_secret_enc column
+// (repurposed, since a pull endpoint has no inbound signature to verify), so the
+// credential is encrypted at rest like every other. PullAuth mirrors the
+// outbound.Auth shape (type/header/query_param/username); Type "" or "none" means
+// an unauthenticated fetch and needs no stored secret.
+type pullConfig struct {
+	PullURL  string `json:"pull_url"`
+	PullAuth struct {
+		Type       string `json:"type"`
+		Header     string `json:"header"`
+		QueryParam string `json:"query_param"`
+		Username   string `json:"username"`
+	} `json:"pull_auth"`
+}
+
 // --- native change format (no mapping) ---
 
 // nativeChange is one create/update/delete a sender expresses in VoltEdge's own

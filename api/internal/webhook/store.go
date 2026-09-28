@@ -42,6 +42,25 @@ func (s *store) sealSecret(plaintext string) ([]byte, error) {
 	return sealed, nil
 }
 
+// unsealSecret returns an endpoint's stored secret in plaintext, or "" when none
+// is stored. It is the inverse of sealSecret, used by the pull path to recover the
+// outbound credential a pull endpoint keeps in signing_secret_enc. A nil cipher
+// (encryption key unset, or the stateless agent registry) can't decrypt, so a
+// present-but-unreadable secret is a clean 400 rather than a panic.
+func (s *store) unsealSecret(ep *Endpoint) (string, error) {
+	if len(ep.SigningSecretEnc) == 0 {
+		return "", nil
+	}
+	if s.cipher == nil {
+		return "", invalid("cannot read the stored credential: the server has no encryption key configured (set %s)", secretbox.EnvKey)
+	}
+	plain, err := s.cipher.Decrypt(ep.SigningSecretEnc)
+	if err != nil {
+		return "", fmt.Errorf("webhook: unseal credential: %w", err)
+	}
+	return string(plain), nil
+}
+
 // serviceUserExists guards the service_user_id FK with a clean 400 (a live,
 // active user) rather than surfacing a raw 23503 or a later apply-time failure.
 func (s *store) serviceUserExists(ctx context.Context, userID string) (bool, error) {
@@ -96,10 +115,16 @@ func createEndpoint(ctx context.Context, s *store, req createEndpointRequest) (*
 		Mapping:       nilIfEmptyJSON(req.Mapping),
 		Config:        orEmptyObject(req.Config),
 	}
+	if len(ep.Mapping) > 0 {
+		if err := validateMappingSpec(ep.Mapping); err != nil {
+			return nil, err
+		}
+	}
 
 	secret := strings.TrimSpace(req.SigningSecret)
 	switch {
-	case needsSecret(authMode):
+	case direction == "push" && needsSecret(authMode):
+		// Inbound HMAC: the receiver needs the plaintext back to verify a signature.
 		if secret == "" {
 			return nil, invalid("signing_secret is required for auth_mode %s", authMode)
 		}
@@ -109,7 +134,17 @@ func createEndpoint(ctx context.Context, s *store, req createEndpointRequest) (*
 		}
 		ep.SigningSecretEnc = sealed
 	case secret != "":
-		return nil, invalid("signing_secret is only used by auth_mode hmac or both")
+		// A pull endpoint repurposes the sealed secret as its OUTBOUND credential
+		// (there is no inbound sender to authenticate, so auth_mode is irrelevant);
+		// a push endpoint on bearer auth has no use for a signing secret.
+		if direction != "pull" {
+			return nil, invalid("signing_secret is only used by auth_mode hmac or both, or as the credential on a pull endpoint")
+		}
+		sealed, err := s.sealSecret(secret)
+		if err != nil {
+			return nil, err
+		}
+		ep.SigningSecretEnc = sealed
 	}
 
 	if actor := actorID(ctx); actor != "" {
@@ -194,6 +229,11 @@ func updateEndpoint(ctx context.Context, s *store, id string, req updateEndpoint
 	}
 	if req.Mapping != nil {
 		ep.Mapping = nilIfEmptyJSON(req.Mapping)
+		if len(ep.Mapping) > 0 {
+			if err := validateMappingSpec(ep.Mapping); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if req.Config != nil {
 		ep.Config = orEmptyObject(req.Config)
@@ -213,9 +253,11 @@ func updateEndpoint(ctx context.Context, s *store, id string, req updateEndpoint
 			ep.SigningSecretEnc = sealed
 		}
 	}
-	// An HMAC-capable endpoint must end up with a secret (kept or supplied),
-	// else the receiver has nothing to verify a signature against.
-	if needsSecret(ep.AuthMode) && len(ep.SigningSecretEnc) == 0 {
+	// An HMAC-capable PUSH endpoint must end up with a secret (kept or supplied),
+	// else the receiver has nothing to verify a signature against. A pull endpoint
+	// never signs an inbound request, so its secret (the outbound credential) stays
+	// optional regardless of auth_mode.
+	if ep.Direction == "push" && needsSecret(ep.AuthMode) && len(ep.SigningSecretEnc) == 0 {
 		return nil, invalid("signing_secret is required for auth_mode %s", ep.AuthMode)
 	}
 

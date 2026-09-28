@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  DownloadCloud,
   FlaskConical,
   KeyRound,
   Loader2,
@@ -28,6 +29,7 @@ import {
   type WebhookDelivery,
   type WebhookDirection,
   type WebhookEndpoint,
+  type WebhookPullAuthType,
   type WebhookTarget,
   useWebhookDeliveries,
   useWebhookEndpoints,
@@ -46,6 +48,12 @@ interface FormState {
   signingSecret: string
   serviceUserId: string
   featureClass: string
+  pullUrl: string
+  pullAuthType: WebhookPullAuthType
+  pullAuthHeader: string
+  pullAuthQueryParam: string
+  pullAuthUsername: string
+  mappingText: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -57,6 +65,12 @@ const EMPTY_FORM: FormState = {
   signingSecret: "",
   serviceUserId: "",
   featureClass: "",
+  pullUrl: "",
+  pullAuthType: "none",
+  pullAuthHeader: "",
+  pullAuthQueryParam: "",
+  pullAuthUsername: "",
+  mappingText: "",
 }
 
 function formFrom(ep: WebhookEndpoint): FormState {
@@ -69,6 +83,25 @@ function formFrom(ep: WebhookEndpoint): FormState {
     signingSecret: "",
     serviceUserId: ep.service_user_id,
     featureClass: ep.config?.feature_class ?? "",
+    pullUrl: ep.config?.pull_url ?? "",
+    pullAuthType: ep.config?.pull_auth?.type ?? "none",
+    pullAuthHeader: ep.config?.pull_auth?.header ?? "",
+    pullAuthQueryParam: ep.config?.pull_auth?.query_param ?? "",
+    pullAuthUsername: ep.config?.pull_auth?.username ?? "",
+    mappingText: ep.mapping ? JSON.stringify(ep.mapping, null, 2) : "",
+  }
+}
+
+/** A blank mapping is fine (native payloads); a non-blank one must be valid JSON.
+ * Returns an error string to show under the field, or null when it's acceptable. */
+function mappingParseError(text: string): string | null {
+  const t = text.trim()
+  if (!t) return null
+  try {
+    JSON.parse(t)
+    return null
+  } catch {
+    return "Field mapping must be valid JSON (or leave it blank for native payloads)."
   }
 }
 
@@ -76,6 +109,18 @@ function formFrom(ep: WebhookEndpoint): FormState {
  * secret is required). Bearer-only endpoints authenticate by token and need none. */
 function needsSecret(mode: WebhookAuthMode): boolean {
   return mode === "hmac" || mode === "both"
+}
+
+/** A pull endpoint needs a stored credential whenever its outbound auth is not
+ * "none" (api_key / basic / bearer all carry a secret). */
+function pullAuthNeedsSecret(t: WebhookPullAuthType): boolean {
+  return t !== "none"
+}
+
+/** Whether THIS form needs a stored secret at all: an HMAC push, or an
+ * authenticated pull (whose credential rides the same sealed column). */
+function formNeedsSecret(form: FormState): boolean {
+  return form.direction === "pull" ? pullAuthNeedsSecret(form.pullAuthType) : needsSecret(form.authMode)
 }
 
 /** feature and reading endpoints both write feature rows (a reading is modelled
@@ -86,9 +131,26 @@ function usesFeatureClass(target: WebhookTarget): boolean {
 }
 
 /** Body shared by create and edit. On edit the signing secret is omitted when
- * left blank (keep the stored one); config carries the feature_class fallback
- * for single-class feature endpoints. */
+ * left blank (keep the stored one); config carries the feature_class fallback for
+ * feature/reading endpoints and, for a pull endpoint, the pull_url + pull_auth. */
 function toBody(form: FormState, { isEdit }: { isEdit: boolean }): Record<string, unknown> {
+  const config: Record<string, unknown> = {}
+  if (usesFeatureClass(form.target) && form.featureClass) {
+    config.feature_class = form.featureClass
+  }
+  if (form.direction === "pull") {
+    config.pull_url = form.pullUrl.trim()
+    const auth: Record<string, unknown> = { type: form.pullAuthType }
+    if (form.pullAuthType === "api_key") {
+      auth.header = form.pullAuthHeader.trim()
+      auth.query_param = form.pullAuthQueryParam.trim()
+    }
+    if (form.pullAuthType === "basic") {
+      auth.username = form.pullAuthUsername.trim()
+    }
+    config.pull_auth = auth
+  }
+
   const body: Record<string, unknown> = {
     name: form.name.trim(),
     active: form.active,
@@ -96,11 +158,16 @@ function toBody(form: FormState, { isEdit }: { isEdit: boolean }): Record<string
     target: form.target,
     auth_mode: form.authMode,
     service_user_id: form.serviceUserId.trim(),
-    config: usesFeatureClass(form.target) && form.featureClass ? { feature_class: form.featureClass } : {},
+    config,
+    // Mapping: send the parsed spec, or explicit null to clear a stored one. On
+    // create null is a no-op; on edit it removes any existing mapping. (Callers
+    // gate on mappingParseError first, so JSON.parse is safe here.)
+    mapping: form.mappingText.trim() ? JSON.parse(form.mappingText) : null,
   }
-  // Secret: on create always send (empty is fine for bearer); on edit only send
-  // when the admin typed a new one, so a blank leaves the stored secret intact.
-  if (needsSecret(form.authMode) && (!isEdit || form.signingSecret.trim() !== "")) {
+  // Secret: on create always send when the shape wants one (an HMAC push, or an
+  // authenticated pull); on edit only send when the admin typed a new one, so a
+  // blank leaves the stored secret intact.
+  if (formNeedsSecret(form) && (!isEdit || form.signingSecret.trim() !== "")) {
     body.signing_secret = form.signingSecret
   }
   return body
@@ -131,7 +198,7 @@ function EndpointFormFields({
             onChange={(e) => onChange({ ...value, direction: e.target.value as WebhookDirection })}
           >
             <option value="push">Push (external system sends to us)</option>
-            <option value="pull">Pull (we fetch — coming soon)</option>
+            <option value="pull">Pull (we fetch on demand)</option>
           </select>
         </div>
         <div className="flex flex-col gap-1">
@@ -208,23 +275,222 @@ function EndpointFormFields({
         )}
       </div>
 
+      {value.direction === "pull" ? (
+        <PullFields value={value} onChange={onChange} hasSecret={hasSecret} />
+      ) : (
+        <>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Authentication</label>
+            <select
+              className={inputClass}
+              value={value.authMode}
+              onChange={(e) => onChange({ ...value, authMode: e.target.value as WebhookAuthMode })}
+            >
+              <option value="bearer">Bearer token (an API token of the service user)</option>
+              <option value="hmac">HMAC signature (shared signing secret)</option>
+              <option value="both">Both (accept either)</option>
+            </select>
+          </div>
+
+          {needsSecret(value.authMode) && (
+            <div className="flex flex-col gap-1">
+              <label className={labelClass}>
+                Signing secret
+                {!hasSecret && <span className="text-destructive"> *</span>}
+              </label>
+              <input
+                type="password"
+                autoComplete="new-password"
+                className={inputClass}
+                value={value.signingSecret}
+                onChange={(e) => onChange({ ...value, signingSecret: e.target.value })}
+                placeholder={hasSecret ? "Leave blank to keep the current secret" : ""}
+              />
+              <p className="text-muted-foreground text-xs">
+                Stored encrypted; never shown again. Senders sign{" "}
+                <span className="font-mono">HMAC-SHA256(secret, "&lt;timestamp&gt;.&lt;body&gt;")</span>. Requires the
+                server's encryption key to be configured.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+
+      <MappingField value={value} onChange={onChange} />
+
+      <label className="flex items-center gap-2 text-xs font-medium">
+        <input
+          type="checkbox"
+          checked={value.active}
+          onChange={(e) => onChange({ ...value, active: e.target.checked })}
+        />
+        Active (a paused endpoint refuses incoming pushes and can't be pulled)
+      </label>
+    </div>
+  )
+}
+
+const MAPPING_SAMPLE = `{
+  "items_path": "",
+  "fields": {
+    "op": { "const": "upsert" },
+    "external_id": { "path": "id" },
+    "feature_class": { "const": "MV_CONDUCTOR" },
+    "subtype": { "path": "type", "map": { "OH": 1, "UG": 2 } },
+    "geometry": { "path": "geom" },
+    "attributes": {
+      "fields": {
+        "voltage_class": { "path": "voltage" },
+        "condition_rating": { "path": "condition", "default": "GOOD" }
+      }
+    }
+  }
+}`
+
+/** Optional field-mapping: a raw JSON spec that reshapes a sender's own payload
+ * into native VoltEdge changes on the server (parseChanges/applyMapping). Blank =
+ * the endpoint accepts native payloads only. Collapsed unless a spec is present. */
+function MappingField({ value, onChange }: { value: FormState; onChange: (v: FormState) => void }) {
+  const [open, setOpen] = useState(value.mappingText.trim().length > 0)
+  const error = mappingParseError(value.mappingText)
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        className="hover:text-foreground text-muted-foreground flex items-center gap-1 self-start text-xs font-medium"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        Field mapping (advanced)
+        {value.mappingText.trim() && !open && (
+          <span className="bg-muted text-muted-foreground rounded px-1 py-0.5 text-[10px]">set</span>
+        )}
+      </button>
+      {open && (
+        <>
+          <p className="text-muted-foreground text-xs">
+            Leave blank to accept VoltEdge-native payloads. To ingest a sender's own JSON, describe how each native
+            field is drawn from it — <span className="font-mono">const</span> / <span className="font-mono">path</span>{" "}
+            (dot-path) / <span className="font-mono">map</span> per field, with{" "}
+            <span className="font-mono">items_path</span> pointing at the array of records. Author field names to match
+            the target's native change.
+          </p>
+          <textarea
+            className={`${inputClass} h-48 font-mono text-xs`}
+            value={value.mappingText}
+            onChange={(e) => onChange({ ...value, mappingText: e.target.value })}
+            placeholder="(native payloads — no mapping)"
+            spellCheck={false}
+          />
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="text-primary text-xs hover:underline"
+              onClick={() => onChange({ ...value, mappingText: MAPPING_SAMPLE })}
+            >
+              Insert sample
+            </button>
+            {value.mappingText.trim() && (
+              <button
+                type="button"
+                className="text-muted-foreground text-xs hover:underline"
+                onClick={() => onChange({ ...value, mappingText: "" })}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {error && <p className="text-destructive text-xs">{error}</p>}
+        </>
+      )}
+    </div>
+  )
+}
+
+/** The pull-direction half of the form: where VoltEdge fetches from and how it
+ * authenticates. The credential rides the same sealed signing_secret column as an
+ * HMAC push secret, so it's only shown when the pull auth type needs one. */
+function PullFields({
+  value,
+  onChange,
+  hasSecret,
+}: {
+  value: FormState
+  onChange: (v: FormState) => void
+  hasSecret?: boolean
+}) {
+  return (
+    <>
       <div className="flex flex-col gap-1">
-        <label className={labelClass}>Authentication</label>
+        <label className={labelClass}>
+          Pull URL <span className="text-destructive">*</span>
+        </label>
+        <input
+          className={inputClass}
+          value={value.pullUrl}
+          onChange={(e) => onChange({ ...value, pullUrl: e.target.value })}
+          placeholder="https://example.com/api/export.json"
+        />
+        <p className="text-muted-foreground text-xs">
+          VoltEdge GETs this URL when you press <span className="font-medium">Pull now</span>. It must be a public
+          http(s) address (internal/private hosts are refused) and return a native VoltEdge changes payload.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>Pull authentication</label>
         <select
           className={inputClass}
-          value={value.authMode}
-          onChange={(e) => onChange({ ...value, authMode: e.target.value as WebhookAuthMode })}
+          value={value.pullAuthType}
+          onChange={(e) => onChange({ ...value, pullAuthType: e.target.value as WebhookPullAuthType })}
         >
-          <option value="bearer">Bearer token (an API token of the service user)</option>
-          <option value="hmac">HMAC signature (shared signing secret)</option>
-          <option value="both">Both (accept either)</option>
+          <option value="none">None (public URL)</option>
+          <option value="bearer">Bearer token</option>
+          <option value="api_key">API key (header or query param)</option>
+          <option value="basic">Basic auth (username + password)</option>
         </select>
       </div>
 
-      {needsSecret(value.authMode) && (
+      {value.pullAuthType === "api_key" && (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Header name</label>
+            <input
+              className={inputClass}
+              value={value.pullAuthHeader}
+              onChange={(e) => onChange({ ...value, pullAuthHeader: e.target.value })}
+              placeholder="X-Api-Key"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>…or query param</label>
+            <input
+              className={inputClass}
+              value={value.pullAuthQueryParam}
+              onChange={(e) => onChange({ ...value, pullAuthQueryParam: e.target.value })}
+              placeholder="api_key"
+            />
+          </div>
+        </div>
+      )}
+
+      {value.pullAuthType === "basic" && (
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Username</label>
+          <input
+            className={inputClass}
+            value={value.pullAuthUsername}
+            onChange={(e) => onChange({ ...value, pullAuthUsername: e.target.value })}
+            placeholder="username"
+          />
+        </div>
+      )}
+
+      {pullAuthNeedsSecret(value.pullAuthType) && (
         <div className="flex flex-col gap-1">
           <label className={labelClass}>
-            Signing secret
+            {value.pullAuthType === "basic" ? "Password" : value.pullAuthType === "api_key" ? "API key" : "Token"}
             {!hasSecret && <span className="text-destructive"> *</span>}
           </label>
           <input
@@ -233,25 +499,14 @@ function EndpointFormFields({
             className={inputClass}
             value={value.signingSecret}
             onChange={(e) => onChange({ ...value, signingSecret: e.target.value })}
-            placeholder={hasSecret ? "Leave blank to keep the current secret" : ""}
+            placeholder={hasSecret ? "Leave blank to keep the stored credential" : ""}
           />
           <p className="text-muted-foreground text-xs">
-            Stored encrypted; never shown again. Senders sign{" "}
-            <span className="font-mono">HMAC-SHA256(secret, "&lt;timestamp&gt;.&lt;body&gt;")</span>. Requires the
-            server's encryption key to be configured.
+            Stored encrypted; never shown again. Requires the server's encryption key to be configured.
           </p>
         </div>
       )}
-
-      <label className="flex items-center gap-2 text-xs font-medium">
-        <input
-          type="checkbox"
-          checked={value.active}
-          onChange={(e) => onChange({ ...value, active: e.target.checked })}
-        />
-        Active (a paused endpoint refuses and drops incoming pushes)
-      </label>
-    </div>
+    </>
   )
 }
 
@@ -263,7 +518,9 @@ function EditEndpointRow({ endpoint, onDone }: { endpoint: WebhookEndpoint; onDo
   const canSave =
     form.name.trim().length > 0 &&
     form.serviceUserId.trim().length > 0 &&
-    (!needsSecret(form.authMode) || endpoint.has_signing_secret || form.signingSecret.trim().length > 0)
+    (form.direction !== "pull" || form.pullUrl.trim().length > 0) &&
+    mappingParseError(form.mappingText) === null &&
+    (!formNeedsSecret(form) || endpoint.has_signing_secret || form.signingSecret.trim().length > 0)
 
   async function handleSave() {
     setSaving(true)
@@ -428,7 +685,8 @@ const TEST_TEMPLATE = `{
 /** The paste-and-apply tester: POST a native payload, applied inline as the
  * service user, so an admin can validate an integration against the live model. */
 function TesterDialog({ endpoint, onClose }: { endpoint: WebhookEndpoint; onClose: () => void }) {
-  const [payload, setPayload] = useState(TEST_TEMPLATE)
+  const mapped = endpoint.mapping != null
+  const [payload, setPayload] = useState(mapped ? "{\n\n}" : TEST_TEMPLATE)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<unknown>(null)
   const [error, setError] = useState<string | null>(null)
@@ -462,7 +720,11 @@ function TesterDialog({ endpoint, onClose }: { endpoint: WebhookEndpoint; onClos
       open
       onOpenChange={(next) => next || onClose()}
       title={`Test ${endpoint.name}`}
-      description="Apply a native payload inline (as the service user) without sending a real push. Failures dead-letter and won't be retried."
+      description={
+        mapped
+          ? "Apply the sender's own payload inline (as the service user) — it's mapped to native first. Failures dead-letter and won't be retried."
+          : "Apply a native payload inline (as the service user) without sending a real push. Failures dead-letter and won't be retried."
+      }
       onSubmit={handleRun}
       submitLabel={running ? "Running…" : "Run"}
       canSubmit={!running && payload.trim().length > 0}
@@ -470,7 +732,7 @@ function TesterDialog({ endpoint, onClose }: { endpoint: WebhookEndpoint; onClos
       className="max-w-2xl"
     >
       <div className="flex flex-col gap-1">
-        <label className={labelClass}>Payload (VoltEdge native JSON)</label>
+        <label className={labelClass}>{mapped ? "Payload (the sender's own JSON — mapped to native)" : "Payload (VoltEdge native JSON)"}</label>
         <textarea
           className={`${inputClass} h-56 font-mono text-xs`}
           value={payload}
@@ -505,6 +767,26 @@ function EndpointCard({
   const [showLog, setShowLog] = useState(false)
   const [testing, setTesting] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [pulling, setPulling] = useState(false)
+  const queryClient = useQueryClient()
+
+  async function handlePull() {
+    setPulling(true)
+    try {
+      const res = await apiFetch<{ delivery_id: string; result: unknown }>(
+        `/webhook-endpoints/${endpoint.id}/pull`,
+        { method: "POST" },
+      )
+      const applied = Array.isArray(res.result) ? res.result.length : 0
+      queryClient.invalidateQueries({ queryKey: ["webhook-endpoints", endpoint.id, "deliveries"] })
+      setShowLog(true)
+      useToastStore.getState().pushSuccess(`Pulled — ${applied} change(s) applied. See the delivery log.`)
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "The pull failed.")
+    } finally {
+      setPulling(false)
+    }
+  }
 
   async function copyUrl() {
     const url = `${window.location.origin}${endpoint.receive_url}`
@@ -534,6 +816,18 @@ function EndpointCard({
         </div>
         {canWrite && (
           <>
+            {endpoint.direction === "pull" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="Pull now (fetch and apply)"
+                onClick={handlePull}
+                disabled={pulling}
+              >
+                {pulling ? <Loader2 className="size-4 animate-spin" /> : <DownloadCloud className="size-4" />}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -567,17 +861,32 @@ function EndpointCard({
             </Button>
           </div>
         )}
+        {endpoint.direction === "pull" && endpoint.config?.pull_url && (
+          <div className="flex items-center gap-2">
+            <DownloadCloud className="text-muted-foreground size-3.5 shrink-0" />
+            <span className="text-muted-foreground truncate font-mono text-xs">{endpoint.config.pull_url}</span>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
-          {needsSecret(endpoint.auth_mode) && (
+          {endpoint.direction === "push" && needsSecret(endpoint.auth_mode) && (
             <span className="bg-muted text-muted-foreground flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs">
               <KeyRound className="size-3" />
               {endpoint.has_signing_secret ? "signing secret set" : "no signing secret"}
+            </span>
+          )}
+          {endpoint.direction === "pull" && endpoint.config?.pull_auth?.type && endpoint.config.pull_auth.type !== "none" && (
+            <span className="bg-muted text-muted-foreground flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs">
+              <KeyRound className="size-3" />
+              {endpoint.has_signing_secret ? "credential set" : "no credential"}
             </span>
           )}
           {endpoint.config?.feature_class && (
             <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 font-mono text-xs">
               {endpoint.config.feature_class}
             </span>
+          )}
+          {endpoint.mapping != null && (
+            <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">mapped</span>
           )}
         </div>
         <button
@@ -622,7 +931,9 @@ export function AdminWebhooksPage() {
   const canSave =
     form.name.trim().length > 0 &&
     form.serviceUserId.trim().length > 0 &&
-    (!needsSecret(form.authMode) || form.signingSecret.trim().length > 0)
+    (form.direction !== "pull" || form.pullUrl.trim().length > 0) &&
+    mappingParseError(form.mappingText) === null &&
+    (!formNeedsSecret(form) || form.signingSecret.trim().length > 0)
 
   async function handleSave() {
     setSaving(true)

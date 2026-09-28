@@ -26,6 +26,7 @@ const deliveryListLimit = 100
 //	DELETE /{id}                                 remove an endpoint (cascades log)
 //	GET    /{id}/deliveries                      recent delivery log
 //	POST   /{id}/test                            paste-and-apply a payload inline
+//	POST   /{id}/pull                            fetch a pull endpoint's URL now
 //	POST   /{id}/deliveries/{deliveryID}/replay  re-enqueue a stored delivery
 func AdminRoutes(db *bun.DB, cipher *secretbox.Cipher) chi.Router {
 	h := &adminAPI{store: &store{db: db, cipher: cipher}}
@@ -37,6 +38,7 @@ func AdminRoutes(db *bun.DB, cipher *secretbox.Cipher) chi.Router {
 	r.Delete("/{id}", h.delete)
 	r.Get("/{id}/deliveries", h.listDeliveries)
 	r.Post("/{id}/test", h.test)
+	r.Post("/{id}/pull", h.pull)
 	r.Post("/{id}/deliveries/{deliveryID}/replay", h.replay)
 	return r
 }
@@ -143,6 +145,21 @@ func (h *adminAPI) test(w http.ResponseWriter, r *http.Request) {
 	if applyErr != nil {
 		// The delivery row carries the failure; report it to the tester too.
 		writeError(w, applyErr)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"delivery_id": deliveryID, "result": result})
+}
+
+// pull is the user-triggered fetch for a pull-direction endpoint: it GETs the
+// endpoint's configured pull_url through the SSRF-hardened outbound client and
+// applies the response INLINE (like the tester), returning the per-item result so
+// the admin who pressed "Pull now" sees the outcome at once. A push endpoint, an
+// inactive one, or a missing pull_url is a clean 400.
+func (h *adminAPI) pull(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	deliveryID, result, err := pullFetch(ctx, h.store, chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"delivery_id": deliveryID, "result": result})
