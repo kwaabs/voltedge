@@ -29,6 +29,11 @@ export interface AdminFeatureClassSummary {
    * Orthogonal to the structural network_role. Absent/null = unclassified
    * (non-electrical: containers, civil, DC-auxiliary). */
   functional_role?: string | null
+  /** Migration 0126: the class's rank in the vertical source-to-load
+   * hierarchy, in hundreds (0 source / 200 POWER_XFMR / 300 MV / 400
+   * DIST_XFMR / 500 LV / 600 service). Read by the trace cross-layer guard.
+   * Absent/null = untiered (transparent to the guard). */
+  trace_tier?: number | null
   physical_table?: string
   subtype_count: number
   field_count: number

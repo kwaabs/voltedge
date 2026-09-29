@@ -12,11 +12,14 @@
 // the connectivity graph itself). Isolation and loop/mesh detection
 // (which compose two of these primitives) aren't built yet -- see
 // docs/phase-4-trace-engine.md's "What's still open". cross_transformers
-// and respect_phase are accepted on a trace_configurations row and
-// threaded through, but not enforced this pass either -- both need real
-// design questions answered first (what marks a transformer boundary?
-// how does phase capability intersect hop to hop?) that this pass
-// deliberately didn't try to answer under time pressure.
+// is now enforced for downstream traces -- the transformer boundary the
+// original stub left open is answered as functional_role='transformer'
+// (migration 0091): a downstream walk stops at each transformer unless the
+// config's cross_transformers default (overridable per-run via the request's
+// cross_transformers, the map's "continue past transformers" checkbox) says to
+// continue into the stepped-down LV network. respect_phase is still accepted
+// and threaded but not enforced -- how phase capability intersects hop to hop
+// remains the open design question this pass deliberately didn't answer.
 //
 // Deliberately its own package, not layered onto api/internal/connectivity
 // -- same reasoning connectivity and relationship already established
@@ -69,16 +72,55 @@ type tracedFeature struct {
 	NominalVoltageV    *float64 `json:"nominal_voltage_v,omitempty"`
 	ParentFeatureClass *string  `json:"parent_feature_class,omitempty"`
 	ParentFeatureID    *string  `json:"parent_feature_id,omitempty"`
+	// OnMap is true when the reached feature carries real map geometry (a
+	// non-null geom -- crud.formatRow only emits a "geometry" key then). A
+	// geometry-less class (a diagram-only conductor stub, an off-map device)
+	// reports false: the trace still reached it topologically, but it lives
+	// only inside a single-line diagram, not on the map canvas.
+	OnMap bool `json:"on_map"`
+	// Diagrams lists every single-line diagram this reached feature is placed
+	// on (runtime.diagram_placements -> diagram_instances), so a reader can see
+	// which results are drawn on the map vs. only inside a diagram, and name the
+	// diagram(s). Omitted (nil) when the feature is on no diagram. Name may be
+	// empty for an unnamed diagram instance.
+	Diagrams []diagramMembership `json:"diagrams,omitempty"`
+	// DeviceState is the reached feature's live switch position -- the coded
+	// device_state attribute (a DEVICE_STATE domain value, "OPEN"/"CLOSED") that
+	// switching devices (MV_SWITCH, MV_BREAKER, MV_ISOLATOR, a bus coupler, ...)
+	// carry and everything else omits. It's exactly the value a downstream trace
+	// checks live as a barrier (an OPEN device halts the walk), surfaced here so a
+	// reader can see the position of every switch the trace reached -- a CLOSED
+	// switch it passed through as well as an OPEN one it stopped at -- not just the
+	// barriers. Empty (omitted) for any feature whose class has no device_state
+	// field, or that carries it unset. Read from the same live row enrichNode
+	// already loads, so it costs nothing extra.
+	DeviceState string `json:"device_state,omitempty"`
+}
+
+// diagramMembership names one single-line diagram a reached feature appears on:
+// the diagram_instances row id and its human name (nullable in the table -->
+// empty string here when unset).
+type diagramMembership struct {
+	InstanceID string `json:"instance_id"`
+	Name       string `json:"name,omitempty"`
 }
 
 // traceRequest is the POST /trace body. Target is only meaningful (and
 // required) when the named trace_configurations row's direction is
 // SHORTEST_PATH -- validated in runTrace, not here, since knowing that
 // requires the configuration to already be loaded.
+// CrossTransformers is an optional per-run override of the named
+// configuration's stored cross_transformers default. nil (the usual case)
+// uses the config's own value; a non-nil pointer wins -- false makes a
+// downstream trace stop at each transformer (the boundary between a feeder and
+// its stepped-down LV network), true lets it continue past into the LV side.
+// It backs the map's "continue past transformers" checkbox and only affects a
+// DOWNSTREAM trace; other directions never stop at a transformer regardless.
 type traceRequest struct {
 	TraceConfiguration string      `json:"trace_configuration"`
 	Start              featureRef  `json:"start"`
 	Target             *featureRef `json:"target,omitempty"`
+	CrossTransformers  *bool       `json:"cross_transformers,omitempty"`
 }
 
 // traceResponse is the full result of one trace run. Features includes
@@ -116,6 +158,19 @@ type traceResponse struct {
 	// reached no load (every tier zero), so a client can render the summary
 	// unconditionally. See ServiceRollup.
 	Service *ServiceRollup `json:"service,omitempty"`
+	// TransformerBoundaries is the subset of Features where a DOWNSTREAM walk
+	// stopped because it reached a transformer and was not told to cross it (the
+	// feeder/LV boundary). Distinct from Barriers (an open device) and Targets (a
+	// config's target_class_id) so a client can label "the trace stopped here at a
+	// transformer -- tick 'continue past transformers' to include its LV network".
+	// Omitted entirely when the trace crossed transformers or reached none.
+	TransformerBoundaries []featureRef `json:"transformer_boundaries,omitempty"`
+	// CrossTransformers echoes the resolved value the walk actually ran with (the
+	// per-run override if the request set one, else the config default) -- only
+	// meaningful for a DOWNSTREAM trace. The result UI reads it to render the
+	// "Continue past transformers" toggle in the correct checked state so a single
+	// click re-runs the same trace with the boundary crossed (or restored).
+	CrossTransformers bool `json:"cross_transformers"`
 }
 
 // traceConfigurationSummary is one row of GET /trace/configurations --

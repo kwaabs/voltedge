@@ -110,6 +110,19 @@ func updateFeatureClass(ctx context.Context, db *bun.DB, code string, req update
 			}
 			cols = append(cols, "functional_role")
 		}
+		// trace_tier (migration 0126) is the class's network tier -- pure metadata
+		// the compiler's DDL never reads, so editable at any status. Sentinel-
+		// encoded (see updateFeatureClassRequest): a negative value clears it back
+		// to NULL (untiered / transparent), a non-negative value sets the rank.
+		if req.TraceTier != nil {
+			if *req.TraceTier < 0 {
+				fc.TraceTier = nil
+			} else {
+				v := *req.TraceTier
+				fc.TraceTier = &v
+			}
+			cols = append(cols, "trace_tier")
+		}
 		// min/max_display_zoom (migration 0090) is pure map-render metadata,
 		// editable at any status like the flags above. Sentinel-encoded (see
 		// updateFeatureClassRequest): a negative value clears the bound to
@@ -155,7 +168,7 @@ func updateFeatureClass(ctx context.Context, db *bun.DB, code string, req update
 			cols = append(cols, "geometry_type", "srid", "network_role")
 		}
 		if len(cols) == 0 {
-			return invalid("request must set at least one of name, is_diagram_container, is_diagram_placeable, geometry_optional, diagram_geometry_type, category, functional_role, label_def, min_display_zoom/max_display_zoom, geometry_type/srid/network_role")
+			return invalid("request must set at least one of name, is_diagram_container, is_diagram_placeable, geometry_optional, diagram_geometry_type, category, functional_role, trace_tier, label_def, min_display_zoom/max_display_zoom, geometry_type/srid/network_role")
 		}
 
 		if _, err := tx.NewUpdate().Model(fc).Column(cols...).Where("code = ?", code).Exec(ctx); err != nil {
@@ -174,6 +187,7 @@ func updateFeatureClass(ctx context.Context, db *bun.DB, code string, req update
 			GeometryOptional:    fc.GeometryOptional,
 			DiagramGeometryType: fc.DiagramGeometryType,
 			Category:            fc.Category,
+			TraceTier:           fc.TraceTier,
 		}
 		return nil
 	})

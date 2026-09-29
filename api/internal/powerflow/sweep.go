@@ -473,6 +473,16 @@ func formatResults(tr *tree, states map[node]*nodeState, classCodes map[string]s
 	nodes := make([]nodeResult, 0, len(tr.order))
 	overloaded := make([]featureRef, 0)
 
+	// A node is in the response iff it has a resolved state; a parent pointer is
+	// only stamped when the parent is itself in the response, so a client can
+	// always resolve it (mirrors trace's inResponse guard).
+	inResponse := make(map[node]bool, len(tr.order))
+	for _, n := range tr.order {
+		if states[n] != nil {
+			inResponse[n] = true
+		}
+	}
+
 	for _, n := range tr.order {
 		st := states[n]
 		if st == nil {
@@ -500,6 +510,12 @@ func formatResults(tr *tree, states map[node]*nodeState, classCodes map[string]s
 			CumulativeKW:     st.cumKW,
 			CumulativeKVAR:   st.cumKVAR,
 			MaterialResolved: st.impedance.resolved,
+		}
+		if p, ok := tr.parent[n]; ok && inResponse[p] {
+			pc := classCodes[p.classID]
+			pid := p.featureID
+			res.ParentFeatureClass = &pc
+			res.ParentFeatureID = &pid
 		}
 
 		if st.loaded.FeatureClass.NetworkRole == "edge" {

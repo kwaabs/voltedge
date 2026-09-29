@@ -3,6 +3,7 @@ import { X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { inputClass } from "@/components/map/field-utils"
+import { LoadFlowNodesTable, type NodeColumn } from "@/components/map/load-flow-nodes-table"
 import { Button } from "@/components/ui/button"
 import type { FeatureRecord } from "@/hooks/use-feature"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -11,15 +12,15 @@ import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { AutoLoadFlowResult, LoadFlowEngine } from "@/stores/auto-load-flow-store"
 import { activeInner, useAutoLoadFlowStore } from "@/stores/auto-load-flow-store"
-import type { LoadFlowResult } from "@/stores/load-flow-store"
+import type { LoadFlowNodeResult, LoadFlowResult } from "@/stores/load-flow-store"
 import type { MeshedLoadFlowResult } from "@/stores/meshed-load-flow-store"
-import type { NodalLoadFlowResult } from "@/stores/nodal-load-flow-store"
-import { useSelectionStore } from "@/stores/selection-store"
+import type { NodalLoadFlowResult, NodalNodeResult } from "@/stores/nodal-load-flow-store"
 import { useToastStore } from "@/stores/toast-store"
 
-function shortId(id: string): string {
-  return id.length > 8 ? `${id.slice(0, 8)}…` : id
-}
+/** Node type across the three engines the router may pick: radial/meshed carry
+ * LoadFlowNodeResult (with spanning-tree parent pointers), nodal carries
+ * NodalNodeResult (no parents -> reads flat even in tree mode). */
+type AutoNode = LoadFlowNodeResult | NodalNodeResult
 
 function formatNumber(n: number, digits = 1): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })
@@ -188,7 +189,32 @@ export function AutoLoadFlowPanel() {
 
   const classNameFor = (code: string) => featureClasses?.feature_classes.find((fc) => fc.code === code)?.name ?? code
   const overloadedKeys = new Set((inner?.overloaded ?? []).map((o) => `${o.feature_class}:${o.feature_id}`))
-  const barrierKeys = new Set((inner?.barriers ?? []).map((b) => `${b.feature_class}:${b.feature_id}`))
+
+  // Trailing columns after the shared Feature column. The auto panel adds a
+  // resolved Name column (the router response carries only class/id) ahead of the
+  // per-node electrical readout every engine shares.
+  const columns: NodeColumn<AutoNode>[] = [
+    { header: "Name", cell: (node) => names[`${node.feature_class}:${node.feature_id}`] || "—" },
+    {
+      header: "Level",
+      cell: (node) => (
+        <span className="text-muted-foreground text-xs whitespace-nowrap">
+          {node.nominal_base_v > 0 ? formatVoltageLevel(node.nominal_base_v) : "—"}
+        </span>
+      ),
+    },
+    {
+      header: "Voltage",
+      cell: (node) => (
+        <>
+          <div>{node.voltage_v > 0 ? `${formatNumber(node.voltage_v)}V` : "—"}</div>
+          <div className="text-muted-foreground text-xs">-{formatNumber(node.voltage_drop_pct, 2)}%</div>
+        </>
+      ),
+    },
+    { header: "Current", cell: (node) => (node.current_amps !== undefined ? `${formatNumber(node.current_amps)}A` : "—") },
+    { header: "Loading", cell: (node) => (node.loading_pct !== undefined ? `${formatNumber(node.loading_pct)}%` : "—") },
+  ]
 
   async function runAutoLoadFlow() {
     const start = useAutoLoadFlowStore.getState().armedStart
@@ -248,84 +274,33 @@ export function AutoLoadFlowPanel() {
       ) : (
         <>
         <div className={cn("flex flex-col overflow-hidden", fp.resized ? "min-h-0 flex-1" : "max-h-[21rem]")}>
-          <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-xs">
-            <span className="text-foreground rounded border px-1.5 py-0.5 font-medium">{ENGINE_LABEL[result.engine]}</span>
-            <span className="min-w-0 flex-1 truncate" title={result.engine_reason}>
-              {result.engine_reason}
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-auto h-6 px-2 text-xs"
-              onClick={() => useAutoLoadFlowStore.getState().rearm()}
-            >
-              Run again
-            </Button>
-          </div>
-          <div className={cn("overflow-y-auto", fp.resized && "min-h-0 flex-1")}>
-            <table className="w-full text-sm">
-              <thead className="text-muted-foreground sticky top-0 border-b text-left text-xs">
-                <tr>
-                  <th className="bg-popover px-3 py-1.5 font-medium">Feature</th>
-                  <th className="bg-popover px-3 py-1.5 font-medium">Name</th>
-                  <th className="bg-popover px-3 py-1.5 font-medium">Level</th>
-                  <th className="bg-popover px-3 py-1.5 font-medium">Voltage</th>
-                  <th className="bg-popover px-3 py-1.5 font-medium">Current</th>
-                  <th className="bg-popover px-3 py-1.5 font-medium">Loading</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inner.nodes.map((node) => {
-                  const key = `${node.feature_class}:${node.feature_id}`
-                  const overloaded = overloadedKeys.has(key)
-                  return (
-                    <tr
-                      key={key}
-                      onClick={() => useSelectionStore.getState().select(node.feature_class, node.feature_id, { focus: true })}
-                      className={cn(
-                        "hover:bg-accent cursor-pointer border-b last:border-b-0",
-                        overloaded && "bg-destructive/10 text-destructive hover:bg-destructive/15",
-                      )}
-                      title={overloaded ? "Exceeds this element's own rating" : undefined}
-                    >
-                      <td className="px-3 py-1.5">
-                        <div>{classNameFor(node.feature_class)}</div>
-                        <div className="text-muted-foreground font-mono text-xs">{shortId(node.feature_id)}</div>
-                      </td>
-                      <td className="px-3 py-1.5">{names[key] || "—"}</td>
-                      <td className="text-muted-foreground px-3 py-1.5 text-xs whitespace-nowrap">
-                        {node.nominal_base_v > 0 ? formatVoltageLevel(node.nominal_base_v) : "—"}
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <div>{node.voltage_v > 0 ? `${formatNumber(node.voltage_v)}V` : "—"}</div>
-                        <div className="text-muted-foreground text-xs">-{formatNumber(node.voltage_drop_pct, 2)}%</div>
-                      </td>
-                      <td className="px-3 py-1.5">{node.current_amps !== undefined ? `${formatNumber(node.current_amps)}A` : "—"}</td>
-                      <td className="px-3 py-1.5">{node.loading_pct !== undefined ? `${formatNumber(node.loading_pct)}%` : "—"}</td>
-                    </tr>
-                  )
-                })}
-                {barrierKeys.size > 0 &&
-                  inner.barriers.map((b) => (
-                    <tr
-                      key={`${b.feature_class}:${b.feature_id}`}
-                      onClick={() => useSelectionStore.getState().select(b.feature_class, b.feature_id, { focus: true })}
-                      className="bg-muted/50 text-muted-foreground hover:bg-muted cursor-pointer border-b last:border-b-0"
-                      title="Load flow stopped here (open device)"
-                    >
-                      <td className="px-3 py-1.5">
-                        <div>{classNameFor(b.feature_class)}</div>
-                        <div className="font-mono text-xs">{shortId(b.feature_id)}</div>
-                      </td>
-                      <td className="px-3 py-1.5">{names[`${b.feature_class}:${b.feature_id}`] || "—"}</td>
-                      <td className="px-3 py-1.5" colSpan={4}>
-                        Stopped here (open device)
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
+          <LoadFlowNodesTable
+            nodes={inner.nodes as AutoNode[]}
+            barriers={inner.barriers}
+            overloadedKeys={overloadedKeys}
+            rootKey={"start" in inner && inner.start ? `${inner.start.feature_class}:${inner.start.feature_id}` : ""}
+            classNameFor={classNameFor}
+            columns={columns}
+            resized={fp.resized}
+            toolbar={
+              <>
+                <span className="text-foreground shrink-0 rounded border px-1.5 py-0.5 font-medium">
+                  {ENGINE_LABEL[result.engine]}
+                </span>
+                <span className="min-w-0 flex-1 truncate" title={result.engine_reason}>
+                  {result.engine_reason}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto h-6 px-2 text-xs"
+                  onClick={() => useAutoLoadFlowStore.getState().rearm()}
+                >
+                  Run again
+                </Button>
+              </>
+            }
+          />
         </div>
         <AutoLoadFlowExplanation result={result} inner={inner} classNameFor={classNameFor} />
         </>

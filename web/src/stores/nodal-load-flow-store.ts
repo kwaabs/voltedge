@@ -1,5 +1,7 @@
 import { create } from "zustand"
+import { persist } from "zustand/middleware"
 
+import { resultPersist } from "@/stores/result-persist"
 import type { TraceFeatureRef } from "@/stores/trace-store"
 
 /** One feature's solved electrical state from the nodal (Y-bus) solver --
@@ -93,14 +95,19 @@ interface NodalLoadFlowState {
   clear: () => void
 }
 
-export const useNodalLoadFlowStore = create<NodalLoadFlowState>((set) => ({
-  armed: false,
-  armedStart: null,
-  result: null,
-  loading: false,
-  arm: (start) => set({ armed: true, armedStart: start, result: null, loading: false }),
-  rearm: () => set({ armed: true, result: null, loading: false }),
-  setLoading: (loading) => set({ loading }),
-  setResult: (result) => set({ result, loading: false }),
-  clear: () => set({ armed: false, armedStart: null, result: null, loading: false }),
-}))
+export const useNodalLoadFlowStore = create<NodalLoadFlowState>()(
+  persist(
+    (set) => ({
+      armed: false,
+      armedStart: null,
+      result: null,
+      loading: false,
+      arm: (start) => set({ armed: true, armedStart: start, result: null, loading: false }),
+      rearm: () => set({ armed: true, result: null, loading: false }),
+      setLoading: (loading) => set({ loading }),
+      setResult: (result) => set({ result, loading: false }),
+      clear: () => set({ armed: false, armedStart: null, result: null, loading: false }),
+    }),
+    resultPersist("voltedge-nodal-load-flow-result"),
+  ),
+)

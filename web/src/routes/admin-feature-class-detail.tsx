@@ -1,6 +1,6 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Copy, ListPlus, Loader2, Pencil, Plus, Trash2, Wrench } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Copy, ListPlus, Loader2, Pencil, Plus, Trash2, Wrench } from "lucide-react"
 import { Link, useParams } from "react-router"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
@@ -500,8 +500,143 @@ function RulesSection({ code }: { code: string }) {
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState<RuleKind | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ kind: RuleKind; id: string; name: string } | null>(null)
+  // Which section's "remove duplicates" confirm is open, and which is mid-delete.
+  // Per-kind (not a single boolean) so Network / Relationship / Snapping each get
+  // their own badge, button, and confirm.
+  const [confirmCleanKind, setConfirmCleanKind] = useState<RuleKind | null>(null)
+  const [cleaningKind, setCleaningKind] = useState<RuleKind | null>(null)
 
   const classes = classesData?.feature_classes ?? []
+
+  // Flag redundant rules in each section so an admin can prune them. Two rules
+  // are "the same" when they authorize the identical thing; we build a canonical
+  // key per rule, group by it, and in every group of 2+ keep the first and mark
+  // the rest for removal. `flaggedIds` are all members of a 2+ group (highlighted);
+  // `removalIds` are the redundant extras -- what a cleanup would delete.
+  //
+  //   - Network: matching runs in EITHER direction (matchRuleEitherDirection), so
+  //     "A T2 -> B T1" and "B T1 -> A T2 (incoming)" are the same rule -- the two
+  //     endpoints (each = class:subtype:terminal) are sorted into an ORDER-
+  //     INDEPENDENT key, plus phase_rule + is_valid.
+  //   - Relationship: origin and destination are DISTINCT roles (a duct carries a
+  //     conductor, not vice-versa), so the key is order-DEPENDENT on
+  //     origin|destination|kind|cardinality.
+  //   - Snapping: from (source) and to (target) are DISTINCT roles, so the key is
+  //     the full ordered tuple (direction, from, to+terminal, target_type,
+  //     tolerance, priority, required). Only rows identical on all of it collapse.
+  const dups = useMemo(() => {
+    const group = (rows: { id: string; key: string }[]) => {
+      const byKey = new Map<string, string[]>()
+      for (const { id, key } of rows) byKey.set(key, [...(byKey.get(key) ?? []), id])
+      const flaggedIds = new Set<string>()
+      const removalIds = new Set<string>()
+      for (const ids of byKey.values()) {
+        if (ids.length > 1) {
+          ids.forEach((id) => flaggedIds.add(id))
+          ids.slice(1).forEach((id) => removalIds.add(id)) // keep the first, drop the rest
+        }
+      }
+      return { flaggedIds, removalIds }
+    }
+
+    const network = group(
+      (data?.network_rules ?? []).map((r) => {
+        const epA = `${r.from_class}:${r.from_subtype ?? ""}:${r.from_terminal ?? ""}`
+        const epB = `${r.to_class}:${r.to_subtype ?? ""}:${r.to_terminal ?? ""}`
+        return { id: r.id, key: `${[epA, epB].sort().join("|")}|${r.phase_rule ?? ""}|${r.is_valid}` }
+      }),
+    )
+    const relationship = group(
+      (data?.relationship_rules ?? []).map((r) => ({
+        id: r.id,
+        key: `${r.origin_class}|${r.destination_class}|${r.kind}|${r.cardinality}`,
+      })),
+    )
+    const snapping = group(
+      (data?.snapping_rules ?? []).map((r) => ({
+        id: r.id,
+        key: [
+          r.direction,
+          r.from_class,
+          r.from_subtype ?? "",
+          r.to_class,
+          r.to_subtype ?? "",
+          r.to_terminal ?? "",
+          r.target_type,
+          r.tolerance_m,
+          r.priority,
+          r.is_required,
+        ].join("|"),
+      })),
+    )
+    return { network, relationship, snapping }
+  }, [data?.network_rules, data?.relationship_rules, data?.snapping_rules])
+
+  // Per-kind REST collection for the batched delete, and the noun used in copy.
+  const dupEndpoint: Record<RuleKind, string> = {
+    network: "network-rules",
+    relationship: "relationship-classes",
+    snapping: "snapping-rules",
+  }
+  const dupNoun: Record<RuleKind, string> = {
+    network: "network rule",
+    relationship: "relationship rule",
+    snapping: "snapping rule",
+  }
+
+  // Delete every redundant rule of one kind via the same per-rule DELETE the
+  // trash button uses, throttled to a few in flight so a large prune doesn't
+  // fire as one burst. Failures are counted, not fatal -- report how many went,
+  // then refetch to show the truth.
+  async function runCleanup(kind: RuleKind) {
+    setCleaningKind(kind)
+    const ids = [...dups[kind].removalIds]
+    let failed = 0
+    const batchSize = 6
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const batch = ids.slice(i, i + batchSize)
+      const results = await Promise.allSettled(
+        batch.map((id) => apiFetch(`/admin/${dupEndpoint[kind]}/${id}`, { method: "DELETE" })),
+      )
+      failed += results.filter((res) => res.status === "rejected").length
+    }
+    queryClient.invalidateQueries({ queryKey: ["feature-class-rules", code] })
+    setCleaningKind(null)
+    const removed = ids.length - failed
+    if (failed > 0) {
+      useToastStore
+        .getState()
+        .pushWarning(`Removed ${removed} duplicate${removed === 1 ? "" : "s"}; ${failed} could not be deleted.`)
+    } else {
+      useToastStore.getState().pushSuccess(`Removed ${removed} duplicate ${dupNoun[kind]}${removed === 1 ? "" : "s"}.`)
+    }
+  }
+
+  // The badge + "Remove N duplicates" button shared by all three section headers.
+  const dupBadge = (kind: RuleKind) =>
+    dups[kind].removalIds.size > 0 ? (
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+        <AlertTriangle className="size-3" />
+        {dups[kind].removalIds.size} duplicate{dups[kind].removalIds.size === 1 ? "" : "s"}
+      </span>
+    ) : null
+
+  const dupRemoveButton = (kind: RuleKind) =>
+    canWrite && dups[kind].removalIds.size > 0 ? (
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 gap-1 border-amber-500/40 text-xs text-amber-600 hover:bg-amber-500/10 dark:text-amber-400"
+        disabled={cleaningKind !== null}
+        onClick={() => setConfirmCleanKind(kind)}
+      >
+        {cleaningKind === kind ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+        Remove {dups[kind].removalIds.size} duplicate{dups[kind].removalIds.size === 1 ? "" : "s"}
+      </Button>
+    ) : null
+
+  // Count backing the open cleanup confirm's copy (0 while none is open).
+  const cleanCount = confirmCleanKind ? dups[confirmCleanKind].removalIds.size : 0
 
   if (isPending) {
     return (
@@ -519,18 +654,24 @@ function RulesSection({ code }: { code: string }) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <h3 className="text-muted-foreground text-xs font-medium">Network</h3>
-          {canWrite && (
-            <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAdding("network")}>
-              <Plus className="size-3.5" />
-              Add network rule
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            <h3 className="text-muted-foreground text-xs font-medium">Network</h3>
+            {dupBadge("network")}
+          </div>
+          <div className="flex items-center gap-2">
+            {dupRemoveButton("network")}
+            {canWrite && (
+              <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAdding("network")}>
+                <Plus className="size-3.5" />
+                Add network rule
+              </Button>
+            )}
+          </div>
         </div>
         {data.network_rules.length > 0 ? (
-          <div className="overflow-hidden rounded-lg border">
+          <div className="max-h-80 overflow-y-auto rounded-lg border">
             <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+              <thead className="bg-muted text-muted-foreground sticky top-0 z-10 text-left text-xs">
                 <tr>
                   <th className="px-3 py-2 font-medium">Name</th>
                   <th className="px-3 py-2 font-medium">Direction</th>
@@ -543,8 +684,21 @@ function RulesSection({ code }: { code: string }) {
               </thead>
               <tbody>
                 {data.network_rules.map((r) => (
-                  <tr key={r.id} className="border-t">
-                    <td className="px-3 py-2">{r.name}</td>
+                  <tr
+                    key={r.id}
+                    className={`border-t ${dups.network.flaggedIds.has(r.id) ? "bg-amber-500/10" : ""}`}
+                  >
+                    <td className="px-3 py-2">
+                      <span className="flex items-center gap-1.5">
+                        {dups.network.flaggedIds.has(r.id) && (
+                          <AlertTriangle
+                            className="size-3.5 shrink-0 text-amber-500"
+                            aria-label="Duplicate rule"
+                          />
+                        )}
+                        {r.name}
+                      </span>
+                    </td>
                     <td className="px-3 py-2">{r.direction === "outgoing" ? "Outgoing" : "Incoming"}</td>
                     <td className="px-3 py-2 font-mono text-xs">
                       {r.from_class}
@@ -581,13 +735,24 @@ function RulesSection({ code }: { code: string }) {
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <h3 className="text-muted-foreground text-xs font-medium">Relationship</h3>
-          {canWrite && (
-            <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAdding("relationship")}>
-              <Plus className="size-3.5" />
-              Add relationship
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            <h3 className="text-muted-foreground text-xs font-medium">Relationship</h3>
+            {dupBadge("relationship")}
+          </div>
+          <div className="flex items-center gap-2">
+            {dupRemoveButton("relationship")}
+            {canWrite && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1 text-xs"
+                onClick={() => setAdding("relationship")}
+              >
+                <Plus className="size-3.5" />
+                Add relationship
+              </Button>
+            )}
+          </div>
         </div>
         {data.relationship_rules.length > 0 ? (
           <div className="overflow-hidden rounded-lg border">
@@ -605,8 +770,18 @@ function RulesSection({ code }: { code: string }) {
               </thead>
               <tbody>
                 {data.relationship_rules.map((r) => (
-                  <tr key={r.id} className="border-t">
-                    <td className="px-3 py-2">{r.name}</td>
+                  <tr
+                    key={r.id}
+                    className={`border-t ${dups.relationship.flaggedIds.has(r.id) ? "bg-amber-500/10" : ""}`}
+                  >
+                    <td className="px-3 py-2">
+                      <span className="flex items-center gap-1.5">
+                        {dups.relationship.flaggedIds.has(r.id) && (
+                          <AlertTriangle className="size-3.5 shrink-0 text-amber-500" aria-label="Duplicate rule" />
+                        )}
+                        {r.name}
+                      </span>
+                    </td>
                     <td className="px-3 py-2">{r.direction === "origin" ? "Origin" : "Destination"}</td>
                     <td className="px-3 py-2 font-mono text-xs">{r.origin_class}</td>
                     <td className="px-3 py-2 font-mono text-xs">{r.destination_class}</td>
@@ -637,13 +812,19 @@ function RulesSection({ code }: { code: string }) {
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <h3 className="text-muted-foreground text-xs font-medium">Snapping</h3>
-          {canWrite && (
-            <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAdding("snapping")}>
-              <Plus className="size-3.5" />
-              Add snapping rule
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            <h3 className="text-muted-foreground text-xs font-medium">Snapping</h3>
+            {dupBadge("snapping")}
+          </div>
+          <div className="flex items-center gap-2">
+            {dupRemoveButton("snapping")}
+            {canWrite && (
+              <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAdding("snapping")}>
+                <Plus className="size-3.5" />
+                Add snapping rule
+              </Button>
+            )}
+          </div>
         </div>
         {data.snapping_rules.length > 0 ? (
           <div className="overflow-hidden rounded-lg border">
@@ -662,8 +843,18 @@ function RulesSection({ code }: { code: string }) {
               </thead>
               <tbody>
                 {data.snapping_rules.map((r) => (
-                  <tr key={r.id} className="border-t">
-                    <td className="px-3 py-2">{r.direction === "from" ? "As source" : "As target"}</td>
+                  <tr
+                    key={r.id}
+                    className={`border-t ${dups.snapping.flaggedIds.has(r.id) ? "bg-amber-500/10" : ""}`}
+                  >
+                    <td className="px-3 py-2">
+                      <span className="flex items-center gap-1.5">
+                        {dups.snapping.flaggedIds.has(r.id) && (
+                          <AlertTriangle className="size-3.5 shrink-0 text-amber-500" aria-label="Duplicate rule" />
+                        )}
+                        {r.direction === "from" ? "As source" : "As target"}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 font-mono text-xs">{r.from_class}</td>
                     <td className="px-3 py-2 font-mono text-xs">
                       {r.to_class}
@@ -731,6 +922,26 @@ function RulesSection({ code }: { code: string }) {
                 : "snapping-rules"
           await apiFetch(`/admin/${path}/${deleteTarget.id}`, { method: "DELETE" })
           queryClient.invalidateQueries({ queryKey: ["feature-class-rules", code] })
+        }}
+      />
+
+      <ConfirmDeleteDialog
+        open={confirmCleanKind !== null}
+        title={`Remove ${cleanCount} duplicate ${confirmCleanKind ? dupNoun[confirmCleanKind] : "rule"}${
+          cleanCount === 1 ? "" : "s"
+        }?`}
+        description={
+          confirmCleanKind === "relationship"
+            ? "Each set of identical rules keeps one copy; the redundant duplicates are deleted. No legal pairing is lost -- the surviving copy still authorizes it, and relationships already established stay. This can't be undone."
+            : confirmCleanKind === "snapping"
+              ? "Each set of identical rules keeps one copy; the redundant duplicates are deleted. No snap target is lost -- the surviving copy still offers it, and nothing already drawn changes. This can't be undone."
+              : "Each set of identical rules keeps one copy; the redundant duplicates are deleted. No legal connection is lost -- the surviving copy still authorizes each pairing, and connections already established stay. This can't be undone."
+        }
+        confirmLabel={`Remove ${cleanCount} duplicate${cleanCount === 1 ? "" : "s"}`}
+        onOpenChange={(open) => !open && setConfirmCleanKind(null)}
+        onConfirm={async () => {
+          if (!confirmCleanKind) return
+          await runCleanup(confirmCleanKind)
         }}
       />
     </div>
@@ -2225,6 +2436,22 @@ const FUNCTIONAL_ROLE_OPTIONS: { value: string; label: string }[] = [
 ]
 
 /**
+ * The trace_tier scale (migration 0126) offered in the class-settings editor --
+ * a class's rank in the vertical source-to-load hierarchy, in hundreds with gaps
+ * of 100 so a new layer can slot between two existing ones later. A directional
+ * trace steps within or deeper into the hierarchy but never back toward the end
+ * it came from; leaving a class untiered makes it transparent to that guard.
+ */
+const TRACE_TIER_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: "0 — Source / grid infeed" },
+  { value: 200, label: "200 — Sub-transmission / POWER_XFMR (HV→MV)" },
+  { value: 300, label: "300 — MV (busbar, switchgear, conductor, switch)" },
+  { value: 400, label: "400 — DIST_XFMR (MV→LV boundary)" },
+  { value: 500, label: "500 — LV (busbar, pillar, conductor, fuse)" },
+  { value: 600, label: "600 — Service point / meter" },
+]
+
+/**
  * Edit this class's two pure-metadata diagram flags -- whether it can
  * host a one-line/schematic diagram (is_diagram_container) and whether
  * its features can be placed onto one (is_diagram_placeable). Both are
@@ -2250,6 +2477,12 @@ function DiagramSettingsForm({ summary, onDone }: { summary: AdminFeatureClassSu
   // orthogonal to network_role. "" clears it to unclassified (non-electrical);
   // a value stamps the role the supply-path / section / isolate traces read.
   const [functionalRole, setFunctionalRole] = useState<string>(summary.functional_role ?? "")
+  // Migration 0126: the class's tier in the source-to-load hierarchy. "" =
+  // untiered (transparent to the trace cross-layer guard); a value stamps the
+  // rank. Sent sentinel-encoded on save (-1 clears back to NULL).
+  const [traceTier, setTraceTier] = useState<string>(
+    summary.trace_tier !== undefined && summary.trace_tier !== null ? String(summary.trace_tier) : "",
+  )
   const [saving, setSaving] = useState(false)
   const queryClient = useQueryClient()
 
@@ -2282,6 +2515,9 @@ function DiagramSettingsForm({ summary, onDone }: { summary: AdminFeatureClassSu
           // Always send it: "" clears functional_role to NULL (unclassified),
           // a value stamps the electrical role. Pure metadata -- no recompile.
           functional_role: functionalRole,
+          // Sentinel-encoded like the display-zoom band: -1 clears trace_tier
+          // back to NULL (untiered), a non-negative value sets the rank.
+          trace_tier: traceTier === "" ? -1 : Number(traceTier),
         }),
       })
       // Refresh both the admin catalog (this page's own summary/badges) and
@@ -2389,6 +2625,23 @@ function DiagramSettingsForm({ summary, onDone }: { summary: AdminFeatureClassSu
           Leave unclassified for non-electrical classes (containers, structures, civil). No recompile.
         </span>
       </label>
+      <label className="flex flex-col gap-1 text-sm">
+        <span>Network tier (trace_tier)</span>
+        <select className={inputClass} value={traceTier} onChange={(e) => setTraceTier(e.target.value)}>
+          <option value="">Untiered (transparent to the trace guard)</option>
+          {TRACE_TIER_OPTIONS.map((t) => (
+            <option key={t.value} value={String(t.value)}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+        <span className="text-xs text-muted-foreground">
+          The class's rank in the source-to-load hierarchy (lower = closer to the grid infeed). A
+          downstream trace may step to an equal-or-higher tier but never a strictly-lower one (that's
+          climbing back toward the source); upstream mirrors it. Leaving a class untiered makes it
+          transparent — never tier-blocked. No recompile.
+        </span>
+      </label>
     </FormDialog>
   )
 }
@@ -2419,6 +2672,11 @@ function DiagramSettingsSection({ summary, canWrite }: { summary: AdminFeatureCl
         </Badge>
         <Badge variant={summary.functional_role ? "success" : "outline"}>
           {summary.functional_role ? `Role: ${summary.functional_role}` : "No electrical role"}
+        </Badge>
+        <Badge variant={summary.trace_tier !== undefined && summary.trace_tier !== null ? "success" : "outline"}>
+          {summary.trace_tier !== undefined && summary.trace_tier !== null
+            ? `Tier: ${summary.trace_tier}`
+            : "Untiered"}
         </Badge>
         <Badge variant={summary.is_diagram_container ? "success" : "outline"}>
           {summary.is_diagram_container ? "Hosts diagrams" : "Not a diagram container"}
@@ -2509,7 +2767,7 @@ export function AdminFeatureClassDetailPage() {
 
   return (
     <div className="h-full overflow-y-auto p-4">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4">
+      <div className="flex flex-col gap-4">
         <Link to="/admin/feature-classes" className="text-muted-foreground flex items-center gap-1 text-sm hover:underline">
           <ArrowLeft className="size-3.5" />
           Feature classes

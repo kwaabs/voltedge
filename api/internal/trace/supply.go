@@ -133,6 +133,12 @@ func supplyPathTrace(ctx context.Context, db bun.IDB, req supplyPathRequest) (*s
 	if err != nil {
 		return nil, err
 	}
+	// Parent pointers (rooted at Start) so the supply path nests in the Tree view;
+	// the upstream walk returns a bare feature set with no native parent map. See
+	// stampParentsFromStart.
+	if err := stampParentsFromStart(ctx, db, features, orderedNodes, start, classCodes); err != nil {
+		return nil, err
+	}
 
 	service, err := summarizeService(ctx, db, orderedNodes, classCodes, loader)
 	if err != nil {

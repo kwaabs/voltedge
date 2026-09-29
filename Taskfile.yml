@@ -1092,6 +1092,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/functional_role_backfill.sql
 
+  seed-trace-tiers:
+    desc: Stamp metadata.feature_classes.trace_tier (migration 0126) onto today's electrical classes -- each class's rank in the vertical source-to-load hierarchy, in hundreds (0 source / 200 POWER_XFMR / 300 MV / 400 DIST_XFMR / 500 LV / 600 service). Read by the trace cross-layer guard so a directional walk steps deeper into the hierarchy but never back toward the end it came from; untiered classes stay NULL and are transparent. Through the gitbash sidecar (requires `task migrate` for 0126 first; no gis.* table, no recompile; idempotent and tolerant of absent classes)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/trace_tiers.sql
+
   seed-oms:
     desc: Load the Phase 49 OMS demo data -- trouble calls that drive the predictive chain end to end (log calls -> POST /oms/incidents/predict -> a real RC-1-attributed incident -> confirm/restore). Sets customers_served on the substation network's Feeder-1 SP-1/2/3 (24/1/18) and logs 4 oms.trouble_calls (3 resolved on Feeder 1 that cluster onto RC-1, 1 address/location-only for snap-to-nearest) through the gitbash sidecar (requires migration 0087 via `task migrate` + gis.service_point compiled WITH customers_served + seed-substation-network first; fails loudly if a prerequisite is missing; idempotent)
     cmds:
@@ -1316,6 +1324,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/mv_cim_mapping_example.sql
 
+  seed-loop-check:
+    desc: Load the LOOP_CHECK_TRACE trace configuration (the barrier-respecting loop/mesh detector the connect-confirm panel's "Check for loop" button runs before establishing a connectivity edge) through the gitbash sidecar (requires seed/trace_configurations_example.sql applied first for the TRACE_DIRECTION domain; the OPEN-device barrier rule fills in once a device class exists, or via seed-trace-barrier-resync; no compile step -- pure metadata rows)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/loop_check_example.sql
+
   seed-all:
     desc: "Reseed a freshly-migrated (empty) dev DB end to end: load ALL metadata/config seeds, compile every class into its gis.<code> table, then load all instance/network seeds. Run `task migrate` first. Idempotent (every seed is ON CONFLICT-guarded and compile is additive). Excludes the destructive one-off migrations (collapse-rmu-*, migrate-dist-switch-to-mv-switch) and diagnostics -- those are only for migrating an EXISTING install, not building a fresh one"
     cmds:
@@ -1332,6 +1348,10 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/trace_configurations_example.sql
+      # LOOP_CHECK_TRACE (the "Check for loop" pre-connect trace) -- a second
+      # SHORTEST_PATH config that DOES stop at open devices; its OPEN-device
+      # barrier rule is filled in later by seed-trace-barrier-resync.
+      - task: seed-loop-check
       - task: seed-relationships
       - task: seed-substation-yard
       - task: seed-structure
@@ -1403,6 +1423,7 @@ tasks:
       - task: seed-generator-pv-fields
       - task: seed-arc-flash-geometry-fields
       - task: seed-functional-roles
+      - task: seed-trace-tiers
       - task: seed-display-zoom-13
       - task: seed-cable-management
       - task: seed-cable-management-symbology

@@ -141,6 +141,12 @@ func createFeatureClass(ctx context.Context, db *bun.DB, req createFeatureClassR
 			v := *req.FunctionalRole
 			fc.FunctionalRole = &v
 		}
+		// trace_tier (migration 0126): optional, a negative value means untiered
+		// (NULL / transparent); a non-negative value sets the rank.
+		if req.TraceTier != nil && *req.TraceTier >= 0 {
+			v := *req.TraceTier
+			fc.TraceTier = &v
+		}
 		if _, err := tx.NewInsert().Model(fc).ExcludeColumn("id", "physical_table", "metadata_version_id").Returning("id").Exec(ctx); err != nil {
 			return fmt.Errorf("insert feature class: %w", err)
 		}

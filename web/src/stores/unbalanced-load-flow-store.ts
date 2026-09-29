@@ -1,5 +1,7 @@
 import { create } from "zustand"
+import { persist } from "zustand/middleware"
 
+import { resultPersist } from "@/stores/result-persist"
 import type { TraceFeatureRef } from "@/stores/trace-store"
 
 /** One phase (A/B/C) of an unbalanced-load-flow node -- mirrors
@@ -73,14 +75,19 @@ interface UnbalancedLoadFlowState {
   clear: () => void
 }
 
-export const useUnbalancedLoadFlowStore = create<UnbalancedLoadFlowState>((set) => ({
-  armed: false,
-  armedStart: null,
-  result: null,
-  loading: false,
-  arm: (start) => set({ armed: true, armedStart: start, result: null, loading: false }),
-  rearm: () => set({ armed: true, result: null, loading: false }),
-  setLoading: (loading) => set({ loading }),
-  setResult: (result) => set({ result, loading: false }),
-  clear: () => set({ armed: false, armedStart: null, result: null, loading: false }),
-}))
+export const useUnbalancedLoadFlowStore = create<UnbalancedLoadFlowState>()(
+  persist(
+    (set) => ({
+      armed: false,
+      armedStart: null,
+      result: null,
+      loading: false,
+      arm: (start) => set({ armed: true, armedStart: start, result: null, loading: false }),
+      rearm: () => set({ armed: true, result: null, loading: false }),
+      setLoading: (loading) => set({ loading }),
+      setResult: (result) => set({ result, loading: false }),
+      clear: () => set({ armed: false, armedStart: null, result: null, loading: false }),
+    }),
+    resultPersist("voltedge-unbalanced-load-flow-result"),
+  ),
+)

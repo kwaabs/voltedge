@@ -1,5 +1,7 @@
 import { create } from "zustand"
+import { persist } from "zustand/middleware"
 
+import { resultPersist } from "@/stores/result-persist"
 import type { TraceFeatureRef } from "@/stores/trace-store"
 
 /** One node's resolved electrical state -- mirrors api/internal/powerflow's
@@ -18,6 +20,14 @@ import type { TraceFeatureRef } from "@/stores/trace-store"
 export interface LoadFlowNodeResult {
   feature_class: string
   feature_id: string
+  /** The node one hop closer to the start in the radial spanning tree -- the
+   * feature that feeds this one. Present for every node except the start and any
+   * whose parent fell outside the result set, so the panel can nest the flat node
+   * list into the tree the sweep actually solved (voltage drops down a branch,
+   * loading accumulates up it). Same shape trace results carry. Absent for a
+   * nodal (Y-bus) result, which is a mesh, not a single-parent tree. */
+  parent_feature_class?: string
+  parent_feature_id?: string
   /** The node's stored circuit membership (Phase 37), absent when its class
    * carries no circuit field; the node's voltage is voltage_v / nominal_base_v. */
   circuit_id?: string
@@ -51,8 +61,8 @@ export interface LoadFlowResult {
 }
 
 /**
- * Same "not persisted, several siblings read one store" shape as
- * trace-store.ts/isolate-store.ts -- the trigger (feature-panel.tsx),
+ * Same "session-persisted (resultPersist), several siblings read one store"
+ * shape as trace-store.ts/isolate-store.ts -- the trigger (feature-panel.tsx),
  * the map (voltedge-map.tsx), and the combined prompt/results panel
  * (load-flow-panel.tsx) are three siblings reading this store rather
  * than prop-drilling a result down through components that don't
@@ -79,14 +89,19 @@ interface LoadFlowState {
   clear: () => void
 }
 
-export const useLoadFlowStore = create<LoadFlowState>((set) => ({
-  armed: false,
-  armedStart: null,
-  result: null,
-  loading: false,
-  arm: (start) => set({ armed: true, armedStart: start, result: null, loading: false }),
-  rearm: () => set({ armed: true, result: null, loading: false }),
-  setLoading: (loading) => set({ loading }),
-  setResult: (result) => set({ result, loading: false }),
-  clear: () => set({ armed: false, armedStart: null, result: null, loading: false }),
-}))
+export const useLoadFlowStore = create<LoadFlowState>()(
+  persist(
+    (set) => ({
+      armed: false,
+      armedStart: null,
+      result: null,
+      loading: false,
+      arm: (start) => set({ armed: true, armedStart: start, result: null, loading: false }),
+      rearm: () => set({ armed: true, result: null, loading: false }),
+      setLoading: (loading) => set({ loading }),
+      setResult: (result) => set({ result, loading: false }),
+      clear: () => set({ armed: false, armedStart: null, result: null, loading: false }),
+    }),
+    resultPersist("voltedge-load-flow-result"),
+  ),
+)

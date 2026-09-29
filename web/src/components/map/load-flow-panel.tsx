@@ -3,14 +3,14 @@ import { X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { inputClass } from "@/components/map/field-utils"
+import { LoadFlowNodesTable, type NodeColumn } from "@/components/map/load-flow-nodes-table"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useFloatingPanel } from "@/hooks/use-floating-panel"
 import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import type { LoadFlowResult } from "@/stores/load-flow-store"
+import type { LoadFlowNodeResult, LoadFlowResult } from "@/stores/load-flow-store"
 import { useLoadFlowStore } from "@/stores/load-flow-store"
-import { useSelectionStore } from "@/stores/selection-store"
 import { useToastStore } from "@/stores/toast-store"
 
 function shortId(id: string): string {
@@ -131,8 +131,32 @@ export function LoadFlowPanel() {
   if (!armed && !result) return null
 
   const classNameFor = (code: string) => featureClasses?.feature_classes.find((fc) => fc.code === code)?.name ?? code
-  const barrierKeys = new Set((result?.barriers ?? []).map((b) => `${b.feature_class}:${b.feature_id}`))
   const overloadedKeys = new Set((result?.overloaded ?? []).map((o) => `${o.feature_class}:${o.feature_id}`))
+
+  // Trailing columns after the shared Feature column -- the load-flow family's
+  // per-node electrical readout. LoadFlowNodesTable renders these identically in
+  // both the flat and tree views.
+  const columns: NodeColumn<LoadFlowNodeResult>[] = [
+    {
+      header: "Level",
+      cell: (node) => (
+        <span className="text-muted-foreground text-xs whitespace-nowrap">
+          {node.nominal_base_v > 0 ? formatVoltageLevel(node.nominal_base_v) : "—"}
+        </span>
+      ),
+    },
+    {
+      header: "Voltage",
+      cell: (node) => (
+        <>
+          <div>{formatNumber(node.voltage_v)}V</div>
+          <div className="text-muted-foreground text-xs">-{formatNumber(node.voltage_drop_pct, 2)}%</div>
+        </>
+      ),
+    },
+    { header: "Current", cell: (node) => (node.current_amps !== undefined ? `${formatNumber(node.current_amps)}A` : "—") },
+    { header: "Loading", cell: (node) => (node.loading_pct !== undefined ? `${formatNumber(node.loading_pct)}%` : "—") },
+  ]
 
   async function runLoadFlow() {
     const start = useLoadFlowStore.getState().armedStart
@@ -185,77 +209,34 @@ export function LoadFlowPanel() {
         </div>
       ) : (
         <>
-        <div className={cn("overflow-y-auto", fp.resized ? "min-h-0 flex-1" : "max-h-[16rem]")}>
-          <div className="text-muted-foreground flex items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
-            <span>Nominal {formatNumber(result.nominal_voltage_v, 0)}V</span>
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => useLoadFlowStore.getState().rearm()}>
-              Run again
-            </Button>
-          </div>
-          <table className="w-full text-sm">
-            <thead className="text-muted-foreground sticky top-0 border-b text-left text-xs">
-              <tr>
-                <th className="bg-popover px-3 py-1.5 font-medium">Feature</th>
-                <th className="bg-popover px-3 py-1.5 font-medium">Level</th>
-                <th className="bg-popover px-3 py-1.5 font-medium">Voltage</th>
-                <th className="bg-popover px-3 py-1.5 font-medium">Current</th>
-                <th className="bg-popover px-3 py-1.5 font-medium">Loading</th>
-              </tr>
-            </thead>
-            <tbody>
-              {result.nodes.map((node) => {
-                const key = `${node.feature_class}:${node.feature_id}`
-                const overloaded = overloadedKeys.has(key)
-                return (
-                  <tr
-                    key={key}
-                    onClick={() => useSelectionStore.getState().select(node.feature_class, node.feature_id, { focus: true })}
-                    className={cn(
-                      "hover:bg-accent cursor-pointer border-b last:border-b-0",
-                      overloaded && "bg-destructive/10 text-destructive hover:bg-destructive/15",
-                    )}
-                    title={overloaded ? "Exceeds this conductor's own ampacity" : undefined}
-                  >
-                    <td className="px-3 py-1.5">
-                      <div>{classNameFor(node.feature_class)}</div>
-                      <div className="text-muted-foreground font-mono text-xs">{shortId(node.feature_id)}</div>
-                      {(node.circuit_ref || node.circuit_id) && (
-                        <div className="text-muted-foreground text-xs">{node.circuit_ref || shortId(node.circuit_id!)}</div>
-                      )}
-                    </td>
-                    <td className="text-muted-foreground px-3 py-1.5 text-xs whitespace-nowrap">
-                      {node.nominal_base_v > 0 ? formatVoltageLevel(node.nominal_base_v) : "—"}
-                    </td>
-                    <td className="px-3 py-1.5">
-                      <div>{formatNumber(node.voltage_v)}V</div>
-                      <div className="text-muted-foreground text-xs">-{formatNumber(node.voltage_drop_pct, 2)}%</div>
-                    </td>
-                    <td className="px-3 py-1.5">{node.current_amps !== undefined ? `${formatNumber(node.current_amps)}A` : "—"}</td>
-                    <td className="px-3 py-1.5">
-                      {node.loading_pct !== undefined ? `${formatNumber(node.loading_pct)}%` : "—"}
-                    </td>
-                  </tr>
-                )
-              })}
-              {barrierKeys.size > 0 &&
-                result.barriers.map((b) => (
-                  <tr
-                    key={`${b.feature_class}:${b.feature_id}`}
-                    onClick={() => useSelectionStore.getState().select(b.feature_class, b.feature_id, { focus: true })}
-                    className="bg-muted/50 text-muted-foreground hover:bg-muted cursor-pointer border-b last:border-b-0"
-                    title="Load flow stopped here (open device)"
-                  >
-                    <td className="px-3 py-1.5">
-                      <div>{classNameFor(b.feature_class)}</div>
-                      <div className="font-mono text-xs">{shortId(b.feature_id)}</div>
-                    </td>
-                    <td className="px-3 py-1.5" colSpan={4}>
-                      Stopped here (open device)
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
+        <div className={cn("flex flex-col overflow-hidden", fp.resized ? "min-h-0 flex-1" : "max-h-[19rem]")}>
+          <LoadFlowNodesTable
+            nodes={result.nodes}
+            barriers={result.barriers}
+            overloadedKeys={overloadedKeys}
+            rootKey={`${result.start.feature_class}:${result.start.feature_id}`}
+            classNameFor={classNameFor}
+            columns={columns}
+            featureSubline={(node) =>
+              node.circuit_ref || node.circuit_id ? node.circuit_ref || shortId(node.circuit_id!) : null
+            }
+            overloadTitle="Exceeds this conductor's own ampacity"
+            barrierLabel="Stopped here (open device)"
+            resized={fp.resized}
+            toolbar={
+              <>
+                <span>Nominal {formatNumber(result.nominal_voltage_v, 0)}V</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto h-6 px-2 text-xs"
+                  onClick={() => useLoadFlowStore.getState().rearm()}
+                >
+                  Run again
+                </Button>
+              </>
+            }
+          />
         </div>
         <LoadFlowExplanation result={result} classNameFor={classNameFor} />
         </>

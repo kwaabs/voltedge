@@ -1,5 +1,7 @@
 import { create } from "zustand"
+import { persist } from "zustand/middleware"
 
+import { resultPersist } from "@/stores/result-persist"
 import type { ServiceRollup, TraceFeatureRef } from "@/stores/trace-store"
 
 /** Mirrors api/internal/trace's isolationResponse -- see
@@ -24,8 +26,8 @@ export interface IsolationResult {
 }
 
 /**
- * Same "not persisted, three siblings read one store" shape as
- * trace-store.ts -- kept as its own store rather than folded into it
+ * Same "session-persisted (resultPersist), several siblings read one store"
+ * shape as trace-store.ts -- kept as its own store rather than folded into it
  * since an isolation result has a genuinely different shape (two named
  * lists, not one feature list + barriers) and the two workflows are
  * mutually exclusive in the UI (running one clears the other, see
@@ -39,10 +41,15 @@ interface IsolateState {
   clear: () => void
 }
 
-export const useIsolateStore = create<IsolateState>((set) => ({
-  result: null,
-  loading: false,
-  setLoading: (loading) => set({ loading }),
-  setResult: (result) => set({ result, loading: false }),
-  clear: () => set({ result: null, loading: false }),
-}))
+export const useIsolateStore = create<IsolateState>()(
+  persist(
+    (set) => ({
+      result: null,
+      loading: false,
+      setLoading: (loading) => set({ loading }),
+      setResult: (result) => set({ result, loading: false }),
+      clear: () => set({ result: null, loading: false }),
+    }),
+    resultPersist("voltedge-isolate-result"),
+  ),
+)

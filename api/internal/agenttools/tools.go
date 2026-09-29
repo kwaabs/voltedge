@@ -199,8 +199,10 @@ func readTools() []Tool {
 				"open devices (barriers) per that configuration. Returns the features reached " +
 				"(each as feature_class + feature_id), the subset that were barriers, and -- " +
 				"for a SHORTEST_PATH configuration -- whether a path to the target was found " +
-				"(a target is required only then). Use list_trace_configurations to find a " +
-				"valid trace_configuration code first.",
+				"(a target is required only then). A downstream trace also returns " +
+				"transformer_boundaries -- the transformers it stopped at; set cross_transformers " +
+				"true to continue past them into the LV network. Use list_trace_configurations to " +
+				"find a valid trace_configuration code first.",
 			InputSchema: json.RawMessage(`{
 				"type":"object",
 				"properties":{
@@ -224,7 +226,8 @@ func readTools() []Tool {
 						},
 						"required":["feature_class","feature_id"],
 						"additionalProperties":false
-					}
+					},
+					"cross_transformers":{"type":"boolean","description":"Downstream only: override whether the trace continues past transformers into their LV/secondary network. Omit to use the configuration's default; false stops at each transformer, true continues past."}
 				},
 				"required":["trace_configuration","start"],
 				"additionalProperties":false

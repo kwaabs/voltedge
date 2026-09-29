@@ -144,10 +144,104 @@ func resolveBarriers(ctx context.Context, db bun.IDB, traceConfigurationID strin
 type featureClassLoader struct {
 	codeByID   map[string]string
 	loadedByID map[string]*metadata.Loaded
+	// junctionByID is the set of feature_class ids whose network_role is
+	// 'junction' (a busbar, a switchgear panel bus -- a common node with no
+	// inherent direction), resolved once per trace run by junctions() and cached
+	// here. nil until first loaded, so a trace that never calls junctions() pays
+	// nothing; a feeder/section trace that calls bfs in a loop pays exactly one
+	// query, shared across every iteration through this same loader.
+	junctionByID map[string]bool
+	// transformerRoleByID is the set of feature_class ids whose functional_role
+	// (migration 0091) is 'transformer' -- the boundary a downstream trace stops
+	// at unless told to continue into the LV/secondary side. Same lazy, memoized
+	// shape as junctionByID: nil until transformerRoles() is first called, so only
+	// a trace that actually asks to stop at transformers pays the one query.
+	transformerRoleByID map[string]bool
+	// tierByID maps a feature_class id to its trace_tier (migration 0126) -- its
+	// rank in the vertical source-to-load hierarchy (0 = grid infeed, higher =
+	// closer to the load). ONLY tiered classes appear here; an untiered (NULL)
+	// class is absent, so a step to or from it is never tier-guarded (presence
+	// must be tested comma-ok, since tier 0 is a real, valid rank). Same lazy,
+	// memoized shape as junctionByID: loaded once, only for a directional
+	// (DOWNSTREAM/UPSTREAM) walk that actually consults the cross-layer guard.
+	tierByID map[string]int
 }
 
 func newFeatureClassLoader() *featureClassLoader {
 	return &featureClassLoader{codeByID: map[string]string{}, loadedByID: map[string]*metadata.Loaded{}}
+}
+
+// junctions returns the set of feature_class ids carrying network_role
+// 'junction'. A junction (busbar, switchgear bus) is an electrical common node:
+// every edge on it meets at one point with no inherent from/to direction, which
+// is why a *directional* downstream walk must pass THROUGH it undirected rather
+// than dead-ending on the arbitrary orientation its incident connections were
+// authored with (see bfs). Loaded once and memoized on the shared loader.
+func (l *featureClassLoader) junctions(ctx context.Context, db bun.IDB) (map[string]bool, error) {
+	if l.junctionByID != nil {
+		return l.junctionByID, nil
+	}
+	var fcs []metadata.FeatureClass
+	if err := db.NewSelect().Model(&fcs).Column("id").Where("network_role = ?", "junction").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("trace: loading junction feature classes: %w", err)
+	}
+	out := make(map[string]bool, len(fcs))
+	for _, fc := range fcs {
+		out[fc.ID] = true
+	}
+	l.junctionByID = out
+	return out, nil
+}
+
+// transformerRoles returns the set of feature_class ids carrying
+// functional_role 'transformer' (DIST_XFMR, POWER_XFMR, AUX_TRANSFORMER, ...).
+// A transformer is the boundary between two voltage layers: a downstream walk
+// that reaches one has arrived at the far end of a feeder and, unless told to
+// cross, should stop rather than leak into the transformer's stepped-down LV
+// network (which is a distinct feeder with its own downstream shape). Loaded
+// once and memoized on the shared loader, exactly like junctions().
+func (l *featureClassLoader) transformerRoles(ctx context.Context, db bun.IDB) (map[string]bool, error) {
+	if l.transformerRoleByID != nil {
+		return l.transformerRoleByID, nil
+	}
+	var fcs []metadata.FeatureClass
+	if err := db.NewSelect().Model(&fcs).Column("id").Where("functional_role = ?", "transformer").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("trace: loading transformer feature classes: %w", err)
+	}
+	out := make(map[string]bool, len(fcs))
+	for _, fc := range fcs {
+		out[fc.ID] = true
+	}
+	l.transformerRoleByID = out
+	return out, nil
+}
+
+// tiers returns the map of feature_class id -> trace_tier (migration 0126) for
+// every class that carries one; untiered (NULL trace_tier) classes are simply
+// absent. The tier is a class's rank in the vertical source-to-load hierarchy,
+// and it lets a directional walk enforce direction by what a feature IS, not
+// only by the from/to orientation its connections were authored with: a
+// DOWNSTREAM step may go to an equal-or-higher tier but never to a strictly-
+// lower one (walking back toward the source); UPSTREAM mirrors it. A step
+// touching an untiered class (absent from this map) is always allowed -- the
+// guard is transparent until tiers are seeded (see seed/trace_tiers.sql).
+// Loaded once and memoized on the shared loader, exactly like junctions().
+func (l *featureClassLoader) tiers(ctx context.Context, db bun.IDB) (map[string]int, error) {
+	if l.tierByID != nil {
+		return l.tierByID, nil
+	}
+	var fcs []metadata.FeatureClass
+	if err := db.NewSelect().Model(&fcs).Column("id", "trace_tier").Where("trace_tier IS NOT NULL").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("trace: loading feature class tiers: %w", err)
+	}
+	out := make(map[string]int, len(fcs))
+	for _, fc := range fcs {
+		if fc.TraceTier != nil {
+			out[fc.ID] = *fc.TraceTier
+		}
+	}
+	l.tierByID = out
+	return out, nil
 }
 
 func (l *featureClassLoader) loadedFor(ctx context.Context, db bun.IDB, classID string) (*metadata.Loaded, error) {
@@ -310,12 +404,21 @@ func enrichNode(ctx context.Context, db bun.IDB, n node, code string, loader *fe
 	attrs, _ := row["attributes"].(map[string]any)
 	tf.CircuitID, _ = attrs["circuit_id"].(string)
 	tf.CircuitRef, _ = attrs["circuit_ref"].(string)
+	// device_state (a coded DEVICE_STATE value, "OPEN"/"CLOSED") is present only
+	// for switching devices; a class without the field, or one carrying it unset,
+	// falls through to "" and the field omits. See tracedFeature.DeviceState.
+	tf.DeviceState, _ = attrs["device_state"].(string)
 	for _, field := range voltageClassFields {
 		raw, _ := attrs[field].(string)
 		if v, ok := parseVoltageClassCode(raw); ok {
 			tf.NominalVoltageV = &v
 			break
 		}
+	}
+	// crud.formatRow only emits a "geometry" key (present + non-nil) when the
+	// row has an actual non-null geom, so its presence is exactly "on the map".
+	if g, ok := row["geometry"]; ok && g != nil {
+		tf.OnMap = true
 	}
 	return tf, nil
 }
@@ -332,6 +435,129 @@ func toTracedFeatures(ctx context.Context, db bun.IDB, nodes []node, classCodes 
 			return nil, err
 		}
 		out = append(out, tf)
+	}
+	// Stamp each reached feature with the single-line diagram(s) it's placed on
+	// (one batched read for the whole result, not per node), so the client can
+	// tell on-map results from diagram-only ones and name the diagrams.
+	byKey, err := diagramMembershipsFor(ctx, db, nodes)
+	if err != nil {
+		return nil, err
+	}
+	if len(byKey) > 0 {
+		for i, n := range nodes {
+			if dm := byKey[n.classID+":"+n.featureID]; len(dm) > 0 {
+				out[i].Diagrams = dm
+			}
+		}
+	}
+	return out, nil
+}
+
+// stampParentsFromStart gives a synthetic trace (feeder/section/supply-path) the
+// parent pointers runTrace stamps natively (graph.go ~1054), so its result nests
+// in the client's Tree view instead of rendering flat. Those traces union or
+// exhaust ordinary walks and return a bare feature set with no BFS parent map of
+// their own; here we rebuild one by running a plain undirected (CONNECTED) BFS
+// rooted at start, CONFINED to the returned set -- so the spanning tree it lays
+// down only ever references features already in the response, and every stamped
+// parent resolves client-side. features is built 1:1 from nodes (same index, as
+// toTracedFeatures guarantees), so we stamp by that index. The start node is the
+// root and keeps a nil parent; a node not reachable from start within the set (a
+// disconnected island -- e.g. a feeder unioned from several heads) also keeps a
+// nil parent, and the client reparents such orphans under the root. Rooting at
+// start (not a topological head) is deliberate: it matches the Tree view's
+// rootKey = result.start, so start is the one true root across every trace kind.
+func stampParentsFromStart(ctx context.Context, db bun.IDB, features []tracedFeature, nodes []node, start node, classCodes map[string]string) error {
+	if len(nodes) == 0 {
+		return nil
+	}
+	// nodes/features are 1:1; index by node so a discovered neighbour stamps the
+	// right feature. inSet confines the walk to the returned features.
+	indexOf := make(map[node]int, len(nodes))
+	inSet := make(map[node]bool, len(nodes))
+	for i, n := range nodes {
+		indexOf[n] = i
+		inSet[n] = true
+	}
+	if !inSet[start] {
+		// Start isn't in the result (shouldn't happen for these traces); leave the
+		// features parentless so the client falls back to a flat tree under root.
+		return nil
+	}
+
+	visited := map[node]bool{start: true}
+	queue := []node{start}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		neighbors, err := neighborsOf(ctx, db, current, "CONNECTED")
+		if err != nil {
+			return err
+		}
+		for _, n := range neighbors {
+			if visited[n] || !inSet[n] {
+				continue
+			}
+			visited[n] = true
+			pc := classCodes[current.classID]
+			pid := current.featureID
+			features[indexOf[n]].ParentFeatureClass = &pc
+			features[indexOf[n]].ParentFeatureID = &pid
+			queue = append(queue, n)
+		}
+	}
+	return nil
+}
+
+// diagramMembershipsFor resolves, in one query, every single-line diagram each
+// of nodes is placed on -- runtime.diagram_placements joined to
+// runtime.diagram_instances for the diagram's name -- keyed by
+// "classID:featureID". Placements are keyed by (feature_class_id, feature_id),
+// exactly the pair a trace node carries. Returns nil for an empty node set.
+func diagramMembershipsFor(ctx context.Context, db bun.IDB, nodes []node) (map[string][]diagramMembership, error) {
+	if len(nodes) == 0 {
+		return nil, nil
+	}
+	// Distinct feature ids to filter on; the exact (class,feature) pairs we
+	// actually want (feature_id is a uuid, so cross-class collisions are
+	// vanishingly unlikely, but match the pair precisely regardless).
+	want := make(map[string]bool, len(nodes))
+	seen := make(map[string]bool, len(nodes))
+	ids := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		want[n.classID+":"+n.featureID] = true
+		if !seen[n.featureID] {
+			seen[n.featureID] = true
+			ids = append(ids, n.featureID)
+		}
+	}
+	var rows []struct {
+		FeatureClassID    string  `bun:"feature_class_id"`
+		FeatureID         string  `bun:"feature_id"`
+		DiagramInstanceID string  `bun:"diagram_instance_id"`
+		Name              *string `bun:"name"`
+	}
+	err := db.NewSelect().
+		TableExpr("runtime.diagram_placements AS p").
+		ColumnExpr("p.feature_class_id, p.feature_id, p.diagram_instance_id, i.name").
+		Join("JOIN runtime.diagram_instances AS i ON i.id = p.diagram_instance_id").
+		Where("p.feature_id IN (?)", bun.In(ids)).
+		OrderExpr("i.name NULLS LAST, i.id").
+		Scan(ctx, &rows)
+	if err != nil {
+		return nil, fmt.Errorf("load diagram memberships: %w", err)
+	}
+	out := make(map[string][]diagramMembership)
+	for _, r := range rows {
+		key := r.FeatureClassID + ":" + r.FeatureID
+		if !want[key] {
+			continue
+		}
+		name := ""
+		if r.Name != nil {
+			name = *r.Name
+		}
+		out[key] = append(out[key], diagramMembership{InstanceID: r.DiagramInstanceID, Name: name})
 	}
 	return out, nil
 }
@@ -411,6 +637,20 @@ const maxTraceHops = 2000
 // hit but keeps walking past it -- the real, enforced meaning that
 // column only ever had as a stub before this.
 //
+// Transformer boundary (DOWNSTREAM only, opt-in via stopAtTransformers):
+// independent of the config's target_class_id, a downstream walk can be told to
+// stop at every functional_role='transformer' node it reaches -- the boundary
+// between a feeder and the transformer's stepped-down LV network. When
+// stopAtTransformers is true the walk records each such transformer in
+// transformerHits and does not expand past it (the transformer itself is still
+// visited/energized -- only its onward LV expansion is cut). This is what backs
+// the map's "continue past transformers" checkbox: unticked -> stopAtTransformers
+// true (default, stop at the transformer); ticked -> false (flow into the LV
+// side). Only the user-facing graph trace (runTrace) ever sets it; energization,
+// feeder, service, section and isolate all pass false, so a transformer keeps
+// passing power downstream for them exactly as before -- stopping there would
+// wrongly strand a transformer's whole LV network as de-energized.
+//
 // scopeCircuit, when non-nil (a scope_to_circuit config, migration 0069),
 // confines the walk to the start's stored circuit: a neighbour is only
 // enqueued/recorded when its own live circuit_id equals *scopeCircuit. An
@@ -418,13 +658,94 @@ const maxTraceHops = 2000
 // the circuit boundary -- marked visited so a second edge to it isn't
 // re-checked, but never traversed or returned. The start is always kept
 // (resolved by the caller to carry *scopeCircuit in the first place).
-func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers map[string][]barrierCheck, loader *featureClassLoader, target *node, targetClassIDs map[string]bool, crossTransformers bool, scopeCircuit *string) (order []node, barrierHits []node, targetHits []node, parent map[node]node, found bool, err error) {
+//
+// Junction pass-through (DOWNSTREAM and UPSTREAM): a busbar / switchgear bus is
+// an electrical common node -- every way meets at one point with no inherent
+// from/to direction, yet an assembly fan-out authors all its connections in one
+// fixed orientation (e.g. the RMU wires every way switch->bus, so the bus is
+// only ever a "to"). A strict directional walk following from->to (or its
+// reverse) therefore mis-handles such a one-way-sink bus, and the two directions
+// mis-handle it in mirror-image ways:
+//
+//   - A DOWNSTREAM walk *reaches* the bus fine (every way's switch is a "from")
+//     but then dead-ends there -- the bus is never a "from", so following
+//     from->to can't leave it to reach the sibling ways.
+//   - An UPSTREAM walk (following to->from) has the opposite problem: it can
+//     leave a bus easily (to->from off the bus lands on every "from" switch) but
+//     can never *arrive* -- no edge has the bus as a "from", so no to->from step
+//     lands on it. It dead-ends at the last switch *below* the bus instead.
+//
+// So junction handling has two halves, each covering one direction's gap:
+//
+//  1. LEAVE (helps DOWNSTREAM): when a walk reaches a network_role='junction'
+//     node it expands that node UNDIRECTED (every incident edge, either
+//     direction), and every node discovered from there is "unlocked" -- it too
+//     expands undirected, so the walk continues out through the sibling ways'
+//     switches and cables that were authored bus-inward.
+//  2. ARRIVE (helps UPSTREAM): a node that isn't itself expanding undirected
+//     additionally pulls in any incident neighbour that *is* a junction,
+//     regardless of edge orientation -- so an upstream walk crosses the way->bus
+//     edge against its grain to reach the bus, after which half (1) unlocks the
+//     source-side spine and the sibling ways. Applied only to UPSTREAM: a
+//     downstream walk reaches its bus naturally, and pulling in a junction
+//     against the edge there would be the "from" bus one level up -- climbing
+//     back toward the source, exactly what downstream must not do.
+//
+// Everything before the first bus stays strictly directional (the start is
+// locked), and the cross-layer tier guard below -- judged on the ORIGINAL
+// direction -- still applies through an undirected expansion, so neither
+// direction leaks back the way it came past a bus. Barriers (an OPEN switch)
+// still stop each branch, so the fan-out past a bus stays bounded exactly as it
+// should. CONNECTED/SHORTEST_PATH are undirected to begin with and untouched.
+func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers map[string][]barrierCheck, loader *featureClassLoader, target *node, targetClassIDs map[string]bool, crossTransformers bool, stopAtTransformers bool, scopeCircuit *string) (order []node, barrierHits []node, targetHits []node, transformerHits []node, parent map[node]node, found bool, err error) {
+	junctionIDs, jerr := loader.junctions(ctx, db)
+	if jerr != nil {
+		err = jerr
+		return
+	}
+	// passThroughJunctions gates the whole behaviour to the two directional
+	// walks; CONNECTED/SHORTEST_PATH never consult junctionIDs or unlocked at all
+	// (already undirected). Both DOWNSTREAM and UPSTREAM cross a one-way-sink bus,
+	// each closing its own half of the gap (see the doc comment above).
+	passThroughJunctions := direction == "DOWNSTREAM" || direction == "UPSTREAM"
+
+	// transformerIDs is only consulted on an opt-in downstream stop, so only that
+	// path pays the (memoized) query -- every other trace leaves it nil, and a nil
+	// map reads false, so the boundary check below is a no-op for them.
+	var transformerIDs map[string]bool
+	if stopAtTransformers && direction == "DOWNSTREAM" {
+		transformerIDs, err = loader.transformerRoles(ctx, db)
+		if err != nil {
+			return
+		}
+	}
+
+	// tierByID (migration 0126) drives the cross-layer guard below: a directional
+	// walk may step within or deeper into the hierarchy but never back toward the
+	// end it came from. Loaded only for the two directional walks -- CONNECTED /
+	// SHORTEST_PATH are undirected by definition and have no "toward the source"
+	// to protect, so they never pay the query. An empty map (nothing tiered yet)
+	// makes the guard a clean no-op.
+	var tierByID map[string]int
+	if direction == "DOWNSTREAM" || direction == "UPSTREAM" {
+		tierByID, err = loader.tiers(ctx, db)
+		if err != nil {
+			return
+		}
+	}
+
 	visited := map[node]bool{start: true}
 	parent = map[node]node{}
 	queue := []node{start}
 	order = []node{start}
 	barrierSet := map[node]bool{}
 	targetSet := map[node]bool{}
+	transformerSet := map[node]bool{}
+	// unlocked[n] is true once the walk has crossed a junction to reach n, after
+	// which n expands undirected too (see the junction pass-through note above).
+	// The start is locked (directional) so a walk can't immediately double back
+	// the way it came before it has even reached a bus.
+	unlocked := map[node]bool{}
 	found = target != nil && start == *target
 
 	for len(queue) > 0 && len(order) < maxTraceHops {
@@ -449,14 +770,83 @@ func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers
 			}
 		}
 
+		// Transformer boundary: a downstream walk that reached a transformer (and
+		// was asked to stop at them) records it and expands no further into the LV
+		// side. The transformer stays in `order` -- it's reached/energized -- only
+		// its onward expansion is cut, the same record-then-stop shape a barrier or
+		// class-target uses. transformerIDs is nil for every non-opted-in trace, so
+		// this is a no-op lookup for them.
+		if transformerIDs[current.classID] && current != start {
+			transformerSet[current] = true
+			continue
+		}
+
+		// Expand this node undirected when it is (or was reached through) a
+		// junction on a pass-through walk; everything it discovers is then
+		// unlocked. This is the LEAVE half -- it lets a walk that has reached a bus
+		// fan out through the sibling ways authored bus-inward (see the doc above).
+		expandUndirected := passThroughJunctions && (unlocked[current] || junctionIDs[current.classID])
+		effectiveDirection := direction
+		if expandUndirected {
+			effectiveDirection = "CONNECTED"
+		}
+
 		var neighbors []node
-		neighbors, err = neighborsOf(ctx, db, current, direction)
+		neighbors, err = neighborsOf(ctx, db, current, effectiveDirection)
 		if err != nil {
 			return
 		}
+
+		// ARRIVE half (UPSTREAM only): a one-way-sink bus is authored with every
+		// edge pointing INTO it (way->bus), so an upstream to->from walk never
+		// lands on the bus and dead-ends at the last switch below it. When this
+		// node isn't already expanding undirected, additionally pull in any
+		// incident neighbour that is itself a junction, regardless of edge
+		// orientation -- then the bus, once enqueued, takes the LEAVE path above
+		// and unlocks the source-side spine. Restricted to UPSTREAM on purpose: a
+		// downstream walk reaches its bus naturally, and reaching a junction
+		// against the edge there would be the "from" bus one level up (climbing
+		// toward the source) -- the one thing a downstream trace must never do. The
+		// tier guard still vets every step, so this can't leak past a bus toward
+		// the load either.
+		if passThroughJunctions && direction == "UPSTREAM" && !expandUndirected {
+			var incident []node
+			incident, err = neighborsOf(ctx, db, current, "CONNECTED")
+			if err != nil {
+				return
+			}
+			for _, n := range incident {
+				if junctionIDs[n.classID] {
+					neighbors = append(neighbors, n)
+				}
+			}
+		}
+
 		for _, n := range neighbors {
 			if visited[n] {
 				continue
+			}
+			// Cross-layer guard (migration 0126): both this node and the neighbour
+			// carry a trace_tier, so the step's direction in the source-to-load
+			// hierarchy is known independently of the connection's from/to. A
+			// DOWNSTREAM walk refuses a step to a strictly-lower tier (that would be
+			// climbing back toward the source); UPSTREAM refuses a strictly-higher
+			// one. Judged on the ORIGINAL `direction`, so an undirected expansion
+			// past a junction bus is still tier-guarded and can't leak back up the
+			// feeder that supplies the bus. An untiered class on either end is
+			// absent from the map (comma-ok, since tier 0 is valid) and always
+			// passes -- the guard is transparent until tiers are seeded. Blocked
+			// neighbours are deliberately NOT marked visited, so a legitimate
+			// same-or-deeper-tier edge can still reach them by another path.
+			if ct, cok := tierByID[current.classID]; cok {
+				if nt, nok := tierByID[n.classID]; nok {
+					if direction == "DOWNSTREAM" && nt < ct {
+						continue
+					}
+					if direction == "UPSTREAM" && nt > ct {
+						continue
+					}
+				}
 			}
 			// Circuit-scoped: an off-circuit neighbour is the boundary. Mark it
 			// visited (so a second edge to it isn't re-read) but never enqueue
@@ -474,6 +864,9 @@ func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers
 			}
 			visited[n] = true
 			parent[n] = current
+			if expandUndirected {
+				unlocked[n] = true
+			}
 			order = append(order, n)
 			queue = append(queue, n)
 			if target != nil && n == *target {
@@ -492,6 +885,10 @@ func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers
 	targetHits = make([]node, 0, len(targetSet))
 	for n := range targetSet {
 		targetHits = append(targetHits, n)
+	}
+	transformerHits = make([]node, 0, len(transformerSet))
+	for n := range transformerSet {
+		transformerHits = append(transformerHits, n)
 	}
 	err = nil
 	return
@@ -707,7 +1104,20 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 		scopeCircuit = &cid
 	}
 
-	visited, barrierHits, targetHits, parent, found, err := bfs(ctx, db, start, direction, barriers, loader, target, singleClassSet(tc.TargetClassID), tc.CrossTransformers, scopeCircuit)
+	// Effective cross-transformers: the config's stored default (cross_transformers),
+	// overridden per-run by the request when the caller sends one -- the map's
+	// "continue past transformers" checkbox. It governs both the config's
+	// target_class_id crossing (existing) and the functional_role='transformer'
+	// boundary below. stopAtTransformers turns that boundary ON, and only for a
+	// downstream walk -- upstream/connected/shortest never stop at a transformer,
+	// and neither do the other bfs callers (energization et al. pass false).
+	crossTransformers := tc.CrossTransformers
+	if req.CrossTransformers != nil {
+		crossTransformers = *req.CrossTransformers
+	}
+	stopAtTransformers := direction == "DOWNSTREAM" && !crossTransformers
+
+	visited, barrierHits, targetHits, transformerHits, parent, found, err := bfs(ctx, db, start, direction, barriers, loader, target, singleClassSet(tc.TargetClassID), crossTransformers, stopAtTransformers, scopeCircuit)
 	if err != nil {
 		return nil, err
 	}
@@ -734,12 +1144,16 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 		if targetHits, err = scope.filter(ctx, db, targetHits, loader); err != nil {
 			return nil, err
 		}
+		if transformerHits, err = scope.filter(ctx, db, transformerHits, loader); err != nil {
+			return nil, err
+		}
 	}
 
-	allNodes := make([]node, 0, len(featureNodes)+len(barrierHits)+len(targetHits))
+	allNodes := make([]node, 0, len(featureNodes)+len(barrierHits)+len(targetHits)+len(transformerHits))
 	allNodes = append(allNodes, featureNodes...)
 	allNodes = append(allNodes, barrierHits...)
 	allNodes = append(allNodes, targetHits...)
+	allNodes = append(allNodes, transformerHits...)
 	classCodes, err := nodeClassCodes(ctx, db, allNodes)
 	if err != nil {
 		return nil, err
@@ -788,6 +1202,10 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 		Features:           features,
 		Barriers:           toFeatureRefs(barrierHits, classCodes),
 		Service:            service,
+		CrossTransformers:  crossTransformers,
+	}
+	if len(transformerHits) > 0 {
+		resp.TransformerBoundaries = toFeatureRefs(transformerHits, classCodes)
 	}
 	if direction == "SHORTEST_PATH" {
 		resp.PathFound = &found

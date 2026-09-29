@@ -1,5 +1,7 @@
 import { create } from "zustand"
+import { persist } from "zustand/middleware"
 
+import { resultPersist } from "@/stores/result-persist"
 import type { TraceFeatureRef } from "@/stores/trace-store"
 
 /** One interconnection node's DER hosting result -- mirrors
@@ -55,14 +57,19 @@ interface HostingState {
   clear: () => void
 }
 
-export const useHostingStore = create<HostingState>((set) => ({
-  armed: false,
-  armedStart: null,
-  result: null,
-  loading: false,
-  arm: (start) => set({ armed: true, armedStart: start, result: null, loading: false }),
-  rearm: () => set({ armed: true, result: null, loading: false }),
-  setLoading: (loading) => set({ loading }),
-  setResult: (result) => set({ result, loading: false }),
-  clear: () => set({ armed: false, armedStart: null, result: null, loading: false }),
-}))
+export const useHostingStore = create<HostingState>()(
+  persist(
+    (set) => ({
+      armed: false,
+      armedStart: null,
+      result: null,
+      loading: false,
+      arm: (start) => set({ armed: true, armedStart: start, result: null, loading: false }),
+      rearm: () => set({ armed: true, result: null, loading: false }),
+      setLoading: (loading) => set({ loading }),
+      setResult: (result) => set({ result, loading: false }),
+      clear: () => set({ armed: false, armedStart: null, result: null, loading: false }),
+    }),
+    resultPersist("voltedge-hosting-result"),
+  ),
+)

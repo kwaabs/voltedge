@@ -82,7 +82,7 @@ func feederTrace(ctx context.Context, db bun.IDB, req feederRequest) (*feederRes
 
 	loader := newFeatureClassLoader()
 
-	upstreamVisited, _, _, _, _, err := bfs(ctx, db, start, "UPSTREAM", map[string][]barrierCheck{}, loader, nil, nil, false, nil)
+	upstreamVisited, _, _, _, _, _, err := bfs(ctx, db, start, "UPSTREAM", map[string][]barrierCheck{}, loader, nil, nil, false, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func feederTrace(ctx context.Context, db bun.IDB, req feederRequest) (*feederRes
 
 	featureSet := map[node]bool{}
 	for _, head := range heads {
-		visited, _, _, _, _, derr := bfs(ctx, db, head, "DOWNSTREAM", barriers, loader, nil, nil, false, nil)
+		visited, _, _, _, _, _, derr := bfs(ctx, db, head, "DOWNSTREAM", barriers, loader, nil, nil, false, false, nil)
 		if derr != nil {
 			return nil, derr
 		}
@@ -134,6 +134,12 @@ func feederTrace(ctx context.Context, db bun.IDB, req feederRequest) (*feederRes
 
 	features, err := toTracedFeatures(ctx, db, featureNodes, classCodes, loader)
 	if err != nil {
+		return nil, err
+	}
+	// Give the feeder result parent pointers (rooted at Start) so it nests in the
+	// client's Tree view; a feeder is a union of downstream walks with no native
+	// parent map. See stampParentsFromStart.
+	if err := stampParentsFromStart(ctx, db, features, featureNodes, start, classCodes); err != nil {
 		return nil, err
 	}
 

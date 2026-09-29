@@ -1,5 +1,7 @@
 import { create } from "zustand"
+import { persist } from "zustand/middleware"
 
+import { resultPersist } from "@/stores/result-persist"
 import type { TraceFeatureRef } from "@/stores/trace-store"
 
 /** One node's symmetrical (3-phase bolted) fault level -- mirrors
@@ -68,14 +70,19 @@ interface FaultCurrentState {
   clear: () => void
 }
 
-export const useFaultCurrentStore = create<FaultCurrentState>((set) => ({
-  armed: false,
-  armedStart: null,
-  result: null,
-  loading: false,
-  arm: (start) => set({ armed: true, armedStart: start, result: null, loading: false }),
-  rearm: () => set({ armed: true, result: null, loading: false }),
-  setLoading: (loading) => set({ loading }),
-  setResult: (result) => set({ result, loading: false }),
-  clear: () => set({ armed: false, armedStart: null, result: null, loading: false }),
-}))
+export const useFaultCurrentStore = create<FaultCurrentState>()(
+  persist(
+    (set) => ({
+      armed: false,
+      armedStart: null,
+      result: null,
+      loading: false,
+      arm: (start) => set({ armed: true, armedStart: start, result: null, loading: false }),
+      rearm: () => set({ armed: true, result: null, loading: false }),
+      setLoading: (loading) => set({ loading }),
+      setResult: (result) => set({ result, loading: false }),
+      clear: () => set({ armed: false, armedStart: null, result: null, loading: false }),
+    }),
+    resultPersist("voltedge-fault-current-result"),
+  ),
+)

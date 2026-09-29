@@ -49,7 +49,7 @@ func DeEnergizedCone(ctx context.Context, db bun.IDB, device FeatureRef) ([]Feat
 	seen := map[node]bool{}
 	ordered := make([]node, 0, 16)
 	for _, start := range downstreamNeighbors {
-		visited, _, _, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, nil, false, nil)
+		visited, _, _, _, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, nil, false, false, nil)
 		if err != nil {
 			return nil, err
 		}

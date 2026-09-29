@@ -346,7 +346,14 @@ func main() {
 	// sees the entry in the catalog and is refused 403 on a direct fetch. No db --
 	// the manuals are files on disk (DOCS_DIR), not database rows.
 	r.With(auth.RequireAuth).Mount("/docs", docs.Routes())
-	r.With(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite)).Mount("/admin", admin.Routes(db, credCipher))
+	// The metadata admin catalog (feature classes, domains, field groups,
+	// materials, symbology, network/relationship rules, import-profile authoring,
+	// CIM mappings, stencils). Both read and write require metadata:write, so the
+	// whole catalog is admin-only: a viewer/analyst/editor (who hold metadata:read
+	// but not metadata:write) can no longer browse it read-only by typing the URL
+	// -- they get a clean 403. The map/forms read layer that non-admins do need
+	// lives on the separate features:read /feature-classes mount above.
+	r.With(auth.RequirePermission(auth.PermMetadataWrite, auth.PermMetadataWrite)).Mount("/admin", admin.Routes(db, credCipher))
 	// Phase 39 (docs/phase-39-map-settings.md): the admin-configurable default
 	// map view (center lon/lat + zoom at app start), replacing the client's
 	// hardcoded placeholder. A method-aware gate: GET needs only features:read
@@ -380,16 +387,20 @@ func main() {
 	// catalog a feature's kind='api' links fetch from. Admin config like domains
 	// and material specs, so it rides the same metadata:read/write gate; its page
 	// lives under /admin/external-systems (frontend) while the API sits top-level,
-	// same split as field-packs. credCipher seals credentials at rest.
-	r.With(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite)).Mount("/external-systems", externalsystem.Routes(db, credCipher))
+	// same split as field-packs. credCipher seals credentials at rest. Both read
+	// and write require metadata:write so the whole surface is admin-only, matching
+	// the /admin catalog: non-admins get a clean 403 rather than a viewable list.
+	r.With(auth.RequirePermission(auth.PermMetadataWrite, auth.PermMetadataWrite)).Mount("/external-systems", externalsystem.Routes(db, credCipher))
 	// Inbound webhook management (0124, internal/webhook): the admin surface that
 	// configures the ingestion endpoints the public /webhooks receiver above
 	// serves, plus each endpoint's delivery log, the paste-and-apply tester, and
 	// delivery replay. Admin config like external-systems, so it rides the same
 	// metadata:read/write gate; its page lives under /admin/webhooks (frontend)
 	// while the API sits top-level, the same split as external-systems.
-	// credCipher seals each endpoint's HMAC signing secret at rest.
-	r.With(auth.RequirePermission(auth.PermMetadataRead, auth.PermMetadataWrite)).Mount("/webhook-endpoints", webhook.AdminRoutes(db, credCipher))
+	// credCipher seals each endpoint's HMAC signing secret at rest. Both read and
+	// write require metadata:write so the whole surface is admin-only, matching the
+	// /admin catalog: non-admins get a clean 403 rather than a viewable list.
+	r.With(auth.RequirePermission(auth.PermMetadataWrite, auth.PermMetadataWrite)).Mount("/webhook-endpoints", webhook.AdminRoutes(db, credCipher))
 	// Phase 21 pack management (docs/phase-21-field-tool.md): an admin lists
 	// every user's field-tool region packs and disables (hides from the device)
 	// or deletes them, so stale packs don't crowd a field tech's tablet. This is

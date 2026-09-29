@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react"
-import { GripHorizontal, X } from "lucide-react"
+import { ChevronRight, GripHorizontal, List, ListTree, RefreshCw, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { ServiceRollupSummary } from "@/components/map/service-rollup-summary"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
-import { apiFetch } from "@/lib/api"
+import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { useDiagramStore } from "@/stores/diagram-store"
 import { useSelectionStore } from "@/stores/selection-store"
-import { useTraceStore } from "@/stores/trace-store"
+import { type TraceResult, useTraceStore } from "@/stores/trace-store"
+import { useTraceViewStore } from "@/stores/trace-view-store"
+import { useToastStore } from "@/stores/toast-store"
 
 const DIRECTION_LABEL: Record<string, string> = {
   CONNECTED: "Connected",
@@ -52,14 +55,203 @@ function formatVolts(v: number): string {
   return `${Number(v.toFixed(1))} V`
 }
 
+/** A small pill marking a switching device's live position: green "Closed" (the
+ * switch is passing power -- so it reads as a real, present device on the path,
+ * not just a silent conductor) or red "Open" (it's isolating -- the same red the
+ * trace uses for the open barriers it stops at). Any other coded DEVICE_STATE
+ * value is shown title-cased in a neutral pill rather than dropped, so an
+ * unexpected domain value stays visible. Renders nothing for a non-switch feature
+ * (no device_state), so it can be dropped into every row unconditionally. */
+function DeviceStateBadge({ state }: { state: string | null }) {
+  if (!state) return null
+  const up = state.toUpperCase()
+  const closed = up === "CLOSED"
+  const open = up === "OPEN"
+  const label = closed || open ? (closed ? "Closed" : "Open") : state.charAt(0) + state.slice(1).toLowerCase()
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium",
+        closed && "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+        open && "bg-destructive/15 text-destructive",
+        !closed && !open && "bg-muted text-muted-foreground",
+      )}
+      title={`Switching device — currently ${label.toLowerCase()}`}
+    >
+      {label}
+    </span>
+  )
+}
+
 interface ResolvedRow {
   feature_class: string
   feature_id: string
   name: string | null
   circuitRef: string | null
   nominalVoltageV: number | null
+  /** True when the reached feature has real map geometry (rides on the trace
+   * response's tracedFeature.on_map -- no extra fetch). A feature can be both
+   * on the map and on one or more diagrams. */
+  onMap: boolean
+  /** The single-line diagram(s) this feature is placed on (name may be empty). */
+  diagrams: { instance_id: string; name?: string }[]
+  /** Live switch position ("OPEN" / "CLOSED") for a switching device, null for
+   * everything else (rides on the trace response's tracedFeature.device_state --
+   * no extra fetch). Drives the state badge that marks every switch the trace
+   * reached, closed ones included. */
+  deviceState: string | null
+  /** This feature's one-hop-upstream neighbour in the trace's BFS tree (rides on
+   * the trace response's tracedFeature.parent_feature_* -- no extra fetch), used
+   * to build the client-side tree view. Null on the start feature and on any node
+   * whose parent fell outside the caller's scope (an orphan -- reparented under
+   * the root in the tree). Only the standard trace carries these; the synthetic
+   * feeder/section/service/supply-path traces return a flat list (all null), so
+   * the tree there falls back to every row directly under the root. */
+  parentClass: string | null
+  parentId: string | null
   isBarrier: boolean
   isTarget: boolean
+}
+
+/** Stable `feature_class:feature_id` key -- the id shape the trace engine's
+ * parent pointers, barriers, and targets are all keyed on. */
+function rowKey(r: { feature_class: string; feature_id: string }): string {
+  return `${r.feature_class}:${r.feature_id}`
+}
+
+/** One line of the flattened tree render: the row plus its depth (indent),
+ * whether it has children (gets a chevron), the size of its whole subtree
+ * (every feature below it in the trace, collapse-independent), and whether it's
+ * the trace's start (the tree root). Table mode reuses the same shape at depth 0
+ * so both views share one row renderer. */
+interface TreeLine {
+  row: ResolvedRow
+  depth: number
+  hasChildren: boolean
+  descendantCount: number
+  isRoot: boolean
+  /** Ancestor rail columns for the connector guides, one per ancestor level
+   * above this node's own connector (length depth-1; empty for the root and its
+   * direct children). true = that ancestor still has siblings below, so a
+   * vertical "│" rail is drawn through this row at that column; false = blank
+   * (the ancestor's branch ended above, so no line passes through here). */
+  railColumns: boolean[]
+  /** Whether this node is the last of its parent's children -- picks the elbow
+   * "└" (last) vs. tee "├" (more siblings follow) connector in its own column.
+   * Meaningless for the root (rendered without a connector). */
+  isLastChild: boolean
+}
+
+/**
+ * Builds the depth-ordered, collapse-aware list of rows for the tree view from
+ * each row's parent pointer. Root is the trace's start feature; any row whose
+ * parent isn't itself in the result (an orphan, or a scope-clipped parent) is
+ * reparented directly under the root so nothing is dropped. Self-references and
+ * cycles are guarded by a visited set (a node is emitted at most once). When the
+ * start feature isn't among the returned features, rows with no in-set parent
+ * become top-level roots instead. Collapsed keys hide their subtree but stay
+ * visible themselves.
+ */
+function buildTreeLines(rows: ResolvedRow[], rootKey: string, collapsed: Set<string>): TreeLine[] {
+  const byKey = new Map<string, ResolvedRow>()
+  for (const r of rows) byKey.set(rowKey(r), r)
+  const rootExists = byKey.has(rootKey)
+
+  const childrenByKey = new Map<string, ResolvedRow[]>()
+  const roots: ResolvedRow[] = []
+  for (const r of rows) {
+    const k = rowKey(r)
+    if (k === rootKey) {
+      roots.push(r)
+      continue
+    }
+    const pk = r.parentClass && r.parentId ? `${r.parentClass}:${r.parentId}` : null
+    const attachTo = pk && pk !== k && byKey.has(pk) ? pk : rootExists ? rootKey : null
+    if (attachTo === null) {
+      roots.push(r)
+      continue
+    }
+    const list = childrenByKey.get(attachTo)
+    if (list) list.push(r)
+    else childrenByKey.set(attachTo, [r])
+  }
+
+  // Subtree size (every feature below a node), collapse-independent -- shown on
+  // collapsible rows so a collapsed branch still tells you how much it hides.
+  // childrenByKey is a forest (each row is pushed under exactly one parent, self
+  // and cross-set parents reparent to the root), so this can't cycle; the
+  // in-progress guard is belt-and-braces.
+  const descCount = new Map<string, number>()
+  const inProgress = new Set<string>()
+  const countDescendants = (k: string): number => {
+    const memo = descCount.get(k)
+    if (memo !== undefined) return memo
+    if (inProgress.has(k)) return 0
+    inProgress.add(k)
+    const kids = childrenByKey.get(k) ?? []
+    let total = kids.length
+    for (const c of kids) total += countDescendants(rowKey(c))
+    inProgress.delete(k)
+    descCount.set(k, total)
+    return total
+  }
+
+  const lines: TreeLine[] = []
+  const visited = new Set<string>()
+  // railColumns/isLastChild thread the connector state down the tree: a node's
+  // children inherit its rails plus one more column for this node's own
+  // connector -- a "│" if this node has siblings after it, blank if it was the
+  // last. The root itself contributes no column (it's rendered without a
+  // connector), so its children start with empty rails.
+  const walk = (r: ResolvedRow, depth: number, railColumns: boolean[], isLastChild: boolean) => {
+    const k = rowKey(r)
+    if (visited.has(k)) return
+    visited.add(k)
+    const kids = childrenByKey.get(k) ?? []
+    lines.push({
+      row: r,
+      depth,
+      hasChildren: kids.length > 0,
+      descendantCount: countDescendants(k),
+      isRoot: k === rootKey,
+      railColumns,
+      isLastChild,
+    })
+    if (kids.length > 0 && !collapsed.has(k)) {
+      const childRail = depth === 0 ? [] : [...railColumns, !isLastChild]
+      kids.forEach((c, i) => walk(c, depth + 1, childRail, i === kids.length - 1))
+    }
+  }
+  for (const root of roots) walk(root, 0, [], true)
+  // Safety net: anything not reached (shouldn't happen once orphans reparent,
+  // but a malformed cycle could) still gets listed rather than silently lost.
+  for (const r of rows) if (!visited.has(rowKey(r))) walk(r, 0, [], true)
+  return lines
+}
+
+/**
+ * Keys on the path from `key` up to the tree root, read straight off the
+ * rendered (depth-ordered) line list: an ancestor of a visible row is always
+ * visible and always precedes it, so walking backwards and picking up each
+ * next-shallower depth collects the whole chain to the root without needing a
+ * separate parent map. Includes `key` itself. Empty when key is null or isn't
+ * currently shown (e.g. it sits inside a branch a collapse just hid). Powers the
+ * hover highlight -- pointing at any node lights the route back to Start.
+ */
+function ancestorPathKeys(lines: TreeLine[], key: string | null): Set<string> {
+  const path = new Set<string>()
+  if (!key) return path
+  const idx = lines.findIndex((l) => rowKey(l.row) === key)
+  if (idx < 0) return path
+  path.add(key)
+  let needDepth = lines[idx].depth - 1
+  for (let i = idx - 1; i >= 0 && needDepth >= 0; i--) {
+    if (lines[i].depth === needDepth) {
+      path.add(rowKey(lines[i].row))
+      needDepth -= 1
+    }
+  }
+  return path
 }
 
 /** Default anchor (bottom-center) used until the user drags the panel
@@ -101,8 +293,20 @@ const MIN_HEIGHT = 160
 export function TraceResultTable() {
   const result = useTraceStore((s) => s.result)
   const computedVoltages = useTraceStore((s) => s.computedVoltages)
+  const loading = useTraceStore((s) => s.loading)
+  const rerun = useTraceStore((s) => s.rerun)
+  const view = useTraceViewStore((s) => s.view)
+  const setView = useTraceViewStore((s) => s.setView)
   const { data: featureClasses } = useFeatureClasses()
   const [rows, setRows] = useState<ResolvedRow[] | null>(null)
+  // Collapsed subtree roots for the tree view, keyed feature_class:feature_id.
+  // Reset whenever the result changes (a new trace's tree starts fully
+  // expanded) -- see the effect below.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  // The tree row currently under the pointer -- its chain of ancestors up to the
+  // Start row is highlighted so you can read the route back to the source at a
+  // glance. Null when nothing is hovered (or in table mode); reset per result.
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const [size, setSize] = useState<{ width: number; height: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -160,6 +364,36 @@ export function TraceResultTable() {
     window.addEventListener("pointerup", handleUp)
   }
 
+  // Re-run the SAME downstream trace with the transformer boundary crossed (or
+  // restored). The "Continue past transformers" toggle lives here, in the
+  // result, rather than in the pre-run trace menu: crossing only makes sense
+  // once you've seen the trace stop at a transformer. Reuses the echoed
+  // trace_configuration + start, and preserves the computed-voltage overlay
+  // (same start, so it still applies).
+  async function rerunCrossingTransformers(cross: boolean) {
+    const current = useTraceStore.getState().result
+    const computed = useTraceStore.getState().computedVoltages
+    if (!current) return
+    useTraceStore.getState().setLoading(true)
+    try {
+      const next = await apiFetch<TraceResult>("/trace", {
+        method: "POST",
+        body: JSON.stringify({
+          trace_configuration: current.trace_configuration,
+          start: current.start,
+          cross_transformers: cross,
+        }),
+      })
+      // Preserve the store's re-run thunk (the header Re-run button) across a
+      // transformer-crossing re-run -- it re-runs the base trace and is still
+      // valid for the same start/config.
+      useTraceStore.getState().setResult(next, computed, useTraceStore.getState().rerun ?? undefined)
+    } catch (err) {
+      useTraceStore.getState().setLoading(false)
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not re-run this trace.")
+    }
+  }
+
   useEffect(() => {
     if (!result) {
       setRows(null)
@@ -198,6 +432,18 @@ export function TraceResultTable() {
             // neither a circuit_id field nor any voltage-class field.
             circuitRef: ref.circuit_ref ?? null,
             nominalVoltageV: ref.nominal_voltage_v ?? null,
+            // on_map / diagrams also ride the trace response's own feature
+            // entries (api/internal/trace's tracedFeature) -- no extra fetch.
+            onMap: ref.on_map ?? false,
+            diagrams: ref.diagrams ?? [],
+            // device_state rides the trace response too -- present only for
+            // switching devices, absent (null) for everything else.
+            deviceState: ref.device_state ?? null,
+            // Parent pointers ride the trace response too -- present on the
+            // standard trace, absent (null) on the synthetic feeder/section/
+            // service/supply-path traces, where the tree falls back to flat.
+            parentClass: ref.parent_feature_class ?? null,
+            parentId: ref.parent_feature_id ?? null,
             isBarrier: barrierKeys.has(key),
             isTarget: targetKeys.has(key),
           }
@@ -207,6 +453,10 @@ export function TraceResultTable() {
     }
 
     setRows(null)
+    // A new trace's tree starts fully expanded -- the previous trace's
+    // collapsed set is meaningless for different features.
+    setCollapsed(new Set())
+    setHoveredKey(null)
     loadNames()
     return () => {
       cancelled = true
@@ -223,10 +473,201 @@ export function TraceResultTable() {
   // shows: it's topology-intrinsic and needs no solve.
   const hasComputed = computedVoltages !== null
 
+  // Tree view: the depth-ordered, collapse-aware line list built client-side
+  // from each row's parent pointer (see buildTreeLines). Only computed in tree
+  // mode; the flat table reads `rows` directly. Small result sets -- no memo.
+  const rootKey = `${result.start.feature_class}:${result.start.feature_id}`
+  const treeLines = view === "tree" && rows ? buildTreeLines(rows, rootKey, collapsed) : null
+  // The hovered row's ancestor chain up to Start -- highlighted (row tint +
+  // primary connectors + bolder label) so the route back to the source reads at
+  // a glance. Empty in table mode or when nothing is hovered.
+  const activePathKeys = treeLines ? ancestorPathKeys(treeLines, hoveredKey) : new Set<string>()
+  const collapsibleKeys =
+    view === "tree" && rows ? buildTreeLines(rows, rootKey, new Set()).filter((l) => l.hasChildren).map((l) => rowKey(l.row)) : []
+  const allExpanded = collapsibleKeys.every((k) => !collapsed.has(k))
+
+  const toggleCollapsed = (key: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  const expandAll = () => setCollapsed(new Set())
+  const collapseAll = () => setCollapsed(new Set(collapsibleKeys))
+
+  // One row, shared by both views. `tree` is set only in tree mode: it indents
+  // the first cell by depth, prefixes a chevron (or an aligning spacer), and
+  // annotates the first cell with a "Start" badge on the root plus the branch's
+  // subtree size -- every other cell is identical, so the two views never drift.
+  const renderRow = (
+    row: ResolvedRow,
+    tree?: {
+      depth: number
+      hasChildren: boolean
+      descendantCount: number
+      isRoot: boolean
+      railColumns: boolean[]
+      isLastChild: boolean
+    },
+  ) => {
+    const key = rowKey(row)
+    const computed = computedVoltages?.[key]
+    const isCollapsed = collapsed.has(key)
+    const names = row.diagrams.map((d) => d.name?.trim() || "Untitled")
+    // On the hovered row's ancestor chain to Start (tree mode only): tint the
+    // row and colour its connectors/rails so the whole route stands out. The
+    // barrier/target row backgrounds take precedence over the path tint.
+    const onPath = !!tree && activePathKeys.has(key)
+    return (
+      <tr
+        key={key}
+        onClick={() => useSelectionStore.getState().select(row.feature_class, row.feature_id, { focus: true })}
+        onMouseEnter={tree ? () => setHoveredKey(key) : undefined}
+        onMouseLeave={tree ? () => setHoveredKey(null) : undefined}
+        className={cn(
+          "hover:bg-accent cursor-pointer border-b last:border-b-0",
+          onPath && !row.isBarrier && !row.isTarget && "bg-primary/5",
+          row.isBarrier && "bg-destructive/10 text-destructive hover:bg-destructive/15",
+          !row.isBarrier &&
+            row.isTarget &&
+            "bg-yellow-500/10 text-yellow-700 hover:bg-yellow-500/15 dark:text-yellow-400",
+        )}
+        title={
+          row.isBarrier
+            ? "Trace stopped here (open device)"
+            : row.isTarget
+              ? "Notable for this trace (a matched target class, feeder head, or section boundary)"
+              : undefined
+        }
+      >
+        <td className={cn(tree ? "p-0" : "px-3 py-1.5")}>
+          {tree ? (
+            // items-stretch lets each guide column fill the row height so the
+            // vertical "│" rails run continuously between rows; the vertical
+            // padding lives on the content, not the cell, for the same reason.
+            <div className="flex items-stretch">
+              <span className="w-2 shrink-0" />
+              {/* Ancestor rails: a vertical line where an ancestor still has
+                  siblings below, blank where its branch already ended. */}
+              {tree.railColumns.map((rail, i) => (
+                <span key={i} className="relative w-4 shrink-0 self-stretch">
+                  {rail && (
+                    <span
+                      className={cn(
+                        "absolute top-0 left-1/2 h-full w-px",
+                        onPath ? "bg-primary" : "bg-border",
+                      )}
+                    />
+                  )}
+                </span>
+              ))}
+              {/* This node's own connector: elbow "└" when it's the last child
+                  (vertical stops at the row's middle), tee "├" otherwise (line
+                  continues down), with a short horizontal stub to the label. */}
+              {tree.depth > 0 && (
+                <span className="relative w-4 shrink-0 self-stretch">
+                  <span
+                    className={cn(
+                      "absolute top-0 left-1/2 w-px",
+                      tree.isLastChild ? "h-1/2" : "h-full",
+                      onPath ? "bg-primary" : "bg-border",
+                    )}
+                  />
+                  <span
+                    className={cn("absolute top-1/2 left-1/2 h-px w-1/2", onPath ? "bg-primary" : "bg-border")}
+                  />
+                </span>
+              )}
+              <div className="flex min-w-0 items-center gap-1 py-1.5 pr-3 pl-0.5">
+                {tree.hasChildren ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleCollapsed(key)
+                    }}
+                    className="hover:bg-muted bg-popover z-10 -ml-0.5 flex size-4 shrink-0 items-center justify-center rounded"
+                    title={isCollapsed ? "Expand" : "Collapse"}
+                  >
+                    <ChevronRight className={cn("size-3 transition-transform", !isCollapsed && "rotate-90")} />
+                    <span className="sr-only">{isCollapsed ? "Expand" : "Collapse"}</span>
+                  </button>
+                ) : (
+                  <span className="inline-block size-4 shrink-0" />
+                )}
+                <span className={cn("truncate", onPath && "font-medium")}>{classNameFor(row.feature_class)}</span>
+                {tree.isRoot && (
+                  <span className="rounded bg-primary/15 text-primary shrink-0 px-1.5 py-0.5 text-[11px] font-medium">
+                    Start
+                  </span>
+                )}
+                <DeviceStateBadge state={row.deviceState} />
+                {tree.hasChildren && tree.descendantCount > 0 && (
+                  <span
+                    className="text-muted-foreground shrink-0 text-xs tabular-nums"
+                    title={`${tree.descendantCount} feature${tree.descendantCount === 1 ? "" : "s"} below this branch`}
+                  >
+                    ({tree.descendantCount})
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <span className="inline-flex items-center gap-1.5">
+              {classNameFor(row.feature_class)}
+              <DeviceStateBadge state={row.deviceState} />
+            </span>
+          )}
+        </td>
+        <td className="px-3 py-1.5 font-mono">{shortId(row.feature_id)}</td>
+        <td className="text-muted-foreground px-3 py-1.5">{row.name || "—"}</td>
+        <td className="px-3 py-1.5">
+          {!row.onMap && names.length === 0 ? (
+            <span className="text-muted-foreground">—</span>
+          ) : (
+            <div className="flex flex-wrap items-center gap-1">
+              {row.onMap && (
+                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                  Map
+                </span>
+              )}
+              {row.diagrams.map((d, i) => (
+                <button
+                  key={d.instance_id}
+                  type="button"
+                  // Open this single-line diagram. stopPropagation so the click
+                  // doesn't also fire the row's select-on-map handler.
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    useDiagramStore.getState().open(d.instance_id)
+                  }}
+                  className="cursor-pointer rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-500/30 hover:underline focus-visible:ring-1 focus-visible:ring-sky-500 focus-visible:outline-none dark:text-sky-400"
+                  title={`Open diagram: ${names[i]}`}
+                >
+                  Diagram: {names[i]}
+                </button>
+              ))}
+            </div>
+          )}
+        </td>
+        <td className="text-muted-foreground px-3 py-1.5">{row.circuitRef || "—"}</td>
+        <td className="text-muted-foreground px-3 py-1.5 tabular-nums">
+          {row.nominalVoltageV != null ? formatVolts(row.nominalVoltageV) : "—"}
+        </td>
+        {hasComputed && (
+          <td className="text-muted-foreground px-3 py-1.5 tabular-nums">
+            {computed != null ? formatVolts(computed) : "—"}
+          </td>
+        )}
+      </tr>
+    )
+  }
+
   // Default width matches the former fixed w-[46rem]/w-[38rem] classes (px, so
   // a manual resize has a live numeric value to grow from). Once resized the
   // panel takes an explicit height; until then it shrink-wraps under max-h-64.
-  const defaultWidth = hasComputed ? 736 : 608
+  const defaultWidth = hasComputed ? 872 : 744
   const resized = size?.height != null
   const shellStyle: React.CSSProperties = {
     ...(position ? { left: position.x, top: position.y } : {}),
@@ -255,18 +696,109 @@ export function TraceResultTable() {
             {result.direction === "SHORTEST_PATH" && (
               <p className="text-muted-foreground text-xs">{result.path_found ? "Path found" : "No path found"}</p>
             )}
+            {result.transformer_boundaries && result.transformer_boundaries.length > 0 && (
+              <p className="text-muted-foreground text-xs">
+                Stopped at {result.transformer_boundaries.length} transformer
+                {result.transformer_boundaries.length === 1 ? "" : "s"} (the feeder / LV boundary)
+              </p>
+            )}
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6 shrink-0"
-          onClick={() => useTraceStore.getState().clear()}
-        >
-          <X className="size-3.5" />
-          <span className="sr-only">Clear trace</span>
-        </Button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          {/* Table | Tree segmented toggle -- swaps this same panel between the
+              flat feature table and the BFS spanning tree built from parent
+              pointers. The choice is a durable preference (trace-view-store). */}
+          <div className="border-border/70 mr-0.5 flex items-center rounded-md border p-0.5">
+            <Button
+              variant={view === "table" ? "secondary" : "ghost"}
+              size="icon"
+              className="size-5"
+              onClick={() => setView("table")}
+              title="Table view"
+            >
+              <List className="size-3.5" />
+              <span className="sr-only">Table view</span>
+            </Button>
+            <Button
+              variant={view === "tree" ? "secondary" : "ghost"}
+              size="icon"
+              className="size-5"
+              onClick={() => setView("tree")}
+              title="Tree view (by trace hierarchy)"
+            >
+              <ListTree className="size-3.5" />
+              <span className="sr-only">Tree view</span>
+            </Button>
+          </div>
+          {/* Expand / collapse the whole tree -- only meaningful in tree mode
+              and only when something is actually nestable. */}
+          {view === "tree" && collapsibleKeys.length > 0 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              onClick={() => (allExpanded ? collapseAll() : expandAll())}
+              title={allExpanded ? "Collapse all" : "Expand all"}
+            >
+              <ChevronRight className={cn("size-3.5 transition-transform", allExpanded && "rotate-90")} />
+              <span className="sr-only">{allExpanded ? "Collapse all" : "Expand all"}</span>
+            </Button>
+          )}
+          {/* Re-run the exact trace that produced this result (same endpoint,
+              start, and config -- see trace-store.ts's rerun). Hidden when no
+              re-runner was stashed; disabled and spinning while a run is in
+              flight. */}
+          {rerun && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              disabled={loading}
+              onClick={() => useTraceStore.getState().rerun?.()}
+              title="Re-run this trace"
+            >
+              <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+              <span className="sr-only">Re-run trace</span>
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            onClick={() => useTraceStore.getState().clear()}
+          >
+            <X className="size-3.5" />
+            <span className="sr-only">Clear trace</span>
+          </Button>
+        </div>
       </div>
+
+      {/* "Continue past transformers" toggle -- shown only once a downstream
+          trace has actually met the transformer boundary (it stopped at one, or
+          it's currently crossing them), which is the only point where the choice
+          means anything. Toggling re-runs the same trace with the boundary
+          crossed or restored. Not inside the draggable header, so its click never
+          starts a drag. */}
+      {result.direction === "DOWNSTREAM" &&
+        (!!result.cross_transformers || (result.transformer_boundaries?.length ?? 0) > 0) && (
+          <label className="border-border/60 bg-muted/30 flex cursor-pointer select-none items-center gap-2 border-b px-3 py-1.5 text-xs">
+            <input
+              type="checkbox"
+              className="size-3.5"
+              checked={!!result.cross_transformers}
+              disabled={loading}
+              onChange={(e) => rerunCrossingTransformers(e.target.checked)}
+            />
+            <span>
+              Continue past transformers
+              <span className="text-muted-foreground">
+                {result.cross_transformers
+                  ? " — including their LV network"
+                  : " — extend the trace into their LV network"}
+              </span>
+            </span>
+          </label>
+        )}
 
       {/* Phase 62 consumption rollup -- renders nothing when the trace reached
           no SERVICE_POINTs, so purely-topological traces are unaffected. */}
@@ -282,48 +814,25 @@ export function TraceResultTable() {
                 <th className="bg-popover px-3 py-1.5 font-medium">Feature class</th>
                 <th className="bg-popover px-3 py-1.5 font-medium">Feature ID</th>
                 <th className="bg-popover px-3 py-1.5 font-medium">Name</th>
+                <th className="bg-popover px-3 py-1.5 font-medium">Placement</th>
                 <th className="bg-popover px-3 py-1.5 font-medium">Circuit</th>
                 <th className="bg-popover px-3 py-1.5 font-medium">Nominal V</th>
                 {hasComputed && <th className="bg-popover px-3 py-1.5 font-medium">Computed V</th>}
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
-                const computed = computedVoltages?.[`${row.feature_class}:${row.feature_id}`]
-                return (
-                <tr
-                  key={`${row.feature_class}:${row.feature_id}`}
-                  onClick={() => useSelectionStore.getState().select(row.feature_class, row.feature_id, { focus: true })}
-                  className={cn(
-                    "hover:bg-accent cursor-pointer border-b last:border-b-0",
-                    row.isBarrier && "bg-destructive/10 text-destructive hover:bg-destructive/15",
-                    !row.isBarrier &&
-                      row.isTarget &&
-                      "bg-yellow-500/10 text-yellow-700 hover:bg-yellow-500/15 dark:text-yellow-400",
-                  )}
-                  title={
-                    row.isBarrier
-                      ? "Trace stopped here (open device)"
-                      : row.isTarget
-                        ? "Notable for this trace (a matched target class, feeder head, or section boundary)"
-                        : undefined
-                  }
-                >
-                  <td className="px-3 py-1.5">{classNameFor(row.feature_class)}</td>
-                  <td className="px-3 py-1.5 font-mono">{shortId(row.feature_id)}</td>
-                  <td className="text-muted-foreground px-3 py-1.5">{row.name || "—"}</td>
-                  <td className="text-muted-foreground px-3 py-1.5">{row.circuitRef || "—"}</td>
-                  <td className="text-muted-foreground px-3 py-1.5 tabular-nums">
-                    {row.nominalVoltageV != null ? formatVolts(row.nominalVoltageV) : "—"}
-                  </td>
-                  {hasComputed && (
-                    <td className="text-muted-foreground px-3 py-1.5 tabular-nums">
-                      {computed != null ? formatVolts(computed) : "—"}
-                    </td>
-                  )}
-                </tr>
-                )
-              })}
+              {treeLines
+                ? treeLines.map((line) =>
+                    renderRow(line.row, {
+                      depth: line.depth,
+                      hasChildren: line.hasChildren,
+                      descendantCount: line.descendantCount,
+                      isRoot: line.isRoot,
+                      railColumns: line.railColumns,
+                      isLastChild: line.isLastChild,
+                    }),
+                  )
+                : rows.map((row) => renderRow(row))}
             </tbody>
           </table>
         )}

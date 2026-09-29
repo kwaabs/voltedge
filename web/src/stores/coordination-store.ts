@@ -1,5 +1,7 @@
 import { create } from "zustand"
+import { persist } from "zustand/middleware"
 
+import { resultPersist } from "@/stores/result-persist"
 import type { TraceFeatureRef } from "@/stores/trace-store"
 
 /** One plotted (current, time) point on the run's common voltage base --
@@ -102,16 +104,21 @@ interface CoordinationState {
   clear: () => void
 }
 
-export const useCoordinationStore = create<CoordinationState>((set) => ({
-  armed: false,
-  armedStart: null,
-  armedFault: null,
-  result: null,
-  loading: false,
-  arm: (start) => set({ armed: true, armedStart: start, armedFault: null, result: null, loading: false }),
-  setFault: (fault) => set({ armedFault: fault }),
-  rearm: () => set({ armed: true, result: null, loading: false }),
-  setLoading: (loading) => set({ loading }),
-  setResult: (result) => set({ result, loading: false }),
-  clear: () => set({ armed: false, armedStart: null, armedFault: null, result: null, loading: false }),
-}))
+export const useCoordinationStore = create<CoordinationState>()(
+  persist(
+    (set) => ({
+      armed: false,
+      armedStart: null,
+      armedFault: null,
+      result: null,
+      loading: false,
+      arm: (start) => set({ armed: true, armedStart: start, armedFault: null, result: null, loading: false }),
+      setFault: (fault) => set({ armedFault: fault }),
+      rearm: () => set({ armed: true, result: null, loading: false }),
+      setLoading: (loading) => set({ loading }),
+      setResult: (result) => set({ result, loading: false }),
+      clear: () => set({ armed: false, armedStart: null, armedFault: null, result: null, loading: false }),
+    }),
+    resultPersist("voltedge-coordination-result"),
+  ),
+)

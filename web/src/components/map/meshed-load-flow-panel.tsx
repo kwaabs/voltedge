@@ -3,11 +3,13 @@ import { X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
 import { inputClass } from "@/components/map/field-utils"
+import { LoadFlowNodesTable, type NodeColumn } from "@/components/map/load-flow-nodes-table"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useFloatingPanel } from "@/hooks/use-floating-panel"
 import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import type { LoadFlowNodeResult } from "@/stores/load-flow-store"
 import type { MeshedLoadFlowResult } from "@/stores/meshed-load-flow-store"
 import { useMeshedLoadFlowStore } from "@/stores/meshed-load-flow-store"
 import { useSelectionStore } from "@/stores/selection-store"
@@ -152,8 +154,31 @@ export function MeshedLoadFlowPanel() {
   if (!armed && !result) return null
 
   const classNameFor = (code: string) => featureClasses?.feature_classes.find((fc) => fc.code === code)?.name ?? code
-  const barrierKeys = new Set((result?.barriers ?? []).map((b) => `${b.feature_class}:${b.feature_id}`))
   const overloadedKeys = new Set((result?.overloaded ?? []).map((o) => `${o.feature_class}:${o.feature_id}`))
+
+  // Trailing columns after the shared Feature column -- same per-node readout the
+  // basic load-flow panel shows; the meshed panel only adds the loops table above.
+  const columns: NodeColumn<LoadFlowNodeResult>[] = [
+    {
+      header: "Level",
+      cell: (node) => (
+        <span className="text-muted-foreground text-xs whitespace-nowrap">
+          {node.nominal_base_v > 0 ? formatVoltageLevel(node.nominal_base_v) : "—"}
+        </span>
+      ),
+    },
+    {
+      header: "Voltage",
+      cell: (node) => (
+        <>
+          <div>{formatNumber(node.voltage_v)}V</div>
+          <div className="text-muted-foreground text-xs">-{formatNumber(node.voltage_drop_pct, 2)}%</div>
+        </>
+      ),
+    },
+    { header: "Current", cell: (node) => (node.current_amps !== undefined ? `${formatNumber(node.current_amps)}A` : "—") },
+    { header: "Loading", cell: (node) => (node.loading_pct !== undefined ? `${formatNumber(node.loading_pct)}%` : "—") },
+  ]
 
   async function runMeshedLoadFlow() {
     const start = useMeshedLoadFlowStore.getState().armedStart
@@ -207,126 +232,79 @@ export function MeshedLoadFlowPanel() {
       ) : (
         <>
         <div className={cn("flex flex-col overflow-hidden", fp.resized ? "min-h-0 flex-1" : "max-h-[21rem]")}>
-          <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 border-b px-3 py-1.5 text-xs">
-            <span>{formatNumber(result.nominal_voltage_v, 0)} V nominal</span>
-            <span>
-              {result.loop_count} loop{result.loop_count === 1 ? "" : "s"}
-              {result.loop_count > 0 ? ` · ${result.compensation_passes} pass${result.compensation_passes === 1 ? "" : "es"}` : " (radial)"}
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-auto h-6 px-2 text-xs"
-              onClick={() => useMeshedLoadFlowStore.getState().rearm()}
-            >
-              Run again
-            </Button>
-          </div>
-
-          <div className={cn("overflow-y-auto", fp.resized && "min-h-0 flex-1")}>
-            {result.loops.length > 0 && (
-              <div className="border-b">
-                <table className="w-full text-sm">
-                  <thead className="text-muted-foreground border-b text-left text-xs">
-                    <tr>
-                      <th className="bg-popover px-3 py-1.5 font-medium">Closed loop</th>
-                      <th className="bg-popover px-3 py-1.5 font-medium">Loop Z (Ω)</th>
-                      <th className="bg-popover px-3 py-1.5 font-medium">Residual</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.loops.map((loop, i) => (
-                      <tr
-                        key={`${loop.closer.feature_class}:${loop.closer.feature_id}:${i}`}
-                        onClick={() =>
-                          useSelectionStore.getState().select(loop.closer.feature_class, loop.closer.feature_id, { focus: true })
-                        }
-                        className={cn(
-                          "hover:bg-accent cursor-pointer border-b align-top last:border-b-0",
-                          !loop.compensated && "bg-muted/40",
-                        )}
-                        title={loop.note || (loop.compensated ? "Loop closed by compensation" : "Loop left open")}
-                      >
-                        <td className="px-3 py-1.5">
-                          <div>{classNameFor(loop.closer.feature_class)}</div>
-                          <div className="text-muted-foreground font-mono text-xs">{shortId(loop.closer.feature_id)}</div>
-                          {!loop.compensated && <div className="text-muted-foreground text-xs">{loop.note || "left open"}</div>}
-                        </td>
-                        <td className="px-3 py-1.5 text-xs whitespace-nowrap">
-                          {formatNumber(loop.loop_resistance_ohm, 3)} + j{formatNumber(loop.loop_reactance_ohm, 3)}
-                          {!loop.impedance_resolved && <div className="text-muted-foreground">unresolved</div>}
-                        </td>
-                        <td className="px-3 py-1.5 text-xs whitespace-nowrap">{formatNumber(loop.residual_mismatch_v, 4)} V</td>
+          <LoadFlowNodesTable
+            nodes={result.nodes}
+            barriers={result.barriers}
+            overloadedKeys={overloadedKeys}
+            rootKey={`${result.start.feature_class}:${result.start.feature_id}`}
+            classNameFor={classNameFor}
+            columns={columns}
+            featureSubline={(node) =>
+              node.circuit_ref || node.circuit_id ? node.circuit_ref || shortId(node.circuit_id!) : null
+            }
+            overloadTitle="Exceeds this conductor's own ampacity"
+            resized={fp.resized}
+            toolbar={
+              <>
+                <span>{formatNumber(result.nominal_voltage_v, 0)} V nominal</span>
+                <span>
+                  {result.loop_count} loop{result.loop_count === 1 ? "" : "s"}
+                  {result.loop_count > 0
+                    ? ` · ${result.compensation_passes} pass${result.compensation_passes === 1 ? "" : "es"}`
+                    : " (radial)"}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto h-6 px-2 text-xs"
+                  onClick={() => useMeshedLoadFlowStore.getState().rearm()}
+                >
+                  Run again
+                </Button>
+              </>
+            }
+            preTable={
+              result.loops.length > 0 ? (
+                <div className="border-b">
+                  <table className="w-full text-sm">
+                    <thead className="text-muted-foreground border-b text-left text-xs">
+                      <tr>
+                        <th className="bg-popover px-3 py-1.5 font-medium">Closed loop</th>
+                        <th className="bg-popover px-3 py-1.5 font-medium">Loop Z (Ω)</th>
+                        <th className="bg-popover px-3 py-1.5 font-medium">Residual</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            <table className="w-full text-sm">
-              <thead className="text-muted-foreground sticky top-0 border-b text-left text-xs">
-                <tr>
-                  <th className="bg-popover px-3 py-1.5 font-medium">Feature</th>
-                  <th className="bg-popover px-3 py-1.5 font-medium">Level</th>
-                  <th className="bg-popover px-3 py-1.5 font-medium">Voltage</th>
-                  <th className="bg-popover px-3 py-1.5 font-medium">Current</th>
-                  <th className="bg-popover px-3 py-1.5 font-medium">Loading</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.nodes.map((node) => {
-                  const key = `${node.feature_class}:${node.feature_id}`
-                  const overloaded = overloadedKeys.has(key)
-                  return (
-                    <tr
-                      key={key}
-                      onClick={() => useSelectionStore.getState().select(node.feature_class, node.feature_id, { focus: true })}
-                      className={cn(
-                        "hover:bg-accent cursor-pointer border-b last:border-b-0",
-                        overloaded && "bg-destructive/10 text-destructive hover:bg-destructive/15",
-                      )}
-                      title={overloaded ? "Exceeds this conductor's own ampacity" : undefined}
-                    >
-                      <td className="px-3 py-1.5">
-                        <div>{classNameFor(node.feature_class)}</div>
-                        <div className="text-muted-foreground font-mono text-xs">{shortId(node.feature_id)}</div>
-                        {(node.circuit_ref || node.circuit_id) && (
-                          <div className="text-muted-foreground text-xs">{node.circuit_ref || shortId(node.circuit_id!)}</div>
-                        )}
-                      </td>
-                      <td className="text-muted-foreground px-3 py-1.5 text-xs whitespace-nowrap">
-                        {node.nominal_base_v > 0 ? formatVoltageLevel(node.nominal_base_v) : "—"}
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <div>{formatNumber(node.voltage_v)}V</div>
-                        <div className="text-muted-foreground text-xs">-{formatNumber(node.voltage_drop_pct, 2)}%</div>
-                      </td>
-                      <td className="px-3 py-1.5">{node.current_amps !== undefined ? `${formatNumber(node.current_amps)}A` : "—"}</td>
-                      <td className="px-3 py-1.5">{node.loading_pct !== undefined ? `${formatNumber(node.loading_pct)}%` : "—"}</td>
-                    </tr>
-                  )
-                })}
-                {barrierKeys.size > 0 &&
-                  result.barriers.map((b) => (
-                    <tr
-                      key={`${b.feature_class}:${b.feature_id}`}
-                      onClick={() => useSelectionStore.getState().select(b.feature_class, b.feature_id, { focus: true })}
-                      className="bg-muted/50 text-muted-foreground hover:bg-muted cursor-pointer border-b last:border-b-0"
-                      title="Meshed load flow stopped here (open device)"
-                    >
-                      <td className="px-3 py-1.5">
-                        <div>{classNameFor(b.feature_class)}</div>
-                        <div className="font-mono text-xs">{shortId(b.feature_id)}</div>
-                      </td>
-                      <td className="px-3 py-1.5" colSpan={4}>
-                        Stopped here (open device)
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
+                    </thead>
+                    <tbody>
+                      {result.loops.map((loop, i) => (
+                        <tr
+                          key={`${loop.closer.feature_class}:${loop.closer.feature_id}:${i}`}
+                          onClick={() =>
+                            useSelectionStore.getState().select(loop.closer.feature_class, loop.closer.feature_id, { focus: true })
+                          }
+                          className={cn(
+                            "hover:bg-accent cursor-pointer border-b align-top last:border-b-0",
+                            !loop.compensated && "bg-muted/40",
+                          )}
+                          title={loop.note || (loop.compensated ? "Loop closed by compensation" : "Loop left open")}
+                        >
+                          <td className="px-3 py-1.5">
+                            <div>{classNameFor(loop.closer.feature_class)}</div>
+                            <div className="text-muted-foreground font-mono text-xs">{shortId(loop.closer.feature_id)}</div>
+                            {!loop.compensated && <div className="text-muted-foreground text-xs">{loop.note || "left open"}</div>}
+                          </td>
+                          <td className="px-3 py-1.5 text-xs whitespace-nowrap">
+                            {formatNumber(loop.loop_resistance_ohm, 3)} + j{formatNumber(loop.loop_reactance_ohm, 3)}
+                            {!loop.impedance_resolved && <div className="text-muted-foreground">unresolved</div>}
+                          </td>
+                          <td className="px-3 py-1.5 text-xs whitespace-nowrap">{formatNumber(loop.residual_mismatch_v, 4)} V</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null
+            }
+          />
         </div>
         <MeshedLoadFlowExplanation result={result} classNameFor={classNameFor} />
         </>

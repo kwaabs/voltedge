@@ -1668,9 +1668,10 @@ export function FeaturePanel() {
   // simultaneous. The result lands in trace-store.ts, which
   // voltedge-map.tsx and trace-result-table.tsx both read -- this
   // function's only job is the request itself.
-  async function runTrace(configCode: string) {
-    if (!selected) return
-    const start = { feature_class: selected.featureClassCode, feature_id: selected.featureId }
+  async function runTrace(configCode: string, startOverride?: TraceFeatureRef) {
+    if (!startOverride && !selected) return
+    const start =
+      startOverride ?? { feature_class: selected!.featureClassCode, feature_id: selected!.featureId }
     // Snapshot before clearing the load-flow store below -- if its result
     // was run from this same start, its per-node voltages carry forward as
     // the table's computed-voltage overlay.
@@ -1699,9 +1700,14 @@ export function FeaturePanel() {
         body: JSON.stringify({
           trace_configuration: configCode,
           start,
+          // A downstream trace stops at the transformer boundary by default; the
+          // "Continue past transformers" toggle in the result table re-runs it
+          // across the boundary. The engine ignores this on non-downstream
+          // configs, so sending the default here is always safe.
+          cross_transformers: false,
         }),
       })
-      useTraceStore.getState().setResult(result, computed)
+      useTraceStore.getState().setResult(result, computed, () => runTrace(configCode, start))
     } catch (err) {
       useTraceStore.getState().setLoading(false)
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not run this trace.")
@@ -1760,9 +1766,10 @@ export function FeaturePanel() {
   // more result tables from scratch -- heads/boundaries become
   // `targets` so they get the same visually-distinct treatment a
   // target_class hit already gets.
-  async function runFeederTrace() {
-    if (!selected || !isolationConfig) return
-    const start = { feature_class: selected.featureClassCode, feature_id: selected.featureId }
+  async function runFeederTrace(startOverride?: TraceFeatureRef) {
+    if ((!startOverride && !selected) || !isolationConfig) return
+    const start =
+      startOverride ?? { feature_class: selected!.featureClassCode, feature_id: selected!.featureId }
     const computed = snapshotComputedVoltages(start)
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
@@ -1804,6 +1811,7 @@ export function FeaturePanel() {
           targets_found: result.heads.length > 0,
         },
         computed,
+        () => runFeederTrace(start),
       )
     } catch (err) {
       useTraceStore.getState().setLoading(false)
@@ -1811,9 +1819,10 @@ export function FeaturePanel() {
     }
   }
 
-  async function runSectionTrace() {
-    if (!selected || !isolationConfig) return
-    const start = { feature_class: selected.featureClassCode, feature_id: selected.featureId }
+  async function runSectionTrace(startOverride?: TraceFeatureRef) {
+    if ((!startOverride && !selected) || !isolationConfig) return
+    const start =
+      startOverride ?? { feature_class: selected!.featureClassCode, feature_id: selected!.featureId }
     const computed = snapshotComputedVoltages(start)
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
@@ -1860,6 +1869,7 @@ export function FeaturePanel() {
           targets_found: boundaries.length > 0,
         },
         computed,
+        () => runSectionTrace(start),
       )
     } catch (err) {
       useTraceStore.getState().setLoading(false)
@@ -1875,9 +1885,10 @@ export function FeaturePanel() {
   // `targets` so they get the distinct highlight, and the consumption rollup
   // rides along on `service` where ServiceRollupSummary surfaces it. Answers
   // "who/what does this feed, and how much of it is critical?".
-  async function runServiceTrace() {
-    if (!selected || !isolationConfig) return
-    const start = { feature_class: selected.featureClassCode, feature_id: selected.featureId }
+  async function runServiceTrace(startOverride?: TraceFeatureRef) {
+    if ((!startOverride && !selected) || !isolationConfig) return
+    const start =
+      startOverride ?? { feature_class: selected!.featureClassCode, feature_id: selected!.featureId }
     const computed = snapshotComputedVoltages(start)
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
@@ -1923,6 +1934,7 @@ export function FeaturePanel() {
           service: result.service,
         },
         computed,
+        () => runServiceTrace(start),
       )
       if (result.service_points.length === 0) {
         useToastStore.getState().pushWarning("No service points downstream of this feature.")
@@ -1945,9 +1957,10 @@ export function FeaturePanel() {
   // nearest-first so the table reads consumption-point -> ... -> source,
   // and the milestones (transformer/switches/source) become `targets` so
   // they get the same visually-distinct highlight a target_class hit does.
-  async function runSupplyPathTrace() {
-    if (!selected) return
-    const start = { feature_class: selected.featureClassCode, feature_id: selected.featureId }
+  async function runSupplyPathTrace(startOverride?: TraceFeatureRef) {
+    if (!startOverride && !selected) return
+    const start =
+      startOverride ?? { feature_class: selected!.featureClassCode, feature_id: selected!.featureId }
     const computed = snapshotComputedVoltages(start)
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
@@ -1995,6 +2008,7 @@ export function FeaturePanel() {
           targets_found: result.milestones.length > 0,
         },
         computed,
+        () => runSupplyPathTrace(start),
       )
       if (!result.reached_transformer) {
         useToastStore
@@ -2681,6 +2695,11 @@ export function FeaturePanel() {
                   {runnableConfigs.length === 0 && !canIsolate && !isolationConfig && (
                     <p className="text-muted-foreground px-2 py-1.5 text-sm">No trace configurations exist</p>
                   )}
+                  {/* The "Continue past transformers" toggle used to live here, but a
+                      downstream trace stops at the transformer boundary by default and
+                      crossing it only makes sense AFTER you see it stopped there -- so
+                      the toggle now lives in the result table (trace-result-table.tsx),
+                      where it re-runs the same trace across the boundary. */}
                   {runnableConfigs.map((config) => (
                     <DropdownMenuItem key={config.code} onSelect={() => runTrace(config.code)}>
                       {config.name}
@@ -2689,9 +2708,9 @@ export function FeaturePanel() {
                   {isolationConfig && (
                     <>
                       {runnableConfigs.length > 0 && <DropdownMenuSeparator />}
-                      <DropdownMenuItem onSelect={runFeederTrace}>Feeder trace</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={runSectionTrace}>Section trace</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={runServiceTrace}>
+                      <DropdownMenuItem onSelect={() => runFeederTrace()}>Feeder trace</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => runSectionTrace()}>Section trace</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => runServiceTrace()}>
                         <Gauge className="size-4" />
                         Service trace (load served)
                       </DropdownMenuItem>
@@ -2707,7 +2726,7 @@ export function FeaturePanel() {
                     </>
                   )}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={runSupplyPathTrace}>
+                  <DropdownMenuItem onSelect={() => runSupplyPathTrace()}>
                     <Waypoints className="size-4" />
                     Supply path (to source)
                   </DropdownMenuItem>

@@ -374,7 +374,7 @@ func serviceTrace(ctx context.Context, db bun.IDB, req serviceRequest) (*service
 	}
 	loader := newFeatureClassLoader()
 
-	visited, _, _, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, nil, false, nil)
+	visited, _, _, _, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, nil, false, false, nil)
 	if err != nil {
 		return nil, err
 	}

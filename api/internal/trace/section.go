@@ -90,11 +90,11 @@ func sectionTrace(ctx context.Context, db bun.IDB, req sectionRequest) (*section
 	}
 	loader := newFeatureClassLoader()
 
-	upstreamVisited, _, upstreamHits, _, _, err := bfs(ctx, db, start, "UPSTREAM", barriers, loader, nil, boundaryClassIDs, false, nil)
+	upstreamVisited, _, upstreamHits, _, _, _, err := bfs(ctx, db, start, "UPSTREAM", barriers, loader, nil, boundaryClassIDs, false, false, nil)
 	if err != nil {
 		return nil, err
 	}
-	downstreamVisited, _, downstreamHits, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, boundaryClassIDs, false, nil)
+	downstreamVisited, _, downstreamHits, _, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, boundaryClassIDs, false, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +122,12 @@ func sectionTrace(ctx context.Context, db bun.IDB, req sectionRequest) (*section
 
 	features, err := toTracedFeatures(ctx, db, featureNodes, classCodes, loader)
 	if err != nil {
+		return nil, err
+	}
+	// Parent pointers (rooted at Start) so the section nests in the Tree view; a
+	// section is the union of an upstream and a downstream walk with no native
+	// parent map. See stampParentsFromStart.
+	if err := stampParentsFromStart(ctx, db, features, featureNodes, start, classCodes); err != nil {
 		return nil, err
 	}
 

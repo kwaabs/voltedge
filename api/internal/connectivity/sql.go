@@ -53,6 +53,14 @@ type resolvedEndpoint struct {
 	loaded     *metadata.Loaded
 	subtypeID  *string
 	terminalID *string
+	// terminalCode is the resolved terminal's stable CODE (e.g. "T1"),
+	// kept alongside terminalID because network-rule matching compares
+	// terminals by code, not by row id -- a class can carry several
+	// terminal rows sharing one code (a generic subtype-null row plus
+	// subtype-specific overrides), so the specific row this feature
+	// resolves to may be a different uuid than the one a rule pinned even
+	// though both are "T1". nil when the endpoint names no terminal.
+	terminalCode *string
 	// phase is the feature's PHASE-coded field value (e.g. "L1N",
 	// "L1L2L3N"), or nil when the class has no phase field or the row
 	// left it unset. Phase 9 Slice 0's phase gate reads this; a nil phase
@@ -109,12 +117,15 @@ func resolveEndpoint(ctx context.Context, db bun.IDB, ref endpointRef) (*resolve
 	}
 
 	var terminalID *string
+	var terminalCode *string
 	if ref.Terminal != nil {
 		t := loaded.ResolveTerminal(subtypeID, *ref.Terminal)
 		if t == nil {
 			return nil, invalid("terminal %q is not defined for %s", *ref.Terminal, ref.FeatureClass)
 		}
 		terminalID = &t.ID
+		code := t.Code
+		terminalCode = &code
 	}
 
 	// phase is optional: a class may have no phase field at all (Phase 9
@@ -134,7 +145,7 @@ func resolveEndpoint(ctx context.Context, db bun.IDB, ref endpointRef) (*resolve
 		}
 	}
 
-	return &resolvedEndpoint{ref: ref, loaded: loaded, subtypeID: subtypeID, terminalID: terminalID, phase: phase}, nil
+	return &resolvedEndpoint{ref: ref, loaded: loaded, subtypeID: subtypeID, terminalID: terminalID, terminalCode: terminalCode, phase: phase}, nil
 }
 
 // toInt mirrors crud's own helper -- pgdriver/bun can hand back a scanned

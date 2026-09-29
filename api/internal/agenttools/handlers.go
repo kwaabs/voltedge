@@ -323,6 +323,7 @@ func toolRunTrace(ctx context.Context, db bun.IDB, args json.RawMessage) (any, e
 			FeatureClass string `json:"feature_class"`
 			FeatureID    string `json:"feature_id"`
 		} `json:"target"`
+		CrossTransformers *bool `json:"cross_transformers"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)
@@ -337,6 +338,7 @@ func toolRunTrace(ctx context.Context, db bun.IDB, args json.RawMessage) (any, e
 	input := trace.RunTraceInput{
 		TraceConfiguration: in.TraceConfiguration,
 		Start:              trace.FeatureRef{FeatureClass: in.Start.FeatureClass, FeatureID: in.Start.FeatureID},
+		CrossTransformers:  in.CrossTransformers,
 	}
 	if in.Target != nil {
 		input.Target = &trace.FeatureRef{FeatureClass: in.Target.FeatureClass, FeatureID: in.Target.FeatureID}

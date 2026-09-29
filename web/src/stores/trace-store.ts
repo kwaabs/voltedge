@@ -1,4 +1,7 @@
 import { create } from "zustand"
+import { persist } from "zustand/middleware"
+
+import { resultPersist } from "@/stores/result-persist"
 
 /** Mirrors api/internal/trace's featureRef exactly (feature_class/
  * feature_id, not camelCased) -- same convention every other API
@@ -22,6 +25,26 @@ export interface TracedFeature extends TraceFeatureRef {
   circuit_id?: string
   circuit_ref?: string
   nominal_voltage_v?: number
+  /** True when the reached feature has real map geometry; false when it lives
+   * only inside a single-line diagram (a geometry-less conductor stub, an
+   * off-map device). Mirrors api/internal/trace's tracedFeature.on_map -- the
+   * trace still reached it topologically, it's just not drawn on the canvas.
+   * Always present (bool, not omitempty). */
+  on_map?: boolean
+  /** Every single-line diagram this reached feature is placed on (id + name),
+   * mirrors tracedFeature.diagrams. Absent when the feature is on no diagram;
+   * name may be empty for an unnamed diagram. trace-result-table.tsx reads
+   * on_map + diagrams to render the Placement column (Map / Diagram: <name>). */
+  diagrams?: { instance_id: string; name?: string }[]
+  /** The reached feature's live switch position -- the coded device_state value
+   * ("OPEN" / "CLOSED") that switching devices (MV_SWITCH, MV_BREAKER,
+   * MV_ISOLATOR, a bus coupler, ...) carry and everything else omits. Mirrors
+   * api/internal/trace's tracedFeature.device_state -- the same value a
+   * downstream trace checks live as a barrier (OPEN halts the walk), surfaced so
+   * trace-result-table.tsx can badge every switch the trace reached (a CLOSED one
+   * it passed through as well as an OPEN one it stopped at). Absent for any
+   * feature whose class has no device_state field. */
+  device_state?: string
   /** The reached feature's one-hop-upstream neighbour in the trace's BFS tree --
    * the feature the walk arrived here from (mirrors api/internal/trace's
    * tracedFeature.parent_feature_*). Absent on the start feature and on any node
@@ -96,19 +119,36 @@ export interface TraceResult {
   /** Phase 62 consumption rollup of the reached SERVICE_POINTs -- always present
    * (every tier zero on a trace that reached no load). See ServiceRollup. */
   service?: ServiceRollup
+  /** The subset of `features` where a downstream walk stopped at a transformer it
+   * was not told to cross (the feeder/LV boundary) -- mirrors
+   * api/internal/trace's traceResponse.transformer_boundaries. Present only on a
+   * downstream trace that stopped at one or more transformers (omitted when the
+   * trace crossed them, or reached none); trace-result-table.tsx reads it to hint
+   * "tick 'Continue past transformers' to include their LV network". */
+  transformer_boundaries?: TraceFeatureRef[]
+  /** Echoes the value this downstream walk ran with (api/internal/trace's
+   * traceResponse.cross_transformers) -- only meaningful for a DOWNSTREAM trace.
+   * trace-result-table.tsx reads it to render the "Continue past transformers"
+   * toggle in the right checked state, so one click re-runs the same trace with
+   * the transformer boundary crossed (or restored). */
+  cross_transformers?: boolean
 }
 
 /**
- * Not persisted -- a trace result has no meaning across a reload, same
- * as every other in-progress/ephemeral workflow store in this app
- * (draw-store.ts, connect-store.ts, edit-store.ts). voltedge-map.tsx
- * reads `result` to fetch and highlight every reached feature (and,
- * distinctly, every barrier) on the map; trace-result-banner.tsx reads
- * it to show a summary and the Clear action that resets this store --
- * the trigger (feature-panel.tsx), the map, and the banner are three
- * siblings reading the same store, same cross-component pattern this
- * app already uses throughout rather than prop-drilling a result down
- * through components that don't otherwise share a parent.
+ * Session-persisted (sessionStorage, via resultPersist) -- a completed trace
+ * now survives a full page reload and route navigation but clears when the tab
+ * closes, so results don't vanish on refresh (they used to: this was ephemeral
+ * like draw-store.ts/connect-store.ts/edit-store.ts). Only the data persists;
+ * `loading` and the non-serialisable `rerun` thunk are dropped (see
+ * result-persist.ts), so after a reload the Re-run button hides until the next
+ * run re-stashes its thunk. voltedge-map.tsx reads `result` to fetch and
+ * highlight every reached feature (and, distinctly, every barrier) on the map
+ * -- its highlight effect re-runs on mount, so it re-draws from the rehydrated
+ * result; trace-result-banner.tsx reads it to show a summary and the Clear
+ * action that resets this store -- the trigger (feature-panel.tsx), the map,
+ * and the banner are siblings reading the same store, same cross-component
+ * pattern this app already uses throughout rather than prop-drilling a result
+ * down through components that don't otherwise share a parent.
  */
 interface TraceState {
   result: TraceResult | null
@@ -121,16 +161,35 @@ interface TraceState {
    * meet a trace. Cleared alongside the result. */
   computedVoltages: Record<string, number> | null
   loading: boolean
+  /** Re-runs the exact trace that produced the current result. Set by whichever
+   * trigger ran it (feature-panel.tsx) alongside the result, since only the
+   * trigger knows which endpoint/shape a given trace used -- the standard
+   * POST /trace and the feeder/section/service/supply-path variants all
+   * normalize into this same store, so a generic "re-fetch" here couldn't know
+   * how. Null when no result, or when a result was set without a re-runner
+   * (e.g. an old caller). The trace panel's Re-run button calls it. */
+  rerun: (() => void) | null
   setLoading: (loading: boolean) => void
-  setResult: (result: TraceResult, computedVoltages?: Record<string, number> | null) => void
+  setResult: (
+    result: TraceResult,
+    computedVoltages?: Record<string, number> | null,
+    rerun?: (() => void) | null,
+  ) => void
   clear: () => void
 }
 
-export const useTraceStore = create<TraceState>((set) => ({
-  result: null,
-  computedVoltages: null,
-  loading: false,
-  setLoading: (loading) => set({ loading }),
-  setResult: (result, computedVoltages = null) => set({ result, computedVoltages, loading: false }),
-  clear: () => set({ result: null, computedVoltages: null, loading: false }),
-}))
+export const useTraceStore = create<TraceState>()(
+  persist(
+    (set) => ({
+      result: null,
+      computedVoltages: null,
+      loading: false,
+      rerun: null,
+      setLoading: (loading) => set({ loading }),
+      setResult: (result, computedVoltages = null, rerun = null) =>
+        set({ result, computedVoltages, rerun, loading: false }),
+      clear: () => set({ result: null, computedVoltages: null, rerun: null, loading: false }),
+    }),
+    resultPersist("voltedge-trace-result"),
+  ),
+)

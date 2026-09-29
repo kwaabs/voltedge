@@ -142,12 +142,23 @@ export function App() {
                 "Back to Admin" bar routing to the landing page above; that
                 landing page is deliberately left outside this wrapper. */}
             <Route element={<AdminLayout />}>
-            <Route path="admin/feature-classes" element={<AdminFeatureClassesPage />} />
-            {/* The create wizard is a pure-write page -- nothing to view --
-                so it gets a route-level metadata:write gate rather than
-                per-control gating. A metadata:read user reaching it by URL
-                (its sidebar/list entry points are already hidden) gets the
-                403 page instead of a form every submit would reject. */}
+            {/* The metadata catalog pages all sit behind a metadata:write gate,
+                mirroring the backend /admin, /external-systems and
+                /webhook-endpoints mounts (which now require metadata:write to
+                read, not just to write). A viewer/analyst/editor who deep-links
+                one of these URLs gets the clean 403 page instead of a shell that
+                loads nothing (every fetch would 403) -- "the API stays the real
+                gate", this just makes the client honest about it. Pages with
+                their own capability (asset-tags, territories, circuits, users,
+                field-packs) keep their own perm and are deliberately left out. */}
+            <Route
+              path="admin/feature-classes"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminFeatureClassesPage />
+                </RequirePermission>
+              }
+            />
             <Route
               path="admin/feature-classes/new"
               element={
@@ -156,9 +167,30 @@ export function App() {
                 </RequirePermission>
               }
             />
-            <Route path="admin/feature-classes/:code" element={<AdminFeatureClassDetailPage />} />
-            <Route path="admin/domains" element={<AdminDomainsPage />} />
-            <Route path="admin/cim-mappings" element={<AdminCimMappingsPage />} />
+            <Route
+              path="admin/feature-classes/:code"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminFeatureClassDetailPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/domains"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminDomainsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/cim-mappings"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminCimMappingsPage />
+                </RequirePermission>
+              }
+            />
             <Route
               path="admin/asset-tags"
               element={
@@ -167,14 +199,70 @@ export function App() {
                 </RequirePermission>
               }
             />
-            <Route path="admin/imports" element={<AdminImportsPage />} />
-            <Route path="admin/field-groups" element={<AdminFieldGroupsPage />} />
-            <Route path="admin/diagrams" element={<AdminDiagramsPage />} />
-            <Route path="admin/materials" element={<AdminMaterialsPage />} />
-            <Route path="admin/external-systems" element={<AdminExternalSystemsPage />} />
-            <Route path="admin/webhooks" element={<AdminWebhooksPage />} />
-            <Route path="admin/symbology-icons" element={<AdminSymbologyIconsPage />} />
-            <Route path="admin/stencils" element={<AdminStencilsPage />} />
+            <Route
+              path="admin/imports"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminImportsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/field-groups"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminFieldGroupsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/diagrams"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminDiagramsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/materials"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminMaterialsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/external-systems"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminExternalSystemsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/webhooks"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminWebhooksPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/symbology-icons"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminSymbologyIconsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/stencils"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminStencilsPage />
+                </RequirePermission>
+              }
+            />
             <Route
               path="admin/territories"
               element={

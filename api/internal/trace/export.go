@@ -37,6 +37,22 @@ type TracedFeature struct {
 	CircuitID       string   `json:"circuit_id,omitempty"`
 	CircuitRef      string   `json:"circuit_ref,omitempty"`
 	NominalVoltageV *float64 `json:"nominal_voltage_v,omitempty"`
+	// OnMap is true when the reached feature carries real map geometry; false
+	// when it lives only inside a single-line diagram. See tracedFeature.OnMap.
+	OnMap bool `json:"on_map"`
+	// Diagrams lists the single-line diagram(s) this feature is placed on (id +
+	// name), omitted when it's on none. See tracedFeature.Diagrams.
+	Diagrams []DiagramMembership `json:"diagrams,omitempty"`
+	// DeviceState is the reached switching device's live position ("OPEN"/
+	// "CLOSED"), omitted for non-switch features. See tracedFeature.DeviceState.
+	DeviceState string `json:"device_state,omitempty"`
+}
+
+// DiagramMembership is the exported form of diagramMembership: one diagram a
+// reached feature appears on, by instance id and human name.
+type DiagramMembership struct {
+	InstanceID string `json:"instance_id"`
+	Name       string `json:"name,omitempty"`
 }
 
 // RunTraceInput is the exported input to RunTrace, mirroring the POST /trace
@@ -46,6 +62,11 @@ type RunTraceInput struct {
 	TraceConfiguration string
 	Start              FeatureRef
 	Target             *FeatureRef
+	// CrossTransformers optionally overrides the configuration's stored
+	// cross_transformers default for this one run: nil uses the config default,
+	// false stops a downstream trace at each transformer (feeder/LV boundary),
+	// true continues past into the LV side. See traceRequest.CrossTransformers.
+	CrossTransformers *bool
 }
 
 // RunTraceResult is the exported form of traceResponse -- the full result of
@@ -62,6 +83,13 @@ type RunTraceResult struct {
 	// Service is the Phase 62 consumption rollup -- same shape and meaning a
 	// REST caller sees. See ServiceRollup.
 	Service *ServiceRollup `json:"service,omitempty"`
+	// TransformerBoundaries is the subset of Features where a downstream walk
+	// stopped at a transformer it was not told to cross -- same shape and meaning
+	// a REST caller sees. See traceResponse.TransformerBoundaries.
+	TransformerBoundaries []FeatureRef `json:"transformer_boundaries,omitempty"`
+	// CrossTransformers echoes the value the walk ran with (only meaningful for a
+	// downstream trace). See traceResponse.CrossTransformers.
+	CrossTransformers bool `json:"cross_transformers"`
 }
 
 // RunTrace runs one trace through the engine's single entry point (runTrace)
@@ -78,6 +106,7 @@ func RunTrace(ctx context.Context, db bun.IDB, in RunTraceInput) (*RunTraceResul
 	if in.Target != nil {
 		req.Target = &featureRef{FeatureClass: in.Target.FeatureClass, FeatureID: in.Target.FeatureID}
 	}
+	req.CrossTransformers = in.CrossTransformers
 
 	resp, err := runTrace(ctx, db, req)
 	if err != nil {
@@ -85,15 +114,17 @@ func RunTrace(ctx context.Context, db bun.IDB, in RunTraceInput) (*RunTraceResul
 	}
 
 	return &RunTraceResult{
-		TraceConfiguration: resp.TraceConfiguration,
-		Direction:          resp.Direction,
-		Start:              toExportedRef(resp.Start),
-		Features:           toExportedTracedFeatures(resp.Features),
-		Barriers:           toExportedRefs(resp.Barriers),
-		PathFound:          resp.PathFound,
-		Targets:            toExportedRefs(resp.Targets),
-		TargetsFound:       resp.TargetsFound,
-		Service:            resp.Service,
+		TraceConfiguration:    resp.TraceConfiguration,
+		Direction:             resp.Direction,
+		Start:                 toExportedRef(resp.Start),
+		Features:              toExportedTracedFeatures(resp.Features),
+		Barriers:              toExportedRefs(resp.Barriers),
+		PathFound:             resp.PathFound,
+		Targets:               toExportedRefs(resp.Targets),
+		TargetsFound:          resp.TargetsFound,
+		Service:               resp.Service,
+		TransformerBoundaries: toExportedRefs(resp.TransformerBoundaries),
+		CrossTransformers:     resp.CrossTransformers,
 	}, nil
 }
 
@@ -315,7 +346,23 @@ func toExportedTracedFeatures(fs []tracedFeature) []TracedFeature {
 			CircuitID:       f.CircuitID,
 			CircuitRef:      f.CircuitRef,
 			NominalVoltageV: f.NominalVoltageV,
+			OnMap:           f.OnMap,
+			Diagrams:        toExportedDiagramMemberships(f.Diagrams),
+			DeviceState:     f.DeviceState,
 		}
+	}
+	return out
+}
+
+// toExportedDiagramMemberships maps the internal diagram membership list to its
+// exported form, preserving nil (a feature on no diagram) so the field omits.
+func toExportedDiagramMemberships(ms []diagramMembership) []DiagramMembership {
+	if ms == nil {
+		return nil
+	}
+	out := make([]DiagramMembership, len(ms))
+	for i, m := range ms {
+		out[i] = DiagramMembership{InstanceID: m.InstanceID, Name: m.Name}
 	}
 	return out
 }

@@ -1,5 +1,7 @@
 import { create } from "zustand"
+import { persist } from "zustand/middleware"
 
+import { resultPersist } from "@/stores/result-persist"
 import type { TraceFeatureRef } from "@/stores/trace-store"
 
 /** Mirrors api/internal/powerflow's ampacityResponse -- see
@@ -41,14 +43,19 @@ interface AmpacityState {
   clear: () => void
 }
 
-export const useAmpacityStore = create<AmpacityState>((set) => ({
-  armed: false,
-  armedConductor: null,
-  result: null,
-  loading: false,
-  arm: (conductor) => set({ armed: true, armedConductor: conductor, result: null, loading: false }),
-  rearm: () => set({ armed: true, result: null, loading: false }),
-  setLoading: (loading) => set({ loading }),
-  setResult: (result) => set({ result, loading: false }),
-  clear: () => set({ armed: false, armedConductor: null, result: null, loading: false }),
-}))
+export const useAmpacityStore = create<AmpacityState>()(
+  persist(
+    (set) => ({
+      armed: false,
+      armedConductor: null,
+      result: null,
+      loading: false,
+      arm: (conductor) => set({ armed: true, armedConductor: conductor, result: null, loading: false }),
+      rearm: () => set({ armed: true, result: null, loading: false }),
+      setLoading: (loading) => set({ loading }),
+      setResult: (result) => set({ result, loading: false }),
+      clear: () => set({ armed: false, armedConductor: null, result: null, loading: false }),
+    }),
+    resultPersist("voltedge-ampacity-result"),
+  ),
+)

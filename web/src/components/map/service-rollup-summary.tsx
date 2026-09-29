@@ -1,5 +1,6 @@
-import { ShieldAlert } from "lucide-react"
+import { Info, ShieldAlert } from "lucide-react"
 
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import type { ServiceRollup } from "@/stores/trace-store"
 
@@ -12,6 +13,26 @@ const TIER_BAR: Record<string, string> = {
   P2: "bg-orange-500",
   P3: "bg-amber-400",
   P4: "bg-slate-400 dark:bg-slate-500",
+}
+
+/** Plain-language examples for each restoration tier, mirroring the domain
+ * defined in seed/service_point_load_priority.sql. Only the EXAMPLES live
+ * client-side -- each tier's authoritative name comes from the backend's
+ * `tier.label` ("P1 -- Life support", ...), so a renamed tier can't drift out
+ * of sync here. Keyed by the priority code; an unknown code just shows the
+ * label with no example. */
+const TIER_EXAMPLES: Record<string, string> = {
+  P1: "home ventilators, dialysis",
+  P2: "hospitals, water, telecoms",
+  P3: "schools, commercial anchors",
+  P4: "ordinary residential/commercial",
+}
+
+/** Backend label ("P4 -- Standard") plus its example, for a per-bar hover
+ * title -- so the meaning is one hover away right on the tier it annotates. */
+function tierTitle(priority: string, label: string): string {
+  const example = TIER_EXAMPLES[priority]
+  return example ? `${label} — e.g. ${example}` : label
 }
 
 /** Rounds kW/kVA to whole units with thousands separators -- distribution loads
@@ -59,13 +80,38 @@ export function ServiceRollupSummary({
             {service.critical.customers.toLocaleString()} critical
           </span>
         )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground -my-1 ml-auto inline-flex items-center self-center"
+              aria-label="What do the P1–P4 restoration tiers mean?"
+            >
+              <Info className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" align="end" className="max-w-[16rem] text-left">
+            <p className="mb-1 font-medium">Restoration priority</p>
+            <ul className="flex flex-col gap-0.5">
+              {tiers.map((tier) => (
+                <li key={tier.priority}>
+                  <span className="font-medium">{tier.label}</span>
+                  {TIER_EXAMPLES[tier.priority] ? (
+                    <span className="opacity-80"> — e.g. {TIER_EXAMPLES[tier.priority]}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 opacity-80">Critical = P1 or P2 (restored first).</p>
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       <div className="flex flex-col gap-1">
         {tiers.map((tier) => {
           const pct = Math.round((tier.customers / maxCustomers) * 100)
           return (
-            <div key={tier.priority} className="flex items-center gap-2 text-xs" title={tier.label}>
+            <div key={tier.priority} className="flex items-center gap-2 text-xs" title={tierTitle(tier.priority, tier.label)}>
               <span className="text-muted-foreground w-6 shrink-0 font-medium">{tier.priority}</span>
               <div className="bg-muted relative h-3 flex-1 overflow-hidden rounded-sm">
                 <div

@@ -1,5 +1,7 @@
 import { create } from "zustand"
+import { persist } from "zustand/middleware"
 
+import { resultPersist } from "@/stores/result-persist"
 import type { LoadFlowResult } from "@/stores/load-flow-store"
 import type { MeshedLoadFlowResult } from "@/stores/meshed-load-flow-store"
 import type { NodalLoadFlowResult } from "@/stores/nodal-load-flow-store"
@@ -61,14 +63,19 @@ interface AutoLoadFlowState {
   clear: () => void
 }
 
-export const useAutoLoadFlowStore = create<AutoLoadFlowState>((set) => ({
-  armed: false,
-  armedStart: null,
-  result: null,
-  loading: false,
-  arm: (start) => set({ armed: true, armedStart: start, result: null, loading: false }),
-  rearm: () => set({ armed: true, result: null, loading: false }),
-  setLoading: (loading) => set({ loading }),
-  setResult: (result) => set({ result, loading: false }),
-  clear: () => set({ armed: false, armedStart: null, result: null, loading: false }),
-}))
+export const useAutoLoadFlowStore = create<AutoLoadFlowState>()(
+  persist(
+    (set) => ({
+      armed: false,
+      armedStart: null,
+      result: null,
+      loading: false,
+      arm: (start) => set({ armed: true, armedStart: start, result: null, loading: false }),
+      rearm: () => set({ armed: true, result: null, loading: false }),
+      setLoading: (loading) => set({ loading }),
+      setResult: (result) => set({ result, loading: false }),
+      clear: () => set({ armed: false, armedStart: null, result: null, loading: false }),
+    }),
+    resultPersist("voltedge-auto-load-flow-result"),
+  ),
+)

@@ -102,6 +102,15 @@ type unbalancedRequest struct {
 type nodeResult struct {
 	FeatureClass     string   `json:"feature_class"`
 	FeatureID        string   `json:"feature_id"`
+	// ParentFeatureClass / ParentFeatureID point at the node one hop closer to the
+	// sweep's start in buildTree's radial spanning tree -- the feature that feeds
+	// this one. They let a client render the ladder result as the tree it actually
+	// is (voltage drops down a branch, loading accumulates up it) instead of a flat
+	// list, the same parent stamping api/internal/trace's traceResponse carries.
+	// Both nil for the start (it has no parent) and for any node whose parent fell
+	// outside the result set, so a client can always resolve a stamped parent.
+	ParentFeatureClass *string `json:"parent_feature_class,omitempty"`
+	ParentFeatureID    *string `json:"parent_feature_id,omitempty"`
 	// CircuitID / CircuitRef are the node's stored circuit membership (Phase 37),
 	// the same display extras an enriched trace and a coordination device carry;
 	// both empty when the node's class has no circuit field or it's unset. The

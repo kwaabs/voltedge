@@ -102,6 +102,11 @@ type updateFeatureClassRequest struct {
 	// input -> -1), mirroring how the label editor sends the whole label_def.
 	MinDisplayZoom *int `json:"min_display_zoom"`
 	MaxDisplayZoom *int `json:"max_display_zoom"`
+	// TraceTier (migration 0126) is the class's network tier -- pure metadata,
+	// editable at any status. Three-state, sentinel-encoded like the display-zoom
+	// band: nil = not touched, a negative value clears it back to NULL (untiered),
+	// a non-negative value sets it.
+	TraceTier *int `json:"trace_tier"`
 }
 
 type updateFeatureClassResponse struct {
@@ -116,6 +121,7 @@ type updateFeatureClassResponse struct {
 	GeometryOptional    bool    `json:"geometry_optional"`
 	DiagramGeometryType *string `json:"diagram_geometry_type,omitempty"`
 	Category            *string `json:"category,omitempty"`
+	TraceTier           *int    `json:"trace_tier,omitempty"`
 }
 
 // featureClassSummary is one row of the admin catalog view -- enough to
@@ -136,6 +142,7 @@ type featureClassSummary struct {
 	GeometryOptional    bool    `json:"geometry_optional"`
 	DiagramGeometryType *string `json:"diagram_geometry_type,omitempty"`
 	Category            *string `json:"category,omitempty"`
+	TraceTier           *int    `json:"trace_tier,omitempty"`
 	PhysicalTable       *string `json:"physical_table,omitempty"`
 	SubtypeCount        int     `json:"subtype_count"`
 	FieldCount          int     `json:"field_count"`
@@ -338,6 +345,10 @@ type createFeatureClassRequest struct {
 	// FunctionalRole (migration 0091) is optional on create -- omit or "" for an
 	// unclassified / non-electrical class; else a taxonomy value.
 	FunctionalRole     *string           `json:"functional_role"`
+	// TraceTier (migration 0126) is optional on create -- omit/null for an
+	// untiered (transparent) class; else a non-negative rank in the hundreds
+	// scale (0/200/300/400/500/600). See seed/trace_tiers.sql.
+	TraceTier          *int              `json:"trace_tier"`
 	IsDiagramContainer bool              `json:"is_diagram_container"`
 	IsDiagramPlaceable bool              `json:"is_diagram_placeable"`
 	GeometryOptional   bool              `json:"geometry_optional"`

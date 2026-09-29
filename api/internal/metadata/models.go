@@ -73,6 +73,18 @@ type FeatureClass struct {
 	// compiler's DDL never reads it -- like label_def/network it just rides
 	// along on this struct-model select.
 	Category *string `bun:"category"`
+	// TraceTier is the class's NETWORK TIER (migration 0126): its rank in the
+	// vertical source-to-load hierarchy -- lower = closer to the source (grid
+	// infeed = 0), higher = closer to the load, nil for an untiered class. Read
+	// by api/internal/trace's bfs to keep a directional walk on-layer: a
+	// DOWNSTREAM step may go to an equal-or-higher tier but never a strictly-lower
+	// one (walking back toward the source), UPSTREAM mirrors it. nil is
+	// transparent -- a step to or from an untiered class is never tier-blocked --
+	// so the guard is a no-op until tiers are seeded. Orthogonal to FunctionalRole
+	// (what a class DOES) and NetworkRole (its connectivity-graph role); like them
+	// it's pure metadata the compiler's DDL never reads, riding along on this
+	// struct-model select straight through to the schema endpoint.
+	TraceTier *int `bun:"trace_tier"`
 }
 
 // DiagramGeom returns how this class is drawn on a diagram: its

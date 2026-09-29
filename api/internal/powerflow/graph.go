@@ -31,6 +31,12 @@ type edgeRow struct {
 	FromTerminalID     *string `bun:"from_terminal_id"`
 	ToFeatureClassID   string  `bun:"to_feature_class_id"`
 	ToFeatureID        string  `bun:"to_feature_id"`
+	// ToTerminalID is the terminal on the "to" side of the edge -- normally
+	// unused (a downstream from->to step reads FromTerminalID), but the junction
+	// pass-through's undirected step crosses an edge in reverse (arriving at the
+	// "from" node from the "to" side), and then the "to" side is the sending
+	// terminal whose winding role a transformer child must resolve from.
+	ToTerminalID *string `bun:"to_terminal_id"`
 }
 
 // terminalRoleRow is a minimal read-only projection of metadata.terminals --
@@ -181,10 +187,78 @@ func checkBarrier(ctx context.Context, db bun.IDB, n node, barriers map[string]b
 type featureClassLoader struct {
 	codeByID   map[string]string
 	loadedByID map[string]*metadata.Loaded
+	// junctionByID is the set of feature_class ids whose network_role is
+	// 'junction' (a busbar, a switchgear panel bus) -- an electrical common node
+	// with no inherent direction. buildTree passes THROUGH one undirected so a
+	// downstream sweep reaching a one-way-sink bus doesn't dead-end on it (see
+	// buildTree's junction pass-through note). nil until junctions() first loads
+	// it, then memoized on the loader the whole analysis shares -- this package's
+	// own copy of api/internal/trace's junctionByID, same lazy shape.
+	junctionByID map[string]bool
+	// tierByID maps a feature_class id to its trace_tier (migration 0126) -- its
+	// rank in the source-to-load hierarchy (0 = grid infeed, higher = closer to
+	// the load). ONLY tiered classes appear here; an untiered (NULL) class is
+	// absent, so a step to or from it is never guarded (presence tested comma-ok,
+	// since tier 0 is a real rank). It stops the junction pass-through's undirected
+	// expansion from leaking back toward the source. This package's own copy of
+	// api/internal/trace's tierByID, loaded once by tiers().
+	tierByID map[string]int
 }
 
 func newFeatureClassLoader() *featureClassLoader {
 	return &featureClassLoader{codeByID: map[string]string{}, loadedByID: map[string]*metadata.Loaded{}}
+}
+
+// junctions returns the set of feature_class ids carrying network_role
+// 'junction' (busbar, switchgear bus). A junction is an electrical common node:
+// every edge on it meets at one point with no inherent from/to direction, which
+// is why buildTree must pass THROUGH it undirected rather than dead-ending on
+// the arbitrary orientation an assembly fan-out authored its ways with (an RMU
+// wires every way switch->bus, so the bus is only ever a "to"). This package's
+// own copy of api/internal/trace's junctions(): loaded once, memoized on the
+// shared loader, so a run pays exactly one query however many analyses reuse it.
+func (l *featureClassLoader) junctions(ctx context.Context, db bun.IDB) (map[string]bool, error) {
+	if l.junctionByID != nil {
+		return l.junctionByID, nil
+	}
+	var fcs []metadata.FeatureClass
+	if err := db.NewSelect().Model(&fcs).Column("id").Where("network_role = ?", "junction").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("powerflow: loading junction feature classes: %w", err)
+	}
+	out := make(map[string]bool, len(fcs))
+	for _, fc := range fcs {
+		out[fc.ID] = true
+	}
+	l.junctionByID = out
+	return out, nil
+}
+
+// tiers returns the map of feature_class id -> trace_tier (migration 0126) for
+// every class that carries one; untiered (NULL) classes are absent. The tier
+// lets buildTree enforce direction by what a feature IS, not only by the from/to
+// orientation its connections were authored with: a downstream step may go to an
+// equal-or-higher tier but never a strictly-lower one (which would be walking
+// back toward the source) -- the guard that keeps the junction pass-through's
+// undirected expansion from leaking up the feeder that supplies the bus. A step
+// touching an untiered class is always allowed, so the guard is transparent
+// until tiers are seeded (seed/trace_tiers.sql). This package's own copy of
+// api/internal/trace's tiers(): loaded once, memoized on the shared loader.
+func (l *featureClassLoader) tiers(ctx context.Context, db bun.IDB) (map[string]int, error) {
+	if l.tierByID != nil {
+		return l.tierByID, nil
+	}
+	var fcs []metadata.FeatureClass
+	if err := db.NewSelect().Model(&fcs).Column("id", "trace_tier").Where("trace_tier IS NOT NULL").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("powerflow: loading feature class tiers: %w", err)
+	}
+	out := make(map[string]int, len(fcs))
+	for _, fc := range fcs {
+		if fc.TraceTier != nil {
+			out[fc.ID] = *fc.TraceTier
+		}
+	}
+	l.tierByID = out
+	return out, nil
 }
 
 func (l *featureClassLoader) loadedFor(ctx context.Context, db bun.IDB, classID string) (*metadata.Loaded, error) {
@@ -248,6 +322,52 @@ func downstreamNeighbors(ctx context.Context, db bun.IDB, n node) ([]downstreamE
 	return out, nil
 }
 
+// incidentNeighbors returns every node incident to n on ANY edge, in either
+// stored orientation -- the junction pass-through's expansion (buildTree) uses
+// it in place of downstreamNeighbors once a walk has reached a busbar, so the
+// sweep can leave a one-way-sink bus that the fan-out authored every way INTO.
+// Each neighbor comes back with the terminal on n's (the sending) side of that
+// edge: FromTerminalID for a forward edge (n is the "from"), ToTerminalID for a
+// reverse one (n is the "to") -- so a transformer reached this way still resolves
+// its child windings correctly. Distinct from nodal.go's undirectedNeighbors,
+// which feeds the Y-bus solver and carries no terminal.
+func incidentNeighbors(ctx context.Context, db bun.IDB, n node) ([]downstreamEdge, error) {
+	var rows []edgeRow
+	if err := db.NewSelect().Model(&rows).
+		Where("(from_feature_id = ? AND from_feature_class_id = ?) OR (to_feature_id = ? AND to_feature_class_id = ?)",
+			n.featureID, n.classID, n.featureID, n.classID).
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("powerflow: loading incident neighbors: %w", err)
+	}
+	out := make([]downstreamEdge, 0, len(rows))
+	for _, r := range rows {
+		from := node{classID: r.FromFeatureClassID, featureID: r.FromFeatureID}
+		if from == n {
+			// Forward edge: the far side is "to", n is the sending "from".
+			terminalID := ""
+			if r.FromTerminalID != nil {
+				terminalID = *r.FromTerminalID
+			}
+			out = append(out, downstreamEdge{
+				to:             node{classID: r.ToFeatureClassID, featureID: r.ToFeatureID},
+				fromTerminalID: terminalID,
+			})
+			continue
+		}
+		// Reverse edge: n is the "to"; the far side is the "from", and n's own
+		// sending terminal is this edge's to_terminal_id.
+		terminalID := ""
+		if r.ToTerminalID != nil {
+			terminalID = *r.ToTerminalID
+		}
+		out = append(out, downstreamEdge{
+			to:             from,
+			fromTerminalID: terminalID,
+		})
+	}
+	return out, nil
+}
+
 // maxSweepNodes mirrors api/internal/trace's own maxTraceHops -- a
 // defensive valve against a pathological data bug, not a real design
 // limit.
@@ -295,7 +415,42 @@ type meshBreak struct {
 // leaving a radial spanning tree the ordinary sweep still solves, and
 // mesh.go then closes each recorded loop by compensation. Every other caller
 // passes nil and keeps the strict radial-only contract byte for byte.
+//
+// Junction pass-through: a busbar / switchgear bus is an electrical common node
+// -- every way meets at one point with no inherent from/to direction, yet an
+// assembly fan-out authors all its connections in one fixed orientation (an RMU
+// wires every way switch->bus, so the bus is only ever a "to"). A strict from->to
+// downstream sweep therefore REACHES such a one-way-sink bus fine but then dead-
+// ends on it, silently truncating every sibling way and its own downstream out of
+// the study -- exactly the gap api/internal/trace's bfs closed for traces. This
+// mirrors that fix's DOWNSTREAM half: when the sweep reaches a network_role=
+// 'junction' node it expands that node UNDIRECTED (every incident edge, either
+// orientation) and every node discovered from there is "unlocked" -- it too
+// expands undirected, so the walk continues out through the sibling ways'
+// switches and cables the fan-out authored bus-inward. Two guards keep this from
+// walking back toward the source: (a) an undirected expansion never follows the
+// edge back to the node it was reached from (that reversed edge isn't a real
+// second path, so it must not trip mesh detection), and (b) the cross-layer tier
+// guard (migration 0126) refuses any step to a strictly-lower trace_tier. A third
+// safeguard collapses the same neighbour appearing twice in ONE node's expansion
+// (a single adjacency stored on two connectivity rows -- a way switch wired to its
+// bus through two terminals, or an edge kept in both orientations): that is one
+// electrical connection seen twice, not a loop, so the duplicate must not trip the
+// mesh check. A genuine reconvergence past a bus still reaches an already-visited
+// node from a DIFFERENT node and is caught as a mesh exactly as before. Barriers
+// (an OPEN switch) still stop each branch, so the fan-out stays bounded.
 func buildTree(ctx context.Context, db bun.IDB, start node, barriers map[string]barrierCheck, loader *featureClassLoader, closed map[node]bool, breaks *[]meshBreak) (*tree, []node, error) {
+	junctionIDs, err := loader.junctions(ctx, db)
+	if err != nil {
+		return nil, nil, err
+	}
+	// tierByID drives the cross-layer guard below; an empty map (nothing tiered
+	// yet) makes it a clean no-op, so an unseeded deployment behaves exactly as
+	// before.
+	tierByID, err := loader.tiers(ctx, db)
+	if err != nil {
+		return nil, nil, err
+	}
 	visited := map[node]bool{start: true}
 	parent := map[node]node{}
 	children := map[node][]node{}
@@ -303,6 +458,11 @@ func buildTree(ctx context.Context, db bun.IDB, start node, barriers map[string]
 	queue := []node{start}
 	order := []node{start}
 	var barrierHits []node
+	// unlocked[n] is true once the sweep has crossed a junction to reach n, after
+	// which n expands undirected too (see the junction pass-through note above).
+	// The start is locked (directional) so a sweep can't double back before it has
+	// even reached a bus.
+	unlocked := map[node]bool{}
 
 	for len(queue) > 0 && len(order) < maxSweepNodes {
 		current := queue[0]
@@ -317,12 +477,55 @@ func buildTree(ctx context.Context, db bun.IDB, start node, barriers map[string]
 			continue
 		}
 
-		edges, err := downstreamNeighbors(ctx, db, current)
+		// Expand this node undirected when it is (or was reached through) a
+		// junction; everything it discovers is then unlocked. Otherwise it stays a
+		// strict from->to downstream step, exactly as before junction pass-through.
+		expandUndirected := unlocked[current] || junctionIDs[current.classID]
+		var edges []downstreamEdge
+		if expandUndirected {
+			edges, err = incidentNeighbors(ctx, db, current)
+		} else {
+			edges, err = downstreamNeighbors(ctx, db, current)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
+		// A single physical adjacency can be stored on more than one connectivity
+		// row -- a busbar and a way switch wired through two terminals, or the same
+		// edge kept in both orientations -- so incidentNeighbors (unlike the strict
+		// downstreamNeighbors) can list the same neighbour twice from one node. That
+		// is NOT a loop: it is one electrical connection seen twice. Collapse repeats
+		// within THIS node's expansion so the second copy can't trip the mesh check
+		// below. A genuine reconvergence reaches an already-visited node from a
+		// DIFFERENT node (a different `current`), so it still surfaces as a mesh --
+		// exactly the artifact-vs-loop split nodal.go's canonicalEdge de-dup makes for
+		// the Y-bus builder.
+		seenNeighbor := make(map[node]bool, len(edges))
 		for _, e := range edges {
 			n := e.to
+			if seenNeighbor[n] {
+				continue
+			}
+			seenNeighbor[n] = true
+			// An undirected expansion lists the edge back to the node current was
+			// reached from; that reversed edge is not a real second path, so skip it
+			// rather than let it trip mesh detection below.
+			if expandUndirected && n == parent[current] {
+				continue
+			}
+			// Cross-layer guard (migration 0126): refuse a downstream step to a
+			// strictly-lower tier -- that would be climbing back toward the source,
+			// which the undirected expansion past a junction must never do. Judged on
+			// the sweep's always-downstream direction. An untiered class on either end
+			// is absent from the map (comma-ok, since tier 0 is valid) and always
+			// passes, so the guard is transparent until tiers are seeded. A blocked
+			// neighbour is NOT marked visited, so a legitimate deeper-tier edge can
+			// still reach it by another path.
+			if ct, cok := tierByID[current.classID]; cok {
+				if nt, nok := tierByID[n.classID]; nok && nt < ct {
+					continue
+				}
+			}
 			if visited[n] {
 				if breaks != nil {
 					// Weakly-meshed run: record the loop-closing edge and keep the
@@ -340,6 +543,9 @@ func buildTree(ctx context.Context, db bun.IDB, start node, barriers map[string]
 			parent[n] = current
 			children[current] = append(children[current], n)
 			childTerminal[n] = e.fromTerminalID
+			if expandUndirected {
+				unlocked[n] = true
+			}
 			order = append(order, n)
 			queue = append(queue, n)
 		}
