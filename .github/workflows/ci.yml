@@ -1,0 +1,82 @@
+# VoltEdge CI -- the standing gate that makes "it builds and passes" a fact
+# rather than a hope. Runs on every push and PR. Added as Phase 0 of the
+# assessment response: the project's core failure mode was code landing in a
+# shell that could not build/vet/test it ("verification owed"), so a trivial
+# unused import could sit on main and break compilation. This closes that loop.
+#
+# Jobs:
+#   api  -- Go build + vet + gofmt + test (the must-pass "does it compile").
+#   web  -- SPA typecheck + production build (tsc -b && vite build); lint advisory.
+#
+# The Go version is read from api/go.mod so CI never drifts from the toolchain
+# the code targets. A Flutter job for the field app (api is Go, web is TS, the
+# field app is Dart) is a fast follow -- add once the analyze/test baseline is known.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API (Go build / vet / test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: gofmt (must be clean)
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"; echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Test
+        run: go test ./...
+
+  web:
+    name: Web (typecheck / build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build (tsc -b && vite build)
+        run: npm run build
+
+      # Advisory for now -- surfaces lint without blocking the first green
+      # baseline. Promote to required (drop continue-on-error) once clean.
+      - name: Lint (oxlint)
+        run: npm run lint
+        continue-on-error: true

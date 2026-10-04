@@ -315,7 +315,7 @@ func runNodalLoadFlow(ctx context.Context, db bun.IDB, req nodalLoadFlowRequest)
 			continue // start, or a duplicate, is already a slack
 		}
 		if !reached[sn] {
-			return nil, invalid(fmt.Sprintf("source %s/%s is not reachable from start (a different network, or behind an open device)", ref.FeatureClass, ref.FeatureID))
+			return nil, invalid("source %s/%s is not reachable from start (a different network, or behind an open device)", ref.FeatureClass, ref.FeatureID)
 		}
 		seenSource[sn] = true
 		sources = append(sources, sn)
@@ -339,7 +339,7 @@ func runNodalLoadFlow(ctx context.Context, db bun.IDB, req nodalLoadFlowRequest)
 			return nil, err
 		}
 		if !reached[rn] {
-			return nil, invalid(fmt.Sprintf("regulated generator %s/%s is not reachable from start", r.Feature.FeatureClass, r.Feature.FeatureID))
+			return nil, invalid("regulated generator %s/%s is not reachable from start", r.Feature.FeatureClass, r.Feature.FeatureID)
 		}
 		spec := regulated[rn] // asset value if any, else zero
 		if r.VoltagePU > 0 {

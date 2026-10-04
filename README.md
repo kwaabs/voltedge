@@ -280,9 +280,12 @@ having to reread every phase doc's own "What's still open" section.
   [`docs/phase-8-load-flow.md`](docs/phase-8-load-flow.md),
   [`docs/phase-8-ampacity.md`](docs/phase-8-ampacity.md).
 
-Auth and permissions are deliberately not modeled yet; several tables
-already carry an `applied_by`/`established_by`-style placeholder column so
-a real changeset log is possible once that design lands.
+Auth and permissions are modeled as of Phase 10: opaque database-backed
+sessions, Azure AD and Google OIDC SSO plus email/password login, RBAC roles
+and permissions, spatial (territory) access control (Phase 58, fail-closed and
+enforced at the tile layer), a break-glass override, and per-feature audit
+history. Earlier phases were deliberately auth-free; the `applied_by`/
+`established_by` columns several tables carry now record the acting user.
 
 Each phase gets its own write-up under [`docs/`](docs/) once it's built:
 what was done, how to run/verify it, decisions made, what's deferred.

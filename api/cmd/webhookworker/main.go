@@ -22,7 +22,6 @@ import (
 	"database/sql"
 	"errors"
 	"log"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
