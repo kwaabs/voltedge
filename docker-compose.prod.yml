@@ -1,0 +1,346 @@
+# docker-compose.prod.yml -- production-SHAPED stack (the "rung 1" of the
+# scaling ladder in docs/deployment-and-scaling-guide.md).
+#
+# This is NOT the dev stack (docker-compose.yml) and NOT the ~1,000-user
+# answer (that is Kubernetes + a Postgres operator -- see the guide). It is
+# the intermediate rung that PROVES the multi-replica architecture on one
+# host, and is comfortable to a few hundred concurrent users:
+#
+#   nginx (non-sticky LB) -> N api replicas -> PgBouncer -> Postgres
+#   workers scale by replica count (SKIP LOCKED); fieldsync stays singleton
+#
+# What this file changes versus docker-compose.yml, and WHY:
+#   * NO container_name on any scaled service. A fixed container_name makes
+#     `--scale`/`deploy.replicas` impossible (Docker refuses duplicate names)
+#     -- which is why the dev file's "scale exportworker=N" never actually
+#     worked. Scaled services here are nameless so Compose can fan them out.
+#   * The api publishes NO host port. nginx is the single front door; it
+#     round-robins across every api replica via Docker's embedded DNS.
+#   * PgBouncer (transaction pooling) sits between the app tier and Postgres,
+#     so N replicas with unbounded client pools collapse onto a small, fixed
+#     set of real Postgres backends. This is the mandatory pre-flight fix
+#     (the app's own pool is currently unbounded).
+#   * Postgres runs with replication-ready flags so you can attach a streaming
+#     read replica (see the commented `postgres-replica` block + the guide).
+#
+# HONESTY NOTE: this file was authored statically and has NOT been run in this
+# environment (builds/compose are not available here). Before trusting it, do
+# the "verify" steps at the bottom. Two things most likely to need a tweak on
+# your box: (a) PgBouncer client auth against the supabase/postgres SCRAM
+# setup, and (b) whether pgdriver's prepared statements tolerate transaction
+# pooling (if a path errors with "prepared statement does not exist", see the
+# POOL_MODE note on the pgbouncer service).
+#
+# Run it:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   # scale the API and a worker:
+#   docker compose -f docker-compose.prod.yml up -d --scale api=4 --scale exportworker=3
+# Layer observability on top as usual:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml up -d
+
+services:
+  postgres:
+    image: supabase/postgres:15.8.1.049
+    container_name: voltedge-postgres        # the DB is a singleton; a name is fine
+    restart: unless-stopped
+    # Replication-ready: a streaming replica (see postgres-replica below) needs
+    # WAL senders and replication slots on the primary. Harmless if you never
+    # attach one. logical/replica wal_level is enough for physical streaming.
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=replica"
+      - "-c"
+      - "max_wal_senders=10"
+      - "-c"
+      - "max_replication_slots=10"
+      - "-c"
+      - "max_connections=200"                 # sized for PgBouncer's server pool + replication + headroom, NOT raw clients
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-voltedge_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-3700}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # PgBouncer -- transaction-pooling connection pooler. The app tier connects
+  # HERE, not straight to Postgres. It maps the many client connections from N
+  # api replicas onto DEFAULT_POOL_SIZE real Postgres backends.
+  #
+  # POOL_MODE=transaction is the scaling win but does NOT support session-level
+  # state held across transactions (some prepared-statement use, SET that must
+  # persist, LISTEN/NOTIFY, cross-statement advisory locks). If a VoltEdge path
+  # errors under it, either (a) switch POOL_MODE=session (safer, less pooling),
+  # or (b) disable prepared-statement caching in the pgdriver DSN. Test first.
+  #
+  # AUTH_TYPE: edoburu writes a userlist from DB_USER/DB_PASSWORD. `plain` is
+  # fine inside this private network (no TLS between app and pooler anyway). If
+  # your Postgres enforces SCRAM and this image can't auth, set AUTH_TYPE=scram
+  # with an AUTH_QUERY, or front it differently -- this is the #1 thing to verify.
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: voltedge-pgbouncer
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-voltedge_dev}
+      DB_NAME: ${POSTGRES_DB:-postgres}
+      AUTH_TYPE: plain
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-1000}   # how many app-side conns it will accept
+      DEFAULT_POOL_SIZE: ${PGBOUNCER_POOL_SIZE:-25}         # real Postgres backends per (user,db)
+      MIN_POOL_SIZE: ${PGBOUNCER_MIN_POOL_SIZE:-5}
+      RESERVE_POOL_SIZE: ${PGBOUNCER_RESERVE_POOL_SIZE:-5}
+    healthcheck:
+      # pgbouncer answers on 5432; a TCP check is enough for ordering here.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U postgres || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # nginx -- the single front door and non-sticky load balancer. Publishes the
+  # only web port; proxies to the `api` service, which Docker's embedded DNS
+  # resolves to EVERY api replica. The config re-resolves on a short TTL
+  # (resolver 127.0.0.11) so scaling api up/down is picked up without a reload.
+  # It also carries the EDGE rate-limit for /auth/login (the app's own limiter
+  # is per-replica and no longer global once you scale out).
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: voltedge-nginx
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-3710}:80"
+      # - "443:443"   # terminate TLS here in a real deployment (mount certs)
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # The built React SPA. Run `npm run build` in web/ first (produces
+      # web/dist); nginx serves it as static files and proxies /api + /tiles to
+      # the API. If you serve the SPA from a CDN/separate host instead, drop
+      # this mount and point that host's /api + /tiles at the API.
+      - ./web/dist:/usr/share/nginx/html:ro
+
+  # The API -- STATELESS, so this is the tier you scale. No container_name and
+  # no published port: nginx fronts it. DATABASE_URL points at PgBouncer, not
+  # Postgres. Start with 3 for HA; scale with --scale api=N or deploy.replicas.
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      rustfs:
+        condition: service_started
+    deploy:
+      replicas: ${API_REPLICAS:-3}
+    environment:
+      # -> PgBouncer (host `pgbouncer`), NOT postgres directly.
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@pgbouncer:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+      PORT: "8080"
+      RUSTFS_ENDPOINT: rustfs:9000
+      RUSTFS_PUBLIC_ENDPOINT: ${RUSTFS_PUBLIC_ENDPOINT:-localhost:3702}
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-voltedge-exports}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-voltedge}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
+    healthcheck:
+      # The API's /healthz already checks Postgres reachability -- it doubles as
+      # a readiness probe, so an api replica that can't reach the DB (through
+      # PgBouncer) is marked unhealthy and taken out of nginx's rotation.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ---- Worker fleet -- all scale by replica count (Postgres SKIP LOCKED) ----
+
+  exportworker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["exportworker"]
+    depends_on:
+      pgbouncer:
+        condition: service_started
+    deploy:
+      replicas: ${EXPORTWORKER_REPLICAS:-1}
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@pgbouncer:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+      RUSTFS_ENDPOINT: rustfs:9000
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-voltedge-exports}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-voltedge}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
+      EXPORT_WORKER_CONCURRENCY: ${EXPORT_WORKER_CONCURRENCY:-2}
+      EXPORT_JOB_LEASE: ${EXPORT_JOB_LEASE:-60s}
+
+  webhookworker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["webhookworker"]
+    depends_on:
+      pgbouncer:
+        condition: service_started
+    deploy:
+      replicas: ${WEBHOOKWORKER_REPLICAS:-1}
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@pgbouncer:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+
+  importworker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["importworker"]
+    depends_on:
+      pgbouncer:
+        condition: service_started
+    deploy:
+      replicas: ${IMPORTWORKER_REPLICAS:-1}
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@pgbouncer:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+      RUSTFS_ENDPOINT: rustfs:9000
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-voltedge-exports}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-voltedge}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
+
+  # The MCP tool API -- stateless like `api`, scalable, but a distinct bearer-
+  # token surface. Fronted by nginx on its own path/port if you expose it; here
+  # it keeps a published port for simplicity. Drop the port + add to nginx to
+  # scale it behind the LB.
+  mcpserver:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: voltedge-mcpserver
+    restart: unless-stopped
+    command: ["mcpserver"]
+    depends_on:
+      pgbouncer:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@pgbouncer:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+      MCP_PORT: "8090"
+    ports:
+      - "${MCP_PORT:-3705}:8090"
+
+  # fieldsync -- MUST STAY A SINGLETON. Its pack builder shells out to tippecanoe
+  # over temp files; two of them would race. Exactly one replica, Recreate on
+  # deploy. Do NOT add deploy.replicas > 1 or --scale this service.
+  fieldsync:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.fieldsync
+    container_name: voltedge-fieldsync
+    restart: unless-stopped
+    command: ["fieldsync"]
+    depends_on:
+      pgbouncer:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@pgbouncer:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+      FIELDSYNC_PORT: "8091"
+      RUSTFS_ENDPOINT: rustfs:9000
+      RUSTFS_PUBLIC_ENDPOINT: ${RUSTFS_PUBLIC_ENDPOINT:-localhost:3702}
+      RUSTFS_BUCKET: ${RUSTFS_BUCKET:-voltedge-exports}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-voltedge}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
+      FIELDSYNC_WORKER_CONCURRENCY: ${FIELDSYNC_WORKER_CONCURRENCY:-2}
+      FIELDSYNC_JOB_LEASE: ${FIELDSYNC_JOB_LEASE:-60s}
+      SYNC_WORKER_CONCURRENCY: ${SYNC_WORKER_CONCURRENCY:-2}
+      SYNC_JOB_LEASE: ${SYNC_JOB_LEASE:-60s}
+    ports:
+      - "${FIELDSYNC_PORT:-3706}:8091"
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: voltedge-rustfs
+    restart: unless-stopped
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-voltedge}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-voltedge_dev_secret}
+      RUSTFS_CORS_ALLOWED_ORIGINS: ${RUSTFS_CORS_ORIGINS:-*}
+    ports:
+      - "${RUSTFS_S3_PORT:-3702}:9000"
+      - "${RUSTFS_CONSOLE_PORT:-3703}:9001"
+    volumes:
+      - rustfs_data:/data
+
+  # Martin is retained but is SUPERSEDED as the map origin (tiles serve through
+  # the Go API's per-territory ST_AsMVT path). Kept for any direct tile needs;
+  # point it at a read replica once you have one, to keep tile load off primary.
+  martin:
+    image: ghcr.io/maplibre/martin:latest
+    container_name: voltedge-martin
+    restart: unless-stopped
+    command: ["--config", "/config/config.yaml", "--cache-size", "0"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+    ports:
+      - "${MARTIN_PORT:-3701}:3000"
+    volumes:
+      - ./infra/martin/config.yaml:/config/config.yaml:ro
+
+  # bootstrap -- the one-time / maintenance sidecar: git + bash + psql with the
+  # repo mounted at /workspace. This is where you run migrations (apply.sh) and
+  # any psql against the production DB. It connects DIRECTLY to Postgres (not
+  # through PgBouncer) because DDL/migrations want a stable session, not a
+  # transaction-pooled one. It runs nothing by itself -- you `exec`/`run` into
+  # it. See docs/production-setup-runbook.md for the exact commands.
+  bootstrap:
+    build:
+      context: ./infra/gitbash
+      dockerfile: Dockerfile
+    container_name: voltedge-bootstrap
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/workspace
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-voltedge_dev}@postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+    # Keep it alive so `docker compose exec bootstrap ...` works; it does no work
+    # until you exec a command into it.
+    command: ["sleep", "infinity"]
+
+  # ---- OPTIONAL: streaming read replica --------------------------------------
+  # A real production read replica belongs to a managed Postgres or an operator
+  # (CloudNativePG / Zalando) that handles basebackup, failover and PITR -- see
+  # the guide. Running one by hand in Compose needs a first-boot pg_basebackup
+  # from the primary (the supabase image has no built-in replica mode), which is
+  # fiddly and environment-specific, so it is left commented rather than shipped
+  # half-working. When you add it: route the API's READ-ONLY queries (tiles
+  # first) to it via a second, read-only DB handle -- that is app code, not a
+  # compose change. The primary above is already replication-ready.
+  #
+  # postgres-replica:
+  #   image: supabase/postgres:15.8.1.049
+  #   ... (entrypoint: pg_basebackup -h postgres -U <repl_user> -D ... -R ; then start)
+
+volumes:
+  postgres_data:
+  rustfs_data:

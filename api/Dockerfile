@@ -1,8 +1,9 @@
 # api/Dockerfile
 # Multi-stage build: compile with the full Go toolchain, ship static
 # binaries on a minimal base. One image carries the API server, the export
-# worker (Phase 17), and the MCP server (Phase 18); the compose service picks
-# which to run via its command -- the default here is the server.
+# worker (Phase 17), the MCP server (Phase 18), and the inbound-webhook and
+# ETL-import workers; the compose service picks which to run via its command --
+# the default here is the server.
 #
 # It also carries the two out-of-band admin tools -- authadmin (Phase 10: create
 # or reset the break-glass admin) and resetdata (the break-glass factory reset).
@@ -22,6 +23,8 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /out/server ./cmd/server
 RUN CGO_ENABLED=0 go build -o /out/exportworker ./cmd/exportworker
 RUN CGO_ENABLED=0 go build -o /out/mcpserver ./cmd/mcpserver
+RUN CGO_ENABLED=0 go build -o /out/webhookworker ./cmd/webhookworker
+RUN CGO_ENABLED=0 go build -o /out/importworker ./cmd/importworker
 RUN CGO_ENABLED=0 go build -o /out/authadmin ./cmd/authadmin
 RUN CGO_ENABLED=0 go build -o /out/resetdata ./cmd/resetdata
 
@@ -30,6 +33,8 @@ RUN apk add --no-cache ca-certificates
 COPY --from=build /out/server /usr/local/bin/server
 COPY --from=build /out/exportworker /usr/local/bin/exportworker
 COPY --from=build /out/mcpserver /usr/local/bin/mcpserver
+COPY --from=build /out/webhookworker /usr/local/bin/webhookworker
+COPY --from=build /out/importworker /usr/local/bin/importworker
 COPY --from=build /out/authadmin /usr/local/bin/authadmin
 COPY --from=build /out/resetdata /usr/local/bin/resetdata
 EXPOSE 8080

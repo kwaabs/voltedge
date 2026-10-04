@@ -42,11 +42,13 @@ type Doc struct {
 	RequiredPerm string `json:"required_permission,omitempty"`
 }
 
-// manifest is the whole in-app library: the six manuals plus the two how-to
-// guides and the README front door (docs/README.md's Tier 1). Order here is
-// the display order. The two administrative documents carry a RequiredPerm;
-// everything else is readable by any signed-in user. Filenames are the real
-// docs/*.md names -- verified present in the repo-root docs/ directory.
+// manifest is the whole in-app library: the reference manuals, the how-to
+// guides, the administrative references and the README front door
+// (docs/README.md's Tier 1). Order here is the display order. The
+// administrative documents (CIM export, symbology, admin/break-glass, and the
+// logging & observability guide) carry a RequiredPerm; everything else is
+// readable by any signed-in user. Filenames are the real docs/*.md names --
+// verified present in the repo-root docs/ directory.
 var manifest = []Doc{
 	{
 		ID:          "readme",
@@ -91,6 +93,27 @@ var manifest = []Doc{
 		Filename:    "feature-catalog.md",
 	},
 	{
+		ID:          "data-dictionary",
+		Title:       "Data Dictionary",
+		Description: "A short definition of every feature class and every field — plus the system columns and shared coded domains — for anyone entering or importing data.",
+		Category:    "Manuals",
+		Filename:    "data-dictionary.md",
+	},
+	{
+		ID:          "lv-and-metering-guide",
+		Title:       "LV Network & Metering",
+		Description: "Modelling the low-voltage network and metering end to end — conductors, pillars, service points, revenue/MV/network meters, and the consumption rollup, with worked examples.",
+		Category:    "Manuals",
+		Filename:    "lv-and-metering-guide.md",
+	},
+	{
+		ID:          "network-sectioning-guide",
+		Title:       "Feeders, Sections & Subnetworks",
+		Description: "VoltEdge's lean take on subnetworks — feeders (circuits), protection zones and switching sections, the boundary_role backbone, section highlighting, and feeder freshness.",
+		Category:    "Manuals",
+		Filename:    "network-sectioning-guide.md",
+	},
+	{
 		ID:          "asset-tags-guide",
 		Title:       "Asset Tags Guide",
 		Description: "How to use asset tags and how they work: minting, affixing, scanning to resolve, printing and querying by tag.",
@@ -103,6 +126,17 @@ var manifest = []Doc{
 		Description: "The hands-on companion to the handbook: one recipe per task — create and edit features, measure, snap, connect, annotate.",
 		Category:    "How-to guides",
 		Filename:    "everyday-operations.md",
+	},
+	{
+		// Readable by any signed-in user: running the BoQ tool needs only
+		// features:read. The administrative half (currencies, rates, overrides) is
+		// marked metadata:write inside the manual, so one document serves both the
+		// estimator and the catalog administrator.
+		ID:          "bill-of-quantities-guide",
+		Title:       "Bill of Quantities & Cost Catalog",
+		Description: "Pricing any slice of the network as a costed schedule, and administering the price book behind it — currencies, unit rates and per-feature overrides.",
+		Category:    "How-to guides",
+		Filename:    "bill-of-quantities-guide.md",
 	},
 	{
 		// Administrative: the CIM export mapping tables are metadata configuration,
@@ -134,6 +168,53 @@ var manifest = []Doc{
 		Description:  "Administering VoltEdge: users, roles and permissions, spatial access control, and the break-glass override.",
 		Category:     "Administration",
 		Filename:     "admin-break-glass-guide.md",
+		RequiredPerm: auth.PermUsersManage,
+	},
+	{
+		// Administrative/operations: configuring the structured logs, reading a
+		// request's trail, and shipping logs off the box. Gated on the same
+		// user-administration capability as the break-glass guide -- the "people who
+		// run VoltEdge" audience.
+		ID:           "logging-and-observability-guide",
+		Title:        "Logging & Observability Guide",
+		Description:  "What the services log and how: configuring format and level, correlating a request by its id, the PII policy, and shipping logs to an aggregator.",
+		Category:     "Administration",
+		Filename:     "logging-and-observability-guide.md",
+		RequiredPerm: auth.PermUsersManage,
+	},
+	{
+		// Administrative/operations: running VoltEdge at scale in production --
+		// replicas, load balancing, Postgres read replicas, connection pooling, tile
+		// and analysis scaling. Same "people who run VoltEdge" audience, so gated on
+		// the user-administration capability like the logging and break-glass guides.
+		ID:           "deployment-and-scaling-guide",
+		Title:        "Production Deployment & Scaling",
+		Description:  "Running VoltEdge in production at high concurrency: stateless API replicas, load balancing, Postgres read replicas and PgBouncer, tile and analysis scaling, Kubernetes shape, and the pre-flight checklist.",
+		Category:     "Administration",
+		Filename:     "deployment-and-scaling-guide.md",
+		RequiredPerm: auth.PermUsersManage,
+	},
+	{
+		// Administrative/operations: the step-by-step install for the production
+		// docker-compose.prod.yml stack -- secrets, images, SPA build, migrations,
+		// the first admin, TLS, backups, upgrades. Same "people who run VoltEdge"
+		// audience, gated on user-administration like the scaling guide.
+		ID:           "production-setup-runbook",
+		Title:        "Production Setup Runbook",
+		Description:  "Step-by-step install of the production stack: environment/secrets, building images and the SPA, migrating and seeding the database, the first break-glass admin, TLS, backups, upgrades and verification.",
+		Category:     "Administration",
+		Filename:     "production-setup-runbook.md",
+		RequiredPerm: auth.PermUsersManage,
+	},
+	{
+		// Administrative/operations: running the stack on the two realistic
+		// platforms beyond single-host compose -- Coolify (PaaS over compose) and
+		// Kubernetes (native objects + an operator). Same audience/gate.
+		ID:           "kubernetes-and-coolify-guide",
+		Title:        "Deploying on Kubernetes & Coolify",
+		Description:  "Taking the production stack to Coolify (a PaaS wrapper over Docker Compose) or Kubernetes (native Deployments/HPA/Ingress + a Postgres operator), with the portable web image and the platform-specific gotchas.",
+		Category:     "Administration",
+		Filename:     "kubernetes-and-coolify-guide.md",
 		RequiredPerm: auth.PermUsersManage,
 	},
 }

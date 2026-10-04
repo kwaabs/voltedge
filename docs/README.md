@@ -40,7 +40,15 @@ Find your task on the left; open the document on the right.
 | Log a defect, raise a work order, build an inspection checklist | **[Works, Inspections & Maintenance Guide](works-inspections-maintenance-guide.md)** |
 | Capture and wire up a substation, end to end | **[Substation Guide](substation-guide.md)** |
 | Look up one feature class — its fields, terminals, network role, symbology | **[Feature Catalog](feature-catalog.md)** |
+| Look up what a field *means* before entering data — every class, every column, in a line | **[Data Dictionary](data-dictionary.md)** |
+| Model the LV network and metering — conductors, pillars, service points, meters, consumption | **[LV Network & Metering](lv-and-metering-guide.md)** |
+| Understand feeders, protection zones, switching sections and how VoltEdge does subnetworks | **[Feeders, Sections & Subnetworks](network-sectioning-guide.md)** |
 | Draw an SVG icon, attach it to a class, and style features by their field values | **[Symbology & Map Styling Guide](symbology-guide.md)** |
+| Price a slice of the network as a Bill of Quantities, or maintain the cost catalog | **[Bill of Quantities & Cost Catalog](bill-of-quantities-guide.md)** |
+| Configure logging, correlate a request by its id, or ship logs off the box | **[Logging & Observability Guide](logging-and-observability-guide.md)** |
+| Deploy to production at scale — replicas, load balancers, DB replicas, Kubernetes | **[Production Deployment & Scaling](deployment-and-scaling-guide.md)** |
+| Actually stand up the production stack step by step — env, images, migrate, TLS | **[Production Setup Runbook](production-setup-runbook.md)** |
+| Run the stack on Coolify or Kubernetes — PaaS wrapper or native manifests | **[Deploying on Kubernetes & Coolify](kubernetes-and-coolify-guide.md)** |
 | Understand how the asset-tag / faults / registry / import subsystem is built | The matching **module deep-dive** (see Tier 2 below) |
 | Run the database, compiler, or server by hand | **[Command cheatsheet](commands-cheatsheet.md)** |
 | See what's still outstanding across the project | **[Open-items log](open-items.md)** |
@@ -129,6 +137,18 @@ and where it's drawn. Not a tutorial — a lookup.
 **Pairs with:** the Substation Guide (narrative) and Engineering Studies (the
 engine that reads these classes).
 
+### 6b. [Data Dictionary](data-dictionary.md)
+
+The **key you hold while loading data.** Every feature class and every field
+with a one-line meaning, plus the system columns that sit on *every* table and
+the shared coded domains (`PHASE`, `VOLTAGE_CLASS`, …) that fields draw from.
+Terser than the Feature Catalog — no narrative, just "what does this column
+mean and what may I put in it."
+
+**Read it if:** you're about to enter or import data and want to get the fields
+right the first time.
+**Pairs with:** the Feature Catalog (the fuller per-class reference).
+
 ### 7. [Everyday Operations](everyday-operations.md) — *the task cookbook*
 
 The **hands-on companion to the User Handbook.** Where the handbook explains
@@ -141,6 +161,16 @@ then a *how it works* and *tips & gotchas*. Ten chapters.
 
 **Read it if:** you know roughly what you want to do and just need the exact
 sequence. **Who's in it:** Dana (editor), Priya (viewer), Tom (field), Ada (admin).
+
+### Also in Tier 1 — focused how-to & administration guides
+
+Added to the library as the product grew, in the same house voice:
+
+- **[Symbology & Map Styling Guide](symbology-guide.md)** *(Administration — needs `metadata:read`)* — drawing SVG icons, attaching them to classes, and styling features by subtype and field value.
+- **[Bill of Quantities & Cost Catalog](bill-of-quantities-guide.md)** *(How-to)* — pricing any scope of the network as a costed schedule (needs only `features:read`), and administering the price book behind it: currencies, unit rates and per-feature overrides (`metadata:write`).
+- **[Logging & Observability Guide](logging-and-observability-guide.md)** *(Administration — needs `admin:users`)* — what the services log and how: configuring format and level, correlating a request by its `X-Request-Id`, the PII policy, and shipping logs to an aggregator (Vector/Promtail → Loki → Grafana).
+- **[Feeders, Sections & Subnetworks](network-sectioning-guide.md)** *(Manual)* — VoltEdge's lean subnetwork model: feeders (= circuits), protection zones vs switching sections, the `boundary_role` device backbone, on-demand section highlighting, sections in trace/load-flow results, and feeder freshness — with a comparison to the heavyweight utility-network approach and what's deliberately left out.
+- **[LV Network & Metering](lv-and-metering-guide.md)** *(Manual)* — modelling the low-voltage network and metering end to end: `LV_CONDUCTOR`, cut-outs, pillars and the `LV_PILLAR` assembly, `SERVICE_POINT`, the inline revenue `METER` (and the SP-owns-METER model), MV metering (`MV_METERING_POINT`/`MV_METER`), energy-accounting `NETWORK_METER`, the seven supply chains, and the consumption rollup. Worked from the seeded test + ring networks.
 
 ---
 
