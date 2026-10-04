@@ -1,0 +1,50 @@
+# infra/loki/config.yaml -- minimal single-binary Loki for the VoltEdge
+# observability overlay (docker-compose.observability.yml). Filesystem storage,
+# in-memory ring, no auth -- a self-contained local/single-host log store, NOT a
+# multi-tenant production cluster. For a real deployment, move chunks to object
+# storage (S3/RustFS) and put an auth proxy in front; the collector + Grafana
+# wiring stays identical.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kind: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # Allow the slightly-out-of-order writes that arrive when several containers'
+  # streams interleave; the collector also sets out_of_order_action=accept.
+  reject_old_samples: false
+  # Keep the single node from rejecting a brief burst of app logs.
+  ingestion_rate_mb: 16
+  ingestion_burst_size_mb: 32
+  # How long logs are retained before compaction reaps them (7 days here, to
+  # match the export/attachment retention defaults). Raise for longer history.
+  retention_period: 168h
+
+compactor:
+  working_directory: /loki/compactor
+  delete_request_store: filesystem
+  retention_enabled: true

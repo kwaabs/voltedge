@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/assettag"
 	"github.com/kwaabs/voltedge/api/internal/basemap"
+	"github.com/kwaabs/voltedge/api/internal/boq"
 	"github.com/kwaabs/voltedge/api/internal/circuit"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/coupler"
@@ -46,10 +48,13 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/featureregistry"
 	"github.com/kwaabs/voltedge/api/internal/fieldpack"
 	"github.com/kwaabs/voltedge/api/internal/importer"
+	"github.com/kwaabs/voltedge/api/internal/logsettings"
+	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/kwaabs/voltedge/api/internal/mapannotation"
 	"github.com/kwaabs/voltedge/api/internal/mapsettings"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/oms"
+	"github.com/kwaabs/voltedge/api/internal/ownership"
 	"github.com/kwaabs/voltedge/api/internal/packagedsub"
 	"github.com/kwaabs/voltedge/api/internal/panel"
 	"github.com/kwaabs/voltedge/api/internal/powerflow"
@@ -70,6 +75,11 @@ import (
 )
 
 func main() {
+	// The structured-logging root. Built first so everything below (and any
+	// slog.Default call) shares one format/level/destination. Boot-time fatals
+	// below still use stdlib log.Fatal -- they abort before the server exists.
+	rootLogger := logx.Init()
+
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		log.Fatal("DATABASE_URL is not set")
@@ -83,6 +93,16 @@ func main() {
 	sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(databaseURL)))
 	db := bun.NewDB(sqldb, pgdialect.New())
 	defer db.Close()
+
+	// Re-apply the admin-set runtime log level (internal/logsettings), if one was
+	// saved, OVER the env default -- so a level an operator chose in the UI
+	// survives a restart. A missing row keeps the env/default level; a read error
+	// is non-fatal (logging verbosity is never worth failing boot over).
+	if lvl, ok, lerr := logsettings.LoadPersistedLevel(context.Background(), db); lerr != nil {
+		rootLogger.Warn("could not read persisted log level", "err", lerr)
+	} else if ok {
+		logx.SetLevel(lvl)
+	}
 
 	// Phase 17: export artifacts stream to RustFS and download via presigned
 	// URL. Building the client is offline (config only), so a momentarily
@@ -125,7 +145,11 @@ func main() {
 	}
 
 	r := chi.NewRouter()
-	r.Use(middleware.Logger)
+	// Structured request logging (internal/httpx + logx) in place of chi's
+	// plain-text middleware.Logger: one JSON summary line per request, tagged
+	// with a correlation id (also returned as X-Request-Id) and -- once the
+	// session middleware below resolves the caller -- the acting user.
+	r.Use(httpx.Logger(rootLogger))
 	r.Use(middleware.Recoverer)
 	// A generous global request-body cap: a backstop so no endpoint can be made to
 	// buffer an unbounded body. It is sized well above any legitimate JSON control
@@ -143,6 +167,19 @@ func main() {
 	authCfg := auth.NewConfigFromEnv()
 	r.Use(auth.SecurityHeaders())
 	r.Use(auth.SessionLoader(db, authCfg))
+	// Enrich the request-summary log line with the resolved caller. This runs
+	// just after SessionLoader so UserFrom sees the attached user; it writes into
+	// the pointer-carried logx attribute bag the request logger opened upstream,
+	// so the id lands on that one summary line. Only the opaque user id is logged
+	// (not email/display name) -- logs are an audit-grade trail, keep PII out.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if u, ok := auth.UserFrom(r.Context()); ok {
+				logx.AddAttr(r.Context(), slog.String("user.id", u.ID))
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
 
 	// /healthz stays public -- container orchestration probes it with no
 	// session, and it exposes nothing but DB reachability.
@@ -210,6 +247,11 @@ func main() {
 	// features (a feature's circuit_id resolves to a circuit name here), so the
 	// read side rides features:read while curation needs circuits:write.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermCircuitsWrite)).Mount("/circuits", circuit.Routes(db))
+	// Asset-ownership propagation (internal/ownership): declare a transformer
+	// private and stamp ownership=private onto everything downstream, plus a
+	// global re-sync. Both POSTs bulk-write feature rows, so the mount requires
+	// features:write -- the same capability a single attribute edit needs.
+	r.With(auth.RequirePermission(auth.PermFeaturesWrite, auth.PermFeaturesWrite)).Mount("/ownership", ownership.Routes(db))
 	// Outage Management (Phase 49): the outage board -- trouble-call intake,
 	// call-to-device prediction, and incident lifecycle. Its own oms:read/
 	// oms:write capability (an outage is an operational transaction, not feature
@@ -326,6 +368,9 @@ func main() {
 	r.With(auth.RequirePermission(auth.PermAnnotationsRead, auth.PermAnnotationsWrite)).Mount("/map-annotations", mapannotation.Routes(db))
 	r.With(auth.RequirePermission(auth.PermTraceRun, auth.PermTraceRun)).Mount("/trace", trace.Routes(db))
 	r.With(auth.RequirePermission(auth.PermAnalysisRun, auth.PermAnalysisRun)).Mount("/analysis", powerflow.Routes(db))
+	// Bill of Quantities: a priced schedule over a scope. Read-only, reads feature
+	// quantities (like /aggregate) -- gated on features:read.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/boq", boq.Routes(db))
 	// Phase 19: the in-app AI assistant's backend (docs/phase-19-assistant.md).
 	// Only RequireAuth here, not a single RBAC gate -- /assistant/suggestions
 	// reads two capabilities at once (connectivity + relationships) and gates
@@ -362,6 +407,12 @@ func main() {
 	// lives under /admin/map-settings while the API sits top-level, the same
 	// split as external-systems and field-packs.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermMetadataWrite)).Mount("/map-settings", mapsettings.Routes(db))
+	// The runtime log-level control (internal/logsettings): raise/lower the
+	// server's structured-logging verbosity live, no restart. Gated on admin:users
+	// for BOTH read and write -- it is a platform-operations control, not a
+	// per-user preference, so unlike map-settings even the GET needs the admin
+	// capability. Persisted in iam.system_settings and re-applied at boot above.
+	r.With(auth.RequirePermission(auth.PermUsersManage, auth.PermUsersManage)).Mount("/log-settings", logsettings.Routes(db))
 	// Phase 61 private-drafts rollout switch (private_drafts_enabled). Same
 	// method-aware gate as map-settings: GET is features:read so an admin screen
 	// can show the current state, while the PUT that flips it -- retroactively
@@ -466,6 +517,11 @@ type featureClassResponse struct {
 	// FunctionalRole is the class's electrical function (migration 0091), nil for
 	// an unclassified / non-electrical class -- orthogonal to network_role.
 	FunctionalRole      *string `json:"functional_role,omitempty"`
+	// BoundaryRole is the class's network-sectioning function (migration 0129):
+	// source/protective/switching/transformer, or nil for a non-boundary class.
+	// The frontend derives each feature's "section" by climbing its trace/load-flow
+	// parent tree to the nearest boundary-role ancestor -- no engine change needed.
+	BoundaryRole        *string `json:"boundary_role,omitempty"`
 	IsDiagramContainer  bool    `json:"is_diagram_container"`
 	IsDiagramPlaceable  bool    `json:"is_diagram_placeable"`
 	GeometryOptional    bool    `json:"geometry_optional"`
@@ -498,6 +554,7 @@ func featureClassesHandler(db *bun.DB) http.HandlerFunc {
 				GeometryType:        fc.GeometryType,
 				NetworkRole:         fc.NetworkRole,
 				FunctionalRole:      fc.FunctionalRole,
+				BoundaryRole:        fc.BoundaryRole,
 				IsDiagramContainer:  fc.IsDiagramContainer,
 				IsDiagramPlaceable:  fc.IsDiagramPlaceable,
 				GeometryOptional:    fc.GeometryOptional,

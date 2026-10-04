@@ -170,6 +170,79 @@ func validateUpdateMaterialSpec(req updateMaterialSpecRequest) error {
 	return nil
 }
 
+// validUnitBases are the two multiplication bases a cost rate can carry,
+// mirroring metadata.cost_rates' own CHECK (migration 0127).
+var validUnitBases = map[string]bool{"each": true, "per_km": true}
+
+// validateCreateCurrency checks a new currency: a well-formed code (ISO-style
+// upper-case, the same shape validateCode enforces for every code column),
+// a name, a strictly-positive per_base, and the base-is-unit invariant the
+// database CHECK also enforces (surfaced here as a friendly 400).
+func validateCreateCurrency(req createCurrencyRequest) error {
+	if err := validateCode("currency code", req.Code); err != nil {
+		return err
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return invalid("currency name is required")
+	}
+	if req.PerBase == nil {
+		return invalid("per_base is required")
+	}
+	if *req.PerBase <= 0 {
+		return invalid("per_base must be greater than zero")
+	}
+	if req.IsBase && *req.PerBase != 1 {
+		return invalid("the base currency's per_base must be exactly 1")
+	}
+	return nil
+}
+
+func validateUpdateCurrency(req updateCurrencyRequest) error {
+	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
+		return invalid("name cannot be blank")
+	}
+	if req.PerBase != nil && *req.PerBase <= 0 {
+		return invalid("per_base must be greater than zero")
+	}
+	if req.Name == nil && req.PerBase == nil && req.IsBase == nil {
+		return invalid("request must set at least one field")
+	}
+	return nil
+}
+
+func validateCreateCostRate(req createCostRateRequest) error {
+	if err := validateCode("feature_class_code", req.FeatureClassCode); err != nil {
+		return err
+	}
+	if !validUnitBases[req.UnitBasis] {
+		return invalid("unit_basis must be one of each, per_km")
+	}
+	if req.UnitRate < 0 {
+		return invalid("unit_rate cannot be negative")
+	}
+	return nil
+}
+
+func validateUpdateCostRate(req updateCostRateRequest) error {
+	if req.UnitBasis != nil && !validUnitBases[*req.UnitBasis] {
+		return invalid("unit_basis must be one of each, per_km")
+	}
+	if req.UnitRate != nil && *req.UnitRate < 0 {
+		return invalid("unit_rate cannot be negative")
+	}
+	if req.UnitBasis == nil && req.UnitRate == nil && req.Notes == nil && req.SubtypeCode == nil && !req.ClearSubtype {
+		return invalid("request must set at least one field")
+	}
+	return nil
+}
+
+func validateUpsertFeatureCostOverride(req upsertFeatureCostOverrideRequest) error {
+	if req.UnitCost < 0 {
+		return invalid("unit_cost cannot be negative")
+	}
+	return nil
+}
+
 // validateSymbologyIcon checks the two real content contracts an icon row
 // must honor (see docs/phase-3-symbology-icon-table.md and
 // migrations/0023's own column comments), the DB-authoring equivalent of

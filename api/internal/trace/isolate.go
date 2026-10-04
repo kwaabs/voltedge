@@ -147,7 +147,9 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 	// MV_SWITCH (or vice versa), whatever the nearest switching device is.
 	// Falls back to Device's own class when no controller role is stamped yet,
 	// preserving the pre-role behavior on an unclassified deployment.
-	boundaryClassIDs, err := boundaryClassSet(ctx, db, req.BoundaryClass, req.Device.FeatureClass)
+	// Isolation reports its boundaries as the switches to OPEN, and a transformer
+	// isn't openable -- so it bounds only on protective/switching devices.
+	boundaryClassIDs, err := boundaryClassSet(ctx, db, req.BoundaryClass, req.Device.FeatureClass, isolationBoundaryRoles)
 	if err != nil {
 		return nil, err
 	}

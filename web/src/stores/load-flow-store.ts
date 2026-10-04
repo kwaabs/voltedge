@@ -32,6 +32,11 @@ export interface LoadFlowNodeResult {
    * carries no circuit field; the node's voltage is voltage_v / nominal_base_v. */
   circuit_id?: string
   circuit_ref?: string
+  /** The node's ownership -- "private" for an owner's plant (the asset-ownership
+   * axis), absent for utility-owned/unset. The load flow crosses the ownership
+   * boundary rather than stopping at it; the panel badges the private rows so a
+   * reader can see which part of the run is the customer's own network. */
+  ownership?: string
   voltage_v: number
   voltage_drop_pct: number
   nominal_base_v: number

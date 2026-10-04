@@ -19,6 +19,13 @@ export interface Circuit {
   source_feature_id: string | null
   created_at: string
   updated_at: string
+  /** When assign-by-trace last full-synced this circuit's membership (migration
+   * 0130); null = never assigned. */
+  members_synced_at: string | null
+  /** Computed freshness flag: true when a member feature was edited since
+   * members_synced_at, so the stamped membership may be stale and the circuit
+   * should be re-assigned. */
+  stale: boolean
 }
 
 interface CircuitsResponse {

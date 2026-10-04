@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -28,6 +27,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/export"
+	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/kwaabs/voltedge/api/internal/secretbox"
 )
 
@@ -138,7 +138,7 @@ func runClaimedImport(ctx context.Context, db *bun.DB, store *export.ObjectStore
 			t.total++
 			t.errored++
 			if err := recordRowError(ctx, db, job.ID, row, fmt.Sprintf("malformed source row: %v", readErr)); err != nil {
-				log.Printf("import: job %s could not record row %d error: %v", job.ID, row, err)
+				logx.From(ctx).Error("could not record row error", "row", row, "err", err)
 			}
 			fatal = fmt.Sprintf("source artifact is malformed at row %d: %v", row, readErr)
 			break
@@ -158,13 +158,13 @@ func runClaimedImport(ctx context.Context, db *bun.DB, store *export.ObjectStore
 		}
 		if msg != "" {
 			if err := recordRowError(ctx, db, job.ID, row, msg); err != nil {
-				log.Printf("import: job %s could not record row %d error: %v", job.ID, row, err)
+				logx.From(ctx).Error("could not record row error", "row", row, "err", err)
 			}
 		}
 
 		if t.total%progressFlush == 0 {
 			if err := updateImportProgress(ctx, db, job.ID, t); err != nil {
-				log.Printf("import: job %s progress flush failed: %v", job.ID, err)
+				logx.From(ctx).Error("progress flush failed", "err", err)
 			}
 		}
 	}
@@ -176,7 +176,7 @@ func runClaimedImport(ctx context.Context, db *bun.DB, store *export.ObjectStore
 		errMsg = &fatal
 	}
 	if err := completeImport(ctx, db, job.ID, t, status, errMsg); err != nil {
-		log.Printf("import: job %s finished but marking %s failed: %v", job.ID, status, err)
+		logx.From(ctx).Error("finished but marking terminal status failed", "status", status, "err", err)
 	}
 }
 
@@ -361,6 +361,6 @@ func isSQLiteSourceFormat(format string) bool {
 // that write fails.
 func markImportFailed(ctx context.Context, db *bun.DB, id, msg string) {
 	if err := completeImport(ctx, db, id, importTally{}, "failed", &msg); err != nil {
-		log.Printf("import: job %s failed (%s) and marking failed also failed: %v", id, msg, err)
+		logx.From(ctx).Error("job failed and marking failed also failed", "reason", msg, "err", err)
 	}
 }

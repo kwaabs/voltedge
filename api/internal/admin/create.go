@@ -353,3 +353,154 @@ func createMaterialSpec(ctx context.Context, db *bun.DB, req createMaterialSpecR
 	}
 	return &resp, nil
 }
+
+// --- Bill of Quantities cost catalog (migrations 0127/0128) ------------------
+
+// toCostRateResponse shapes a loaded cost_rates row for the wire -- shared by
+// create/update/list so the three never drift.
+func toCostRateResponse(m *metadata.CostRate) costRateResponse {
+	return costRateResponse{
+		ID: m.ID, FeatureClassCode: m.FeatureClassCode, SubtypeCode: m.SubtypeCode,
+		UnitBasis: m.UnitBasis, UnitRate: m.UnitRate, Notes: m.Notes,
+	}
+}
+
+// costRateExists enforces the (feature_class_code, subtype_code) composite
+// uniqueness the DB partial index (COALESCE(subtype_code,-1)) also guarantees,
+// as a friendly 400 instead of a raw constraint-violation 500. A NULL subtype
+// (the class-wide default) is matched as a distinct slot. excludeID lets an
+// update skip its own row.
+func costRateExists(ctx context.Context, tx bun.Tx, classCode string, subtype *int, excludeID string) (bool, error) {
+	q := tx.NewSelect().Model((*metadata.CostRate)(nil)).Where("feature_class_code = ?", classCode)
+	if subtype == nil {
+		q = q.Where("subtype_code IS NULL")
+	} else {
+		q = q.Where("subtype_code = ?", *subtype)
+	}
+	if excludeID != "" {
+		q = q.Where("id <> ?", excludeID)
+	}
+	exists, err := q.Exists(ctx)
+	if err != nil {
+		return false, fmt.Errorf("checking cost rate duplicate: %w", err)
+	}
+	return exists, nil
+}
+
+// createCurrency inserts a presentation currency. The code is the primary key
+// (text, not generated), so no ExcludeColumn. Only one row may be the base,
+// prechecked here for a clear message instead of the partial-unique-index 500.
+func createCurrency(ctx context.Context, db *bun.DB, req createCurrencyRequest) (*currencyResponse, error) {
+	if err := validateCreateCurrency(req); err != nil {
+		return nil, err
+	}
+
+	var resp currencyResponse
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		exists, err := codeExists(ctx, tx, (*metadata.Currency)(nil), req.Code)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return invalid("a currency with code %q already exists", req.Code)
+		}
+		if req.IsBase {
+			baseExists, err := tx.NewSelect().Model((*metadata.Currency)(nil)).Where("is_base").Exists(ctx)
+			if err != nil {
+				return fmt.Errorf("checking existing base currency: %w", err)
+			}
+			if baseExists {
+				return invalid("a base currency already exists -- only one currency can be the base")
+			}
+		}
+
+		m := &metadata.Currency{Code: req.Code, Name: req.Name, PerBase: *req.PerBase, IsBase: req.IsBase}
+		if _, err := tx.NewInsert().Model(m).Exec(ctx); err != nil {
+			return fmt.Errorf("insert currency: %w", err)
+		}
+		resp = currencyResponse{Code: m.Code, Name: m.Name, PerBase: m.PerBase, IsBase: m.IsBase}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// createCostRate inserts a unit rate for a class/subtype, composite-uniqueness
+// prechecked. The id is generated, so ExcludeColumn("id") like material_specs.
+func createCostRate(ctx context.Context, db *bun.DB, req createCostRateRequest) (*costRateResponse, error) {
+	if err := validateCreateCostRate(req); err != nil {
+		return nil, err
+	}
+
+	var resp costRateResponse
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		dup, err := costRateExists(ctx, tx, req.FeatureClassCode, req.SubtypeCode, "")
+		if err != nil {
+			return err
+		}
+		if dup {
+			return invalid("a cost rate for class %q and that subtype already exists -- edit it instead", req.FeatureClassCode)
+		}
+
+		m := &metadata.CostRate{
+			FeatureClassCode: req.FeatureClassCode, SubtypeCode: req.SubtypeCode,
+			UnitBasis: req.UnitBasis, UnitRate: req.UnitRate, Notes: req.Notes,
+		}
+		if _, err := tx.NewInsert().Model(m).ExcludeColumn("id").Exec(ctx); err != nil {
+			return fmt.Errorf("insert cost rate: %w", err)
+		}
+		resp = toCostRateResponse(m)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// upsertFeatureCostOverride sets (or replaces) the single per-feature override
+// keyed by (class, feature_id) -- idempotent, so the feature panel's one control
+// can PUT a value without first knowing whether a row already exists.
+func upsertFeatureCostOverride(ctx context.Context, db *bun.DB, classCode, featureID string, req upsertFeatureCostOverrideRequest) (*featureCostOverrideResponse, error) {
+	if err := validateUpsertFeatureCostOverride(req); err != nil {
+		return nil, err
+	}
+
+	var resp featureCostOverrideResponse
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		m := new(metadata.FeatureCostOverride)
+		err := tx.NewSelect().Model(m).
+			Where("feature_class_code = ?", classCode).Where("feature_id = ?", featureID).Scan(ctx)
+		switch {
+		case err == sql.ErrNoRows:
+			m = &metadata.FeatureCostOverride{
+				FeatureClassCode: classCode, FeatureID: featureID,
+				UnitCost: req.UnitCost, Notes: req.Notes,
+			}
+			if _, err := tx.NewInsert().Model(m).ExcludeColumn("id").Exec(ctx); err != nil {
+				return fmt.Errorf("insert feature cost override: %w", err)
+			}
+		case err != nil:
+			return fmt.Errorf("loading feature cost override: %w", err)
+		default:
+			m.UnitCost = req.UnitCost
+			m.Notes = req.Notes
+			if _, err := tx.NewUpdate().Model(m).
+				Set("unit_cost = ?", m.UnitCost).Set("notes = ?", m.Notes).Set("updated_at = now()").
+				Where("id = ?", m.ID).Exec(ctx); err != nil {
+				return fmt.Errorf("updating feature cost override: %w", err)
+			}
+		}
+		resp = featureCostOverrideResponse{
+			ID: m.ID, FeatureClassCode: m.FeatureClassCode, FeatureID: m.FeatureID,
+			UnitCost: m.UnitCost, Notes: m.Notes,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

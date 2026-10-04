@@ -1,6 +1,8 @@
-// Package httpx holds small, dependency-free HTTP middleware shared across the
-// server binaries (cmd/server, cmd/fieldsync). It exists so the same request
-// hardening is applied identically everywhere rather than re-derived per binary.
+// Package httpx holds small HTTP middleware shared across the server binaries
+// (cmd/server, cmd/fieldsync). It exists so the same request hardening -- body
+// caps (MaxBytes) and structured request logging (Logger) -- is applied
+// identically everywhere rather than re-derived per binary. MaxBytes is
+// stdlib-only; Logger leans on chi's response wrapper and internal/logx.
 package httpx
 
 import "net/http"

@@ -609,6 +609,45 @@ func ListMaterialSpecs(ctx context.Context, db bun.IDB) ([]MaterialSpec, error) 
 	return specs, nil
 }
 
+// ListCostRates returns every cost_rates row -- the whole unit-rate price book
+// (migration 0127), a small global catalog fetched in full and indexed by the
+// BoQ engine per (feature class, subtype).
+func ListCostRates(ctx context.Context, db bun.IDB) ([]CostRate, error) {
+	var rates []CostRate
+	if err := db.NewSelect().Model(&rates).Order("feature_class_code", "subtype_code").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: listing cost rates: %w", err)
+	}
+	return rates, nil
+}
+
+// ListCurrencies returns every currencies row (migration 0127) -- a small global
+// set, base row plus any presentation currencies, fetched whole for the BoQ
+// currency picker and base-amount conversion.
+func ListCurrencies(ctx context.Context, db bun.IDB) ([]Currency, error) {
+	var currencies []Currency
+	if err := db.NewSelect().Model(&currencies).Order("is_base DESC", "code").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: listing currencies: %w", err)
+	}
+	return currencies, nil
+}
+
+// ListFeatureCostOverrides returns every feature_cost_overrides row (migration
+// 0128) -- the whole per-feature override set, a small global table fetched in
+// full and indexed by the BoQ engine per (feature class, feature id). Optionally
+// narrowed to one class when classCode is non-empty (the feature panel's
+// single-feature lookup still filters in Go, but a class scan prefers this).
+func ListFeatureCostOverrides(ctx context.Context, db bun.IDB, classCode string) ([]FeatureCostOverride, error) {
+	var overrides []FeatureCostOverride
+	q := db.NewSelect().Model(&overrides)
+	if classCode != "" {
+		q = q.Where("feature_class_code = ?", classCode)
+	}
+	if err := q.Order("feature_class_code", "feature_id").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("metadata: listing feature cost overrides: %w", err)
+	}
+	return overrides, nil
+}
+
 // ListSymbologyIcons returns every symbology_icons row -- a small,
 // global set (mirrors ListMaterialSpecs/ListFieldGroups), served whole to
 // the frontend at GET /symbology/icons and cached there, since a rule can

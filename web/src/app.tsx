@@ -21,11 +21,13 @@ import { AdminFieldGroupsPage } from "@/routes/admin-field-groups"
 import { AdminMapSettingsPage } from "@/routes/admin-map-settings"
 import { AdminWebhooksPage } from "@/routes/admin-webhooks"
 import { AdminFieldPacksPage } from "@/routes/admin-field-packs"
+import { AdminCostCatalogPage } from "@/routes/admin-cost-catalog"
 import { AdminMaterialsPage } from "@/routes/admin-materials"
 import { AdminStencilsPage } from "@/routes/admin-stencils"
 import { AdminSymbologyIconsPage } from "@/routes/admin-symbology-icons"
 import { AdminTerritoriesPage } from "@/routes/admin-territories"
 import { AdminUsersPage } from "@/routes/admin-users"
+import { AdminLoggingPage } from "@/routes/admin-logging"
 import { SyncReviewPage } from "@/routes/sync-review"
 import { DocsPage } from "@/routes/docs"
 import { FeaturesPage } from "@/routes/features"
@@ -232,6 +234,14 @@ export function App() {
               }
             />
             <Route
+              path="admin/cost-catalog"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminCostCatalogPage />
+                </RequirePermission>
+              }
+            />
+            <Route
               path="admin/external-systems"
               element={
                 <RequirePermission perm="metadata:write">
@@ -284,6 +294,14 @@ export function App() {
               element={
                 <RequirePermission perm="admin:users">
                   <AdminUsersPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/logging"
+              element={
+                <RequirePermission perm="admin:users">
+                  <AdminLoggingPage />
                 </RequirePermission>
               }
             />

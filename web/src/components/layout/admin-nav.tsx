@@ -1,6 +1,8 @@
 import {
   Cloud,
+  Coins,
   FileInput,
+  Gauge,
   Inbox,
   LandPlot,
   Layers,
@@ -80,6 +82,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         perm: "metadata:read",
       },
       {
+        to: "/admin/cost-catalog",
+        label: "Cost catalog",
+        description: "Currencies and the unit-rate price book the Bill of Quantities prices against.",
+        icon: Coins,
+        perm: "metadata:write",
+      },
+      {
         to: "/admin/external-systems",
         label: "External systems",
         description: "APIs a feature's live links fetch data from (CIS, billing…).",
@@ -150,6 +159,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         label: "Users",
         description: "User accounts, roles and spatial territory access.",
         icon: UsersRound,
+        perm: "admin:users",
+      },
+      {
+        to: "/admin/logging",
+        label: "Logging",
+        description: "The API server's log verbosity — raise it to debug an incident, lower it after.",
+        icon: Gauge,
         perm: "admin:users",
       },
       {

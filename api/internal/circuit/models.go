@@ -47,4 +47,14 @@ type Circuit struct {
 	SourceFeatureID    *string   `bun:"source_feature_id" json:"source_feature_id"`
 	CreatedAt          time.Time `bun:"created_at" json:"created_at"`
 	UpdatedAt          time.Time `bun:"updated_at" json:"updated_at"`
+	// MembersSyncedAt is when assign-by-trace last full-synced this circuit's
+	// membership (migration 0130); nil = never assigned. Drives the freshness
+	// signal below.
+	MembersSyncedAt *time.Time `bun:"members_synced_at" json:"members_synced_at"`
+	// Stale is a COMPUTED (non-column, bun:"-") freshness flag: true when a member
+	// feature has been edited since members_synced_at, so the stamped membership
+	// may no longer match the live network and the circuit should be re-assigned.
+	// Populated by applyStaleness on the list/get path; false for a never-assigned
+	// circuit. See the migration header for the no-false-positive guarantee.
+	Stale bool `bun:"-" json:"stale"`
 }

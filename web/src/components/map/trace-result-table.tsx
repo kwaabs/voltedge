@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { ServiceRollupSummary } from "@/components/map/service-rollup-summary"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { ApiError, apiFetch } from "@/lib/api"
+import { boundaryRoleMap, nearestBoundary, type SectionNode } from "@/lib/network-section"
 import { cn } from "@/lib/utils"
 import { useDiagramStore } from "@/stores/diagram-store"
 import { useSelectionStore } from "@/stores/selection-store"
@@ -83,6 +84,21 @@ function DeviceStateBadge({ state }: { state: string | null }) {
   )
 }
 
+/** A "Private" badge for a reached feature that belongs to a customer's own
+ * network (ownership = "private"). Null for utility-owned/unset, so it only
+ * marks the private stretch a trace crossed into. */
+function OwnershipBadge({ ownership }: { ownership: string | null }) {
+  if (ownership !== "private") return null
+  return (
+    <span
+      className="shrink-0 rounded bg-slate-500/15 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 dark:text-slate-300"
+      title="Privately owned — the customer's own network, not utility plant"
+    >
+      Private
+    </span>
+  )
+}
+
 interface ResolvedRow {
   feature_class: string
   feature_id: string
@@ -100,6 +116,12 @@ interface ResolvedRow {
    * no extra fetch). Drives the state badge that marks every switch the trace
    * reached, closed ones included. */
   deviceState: string | null
+  /** The reached feature's ownership ("private" for an owner's plant, null for
+   * utility-owned/unset -- rides on the trace response's tracedFeature.ownership,
+   * no extra fetch). Drives the "Private" badge that flags the stretch of the
+   * result that belongs to the customer's own network (the asset-ownership axis),
+   * since a trace crosses that boundary rather than stopping at it. */
+  ownership: string | null
   /** This feature's one-hop-upstream neighbour in the trace's BFS tree (rides on
    * the trace response's tracedFeature.parent_feature_* -- no extra fetch), used
    * to build the client-side tree view. Null on the start feature and on any node
@@ -439,6 +461,9 @@ export function TraceResultTable() {
             // device_state rides the trace response too -- present only for
             // switching devices, absent (null) for everything else.
             deviceState: ref.device_state ?? null,
+            // ownership rides the trace response too -- "private" for an owner's
+            // plant, absent (null) for utility-owned/unset.
+            ownership: ref.ownership ?? null,
             // Parent pointers ride the trace response too -- present on the
             // standard trace, absent (null) on the synthetic feeder/section/
             // service/supply-path traces, where the tree falls back to flat.
@@ -467,6 +492,49 @@ export function TraceResultTable() {
 
   const directionLabel = DIRECTION_LABEL[result.direction] ?? result.direction
   const classNameFor = (code: string) => featureClasses?.feature_classes.find((fc) => fc.code === code)?.name ?? code
+
+  // Network sectioning (migration 0129): each row's section = its nearest
+  // upstream boundary device, climbed from the parent tree the trace already
+  // carries. Derived client-side from boundary_role -- no engine change. The
+  // boundary device itself heads its own section (so it gets no tag); downstream
+  // rows show the head's name. Precomputed once per row.
+  const sectionRoleByClass = boundaryRoleMap(featureClasses?.feature_classes)
+  const sectionNodes = new Map<string, SectionNode>(
+    (rows ?? []).map((r) => [
+      rowKey(r),
+      {
+        feature_class: r.feature_class,
+        feature_id: r.feature_id,
+        parent_feature_class: r.parentClass,
+        parent_feature_id: r.parentId,
+      },
+    ]),
+  )
+  const rowNameByKey = new Map((rows ?? []).map((r) => [rowKey(r), r.name]))
+  const sectionByKey = new Map<string, string | null>(
+    (rows ?? []).map((r) => {
+      const node = sectionNodes.get(rowKey(r))
+      const b = node ? nearestBoundary(node, sectionNodes, sectionRoleByClass) : null
+      // A boundary device heads its own section -- don't tag it with itself.
+      if (!b || (b.feature_class === r.feature_class && b.feature_id === r.feature_id)) {
+        return [rowKey(r), null]
+      }
+      const headKey = `${b.feature_class}:${b.feature_id}`
+      return [rowKey(r), rowNameByKey.get(headKey) || classNameFor(b.feature_class)]
+    }),
+  )
+  const sectionTag = (row: ResolvedRow) => {
+    const s = sectionByKey.get(rowKey(row))
+    if (!s) return null
+    return (
+      <span
+        className="text-muted-foreground shrink-0 text-[11px]"
+        title="Network section — its nearest upstream boundary device"
+      >
+        § {s}
+      </span>
+    )
+  }
   // Only give computed voltage its own column when a load-flow result for
   // this trace's start was snapshotted at trace time (feature-panel.tsx) --
   // otherwise the whole column would be "—" noise. Nominal voltage always
@@ -603,6 +671,8 @@ export function TraceResultTable() {
                   </span>
                 )}
                 <DeviceStateBadge state={row.deviceState} />
+                <OwnershipBadge ownership={row.ownership} />
+                {sectionTag(row)}
                 {tree.hasChildren && tree.descendantCount > 0 && (
                   <span
                     className="text-muted-foreground shrink-0 text-xs tabular-nums"
@@ -617,6 +687,8 @@ export function TraceResultTable() {
             <span className="inline-flex items-center gap-1.5">
               {classNameFor(row.feature_class)}
               <DeviceStateBadge state={row.deviceState} />
+              <OwnershipBadge ownership={row.ownership} />
+              {sectionTag(row)}
             </span>
           )}
         </td>

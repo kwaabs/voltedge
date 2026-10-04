@@ -1,10 +1,11 @@
-import { ArrowDown, ArrowUp, ChevronRight, Download, LandPlot, ListChecks, Search, SlidersHorizontal, Sparkles, Upload, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Calculator, ChevronRight, Download, LandPlot, ListChecks, Search, SlidersHorizontal, Sparkles, Upload, X } from "lucide-react"
 import { useState } from "react"
 
 import { AmpacityPanel } from "@/components/map/ampacity-panel"
 import { AnnotationEditPanel } from "@/components/map/annotation-edit-panel"
 import { AssistantChat } from "@/components/map/assistant-chat"
 import { AssistantSuggestions } from "@/components/map/assistant-suggestions"
+import { BoqPanel } from "@/components/map/boq-panel"
 import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
 import { CoordinationPanel } from "@/components/map/coordination-panel"
 import { DiagramCanvas } from "@/components/map/diagram-canvas"
@@ -50,6 +51,7 @@ import { useActiveExportCount } from "@/hooks/use-export-jobs"
 import { useMapSettings } from "@/hooks/use-map-settings"
 import { cn } from "@/lib/utils"
 import { useAssistantChatStore } from "@/stores/assistant-chat-store"
+import { useBoqStore } from "@/stores/boq-store"
 import { type DiagramPane, useDiagramStore } from "@/stores/diagram-store"
 import { useExportStore } from "@/stores/export-store"
 import { useImportStore } from "@/stores/import-store"
@@ -70,6 +72,7 @@ export function MapPage() {
   const explorerOpen = useTerritoryExplorerStore((s) => s.open)
   const exportJobsOpen = useExportStore((s) => s.jobsPanelOpen)
   const activeExports = useActiveExportCount()
+  const boqOpen = useBoqStore((s) => s.open)
   const chatOpen = useAssistantChatStore((s) => s.open)
   // The chat toolbar entry only appears when the server has a model configured;
   // the deterministic suggestions work regardless, so a model-less deployment
@@ -162,6 +165,15 @@ export function MapPage() {
                     </span>
                   )}
                 </div>
+                <Button
+                  variant={boqOpen ? "default" : "secondary"}
+                  size="sm"
+                  className="shadow-sm"
+                  onClick={() => useBoqStore.getState().toggle()}
+                  title="Bill of Quantities — price a scope of the network"
+                >
+                  <Calculator className={cn("size-3.5", !boqOpen && "text-lime-600")} /> BoQ
+                </Button>
                 {chatEnabled && (
                   <Button
                     variant={chatOpen ? "default" : "secondary"}
@@ -227,6 +239,7 @@ export function MapPage() {
       {explorerOpen && <TerritoryExplorerPanel />}
       <ExportDialog />
       <ExportJobsPanel />
+      <BoqPanel />
       <ImportDialog />
       <ImportedFeaturePopup />
       <ServiceIdentifyPanel />

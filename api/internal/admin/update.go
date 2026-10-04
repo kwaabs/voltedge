@@ -621,3 +621,121 @@ func updateMaterialSpec(ctx context.Context, db *bun.DB, code string, req update
 	}
 	return &resp, nil
 }
+
+// --- Bill of Quantities cost catalog (migrations 0127/0128) ------------------
+
+// updateCurrency patches a currency. Changing is_base or per_base re-checks the
+// base-is-unit and single-base invariants (both also DB-enforced) so the caller
+// gets a clear 400, not a constraint 500.
+func updateCurrency(ctx context.Context, db *bun.DB, code string, req updateCurrencyRequest) (*currencyResponse, error) {
+	if err := validateUpdateCurrency(req); err != nil {
+		return nil, err
+	}
+
+	var resp currencyResponse
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		m := new(metadata.Currency)
+		if err := tx.NewSelect().Model(m).Where("code = ?", code).Scan(ctx); err != nil {
+			if err == sql.ErrNoRows {
+				return notFound("currency %q does not exist", code)
+			}
+			return fmt.Errorf("loading currency %q: %w", code, err)
+		}
+
+		cols := make([]string, 0, 3)
+		if req.Name != nil {
+			m.Name = *req.Name
+			cols = append(cols, "name")
+		}
+		if req.PerBase != nil {
+			m.PerBase = *req.PerBase
+			cols = append(cols, "per_base")
+		}
+		if req.IsBase != nil {
+			m.IsBase = *req.IsBase
+			cols = append(cols, "is_base")
+		}
+
+		if m.IsBase && m.PerBase != 1 {
+			return invalid("the base currency's per_base must be exactly 1")
+		}
+		if m.IsBase {
+			otherBase, err := tx.NewSelect().Model((*metadata.Currency)(nil)).
+				Where("is_base").Where("code <> ?", code).Exists(ctx)
+			if err != nil {
+				return fmt.Errorf("checking existing base currency: %w", err)
+			}
+			if otherBase {
+				return invalid("another currency is already the base -- only one can be the base")
+			}
+		}
+
+		if _, err := tx.NewUpdate().Model(m).Column(cols...).Where("code = ?", code).Exec(ctx); err != nil {
+			return fmt.Errorf("updating currency %q: %w", code, err)
+		}
+		resp = currencyResponse{Code: m.Code, Name: m.Name, PerBase: m.PerBase, IsBase: m.IsBase}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// updateCostRate patches a cost rate. If the patch moves the (class, subtype)
+// composite key it re-checks uniqueness against every other row.
+func updateCostRate(ctx context.Context, db *bun.DB, id string, req updateCostRateRequest) (*costRateResponse, error) {
+	if err := validateUpdateCostRate(req); err != nil {
+		return nil, err
+	}
+
+	var resp costRateResponse
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		m := new(metadata.CostRate)
+		if err := tx.NewSelect().Model(m).Where("id = ?", id).Scan(ctx); err != nil {
+			if err == sql.ErrNoRows {
+				return notFound("cost rate %q does not exist", id)
+			}
+			return fmt.Errorf("loading cost rate %q: %w", id, err)
+		}
+
+		cols := make([]string, 0, 4)
+		if req.ClearSubtype {
+			m.SubtypeCode = nil
+			cols = append(cols, "subtype_code")
+		} else if req.SubtypeCode != nil {
+			m.SubtypeCode = req.SubtypeCode
+			cols = append(cols, "subtype_code")
+		}
+		if req.UnitBasis != nil {
+			m.UnitBasis = *req.UnitBasis
+			cols = append(cols, "unit_basis")
+		}
+		if req.UnitRate != nil {
+			m.UnitRate = *req.UnitRate
+			cols = append(cols, "unit_rate")
+		}
+		if req.Notes != nil {
+			m.Notes = req.Notes
+			cols = append(cols, "notes")
+		}
+
+		dup, err := costRateExists(ctx, tx, m.FeatureClassCode, m.SubtypeCode, id)
+		if err != nil {
+			return err
+		}
+		if dup {
+			return invalid("a cost rate for class %q and that subtype already exists", m.FeatureClassCode)
+		}
+
+		if _, err := tx.NewUpdate().Model(m).Column(cols...).Where("id = ?", id).Exec(ctx); err != nil {
+			return fmt.Errorf("updating cost rate %q: %w", id, err)
+		}
+		resp = toCostRateResponse(m)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

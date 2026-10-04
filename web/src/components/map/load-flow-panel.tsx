@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useFloatingPanel } from "@/hooks/use-floating-panel"
 import { ApiError, apiFetch } from "@/lib/api"
+import { boundaryRoleMap, indexByKey, nearestBoundary } from "@/lib/network-section"
 import { cn } from "@/lib/utils"
 import type { LoadFlowNodeResult, LoadFlowResult } from "@/stores/load-flow-store"
 import { useLoadFlowStore } from "@/stores/load-flow-store"
@@ -133,6 +134,13 @@ export function LoadFlowPanel() {
   const classNameFor = (code: string) => featureClasses?.feature_classes.find((fc) => fc.code === code)?.name ?? code
   const overloadedKeys = new Set((result?.overloaded ?? []).map((o) => `${o.feature_class}:${o.feature_id}`))
 
+  // Network sectioning (migration 0129): derive each node's section from the
+  // load-flow parent tree it already carries -- the nearest ancestor whose class
+  // is a boundary device (boundary_role). No engine change; computed client-side.
+  const sectionRoleByClass = boundaryRoleMap(featureClasses?.feature_classes)
+  const nodesByKey = indexByKey(result?.nodes ?? [])
+  const hasSections = (result?.nodes ?? []).some((n) => nearestBoundary(n, nodesByKey, sectionRoleByClass))
+
   // Trailing columns after the shared Feature column -- the load-flow family's
   // per-node electrical readout. LoadFlowNodesTable renders these identically in
   // both the flat and tree views.
@@ -156,6 +164,47 @@ export function LoadFlowPanel() {
     },
     { header: "Current", cell: (node) => (node.current_amps !== undefined ? `${formatNumber(node.current_amps)}A` : "—") },
     { header: "Loading", cell: (node) => (node.loading_pct !== undefined ? `${formatNumber(node.loading_pct)}%` : "—") },
+    // Ownership column -- only added when the run actually reaches a privately
+    // owned asset, so an all-utility run (the norm) isn't cluttered with a column
+    // of dashes. The load flow crosses the ownership boundary; this just flags
+    // which rows are the customer's own network (the asset-ownership axis).
+    ...((result?.nodes.some((n) => n.ownership === "private") ?? false)
+      ? [
+          {
+            header: "Owner",
+            cell: (node: LoadFlowNodeResult) =>
+              node.ownership === "private" ? (
+                <span
+                  className="rounded bg-slate-500/15 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 dark:text-slate-300"
+                  title="Privately owned — the customer's own network, not utility plant"
+                >
+                  Private
+                </span>
+              ) : (
+                <span className="text-muted-foreground text-xs">Utility</span>
+              ),
+          },
+        ]
+      : []),
+    // Section column -- only when the run actually sits under boundary devices.
+    // Shows the nearest upstream boundary device (the section head) and its kind.
+    ...(hasSections
+      ? [
+          {
+            header: "Section",
+            cell: (node: LoadFlowNodeResult) => {
+              const b = nearestBoundary(node, nodesByKey, sectionRoleByClass)
+              if (!b) return <span className="text-muted-foreground">—</span>
+              return (
+                <span className="text-xs whitespace-nowrap" title={`Section headed by this ${b.role} device`}>
+                  {classNameFor(b.feature_class)}{" "}
+                  <span className="text-muted-foreground">{shortId(b.feature_id)}</span>
+                </span>
+              )
+            },
+          },
+        ]
+      : []),
   ]
 
   async function runLoadFlow() {

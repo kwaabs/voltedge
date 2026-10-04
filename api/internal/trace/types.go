@@ -95,6 +95,13 @@ type tracedFeature struct {
 	// field, or that carries it unset. Read from the same live row enrichNode
 	// already loads, so it costs nothing extra.
 	DeviceState string `json:"device_state,omitempty"`
+	// Ownership is the reached feature's coded ownership attribute -- "private"
+	// for an owner's plant (the asset-ownership axis, seed/ownership_axis.sql),
+	// empty (omitted) for utility-owned/unset or a class without the field. A
+	// trace crosses the ownership boundary rather than stopping at it, so this is
+	// how a result flags which stretch is the customer's private network. Read
+	// from the same live row enrichNode already loads, so it costs nothing extra.
+	Ownership string `json:"ownership,omitempty"`
 }
 
 // diagramMembership names one single-line diagram a reached feature appears on:

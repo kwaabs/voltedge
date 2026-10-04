@@ -131,6 +131,67 @@ func deleteMaterialSpec(ctx context.Context, db *bun.DB, code string) error {
 	})
 }
 
+// --- Bill of Quantities cost catalog (migrations 0127/0128) ------------------
+
+// deleteCurrency removes a presentation currency. The base currency is the
+// denomination every stored cost uses, so deleting it would orphan the whole
+// price book -- refused with a clear 400 (set a different base first).
+func deleteCurrency(ctx context.Context, db *bun.DB, code string) error {
+	return db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		m := new(metadata.Currency)
+		if err := tx.NewSelect().Model(m).Where("code = ?", code).Scan(ctx); err != nil {
+			if err == sql.ErrNoRows {
+				return notFound("currency %q does not exist", code)
+			}
+			return fmt.Errorf("loading currency %q: %w", code, err)
+		}
+		if m.IsBase {
+			return invalid("the base currency cannot be deleted -- set a different base first")
+		}
+		if _, err := tx.NewDelete().Model(m).Where("code = ?", code).Exec(ctx); err != nil {
+			return fmt.Errorf("deleting currency %q: %w", code, err)
+		}
+		return nil
+	})
+}
+
+// deleteCostRate removes one unit-rate row by id. No FK precheck: a cost_rates
+// row is referenced by nothing (the BoQ engine reads the catalog whole).
+func deleteCostRate(ctx context.Context, db *bun.DB, id string) error {
+	return db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		m := new(metadata.CostRate)
+		if err := tx.NewSelect().Model(m).Where("id = ?", id).Scan(ctx); err != nil {
+			if err == sql.ErrNoRows {
+				return notFound("cost rate %q does not exist", id)
+			}
+			return fmt.Errorf("loading cost rate %q: %w", id, err)
+		}
+		if _, err := tx.NewDelete().Model(m).Where("id = ?", id).Exec(ctx); err != nil {
+			return fmt.Errorf("deleting cost rate %q: %w", id, err)
+		}
+		return nil
+	})
+}
+
+// deleteFeatureCostOverride clears the per-feature override for (class, feature)
+// -- how the feature panel's "reset to catalog" removes a hand-set price.
+func deleteFeatureCostOverride(ctx context.Context, db *bun.DB, classCode, featureID string) error {
+	return db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		m := new(metadata.FeatureCostOverride)
+		if err := tx.NewSelect().Model(m).
+			Where("feature_class_code = ?", classCode).Where("feature_id = ?", featureID).Scan(ctx); err != nil {
+			if err == sql.ErrNoRows {
+				return notFound("no cost override for %s/%s", classCode, featureID)
+			}
+			return fmt.Errorf("loading feature cost override: %w", err)
+		}
+		if _, err := tx.NewDelete().Model(m).Where("id = ?", m.ID).Exec(ctx); err != nil {
+			return fmt.Errorf("deleting feature cost override: %w", err)
+		}
+		return nil
+	})
+}
+
 // deleteFieldGroup mirrors deleteDomain -- same reasoning, just against
 // fields.group_id instead of fields.domain_id.
 func deleteFieldGroup(ctx context.Context, db *bun.DB, code string) error {

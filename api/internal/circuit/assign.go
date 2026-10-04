@@ -3,6 +3,7 @@ package circuit
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/trace"
@@ -138,11 +139,79 @@ func AssignCircuit(ctx context.Context, db *bun.DB, circuitID string) (*AssignRe
 			result.Stamped += n
 			result.PerClass = append(result.PerClass, AssignClassCount{FeatureClass: sc.code, Stamped: n})
 		}
+		// Record the sync point (migration 0130). now() is the transaction
+		// timestamp, the SAME value stampCircuit just wrote to every member's
+		// updated_at -- so the freshness check (member.updated_at > this) is false
+		// for a just-assigned circuit and only a LATER edit trips it.
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE gis.circuits SET members_synced_at = now(), updated_at = now() WHERE id = ?", c.ID); err != nil {
+			return fmt.Errorf("circuit: recording sync point for %q: %w", c.Name, err)
+		}
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// applyStaleness populates each circuit's computed Stale flag (migration 0130): a
+// circuit is stale when any member feature has been edited since members_synced_at.
+// One grouped MAX(updated_at)-per-circuit query per circuit-bearing class
+// (O(classes), NOT O(circuits)); the newest member edit per circuit across every
+// class is compared to its sync point. A never-assigned circuit (nil
+// members_synced_at) is never stale. Best-effort: it catches member edits / moves
+// / soft-deletes; a pure connect/disconnect that touches no member row is the
+// known blind spot (documented) -- re-assigning is always safe regardless.
+func applyStaleness(ctx context.Context, db bun.IDB, circuits []Circuit) error {
+	if len(circuits) == 0 {
+		return nil
+	}
+	latest := map[string]time.Time{}
+	for _, network := range []string{NetworkMV, NetworkLV} {
+		scope, _, err := loadScopeClasses(ctx, db, network)
+		if err != nil {
+			if IsInvalid(err) {
+				continue // no circuit-bearing classes compiled for this network yet
+			}
+			return err
+		}
+		for _, sc := range scope {
+			query := fmt.Sprintf(
+				"SELECT circuit_id, MAX(updated_at) FROM %s WHERE circuit_id IS NOT NULL AND deleted_at IS NULL GROUP BY circuit_id",
+				sc.table,
+			)
+			rows, err := db.QueryContext(ctx, query)
+			if err != nil {
+				return fmt.Errorf("circuit: computing staleness on %s: %w", sc.code, err)
+			}
+			for rows.Next() {
+				var cid string
+				var mx time.Time
+				if err := rows.Scan(&cid, &mx); err != nil {
+					rows.Close()
+					return fmt.Errorf("circuit: scanning staleness on %s: %w", sc.code, err)
+				}
+				if cur, ok := latest[cid]; !ok || mx.After(cur) {
+					latest[cid] = mx
+				}
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return fmt.Errorf("circuit: reading staleness on %s: %w", sc.code, err)
+			}
+			rows.Close()
+		}
+	}
+	for i := range circuits {
+		c := &circuits[i]
+		if c.MembersSyncedAt == nil {
+			continue
+		}
+		if mx, ok := latest[c.ID]; ok && mx.After(*c.MembersSyncedAt) {
+			c.Stale = true
+		}
+	}
+	return nil
 }
 
 // loadScopeClasses returns every compiled feature class in the given network

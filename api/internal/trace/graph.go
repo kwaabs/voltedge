@@ -408,6 +408,10 @@ func enrichNode(ctx context.Context, db bun.IDB, n node, code string, loader *fe
 	// for switching devices; a class without the field, or one carrying it unset,
 	// falls through to "" and the field omits. See tracedFeature.DeviceState.
 	tf.DeviceState, _ = attrs["device_state"].(string)
+	// ownership (a coded OWNERSHIP value, "private"; utility/unset reads as "")
+	// -- so a trace result can flag the private stretch of an owner's network
+	// without stopping at it. See tracedFeature.Ownership.
+	tf.Ownership, _ = attrs["ownership"].(string)
 	for _, field := range voltageClassFields {
 		raw, _ := attrs[field].(string)
 		if v, ok := parseVoltageClassCode(raw); ok {

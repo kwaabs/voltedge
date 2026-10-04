@@ -33,12 +33,17 @@ import (
 
 	"github.com/kwaabs/voltedge/api/internal/export"
 	"github.com/kwaabs/voltedge/api/internal/fieldpack"
+	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
 )
 
 func main() {
+	// Install the structured (JSON) handler as slog.Default so the build/sync
+	// worker loops (internal/fieldpack) are machine-parseable like the API's.
+	logx.Init()
+
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		log.Fatal("DATABASE_URL is not set")

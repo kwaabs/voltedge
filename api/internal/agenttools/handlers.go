@@ -12,9 +12,11 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/kwaabs/voltedge/api/internal/boq"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/kwaabs/voltedge/api/internal/ownership"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
@@ -36,6 +38,12 @@ type featureClassOut struct {
 	Name         string `json:"name"`
 	GeometryType string `json:"geometry_type"`
 	NetworkRole  string `json:"network_role"`
+	// TraceTier is the class's rank in the source-to-load hierarchy (migration
+	// 0126): hundreds 0 (grid infeed) .. 600 (service/meter), gaps of 100 so a
+	// layer can slot in later. Omitted (null) for an untiered class -- one that
+	// doesn't constrain trace/analysis direction. Pointer so tier 0 (a real,
+	// most-upstream tier) is distinct from "untiered".
+	TraceTier *int `json:"trace_tier,omitempty"`
 }
 
 type fieldOut struct {
@@ -62,9 +70,13 @@ type describeOut struct {
 	Code         string        `json:"code"`
 	Name         string        `json:"name"`
 	GeometryType string        `json:"geometry_type"`
-	Subtypes     []subtypeOut  `json:"subtypes"`
-	Fields       []fieldOut    `json:"fields"`
-	Terminals    []terminalOut `json:"terminals,omitempty"`
+	// TraceTier ranks this class in the source-to-load hierarchy (migration
+	// 0126): hundreds 0 (grid infeed) .. 600 (service/meter). Omitted (null)
+	// for an untiered class. See featureClassOut.TraceTier.
+	TraceTier *int          `json:"trace_tier,omitempty"`
+	Subtypes  []subtypeOut  `json:"subtypes"`
+	Fields    []fieldOut    `json:"fields"`
+	Terminals []terminalOut `json:"terminals,omitempty"`
 }
 
 // --- handlers ---
@@ -79,6 +91,7 @@ func toolListFeatureClasses(ctx context.Context, db bun.IDB, _ json.RawMessage) 
 		out[i] = featureClassOut{
 			Code: fc.Code, Name: fc.Name,
 			GeometryType: fc.GeometryType, NetworkRole: fc.NetworkRole,
+			TraceTier: fc.TraceTier,
 		}
 	}
 	return map[string]any{"feature_classes": out, "count": len(out)}, nil
@@ -136,6 +149,7 @@ func toolDescribeFeatureClass(ctx context.Context, db bun.IDB, args json.RawMess
 		Code:         loaded.FeatureClass.Code,
 		Name:         loaded.FeatureClass.Name,
 		GeometryType: loaded.FeatureClass.GeometryType,
+		TraceTier:    loaded.FeatureClass.TraceTier,
 		Subtypes:     subtypes,
 		Fields:       fields,
 		Terminals:    terminals,
@@ -273,6 +287,16 @@ func toolQueryFeaturesAggregate(ctx context.Context, db bun.IDB, args json.RawMe
 		"feature_class": in.FeatureClass,
 		"result":        result,
 	}, nil
+}
+
+func toolRunBillOfQuantities(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var req boq.Request
+	if err := json.Unmarshal(args, &req); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	// The engine re-validates everything (scope kind, classes, currency); this
+	// front door only forwards the request, same as the HTTP handler.
+	return boq.RunBoQ(ctx, db, req)
 }
 
 func toolValidateFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
@@ -420,7 +444,8 @@ func toolRunSectionTrace(ctx context.Context, db bun.IDB, args json.RawMessage) 
 			FeatureClass string `json:"feature_class"`
 			FeatureID    string `json:"feature_id"`
 		} `json:"start"`
-		BoundaryClass string `json:"boundary_class"`
+		BoundaryClass  string `json:"boundary_class"`
+		ProtectionZone bool   `json:"protection_zone"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)
@@ -436,6 +461,7 @@ func toolRunSectionTrace(ctx context.Context, db bun.IDB, args json.RawMessage) 
 		TraceConfiguration: in.TraceConfiguration,
 		Start:              trace.FeatureRef{FeatureClass: in.Start.FeatureClass, FeatureID: in.Start.FeatureID},
 		BoundaryClass:      in.BoundaryClass,
+		ProtectionZone:     in.ProtectionZone,
 	})
 	if err != nil {
 		return nil, err
@@ -613,6 +639,27 @@ func (in featureRefIn) load(ctx context.Context, db bun.IDB) (*metadata.Loaded, 
 		return nil, fmt.Errorf("no such feature class %q: %w", in.FeatureClass, err)
 	}
 	return loaded, nil
+}
+
+func toolMarkOwnershipDownstreamPrivate(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		FeatureClass string `json:"feature_class"`
+		FeatureID    string `json:"feature_id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.FeatureClass == "" || in.FeatureID == "" {
+		return nil, fmt.Errorf("feature_class and feature_id are required")
+	}
+	return ownership.MarkDownstreamPrivate(ctx, db, ownership.FeatureRef{
+		FeatureClass: in.FeatureClass,
+		FeatureID:    in.FeatureID,
+	})
+}
+
+func toolResyncOwnership(ctx context.Context, db bun.IDB, _ json.RawMessage) (any, error) {
+	return ownership.Resync(ctx, db)
 }
 
 func toolPublishFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {

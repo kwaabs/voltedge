@@ -117,6 +117,11 @@ type nodeResult struct {
 	// per-node operating voltage is already reported as VoltageV / NominalBaseV.
 	CircuitID        string   `json:"circuit_id,omitempty"`
 	CircuitRef       string   `json:"circuit_ref,omitempty"`
+	// Ownership is "private" for an owner's plant (the asset-ownership axis),
+	// empty for utility-owned/unset -- so the results panel can flag which part
+	// of a run is the customer's own network. The load flow crosses the boundary
+	// rather than stopping at it; this is purely a result label.
+	Ownership        string   `json:"ownership,omitempty"`
 	VoltageV         float64  `json:"voltage_v"`
 	VoltageDropPct   float64  `json:"voltage_drop_pct"`
 	NominalBaseV     float64  `json:"nominal_base_v"`

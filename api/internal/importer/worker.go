@@ -11,7 +11,7 @@ package importer
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"sync"
@@ -20,6 +20,7 @@ import (
 	"github.com/uptrace/bun"
 
 	"github.com/kwaabs/voltedge/api/internal/export"
+	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/kwaabs/voltedge/api/internal/secretbox"
 )
 
@@ -62,14 +63,14 @@ func WorkerConfigFromEnv() WorkerConfig {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.Concurrency = n
 		} else {
-			log.Printf("import worker: ignoring invalid IMPORT_WORKER_CONCURRENCY %q", v)
+			slog.Warn("ignoring invalid env var", "worker", "import", "var", "IMPORT_WORKER_CONCURRENCY", "value", v)
 		}
 	}
 	if v := os.Getenv("IMPORT_JOB_LEASE"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			cfg.Lease = d
 		} else {
-			log.Printf("import worker: ignoring invalid IMPORT_JOB_LEASE %q", v)
+			slog.Warn("ignoring invalid env var", "worker", "import", "var", "IMPORT_JOB_LEASE", "value", v)
 		}
 	}
 
@@ -86,7 +87,9 @@ func WorkerConfigFromEnv() WorkerConfig {
 // so the worker never holds more claimed jobs than it can run. It returns
 // ctx.Err() (context.Canceled on a clean shutdown).
 func RunImportWorker(ctx context.Context, db *bun.DB, store *export.ObjectStore, cfg WorkerConfig) error {
-	log.Printf("import worker %s started (concurrency=%d, lease=%s)", cfg.ID, cfg.Concurrency, cfg.Lease)
+	lg := slog.Default().With(slog.String("worker", "import"), slog.String("worker_id", cfg.ID))
+	ctx = logx.Into(ctx, lg)
+	lg.Info("worker started", "concurrency", cfg.Concurrency, "lease", cfg.Lease.String())
 
 	sem := make(chan struct{}, cfg.Concurrency)
 	var wg sync.WaitGroup
@@ -107,7 +110,7 @@ func RunImportWorker(ctx context.Context, db *bun.DB, store *export.ObjectStore,
 				wg.Wait()
 				return ctx.Err()
 			}
-			log.Printf("import worker: claim failed: %v", err)
+			lg.Error("claim failed", "err", err)
 			<-sem
 			sleep(ctx, cfg.Poll)
 			continue
@@ -132,7 +135,8 @@ func RunImportWorker(ctx context.Context, db *bun.DB, store *export.ObjectStore,
 // missed beat, or cancelled), it cancels the job's context so the in-flight load
 // aborts promptly instead of racing another worker to apply the same rows.
 func runJobWithHeartbeat(parent context.Context, db *bun.DB, store *export.ObjectStore, cfg WorkerConfig, job *ImportJob) {
-	jobCtx, cancel := context.WithCancel(parent)
+	jl := logx.From(parent).With(slog.String("job_id", job.ID))
+	jobCtx, cancel := context.WithCancel(logx.Into(parent, jl))
 	defer cancel()
 
 	// Beat at a third of the lease: two beats can be missed before the lease
@@ -158,11 +162,11 @@ func runJobWithHeartbeat(parent context.Context, db *bun.DB, store *export.Objec
 					if jobCtx.Err() != nil {
 						return // the job finished; this beat just lost the race
 					}
-					log.Printf("import worker: heartbeat for job %s failed: %v", job.ID, err)
+					jl.Error("heartbeat failed", "err", err)
 					continue
 				}
 				if !ok {
-					log.Printf("import worker: lost lease on job %s -- aborting", job.ID)
+					jl.Warn("lost lease, aborting job")
 					cancel()
 					return
 				}

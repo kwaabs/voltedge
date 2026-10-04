@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -83,7 +83,7 @@ func buildOIDCRegistry(ctx context.Context, _ Config) map[string]*oidcProvider {
 			redirectURL:  os.Getenv("OIDC_AZURE_REDIRECT_URL"),
 			scopes:       []string{oidc.ScopeOpenID, "email", "profile"},
 		}); err != nil {
-			log.Printf("auth: Azure AD SSO not enabled (%v)", err)
+			slog.Warn("SSO provider not enabled", "component", "auth", "provider", "azure", "err", err)
 		} else {
 			reg[p.key] = p
 		}
@@ -100,14 +100,14 @@ func buildOIDCRegistry(ctx context.Context, _ Config) map[string]*oidcProvider {
 			scopes:        []string{oidc.ScopeOpenID, "email", "profile"},
 			allowedDomain: os.Getenv("OIDC_GOOGLE_ALLOWED_DOMAIN"),
 		}); err != nil {
-			log.Printf("auth: Google SSO not enabled (%v)", err)
+			slog.Warn("SSO provider not enabled", "component", "auth", "provider", "google", "err", err)
 		} else {
 			reg[p.key] = p
 		}
 	}
 
 	if len(reg) == 0 {
-		log.Printf("auth: no SSO providers configured; local login only")
+		slog.Info("no SSO providers configured; local login only", "component", "auth")
 	}
 	return reg
 }

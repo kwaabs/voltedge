@@ -7,6 +7,11 @@ export interface FeatureClassSummary {
   name: string
   geometry_type: string
   network_role: string
+  /** Migration 0129: the class's network-sectioning function --
+   * source/protective/switching/transformer, or absent for a non-boundary class.
+   * The result panels derive each feature's "section" by climbing its trace /
+   * load-flow parent tree to the nearest class with a boundary_role. */
+  boundary_role?: string
   is_diagram_container: boolean
   is_diagram_placeable: boolean
   /** Phase 26: features of this class may exist without map geometry, so

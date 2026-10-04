@@ -20,6 +20,7 @@ import {
   Info,
   Link2,
   Loader2,
+  Lock,
   MapPinOff,
   MoreHorizontal,
   Network,
@@ -59,7 +60,7 @@ import { FeatureEditForm } from "@/components/map/feature-edit-form"
 import { FaultsTab } from "@/components/map/feature-faults-tab"
 import { TagsTab } from "@/components/map/feature-tags-tab"
 import { WorksTab } from "@/components/map/feature-works-tab"
-import { formatFieldLabel, formatValue } from "@/components/map/field-utils"
+import { formatFieldLabel, formatValue, inputClass } from "@/components/map/field-utils"
 import { RemoveGeometryDialog } from "@/components/map/remove-geometry-dialog"
 import { RevokeConnectionDialog } from "@/components/map/revoke-connection-dialog"
 import { RevokeRelationshipDialog } from "@/components/map/revoke-relationship-dialog"
@@ -76,6 +77,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { circuitNameMap, useCircuits } from "@/hooks/use-circuits"
+import {
+  useDeleteFeatureCostOverride,
+  useFeatureCostOverrides,
+  useUpsertFeatureCostOverride,
+} from "@/hooks/use-cost-catalog"
 import { type Connection, useConnections } from "@/hooks/use-connections"
 import { useDiagramInstances } from "@/hooks/use-diagrams"
 import { useDuctCapacity } from "@/hooks/use-duct-capacity"
@@ -85,6 +91,7 @@ import { type FeatureHistoryEntry, useFeatureHistory } from "@/hooks/use-feature
 import { useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { usePermission } from "@/hooks/use-auth"
+import { useMarkDownstreamPrivate, useResyncOwnership } from "@/hooks/use-ownership"
 import {
   type ExternalLink,
   useCreateExternalLink,
@@ -530,7 +537,27 @@ function AttributesTab() {
       <dt className={dtClass}>Updated</dt>
       <dd className={ddClass}>{new Date(feature.updated_at).toLocaleString()}</dd>
       </dl>
+      <OwnershipSection feature={feature} />
     </>
+  )
+}
+
+/**
+ * Asset-ownership STATUS chip (api/internal/ownership). Ownership is utility by
+ * default, so this shows a quiet "Privately owned" badge ONLY on a feature that
+ * is actually private -- nothing on the utility 99%. The ACTIONS that set it
+ * (mark downstream private / re-sync) live in the feature's actions dropdown,
+ * shown only on a transformer (the boundary where ownership is declared).
+ */
+function OwnershipSection({ feature }: { feature: { attributes?: Record<string, unknown> | null } }) {
+  if (!feature.attributes || feature.attributes.ownership !== "private") return null
+  return (
+    <div className="mt-3 flex items-center gap-2 text-sm">
+      <span className="text-muted-foreground">Ownership</span>
+      <Badge variant="secondary" title="Part of a privately-owned network (declared at its transformer)">
+        Privately owned
+      </Badge>
+    </div>
   )
 }
 
@@ -1423,26 +1450,31 @@ function MaterialsTab({ onEditClick }: { onEditClick: () => void }) {
 
   const materialFields = schema.fields.filter((f) => f.material_specs && Object.keys(f.material_specs).length > 0)
 
-  if (materialFields.length === 0) {
-    return <p className="text-muted-foreground text-sm">This feature class has no material-linked fields.</p>
-  }
-
   return (
     <div className="flex flex-col gap-3">
-      <Button
-        variant="outline"
-        size="sm"
-        className="self-start"
-        disabled={Boolean(feature.deleted_at)}
-        onClick={() => {
-          useEditStore.getState().start(selected.featureClassCode, selected.featureId)
-          onEditClick()
-        }}
-      >
-        <Pencil className="size-4" />
-        Edit in Attributes
-      </Button>
-      {materialFields.map((f) => {
+      <CostOverrideSection
+        featureClassCode={selected.featureClassCode}
+        featureId={selected.featureId}
+        linear={schema.geometry_type === "line"}
+      />
+      {materialFields.length === 0 ? (
+        <p className="text-muted-foreground text-sm">This feature class has no material-linked fields.</p>
+      ) : (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="self-start"
+            disabled={Boolean(feature.deleted_at)}
+            onClick={() => {
+              useEditStore.getState().start(selected.featureClassCode, selected.featureId)
+              onEditClick()
+            }}
+          >
+            <Pencil className="size-4" />
+            Edit in Attributes
+          </Button>
+          {materialFields.map((f) => {
         const currentValue = feature.attributes[f.name]
         const spec = typeof currentValue === "string" ? f.material_specs?.[currentValue] : undefined
         return (
@@ -1482,8 +1514,130 @@ function MaterialsTab({ onEditClick }: { onEditClick: () => void }) {
               </p>
             )}
           </div>
-        )
-      })}
+            )
+          })}
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Per-feature cost override (metadata.feature_cost_overrides) -- a one-off unit
+ * cost, in the base currency, that supersedes the catalog rate the Bill of
+ * Quantities would otherwise resolve for this feature. Admin-only: the whole
+ * cost catalog is metadata:write-gated (security-admin-view-gate), so the
+ * section renders nothing for callers without it. `linear` picks the unit
+ * wording (per km for a line, each for a discrete feature).
+ */
+function CostOverrideSection({
+  featureClassCode,
+  featureId,
+  linear,
+}: {
+  featureClassCode: string
+  featureId: string
+  linear: boolean
+}) {
+  const canEdit = usePermission()("metadata:write")
+  // Query only for admins (the endpoint 403s otherwise); the undefined arg
+  // disables the query for everyone else.
+  const { data } = useFeatureCostOverrides(canEdit ? featureClassCode : undefined)
+  const upsert = useUpsertFeatureCostOverride()
+  const del = useDeleteFeatureCostOverride()
+  const [value, setValue] = useState("")
+  const [editing, setEditing] = useState(false)
+
+  // Hooks above stay unconditional; bail out only after them.
+  if (!canEdit) return null
+
+  const existing = data?.feature_cost_overrides.find((o) => o.feature_id === featureId)
+  const unit = linear ? "per km" : "each"
+
+  function startEdit() {
+    setValue(existing ? String(existing.unit_cost) : "")
+    setEditing(true)
+  }
+
+  function save() {
+    const n = Number(value.trim())
+    if (!Number.isFinite(n) || n < 0) {
+      useToastStore.getState().pushError("Enter a cost of zero or more.")
+      return
+    }
+    upsert.mutate(
+      { classCode: featureClassCode, featureId, body: { unit_cost: n } },
+      {
+        onSuccess: () => setEditing(false),
+        onError: (err) =>
+          useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save the override."),
+      },
+    )
+  }
+
+  function clear() {
+    del.mutate(
+      { classCode: featureClassCode, featureId },
+      {
+        onSuccess: () => setEditing(false),
+        onError: (err) =>
+          useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not clear the override."),
+      },
+    )
+  }
+
+  return (
+    <div className="rounded-md border p-2 text-sm">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium">Cost override</span>
+        {existing && !editing && (
+          <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-600 dark:text-amber-400">
+            {existing.unit_cost} {unit}
+          </span>
+        )}
+      </div>
+      {editing ? (
+        <div className="mt-2 flex flex-col gap-2">
+          <input
+            className={inputClass}
+            type="number"
+            min="0"
+            step="any"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={`unit cost (base currency), ${unit}`}
+            autoFocus
+          />
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={save} disabled={upsert.isPending}>
+              Save
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-2 flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={startEdit}>
+            {existing ? "Change" : "Set override"}
+          </Button>
+          {existing && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive"
+              onClick={clear}
+              disabled={del.isPending}
+            >
+              Reset to catalog
+            </Button>
+          )}
+        </div>
+      )}
+      <p className="text-muted-foreground mt-1.5 text-xs">
+        Supersedes the catalog rate for this feature only, in the base currency ({unit}).
+      </p>
     </div>
   )
 }
@@ -1558,11 +1712,53 @@ export function FeaturePanel() {
   const faultCurrentLoading = useFaultCurrentStore((s) => s.loading)
   const ampacityLoading = useAmpacityStore((s) => s.loading)
   const { data: traceConfigurations } = useTraceConfigurations()
+  // Asset-ownership actions live in the actions dropdown, shown only on a
+  // transformer (the declare boundary, boundary_role='transformer').
+  const markDownstreamPrivate = useMarkDownstreamPrivate()
+  const resyncOwnership = useResyncOwnership()
 
   const isEditingSelected =
     Boolean(selected) &&
     editing?.featureClassCode === selected?.featureClassCode &&
     editing?.featureId === selected?.featureId
+
+  const isTransformerBoundary =
+    featureClasses?.feature_classes.find((fc) => fc.code === selected?.featureClassCode)?.boundary_role ===
+    "transformer"
+  const ownershipIsPrivate =
+    (feature?.attributes as Record<string, unknown> | undefined)?.ownership === "private"
+
+  function handleMarkOwnershipPrivate() {
+    if (!selected) return
+    markDownstreamPrivate.mutate(
+      { featureClass: selected.featureClassCode, featureId: selected.featureId },
+      {
+        onSuccess: (res) =>
+          useToastStore
+            .getState()
+            .pushSuccess(`Marked private: this feature + ${res.reached} downstream (${res.stamped} stamped).`),
+        onError: (err) =>
+          useToastStore
+            .getState()
+            .pushError(err instanceof ApiError ? err.message : "Could not mark downstream private."),
+      },
+    )
+  }
+
+  function handleResyncOwnership() {
+    resyncOwnership.mutate(undefined, {
+      onSuccess: (res) =>
+        useToastStore
+          .getState()
+          .pushSuccess(
+            `Ownership re-synced from ${res.boundaries} private boundary(ies): ${res.stamped} private, ${res.cleared} cleared.`,
+          ),
+      onError: (err) =>
+        useToastStore
+          .getState()
+          .pushError(err instanceof ApiError ? err.message : "Could not re-sync ownership."),
+    })
+  }
 
   // Land back on Attributes for every newly selected feature -- staying
   // on, say, Relationships while the id underneath changes would show
@@ -1819,7 +2015,7 @@ export function FeaturePanel() {
     }
   }
 
-  async function runSectionTrace(startOverride?: TraceFeatureRef) {
+  async function runSectionTrace(startOverride?: TraceFeatureRef, protectionZone = false) {
     if ((!startOverride && !selected) || !isolationConfig) return
     const start =
       startOverride ?? { feature_class: selected!.featureClassCode, feature_id: selected!.featureId }
@@ -1853,15 +2049,17 @@ export function FeaturePanel() {
         body: JSON.stringify({
           trace_configuration: isolationConfig.code,
           start,
+          protection_zone: protectionZone,
         }),
       })
       const boundaries = [result.upstream_boundary, result.downstream_boundary].filter(
         (b): b is TraceFeatureRef => Boolean(b),
       )
+      const label = protectionZone ? "PROTECTION ZONE" : "SECTION"
       useTraceStore.getState().setResult(
         {
-          trace_configuration: "SECTION",
-          direction: "SECTION",
+          trace_configuration: label,
+          direction: label,
           start: result.start,
           features: result.features,
           barriers: [],
@@ -1869,7 +2067,7 @@ export function FeaturePanel() {
           targets_found: boundaries.length > 0,
         },
         computed,
-        () => runSectionTrace(start),
+        () => runSectionTrace(start, protectionZone),
       )
     } catch (err) {
       useTraceStore.getState().setLoading(false)
@@ -2709,7 +2907,12 @@ export function FeaturePanel() {
                     <>
                       {runnableConfigs.length > 0 && <DropdownMenuSeparator />}
                       <DropdownMenuItem onSelect={() => runFeederTrace()}>Feeder trace</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => runSectionTrace()}>Section trace</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => runSectionTrace()}>
+                        Switching section
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => runSectionTrace(undefined, true)}>
+                        Protection zone
+                      </DropdownMenuItem>
                       <DropdownMenuItem onSelect={() => runServiceTrace()}>
                         <Gauge className="size-4" />
                         Service trace (load served)
@@ -2824,6 +3027,26 @@ export function FeaturePanel() {
                       </DropdownMenuItem>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
+                  {/* Asset ownership (migration 0129/ownership axis): only on a
+                      transformer, the boundary where a private network is declared.
+                      Utility is the default, so a utility transformer still shows
+                      the action (to mark it) but nothing stays marked unless set. */}
+                  {isTransformerBoundary && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        disabled={markDownstreamPrivate.isPending}
+                        onSelect={handleMarkOwnershipPrivate}
+                      >
+                        <Lock className="size-4" />
+                        {ownershipIsPrivate ? "Re-mark downstream private" : "Mark downstream private"}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem disabled={resyncOwnership.isPending} onSelect={handleResyncOwnership}>
+                        <RefreshCw className="size-4" />
+                        Re-sync ownership
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
               )}

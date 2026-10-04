@@ -676,6 +676,30 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/mv_conductor_specs.sql
 
+  seed-cost-catalog:
+    desc: Seed generic illustrative BoQ cost data (USD base currency + material cost_per_km on the seeded conductor/cable specs + 'each' cost_rates for DIST_XFMR/MV_SWITCH/METER/SERVICE_POINT/POLE + a per_km conductor fallback) through the gitbash sidecar so the Bill of Quantities prices a non-empty schedule (requires migrations 0127+0128 and the conductor material seeds first; no compile -- pure metadata, idempotent)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/cost_catalog_example.sql
+
+  seed-boundary-roles:
+    desc: Stamp feature_classes.boundary_role (network-sectioning taxonomy source/protective/switching/transformer; migration 0129) onto today's classes through the gitbash sidecar -- the backbone of network labelling / subnetworks (requires migration 0129 first; no compile -- pure class metadata, idempotent)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/boundary_role_backfill.sql
+
+  seed-ownership-axis:
+    desc: Add the asset-ownership axis (OWNERSHIP domain utility/private + an `ownership` field on DIST_XFMR/POWER_XFMR + the LV set + the OWNERSHIP_DOWNSTREAM trace config) through the gitbash sidecar -- the privately-owned-distribution case. Private features keep standard symbology (no map restyle). Adds a COLUMN to each class, so RECOMPILE every touched class after (task compile CODE=DIST_XFMR, LV_CONDUCTOR, SERVICE_POINT, METER, ... -- all listed in the seed header). Idempotent -- re-run to clear any old private map greying.
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/ownership_axis.sql
+
   seed-material-line-geometry:
     desc: Add Carson line geometry (phase/neutral GMR + wire positions) to the LV cable + MV overhead conductor specs so the Tier 2 coupled unbalanced load flow builds a real 3x3 (Phase 55 Tier 2) through the gitbash sidecar (requires seed-lv-conductors + seed-mv-conductor-specs + migration 0117 first; no compile needed -- catalog columns)
     cmds:

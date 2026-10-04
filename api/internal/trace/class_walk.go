@@ -77,6 +77,41 @@ func classIDsForRole(ctx context.Context, db bun.IDB, role string) (map[string]b
 	return out, nil
 }
 
+// The three boundary_role sets a bounded walk stops at (migration 0129). The
+// distinction is grounded in distribution practice -- the kind of boundary device
+// defines the kind of span:
+//   - isolationBoundaryRoles: interrupting/isolating devices only (protective +
+//     switching). An ISOLATION walk reports its boundaries as the switches to
+//     OPEN, and a transformer isn't openable, so it is excluded.
+//   - switchingSectionRoles: the SWITCHING SECTION -- bounded by any device that
+//     can isolate it (protective + switching) PLUS the transformer (a voltage
+//     boundary ends a section; the LV below is a separate one). "What I can
+//     isolate to work on it."
+//   - protectionZoneRoles: the PROTECTION ZONE -- bounded only by devices that
+//     interrupt fault current (protective) plus the transformer. A plain switch
+//     does NOT bound a protection zone. "What de-energises on a fault."
+var (
+	isolationBoundaryRoles = []string{"protective", "switching"}
+	switchingSectionRoles  = []string{"protective", "switching", "transformer", "source"}
+	protectionZoneRoles    = []string{"protective", "transformer", "source"}
+)
+
+// classIDsForBoundaryRole resolves the classes carrying one of the given
+// boundary_role values (migration 0129 -- the network-sectioning backbone) to
+// their ids -- finer than functional_role='controller'. Empty when nothing is
+// stamped yet, so the caller falls back.
+func classIDsForBoundaryRole(ctx context.Context, db bun.IDB, roles []string) (map[string]bool, error) {
+	var fcs []metadata.FeatureClass
+	if err := db.NewSelect().Model(&fcs).Where("boundary_role IN (?)", bun.In(roles)).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("trace: resolving boundary-role classes: %w", err)
+	}
+	out := make(map[string]bool, len(fcs))
+	for _, fc := range fcs {
+		out[fc.ID] = true
+	}
+	return out, nil
+}
+
 // boundaryClassSet resolves the class-set a section or isolation walk stops at,
 // the one boundary rule both share. When requested is non-empty (the caller's
 // boundary_class was set explicitly) it is honored as exactly that one named
@@ -86,9 +121,18 @@ func classIDsForRole(ctx context.Context, db bun.IDB, role string) (map[string]b
 // only when no class carries the controller role yet (an unclassified
 // deployment), degrading to the single named class each caller used before the
 // role rewire.
-func boundaryClassSet(ctx context.Context, db bun.IDB, requested, fallbackClass string) (map[string]bool, error) {
+func boundaryClassSet(ctx context.Context, db bun.IDB, requested, fallbackClass string, roles []string) (map[string]bool, error) {
 	if requested != "" {
 		return singleNamedClass(ctx, db, requested)
+	}
+	// Prefer the explicit sectioning backbone (boundary_role, migration 0129) with
+	// the caller's role set (isolation / switching-section / protection-zone).
+	// Falls back to the controller functional_role, then a single named class, for
+	// a deployment that hasn't seeded boundary_role yet.
+	if roleSet, err := classIDsForBoundaryRole(ctx, db, roles); err != nil {
+		return nil, err
+	} else if len(roleSet) > 0 {
+		return roleSet, nil
 	}
 	set, err := classIDsForRole(ctx, db, roleController)
 	if err != nil {

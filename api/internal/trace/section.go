@@ -22,6 +22,12 @@ type sectionRequest struct {
 	TraceConfiguration string     `json:"trace_configuration"`
 	Start              featureRef `json:"start"`
 	BoundaryClass      string     `json:"boundary_class,omitempty"`
+	// ProtectionZone selects the PROTECTION ZONE (bounded only by fault-
+	// interrupting protective devices + the transformer -- "what de-energises on a
+	// fault") instead of the default SWITCHING SECTION (bounded by any isolating
+	// device too -- "what I can isolate to work on it"). Ignored when BoundaryClass
+	// names an explicit class.
+	ProtectionZone bool `json:"protection_zone,omitempty"`
 }
 
 // sectionResponse is the whole result: everything between the nearest
@@ -79,7 +85,15 @@ func sectionTrace(ctx context.Context, db bun.IDB, req sectionRequest) (*section
 	// recloser or breaker bounds a section as it should rather than being
 	// crossed. Falls back to defaultBoundaryClass when no controller role is
 	// stamped yet.
-	boundaryClassIDs, err := boundaryClassSet(ctx, db, req.BoundaryClass, defaultBoundaryClass)
+	// Pick the boundary set by the section KIND: a protection zone stops only at
+	// fault-interrupting devices (+ the transformer), a switching section at any
+	// isolating device too. Both include the transformer -- a voltage boundary
+	// ends a section, the LV below being a separate one.
+	sectionRoles := switchingSectionRoles
+	if req.ProtectionZone {
+		sectionRoles = protectionZoneRoles
+	}
+	boundaryClassIDs, err := boundaryClassSet(ctx, db, req.BoundaryClass, defaultBoundaryClass, sectionRoles)
 	if err != nil {
 		return nil, err
 	}

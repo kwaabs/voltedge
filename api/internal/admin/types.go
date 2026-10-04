@@ -464,6 +464,89 @@ type materialSpecResponse struct {
 	UnitCost  *float64 `json:"unit_cost,omitempty"`
 }
 
+// --- Bill of Quantities cost catalog (migrations 0127/0128) ------------------
+//
+// currencies, cost_rates, and feature_cost_overrides are the three catalog
+// tables the BoQ engine (api/internal/boq) prices against. All three are pure
+// metadata (no physical gis.* change, no recompile), authored here the same way
+// material_specs is -- and read-gated identically: the whole /admin mount
+// already requires metadata:write, so these inherit the admin-only tightening
+// cost data was given (see security-admin-view-gate).
+
+// createCurrencyRequest is POST /admin/currencies' body. per_base is how many
+// units of this currency equal one base unit (the base row is always 1); is_base
+// marks the single house currency every stored cost is denominated in.
+type createCurrencyRequest struct {
+	Code    string   `json:"code"`
+	Name    string   `json:"name"`
+	PerBase *float64 `json:"per_base"`
+	IsBase  bool     `json:"is_base"`
+}
+
+// updateCurrencyRequest is PATCH /admin/currencies/{code}'s body -- every field
+// optional, only what's present changes.
+type updateCurrencyRequest struct {
+	Name    *string  `json:"name"`
+	PerBase *float64 `json:"per_base"`
+	IsBase  *bool    `json:"is_base"`
+}
+
+type currencyResponse struct {
+	Code    string  `json:"code"`
+	Name    string  `json:"name"`
+	PerBase float64 `json:"per_base"`
+	IsBase  bool    `json:"is_base"`
+}
+
+// createCostRateRequest is POST /admin/cost-rates' body -- one unit rate (in the
+// base currency) for a class, optionally narrowed to a subtype. subtype_code nil
+// is the class-wide default. unit_basis is 'each' or 'per_km'.
+type createCostRateRequest struct {
+	FeatureClassCode string  `json:"feature_class_code"`
+	SubtypeCode      *int    `json:"subtype_code"`
+	UnitBasis        string  `json:"unit_basis"`
+	UnitRate         float64 `json:"unit_rate"`
+	Notes            *string `json:"notes"`
+}
+
+// updateCostRateRequest is PATCH /admin/cost-rates/{id}'s body. subtype_code is
+// patch-only (a nil pointer leaves it untouched); clear_subtype is the explicit
+// reset back to the class-wide default, since a nil pointer can't distinguish
+// "don't change" from "set to NULL".
+type updateCostRateRequest struct {
+	SubtypeCode  *int     `json:"subtype_code"`
+	ClearSubtype bool     `json:"clear_subtype"`
+	UnitBasis    *string  `json:"unit_basis"`
+	UnitRate     *float64 `json:"unit_rate"`
+	Notes        *string  `json:"notes"`
+}
+
+type costRateResponse struct {
+	ID               string  `json:"id"`
+	FeatureClassCode string  `json:"feature_class_code"`
+	SubtypeCode      *int    `json:"subtype_code,omitempty"`
+	UnitBasis        string  `json:"unit_basis"`
+	UnitRate         float64 `json:"unit_rate"`
+	Notes            *string `json:"notes,omitempty"`
+}
+
+// upsertFeatureCostOverrideRequest is PUT
+// /admin/feature-cost-overrides/{class}/{feature_id}'s body -- the per-feature
+// unit cost (base currency, the feature's natural unit) that supersedes the
+// catalog rate. Idempotent: set or replace the one override for that feature.
+type upsertFeatureCostOverrideRequest struct {
+	UnitCost float64 `json:"unit_cost"`
+	Notes    *string `json:"notes"`
+}
+
+type featureCostOverrideResponse struct {
+	ID               string  `json:"id"`
+	FeatureClassCode string  `json:"feature_class_code"`
+	FeatureID        string  `json:"feature_id"`
+	UnitCost         float64 `json:"unit_cost"`
+	Notes            *string `json:"notes,omitempty"`
+}
+
 // createSymbologyIconRequest is POST /admin/symbology-icons' body -- one
 // icon_ref -> raw <svg> markup row of metadata.symbology_icons
 // (migrations/0023). IconRef is the name a symbology rule's

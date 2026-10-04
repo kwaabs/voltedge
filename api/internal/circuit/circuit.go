@@ -42,6 +42,9 @@ func ListCircuits(ctx context.Context, db bun.IDB, network string) ([]Circuit, e
 	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("circuit: listing circuits: %w", err)
 	}
+	if err := applyStaleness(ctx, db, circuits); err != nil {
+		return nil, err
+	}
 	return circuits, nil
 }
 
@@ -54,7 +57,11 @@ func GetCircuit(ctx context.Context, db bun.IDB, id string) (*Circuit, error) {
 		}
 		return nil, fmt.Errorf("circuit: loading circuit %s: %w", id, err)
 	}
-	return c, nil
+	one := []Circuit{*c}
+	if err := applyStaleness(ctx, db, one); err != nil {
+		return nil, err
+	}
+	return &one[0], nil
 }
 
 // CreateParams is the input to CreateCircuit. VoltageKV and the source

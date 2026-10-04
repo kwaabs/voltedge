@@ -15,11 +15,12 @@ package attachment
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/export"
+	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/uptrace/bun"
 )
 
@@ -48,14 +49,14 @@ func SweepConfigFromEnv() (retention, interval time.Duration) {
 		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
 			retention = d
 		} else {
-			log.Printf("attachment sweep: ignoring invalid ATTACHMENT_RETENTION %q", v)
+			slog.Warn("ignoring invalid env var", "worker", "attachment-sweep", "var", "ATTACHMENT_RETENTION", "value", v)
 		}
 	}
 	if v := os.Getenv("ATTACHMENT_SWEEP_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			interval = d
 		} else {
-			log.Printf("attachment sweep: ignoring invalid ATTACHMENT_SWEEP_INTERVAL %q", v)
+			slog.Warn("ignoring invalid env var", "worker", "attachment-sweep", "var", "ATTACHMENT_SWEEP_INTERVAL", "value", v)
 		}
 	}
 	return retention, interval
@@ -67,6 +68,7 @@ func SweepConfigFromEnv() (retention, interval time.Duration) {
 // ever removes already-soft-deleted, already-aged rows, so two sweepers racing the
 // same batch just repeat harmless work.
 func RunDeletedSweep(ctx context.Context, db *bun.DB, store *export.ObjectStore, retention, interval time.Duration) {
+	ctx = logx.Into(ctx, slog.Default().With(slog.String("worker", "attachment-sweep")))
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
@@ -75,9 +77,9 @@ func RunDeletedSweep(ctx context.Context, db *bun.DB, store *export.ObjectStore,
 		case err != nil && ctx.Err() != nil:
 			return // shutdown raced the sweep -- expected
 		case err != nil:
-			log.Printf("attachment sweep failed: %v", err)
+			logx.From(ctx).Error("sweep failed", "err", err)
 		case n > 0:
-			log.Printf("attachment sweep reaped %d deleted attachment(s)", n)
+			logx.From(ctx).Info("sweep reaped deleted attachments", "count", n)
 		}
 		select {
 		case <-ctx.Done():
@@ -131,7 +133,7 @@ func sweepDeletedAttachments(ctx context.Context, db *bun.DB, store *export.Obje
 					return len(reaped), ctx.Err()
 				}
 				// Keep the row; retry the object next pass rather than orphan it.
-				log.Printf("attachment sweep: could not delete object %q for attachment %s: %v", key, a.ID, err)
+				logx.From(ctx).Error("could not delete object", "key", key, "attachment_id", a.ID, "err", err)
 				failed = true
 				break
 			}

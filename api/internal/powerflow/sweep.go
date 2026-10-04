@@ -499,11 +499,13 @@ func formatResults(tr *tree, states map[node]*nodeState, classCodes map[string]s
 			dropPct = (st.voltageBase - st.voltageV) / st.voltageBase * 100
 		}
 		circuitID, circuitRef := circuitIdentity(st)
+		ownershipVal, _ := st.attrs["ownership"].(string)
 		res := nodeResult{
 			FeatureClass:     classCodes[n.classID],
 			FeatureID:        n.featureID,
 			CircuitID:        circuitID,
 			CircuitRef:       circuitRef,
+			Ownership:        ownershipVal,
 			VoltageV:         st.voltageV,
 			VoltageDropPct:   dropPct,
 			NominalBaseV:     st.voltageBase,

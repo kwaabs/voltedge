@@ -195,6 +195,21 @@ function CircuitRow({
       {circuit.voltage_kv != null && (
         <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs">{circuit.voltage_kv} kV</span>
       )}
+      {circuit.members_synced_at == null ? (
+        <span
+          className="text-muted-foreground rounded px-1.5 py-0.5 text-xs"
+          title="Membership has never been assigned from this circuit's source"
+        >
+          not assigned
+        </span>
+      ) : circuit.stale ? (
+        <span
+          className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-500"
+          title="A member feature changed since this circuit was last assigned — re-assign from its source to refresh membership"
+        >
+          stale — re-assign
+        </span>
+      ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         <Button variant="ghost" size="icon" className="size-7" title="Edit" onClick={() => onEdit(circuit)}>
           <Pencil className="size-4" />

@@ -130,6 +130,17 @@ func Routes(db *bun.DB, cipher *secretbox.Cipher) chi.Router {
 	r.Post("/material-specs", createMaterialSpecHandler(db))
 	r.Patch("/material-specs/{code}", updateMaterialSpecHandler(db))
 	r.Delete("/material-specs/{code}", deleteMaterialSpecHandler(db))
+	r.Get("/currencies", listCurrenciesHandler(db))
+	r.Post("/currencies", createCurrencyHandler(db))
+	r.Patch("/currencies/{code}", updateCurrencyHandler(db))
+	r.Delete("/currencies/{code}", deleteCurrencyHandler(db))
+	r.Get("/cost-rates", listCostRatesHandler(db))
+	r.Post("/cost-rates", createCostRateHandler(db))
+	r.Patch("/cost-rates/{id}", updateCostRateHandler(db))
+	r.Delete("/cost-rates/{id}", deleteCostRateHandler(db))
+	r.Get("/feature-cost-overrides", listFeatureCostOverridesHandler(db))
+	r.Put("/feature-cost-overrides/{class}/{feature_id}", upsertFeatureCostOverrideHandler(db))
+	r.Delete("/feature-cost-overrides/{class}/{feature_id}", deleteFeatureCostOverrideHandler(db))
 	r.Get("/symbology-icons", listSymbologyIconsHandler(db))
 	r.Post("/symbology-icons", createSymbologyIconHandler(db))
 	r.Patch("/symbology-icons/{icon_ref}", updateSymbologyIconHandler(db))
@@ -437,6 +448,160 @@ func deleteMaterialSpecHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		code := chi.URLParam(r, "code")
 		if err := deleteMaterialSpec(r.Context(), db, code); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// --- Bill of Quantities cost catalog (migrations 0127/0128) ------------------
+//
+// currencies, cost_rates, and feature_cost_overrides are the three catalog
+// surfaces the Cost Catalog admin page edits; all inherit the /admin mount's
+// metadata:write gate (so they are admin-only to both read and write, matching
+// security-admin-view-gate).
+
+func listCurrenciesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		currencies, err := listCurrencies(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"currencies": currencies})
+	}
+}
+
+func createCurrencyHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req createCurrencyRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := createCurrency(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func updateCurrencyHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		var req updateCurrencyRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := updateCurrency(r.Context(), db, code, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func deleteCurrencyHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		if err := deleteCurrency(r.Context(), db, code); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func listCostRatesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rates, err := listCostRates(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"cost_rates": rates})
+	}
+}
+
+func createCostRateHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req createCostRateRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := createCostRate(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	}
+}
+
+func updateCostRateHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var req updateCostRateRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := updateCostRate(r.Context(), db, id, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func deleteCostRateHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if err := deleteCostRate(r.Context(), db, id); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func listFeatureCostOverridesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		classCode := r.URL.Query().Get("class")
+		overrides, err := listFeatureCostOverrides(r.Context(), db, classCode)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"feature_cost_overrides": overrides})
+	}
+}
+
+func upsertFeatureCostOverrideHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		classCode := chi.URLParam(r, "class")
+		featureID := chi.URLParam(r, "feature_id")
+		var req upsertFeatureCostOverrideRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		result, err := upsertFeatureCostOverride(r.Context(), db, classCode, featureID, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func deleteFeatureCostOverrideHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		classCode := chi.URLParam(r, "class")
+		featureID := chi.URLParam(r, "feature_id")
+		if err := deleteFeatureCostOverride(r.Context(), db, classCode, featureID); err != nil {
 			writeError(w, err)
 			return
 		}

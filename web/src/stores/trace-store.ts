@@ -45,6 +45,12 @@ export interface TracedFeature extends TraceFeatureRef {
    * it passed through as well as an OPEN one it stopped at). Absent for any
    * feature whose class has no device_state field. */
   device_state?: string
+  /** The reached feature's ownership -- "private" for an owner's plant (the
+   * asset-ownership axis), absent for utility-owned/unset. Mirrors
+   * api/internal/trace's tracedFeature.ownership; trace-result-table.tsx badges
+   * the private stretch, since a trace crosses the ownership boundary rather than
+   * stopping at it. */
+  ownership?: string
   /** The reached feature's one-hop-upstream neighbour in the trace's BFS tree --
    * the feature the walk arrived here from (mirrors api/internal/trace's
    * tracedFeature.parent_feature_*). Absent on the start feature and on any node

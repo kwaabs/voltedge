@@ -46,6 +46,10 @@ type TracedFeature struct {
 	// DeviceState is the reached switching device's live position ("OPEN"/
 	// "CLOSED"), omitted for non-switch features. See tracedFeature.DeviceState.
 	DeviceState string `json:"device_state,omitempty"`
+	// Ownership is "private" for an owner's plant (the asset-ownership axis),
+	// omitted for utility-owned/unset -- so a result flags the private stretch.
+	// See tracedFeature.Ownership.
+	Ownership string `json:"ownership,omitempty"`
 }
 
 // DiagramMembership is the exported form of diagramMembership: one diagram a
@@ -242,6 +246,10 @@ type SectionInput struct {
 	TraceConfiguration string
 	Start              FeatureRef
 	BoundaryClass      string
+	// ProtectionZone selects the protection zone (bounded by fault-interrupting
+	// devices + the transformer) instead of the default switching section (bounded
+	// by any isolating device too). See sectionRequest.ProtectionZone.
+	ProtectionZone bool
 }
 
 // SectionResult is the exported form of sectionResponse -- everything
@@ -264,6 +272,7 @@ func SectionTrace(ctx context.Context, db bun.IDB, in SectionInput) (*SectionRes
 		TraceConfiguration: in.TraceConfiguration,
 		Start:              featureRef{FeatureClass: in.Start.FeatureClass, FeatureID: in.Start.FeatureID},
 		BoundaryClass:      in.BoundaryClass,
+		ProtectionZone:     in.ProtectionZone,
 	})
 	if err != nil {
 		return nil, err
@@ -349,6 +358,7 @@ func toExportedTracedFeatures(fs []tracedFeature) []TracedFeature {
 			OnMap:           f.OnMap,
 			Diagrams:        toExportedDiagramMemberships(f.Diagrams),
 			DeviceState:     f.DeviceState,
+			Ownership:       f.Ownership,
 		}
 	}
 	return out

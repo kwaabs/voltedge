@@ -10,13 +10,15 @@ package webhook
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/uptrace/bun"
+
+	"github.com/kwaabs/voltedge/api/internal/logx"
 )
 
 const (
@@ -62,21 +64,21 @@ func WorkerConfigFromEnv() WorkerConfig {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.Concurrency = n
 		} else {
-			log.Printf("webhook worker: ignoring invalid WEBHOOK_WORKER_CONCURRENCY %q", v)
+			slog.Warn("ignoring invalid env var", "worker", "webhook", "var", "WEBHOOK_WORKER_CONCURRENCY", "value", v)
 		}
 	}
 	if v := os.Getenv("WEBHOOK_DELIVERY_LEASE"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			cfg.Lease = d
 		} else {
-			log.Printf("webhook worker: ignoring invalid WEBHOOK_DELIVERY_LEASE %q", v)
+			slog.Warn("ignoring invalid env var", "worker", "webhook", "var", "WEBHOOK_DELIVERY_LEASE", "value", v)
 		}
 	}
 	if v := os.Getenv("WEBHOOK_MAX_ATTEMPTS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.MaxAttempts = n
 		} else {
-			log.Printf("webhook worker: ignoring invalid WEBHOOK_MAX_ATTEMPTS %q", v)
+			slog.Warn("ignoring invalid env var", "worker", "webhook", "var", "WEBHOOK_MAX_ATTEMPTS", "value", v)
 		}
 	}
 
@@ -93,7 +95,9 @@ func WorkerConfigFromEnv() WorkerConfig {
 // claim, so the worker never holds more claimed deliveries than it can run. It
 // returns ctx.Err() (context.Canceled on a clean shutdown).
 func RunWorker(ctx context.Context, db *bun.DB, cfg WorkerConfig) error {
-	log.Printf("webhook worker %s started (concurrency=%d, lease=%s)", cfg.ID, cfg.Concurrency, cfg.Lease)
+	lg := slog.Default().With(slog.String("worker", "webhook"), slog.String("worker_id", cfg.ID))
+	ctx = logx.Into(ctx, lg)
+	lg.Info("worker started", "concurrency", cfg.Concurrency, "lease", cfg.Lease.String())
 
 	sem := make(chan struct{}, cfg.Concurrency)
 	var wg sync.WaitGroup
@@ -113,7 +117,7 @@ func RunWorker(ctx context.Context, db *bun.DB, cfg WorkerConfig) error {
 				wg.Wait()
 				return ctx.Err()
 			}
-			log.Printf("webhook worker: claim failed: %v", err)
+			lg.Error("claim failed", "err", err)
 			<-sem
 			sleepCtx(ctx, cfg.Poll)
 			continue
@@ -138,7 +142,8 @@ func RunWorker(ctx context.Context, db *bun.DB, cfg WorkerConfig) error {
 // cancels the apply context so an in-flight transaction aborts rather than
 // racing another worker.
 func runDeliveryWithHeartbeat(parent context.Context, db *bun.DB, cfg WorkerConfig, d *Delivery) {
-	dCtx, cancel := context.WithCancel(parent)
+	dl := logx.From(parent).With(slog.String("delivery_id", d.ID))
+	dCtx, cancel := context.WithCancel(logx.Into(parent, dl))
 	defer cancel()
 
 	interval := cfg.Lease / 3
@@ -162,11 +167,11 @@ func runDeliveryWithHeartbeat(parent context.Context, db *bun.DB, cfg WorkerConf
 					if dCtx.Err() != nil {
 						return // the delivery finished; this beat lost the race
 					}
-					log.Printf("webhook worker: heartbeat for delivery %s failed: %v", d.ID, err)
+					dl.Error("heartbeat failed", "err", err)
 					continue
 				}
 				if !ok {
-					log.Printf("webhook worker: lost lease on delivery %s -- aborting", d.ID)
+					dl.Warn("lost lease, aborting delivery")
 					cancel()
 					return
 				}
@@ -191,12 +196,12 @@ func runClaimedDelivery(ctx context.Context, db *bun.DB, cfg WorkerConfig, d *De
 			max = 0 // attempts is already >= 1, so failDelivery marks it 'dead'
 		}
 		if ferr := failDelivery(ctx, db, d.ID, err.Error(), max); ferr != nil {
-			log.Printf("webhook worker: recording failure for delivery %s: %v", d.ID, ferr)
+			logx.From(ctx).Error("recording delivery failure failed", "err", ferr)
 		}
 		return
 	}
 	if cerr := completeDelivery(ctx, db, d.ID, resultJSON(results)); cerr != nil {
-		log.Printf("webhook worker: recording success for delivery %s: %v", d.ID, cerr)
+		logx.From(ctx).Error("recording delivery success failed", "err", cerr)
 	}
 }
 

@@ -34,7 +34,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"os"
 	"os/exec"
@@ -44,6 +43,7 @@ import (
 
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/export"
+	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 
@@ -184,11 +184,16 @@ func buildPack(ctx context.Context, db *bun.DB, store *export.ObjectStore, pack 
 		// Both objects are uploaded but the row didn't flip (e.g. cancelled, or a
 		// transient DB fault): the objects are now unreferenced. A retention sweep
 		// (a later slice, like the export queue's) reaps orphans; nothing to serve.
-		log.Printf("fieldpack: pack %s uploaded but marking complete failed: %v", pack.ID, err)
+		logx.From(ctx).Error("uploaded but marking complete failed", "err", err)
 		return
 	}
-	log.Printf("fieldpack: pack %s built: features=%d conns=%d rels=%d domainvals=%d symbology=%d icons=%d attachments=%d relclasses=%d netrules=%d defects=%d faults=%d workorders=%d insptemplates=%d/%d assettags=%d tiles=%dB data=%dB",
-		pack.ID, res.featureCount, res.connCount, res.relCount, res.domainValueCount, res.symbologyCount, res.iconCount, res.attachmentCount, res.relClassCount, res.netRuleCount, res.defectCount, res.faultCount, res.workOrderCount, res.inspTemplateCount, res.inspTemplateItemCount, res.assetTagCount, tilesBytes, dataBytes)
+	logx.From(ctx).Info("pack built",
+		"features", res.featureCount, "conns", res.connCount, "rels", res.relCount,
+		"domainvals", res.domainValueCount, "symbology", res.symbologyCount, "icons", res.iconCount,
+		"attachments", res.attachmentCount, "relclasses", res.relClassCount, "netrules", res.netRuleCount,
+		"defects", res.defectCount, "faults", res.faultCount, "workorders", res.workOrderCount,
+		"insptemplates", res.inspTemplateCount, "insptemplateitems", res.inspTemplateItemCount,
+		"assettags", res.assetTagCount, "tiles_bytes", tilesBytes, "data_bytes", dataBytes)
 }
 
 // buildArtifacts does the read + encode: it writes the SQLite pack and the
@@ -1806,6 +1811,6 @@ func uploadFile(ctx context.Context, store *export.ObjectStore, key, path string
 // markPackFailed records a build failure, logging if even that write fails.
 func markPackFailed(ctx context.Context, db *bun.DB, id, msg string) {
 	if err := failPack(ctx, db, id, msg); err != nil {
-		log.Printf("fieldpack: pack %s failed (%s) and marking failed also failed: %v", id, msg, err)
+		logx.From(ctx).Error("pack failed and marking failed also failed", "reason", msg, "err", err)
 	}
 }

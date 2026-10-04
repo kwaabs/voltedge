@@ -12,13 +12,14 @@ package fieldpack
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/export"
+	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/uptrace/bun"
 )
 
@@ -54,14 +55,14 @@ func WorkerConfigFromEnv() WorkerConfig {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.Concurrency = n
 		} else {
-			log.Printf("fieldsync worker: ignoring invalid FIELDSYNC_WORKER_CONCURRENCY %q", v)
+			slog.Warn("ignoring invalid env var", "worker", "fieldsync", "var", "FIELDSYNC_WORKER_CONCURRENCY", "value", v)
 		}
 	}
 	if v := os.Getenv("FIELDSYNC_JOB_LEASE"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			cfg.Lease = d
 		} else {
-			log.Printf("fieldsync worker: ignoring invalid FIELDSYNC_JOB_LEASE %q", v)
+			slog.Warn("ignoring invalid env var", "worker", "fieldsync", "var", "FIELDSYNC_JOB_LEASE", "value", v)
 		}
 	}
 	host, err := os.Hostname()
@@ -77,7 +78,9 @@ func WorkerConfigFromEnv() WorkerConfig {
 // the worker never holds more claimed builds than it can run. It returns ctx.Err()
 // (context.Canceled on a clean shutdown).
 func RunWorker(ctx context.Context, db *bun.DB, store *export.ObjectStore, cfg WorkerConfig) error {
-	log.Printf("fieldsync worker %s started (concurrency=%d, lease=%s)", cfg.ID, cfg.Concurrency, cfg.Lease)
+	lg := slog.Default().With(slog.String("worker", "fieldsync"), slog.String("worker_id", cfg.ID))
+	ctx = logx.Into(ctx, lg)
+	lg.Info("worker started", "concurrency", cfg.Concurrency, "lease", cfg.Lease.String())
 
 	sem := make(chan struct{}, cfg.Concurrency)
 	var wg sync.WaitGroup
@@ -97,7 +100,7 @@ func RunWorker(ctx context.Context, db *bun.DB, store *export.ObjectStore, cfg W
 				wg.Wait()
 				return ctx.Err()
 			}
-			log.Printf("fieldsync worker: claim failed: %v", err)
+			lg.Error("claim failed", "err", err)
 			<-sem
 			sleep(ctx, cfg.Poll)
 			continue
@@ -122,7 +125,8 @@ func RunWorker(ctx context.Context, db *bun.DB, store *export.ObjectStore, cfg W
 // a missed beat, or cancelled), it cancels the build's context so the in-flight
 // read/tippecanoe/upload aborts promptly instead of racing another worker.
 func buildPackWithHeartbeat(parent context.Context, db *bun.DB, store *export.ObjectStore, cfg WorkerConfig, pack *FieldPack) {
-	buildCtx, cancel := context.WithCancel(parent)
+	pl := logx.From(parent).With(slog.String("pack_id", pack.ID))
+	buildCtx, cancel := context.WithCancel(logx.Into(parent, pl))
 	defer cancel()
 
 	// Beat at a third of the lease: two beats can be missed before the lease
@@ -148,11 +152,11 @@ func buildPackWithHeartbeat(parent context.Context, db *bun.DB, store *export.Ob
 					if buildCtx.Err() != nil {
 						return // the build finished; this beat just lost the race
 					}
-					log.Printf("fieldsync worker: heartbeat for pack %s failed: %v", pack.ID, err)
+					pl.Error("heartbeat failed", "err", err)
 					continue
 				}
 				if !ok {
-					log.Printf("fieldsync worker: lost lease on pack %s -- aborting", pack.ID)
+					pl.Warn("lost lease, aborting build")
 					cancel()
 					return
 				}

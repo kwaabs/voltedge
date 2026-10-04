@@ -1,0 +1,114 @@
+# docker-compose.observability.yml -- OPT-IN log aggregation overlay.
+#
+# VoltEdge's services log structured JSON to stdout (internal/logx); the base
+# stack just lets Docker capture it (docker logs). This overlay adds a searchable,
+# dashboarded log store so you -- and, through Loki's API, other systems -- can
+# consume those logs centrally:
+#
+#   vector   : the collector. Reads every VoltEdge container's stdout off the
+#              Docker socket and forwards each line to Loki. It does NOT change the
+#              log driver, so `docker logs <service>` keeps working.
+#   loki     : the log store (grafana/loki). Filesystem-backed, single binary.
+#              NOT published to the host -- reachable only inside the compose
+#              network (Grafana, Vector) and through logproxy.
+#   logproxy : a Caddy reverse proxy that requires `Authorization: Bearer
+#              <LOKI_READ_TOKEN>` in front of Loki's query API -- the authenticated
+#              front door for external consumers (Loki has no auth of its own).
+#   grafana  : the UI. Comes up with the Loki data source pre-wired; dashboards and
+#              alerts live here.
+#
+# It is a separate file on purpose: the base stack stays lean, and you opt in with
+# an extra -f when you want log aggregation. Set LOKI_READ_TOKEN first (the proxy
+# refuses to start without it):
+#
+#   LOKI_READ_TOKEN=$(openssl rand -hex 32) \
+#     docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+#
+# Then open Grafana at http://localhost:3708 (anonymous viewer is on; admin login
+# is admin/admin by default -- change it for anything but local dev) and Explore
+# the Loki source. Example LogQL:
+#
+#   {service="voltedge-api"} | json | ."http.response.status_code" >= 500
+#   {service="voltedge-api"} | json | request_id="a1b2c3d4e5f6a7b8"
+#   {project="voltedge"} | json | level="ERROR"
+#
+# Other systems consume the same logs via the TOKEN-GATED proxy (not Loki
+# directly, which isn't exposed):
+#
+#   curl -H "Authorization: Bearer $LOKI_READ_TOKEN" \
+#     "http://localhost:3709/loki/api/v1/query_range?query={service=\"voltedge-api\"}"
+#
+# -- the aggregator's endpoint with its own access control, NOT a VoltEdge API.
+#
+# Images are pinned to recent stable tags; bump them once you've confirmed a pull.
+
+services:
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: voltedge-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yaml"]
+    # Deliberately NOT published to the host: Loki has no auth of its own, so the
+    # only external way in is the bearer-token proxy (logproxy) below. Grafana and
+    # Vector reach it over the compose network as loki:3100.
+    expose:
+      - "3100"
+    volumes:
+      - ./infra/loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+
+  # The authenticating front door for external log consumers: a Caddy reverse
+  # proxy that requires `Authorization: Bearer <LOKI_READ_TOKEN>` and forwards
+  # valid requests to Loki's query API. Consumers hit this, not Loki directly:
+  #   curl -H "Authorization: Bearer $LOKI_READ_TOKEN" \
+  #     "http://localhost:3709/loki/api/v1/query_range?query={service=\"voltedge-api\"}"
+  logproxy:
+    image: caddy:2.8-alpine
+    container_name: voltedge-logproxy
+    restart: unless-stopped
+    depends_on:
+      - loki
+    environment:
+      # Required: the overlay refuses to start the proxy without a token, so it
+      # can never come up accepting an empty one. Set a long random secret.
+      LOKI_READ_TOKEN: ${LOKI_READ_TOKEN:?set LOKI_READ_TOKEN to a strong secret before starting the observability overlay}
+    ports:
+      - "${LOKI_PROXY_PORT:-3709}:3100"
+    volumes:
+      - ./infra/logproxy/Caddyfile:/etc/caddy/Caddyfile:ro
+
+  vector:
+    image: timberio/vector:0.44.0-alpine
+    container_name: voltedge-vector
+    restart: unless-stopped
+    depends_on:
+      - loki
+    volumes:
+      - ./infra/vector/vector.yaml:/etc/vector/vector.yaml:ro
+      # Read-only access to the Docker socket to tail container stdout. On Docker
+      # Desktop (Windows/Mac) this path resolves inside the Linux VM.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: ["--config", "/etc/vector/vector.yaml"]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: voltedge-grafana
+    restart: unless-stopped
+    depends_on:
+      - loki
+    ports:
+      - "${GRAFANA_PORT:-3708}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Anonymous read for quick local Explore; editing still needs the admin
+      # login. Turn this off for any shared/non-local deployment.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  loki_data:
+  grafana_data:

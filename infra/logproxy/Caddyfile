@@ -1,0 +1,36 @@
+# infra/logproxy/Caddyfile -- a bearer-token gate in front of Loki's query API.
+#
+# Loki has no authentication of its own (auth_enabled toggles multi-tenancy, not
+# a login), so external consumers must not reach it directly. In the overlay,
+# Loki's port is NOT published; this proxy is the only network way in. A request
+# must carry the exact shared read token or it gets 401; a valid one is forwarded
+# to Loki unchanged. Grafana still reaches loki:3100 internally (it has its own
+# auth), so this gate is purely for machine consumers of the query API.
+#
+# The token is injected from the LOKI_READ_TOKEN env var at startup -- never
+# written into this file or baked into the image. Rotate it by changing the env
+# and restarting the proxy. For PER-CONSUMER tokens (independent revocation), add
+# one @authorized matcher per token, or front this with a real auth service.
+
+{
+	admin off
+	auto_https off
+}
+
+:3100 {
+	# Exact-match the Authorization header against "Bearer <token>". The
+	# {$LOKI_READ_TOKEN} placeholder is substituted from the environment when
+	# Caddy loads this file.
+	@authorized header Authorization "Bearer {$LOKI_READ_TOKEN}"
+
+	handle @authorized {
+		reverse_proxy loki:3100
+	}
+
+	# Anything without the token (or with a wrong one) is refused. No log body
+	# leaks in the 401.
+	handle {
+		header Content-Type text/plain
+		respond "unauthorized: send 'Authorization: Bearer <token>'" 401
+	}
+}

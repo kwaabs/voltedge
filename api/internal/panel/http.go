@@ -2,7 +2,6 @@ package panel
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
 )
 
@@ -96,7 +96,7 @@ func createPanelHandler(db *bun.DB) http.HandlerFunc {
 		// Auto-build the panel's single-line diagram (best-effort): the panel is
 		// already committed, so a diagram failure is logged, never fatal.
 		if _, derr := buildAutoDiagram(r.Context(), db, in, result); derr != nil {
-			log.Printf("panel: auto single-line diagram: %v", derr)
+			logx.From(r.Context()).Warn("auto single-line diagram failed", "component", "panel", "err", derr)
 		}
 		writeJSON(w, http.StatusCreated, result)
 	}

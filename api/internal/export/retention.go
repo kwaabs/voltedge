@@ -12,10 +12,11 @@ package export
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/uptrace/bun"
+
+	"github.com/kwaabs/voltedge/api/internal/logx"
 )
 
 const (
@@ -50,9 +51,9 @@ func runRetentionSweep(ctx context.Context, db *bun.DB, store *ObjectStore, rete
 		case err != nil && ctx.Err() != nil:
 			return // shutdown raced the sweep -- expected
 		case err != nil:
-			log.Printf("export worker: retention sweep failed: %v", err)
+			logx.From(ctx).Error("retention sweep failed", "err", err)
 		case n > 0:
-			log.Printf("export worker: retention sweep reaped %d expired export(s)", n)
+			logx.From(ctx).Info("retention sweep reaped expired exports", "count", n)
 		}
 		select {
 		case <-ctx.Done():
@@ -109,7 +110,7 @@ func sweepExpiredExports(ctx context.Context, db *bun.DB, store *ObjectStore, re
 					return len(reaped), ctx.Err()
 				}
 				// Keep the row; retry the artifact next pass rather than orphan it.
-				log.Printf("export worker: could not delete artifact %q for job %s: %v", key, j.ID, err)
+				logx.From(ctx).Error("could not delete artifact", "key", key, "job_id", j.ID, "err", err)
 				continue
 			}
 		}

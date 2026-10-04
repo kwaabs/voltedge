@@ -50,12 +50,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 
 	"github.com/kwaabs/voltedge/api/internal/agenttools"
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/uptrace/bun"
 )
 
@@ -196,7 +196,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// iam.api_tokens credential; an anonymous caller cannot even initialize.
 	user, err := s.authenticate(r)
 	if err != nil {
-		log.Printf("mcp: token resolution error: %v", err)
+		logx.From(r.Context()).Error("token resolution error", "component", "mcp", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -236,7 +236,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	resp := s.dispatch(r.Context(), user, &req)
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("mcp: writing response: %v", err)
+		logx.From(r.Context()).Error("writing response failed", "component", "mcp", "err", err)
 	}
 }
 

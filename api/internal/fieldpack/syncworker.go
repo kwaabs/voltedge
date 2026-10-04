@@ -19,13 +19,14 @@ package fieldpack
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/uptrace/bun"
 )
 
@@ -65,14 +66,14 @@ func SyncWorkerConfigFromEnv() SyncWorkerConfig {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.Concurrency = n
 		} else {
-			log.Printf("sync worker: ignoring invalid SYNC_WORKER_CONCURRENCY %q", v)
+			slog.Warn("ignoring invalid env var", "worker", "sync", "var", "SYNC_WORKER_CONCURRENCY", "value", v)
 		}
 	}
 	if v := os.Getenv("SYNC_JOB_LEASE"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			cfg.Lease = d
 		} else {
-			log.Printf("sync worker: ignoring invalid SYNC_JOB_LEASE %q", v)
+			slog.Warn("ignoring invalid env var", "worker", "sync", "var", "SYNC_JOB_LEASE", "value", v)
 		}
 	}
 	host, err := os.Hostname()
@@ -88,7 +89,9 @@ func SyncWorkerConfigFromEnv() SyncWorkerConfig {
 // worker never holds more claimed ops than it can run. It returns ctx.Err() on a
 // clean shutdown. Structure is identical to export.RunWorker.
 func RunSyncWorker(ctx context.Context, db *bun.DB, cfg SyncWorkerConfig) error {
-	log.Printf("sync worker %s started (concurrency=%d, lease=%s)", cfg.ID, cfg.Concurrency, cfg.Lease)
+	lg := slog.Default().With(slog.String("worker", "sync"), slog.String("worker_id", cfg.ID))
+	ctx = logx.Into(ctx, lg)
+	lg.Info("worker started", "concurrency", cfg.Concurrency, "lease", cfg.Lease.String())
 
 	sem := make(chan struct{}, cfg.Concurrency)
 	var wg sync.WaitGroup
@@ -108,7 +111,7 @@ func RunSyncWorker(ctx context.Context, db *bun.DB, cfg SyncWorkerConfig) error 
 				wg.Wait()
 				return ctx.Err()
 			}
-			log.Printf("sync worker: claim failed: %v", err)
+			lg.Error("claim failed", "err", err)
 			<-sem
 			syncSleep(ctx, cfg.Poll)
 			continue
@@ -133,7 +136,8 @@ func RunSyncWorker(ctx context.Context, db *bun.DB, cfg SyncWorkerConfig) error 
 // no longer ours cancels the op's context so an in-flight apply aborts rather than
 // racing a reclaiming worker (the reclaim is safe regardless -- apply is idempotent).
 func applyInboxOpWithHeartbeat(parent context.Context, db *bun.DB, cfg SyncWorkerConfig, row *SyncInboxRow) {
-	opCtx, cancel := context.WithCancel(parent)
+	ol := logx.From(parent).With(slog.String("op_id", row.OpID))
+	opCtx, cancel := context.WithCancel(logx.Into(parent, ol))
 	defer cancel()
 
 	interval := cfg.Lease / 3
@@ -157,11 +161,11 @@ func applyInboxOpWithHeartbeat(parent context.Context, db *bun.DB, cfg SyncWorke
 					if opCtx.Err() != nil {
 						return // the op finished; this beat lost the race
 					}
-					log.Printf("sync worker: heartbeat for op %s failed: %v", row.OpID, err)
+					ol.Error("heartbeat failed", "err", err)
 					continue
 				}
 				if !ok {
-					log.Printf("sync worker: lost lease on op %s -- aborting", row.OpID)
+					ol.Warn("lost lease, aborting op")
 					cancel()
 					return
 				}
@@ -207,7 +211,7 @@ func applyInboxOp(ctx context.Context, db *bun.DB, cfg SyncWorkerConfig, row *Sy
 		if ctx.Err() != nil {
 			return
 		}
-		log.Printf("sync worker: conflict check for op %s failed (applying anyway): %v", row.OpID, err)
+		logx.From(ctx).Error("conflict check failed (applying anyway)", "err", err)
 	} else if handled {
 		return
 	}
@@ -222,7 +226,7 @@ func applyInboxOp(ctx context.Context, db *bun.DB, cfg SyncWorkerConfig, row *Sy
 
 	if res.Status == "applied" {
 		if err := markInboxApplied(ctx, db, row.OpID, cfg.ID, res.Feature); err != nil {
-			log.Printf("sync worker: mark op %s applied: %v", row.OpID, err)
+			logx.From(ctx).Error("mark op applied failed", "err", err)
 		}
 		return
 	}
@@ -230,7 +234,7 @@ func applyInboxOp(ctx context.Context, db *bun.DB, cfg SyncWorkerConfig, row *Sy
 	// faithful to export's fail-on-error; transient-vs-permanent classification with
 	// bounded retry is a later refinement).
 	if err := markInboxRejected(ctx, db, row.OpID, cfg.ID, res.Error); err != nil {
-		log.Printf("sync worker: mark op %s rejected: %v", row.OpID, err)
+		logx.From(ctx).Error("mark op rejected failed", "err", err)
 	}
 }
 

@@ -16,9 +16,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"time"
 
+	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 )
@@ -93,7 +93,7 @@ func runClaimedJob(ctx context.Context, db *bun.DB, store *ObjectStore, job *Exp
 	if err := completeExport(ctx, db, job.ID, key, size, res.count); err != nil {
 		// The object is uploaded but unreferenced; retention cleanup (an open
 		// question in the design doc) will reap it. Nothing to serve, so log.
-		log.Printf("export: job %s uploaded but marking complete failed: %v", job.ID, err)
+		logx.From(ctx).Error("uploaded but marking complete failed", "err", err)
 	}
 }
 
@@ -127,7 +127,7 @@ func objectKey(jobID, ext string) string {
 // markFailed records a job failure, logging if even that write fails.
 func markFailed(ctx context.Context, db *bun.DB, id, msg string) {
 	if err := failExport(ctx, db, id, msg); err != nil {
-		log.Printf("export: job %s failed (%s) and marking failed also failed: %v", id, msg, err)
+		logx.From(ctx).Error("job failed and marking failed also failed", "reason", msg, "err", err)
 	}
 }
 
@@ -252,14 +252,15 @@ func runExport(ctx context.Context, db *bun.DB, scope ExportScope, w io.Writer) 
 	// every CIM export records its topology size, so an operator (or an alert on
 	// parent_bytes) sees the union-find footprint climb toward the ~240MB
 	// projection long before it OOMs, which is the concrete signal to build Slice 5.
-	log.Printf("export: CIM topology features=%d conns=%d terminals=%d nodes=%d parent_bytes=%d",
-		count, stats.Conns, stats.Endpoints, stats.Nodes, stats.ParentBytes)
+	logx.From(ctx).Info("CIM topology",
+		"features", count, "conns", stats.Conns, "terminals", stats.Endpoints,
+		"nodes", stats.Nodes, "parent_bytes", stats.ParentBytes)
 	// Phase 55 Slice 2 warn-on-drop: any class with features but no
 	// cim_class_mappings row was silently excluded. Log it (WARN) so a dropped
 	// class is visible in the export logs, not lost -- the admin editor's
 	// coverage view (GET /admin/cim-coverage) is the interactive counterpart.
 	if dropped := formatUnmapped(stats.Unmapped); dropped != "" {
-		log.Printf("export: CIM WARNING unmapped classes dropped from output (no cim_class_mappings row): %s", dropped)
+		logx.From(ctx).Warn("CIM unmapped classes dropped from output (no cim_class_mappings row)", "classes", dropped)
 	}
 	return count, err
 }

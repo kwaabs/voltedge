@@ -56,6 +56,16 @@ type FeatureClass struct {
 	// it's pure metadata the compiler's DDL never reads; it rides along on this
 	// struct-model select and passes straight through to the schema endpoint.
 	FunctionalRole *string `bun:"functional_role"`
+	// BoundaryRole is the class's NETWORK-SECTIONING function (migration 0129):
+	// one of source/protective/switching/transformer, or nil for a class that
+	// doesn't bound the network (conductors, busbars, meters, poles). It refines
+	// FunctionalRole for sectioning -- where functional_role lumps every switch as
+	// 'controller', this splits a fault-interrupting 'protective' device (which
+	// carves a protection zone) from an isolating 'switching' one (which carves a
+	// switching section). The section engine climbs the trace tree to each node's
+	// nearest boundary-role ancestor to label which section it sits in. Pure
+	// metadata the compiler never reads; rides this struct-model select.
+	BoundaryRole *string `bun:"boundary_role"`
 	// MinDisplayZoom / MaxDisplayZoom are the class's map display-zoom band
 	// (migration 0090): the geographic map hides the whole feature (glyph +
 	// label) below MinDisplayZoom or above MaxDisplayZoom. nil on either side
@@ -266,6 +276,56 @@ type MaterialSpec struct {
 	PosCY                      *float64 `bun:"pos_c_y_m"`
 	PosNX                      *float64 `bun:"pos_n_x_m"`
 	PosNY                      *float64 `bun:"pos_n_y_m"`
+}
+
+// CostRate mirrors metadata.cost_rates -- see migration 0127. One row is the
+// unit rate (in the base currency) for a feature class, optionally narrowed to a
+// single subtype. UnitBasis is 'each' (rate x feature count) or 'per_km' (rate x
+// geometry length in km). SubtypeCode nil is the class-wide default, used by any
+// subtype without a more specific row. Read by the BoQ engine
+// (api/internal/boq); a plain feature_class_code, not an FK (like
+// DiagramStencil.PromoteClass).
+type CostRate struct {
+	bun.BaseModel `bun:"table:metadata.cost_rates"`
+
+	ID               string  `bun:"id,pk"`
+	FeatureClassCode string  `bun:"feature_class_code"`
+	SubtypeCode      *int    `bun:"subtype_code"`
+	UnitBasis        string  `bun:"unit_basis"`
+	UnitRate         float64 `bun:"unit_rate"`
+	Notes            *string `bun:"notes"`
+}
+
+// Currency mirrors metadata.currencies -- see migration 0127. Every stored cost
+// (CostRate.UnitRate, MaterialSpec.CostPerKm/UnitCost) is denominated in the one
+// base currency (IsBase); PerBase is how many units of THIS currency equal one
+// base unit, so a base amount displays in this currency as amount * PerBase. The
+// base row's PerBase is always 1. Read by the BoQ engine to present totals in a
+// chosen currency.
+type Currency struct {
+	bun.BaseModel `bun:"table:metadata.currencies"`
+
+	Code    string  `bun:"code,pk"`
+	Name    string  `bun:"name"`
+	PerBase float64 `bun:"per_base"`
+	IsBase  bool    `bun:"is_base"`
+}
+
+// FeatureCostOverride mirrors metadata.feature_cost_overrides -- see migration
+// 0128. One optional per-feature unit cost (in the base currency, in the
+// feature's natural unit: per_km for a line, 'each' for a discrete feature) that
+// supersedes the catalog rate the feature would otherwise resolve. Keyed
+// polymorphically by (FeatureClassCode, FeatureID) -- a plain reference, not an
+// FK (every gis.* table is separate). Read by the BoQ engine; a feature with an
+// override is priced off it and never reported "unpriced".
+type FeatureCostOverride struct {
+	bun.BaseModel `bun:"table:metadata.feature_cost_overrides"`
+
+	ID               string  `bun:"id,pk"`
+	FeatureClassCode string  `bun:"feature_class_code"`
+	FeatureID        string  `bun:"feature_id"`
+	UnitCost         float64 `bun:"unit_cost"`
+	Notes            *string `bun:"notes"`
 }
 
 // FieldGroup mirrors metadata.field_groups -- see migrations/0005. A

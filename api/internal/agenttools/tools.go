@@ -46,17 +46,20 @@ func readTools() []Tool {
 			Description: "List every compiled (published) VoltEdge feature class -- the " +
 				"catalog of asset types on the network. Returns each class's code " +
 				"(use it as feature_class in the other tools), display name, geometry " +
-				"type, and network role. Takes no arguments.",
+				"type, network role, and trace_tier -- its rank in the source-to-load " +
+				"hierarchy (0 grid infeed .. 600 service/meter; absent = untiered). " +
+				"Takes no arguments.",
 			InputSchema:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
 			RequiredPerm: auth.PermFeaturesRead,
 			Handler:      toolListFeatureClasses,
 		},
 		{
 			Name: "describe_feature_class",
-			Description: "Describe one feature class's schema: its geometry type, subtypes, " +
-				"fields (name, data type, nullability, and any coded-domain values), and " +
-				"connection terminals. Use this to learn what fields exist before calling " +
-				"search_features or reading a feature.",
+			Description: "Describe one feature class's schema: its geometry type, trace_tier " +
+				"(source-to-load rank; absent = untiered), subtypes, fields (name, data " +
+				"type, nullability, and any coded-domain values), and connection terminals. " +
+				"Use this to learn what fields exist before calling search_features or " +
+				"reading a feature.",
 			InputSchema: json.RawMessage(`{
 				"type":"object",
 				"properties":{
@@ -155,6 +158,56 @@ func readTools() []Tool {
 			}`),
 			RequiredPerm: auth.PermFeaturesRead,
 			Handler:      toolQueryFeaturesAggregate,
+		},
+		{
+			Name: "run_bill_of_quantities",
+			Description: "Price a scope of the network into a Bill of Quantities -- the costing " +
+				"behind the map's BoQ panel. It counts scoped quantities (discrete feature " +
+				"counts priced 'each', linear geometry priced per_km from the selected " +
+				"material's cost_per_km) and multiplies by catalog rates, returning a grouped, " +
+				"totalled schedule in the chosen currency. Price an explicit set of features " +
+				"with feature_refs (a trace result or selection -- takes precedence and defines " +
+				"the classes), or scan whole classes with feature_classes, optionally narrowed " +
+				"by scope to a territory subtree, a radius around a point, or a bounding box. " +
+				"Quantities with no resolvable rate are surfaced as 'unpriced' (never folded to " +
+				"zero) so costing gaps stay visible. display_currency is a currency code; omit " +
+				"for the base currency. Respects the same read scoping as every other read.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_classes":{"type":"array","items":{"type":"string"},"description":"Class codes to scan and price; ignored when feature_refs is given."},
+					"scope":{
+						"type":"object",
+						"description":"An optional spatial narrowing for a class scan. Requires classes with geometry.",
+						"properties":{
+							"kind":{"type":"string","enum":["none","territory","radius","bbox"],"description":"The scope kind; none/omitted scans every class in full."},
+							"territory_id":{"type":"string","description":"For kind=territory: the territory whose subtree to price within."},
+							"center":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"For kind=radius: the [longitude, latitude] center."},
+							"radius_m":{"type":"number","description":"For kind=radius: the radius in metres."},
+							"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"For kind=bbox: [min_lon, min_lat, max_lon, max_lat]."}
+						},
+						"required":["kind"],
+						"additionalProperties":false
+					},
+					"feature_refs":{
+						"type":"array",
+						"description":"An explicit set of features to price (e.g. a trace result). Takes precedence over feature_classes/scope.",
+						"items":{
+							"type":"object",
+							"properties":{
+								"class":{"type":"string","description":"The feature class code."},
+								"id":{"type":"string","description":"The feature id."}
+							},
+							"required":["class","id"],
+							"additionalProperties":false
+						}
+					},
+					"display_currency":{"type":"string","description":"Currency code for the priced schedule; omit for the base currency."}
+				},
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermFeaturesRead,
+			Handler:      toolRunBillOfQuantities,
 		},
 		{
 			Name: "validate_feature",
@@ -318,7 +371,8 @@ func readTools() []Tool {
 						"required":["feature_class","feature_id"],
 						"additionalProperties":false
 					},
-					"boundary_class":{"type":"string","description":"Feature class that bounds the section (a sectionalizing device); defaults to MV_SWITCH."}
+					"boundary_class":{"type":"string","description":"Optional: a single feature class that bounds the section. When omitted, the section is bounded by the network-sectioning backbone (boundary_role): protective + switching devices and the transformer."},
+					"protection_zone":{"type":"boolean","description":"When true, return the PROTECTION ZONE (bounded only by fault-interrupting protective devices + the transformer -- what de-energises on a fault) instead of the default SWITCHING SECTION (bounded by any isolating device too -- what you can isolate to work on it)."}
 				},
 				"required":["trace_configuration","start"],
 				"additionalProperties":false
@@ -964,6 +1018,61 @@ func writeTools() []Tool {
 			},
 			RequiredPerm: auth.PermRelationshipsCommit,
 			Handler:      toolRevokeRelationship,
+		},
+		{
+			Name: "mark_ownership_downstream_private",
+			Description: "Declare a feature (typically a distribution transformer) privately owned " +
+				"and stamp ownership=private onto it plus every feature electrically downstream of " +
+				"it -- the same bulk write the REST POST /ownership/mark-private route performs (the " +
+				"feature panel's 'Mark this & downstream private' action, the asset-ownership axis). " +
+				"Ownership propagates as a connectivity property: the walk is downstream, does NOT " +
+				"stop at open switches, and crosses the transformer into the LV, so the whole of the " +
+				"customer's own network below the boundary is marked. Returns how many features were " +
+				"reached and stamped, by class. This WRITES to the database: confirm with a human " +
+				"before calling. Re-running it is idempotent (already-private features are no-ops).",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The boundary feature's class code (e.g. DIST_XFMR)."},
+					"feature_id":{"type":"string","description":"The boundary feature's id (uuid) -- ownership propagates downstream from here."}
+				},
+				"required":["feature_class","feature_id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Mark ownership downstream private",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // it stamps an attribute; reversible by re-syncing / re-declaring
+				IdempotentHint:  &trueHint,  // re-stamping an already-private set is a no-op
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermFeaturesWrite,
+			Handler:      toolMarkOwnershipDownstreamPrivate,
+		},
+		{
+			Name: "resync_ownership",
+			Description: "Recompute the whole asset-ownership map from scratch -- the same write the " +
+				"REST POST /ownership/resync route performs (the 'Re-sync all' action). It reads " +
+				"every transformer currently marked private, clears ownership everywhere, then " +
+				"re-stamps each private transformer and everything downstream of it. Use it to fix " +
+				"drift after a re-wire, so ownership always equals 'what traces from a private " +
+				"transformer right now'. Returns the number of boundaries, cleared and re-stamped " +
+				"features. This WRITES to the database (potentially many rows): confirm with a human " +
+				"before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{},
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Re-sync ownership",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // it recomputes a derived attribute, not topology
+				IdempotentHint:  &trueHint,  // running it twice with no change yields the same map
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermFeaturesWrite,
+			Handler:      toolResyncOwnership,
 		},
 	}
 }

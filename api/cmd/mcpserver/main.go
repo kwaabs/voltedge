@@ -25,6 +25,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/kwaabs/voltedge/api/internal/mcpserver"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
@@ -32,6 +33,10 @@ import (
 )
 
 func main() {
+	// Install the structured (JSON) handler as slog.Default so the MCP handler's
+	// log lines (internal/mcpserver) are machine-parseable like the API's.
+	logx.Init()
+
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		log.Fatal("DATABASE_URL is not set")

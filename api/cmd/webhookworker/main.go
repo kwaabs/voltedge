@@ -22,10 +22,12 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/kwaabs/voltedge/api/internal/webhook"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
@@ -33,6 +35,10 @@ import (
 )
 
 func main() {
+	// Install the structured (JSON) handler as slog.Default so the worker loop's
+	// log lines (internal/webhook/worker.go) are machine-parseable like the API's.
+	logx.Init()
+
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		log.Fatal("DATABASE_URL is not set")

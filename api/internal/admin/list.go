@@ -142,6 +142,53 @@ func listMaterialSpecs(ctx context.Context, db *bun.DB) ([]materialSpecResponse,
 	return out, nil
 }
 
+// --- Bill of Quantities cost catalog (migrations 0127/0128) ------------------
+
+// listCurrencies returns every presentation currency (base first) -- the cost
+// catalog page's own list and the BoQ panel's currency picker source.
+func listCurrencies(ctx context.Context, db *bun.DB) ([]currencyResponse, error) {
+	currencies, err := metadata.ListCurrencies(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]currencyResponse, len(currencies))
+	for i, c := range currencies {
+		out[i] = currencyResponse{Code: c.Code, Name: c.Name, PerBase: c.PerBase, IsBase: c.IsBase}
+	}
+	return out, nil
+}
+
+// listCostRates returns the whole unit-rate price book.
+func listCostRates(ctx context.Context, db *bun.DB) ([]costRateResponse, error) {
+	rates, err := metadata.ListCostRates(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]costRateResponse, len(rates))
+	for i := range rates {
+		out[i] = toCostRateResponse(&rates[i])
+	}
+	return out, nil
+}
+
+// listFeatureCostOverrides returns every per-feature override, optionally
+// narrowed to one class (the feature panel's single-feature lookup still filters
+// to its own id in the client, but a class scan prefers the narrowed query).
+func listFeatureCostOverrides(ctx context.Context, db *bun.DB, classCode string) ([]featureCostOverrideResponse, error) {
+	overrides, err := metadata.ListFeatureCostOverrides(ctx, db, classCode)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]featureCostOverrideResponse, len(overrides))
+	for i, o := range overrides {
+		out[i] = featureCostOverrideResponse{
+			ID: o.ID, FeatureClassCode: o.FeatureClassCode, FeatureID: o.FeatureID,
+			UnitCost: o.UnitCost, Notes: o.Notes,
+		}
+	}
+	return out, nil
+}
+
 func listFieldGroups(ctx context.Context, db *bun.DB) ([]fieldGroupResponse, error) {
 	groups, err := metadata.ListFieldGroups(ctx, db)
 	if err != nil {

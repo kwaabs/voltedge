@@ -1,0 +1,48 @@
+# infra/vector/vector.yaml -- the log collector for the VoltEdge observability
+# overlay. Vector reads every VoltEdge container's stdout straight off the Docker
+# socket (it does NOT change the containers' log driver, so `docker logs` keeps
+# working) and forwards each line to Loki.
+#
+# VoltEdge already emits structured JSON (internal/logx), so there is nothing to
+# parse here: Vector ships the raw JSON line as the Loki log body and attaches a
+# small, low-cardinality label set (service + project). Query-time `| json` in
+# LogQL then unpacks request_id / user.id / status / duration_ms / level / etc.
+# on demand -- the Loki-idiomatic split of "few labels, rich body".
+
+sources:
+  voltedge_containers:
+    type: docker_logs
+    # Scope to this compose project. com.docker.compose.project is the project
+    # name -- the repo dir, "voltedge", unless you pass -p. Override if you do.
+    # This takes in the app (api + workers) AND the infra services (postgres,
+    # martin, rustfs); the `service` label lets you filter to one, e.g.
+    # {service="voltedge-api"}.
+    include_labels:
+      - "com.docker.compose.project=voltedge"
+    # Don't ingest the observability stack's own logs -- that would just add noise
+    # (Vector shipping its own output, Loki/Grafana chatter) to the store.
+    exclude_containers:
+      - voltedge-loki
+      - voltedge-vector
+      - voltedge-grafana
+
+sinks:
+  loki:
+    type: loki
+    inputs:
+      - voltedge_containers
+    endpoint: http://loki:3100
+    # Ship the original app JSON line verbatim as the log body (the `message`
+    # field Vector's docker_logs source puts the line in), so LogQL `| json` sees
+    # the real fields. Not codec:json, which would re-wrap it in Vector's envelope.
+    encoding:
+      codec: text
+    # Keep label cardinality low: the container name is the service, plus a static
+    # project tag. Everything else (level, status, user.id, request_id) lives in
+    # the body and is filtered at query time -- high-cardinality values must NOT
+    # become labels or Loki's index explodes.
+    # Each container is its own Loki stream (distinct service label), so lines
+    # within a stream stay in order and no out-of-order handling is needed.
+    labels:
+      service: "{{ container_name }}"
+      project: voltedge
