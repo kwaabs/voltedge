@@ -1541,6 +1541,25 @@ tasks:
     cmds:
       - docker compose exec gitbash psql "{{.CONTAINER_DATABASE_URL}}"
 
+  tile-scale-test:
+    desc: "Bet 3 (scale) slice 1 -- measure tile render cost at NUM synthetic features (GiST index vs seq scan), via the gitbash sidecar. NUM (default 100000) + GEOMTYPE (point|line, default point -- line = conductor-like polylines, the heavier ST_AsMVTGeom case). Isolated scaletest schema, DROPPED at end (never touches real gis.* data/registry/map). Run at NUM=10000/100000/500000, GEOMTYPE=point then line. See scripts/scale/README.md."
+    cmds:
+      - >-
+        docker compose exec -T
+        gitbash psql "{{.CONTAINER_DATABASE_URL}}"
+        -v num={{.NUM | default "100000"}}
+        -v geomtype={{.GEOMTYPE | default "point"}}
+        -f /workspace/scripts/scale/tile-scale-test.sql
+
+  trace-scale-test:
+    desc: "Bet 3 (scale) slice 2 -- measure the trace path on a synthetic radial feeder of NUM nodes (default 5000, above the engine's 2000-hop cap to demonstrate SILENT truncation). Shows the per-hop index-lookup cost + a set-based full-downstream traversal (reachable count, depth, exceeds-cap). Isolated scaletest schema, DROPPED at end. See scripts/scale/README.md."
+    cmds:
+      - >-
+        docker compose exec -T
+        gitbash psql "{{.CONTAINER_DATABASE_URL}}"
+        -v num={{.NUM | default "5000"}}
+        -f /workspace/scripts/scale/trace-scale-test.sql
+
   # ------------------------------------------------------------------ misc --
 
   clean:
