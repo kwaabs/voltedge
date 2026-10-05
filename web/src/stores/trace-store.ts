@@ -104,6 +104,9 @@ export interface ServiceTraceResult {
   start: TraceFeatureRef
   service: ServiceRollup
   service_points: ServicePoint[]
+  /** True when the downstream walk hit the maxTraceHops cap -- the rollup is
+   * incomplete (under-counts). Mirrors api/internal/trace's serviceResponse.truncated. */
+  truncated?: boolean
 }
 
 /** Mirrors api/internal/trace's traceResponse -- see docs/phase-4-trace-engine.md.
@@ -138,6 +141,11 @@ export interface TraceResult {
    * toggle in the right checked state, so one click re-runs the same trace with
    * the transformer boundary crossed (or restored). */
   cross_transformers?: boolean
+  /** True when the walk hit the maxTraceHops cap and returned a partial result
+   * (mirrors api/internal/trace's traceResponse.truncated). trace-result-table.tsx
+   * shows an "incomplete" warning so a truncated trace is never read as the full
+   * result. The synthetic flavors (feeder/section/service/supply) carry their own. */
+  truncated?: boolean
 }
 
 /**

@@ -33,6 +33,9 @@ type feederResponse struct {
 	// SERVICE_POINTs -- the load + customers, by restoration tier, the feeder
 	// carries. See ServiceRollup.
 	Service *ServiceRollup `json:"service,omitempty"`
+	// Truncated is true when any of the per-head downstream walks hit the
+	// maxTraceHops cap -- the feeder is incomplete and the client should warn.
+	Truncated bool `json:"truncated"`
 }
 
 // feederTrace answers "which whole feeder does this feature belong
@@ -82,7 +85,7 @@ func feederTrace(ctx context.Context, db bun.IDB, req feederRequest) (*feederRes
 
 	loader := newFeatureClassLoader()
 
-	upstreamVisited, _, _, _, _, _, err := bfs(ctx, db, start, "UPSTREAM", map[string][]barrierCheck{}, loader, nil, nil, false, false, nil)
+	upstreamVisited, _, _, _, _, _, truncated, err := bfs(ctx, db, start, "UPSTREAM", map[string][]barrierCheck{}, loader, nil, nil, false, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -111,10 +114,11 @@ func feederTrace(ctx context.Context, db bun.IDB, req feederRequest) (*feederRes
 
 	featureSet := map[node]bool{}
 	for _, head := range heads {
-		visited, _, _, _, _, _, derr := bfs(ctx, db, head, "DOWNSTREAM", barriers, loader, nil, nil, false, false, nil)
+		visited, _, _, _, _, _, headTruncated, derr := bfs(ctx, db, head, "DOWNSTREAM", barriers, loader, nil, nil, false, false, nil)
 		if derr != nil {
 			return nil, derr
 		}
+		truncated = truncated || headTruncated
 		for _, v := range visited {
 			featureSet[v] = true
 		}
@@ -149,9 +153,10 @@ func feederTrace(ctx context.Context, db bun.IDB, req feederRequest) (*feederRes
 	}
 
 	return &feederResponse{
-		Start:    req.Start,
-		Heads:    toFeatureRefs(heads, classCodes),
-		Features: features,
-		Service:  service,
+		Start:     req.Start,
+		Heads:     toFeatureRefs(heads, classCodes),
+		Features:  features,
+		Service:   service,
+		Truncated: truncated,
 	}, nil
 }

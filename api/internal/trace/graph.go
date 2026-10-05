@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -607,13 +608,26 @@ func neighborsOf(ctx context.Context, db bun.IDB, n node, direction string) ([]n
 	return out, nil
 }
 
-// maxTraceHops bounds how many nodes a single trace will ever visit --
-// purely a defensive valve against a pathological data bug (e.g. a
-// malformed pair of connectivity rows forming an unexpected cycle
-// through nodes a barrier should have stopped at), not a real design
-// limit. Real utility networks this app is modeled on are nowhere near
-// this size yet.
-const maxTraceHops = 2000
+// maxTraceHops bounds how many nodes a single trace will ever visit -- a
+// defensive valve against a pathological data bug (e.g. a malformed pair of
+// connectivity rows forming an unexpected cycle through nodes a barrier should
+// have stopped at), NOT a design limit. A trace that still trips it returns a
+// flagged-incomplete result (traceResponse.truncated) rather than silently
+// partial, so a large feeder is warned about, never quietly wrong. The default
+// accommodates a large distribution feeder; raise it with TRACE_MAX_HOPS for a
+// bigger network (and see the set-based walk follow-up for whole-network traces).
+var maxTraceHops = traceMaxHopsFromEnv()
+
+// traceMaxHopsFromEnv reads TRACE_MAX_HOPS (a positive integer) or returns the
+// default. Read once at package init -- a trace never re-reads it.
+func traceMaxHopsFromEnv() int {
+	if v := os.Getenv("TRACE_MAX_HOPS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 50000
+}
 
 // bfs walks the graph breadth-first from start, honoring direction and
 // stopping expansion (but not visiting) at any node checkBarrier flags.
@@ -701,7 +715,7 @@ const maxTraceHops = 2000
 // direction leaks back the way it came past a bus. Barriers (an OPEN switch)
 // still stop each branch, so the fan-out past a bus stays bounded exactly as it
 // should. CONNECTED/SHORTEST_PATH are undirected to begin with and untouched.
-func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers map[string][]barrierCheck, loader *featureClassLoader, target *node, targetClassIDs map[string]bool, crossTransformers bool, stopAtTransformers bool, scopeCircuit *string) (order []node, barrierHits []node, targetHits []node, transformerHits []node, parent map[node]node, found bool, err error) {
+func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers map[string][]barrierCheck, loader *featureClassLoader, target *node, targetClassIDs map[string]bool, crossTransformers bool, stopAtTransformers bool, scopeCircuit *string) (order []node, barrierHits []node, targetHits []node, transformerHits []node, parent map[node]node, found bool, truncated bool, err error) {
 	junctionIDs, jerr := loader.junctions(ctx, db)
 	if jerr != nil {
 		err = jerr
@@ -881,6 +895,11 @@ func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers
 			break
 		}
 	}
+
+	// The cap was hit with work still queued -- the result is incomplete, so
+	// callers can warn instead of presenting a silently-partial trace. A `found`
+	// break (len(order) below the cap) or a drained queue both leave this false.
+	truncated = len(queue) > 0 && len(order) >= maxTraceHops
 
 	barrierHits = make([]node, 0, len(barrierSet))
 	for n := range barrierSet {
@@ -1121,7 +1140,7 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 	}
 	stopAtTransformers := direction == "DOWNSTREAM" && !crossTransformers
 
-	visited, barrierHits, targetHits, transformerHits, parent, found, err := bfs(ctx, db, start, direction, barriers, loader, target, singleClassSet(tc.TargetClassID), crossTransformers, stopAtTransformers, scopeCircuit)
+	visited, barrierHits, targetHits, transformerHits, parent, found, truncated, err := bfs(ctx, db, start, direction, barriers, loader, target, singleClassSet(tc.TargetClassID), crossTransformers, stopAtTransformers, scopeCircuit)
 	if err != nil {
 		return nil, err
 	}
@@ -1207,6 +1226,7 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 		Barriers:           toFeatureRefs(barrierHits, classCodes),
 		Service:            service,
 		CrossTransformers:  crossTransformers,
+		Truncated:          truncated,
 	}
 	if len(transformerHits) > 0 {
 		resp.TransformerBoundaries = toFeatureRefs(transformerHits, classCodes)

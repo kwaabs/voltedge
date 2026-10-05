@@ -49,7 +49,10 @@ func DeEnergizedCone(ctx context.Context, db bun.IDB, device FeatureRef) ([]Feat
 	seen := map[node]bool{}
 	ordered := make([]node, 0, 16)
 	for _, start := range downstreamNeighbors {
-		visited, _, _, _, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, nil, false, false, nil)
+		// DeEnergizedCone returns a bare []FeatureRef to OMS with no result struct,
+		// so truncation has nowhere to surface -- discard it (truncates at
+		// maxTraceHops as before).
+		visited, _, _, _, _, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, nil, false, false, nil)
 		if err != nil {
 			return nil, err
 		}

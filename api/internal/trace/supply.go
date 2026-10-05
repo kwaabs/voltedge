@@ -90,6 +90,9 @@ type supplyPathResponse struct {
 	// consumption point itself -- so this reads as "what this meter draws, and
 	// at what restoration priority" alongside "what feeds it." See ServiceRollup.
 	Service *ServiceRollup `json:"service,omitempty"`
+	// Truncated is true when the upstream walk hit the maxTraceHops cap -- the
+	// supply path is incomplete and the client should warn.
+	Truncated bool `json:"truncated"`
 }
 
 func supplyPathTrace(ctx context.Context, db bun.IDB, req supplyPathRequest) (*supplyPathResponse, error) {
@@ -104,7 +107,7 @@ func supplyPathTrace(ctx context.Context, db bun.IDB, req supplyPathRequest) (*s
 
 	// Barrier-free upstream walk, with each reached node's hop distance so the
 	// path (and its milestones) come back nearest-first.
-	reached, err := reachableWithDepth(ctx, db, start, "UPSTREAM")
+	reached, truncated, err := reachableWithDepth(ctx, db, start, "UPSTREAM")
 	if err != nil {
 		return nil, err
 	}
@@ -146,9 +149,10 @@ func supplyPathTrace(ctx context.Context, db bun.IDB, req supplyPathRequest) (*s
 	}
 
 	resp := &supplyPathResponse{
-		Start:    req.Start,
-		Features: features,
-		Service:  service,
+		Start:     req.Start,
+		Features:  features,
+		Service:   service,
+		Truncated: truncated,
 	}
 
 	// One nearest-first pass over the reached nodes: collect the milestone

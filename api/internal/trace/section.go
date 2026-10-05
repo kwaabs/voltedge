@@ -46,6 +46,10 @@ type sectionResponse struct {
 	// SERVICE_POINTs -- the load + customers, by restoration tier, that a
 	// planned outage on this section would interrupt. See ServiceRollup.
 	Service *ServiceRollup `json:"service,omitempty"`
+	// Truncated is true when either bounded walk hit the maxTraceHops cap -- the
+	// section is incomplete and the client should warn. Bounded sections rarely
+	// trip it; see api/internal/trace/graph.go's maxTraceHops.
+	Truncated bool `json:"truncated"`
 }
 
 // sectionTrace composes two bounded walks -- an UPSTREAM and a
@@ -104,11 +108,11 @@ func sectionTrace(ctx context.Context, db bun.IDB, req sectionRequest) (*section
 	}
 	loader := newFeatureClassLoader()
 
-	upstreamVisited, _, upstreamHits, _, _, _, err := bfs(ctx, db, start, "UPSTREAM", barriers, loader, nil, boundaryClassIDs, false, false, nil)
+	upstreamVisited, _, upstreamHits, _, _, _, upTruncated, err := bfs(ctx, db, start, "UPSTREAM", barriers, loader, nil, boundaryClassIDs, false, false, nil)
 	if err != nil {
 		return nil, err
 	}
-	downstreamVisited, _, downstreamHits, _, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, boundaryClassIDs, false, false, nil)
+	downstreamVisited, _, downstreamHits, _, _, _, downTruncated, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, boundaryClassIDs, false, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -151,9 +155,10 @@ func sectionTrace(ctx context.Context, db bun.IDB, req sectionRequest) (*section
 	}
 
 	resp := &sectionResponse{
-		Start:    req.Start,
-		Features: features,
-		Service:  service,
+		Start:     req.Start,
+		Features:  features,
+		Service:   service,
+		Truncated: upTruncated || downTruncated,
 	}
 	if len(upstreamHits) > 0 {
 		refs := toFeatureRefs(upstreamHits[:1], classCodes)

@@ -172,7 +172,7 @@ func singleClassSet(id *string) map[string]bool {
 // returning every reached node (including start, at depth 0) with its hop
 // distance. Bounded by maxTraceHops, the same defensive valve the config-driven
 // bfs uses.
-func reachableWithDepth(ctx context.Context, db bun.IDB, start node, direction string) ([]nodeDepth, error) {
+func reachableWithDepth(ctx context.Context, db bun.IDB, start node, direction string) ([]nodeDepth, bool, error) {
 	visited := map[node]bool{start: true}
 	queue := []nodeDepth{{n: start, depth: 0}}
 	out := make([]nodeDepth, 0, 16)
@@ -184,7 +184,7 @@ func reachableWithDepth(ctx context.Context, db bun.IDB, start node, direction s
 
 		neighbors, err := neighborsOf(ctx, db, cur.n, direction)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		for _, nb := range neighbors {
 			if visited[nb] {
@@ -194,7 +194,9 @@ func reachableWithDepth(ctx context.Context, db bun.IDB, start node, direction s
 			queue = append(queue, nodeDepth{n: nb, depth: cur.depth + 1})
 		}
 	}
-	return out, nil
+	// Cap hit with work still queued -- the walk is incomplete.
+	truncated := len(queue) > 0 && len(visited) >= maxTraceHops
+	return out, truncated, nil
 }
 
 // featuresOfClass walks in one direction from start and returns every reached
@@ -210,7 +212,10 @@ func featuresOfClass(ctx context.Context, db bun.IDB, start FeatureRef, directio
 		return nil, err
 	}
 
-	reached, err := reachableWithDepth(ctx, db, s, direction)
+	// OMS class walks (UpstreamFeaturesOfClass/DownstreamFeaturesOfClass) return a
+	// bare []FeatureRef with no result struct, so there is nowhere to surface a
+	// truncation flag -- discard it (they truncate at maxTraceHops as before).
+	reached, _, err := reachableWithDepth(ctx, db, s, direction)
 	if err != nil {
 		return nil, err
 	}

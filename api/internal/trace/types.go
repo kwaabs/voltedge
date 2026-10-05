@@ -178,6 +178,12 @@ type traceResponse struct {
 	// "Continue past transformers" toggle in the correct checked state so a single
 	// click re-runs the same trace with the boundary crossed (or restored).
 	CrossTransformers bool `json:"cross_transformers"`
+	// Truncated is true when the walk hit the maxTraceHops cap with more of the
+	// network still to visit -- the result is incomplete (the first maxTraceHops
+	// features), so the client must warn rather than present it as the full trace.
+	// Normally false; a real feeder large enough to trip it is the signal to raise
+	// the cap. See api/internal/trace/graph.go's maxTraceHops.
+	Truncated bool `json:"truncated"`
 }
 
 // traceConfigurationSummary is one row of GET /trace/configurations --

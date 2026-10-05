@@ -58,6 +58,10 @@ type isolationResponse struct {
 	// that same set's totals plus the P1 life-support split within it. See
 	// ServiceRollup.
 	Service *ServiceRollup `json:"service,omitempty"`
+	// Truncated is true when a downstream de-energization walk (or the upstream
+	// boundary walk) hit the maxTraceHops cap -- the de-energized set is
+	// incomplete and the client should warn.
+	Truncated bool `json:"truncated"`
 }
 
 // isolate composes two of the engine's existing primitives rather than
@@ -124,11 +128,13 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 		return nil, err
 	}
 	deEnergized := map[node]bool{}
+	truncated := false
 	for _, n := range downstreamNeighbors {
-		visited, _, _, _, _, _, err := bfs(ctx, db, n, "DOWNSTREAM", barriers, loader, nil, nil, false, false, nil)
+		visited, _, _, _, _, _, dTruncated, err := bfs(ctx, db, n, "DOWNSTREAM", barriers, loader, nil, nil, false, false, nil)
 		if err != nil {
 			return nil, err
 		}
+		truncated = truncated || dTruncated
 		for _, v := range visited {
 			deEnergized[v] = true
 		}
@@ -154,10 +160,11 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 		return nil, err
 	}
 
-	_, _, boundaryHits, _, _, _, err := bfs(ctx, db, device, "UPSTREAM", map[string][]barrierCheck{}, loader, nil, boundaryClassIDs, false, false, nil)
+	_, _, boundaryHits, _, _, _, upTruncated, err := bfs(ctx, db, device, "UPSTREAM", map[string][]barrierCheck{}, loader, nil, boundaryClassIDs, false, false, nil)
 	if err != nil {
 		return nil, err
 	}
+	truncated = truncated || upTruncated
 
 	// Backfeed check: every physically-connected neighbor (either
 	// direction -- a real second source doesn't announce which way its
@@ -239,6 +246,7 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 		Device:      req.Device,
 		DeEnergized: toFeatureRefs(deEnergizedNodes, classCodes),
 		Service:     service,
+		Truncated:   truncated,
 	}
 	if len(criticalNodes) > 0 {
 		resp.CriticalFacilities = toFeatureRefs(criticalNodes, classCodes)

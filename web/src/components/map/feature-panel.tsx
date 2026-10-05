@@ -1986,7 +1986,7 @@ export function FeaturePanel() {
     useVvoStore.getState().clear()
     useTraceStore.getState().setLoading(true)
     try {
-      const result = await apiFetch<{ start: TraceFeatureRef; heads: TraceFeatureRef[]; features: TracedFeature[] }>(
+      const result = await apiFetch<{ start: TraceFeatureRef; heads: TraceFeatureRef[]; features: TracedFeature[]; truncated?: boolean }>(
         "/trace/feeder",
         {
           method: "POST",
@@ -2005,6 +2005,7 @@ export function FeaturePanel() {
           barriers: [],
           targets: result.heads,
           targets_found: result.heads.length > 0,
+          truncated: result.truncated,
         },
         computed,
         () => runFeederTrace(start),
@@ -2044,6 +2045,7 @@ export function FeaturePanel() {
         features: TracedFeature[]
         upstream_boundary?: TraceFeatureRef
         downstream_boundary?: TraceFeatureRef
+        truncated?: boolean
       }>("/trace/section", {
         method: "POST",
         body: JSON.stringify({
@@ -2065,6 +2067,7 @@ export function FeaturePanel() {
           barriers: [],
           targets: boundaries,
           targets_found: boundaries.length > 0,
+          truncated: result.truncated,
         },
         computed,
         () => runSectionTrace(start, protectionZone),
@@ -2130,6 +2133,7 @@ export function FeaturePanel() {
           targets: criticals,
           targets_found: criticals.length > 0,
           service: result.service,
+          truncated: result.truncated,
         },
         computed,
         () => runServiceTrace(start),
@@ -2191,6 +2195,7 @@ export function FeaturePanel() {
         serving_transformer?: TraceFeatureRef
         source?: TraceFeatureRef
         reached_transformer: boolean
+        truncated?: boolean
       }>("/trace/supply-path", {
         method: "POST",
         body: JSON.stringify({ start }),
@@ -2204,6 +2209,7 @@ export function FeaturePanel() {
           barriers: [],
           targets: result.milestones,
           targets_found: result.milestones.length > 0,
+          truncated: result.truncated,
         },
         computed,
         () => runSupplyPathTrace(start),

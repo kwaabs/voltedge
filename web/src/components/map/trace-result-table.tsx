@@ -774,6 +774,12 @@ export function TraceResultTable() {
                 {result.transformer_boundaries.length === 1 ? "" : "s"} (the feeder / LV boundary)
               </p>
             )}
+            {result.truncated && (
+              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                Incomplete — trace hit the node limit; showing the first {result.features.length}.
+                Features past this point are not included.
+              </p>
+            )}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">

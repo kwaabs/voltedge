@@ -332,6 +332,9 @@ type serviceResponse struct {
 	Start         featureRef     `json:"start"`
 	Service       *ServiceRollup `json:"service"`
 	ServicePoints []ServicePoint `json:"service_points"`
+	// Truncated is true when the downstream walk hit the maxTraceHops cap -- the
+	// consumption rollup is incomplete (under-counts), so the client should warn.
+	Truncated bool `json:"truncated"`
 }
 
 // serviceTrace answers "what consumption sits below this feature, and of what
@@ -374,7 +377,7 @@ func serviceTrace(ctx context.Context, db bun.IDB, req serviceRequest) (*service
 	}
 	loader := newFeatureClassLoader()
 
-	visited, _, _, _, _, _, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, nil, false, false, nil)
+	visited, _, _, _, _, _, truncated, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, nil, false, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -393,6 +396,7 @@ func serviceTrace(ctx context.Context, db bun.IDB, req serviceRequest) (*service
 		Start:         req.Start,
 		Service:       rollup,
 		ServicePoints: points,
+		Truncated:     truncated,
 	}, nil
 }
 
@@ -414,7 +418,10 @@ func DownstreamLoadLeaves(ctx context.Context, db bun.IDB, device FeatureRef) ([
 	if err != nil {
 		return nil, nil, err
 	}
-	reached, err := reachableWithDepth(ctx, db, s, "DOWNSTREAM")
+	// OMS consumes a bare ([]ServicePoint, *ServiceRollup) with no result struct,
+	// so there is nowhere to surface truncation -- discard it (truncates at
+	// maxTraceHops as before).
+	reached, _, err := reachableWithDepth(ctx, db, s, "DOWNSTREAM")
 	if err != nil {
 		return nil, nil, err
 	}
