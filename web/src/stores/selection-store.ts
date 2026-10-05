@@ -52,6 +52,11 @@ interface SelectionState {
   // feature (the same row clicked twice) still both re-trigger the pan.
   focusToken: number
   select: (featureClassCode: string, featureId: string, options?: { focus?: boolean }) => void
+  // Re-trigger a pan/zoom to the currently-selected feature without changing
+  // the selection -- the status-bar "zoom to feature" control, for when a panel
+  // opened but the view didn't move (a selection made without focus, or a
+  // feature whose geometry wasn't in view). No-op when nothing is selected.
+  focusSelected: () => void
   // Highlight a counterpart on the map without opening its panel (see `located`).
   locate: (featureClassCode: string, featureId: string) => void
   // Drop the peek halo without touching `selected` -- used when the panel's tab
@@ -83,6 +88,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
       candidatesPosition: null,
       focusToken: options?.focus ? state.focusToken + 1 : state.focusToken,
     })),
+  focusSelected: () => set((state) => (state.selected ? { focusToken: state.focusToken + 1 } : state)),
   locate: (featureClassCode, featureId) => set({ located: { featureClassCode, featureId } }),
   clearLocated: () => set({ located: null }),
   showCandidates: (candidates, position, options) =>

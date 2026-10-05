@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from "react"
-import { ChevronsUpDown, Magnet, Map as MapIcon, MapPin, MousePointerClick, Ruler, Scan, ScanSearch, X } from "lucide-react"
+import { ChevronsUpDown, Crosshair, Magnet, Map as MapIcon, MapPin, MousePointerClick, Ruler, Scan, ScanSearch, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -23,6 +23,7 @@ import { useMapPinsStore } from "@/stores/map-pins-store"
 import { useMapPointerStore } from "@/stores/map-pointer-store"
 import { useMapSelectStore } from "@/stores/map-select-store"
 import { useMapViewStore } from "@/stores/map-view-store"
+import { useSelectionStore } from "@/stores/selection-store"
 import { PinsDialog } from "./pins-dialog"
 
 /** The picker's built-in "no basemap" entry -- appended to the server list, it
@@ -136,6 +137,33 @@ function SelectButton() {
         </Button>
       )}
     </span>
+  )
+}
+
+/**
+ * Zoom-to-feature -- pans/zooms the map to whatever feature is currently
+ * selected (the one open in the FeaturePanel). Covers the case where a feature
+ * was selected from a panel/popup but the view didn't move: a selection made
+ * without `focus`, or a feature whose geometry sat outside the viewport. Just
+ * bumps selection-store's focusToken (focusSelected), which voltedge-map.tsx
+ * watches to fit the view. Disabled when nothing is selected, and a no-op for a
+ * diagram-only feature (no map geometry to fit to).
+ */
+function ZoomToFeatureButton() {
+  const selected = useSelectionStore((s) => s.selected)
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={!selected}
+      onClick={() => useSelectionStore.getState().focusSelected()}
+      title={selected ? "Zoom the map to the selected feature" : "Select a feature first"}
+      className="text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 gap-1.5 px-1.5 text-xs font-normal disabled:opacity-40"
+    >
+      <Crosshair className="size-3.5" />
+      Zoom to feature
+    </Button>
   )
 }
 
@@ -486,6 +514,7 @@ export function StatusBar() {
       <ZoomReadout />
       <SelectButton />
       <BoxZoomButton />
+      <ZoomToFeatureButton />
       <MeasureButton />
       <span className="text-slate-200 dark:text-muted-foreground">{MAP_PROJECTION}</span>
       <div className="bg-border h-4 w-px" />
