@@ -118,8 +118,9 @@ func lca(tr *tree, depth map[node]int, a, b node) node {
 }
 
 // generatorFaultContributions returns each node's total embedded-generation
-// infeed (in the same line-to-line-referred amperes the base engine reports) to
-// a bolted three-phase fault at that node, by superposition over every GENERATOR
+// infeed (in the same standard per-phase amperes the base engine reports, driven
+// by the line-to-neutral voltage baseV/phaseDiv) to a bolted three-phase fault at
+// that node, by superposition over every GENERATOR
 // in the tree with a resolvable fault spec. The result is empty (all zero) for a
 // network with no embedded generation, leaving fault.go's grid figures
 // untouched.
@@ -132,7 +133,7 @@ func lca(tr *tree, depth map[node]int, a, b node) node {
 // referred to the fault's own side (a transformer between g and f scales current
 // inversely to voltage) it is that times V_g/V_f. Contributions from all
 // generators sum.
-func generatorFaultContributions(tr *tree, states map[node]*nodeState, paths map[node]pathImpedance, start node, sourceR, sourceX float64) map[node]float64 {
+func generatorFaultContributions(tr *tree, states map[node]*nodeState, paths map[node]pathImpedance, start node, sourceR, sourceX, phaseDiv float64) map[node]float64 {
 	// Each generator's internal fault impedance (a reactance magnitude on its
 	// own terminal base), resolved now that paths gives every node its base V.
 	type genSource struct {
@@ -183,8 +184,11 @@ func generatorFaultContributions(tr *tree, states map[node]*nodeState, paths map
 			if zLoop <= 0 {
 				continue
 			}
-			iAtGen := vg / zLoop      // current leaving the generator (g's side)
-			total += iAtGen * (vg / vf) // referred to the fault's own side
+			// Driving voltage is line-to-neutral (vg / phaseDiv), the same basis as
+			// the grid infeed, so the two combine in standard per-phase amperes. The
+			// vg/vf referral ratio is basis-independent (same-basis voltages).
+			iAtGen := (vg / phaseDiv) / zLoop // current leaving the generator (g's side)
+			total += iAtGen * (vg / vf)       // referred to the fault's own side
 		}
 		contrib[f] = total
 	}

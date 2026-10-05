@@ -16,6 +16,30 @@ const (
 	faultSLG        = "slg"
 )
 
+// basisLineToLine / basisLineToNeutral are the two values faultCurrentRequest.
+// VoltageBasis accepts. They decide the single factor that converts the driving
+// voltage behind a fault from the supplied nominal into the line-to-neutral
+// voltage the per-phase symmetrical fault current is actually driven by.
+const (
+	basisLineToLine    = "line_to_line"
+	basisLineToNeutral = "line_to_neutral"
+)
+
+// phaseDivisor is the factor the supplied NominalVoltageV (and every transformer
+// secondary base carried on it) is divided by to get the line-to-neutral driving
+// voltage: √3 for a line-to-line nominal (the default), 1 for a line-to-neutral
+// one. The accumulated path impedances are per-phase ohms either way, so the
+// standard three-phase symmetrical fault current is I = (V_base / phaseDivisor) /
+// |Z|, and the SLG and embedded-generation infeeds -- all on the same V²/S
+// convention -- scale by the SAME factor, so grid, ground and generator figures
+// stay mutually consistent whichever basis the caller declares.
+func phaseDivisor(basis string) float64 {
+	if basis == basisLineToNeutral {
+		return 1
+	}
+	return math.Sqrt(3) // line_to_line (and the empty default)
+}
+
 // runFaultCurrent is POST /analysis/fault-current's single entry point:
 // the symmetrical (3-phase bolted) fault-current counterpart of
 // runLoadFlow, sharing the same radial-tree substrate. Where the load
@@ -45,6 +69,10 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 	if req.FaultImpedanceOhm < 0 {
 		return nil, invalid("fault_impedance_ohm must not be negative")
 	}
+	if req.VoltageBasis != "" && req.VoltageBasis != basisLineToLine && req.VoltageBasis != basisLineToNeutral {
+		return nil, invalid("voltage_basis must be %q or %q", basisLineToLine, basisLineToNeutral)
+	}
+	phaseDiv := phaseDivisor(req.VoltageBasis)
 
 	start, err := resolveNode(ctx, db, req.Start)
 	if err != nil {
@@ -81,7 +109,7 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 	// by superposition through its own path. Empty (all zero) on a network with
 	// no generation, so the grid-only figures are unchanged there. SLG figures
 	// stay grid-only -- see genfault.go.
-	genContribs := generatorFaultContributions(tr, states, paths, start, sourceR, sourceX)
+	genContribs := generatorFaultContributions(tr, states, paths, start, sourceR, sourceX, phaseDiv)
 
 	// Zero-sequence network only for an SLG run. The source Z0 is the start
 	// node's own source_r0_ohm/source_x0_ohm when set, else the positive-sequence
@@ -105,7 +133,7 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 		return nil, err
 	}
 
-	nodes := formatFaultResults(tr, states, paths, genContribs, z0, req.FaultImpedanceOhm, classCodes)
+	nodes := formatFaultResults(tr, states, paths, genContribs, z0, req.FaultImpedanceOhm, phaseDiv, classCodes)
 
 	return &faultCurrentResponse{
 		Start:           req.Start,
@@ -201,7 +229,7 @@ func accumulateSeriesImpedance(tr *tree, states map[node]*nodeState, start node,
 // z0 is nil on a three-phase run (no SLG fields emitted) and the per-node
 // zero-sequence path on an SLG run; faultImpedanceOhm is the fault's own Zf,
 // entering the SLG denominator as the standard 3·Zf term.
-func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pathImpedance, genContribs map[node]float64, z0 map[node]zeroSeqPath, faultImpedanceOhm float64, classCodes map[string]string) []faultNodeResult {
+func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pathImpedance, genContribs map[node]float64, z0 map[node]zeroSeqPath, faultImpedanceOhm, phaseDiv float64, classCodes map[string]string) []faultNodeResult {
 	nodes := make([]faultNodeResult, 0, len(tr.order))
 	for _, n := range tr.order {
 		if _, ok := states[n]; !ok {
@@ -229,7 +257,10 @@ func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pat
 			// switchgear here must interrupt. The split is surfaced only when a
 			// generator actually contributes, so a network with no generation reads
 			// exactly as before.
-			gridAmps := p.baseV / impedanceOhm
+			// Driving voltage is line-to-neutral (baseV / phaseDiv), so this is the
+			// STANDARD per-phase symmetrical fault current, directly comparable to a
+			// device's kA interrupting rating.
+			gridAmps := (p.baseV / phaseDiv) / impedanceOhm
 			genAmps := genContribs[n]
 			totalAmps := gridAmps + genAmps
 			res.FaultCurrentAmps = &totalAmps
@@ -242,7 +273,7 @@ func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pat
 		}
 
 		if z0 != nil {
-			addGroundFaultFields(&res, p, z0[n], faultImpedanceOhm)
+			addGroundFaultFields(&res, p, z0[n], faultImpedanceOhm, phaseDiv)
 		}
 		nodes = append(nodes, res)
 	}
@@ -257,7 +288,7 @@ func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pat
 // current -- an SLG fault there draws essentially nothing. A zero denominator
 // (an ideal source with no impedance yet to the fault) reports no current, the
 // same honest read as the three-phase case.
-func addGroundFaultFields(res *faultNodeResult, p pathImpedance, zp zeroSeqPath, faultImpedanceOhm float64) {
+func addGroundFaultFields(res *faultNodeResult, p pathImpedance, zp zeroSeqPath, faultImpedanceOhm, phaseDiv float64) {
 	grounded := zp.grounded
 	res.Grounded = &grounded
 	if !grounded {
@@ -276,7 +307,9 @@ func addGroundFaultFields(res *faultNodeResult, p pathImpedance, zp zeroSeqPath,
 	totalX := 2*p.xOhm + x0
 	totalZ := math.Hypot(totalR, totalX)
 	if totalZ > 0 {
-		slgAmps := 3 * p.baseV / totalZ
+		// 3·V_LN / |Z1+Z2+Z0+3Zf|: the driving voltage is line-to-neutral
+		// (baseV / phaseDiv), matching the three-phase figure's basis.
+		slgAmps := 3 * (p.baseV / phaseDiv) / totalZ
 		res.GroundFaultCurrentAmps = &slgAmps
 	}
 }

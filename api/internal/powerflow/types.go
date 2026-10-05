@@ -100,8 +100,8 @@ type unbalancedRequest struct {
 // is this" doesn't need to know which kind of equipment this particular
 // node happens to be.
 type nodeResult struct {
-	FeatureClass     string   `json:"feature_class"`
-	FeatureID        string   `json:"feature_id"`
+	FeatureClass string `json:"feature_class"`
+	FeatureID    string `json:"feature_id"`
 	// ParentFeatureClass / ParentFeatureID point at the node one hop closer to the
 	// sweep's start in buildTree's radial spanning tree -- the feature that feeds
 	// this one. They let a client render the ladder result as the tree it actually
@@ -115,8 +115,8 @@ type nodeResult struct {
 	// the same display extras an enriched trace and a coordination device carry;
 	// both empty when the node's class has no circuit field or it's unset. The
 	// per-node operating voltage is already reported as VoltageV / NominalBaseV.
-	CircuitID        string   `json:"circuit_id,omitempty"`
-	CircuitRef       string   `json:"circuit_ref,omitempty"`
+	CircuitID  string `json:"circuit_id,omitempty"`
+	CircuitRef string `json:"circuit_ref,omitempty"`
 	// Ownership is "private" for an owner's plant (the asset-ownership axis),
 	// empty for utility-owned/unset -- so the results panel can flag which part
 	// of a run is the customer's own network. The load flow crosses the boundary
@@ -170,6 +170,18 @@ type faultCurrentRequest struct {
 	// the SLG result as the standard 3·Zf term and is ignored by three_phase.
 	FaultType         string  `json:"fault_type"`
 	FaultImpedanceOhm float64 `json:"fault_impedance_ohm"`
+
+	// VoltageBasis declares whether NominalVoltageV (and every transformer
+	// secondary base derived from it) is a line-to-line or a line-to-neutral
+	// figure, so the engine can turn an accumulated per-phase impedance into the
+	// STANDARD per-phase symmetrical fault current I = V_LN / |Z| rather than the
+	// √3-inflated V_LL / |Z|. "line_to_line" (the default -- the basis a
+	// distribution nominal is almost always entered on, e.g. 11000 / 400) divides
+	// the driving voltage by √3; "line_to_neutral" uses it as-is. The choice
+	// scales the grid infeed, the SLG current, and the embedded-generation infeed
+	// together (they share one V²/S convention), so a result is never a mix of
+	// bases. Empty = line_to_line.
+	VoltageBasis string `json:"voltage_basis"`
 }
 
 // faultNodeResult is one node's symmetrical (3-phase bolted) fault level:
@@ -194,8 +206,8 @@ type faultCurrentRequest struct {
 // optimistic upper bound, since a missing series impedance can only make
 // the true |Z_total| larger and the true fault current smaller.
 type faultNodeResult struct {
-	FeatureClass     string   `json:"feature_class"`
-	FeatureID        string   `json:"feature_id"`
+	FeatureClass string `json:"feature_class"`
+	FeatureID    string `json:"feature_id"`
 	// CircuitID / CircuitRef are the node's stored circuit membership (Phase 37),
 	// the same display extras an enriched trace and a coordination device carry;
 	// both empty when the node's class has no circuit field or it's unset. The
@@ -308,17 +320,17 @@ type unbalancedNodeResult struct {
 // planning limit (unbalanceLimitPct) -- the per-phase analog of loadFlowResponse's
 // Overloaded, so a client need not re-scan.
 type unbalancedResponse struct {
-	Start           featureRef             `json:"start"`
-	NominalVoltageV float64                `json:"nominal_voltage_v"`
-	Iterations      int                    `json:"iterations"`
+	Start           featureRef `json:"start"`
+	NominalVoltageV float64    `json:"nominal_voltage_v"`
+	Iterations      int        `json:"iterations"`
 	// CouplingModel is which solver ran: "decoupled" (Tier 1, three independent
 	// per-phase ladders) or "carson" (Tier 2, complex sweep over each conductor's
 	// Carson 3x3). It lets a client label the result without inferring it from
 	// the request.
-	CouplingModel   string                 `json:"coupling_model"`
-	Nodes           []unbalancedNodeResult `json:"nodes"`
-	Barriers        []featureRef           `json:"barriers"`
-	Unbalanced      []featureRef           `json:"unbalanced"`
+	CouplingModel string                 `json:"coupling_model"`
+	Nodes         []unbalancedNodeResult `json:"nodes"`
+	Barriers      []featureRef           `json:"barriers"`
+	Unbalanced    []featureRef           `json:"unbalanced"`
 }
 
 // apiError is the JSON body returned for any 4xx/5xx response.

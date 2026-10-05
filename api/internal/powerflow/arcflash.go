@@ -105,16 +105,26 @@ type arcFlashRequest struct {
 	NominalVoltageV   float64    `json:"nominal_voltage_v"`
 	MaxClearingTimeS  float64    `json:"max_clearing_time_s,omitempty"`
 	WorkingDistanceMM float64    `json:"working_distance_mm,omitempty"`
+
+	// VoltageBasis is threaded into the underlying fault-current run so the bolted
+	// fault current this study consumes is the STANDARD per-phase figure, not a
+	// √3-inflated one -- otherwise arcing current, incident energy and the PPE
+	// category all inherit the error. Same values as faultCurrentRequest
+	// (line_to_line default / line_to_neutral). Note the IEEE 1584 voltage term
+	// itself is a line-to-line quantity, so arc-flash assumes NominalVoltageV is
+	// line-to-line (the default); declaring line_to_neutral corrects the fault
+	// current but NominalBaseV then feeds IEEE 1584 on a line-to-neutral basis.
+	VoltageBasis string `json:"voltage_basis"`
 }
 
 // arcFlashNodeResult is the per-node hazard result. Currents are amps, energy is
 // cal/cm2, distances are mm, time is seconds. The *Assumed / OutOfRange flags say
 // which inputs were defaulted vs resolved so a study is never silently trusted.
 type arcFlashNodeResult struct {
-	FeatureClass string `json:"feature_class"`
-	FeatureID    string `json:"feature_id"`
-	CircuitID    string `json:"circuit_id,omitempty"`
-	CircuitRef   string `json:"circuit_ref,omitempty"`
+	FeatureClass string  `json:"feature_class"`
+	FeatureID    string  `json:"feature_id"`
+	CircuitID    string  `json:"circuit_id,omitempty"`
+	CircuitRef   string  `json:"circuit_ref,omitempty"`
 	NominalBaseV float64 `json:"nominal_base_v"`
 
 	BoltedFaultCurrentAmps float64     `json:"bolted_fault_current_amps"`
@@ -185,6 +195,7 @@ func runArcFlash(ctx context.Context, db bun.IDB, req arcFlashRequest) (*arcFlas
 		Start:           req.Start,
 		NominalVoltageV: req.NominalVoltageV,
 		FaultType:       faultThreePhase,
+		VoltageBasis:    req.VoltageBasis,
 	})
 	if err != nil {
 		return nil, err

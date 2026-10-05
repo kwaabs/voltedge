@@ -137,6 +137,13 @@ type coordinationRequest struct {
 	Fault           featureRef `json:"fault"`
 	NominalVoltageV float64    `json:"nominal_voltage_v"`
 	CTISeconds      float64    `json:"cti_seconds"`
+
+	// VoltageBasis carries the same meaning as faultCurrentRequest.VoltageBasis:
+	// whether NominalVoltageV is line-to-line (default, ÷√3 to the per-phase
+	// driving voltage) or line-to-neutral. It sets the through-fault current every
+	// device on the path is graded against, so a mis-declared basis would shift
+	// every device's operate time by √3. Empty = line_to_line.
+	VoltageBasis string `json:"voltage_basis"`
 }
 
 // coordinationDevice is one time-graded protective device on the source->fault
@@ -148,12 +155,12 @@ type coordinationRequest struct {
 // when the device has no resolved settings, or when the through-current is at
 // or below its pickup so it never operates -- Resolved / Note say which.
 type coordinationDevice struct {
-	FeatureClass       string       `json:"feature_class"`
-	FeatureID          string       `json:"feature_id"`
-	Role               string       `json:"role"`
-	Order              int          `json:"order"`
-	ThroughCurrentAmps float64      `json:"through_current_amps"`
-	NominalBaseV       float64      `json:"nominal_base_v"`
+	FeatureClass       string  `json:"feature_class"`
+	FeatureID          string  `json:"feature_id"`
+	Role               string  `json:"role"`
+	Order              int     `json:"order"`
+	ThroughCurrentAmps float64 `json:"through_current_amps"`
+	NominalBaseV       float64 `json:"nominal_base_v"`
 
 	// NominalVoltageV / CircuitID / CircuitRef are the device's own display
 	// identity, read straight off its live row -- the same three extras an
@@ -163,15 +170,15 @@ type coordinationDevice struct {
 	// between this device and the fault), NominalVoltageV is the feature's own
 	// coded voltage_class / primary_voltage. All three are nil/empty when the
 	// device's class carries no such field or the value is unset.
-	NominalVoltageV    *float64     `json:"nominal_voltage_v,omitempty"`
-	CircuitID          string       `json:"circuit_id,omitempty"`
-	CircuitRef         string       `json:"circuit_ref,omitempty"`
+	NominalVoltageV *float64 `json:"nominal_voltage_v,omitempty"`
+	CircuitID       string   `json:"circuit_id,omitempty"`
+	CircuitRef      string   `json:"circuit_ref,omitempty"`
 
-	Curve              string       `json:"curve,omitempty"`
-	OperateTimeS       *float64     `json:"operate_time_s,omitempty"`
-	Resolved           bool         `json:"resolved"`
-	Extrapolated       bool         `json:"extrapolated,omitempty"`
-	Note               string       `json:"note,omitempty"`
+	Curve        string   `json:"curve,omitempty"`
+	OperateTimeS *float64 `json:"operate_time_s,omitempty"`
+	Resolved     bool     `json:"resolved"`
+	Extrapolated bool     `json:"extrapolated,omitempty"`
+	Note         string   `json:"note,omitempty"`
 
 	// Curves is the device's full time-current characteristic(s) for plotting,
 	// sampled as (current, time) points and -- unlike the scalar fields above,
@@ -241,6 +248,10 @@ func runCoordination(ctx context.Context, db bun.IDB, req coordinationRequest) (
 	if req.NominalVoltageV <= 0 {
 		return nil, invalid("nominal_voltage_v must be a positive number")
 	}
+	if req.VoltageBasis != "" && req.VoltageBasis != basisLineToLine && req.VoltageBasis != basisLineToNeutral {
+		return nil, invalid("voltage_basis must be %q or %q", basisLineToLine, basisLineToNeutral)
+	}
+	phaseDiv := phaseDivisor(req.VoltageBasis)
 	cti := req.CTISeconds
 	if cti <= 0 {
 		cti = defaultCTISeconds
@@ -297,7 +308,9 @@ func runCoordination(ctx context.Context, db bun.IDB, req coordinationRequest) (
 	faultZ := math.Hypot(fp.rOhm, fp.xOhm)
 	var faultCurrent *float64
 	if faultZ > 0 {
-		i := fp.baseV / faultZ
+		// Standard per-phase symmetrical fault current: line-to-neutral driving
+		// voltage (fp.baseV / phaseDiv) over the accumulated per-phase impedance.
+		i := (fp.baseV / phaseDiv) / faultZ
 		faultCurrent = &i
 	}
 
