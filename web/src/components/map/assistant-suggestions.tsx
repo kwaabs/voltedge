@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { ChevronDown, ChevronRight, Loader2, Plus, Scissors, Sparkles, X } from "lucide-react"
 
@@ -10,6 +10,7 @@ import {
   useFeatureClassSchema,
 } from "@/hooks/use-feature-class-schema"
 import { ApiError, apiFetch } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import {
   type SuggestionAction,
   type SuggestionGroup,
@@ -43,6 +44,16 @@ interface ConnectionEndpoint {
 interface ConnectionArgs {
   from: ConnectionEndpoint
   to: ConnectionEndpoint
+}
+
+// A suggestion whose candidate sits within this many meters of the just-drawn
+// feature is treated as COINCIDENT ("touching") -- the capture-time "looks
+// connected on the map but isn't connected in the model" case. These get
+// emphasized, and the panel pops open for them so they're not scrolled past.
+const COINCIDENCE_TOLERANCE_M = 2
+
+function isTouching(group: SuggestionGroup): boolean {
+  return group.distance_meters != null && group.distance_meters <= COINCIDENCE_TOLERANCE_M
 }
 
 const terminalSelectClass =
@@ -132,6 +143,16 @@ export function AssistantSuggestions() {
   const [collapsed, setCollapsed] = useState(false)
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
 
+  const touchingCount = suggestions.filter(isTouching).length
+
+  // Pop the panel open when a freshly created/edited feature is TOUCHING a legal
+  // target -- the "looks connected but isn't" case we most want acted on, so it
+  // shouldn't hide behind a collapsed header. Re-fires only on a new source or a
+  // change in how many are touching, so a deliberate collapse otherwise sticks.
+  useEffect(() => {
+    if (touchingCount > 0) setCollapsed(false)
+  }, [source?.featureClassCode, source?.featureId, touchingCount])
+
   if (!source || suggestions.length === 0) return null
 
   // Highlight the candidate feature a suggestion is about: select it with
@@ -219,7 +240,12 @@ export function AssistantSuggestions() {
   }
 
   return (
-    <div className="bg-popover text-popover-foreground fixed bottom-10 left-4 z-40 flex w-72 flex-col overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-[oklch(0.45_0.10_252)] dark:border-t-primary shadow-xl ring-1 ring-black/5">
+    <div
+      className={cn(
+        "bg-popover text-popover-foreground fixed bottom-10 left-4 z-40 flex w-72 flex-col overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-[oklch(0.45_0.10_252)] dark:border-t-primary shadow-xl",
+        touchingCount > 0 ? "ring-primary/60 ring-2" : "ring-1 ring-black/5",
+      )}
+    >
       <div className="text-muted-foreground border-[oklch(0.45_0.10_252)]/20 dark:border-primary/15 flex items-center justify-between gap-1 border-b bg-gradient-to-b from-[oklch(0.45_0.10_252)]/15 to-[oklch(0.45_0.10_252)]/5 dark:from-accent/50 dark:to-accent/20 px-2 py-1.5 text-xs font-medium">
         <button
           onClick={() => setCollapsed((c) => !c)}
@@ -230,6 +256,9 @@ export function AssistantSuggestions() {
           <Sparkles className="size-3.5" />
           <span>
             Suggestions ({suggestions.length})
+            {touchingCount > 0 && (
+              <span className="text-primary ml-1 font-semibold">· {touchingCount} touching</span>
+            )}
           </span>
         </button>
         <button onClick={clear} className="hover:text-foreground" title="Dismiss all">
@@ -282,6 +311,7 @@ function SuggestionRow({
 }) {
   const single = group.actions.length === 1
   const busy = busyKey !== null
+  const touching = isTouching(group)
 
   // The two endpoints of any connection in this group are always the same pair:
   // the assistant's single source feature (the just-edited one) on the `from`
@@ -365,7 +395,7 @@ function SuggestionRow({
   const singlePickers = single ? terminalPickers(group.actions[0], 0) : null
 
   return (
-    <div className="flex flex-col">
+    <div className={cn("flex flex-col", touching && "border-l-2 border-l-primary bg-primary/5")}>
       <div className="flex items-center gap-1 px-2 py-1.5">
         {/* Clicking the label highlights the candidate feature on the map
             (onHighlight) either way; the establish "+" (one-action group) and
@@ -377,8 +407,14 @@ function SuggestionRow({
             className="hover:text-foreground flex min-w-0 flex-1 flex-col text-left"
           >
             <span className="truncate text-sm">{group.actions[0].title}</span>
-            {group.distance_meters != null && (
-              <span className="text-muted-foreground font-mono text-[11px]">{group.distance_meters.toFixed(0)} m away</span>
+            {touching ? (
+              <span className="text-primary text-[11px] font-medium">Touching — connect?</span>
+            ) : (
+              group.distance_meters != null && (
+                <span className="text-muted-foreground font-mono text-[11px]">
+                  {group.distance_meters.toFixed(0)} m away
+                </span>
+              )
             )}
           </button>
         ) : (
@@ -396,9 +432,11 @@ function SuggestionRow({
             )}
             <span className="flex min-w-0 flex-col">
               <span className="truncate text-sm font-medium">{group.label}</span>
-              <span className="text-muted-foreground text-[11px]">
+              <span className={cn("text-[11px]", touching ? "text-primary font-medium" : "text-muted-foreground")}>
                 {group.actions.length} options
-                {group.distance_meters != null && ` · ${group.distance_meters.toFixed(0)} m`}
+                {touching
+                  ? " · Touching"
+                  : group.distance_meters != null && ` · ${group.distance_meters.toFixed(0)} m`}
               </span>
             </span>
           </button>

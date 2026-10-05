@@ -143,6 +143,29 @@ func hardDeleteFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded,
 	if n == 0 {
 		return notFound("feature %s not found", id)
 	}
+	// Revoke any connectivity that referenced this now-permanently-removed
+	// feature, so a purge never leaves orphaned connections pointing at a row
+	// that no longer exists. This is deliberately on PURGE, not soft delete: a
+	// soft delete is reversible (restore must bring the feature back fully
+	// wired), while a purge is terminal, so cleaning up after it has no
+	// reversibility cost. feature_connectivity has no FK to the feature table
+	// and no soft-delete of its own, so this is a plain hard delete of the
+	// rows naming this feature on either side.
+	if _, err := db.ExecContext(ctx,
+		"DELETE FROM runtime.feature_connectivity WHERE from_feature_id = ? OR to_feature_id = ?",
+		id, id,
+	); err != nil {
+		return fmt.Errorf("crud: purge: revoking connectivity: %w", err)
+	}
+	// ...and the relationship graph (runtime.feature_relationships) for the same
+	// reason -- the bulk wipe already cleans both, so a single purge must too,
+	// or it leaves dangling relationships (containment, owns, ...) behind.
+	if _, err := db.ExecContext(ctx,
+		"DELETE FROM runtime.feature_relationships WHERE origin_feature_id = ? OR destination_feature_id = ?",
+		id, id,
+	); err != nil {
+		return fmt.Errorf("crud: purge: revoking relationships: %w", err)
+	}
 	// Audit trail (Phase 41): the row is gone, so there's no post-write state to
 	// record -- snapshot the pre-delete `current` (fetched above) instead, so the
 	// history preserves what the feature looked like at the moment it was purged.

@@ -435,6 +435,26 @@ func readTools() []Tool {
 			Handler:      toolSuggestConnections,
 		},
 		{
+			Name: "connectivity_audit",
+			Description: "Run a read-only consistency audit of the logical connectivity graph against " +
+				"the live features and their geometry. Writes nothing. Reports two kinds of finding: " +
+				"'orphaned_connectivity' (a connection pointing at a feature that is deleted or missing), " +
+				"and 'coincident_unconnected' (two features whose geometries coincide within a tolerance, " +
+				"for a class pair that could legally connect, but which have no connection -- the map " +
+				"looks connected while the model is not). Terminals are non-positional, so coincidence is " +
+				"feature-to-feature and findings are reviewable signals, not definitive.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"tolerance_m":{"type":"number","description":"Coincidence distance in meters for the geometric check (default 1.0)."},
+					"max_findings":{"type":"integer","description":"Cap on findings returned, 1-5000 (default 500); summary counts are not capped."}
+				},
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermConnectivityRead,
+			Handler:      toolConnectivityAudit,
+		},
+		{
 			Name: "suggest_relationships",
 			Description: "Propose ranked candidate features the given feature could legally form " +
 				"a structural/spatial relationship with, without establishing anything. A " +

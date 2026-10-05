@@ -3,6 +3,7 @@ package connectivity
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/uptrace/bun"
@@ -13,6 +14,8 @@ import (
 //
 //	POST   /                establish a connection, gated on network_rules
 //	GET    /?feature_class=&feature_id=  list connections for one feature
+//	GET    /audit            read-only connectivity consistency report
+//	POST   /audit/cleanup     remove orphaned connections (connectivity:commit)
 //	DELETE /{id}             revoke (permanently remove) a connection
 //
 // Unlike api/internal/crud, there's no {code} in the path -- a
@@ -22,8 +25,59 @@ func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Post("/", establishHandler(db))
 	r.Get("/", listHandler(db))
+	r.Get("/audit", auditHandler(db))
+	r.Post("/audit/cleanup", cleanupHandler(db))
 	r.Delete("/{id}", revokeHandler(db))
 	return r
+}
+
+// cleanupHandler removes orphaned connectivity rows (those pointing at a deleted
+// or missing feature) reported by the audit. It is a POST (a write), so the
+// /connectivity mount's method-aware gate requires connectivity:commit --
+// editor and above, never a read-only viewer.
+func cleanupHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conns, err := CleanupOrphanedConnections(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		rels, err := CleanupOrphanedRelationships(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"removed":               conns + rels,
+			"removed_connections":   conns,
+			"removed_relationships": rels,
+		})
+	}
+}
+
+// auditHandler serves the read-only consistency audit (audit.go). It writes
+// nothing; optional tolerance_m and max_findings query params tune the run.
+func auditHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var in AuditInput
+		if v := r.URL.Query().Get("tolerance_m"); v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				in.ToleranceMeters = f
+			}
+		}
+		if v := r.URL.Query().Get("max_findings"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				in.MaxFindings = n
+			}
+		}
+
+		report, err := AuditConnectivity(r.Context(), db, in)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, report)
+	}
 }
 
 func establishHandler(db *bun.DB) http.HandlerFunc {

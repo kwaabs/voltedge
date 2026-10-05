@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Calculator, ChevronRight, Download, LandPlot, ListChecks, Search, SlidersHorizontal, Sparkles, Upload, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Calculator, ChevronRight, Download, LandPlot, ListChecks, Search, ShieldCheck, SlidersHorizontal, Sparkles, Upload, X } from "lucide-react"
 import { useState } from "react"
 
 import { AmpacityPanel } from "@/components/map/ampacity-panel"
@@ -7,6 +7,7 @@ import { AssistantChat } from "@/components/map/assistant-chat"
 import { AssistantSuggestions } from "@/components/map/assistant-suggestions"
 import { BoqPanel } from "@/components/map/boq-panel"
 import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
+import { ConnectivityAuditPanel } from "@/components/map/connectivity-audit-panel"
 import { CoordinationPanel } from "@/components/map/coordination-panel"
 import { DiagramCanvas } from "@/components/map/diagram-canvas"
 import { ExportDialog } from "@/components/map/export-dialog"
@@ -52,6 +53,7 @@ import { useMapSettings } from "@/hooks/use-map-settings"
 import { cn } from "@/lib/utils"
 import { useAssistantChatStore } from "@/stores/assistant-chat-store"
 import { useBoqStore } from "@/stores/boq-store"
+import { useConnectivityAuditStore } from "@/stores/connectivity-audit-store"
 import { type DiagramPane, useDiagramStore } from "@/stores/diagram-store"
 import { useExportStore } from "@/stores/export-store"
 import { useImportStore } from "@/stores/import-store"
@@ -73,6 +75,7 @@ export function MapPage() {
   const exportJobsOpen = useExportStore((s) => s.jobsPanelOpen)
   const activeExports = useActiveExportCount()
   const boqOpen = useBoqStore((s) => s.open)
+  const auditOpen = useConnectivityAuditStore((s) => s.open)
   const chatOpen = useAssistantChatStore((s) => s.open)
   // The chat toolbar entry only appears when the server has a model configured;
   // the deterministic suggestions work regardless, so a model-less deployment
@@ -174,6 +177,15 @@ export function MapPage() {
                 >
                   <Calculator className={cn("size-3.5", !boqOpen && "text-lime-600")} /> BoQ
                 </Button>
+                <Button
+                  variant={auditOpen ? "default" : "secondary"}
+                  size="sm"
+                  className="shadow-sm"
+                  onClick={() => useConnectivityAuditStore.getState().toggle()}
+                  title="Connectivity audit — find connectivity problems across the network"
+                >
+                  <ShieldCheck className={cn("size-3.5", !auditOpen && "text-rose-600")} /> Audit
+                </Button>
                 {chatEnabled && (
                   <Button
                     variant={chatOpen ? "default" : "secondary"}
@@ -240,6 +252,7 @@ export function MapPage() {
       <ExportDialog />
       <ExportJobsPanel />
       <BoqPanel />
+      <ConnectivityAuditPanel />
       <ImportDialog />
       <ImportedFeaturePopup />
       <ServiceIdentifyPanel />

@@ -523,6 +523,27 @@ func toolSuggestConnections(ctx context.Context, db bun.IDB, args json.RawMessag
 	return map[string]any{"suggestions": suggestions, "count": len(suggestions)}, nil
 }
 
+func toolConnectivityAudit(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ToleranceMeters float64 `json:"tolerance_m"`
+		MaxFindings     int     `json:"max_findings"`
+	}
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, fmt.Errorf("invalid arguments: %w", err)
+		}
+	}
+
+	report, err := connectivity.AuditConnectivity(ctx, db, connectivity.AuditInput{
+		ToleranceMeters: in.ToleranceMeters,
+		MaxFindings:     in.MaxFindings,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return report, nil
+}
+
 func toolSuggestRelationships(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
 	var in struct {
 		FeatureClass string  `json:"feature_class"`
