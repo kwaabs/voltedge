@@ -215,6 +215,29 @@ func accumulateSeriesImpedance(tr *tree, states map[node]*nodeState, start node,
 	return paths
 }
 
+// asymmetryKappa is the IEC 60909 peak-asymmetry factor κ from a path's X/R:
+//
+//	κ = 1.02 + 0.98 · e^(−3·R/X)
+//
+// It is the DC-offset multiplier that turns the symmetrical RMS fault current
+// into the first-half-cycle peak. A purely reactive path (R→0, X/R→∞) gives the
+// maximum κ → 2.0; a resistive one (X→0, R/X→∞) gives κ → 1.02 (almost no
+// offset). Returns 0 (caller omits the peak) when the path has no reactance OR no
+// resistance, where X/R is undefined.
+func asymmetryKappa(rOhm, xOhm float64) float64 {
+	if rOhm <= 0 || xOhm <= 0 {
+		return 0
+	}
+	return 1.02 + 0.98*math.Exp(-3*rOhm/xOhm)
+}
+
+// peakFaultCurrentAmps is the crest asymmetrical current i_p = κ·√2·I_sym -- the
+// making/peak-withstand duty a device sees, from the symmetrical RMS current and
+// the asymmetry factor κ (asymmetryKappa).
+func peakFaultCurrentAmps(iSymAmps, kappa float64) float64 {
+	return kappa * math.Sqrt2 * iSymAmps
+}
+
 // formatFaultResults turns the accumulated per-node path impedances into
 // the response shape: the series R/X/|Z| to each node (referred to that
 // node's own voltage base) and the prospective bolted-fault current there,
@@ -269,6 +292,20 @@ func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pat
 				gen := genAmps
 				res.GridContributionAmps = &grid
 				res.GeneratorContributionAmps = &gen
+			}
+
+			// Peak (crest) asymmetrical current from the path's X/R: the making/
+			// peak-withstand duty, which the symmetrical RMS alone understates.
+			// Uses the Thévenin X/R at the fault point applied to the TOTAL
+			// symmetrical current (a documented simplification when a generator
+			// also feeds the fault). Omitted when the path has no resistance, where
+			// X/R -- and so κ -- is undefined.
+			if kappa := asymmetryKappa(p.rOhm, p.xOhm); kappa > 0 {
+				xr := p.xOhm / p.rOhm
+				ip := peakFaultCurrentAmps(totalAmps, kappa)
+				res.XrRatio = &xr
+				res.PeakAsymmetryKappa = &kappa
+				res.PeakFaultCurrentAmps = &ip
 			}
 		}
 

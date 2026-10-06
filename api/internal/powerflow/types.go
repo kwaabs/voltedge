@@ -232,6 +232,19 @@ type faultNodeResult struct {
 	GridContributionAmps      *float64 `json:"grid_contribution_amps,omitempty"`
 	GeneratorContributionAmps *float64 `json:"generator_contribution_amps,omitempty"`
 
+	// Peak (crest) asymmetrical fault current and the figures behind it -- the
+	// making/peak-withstand duty a switching device sees in the first half-cycle,
+	// which the symmetrical RMS FaultCurrentAmps alone understates. XrRatio is the
+	// path's X/R (ReactanceOhm/ResistanceOhm); PeakAsymmetryKappa is the IEC 60909
+	// factor κ = 1.02 + 0.98·e^(−3·R/X) ∈ (1.02, 2.0]; PeakFaultCurrentAmps is
+	// i_p = κ·√2·I_sym on the TOTAL symmetrical current. All three are omitted when
+	// there is no fault current or the path has no resistance (X/R undefined). This
+	// is the standard closed-form making-duty estimate, NOT a time-domain breaking
+	// duty (that needs a contact-parting time and is a separate study).
+	XrRatio              *float64 `json:"xr_ratio,omitempty"`
+	PeakAsymmetryKappa   *float64 `json:"peak_asymmetry_kappa,omitempty"`
+	PeakFaultCurrentAmps *float64 `json:"peak_fault_current_amps,omitempty"`
+
 	// Single-line-to-ground fields -- populated only on an SLG run
 	// (fault_type = "slg"), nil on the default three-phase run. ZeroSeq* are the
 	// accumulated zero-sequence R/X of the path from the nearest zero-sequence

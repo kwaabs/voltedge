@@ -148,6 +148,77 @@ func TestFaultSLGBasis(t *testing.T) {
 	}
 }
 
+// TestAsymmetryKappa pins the IEC 60909 peak-asymmetry factor κ = 1.02 + 0.98·
+// e^(−3·R/X) against hand values, and its guards/limits.
+func TestAsymmetryKappa(t *testing.T) {
+	cases := []struct {
+		name       string
+		rOhm, xOhm float64
+		want       float64
+	}{
+		// X/R = 1  → κ = 1.02 + 0.98·e^(−3)   = 1.02 + 0.98·0.04978707 = 1.06879133
+		{"X/R = 1", 1, 1, 1.06879133},
+		// X/R = 10 → κ = 1.02 + 0.98·e^(−0.3) = 1.02 + 0.98·0.74081822 = 1.74600186
+		{"X/R = 10", 1, 10, 1.74600186},
+		// Very inductive (R→0): κ → 2.0 (maximum DC offset).
+		{"near purely reactive", 1e-6, 1, 2.0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := asymmetryKappa(c.rOhm, c.xOhm); !approxEqual(got, c.want, 1e-4) {
+				t.Fatalf("asymmetryKappa(%v,%v) = %v, want %v", c.rOhm, c.xOhm, got, c.want)
+			}
+		})
+	}
+	// Guards: X/R undefined (no reactance, or no resistance) → 0 (caller omits the peak).
+	for _, g := range [][2]float64{{0, 1}, {1, 0}, {0, 0}} {
+		if got := asymmetryKappa(g[0], g[1]); got != 0 {
+			t.Fatalf("asymmetryKappa(%v,%v) = %v, want 0", g[0], g[1], got)
+		}
+	}
+}
+
+// TestPeakFaultCurrentAmps pins i_p = κ·√2·I_sym.
+func TestPeakFaultCurrentAmps(t *testing.T) {
+	// κ = 1.746, I_sym = 1000 A → i_p = 1.746·√2·1000 = 2469.2165 A.
+	if got := peakFaultCurrentAmps(1000, 1.746); !approxEqual(got, 1.746*math.Sqrt2*1000, 1e-9) {
+		t.Fatalf("peakFaultCurrentAmps(1000, 1.746) = %v, want %v", got, 1.746*math.Sqrt2*1000)
+	}
+}
+
+// TestFaultPeakAsymmetryInResult drives the real formatFaultResults and checks
+// the peak-asymmetry fields are populated and internally consistent: X/R from the
+// path, κ from the IEC formula, and i_p = κ·√2·I_sym on the total current.
+func TestFaultPeakAsymmetryInResult(t *testing.T) {
+	f := node{classID: "bus", featureID: "f"}
+	tr := &tree{order: []node{f}}
+	states := map[node]*nodeState{f: {}}
+	// R=0.6, X=0.8 → |Z|=1.0, X/R = 1.3333; line-to-neutral basis → I_sym = 11000 A.
+	paths := map[node]pathImpedance{f: {rOhm: 0.6, xOhm: 0.8, baseV: 11000, resolved: true}}
+	classCodes := map[string]string{"bus": "BUS"}
+
+	got := formatFaultResults(tr, states, paths, nil, nil, 0, phaseDivisor(basisLineToNeutral), classCodes)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(got))
+	}
+	r := got[0]
+	if r.XrRatio == nil || r.PeakAsymmetryKappa == nil || r.PeakFaultCurrentAmps == nil || r.FaultCurrentAmps == nil {
+		t.Fatalf("peak-asymmetry fields not populated: %+v", r)
+	}
+	if !approxEqual(*r.XrRatio, 0.8/0.6, 1e-9) {
+		t.Fatalf("XrRatio = %v, want %v", *r.XrRatio, 0.8/0.6)
+	}
+	// κ = 1.02 + 0.98·e^(−3·0.6/0.8) = 1.02 + 0.98·e^(−2.25) = 1.12329124.
+	if !approxEqual(*r.PeakAsymmetryKappa, 1.12329124, 1e-6) {
+		t.Fatalf("κ = %v, want 1.12329124", *r.PeakAsymmetryKappa)
+	}
+	// i_p must be κ·√2·I_sym on the reported total current.
+	wantIp := *r.PeakAsymmetryKappa * math.Sqrt2 * *r.FaultCurrentAmps
+	if !approxEqual(*r.PeakFaultCurrentAmps, wantIp, 1e-6) {
+		t.Fatalf("i_p = %v, want %v (κ·√2·I_sym)", *r.PeakFaultCurrentAmps, wantIp)
+	}
+}
+
 // TestFaultGeneratorInfeedNameplate is the round-trip that proves the basis is
 // coherent across BOTH sources: a generator with an explicit 5 kA nameplate
 // fault contribution, faulted at its own terminals, must feed back exactly its
