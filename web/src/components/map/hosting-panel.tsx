@@ -91,7 +91,7 @@ worst V  = ${formatNumber(best.worst_voltage_pu, 3)} pu, loading = ${formatNumbe
 found by bisection; ${margin}`
   })()
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="hosting-capacity">
       <p>
         <b>DER hosting capacity.</b> A generator is modelled as <b>negative demand</b> injected at a candidate node.
         The feeder (slack at <b>{formatNumber(result.nominal_voltage_v, 0)} V</b>, injection pf{" "}

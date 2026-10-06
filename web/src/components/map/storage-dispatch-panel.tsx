@@ -64,7 +64,7 @@ source   ${formatNumber(best.source_kw_from, 0)} → ${formatNumber(best.source_
 in-band  ${best.violations_from} → ${best.violations_to} node(s) out`
   })()
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="storage-dispatch">
       <p>
         <b>Storage dispatch (battery-storage units).</b> A battery is modelled as a <b>signed injection</b> at its node --
         <b> discharging</b> lowers net demand (like a generator), <b>charging</b> raises it (an extra load). The feeder

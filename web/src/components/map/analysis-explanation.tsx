@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { ChevronRight } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { ANALYSIS_VALIDATION, ValidationBadge } from "@/components/map/analysis-validation"
 
 /**
  * A collapsible "how this was calculated" strip pinned to the bottom of every
@@ -20,15 +21,23 @@ import { cn } from "@/lib/utils"
  *
  * `title` overrides the trigger label (default "How this was calculated") for
  * the rare panel where "calculated" reads oddly (e.g. a topological study).
+ *
+ * `study` is the analysis slug (e.g. "fault-current"); when given, a validation-
+ * status badge is pinned to the always-visible header and the study's honesty
+ * note is shown first in the expanded body, so an unverified result is never
+ * silently over-trusted. See analysis-validation.tsx.
  */
 export function AnalysisExplanation({
   children,
   title = "How this was calculated",
+  study,
 }: {
   children: ReactNode
   title?: string
+  study?: string
 }) {
   const [open, setOpen] = useState(false)
+  const info = study ? ANALYSIS_VALIDATION[study] : undefined
   return (
     <div className="border-t border-primary/15 bg-muted/30 shrink-0">
       <button
@@ -39,9 +48,15 @@ export function AnalysisExplanation({
       >
         <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
         <span>{title}</span>
+        {study && <ValidationBadge study={study} className="ml-auto" />}
       </button>
       {open && (
         <div className="text-muted-foreground max-h-56 space-y-1.5 overflow-y-auto px-3 pt-0.5 pb-3 text-xs leading-relaxed [&_b]:text-foreground [&_b]:font-medium [&_code]:text-foreground [&_code]:font-mono [&_code]:text-[11px]">
+          {info && (
+            <p className="border-primary/20 bg-background/50 rounded border px-2 py-1.5">
+              <b>Validation — {info.tier}.</b> {info.note}
+            </p>
+          )}
           {children}
         </div>
       )}

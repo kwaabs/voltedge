@@ -54,7 +54,7 @@ function LoadFlowExplanation({
   const worstPu = worst ? worst.voltage_v / worst.nominal_base_v : undefined
 
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="load-flow">
       <p>
         Radial <b>backward-forward sweep</b> from the slack source at{" "}
         <b>{formatNumber(result.nominal_voltage_v, 0)} V</b> nominal. Each pass accumulates load current

@@ -54,7 +54,7 @@ function ContingencyExplanation({
 }) {
   const best = result.options[0]
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="contingency">
       <p>
         <b>N-1 / backfeed restoration.</b> The donor feeder is swept as it stands -- it carries{" "}
         <b>{formatNumber(result.base_load_kw)} kW</b> across <b>{result.base_node_count} node(s)</b> -- then each open

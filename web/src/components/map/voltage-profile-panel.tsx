@@ -53,7 +53,7 @@ function VoltageProfileExplanation({
   const worstName = result.summary.worst_node ? classNameFor(result.summary.worst_node.feature_class) : undefined
 
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="voltage-profile">
       <p>
         The same radial <b>backward-forward sweep</b> as load flow, read as a voltage profile: each node's{" "}
         <code>voltage_pu = voltage_v / nominal_base_v</code> is judged against the{" "}

@@ -252,7 +252,7 @@ function CoordinationExplanation({
   const worstUp = worst ? deviceFor(worst.upstream) : undefined
 
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="coordination">
       <p>
         Along the path from the fault back to the source, each protective device's operate time is read off its
         time-current (TCC) curve by <b>log-log interpolation</b> at the prospective fault current. The device

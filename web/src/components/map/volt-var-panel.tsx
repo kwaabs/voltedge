@@ -57,7 +57,7 @@ losses   ${formatNumber(best.total_loss_kw_from)} → ${formatNumber(best.total_
 src pf   ${formatNumber(best.source_pf_from, 3)} → ${formatNumber(best.source_pf_to, 3)}`
   })()
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="volt-var">
       <p>
         <b>Volt-VAR (shunt-capacitor switching).</b> A capacitor bank is modelled as <b>leading reactive injection</b> --
         negative reactive demand at its node, the reactive twin of DER hosting. The feeder (slack at{" "}

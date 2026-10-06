@@ -64,7 +64,7 @@ function UnbalancedExplanation({
 mean = ${formatNumber(mean)} V     unbalance = max|Vφ − mean| / mean = ${formatNumber(worst.pct, 2)}%`
   })()
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="unbalanced-load-flow">
       {isCarson ? (
         <p>
           <b>Three-phase (unbalanced) load flow — Carson coupled.</b> A single <b>complex</b> forward-backward sweep on

@@ -46,6 +46,36 @@ Every study is one `POST` under `/analysis`, is **strictly read-only** (it compu
 | | Hosting capacity (DER) | `/analysis/hosting-capacity` | 8 |
 | | EV feeder headroom | `/analysis/ev-hosting` | 8 |
 
+### Validation status — how far to trust each number
+
+Not every study has been checked to the same depth, and the platform is honest about that rather than presenting every number with equal confidence. Each study carries one of three **validation tiers**, shown as a coloured badge on its analysis panel (on the *"How this was calculated"* strip) and listed here:
+
+- **Validated** — checked against independent hand calculations or canonical reference data (e.g. IEEE test-feeder line impedances). Safe to defend in a design review, within the documented modelling assumptions.
+- **Derived** — built directly on a *validated* core (the load-flow sweep or the fault engine) but the study's own additional layer has not been independently tested. The underlying physics is sound; the wrapping logic is reasoned, not benchmarked.
+- **Experimental** — novel or complex and **not yet verified** against a reference. Treat the output as *indicative*, a useful first look, not an authoritative figure.
+
+| Study | Endpoint | Tier | Basis |
+|---|---|---|---|
+| Radial load flow | `/analysis/load-flow` | **Validated** | Drop/current kernels and backward/forward pass composition checked vs hand calculations, incl. transformer rebasing. |
+| Fault current (3-ph + SLG) | `/analysis/fault-current` | **Validated** | 3-phase and SLG currents checked vs hand calculations on an explicit voltage basis; generator infeed round-trips its nameplate kA. |
+| Unbalanced load flow (coupled) | `/analysis/unbalanced-load-flow` | **Validated** | Coupled (Carson) mutual coupling matches IEEE 13-node Config 601 line impedances to 4 decimals. Tier-1 decoupled path and the Carson self-impedance diagonal are **not** independently verified. |
+| Voltage profile | `/analysis/voltage-profile` | Derived | Reuses the validated load-flow sweep; the per-unit band and I²R loss summary are arithmetic over it. |
+| Conductor ampacity | `/analysis/ampacity` | Derived | First-principles IEEE 738 thermal balance; standards-based, not cross-checked against a reference here. |
+| Protection coordination | `/analysis/coordination` | Derived | Uses the validated fault engine for through-fault current; the TCC timing/grading is not independently verified. |
+| Contingency / backfeed (N-1) | `/analysis/contingency` | Derived | Re-solves a backfed section with the validated sweep; the transfer logic is not independently tested. |
+| Hosting capacity (DER) | `/analysis/hosting-capacity` | Derived | Binary search over the validated sweep for the first binding constraint. |
+| EV feeder headroom | `/analysis/ev-hosting` | Derived | Binary search over the validated sweep (under-voltage mirror of hosting capacity). |
+| Meshed load flow | `/analysis/meshed-load-flow` | Derived | Validated radial sweep plus loop-closing compensation; the compensation is not independently verified. |
+| Auto load flow (router) | `/analysis/load-flow-auto` | Derived | Routes to the radial/meshed/nodal engine by topology; inherits whichever engine runs. |
+| Nodal (Y-bus) load flow | `/analysis/nodal-load-flow` | **Experimental** | Gauss-Seidel nodal solver; not yet verified against a reference power-flow. |
+| Arc-flash (IEEE 1584) | `/analysis/arc-flash` | **Experimental** | Incident energy / PPE category. **Safety-relevant and not independently verified — indicative only, never a basis for PPE selection or energized-work permits.** |
+| Volt-VAR control | `/analysis/volt-var` | **Experimental** | Not verified against a reference. |
+| Tap optimization | `/analysis/tap-optimization` | **Experimental** | Not verified against a reference. |
+| Storage dispatch | `/analysis/storage-dispatch` | **Experimental** | Not verified against a reference. |
+| Volt-VAR optimization (VVO) | `/analysis/vvo` | **Experimental** | Not verified against a reference. |
+
+> The validated tiers rest on the accuracy-validation test suite in `api/internal/powerflow` (`*_integration_test.go`): hand-calc checks of the balanced sweep and fault engine, and the IEEE 13 Config 601 check of the coupled unbalanced engine. Moving a study up a tier means adding a reference check there.
+
 ### Table of contents
 
 1. **Foundations — the shared network model** *(this chapter)*

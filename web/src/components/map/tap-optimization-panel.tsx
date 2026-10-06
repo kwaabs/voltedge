@@ -61,7 +61,7 @@ worst hi ${formatNumber(best.max_voltage_pu_from, 3)} → ${formatNumber(best.ma
 in-band  ${best.violations_from} → ${best.violations_to} node(s) out`
   })()
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="tap-optimization">
       <p>
         <b>Tap optimization (step voltage regulators).</b> A regulator is modelled as a <b>series autotransformer</b> --
         a turns ratio <b>1 + tap·step/100</b> applied to the voltage while keeping the <b>same voltage base</b> (a

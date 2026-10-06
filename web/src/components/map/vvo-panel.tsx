@@ -41,7 +41,7 @@ out-of-band  ${baseViol} → ${optViol} node(s)
 series loss  ${formatNumber(result.base.total_loss_kw)} → ${formatNumber(result.optimized.total_loss_kw)} kW
 source draw  ${formatNumber(result.base.source_kw, 0)} → ${formatNumber(result.optimized.source_kw, 0)} kW`
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="vvo">
       <p>
         <b>Volt-VAR Optimization (VVO).</b> Where the volt-VAR, tap-optimization and storage-dispatch studies each tune{" "}
         <i>one</i> class of control, VVO co-optimizes <b>all</b> of them together -- every switched capacitor, step

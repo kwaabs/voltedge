@@ -28,7 +28,7 @@ function AmpacityExplanation({ result }: { result: AmpacityResult }) {
     staticAmps !== undefined && staticAmps > 0 ? (result.ampacity_amps / staticAmps - 1) * 100 : undefined
 
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="ampacity">
       <p>
         Steady-state <b>IEEE 738</b> heat balance, evaluated directly at the conductor's rated maximum operating
         temperature <b>{formatNumber(result.max_operating_temp_c, 0)}°C</b> against a{" "}

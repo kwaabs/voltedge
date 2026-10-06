@@ -95,7 +95,7 @@ function AutoLoadFlowExplanation({
         : "the Tier 2 nodal Y-bus solver over the general graph"
 
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="load-flow-auto">
       <p>
         The <b>dispatch router</b> classifies the network by its independent <b>loop count</b> and auto-selects the
         engine. Here it found <b>{result.loop_count}</b> loop{result.loop_count === 1 ? "" : "s"} and ran the{" "}

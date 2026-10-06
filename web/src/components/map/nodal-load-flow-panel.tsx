@@ -145,7 +145,7 @@ function NodalLoadFlowExplanation({
   const worstPu = worst ? worst.voltage_v / worst.nominal_base_v : 0
 
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="nodal-load-flow">
       <p>
         A per-unit <b>nodal (Y-bus)</b> solve: a bus admittance matrix <code>Y</code> is assembled over the
         general graph and <code>Y·V = I</code> is solved iteratively for every bus voltage, so a densely meshed

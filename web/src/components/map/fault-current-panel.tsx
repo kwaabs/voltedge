@@ -73,7 +73,7 @@ function FaultCurrentExplanation({
   const ideal = result.nodes.length - withCurrent.length
 
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="fault-current">
       <p>
         Symmetrical <b>3-phase bolted</b> fault (IEC 60909 style, zero fault impedance). The pre-fault line
         voltage is <b>{formatNumber(result.nominal_voltage_v, 0)} V</b>, so the driving phase-to-neutral

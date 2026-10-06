@@ -71,7 +71,7 @@ function MeshedLoadFlowExplanation({
   const worstPu = worst ? worst.voltage_v / worst.nominal_base_v : 0
 
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="meshed-load-flow">
       <p>
         A weak-mesh solve: the network is first reduced to a <b>radial spanning tree</b> and swept
         forward/backward, then each loop is closed by <b>loop compensation</b> -- a circulating power is injected

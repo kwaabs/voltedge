@@ -76,7 +76,7 @@ worst V  = ${formatNumber(best.worst_voltage_pu, 3)} pu, loading = ${formatNumbe
 found by bisection; ${margin}`
   })()
   return (
-    <AnalysisExplanation>
+    <AnalysisExplanation study="ev-hosting">
       <p>
         <b>EV feeder headroom.</b> Added charging load is modelled as <b>positive demand</b> at a candidate node -- the
         under-voltage mirror of DER hosting. The feeder (slack at <b>{formatNumber(result.nominal_voltage_v, 0)} V</b>,
