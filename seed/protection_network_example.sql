@@ -29,8 +29,9 @@
 -- ASCII TOPOLOGY (radial; the relay + instrument transformers hang OFF the
 -- line, they are not in series with it):
 --
---   SUB-SOURCE  (DIST_XFMR, 11 kV slack / Thevenin source; unity ratio)
---     | T2
+--   SUB-SOURCE  (POWER_XFMR 33/11 kV; grid-infeed source, tier 200 -- NOT a
+--               DIST_XFMR, whose load-side tier 400 the tier guard would block)
+--     | LV
 --     +-- MV-1 (MV_CONDUCTOR, 11 kV) --------------------+--(tap)--> CT-1 (MV_CT,  protection core)
 --          | T1                                          +--(tap)--> VT-1 (MV_VT,  line-to-ground)
 --          BRK-1 (MV_BREAKER, CLOSED)  T2                        ^         ^
@@ -50,9 +51,10 @@
 --
 -- HOW TO RUN THE PROTECTION SIMULATION once this seed is applied:
 --   POST /analysis/coordination
---     { "start": {"feature_class":"DIST_XFMR",    "feature_id":"9a070000-0000-0000-0000-000000000001"},
+--     { "start": {"feature_class":"POWER_XFMR",   "feature_id":"9a070000-0000-0000-0000-000000000001"},
 --       "fault": {"feature_class":"MV_CONDUCTOR", "feature_id":"9a070000-0000-0000-0000-000000000013"},
 --       "nominal_voltage_v": 11000 }
+--   (SUB-SOURCE is a POWER_XFMR, not a DIST_XFMR -- see the tier note at step 7.)
 --   (or in the web UI: select SUB-SOURCE -> "Protection coordination…" to arm
 --    the source, select MV-3 -> "Set fault", then Run -- the TCC chart shows
 --    RLY-1/BRK-1's IEC_SI curve above FUSE-1's total-clear curve, both crossing
@@ -71,6 +73,10 @@
 --   task migrate                         -> migrations 0075 + 0076 (relationship
 --                                           kinds + protection_curves tables)
 --   seed/connectivity_example.sql        -> MV_CONDUCTOR, DIST_XFMR (base), 11KV
+--   seed/power_transformer_example.sql   -> POWER_XFMR (SUB-SOURCE's class, incl.
+--                                           source_r_ohm/x_ohm/r0/x0) + the
+--                                           POWER_XFMR LV -> MV_CONDUCTOR rule
+--                                           (needs migration 0070 first)
 --   seed/load_flow_fields.sql            -> SERVICE_POINT.demand_kw/power_factor,
 --                                           DIST_XFMR.rated_kva/source_r_ohm/source_x_ohm
 --   seed/transformer_model_fields.sql    -> DIST_XFMR.secondary_voltage/impedance_pct/x_r_ratio
@@ -92,6 +98,7 @@
 --
 -- then, once the metadata is in place, compile each participating class:
 --   task compile CODE=DIST_XFMR
+--   task compile CODE=POWER_XFMR
 --   task compile CODE=MV_CONDUCTOR
 --   task compile CODE=LV_CONDUCTOR
 --   task compile CODE=METER
@@ -103,6 +110,7 @@
 --   task compile CODE=PROTECTIVE_RELAY
 --
 -- Task shortcuts for the prerequisites (see Taskfile.yml): seed-connectivity,
+-- seed-power-transformer (then compile CODE=POWER_XFMR),
 -- seed-load-flow-fields, seed-transformer-fields, seed-zero-seq-fields,
 -- seed-mv-conductor-specs, seed-lv-conductors, seed-lv-metering,
 -- seed-service-point, seed-mv-switching, seed-mv-protection, seed-mv-measuring,
@@ -125,7 +133,10 @@
 DO $$
 DECLARE
     -- feature_class ids
-    fc_dist_xfmr uuid;
+    fc_dist_xfmr  uuid;
+    fc_power_xfmr uuid;  -- SUB-SOURCE's class (grid-infeed, tier 200) -- the
+                         -- MV source must sit at/below MV tier or the trace-tier
+                         -- guard (migration 0126) blocks the source->MV step.
     fc_mv_cond   uuid;
     fc_lv_cond   uuid;
     fc_breaker   uuid;
@@ -138,6 +149,8 @@ DECLARE
 
     -- subtype INTEGER codes (the value stored in gis.<class>.subtype)
     st_dxf_pad   integer;  -- DIST_XFMR 'pad_mounted'
+    st_pxf_2w    integer;  -- POWER_XFMR 'two_winding' (code, for .subtype)
+    sid_pxf_2w   uuid;     -- POWER_XFMR 'two_winding' (id, to scope its terminals)
     st_brk_vac   integer;  -- MV_BREAKER 'vacuum_breaker'
     st_fuse_exp  integer;  -- MV_FUSE 'expulsion_fuse'
     st_relay_std integer;  -- PROTECTIVE_RELAY 'standard'
@@ -151,6 +164,7 @@ DECLARE
     -- terminal ids
     t_dxf_t1   uuid;
     t_dxf_t2   uuid;
+    t_pxf_lv   uuid;  -- POWER_XFMR LV (secondary) terminal -- SUB-SOURCE's MV feed
     t_brk_t1   uuid;
     t_brk_t2   uuid;
     t_fuse_t1  uuid;
@@ -162,7 +176,7 @@ DECLARE
     t_sp_t1    uuid;
 
     -- network_rule ids
-    r_dxf_t2_mv   uuid;  -- DIST_XFMR T2 -> MV_CONDUCTOR
+    r_pxf_lv_mv   uuid;  -- POWER_XFMR LV -> MV_CONDUCTOR (SUB-SOURCE -> MV-1)
     r_mv_brk_t1   uuid;  -- MV_CONDUCTOR -> MV_BREAKER T1
     r_brk_t2_mv   uuid;  -- MV_BREAKER T2 -> MV_CONDUCTOR
     r_mv_fuse_t1  uuid;  -- MV_CONDUCTOR -> MV_FUSE T1
@@ -184,6 +198,9 @@ BEGIN
     -- =====================================================================
     SELECT id INTO fc_dist_xfmr FROM metadata.feature_classes WHERE code = 'DIST_XFMR';
     IF fc_dist_xfmr IS NULL THEN RAISE EXCEPTION 'missing feature_class DIST_XFMR -- apply seed/connectivity_example.sql then: task compile CODE=DIST_XFMR'; END IF;
+
+    SELECT id INTO fc_power_xfmr FROM metadata.feature_classes WHERE code = 'POWER_XFMR';
+    IF fc_power_xfmr IS NULL THEN RAISE EXCEPTION 'missing feature_class POWER_XFMR -- apply seed/power_transformer_example.sql then: task compile CODE=POWER_XFMR'; END IF;
 
     SELECT id INTO fc_mv_cond FROM metadata.feature_classes WHERE code = 'MV_CONDUCTOR';
     IF fc_mv_cond IS NULL THEN RAISE EXCEPTION 'missing feature_class MV_CONDUCTOR -- apply seed/connectivity_example.sql then: task compile CODE=MV_CONDUCTOR'; END IF;
@@ -217,6 +234,9 @@ BEGIN
     -- =====================================================================
     SELECT code INTO st_dxf_pad FROM metadata.subtypes WHERE feature_class_id = fc_dist_xfmr AND name = 'pad_mounted';
     IF st_dxf_pad IS NULL THEN RAISE EXCEPTION 'DIST_XFMR subtype ''pad_mounted'' not found -- re-apply seed/connectivity_example.sql'; END IF;
+
+    SELECT code, id INTO st_pxf_2w, sid_pxf_2w FROM metadata.subtypes WHERE feature_class_id = fc_power_xfmr AND name = 'two_winding';
+    IF sid_pxf_2w IS NULL THEN RAISE EXCEPTION 'POWER_XFMR subtype ''two_winding'' not found -- re-apply seed/power_transformer_example.sql'; END IF;
 
     SELECT code INTO st_brk_vac FROM metadata.subtypes WHERE feature_class_id = fc_breaker AND name = 'vacuum_breaker';
     IF st_brk_vac IS NULL THEN RAISE EXCEPTION 'MV_BREAKER subtype ''vacuum_breaker'' not found -- re-apply seed/mv_switching_example.sql'; END IF;
@@ -253,6 +273,10 @@ BEGIN
     SELECT id INTO t_dxf_t1 FROM metadata.terminals WHERE feature_class_id = fc_dist_xfmr AND code = 'T1' ORDER BY subtype_id NULLS LAST LIMIT 1;
     SELECT id INTO t_dxf_t2 FROM metadata.terminals WHERE feature_class_id = fc_dist_xfmr AND code = 'T2' ORDER BY subtype_id NULLS LAST LIMIT 1;
     IF t_dxf_t1 IS NULL OR t_dxf_t2 IS NULL THEN RAISE EXCEPTION 'DIST_XFMR terminals T1/T2 not found -- re-apply seed/connectivity_example.sql'; END IF;
+
+    -- POWER_XFMR terminals are SUBTYPE-SCOPED -- resolve LV on the two_winding subtype.
+    SELECT id INTO t_pxf_lv FROM metadata.terminals WHERE feature_class_id = fc_power_xfmr AND subtype_id = sid_pxf_2w AND code = 'LV' LIMIT 1;
+    IF t_pxf_lv IS NULL THEN RAISE EXCEPTION 'POWER_XFMR two_winding terminal LV not found -- re-apply seed/power_transformer_example.sql'; END IF;
 
     SELECT id INTO t_brk_t1 FROM metadata.terminals WHERE feature_class_id = fc_breaker AND code = 'T1' ORDER BY subtype_id NULLS LAST LIMIT 1;
     SELECT id INTO t_brk_t2 FROM metadata.terminals WHERE feature_class_id = fc_breaker AND code = 'T2' ORDER BY subtype_id NULLS LAST LIMIT 1;
@@ -295,6 +319,13 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'gis' AND table_name = 'dist_xfmr' AND column_name = 'secondary_voltage') THEN
         RAISE EXCEPTION 'gis.dist_xfmr is missing column secondary_voltage -- apply seed/transformer_model_fields.sql then: task compile CODE=DIST_XFMR'; END IF;
 
+    -- POWER_XFMR (SUB-SOURCE): the table + the grid-infeed source column the fault
+    -- engine reads off the start node (added to POWER_XFMR by the updated
+    -- seed/power_transformer_example.sql).
+    IF to_regclass('gis.power_xfmr') IS NULL THEN RAISE EXCEPTION 'table gis.power_xfmr does not exist -- apply seed/power_transformer_example.sql then: task compile CODE=POWER_XFMR'; END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'gis' AND table_name = 'power_xfmr' AND column_name = 'source_r_ohm') THEN
+        RAISE EXCEPTION 'gis.power_xfmr is missing column source_r_ohm -- re-apply the updated seed/power_transformer_example.sql then: task compile CODE=POWER_XFMR'; END IF;
+
     -- PROTECTIVE_RELAY: the IDMT setting columns the coordination engine reads.
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'gis' AND table_name = 'protective_relay' AND column_name = 'device_number') THEN
         RAISE EXCEPTION 'gis.protective_relay is missing column device_number -- apply seed/protective_relay_example.sql then: task compile CODE=PROTECTIVE_RELAY'; END IF;
@@ -324,11 +355,11 @@ BEGIN
     -- =====================================================================
     -- 5. Resolve the network_rule ids that authorize each connection.
     -- =====================================================================
-    SELECT id INTO r_dxf_t2_mv FROM metadata.network_rules
-     WHERE from_feature_class_id = fc_dist_xfmr AND to_feature_class_id = fc_mv_cond
-       AND from_terminal_id IS NOT DISTINCT FROM t_dxf_t2 AND to_terminal_id IS NULL
+    SELECT id INTO r_pxf_lv_mv FROM metadata.network_rules
+     WHERE from_feature_class_id = fc_power_xfmr AND to_feature_class_id = fc_mv_cond
+       AND from_terminal_id IS NOT DISTINCT FROM t_pxf_lv AND to_terminal_id IS NULL
        AND is_valid = true LIMIT 1;
-    IF r_dxf_t2_mv IS NULL THEN RAISE EXCEPTION 'network_rule "DIST_XFMR T2 -> MV_CONDUCTOR" not found/valid -- apply seed/service_point_example.sql'; END IF;
+    IF r_pxf_lv_mv IS NULL THEN RAISE EXCEPTION 'network_rule "POWER_XFMR LV -> MV_CONDUCTOR" not found/valid -- apply seed/power_transformer_example.sql'; END IF;
 
     SELECT id INTO r_mv_brk_t1 FROM metadata.network_rules
      WHERE from_feature_class_id = fc_mv_cond AND to_feature_class_id = fc_breaker
@@ -416,15 +447,29 @@ BEGIN
     --    Fixed uuids + ON CONFLICT (id) DO NOTHING => idempotent.
     -- =====================================================================
 
-    -- SUB-SOURCE: 11 kV slack / Thevenin source. Unity ratio; the source_r/x
-    -- pair fixes the prospective fault current the coordination engine grades on.
-    INSERT INTO gis.dist_xfmr
+    -- SUB-SOURCE: the 33/11 kV primary-substation source. Modelled as a POWER_XFMR
+    -- (grid-infeed class, trace_tier 200) -- NOT a DIST_XFMR: a DIST_XFMR sits at
+    -- the load-side tier (400), so the cross-layer tier guard (migration 0126)
+    -- refuses the downstream source->MV step (400 -> MV 300) and the whole walk
+    -- dies at the source. POWER_XFMR (200 -> MV 300) is a legitimate downstream
+    -- step. Its LV (11 kV) winding feeds MV-1; the source_r/x pair (referred to
+    -- 11 kV) fixes the prospective fault current the coordination engine grades on.
+    --
+    -- MIGRATION (idempotent): an earlier version of this seed instanced SUB-SOURCE
+    -- as a DIST_XFMR under the SAME id. Drop that superseded row and its old source
+    -- edge first so re-applying cleanly replaces the class while keeping the
+    -- 9a07...001 start id stable. No-op on a fresh DB (nothing to delete).
+    DELETE FROM runtime.feature_connectivity
+     WHERE from_feature_id = '9a070000-0000-0000-0000-000000000001' AND from_feature_class_id = fc_dist_xfmr;
+    DELETE FROM gis.dist_xfmr WHERE id = '9a070000-0000-0000-0000-000000000001';
+
+    INSERT INTO gis.power_xfmr
         (id, name, subtype, status, geom, primary_voltage, secondary_voltage, condition_rating,
          source_r_ohm, source_x_ohm, source_r0_ohm, source_x0_ohm)
     VALUES
-        ('9a070000-0000-0000-0000-000000000001', 'SUB-SOURCE', st_dxf_pad, 'published',
+        ('9a070000-0000-0000-0000-000000000001', 'SUB-SOURCE', st_pxf_2w, 'published',
          ST_SetSRID(ST_MakePoint(-0.3500, 5.7200), 4326),
-         '11KV', 11000, 'GOOD', 0.048, 0.48, 0.06, 0.60)
+         '33KV', 11000, 'GOOD', 0.048, 0.48, 0.06, 0.60)
     ON CONFLICT (id) DO NOTHING;
 
     -- BRK-1: the upstream MV breaker (CLOSED). Its trip decision is delegated
@@ -463,15 +508,23 @@ BEGIN
     -- columns): it lives only on the relationship edges written in step 9.
     -- IEC Standard Inverse curve; the engine reads curve_type + pickup_current_a
     -- + time_dial (+ inst_pickup_a for the instantaneous element).
+    --
+    -- inst_pickup_a = 15000 A is set ABOVE the ~8.3 kA fault at MV-3 (below FUSE-1),
+    -- so the relay's instantaneous (50) element does NOT reach past the downstream
+    -- fuse: at that fault the relay falls back to its IEC_SI inverse (51) curve
+    -- (~0.46 s at TD 0.30), which clears AFTER FUSE-1 (~0.022 s) by more than the
+    -- 0.3 s CTI -> a COORDINATED pair. A low instantaneous (e.g. 2500 A) would trip
+    -- the breaker first and mis-coordinate. DO UPDATE so re-applying reasserts the
+    -- setting over any pre-existing RLY-1 row.
     INSERT INTO gis.protective_relay
         (id, name, subtype, status, device_number,
          curve_type, pickup_current_a, time_dial, inst_pickup_a,
          manufacturer, model, condition_rating)
     VALUES
         ('9a070000-0000-0000-0000-000000000005', 'RLY-1', st_relay_std, 'published', '50_51',
-         'IEC_SI', 100, 0.30, 2500,
+         'IEC_SI', 100, 0.30, 15000,
          'ExampleCo', 'PR-100', 'GOOD')
-    ON CONFLICT (id) DO NOTHING;
+    ON CONFLICT (id) DO UPDATE SET inst_pickup_a = EXCLUDED.inst_pickup_a;
 
     -- CT-1: protection-class current transformer feeding RLY-1 (200/5 A).
     INSERT INTO gis.mv_ct
@@ -535,12 +588,12 @@ BEGIN
     --    taps off MV-1 (T1 only). ON CONFLICT on the (from,to)+terminals key.
     -- =====================================================================
 
-    -- 1. SUB-SOURCE.T2 -> MV-1
+    -- 1. SUB-SOURCE.LV -> MV-1  (POWER_XFMR 11 kV winding out to the feeder)
     INSERT INTO runtime.feature_connectivity
         (network_rule_id, from_feature_class_id, from_feature_id, from_terminal_id,
          to_feature_class_id, to_feature_id, to_terminal_id, established_by)
     VALUES
-        (r_dxf_t2_mv, fc_dist_xfmr, '9a070000-0000-0000-0000-000000000001', t_dxf_t2,
+        (r_pxf_lv_mv, fc_power_xfmr, '9a070000-0000-0000-0000-000000000001', t_pxf_lv,
          fc_mv_cond, '9a070000-0000-0000-0000-000000000011', NULL, 'seed:protection_network_example')
     ON CONFLICT (from_feature_id, from_terminal_id, to_feature_id, to_terminal_id) DO NOTHING;
 

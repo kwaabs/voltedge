@@ -149,6 +149,15 @@ JOIN (VALUES
     ('impedance_pct',     'numeric', NULL,               'electrical',  true),
     ('x_r_ratio',         'numeric', NULL,               'electrical',  true),
     ('rated_mva',         'numeric', NULL,               'electrical',  true),
+    -- Grid-infeed Thevenin source impedance, meaningful when this transformer is
+    -- the STARTING source of a fault-current / load-flow study (the upstream grid
+    -- short-circuit stiffness, referred to this unit's base). The engine reads
+    -- these by name off the start node (resolveSourceImpedance), exactly as it does
+    -- on DIST_XFMR; absent/null on a mid-network unit, which is the common case.
+    ('source_r_ohm',      'numeric', NULL,               'electrical',  true),
+    ('source_x_ohm',      'numeric', NULL,               'electrical',  true),
+    ('source_r0_ohm',     'numeric', NULL,               'electrical',  true),
+    ('source_x0_ohm',     'numeric', NULL,               'electrical',  true),
     ('tertiary_voltage',  'numeric', NULL,               'electrical',  true),
     ('z_hv_tv_pct',       'numeric', NULL,               'electrical',  true),
     ('z_lv_tv_pct',       'numeric', NULL,               'electrical',  true),
