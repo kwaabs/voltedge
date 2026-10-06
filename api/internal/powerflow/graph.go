@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
@@ -71,6 +73,16 @@ func resolveNode(ctx context.Context, db bun.IDB, ref featureRef) (node, error) 
 	}
 	if row["deleted_at"] != nil {
 		return node{}, invalid("feature %s (%s) is deleted", ref.FeatureID, ref.FeatureClass)
+	}
+
+	// Phase 58 START gate: a scoped user may not start (or target) an analysis on
+	// a feature outside their territories. resolveNode is the single choke point
+	// for every USER-SUPPLIED feature reference (start/source/fault/tie/node) --
+	// the walk's own discovered nodes go through downstreamNeighbors, not here --
+	// so gating it here covers all of them at once, reusing the row just read (no
+	// extra query). Results are deliberately NOT filtered; see scope.go.
+	if err := enforceScope(ctx, db, loaded, row, ref); err != nil {
+		return node{}, err
 	}
 
 	return node{classID: loaded.FeatureClass.ID, featureID: ref.FeatureID}, nil
@@ -368,10 +380,32 @@ func incidentNeighbors(ctx context.Context, db bun.IDB, n node) ([]downstreamEdg
 	return out, nil
 }
 
-// maxSweepNodes mirrors api/internal/trace's own maxTraceHops -- a
-// defensive valve against a pathological data bug, not a real design
-// limit.
-const maxSweepNodes = 2000
+// maxSweepNodes bounds how many nodes one load-flow tree will ever hold -- a
+// defensive valve against a pathological data bug (a malformed connectivity
+// cycle a barrier should have stopped), NOT a real design limit. It mirrors
+// api/internal/trace's maxTraceHops, with one deliberate difference in how a
+// trip is HANDLED: a trace of an over-large feeder returns a still-useful
+// partial topology and just flags it `truncated`, but a load-flow / fault /
+// coordination result over a truncated network is numerically WRONG, not merely
+// partial -- the backward sweep would accumulate only the demand of the nodes it
+// kept, understating load and overstating voltage -- so buildTree FAILS LOUDLY
+// when it trips this (see buildTree), exactly as it already does for a non-radial
+// network, rather than hand back a plausible-but-wrong study. The old value
+// (2000) was both silent AND too low for a real distribution feeder; the default
+// is raised to match trace and is overridable with POWERFLOW_MAX_NODES. Read once
+// at package init.
+var maxSweepNodes = maxSweepNodesFromEnv()
+
+// maxSweepNodesFromEnv reads POWERFLOW_MAX_NODES (a positive integer) or returns
+// the default. Read once at init -- an analysis never re-reads it.
+func maxSweepNodesFromEnv() int {
+	if v := os.Getenv("POWERFLOW_MAX_NODES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 50000
+}
 
 // tree is a load flow's whole topology: BFS discovery order (root
 // first, used for the forward sweep), each node's parent (nil/zero for
@@ -549,6 +583,21 @@ func buildTree(ctx context.Context, db bun.IDB, start node, barriers map[string]
 			order = append(order, n)
 			queue = append(queue, n)
 		}
+	}
+
+	// Cap tripped with work still queued: the tree is truncated. A sweep over a
+	// truncated network is not merely partial (as a trace would be) but
+	// numerically WRONG -- the backward sweep would accumulate only the demand of
+	// the nodes that fit, silently understating downstream load and overstating
+	// voltage. So fail loudly here, the same precondition-failure contract
+	// buildTree already applies to a non-radial network above, rather than return
+	// an optimistic, complete-looking study. Raise POWERFLOW_MAX_NODES (or start
+	// the study lower in the feeder) for a network genuinely larger than the cap.
+	if len(queue) > 0 && len(order) >= maxSweepNodes {
+		return nil, nil, invalid(
+			"the network downstream of the start feature exceeds the %d-node analysis cap -- the study would be computed over a truncated, incomplete network and silently understate downstream load, so it is refused; narrow the study (start lower in the feeder) or raise POWERFLOW_MAX_NODES",
+			maxSweepNodes,
+		)
 	}
 
 	childWinding, err := resolveChildWindings(ctx, db, childTerminal)

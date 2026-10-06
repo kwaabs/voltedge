@@ -111,6 +111,14 @@ func runAmpacity(ctx context.Context, db bun.IDB, req ampacityRequest) (*ampacit
 		}
 		return nil, err
 	}
+	// Phase 58 START gate: ampacity resolves its conductor directly (not through
+	// resolveNode, the choke point every other analysis uses), so gate it here on
+	// the row already read -- a scoped user may not run a study on an out-of-scope
+	// conductor. See scope.go.
+	if err := enforceScope(ctx, db, loaded, row, req.Conductor); err != nil {
+		return nil, err
+	}
+
 	attrs, _ := row["attributes"].(map[string]any)
 
 	spec, err := resolveAmpacityMaterialSpec(ctx, db, loaded, attrs)

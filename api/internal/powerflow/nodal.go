@@ -445,6 +445,19 @@ func buildElectricalGraph(ctx context.Context, db bun.IDB, start node, barriers 
 		}
 	}
 
+	// Cap tripped with work still queued: the reachable set is truncated, and a
+	// nodal (Y-bus) solve over a truncated network is numerically WRONG, not just
+	// partial -- missing buses and branches give a wrong admittance matrix and so
+	// a wrong solution. Fail loudly, the same contract buildTree applies to the
+	// ladder sweep, rather than solve an optimistic, incomplete network. Raise
+	// POWERFLOW_MAX_NODES (or narrow the study) for a genuinely larger network.
+	if len(queue) > 0 && len(order) >= maxSweepNodes {
+		return nil, nil, nil, invalid(
+			"the network reachable from the start feature exceeds the %d-node analysis cap -- the nodal load flow would be solved over a truncated, incomplete network, so it is refused; narrow the study or raise POWERFLOW_MAX_NODES",
+			maxSweepNodes,
+		)
+	}
+
 	// Drop any edge that lands on a barrier node (discovered as a neighbor but
 	// never admitted as a bus) -- the open device breaks that branch.
 	// isBarrierHit (contingency.go) takes (hits, n).
