@@ -227,10 +227,9 @@ func writeCoord(b *bufio.Writer, c []float64) {
 	fmt.Fprintf(b, "%g,%g", c[0], c[1])
 }
 
-// xmlEscape escapes the five XML metacharacters. The stdlib's xml.EscapeText
-// targets an io.Writer and also rewrites tabs/newlines; a small replacer keeps
-// attribute names and values readable and is enough here since every value is
-// emitted as element/attribute text.
+// xmlEscaper escapes the five XML metacharacters, keeping attribute names and
+// values readable (the stdlib's xml.EscapeText targets an io.Writer and also
+// rewrites tabs/newlines).
 var xmlEscaper = strings.NewReplacer(
 	"&", "&amp;",
 	"<", "&lt;",
@@ -239,6 +238,40 @@ var xmlEscaper = strings.NewReplacer(
 	"'", "&apos;",
 )
 
+// xmlEscape makes s safe to emit as XML element/attribute text. It does two
+// things: (1) drops characters that are not legal in XML 1.0 AT ALL -- the C0
+// control codes other than tab/LF/CR (a stray NUL, vertical tab, form feed, etc.
+// that dirty imported free-text can carry) plus the forbidden surrogate/sentinel
+// ranges. Those are UNESCAPABLE: emitting them, escaped or not, yields a document
+// every parser rejects, so a CIM/KML export of data containing one would be
+// corrupt. strings.Map also folds invalid UTF-8 to U+FFFD (a legal char) as a
+// side effect, so malformed bytes can't break the output either. Then (2) escapes
+// the five metacharacters. Drop-then-escape so the escape sequences are never
+// themselves stripped.
 func xmlEscape(s string) string {
-	return xmlEscaper.Replace(s)
+	cleaned := strings.Map(func(r rune) rune {
+		if isInvalidXMLChar(r) {
+			return -1 // drop
+		}
+		return r
+	}, s)
+	return xmlEscaper.Replace(cleaned)
+}
+
+// isInvalidXMLChar reports whether r is NOT a legal XML 1.0 character (XML 1.0
+// §2.2 Char): the valid set is {0x09, 0x0A, 0x0D, 0x20-0xD7FF, 0xE000-0xFFFD,
+// 0x10000-0x10FFFF}. Everything else -- chiefly the C0 controls below 0x20 that
+// aren't tab/LF/CR -- is illegal and must be removed, not escaped.
+func isInvalidXMLChar(r rune) bool {
+	switch {
+	case r == 0x09 || r == 0x0A || r == 0x0D:
+		return false
+	case r >= 0x20 && r <= 0xD7FF:
+		return false
+	case r >= 0xE000 && r <= 0xFFFD:
+		return false
+	case r >= 0x10000 && r <= 0x10FFFF:
+		return false
+	}
+	return true
 }
