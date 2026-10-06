@@ -21,9 +21,17 @@ import (
 //     destination already has an established relationship of this class
 //     with a *different* origin.
 //   - one_to_one: both sides capped at one -- rejected if either the
-//     origin or the destination already appears in any established
-//     relationship of this class other than the exact pair being
-//     established right now.
+//     origin or the destination already appears (on EITHER end) in any
+//     established relationship of this class other than the exact pair
+//     being established right now. Checking both ends matters only for a
+//     SAME-CLASS one_to_one (origin and destination are the same feature
+//     class), where a feature can legally be an origin in one row and a
+//     destination in another: a direction-blind "origin==origin OR
+//     dest==dest" check would miss that cross-direction second
+//     relationship and let a feature exceed its cap of one. For the usual
+//     cross-class one_to_one a feature only ever appears on its own side,
+//     so the broader check is equivalent to the narrow one -- it never
+//     over-rejects.
 //
 // Establishing the exact same origin/destination pair again is always
 // permitted regardless of cardinality -- that's establishRelationship's
@@ -50,12 +58,17 @@ func checkCardinality(ctx context.Context, db bun.IDB, class *metadata.Relations
 		return nil
 
 	case "one_to_one":
+		// Either end of any OTHER row touching either of this pair's two features
+		// exhausts the cap -- so test both features against both columns, not just
+		// origin-vs-origin / dest-vs-dest (which would miss a same-class feature
+		// that is an origin in one row and a destination in another).
+		pair := bun.In([]string{originFeatureID, destinationFeatureID})
 		exists, err := db.NewSelect().Model((*FeatureRelationship)(nil)).
 			Where("relationship_class_id = ?", class.ID).
 			Where("NOT (origin_feature_id = ? AND destination_feature_id = ?)", originFeatureID, destinationFeatureID).
 			WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
-				return q.WhereOr("origin_feature_id = ?", originFeatureID).
-					WhereOr("destination_feature_id = ?", destinationFeatureID)
+				return q.WhereOr("origin_feature_id IN (?)", pair).
+					WhereOr("destination_feature_id IN (?)", pair)
 			}).
 			Exists(ctx)
 		if err != nil {
