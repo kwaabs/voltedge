@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/auth"
@@ -129,42 +130,93 @@ type syncResponse struct {
 	Statuses []syncOpStatus `json:"statuses,omitempty"`
 }
 
-// metaCache memoizes metadata.Load across the ops in one sync batch. A push is
-// almost always many ops spanning only a handful of feature classes, and Load
-// runs ~6 queries, so loading each class once instead of once-per-op removes an
-// N+1 that dominated a large batch's cost (Phase 21 Slice 11 scale hardening).
-// Metadata is read-only reference data, loaded on the base db outside any op's
-// transaction, so sharing one copy across ops is safe. Both hits AND load errors
-// are cached, so a bad class name doesn't re-run the failing queries for every op
-// that references it.
-type metaCache struct {
-	db     bun.IDB
-	loaded map[string]*metadata.Loaded
-	errs   map[string]error
+// syncCacheTTL bounds how long the drain worker's resolveCache serves a cached
+// class metadata or session user before reloading it. Short so an admin recompile
+// (new field/subtype) or a role/territory change is picked up within a minute,
+// long enough to collapse the per-op reloads across a device's burst of ops.
+const syncCacheTTL = 60 * time.Second
+
+// resolveCache is the sync drain worker's cross-op cache for the two per-op costs
+// that otherwise dominate the apply query load at fleet scale: a class's metadata
+// (metadata.Load, ~6 queries) and the submitting field user's session (RBAC +
+// territory, needed so each replayed write enforces Phase 58 write-scope and
+// stamps the actor). Both are reused heavily across a device's ops but change
+// rarely, so caching them at the WORKER level with a short TTL ([syncCacheTTL])
+// kills the N+1 that Slice 11's per-batch cache couldn't (the async drain applies
+// one op per claim, so a per-op cache never reuses anything), while bounding
+// staleness after a recompile / role change. ONE instance is shared across the
+// worker's concurrent op goroutines, so it is mutex-guarded. Only SUCCESSFUL loads
+// are cached (a transient load error retries on the next op rather than being
+// pinned for the whole TTL). Both loads use the base db -- reference data read
+// outside any op's transaction, exactly as the old per-op cache did.
+type resolveCache struct {
+	db  bun.IDB
+	ttl time.Duration
+
+	mu    sync.Mutex
+	meta  map[string]metaEntry
+	users map[string]userEntry
 }
 
-func newMetaCache(db bun.IDB) *metaCache {
-	return &metaCache{
-		db:     db,
-		loaded: map[string]*metadata.Loaded{},
-		errs:   map[string]error{},
+type metaEntry struct {
+	loaded *metadata.Loaded
+	at     time.Time
+}
+
+type userEntry struct {
+	user *auth.SessionUser
+	at   time.Time
+}
+
+func newResolveCache(db bun.IDB, ttl time.Duration) *resolveCache {
+	return &resolveCache{
+		db:    db,
+		ttl:   ttl,
+		meta:  map[string]metaEntry{},
+		users: map[string]userEntry{},
 	}
 }
 
-func (c *metaCache) get(ctx context.Context, code string) (*metadata.Loaded, error) {
-	if l, ok := c.loaded[code]; ok {
+// get returns a class's loaded metadata, from the cache when fresh (within the
+// TTL) else reloaded. The lock is not held across the metadata.Load I/O.
+func (c *resolveCache) get(ctx context.Context, code string) (*metadata.Loaded, error) {
+	c.mu.Lock()
+	if e, ok := c.meta[code]; ok && time.Since(e.at) < c.ttl {
+		l := e.loaded
+		c.mu.Unlock()
 		return l, nil
 	}
-	if e, ok := c.errs[code]; ok {
-		return nil, e
-	}
-	l, err := metadata.Load(ctx, c.db, code)
+	c.mu.Unlock()
+
+	loaded, err := metadata.Load(ctx, c.db, code)
 	if err != nil {
-		c.errs[code] = err
+		return nil, err // don't pin a transient failure for the whole TTL
+	}
+	c.mu.Lock()
+	c.meta[code] = metaEntry{loaded: loaded, at: time.Now()}
+	c.mu.Unlock()
+	return loaded, nil
+}
+
+// user returns the submitting user's session, from the cache when fresh else
+// reloaded via auth.LoadSessionUser. Same lock-off-IO shape as get.
+func (c *resolveCache) user(ctx context.Context, id string) (*auth.SessionUser, error) {
+	c.mu.Lock()
+	if e, ok := c.users[id]; ok && time.Since(e.at) < c.ttl {
+		u := e.user
+		c.mu.Unlock()
+		return u, nil
+	}
+	c.mu.Unlock()
+
+	u, err := auth.LoadSessionUser(ctx, c.db, id)
+	if err != nil {
 		return nil, err
 	}
-	c.loaded[code] = l
-	return l, nil
+	c.mu.Lock()
+	c.users[id] = userEntry{user: u, at: time.Now()}
+	c.mu.Unlock()
+	return u, nil
 }
 
 // syncHandler durably captures a device's outbox into ops.sync_inbox and acks. It
@@ -438,7 +490,7 @@ type faultBookDefectPayload struct {
 // the REST + MCP establish surfaces do). Re-pushing an already-established edge is a
 // no-op (ON CONFLICT keeps the original), so an establish op is retry-safe on the
 // same terms as an idempotent create.
-func applySyncOp(ctx context.Context, db *bun.DB, cache *metaCache, op syncOp, submittedBy string) syncOpResult {
+func applySyncOp(ctx context.Context, db *bun.DB, cache *resolveCache, op syncOp, submittedBy string) syncOpResult {
 	res := syncOpResult{OpID: op.OpID}
 	if op.OpID == "" {
 		res.Status = "error"
@@ -475,7 +527,7 @@ func applySyncOp(ctx context.Context, db *bun.DB, cache *metaCache, op syncOp, s
 	// unscoped and unattributed -- fail-closed, consistent with Phase 58. (The
 	// wam_*/fault_* kinds returned above already thread submittedBy as an explicit
 	// actor and are not territory-scoped, so they don't need this.)
-	su, err := auth.LoadSessionUser(ctx, db, submittedBy)
+	su, err := cache.user(ctx, submittedBy)
 	if err != nil || su == nil {
 		res.Status = "error"
 		res.Error = fmt.Sprintf("cannot apply op: submitting user %q could not be loaded: %v", submittedBy, err)

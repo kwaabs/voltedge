@@ -97,6 +97,12 @@ func RunSyncWorker(ctx context.Context, db *bun.DB, cfg SyncWorkerConfig) error 
 	sem := make(chan struct{}, cfg.Concurrency)
 	var wg sync.WaitGroup
 
+	// One cache shared across every op this worker applies: class metadata and the
+	// submitting user's session, each memoized with a short TTL so a device's burst
+	// of ops doesn't reload them per op (the drain's per-op N+1). Shared across the
+	// concurrent op goroutines; resolveCache is mutex-guarded.
+	cache := newResolveCache(db, syncCacheTTL)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -127,7 +133,7 @@ func RunSyncWorker(ctx context.Context, db *bun.DB, cfg SyncWorkerConfig) error 
 		go func(r *SyncInboxRow) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			applyInboxOpWithHeartbeat(ctx, db, cfg, r)
+			applyInboxOpWithHeartbeat(ctx, db, cfg, cache, r)
 		}(row)
 	}
 }
@@ -136,7 +142,7 @@ func RunSyncWorker(ctx context.Context, db *bun.DB, cfg SyncWorkerConfig) error 
 // its lease fresh. Mirrors export.runJobWithHeartbeat: a heartbeat that finds the op
 // no longer ours cancels the op's context so an in-flight apply aborts rather than
 // racing a reclaiming worker (the reclaim is safe regardless -- apply is idempotent).
-func applyInboxOpWithHeartbeat(parent context.Context, db *bun.DB, cfg SyncWorkerConfig, row *SyncInboxRow) {
+func applyInboxOpWithHeartbeat(parent context.Context, db *bun.DB, cfg SyncWorkerConfig, cache *resolveCache, row *SyncInboxRow) {
 	ol := logx.From(parent).With(slog.String("op_id", row.OpID))
 	opCtx, cancel := context.WithCancel(logx.Into(parent, ol))
 	defer cancel()
@@ -195,7 +201,7 @@ func applyInboxOpWithHeartbeat(parent context.Context, db *bun.DB, cfg SyncWorke
 				}
 			}
 		}()
-		applyInboxOp(opCtx, db, cfg, row)
+		applyInboxOp(opCtx, db, cfg, cache, row)
 	}()
 	cancel()
 	hb.Wait()
@@ -210,7 +216,7 @@ func applyInboxOpWithHeartbeat(parent context.Context, db *bun.DB, cfg SyncWorke
 // A context cancellation (shutdown, or a lost lease) is NOT a rejection: the op is
 // left 'applying' so its lease lapses and another worker reclaims it. Only a genuine
 // apply error quarantines the op.
-func applyInboxOp(ctx context.Context, db *bun.DB, cfg SyncWorkerConfig, row *SyncInboxRow) {
+func applyInboxOp(ctx context.Context, db *bun.DB, cfg SyncWorkerConfig, cache *resolveCache, row *SyncInboxRow) {
 	op := syncOp{OpID: row.OpID, Kind: row.Kind, Payload: row.Payload}
 	if row.FeatureClass != nil {
 		op.FeatureClass = *row.FeatureClass
@@ -221,8 +227,6 @@ func applyInboxOp(ctx context.Context, db *bun.DB, cfg SyncWorkerConfig, row *Sy
 	if row.BaseVersion != nil {
 		op.BaseVersion = *row.BaseVersion
 	}
-
-	cache := newMetaCache(db)
 
 	// Optimistic-concurrency conflict detection (Phase 23 Slice 4). For an
 	// update/delete of a class with detection on, a base_version that predates the
@@ -278,7 +282,7 @@ func applyInboxOp(ctx context.Context, db *bun.DB, cfg SyncWorkerConfig, row *Sy
 // positive). A missing row (the create hasn't applied, or it was hard-deleted) is not a
 // conflict. When a conflict is found but a LATER op for the same feature is queued, this
 // op is superseded by that newer edit instead.
-func detectSyncConflict(ctx context.Context, db *bun.DB, cache *metaCache, row *SyncInboxRow, workerID string) (bool, error) {
+func detectSyncConflict(ctx context.Context, db *bun.DB, cache *resolveCache, row *SyncInboxRow, workerID string) (bool, error) {
 	if row.ConflictOverride {
 		return false, nil // human already waived the check
 	}
