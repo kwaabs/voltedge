@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"runtime/debug"
 	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/logx"
@@ -64,11 +65,22 @@ func runClaimedJob(ctx context.Context, db *bun.DB, store *ObjectStore, job *Exp
 	pr, pw := io.Pipe()
 	done := make(chan encodeResult, 1)
 	go func() {
-		n, err := runExport(ctx, db, scope, pw)
-		// Closing with the encode error propagates it to the upload's Read,
-		// aborting the multipart upload so no partial object is left behind.
-		pw.CloseWithError(err)
-		done <- encodeResult{count: n, err: err}
+		var n int
+		var err error
+		// A panic inside the encoder (e.g. a malformed geometry) would otherwise
+		// crash the whole worker process from this goroutine. Recover it into an
+		// error so it aborts the upload and fails only THIS job.
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("export encoder panicked: %v", r)
+				logx.From(ctx).Error("export encoder panicked", "panic", r, "stack", string(debug.Stack()))
+			}
+			// Closing with the encode error propagates it to the upload's Read,
+			// aborting the multipart upload so no partial object is left behind.
+			pw.CloseWithError(err)
+			done <- encodeResult{count: n, err: err}
+		}()
+		n, err = runExport(ctx, db, scope, pw)
 	}()
 
 	size, upErr := store.Upload(ctx, key, pr, spec.contentType)

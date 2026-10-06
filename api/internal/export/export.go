@@ -493,12 +493,21 @@ func gatherLayers(ctx context.Context, db bun.IDB, codes []string, bbox *crud.Ex
 			return nil, http.StatusBadRequest, fmt.Sprintf("feature class %q has no geometry, so it can't be exported", code)
 		}
 
-		rows, err := crud.ExportFeatures(ctx, db, loaded, bbox, targetSRID, territoryIDs, draftAuthors)
+		rows, truncated, err := crud.ExportFeatures(ctx, db, loaded, bbox, targetSRID, territoryIDs, draftAuthors)
 		if err != nil {
 			if crud.IsNotFoundError(err) {
 				return nil, http.StatusNotFound, err.Error()
 			}
 			return nil, http.StatusInternalServerError, err.Error()
+		}
+		// A materialized export (shapefile/CIM) can't stream, so it caps each class
+		// at MaxExportFeatures. Rather than silently ship a truncated dataset, fail
+		// with an actionable message: narrow the scope, or use an uncapped streaming
+		// format. (KMZ/DXF never reach here -- they use gatherStreamLayers.)
+		if truncated {
+			return nil, http.StatusBadRequest, fmt.Sprintf(
+				"feature class %q has more than %d features, the per-class limit for a shapefile/CIM export. Narrow the scope with a bbox or territory filter, or export as KMZ or DXF (which stream and are uncapped).",
+				code, crud.MaxExportFeatures)
 		}
 
 		features := make([]Feature, 0, len(rows))

@@ -11,8 +11,10 @@ package export
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"time"
@@ -118,6 +120,11 @@ func RunWorker(ctx context.Context, db *bun.DB, store *ObjectStore, cfg WorkerCo
 		go runRetentionSweep(ctx, db, store, cfg.Retention, cfg.SweepInterval)
 	}
 
+	// Always-on stuck-job reaper (independent of retention, which may be disabled):
+	// fail poison jobs that have exhausted their attempts so they stop looping and
+	// their caller stops polling. claimExport already stops reclaiming them.
+	go runStuckJobReaper(ctx, db, cfg.Lease)
+
 	sem := make(chan struct{}, cfg.Concurrency)
 	var wg sync.WaitGroup
 
@@ -157,6 +164,37 @@ func RunWorker(ctx context.Context, db *bun.DB, store *ObjectStore, cfg WorkerCo
 	}
 }
 
+// runStuckJobReaper periodically fails poison export jobs that have exhausted
+// their attempts (reapExhaustedExports) -- the jobs claimExport no longer
+// reclaims. It ticks on the lease cadence (a job can't burn an attempt faster
+// than one lease, so checking once per lease is timely without being chatty) and
+// stops when ctx is cancelled.
+func runStuckJobReaper(ctx context.Context, db *bun.DB, lease time.Duration) {
+	interval := lease
+	if interval < time.Second {
+		interval = time.Second
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			n, err := reapExhaustedExports(ctx, db)
+			if err != nil {
+				if ctx.Err() == nil {
+					logx.From(ctx).Error("stuck-job reaper failed", "err", err)
+				}
+				continue
+			}
+			if n > 0 {
+				logx.From(ctx).Warn("failed poison export jobs after exhausting attempts", "count", n, "max_attempts", maxExportAttempts)
+			}
+		}
+	}
+}
+
 // runJobWithHeartbeat runs one claimed job while a background ticker keeps its
 // lease fresh. If a heartbeat finds the job no longer ours (reclaimed after a
 // missed beat, or cancelled), it cancels the job's context so the in-flight
@@ -164,6 +202,17 @@ func RunWorker(ctx context.Context, db *bun.DB, store *ObjectStore, cfg WorkerCo
 // same object.
 func runJobWithHeartbeat(parent context.Context, db *bun.DB, store *ObjectStore, cfg WorkerConfig, job *ExportJob) {
 	jl := logx.From(parent).With(slog.String("job_id", job.ID))
+	// A panic anywhere in a job's path (a malformed geometry, an encoder bug) must
+	// fail THAT job, not crash the worker process and take down every concurrent
+	// export. Recover here, mark the job failed on the parent ctx (the job ctx is
+	// torn down by the deferred cancel first), and let the claim loop carry on. The
+	// encoder runs in its own goroutine (runClaimedJob) and recovers there too.
+	defer func() {
+		if r := recover(); r != nil {
+			jl.Error("export job panicked", "panic", r, "stack", string(debug.Stack()))
+			markFailed(parent, db, job.ID, fmt.Sprintf("export worker panicked: %v", r))
+		}
+	}()
 	jobCtx, cancel := context.WithCancel(logx.Into(parent, jl))
 	defer cancel()
 

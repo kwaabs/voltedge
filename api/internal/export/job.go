@@ -13,10 +13,19 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/uptrace/bun"
 )
+
+// maxExportAttempts caps how many times a job may be claimed before it is
+// abandoned. Each claim (initial + every lease-expiry reclaim) increments
+// attempts; once a job has been claimed this many times without finishing it is
+// a POISON job -- its encode is crashing or OOM-ing the worker -- so claimExport
+// stops reclaiming it and reapExhaustedExports fails it, instead of retrying it
+// forever and killing a worker slot on every pass.
+const maxExportAttempts = 3
 
 // ExportJob is one row of ops.export_jobs. The pointer fields are the columns
 // that stay NULL until the job finishes (result pointer, error, lease, timing).
@@ -111,7 +120,7 @@ UPDATE ops.export_jobs SET
 WHERE id = (
     SELECT id FROM ops.export_jobs
     WHERE status = 'queued'
-       OR (status = 'running' AND lease_expires_at < now())
+       OR (status = 'running' AND lease_expires_at < now() AND attempts < ?)
     ORDER BY created_at
     FOR UPDATE SKIP LOCKED
     LIMIT 1
@@ -119,7 +128,7 @@ WHERE id = (
 RETURNING *`
 
 	job := new(ExportJob)
-	if err := db.NewRaw(q, workerID, int(lease.Seconds())).Scan(ctx, job); err != nil {
+	if err := db.NewRaw(q, workerID, int(lease.Seconds()), maxExportAttempts).Scan(ctx, job); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil // empty queue -- not an error
 		}
@@ -184,6 +193,28 @@ func failExport(ctx context.Context, db bun.IDB, id, msg string) error {
 		Where("status = 'running'").
 		Exec(ctx)
 	return err
+}
+
+// reapExhaustedExports fails any running job whose lease has lapsed and which has
+// already been claimed maxExportAttempts times -- a poison job that claimExport
+// therefore no longer reclaims. It turns the stuck 'running' row into a clean
+// 'failed' with an explanatory error, so the caller stops polling a job that will
+// never finish and its (never-uploaded) slot is freed. Returns how many it reaped.
+func reapExhaustedExports(ctx context.Context, db bun.IDB) (int, error) {
+	res, err := db.NewUpdate().Model((*ExportJob)(nil)).
+		Set("status = 'failed'").
+		Set("error = ?", fmt.Sprintf("export abandoned after %d attempts -- it repeatedly failed to finish (the encode may be crashing or exhausting the worker); narrow the scope and retry", maxExportAttempts)).
+		Set("finished_at = now()").
+		Set("lease_expires_at = NULL").
+		Where("status = 'running'").
+		Where("lease_expires_at < now()").
+		Where("attempts >= ?", maxExportAttempts).
+		Exec(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
 }
 
 // cancelExport cancels the caller's own queued or running job, returning whether

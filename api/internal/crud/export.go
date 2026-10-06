@@ -18,7 +18,7 @@ type ExportBBox struct {
 	MinX, MinY, MaxX, MaxY float64
 }
 
-// maxExportFeatures caps how many features a single feature class contributes
+// MaxExportFeatures caps how many features a single feature class contributes
 // to a MATERIALIZED export. The materialized readers (shapefile, CIM) hold every
 // matching feature in memory to encode -- shapefile needs a full pass to compute
 // its header offsets, CIM needs the whole connectivity graph for topology -- so
@@ -26,7 +26,7 @@ type ExportBBox struct {
 // request) from exhausting memory. The streaming reader (ExportFeaturesStream,
 // used by KMZ/DXF) applies no such cap: it encodes each feature as it arrives
 // and never holds them all at once (Phase 17 Slice 3d).
-const maxExportFeatures = 50000
+const MaxExportFeatures = 50000
 
 // exportQuery builds the SELECT for one class's export read -- columns, table,
 // WHERE (soft-delete + optional territory + optional bbox + optional
@@ -117,38 +117,47 @@ func exportQuery(loaded *metadata.Loaded, bbox *ExportBBox, targetSRID *int, ter
 // ExportFeatures reads one feature class's rows for a MATERIALIZED geographic
 // export (shapefile, CIM): the same read path as list/query
 // (selectColumns/scanRows/formatRow, so each row carries its GeoJSON geometry
-// and attributes), capped at maxExportFeatures. See exportQuery for the filters.
-func ExportFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *ExportBBox, targetSRID *int, territoryIDs, draftAuthors []string) ([]map[string]any, error) {
+// and attributes), capped at MaxExportFeatures. See exportQuery for the filters.
+func ExportFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *ExportBBox, targetSRID *int, territoryIDs, draftAuthors []string) (rows []map[string]any, truncated bool, err error) {
 	query, args, err := exportQuery(loaded, bbox, targetSRID, territoryIDs, draftAuthors)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	// maxExportFeatures is an int constant, not a bind param -- spliced as %d.
-	query += fmt.Sprintf(" LIMIT %d", maxExportFeatures)
+	// Read one PAST the cap: MaxExportFeatures+1 rows let the caller tell a class
+	// that was actually truncated (more than the cap exists) from one that happens
+	// to hold exactly the cap. The extra row is dropped and truncated=true is
+	// returned, so the materialized export can fail loudly rather than silently
+	// ship a partial dataset the consumer can't detect. MaxExportFeatures is an int
+	// constant, not a bind param -- spliced as %d.
+	query += fmt.Sprintf(" LIMIT %d", MaxExportFeatures+1)
 
-	rows, err := db.QueryContext(ctx, query, args...)
+	queryRows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("crud: export read: %w", err)
+		return nil, false, fmt.Errorf("crud: export read: %w", err)
 	}
-	results, err := scanRows(rows)
+	results, err := scanRows(queryRows)
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	if len(results) > MaxExportFeatures {
+		results = results[:MaxExportFeatures]
+		truncated = true
 	}
 
 	out := make([]map[string]any, 0, len(results))
 	for _, r := range results {
 		formatted, err := formatRow(loaded, r)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		out = append(out, formatted)
 	}
-	return out, nil
+	return out, truncated, nil
 }
 
 // ExportFeaturesStream reads one class's export rows one at a time, invoking fn
 // per formatted row, and returns how many rows it streamed. Unlike
-// ExportFeatures it applies NO maxExportFeatures cap and never materializes the
+// ExportFeatures it applies NO MaxExportFeatures cap and never materializes the
 // result set: rows are scanned and handed off individually, so the streaming
 // export path (KMZ/DXF, Phase 17 Slice 3d) encodes each feature as it arrives
 // at constant memory. The caller runs this inside a REPEATABLE READ snapshot
