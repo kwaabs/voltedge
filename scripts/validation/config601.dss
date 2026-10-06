@@ -1,0 +1,56 @@
+! config601.dss -- OpenDSS cross-check for VoltEdge's Carson line-impedance build.
+!
+! Purpose: compute the IEEE 13-node Configuration 601 phase-impedance matrix FROM
+! GEOMETRY (not from the published LineCode) so it can be compared apples-to-apples
+! with VoltEdge's buildCarsonMatrix (api/internal/powerflow/carson.go) and with the
+! published Z601. VoltEdge's TestCarsonConfig601 reproduces the published
+! OFF-DIAGONAL (mutual) terms exactly, but its DIAGONAL (self) terms come out
+! ~0.12+j0.03 Ohm/mile high vs the published 0.3465+j1.0179. This resolves which is
+! right: if OpenDSS (fed the same geometry) also gives ~0.466, VoltEdge is correct
+! and the published LineCode uses different inputs; if OpenDSS gives ~0.3465,
+! VoltEdge has a self-term bug to find.
+!
+! Geometry is Config 601, phased B-A-C-N on the crossarm (same as the Go test):
+!   phase A @ x=2.5 ft, B @ 0, C @ 7, N @ 4 ; phases h=29 ft, neutral h=25 ft.
+! Conductors: phase 336,400 26/7 ACSR (GMR 0.0244 ft, Rac 0.306 ohm/mi);
+!             neutral 4/0 6/1 ACSR   (GMR 0.00814 ft, Rac 0.592 ohm/mi).
+!
+! Run (GUI): Compile this file; read the "? Line.L601.Rmatrix/Xmatrix" echo and the
+!            generated *_LineConstants.txt. Paste both matrices back for comparison.
+
+Clear
+New Circuit.cfg601 basekv=4.16 phases=3 bus1=src
+
+! --- Conductors: GMR & radius in ft, AC resistance in ohm/mile (60 Hz) ---
+! radius affects only the shunt (C) matrix, not the series Z we are checking.
+New WireData.ph_336  GMRac=0.0244  GMRunits=ft  Rac=0.306  Runits=mi  radius=0.03000 radunits=ft
+New WireData.ne_4_0  GMRac=0.00814 GMRunits=ft  Rac=0.592  Runits=mi  radius=0.02350 radunits=ft
+
+! --- Config 601 geometry; reduce=yes Kron-folds the neutral into the 3x3 phase matrix ---
+New LineGeometry.g601 nconds=4 nphases=3 reduce=yes
+~ cond=1 wire=ph_336 x=2.5 h=29 units=ft   ! phase A
+~ cond=2 wire=ph_336 x=0   h=29 units=ft   ! phase B
+~ cond=3 wire=ph_336 x=7   h=29 units=ft   ! phase C
+~ cond=4 wire=ne_4_0 x=4   h=25 units=ft   ! neutral (Kron-reduced)
+
+New Line.L601 bus1=src bus2=n2 geometry=g601 length=1 units=mi
+
+! Earth-return model + resistivity. VoltEdge uses MODIFIED CARSON at rho=100 ohm-m,
+! 60 Hz. OpenDSS's default earth model is Deri -- the single most likely source of a
+! self-term difference (the self earth-return term is far more earth-model-sensitive
+! than the mutual, which would explain "off-diagonals match, diagonals don't"). So
+! run this TWICE: once as below (carson), once with  Set earthmodel=deri  -- and note
+! which, if either, reproduces the published diagonal.
+Set earthmodel=carson
+Set frequency=60
+Set defaultbasefreq=60
+Set rho=100
+
+Solve
+
+! Computed per-mile, Kron-reduced 3x3 phase matrices (ohm/mile), lower triangle:
+? Line.L601.Rmatrix
+? Line.L601.Xmatrix
+
+! Full report -> writes <circuit>_LineConstants.txt (Zabc + sequence impedances):
+Show LineConstants freq=60 units=mi rho=100
