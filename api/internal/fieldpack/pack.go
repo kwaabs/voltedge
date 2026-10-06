@@ -21,6 +21,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/kwaabs/voltedge/api/internal/territory"
 	"github.com/uptrace/bun"
 )
 
@@ -34,6 +35,16 @@ type FieldPack struct {
 	Status      string          `bun:"status"`
 	RequestedBy string          `bun:"requested_by"`
 	Scope       json.RawMessage `bun:"scope,type:jsonb"`
+
+	// Shared-pack fields (migration 0131, docs/shared-field-packs-design.md).
+	// Kind is 'personal' (today's on-demand, owner-scoped packs) or 'shared_base'
+	// (a cell version: the shared, published-only base many crews pull). CellID is
+	// the cell a shared_base is a version of (NULL for a personal pack).
+	// IsPublishedOnly is set on a shared base so the build excludes every private
+	// draft -- the base carries nothing personal/unpublished, the safety guarantee.
+	Kind            string  `bun:"kind"`
+	CellID          *string `bun:"cell_id"`
+	IsPublishedOnly bool    `bun:"is_published_only"`
 
 	TilesObjectKey *string `bun:"tiles_object_key"`
 	DataObjectKey  *string `bun:"data_object_key"`
@@ -131,6 +142,16 @@ type PackScope struct {
 	// and only public features (published, or ever-published) plus features
 	// authored by someone in this set are packed.
 	DraftAuthors []string `json:"draft_authors"`
+
+	// PublishedOnly packs ONLY public features (migration 0131, shared packs). Set
+	// on a shared cell base so it carries no private drafts AT ALL -- regardless of
+	// author -- making the base safe to hand to anyone whose access covers the cell.
+	// It is the author-independent counterpart of DraftAuthors: where DraftAuthors
+	// adds back the requester's own drafts, PublishedOnly admits only the public set
+	// (status='published' OR published_at IS NOT NULL), the drafts package's own
+	// public test. A shared base sets PublishedOnly=true, DraftAuthors=nil,
+	// IncludeWAM=false (the work board is the per-user overlay).
+	PublishedOnly bool `json:"published_only,omitempty"`
 }
 
 // enqueuePack inserts a queued build for requestedBy and returns its id.
@@ -143,6 +164,67 @@ func enqueuePack(ctx context.Context, db bun.IDB, requestedBy string, scope Pack
 		Status:      "queued",
 		RequestedBy: requestedBy,
 		Scope:       raw,
+	}
+	if _, err := db.NewInsert().Model(pack).Returning("id").Exec(ctx); err != nil {
+		return "", err
+	}
+	return pack.ID, nil
+}
+
+// enqueueCellBuild enqueues a SHARED BASE build (a cell version) for a cell
+// (migration 0131, docs/shared-field-packs-design.md). It is enqueuePack's
+// shared-pack sibling: the same queue + worker + builder, differing only in the
+// row shape (kind='shared_base', cell_id, is_published_only) and the scope, which
+// is derived from the CELL -- published-only, no WAM work board -- rather than a
+// requester's on-demand request. requestedBy is the admin who triggered it (for
+// provenance; a shared base is not owner-scoped on download). The claim loop picks
+// it up exactly like a personal pack.
+func enqueueCellBuild(ctx context.Context, db bun.IDB, cell *Cell, requestedBy string) (string, error) {
+	// Filter the base's features to the cell's TERRITORY, not just its bbox -- the
+	// territory is the pickup access boundary (Slice 3), so a base whose bbox spans
+	// into another territory must still carry only the cell-territory's features, or
+	// a crew gated on the cell's territory would receive out-of-territory data. A
+	// cell with no territory (nil) applies no territory filter (the "public baseline"
+	// case). Expand to descendants, the same tri-state the export/read path uses: nil
+	// = no filter, non-nil (even empty) = restrict to that set (empty => nothing).
+	var territoryIDs []string
+	if cell.TerritoryID != nil && *cell.TerritoryID != "" {
+		expanded, err := territory.DescendantIDs(ctx, db, []string{*cell.TerritoryID})
+		if err != nil {
+			return "", err
+		}
+		if expanded == nil {
+			expanded = []string{} // unknown territory -> match nothing (fail closed)
+		}
+		territoryIDs = expanded
+	}
+
+	scope := PackScope{
+		Bbox:                 cell.Bbox,
+		FeatureClasses:       cell.FeatureClasses,
+		TerritoryIDs:         territoryIDs,
+		IncludeConnectivity:  cell.IncludeConnectivity,
+		IncludeRelationships: cell.IncludeRelationships,
+		IncludeFaults:        cell.IncludeFaults,
+		IncludeTags:          cell.IncludeTags,
+		// A shared base is the published, NON-personal base: no WAM work board (that
+		// is the per-user overlay), no private drafts (PublishedOnly, author-blind).
+		IncludeWAM:    false,
+		PublishedOnly: true,
+		DraftAuthors:  nil,
+	}
+	raw, err := json.Marshal(scope)
+	if err != nil {
+		return "", err
+	}
+	cellID := cell.ID
+	pack := &FieldPack{
+		Status:          "queued",
+		RequestedBy:     requestedBy,
+		Scope:           raw,
+		Kind:            "shared_base",
+		CellID:          &cellID,
+		IsPublishedOnly: true,
 	}
 	if _, err := db.NewInsert().Model(pack).Returning("id").Exec(ctx); err != nil {
 		return "", err

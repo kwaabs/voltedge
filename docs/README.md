@@ -33,7 +33,9 @@ Find your task on the left; open the document on the right.
 
 | I want to… | Go to |
 | --- | --- |
-| Sign in, find assets, edit the network, run a trace, use the field app | **[User Handbook](user-handbook.md)** |
+| Sign in, find assets, edit the network, run a trace (the office web app) | **[User Handbook](user-handbook.md)** |
+| Work offline in the field — download a work-area pack, view and edit the network, capture GPS/photos, run inspections, sync back | **[Field Tool Guide](field-tool-guide.md)** |
+| Run the field tool: manage packs, review and resolve field edits, tune build/sync for a fleet | **[Field Tool Admin Guide](field-tool-admin-guide.md)** |
 | Get the *step-by-step recipe* for one map task — create, edit, measure, snap, connect, annotate | **[Everyday Operations](everyday-operations.md)** |
 | Understand what a load-flow / fault / arc-flash study actually computes | **[Engineering Studies](engineering-studies.md)** |
 | Provision users, author feature classes, stand up an environment, use break-glass | **[Admin & Break-Glass Guide](admin-break-glass-guide.md)** |

@@ -86,6 +86,13 @@ var manifest = []Doc{
 		Filename:    "works-inspections-maintenance-guide.md",
 	},
 	{
+		ID:          "field-tool-guide",
+		Title:       "Field Tool Guide",
+		Description: "The field crew's manual for the offline mobile app: downloading a work-area pack, viewing and editing the network offline (attributes, geometry, create, delete, connect), GPS/photo capture, inspections and faults, and syncing back — with the colour code and sync lifecycle explained.",
+		Category:    "Manuals",
+		Filename:    "field-tool-guide.md",
+	},
+	{
 		ID:          "feature-catalog",
 		Title:       "Feature Catalog",
 		Description: "The per-class reference to every feature type in the model, organised by electrical layer.",
@@ -169,6 +176,17 @@ var manifest = []Doc{
 		Category:     "Administration",
 		Filename:     "admin-break-glass-guide.md",
 		RequiredPerm: auth.PermUsersManage,
+	},
+	{
+		// Administrative/operations: running the offline field tool for a fleet --
+		// pack management, the sync-review QA queue, and the build/sync scaling
+		// knobs. Gated on the dedicated field-packs admin capability (the audience).
+		ID:           "field-tool-admin-guide",
+		Title:        "Field Tool Admin Guide",
+		Description:  "Running the offline field tool: crew access and the RBAC that gates pack contents, managing everyone's packs (disable/delete), the sync-review QA queue (hold/post/reject/resolve conflicts), and tuning build/sync for a fleet (zoom, size cap, worker concurrency, replicas).",
+		Category:     "Administration",
+		Filename:     "field-tool-admin-guide.md",
+		RequiredPerm: auth.PermFieldPacksAdmin,
 	},
 	{
 		// Administrative/operations: configuring the structured logs, reading a

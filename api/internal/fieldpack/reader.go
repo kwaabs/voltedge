@@ -64,7 +64,7 @@ func quoteIdent(name string) string {
 // bbox against the spatial index) and ORDER BY id, but its column list differs:
 // system columns, geometry as BOTH wkb and geojson, then every active field. Only
 // geometric, already-compiled classes can be packed.
-func classQuery(loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string) (string, []any, error) {
+func classQuery(loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string, publishedOnly bool) (string, []any, error) {
 	fc := loaded.FeatureClass
 	if fc.GeometryType == "none" {
 		return "", nil, fmt.Errorf("feature class %q has no geometry, so it can't be packed", fc.Code)
@@ -126,6 +126,15 @@ func classQuery(loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, dr
 		}
 	}
 
+	// Shared cell base (migration 0131): pack ONLY public features -- author-blind,
+	// so no private draft of anyone's can enter a base many crews will pull. This is
+	// the drafts package's own public test (status='published' OR ever-published).
+	// Independent of draftAuthors; a shared base passes PublishedOnly=true with
+	// draftAuthors=nil.
+	if publishedOnly {
+		where = append(where, "(status = 'published' OR published_at IS NOT NULL)")
+	}
+
 	query := fmt.Sprintf(
 		"SELECT %s FROM %s WHERE %s ORDER BY id",
 		strings.Join(cols, ", "), table, strings.Join(where, " AND "),
@@ -138,8 +147,8 @@ func classQuery(loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, dr
 // cap and never materializes the result set -- the caller runs it inside a
 // REPEATABLE READ snapshot tx, so the cursor is a consistent point-in-time view.
 // If fn returns an error, iteration stops and that error is returned.
-func readClassFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string, fn func(packRow) error) (int, error) {
-	query, args, err := classQuery(loaded, bbox, territoryIDs, draftAuthors)
+func readClassFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string, publishedOnly bool, fn func(packRow) error) (int, error) {
+	query, args, err := classQuery(loaded, bbox, territoryIDs, draftAuthors, publishedOnly)
 	if err != nil {
 		return 0, err
 	}

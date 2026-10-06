@@ -42,6 +42,17 @@ import (
 func AdminRoutes(db *bun.DB, store *export.ObjectStore) chi.Router {
 	r := chi.NewRouter()
 	r.Use(auth.RequireCSRF)
+	// Cells (migration 0131, shared packs). Registered BEFORE the /{id} pack routes
+	// so chi matches the literal "cells" segment first; a pack id is a UUID so it
+	// never collides, but the explicit sub-router keeps the two surfaces separate.
+	r.Route("/cells", func(r chi.Router) {
+		r.Get("/", adminListCellsHandler(db))
+		r.Post("/", adminCreateCellHandler(db))
+		r.Get("/{id}", adminGetCellHandler(db))
+		r.Put("/{id}", adminUpdateCellHandler(db))
+		r.Delete("/{id}", adminDeleteCellHandler(db))
+		r.Post("/{id}/build", adminBuildCellHandler(db))
+	})
 	r.Get("/", adminListPacksHandler(db))
 	r.Post("/{id}/disable", adminSetDisabledHandler(db, true))
 	r.Post("/{id}/enable", adminSetDisabledHandler(db, false))
@@ -194,6 +205,256 @@ func adminDeletePackHandler(db *bun.DB, store *export.ObjectStore) http.HandlerF
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// ---- Cell admin (migration 0131, shared packs) ---------------------------------
+//
+// The CRUD + build surface for ops.field_pack_cells, mounted under /field-packs/cells
+// behind the same admin:field-packs gate + CSRF as the pack-management routes above.
+// A cell is a shared-coverage DEFINITION; "build" enqueues a shared_base version of
+// it through the normal queue. Browse/pickup on the device is a later slice.
+
+// cellVersionView is the latest succeeded build of a cell -- enough for the catalog
+// to show whether (and how big) a cell's shared base currently is.
+type cellVersionView struct {
+	PackID       string     `json:"pack_id"`
+	Status       string     `json:"status"`
+	FeatureCount *int       `json:"feature_count,omitempty"`
+	DataBytes    *int64     `json:"data_bytes,omitempty"`
+	TilesBytes   *int64     `json:"tiles_bytes,omitempty"`
+	SnapshotAt   *time.Time `json:"snapshot_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
+// cellView is one cell over the wire to the admin catalog.
+type cellView struct {
+	ID                   string           `json:"id"`
+	Name                 string           `json:"name"`
+	TerritoryID          *string          `json:"territory_id,omitempty"`
+	Bbox                 []float64        `json:"bbox"`
+	FeatureClasses       []string         `json:"feature_classes"`
+	IncludeConnectivity  bool             `json:"include_connectivity"`
+	IncludeRelationships bool             `json:"include_relationships"`
+	IncludeFaults        bool             `json:"include_faults"`
+	IncludeTags          bool             `json:"include_tags"`
+	Schedule             *string          `json:"schedule,omitempty"`
+	Retention            string           `json:"retention"`
+	Active               bool             `json:"active"`
+	CreatedAt            time.Time        `json:"created_at"`
+	UpdatedAt            time.Time        `json:"updated_at"`
+	LatestVersion        *cellVersionView `json:"latest_version,omitempty"`
+}
+
+func toCellView(c *Cell, latest *FieldPack) cellView {
+	v := cellView{
+		ID:                   c.ID,
+		Name:                 c.Name,
+		TerritoryID:          c.TerritoryID,
+		Bbox:                 c.Bbox,
+		FeatureClasses:       c.FeatureClasses,
+		IncludeConnectivity:  c.IncludeConnectivity,
+		IncludeRelationships: c.IncludeRelationships,
+		IncludeFaults:        c.IncludeFaults,
+		IncludeTags:          c.IncludeTags,
+		Schedule:             c.Schedule,
+		Retention:            c.Retention,
+		Active:               c.Active,
+		CreatedAt:            c.CreatedAt,
+		UpdatedAt:            c.UpdatedAt,
+	}
+	if latest != nil {
+		v.LatestVersion = &cellVersionView{
+			PackID:       latest.ID,
+			Status:       latest.Status,
+			FeatureCount: latest.FeatureCount,
+			DataBytes:    latest.DataBytes,
+			TilesBytes:   latest.TilesBytes,
+			SnapshotAt:   latest.SnapshotAt,
+			CreatedAt:    latest.CreatedAt,
+		}
+	}
+	return v
+}
+
+// cellRequest is the create/update body. Active is a pointer so a create defaults
+// it to true while an update can explicitly deactivate a cell.
+type cellRequest struct {
+	Name                 string    `json:"name"`
+	TerritoryID          *string   `json:"territory_id"`
+	Bbox                 []float64 `json:"bbox"`
+	FeatureClasses       []string  `json:"feature_classes"`
+	IncludeConnectivity  bool      `json:"include_connectivity"`
+	IncludeRelationships bool      `json:"include_relationships"`
+	IncludeFaults        bool      `json:"include_faults"`
+	IncludeTags          bool      `json:"include_tags"`
+	Schedule             *string   `json:"schedule"`
+	Retention            string    `json:"retention"`
+	Active               *bool     `json:"active"`
+}
+
+func (req cellRequest) validate() string {
+	if req.Name == "" {
+		return "name is required"
+	}
+	if len(req.Bbox) != 4 {
+		return "bbox must be [minX, minY, maxX, maxY] (4 numbers)"
+	}
+	if len(req.FeatureClasses) == 0 {
+		return "at least one feature class is required"
+	}
+	return ""
+}
+
+func (req cellRequest) toInput() CellInput {
+	active := true
+	if req.Active != nil {
+		active = *req.Active
+	}
+	return CellInput{
+		Name:                 req.Name,
+		TerritoryID:          req.TerritoryID,
+		Bbox:                 req.Bbox,
+		FeatureClasses:       req.FeatureClasses,
+		IncludeConnectivity:  req.IncludeConnectivity,
+		IncludeRelationships: req.IncludeRelationships,
+		IncludeFaults:        req.IncludeFaults,
+		IncludeTags:          req.IncludeTags,
+		Schedule:             req.Schedule,
+		Retention:            req.Retention,
+		Active:               active,
+	}
+}
+
+func adminListCellsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cells, err := listCells(r.Context(), db)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		views := make([]cellView, len(cells))
+		for i := range cells {
+			latest, _ := latestCellVersion(r.Context(), db, cells[i].ID)
+			views[i] = toCellView(&cells[i], latest)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"cells": views})
+	}
+}
+
+func adminCreateCellHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, ok := auth.UserFrom(r.Context())
+		if !ok {
+			writeErr(w, http.StatusUnauthorized, "no session")
+			return
+		}
+		var req cellRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, "request body is not valid JSON")
+			return
+		}
+		if msg := req.validate(); msg != "" {
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
+		cell, err := createCell(r.Context(), db, req.toInput(), user.ID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(toCellView(cell, nil))
+	}
+}
+
+func adminGetCellHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cell, err := getCell(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeErr(w, http.StatusNotFound, "cell not found")
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		latest, _ := latestCellVersion(r.Context(), db, cell.ID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(toCellView(cell, latest))
+	}
+}
+
+func adminUpdateCellHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req cellRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, "request body is not valid JSON")
+			return
+		}
+		if msg := req.validate(); msg != "" {
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
+		cell, err := updateCell(r.Context(), db, chi.URLParam(r, "id"), req.toInput())
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeErr(w, http.StatusNotFound, "cell not found")
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		latest, _ := latestCellVersion(r.Context(), db, cell.ID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(toCellView(cell, latest))
+	}
+}
+
+func adminDeleteCellHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		removed, err := deleteCell(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !removed {
+			writeErr(w, http.StatusNotFound, "cell not found")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// adminBuildCellHandler enqueues a shared_base build (a new cell version) for the
+// cell, through the normal pack queue. Returns the build's pack id (202) -- the
+// admin polls the pack list / the cell's latest_version for its status.
+func adminBuildCellHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, ok := auth.UserFrom(r.Context())
+		if !ok {
+			writeErr(w, http.StatusUnauthorized, "no session")
+			return
+		}
+		cell, err := getCell(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeErr(w, http.StatusNotFound, "cell not found")
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		packID, err := enqueueCellBuild(r.Context(), db, cell, user.ID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]string{"pack_id": packID})
 	}
 }
 
