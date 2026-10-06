@@ -160,9 +160,9 @@ type nodalNodeResult struct {
 	// how the load splits across the infeeds. Nil for an ordinary bus or a branch.
 	// A PV bus's ReactiveKVAR is the reactive output the solver found to hold its
 	// voltage setpoint (clamped to its limit if it has one).
-	SuppliedKW   *float64 `json:"supplied_kw,omitempty"`
-	ReactiveKVAR *float64 `json:"reactive_kvar,omitempty"`
-	MaterialResolved bool   `json:"material_resolved"`
+	SuppliedKW       *float64 `json:"supplied_kw,omitempty"`
+	ReactiveKVAR     *float64 `json:"reactive_kvar,omitempty"`
+	MaterialResolved bool     `json:"material_resolved"`
 }
 
 // nodalLoadFlowResponse is the full result of one nodal solve. Converged /
@@ -250,9 +250,9 @@ type nodalEdge struct {
 // the terminal id each node presents on this edge (for transformer winding
 // classification). a/b are unordered.
 type graphEdge struct {
-	a, b     node
-	aTerm    string
-	bTerm    string
+	a, b  node
+	aTerm string
+	bTerm string
 }
 
 // runNodalLoadFlow is POST /analysis/nodal-load-flow: walk the general graph from

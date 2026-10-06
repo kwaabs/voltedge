@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -224,7 +225,17 @@ func writeCoord(b *bufio.Writer, c []float64) {
 	if len(c) < 2 {
 		return
 	}
-	fmt.Fprintf(b, "%g,%g", c[0], c[1])
+	b.WriteString(kmlFloat(c[0]))
+	b.WriteByte(',')
+	b.WriteString(kmlFloat(c[1]))
+}
+
+// kmlFloat formats a coordinate as a plain decimal, never scientific notation --
+// the same reason dxfFloat avoids it: %g switches to scientific for a magnitude
+// below 1e-4 (a coordinate very near the 0 meridian/equator), which some KML
+// parsers reject in a <coordinates> list.
+func kmlFloat(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
 // xmlEscaper escapes the five XML metacharacters, keeping attribute names and

@@ -230,7 +230,7 @@ func selectImportProfiles(ctx context.Context, db bun.IDB, code string) ([]impor
 		out[i] = importProfileResponse{
 			Code: r.Code, Name: r.Name, FeatureClassCode: r.FeatureClassCode,
 			SubtypeCode: r.SubtypeCode, SourceFormat: r.SourceFormat, SourceLayer: r.SourceLayer,
-			WriteMode: r.WriteMode,
+			WriteMode:   r.WriteMode,
 			MatchFields: mf, GeometryMode: r.GeometryMode,
 			GeometryLonColumn: r.GeometryLonColumn, GeometryLatColumn: r.GeometryLatColumn,
 			GeometryWktColumn: r.GeometryWktColumn, Status: r.Status,

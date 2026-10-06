@@ -67,9 +67,9 @@ type terminalOut struct {
 }
 
 type describeOut struct {
-	Code         string        `json:"code"`
-	Name         string        `json:"name"`
-	GeometryType string        `json:"geometry_type"`
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	GeometryType string `json:"geometry_type"`
 	// TraceTier ranks this class in the source-to-load hierarchy (migration
 	// 0126): hundreds 0 (grid infeed) .. 600 (service/meter). Omitted (null)
 	// for an untiered class. See featureClassOut.TraceTier.

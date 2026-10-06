@@ -24,17 +24,16 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/kwaabs/voltedge/api/internal/admin"
 	"github.com/kwaabs/voltedge/api/internal/assembly"
+	"github.com/kwaabs/voltedge/api/internal/assettag"
 	"github.com/kwaabs/voltedge/api/internal/assistant"
 	"github.com/kwaabs/voltedge/api/internal/assistant/llm"
 	"github.com/kwaabs/voltedge/api/internal/attachment"
 	"github.com/kwaabs/voltedge/api/internal/auth"
-	"github.com/kwaabs/voltedge/api/internal/assettag"
 	"github.com/kwaabs/voltedge/api/internal/basemap"
 	"github.com/kwaabs/voltedge/api/internal/boq"
 	"github.com/kwaabs/voltedge/api/internal/circuit"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/coupler"
-	"github.com/kwaabs/voltedge/api/internal/tie"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/diagram"
 	"github.com/kwaabs/voltedge/api/internal/docs"
@@ -44,9 +43,9 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/externallink"
 	"github.com/kwaabs/voltedge/api/internal/externalsystem"
 	"github.com/kwaabs/voltedge/api/internal/faults"
-	"github.com/kwaabs/voltedge/api/internal/httpx"
 	"github.com/kwaabs/voltedge/api/internal/featureregistry"
 	"github.com/kwaabs/voltedge/api/internal/fieldpack"
+	"github.com/kwaabs/voltedge/api/internal/httpx"
 	"github.com/kwaabs/voltedge/api/internal/importer"
 	"github.com/kwaabs/voltedge/api/internal/logsettings"
 	"github.com/kwaabs/voltedge/api/internal/logx"
@@ -65,6 +64,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/secretbox"
 	"github.com/kwaabs/voltedge/api/internal/servicelayers"
 	"github.com/kwaabs/voltedge/api/internal/territory"
+	"github.com/kwaabs/voltedge/api/internal/tie"
 	"github.com/kwaabs/voltedge/api/internal/tiles"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/kwaabs/voltedge/api/internal/wam"
@@ -219,12 +219,12 @@ func main() {
 	// their own RequireAuth/RequireCSRF, and the switch checks
 	// admin:auth-settings/break-glass itself).
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/features", crud.Routes(db))
-		// ETL import engine (docs/etl-import-engine.md): stage an uploaded source
-		// artifact and pre-flight a mapping (S3), then run it (S4). Running an
-		// import writes features through the same validated crud path, so it rides
-		// the features:read/features:write gate -- authoring the mapping profile is
-		// separate metadata:write config under /admin.
-		r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/imports", importer.Routes(db, exportStore, credCipher))
+	// ETL import engine (docs/etl-import-engine.md): stage an uploaded source
+	// artifact and pre-flight a mapping (S3), then run it (S4). Running an
+	// import writes features through the same validated crud path, so it rides
+	// the features:read/features:write gate -- authoring the mapping profile is
+	// separate metadata:write config under /admin.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/imports", importer.Routes(db, exportStore, credCipher))
 	// Geographic export (Phase 14): reads features (optionally clipped to the
 	// map viewport) and streams them back as a KMZ/Shapefile/DXF download. A
 	// read, like trace/analysis -- POST only because the filter and scope don't
@@ -270,24 +270,24 @@ func main() {
 	// is neither an outage nor an asset-condition record), gated method-aware here
 	// so this router carries no auth of its own -- the same arrangement OMS/WAM use.
 	r.With(auth.RequirePermission(auth.PermFaultsRead, auth.PermFaultsWrite)).Mount("/faults", faults.Routes(db))
-		// Feature registry (migration 0108): a cross-class index of every feature
-		// id -> its class, maintained by the compiler-attached DB trigger. Backs
-		// the asset-id typeahead/resolve any form needs when a user references an
-		// asset by id (faults/oms/wam and the connectivity forms are the first
-		// consumers). Read-only and just an index of the features themselves, so it
-		// rides the same features:read gate the CRUD read layer uses -- GET-only, so
-		// features:read covers every method (the /tiles / /export arrangement).
-		r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/feature-registry", featureregistry.Routes(db))
-		// Asset tagging (migrations 0114/0115): every feature carries scannable
-		// tag codes (QR + Code128 + human-readable) affixed on the physical asset;
-		// a scan resolves the code back to the feature. Codes are MINTED by a DB
-		// trigger on runtime.feature_registry (no endpoint mints), so this router is
-		// the read + lifecycle side: resolve (scope/draft-aware, so a code you can't
-		// see 404s), list a feature's tags, register a legacy number, set primary,
-		// void, reissue. Its own tags:read/tags:write capability -- a resolve is a
-		// field read anyone can do, tag lifecycle is an editor act, neither being a
-		// feature edit -- gated method-aware here, the oms/wam/faults arrangement.
-		r.With(auth.RequirePermission(auth.PermTagsRead, auth.PermTagsWrite)).Mount("/tags", assettag.Routes(db))
+	// Feature registry (migration 0108): a cross-class index of every feature
+	// id -> its class, maintained by the compiler-attached DB trigger. Backs
+	// the asset-id typeahead/resolve any form needs when a user references an
+	// asset by id (faults/oms/wam and the connectivity forms are the first
+	// consumers). Read-only and just an index of the features themselves, so it
+	// rides the same features:read gate the CRUD read layer uses -- GET-only, so
+	// features:read covers every method (the /tiles / /export arrangement).
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/feature-registry", featureregistry.Routes(db))
+	// Asset tagging (migrations 0114/0115): every feature carries scannable
+	// tag codes (QR + Code128 + human-readable) affixed on the physical asset;
+	// a scan resolves the code back to the feature. Codes are MINTED by a DB
+	// trigger on runtime.feature_registry (no endpoint mints), so this router is
+	// the read + lifecycle side: resolve (scope/draft-aware, so a code you can't
+	// see 404s), list a feature's tags, register a legacy number, set primary,
+	// void, reissue. Its own tags:read/tags:write capability -- a resolve is a
+	// field read anyone can do, tag lifecycle is an editor act, neither being a
+	// feature edit -- gated method-aware here, the oms/wam/faults arrangement.
+	r.With(auth.RequirePermission(auth.PermTagsRead, auth.PermTagsWrite)).Mount("/tags", assettag.Routes(db))
 	// Phase 22: files attached to features (docs/phase-22-attachments.md). A
 	// method-aware attachments:read/write gate covers the mount; the bytes ride
 	// presigned URLs straight to/from RustFS (exportStore's bucket), so this
@@ -510,13 +510,13 @@ func healthzHandler(db *bun.DB) http.HandlerFunc {
 // couple of internal-only fields (MetadataVersionID) with no reason to
 // ever leave the API.
 type featureClassResponse struct {
-	Code                string  `json:"code"`
-	Name                string  `json:"name"`
-	GeometryType        string  `json:"geometry_type"`
-	NetworkRole         string  `json:"network_role"`
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	GeometryType string `json:"geometry_type"`
+	NetworkRole  string `json:"network_role"`
 	// FunctionalRole is the class's electrical function (migration 0091), nil for
 	// an unclassified / non-electrical class -- orthogonal to network_role.
-	FunctionalRole      *string `json:"functional_role,omitempty"`
+	FunctionalRole *string `json:"functional_role,omitempty"`
 	// BoundaryRole is the class's network-sectioning function (migration 0129):
 	// source/protective/switching/transformer, or nil for a non-boundary class.
 	// The frontend derives each feature's "section" by climbing its trace/load-flow
@@ -961,13 +961,13 @@ func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(featureClassSchemaResponse{
-			Code:         loaded.FeatureClass.Code,
-			Name:         loaded.FeatureClass.Name,
-			GeometryType: loaded.FeatureClass.GeometryType,
-			Subtypes:     subtypes,
-			Fields:       fields,
-			Terminals:    terminals,
-			Symbology:    symbology,
+			Code:           loaded.FeatureClass.Code,
+			Name:           loaded.FeatureClass.Name,
+			GeometryType:   loaded.FeatureClass.GeometryType,
+			Subtypes:       subtypes,
+			Fields:         fields,
+			Terminals:      terminals,
+			Symbology:      symbology,
 			LabelDef:       loaded.FeatureClass.LabelDef,
 			Network:        loaded.FeatureClass.Network,
 			MinDisplayZoom: loaded.FeatureClass.MinDisplayZoom,

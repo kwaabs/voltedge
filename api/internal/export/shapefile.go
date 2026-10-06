@@ -174,7 +174,7 @@ func buildSHP(layer Layer, shapeType int32) (shp, shx []byte, err error) {
 func shpHeader(shapeType, fileLengthWords int32, box bbox) []byte {
 	var h bytes.Buffer
 	binary.Write(&h, binary.BigEndian, int32(9994)) // file code
-	h.Write(make([]byte, 20))                        // 5 unused int32
+	h.Write(make([]byte, 20))                       // 5 unused int32
 	binary.Write(&h, binary.BigEndian, fileLengthWords)
 	binary.Write(&h, binary.LittleEndian, int32(1000)) // version
 	binary.Write(&h, binary.LittleEndian, shapeType)

@@ -44,7 +44,7 @@ import (
 // rule D is `breaker.T2 -> bus.T1`, so every endpoint terminal must be stated
 // explicitly (a wildcard would not match the pinned rule).
 const (
-	switchFunctionField = "switch_function"
+	switchFunctionField  = "switch_function"
 	couplerFunctionValue = "BUS_COUPLER"
 
 	busFromTerminal     = "T2" // Bus A's tap that feeds the breaker line side (rule C from)

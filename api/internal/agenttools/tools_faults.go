@@ -391,24 +391,24 @@ func toolFaultsImpactArea(ctx context.Context, db bun.IDB, args json.RawMessage)
 
 func toolFaultsCreate(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
 	var in struct {
-		Title                 string     `json:"title"`
-		Reference             *string    `json:"reference"`
-		AssetClass            *string    `json:"asset_class"`
-		AssetID               *string    `json:"asset_id"`
-		Longitude             *float64   `json:"longitude"`
-		Latitude              *float64   `json:"latitude"`
-		FaultType             *string    `json:"fault_type"`
-		Cause                 *string    `json:"cause"`
-		FaultCurrentA         *float64   `json:"fault_current_a"`
-		ProtectiveDeviceClass *string    `json:"protective_device_class"`
-		ProtectiveDeviceID    *string    `json:"protective_device_id"`
-		ClearingTimeMS        *float64   `json:"clearing_time_ms"`
-		DetectedBy            *string    `json:"detected_by"`
-		DetectedAt            *string    `json:"detected_at"`
-		IncidentID            *string    `json:"incident_id"`
-		DefectID              *string    `json:"defect_id"`
-		Description           *string    `json:"description"`
-		Notes                 *string    `json:"notes"`
+		Title                 string   `json:"title"`
+		Reference             *string  `json:"reference"`
+		AssetClass            *string  `json:"asset_class"`
+		AssetID               *string  `json:"asset_id"`
+		Longitude             *float64 `json:"longitude"`
+		Latitude              *float64 `json:"latitude"`
+		FaultType             *string  `json:"fault_type"`
+		Cause                 *string  `json:"cause"`
+		FaultCurrentA         *float64 `json:"fault_current_a"`
+		ProtectiveDeviceClass *string  `json:"protective_device_class"`
+		ProtectiveDeviceID    *string  `json:"protective_device_id"`
+		ClearingTimeMS        *float64 `json:"clearing_time_ms"`
+		DetectedBy            *string  `json:"detected_by"`
+		DetectedAt            *string  `json:"detected_at"`
+		IncidentID            *string  `json:"incident_id"`
+		DefectID              *string  `json:"defect_id"`
+		Description           *string  `json:"description"`
+		Notes                 *string  `json:"notes"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)

@@ -26,11 +26,11 @@ const diagramTypeDomain = "DIAGRAM_TYPE"
 type DiagramInstance struct {
 	bun.BaseModel `bun:"table:runtime.diagram_instances,alias:diagram_instances"`
 
-	ID                      string    `bun:"id,pk,nullzero"`
-	ContainerFeatureClassID string    `bun:"container_feature_class_id"`
-	ContainerFeatureID      string    `bun:"container_feature_id"`
-	DiagramTypeValueID      string    `bun:"diagram_type_value_id"`
-	Name                    *string   `bun:"name"`
+	ID                      string  `bun:"id,pk,nullzero"`
+	ContainerFeatureClassID string  `bun:"container_feature_class_id"`
+	ContainerFeatureID      string  `bun:"container_feature_id"`
+	DiagramTypeValueID      string  `bun:"diagram_type_value_id"`
+	Name                    *string `bun:"name"`
 	// SourceTemplateID is the diagram_templates row this instance was
 	// auto-generated from (assembly single-line builder, migration 0122), or nil
 	// for a hand-built diagram. Regenerate re-applies this exact template; the SET
@@ -43,13 +43,13 @@ type DiagramInstance struct {
 type DiagramPlacement struct {
 	bun.BaseModel `bun:"table:runtime.diagram_placements,alias:diagram_placements"`
 
-	ID                string          `bun:"id,pk,nullzero"`
-	DiagramInstanceID string          `bun:"diagram_instance_id"`
-	FeatureClassID    string          `bun:"feature_class_id"`
-	FeatureID         string          `bun:"feature_id"`
-	X                 float64         `bun:"x"`
-	Y                 float64         `bun:"y"`
-	Rotation          float64         `bun:"rotation"`
+	ID                string  `bun:"id,pk,nullzero"`
+	DiagramInstanceID string  `bun:"diagram_instance_id"`
+	FeatureClassID    string  `bun:"feature_class_id"`
+	FeatureID         string  `bun:"feature_id"`
+	X                 float64 `bun:"x"`
+	Y                 float64 `bun:"y"`
+	Rotation          float64 `bun:"rotation"`
 	// Path is the drawn polyline for a line placement (migrations/0033):
 	// a jsonb [[x, y], ...] array in the diagram's local coordinate
 	// space, null for point placements. nullzero so an absent path

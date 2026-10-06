@@ -27,19 +27,19 @@ import (
 type Profile struct {
 	bun.BaseModel `bun:"table:metadata.import_profiles"`
 
-	ID                string    `bun:"id,pk"`
-	Code              string    `bun:"code"`
-	Name              string    `bun:"name"`
-	FeatureClassID    string    `bun:"feature_class_id"`
-	SubtypeID         *string   `bun:"subtype_id"`
-	SourceFormat      string    `bun:"source_format"`
-	SourceLayer       *string   `bun:"source_layer"`
-	WriteMode         string    `bun:"write_mode"`
-	MatchFields       []string  `bun:"match_fields,array"`
-	GeometryMode      string    `bun:"geometry_mode"`
-	GeometryLonColumn *string   `bun:"geometry_lon_column"`
-	GeometryLatColumn *string   `bun:"geometry_lat_column"`
-	GeometryWktColumn *string   `bun:"geometry_wkt_column"`
+	ID                string   `bun:"id,pk"`
+	Code              string   `bun:"code"`
+	Name              string   `bun:"name"`
+	FeatureClassID    string   `bun:"feature_class_id"`
+	SubtypeID         *string  `bun:"subtype_id"`
+	SourceFormat      string   `bun:"source_format"`
+	SourceLayer       *string  `bun:"source_layer"`
+	WriteMode         string   `bun:"write_mode"`
+	MatchFields       []string `bun:"match_fields,array"`
+	GeometryMode      string   `bun:"geometry_mode"`
+	GeometryLonColumn *string  `bun:"geometry_lon_column"`
+	GeometryLatColumn *string  `bun:"geometry_lat_column"`
+	GeometryWktColumn *string  `bun:"geometry_wkt_column"`
 
 	// Live-DB connection config (v2-S3, source_format postgis/mssql). Held on the
 	// profile itself rather than reused from metadata.external_systems (a locked

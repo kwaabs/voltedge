@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"image"
 	"image/draw"
-	_ "image/gif"  // register the GIF decoder for image.Decode
-	"image/jpeg"   // decoder + the thumbnail encoder
-	_ "image/png"  // register the PNG decoder for image.Decode
+	_ "image/gif" // register the GIF decoder for image.Decode
+	"image/jpeg"  // decoder + the thumbnail encoder
+	_ "image/png" // register the PNG decoder for image.Decode
 	"io"
 )
 

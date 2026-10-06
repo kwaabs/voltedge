@@ -82,10 +82,10 @@ func PredictIncidents(ctx context.Context, db bun.IDB, calls []CallLocation) ([]
 	const noDevice = "" // group key for calls with no upstream protective device
 
 	type cluster struct {
-		device   *trace.FeatureRef
-		callIDs  []string
-		spSet    map[string]bool
-		spOrder  []string
+		device  *trace.FeatureRef
+		callIDs []string
+		spSet   map[string]bool
+		spOrder []string
 	}
 
 	order := make([]string, 0, len(calls)) // group keys, first-seen order

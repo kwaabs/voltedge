@@ -200,7 +200,7 @@ func tokenize(s string) ([]token, error) {
 }
 
 // scanString reads a Turtle string literal starting at s[i] (a quote), handling
-// both single ("..." / '...') and triple ("""...""" / '''...''') forms with
+// both single ("..." / '...') and triple ("""...""" / ”'...”') forms with
 // backslash escapes, then consumes any ^^datatype or @lang suffix. It returns
 // the decoded string value and the offset just past the whole literal.
 func scanString(s string, i int) (string, int, error) {

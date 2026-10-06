@@ -73,10 +73,10 @@ func assetGeoms(ctx context.Context, db bun.IDB, table string, ids []string) (ma
 		return out, nil
 	}
 	var rows []struct {
-		ID      string `bun:"id"`
+		ID      string  `bun:"id"`
 		Lon     float64 `bun:"lon"`
 		Lat     float64 `bun:"lat"`
-		GeoJSON string `bun:"geojson"`
+		GeoJSON string  `bun:"geojson"`
 	}
 	err := db.NewSelect().
 		ColumnExpr("id::text AS id").

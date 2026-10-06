@@ -118,7 +118,7 @@ func perWayCapacity(ctx context.Context, db *bun.DB, wayIDs []string) (*ductCapa
 	// directly the same way panel/fanout.go and getFeature build their table refs.
 	var ways []ductWayDetail
 	if err := db.NewSelect().
-		TableExpr(*wayLoaded.FeatureClass.PhysicalTable + " AS w").
+		TableExpr(*wayLoaded.FeatureClass.PhysicalTable+" AS w").
 		ColumnExpr("w.id AS feature_id").
 		ColumnExpr("w.way_number AS way_number").
 		ColumnExpr("EXISTS (SELECT 1 FROM runtime.feature_relationships fr "+

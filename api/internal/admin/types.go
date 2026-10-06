@@ -15,7 +15,7 @@ var (
 		"source": true, "consumer": true, "passthrough": true, "transformer": true,
 		"controller": true, "node": true, "sensor": true, "ground": true,
 	}
-	validDataTypes     = map[string]bool{
+	validDataTypes = map[string]bool{
 		"text": true, "numeric": true, "integer": true, "boolean": true,
 		"date": true, "timestamp": true, "uuid": true, "jsonb": true,
 	}
@@ -130,11 +130,11 @@ type updateFeatureClassResponse struct {
 // updateFeatureClassRequest's job, above, for what's actually safe to
 // change).
 type featureClassSummary struct {
-	Code               string  `json:"code"`
-	Name               string  `json:"name"`
-	GeometryType       string  `json:"geometry_type"`
-	SRID               *int    `json:"srid,omitempty"`
-	NetworkRole        string  `json:"network_role"`
+	Code                string  `json:"code"`
+	Name                string  `json:"name"`
+	GeometryType        string  `json:"geometry_type"`
+	SRID                *int    `json:"srid,omitempty"`
+	NetworkRole         string  `json:"network_role"`
 	FunctionalRole      *string `json:"functional_role,omitempty"`
 	Status              string  `json:"status"`
 	IsDiagramContainer  bool    `json:"is_diagram_container"`
@@ -337,14 +337,14 @@ type symbologyRequest struct {
 }
 
 type createFeatureClassRequest struct {
-	Code               string            `json:"code"`
-	Name               string            `json:"name"`
-	GeometryType       string            `json:"geometry_type"`
-	SRID               *int              `json:"srid"`
-	NetworkRole        string            `json:"network_role"`
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	GeometryType string `json:"geometry_type"`
+	SRID         *int   `json:"srid"`
+	NetworkRole  string `json:"network_role"`
 	// FunctionalRole (migration 0091) is optional on create -- omit or "" for an
 	// unclassified / non-electrical class; else a taxonomy value.
-	FunctionalRole     *string           `json:"functional_role"`
+	FunctionalRole *string `json:"functional_role"`
 	// TraceTier (migration 0126) is optional on create -- omit/null for an
 	// untiered (transparent) class; else a non-negative rank in the hundreds
 	// scale (0/200/300/400/500/600). See seed/trace_tiers.sql.

@@ -65,14 +65,14 @@ type AuditInput struct {
 
 // AuditFinding is one reported divergence.
 type AuditFinding struct {
-	Kind           string   `json:"kind"`     // "orphaned_connectivity" | "coincident_unconnected"
-	Severity       string   `json:"severity"` // "error" | "warning"
-	Message        string   `json:"message"`
-	ConnectionID   string   `json:"connection_id,omitempty"` // set for orphaned_connectivity
-	FromClass      string   `json:"from_class,omitempty"`
-	FromID         string   `json:"from_id,omitempty"`
-	ToClass        string   `json:"to_class,omitempty"`
-	ToID           string   `json:"to_id,omitempty"`
+	Kind         string `json:"kind"`     // "orphaned_connectivity" | "coincident_unconnected"
+	Severity     string `json:"severity"` // "error" | "warning"
+	Message      string `json:"message"`
+	ConnectionID string `json:"connection_id,omitempty"` // set for orphaned_connectivity
+	FromClass    string `json:"from_class,omitempty"`
+	FromID       string `json:"from_id,omitempty"`
+	ToClass      string `json:"to_class,omitempty"`
+	ToID         string `json:"to_id,omitempty"`
 	// FromStatus/ToStatus mark an endpoint that can't be located because it is
 	// gone: "missing" (purged / never existed) or "deleted" (soft-deleted).
 	// Empty means the endpoint is live and locatable. Set only on orphan
@@ -217,8 +217,8 @@ func auditOrphans(ctx context.Context, db bun.IDB, byID map[string]auditClass, r
 
 	for rows.Next() {
 		var (
-			id, fromClassID, fromID, toClassID, toID             string
-			fromMissing, fromDeleted, toMissing, toDeleted        bool
+			id, fromClassID, fromID, toClassID, toID       string
+			fromMissing, fromDeleted, toMissing, toDeleted bool
 		)
 		if err := rows.Scan(&id, &fromClassID, &fromID, &toClassID, &toID,
 			&fromMissing, &fromDeleted, &toMissing, &toDeleted); err != nil {
@@ -324,7 +324,7 @@ func auditRelationshipOrphans(ctx context.Context, db bun.IDB, byID map[string]a
 
 	for rows.Next() {
 		var (
-			id, originClassID, originID, destClassID, destID     string
+			id, originClassID, originID, destClassID, destID       string
 			originMissing, originDeleted, destMissing, destDeleted bool
 		)
 		if err := rows.Scan(&id, &originClassID, &originID, &destClassID, &destID,

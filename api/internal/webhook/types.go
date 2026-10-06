@@ -127,18 +127,18 @@ type updateEndpointRequest struct {
 
 // endpointResponse is what a client sees -- the secret is reduced to a boolean.
 type endpointResponse struct {
-	ID                string          `json:"id"`
-	Name              string          `json:"name"`
-	Active            bool            `json:"active"`
-	Direction         string          `json:"direction"`
-	Target            string          `json:"target"`
-	AuthMode          string          `json:"auth_mode"`
-	HasSigningSecret  bool            `json:"has_signing_secret"`
-	ServiceUserID     string          `json:"service_user_id"`
-	Mapping           json.RawMessage `json:"mapping,omitempty"`
-	Config            json.RawMessage `json:"config"`
-	CreatedAt         time.Time       `json:"created_at"`
-	UpdatedAt         time.Time       `json:"updated_at"`
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	Active           bool            `json:"active"`
+	Direction        string          `json:"direction"`
+	Target           string          `json:"target"`
+	AuthMode         string          `json:"auth_mode"`
+	HasSigningSecret bool            `json:"has_signing_secret"`
+	ServiceUserID    string          `json:"service_user_id"`
+	Mapping          json.RawMessage `json:"mapping,omitempty"`
+	Config           json.RawMessage `json:"config"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
 	// ReceiveURL is the public path a push sender targets, filled by the handler.
 	ReceiveURL string `json:"receive_url"`
 }

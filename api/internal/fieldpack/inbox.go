@@ -30,12 +30,12 @@ import (
 type SyncInboxRow struct {
 	bun.BaseModel `bun:"table:ops.sync_inbox,alias:sync_inbox"`
 
-	OpID        string  `bun:"op_id,pk"`
-	RecvSeq     int64   `bun:"recv_seq,scanonly"`
-	SubmittedBy string  `bun:"submitted_by"`
-	DeviceID    *string `bun:"device_id"`
+	OpID         string  `bun:"op_id,pk"`
+	RecvSeq      int64   `bun:"recv_seq,scanonly"`
+	SubmittedBy  string  `bun:"submitted_by"`
+	DeviceID     *string `bun:"device_id"`
 	SubmissionID *string `bun:"submission_id"`
-	DeviceSeq   *int64  `bun:"device_seq"`
+	DeviceSeq    *int64  `bun:"device_seq"`
 
 	Kind         string          `bun:"kind"`
 	FeatureClass *string         `bun:"feature_class"`

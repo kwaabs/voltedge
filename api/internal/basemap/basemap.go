@@ -136,16 +136,16 @@ func CreateBasemap(ctx context.Context, db bun.IDB, p CreateParams) (*Basemap, e
 // who needs a new code deletes and recreates. ClearMaxZoom removes the zoom cap
 // (distinct from "leave it alone").
 type UpdateParams struct {
-	Label       *string
-	URLTemplate *string
-	Attribution *[]AttributionLink
-	MaxZoom     *int
+	Label        *string
+	URLTemplate  *string
+	Attribution  *[]AttributionLink
+	MaxZoom      *int
 	ClearMaxZoom bool
-	MinZoom     *int
-	TMS         *bool
-	SortOrder   *int
-	IsEnabled   *bool
-	UpdatedBy   string
+	MinZoom      *int
+	TMS          *bool
+	SortOrder    *int
+	IsEnabled    *bool
+	UpdatedBy    string
 }
 
 // UpdateBasemap edits a basemap in place. A built-in may be edited (relabelled,

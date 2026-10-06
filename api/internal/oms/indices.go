@@ -58,11 +58,11 @@ type ReliabilityIndices struct {
 	CircuitID *string `json:"circuit_id,omitempty"`
 
 	// Denominator and raw numerators.
-	TotalCustomers       int     `json:"total_customers"`        // N: customers served on the live system
-	CustomersInterrupted int     `json:"customers_interrupted"`  // Σ customers over interruptions that began in-window (SAIFI numerator)
-	InterruptionEvents   int     `json:"interruption_events"`    // count of interruptions that began in-window
-	CustomerMinutes      float64 `json:"customer_minutes"`       // Σ customers × in-window minutes (SAIDI numerator)
-	OngoingInterruptions int     `json:"ongoing_interruptions"`  // interruptions still open at To
+	TotalCustomers       int     `json:"total_customers"`       // N: customers served on the live system
+	CustomersInterrupted int     `json:"customers_interrupted"` // Σ customers over interruptions that began in-window (SAIFI numerator)
+	InterruptionEvents   int     `json:"interruption_events"`   // count of interruptions that began in-window
+	CustomerMinutes      float64 `json:"customer_minutes"`      // Σ customers × in-window minutes (SAIDI numerator)
+	OngoingInterruptions int     `json:"ongoing_interruptions"` // interruptions still open at To
 
 	// The four indices.
 	SAIFI float64 `json:"saifi"` // interruptions per customer

@@ -29,13 +29,13 @@ import (
 type Tag struct {
 	bun.BaseModel `bun:"table:runtime.asset_tags,alias:t"`
 
-	TagCode          string    `json:"tag_code" bun:"tag_code,pk"`
-	FeatureClassCode string    `json:"feature_class_code" bun:"feature_class_code"`
-	FeatureID        string    `json:"feature_id" bun:"feature_id"`
-	Source           string    `json:"source" bun:"source"`         // generated | external
-	IsPrimary        bool      `json:"is_primary" bun:"is_primary"`
-	Status           string    `json:"status" bun:"status"`         // active | void | superseded
-	CreatedBy        *string   `json:"created_by" bun:"created_by"`
+	TagCode          string  `json:"tag_code" bun:"tag_code,pk"`
+	FeatureClassCode string  `json:"feature_class_code" bun:"feature_class_code"`
+	FeatureID        string  `json:"feature_id" bun:"feature_id"`
+	Source           string  `json:"source" bun:"source"` // generated | external
+	IsPrimary        bool    `json:"is_primary" bun:"is_primary"`
+	Status           string  `json:"status" bun:"status"` // active | void | superseded
+	CreatedBy        *string `json:"created_by" bun:"created_by"`
 	// DB-managed: never written on insert (the store sets them via SQL defaults /
 	// explicit Set(...) clauses), only scanned back. scanonly keeps bun from
 	// sending a zero time / count that would clobber the column default.

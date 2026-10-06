@@ -103,24 +103,24 @@ const (
 
 // buildResult carries the finished local artifacts + counts back to buildPack.
 type buildResult struct {
-	tilesPath        string
-	dataPath         string
-	featureCount     int
-	connCount        int
-	relCount         int
-	domainValueCount int
-	symbologyCount   int
-	iconCount        int
-	attachmentCount  int
-	relClassCount    int
-	netRuleCount     int
-	defectCount      int
-	faultCount       int
-	workOrderCount   int
+	tilesPath             string
+	dataPath              string
+	featureCount          int
+	connCount             int
+	relCount              int
+	domainValueCount      int
+	symbologyCount        int
+	iconCount             int
+	attachmentCount       int
+	relClassCount         int
+	netRuleCount          int
+	defectCount           int
+	faultCount            int
+	workOrderCount        int
 	inspTemplateCount     int
 	inspTemplateItemCount int
-	assetTagCount    int
-	snapshotAt       time.Time
+	assetTagCount         int
+	snapshotAt            time.Time
 }
 
 // packAttachmentMeta is one image attachment collected under the pack snapshot,

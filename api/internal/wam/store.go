@@ -284,15 +284,15 @@ func selectWorkOrders(db bun.IDB, dst any) *bun.SelectQuery {
 // required; status defaults to draft and priority to medium. Everything else is
 // optional (an asset, a location, a defect link, an assignee, a schedule).
 type CreateWorkOrderParams struct {
-	Reference    *string
-	WorkType     string
-	Priority     string
-	Title        string
-	Description  *string
-	AssetClass   *string
-	AssetID      *string
-	Longitude    *float64
-	Latitude     *float64
+	Reference        *string
+	WorkType         string
+	Priority         string
+	Title            string
+	Description      *string
+	AssetClass       *string
+	AssetID          *string
+	Longitude        *float64
+	Latitude         *float64
 	DefectID         *string
 	AssignedTo       *string
 	AssignedToUserID *string
@@ -581,12 +581,12 @@ func RaiseWorkOrderFromDefect(ctx context.Context, db *bun.DB, defectID string, 
 		}
 
 		order, err = CreateWorkOrder(ctx, tx, CreateWorkOrderParams{
-			WorkType:     WorkTypeCorrective,
-			Priority:     priority,
-			Title:        title,
-			Description:  p.Description,
-			AssetClass:   &defect.AssetClass,
-			AssetID:      &defect.AssetID,
+			WorkType:    WorkTypeCorrective,
+			Priority:    priority,
+			Title:       title,
+			Description: p.Description,
+			AssetClass:  &defect.AssetClass,
+			AssetID:     &defect.AssetID,
 			// Carry the defect's pin onto the order -- for an orphan defect (no
 			// asset) this location is the only anchor the crew has. CreateWorkOrder
 			// skips empty asset strings, so an orphan yields an asset-less order.

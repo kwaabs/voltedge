@@ -21,7 +21,7 @@ func approxEqual(a, b, eps float64) bool {
 // watts/VAR (×1000) before the divide.
 func TestApproxDropV(t *testing.T) {
 	cases := []struct {
-		name                           string
+		name                          string
 		cumKW, cumKVAR, r, x, v, want float64
 	}{
 		// (100kW·0.5Ω + 50kVAR·0.3Ω)·1000 / 11000 V = 65000 / 11000.

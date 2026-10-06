@@ -46,10 +46,10 @@ func TestOrphanMessage(t *testing.T) {
 			want:        "connection references an unavailable feature: POLE p1 no longer exists",
 		},
 		{
-			name:        "relationship subject",
-			subject:     "relationship",
-			toMissing:   true,
-			want:        "relationship references an unavailable feature: MV_CONDUCTOR c1 no longer exists",
+			name:      "relationship subject",
+			subject:   "relationship",
+			toMissing: true,
+			want:      "relationship references an unavailable feature: MV_CONDUCTOR c1 no longer exists",
 		},
 	}
 	for _, c := range cases {
@@ -76,7 +76,7 @@ func TestSortFindings(t *testing.T) {
 
 	type key struct{ sev, class, id string }
 	want := []key{
-		{"error", "POLE", "a"},   // errors first, then id a < z
+		{"error", "POLE", "a"}, // errors first, then id a < z
 		{"error", "POLE", "z"},
 		{"warning", "LV_CONDUCTOR", "a"}, // then warnings, LV < MV by class
 		{"warning", "MV_CONDUCTOR", "b"},

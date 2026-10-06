@@ -171,11 +171,11 @@ type IsolationInput struct {
 // does and doesn't claim (in particular UpstreamBoundary and
 // PossibleBackfeedPaths).
 type IsolationResult struct {
-	Device                FeatureRef   `json:"device"`
-	DeEnergized           []FeatureRef `json:"de_energized"`
-	UpstreamBoundary      *FeatureRef  `json:"upstream_boundary,omitempty"`
-	CriticalFacilities    []FeatureRef `json:"critical_facilities,omitempty"`
-	PossibleBackfeedPaths []FeatureRef `json:"possible_backfeed_paths,omitempty"`
+	Device                FeatureRef     `json:"device"`
+	DeEnergized           []FeatureRef   `json:"de_energized"`
+	UpstreamBoundary      *FeatureRef    `json:"upstream_boundary,omitempty"`
+	CriticalFacilities    []FeatureRef   `json:"critical_facilities,omitempty"`
+	PossibleBackfeedPaths []FeatureRef   `json:"possible_backfeed_paths,omitempty"`
 	Service               *ServiceRollup `json:"service,omitempty"`
 }
 

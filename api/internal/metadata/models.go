@@ -17,12 +17,12 @@ import (
 type FeatureClass struct {
 	bun.BaseModel `bun:"table:metadata.feature_classes"`
 
-	ID                 string  `bun:"id,pk"`
-	Code               string  `bun:"code"`
-	Name               string  `bun:"name"`
-	GeometryType       string  `bun:"geometry_type"`
-	SRID               *int    `bun:"srid"`
-	NetworkRole        string  `bun:"network_role"`
+	ID                  string  `bun:"id,pk"`
+	Code                string  `bun:"code"`
+	Name                string  `bun:"name"`
+	GeometryType        string  `bun:"geometry_type"`
+	SRID                *int    `bun:"srid"`
+	NetworkRole         string  `bun:"network_role"`
 	PhysicalTable       *string `bun:"physical_table"`
 	Status              string  `bun:"status"`
 	IsDiagramContainer  bool    `bun:"is_diagram_container"`
@@ -233,8 +233,8 @@ type MaterialSpec struct {
 	// either falls back to the engine's 3x-positive-sequence default.
 	ResistanceZeroOhmPerKm *float64 `bun:"resistance_zero_ohm_per_km"`
 	ReactanceZeroOhmPerKm  *float64 `bun:"reactance_zero_ohm_per_km"`
-	DiameterMm         *float64 `bun:"diameter_mm"`
-	WeightKgPerKm      *float64 `bun:"weight_kg_per_km"`
+	DiameterMm             *float64 `bun:"diameter_mm"`
+	WeightKgPerKm          *float64 `bun:"weight_kg_per_km"`
 
 	// The four columns below (migrations/0022) are conductor-intrinsic
 	// inputs to a first-principles IEEE 738 ampacity calc, on top of the
@@ -265,17 +265,17 @@ type MaterialSpec struct {
 	// only pairwise distances enter Carson. All NULL => the coupled solver
 	// falls back to the decoupled per-phase path for that segment; no other
 	// analysis reads these.
-	GmrPhaseMm                 *float64 `bun:"gmr_phase_mm"`
-	GmrNeutralMm               *float64 `bun:"gmr_neutral_mm"`
-	ResistanceNeutralOhmPerKm  *float64 `bun:"resistance_neutral_ohm_per_km"`
-	PosAX                      *float64 `bun:"pos_a_x_m"`
-	PosAY                      *float64 `bun:"pos_a_y_m"`
-	PosBX                      *float64 `bun:"pos_b_x_m"`
-	PosBY                      *float64 `bun:"pos_b_y_m"`
-	PosCX                      *float64 `bun:"pos_c_x_m"`
-	PosCY                      *float64 `bun:"pos_c_y_m"`
-	PosNX                      *float64 `bun:"pos_n_x_m"`
-	PosNY                      *float64 `bun:"pos_n_y_m"`
+	GmrPhaseMm                *float64 `bun:"gmr_phase_mm"`
+	GmrNeutralMm              *float64 `bun:"gmr_neutral_mm"`
+	ResistanceNeutralOhmPerKm *float64 `bun:"resistance_neutral_ohm_per_km"`
+	PosAX                     *float64 `bun:"pos_a_x_m"`
+	PosAY                     *float64 `bun:"pos_a_y_m"`
+	PosBX                     *float64 `bun:"pos_b_x_m"`
+	PosBY                     *float64 `bun:"pos_b_y_m"`
+	PosCX                     *float64 `bun:"pos_c_x_m"`
+	PosCY                     *float64 `bun:"pos_c_y_m"`
+	PosNX                     *float64 `bun:"pos_n_x_m"`
+	PosNY                     *float64 `bun:"pos_n_y_m"`
 }
 
 // CostRate mirrors metadata.cost_rates -- see migration 0127. One row is the

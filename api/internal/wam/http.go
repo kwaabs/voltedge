@@ -228,15 +228,15 @@ func listWorkOrdersHandler(db *bun.DB) http.HandlerFunc {
 }
 
 type createWorkOrderRequest struct {
-	Reference    *string    `json:"reference"`
-	WorkType     string     `json:"work_type"`
-	Priority     string     `json:"priority"`
-	Title        string     `json:"title"`
-	Description  *string    `json:"description"`
-	AssetClass   *string    `json:"asset_class"`
-	AssetID      *string    `json:"asset_id"`
-	Longitude    *float64   `json:"longitude"`
-	Latitude     *float64   `json:"latitude"`
+	Reference        *string    `json:"reference"`
+	WorkType         string     `json:"work_type"`
+	Priority         string     `json:"priority"`
+	Title            string     `json:"title"`
+	Description      *string    `json:"description"`
+	AssetClass       *string    `json:"asset_class"`
+	AssetID          *string    `json:"asset_id"`
+	Longitude        *float64   `json:"longitude"`
+	Latitude         *float64   `json:"latitude"`
 	DefectID         *string    `json:"defect_id"`
 	AssignedTo       *string    `json:"assigned_to"`
 	AssignedToUserID *string    `json:"assigned_to_user_id"`
@@ -252,15 +252,15 @@ func createWorkOrderHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		order, err := CreateWorkOrder(r.Context(), db, CreateWorkOrderParams{
-			Reference:    req.Reference,
-			WorkType:     req.WorkType,
-			Priority:     req.Priority,
-			Title:        req.Title,
-			Description:  req.Description,
-			AssetClass:   req.AssetClass,
-			AssetID:      req.AssetID,
-			Longitude:    req.Longitude,
-			Latitude:     req.Latitude,
+			Reference:        req.Reference,
+			WorkType:         req.WorkType,
+			Priority:         req.Priority,
+			Title:            req.Title,
+			Description:      req.Description,
+			AssetClass:       req.AssetClass,
+			AssetID:          req.AssetID,
+			Longitude:        req.Longitude,
+			Latitude:         req.Latitude,
 			DefectID:         req.DefectID,
 			AssignedTo:       req.AssignedTo,
 			AssignedToUserID: req.AssignedToUserID,
@@ -287,9 +287,9 @@ func getWorkOrderHandler(db *bun.DB) http.HandlerFunc {
 }
 
 type updateWorkOrderRequest struct {
-	Status          *string    `json:"status"`
-	Priority        *string    `json:"priority"`
-	Title           *string    `json:"title"`
+	Status           *string    `json:"status"`
+	Priority         *string    `json:"priority"`
+	Title            *string    `json:"title"`
 	Description      *string    `json:"description"`
 	AssignedTo       *string    `json:"assigned_to"`
 	AssignedToUserID *string    `json:"assigned_to_user_id"`

@@ -34,10 +34,10 @@ import (
 type PendingEdit struct {
 	bun.BaseModel `bun:"table:runtime.feature_pending_edits"`
 
-	ID               string          `bun:"id,pk"`
-	FeatureClassCode string          `bun:"feature_class_code"`
-	FeatureID        string          `bun:"feature_id"`
-	AuthorID         string          `bun:"author_id"`
+	ID               string `bun:"id,pk"`
+	FeatureClassCode string `bun:"feature_class_code"`
+	FeatureID        string `bun:"feature_id"`
+	AuthorID         string `bun:"author_id"`
 	// Patch is the changed-pieces envelope (name/subtype/territory_id/attributes),
 	// shaped like formatRow so ApplyPatch merges it key-by-key. Geometry is NOT
 	// here -- see GeomJSON.

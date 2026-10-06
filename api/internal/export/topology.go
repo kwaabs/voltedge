@@ -174,16 +174,25 @@ func (cw *cimWriter) writeTopology(layers []Layer, conns []connRow) topoStats {
 	// named/implicit terminal or "E|<feature>|<endIndex>" for a conductor end.
 	parent := map[string]string{}
 	endpoints := map[string]endpoint{}
-	var find func(string) string
-	find = func(x string) string {
-		p, ok := parent[x]
-		if !ok || p == x {
-			parent[x] = x
-			return x
+	// find is ITERATIVE on purpose. union attaches roots without rank, so a series
+	// feeder (conductors wired end-to-end) chains its endpoints into one deep
+	// component; a recursive find would then recurse to that depth and risk a stack
+	// blow-up at the very scale this topology pass is built for (the Slice-5 10M
+	// projection). Two passes: walk to the root, then compress the path to it.
+	find := func(x string) string {
+		root := x
+		for {
+			p, ok := parent[root]
+			if !ok || p == root {
+				parent[root] = root
+				break
+			}
+			root = p
 		}
-		r := find(p)
-		parent[x] = r
-		return r
+		for x != root {
+			parent[x], x = root, parent[x]
+		}
+		return root
 	}
 	union := func(a, b string) {
 		ra, rb := find(a), find(b)
@@ -528,7 +537,7 @@ func formatUnmapped(m map[string]int) string {
 }
 
 func termKey(feature, terminalID string) string { return "T|" + feature + "|" + terminalID }
-func edgeKey(feature string, idx int) string { return "E|" + feature + "|" + strconv.Itoa(idx) }
+func edgeKey(feature string, idx int) string    { return "E|" + feature + "|" + strconv.Itoa(idx) }
 
 // dist2 is squared Euclidean distance in degrees -- enough to pick the nearer of
 // a conductor's two ends (a comparison, never a real length).

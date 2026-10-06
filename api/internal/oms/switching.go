@@ -260,8 +260,8 @@ func SetStepExecuted(ctx context.Context, db *bun.DB, stepID string, executed bo
 
 		// Recompute the parent order's status from its steps.
 		var counts struct {
-			Total     int `bun:"total"`
-			Executed  int `bun:"executed"`
+			Total    int `bun:"total"`
+			Executed int `bun:"executed"`
 		}
 		if err := tx.NewSelect().Model((*SwitchingStep)(nil)).
 			ColumnExpr("count(*) AS total").

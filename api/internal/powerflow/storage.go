@@ -184,14 +184,14 @@ func runStorageDispatch(ctx context.Context, db bun.IDB, req storageRequest) (*s
 	// SoC-feasible window the sweep will explore.
 	units := make([]storageUnit, 0)
 	type candidate struct {
-		n              node
-		rated          float64
-		pf             float64
-		storageFreeKW  float64
+		n               node
+		rated           float64
+		pf              float64
+		storageFreeKW   float64
 		storageFreeKVAR float64
-		loKW           float64
-		hiKW           float64
-		nowKW          float64
+		loKW            float64
+		hiKW            float64
+		nowKW           float64
 	}
 	var candidates []candidate
 	for _, n := range tr.order {

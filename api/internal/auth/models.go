@@ -156,6 +156,6 @@ const (
 	eventBreakGlassLogin  = "break_glass_login"
 	eventLogout           = "logout"
 	eventLocalAuthToggled = "local_auth_toggled"
-	eventSSOLinked        = "sso_linked"  // first SSO login linked a provider identity to a pre-provisioned user
+	eventSSOLinked        = "sso_linked"   // first SSO login linked a provider identity to a pre-provisioned user
 	eventRoleChanged      = "role_changed" // a role was granted to or revoked from a user (Slice C)
 )

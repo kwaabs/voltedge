@@ -77,19 +77,19 @@ const (
 type TroubleCall struct {
 	bun.BaseModel `bun:"table:oms.trouble_calls"`
 
-	ID             string     `bun:"id,pk" json:"id"`
-	ServicePointID *string    `bun:"service_point_id" json:"service_point_id"`
-	Address        *string    `bun:"address" json:"address"`
-	Longitude      *float64   `bun:"longitude,scanonly" json:"longitude"`
-	Latitude       *float64   `bun:"latitude,scanonly" json:"latitude"`
-	ReportedAt     time.Time  `bun:"reported_at" json:"reported_at"`
-	CallerRef      *string    `bun:"caller_ref" json:"caller_ref"`
-	CallType       string     `bun:"call_type" json:"call_type"`
-	Status         string     `bun:"status" json:"status"`
-	IncidentID     *string    `bun:"incident_id" json:"incident_id"`
-	Notes          *string    `bun:"notes" json:"notes"`
-	CreatedAt      time.Time  `bun:"created_at" json:"created_at"`
-	UpdatedAt      time.Time  `bun:"updated_at" json:"updated_at"`
+	ID             string    `bun:"id,pk" json:"id"`
+	ServicePointID *string   `bun:"service_point_id" json:"service_point_id"`
+	Address        *string   `bun:"address" json:"address"`
+	Longitude      *float64  `bun:"longitude,scanonly" json:"longitude"`
+	Latitude       *float64  `bun:"latitude,scanonly" json:"latitude"`
+	ReportedAt     time.Time `bun:"reported_at" json:"reported_at"`
+	CallerRef      *string   `bun:"caller_ref" json:"caller_ref"`
+	CallType       string    `bun:"call_type" json:"call_type"`
+	Status         string    `bun:"status" json:"status"`
+	IncidentID     *string   `bun:"incident_id" json:"incident_id"`
+	Notes          *string   `bun:"notes" json:"notes"`
+	CreatedAt      time.Time `bun:"created_at" json:"created_at"`
+	UpdatedAt      time.Time `bun:"updated_at" json:"updated_at"`
 }
 
 // Incident mirrors oms.incidents -- one inferred (or manually raised) outage.
@@ -143,13 +143,13 @@ type CustomerInterruption struct {
 type SwitchingOrder struct {
 	bun.BaseModel `bun:"table:oms.switching_orders,alias:so"`
 
-	ID         string         `bun:"id,pk" json:"id"`
-	IncidentID string         `bun:"incident_id" json:"incident_id"`
-	Reference  *string        `bun:"reference" json:"reference"`
-	Status     string         `bun:"status" json:"status"`
-	Notes      *string        `bun:"notes" json:"notes"`
-	CreatedAt  time.Time      `bun:"created_at" json:"created_at"`
-	UpdatedAt  time.Time      `bun:"updated_at" json:"updated_at"`
+	ID         string          `bun:"id,pk" json:"id"`
+	IncidentID string          `bun:"incident_id" json:"incident_id"`
+	Reference  *string         `bun:"reference" json:"reference"`
+	Status     string          `bun:"status" json:"status"`
+	Notes      *string         `bun:"notes" json:"notes"`
+	CreatedAt  time.Time       `bun:"created_at" json:"created_at"`
+	UpdatedAt  time.Time       `bun:"updated_at" json:"updated_at"`
 	Steps      []SwitchingStep `bun:"rel:has-many,join:id=switching_order_id" json:"steps"`
 }
 

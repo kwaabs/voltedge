@@ -66,7 +66,7 @@ func (cw *cimWriter) writeConductorDetail(cm metadata.CimClassMapping, f Feature
 	if cm.CimKind != "conducting_edge" {
 		return
 	}
-	lengthM := geoLengthMeters(pts)
+	lengthM := cw.conductorLengthMeters(pts)
 
 	for _, a := range attrs {
 		switch a.Transform {
@@ -107,6 +107,37 @@ func (cw *cimWriter) specPerKm(f Feature, a metadata.CimAttributeMapping) *float
 		return spec.ReactanceOhmPerKm
 	}
 	return nil
+}
+
+// conductorLengthMeters is the conductor's physical length in metres, for CIM
+// Conductor.length and the impedance derivation. The vertices are in whatever CRS
+// the read path emitted: EPSG:4326 lon/lat by default -> a geodesic (haversine)
+// sum; or the reprojection target CRS when a target SRID was requested -> a planar
+// sum, which IS the length in metres for the metre-based projected CRS a
+// reprojected export realistically targets (UTM, a national grid). Running
+// haversine on projected easting/northing values would be nonsense, corrupting
+// both the length and the impedance derived from it. (Reprojecting CIM to a
+// non-metre CRS is out of scope -- its length would then be off, but that is an
+// unrealistic target for a CIM export.)
+func (cw *cimWriter) conductorLengthMeters(pts []coord) float64 {
+	if cw.targetSRID != nil {
+		return planarLengthMeters(pts)
+	}
+	return geoLengthMeters(pts)
+}
+
+// planarLengthMeters sums the Euclidean segment lengths of a polyline whose
+// vertices are already in a projected, metre-based CRS. Fewer than two vertices
+// yields 0.
+func planarLengthMeters(pts []coord) float64 {
+	if len(pts) < 2 {
+		return 0
+	}
+	total := 0.0
+	for i := 1; i < len(pts); i++ {
+		total += math.Hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y)
+	}
+	return total
 }
 
 // geoLengthMeters is the geodesic length of a polyline given as ordered lon/lat

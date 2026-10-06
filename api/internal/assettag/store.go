@@ -97,7 +97,7 @@ func PrimaryForFeatures(ctx context.Context, db bun.IDB, class string, ids []str
 	// the primary (is_primary DESC) then the newest -- Postgres requires the
 	// DISTINCT ON expression to lead the ORDER BY, which it does.
 	err := db.NewSelect().Model(&tags).
-		ColumnExpr("DISTINCT ON (t.feature_id) " + tagColumns).
+		ColumnExpr("DISTINCT ON (t.feature_id) "+tagColumns).
 		Where("t.feature_class_code = ?", class).
 		Where("t.feature_id IN (?)", bun.In(clean)).
 		Where("t.status = ?", "active").

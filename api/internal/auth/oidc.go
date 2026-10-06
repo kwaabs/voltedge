@@ -114,8 +114,8 @@ func buildOIDCRegistry(ctx context.Context, _ Config) map[string]*oidcProvider {
 
 type oidcProviderParams struct {
 	key, displayName, issuer, clientID, clientSecret, redirectURL string
-	scopes        []string
-	allowedDomain string
+	scopes                                                        []string
+	allowedDomain                                                 string
 }
 
 func newOIDCProvider(ctx context.Context, p oidcProviderParams) (*oidcProvider, error) {

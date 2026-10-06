@@ -121,27 +121,27 @@ type Defect struct {
 type WorkOrder struct {
 	bun.BaseModel `bun:"table:wam.work_orders"`
 
-	ID              string     `bun:"id,pk" json:"id"`
-	Reference       *string    `bun:"reference" json:"reference"`
-	WorkType        string     `bun:"work_type" json:"work_type"`
-	Status          string     `bun:"status" json:"status"`
-	Priority        string     `bun:"priority" json:"priority"`
-	Title           string     `bun:"title" json:"title"`
-	Description     *string    `bun:"description" json:"description"`
-	AssetClass      *string    `bun:"asset_class" json:"asset_class"`
-	AssetID         *string    `bun:"asset_id" json:"asset_id"`
-	Longitude       *float64   `bun:"longitude,scanonly" json:"longitude"`
-	Latitude        *float64   `bun:"latitude,scanonly" json:"latitude"`
-	DefectID        *string    `bun:"defect_id" json:"defect_id"`
-	AssignedTo      *string    `bun:"assigned_to" json:"assigned_to"`
-	AssignedToUserID *string   `bun:"assigned_to_user_id" json:"assigned_to_user_id"`
-	ScheduledFor    *time.Time `bun:"scheduled_for" json:"scheduled_for"`
-	DueBy           *time.Time `bun:"due_by" json:"due_by"`
-	StartedAt       *time.Time `bun:"started_at" json:"started_at"`
-	CompletedAt     *time.Time `bun:"completed_at" json:"completed_at"`
-	CompletionNotes *string    `bun:"completion_notes" json:"completion_notes"`
-	CreatedAt       time.Time  `bun:"created_at" json:"created_at"`
-	UpdatedAt       time.Time  `bun:"updated_at" json:"updated_at"`
+	ID               string     `bun:"id,pk" json:"id"`
+	Reference        *string    `bun:"reference" json:"reference"`
+	WorkType         string     `bun:"work_type" json:"work_type"`
+	Status           string     `bun:"status" json:"status"`
+	Priority         string     `bun:"priority" json:"priority"`
+	Title            string     `bun:"title" json:"title"`
+	Description      *string    `bun:"description" json:"description"`
+	AssetClass       *string    `bun:"asset_class" json:"asset_class"`
+	AssetID          *string    `bun:"asset_id" json:"asset_id"`
+	Longitude        *float64   `bun:"longitude,scanonly" json:"longitude"`
+	Latitude         *float64   `bun:"latitude,scanonly" json:"latitude"`
+	DefectID         *string    `bun:"defect_id" json:"defect_id"`
+	AssignedTo       *string    `bun:"assigned_to" json:"assigned_to"`
+	AssignedToUserID *string    `bun:"assigned_to_user_id" json:"assigned_to_user_id"`
+	ScheduledFor     *time.Time `bun:"scheduled_for" json:"scheduled_for"`
+	DueBy            *time.Time `bun:"due_by" json:"due_by"`
+	StartedAt        *time.Time `bun:"started_at" json:"started_at"`
+	CompletedAt      *time.Time `bun:"completed_at" json:"completed_at"`
+	CompletionNotes  *string    `bun:"completion_notes" json:"completion_notes"`
+	CreatedAt        time.Time  `bun:"created_at" json:"created_at"`
+	UpdatedAt        time.Time  `bun:"updated_at" json:"updated_at"`
 }
 
 // InspectionTemplate mirrors wam.inspection_templates -- a reusable checklist

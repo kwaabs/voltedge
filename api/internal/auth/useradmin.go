@@ -68,19 +68,19 @@ func (s *service) adminRoutes() chi.Router {
 // everything the management UI needs to render a row, and nothing
 // credential-ish (never a hash, never a token).
 type adminUserJSON struct {
-	ID          string    `json:"id"`
-	Email       string    `json:"email"`
-	DisplayName string    `json:"display_name"`
-	Status      string    `json:"status"`
-	BreakGlass  bool      `json:"break_glass"`
-	Roles       []string  `json:"roles"`
-	Providers   []string  `json:"providers"`
+	ID          string   `json:"id"`
+	Email       string   `json:"email"`
+	DisplayName string   `json:"display_name"`
+	Status      string   `json:"status"`
+	BreakGlass  bool     `json:"break_glass"`
+	Roles       []string `json:"roles"`
+	Providers   []string `json:"providers"`
 	// ManagerID is this user's manager (Phase 58), or null at the top of the
 	// org tree. Territories are the user's DIRECT territory grants (not the
 	// expanded/inherited effective set) -- what the management UI edits.
-	ManagerID   *string                 `json:"manager_id"`
+	ManagerID   *string                   `json:"manager_id"`
 	Territories []adminTerritoryGrantJSON `json:"territories"`
-	CreatedAt   time.Time               `json:"created_at"`
+	CreatedAt   time.Time                 `json:"created_at"`
 }
 
 // adminTerritoryGrantJSON is one direct territory grant in a user's admin

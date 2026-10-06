@@ -103,9 +103,9 @@ func writeDXFTables(b *bufio.Writer, layers []StreamLayer) {
 	for _, layer := range layers {
 		dxfPair(b, 0, "LAYER")
 		dxfPair(b, 2, safeName(layer.Code))
-		dxfPair(b, 70, "0")          // flags: none
-		dxfPair(b, 62, "7")          // color 7 (white/black)
-		dxfPair(b, 6, "CONTINUOUS")  // line type
+		dxfPair(b, 70, "0")         // flags: none
+		dxfPair(b, 62, "7")         // color 7 (white/black)
+		dxfPair(b, 6, "CONTINUOUS") // line type
 	}
 	dxfPair(b, 0, "ENDTAB")
 

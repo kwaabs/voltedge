@@ -53,67 +53,67 @@ func AdminRoutes(db *bun.DB, store *export.ObjectStore) chi.Router {
 // admin list. It carries the two object keys (not sent to the client) so the
 // delete path can reap them.
 type adminPackRow struct {
-	ID             string          `bun:"id"`
-	Status         string          `bun:"status"`
-	RequestedBy    string          `bun:"requested_by"`
-	Email          string          `bun:"email"`
-	DisplayName    string          `bun:"display_name"`
+	ID              string          `bun:"id"`
+	Status          string          `bun:"status"`
+	RequestedBy     string          `bun:"requested_by"`
+	Email           string          `bun:"email"`
+	DisplayName     string          `bun:"display_name"`
 	Scope           json.RawMessage `bun:"scope"`
 	FeatureCount    *int            `bun:"feature_count"`
 	AttachmentCount *int            `bun:"attachment_count"`
 	TilesBytes      *int64          `bun:"tiles_bytes"`
-	DataBytes      *int64          `bun:"data_bytes"`
-	TilesObjectKey *string         `bun:"tiles_object_key"`
-	DataObjectKey  *string         `bun:"data_object_key"`
-	Error          *string         `bun:"error"`
-	SnapshotAt     *time.Time      `bun:"snapshot_at"`
-	DisabledAt     *time.Time      `bun:"disabled_at"`
-	CreatedAt      time.Time       `bun:"created_at"`
-	FinishedAt     *time.Time      `bun:"finished_at"`
+	DataBytes       *int64          `bun:"data_bytes"`
+	TilesObjectKey  *string         `bun:"tiles_object_key"`
+	DataObjectKey   *string         `bun:"data_object_key"`
+	Error           *string         `bun:"error"`
+	SnapshotAt      *time.Time      `bun:"snapshot_at"`
+	DisabledAt      *time.Time      `bun:"disabled_at"`
+	CreatedAt       time.Time       `bun:"created_at"`
+	FinishedAt      *time.Time      `bun:"finished_at"`
 }
 
 // adminPackView is one pack over the wire to the admin UI: the build facts plus
 // who owns it and what it covers (bbox + classes, unpacked from the scope jsonb),
 // and whether it's currently hidden from the device.
 type adminPackView struct {
-	ID                 string     `json:"id"`
-	Status             string     `json:"status"`
-	OwnerID            string     `json:"owner_id"`
-	OwnerEmail         string     `json:"owner_email"`
-	OwnerName          string     `json:"owner_name"`
-	FeatureClasses     []string   `json:"feature_classes,omitempty"`
-	Bbox               []float64  `json:"bbox,omitempty"`
-	FeatureCount       *int       `json:"feature_count,omitempty"`
-	AttachmentCount    *int       `json:"attachment_count,omitempty"`
-	TilesBytes         *int64     `json:"tiles_bytes,omitempty"`
-	DataBytes          *int64     `json:"data_bytes,omitempty"`
-	Error              *string    `json:"error,omitempty"`
-	Disabled           bool       `json:"disabled"`
-	SnapshotAt         *time.Time `json:"snapshot_at,omitempty"`
-	CreatedAt          time.Time  `json:"created_at"`
-	FinishedAt         *time.Time `json:"finished_at,omitempty"`
+	ID              string     `json:"id"`
+	Status          string     `json:"status"`
+	OwnerID         string     `json:"owner_id"`
+	OwnerEmail      string     `json:"owner_email"`
+	OwnerName       string     `json:"owner_name"`
+	FeatureClasses  []string   `json:"feature_classes,omitempty"`
+	Bbox            []float64  `json:"bbox,omitempty"`
+	FeatureCount    *int       `json:"feature_count,omitempty"`
+	AttachmentCount *int       `json:"attachment_count,omitempty"`
+	TilesBytes      *int64     `json:"tiles_bytes,omitempty"`
+	DataBytes       *int64     `json:"data_bytes,omitempty"`
+	Error           *string    `json:"error,omitempty"`
+	Disabled        bool       `json:"disabled"`
+	SnapshotAt      *time.Time `json:"snapshot_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	FinishedAt      *time.Time `json:"finished_at,omitempty"`
 }
 
 func toAdminPackView(row *adminPackRow) adminPackView {
 	var scope PackScope
 	_ = json.Unmarshal(row.Scope, &scope) // written by us at enqueue; a parse miss just omits bbox/classes
 	return adminPackView{
-		ID:             row.ID,
-		Status:         row.Status,
-		OwnerID:        row.RequestedBy,
-		OwnerEmail:     row.Email,
-		OwnerName:      row.DisplayName,
+		ID:              row.ID,
+		Status:          row.Status,
+		OwnerID:         row.RequestedBy,
+		OwnerEmail:      row.Email,
+		OwnerName:       row.DisplayName,
 		FeatureClasses:  scope.FeatureClasses,
 		Bbox:            scope.Bbox,
 		FeatureCount:    row.FeatureCount,
 		AttachmentCount: row.AttachmentCount,
 		TilesBytes:      row.TilesBytes,
-		DataBytes:      row.DataBytes,
-		Error:          row.Error,
-		Disabled:       row.DisabledAt != nil,
-		SnapshotAt:     row.SnapshotAt,
-		CreatedAt:      row.CreatedAt,
-		FinishedAt:     row.FinishedAt,
+		DataBytes:       row.DataBytes,
+		Error:           row.Error,
+		Disabled:        row.DisabledAt != nil,
+		SnapshotAt:      row.SnapshotAt,
+		CreatedAt:       row.CreatedAt,
+		FinishedAt:      row.FinishedAt,
 	}
 }
 

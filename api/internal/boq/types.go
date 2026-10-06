@@ -83,14 +83,14 @@ type CurrencyOut struct {
 // Response is the priced schedule. Total/subtotals are in Currency; TotalBase is
 // the same figure in the base currency (the denomination every stored rate uses).
 type Response struct {
-	Currency     string        `json:"currency"`
-	CurrencyName string        `json:"currency_name"`
-	BaseCurrency string        `json:"base_currency"`
-	PerBase      float64       `json:"per_base"`
-	Lines        []Line        `json:"lines"`
+	Currency     string         `json:"currency"`
+	CurrencyName string         `json:"currency_name"`
+	BaseCurrency string         `json:"base_currency"`
+	PerBase      float64        `json:"per_base"`
+	Lines        []Line         `json:"lines"`
 	Unpriced     []UnpricedLine `json:"unpriced"`
-	Total        float64       `json:"total"`
-	TotalBase    float64       `json:"total_base"`
-	PricedCount  int           `json:"priced_count"`
-	Currencies   []CurrencyOut `json:"currencies"`
+	Total        float64        `json:"total"`
+	TotalBase    float64        `json:"total_base"`
+	PricedCount  int            `json:"priced_count"`
+	Currencies   []CurrencyOut  `json:"currencies"`
 }

@@ -372,9 +372,9 @@ func listPolicyHandler(db *bun.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"default_mode":            defaultMode,
+			"default_mode":             defaultMode,
 			"default_detect_conflicts": defaultDetect,
-			"policies":                views,
+			"policies":                 views,
 		})
 	}
 }

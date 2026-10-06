@@ -40,7 +40,7 @@ type FieldPack struct {
 	TilesBytes     *int64  `bun:"tiles_bytes"`
 	DataBytes      *int64  `bun:"data_bytes"`
 
-	FeatureCount *int       `bun:"feature_count"`
+	FeatureCount *int `bun:"feature_count"`
 	// AttachmentCount is how many image attachments the pack carried (migration
 	// 0042). NULL for packs built before that column existed; the true count still
 	// rides those packs' own manifests.

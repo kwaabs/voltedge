@@ -399,15 +399,15 @@ func TestWriteDXFPointStructure(t *testing.T) {
 		"0\nSECTION\n2\nHEADER\n",
 		"9\n$ACADVER\n1\nAC1015\n",
 		"2\nTABLES\n",
-		"2\nAPPID\n",         // APPID table
-		"2\nVOLTEDGE\n",      // registered app
+		"2\nAPPID\n",          // APPID table
+		"2\nVOLTEDGE\n",       // registered app
 		"0\nLAYER\n2\npole\n", // a layer named for the class
 		"2\nENTITIES\n",
 		"0\nPOINT\n8\npole\n", // point on the pole layer
 		"10\n-0.1\n",
 		"20\n51.5\n",
-		"1001\nVOLTEDGE\n",       // XDATA app
-		"1000\nname=P1\n",        // XDATA fields
+		"1001\nVOLTEDGE\n", // XDATA app
+		"1000\nname=P1\n",  // XDATA fields
 		"1000\nstatus=published\n",
 		"1000\nvoltage_class=11kv\n",
 		"1000\npole_count=3\n",

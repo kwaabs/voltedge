@@ -63,14 +63,14 @@ type evHostingRequest struct {
 // feeder's worst values AT the hosting capacity -- how close each limit sits.
 // Unbounded is true when the cap was hit without a limit binding.
 type evHostingCandidate struct {
-	Node              featureRef  `json:"node"`
-	EvHostingCapacityKW float64   `json:"ev_hosting_capacity_kw"`
-	BindingConstraint string      `json:"binding_constraint"`
-	BindingFeature    *featureRef `json:"binding_feature,omitempty"`
-	WorstVoltagePu    float64     `json:"worst_voltage_pu"`
-	WorstLoadingPct   float64     `json:"worst_loading_pct"`
-	Unbounded         bool        `json:"unbounded,omitempty"`
-	Note              string      `json:"note,omitempty"`
+	Node                featureRef  `json:"node"`
+	EvHostingCapacityKW float64     `json:"ev_hosting_capacity_kw"`
+	BindingConstraint   string      `json:"binding_constraint"`
+	BindingFeature      *featureRef `json:"binding_feature,omitempty"`
+	WorstVoltagePu      float64     `json:"worst_voltage_pu"`
+	WorstLoadingPct     float64     `json:"worst_loading_pct"`
+	Unbounded           bool        `json:"unbounded,omitempty"`
+	Note                string      `json:"note,omitempty"`
 }
 
 // evHostingResponse is the full study: the feeder slack / floor / load PF the
