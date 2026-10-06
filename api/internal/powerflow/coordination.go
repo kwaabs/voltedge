@@ -291,11 +291,12 @@ func runCoordination(ctx context.Context, db bun.IDB, req coordinationRequest) (
 		return nil, err
 	}
 
-	var sourceR, sourceX float64
-	if startState := states[start]; startState != nil {
-		sourceR, sourceX = resolveSourceImpedance(startState.attrs)
-	}
-	paths := accumulateSeriesImpedance(tr, states, start, req.NominalVoltageV, sourceR, sourceX)
+	// Same source seed as the fault engine: a boundary transformer start sources
+	// its own secondary network off its %Z (LV coordination from a distribution
+	// transformer), else the start's own Thevenin source_r/x on the supplied
+	// nominal. startBaseV is the base the through-fault current is referred to.
+	sourceR, sourceX, startBaseV, _ := sourceFromStart(states[start], req.NominalVoltageV)
+	paths := accumulateSeriesImpedance(tr, states, start, startBaseV, sourceR, sourceX)
 
 	allNodes := append(append([]node{}, tr.order...), barrierHits...)
 	classCodes, err := nodeClassCodes(ctx, db, allNodes)

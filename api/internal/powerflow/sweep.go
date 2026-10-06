@@ -138,11 +138,13 @@ func runSweep(ctx context.Context, db bun.IDB, startRef featureRef, nominalV flo
 
 	backwardSweep(tr, states)
 
-	var sourceR, sourceX float64
-	if startState := states[start]; startState != nil {
-		sourceR, sourceX = resolveSourceImpedance(startState.attrs)
-	}
-	forwardSweep(tr, states, start, nominalV, sourceR, sourceX)
+	// Source seed: a boundary transformer start sources its own secondary network
+	// off its %Z on the secondary base, so a load flow STARTED at a distribution
+	// transformer sweeps the LV network on the LV base and the transformer's own
+	// regulation shows in the sending-end voltage. Any other start is its own
+	// Thevenin source_r/x on the supplied nominal (sourceFromStart falls back).
+	sourceR, sourceX, startBaseV, _ := sourceFromStart(states[start], nominalV)
+	forwardSweep(tr, states, start, startBaseV, sourceR, sourceX)
 
 	allNodes := append(append([]node{}, tr.order...), barrierHits...)
 	classCodes, err := nodeClassCodes(ctx, db, allNodes)

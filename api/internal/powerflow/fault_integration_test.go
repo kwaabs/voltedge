@@ -245,3 +245,98 @@ func TestFaultGeneratorInfeedNameplate(t *testing.T) {
 		t.Fatalf("generator infeed at its own terminals = %v A, want 5000 (nameplate 5 kA)", contrib[gen])
 	}
 }
+
+func ptrS(s string) *string { return &s }
+
+// xfmrBoundaryState builds a start nodeState for a boundary transformer
+// (boundary_role = 'transformer') carrying a resolved secondary %Z -- the
+// DIST_XFMR-as-LV-source case sourceFromStart is for.
+func xfmrBoundaryState(rOhm, xOhm, secondaryV float64, attrs map[string]any) *nodeState {
+	return &nodeState{
+		loaded: &metadata.Loaded{FeatureClass: &metadata.FeatureClass{
+			BoundaryRole: ptrS(boundaryRoleTransformer), NetworkRole: "junction",
+		}},
+		xfmr:  transformerModel{ok: true, rOhm: rOhm, xOhm: xOhm, secondaryV: secondaryV},
+		attrs: attrs,
+	}
+}
+
+// TestSourceFromStart pins the source-seed resolver that makes a boundary
+// transformer the source of its own secondary network.
+func TestSourceFromStart(t *testing.T) {
+	// Transformer boundary with a real %Z -> transformer-as-source: its secondary
+	// Z, on the secondary base, fromTransformer = true.
+	r, x, base, fromX := sourceFromStart(xfmrBoundaryState(0.002, 0.014, 400, nil), 11000)
+	if !fromX || !approxEqual(r, 0.002, 1e-12) || !approxEqual(x, 0.014, 1e-12) || base != 400 {
+		t.Fatalf("transformer boundary: (%v,%v,%v,%v), want (0.002,0.014,400,true)", r, x, base, fromX)
+	}
+
+	// Upstream Thevenin source_r/x is added in series on the secondary base.
+	r, x, base, fromX = sourceFromStart(
+		xfmrBoundaryState(0.002, 0.014, 400, map[string]any{"source_r_ohm": 0.001, "source_x_ohm": 0.003}), 11000)
+	if !fromX || !approxEqual(r, 0.003, 1e-12) || !approxEqual(x, 0.017, 1e-12) || base != 400 {
+		t.Fatalf("transformer + upstream: (%v,%v,%v,%v), want (0.003,0.017,400,true)", r, x, base, fromX)
+	}
+
+	// A boundary transformer with NO %Z (rOhm = xOhm = 0) falls back to its own
+	// source_r/x on the supplied nominal -- the feeder-head POWER_XFMR / SUB-SOURCE
+	// case, so existing MV studies are unchanged.
+	r, x, base, fromX = sourceFromStart(
+		xfmrBoundaryState(0, 0, 11000, map[string]any{"source_r_ohm": 0.048, "source_x_ohm": 0.48}), 11000)
+	if fromX || !approxEqual(r, 0.048, 1e-12) || !approxEqual(x, 0.48, 1e-12) || base != 11000 {
+		t.Fatalf("transformer no-%%Z: (%v,%v,%v,%v), want (0.048,0.48,11000,false)", r, x, base, fromX)
+	}
+
+	// A non-transformer start always uses source_r/x on the supplied nominal.
+	nonX := &nodeState{
+		loaded: &metadata.Loaded{FeatureClass: &metadata.FeatureClass{NetworkRole: "junction"}},
+		attrs:  map[string]any{"source_r_ohm": 0.1, "source_x_ohm": 0.2},
+	}
+	r, x, base, fromX = sourceFromStart(nonX, 400)
+	if fromX || !approxEqual(r, 0.1, 1e-12) || !approxEqual(x, 0.2, 1e-12) || base != 400 {
+		t.Fatalf("non-transformer: (%v,%v,%v,%v), want (0.1,0.2,400,false)", r, x, base, fromX)
+	}
+
+	// Nil start -> zero source on the supplied nominal (guard).
+	if r, x, base, fromX = sourceFromStart(nil, 400); fromX || r != 0 || x != 0 || base != 400 {
+		t.Fatalf("nil start: (%v,%v,%v,%v), want (0,0,400,false)", r, x, base, fromX)
+	}
+}
+
+// TestFaultFromTransformerSource is the end-to-end payoff: a fault study STARTED
+// at a boundary distribution transformer (500 kVA, 4.5 % ≈ 0.0144 Ω on the 400 V
+// base) sees the transformer's own stiffness as its source, giving the classic
+// ~16 kA LV fault level -- with no upstream MV network modelled at all.
+func TestFaultFromTransformerSource(t *testing.T) {
+	tx := node{classID: "dxf", featureID: "t"}  // the DIST_XFMR boundary (start)
+	bus := node{classID: "lvb", featureID: "b"} // an LV busbar just below it
+	tr := &tree{
+		order:    []node{tx, bus},
+		parent:   map[node]node{bus: tx},
+		children: map[node][]node{tx: {bus}},
+	}
+	// 500 kVA, 4.5 % at 400 V -> Zbase = 400²/500000 = 0.32 Ω, Z = 0.0144 Ω
+	// (pure reactance here for a clean |Z|).
+	states := map[node]*nodeState{
+		tx:  xfmrBoundaryState(0, 0.0144, 400, nil),
+		bus: {loaded: nodeLoaded()},
+	}
+	sr, sx, base, fromX := sourceFromStart(states[tx], 400)
+	if !fromX || base != 400 {
+		t.Fatalf("expected transformer source on the 400 V base, got base=%v fromTransformer=%v", base, fromX)
+	}
+	paths := accumulateSeriesImpedance(tr, states, tx, base, sr, sx)
+	nodes := formatFaultResults(tr, states, paths, nil, nil, 0, phaseDivisor(basisLineToLine),
+		map[string]string{"dxf": "DXF", "lvb": "LVB"})
+
+	var busAmps float64
+	for _, n := range nodes {
+		if n.FeatureClass == "LVB" && n.FaultCurrentAmps != nil {
+			busAmps = *n.FaultCurrentAmps
+		}
+	}
+	want := (400 / math.Sqrt(3)) / 0.0144 // ≈ 16038 A
+	if !approxEqual(busAmps, want, 1e-3) {
+		t.Fatalf("LV fault at the busbar = %v A, want %v A (~16 kA from the transformer %%Z)", busAmps, want)
+	}
+}

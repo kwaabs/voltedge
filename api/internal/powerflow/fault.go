@@ -98,11 +98,13 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 		return nil, err
 	}
 
-	var sourceR, sourceX float64
-	if startState := states[start]; startState != nil {
-		sourceR, sourceX = resolveSourceImpedance(startState.attrs)
-	}
-	paths := accumulateSeriesImpedance(tr, states, start, req.NominalVoltageV, sourceR, sourceX)
+	// Source seed: a boundary transformer start sources its own secondary network
+	// off its %Z on the secondary base (an LV fault level is dominated by the
+	// transformer); any other start is its own Thevenin source_r/x on the supplied
+	// nominal. startBaseV carries the resolved base (the secondary volts for a
+	// transformer start, else the supplied nominal).
+	sourceR, sourceX, startBaseV, _ := sourceFromStart(states[start], req.NominalVoltageV)
+	paths := accumulateSeriesImpedance(tr, states, start, startBaseV, sourceR, sourceX)
 
 	// Embedded-generation fault infeed (Tier A): every GENERATOR in the tree is
 	// a second fault source, contributing to the three-phase fault at each node
@@ -124,7 +126,11 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 			}
 		}
 		earthing := earthingShunts(tr, states)
-		z0 = accumulateZeroSeqImpedance(tr, states, start, req.NominalVoltageV, sourceR0, sourceX0, !srcOK, earthing)
+		// startBaseV keeps the zero-sequence base consistent with the positive-
+		// sequence one (the secondary volts for a transformer start). A transformer
+		// start's own winding zero-sequence contribution is a refinement (v2); today
+		// the SLG source Z0 falls back to the positive-sequence source (sourceR/X).
+		z0 = accumulateZeroSeqImpedance(tr, states, start, startBaseV, sourceR0, sourceX0, !srcOK, earthing)
 	}
 
 	allNodes := append(append([]node{}, tr.order...), barrierHits...)

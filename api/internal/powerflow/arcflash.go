@@ -223,11 +223,12 @@ func runArcFlash(ctx context.Context, db bun.IDB, req arcFlashRequest) (*arcFlas
 	if err != nil {
 		return nil, err
 	}
-	var sourceR, sourceX float64
-	if startState := states[start]; startState != nil {
-		sourceR, sourceX = resolveSourceImpedance(startState.attrs)
-	}
-	paths := accumulateSeriesImpedance(tr, states, start, req.NominalVoltageV, sourceR, sourceX)
+	// Same source seed as the fault engine: a boundary transformer start sources
+	// its own secondary network off its %Z (so an LV arc-flash started at a
+	// distribution transformer sees the real, transformer-limited fault), else the
+	// start's own Thevenin source_r/x on the supplied nominal.
+	sourceR, sourceX, startBaseV, _ := sourceFromStart(states[start], req.NominalVoltageV)
+	paths := accumulateSeriesImpedance(tr, states, start, startBaseV, sourceR, sourceX)
 	classCodes, err := nodeClassCodes(ctx, db, append(append([]node{}, tr.order...), barrierHits...))
 	if err != nil {
 		return nil, err

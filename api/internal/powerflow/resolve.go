@@ -475,7 +475,7 @@ func resolveStorage(attrs map[string]any) (kw, kvar float64) {
 // network between it and the fault. fault_contribution_ka is the explicit,
 // authoritative figure (the interconnection-study number, and the natural fit
 // for a current-limited inverter); subtransient_reactance_pct is the classic
-// synchronous-machine X''d on the machine's own kVA base, the derived fallback.
+// synchronous-machine X”d on the machine's own kVA base, the derived fallback.
 const (
 	genFieldFaultKA = "fault_contribution_ka"
 	genFieldXdppPct = "subtransient_reactance_pct"
@@ -487,7 +487,7 @@ const (
 // ~1.1-1.5x rated rather than presenting a voltage behind a sub-transient
 // reactance the way a rotating machine does, so a representative 1.2x is the
 // graceful-degradation default. A synchronous machine gets NO such default (it
-// needs X''d or an explicit kA), because assuming one would badly misstate its
+// needs X”d or an explicit kA), because assuming one would badly misstate its
 // far larger contribution.
 const inverterFaultMultiple = 1.2
 
@@ -626,6 +626,46 @@ func resolveSourceImpedance(attrs map[string]any) (rOhm, xOhm float64) {
 	r, _ := readFloatAttr(attrs, sourceFieldR)
 	x, _ := readFloatAttr(attrs, sourceFieldX)
 	return r, x
+}
+
+// boundaryRoleTransformer is the metadata.feature_classes.boundary_role value
+// (migration 0129) marking a class as the voltage boundary that ORIGINATES the
+// next-voltage network at its secondary -- "the LV network's station breaker".
+const boundaryRoleTransformer = "transformer"
+
+// sourceFromStart resolves the source impedance and the voltage base used to seed
+// a study at its start node -- the one place that decides what a run's origin
+// "looks like" electrically.
+//
+// When the start is a BOUNDARY TRANSFORMER (boundary_role = 'transformer', e.g. a
+// DIST_XFMR) that carries a resolved series impedance (a nameplate %Z on its
+// rating), the transformer IS the source of its downstream (secondary) network:
+// the source impedance is the transformer's own series Z referred to the
+// secondary -- the impedance that DOMINATES a fault level at the secondary -- in
+// series with any upstream Thevenin source_r/x the start also carries (taken on
+// that secondary base), and the base is the secondary voltage. So a fault / load
+// flow STARTED at a distribution transformer reflects the transformer stiffness
+// with no need to model the upstream MV network at all -- the "analyse this LV
+// network from its transformer" workflow. fromTransformer reports which path ran.
+//
+// Otherwise it is the start's own Thevenin source_r/x on the supplied nominal --
+// the prior behaviour, unchanged for a non-transformer start AND for a boundary
+// transformer that carries NO %Z (one modelled as a plain grid Thevenin through
+// source_r/x alone, e.g. a feeder-head POWER_XFMR), so every existing study reads
+// exactly as before. Direction is still owned by the tier guard (migration 0126):
+// the transformer sources its higher-tier secondary side, never the MV side.
+func sourceFromStart(st *nodeState, suppliedNominalV float64) (rOhm, xOhm, baseV float64, fromTransformer bool) {
+	var sr, sx float64
+	if st != nil {
+		sr, sx = resolveSourceImpedance(st.attrs)
+	}
+	if st != nil && st.loaded != nil && st.loaded.FeatureClass != nil &&
+		st.loaded.FeatureClass.BoundaryRole != nil &&
+		*st.loaded.FeatureClass.BoundaryRole == boundaryRoleTransformer &&
+		st.xfmr.ok && st.xfmr.secondaryV > 0 && (st.xfmr.rOhm != 0 || st.xfmr.xOhm != 0) {
+		return st.xfmr.rOhm + sr, st.xfmr.xOhm + sx, st.xfmr.secondaryV, true
+	}
+	return sr, sx, suppliedNominalV, false
 }
 
 // resolveSourceZeroSeq reads the start node's own zero-sequence source
