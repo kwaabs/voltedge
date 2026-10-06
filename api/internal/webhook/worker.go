@@ -10,8 +10,10 @@ package webhook
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"time"
@@ -102,6 +104,18 @@ func RunWorker(ctx context.Context, db *bun.DB, cfg WorkerConfig) error {
 	sem := make(chan struct{}, cfg.Concurrency)
 	var wg sync.WaitGroup
 
+	// Reaper: dead-letter deliveries a hard-killed worker left stuck 'running'
+	// past their lease with attempts already at the cap. The in-process recover()
+	// below handles an ordinary adapter panic; this covers a process that died
+	// (OOM/SIGKILL) before it could record the failure, which claimDelivery would
+	// otherwise reclaim forever. Runs for the life of the worker, independent of
+	// the claim loop.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		runStuckDeliveryReaper(ctx, db, cfg)
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -110,7 +124,7 @@ func RunWorker(ctx context.Context, db *bun.DB, cfg WorkerConfig) error {
 		case sem <- struct{}{}:
 		}
 
-		d, err := claimDelivery(ctx, db, cfg.ID, cfg.Lease)
+		d, err := claimDelivery(ctx, db, cfg.ID, cfg.Lease, cfg.MaxAttempts)
 		if err != nil {
 			if ctx.Err() != nil { // shutdown races the claim -- expected
 				<-sem
@@ -179,9 +193,57 @@ func runDeliveryWithHeartbeat(parent context.Context, db *bun.DB, cfg WorkerConf
 		}
 	}()
 
-	runClaimedDelivery(dCtx, db, cfg, d)
+	// Recover an adapter panic so one poison delivery (a crafted external payload
+	// that trips a nil-deref or bad type assertion deep in an adapter / crud write)
+	// fails just that delivery instead of crashing the whole worker -- an
+	// unrecovered panic in this goroutine would take the process down, halting all
+	// ingestion, and the stuck 'running' row would then be reclaimed and panic
+	// again on restart (a crash loop). The apply tx has already rolled back by the
+	// time the panic reaches here (bun.RunInTx rolls back then re-panics), so the
+	// recovery just records the terminal state. failDelivery runs on a non-cancel
+	// context so the record survives dCtx being torn down, and uses MaxAttempts so
+	// a reliably-panicking delivery dead-letters rather than retrying forever.
+	func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				dl.Error("delivery apply panicked", "err", rec, "stack", string(debug.Stack()))
+				if ferr := failDelivery(context.WithoutCancel(parent), db, d.ID, fmt.Sprintf("apply panicked: %v", rec), cfg.MaxAttempts); ferr != nil {
+					dl.Error("recording panic failure failed", "err", ferr)
+				}
+			}
+		}()
+		runClaimedDelivery(dCtx, db, cfg, d)
+	}()
 	cancel()
 	hb.Wait()
+}
+
+// runStuckDeliveryReaper periodically dead-letters deliveries stuck 'running'
+// past their lease whose attempts have already reached the cap -- the case
+// failDelivery can't reach because the worker holding them was killed before it
+// could record a failure. claimDelivery refuses to reclaim an attempts-exhausted
+// running delivery (so it can't loop), and this marks those terminal. Ticks on
+// the lease cadence; a tick error during shutdown is swallowed.
+func runStuckDeliveryReaper(ctx context.Context, db *bun.DB, cfg WorkerConfig) {
+	t := time.NewTicker(cfg.Lease)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			n, err := reapExhaustedDeliveries(ctx, db, cfg.MaxAttempts)
+			if err != nil {
+				if ctx.Err() == nil {
+					logx.From(ctx).Error("reaping stuck deliveries failed", "err", err)
+				}
+				continue
+			}
+			if n > 0 {
+				logx.From(ctx).Warn("dead-lettered stuck deliveries", "count", n)
+			}
+		}
+	}
 }
 
 // runClaimedDelivery applies one delivery and records its terminal state. A

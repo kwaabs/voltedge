@@ -60,7 +60,15 @@ func enqueueDelivery(ctx context.Context, db bun.IDB, endpointID, source string,
 // claimDelivery atomically claims the oldest queued (or lease-expired running)
 // delivery for workerID -- the exact FOR UPDATE SKIP LOCKED lease pattern
 // ops.export_jobs uses (job.go). Returns (nil, nil) on an empty queue.
-func claimDelivery(ctx context.Context, db bun.IDB, workerID string, lease time.Duration) (*Delivery, error) {
+//
+// A lease-expired 'running' delivery is only reclaimed while its attempts are
+// still below maxAttempts: without that guard, a delivery that hard-kills its
+// worker (OOM/SIGKILL, so failDelivery never records the failure) would be
+// reclaimed and re-applied forever. Once it hits the cap, claim leaves it alone
+// and runStuckDeliveryReaper dead-letters it. A 'queued' delivery is always
+// claimable -- failDelivery only requeues while attempts remain, else it goes
+// 'dead' -- so the cap never strands a legitimately retryable delivery.
+func claimDelivery(ctx context.Context, db bun.IDB, workerID string, lease time.Duration, maxAttempts int) (*Delivery, error) {
 	const q = `
 UPDATE ops.webhook_deliveries SET
     status = 'running',
@@ -71,7 +79,7 @@ UPDATE ops.webhook_deliveries SET
 WHERE id = (
     SELECT id FROM ops.webhook_deliveries
     WHERE status = 'queued'
-       OR (status = 'running' AND lease_expires_at < now())
+       OR (status = 'running' AND lease_expires_at < now() AND attempts < ?)
     ORDER BY created_at
     FOR UPDATE SKIP LOCKED
     LIMIT 1
@@ -79,13 +87,40 @@ WHERE id = (
 RETURNING *`
 
 	d := new(Delivery)
-	if err := db.NewRaw(q, workerID, int(lease.Seconds())).Scan(ctx, d); err != nil {
+	if err := db.NewRaw(q, workerID, int(lease.Seconds()), maxAttempts).Scan(ctx, d); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
 	return d, nil
+}
+
+// reapExhaustedDeliveries dead-letters deliveries left stuck 'running' past their
+// lease with attempts already at the cap -- the terminal state for a delivery
+// whose worker was killed (OOM/SIGKILL) before it could call failDelivery, which
+// claimDelivery now refuses to reclaim. Returns how many were reaped. Run on a
+// timer by runStuckDeliveryReaper; safe to run from every worker concurrently
+// (each UPDATE only touches rows no one holds).
+func reapExhaustedDeliveries(ctx context.Context, db bun.IDB, maxAttempts int) (int, error) {
+	res, err := db.NewUpdate().Model((*Delivery)(nil)).
+		Set("status = 'dead'").
+		Set("error = ?", "dead-lettered: the worker applying this delivery stopped before it finished, and its retries are exhausted").
+		Set("finished_at = now()").
+		Set("worker_id = NULL").
+		Set("lease_expires_at = NULL").
+		Where("status = 'running'").
+		Where("lease_expires_at < now()").
+		Where("attempts >= ?", maxAttempts).
+		Exec(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("webhook: reap stuck deliveries: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("webhook: reap stuck deliveries: %w", err)
+	}
+	return int(n), nil
 }
 
 // heartbeatDelivery extends a running delivery's lease; false means it was
