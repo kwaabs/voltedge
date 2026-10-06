@@ -611,10 +611,21 @@ Each node carries the impedance back to the source and the fault current there:
 | `nominal_base_v` | the base those ohms and the current are referred to (run nominal above a transformer, secondary below) |
 | `fault_current_amps` | the **prospective bolted-fault current** here — the total duty switchgear must interrupt |
 | `grid_contribution_amps` / `generator_contribution_amps` | *(only when a generator contributes)* the split between grid infeed and embedded generation |
+| `xr_ratio` / `peak_asymmetry_kappa` / `peak_fault_current_amps` | the **making/peak-withstand duty** — see below |
 | `circuit_id` / `circuit_ref` | which circuit this point belongs to |
 | `material_resolved` | whether every impedance-bearing element on the path resolved (else the current is an optimistic **upper bound**) |
 
 On an SLG run each node additionally reports `grounded`, `zero_seq_resistance_ohm`/`zero_seq_reactance_ohm`, `ground_fault_current_amps`, `ground_path_resolved`, and `zero_seq_estimated` (§4.6).
+
+**Peak (making) duty.** `fault_current_amps` is the *symmetrical RMS* current. In the first half-cycle the fault current carries a DC offset that makes the actual crest higher — the current a device must **make** and momentarily **withstand**. From the path's `X/R` (`xr_ratio`), the study reports the standard IEC 60909 asymmetry factor
+
+$$\kappa = 1.02 + 0.98\,e^{-3R/X}\quad(1.02 < \kappa \le 2.0)$$
+
+(`peak_asymmetry_kappa`) and the peak current `peak_fault_current_amps`
+
+$$i_p = \kappa\,\sqrt{2}\,I_\text{sym}.$$
+
+A stiff, inductive source (high `X/R`) pushes `κ` toward 2.0 — the peak approaches `2√2 ≈ 2.83×` the RMS; a resistive path barely offsets. The three fields are omitted where `X/R` is undefined (no resistance on the path) or there is no fault current. This is the closed-form *making*-duty figure — **not** a time-domain *breaking* duty (which needs a contact-parting time and is a separate study), and it does **not** change the arc-flash number (IEEE 1584 uses the symmetrical current).
 
 ⚠️ **Read `material_resolved` on the worst-case nodes.** A fault current computed with a missing conductor or transformer impedance is *too high* — the missing ohms would only reduce it — so an unresolved path gives an optimistic upper bound, flagged. And a node with **exactly zero** path impedance (an ideal source with no conductor yet between it and the fault) reports **no current** rather than a bogus infinity — the honest read of *"unbounded behind an ideal source; set `source_r_ohm`/`source_x_ohm` on the start feature for a finite figure."*
 

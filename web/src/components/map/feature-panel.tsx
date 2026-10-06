@@ -2691,6 +2691,10 @@ export function FeaturePanel() {
   // non-network feature has nothing to "open."
   const selectedClass = featureClasses?.feature_classes.find((fc) => fc.code === selected?.featureClassCode)
   const selectedNetworkRole = selectedClass?.network_role
+  // A boundary transformer (DIST_XFMR / POWER_XFMR) is the source of its own
+  // secondary network -- offer a one-click LV-network study that derives the
+  // run voltage from the transformer's secondary (no voltage input needed).
+  const selectedIsTransformerBoundary = selectedClass?.boundary_role === "transformer"
   const canIsolate = selectedNetworkRole === "junction" && Boolean(isolationConfig)
 
   // Demote-to-diagram-only (Phase 26 Slice 3): only a geometry_optional
@@ -2940,6 +2944,15 @@ export function FeaturePanel() {
                     Supply path (to source)
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  {selectedIsTransformerBoundary && (
+                    <>
+                      <DropdownMenuItem onSelect={armLoadFlow}>
+                        <Activity className="size-4" />
+                        Analyze LV network (from secondary)…
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
                   {/* The numeric analyses are grouped into cascading submenus so the
                       menu stays scannable as the analysis suite grows -- each arm
                       handler is unchanged, only the layout differs. */}

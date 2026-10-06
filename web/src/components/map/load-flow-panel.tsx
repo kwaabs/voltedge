@@ -2,6 +2,7 @@ import { useState } from "react"
 import { X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
+import { NOMINAL_VOLTAGE_HINT, resolveNominalVoltage, useDeriveVoltageDefault } from "@/components/map/analysis-voltage"
 import { inputClass } from "@/components/map/field-utils"
 import { LoadFlowNodesTable, type NodeColumn } from "@/components/map/load-flow-nodes-table"
 import { Button } from "@/components/ui/button"
@@ -123,10 +124,13 @@ drop = V_base − V = ${formatNumber(worst.nominal_base_v, 0)} − ${formatNumbe
  */
 export function LoadFlowPanel() {
   const armed = useLoadFlowStore((s) => s.armed)
+  const armedStart = useLoadFlowStore((s) => s.armedStart)
   const loading = useLoadFlowStore((s) => s.loading)
   const result = useLoadFlowStore((s) => s.result)
   const { data: featureClasses } = useFeatureClasses()
   const [voltageInput, setVoltageInput] = useState("230")
+  // Blank the voltage when armed from a transformer so its secondary is derived.
+  useDeriveVoltageDefault(armedStart, "230", setVoltageInput)
   const fp = useFloatingPanel(576, "max-h-80")
 
   if (!armed && !result) return null
@@ -210,9 +214,9 @@ export function LoadFlowPanel() {
   async function runLoadFlow() {
     const start = useLoadFlowStore.getState().armedStart
     if (!start) return
-    const nominalVoltageV = Number(voltageInput)
-    if (!Number.isFinite(nominalVoltageV) || nominalVoltageV <= 0) {
-      useToastStore.getState().pushError("Nominal voltage must be a positive number.")
+    const nv = resolveNominalVoltage(voltageInput)
+    if (!nv.ok) {
+      useToastStore.getState().pushError(nv.message)
       return
     }
 
@@ -220,7 +224,7 @@ export function LoadFlowPanel() {
     try {
       const response = await apiFetch<LoadFlowResult>("/analysis/load-flow", {
         method: "POST",
-        body: JSON.stringify({ start, nominal_voltage_v: nominalVoltageV }),
+        body: JSON.stringify({ start, ...(nv.value !== undefined && { nominal_voltage_v: nv.value }) }),
       })
       useLoadFlowStore.getState().setResult(response)
     } catch (err) {
@@ -247,9 +251,11 @@ export function LoadFlowPanel() {
           <label className="text-muted-foreground shrink-0 text-sm">Nominal voltage (V)</label>
           <input
             type="number"
-            className={cn(inputClass, "w-28")}
+            className={cn(inputClass, "w-40")}
             value={voltageInput}
             onChange={(e) => setVoltageInput(e.target.value)}
+            placeholder={NOMINAL_VOLTAGE_HINT}
+            title="Leave blank to analyse the LV network below a transformer start (its secondary voltage is used)."
             autoFocus
           />
           <Button size="sm" className="ml-auto" onClick={runLoadFlow} disabled={loading}>

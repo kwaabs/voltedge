@@ -2,6 +2,7 @@ import { useState } from "react"
 import { X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
+import { NOMINAL_VOLTAGE_HINT, resolveNominalVoltage, useDeriveVoltageDefault } from "@/components/map/analysis-voltage"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -95,6 +96,15 @@ function FaultCurrentExplanation({
     = ${formatNumber(governing.nominal_base_v / Math.sqrt(3), 0)} V / ${formatNumber(governing.impedance_ohm, 3)} Ω     (V_LN = ${formatNumber(governing.nominal_base_v, 0)} V / √3)
     = ${formatCurrent(governing.fault_current_amps!)}     (|Z| = R ${formatNumber(governing.resistance_ohm, 3)} + jX ${formatNumber(governing.reactance_ohm, 3)})`}</Formula>
           <p>Fault current falls as |Z| grows with distance from the source.</p>
+          {governing.peak_fault_current_amps !== undefined && governing.peak_asymmetry_kappa !== undefined && (
+            <p>
+              <b>Making duty (peak):</b> from the path's{" "}
+              <code>X/R = {formatNumber(governing.xr_ratio ?? 0, 1)}</code> the IEC 60909 asymmetry factor is{" "}
+              <code>κ = 1.02 + 0.98·e^(−3·R/X) = {formatNumber(governing.peak_asymmetry_kappa, 2)}</code>, so the
+              first-half-cycle peak is <code>i_p = κ·√2·Ibf = {formatCurrent(governing.peak_fault_current_amps)}</code> —
+              the crest a device must make/withstand, which the symmetrical figure alone understates.
+            </p>
+          )}
         </>
       )}
       {(flagged > 0 || ideal > 0 || result.barriers.length > 0) && (
@@ -125,10 +135,13 @@ function FaultCurrentExplanation({
 
 export function FaultCurrentPanel() {
   const armed = useFaultCurrentStore((s) => s.armed)
+  const armedStart = useFaultCurrentStore((s) => s.armedStart)
   const loading = useFaultCurrentStore((s) => s.loading)
   const result = useFaultCurrentStore((s) => s.result)
   const { data: featureClasses } = useFeatureClasses()
   const [voltageInput, setVoltageInput] = useState("230")
+  // Blank the voltage when armed from a transformer so its secondary is derived.
+  useDeriveVoltageDefault(armedStart, "230", setVoltageInput)
   const fp = useFloatingPanel(576, "max-h-80")
 
   if (!armed && !result) return null
@@ -138,9 +151,9 @@ export function FaultCurrentPanel() {
   async function runFaultCurrent() {
     const start = useFaultCurrentStore.getState().armedStart
     if (!start) return
-    const nominalVoltageV = Number(voltageInput)
-    if (!Number.isFinite(nominalVoltageV) || nominalVoltageV <= 0) {
-      useToastStore.getState().pushError("Nominal voltage must be a positive number.")
+    const nv = resolveNominalVoltage(voltageInput)
+    if (!nv.ok) {
+      useToastStore.getState().pushError(nv.message)
       return
     }
 
@@ -148,7 +161,7 @@ export function FaultCurrentPanel() {
     try {
       const response = await apiFetch<FaultCurrentResult>("/analysis/fault-current", {
         method: "POST",
-        body: JSON.stringify({ start, nominal_voltage_v: nominalVoltageV }),
+        body: JSON.stringify({ start, ...(nv.value !== undefined && { nominal_voltage_v: nv.value }) }),
       })
       useFaultCurrentStore.getState().setResult(response)
     } catch (err) {
@@ -175,9 +188,11 @@ export function FaultCurrentPanel() {
           <label className="text-muted-foreground shrink-0 text-sm">Nominal voltage (V)</label>
           <input
             type="number"
-            className={cn(inputClass, "w-28")}
+            className={cn(inputClass, "w-40")}
             value={voltageInput}
             onChange={(e) => setVoltageInput(e.target.value)}
+            placeholder={NOMINAL_VOLTAGE_HINT}
+            title="Leave blank to analyse the LV network below a transformer start (its secondary voltage is used)."
             autoFocus
           />
           <Button size="sm" className="ml-auto" onClick={runFaultCurrent} disabled={loading}>
@@ -200,6 +215,7 @@ export function FaultCurrentPanel() {
                 <th className="bg-popover px-3 py-1.5 font-medium">Level</th>
                 <th className="bg-popover px-3 py-1.5 font-medium">Impedance</th>
                 <th className="bg-popover px-3 py-1.5 font-medium">Fault current</th>
+                <th className="bg-popover px-3 py-1.5 font-medium">Peak (making)</th>
               </tr>
             </thead>
             <tbody>
@@ -244,6 +260,24 @@ export function FaultCurrentPanel() {
                         <span title="Unbounded behind an ideal source -- set source_r_ohm/source_x_ohm on the start feature">∞</span>
                       )}
                     </td>
+                    <td className="px-3 py-1.5">
+                      {node.peak_fault_current_amps !== undefined ? (
+                        <span
+                          title={
+                            node.peak_asymmetry_kappa !== undefined
+                              ? `Peak (crest) asymmetrical current i_p = κ·√2·I_sym, κ = ${formatNumber(node.peak_asymmetry_kappa, 2)} (IEC 60909, from X/R). The making/peak-withstand duty.`
+                              : undefined
+                          }
+                        >
+                          <div>{formatCurrent(node.peak_fault_current_amps)}</div>
+                          {node.xr_ratio !== undefined && (
+                            <div className="text-muted-foreground text-xs">X/R {formatNumber(node.xr_ratio, 1)}</div>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
                   </tr>
                 )
               })}
@@ -258,7 +292,7 @@ export function FaultCurrentPanel() {
                     <div>{classNameFor(b.feature_class)}</div>
                     <div className="font-mono text-xs">{shortId(b.feature_id)}</div>
                   </td>
-                  <td className="px-3 py-1.5" colSpan={3}>
+                  <td className="px-3 py-1.5" colSpan={4}>
                     Stopped here (open device)
                   </td>
                 </tr>

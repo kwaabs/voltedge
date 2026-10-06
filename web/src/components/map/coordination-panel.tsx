@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Crosshair, X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
+import { NOMINAL_VOLTAGE_HINT, resolveNominalVoltage, useDeriveVoltageDefault } from "@/components/map/analysis-voltage"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -349,6 +350,8 @@ export function CoordinationPanel() {
   const selected = useSelectionStore((s) => s.selected)
   const { data: featureClasses } = useFeatureClasses()
   const [voltageInput, setVoltageInput] = useState("11000")
+  // Blank the voltage when armed from a transformer so its secondary is derived.
+  useDeriveVoltageDefault(armedStart, "11000", setVoltageInput)
   const [ctiInput, setCtiInput] = useState("0.3")
   const fp = useFloatingPanel(736, "max-h-[80vh]")
 
@@ -375,9 +378,9 @@ export function CoordinationPanel() {
     const start = useCoordinationStore.getState().armedStart
     const fault = useCoordinationStore.getState().armedFault
     if (!start || !fault) return
-    const nominalVoltageV = Number(voltageInput)
-    if (!Number.isFinite(nominalVoltageV) || nominalVoltageV <= 0) {
-      useToastStore.getState().pushError("Nominal voltage must be a positive number.")
+    const nv = resolveNominalVoltage(voltageInput)
+    if (!nv.ok) {
+      useToastStore.getState().pushError(nv.message)
       return
     }
     const cti = Number(ctiInput)
@@ -390,7 +393,7 @@ export function CoordinationPanel() {
     try {
       const response = await apiFetch<CoordinationResult>("/analysis/coordination", {
         method: "POST",
-        body: JSON.stringify({ start, fault, nominal_voltage_v: nominalVoltageV, cti_seconds: cti }),
+        body: JSON.stringify({ start, fault, ...(nv.value !== undefined && { nominal_voltage_v: nv.value }), cti_seconds: cti }),
       })
       useCoordinationStore.getState().setResult(response)
     } catch (err) {
@@ -458,6 +461,8 @@ export function CoordinationPanel() {
               className={cn(inputClass, "w-24")}
               value={voltageInput}
               onChange={(e) => setVoltageInput(e.target.value)}
+              placeholder={NOMINAL_VOLTAGE_HINT}
+              title="Leave blank to use a transformer start's secondary voltage (LV coordination)."
               autoFocus
             />
             <label className="text-muted-foreground ml-2 shrink-0 text-sm">CTI (s)</label>

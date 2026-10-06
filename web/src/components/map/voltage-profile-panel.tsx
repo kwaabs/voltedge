@@ -2,6 +2,7 @@ import { useState } from "react"
 import { X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
+import { NOMINAL_VOLTAGE_HINT, resolveNominalVoltage, useDeriveVoltageDefault } from "@/components/map/analysis-voltage"
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -127,10 +128,13 @@ function VoltageProfileExplanation({
  */
 export function VoltageProfilePanel() {
   const armed = useVoltageProfileStore((s) => s.armed)
+  const armedStart = useVoltageProfileStore((s) => s.armedStart)
   const loading = useVoltageProfileStore((s) => s.loading)
   const result = useVoltageProfileStore((s) => s.result)
   const { data: featureClasses } = useFeatureClasses()
   const [voltageInput, setVoltageInput] = useState("230")
+  // Blank the voltage when armed from a transformer so its secondary is derived.
+  useDeriveVoltageDefault(armedStart, "230", setVoltageInput)
   const [minPuInput, setMinPuInput] = useState("0.95")
   const [maxPuInput, setMaxPuInput] = useState("1.05")
   const fp = useFloatingPanel(640, "max-h-[22rem]")
@@ -144,9 +148,9 @@ export function VoltageProfilePanel() {
   async function runVoltageProfile() {
     const start = useVoltageProfileStore.getState().armedStart
     if (!start) return
-    const nominalVoltageV = Number(voltageInput)
-    if (!Number.isFinite(nominalVoltageV) || nominalVoltageV <= 0) {
-      useToastStore.getState().pushError("Nominal voltage must be a positive number.")
+    const nv = resolveNominalVoltage(voltageInput)
+    if (!nv.ok) {
+      useToastStore.getState().pushError(nv.message)
       return
     }
     // Blank band field => let the server apply its ANSI C84.1 default.
@@ -167,7 +171,7 @@ export function VoltageProfilePanel() {
         method: "POST",
         body: JSON.stringify({
           start,
-          nominal_voltage_v: nominalVoltageV,
+          ...(nv.value !== undefined && { nominal_voltage_v: nv.value }),
           min_voltage_pu: minPu,
           max_voltage_pu: maxPu,
         }),
@@ -203,9 +207,11 @@ export function VoltageProfilePanel() {
             <label className="text-muted-foreground text-xs">Nominal voltage (V)</label>
             <input
               type="number"
-              className={cn(inputClass, "w-28")}
+              className={cn(inputClass, "w-40")}
               value={voltageInput}
               onChange={(e) => setVoltageInput(e.target.value)}
+              placeholder={NOMINAL_VOLTAGE_HINT}
+              title="Leave blank to analyse the LV network below a transformer start (its secondary voltage is used)."
               autoFocus
             />
           </div>

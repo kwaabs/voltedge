@@ -32,6 +32,14 @@ export interface FaultCurrentNodeResult {
   nominal_base_v: number
   fault_current_amps?: number
   material_resolved: boolean
+  /** Peak (crest) asymmetrical duty, from the path's X/R (IEC 60909): xr_ratio =
+   * X/R, peak_asymmetry_kappa = κ = 1.02 + 0.98·e^(−3·R/X), peak_fault_current_amps
+   * = i_p = κ·√2·I_sym -- the making/peak-withstand current, which the symmetrical
+   * fault_current_amps alone understates. Absent when the path has no resistance
+   * (X/R undefined) or no fault current. */
+  xr_ratio?: number
+  peak_asymmetry_kappa?: number
+  peak_fault_current_amps?: number
 }
 
 /** Mirrors api/internal/powerflow's faultCurrentResponse -- see
