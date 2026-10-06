@@ -108,6 +108,14 @@ func sectionTrace(ctx context.Context, db bun.IDB, req sectionRequest) (*section
 	}
 	loader := newFeatureClassLoader()
 
+	// Phase 58 spatial gate: refuse an out-of-scope start and disclose only
+	// in-scope features, exactly as runTrace does (see scope.go). A no-op unless
+	// enforcement is on and the caller is scoped.
+	scope, err := enforceScopeStart(ctx, db, loader, start, req.Start)
+	if err != nil {
+		return nil, err
+	}
+
 	upstreamVisited, _, upstreamHits, _, _, _, upTruncated, err := bfs(ctx, db, start, "UPSTREAM", barriers, loader, nil, boundaryClassIDs, false, false, nil)
 	if err != nil {
 		return nil, err
@@ -127,6 +135,21 @@ func sectionTrace(ctx context.Context, db bun.IDB, req sectionRequest) (*section
 	featureNodes := make([]node, 0, len(featureSet))
 	for n := range featureSet {
 		featureNodes = append(featureNodes, n)
+	}
+
+	// Phase 58: drop out-of-scope features and boundaries the walk passed through,
+	// so the response (and its service rollup, built below from featureNodes)
+	// discloses only in-scope features.
+	if scope.apply {
+		if featureNodes, err = scope.filter(ctx, db, featureNodes, loader); err != nil {
+			return nil, err
+		}
+		if upstreamHits, err = scope.filter(ctx, db, upstreamHits, loader); err != nil {
+			return nil, err
+		}
+		if downstreamHits, err = scope.filter(ctx, db, downstreamHits, loader); err != nil {
+			return nil, err
+		}
 	}
 
 	allNodes := make([]node, 0, len(featureNodes)+len(upstreamHits)+len(downstreamHits))

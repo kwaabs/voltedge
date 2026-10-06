@@ -123,6 +123,14 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 	}
 	loader := newFeatureClassLoader()
 
+	// Phase 58 spatial gate: refuse an out-of-scope device and disclose only
+	// in-scope features in every result set below, exactly as runTrace does (see
+	// scope.go). A no-op unless enforcement is on and the caller is scoped.
+	scope, err := enforceScopeStart(ctx, db, loader, device, req.Device)
+	if err != nil {
+		return nil, err
+	}
+
 	downstreamNeighbors, err := neighborsOf(ctx, db, device, "DOWNSTREAM")
 	if err != nil {
 		return nil, err
@@ -166,6 +174,19 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 	}
 	truncated = truncated || upTruncated
 
+	// Phase 58: drop out-of-scope features from the de-energized set and the
+	// upstream boundary before anything derived from them (backfeed, critical,
+	// service) is computed, so every disclosed set is in-scope. The backfeed
+	// neighbours below are filtered after they are gathered.
+	if scope.apply {
+		if deEnergizedNodes, err = scope.filter(ctx, db, deEnergizedNodes, loader); err != nil {
+			return nil, err
+		}
+		if boundaryHits, err = scope.filter(ctx, db, boundaryHits, loader); err != nil {
+			return nil, err
+		}
+	}
+
 	// Backfeed check: every physically-connected neighbor (either
 	// direction -- a real second source doesn't announce which way its
 	// edge happens to be recorded) of anything de-energized, that isn't
@@ -192,6 +213,12 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 	backfeedNodes := make([]node, 0, len(backfeedSet))
 	for n := range backfeedSet {
 		backfeedNodes = append(backfeedNodes, n)
+	}
+	// Phase 58: a backfeed path outside the user's territories is not disclosed.
+	if scope.apply {
+		if backfeedNodes, err = scope.filter(ctx, db, backfeedNodes, loader); err != nil {
+			return nil, err
+		}
 	}
 
 	allNodes := make([]node, 0, len(deEnergizedNodes)+len(boundaryHits)+len(backfeedNodes))

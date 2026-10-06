@@ -105,6 +105,16 @@ func supplyPathTrace(ctx context.Context, db bun.IDB, req supplyPathRequest) (*s
 		return nil, err
 	}
 
+	loader := newFeatureClassLoader()
+
+	// Phase 58 spatial gate: refuse an out-of-scope start and disclose only
+	// in-scope features, exactly as runTrace does (see scope.go). A no-op unless
+	// enforcement is on and the caller is scoped.
+	scope, err := enforceScopeStart(ctx, db, loader, start, req.Start)
+	if err != nil {
+		return nil, err
+	}
+
 	// Barrier-free upstream walk, with each reached node's hop distance so the
 	// path (and its milestones) come back nearest-first.
 	reached, truncated, err := reachableWithDepth(ctx, db, start, "UPSTREAM")
@@ -117,6 +127,24 @@ func supplyPathTrace(ctx context.Context, db bun.IDB, req supplyPathRequest) (*s
 		}
 		return reached[i].n.featureID < reached[j].n.featureID
 	})
+
+	// Phase 58: filter the reached set to in-scope nodes BEFORE anything is
+	// derived from it (ordered path, milestones, serving transformer, source,
+	// service rollup), so no feature outside the user's territories is ever
+	// surfaced -- and an out-of-scope hop can't become the reported source.
+	if scope.apply {
+		filtered := reached[:0]
+		for _, nd := range reached {
+			ok, perr := scope.permits(ctx, db, nd.n, loader)
+			if perr != nil {
+				return nil, perr
+			}
+			if ok {
+				filtered = append(filtered, nd)
+			}
+		}
+		reached = filtered
+	}
 
 	orderedNodes := make([]node, len(reached))
 	for i, nd := range reached {
@@ -131,7 +159,6 @@ func supplyPathTrace(ctx context.Context, db bun.IDB, req supplyPathRequest) (*s
 		return nil, err
 	}
 
-	loader := newFeatureClassLoader()
 	features, err := toTracedFeatures(ctx, db, orderedNodes, classCodes, loader)
 	if err != nil {
 		return nil, err

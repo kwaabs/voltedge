@@ -56,6 +56,32 @@ func resolveTraceScope(ctx context.Context, db bun.IDB) (traceScope, error) {
 	return traceScope{apply: true, allowed: set}, nil
 }
 
+// enforceScopeStart resolves the spatial scope for a trace run and verifies the
+// start node is in scope, returning the ready traceScope for the caller to then
+// filter its result sets with. It is the synthetic traces' (feeder / section /
+// supply-path / service / isolate) shared equivalent of the start-gate runTrace
+// applies inline: all of them must refuse an out-of-scope start the same way --
+// a notFound, identical to what GET gives for a feature outside the user's
+// territories -- or they would be a Phase 58 bypass that discloses features the
+// plain /trace endpoint hides. A no-op (scope.apply false) unless enforcement is
+// on and the caller is genuinely scoped.
+func enforceScopeStart(ctx context.Context, db bun.IDB, loader *featureClassLoader, start node, startRef featureRef) (traceScope, error) {
+	scope, err := resolveTraceScope(ctx, db)
+	if err != nil {
+		return traceScope{}, err
+	}
+	if scope.apply {
+		ok, err := scope.permits(ctx, db, start, loader)
+		if err != nil {
+			return traceScope{}, err
+		}
+		if !ok {
+			return traceScope{}, notFound("feature %s (%s) not found", startRef.FeatureID, startRef.FeatureClass)
+		}
+	}
+	return scope, nil
+}
+
 // permits reports whether one node is visible to the scoped user. A
 // geometry-less class (a relay, a panel: no territory_id column) carries no
 // territory and is always permitted -- territories scope geographic features

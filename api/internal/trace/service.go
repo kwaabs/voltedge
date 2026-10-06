@@ -377,9 +377,25 @@ func serviceTrace(ctx context.Context, db bun.IDB, req serviceRequest) (*service
 	}
 	loader := newFeatureClassLoader()
 
+	// Phase 58 spatial gate: refuse an out-of-scope start and roll up only
+	// in-scope load leaves, exactly as runTrace does (see scope.go). A no-op
+	// unless enforcement is on and the caller is scoped.
+	scope, err := enforceScopeStart(ctx, db, loader, start, req.Start)
+	if err != nil {
+		return nil, err
+	}
+
 	visited, _, _, _, _, _, truncated, err := bfs(ctx, db, start, "DOWNSTREAM", barriers, loader, nil, nil, false, false, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	// Drop out-of-scope features the walk passed through, so the rollup and its
+	// per-point breakdown count only load within the user's territories.
+	if scope.apply {
+		if visited, err = scope.filter(ctx, db, visited, loader); err != nil {
+			return nil, err
+		}
 	}
 
 	classCodes, err := nodeClassCodes(ctx, db, visited)
