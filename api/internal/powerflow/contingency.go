@@ -236,7 +236,7 @@ func runContingency(ctx context.Context, db bun.IDB, req contingencyRequest) (*c
 
 	return &contingencyResponse{
 		Source:          req.Source,
-		NominalVoltageV: req.NominalVoltageV,
+		NominalVoltageV: base.nominalV, // the base actually used (derived secondary at a transformer start)
 		MinVoltagePu:    minPu,
 		MaxVoltagePu:    maxPu,
 		BaseLoadKW:      baseLoadKW,

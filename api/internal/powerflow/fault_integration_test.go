@@ -271,6 +271,14 @@ func TestSourceFromStart(t *testing.T) {
 		t.Fatalf("transformer boundary: (%v,%v,%v,%v), want (0.002,0.014,400,true)", r, x, base, fromX)
 	}
 
+	// nominal_voltage_v OMITTED (0) at a transformer boundary -> still derives the
+	// secondary voltage as the base (Slice 2: no voltage input needed to analyse the
+	// LV network below a transformer).
+	r, x, base, fromX = sourceFromStart(xfmrBoundaryState(0.002, 0.014, 400, nil), 0)
+	if !fromX || base != 400 {
+		t.Fatalf("omitted nominal at transformer: base=%v fromTransformer=%v, want 400/true", base, fromX)
+	}
+
 	// Upstream Thevenin source_r/x is added in series on the secondary base.
 	r, x, base, fromX = sourceFromStart(
 		xfmrBoundaryState(0.002, 0.014, 400, map[string]any{"source_r_ohm": 0.001, "source_x_ohm": 0.003}), 11000)

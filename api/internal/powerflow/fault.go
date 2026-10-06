@@ -56,8 +56,11 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 	if req.Start.FeatureClass == "" || req.Start.FeatureID == "" {
 		return nil, invalid("start.feature_class and start.feature_id are required")
 	}
-	if req.NominalVoltageV <= 0 {
-		return nil, invalid("nominal_voltage_v must be a positive number")
+	// nominal_voltage_v may be OMITTED (0) when the start is a boundary transformer
+	// -- its secondary voltage is then the run nominal (checked after the start is
+	// resolved, below). A negative value is always invalid.
+	if req.NominalVoltageV < 0 {
+		return nil, invalid("nominal_voltage_v must not be negative")
 	}
 	faultType := req.FaultType
 	if faultType == "" {
@@ -104,6 +107,9 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 	// nominal. startBaseV carries the resolved base (the secondary volts for a
 	// transformer start, else the supplied nominal).
 	sourceR, sourceX, startBaseV, _ := sourceFromStart(states[start], req.NominalVoltageV)
+	if startBaseV <= 0 {
+		return nil, errNominalRequired()
+	}
 	paths := accumulateSeriesImpedance(tr, states, start, startBaseV, sourceR, sourceX)
 
 	// Embedded-generation fault infeed (Tier A): every GENERATOR in the tree is
@@ -143,7 +149,7 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 
 	return &faultCurrentResponse{
 		Start:           req.Start,
-		NominalVoltageV: req.NominalVoltageV,
+		NominalVoltageV: startBaseV, // the base actually used (derived secondary at a transformer start)
 		FaultType:       faultType,
 		Nodes:           nodes,
 		Barriers:        toFeatureRefs(barrierHits, classCodes),

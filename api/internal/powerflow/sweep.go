@@ -111,8 +111,10 @@ func runSweep(ctx context.Context, db bun.IDB, startRef featureRef, nominalV flo
 	if startRef.FeatureClass == "" || startRef.FeatureID == "" {
 		return nil, invalid("start.feature_class and start.feature_id are required")
 	}
-	if nominalV <= 0 {
-		return nil, invalid("nominal_voltage_v must be a positive number")
+	// nominalV may be omitted (0) at a boundary transformer start -- its secondary
+	// voltage is used (derived after the start resolves, below). Negative is invalid.
+	if nominalV < 0 {
+		return nil, invalid("nominal_voltage_v must not be negative")
 	}
 
 	start, err := resolveNode(ctx, db, startRef)
@@ -144,6 +146,9 @@ func runSweep(ctx context.Context, db bun.IDB, startRef featureRef, nominalV flo
 	// regulation shows in the sending-end voltage. Any other start is its own
 	// Thevenin source_r/x on the supplied nominal (sourceFromStart falls back).
 	sourceR, sourceX, startBaseV, _ := sourceFromStart(states[start], nominalV)
+	if startBaseV <= 0 {
+		return nil, errNominalRequired()
+	}
 	forwardSweep(tr, states, start, startBaseV, sourceR, sourceX)
 
 	allNodes := append(append([]node{}, tr.order...), barrierHits...)
@@ -154,7 +159,10 @@ func runSweep(ctx context.Context, db bun.IDB, startRef featureRef, nominalV flo
 
 	return &sweptTree{
 		tr: tr, states: states, start: start,
-		classCodes: classCodes, barrierHits: barrierHits, nominalV: nominalV,
+		// startBaseV, not the raw nominalV: at a boundary transformer start the run
+		// nominal is the derived secondary voltage, so a formatter's per-unit base
+		// is never zero on an omitted-nominal run.
+		classCodes: classCodes, barrierHits: barrierHits, nominalV: startBaseV,
 	}, nil
 }
 
@@ -170,7 +178,7 @@ func runLoadFlow(ctx context.Context, db bun.IDB, req loadFlowRequest) (*loadFlo
 
 	return &loadFlowResponse{
 		Start:           req.Start,
-		NominalVoltageV: req.NominalVoltageV,
+		NominalVoltageV: swept.nominalV, // the base actually used (derived secondary at a transformer start)
 		Iterations:      sweepIterations,
 		Nodes:           nodes,
 		Barriers:        toFeatureRefs(swept.barrierHits, swept.classCodes),

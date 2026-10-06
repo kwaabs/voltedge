@@ -222,7 +222,7 @@ func runMeshLoadFlow(ctx context.Context, db bun.IDB, req meshedLoadFlowRequest)
 
 	return &meshedLoadFlowResponse{
 		Start:           req.Start,
-		NominalVoltageV: req.NominalVoltageV,
+		NominalVoltageV: swept.nominalV, // the base actually used (derived secondary at a transformer start)
 		Iterations:      sweepIterations,
 		CompPasses:      passes,
 		LoopCount:       len(loopResults),

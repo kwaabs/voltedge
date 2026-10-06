@@ -80,14 +80,14 @@ type profileSummary struct {
 // subset outside the voltage band, the feeder summary, and the barrier
 // hits (same meaning as load-flow's).
 type voltageProfileResponse struct {
-	Start           featureRef    `json:"start"`
-	NominalVoltageV float64       `json:"nominal_voltage_v"`
-	MinVoltagePu    float64       `json:"min_voltage_pu"`
-	MaxVoltagePu    float64       `json:"max_voltage_pu"`
-	Nodes           []profileNode `json:"nodes"`
-	Violations      []featureRef  `json:"violations"`
+	Start           featureRef     `json:"start"`
+	NominalVoltageV float64        `json:"nominal_voltage_v"`
+	MinVoltagePu    float64        `json:"min_voltage_pu"`
+	MaxVoltagePu    float64        `json:"max_voltage_pu"`
+	Nodes           []profileNode  `json:"nodes"`
+	Violations      []featureRef   `json:"violations"`
 	Summary         profileSummary `json:"summary"`
-	Barriers        []featureRef  `json:"barriers"`
+	Barriers        []featureRef   `json:"barriers"`
 }
 
 // runVoltageProfile is POST /analysis/voltage-profile: run the shared
@@ -208,7 +208,7 @@ func runVoltageProfile(ctx context.Context, db bun.IDB, req voltageProfileReques
 
 	return &voltageProfileResponse{
 		Start:           req.Start,
-		NominalVoltageV: req.NominalVoltageV,
+		NominalVoltageV: swept.nominalV, // the base actually used (derived secondary at a transformer start)
 		MinVoltagePu:    minPu,
 		MaxVoltagePu:    maxPu,
 		Nodes:           nodes,

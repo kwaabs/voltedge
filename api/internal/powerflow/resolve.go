@@ -668,6 +668,16 @@ func sourceFromStart(st *nodeState, suppliedNominalV float64) (rOhm, xOhm, baseV
 	return sr, sx, suppliedNominalV, false
 }
 
+// errNominalRequired is the invalid-request error a study returns when it was
+// given no nominal_voltage_v (omitted/zero) and the start is NOT a boundary
+// transformer to derive one from -- so there is no voltage base to run on. The
+// paired convenience: at a boundary transformer start, nominal_voltage_v may be
+// omitted and its secondary voltage is used (sourceFromStart returns it as the
+// base), so "analyse the LV network below this transformer" needs no voltage input.
+func errNominalRequired() error {
+	return invalid("nominal_voltage_v is required -- it may be omitted only when the start is a boundary transformer, whose secondary voltage is then used")
+}
+
 // resolveSourceZeroSeq reads the start node's own zero-sequence source
 // impedance. ok = false when neither field is set, telling the SLG calc to fall
 // back to the positive-sequence source impedance rather than an ideal zero

@@ -180,8 +180,11 @@ func runArcFlash(ctx context.Context, db bun.IDB, req arcFlashRequest) (*arcFlas
 	if req.Start.FeatureClass == "" || req.Start.FeatureID == "" {
 		return nil, invalid("start.feature_class and start.feature_id are required")
 	}
-	if req.NominalVoltageV <= 0 {
-		return nil, invalid("nominal_voltage_v must be a positive number")
+	// nominal_voltage_v may be omitted (0) at a boundary transformer start (its
+	// secondary is used); negative is always invalid. The underlying fault run and
+	// this study's own source seed both enforce a derivable base below.
+	if req.NominalVoltageV < 0 {
+		return nil, invalid("nominal_voltage_v must not be negative")
 	}
 	capS := req.MaxClearingTimeS
 	if capS <= 0 {
@@ -228,6 +231,9 @@ func runArcFlash(ctx context.Context, db bun.IDB, req arcFlashRequest) (*arcFlas
 	// distribution transformer sees the real, transformer-limited fault), else the
 	// start's own Thevenin source_r/x on the supplied nominal.
 	sourceR, sourceX, startBaseV, _ := sourceFromStart(states[start], req.NominalVoltageV)
+	if startBaseV <= 0 {
+		return nil, errNominalRequired()
+	}
 	paths := accumulateSeriesImpedance(tr, states, start, startBaseV, sourceR, sourceX)
 	classCodes, err := nodeClassCodes(ctx, db, append(append([]node{}, tr.order...), barrierHits...))
 	if err != nil {
@@ -321,7 +327,7 @@ func runArcFlash(ctx context.Context, db bun.IDB, req arcFlashRequest) (*arcFlas
 
 	return &arcFlashResponse{
 		Start:            req.Start,
-		NominalVoltageV:  req.NominalVoltageV,
+		NominalVoltageV:  startBaseV, // the base actually used (derived secondary at a transformer start)
 		Standard:         arcFlashStandard,
 		MaxClearingTimeS: capS,
 		Nodes:            results,

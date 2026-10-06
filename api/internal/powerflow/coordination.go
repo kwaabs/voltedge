@@ -245,8 +245,10 @@ func runCoordination(ctx context.Context, db bun.IDB, req coordinationRequest) (
 	if req.Fault.FeatureClass == "" || req.Fault.FeatureID == "" {
 		return nil, invalid("fault.feature_class and fault.feature_id are required")
 	}
-	if req.NominalVoltageV <= 0 {
-		return nil, invalid("nominal_voltage_v must be a positive number")
+	// nominal_voltage_v may be omitted (0) at a boundary transformer start (its
+	// secondary is used, checked after the start resolves); negative is invalid.
+	if req.NominalVoltageV < 0 {
+		return nil, invalid("nominal_voltage_v must not be negative")
 	}
 	if req.VoltageBasis != "" && req.VoltageBasis != basisLineToLine && req.VoltageBasis != basisLineToNeutral {
 		return nil, invalid("voltage_basis must be %q or %q", basisLineToLine, basisLineToNeutral)
@@ -296,6 +298,9 @@ func runCoordination(ctx context.Context, db bun.IDB, req coordinationRequest) (
 	// transformer), else the start's own Thevenin source_r/x on the supplied
 	// nominal. startBaseV is the base the through-fault current is referred to.
 	sourceR, sourceX, startBaseV, _ := sourceFromStart(states[start], req.NominalVoltageV)
+	if startBaseV <= 0 {
+		return nil, errNominalRequired()
+	}
 	paths := accumulateSeriesImpedance(tr, states, start, startBaseV, sourceR, sourceX)
 
 	allNodes := append(append([]node{}, tr.order...), barrierHits...)
@@ -393,7 +398,7 @@ func runCoordination(ctx context.Context, db bun.IDB, req coordinationRequest) (
 	return &coordinationResponse{
 		Start:            req.Start,
 		Fault:            req.Fault,
-		NominalVoltageV:  req.NominalVoltageV,
+		NominalVoltageV:  startBaseV, // the base actually used (derived secondary at a transformer start)
 		CommonBaseV:      fp.baseV,
 		CTISeconds:       cti,
 		FaultCurrentAmps: faultCurrent,
