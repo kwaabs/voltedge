@@ -39,6 +39,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/crud"
@@ -97,9 +98,37 @@ const (
 	// rows and the device falls back to online-only resolution.
 	packSchemaVersion = 10
 
-	defaultMinZoom = 6
+	// Tile zoom range for the pack's MBTiles. minZoom 8 covers any realistic
+	// pack's zoomed-out "whole work area" overview (below the source minzoom the
+	// network layer renders blank -- there is no under-zoom), while staying cheap
+	// (low-zoom tiles are few). maxZoom 16 (~2.4 m/pixel) separates typical utility
+	// features; the device VIEWS deeper than this via MapLibre over-zoom (the z16
+	// tiles scale up, spreading coincident points apart) and taps resolve to the
+	// full-precision SQLite geometry regardless -- so tiling to 16 gives z17/z18
+	// viewing at ~1/16th the tiling cost of building that deep. Bump maxZoom to 17
+	// only for ultra-dense urban LV (service connections 2-5 m apart) via
+	// FIELDPACK_MAX_ZOOM. Both overridable; see zoomRange().
+	defaultMinZoom = 8
 	defaultMaxZoom = 16
 )
+
+// maxPackFeatures caps how many features one pack may contain -- a safety bound
+// against a world/huge-bbox request that would build an unbounded pack (a long,
+// snapshot-holding build; a giant download; a device OOM on open). It sits above
+// the ~100k editable universe the design targets, with headroom; raise it with
+// FIELDSYNC_MAX_FEATURES. A build that trips it FAILS LOUDLY with an actionable
+// message rather than silently shipping an over-large pack -- the pack-build twin
+// of crud.MaxExportFeatures for the export path. Read once at init.
+var maxPackFeatures = maxPackFeaturesFromEnv()
+
+func maxPackFeaturesFromEnv() int {
+	if v := os.Getenv("FIELDSYNC_MAX_FEATURES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 200000
+}
 
 // buildResult carries the finished local artifacts + counts back to buildPack.
 type buildResult struct {
@@ -121,6 +150,13 @@ type buildResult struct {
 	inspTemplateItemCount int
 	assetTagCount         int
 	snapshotAt            time.Time
+	// The pack's feature extent in the geometries' stored SRID, accumulated as the
+	// features stream (hasExtent stays false until the first feature with geometry).
+	// Recorded in the manifest so the device frames the map O(1) on open instead of
+	// scanning + WKB-decoding every feature (PackDatabase.featureExtent).
+	hasExtent        bool
+	extMinX, extMinY float64
+	extMaxX, extMaxY float64
 }
 
 // packAttachmentMeta is one image attachment collected under the pack snapshot,
@@ -143,6 +179,7 @@ type packAttachmentMeta struct {
 // status = 'running' guards in completePack/failPack mean a pack cancelled out
 // from under this worker (its heartbeat cancels ctx) is never resurrected.
 func buildPack(ctx context.Context, db *bun.DB, store *export.ObjectStore, pack *FieldPack) {
+	start := time.Now()
 	var scope PackScope
 	if err := json.Unmarshal(pack.Scope, &scope); err != nil {
 		markPackFailed(ctx, db, pack.ID, fmt.Sprintf("corrupt pack scope: %v", err))
@@ -193,7 +230,10 @@ func buildPack(ctx context.Context, db *bun.DB, store *export.ObjectStore, pack 
 		"attachments", res.attachmentCount, "relclasses", res.relClassCount, "netrules", res.netRuleCount,
 		"defects", res.defectCount, "faults", res.faultCount, "workorders", res.workOrderCount,
 		"insptemplates", res.inspTemplateCount, "insptemplateitems", res.inspTemplateItemCount,
-		"assettags", res.assetTagCount, "tiles_bytes", tilesBytes, "data_bytes", dataBytes)
+		"assettags", res.assetTagCount, "tiles_bytes", tilesBytes, "data_bytes", dataBytes,
+		// Phase-0 build timing -- the per-pack build duration the scale plan needs to
+		// size build concurrency/replicas against the fleet's download surge.
+		"elapsed_ms", time.Since(start).Milliseconds())
 }
 
 // buildArtifacts does the read + encode: it writes the SQLite pack and the
@@ -441,6 +481,15 @@ func buildArtifacts(ctx context.Context, db *bun.DB, store *export.ObjectStore, 
 					}
 					packed[row.ID] = struct{}{}
 					res.featureCount++
+					// Safety cap: refuse an unbounded pack loudly rather than building
+					// a giant one that would be slow to build, huge to download, and
+					// risk OOMing the device on open.
+					if res.featureCount > maxPackFeatures {
+						return fmt.Errorf(
+							"pack exceeds the %d-feature limit -- narrow the bbox or the class set (or raise FIELDSYNC_MAX_FEATURES)",
+							maxPackFeatures)
+					}
+					accumulateExtent(&res, row)
 					return nil
 				})
 				if err != nil {
@@ -462,15 +511,22 @@ func buildArtifacts(ctx context.Context, db *bun.DB, store *export.ObjectStore, 
 			// The graph tables are included only when the requester's RBAC allowed
 			// it (frozen into the scope at enqueue). Both endpoints must be inside the
 			// packed feature set -- a dangling edge to a feature outside the bbox is
-			// useless to an offline trace and is dropped.
+			// useless to an offline trace and is dropped. The loaders JOIN the packed
+			// ids (a temp table) rather than scanning the whole global edge tables, so
+			// build it once up front when either graph is included.
+			if scope.IncludeConnectivity || scope.IncludeRelationships {
+				if err := createPackedIDTemp(ctx, tx, packed); err != nil {
+					return err
+				}
+			}
 			if scope.IncludeConnectivity {
-				res.connCount, err = loadConnectivity(ctx, tx, packed, connStmt)
+				res.connCount, err = loadConnectivity(ctx, tx, connStmt)
 				if err != nil {
 					return fmt.Errorf("loading connectivity: %w", err)
 				}
 			}
 			if scope.IncludeRelationships {
-				res.relCount, err = loadRelationships(ctx, tx, packed, relStmt)
+				res.relCount, err = loadRelationships(ctx, tx, relStmt)
 				if err != nil {
 					return fmt.Errorf("loading relationships: %w", err)
 				}
@@ -912,16 +968,54 @@ func insertClassMetadata(ctx context.Context, stmt *sql.Stmt, loaded *metadata.L
 	return err
 }
 
-// loadConnectivity streams every established connection, resolves each endpoint's
-// class code, and writes the ones whose BOTH endpoints are inside the packed
-// feature set. Streaming + in-Go membership filter keeps memory flat and avoids a
-// giant IN (...) over the packed id set; a bbox-scoped edge query is a later
-// optimization (docs/phase-21-field-tool.md, open items).
-func loadConnectivity(ctx context.Context, db bun.IDB, packed map[string]struct{}, stmt *sql.Stmt) (int, error) {
+// createPackedIDTemp materializes the packed feature-id set into a session TEMP
+// table (packed_feature_ids) so the graph loaders can JOIN against it -- an
+// index-backed scan of only the edges touching packed features -- instead of
+// scanning the WHOLE global feature_connectivity/_relationships tables and
+// filtering every row in Go (which was O(total network edges) per pack, the
+// dominant build cost on a large network). Both edge tables are indexed on their
+// endpoint id columns (migrations 0016/0017), so the join is a cheap nested-loop
+// or hash. Writing to a TEMP table is permitted inside the build's READ ONLY
+// snapshot tx (Postgres's read-only restriction exempts temporary tables), and
+// ON COMMIT DROP ties the table's lifetime to that tx so a pooled connection
+// never carries a stale one into the next build. Ids go in via one unnest over a
+// uuid[] literal -- one statement, no 150k-placeholder INSERT.
+func createPackedIDTemp(ctx context.Context, tx bun.IDB, packed map[string]struct{}) error {
+	if _, err := tx.ExecContext(ctx,
+		`CREATE TEMP TABLE packed_feature_ids (id uuid PRIMARY KEY) ON COMMIT DROP`); err != nil {
+		return fmt.Errorf("fieldpack: creating packed-id temp table: %w", err)
+	}
+	if len(packed) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(packed))
+	for id := range packed {
+		ids = append(ids, id)
+	}
+	// A Postgres uuid[] array literal: {id,id,...}. Uuids are hyphenated hex with
+	// no array-special characters, so they need no quoting. Cast + unnest expands
+	// it into rows server-side.
+	lit := "{" + strings.Join(ids, ",") + "}"
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO packed_feature_ids (id) SELECT unnest(?::uuid[])`, lit); err != nil {
+		return fmt.Errorf("fieldpack: populating packed-id temp table: %w", err)
+	}
+	return nil
+}
+
+// loadConnectivity writes every established connection whose BOTH endpoints are in
+// the pack (the packed_feature_ids temp table createPackedIDTemp built), resolving
+// each endpoint's class code. The two joins to packed_feature_ids ARE the exact
+// "both endpoints packed" predicate the old in-Go filter applied, so the result is
+// identical -- but Postgres scans only the edges incident to packed features (via
+// the feature_connectivity endpoint indexes) instead of the whole global table.
+func loadConnectivity(ctx context.Context, db bun.IDB, stmt *sql.Stmt) (int, error) {
 	const q = `
 SELECT c.id::text, ffrom.code, c.from_feature_id::text, c.from_terminal_id::text,
        fto.code, c.to_feature_id::text, c.to_terminal_id::text
 FROM runtime.feature_connectivity c
+JOIN packed_feature_ids pf ON pf.id = c.from_feature_id
+JOIN packed_feature_ids pt ON pt.id = c.to_feature_id
 JOIN metadata.feature_classes ffrom ON ffrom.id = c.from_feature_class_id
 JOIN metadata.feature_classes fto   ON fto.id   = c.to_feature_class_id`
 	rows, err := db.QueryContext(ctx, q)
@@ -937,12 +1031,6 @@ JOIN metadata.feature_classes fto   ON fto.id   = c.to_feature_class_id`
 		if err := rows.Scan(&id, &fromClass, &fromID, &fromTerm, &toClass, &toID, &toTerm); err != nil {
 			return n, err
 		}
-		if _, ok := packed[fromID]; !ok {
-			continue
-		}
-		if _, ok := packed[toID]; !ok {
-			continue
-		}
 		if _, err := stmt.ExecContext(ctx, id, fromClass, fromID, fromTerm, toClass, toID, toTerm); err != nil {
 			return n, err
 		}
@@ -953,13 +1041,16 @@ JOIN metadata.feature_classes fto   ON fto.id   = c.to_feature_class_id`
 
 // loadRelationships is loadConnectivity's counterpart for
 // runtime.feature_relationships (origin/destination instead of from/to; no
-// terminals; carries the relationship_class_id).
-func loadRelationships(ctx context.Context, db bun.IDB, packed map[string]struct{}, stmt *sql.Stmt) (int, error) {
+// terminals; carries the relationship_class_id). Same packed_feature_ids join --
+// both endpoints must be packed -- over the feature_relationships endpoint indexes.
+func loadRelationships(ctx context.Context, db bun.IDB, stmt *sql.Stmt) (int, error) {
 	const q = `
 SELECT r.id::text, r.relationship_class_id::text,
        ro.code, r.origin_feature_id::text,
        rd.code, r.destination_feature_id::text
 FROM runtime.feature_relationships r
+JOIN packed_feature_ids po ON po.id = r.origin_feature_id
+JOIN packed_feature_ids pd ON pd.id = r.destination_feature_id
 JOIN metadata.feature_classes ro ON ro.id = r.origin_feature_class_id
 JOIN metadata.feature_classes rd ON rd.id = r.destination_feature_class_id`
 	rows, err := db.QueryContext(ctx, q)
@@ -973,12 +1064,6 @@ JOIN metadata.feature_classes rd ON rd.id = r.destination_feature_class_id`
 		var id, relClass, originClass, originID, destClass, destID string
 		if err := rows.Scan(&id, &relClass, &originClass, &originID, &destClass, &destID); err != nil {
 			return n, err
-		}
-		if _, ok := packed[originID]; !ok {
-			continue
-		}
-		if _, ok := packed[destID]; !ok {
-			continue
 		}
 		if _, err := stmt.ExecContext(ctx, id, relClass, originClass, originID, destClass, destID); err != nil {
 			return n, err
@@ -1574,6 +1659,39 @@ ORDER BY i.template_id, i.position`
 	return tmplN, itemN, irows.Err()
 }
 
+// accumulateExtent folds one feature's geometry envelope into the running pack
+// extent (res.ext*), tracked in the geometries' stored SRID so it matches what the
+// device's WKB decode computes. A row with no geometry envelope (null ordinates)
+// contributes nothing; the first row with one seeds the box.
+func accumulateExtent(res *buildResult, row packRow) {
+	if row.MinX == nil || row.MinY == nil || row.MaxX == nil || row.MaxY == nil {
+		return
+	}
+	if !res.hasExtent {
+		res.hasExtent = true
+		res.extMinX, res.extMinY = *row.MinX, *row.MinY
+		res.extMaxX, res.extMaxY = *row.MaxX, *row.MaxY
+		return
+	}
+	if *row.MinX < res.extMinX {
+		res.extMinX = *row.MinX
+	}
+	if *row.MinY < res.extMinY {
+		res.extMinY = *row.MinY
+	}
+	if *row.MaxX > res.extMaxX {
+		res.extMaxX = *row.MaxX
+	}
+	if *row.MaxY > res.extMaxY {
+		res.extMaxY = *row.MaxY
+	}
+}
+
+// fmtCoord formats one extent ordinate as a plain decimal (never scientific
+// notation, which near-equator lon/lat can trigger with %g) so the device's
+// double parser reads it cleanly -- the same reason export/kml.go's kmlFloat exists.
+func fmtCoord(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
+
 // writeManifest records the single-row build facts the device reads on open: the
 // schema version, snapshot instant, scope, and counts.
 func writeManifest(ctx context.Context, stx *sql.Tx, packID, requestedBy string, scope PackScope, res buildResult) error {
@@ -1612,6 +1730,15 @@ func writeManifest(ctx context.Context, stx *sql.Tx, packID, requestedBy string,
 		{"include_wam", strconv.FormatBool(scope.IncludeWAM)},
 		{"include_faults", strconv.FormatBool(scope.IncludeFaults)},
 		{"include_tags", strconv.FormatBool(scope.IncludeTags)},
+	}
+	// The pack's feature extent "minX,minY,maxX,maxY" (geometries' stored SRID), so
+	// the device frames the map O(1) on open. Absent only when the pack somehow has
+	// no geometry; PackDatabase.featureExtent falls back to the full scan then (and
+	// on any older pack built before this key existed).
+	if res.hasExtent {
+		entries = append(entries, [2]string{"feature_extent",
+			fmtCoord(res.extMinX) + "," + fmtCoord(res.extMinY) + "," +
+				fmtCoord(res.extMaxX) + "," + fmtCoord(res.extMaxY)})
 	}
 	stmt, err := stx.PrepareContext(ctx, `INSERT INTO manifest (key, value) VALUES (?, ?)`)
 	if err != nil {

@@ -43,6 +43,13 @@ type packRow struct {
 	WKB         []byte // OGC WKB (ST_AsBinary); the on-device edit truth
 	GeoJSON     string // ST_AsGeoJSON; the tippecanoe tile input
 	Attributes  map[string]any
+	// The feature geometry's envelope (its stored SRID -- the same coordinate
+	// space the WKB is in, so the builder's accumulated pack extent matches what
+	// the device's WKB-decode would compute). Nil for an empty/absent geometry.
+	// Lets the builder record the pack's feature extent in the manifest in one
+	// read pass, so the device frames the map O(1) instead of scanning + decoding
+	// every geometry on open (the featureExtent O(features) scan).
+	MinX, MinY, MaxX, MaxY *float64
 }
 
 // quoteIdent wraps a Postgres identifier in double quotes -- a local copy of
@@ -74,6 +81,10 @@ func classQuery(loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, dr
 	}
 	// territory_id exists only on geometric tables (guaranteed here, geometry != none).
 	cols = append(cols, "territory_id", "ST_AsBinary(geom) AS wkb", "ST_AsGeoJSON(geom)::text AS geojson")
+	// The geometry's envelope in its stored SRID, so the builder can accumulate the
+	// pack's feature extent as it streams (one pass, no second scan). PostGIS derives
+	// these from the geom it is already reading, so the cost is negligible.
+	cols = append(cols, "ST_XMin(geom) AS xmin", "ST_YMin(geom) AS ymin", "ST_XMax(geom) AS xmax", "ST_YMax(geom) AS ymax")
 	for _, f := range loaded.Fields {
 		cols = append(cols, quoteIdent(f.Name))
 	}
@@ -188,6 +199,14 @@ func readClassFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded,
 				if s := asText(v); s != nil {
 					row.GeoJSON = *s
 				}
+			case "xmin":
+				row.MinX = asFloat(v)
+			case "ymin":
+				row.MinY = asFloat(v)
+			case "xmax":
+				row.MaxX = asFloat(v)
+			case "ymax":
+				row.MaxY = asFloat(v)
 			default:
 				if _, ok := fieldSet[col]; ok {
 					// Normalize []byte -> string the same way crud.scanRows does, so a
@@ -223,6 +242,37 @@ func asText(v any) *string {
 	default:
 		s := fmt.Sprint(t)
 		return &s
+	}
+}
+
+// asFloat coerces a generically-scanned float column (a geometry-envelope
+// ordinate) to *float64. NULL (an empty/absent geometry) stays nil. pgdriver
+// returns a double precision column as float64, with the integer/text shapes
+// handled defensively.
+func asFloat(v any) *float64 {
+	switch t := v.(type) {
+	case nil:
+		return nil
+	case float64:
+		return &t
+	case float32:
+		x := float64(t)
+		return &x
+	case int64:
+		x := float64(t)
+		return &x
+	case []byte:
+		if f, err := strconv.ParseFloat(string(t), 64); err == nil {
+			return &f
+		}
+		return nil
+	case string:
+		if f, err := strconv.ParseFloat(t, 64); err == nil {
+			return &f
+		}
+		return nil
+	default:
+		return nil
 	}
 }
 

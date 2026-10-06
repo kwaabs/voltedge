@@ -476,10 +476,17 @@ class PackDatabase {
   /// wide (or world) bbox would otherwise open zoomed out past where tiles exist
   /// (tippecanoe minzoom), showing a blank map with the data lost off-screen.
   /// Framing to the actual feature extent lands the camera where the tiles are.
-  /// Geometries are decoded on the device (WKB has no queryable min/max), so this
-  /// is an O(features) scan -- fine at open time; a manifest-recorded extent is a
-  /// later optimization for very large packs.
+  ///
+  /// Fast path: a pack built by a current server records the extent in the
+  /// manifest ("feature_extent" = "minX,minY,maxX,maxY"), computed server-side in
+  /// one read pass, so this is an O(1) read. Only an older pack (built before that
+  /// key existed) falls through to the O(features) WKB-decode scan below -- which
+  /// at 100k features is a noticeable freeze on map open, exactly what the manifest
+  /// value removes.
   List<double>? featureExtent() {
+    final recorded = _manifestExtent();
+    if (recorded != null) return recorded;
+
     final rows = _db.select('SELECT geom FROM features');
     double? minX, minY, maxX, maxY;
     for (final r in rows) {
@@ -503,6 +510,27 @@ class PackDatabase {
       return null;
     }
     return [minX, minY, maxX, maxY];
+  }
+
+  /// The server-recorded feature extent from the manifest ("feature_extent" =
+  /// "minX,minY,maxX,maxY"), or null when the key is absent (an older pack) or
+  /// unparseable. One indexed read, no geometry decode -- the O(1) fast path for
+  /// [featureExtent].
+  List<double>? _manifestExtent() {
+    final rows = _db.select(
+        "SELECT value FROM manifest WHERE key = 'feature_extent'");
+    if (rows.isEmpty) return null;
+    final raw = rows.first['value'] as String?;
+    if (raw == null || raw.isEmpty) return null;
+    final parts = raw.split(',');
+    if (parts.length != 4) return null;
+    final out = <double>[];
+    for (final p in parts) {
+      final v = double.tryParse(p.trim());
+      if (v == null) return null;
+      out.add(v);
+    }
+    return out;
   }
 
   /// Connectivity neighbours of a feature: every connection with [id] on either

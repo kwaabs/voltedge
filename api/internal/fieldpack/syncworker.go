@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"time"
@@ -173,7 +174,29 @@ func applyInboxOpWithHeartbeat(parent context.Context, db *bun.DB, cfg SyncWorke
 		}
 	}()
 
-	applyInboxOp(opCtx, db, cfg, row)
+	// Recover a panic from the apply so one poison op (a crafted device payload
+	// tripping a nil-deref or bad type assertion deep in applySyncOp's crud/graph
+	// replay) fails just that op instead of crashing the whole sync worker -- an
+	// unrecovered panic in this goroutine takes the process down, halting all
+	// field sync, and leaves the op stuck 'applying' to be reclaimed and panic
+	// again on restart (a crash loop). A panic is treated as a terminal poison-op
+	// failure, exactly like any other apply error (this worker's every-failure-is-
+	// terminal model): markInboxRejected quarantines it so it's never reclaimed.
+	// The apply tx has already rolled back by the time the panic reaches here
+	// (applySyncOp's per-op RunInTx rolls back then re-panics), so nothing was
+	// committed. The mark runs on a non-cancel context so it survives opCtx being
+	// torn down, and still matches the worker_id + status='applying' guard.
+	func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				ol.Error("sync op apply panicked", "err", rec, "stack", string(debug.Stack()))
+				if err := markInboxRejected(context.WithoutCancel(parent), db, row.OpID, cfg.ID, fmt.Sprintf("apply panicked: %v", rec)); err != nil {
+					ol.Error("mark op rejected after panic failed", "err", err)
+				}
+			}
+		}()
+		applyInboxOp(opCtx, db, cfg, row)
+	}()
 	cancel()
 	hb.Wait()
 }

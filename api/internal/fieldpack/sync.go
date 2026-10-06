@@ -463,6 +463,26 @@ func applySyncOp(ctx context.Context, db *bun.DB, cache *metaCache, op syncOp, s
 		return applyFaultsOp(ctx, db, op, submittedBy)
 	}
 
+	// Replay the feature/graph ops under the SUBMITTING field user's identity, so
+	// every downstream write enforces that user's Phase 58 territory write-scope
+	// and stamps them as created_by/updated_by (and established_by for a graph
+	// edit) -- exactly as the REST path does, and as the webhook ingestion engine
+	// assumes its endpoint's service user (apply.go). The drain worker is headless,
+	// so without this the context carries no user: enforceWriteScope silently
+	// no-ops (a scoped user could write outside their territories via sync) and the
+	// audit-actor columns land NULL. A submitting user that can no longer be loaded
+	// (deactivated since the push) quarantines the op rather than applying it
+	// unscoped and unattributed -- fail-closed, consistent with Phase 58. (The
+	// wam_*/fault_* kinds returned above already thread submittedBy as an explicit
+	// actor and are not territory-scoped, so they don't need this.)
+	su, err := auth.LoadSessionUser(ctx, db, submittedBy)
+	if err != nil || su == nil {
+		res.Status = "error"
+		res.Error = fmt.Sprintf("cannot apply op: submitting user %q could not be loaded: %v", submittedBy, err)
+		return res
+	}
+	ctx = auth.WithUser(ctx, su)
+
 	// A GPS-sourced placement/move (field tool "place at my location") nests the
 	// GNSS quality snapshot under a "gps_capture" key alongside the crud input
 	// (Phase gnss-quality Slice 3). It's absent on map-drawn/REST/MCP ops, on the
@@ -477,7 +497,7 @@ func applySyncOp(ctx context.Context, db *bun.DB, cache *metaCache, op syncOp, s
 	}
 
 	var feature map[string]any
-	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err = db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		switch op.Kind {
 		case "create":
 			loaded, e := cache.get(ctx, op.FeatureClass)
