@@ -98,23 +98,22 @@ func WipeClass(ctx context.Context, db *bun.DB, loaded *metadata.Loaded) (int, e
 
 // PurgeDeletedClass permanently removes every soft-deleted, in-scope feature in
 // the class and cleans up the polymorphic references that would otherwise be
-// orphaned. It runs entirely in one transaction:
+// orphaned. It runs entirely in one transaction, looping hardDeleteFeature per
+// id. Each call physically deletes the row (firing the per-class registry-sync
+// trigger -> runtime.feature_registry -> runtime.asset_tags cascade), cleans the
+// FK-less references to it via the shared cascadeCleanReferences (connectivity,
+// relationships, external links, pending edits, diagram placements; diagram
+// elements are UNBOUND, not deleted, so a hand-drawn glyph survives losing its
+// feature; the derived circuit source-ref is cleared), and records a `purge`
+// history row from the pre-delete snapshot. Because hardDeleteFeature is called
+// with this tx (not a *bun.DB), it runs inline here rather than opening a nested
+// transaction, so the whole class purge still commits or rolls back as one.
 //
-//  1. Cascade-clean the topology/editing tables that hold a bare feature id with
-//     no database FK (Postgres can't cross-table FK these), for the purged ids:
-//     connectivity, relationships, external links, pending edits, diagram
-//     placements, and the derived circuit source-ref. Diagram elements are
-//     unbound (bound_id -> NULL) rather than deleted, so a hand-drawn glyph
-//     survives losing its feature. Operational and audit records (faults, WAM
-//     defects, OMS, gps captures, feature_history) are deliberately preserved --
-//     they outlive the asset on purpose, matching the single-row purge.
-//  2. hardDeleteFeature per id, which fires the per-class registry-sync trigger
-//     (-> runtime.feature_registry -> runtime.asset_tags cascade) and records the
-//     `purge` history row from each pre-delete snapshot.
-//
-// Diagram *instances* (a container feature's own diagram) are left untouched:
-// purging one contained feature must never nuke someone's whole diagram. Returns
-// the number of rows purged.
+// Operational and audit records (faults, WAM defects, OMS, gps captures,
+// feature_history) are deliberately preserved -- they outlive the asset on
+// purpose. Diagram *instances* (a container feature's own diagram) are left
+// untouched: purging one contained feature must never nuke someone's whole
+// diagram. Returns the number of rows purged.
 func PurgeDeletedClass(ctx context.Context, db *bun.DB, loaded *metadata.Loaded) (int, error) {
 	ids, err := scopedIDs(ctx, db, loaded, true)
 	if err != nil {
@@ -125,13 +124,12 @@ func PurgeDeletedClass(ctx context.Context, db *bun.DB, loaded *metadata.Loaded)
 	}
 	var purged int
 	err = db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		if err := cascadeCleanReferences(ctx, tx, loaded, ids); err != nil {
-			return err
-		}
 		for _, id := range ids {
 			// hardDeleteFeature requires the row to still be soft-deleted and
 			// re-checks scope/draft privacy; skip anything restored or moved out
-			// of scope between enumeration and here rather than aborting.
+			// of scope between enumeration and here rather than aborting. Each call
+			// cascades its own id's references (cascadeCleanReferences) within this
+			// tx, so no separate batched pre-pass is needed.
 			if err := hardDeleteFeature(ctx, tx, loaded, id); err != nil {
 				if isNotFoundError(err) || isValidationError(err) {
 					continue
@@ -156,42 +154,50 @@ func PurgeDeletedClass(ctx context.Context, db *bun.DB, loaded *metadata.Loaded)
 // that no longer exist. Ids are compared as text so the caller can pass the
 // string ids it enumerated. All statements are parameterized (bun.In), never
 // interpolated.
-func cascadeCleanReferences(ctx context.Context, tx bun.Tx, loaded *metadata.Loaded, ids []string) error {
+//
+// Takes a bun.IDB (not a bun.Tx) so BOTH purge entry points share it: the bulk
+// PurgeDeletedClass (passing its outer tx) and the single-row hardDeleteFeature
+// (passing its own per-purge tx). Keeping one cleanup definition is deliberate --
+// the single-row path used to carry its own, narrower copy that cleaned only
+// connectivity + relationships, so a purge from the feature panel orphaned
+// external links, pending edits, diagram placements/elements, and circuit
+// source-refs that the bulk path cleaned. One function means they can't drift again.
+func cascadeCleanReferences(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, ids []string) error {
 	// Connectivity edges on either endpoint.
-	if _, err := tx.ExecContext(ctx,
+	if _, err := db.ExecContext(ctx,
 		`DELETE FROM runtime.feature_connectivity
 		 WHERE from_feature_id::text IN (?) OR to_feature_id::text IN (?)`,
 		bun.In(ids), bun.In(ids)); err != nil {
 		return fmt.Errorf("crud: purge cascade (connectivity): %w", err)
 	}
 	// Relationships on either endpoint.
-	if _, err := tx.ExecContext(ctx,
+	if _, err := db.ExecContext(ctx,
 		`DELETE FROM runtime.feature_relationships
 		 WHERE origin_feature_id::text IN (?) OR destination_feature_id::text IN (?)`,
 		bun.In(ids), bun.In(ids)); err != nil {
 		return fmt.Errorf("crud: purge cascade (relationships): %w", err)
 	}
 	// External links owned by the feature.
-	if _, err := tx.ExecContext(ctx,
+	if _, err := db.ExecContext(ctx,
 		`DELETE FROM runtime.feature_external_links WHERE feature_id::text IN (?)`,
 		bun.In(ids)); err != nil {
 		return fmt.Errorf("crud: purge cascade (external links): %w", err)
 	}
 	// Pending private edits staged against the feature (Phase 61).
-	if _, err := tx.ExecContext(ctx,
+	if _, err := db.ExecContext(ctx,
 		`DELETE FROM runtime.feature_pending_edits WHERE feature_id::text IN (?)`,
 		bun.In(ids)); err != nil {
 		return fmt.Errorf("crud: purge cascade (pending edits): %w", err)
 	}
 	// Diagram placements -- the feature's presence on a diagram.
-	if _, err := tx.ExecContext(ctx,
+	if _, err := db.ExecContext(ctx,
 		`DELETE FROM runtime.diagram_placements WHERE feature_id::text IN (?)`,
 		bun.In(ids)); err != nil {
 		return fmt.Errorf("crud: purge cascade (diagram placements): %w", err)
 	}
 	// Diagram elements bound to the feature are unbound, not deleted, so a
 	// hand-drawn glyph outlives the asset it referenced.
-	if _, err := tx.ExecContext(ctx,
+	if _, err := db.ExecContext(ctx,
 		`UPDATE runtime.diagram_elements SET bound_id = NULL WHERE bound_id::text IN (?)`,
 		bun.In(ids)); err != nil {
 		return fmt.Errorf("crud: purge cascade (diagram elements): %w", err)
@@ -199,7 +205,7 @@ func cascadeCleanReferences(ctx context.Context, tx bun.Tx, loaded *metadata.Loa
 	// Derived circuit source-ref -- clear the denormalized pointer where a circuit
 	// was traced back to one of these features (source_feature_class scopes it to
 	// this class so we never null another class's ref that happens to share a uuid).
-	if _, err := tx.ExecContext(ctx,
+	if _, err := db.ExecContext(ctx,
 		`UPDATE gis.circuits SET source_feature_class = NULL, source_feature_id = NULL
 		 WHERE source_feature_class = ? AND source_feature_id::text IN (?)`,
 		loaded.FeatureClass.Code, bun.In(ids)); err != nil {

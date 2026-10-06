@@ -127,6 +127,25 @@ func hardDeleteFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded,
 		return invalid("feature %s must be soft-deleted before it can be purged", id)
 	}
 
+	// The physical row delete AND every polymorphic-reference cleanup must land
+	// together or not at all -- a partial purge (row gone, its connectivity /
+	// relationships / placements still pointing at it) is exactly the orphaned
+	// state the connectivity audit has to sweep up. When called with a raw *bun.DB
+	// (the HTTP purge handler) wrap the work in a transaction; when called inside a
+	// caller's tx (the bulk PurgeDeletedClass loop) run it there, already atomic.
+	if sqldb, ok := db.(*bun.DB); ok {
+		return sqldb.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+			return purgeFeatureRow(ctx, tx, loaded, id, current)
+		})
+	}
+	return purgeFeatureRow(ctx, db, loaded, id, current)
+}
+
+// purgeFeatureRow physically removes one feature row and every FK-less
+// polymorphic reference to it, then records the purge in the audit trail. Run
+// only by hardDeleteFeature, always inside a transaction (its own, or the bulk
+// purge's), so the whole set commits or rolls back together.
+func purgeFeatureRow(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string, current map[string]any) error {
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
 		return err
@@ -143,28 +162,18 @@ func hardDeleteFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded,
 	if n == 0 {
 		return notFound("feature %s not found", id)
 	}
-	// Revoke any connectivity that referenced this now-permanently-removed
-	// feature, so a purge never leaves orphaned connections pointing at a row
-	// that no longer exists. This is deliberately on PURGE, not soft delete: a
-	// soft delete is reversible (restore must bring the feature back fully
-	// wired), while a purge is terminal, so cleaning up after it has no
-	// reversibility cost. feature_connectivity has no FK to the feature table
-	// and no soft-delete of its own, so this is a plain hard delete of the
-	// rows naming this feature on either side.
-	if _, err := db.ExecContext(ctx,
-		"DELETE FROM runtime.feature_connectivity WHERE from_feature_id = ? OR to_feature_id = ?",
-		id, id,
-	); err != nil {
-		return fmt.Errorf("crud: purge: revoking connectivity: %w", err)
-	}
-	// ...and the relationship graph (runtime.feature_relationships) for the same
-	// reason -- the bulk wipe already cleans both, so a single purge must too,
-	// or it leaves dangling relationships (containment, owns, ...) behind.
-	if _, err := db.ExecContext(ctx,
-		"DELETE FROM runtime.feature_relationships WHERE origin_feature_id = ? OR destination_feature_id = ?",
-		id, id,
-	); err != nil {
-		return fmt.Errorf("crud: purge: revoking relationships: %w", err)
+	// Clean every FK-less polymorphic reference to the now-removed feature --
+	// connectivity, relationships, external links, pending private edits, diagram
+	// placements, bound diagram elements, and the derived circuit source-ref --
+	// through the SAME cascadeCleanReferences the bulk purge uses. This is
+	// deliberately on PURGE, not soft delete: a soft delete is reversible (restore
+	// must bring the feature back fully wired), while a purge is terminal, so
+	// cleaning up after it has no reversibility cost. (The asset-tag cascade fires
+	// off the row delete above via the registry-sync trigger.) Sharing the bulk
+	// path's function is what keeps the single-row purge from drifting behind it --
+	// it previously cleaned only connectivity + relationships and orphaned the rest.
+	if err := cascadeCleanReferences(ctx, db, loaded, []string{id}); err != nil {
+		return err
 	}
 	// Audit trail (Phase 41): the row is gone, so there's no post-write state to
 	// record -- snapshot the pre-delete `current` (fetched above) instead, so the
