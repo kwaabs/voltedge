@@ -286,13 +286,23 @@ func TestSourceFromStart(t *testing.T) {
 		t.Fatalf("transformer + upstream: (%v,%v,%v,%v), want (0.003,0.017,400,true)", r, x, base, fromX)
 	}
 
-	// A boundary transformer with NO %Z (rOhm = xOhm = 0) falls back to its own
-	// source_r/x on the supplied nominal -- the feeder-head POWER_XFMR / SUB-SOURCE
-	// case, so existing MV studies are unchanged.
+	// A boundary transformer with NO %Z (rOhm = xOhm = 0) still DERIVES its
+	// secondary (11000) as the base -- the voltage comes from the nameplate, not the
+	// %Z -- but adds no transformer series impedance, so the source is just its own
+	// source_r/x (the feeder-head POWER_XFMR / SUB-SOURCE case: base 11000, source
+	// 0.048/0.48, exactly what that study used before, now also derivable).
 	r, x, base, fromX = sourceFromStart(
 		xfmrBoundaryState(0, 0, 11000, map[string]any{"source_r_ohm": 0.048, "source_x_ohm": 0.48}), 11000)
-	if fromX || !approxEqual(r, 0.048, 1e-12) || !approxEqual(x, 0.48, 1e-12) || base != 11000 {
-		t.Fatalf("transformer no-%%Z: (%v,%v,%v,%v), want (0.048,0.48,11000,false)", r, x, base, fromX)
+	if !fromX || !approxEqual(r, 0.048, 1e-12) || !approxEqual(x, 0.48, 1e-12) || base != 11000 {
+		t.Fatalf("transformer no-%%Z: (%v,%v,%v,%v), want (0.048,0.48,11000,true)", r, x, base, fromX)
+	}
+
+	// Headline case: a transformer with ONLY a secondary voltage (no %Z, no
+	// source_r/x) and an OMITTED nominal still derives its 400 V secondary as the
+	// base -- so analysing the LV network below it needs no voltage input.
+	r, x, base, fromX = sourceFromStart(xfmrBoundaryState(0, 0, 400, nil), 0)
+	if !fromX || r != 0 || x != 0 || base != 400 {
+		t.Fatalf("secondary-only, omitted nominal: (%v,%v,%v,%v), want (0,0,400,true)", r, x, base, fromX)
 	}
 
 	// A non-transformer start always uses source_r/x on the supplied nominal.

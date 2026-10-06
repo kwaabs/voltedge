@@ -638,22 +638,24 @@ const boundaryRoleTransformer = "transformer"
 // "looks like" electrically.
 //
 // When the start is a BOUNDARY TRANSFORMER (boundary_role = 'transformer', e.g. a
-// DIST_XFMR) that carries a resolved series impedance (a nameplate %Z on its
-// rating), the transformer IS the source of its downstream (secondary) network:
-// the source impedance is the transformer's own series Z referred to the
-// secondary -- the impedance that DOMINATES a fault level at the secondary -- in
-// series with any upstream Thevenin source_r/x the start also carries (taken on
-// that secondary base), and the base is the secondary voltage. So a fault / load
-// flow STARTED at a distribution transformer reflects the transformer stiffness
-// with no need to model the upstream MV network at all -- the "analyse this LV
-// network from its transformer" workflow. fromTransformer reports which path ran.
+// DIST_XFMR) with a resolved secondary voltage, the transformer IS the source of
+// its downstream (secondary) network, and two things are read off it:
+//   - the voltage BASE is the transformer's own secondary_voltage -- derived
+//     ALWAYS, so "analyse the LV network from its transformer" needs no voltage
+//     input (this is the part that only needs the nameplate secondary, not a %Z);
+//   - the source IMPEDANCE adds the transformer's own series Z (its nameplate %Z
+//     referred to the secondary -- the impedance that DOMINATES a secondary fault
+//     level) WHEN it has one, in series with any upstream Thevenin source_r/x the
+//     start carries. A transformer with no %Z contributes no series impedance (an
+//     infinitely-stiff secondary bus unless source_r/x is set) but STILL derives
+//     its secondary as the base.
 //
-// Otherwise it is the start's own Thevenin source_r/x on the supplied nominal --
-// the prior behaviour, unchanged for a non-transformer start AND for a boundary
-// transformer that carries NO %Z (one modelled as a plain grid Thevenin through
-// source_r/x alone, e.g. a feeder-head POWER_XFMR), so every existing study reads
-// exactly as before. Direction is still owned by the tier guard (migration 0126):
-// the transformer sources its higher-tier secondary side, never the MV side.
+// fromTransformer reports that this path ran (the base was derived).
+//
+// A non-transformer start, or a transformer whose secondary voltage isn't
+// modelled, uses the start's own Thevenin source_r/x on the supplied nominal --
+// the prior behaviour. Direction is still owned by the tier guard (migration
+// 0126): the transformer sources its higher-tier secondary side, never the MV one.
 func sourceFromStart(st *nodeState, suppliedNominalV float64) (rOhm, xOhm, baseV float64, fromTransformer bool) {
 	var sr, sx float64
 	if st != nil {
@@ -662,8 +664,15 @@ func sourceFromStart(st *nodeState, suppliedNominalV float64) (rOhm, xOhm, baseV
 	if st != nil && st.loaded != nil && st.loaded.FeatureClass != nil &&
 		st.loaded.FeatureClass.BoundaryRole != nil &&
 		*st.loaded.FeatureClass.BoundaryRole == boundaryRoleTransformer &&
-		st.xfmr.ok && st.xfmr.secondaryV > 0 && (st.xfmr.rOhm != 0 || st.xfmr.xOhm != 0) {
-		return st.xfmr.rOhm + sr, st.xfmr.xOhm + sx, st.xfmr.secondaryV, true
+		st.xfmr.ok && st.xfmr.secondaryV > 0 {
+		r, x := sr, sx
+		// The transformer's own %Z dominates its secondary fault level -- add it
+		// when the nameplate resolved one (rOhm/xOhm are 0 when it did not).
+		if st.xfmr.rOhm != 0 || st.xfmr.xOhm != 0 {
+			r += st.xfmr.rOhm
+			x += st.xfmr.xOhm
+		}
+		return r, x, st.xfmr.secondaryV, true
 	}
 	return sr, sx, suppliedNominalV, false
 }
@@ -675,7 +684,7 @@ func sourceFromStart(st *nodeState, suppliedNominalV float64) (rOhm, xOhm, baseV
 // omitted and its secondary voltage is used (sourceFromStart returns it as the
 // base), so "analyse the LV network below this transformer" needs no voltage input.
 func errNominalRequired() error {
-	return invalid("nominal_voltage_v is required -- it may be omitted only when the start is a boundary transformer, whose secondary voltage is then used")
+	return invalid("nominal_voltage_v is required -- it may be omitted only when the start is a boundary transformer with a secondary_voltage set (which is then used as the base)")
 }
 
 // resolveSourceZeroSeq reads the start node's own zero-sequence source
