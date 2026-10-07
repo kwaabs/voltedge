@@ -31,6 +31,23 @@ class LocalPack {
 
   DateTime? get downloadedAt => parseServerTime(meta['downloaded_at'] as String?);
   int? get featureCount => (meta['feature_count'] as num?)?.toInt();
+
+  /// Shared-pack provenance (shared-field-packs S3), stamped at pickup. [kind] is
+  /// 'shared_base' for a cell pulled from the shared-cells browse, else null (a
+  /// personal on-demand pack). [cellId]/[cellName] identify the cell a shared base
+  /// came from, so the pack list can badge it and a later overlay fetch (S3b) knows
+  /// which cell to refresh.
+  String? get kind => meta['kind'] as String?;
+  bool get isShared => kind == 'shared_base';
+  String? get cellId => meta['cell_id'] as String?;
+  String? get cellName => meta['cell_name'] as String?;
+
+  /// How many work-board rows / drafts the per-user overlay carried at pickup (S3b),
+  /// stamped into pack.json so a surface can gate its entry point (e.g. show the WAM
+  /// work board) without opening the overlay.json sidecar.
+  int get overlayWorkOrderCount =>
+      (meta['overlay_work_orders'] as num?)?.toInt() ?? 0;
+  int get overlayDraftCount => (meta['overlay_drafts'] as num?)?.toInt() ?? 0;
 }
 
 /// PackStore downloads a pack's two artifacts into the app documents directory
@@ -56,6 +73,7 @@ class PackStore {
     String packId,
     PackManifest manifest, {
     void Function(double fraction)? onProgress,
+    Map<String, dynamic>? extraMeta,
   }) async {
     final root = await _packsRoot();
     final dir = Directory(p.join(root.path, packId));
@@ -79,6 +97,9 @@ class PackStore {
       'downloaded_at': DateTime.now().toUtc().toIso8601String(),
       'include_connectivity': manifest.includeConnectivity,
       'include_relationships': manifest.includeRelationships,
+      // Shared-pack provenance (S3): merged last so a pickup can stamp
+      // kind/cell_id/cell_name over the base facts (a personal pack passes none).
+      ...?extraMeta,
     };
     await File(p.join(dir.path, 'pack.json'))
         .writeAsString(jsonEncode(meta), flush: true);
@@ -197,6 +218,29 @@ class PackStore {
         if (fresh.hasRelationship(r.originId, r.destinationId)) r.id,
     ];
     if (drop.isNotEmpty) edits.dropRelationships(drop);
+  }
+
+  /// Persist a cell's per-user overlay (work board + own drafts) as an `overlay.json`
+  /// sidecar beside the base pack (shared-field-packs S3b). Refreshed on pickup and
+  /// each sync; loaded back by [loadOverlay]. Best-effort by the caller -- a missing
+  /// overlay just means the crew works the published base with no personal layer.
+  Future<void> saveOverlay(String packDir, CellOverlay overlay) async {
+    await File(p.join(packDir, 'overlay.json'))
+        .writeAsString(jsonEncode(overlay.toJson()), flush: true);
+  }
+
+  /// Read the cached `overlay.json` beside a pack, or null when the pack has none (a
+  /// personal pack, or a shared base whose overlay fetch failed at pickup).
+  CellOverlay? loadOverlay(String packDir) {
+    final f = File(p.join(packDir, 'overlay.json'));
+    if (!f.existsSync()) return null;
+    try {
+      final decoded = jsonDecode(f.readAsStringSync());
+      if (decoded is Map<String, dynamic>) return CellOverlay.fromJson(decoded);
+    } catch (_) {
+      // A corrupt sidecar degrades to "no overlay" rather than breaking the pack.
+    }
+    return null;
   }
 
   /// Every pack already on disk, newest download first.

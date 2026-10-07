@@ -93,6 +93,17 @@ func Routes(db *bun.DB, store *export.ObjectStore) http.Handler {
 		// crud.ListFeatureGpsCaptures with the web route, so the JSON matches
 		// (gpscaptures.go). A plain read, so features:read.
 		r.Get("/features/{code}/{id}/gps-captures", gpsCapturesHandler(db))
+		// Shared pre-built packs (S2, docs/shared-field-packs-design.md): browse the
+		// cells this crew's access covers, and pick one up (gate -> ledger -> the base
+		// manifest). A plain pull of an already-built base, so it rides features:read
+		// beside the personal-pack reads; pickup gating adds the territory + extras
+		// coverage check on top (cellfetch.go).
+		r.Get("/cells", deviceListCellsHandler(db))
+		r.Post("/cells/{id}/pickup", deviceCellPickupHandler(db, store))
+		// The crew member's personal overlay over a cell (S2b): their own work board +
+		// their own private drafts, live JSON the device caches on pickup + each sync.
+		// The device composes base + overlay + its own edits (overlay.go).
+		r.Get("/cells/{id}/overlay", deviceCellOverlayHandler(db))
 	})
 
 	// The edit-replay endpoint is a write, so it sits behind features:write --

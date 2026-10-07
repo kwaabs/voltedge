@@ -48,12 +48,25 @@ func AdminRoutes(db *bun.DB, store *export.ObjectStore) chi.Router {
 	r.Route("/cells", func(r chi.Router) {
 		r.Get("/", adminListCellsHandler(db))
 		r.Post("/", adminCreateCellHandler(db))
+		// Grid helper (S7): expand an outer bbox into a rows x cols set of cells
+		// sharing one template, in one atomic call. A literal segment, so it's
+		// matched ahead of the "/{id}" routes below.
+		r.Post("/grid", adminCreateGridHandler(db))
 		r.Get("/{id}", adminGetCellHandler(db))
 		r.Put("/{id}", adminUpdateCellHandler(db))
 		r.Delete("/{id}", adminDeleteCellHandler(db))
 		r.Post("/{id}/build", adminBuildCellHandler(db))
+		// Usage / reconciliation (S5): who holds which version, who has synced, who
+		// has gone quiet -- the download ledger reconciled against the sync inbox.
+		r.Get("/{id}/usage", adminCellUsageHandler(db))
+		// Retention (S6): apply the cell's policy now, reaping old versions no crew
+		// still holds. A no-op for a manual/pinned cell; keep_n reaps the eligible.
+		r.Post("/{id}/reap", adminReapCellHandler(db, store))
 	})
 	r.Get("/", adminListPacksHandler(db))
+	// Build-on-behalf (S8): stage a personal pack AS a named crew member, scoped from
+	// THEIR RBAC. A literal segment, matched ahead of the "/{id}/..." routes.
+	r.Post("/on-behalf", adminBuildOnBehalfHandler(db))
 	r.Post("/{id}/disable", adminSetDisabledHandler(db, true))
 	r.Post("/{id}/enable", adminSetDisabledHandler(db, false))
 	r.Delete("/{id}", adminDeletePackHandler(db, store))
@@ -455,6 +468,35 @@ func adminBuildCellHandler(db *bun.DB) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		json.NewEncoder(w).Encode(map[string]string{"pack_id": packID})
+	}
+}
+
+// adminReapCellHandler applies a cell's retention policy on demand (S6): it reaps the
+// old versions no crew still holds, returning how many went. keep_n reaps the
+// eligible; manual/pinned report 0 (the admin deletes those by hand via the per-pack
+// DELETE). The background sweep in cmd/fieldsync runs the same reapCellVersions on a
+// timer; this is the admin's "run it now" / testing hook.
+func adminReapCellHandler(db *bun.DB, store *export.ObjectStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cell, err := getCell(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeErr(w, http.StatusNotFound, "cell not found")
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		reaped, err := reapCellVersions(r.Context(), db, store, cell)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"reaped":    reaped,
+			"retention": cell.Retention,
+		})
 	}
 }
 

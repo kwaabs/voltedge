@@ -52,6 +52,15 @@ final downloadedPacksProvider = FutureProvider.autoDispose<List<LocalPack>>(
   (ref) => ref.watch(packStoreProvider).listDownloaded(),
 );
 
+/// The shared, admin pre-built cells this crew may pick up (GET /cells,
+/// shared-field-packs S2). autoDispose so it refetches each time the home screen is
+/// shown; a plain fetch (no self-poll) -- a cell's build state changes on the admin's
+/// schedule, not second-by-second like a personal build. Returns only cells the
+/// crew's access covers, so the home screen can list them directly.
+final sharedCellsProvider = FutureProvider.autoDispose<List<CellSummary>>(
+  (ref) => ref.watch(fieldsyncClientProvider).listCells(),
+);
+
 /// The packable feature-class catalog (GET /feature-classes) -- backs the class
 /// picker on the "new pack" form. autoDispose so it refetches each time the form
 /// opens (the catalog rarely changes, but staleness here is cheap to avoid).

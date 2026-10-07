@@ -21,7 +21,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/kwaabs/voltedge/api/internal/territory"
 	"github.com/uptrace/bun"
 )
 
@@ -181,22 +180,14 @@ func enqueuePack(ctx context.Context, db bun.IDB, requestedBy string, scope Pack
 // it up exactly like a personal pack.
 func enqueueCellBuild(ctx context.Context, db bun.IDB, cell *Cell, requestedBy string) (string, error) {
 	// Filter the base's features to the cell's TERRITORY, not just its bbox -- the
-	// territory is the pickup access boundary (Slice 3), so a base whose bbox spans
-	// into another territory must still carry only the cell-territory's features, or
-	// a crew gated on the cell's territory would receive out-of-territory data. A
-	// cell with no territory (nil) applies no territory filter (the "public baseline"
-	// case). Expand to descendants, the same tri-state the export/read path uses: nil
-	// = no filter, non-nil (even empty) = restrict to that set (empty => nothing).
-	var territoryIDs []string
-	if cell.TerritoryID != nil && *cell.TerritoryID != "" {
-		expanded, err := territory.DescendantIDs(ctx, db, []string{*cell.TerritoryID})
-		if err != nil {
-			return "", err
-		}
-		if expanded == nil {
-			expanded = []string{} // unknown territory -> match nothing (fail closed)
-		}
-		territoryIDs = expanded
+	// territory is the pickup access boundary (S2), so a base whose bbox spans into
+	// another territory must still carry only the cell-territory's features, or a crew
+	// gated on the cell's territory would receive out-of-territory data. cellTerritoryIDs
+	// expands the boundary to the tri-state the export/read path uses (nil = no filter
+	// for a territory-less "public baseline" cell; non-nil = restrict to that set).
+	territoryIDs, err := cellTerritoryIDs(ctx, db, cell)
+	if err != nil {
+		return "", err
 	}
 
 	scope := PackScope{

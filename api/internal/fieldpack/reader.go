@@ -64,7 +64,7 @@ func quoteIdent(name string) string {
 // bbox against the spatial index) and ORDER BY id, but its column list differs:
 // system columns, geometry as BOTH wkb and geojson, then every active field. Only
 // geometric, already-compiled classes can be packed.
-func classQuery(loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string, publishedOnly bool) (string, []any, error) {
+func classQuery(loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string, publishedOnly bool, privateDraftsOf *string) (string, []any, error) {
 	fc := loaded.FeatureClass
 	if fc.GeometryType == "none" {
 		return "", nil, fmt.Errorf("feature class %q has no geometry, so it can't be packed", fc.Code)
@@ -135,6 +135,18 @@ func classQuery(loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, dr
 		where = append(where, "(status = 'published' OR published_at IS NOT NULL)")
 	}
 
+	// Per-user overlay (S2b, shared packs): the INVERSE of publishedOnly -- this
+	// user's OWN private drafts over the cell, the features the shared base excluded.
+	// A draft is private when it is not public (status is not 'published' -- NULL
+	// counts as not-published, via IS DISTINCT FROM -- AND it was never published),
+	// and authored by this user. These are exactly the features the overlay layers
+	// back over the base for their author. Mutually exclusive with publishedOnly in
+	// practice (the overlay caller passes publishedOnly=false, draftAuthors=nil).
+	if privateDraftsOf != nil && *privateDraftsOf != "" {
+		where = append(where, "(status IS DISTINCT FROM 'published' AND published_at IS NULL) AND created_by::text = ?")
+		args = append(args, *privateDraftsOf)
+	}
+
 	query := fmt.Sprintf(
 		"SELECT %s FROM %s WHERE %s ORDER BY id",
 		strings.Join(cols, ", "), table, strings.Join(where, " AND "),
@@ -147,8 +159,8 @@ func classQuery(loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, dr
 // cap and never materializes the result set -- the caller runs it inside a
 // REPEATABLE READ snapshot tx, so the cursor is a consistent point-in-time view.
 // If fn returns an error, iteration stops and that error is returned.
-func readClassFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string, publishedOnly bool, fn func(packRow) error) (int, error) {
-	query, args, err := classQuery(loaded, bbox, territoryIDs, draftAuthors, publishedOnly)
+func readClassFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, bbox *crud.ExportBBox, territoryIDs, draftAuthors []string, publishedOnly bool, privateDraftsOf *string, fn func(packRow) error) (int, error) {
+	query, args, err := classQuery(loaded, bbox, territoryIDs, draftAuthors, publishedOnly, privateDraftsOf)
 	if err != nil {
 		return 0, err
 	}

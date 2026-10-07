@@ -114,6 +114,49 @@ class FieldsyncClient {
     return body['pack_id'] as String;
   }
 
+  /// GET /cells -- the shared, admin pre-built coverage cells this crew's access
+  /// covers, each with its latest build (shared-field-packs S2). Online-only: you
+  /// browse and pick up a cell while connected, then work it offline. The server hides
+  /// any cell the crew can't fully cover (territory + the base's extra read-perms), so
+  /// every row returned is pickable.
+  Future<List<CellSummary>> listCells() async {
+    final res = await _http.get(_uri('/cells'), headers: _headers());
+    _ensureOk(res);
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    final rows =
+        (body['cells'] as List? ?? const []).cast<Map<String, dynamic>>();
+    return rows.map(CellSummary.fromJson).toList();
+  }
+
+  /// POST /cells/{id}/pickup -- pick up a shared cell: the server re-checks coverage,
+  /// records the pickup in the download ledger, and returns the base version's pack id
+  /// + a fresh download manifest. [deviceId] (optional) distinguishes one crew member's
+  /// two tablets in the supervisor's usage view. A cell the crew can't cover is 403; a
+  /// cell with no build yet is 409 -- both surface as a FieldsyncException the UI shows.
+  Future<CellPickup> pickupCell(String cellId, {String? deviceId}) async {
+    final res = await _http.post(
+      _uri('/cells/$cellId/pickup'),
+      headers: _headers(json: true),
+      body: jsonEncode({
+        if (deviceId != null && deviceId.trim().isNotEmpty)
+          'device_id': deviceId.trim(),
+      }),
+    );
+    _ensureOk(res);
+    return CellPickup.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// GET /cells/{id}/overlay -- the crew member's PERSONAL overlay over a cell: their
+  /// own work board + their own private drafts (shared-field-packs S2b). Online-only;
+  /// fetched at pickup and each sync, then cached as an overlay.json sidecar beside the
+  /// base. Gated exactly like pickup -- the overlay is only served for a cell the crew
+  /// may pull -- and its contents are the caller's OWN data (no cross-user leak).
+  Future<CellOverlay> fetchOverlay(String cellId) async {
+    final res = await _http.get(_uri('/cells/$cellId/overlay'), headers: _headers());
+    _ensureOk(res);
+    return CellOverlay.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
   /// POST /packs/{id}/cancel -- cancel the caller's own queued/running build.
   Future<PackSummary> cancelPack(String id) async {
     final res = await _http.post(_uri('/packs/$id/cancel'), headers: _headers());

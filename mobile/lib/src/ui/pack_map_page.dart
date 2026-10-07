@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -61,6 +62,15 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
   EditStore? _edit;
   Object? _error;
   List<double>? _bbox;
+
+  /// The crew member's OWN private drafts over this cell (shared-field-packs S3d),
+  /// keyed by feature id, loaded once from the per-user overlay sidecar. A shared base
+  /// is published-only, so these unpublished features aren't in the pack -- they are
+  /// rendered + selectable like an offline create (folded into PackMapView's `created`
+  /// overlay), but EDIT like a packed feature (an update op, never a create: the draft
+  /// already exists server-side). Empty for a personal pack. _isDraft gates the actions
+  /// that aren't wired for a draft yet (geometry move / connect / relate -> a later slice).
+  final Map<String, FeatureRecord> _draftRecords = {};
   FeatureRecord? _selected;
   List<NeighborLink> _connections = const [];
   List<NeighborLink> _relationships = const [];
@@ -284,6 +294,14 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
         p.join(widget.pack.dir, 'edits.sqlite'),
         baseVersion: manifest['snapshot_at'],
       )..addListener(_onEditChanged);
+      // Load the per-user overlay's drafts (shared-field-packs S3d) into display
+      // records once. A missing/corrupt sidecar (a personal pack, or a failed overlay
+      // fetch) just leaves the map with no drafts.
+      _draftRecords.clear();
+      for (final d in PackStore().loadOverlay(widget.pack.dir)?.drafts ??
+          const <OverlayDraft>[]) {
+        _draftRecords[d.id] = _recordFromDraft(d);
+      }
       setState(() {
         _db = db;
         _edit = edit;
@@ -948,6 +966,53 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
         attributes: c.attrs,
         geometryOverride: WkbGeometry.fromGeoJson(c.geometry),
       );
+
+  /// Whether a feature id is one of the crew's overlay drafts (shared-field-packs
+  /// S3d) -- not in the base pack, but editable (attributes) as a real server feature.
+  bool _isDraft(String id) => _draftRecords.containsKey(id);
+
+  /// Build a display record from an overlay draft. The draft ships OGC WKB (the same
+  /// encoding a packed feature uses), so it decodes through geomBytes -- no GeoJSON
+  /// override. A missing/corrupt base64 degrades to no geometry (it still lists).
+  FeatureRecord _recordFromDraft(OverlayDraft d) {
+    Uint8List? bytes;
+    if (d.wkbBase64.isNotEmpty) {
+      try {
+        bytes = base64Decode(d.wkbBase64);
+      } catch (_) {
+        bytes = null;
+      }
+    }
+    return FeatureRecord(
+      id: d.id,
+      featureClass: d.featureClass,
+      name: d.name,
+      status: d.status,
+      subtype: d.subtype,
+      territoryId: d.territoryId,
+      geomBytes: bytes,
+      attributes: d.attributes,
+    );
+  }
+
+  /// The crew's drafts as display records for the overlay (shared-field-packs S3d),
+  /// folded into PackMapView's `created` layer so each renders + is tappable. The
+  /// record carries the draft's ORIGINAL attributes -- the same contract a packed
+  /// feature's record follows (the map hit-test returns this very record as the
+  /// selection, and saveAttrEdit computes its delta against these, while the panel +
+  /// edit form show the merged values via mergedAttributes). A deleted draft is
+  /// dropped; the one under active geometry edit is skipped (drawn as handles).
+  List<FeatureRecord> _draftFeatures() {
+    final edit = _edit;
+    final out = <FeatureRecord>[];
+    for (final entry in _draftRecords.entries) {
+      final id = entry.key;
+      if (id == _editGeomId) continue;
+      if (edit != null && edit.isDeleted(id)) continue;
+      out.add(entry.value);
+    }
+    return out;
+  }
 
   /// An order-independent key for an edge between two feature ids, so a local
   /// (unsynced) edge and its authoritative pack twin on the same pair dedupe to
@@ -2441,7 +2506,11 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
         // No selection highlight while editing geometry -- the handles are it.
         selected: _editingGeom ? null : _selected,
         dirty: _dirtyFeatures(),
-        created: _createdFeatures(),
+        // Offline creates AND the crew's overlay drafts (shared-field-packs S3d) share
+        // the one queryable overlay layer -- a draft isn't in the base pack, so like a
+        // create it's drawn here and made tappable; the map resolves a tapped id from
+        // this set when the pack has no such row.
+        created: [..._createdFeatures(), ..._draftFeatures()],
         movedIds: _edit?.movedIds.toList(growable: false) ?? const [],
         hiddenIds: _hiddenIds(),
         drawing: _drawing,
@@ -3019,23 +3088,28 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
                       tooltip: 'Discard unsynced feature',
                       onPressed: _discardSelectedCreate,
                     ),
-                  if (_canEditGeometry(f))
+                  // Geometry move / connect / relate aren't wired for an overlay draft
+                  // yet (shared-field-packs S3d offers draft attribute editing only --
+                  // these ride a later slice), so they're hidden for a draft. A packed
+                  // or created feature keeps them.
+                  if (_canEditGeometry(f) && !_isDraft(f.id))
                     IconButton(
                       icon: const Icon(Icons.edit_location_alt_outlined),
                       tooltip: 'Edit geometry',
                       onPressed: _startGeomEdit,
                     ),
-                  if (canConnect)
+                  if (canConnect && !_isDraft(f.id))
                     IconButton(
                       icon: const Icon(Icons.hub_outlined),
                       tooltip: 'Connect to another feature',
                       onPressed: () => _startConnect(f),
                     ),
-                  IconButton(
-                    icon: const Icon(Icons.account_tree_outlined),
-                    tooltip: 'Relate to another feature',
-                    onPressed: () => _startRelate(f),
-                  ),
+                  if (!_isDraft(f.id))
+                    IconButton(
+                      icon: const Icon(Icons.account_tree_outlined),
+                      tooltip: 'Relate to another feature',
+                      onPressed: () => _startRelate(f),
+                    ),
                   IconButton(
                     icon: const Icon(Icons.edit_outlined),
                     tooltip: 'Edit attributes',

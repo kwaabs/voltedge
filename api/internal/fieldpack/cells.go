@@ -18,6 +18,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/kwaabs/voltedge/api/internal/territory"
 	"github.com/uptrace/bun"
 )
 
@@ -171,6 +172,27 @@ func latestCellVersion(ctx context.Context, db bun.IDB, cellID string) (*FieldPa
 		return nil, err
 	}
 	return pack, nil
+}
+
+// cellTerritoryIDs expands a cell's territory boundary into the tri-state the
+// read/export path filters on: nil = no territory filter (a cell with no territory,
+// the "public baseline"), non-nil (even empty) = restrict to that descendant set
+// (empty => match nothing, fail closed on an unknown territory). The shared base
+// build and the per-user overlay BOTH filter features through this, so the overlay's
+// drafts are scoped to exactly the territory the base is -- a draft the base would
+// have excluded by territory is excluded from the overlay too.
+func cellTerritoryIDs(ctx context.Context, db bun.IDB, cell *Cell) ([]string, error) {
+	if cell.TerritoryID == nil || *cell.TerritoryID == "" {
+		return nil, nil
+	}
+	expanded, err := territory.DescendantIDs(ctx, db, []string{*cell.TerritoryID})
+	if err != nil {
+		return nil, err
+	}
+	if expanded == nil {
+		expanded = []string{} // unknown territory -> match nothing (fail closed)
+	}
+	return expanded, nil
 }
 
 // defaultRetention normalizes an empty/unknown retention mode to 'manual' (the

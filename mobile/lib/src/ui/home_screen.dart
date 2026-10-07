@@ -21,6 +21,7 @@ class HomeScreen extends ConsumerWidget {
     final settings = ref.watch(settingsRepositoryProvider);
     final downloaded = ref.watch(downloadedPacksProvider);
     final remote = ref.watch(remotePacksProvider);
+    final shared = ref.watch(sharedCellsProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -48,9 +49,11 @@ class HomeScreen extends ConsumerWidget {
         onRefresh: () async {
           ref.invalidate(downloadedPacksProvider);
           ref.invalidate(remotePacksProvider);
+          ref.invalidate(sharedCellsProvider);
           await Future.wait([
             ref.read(downloadedPacksProvider.future),
             if (settings.isConfigured) ref.read(remotePacksProvider.future),
+            if (settings.isConfigured) ref.read(sharedCellsProvider.future),
           ]);
         },
         child: ListView(
@@ -69,6 +72,21 @@ class HomeScreen extends ConsumerWidget {
                       ],
                     ),
             ),
+            if (settings.isConfigured) ...[
+              const _SectionHeader('Shared packs'),
+              shared.when(
+                loading: () => const _Loading(),
+                error: (e, _) => _ErrorRow('$e'),
+                data: (cells) => cells.isEmpty
+                    ? const _EmptyRow(
+                        'No shared packs available for your area.')
+                    : Column(
+                        children: [
+                          for (final cell in cells) _CellTile(cell: cell),
+                        ],
+                      ),
+              ),
+            ],
             const _SectionHeader('Available from server'),
             if (!settings.isConfigured)
               const _EmptyRow('Set a base URL and sign in first.')
@@ -99,14 +117,21 @@ class _DownloadedTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Card(
       child: ListTile(
-      leading: const CircleAvatar(
-        backgroundColor: Color(0x2234C759),
-        foregroundColor: Color(0xFF34C759),
-        child: Icon(Icons.offline_pin),
+      leading: CircleAvatar(
+        backgroundColor: pack.isShared
+            ? const Color(0x223F51B5)
+            : const Color(0x2234C759),
+        foregroundColor:
+            pack.isShared ? const Color(0xFF3F51B5) : const Color(0xFF34C759),
+        child: Icon(pack.isShared ? Icons.layers : Icons.offline_pin),
       ),
-      title: Text('Pack ${shortId(pack.id)}',
+      title: Text(
+          pack.isShared && (pack.cellName?.isNotEmpty ?? false)
+              ? pack.cellName!
+              : 'Pack ${shortId(pack.id)}',
           style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(
+        '${pack.isShared ? 'Shared · ' : ''}'
         '${pack.featureCount ?? '?'} features · '
         'downloaded ${shortTime(pack.downloadedAt)}',
       ),
@@ -252,6 +277,112 @@ class _RemoteTileState extends ConsumerState<_RemoteTile> {
       );
     }
     return null;
+  }
+}
+
+/// One shared, admin pre-built cell the crew can pick up (shared-field-packs S3).
+/// Picking up downloads the cell's base version through the same PackStore.download
+/// path a personal pack uses -- the shared base IS a pack SQLite -- stamping the cell
+/// provenance into pack.json, then drops into the pack detail. Mirrors
+/// [_RemoteTileState]; the one difference is a cell with no build yet (available =
+/// false) shows no pickup button.
+class _CellTile extends ConsumerStatefulWidget {
+  const _CellTile({required this.cell});
+  final CellSummary cell;
+
+  @override
+  ConsumerState<_CellTile> createState() => _CellTileState();
+}
+
+class _CellTileState extends ConsumerState<_CellTile> {
+  double? _progress; // non-null while picking up (downloading the base)
+
+  Future<void> _pickup() async {
+    setState(() => _progress = 0);
+    try {
+      final client = ref.read(fieldsyncClientProvider);
+      // One call: the server gates coverage, records the pickup in the ledger, and
+      // returns a fresh manifest (no re-fetch dance like a personal pack needs).
+      final pickup = await client.pickupCell(widget.cell.id);
+      // The per-user overlay (work board + own drafts) is a separate, best-effort
+      // fetch: a failure here must NOT fail the pickup -- the crew still gets the
+      // published base, just without their personal layer until the next refresh.
+      CellOverlay? overlay;
+      try {
+        overlay = await client.fetchOverlay(widget.cell.id);
+      } catch (_) {
+        overlay = null;
+      }
+      final store = ref.read(packStoreProvider);
+      final local = await store.download(
+        pickup.packId,
+        pickup.manifest,
+        extraMeta: {
+          'kind': 'shared_base',
+          'cell_id': pickup.cellId,
+          'cell_name': widget.cell.name,
+          if (overlay != null) 'overlay_work_orders': overlay.workOrders.length,
+          if (overlay != null) 'overlay_drafts': overlay.drafts.length,
+        },
+        onProgress: (f) => setState(() => _progress = f),
+      );
+      if (overlay != null) await store.saveOverlay(local.dir, overlay);
+      ref.invalidate(downloadedPacksProvider);
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => PackDetailScreen(pack: local)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Pick up failed: $e')));
+    } finally {
+      if (mounted) setState(() => _progress = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cell = widget.cell;
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.layers, color: Colors.indigo),
+        title: Text(
+            cell.name.isEmpty ? 'Cell ${shortId(cell.id)}' : cell.name,
+            style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Text(_subtitle(cell)),
+        trailing: _trailing(cell),
+      ),
+    );
+  }
+
+  String _subtitle(CellSummary cell) {
+    if (!cell.available) return 'Preparing — no build ready yet';
+    final v = cell.version;
+    final parts = <String>[];
+    if (v?.featureCount != null) parts.add('${v!.featureCount} features');
+    if (v != null && v.dataBytes != null) {
+      parts.add('${humanBytes(v.tilesBytes)} + ${humanBytes(v.dataBytes)}');
+    }
+    if (v?.builtAt != null) parts.add('built ${shortTime(v!.builtAt)}');
+    return parts.isEmpty ? 'Ready to pick up' : parts.join(' · ');
+  }
+
+  Widget? _trailing(CellSummary cell) {
+    if (_progress != null) {
+      return SizedBox(
+        width: 40,
+        height: 40,
+        child: CircularProgressIndicator(
+            value: _progress == 0 ? null : _progress),
+      );
+    }
+    if (!cell.available) return null;
+    return IconButton(
+      icon: const Icon(Icons.download_for_offline),
+      tooltip: 'Pick up',
+      onPressed: _pickup,
+    );
   }
 }
 

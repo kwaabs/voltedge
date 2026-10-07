@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -47,6 +48,13 @@ class WamStore extends ChangeNotifier {
   /// feature edits (the server doesn't conflict-check WAM ops, but the base
   /// version keeps the audit trail consistent).
   final String? _baseVersion;
+
+  // The per-user overlay's work board (shared-field-packs S3b), mapped by id to the
+  // same PackWorkOrder shape a packed order uses. A shared base ships NO work board
+  // (it is the published, non-personal layer), so a shared pack's work orders arrive
+  // here from the overlay.json sidecar instead of the pack's wam_work_orders table.
+  // Empty for a personal pack (no overlay) -- its orders come from the pack.
+  final Map<String, PackWorkOrder> _overlayWorkOrders = {};
 
   // In-memory mirrors of the writable WAM tables -- so every merged read is pure
   // memory after open (the pack side is index-backed SQLite, read on demand).
@@ -102,14 +110,50 @@ class WamStore extends ChangeNotifier {
     for (final a in db.allLocalAttachments()) {
       (store._attachments[a.featureId] ??= <LocalAttachment>[]).add(a);
     }
+    // A shared base ships no work board; load the crew's work board from the per-user
+    // overlay sidecar beside the pack (shared-field-packs S3b), mapping each overlay
+    // order to the PackWorkOrder shape the board already renders + edits by id. A
+    // missing/corrupt sidecar degrades to "no overlay work orders" -- the pack's own
+    // work board (a personal pack) is unaffected.
+    final overlayFile = File(p.join(p.dirname(editsPath), 'overlay.json'));
+    if (overlayFile.existsSync()) {
+      try {
+        final decoded = jsonDecode(overlayFile.readAsStringSync());
+        if (decoded is Map<String, dynamic>) {
+          for (final w in CellOverlay.fromJson(decoded).workOrders) {
+            store._overlayWorkOrders[w.id] = PackWorkOrder(
+              id: w.id,
+              workType: w.workType,
+              status: w.status,
+              reference: w.reference,
+              priority: w.priority,
+              title: w.title,
+              description: w.description,
+              assetClass: w.assetClass,
+              assetId: w.assetId,
+              defectId: w.defectId,
+              assignedTo: w.assignedTo,
+              scheduledFor: w.scheduledFor,
+              dueBy: w.dueBy,
+              startedAt: w.startedAt,
+              completionNotes: w.completionNotes,
+            );
+          }
+        }
+      } catch (_) {
+        // Degrade to no overlay work board rather than failing the WAM screen open.
+      }
+    }
     store._pendingWam.addAll(db.pendingWamRecordIds());
     store._attentionCount = db.attentionCount();
     return store;
   }
 
-  /// Whether this pack even carries WAM read-context (built for a wam:read user).
-  /// A WAM surface hides its entry point when false.
-  bool get hasWam => _pack.packsWam;
+  /// Whether this pack even carries WAM read-context (built for a wam:read user) OR
+  /// the per-user overlay brought a work board (shared-field-packs S3b -- a shared base
+  /// has no WAM tables but its crew's work board rides the overlay). A WAM surface
+  /// hides its entry point when false.
+  bool get hasWam => _pack.packsWam || _overlayWorkOrders.isNotEmpty;
 
   bool isPending(String recordId) => _pendingWam.contains(recordId);
 
@@ -139,12 +183,20 @@ class WamStore extends ChangeNotifier {
             override: _woOverrides[wo.id],
             pending: _pendingWam.contains(wo.id),
           ),
+        // The overlay work board (a shared base's crew work orders); for a personal
+        // pack this is empty, so the two sources never double-count.
+        for (final wo in _overlayWorkOrders.values)
+          WamWorkOrderView(
+            base: wo,
+            override: _woOverrides[wo.id],
+            pending: _pendingWam.contains(wo.id),
+          ),
       ];
 
-  /// One work order by id (packed truth + offline override), or null when the
-  /// pack has no such order.
+  /// One work order by id (packed OR overlay truth + offline override), or null when
+  /// neither the pack nor the overlay has such an order.
   WamWorkOrderView? workOrderById(String id) {
-    final wo = _pack.workOrderById(id);
+    final wo = _pack.workOrderById(id) ?? _overlayWorkOrders[id];
     if (wo == null) return null;
     return WamWorkOrderView(
       base: wo,

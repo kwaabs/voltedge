@@ -102,6 +102,285 @@ class PackSummary {
       );
 }
 
+/// CellVersion summarizes the latest succeeded build of a shared cell (the Go
+/// deviceCellVersionView, internal/fieldpack/cellfetch.go) -- enough for the crew to
+/// judge size/freshness before picking it up. [packId] is the ops.field_packs row the
+/// pickup downloads; the manifest (presigned URLs) is minted only on pickup, not here.
+class CellVersion {
+  const CellVersion({
+    required this.packId,
+    required this.featureCount,
+    required this.tilesBytes,
+    required this.dataBytes,
+    required this.snapshotAt,
+    required this.builtAt,
+  });
+
+  final String packId;
+  final int? featureCount;
+  final int? tilesBytes;
+  final int? dataBytes;
+  final DateTime? snapshotAt;
+  final DateTime? builtAt;
+
+  factory CellVersion.fromJson(Map<String, dynamic> j) => CellVersion(
+        packId: j['pack_id'] as String? ?? '',
+        featureCount: (j['feature_count'] as num?)?.toInt(),
+        tilesBytes: (j['tiles_bytes'] as num?)?.toInt(),
+        dataBytes: (j['data_bytes'] as num?)?.toInt(),
+        snapshotAt: parseServerTime(j['snapshot_at'] as String?),
+        builtAt: parseServerTime(j['built_at'] as String?),
+      );
+}
+
+/// CellSummary is one browsable shared cell from GET /cells (the Go deviceCellView,
+/// internal/fieldpack/cellfetch.go): an admin pre-built coverage tile the crew may
+/// pull. The server only returns cells this crew's access COVERS, so every row here
+/// is pickable. [available] is true (and [version] populated) only when the cell has a
+/// succeeded build to download; an active-but-never-built cell lists with
+/// available=false so the crew sees it is coming but can't yet pull it.
+class CellSummary {
+  const CellSummary({
+    required this.id,
+    required this.name,
+    required this.bbox,
+    required this.featureClasses,
+    required this.includeConnectivity,
+    required this.includeRelationships,
+    required this.includeFaults,
+    required this.includeTags,
+    required this.available,
+    required this.version,
+  });
+
+  final String id;
+  final String name;
+  final List<double> bbox;
+  final List<String> featureClasses;
+  final bool includeConnectivity;
+  final bool includeRelationships;
+  final bool includeFaults;
+  final bool includeTags;
+  final bool available;
+  final CellVersion? version;
+
+  factory CellSummary.fromJson(Map<String, dynamic> j) => CellSummary(
+        id: j['id'] as String? ?? '',
+        name: j['name'] as String? ?? '',
+        bbox: ((j['bbox'] as List?) ?? const [])
+            .map((e) => (e as num).toDouble())
+            .toList(),
+        featureClasses: ((j['feature_classes'] as List?) ?? const [])
+            .map((e) => e as String)
+            .toList(),
+        includeConnectivity: j['include_connectivity'] as bool? ?? false,
+        includeRelationships: j['include_relationships'] as bool? ?? false,
+        includeFaults: j['include_faults'] as bool? ?? false,
+        includeTags: j['include_tags'] as bool? ?? false,
+        available: j['available'] as bool? ?? false,
+        version: j['version'] == null
+            ? null
+            : CellVersion.fromJson(j['version'] as Map<String, dynamic>),
+      );
+}
+
+/// CellPickup is the answer to POST /cells/{id}/pickup: the base version's [packId],
+/// the [cellId] it belongs to, and the download [manifest] (two freshly-minted
+/// presigned URLs). The device downloads the base artifacts through the exact
+/// PackStore.download path a personal pack uses -- a shared base IS a pack SQLite.
+class CellPickup {
+  const CellPickup({
+    required this.packId,
+    required this.cellId,
+    required this.manifest,
+  });
+
+  final String packId;
+  final String cellId;
+  final PackManifest manifest;
+
+  factory CellPickup.fromJson(Map<String, dynamic> j) => CellPickup(
+        packId: j['pack_id'] as String? ?? '',
+        cellId: j['cell_id'] as String? ?? '',
+        manifest:
+            PackManifest.fromJson((j['manifest'] as Map<String, dynamic>?) ?? const {}),
+      );
+}
+
+/// OverlayWorkOrder is one of the crew member's own open work orders from the
+/// per-user overlay (GET /cells/{id}/overlay, the Go overlayWorkOrder in
+/// internal/fieldpack/overlay.go). A shared base ships NO work board (it is the
+/// published, non-personal layer), so the crew's work board arrives here instead and
+/// the device merges it in by id -- the same base+override shape WamStore already uses
+/// for a personal pack's packed work orders. Times stay as ISO strings (what the WAM
+/// store and its payloads expect). Round-trippable so the overlay persists as a
+/// sidecar beside the base.
+class OverlayWorkOrder {
+  const OverlayWorkOrder({
+    required this.id,
+    required this.workType,
+    required this.status,
+    this.reference,
+    this.priority,
+    this.title,
+    this.description,
+    this.assetClass,
+    this.assetId,
+    this.defectId,
+    this.assignedTo,
+    this.scheduledFor,
+    this.dueBy,
+    this.startedAt,
+    this.completionNotes,
+  });
+
+  final String id;
+  final String workType;
+  final String status;
+  final String? reference;
+  final String? priority;
+  final String? title;
+  final String? description;
+  final String? assetClass;
+  final String? assetId;
+  final String? defectId;
+  final String? assignedTo;
+  final String? scheduledFor;
+  final String? dueBy;
+  final String? startedAt;
+  final String? completionNotes;
+
+  factory OverlayWorkOrder.fromJson(Map<String, dynamic> j) => OverlayWorkOrder(
+        id: j['id'] as String? ?? '',
+        workType: j['work_type'] as String? ?? '',
+        status: j['status'] as String? ?? '',
+        reference: j['reference'] as String?,
+        priority: j['priority'] as String?,
+        title: j['title'] as String?,
+        description: j['description'] as String?,
+        assetClass: j['asset_class'] as String?,
+        assetId: j['asset_id'] as String?,
+        defectId: j['defect_id'] as String?,
+        assignedTo: j['assigned_to'] as String?,
+        scheduledFor: j['scheduled_for'] as String?,
+        dueBy: j['due_by'] as String?,
+        startedAt: j['started_at'] as String?,
+        completionNotes: j['completion_notes'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'id': id,
+        'work_type': workType,
+        'status': status,
+        if (reference != null) 'reference': reference,
+        if (priority != null) 'priority': priority,
+        if (title != null) 'title': title,
+        if (description != null) 'description': description,
+        if (assetClass != null) 'asset_class': assetClass,
+        if (assetId != null) 'asset_id': assetId,
+        if (defectId != null) 'defect_id': defectId,
+        if (assignedTo != null) 'assigned_to': assignedTo,
+        if (scheduledFor != null) 'scheduled_for': scheduledFor,
+        if (dueBy != null) 'due_by': dueBy,
+        if (startedAt != null) 'started_at': startedAt,
+        if (completionNotes != null) 'completion_notes': completionNotes,
+      };
+}
+
+/// OverlayDraft is one of the crew member's OWN private drafts over a cell (the Go
+/// overlayDraft in internal/fieldpack/overlay.go) -- an unpublished feature they
+/// authored that the shared base (published-only) deliberately excluded. [wkbBase64]
+/// is the OGC WKB edit-truth geometry (Go emits []byte as base64); [geojson] rides
+/// alongside for display without a device-side WKB decode. Carried + persisted now;
+/// composed into the map read path in a later slice (S3c). Round-trippable.
+class OverlayDraft {
+  const OverlayDraft({
+    required this.id,
+    required this.featureClass,
+    required this.wkbBase64,
+    required this.geojson,
+    required this.attributes,
+    this.name,
+    this.status,
+    this.subtype,
+    this.territoryId,
+  });
+
+  final String id;
+  final String featureClass;
+  final String wkbBase64;
+  final String geojson;
+  final Map<String, dynamic> attributes;
+  final String? name;
+  final String? status;
+  final int? subtype;
+  final String? territoryId;
+
+  factory OverlayDraft.fromJson(Map<String, dynamic> j) => OverlayDraft(
+        id: j['id'] as String? ?? '',
+        featureClass: j['feature_class'] as String? ?? '',
+        wkbBase64: j['wkb'] as String? ?? '',
+        geojson: j['geojson'] as String? ?? '',
+        attributes:
+            (j['attributes'] as Map?)?.cast<String, dynamic>() ?? const {},
+        name: j['name'] as String?,
+        status: j['status'] as String?,
+        subtype: (j['subtype'] as num?)?.toInt(),
+        territoryId: j['territory_id'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'id': id,
+        'feature_class': featureClass,
+        'wkb': wkbBase64,
+        'geojson': geojson,
+        'attributes': attributes,
+        if (name != null) 'name': name,
+        if (status != null) 'status': status,
+        if (subtype != null) 'subtype': subtype,
+        if (territoryId != null) 'territory_id': territoryId,
+      };
+}
+
+/// CellOverlay is the per-user overlay for a cell (GET /cells/{id}/overlay): the
+/// crew member's work board + their own private drafts over the cell, read under one
+/// server snapshot. It is the thin PERSONAL layer the device composes over the shared
+/// base + its own edits. Served as live JSON (not a built artifact) and cached as an
+/// `overlay.json` sidecar beside the base pack, refreshed on pickup and each sync.
+class CellOverlay {
+  const CellOverlay({
+    required this.cellId,
+    required this.snapshotAt,
+    required this.workOrders,
+    required this.drafts,
+  });
+
+  final String cellId;
+  final DateTime? snapshotAt;
+  final List<OverlayWorkOrder> workOrders;
+  final List<OverlayDraft> drafts;
+
+  factory CellOverlay.fromJson(Map<String, dynamic> j) => CellOverlay(
+        cellId: j['cell_id'] as String? ?? '',
+        snapshotAt: parseServerTime(j['snapshot_at'] as String?),
+        workOrders: ((j['work_orders'] as List?) ?? const [])
+            .cast<Map<String, dynamic>>()
+            .map(OverlayWorkOrder.fromJson)
+            .toList(),
+        drafts: ((j['drafts'] as List?) ?? const [])
+            .cast<Map<String, dynamic>>()
+            .map(OverlayDraft.fromJson)
+            .toList(),
+      );
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'cell_id': cellId,
+        if (snapshotAt != null) 'snapshot_at': snapshotAt!.toUtc().toIso8601String(),
+        'work_orders': [for (final w in workOrders) w.toJson()],
+        'drafts': [for (final d in drafts) d.toJson()],
+      };
+}
+
 /// SyncOpResult is one outbox op's CAPTURE outcome from POST /sync (mirrors the Go
 /// syncOpResult in internal/fieldpack/sync.go). Since Phase 23 the endpoint receives
 /// ops into a durable inbox and a worker applies them moments later, so a successful

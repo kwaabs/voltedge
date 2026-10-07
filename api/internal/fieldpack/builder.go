@@ -468,7 +468,7 @@ func buildArtifacts(ctx context.Context, db *bun.DB, store *export.ObjectStore, 
 				}
 				res.symbologyCount += symN
 
-				_, err = readClassFeatures(ctx, tx, loaded, bbox, scope.TerritoryIDs, scope.DraftAuthors, scope.PublishedOnly, func(row packRow) error {
+				_, err = readClassFeatures(ctx, tx, loaded, bbox, scope.TerritoryIDs, scope.DraftAuthors, scope.PublishedOnly, nil, func(row packRow) error {
 					attrs, err := json.Marshal(row.Attributes)
 					if err != nil {
 						return fmt.Errorf("encoding attributes for %s/%s: %w", code, row.ID, err)

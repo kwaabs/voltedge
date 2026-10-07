@@ -88,6 +88,19 @@ func main() {
 		}
 	}()
 
+	// The maintenance loop (shared packs S4 + S6): on a timer it rebuilds scheduled
+	// cells inside the off-peak window and reaps old cell versions no crew still holds.
+	// Self-skipping on an in-flight build, so running it in several fieldsync replicas
+	// at worst double-enqueues a scheduled rebuild on a tick race -- harmless, since
+	// retention reaps the redundant version.
+	maintenanceDone := make(chan struct{})
+	go func() {
+		defer close(maintenanceDone)
+		if err := fieldpack.RunMaintenance(ctx, db, store, fieldpack.MaintenanceConfigFromEnv()); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("fieldsync maintenance: %v", err)
+		}
+	}()
+
 	port := os.Getenv("FIELDSYNC_PORT")
 	if port == "" {
 		port = "8091"
@@ -112,5 +125,6 @@ func main() {
 	// strand a running build or a mid-apply sync op.
 	<-workerDone
 	<-syncWorkerDone
+	<-maintenanceDone
 	log.Print("fieldsync: shut down cleanly")
 }

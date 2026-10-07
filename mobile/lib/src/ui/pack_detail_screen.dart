@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../pack/pack_database.dart';
 import '../pack/pack_store.dart';
+import 'drafts_screen.dart';
 import 'faults_screen.dart';
 import 'feature_detail_screen.dart';
 import 'format.dart';
@@ -61,15 +62,29 @@ class _PackDetailScreenState extends State<PackDetailScreen> {
       appBar: AppBar(
         title: Text('Pack ${shortId(widget.pack.id)}'),
         actions: [
-          // The offline WAM surface (work board / defects / inspections), shown
-          // only when this pack shipped WAM read-context (a wam:read build).
-          if (_db?.packsWam == true)
+          // The offline WAM surface (work board / defects / inspections), shown when
+          // this pack shipped WAM read-context (a wam:read build) OR a shared base
+          // whose per-user overlay brought a work board (shared-field-packs S3b).
+          if (_db?.packsWam == true || widget.pack.overlayWorkOrderCount > 0)
             IconButton(
               icon: const Icon(Icons.assignment_outlined),
               tooltip: 'Work & assets',
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => WamScreen(pack: widget.pack),
+                ),
+              ),
+            ),
+          // "My drafts": the crew's own unpublished features over a shared cell, from
+          // the per-user overlay (shared-field-packs S3c). Shown only when the overlay
+          // carried drafts -- a personal pack or a draft-less cell has none.
+          if (widget.pack.overlayDraftCount > 0)
+            IconButton(
+              icon: const Icon(Icons.edit_note_outlined),
+              tooltip: 'My drafts',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => DraftsScreen(pack: widget.pack),
                 ),
               ),
             ),
