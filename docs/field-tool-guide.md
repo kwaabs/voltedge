@@ -112,6 +112,10 @@ records are still waiting to go up.
 **Rule of thumb:** *amber or green on the map = unsynced work.* When everything is
 synced and you've downloaded a fresh pack, the amber and green clear.
 
+> On a **shared pack**, your own **drafts** (unpublished features you're still working
+> on) also show **green** — they're your work-in-progress that isn't in the published
+> base. See §8, *My drafts*.
+
 ---
 
 ## 5. What happens when you sync — the lifecycle
@@ -199,10 +203,18 @@ device to someone else (it keeps the base URL, just drops your login).
 
 ## 8. Getting your work area — downloading a pack
 
-On the home screen (**VoltEdge Field**) packs are shown in two lists:
+On the home screen (**VoltEdge Field**) packs are shown in three lists:
 
 - **On this device** — packs already downloaded, ready to use offline.
-- **Available from server** — packs the server has built (or is building) for you.
+- **Shared packs** — ready-made areas an administrator has **pre-built** for your
+  team. Pick one up and it downloads straight away — no waiting for a build. (See
+  *Shared packs* below.)
+- **Available from server** — packs **you** asked the server to build, shown as they
+  build and download.
+
+There are two ways to get a work area onto your device: **pick up a shared pack**
+(instant, if one covers where you're going) or **request a new pack** of your own
+(you draw the area and wait for it to build). Use whichever fits.
 
 ### Requesting a new pack
 
@@ -230,10 +242,52 @@ icon — a progress ring shows the transfer. When it finishes it opens the pack.
 > **Downloads and syncs need signal; everything in between does not.** Download
 > your packs at the depot on wifi before you head out — a pack can be tens of MB.
 
+### Shared packs — pick up a ready-made area
+
+Instead of drawing a box and waiting for a build, you can **pick up** an area your
+administrator has already prepared. These are built ahead of time (often overnight),
+so picking one up is just a download — no build wait.
+
+Under **Shared packs** you'll see the areas available to you, each with its size and
+when it was built. (You only see the ones your account is allowed to pull — if an
+area isn't listed, your access doesn't cover it; ask your administrator.)
+
+1. Find the area you need under **Shared packs**.
+2. Tap the **pick-up** icon (the download-for-offline arrow). A progress ring shows
+   the transfer; when it finishes the pack opens, just like one you built yourself.
+
+Once it's on your device it appears under **On this device** with a **Shared** label
+and works **exactly like any other pack** — view, edit, create, connect, sync. Two
+things are specific to a shared pack:
+
+- **It carries the published network only.** A shared pack is a clean, team-wide
+  copy, so it doesn't include other people's unfinished (draft) work — only features
+  that have been published. Your *own* drafts still come along (see *My drafts*
+  below).
+- **Your work board comes with it.** If your account uses Work & Asset Management,
+  your assigned jobs are added to the shared pack when you pick it up, so you get the
+  team's map **and** your own work board in one go.
+
+> A crew can keep using a shared pack for weeks and just **sync each week** — you
+> don't need to re-pick-up to send your work. Pick up a fresh copy only when you want
+> the latest published state.
+
+### My drafts
+
+Your own **drafts** — features you've started but not yet published — aren't part of
+the published shared base, so on a shared pack they're delivered separately and shown
+in their own place:
+
+- On the **Pack detail** screen, a **My drafts** button lists them. Tap one to see
+  its details.
+- On the map they appear **green** (like a feature you created offline). Tap one to
+  read it, and **Edit attributes** to keep working on it — your changes sync back the
+  normal way.
+
 ### Using and managing a pack
 
-- Tap a downloaded pack to open its **Pack detail** (summary, feature classes, and
-  **Open map**).
+- Tap a downloaded pack to open its **Pack detail** (summary, feature classes,
+  **My drafts** if any, and **Open map**).
 - From a pack's **⋮** menu you can **Open map** or **Delete** it from the device.
 - **Cancel** a build that's still queued/running with the stop icon.
 
@@ -559,7 +613,7 @@ the office applies it moments later, and anything it can't apply comes back to y
 | 🔴 Red outline | Selected feature |
 | 🟠 Amber (hollow ring) | Edited offline, not synced |
 | 🟠 Amber (filled dot) | Moved offline, not synced |
-| 🟢 Green (filled) | Created offline, not synced |
+| 🟢 Green (filled) | Created offline — or your own draft on a shared pack — not synced |
 | 🟢 Green dashed line | Connection made offline |
 | 🟣 Purple dashed line | Relationship made offline |
 | 🔵 Blue | A point/line you're drawing; vertex handles |

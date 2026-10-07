@@ -7,7 +7,8 @@
 # host, and is comfortable to a few hundred concurrent users:
 #
 #   nginx (non-sticky LB) -> N api replicas -> PgBouncer -> Postgres
-#   workers scale by replica count (SKIP LOCKED); fieldsync stays singleton
+#   workers scale by replica count (SKIP LOCKED); fieldsync runs one instance here
+#   by choice (fixed device port) but is replica-safe — see its service comment
 #
 # What this file changes versus docker-compose.yml, and WHY:
 #   * NO container_name on any scaled service. A fixed container_name makes
@@ -240,9 +241,15 @@ services:
     ports:
       - "${MCP_PORT:-3705}:8090"
 
-  # fieldsync -- MUST STAY A SINGLETON. Its pack builder shells out to tippecanoe
-  # over temp files; two of them would race. Exactly one replica, Recreate on
-  # deploy. Do NOT add deploy.replicas > 1 or --scale this service.
+  # fieldsync -- the field-tool engine (pack builder + sync-apply worker + the HTTP
+  # receiver devices hit). It is NOT a correctness singleton: both workers claim jobs
+  # with SKIP LOCKED and each build runs in its own temp dir, so replicas are safe
+  # (see the Deployment & Scaling guide §8). This file runs ONE instance by CHOICE --
+  # it publishes a fixed device port and carries a container_name, both of which block
+  # --scale. To scale it out (on pack-build backlog), front it with nginx like the api
+  # tier (drop the container_name + published port, add a fieldsync upstream) and set
+  # deploy.replicas. One caveat when you do: the shared-pack maintenance loop runs in
+  # every replica, so a scheduled cell rebuild can be harmlessly double-enqueued.
   fieldsync:
     build:
       context: ./api

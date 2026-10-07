@@ -24,8 +24,8 @@ nginx (:80/:443, serves the SPA + proxies /api and /tiles)
   -> N api replicas (stateless)
        -> PgBouncer (transaction pool)
             -> Postgres (PostGIS)      [+ optional read replicas]
-  workers: exportworker, webhookworker, importworker (scale by replicas),
-           mcpserver, fieldsync (SINGLETON)
+  workers: exportworker, webhookworker, importworker, fieldsync (scale by replicas),
+           mcpserver
   rustfs (S3-compatible object storage for attachments/exports)
   bootstrap (one-shot sidecar: psql + migrations; does nothing until exec'd)
 ```
@@ -210,8 +210,11 @@ Scale on demand:
 $PC up -d --scale api=6 --scale exportworker=3
 ```
 
-(`fieldsync` must stay at **1** — it is the singleton pack builder. Do not scale
-it.)
+(`fieldsync` can scale by replicas too — its build and sync workers both claim work
+with `SKIP LOCKED` and build in isolated temp dirs. Scale it on pack-build backlog,
+with CPU-heavy pods for tippecanoe. One caveat: its shared-pack maintenance loop runs
+in every replica, so a scheduled cell rebuild can be harmlessly double-enqueued —
+retention reaps the extra, or leader-elect that loop to avoid it.)
 
 **RustFS public reachability (don't skip):** attachments and exports are uploaded
 and downloaded **by the browser directly to RustFS** via presigned URLs. The

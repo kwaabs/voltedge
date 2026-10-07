@@ -66,8 +66,8 @@ The ceilings are therefore **not** the Go tier. They are **Postgres** and the **
      │          │              │              │            │
 ┌────▼───┐ ┌────▼────┐ ┌───────▼───┐ ┌────────▼──┐ ┌───────▼────────┐
 │export  │ │import   │ │webhook    │ │fieldsync  │ │ mcpserver      │
-│worker  │ │worker   │ │worker     │ │★SINGLETON │ │ (AI tool API)  │
-│(scale) │ │(scale)  │ │(scale)    │ │           │ │                │
+│worker  │ │worker   │ │worker     │ │build+sync │ │ (AI tool API)  │
+│(scale) │ │(scale)  │ │(scale)    │ │(scale)    │ │                │
 └────────┘ └─────────┘ └───────────┘ └───────────┘ └────────────────┘
 
    ┌───────────────┐        ┌──────────────────────────────┐
@@ -224,9 +224,11 @@ The compute-heavy / long-running work is already off the request path as separat
 | `importworker` | N replicas | ETL ingest; bursty — scale on queue depth. |
 | `webhookworker` | N replicas | Inbound ingestion apply. |
 | `mcpserver` | N replicas | AI tool API; stateless like the main API. |
-| `fieldsync` | **SINGLETON — do not scale** | The field-pack **builder** must run single-instance (it shells out to tippecanoe over temp files). Run exactly one replica; use a `Deployment` with `replicas: 1` + `strategy: Recreate`, or a leader-elected singleton. The sync-**apply** half is queue-drained and safe, but keep the process to one to respect the builder constraint. |
+| `fieldsync` | N replicas | Both halves claim work with `FOR UPDATE SKIP LOCKED`, and each build runs in its **own** temp dir (`os.MkdirTemp` per job) — so replicas share the build + sync queues with no coordination (the process already runs concurrent builds in isolated temp dirs via `FIELDSYNC_WORKER_CONCURRENCY`). Builds are CPU-heavy (tippecanoe), so give each pod CPU **and** add replicas on backlog. **One caveat:** the maintenance loop (shared-pack scheduling + retention, §8 note) runs in every replica, so a scheduled rebuild can be double-enqueued on a tick race — harmless (retention reaps the extra). Leader-elect just that loop if you want to avoid it entirely. |
 
 Scale export/import/webhook workers on **queue depth** (a custom metric: rows pending in the job table) rather than CPU — they're I/O- and burst-shaped.
+
+**Reducing the field-pack build load (shared packs).** Because the builder is the one component you *can't* scale out, the highest-leverage move for a large fleet is to **build less**. The heaviest input is many crews building the *same* area — 60 crews on one depot is 60 identical builds. **Shared packs** remove that duplication: pre-build a common area **once** as a reusable *cell* (overnight, in an off-peak window), and every crew whose access covers it picks up that single build instead of queuing their own. It's the pack-side analogue of the "coarse scope → shared cache" tile strategy (§6), and for a geographically clustered fleet it's the single biggest reduction in build-queue depth. The scheduling + retention knobs (`FIELDSYNC_BUILD_WINDOW`, `FIELDSYNC_MAINTENANCE_INTERVAL`, `FIELDSYNC_KEEP_VERSIONS`) live on the `fieldsync` process; see the **Field Tool Admin Guide §6** for defining cells, scheduling, retention, and the usage dashboard.
 
 ---
 
@@ -284,7 +286,7 @@ Define the SLOs that encode "didn't lose its effect," then alert on their leadin
 You can stage this. Docker Compose already runs the workers as separate services and supports `--scale exportworker=N`, and the API tier being stateless means even plain Compose can run multiple API containers behind an nginx/HAProxy in front.
 
 A pragmatic ladder:
-1. **Compose, scaled:** this ships as **`docker-compose.prod.yml`** + **`infra/nginx/nginx.conf`** — nginx (non-sticky) in front of N `api` replicas, PgBouncer between the app tier and Postgres, workers scaled by replica count, `fieldsync` pinned singleton, and a replication-ready primary (with the streaming read replica left as a documented, commented opt-in). Run it with `docker compose -f docker-compose.prod.yml up -d --build --scale api=4`. Good to a few hundred users and it *proves* the multi-replica architecture on one host. **Note:** this file is authored but not yet run in CI — see its header "verify" steps (PgBouncer auth against SCRAM, and whether pgdriver's prepared statements tolerate transaction pooling) before relying on it.
+1. **Compose, scaled:** this ships as **`docker-compose.prod.yml`** + **`infra/nginx/nginx.conf`** — nginx (non-sticky) in front of N `api` replicas, PgBouncer between the app tier and Postgres, workers (including `fieldsync`) scaled by replica count, and a replication-ready primary (with the streaming read replica left as a documented, commented opt-in). Run it with `docker compose -f docker-compose.prod.yml up -d --build --scale api=4`. Good to a few hundred users and it *proves* the multi-replica architecture on one host. **Note:** this file is authored but not yet run in CI — see its header "verify" steps (PgBouncer auth against SCRAM, and whether pgdriver's prepared statements tolerate transaction pooling) before relying on it.
 2. **Managed Postgres + Kubernetes:** move Postgres to a managed service or an operator (replicas, failover, PITR handled for you), move the API/worker tiers to Deployments + HPA. This is the ~1,000-user shape in §2.
 3. **Add the tile caching tier and the analysis worker pool** when the metrics in §11 say you need them — not before.
 
@@ -307,12 +309,12 @@ Every component, the signal that tells you to scale it, the action, and the ceil
 | **Tiles** | §6 | tile p95 or `ST_AsMVT`/sec climbing | 1) tiles → read replicas · 2) scope-class cache + CDN · 3) base/overlay split | per-user territory scoping blocks naive caching — decide §6 #2 early |
 | **Analysis / trace** | §7 | analysis p95 up, or heavy solves pinning a pod | add API replicas + the concurrency gate (§7.1); then an **analysis worker pool** (off the request tier) | CPU-bound; the gate converts collapse into back-pressure |
 | **exportworker / importworker / webhookworker** | runbook §7 · k8s B7 | **queue depth** (pending rows) rising | more replicas (KEDA on queue depth); `SKIP LOCKED` makes it safe | DB write throughput on the primary |
-| **fieldsync** | runbook §7 · k8s B7 | pack-build backlog | **do NOT scale** — it is a singleton (tippecanoe over temp files); go **vertical** (more CPU on the one pod) | one builder only; `replicas: 1`, `strategy: Recreate` |
+| **fieldsync** | runbook §7 · k8s B7 | pack-build backlog | more replicas (`SKIP LOCKED`, isolated temp dirs) **and** more CPU per pod (tippecanoe) | builds are CPU-heavy; the maintenance loop may double-enqueue a scheduled rebuild across replicas (benign — retention reaps it) |
 | **mcpserver** | runbook §7 · k8s B7 | MCP request CPU | more replicas (stateless like the API) | same DB-connection ceiling as the API |
 | **Object storage (RustFS/S3)** | runbook data-tier · k8s B4 | storage IO or capacity; upload/download latency | move to real **S3** or a MinIO **cluster**; scale that out | single-node RustFS is a SPOF — externalise for HA |
 | **Observability (Loki)** | logging guide | log-ingest volume | scale Loki ingesters / retention | separate plane; never let it share Postgres |
 
-**How to read it in an incident:** the alert that fired (§11) points at a row; the row tells you the action and whether scaling that component even helps. The two rows where "scale it" is the *wrong* answer: **Postgres primary** (vertical/architectural, not horizontal) and **fieldsync** (never — it's a singleton). Everything else is "add replicas," gated on the §9 pre-flight being done.
+**How to read it in an incident:** the alert that fired (§11) points at a row; the row tells you the action and whether scaling that component even helps. The one row where "scale it out" is the *wrong* answer is **Postgres primary** (vertical/architectural, not horizontal — writes don't scale out). Everything else — `fieldsync` included — is "add replicas" (CPU-heavy ones for `fieldsync`), gated on the §9 pre-flight being done.
 
 ---
 
