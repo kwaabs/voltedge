@@ -1201,12 +1201,13 @@ The three studies above ask *"how much more can the network take?"* at a single 
 
 > ⚠️ **This is a scenario projection, not a prediction.** The output is the network as it *would be* under the growth assumption you supply — only as sound as that input. It carries no interval/metered history and does not forecast actual demand statistically. Read it as a disciplined what-if; the result is labelled **Derived** and echoes its assumptions.
 
-**What it does.** The feeder's tree and node states are resolved **once**; then for each year `0..horizon` the demand is scaled and only the in-memory backward/forward sweep re-runs — so a ten-year projection is barely more work than one load flow. At each year the same loading check load flow uses (`formatResults` — transformer loading vs rating, conductor current vs ampacity) flags what exceeds 100 %.
+**What it does.** The feeder's tree and node states are resolved **once**; then for each year `0..horizon` the demand is scaled and only the in-memory backward/forward sweep re-runs — so a ten-year projection is barely more work than one load flow. At each year it checks the **same two limits load flow does**: thermal (transformer loading vs rating, conductor current vs ampacity, via `formatResults`) and **under-voltage** (any node below the `min_voltage_pu` floor) — so on a long rural/LV feeder, where voltage binds before anything thermally overloads, the forecast still catches the real first problem.
 
 **Inputs — the request ∑**
 
 - `start` + `nominal_voltage_v` — the feeder slack, exactly as load flow (nominal may be omitted at a boundary-transformer start).
 - `horizon_years` — the projection length (1–60); `base_growth_pct` — blanket compound %/yr on every load.
+- `min_voltage_pu` — the under-voltage floor each year is judged against (default 0.95 pu, ANSI C84.1 Range A).
 - `per_feeder` / `per_class` — optional growth-rate overrides by circuit ref / class code. When both match a load, the two factors **multiply**; else the matching one; else the base rate.
 - `block_loads[]` — known new demand (`kw`/`kvar` from `start_year`) attached to an existing feature (a new estate, an EV depot). A fixed step at its stated size; a **negative** `kw` models committed future **DER**.
 - `include_planned` — bring `operational_state = PLANNED` assets in as *future* load, switched on at their in-service year (`planned_date_field` → `planned_year_overrides` → `planned_default_year`). Off (default), planned assets carry zero demand, so the base year is strictly in-service — the flag can never double-count.
@@ -1214,12 +1215,13 @@ The three studies above ask *"how much more can the network take?"* at a single 
 
 **Reading the result ▶**
 
-- `assets[]` — each stressed asset (peak loading ≥ 80 %): its `limit_kind` (transformer loading or ampacity), `rating`, `first_violation_year` (null if it never crosses within the horizon), `peak_loading_pct`, and the year-by-year `trajectory`.
-- `reinforcement_order[]` — the violating assets, **soonest and most severe first**: the ranked capex queue.
+- `assets[]` — each **thermally** stressed asset (peak loading ≥ 80 %): its `limit_kind` (transformer loading or ampacity), `rating`, `first_violation_year` (null if it never crosses within the horizon), `peak_loading_pct`, and the year-by-year loading `trajectory`.
+- `voltage_violations[]` — each node that sags toward (or below) the floor: `first_violation_year` (the first year it drops below, null if it only approaches), `worst_voltage_pu`, and the per-year voltage `trajectory`. Often the *first* thing to bind on a long feeder.
+- `reinforcement_order[]` — the thermally-violating assets, **soonest and most severe first**: the ranked capex queue.
 - `der_headroom[]` — per candidate node, a trajectory of `hosting_capacity_kw` + `binding_constraint`. Headroom typically *rises* with load growth (more load absorbs injection before reverse-flow/over-voltage binds).
 - `assumptions[]` — every growth rate, planned decision, and DER setting the run applied, echoed so a figure is never read without its premises.
 
-**Caveats (v1).** Radial only (a meshed feeder errors, like plain load flow); thermal overloads only (voltage-band violations are a later slice); a planned asset's *demand* is gated by its in-service year, but its *topology* isn't pruned — correct for the common case (planned = new leaf loads + their service lines, which carry nothing once their demand is zero), but a planned asset that *re-routes existing* load is a reinforcement study, not a growth forecast.
+**Caveats (v1).** Radial only (a meshed feeder errors, like plain load flow); a planned asset's *demand* is gated by its in-service year, but its *topology* isn't pruned — correct for the common case (planned = new leaf loads + their service lines, which carry nothing once their demand is zero), but a planned asset that *re-routes existing* load is a reinforcement study, not a growth forecast.
 
 ---
 

@@ -178,6 +178,37 @@ func TestResolvePlannedYear(t *testing.T) {
 	}
 }
 
+// TestWorstVoltage checks the worst (lowest) per-unit voltage across a trajectory,
+// and +Inf for an empty one (so the caller's margin test treats it as "no sag").
+func TestWorstVoltage(t *testing.T) {
+	traj := []voltagePoint{{Year: 0, VoltagePu: 0.99}, {Year: 1, VoltagePu: 0.94}, {Year: 2, VoltagePu: 0.96}}
+	if got := worstVoltage(traj); !approxEqual(got, 0.94, 1e-9) {
+		t.Fatalf("worstVoltage = %v, want 0.94", got)
+	}
+	if got := worstVoltage(nil); got <= 1e6 {
+		t.Fatalf("worstVoltage(nil) = %v, want +Inf", got)
+	}
+}
+
+// TestFirstUnderVoltageYear checks the first year voltage drops BELOW the floor: a
+// value exactly at the floor is not a violation (strict <), none crossing -> nil.
+func TestFirstUnderVoltageYear(t *testing.T) {
+	traj := []voltagePoint{
+		{Year: 0, VoltagePu: 0.98},
+		{Year: 1, VoltagePu: 0.95},  // exactly at the floor -- not a violation
+		{Year: 2, VoltagePu: 0.949}, // first real sag below
+		{Year: 3, VoltagePu: 0.91},
+	}
+	got := firstUnderVoltageYear(traj, 0.95)
+	if got == nil || *got != 2 {
+		t.Fatalf("firstUnderVoltageYear = %v, want 2", got)
+	}
+	safe := []voltagePoint{{Year: 0, VoltagePu: 0.99}, {Year: 1, VoltagePu: 0.96}}
+	if got := firstUnderVoltageYear(safe, 0.95); got != nil {
+		t.Fatalf("expected nil for a never-sagging trajectory, got %d", *got)
+	}
+}
+
 // TestPeakLoading checks the peak is the max across the trajectory (and 0 for empty).
 func TestPeakLoading(t *testing.T) {
 	traj := []forecastPoint{{Year: 0, LoadingPct: 72}, {Year: 1, LoadingPct: 118}, {Year: 2, LoadingPct: 95}}

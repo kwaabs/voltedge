@@ -46,6 +46,12 @@ const (
 	// 100%-of-rating line formatResults flags.
 	forecastViolation = 100.0
 
+	// voltageFloorMargin is how close to the under-voltage floor a node must come to
+	// be worth reporting: a node whose worst per-unit voltage stays above
+	// (min_voltage_pu + this) across the whole horizon has comfortable headroom and
+	// is omitted. The voltage analogue of forecastStressThreshold.
+	voltageFloorMargin = 0.02
+
 	// operationalStatePlanned is the OPERATIONAL_STATE code for a not-yet-built asset
 	// (seed/operational_state_example.sql: PLANNED -> IN_SERVICE -> ISOLATED -> RETIRED).
 	operationalStatePlanned = "PLANNED"
@@ -76,6 +82,12 @@ type forecastRequest struct {
 	NominalVoltageV float64    `json:"nominal_voltage_v"`
 	HorizonYears    int        `json:"horizon_years"`
 	BaseGrowthPct   float64    `json:"base_growth_pct"`
+
+	// MinVoltagePu is the under-voltage floor each year's sweep is judged against
+	// (default ANSI C84.1 Range A, 0.95 pu). A node that sags below it as load grows
+	// is reported in voltage_violations with the first year it does so -- often the
+	// FIRST limit a long rural/LV feeder hits, before anything thermally overloads.
+	MinVoltagePu *float64 `json:"min_voltage_pu,omitempty"`
 
 	PerFeeder  map[string]float64 `json:"per_feeder,omitempty"`
 	PerClass   map[string]float64 `json:"per_class,omitempty"`
@@ -214,6 +226,24 @@ type forecastAsset struct {
 	Trajectory         []forecastPoint `json:"trajectory"`
 }
 
+// voltagePoint is one year's per-unit voltage at a node.
+type voltagePoint struct {
+	Year      int     `json:"year"`
+	VoltagePu float64 `json:"voltage_pu"`
+}
+
+// voltageViolation is one node that sags toward (or below) the under-voltage floor as
+// load grows: the first year it drops below the floor (null if it only approaches it),
+// its worst per-unit voltage, and the year-by-year trajectory.
+type voltageViolation struct {
+	FeatureClass       string         `json:"feature_class"`
+	FeatureID          string         `json:"feature_id"`
+	CircuitRef         string         `json:"circuit_ref,omitempty"`
+	FirstViolationYear *int           `json:"first_violation_year"`
+	WorstVoltagePu     float64        `json:"worst_voltage_pu"`
+	Trajectory         []voltagePoint `json:"trajectory"`
+}
+
 // derHeadroomPoint is one year's DER hosting capacity at a node.
 type derHeadroomPoint struct {
 	Year              int     `json:"year"`
@@ -239,7 +269,9 @@ type forecastResponse struct {
 	NominalVoltageV    float64            `json:"nominal_voltage_v"`
 	HorizonYears       int                `json:"horizon_years"`
 	BaseGrowthPct      float64            `json:"base_growth_pct"`
+	MinVoltagePu       float64            `json:"min_voltage_pu"`
 	Assets             []forecastAsset    `json:"assets"`
+	VoltageViolations  []voltageViolation `json:"voltage_violations"`
 	ReinforcementOrder []featureRef       `json:"reinforcement_order"`
 	DERHeadroom        []derHeadroomAsset `json:"der_headroom,omitempty"`
 	Assumptions        []string           `json:"assumptions"`
@@ -275,6 +307,31 @@ func peakLoading(traj []forecastPoint) float64 {
 	return peak
 }
 
+// worstVoltage returns the LOWEST per-unit voltage across a trajectory (the worst
+// sag). A pure kernel (unit-tested). Returns +Inf for an empty trajectory, which the
+// caller's margin test then treats as "no sag".
+func worstVoltage(traj []voltagePoint) float64 {
+	worst := math.Inf(1)
+	for _, p := range traj {
+		if p.VoltagePu < worst {
+			worst = p.VoltagePu
+		}
+	}
+	return worst
+}
+
+// firstUnderVoltageYear returns the earliest year whose voltage drops BELOW floor, or
+// nil if none does. A pure kernel (unit-tested); traj is in year order.
+func firstUnderVoltageYear(traj []voltagePoint, floor float64) *int {
+	for _, p := range traj {
+		if p.VoltagePu < floor {
+			y := p.Year
+			return &y
+		}
+	}
+	return nil
+}
+
 // runLoadGrowthForecast is POST /analysis/load-growth: project the radial load-flow
 // across HorizonYears under a blanket growth rate and report each asset's loading
 // trajectory + time-to-overload.
@@ -293,6 +350,9 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 	}
 	if req.BaseGrowthPct < -50 || req.BaseGrowthPct > 100 {
 		return nil, invalid("base_growth_pct must be between -50 and 100")
+	}
+	if req.MinVoltagePu != nil && *req.MinVoltagePu <= 0 {
+		return nil, invalid("min_voltage_pu must be a positive number")
 	}
 	for ref, pct := range req.PerFeeder {
 		if pct < -50 || pct > 100 {
@@ -496,6 +556,16 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 	var order []string
 	var usedNominalV float64
 
+	// Per-node voltage trajectory (Slice voltage-band): every node with a resolved
+	// base contributes a per-unit voltage each year; nodes that stay clear of the
+	// floor are filtered out after the loop.
+	type voltAcc struct {
+		class, id, circuitRef string
+		traj                  []voltagePoint
+	}
+	vAccs := make(map[string]*voltAcc)
+	var vOrder []string
+
 	for t := 0; t <= req.HorizonYears; t++ {
 		for n, st := range states {
 			if st == nil {
@@ -542,6 +612,20 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 		nodes, _ := formatResults(tr, states, classCodes)
 		for i := range nodes {
 			nr := &nodes[i]
+			// Voltage: every node reached by the forward pass has a per-unit voltage
+			// against its own base. Accumulate it so the post-loop filter can find
+			// nodes that sag toward the under-voltage floor as load grows.
+			if nr.NominalBaseV > 0 {
+				pu := nr.VoltageV / nr.NominalBaseV
+				vkey := nr.FeatureClass + "|" + nr.FeatureID
+				va := vAccs[vkey]
+				if va == nil {
+					va = &voltAcc{class: nr.FeatureClass, id: nr.FeatureID, circuitRef: nr.CircuitRef}
+					vAccs[vkey] = va
+					vOrder = append(vOrder, vkey)
+				}
+				va.traj = append(va.traj, voltagePoint{Year: t, VoltagePu: pu})
+			}
 			if nr.LoadingPct == nil {
 				continue // only rated nodes + ampacity-resolved conductors have a loading
 			}
@@ -603,6 +687,44 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 			Trajectory:         a.traj,
 		})
 	}
+
+	// Voltage violations: nodes that sag to within voltageFloorMargin of the floor
+	// (or below it) within the horizon, violating (crossing below) sorted soonest +
+	// worst first, then merely-approaching by worst sag.
+	minPu := defaultMinVoltagePu
+	if req.MinVoltagePu != nil {
+		minPu = *req.MinVoltagePu
+	}
+	voltageViolations := make([]voltageViolation, 0)
+	for _, key := range vOrder {
+		va := vAccs[key]
+		worst := worstVoltage(va.traj)
+		if worst > minPu+voltageFloorMargin {
+			continue // comfortable voltage headroom across the whole horizon
+		}
+		voltageViolations = append(voltageViolations, voltageViolation{
+			FeatureClass:       va.class,
+			FeatureID:          va.id,
+			CircuitRef:         va.circuitRef,
+			FirstViolationYear: firstUnderVoltageYear(va.traj, minPu),
+			WorstVoltagePu:     worst,
+			Trajectory:         va.traj,
+		})
+	}
+	sort.SliceStable(voltageViolations, func(i, j int) bool {
+		fi, fj := voltageViolations[i].FirstViolationYear, voltageViolations[j].FirstViolationYear
+		switch {
+		case fi != nil && fj != nil:
+			if *fi != *fj {
+				return *fi < *fj
+			}
+		case fi != nil:
+			return true
+		case fj != nil:
+			return false
+		}
+		return voltageViolations[i].WorstVoltagePu < voltageViolations[j].WorstVoltagePu
+	})
 
 	// Reinforcement order: the assets that DO overload within the horizon, soonest
 	// first, ties broken by the more severe peak.
@@ -667,9 +789,10 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 		assumptions = append(assumptions, fmt.Sprintf(
 			"DER headroom (hosting capacity) sized at %d candidate node(s) each year under the grown load; committed future DER can be entered as negative block loads", len(derCandidates)))
 	}
+	assumptions = append(assumptions, fmt.Sprintf(
+		"limits checked each year: thermal (transformer rating + conductor ampacity) and under-voltage (below %.2f pu)", minPu))
 	assumptions = append(assumptions,
 		"a scenario projection under your stated assumptions -- not a statistical prediction of actual future demand",
-		"thermal loading only for the overload timeline (transformer rating + conductor ampacity); voltage-band violations are a later slice",
 	)
 
 	return &forecastResponse{
@@ -677,7 +800,9 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 		NominalVoltageV:    usedNominalV,
 		HorizonYears:       req.HorizonYears,
 		BaseGrowthPct:      req.BaseGrowthPct,
+		MinVoltagePu:       minPu,
 		Assets:             assets,
+		VoltageViolations:  voltageViolations,
 		ReinforcementOrder: reinforcement,
 		DERHeadroom:        derHeadroom,
 		Assumptions:        assumptions,

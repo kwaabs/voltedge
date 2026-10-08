@@ -125,14 +125,18 @@ function ForecastExplanation({ result, classNameFor }: { result: LoadGrowthResul
   const soonest = result.assets
     .filter((a) => a.first_violation_year !== null)
     .sort((a, b) => (a.first_violation_year ?? 0) - (b.first_violation_year ?? 0))[0]
+  const uvSoonest = result.voltage_violations
+    .filter((v) => v.first_violation_year !== null)
+    .sort((a, b) => (a.first_violation_year ?? 0) - (b.first_violation_year ?? 0))[0]
+  const uvCount = result.voltage_violations.filter((v) => v.first_violation_year !== null).length
   return (
     <AnalysisExplanation study="load-growth">
       <p>
         <b>Load-growth forecast.</b> The feeder (slack at <b>{formatNumber(result.nominal_voltage_v, 0)} V</b>) is resolved once,
         then its demand is scaled <b>{formatNumber(result.base_growth_pct, 2)}%/yr</b> and re-swept{" "}
-        <b>in memory</b> for each of <b>{result.horizon_years}</b> year(s). Each year reuses the same loading check load flow
-        uses -- transformer loading vs rating, conductor current vs ampacity -- so an asset is flagged the moment it crosses{" "}
-        <code>100%</code>.
+        <b>in memory</b> for each of <b>{result.horizon_years}</b> year(s). Each year checks the same two limits load flow does
+        -- thermal (transformer loading vs rating, conductor current vs ampacity) and <b>under-voltage</b> (below{" "}
+        <b>{formatNumber(result.min_voltage_pu, 2)} pu</b>) -- so an asset is flagged the moment it crosses either.
       </p>
       <p>
         <b>{result.assets.length}</b> asset(s) reach ≥ 80% loading within the horizon;{" "}
@@ -146,6 +150,19 @@ function ForecastExplanation({ result, classNameFor }: { result: LoadGrowthResul
           <>No asset overloads within the horizon under this assumption.</>
         )}
       </p>
+      {uvCount > 0 && (
+        <p>
+          <b>{uvCount}</b> node(s) sag below the <b>{formatNumber(result.min_voltage_pu, 2)} pu</b> floor within the horizon
+          {uvSoonest && (
+            <>
+              {" "}
+              (first: <b>{classNameFor(uvSoonest.feature_class)}</b> in <b>year {uvSoonest.first_violation_year}</b>, worst{" "}
+              <b>{formatNumber(uvSoonest.worst_voltage_pu, 3)} pu</b>)
+            </>
+          )}
+          . On a long feeder this is often the first limit to bind -- before anything thermally overloads.
+        </p>
+      )}
       {result.assumptions.length > 0 && (
         <p className="text-muted-foreground">
           <b>Assumptions:</b> {result.assumptions.join("; ")}.
@@ -173,6 +190,7 @@ export function LoadGrowthPanel() {
   const [voltageInput, setVoltageInput] = useState("11000")
   const [horizonInput, setHorizonInput] = useState("10")
   const [growthInput, setGrowthInput] = useState("1.5")
+  const [minPuInput, setMinPuInput] = useState("0.95")
   const [includePlanned, setIncludePlanned] = useState(false)
   const [derHeadroom, setDerHeadroom] = useState(false)
   const fp = useFloatingPanel(704, "max-h-[24rem]")
@@ -199,6 +217,11 @@ export function LoadGrowthPanel() {
       useToastStore.getState().pushError("Base growth must be between -50 and 100 %/yr.")
       return
     }
+    const minVoltagePu = minPuInput.trim() === "" ? undefined : Number(minPuInput)
+    if (minVoltagePu !== undefined && !(minVoltagePu > 0)) {
+      useToastStore.getState().pushError("Min voltage must be a positive number.")
+      return
+    }
 
     useLoadGrowthStore.getState().setLoading(true)
     try {
@@ -209,6 +232,7 @@ export function LoadGrowthPanel() {
           nominal_voltage_v: nominalVoltageV,
           horizon_years: horizonYears,
           base_growth_pct: baseGrowthPct,
+          min_voltage_pu: minVoltagePu,
           include_planned: includePlanned,
           der_headroom: derHeadroom,
         }),
@@ -258,6 +282,10 @@ export function LoadGrowthPanel() {
             <label className="text-muted-foreground text-xs">Growth (%/yr)</label>
             <input type="number" step="0.1" className={cn(inputClass, "w-20")} value={growthInput} onChange={(e) => setGrowthInput(e.target.value)} />
           </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-muted-foreground text-xs">Min (pu)</label>
+            <input type="number" step="0.01" className={cn(inputClass, "w-20")} value={minPuInput} onChange={(e) => setMinPuInput(e.target.value)} />
+          </div>
           <label className="flex items-center gap-1.5 text-xs">
             <input type="checkbox" checked={includePlanned} onChange={(e) => setIncludePlanned(e.target.checked)} />
             Include planned assets
@@ -280,35 +308,45 @@ export function LoadGrowthPanel() {
               <span>
                 {ranked.length} stressed · {result.reinforcement_order.length} overload
               </span>
+              {result.voltage_violations.length > 0 && (
+                <span>{result.voltage_violations.filter((v) => v.first_violation_year !== null).length} under-voltage</span>
+              )}
               <Button variant="ghost" size="sm" className="ml-auto h-6 px-2 text-xs" onClick={() => useLoadGrowthStore.getState().rearm()}>
                 Run again
               </Button>
             </div>
             <div className={cn("overflow-y-auto", fp.resized && "min-h-0 flex-1")}>
-              {ranked.length === 0 ? (
+              {ranked.length === 0 && result.voltage_violations.length === 0 ? (
                 <p className="text-muted-foreground px-3 py-4 text-sm">
-                  No asset reaches 80% loading within the horizon under this growth assumption — comfortable headroom.
+                  No asset reaches 80% loading and no node approaches the {formatNumber(result.min_voltage_pu, 2)}-pu
+                  voltage floor within the horizon under this growth assumption — comfortable headroom.
                 </p>
               ) : (
                 <>
-                  <div className="px-3 pt-2">
-                    <ForecastChart assets={result.assets} horizon={result.horizon_years} />
-                  </div>
-                  <table className="w-full text-sm">
-                    <thead className="text-muted-foreground sticky top-0 border-b text-left text-xs">
-                      <tr>
-                        <th className="bg-popover px-3 py-1.5 font-medium">Asset</th>
-                        <th className="bg-popover px-3 py-1.5 font-medium">Limit</th>
-                        <th className="bg-popover px-3 py-1.5 font-medium">First overload</th>
-                        <th className="bg-popover px-3 py-1.5 font-medium">Peak loading</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ranked.map((a) => (
-                        <ForecastRow key={`${a.feature_class}:${a.feature_id}`} asset={a} classNameFor={classNameFor} />
-                      ))}
-                    </tbody>
-                  </table>
+                  {ranked.length > 0 && (
+                    <>
+                      <div className="px-3 pt-2">
+                        <ForecastChart assets={result.assets} horizon={result.horizon_years} />
+                      </div>
+                      <table className="w-full text-sm">
+                        <thead className="text-muted-foreground sticky top-0 border-b text-left text-xs">
+                          <tr>
+                            <th className="bg-popover px-3 py-1.5 font-medium">Asset</th>
+                            <th className="bg-popover px-3 py-1.5 font-medium">Limit</th>
+                            <th className="bg-popover px-3 py-1.5 font-medium">First overload</th>
+                            <th className="bg-popover px-3 py-1.5 font-medium">Peak loading</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ranked.map((a) => (
+                            <ForecastRow key={`${a.feature_class}:${a.feature_id}`} asset={a} classNameFor={classNameFor} />
+                          ))}
+                        </tbody>
+                      </table>
+                    </>
+                  )}
+
+                  {result.voltage_violations.length > 0 && <VoltageTable result={result} classNameFor={classNameFor} />}
 
                   {result.der_headroom && result.der_headroom.length > 0 && (
                     <DerHeadroomTable result={result} classNameFor={classNameFor} />
@@ -355,6 +393,54 @@ function ForecastRow({ asset, classNameFor }: { asset: ForecastAsset; classNameF
         <span className={cn("font-medium", violating && "text-destructive")}>{formatNumber(asset.peak_loading_pct)}%</span>
       </td>
     </tr>
+  )
+}
+
+/** The under-voltage table (shown when any node sags toward the floor): per node, the
+ * first year it drops below the floor (or "approaching" if it only nears it) and its
+ * worst per-unit voltage. Rows click to select the node. A node that actually crosses
+ * below the floor is red; one merely approaching is amber. On long rural/LV feeders
+ * this is often the FIRST limit to bind as load grows. */
+function VoltageTable({ result, classNameFor }: { result: LoadGrowthResult; classNameFor: (code: string) => string }) {
+  return (
+    <div className="border-t">
+      <p className="text-muted-foreground px-3 py-1.5 text-xs font-medium">Under-voltage (below {formatNumber(result.min_voltage_pu, 2)} pu)</p>
+      <table className="w-full text-sm">
+        <thead className="text-muted-foreground border-b text-left text-xs">
+          <tr>
+            <th className="px-3 py-1.5 font-medium">Node</th>
+            <th className="px-3 py-1.5 font-medium">First under-voltage</th>
+            <th className="px-3 py-1.5 font-medium">Worst voltage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {result.voltage_violations.map((v) => {
+            const violating = v.first_violation_year !== null
+            return (
+              <tr
+                key={`${v.feature_class}:${v.feature_id}`}
+                onClick={() => useSelectionStore.getState().select(v.feature_class, v.feature_id, { focus: true })}
+                className={cn(
+                  "hover:bg-accent cursor-pointer border-b align-top last:border-b-0",
+                  violating ? "bg-destructive/10 hover:bg-destructive/15" : "bg-amber-500/10 hover:bg-amber-500/15",
+                )}
+              >
+                <td className="px-3 py-1.5">
+                  <div>{classNameFor(v.feature_class)}</div>
+                  <div className="text-muted-foreground font-mono text-xs">{shortId(v.feature_id)}</div>
+                </td>
+                <td className="px-3 py-1.5 whitespace-nowrap">
+                  {violating ? <span className="font-medium">year {v.first_violation_year}</span> : <span className="text-muted-foreground">approaching</span>}
+                </td>
+                <td className="px-3 py-1.5 whitespace-nowrap">
+                  <span className={cn("font-medium", violating && "text-destructive")}>{formatNumber(v.worst_voltage_pu, 3)} pu</span>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

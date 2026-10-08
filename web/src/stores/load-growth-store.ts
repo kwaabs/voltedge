@@ -26,6 +26,23 @@ export interface ForecastAsset {
   trajectory: ForecastPoint[]
 }
 
+/** One year's per-unit voltage at a node -- mirrors voltagePoint. */
+export interface VoltagePoint {
+  year: number
+  voltage_pu: number
+}
+
+/** One node that sags toward/below the under-voltage floor as load grows -- mirrors
+ * voltageViolation. first_violation_year is null when it only approaches the floor. */
+export interface VoltageViolation {
+  feature_class: string
+  feature_id: string
+  circuit_ref?: string
+  first_violation_year: number | null
+  worst_voltage_pu: number
+  trajectory: VoltagePoint[]
+}
+
 /** One year's DER hosting capacity at a node -- mirrors derHeadroomPoint. */
 export interface DerHeadroomPoint {
   year: number
@@ -50,7 +67,9 @@ export interface LoadGrowthResult {
   nominal_voltage_v: number
   horizon_years: number
   base_growth_pct: number
+  min_voltage_pu: number
   assets: ForecastAsset[]
+  voltage_violations: VoltageViolation[]
   reinforcement_order: TraceFeatureRef[]
   der_headroom?: DerHeadroomAsset[]
   assumptions: string[]
