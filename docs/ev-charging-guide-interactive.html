@@ -1,0 +1,650 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge EV Charging Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#eef1ef; --surface:#f7faf8; --raise:#ffffff; --ink:#15211b; --muted:#56635c; --line:#cdd7d1; --line2:#dde5e0;
+  --ev:#16a34a;        /* EV_CHARGING_STATION green — the accent */
+  --ev-deep:#0f7a38;
+  --amber:#b8720c;     /* cap / warning */
+  --blue:#2b5ead;      /* voltage */
+  --red:#bf3b26;       /* binding / under-voltage */
+  --tint:#dcefe2; --amber-tint:#f5ead6; --blue-tint:#dde6f5; --red-tint:#f6e1dc;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d1411; --surface:#121b16; --raise:#17221c; --ink:#e2eae5; --muted:#93a39a; --line:#2a3a31; --line2:#20302a;
+  --ev:#3ec46e; --ev-deep:#4fd079; --amber:#e3a23f; --blue:#7aa4ea; --red:#ee6a54;
+  --tint:#15301f; --amber-tint:#33281a; --blue-tint:#1b2740; --red-tint:#3a1f1a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1411; --surface:#121b16; --raise:#17221c; --ink:#e2eae5; --muted:#93a39a; --line:#2a3a31; --line2:#20302a;
+  --ev:#3ec46e; --ev-deep:#4fd079; --amber:#e3a23f; --blue:#7aa4ea; --red:#ee6a54;
+  --tint:#15301f; --amber-tint:#33281a; --blue-tint:#1b2740; --red-tint:#3a1f1a; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--ev-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+
+/* rail */
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--ev-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--ev)}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--ev);outline-offset:2px}
+
+/* hero */
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--ev)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:60ch}
+
+/* two-layer boxes */
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--ev-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--ev) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--ev)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.fig-t{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline;margin-bottom:14px}
+.fig-t h4{font-size:16px}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+svg .lbl{font-size:11px} svg .sm{font-size:9.5px;fill:var(--muted)} svg .hd{font-family:var(--f-display);font-weight:700;font-size:13px}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+/* tables */
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--ev-deep);font-weight:600}.no{color:var(--red);font-weight:600}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+
+/* flow */
+.flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.fn{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:10px 12px;min-width:0;flex:1 1 130px}
+.fn small{display:block;font-size:12px;color:var(--muted);line-height:1.35;margin-top:3px}
+.fn b{font:600 13px var(--f-mono)}
+.fa{display:flex;align-items:center;justify-content:center;padding:0 6px;color:var(--muted);font:600 11px var(--f-mono);flex:0 0 auto}
+.fn.ev{border-color:var(--ev)} .fn.cap{border-color:var(--amber)} .fn.inv{border-style:dashed;background:transparent}
+
+/* ---- interactive widget shell ---- */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);padding:0;overflow:hidden}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--ev-deep)}
+.w-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:0}
+.w-ctrl{padding:14px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:14px}
+.w-out{padding:14px;min-width:0}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--ev-deep);font-weight:700}
+.ctl input[type=range]{width:100%;accent-color:var(--ev);margin:0}
+.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button{font:600 11px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:5px 8px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+/* stacked bar (nameplate → diversified → capped) */
+.barstack{display:flex;flex-direction:column;gap:10px}
+.barrow{display:grid;grid-template-columns:96px 1fr 76px;gap:10px;align-items:center}
+.barrow .k{font:600 11px var(--f-mono);color:var(--muted);text-align:right}
+.barrow .track{height:22px;background:var(--line2);border-radius:4px;overflow:hidden;position:relative}
+.barrow .fill{height:100%;border-radius:4px;transition:width .18s}
+.barrow .fill.name{background:color-mix(in srgb,var(--ev) 45%,var(--line))}
+.barrow .fill.div{background:var(--ev)}
+.barrow .fill.cap{background:var(--amber)}
+.barrow .fill.eff{background:var(--ev-deep)}
+.barrow .n{font:700 13px var(--f-mono);font-variant-numeric:tabular-nums;text-align:right}
+.verdict{margin-top:12px;border-top:1px solid var(--line);padding-top:12px;font:600 14px var(--f-body)}
+.verdict .big{font:800 30px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums;color:var(--ev-deep)}
+.verdict .q{color:var(--muted);font:500 13px var(--f-mono);margin-top:4px}
+
+/* gauges (voltage / loading) */
+.gauge{margin-bottom:12px}
+.gauge .g-top{display:flex;justify-content:space-between;font:600 12px var(--f-mono);margin-bottom:4px}
+.gauge .g-track{height:26px;background:var(--line2);border-radius:5px;position:relative;overflow:hidden}
+.gauge .g-fill{height:100%;transition:width .1s,background .2s}
+.gauge .g-floor{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--red)}
+.gauge .g-floor span{position:absolute;top:-16px;left:-10px;font:600 9px var(--f-mono);color:var(--red);white-space:nowrap}
+.readout{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}
+.ro{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+.ro .k{font:600 10px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.ro .v{font:800 22px/1.1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums}
+.bind{margin-top:12px;border-radius:6px;padding:10px 12px;font:600 14px var(--f-body);border:1px solid var(--line)}
+.bind.uv{background:var(--red-tint);border-color:color-mix(in srgb,var(--red) 40%,transparent);color:var(--red)}
+.bind.th{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent);color:var(--amber)}
+.bind.none{background:var(--tint);border-color:color-mix(in srgb,var(--ev) 40%,transparent);color:var(--ev-deep)}
+
+.note{font-size:13px;color:var(--muted);border-left:2px solid var(--line);padding-left:12px;margin:12px 0}
+.warn{border-left-color:var(--red);color:var(--ink)}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+@media (max-width:760px){
+  .w-body{grid-template-columns:1fr}
+  .w-ctrl{border-right:0;border-bottom:1px solid var(--line)}
+  .flow{flex-direction:column}.fa{width:100%;padding:4px 0}
+  .readout{grid-template-columns:1fr}
+  .barrow{grid-template-columns:72px 1fr 64px}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head><body>
+
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>EV Charging</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · Two numbers</a><a href="#c2">2 · Data model</a><a href="#c3">3 · Managed load</a><a href="#c4">4 · On the network</a><a href="#c5">5 · Headroom</a><a href="#c6">6 · Reading it</a><a href="#c7">7 · Planning</a><a href="#c8">8 · Worked example</a>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · running example: a rapid-charging hub at the Oakwood LV board</div>
+  <h1>EV Charging &amp;<br><span>Feeder Headroom</span></h1>
+  <p class="lede">How to model a charging site in VoltEdge, how its load flows through the network, and how to size what a feeder can absorb — with the managed-charging maths and the headroom search you can drive yourself.</p>
+  <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
+    <span class="tag pl" style="margin:0">▶ Planner — what to enter &amp; do</span>
+    <span class="tag en" style="margin:0">∑ Engineer — the model &amp; maths</span>
+  </div>
+</header>
+
+<!-- ============ CH1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>The two numbers of an EV load</h2><p>Installed nameplate is not what the grid sees.</p></div>
+
+  <p>An EV charging site has <strong>two very different load figures</strong>, and confusing them is the number-one planning mistake:</p>
+
+  <div class="flow" style="margin:18px 0">
+    <div class="fn ev"><b>Installed nameplate</b><small>add up every charger's rating. 8 × 150 kW DC fast = <b>1,200 kW</b> installed.</small></div>
+    <div class="fa">vs</div>
+    <div class="fn ev"><b>What the grid sees</b><small>the <em>coincident</em> draw: diversified, then held under a managed cap. Often a fraction of nameplate.</small></div>
+  </div>
+
+  <p>The grid is sized for the <strong>second</strong> number. A site can have 1,200 kW of chargers installed and present <strong>250 kW</strong> to the feeder, because its energy-management system caps coincident draw. VoltEdge models exactly this: you record the nameplate, the diversity, and the cap, and every analysis uses the <strong>effective</strong> demand those three produce (Chapter 3).</p>
+
+  <div class="pl-b">
+    <span class="tag pl">▶ Why it matters at the keyboard</span>
+    <p>Size a feeder against installed nameplate and you over-build; ignore the cap and you reject viable connections. The model exists so the <em>real</em> coincident load rides into trace, load flow, and the headroom study automatically — you enter three fields, the maths does the rest.</p>
+  </div>
+</section>
+
+<!-- ============ CH2 ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>The data model</h2><p>Station → charger → connector. Only the station is an electrical node.</p></div>
+
+  <p>EV charging ships as a <strong>metadata seed</strong> (<code>seed/ev_charging_example.sql</code>, Phase 54) — not a migration. Three classes in a containment hierarchy, but only the station wires into the network.</p>
+
+  <figure>
+    <div class="fig-t"><h4>The containment hierarchy</h4><span class="eyebrow">one electrical node, two inventory layers</span></div>
+    <div class="scroll"><svg viewBox="0 0 720 230" style="width:100%;min-width:560px;display:block" role="img" aria-label="EV station contains chargers contains connectors; fed from a transformer">
+      <!-- transformer feed -->
+      <rect x="14" y="92" width="120" height="42" rx="5" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="74" y="110" text-anchor="middle" class="lbl">DIST_XFMR</text><text x="74" y="124" text-anchor="middle" class="sm">T2 (LV secondary)</text>
+      <path d="M134 113 H180" stroke="var(--ev)" stroke-width="2" marker-end="url(#ah)"/>
+      <defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 8 4 0 8z" fill="var(--ev)"/></marker></defs>
+      <text x="150" y="104" class="sm">T1</text>
+      <!-- station -->
+      <rect x="182" y="86" width="190" height="54" rx="6" fill="var(--tint)" stroke="var(--ev)" stroke-width="1.6"/>
+      <text x="277" y="107" text-anchor="middle" class="hd" style="fill:var(--ev-deep)">EV_CHARGING_STATION</text>
+      <text x="277" y="124" text-anchor="middle" class="sm">point · network_role 'junction' · the load node</text>
+      <!-- contains chargers -->
+      <path d="M372 100 C 420 100 420 54 468 54" stroke="var(--muted)" stroke-width="1.3" fill="none" stroke-dasharray="4 3"/>
+      <path d="M372 126 C 420 126 420 170 468 170" stroke="var(--muted)" stroke-width="1.3" fill="none" stroke-dasharray="4 3"/>
+      <text x="400" y="92" class="sm">contains</text>
+      <rect x="470" y="34" width="150" height="40" rx="5" fill="var(--raise)" stroke="var(--line)" stroke-dasharray="5 3"/>
+      <text x="545" y="50" text-anchor="middle" class="lbl">EV_CHARGER</text><text x="545" y="64" text-anchor="middle" class="sm">geometry none · inventory</text>
+      <rect x="470" y="150" width="150" height="40" rx="5" fill="var(--raise)" stroke="var(--line)" stroke-dasharray="5 3"/>
+      <text x="545" y="166" text-anchor="middle" class="lbl">EV_CHARGER</text><text x="545" y="180" text-anchor="middle" class="sm">geometry none · inventory</text>
+      <!-- connector -->
+      <path d="M620 54 C 650 54 650 54 665 54" stroke="var(--muted)" stroke-width="1.3" fill="none" stroke-dasharray="4 3"/>
+      <rect x="628" y="92" width="84" height="40" rx="5" fill="none" stroke="var(--line)" stroke-dasharray="5 3"/>
+      <text x="670" y="108" text-anchor="middle" class="sm">EV_CONNECTOR</text><text x="670" y="121" text-anchor="middle" class="sm">×N</text>
+    </svg></div>
+    <figcaption><b>Only <code>EV_CHARGING_STATION</code> appears in load flow, trace and fault</b> — it's a leaf load node (one terminal <code>T1</code>, fed by <code>DIST_XFMR T2 → EV_CHARGING_STATION T1</code>), modelled just like a <code>SERVICE_POINT</code>. The charger and connector are geometry-less inventory that hang beneath it in containment. The station carries the electrical fields; the chargers carry the equipment detail.</figcaption>
+  </figure>
+
+  <h3>The station's fields</h3>
+  <div class="tbl"><table>
+    <tr><th>Group</th><th>Field</th><th>Meaning</th></tr>
+    <tr><td>electrical</td><td><code>demand_kw</code></td><td>a plain demand, if you're <em>not</em> modelling managed charging</td></tr>
+    <tr><td>electrical</td><td><code>power_factor</code></td><td>load power factor (default unity)</td></tr>
+    <tr><td>electrical</td><td><code>connection_voltage_v</code></td><td>the connection voltage</td></tr>
+    <tr><td>ev_charging</td><td><code>connected_load_kw</code></td><td><b>installed charger nameplate</b> (the Σ of charger ratings)</td></tr>
+    <tr><td>ev_charging</td><td><code>diversity_factor</code></td><td>coincidence factor 0–1 (default 1.0)</td></tr>
+    <tr><td>ev_charging</td><td><code>managed_demand_cap_kw</code></td><td>the smart-charging cap on coincident draw</td></tr>
+    <tr><td>ev_charging</td><td><code>operator</code> · <code>access</code></td><td>operator; <code>public</code>/<code>depot</code>/<code>residential</code>/<code>workplace</code></td></tr>
+  </table></div>
+
+  <p>The <strong>charger</strong> (<code>charger_type</code> <span class="chip">ac_l2</span><span class="chip">dc_fast</span><span class="chip">dc_ultra</span>, <code>rated_power_kw</code>, <code>num_connectors</code>, <code>managed</code>) and <strong>connector</strong> (<code>connector_standard</code> <span class="chip">type2</span><span class="chip">ccs2</span><span class="chip">chademo</span><span class="chip">nacs</span><span class="chip">gbt</span>, <code>rated_power_kw</code>) record the equipment, but carry no load into the network themselves.</p>
+
+  <div class="en-b">
+    <span class="tag en">∑ Honest caveat — the roll-up is hand-maintained</span>
+    <p><code>connected_load_kw</code> is a <strong>denormalised attribute stored directly on the station</strong>, read straight off its own row in the hot sweep (no containment walk). There is <strong>no trigger or aggregation code</strong> that sums the contained chargers' <code>rated_power_kw</code> into it — you set <code>connected_load_kw</code> by hand. The charger/connector features are inventory you attach for completeness; today they do not auto-compute the station's connected load. The whole domain is metadata seed — <strong>no migration</strong>.</p>
+  </div>
+</section>
+<!-- ============ CH3 ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>How the load is sized — managed charging</h2><p>Three fields collapse to one effective demand.</p></div>
+
+  <p>The whole model reduces to one formula, applied in <code>resolveDemandKW</code> (<code>api/internal/powerflow/resolve.go</code>) — the single point every analysis reads demand through:</p>
+
+  <p class="callout">effective_kw = min( managed_demand_cap_kw , connected_load_kw × diversity_factor )</p>
+
+  <figure>
+    <div class="widget" id="w1">
+      <div class="w-head"><span class="eyebrow">Interactive · managed-charging calculator</span><span class="muted" style="font-size:12px">drag to see the effective load the grid sees</span></div>
+      <div class="w-body">
+        <div class="w-ctrl">
+          <div class="ctl">
+            <label>connected_load_kw <span class="v" id="w1-connected-v">500</span></label>
+            <input type="range" id="w1-connected" min="0" max="1500" step="10" value="500">
+            <div class="hint">Installed charger nameplate (Σ of ratings).</div>
+          </div>
+          <div class="ctl">
+            <label>diversity_factor <span class="v" id="w1-div-v">0.60</span></label>
+            <input type="range" id="w1-div" min="0.1" max="1" step="0.05" value="0.6">
+            <div class="hint">Coincidence 0–1. Default 1.0 when unset.</div>
+          </div>
+          <div class="ctl">
+            <label>managed_demand_cap_kw <span class="v" id="w1-cap-v">250</span></label>
+            <input type="range" id="w1-cap" min="0" max="1500" step="10" value="250">
+            <div class="hint">Smart-charging cap. <b>0 = no cap</b> (unmanaged).</div>
+          </div>
+          <div class="ctl">
+            <label>power_factor <span class="v" id="w1-pf-v">1.00</span></label>
+            <input type="range" id="w1-pf" min="0.8" max="1" step="0.01" value="1">
+            <div class="hint">Below unity the load also draws kVAR.</div>
+          </div>
+        </div>
+        <div class="w-out">
+          <div class="barstack">
+            <div class="barrow"><span class="k">nameplate</span><div class="track"><div class="fill name" id="w1-name-fill" style="width:33%"></div></div><span class="n" id="w1-name-n">500</span></div>
+            <div class="barrow"><span class="k">× diversity</span><div class="track"><div class="fill div" id="w1-div-fill" style="width:20%"></div></div><span class="n" id="w1-div-n">300</span></div>
+            <div class="barrow"><span class="k">capped</span><div class="track"><div class="fill eff" id="w1-eff-fill" style="width:16%"></div></div><span class="n" id="w1-eff-n">250</span></div>
+          </div>
+          <div class="verdict">
+            Effective load the grid sees:
+            <div class="big" id="w1-big">250 kW</div>
+            <div class="q" id="w1-q">+ 0 kVAR reactive · pf 1.00</div>
+            <div class="q" id="w1-formula" style="color:var(--ink)">min(250, 500 × 0.60) = 250</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption>Try it: a <b>1,200 kW</b> nameplate at <b>0.5</b> diversity with a <b>250 kW</b> cap still presents just <b>250 kW</b> — the cap wins. Drop the cap to 0 and the diversified load flows in full. Pull pf below unity and the reactive draw appears.</figcaption>
+  </figure>
+
+  <div class="en-b">
+    <span class="tag en">∑ Exactly how it resolves</span>
+    <ul style="margin:6px 0 0;padding-left:18px">
+      <li><b>EV base:</b> if <code>connected_load_kw</code> is present, <code>base = connected_load_kw × diversity_factor</code> — and it <b>takes precedence</b> over any <code>demand_kw</code> on the same feature.</li>
+      <li><b>Ordinary load:</b> no <code>connected_load_kw</code> → <code>base = demand_kw</code>. Plain <code>SERVICE_POINT</code>s are unaffected.</li>
+      <li><b>diversity_factor</b> defaults to <b>1.0</b> when absent, ≤ 0, or &gt; 1.</li>
+      <li><b>The cap clamps:</b> if <code>managed_demand_cap_kw</code> is present and &gt; 0 and the base exceeds it, the base is clamped to it. <b>No cap</b> if the field is absent or ≤ 0.</li>
+      <li><b>Reactive power:</b> <code>Q = P · tan(acos(pf))</code>, pf defaulting to <b>unity (Q = 0)</b> when unset or outside (0, 1].</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ CH4 ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>How it loads the network</h2><p>A leaf load node that sags the feeder as it grows.</p></div>
+
+  <p><strong>▶</strong> Once modelled, an <code>EV_CHARGING_STATION</code> behaves like any other load. Wire it to the transformer secondary and every study that walks the feeder carries its <em>effective</em> demand (Chapter 3) back to the source.</p>
+
+  <figure>
+    <div class="fig-t"><h4>The effective load drops voltage down the feeder</h4></div>
+    <div class="scroll"><svg viewBox="0 0 720 210" style="width:100%;min-width:600px;display:block" role="img" aria-label="Voltage falls from the source along the feeder to the EV station">
+      <!-- feeder line -->
+      <line x1="40" y1="60" x2="680" y2="60" stroke="var(--line)" stroke-width="2"/>
+      <circle cx="40" cy="60" r="7" fill="var(--blue)"/><text x="40" y="44" text-anchor="middle" class="sm">SOURCE (slack)</text>
+      <rect x="300" y="48" width="48" height="24" rx="4" fill="var(--surface)" stroke="var(--line)"/><text x="324" y="64" text-anchor="middle" class="sm">XFMR</text>
+      <rect x="560" y="46" width="90" height="28" rx="5" fill="var(--tint)" stroke="var(--ev)"/><text x="605" y="64" text-anchor="middle" class="lbl">EV station</text>
+      <!-- voltage profile -->
+      <polyline points="40,120 300,138 348,150 560,182 650,186" fill="none" stroke="var(--blue)" stroke-width="2.4"/>
+      <line x1="40" y1="186" x2="680" y2="186" stroke="var(--red)" stroke-width="1.4" stroke-dasharray="5 4"/>
+      <text x="48" y="182" class="sm" style="fill:var(--red)">0.95 pu floor</text>
+      <text x="40" y="112" class="sm">1.00 pu</text>
+      <text x="610" y="178" class="sm">0.969 pu →</text>
+      <text x="360" y="150" class="sm">drop accumulates with every hop</text>
+      <text x="560" y="140" class="sm" style="fill:var(--ev-deep)">effective_kw load</text>
+    </svg></div>
+    <figcaption><b>The station is a leaf on the connectivity tree.</b> The backward sweep accumulates its <code>(P, Q)</code> up every branch to the slack; the forward sweep drops voltage along the way. More load = deeper sag — and more so at <code>pf &lt; 1</code>, where the reactive component adds current without real power. There is <b>no EV-specific flag in the node result</b>: the managed demand simply folds into the feeder's <code>CumulativeKW</code> / <code>CumulativeKVAR</code> like any other load.</figcaption>
+  </figure>
+
+  <p class="callout">Grow the load and the far end sags toward the 0.95&nbsp;pu floor. The question is: how much can it grow first? → Chapter&nbsp;5.</p>
+</section>
+<!-- ============ CH5 ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>The feeder-headroom study</h2><p>How much more charging load before the first limit binds?</p></div>
+
+  <p>The study (<code>POST /analysis/ev-hosting</code>, <code>ev_hosting.go</code>) is the exact <strong>under-voltage mirror</strong> of DER hosting capacity: hosting <em>injects</em> generation and binds on over-voltage; EV headroom <em>adds</em> load and binds on <strong>under-voltage</strong> (the 0.95 pu floor) — or on <strong>thermal</strong> (a conductor/transformer at 100 % of rating), which binds identically in both.</p>
+
+  <figure>
+    <div class="widget" id="w2">
+      <div class="w-head"><span class="eyebrow">Interactive · grow the load, watch it bind</span><span class="muted" style="font-size:12px">the Oakwood board, at three source strengths</span></div>
+      <div class="w-body">
+        <div class="w-ctrl">
+          <div class="ctl">
+            <label>added charging load <span class="v" id="w2-load-v">0 kW</span></label>
+            <input type="range" id="w2-load" min="0" max="500" step="5" value="0">
+            <div class="hint">Drag up until a limit turns red.</div>
+          </div>
+          <div class="ctl">
+            <label>source strength</label>
+            <div class="seg" id="w2-stiff">
+              <button data-stiff="weak">Weak</button>
+              <button data-stiff="medium" aria-pressed="true">Medium</button>
+              <button data-stiff="strong">Strong</button>
+            </div>
+            <div class="hint">A stiffer source sags less — more voltage headroom. At the strong setting, <b>thermal</b> binds first instead.</div>
+          </div>
+          <div class="readout">
+            <div class="ro"><div class="k">Headroom</div><div class="v" id="w2-headroom" style="color:var(--ev-deep)">250 kW</div></div>
+            <div class="ro"><div class="k">Binds on</div><div class="v" id="w2-bindname" style="font-size:16px">Under-voltage</div></div>
+          </div>
+        </div>
+        <div class="w-out">
+          <div class="gauge">
+            <div class="g-top"><span>worst voltage</span><span id="w2-v-val">0.969 pu</span></div>
+            <div class="g-track"><div class="g-fill" id="w2-v-fill" style="width:69%;background:var(--ev)"></div><div class="g-floor" style="left:50%"><span>0.95 floor</span></div></div>
+          </div>
+          <div class="gauge">
+            <div class="g-top"><span>worst loading</span><span id="w2-l-val">40%</span></div>
+            <div class="g-track"><div class="g-fill" id="w2-l-fill" style="width:33%;background:var(--ev)"></div><div class="g-floor" style="left:83.3%;background:var(--amber)"><span style="color:var(--amber)">100%</span></div></div>
+          </div>
+          <div class="bind none" id="w2-bind">Feasible — 250 kW of headroom remaining before the floor.</div>
+        </div>
+      </div>
+    </div>
+    <figcaption><b>The search automates exactly this drag.</b> It grows the load until a limit breaks, then bisects to pin the largest load that holds. Switch the source to <b>Strong</b> and watch the binding flip from under-voltage to <b>thermal</b> — a stiffer source lifts the voltage ceiling until the conductor's ampacity is what runs out first.</figcaption>
+  </figure>
+
+  <div class="en-b">
+    <span class="tag en">∑ How the search works</span>
+    <div class="flow" style="margin-top:10px">
+      <div class="fn"><b>1 · Base gate</b><small>already violating? headroom 0, <code>pre_existing</code>.</small></div><div class="fa">→</div>
+      <div class="fn"><b>2 · Ramp</b><small>50 kW, double until infeasible (cap 100 MW).</small></div><div class="fa">→</div>
+      <div class="fn"><b>3 · Bisect</b><small>40 iters, to 0.1 kW.</small></div><div class="fa">→</div>
+      <div class="fn"><b>4 · Name limit</b><small>smallest margin at capacity.</small></div>
+    </div>
+    <p style="font-size:14px;margin-top:10px">Binding by margin: under-voltage <code>worst_voltage_pu − 0.95</code> vs thermal <code>1 − worst_loading_pct/100</code> — whichever is smaller is the limit the next kW crosses. Reach the 100 MW cap still feasible → <code>unbounded</code>, <code>binding = none</code>. The feeder is <b>resolved once</b>, then every trial is a pure in-memory re-sweep.</p>
+  </div>
+
+  <div class="pl-b">
+    <span class="tag pl">▶ The inputs that matter</span>
+    <div class="tbl" style="background:transparent;margin:8px 0 0"><table>
+      <tr><th>Input</th><th>Default</th><th>Effect</th></tr>
+      <tr><td><code>nominal_voltage_v</code></td><td>— required</td><td>the feeder slack voltage — <b>must match the feeder's real voltage</b></td></tr>
+      <tr><td><code>power_factor</code></td><td>1.0</td><td>pf &lt; 1 draws kVAR, deepening the drop, <b>lowering</b> headroom</td></tr>
+      <tr><td><code>min_voltage_pu</code></td><td>0.95</td><td>the binding floor (ANSI C84.1 Range A)</td></tr>
+    </table></div>
+    <p class="note warn" style="margin-top:12px"><b>⚠ The nominal-voltage gotcha.</b> The panel defaults <code>nominal_voltage_v</code> to <b>400 V</b>. Arm it on an <b>11 kV / MV</b> feeder and leave 400 V, and the per-unit maths is against the wrong base — the headroom is <b>meaningless</b>. Always enter the feeder's actual sending-end voltage.</p>
+  </div>
+</section>
+
+<!-- ============ CH6 ============ -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>Reading &amp; acting on the result</h2><p>The binding constraint tells you what to do.</p></div>
+
+  <p>Each connection node reports its <code>ev_hosting_capacity_kw</code> (the headroom), the <code>binding_constraint</code>, the <code>binding_feature</code> it acts on, and the <code>worst_voltage_pu</code> / <code>worst_loading_pct</code> <em>at</em> that capacity — so you can see how close each limit sits. The panel's <b>“Binds on”</b> and <b>“At capacity”</b> columns are exactly this.</p>
+
+  <div class="tbl"><table>
+    <tr><th>Binds on</th><th>Means</th><th>Lever</th></tr>
+    <tr><td><span class="no">Under-voltage</span></td><td>the far end would fall below 0.95 pu</td><td>raise the source/tap, reconductor, or accept a lower floor</td></tr>
+    <tr><td style="color:var(--amber);font-weight:600">Thermal</td><td>a conductor/transformer hits 100 % of rating</td><td>upgrade that specific element (it's named)</td></tr>
+    <tr><td class="muted">Pre-existing</td><td>the feeder <em>already</em> violates a limit (headroom 0)</td><td>fix the base case first — it isn't the EV's fault</td></tr>
+    <tr><td class="ok">Unbounded</td><td>nothing binds up to the 100 MW cap</td><td>headroom is effectively unlimited here</td></tr>
+  </table></div>
+
+  <p class="callout">The number is only half the answer. The binding constraint is the other half — it names the bottleneck and, with it, the fix.</p>
+</section>
+<!-- ============ CH7 ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>Planning with managed charging</h2><p>Install more than the headroom — and stay within it.</p></div>
+
+  <p>The headroom the study reports is the <strong>uncapped physical ceiling</strong>. Managed charging is the lever that lets you connect a site whose <em>installed</em> nameplate exceeds it: you compare the site's <strong>managed effective load</strong> (Chapter 3) against the <strong>headroom</strong> (Chapter 5), and tune the cap until they fit.</p>
+
+  <figure>
+    <div class="widget" id="w3">
+      <div class="w-head"><span class="eyebrow">Interactive · will this site fit?</span><span class="muted" style="font-size:12px">tune the cap against the feeder's headroom</span></div>
+      <div class="w-body">
+        <div class="w-ctrl">
+          <div class="ctl">
+            <label>connected_load_kw <span class="v" id="w3-connected-v">500</span></label>
+            <input type="range" id="w3-connected" min="0" max="1500" step="10" value="500">
+            <div class="hint">What the operator wants to install.</div>
+          </div>
+          <div class="ctl">
+            <label>diversity_factor <span class="v" id="w3-div-v">1.00</span></label>
+            <input type="range" id="w3-div" min="0.1" max="1" step="0.05" value="1">
+          </div>
+          <div class="ctl">
+            <label>managed_demand_cap_kw <span class="v" id="w3-cap-v">240</span></label>
+            <input type="range" id="w3-cap" min="0" max="1500" step="10" value="240">
+            <div class="hint">0 = no cap. The lever that makes it fit.</div>
+          </div>
+          <div class="ctl">
+            <label>feeder headroom <span class="v" id="w3-headroom-v">250</span></label>
+            <input type="range" id="w3-headroom" min="0" max="1000" step="10" value="250">
+            <div class="hint">From the headroom study (Ch 5).</div>
+          </div>
+        </div>
+        <div class="w-out">
+          <div class="barstack">
+            <div class="barrow"><span class="k">effective load</span><div class="track"><div class="fill eff" id="w3-eff-fill" style="width:24%"></div></div><span class="n" id="w3-eff-n">240</span></div>
+            <div class="barrow"><span class="k">headroom</span><div class="track"><div class="fill name" id="w3-hr-fill" style="width:25%"></div></div><span class="n" id="w3-hr-n">250</span></div>
+          </div>
+          <div class="bind none" id="w3-verdict" style="margin-top:14px">✅ Viable — 240 kW effective fits inside 250 kW of headroom.</div>
+          <div class="q" id="w3-formula" style="font:500 13px var(--f-mono);color:var(--muted);margin-top:10px">min(240, 500 × 1.00) = 240 kW  ≤  250 kW</div>
+        </div>
+      </div>
+    </div>
+    <figcaption>The Oakwood board has <b>250 kW</b> of headroom. The operator wants <b>500 kW</b> installed — too much uncapped. But a <b>240 kW cap</b> makes the effective load 240 kW, inside the ceiling: <b>viable</b>, because the EMS holds coincident draw below the feeder's limit. Raise the cap past 250 and it fails; that's the connection boundary.</figcaption>
+  </figure>
+
+  <div class="callout">You don't size the feeder for the chargers. You size the <em>cap</em> for the feeder — and install whatever nameplate you like behind it.</div>
+</section>
+
+<!-- ============ CH8 ============ -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>Worked example — the Oakwood LV board</h2><p>End to end, with the real numbers.</p></div>
+
+  <p>Tom, a network analyst, sizes the rapid-charging hub at the Oakwood LV board (415 V node off the Feeder-7 transformer, base voltage <strong>0.969 pu</strong> with the feeder's existing load). He runs <code>/analysis/ev-hosting</code> naming that node, unity pf, floor 0.95. The search adds load and re-sweeps:</p>
+
+  <div class="tbl"><table>
+    <tr><th>Added load</th><th>Worst voltage</th><th>Feasible?</th></tr>
+    <tr><td>50 kW</td><td>0.966 pu</td><td class="ok">✅</td></tr>
+    <tr><td>100 kW</td><td>0.962 pu</td><td class="ok">✅</td></tr>
+    <tr><td>200 kW</td><td>0.954 pu</td><td class="ok">✅</td></tr>
+    <tr><td>400 kW</td><td>0.943 pu ⚠️</td><td class="no">❌ under-voltage</td></tr>
+  </table></div>
+
+  <p>Bisection pins the capacity between 200 (feasible) and 400 (infeasible):</p>
+
+  <div class="en-b" style="font-family:var(--f-mono);font-size:13.5px">
+    ev_hosting_capacity_kw ≈ <b style="color:var(--ev-deep)">250 kW</b><br>
+    worst_voltage_pu&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= 0.950&nbsp;&nbsp;(exactly on the floor)<br>
+    worst_loading_pct&nbsp;&nbsp;&nbsp;&nbsp;= 71 %&nbsp;&nbsp;&nbsp;(thermal has margin to spare)<br>
+    binding_constraint&nbsp;&nbsp;&nbsp;= undervoltage
+  </div>
+
+  <div class="pl-b">
+    <span class="tag pl">▶ Tom's read</span>
+    <p>The board can take <b>~250 kW</b> of charging before it hits the 0.95 pu floor; thermal isn't the problem (71 %). This board is <b>voltage-limited</b> — a tap or reconductor would raise it. (Contrast: the same board hosts <b>~480 kW of PV generation</b> before <em>over</em>-voltage binds — generation and load pull voltage opposite ways.) To connect the operator's 500 kW hub, Tom sets a 240 kW managed cap (Chapter 7) and it fits.</p>
+  </div>
+</section>
+
+<!-- ============ APPENDIX ============ -->
+<section class="ch" id="cx">
+  <div class="ch-head"><div class="ch-num">A</div><h2>Field &amp; formula reference</h2><p>The exact fields, formulas, and the honest caveats.</p></div>
+
+  <h3>Formulas</h3>
+  <div class="en-b" style="font-family:var(--f-mono);font-size:13.5px;line-height:1.9">
+    effective_kw = min( managed_demand_cap_kw , connected_load_kw × diversity_factor )<br>
+    Q&nbsp;(kVAR)&nbsp;&nbsp;&nbsp;&nbsp;= P · tan(acos(power_factor))&nbsp;&nbsp;&nbsp;&nbsp;pf default = unity → Q = 0<br>
+    headroom&nbsp;&nbsp;&nbsp;&nbsp;= largest added load with&nbsp;worst_voltage_pu ≥ 0.95&nbsp;AND&nbsp;all loadings ≤ 100%
+  </div>
+
+  <h3>Search constants (shared with DER hosting)</h3>
+  <div class="tbl"><table>
+    <tr><th>Constant</th><th>Value</th></tr>
+    <tr><td>ramp start</td><td>50 kW</td></tr>
+    <tr><td>search cap</td><td>100 MW</td></tr>
+    <tr><td>bisection iterations</td><td>40</td></tr>
+    <tr><td>resolution</td><td>0.1 kW</td></tr>
+    <tr><td>default voltage floor</td><td>0.95 pu</td></tr>
+  </table></div>
+
+  <h3>Caveats, stated plainly</h3>
+  <div class="tbl"><table>
+    <tr><td>1</td><td>The station's <code>network_role</code> in the shipped seed is <b><code>junction</code></b> (a leaf load node like <code>SERVICE_POINT</code>), despite the design prose saying "consumption."</td></tr>
+    <tr><td>2</td><td><code>connected_load_kw</code> is a <b>denormalised, hand-maintained</b> attribute — no trigger sums the contained chargers.</td></tr>
+    <tr><td>3</td><td>There is <b>no EV-specific node-result flag</b> — managed demand folds into <code>CumulativeKW</code> / <code>CumulativeKVAR</code>.</td></tr>
+    <tr><td>4</td><td>The EV asset domain is <b>metadata seed</b> (<code>seed/ev_charging_example.sql</code>), not a migration.</td></tr>
+  </table></div>
+</section>
+
+<footer>
+  <p>End of the EV Charging guide. The widgets are illustrative models of the real engine (<code>resolve.go</code>, <code>ev_hosting.go</code>); run the live study from the map's analysis menu — <b>EV feeder headroom</b> — for your own feeder. See also <b>Engineering Studies §8.3–8.4</b> and the markdown <b>EV Charging &amp; Feeder Headroom</b> companion.</p>
+</footer>
+</div>
+<script>
+(function(){
+  function $(id){return document.getElementById(id)}
+
+  // ---- chapter rail highlight
+  var links=[].slice.call(document.querySelectorAll('#chaps a'));
+  var secs=links.map(function(a){return document.querySelector(a.getAttribute('href'))});
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){var i=secs.indexOf(e.target);links.forEach(function(l,j){l.classList.toggle('on',i===j)});links[i]&&links[i].scrollIntoView({block:'nearest',inline:'nearest'})}})},{rootMargin:'-40% 0px -55% 0px'});
+    secs.forEach(function(s){s&&io.observe(s)});
+  }
+
+  // ---- Widget 1: managed-charging calculator
+  (function(){
+    var connected=$('w1-connected'),div=$('w1-div'),cap=$('w1-cap'),pf=$('w1-pf');
+    if(!connected)return;
+    var MAX=1500;
+    function upd(){
+      var c=+connected.value,d=+div.value,cp=+cap.value,p=+pf.value;
+      $('w1-connected-v').textContent=c;
+      $('w1-div-v').textContent=d.toFixed(2);
+      $('w1-cap-v').textContent=cp===0?'none':cp;
+      $('w1-pf-v').textContent=p.toFixed(2);
+      var diversified=c*d;
+      var capped=(cp>0 && diversified>cp);
+      var eff=capped?cp:diversified;
+      var q=eff*Math.tan(Math.acos(p));
+      $('w1-name-fill').style.width=(c/MAX*100)+'%'; $('w1-name-n').textContent=Math.round(c);
+      $('w1-div-fill').style.width=(diversified/MAX*100)+'%'; $('w1-div-n').textContent=Math.round(diversified);
+      $('w1-eff-fill').style.width=(eff/MAX*100)+'%'; $('w1-eff-n').textContent=Math.round(eff);
+      $('w1-eff-fill').style.background=capped?'var(--amber)':'var(--ev-deep)';
+      $('w1-big').textContent=Math.round(eff)+' kW';
+      $('w1-q').textContent='+ '+Math.round(q)+' kVAR reactive · pf '+p.toFixed(2);
+      $('w1-formula').textContent=(cp>0?'min('+cp+', ':'')+c+' × '+d.toFixed(2)+(cp>0?')':'')+' = '+Math.round(eff)+(capped?'   (cap wins)':'');
+    }
+    [connected,div,cap,pf].forEach(function(e){e.addEventListener('input',upd)}); upd();
+  })();
+
+  // ---- Widget 2: headroom search visualizer
+  (function(){
+    var load=$('w2-load'); if(!load)return;
+    var presets={weak:{v0:0.962,vslope:0.0001},medium:{v0:0.969,vslope:0.000076},strong:{v0:0.985,vslope:0.00004}};
+    var L0=40, lslope=0.124, floor=0.95, cur='medium';   // loading% = 40 + 0.124·kW → 100% at ~484 kW
+    function headroom(p){
+      var uv=(p.v0-floor)/p.vslope, th=(100-L0)/lslope;
+      return {hr:Math.min(uv,th), bind:uv<=th?'uv':'th'};
+    }
+    function upd(){
+      var p=presets[cur], L=+load.value;
+      var v=p.v0-p.vslope*L, ld=L0+lslope*L;
+      $('w2-load-v').textContent=L+' kW';
+      var vf=$('w2-v-fill');
+      vf.style.width=Math.max(0,Math.min(100,(v-0.90)/0.10*100))+'%';
+      vf.style.background=v<floor?'var(--red)':'var(--ev)';
+      $('w2-v-val').textContent=v.toFixed(3)+' pu';
+      var lf=$('w2-l-fill');
+      lf.style.width=Math.max(0,Math.min(100,ld/120*100))+'%';
+      lf.style.background=ld>100?'var(--red)':(ld>85?'var(--amber)':'var(--ev)');
+      $('w2-l-val').textContent=Math.round(ld)+'%';
+      var h=headroom(p);
+      $('w2-headroom').textContent=Math.round(h.hr)+' kW';
+      $('w2-bindname').textContent=h.bind==='uv'?'Under-voltage':'Thermal';
+      var b=$('w2-bind');
+      if(v<floor){b.className='bind uv';b.textContent='Under-voltage — '+v.toFixed(3)+' pu is below the 0.95 floor.';}
+      else if(ld>100){b.className='bind th';b.textContent='Thermal — '+Math.round(ld)+'% exceeds the 100% rating.';}
+      else{b.className='bind none';b.textContent='Feasible — '+Math.round(Math.max(0,h.hr-L))+' kW of headroom remaining ('+(h.bind==='uv'?'voltage':'thermal')+'-limited).';}
+    }
+    document.querySelectorAll('#w2-stiff button').forEach(function(btn){
+      btn.addEventListener('click',function(){
+        cur=btn.dataset.stiff;
+        document.querySelectorAll('#w2-stiff button').forEach(function(x){x.setAttribute('aria-pressed',String(x===btn))});
+        upd();
+      });
+    });
+    load.addEventListener('input',upd); upd();
+  })();
+
+  // ---- Widget 3: fit-the-site
+  (function(){
+    var connected=$('w3-connected'),div=$('w3-div'),cap=$('w3-cap'),hr=$('w3-headroom');
+    if(!connected)return;
+    function upd(){
+      var c=+connected.value,d=+div.value,cp=+cap.value,h=+hr.value;
+      $('w3-connected-v').textContent=c;
+      $('w3-div-v').textContent=d.toFixed(2);
+      $('w3-cap-v').textContent=cp===0?'none':cp;
+      $('w3-headroom-v').textContent=h;
+      var diversified=c*d;
+      var eff=(cp>0 && diversified>cp)?cp:diversified;
+      var max=Math.max(eff,h,100)*1.12;
+      $('w3-eff-fill').style.width=(eff/max*100)+'%'; $('w3-eff-n').textContent=Math.round(eff);
+      $('w3-hr-fill').style.width=(h/max*100)+'%'; $('w3-hr-n').textContent=Math.round(h);
+      var viable=eff<=h;
+      $('w3-eff-fill').style.background=viable?'var(--ev-deep)':'var(--red)';
+      var vb=$('w3-verdict');
+      if(viable){vb.className='bind none';vb.textContent='✅ Viable — '+Math.round(eff)+' kW effective fits inside '+h+' kW of headroom.';}
+      else{vb.className='bind uv';vb.textContent='❌ Over by '+Math.round(eff-h)+' kW — lower the cap (or diversity) to fit '+h+' kW.';}
+      $('w3-formula').textContent='min('+(cp>0?cp:'∞')+', '+c+' × '+d.toFixed(2)+') = '+Math.round(eff)+' kW  '+(viable?'≤':'>')+'  '+h+' kW';
+    }
+    [connected,div,cap,hr].forEach(function(e){e.addEventListener('input',upd)}); upd();
+  })();
+})();
+</script>
+
+</body></html>

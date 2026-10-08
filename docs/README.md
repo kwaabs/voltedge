@@ -38,6 +38,7 @@ Find your task on the left; open the document on the right.
 | Run the field tool: manage packs, review and resolve field edits, tune build/sync for a fleet | **[Field Tool Admin Guide](field-tool-admin-guide.md)** |
 | Get the *step-by-step recipe* for one map task — create, edit, measure, snap, connect, annotate | **[Everyday Operations](everyday-operations.md)** |
 | Understand what a load-flow / fault / arc-flash study actually computes | **[Engineering Studies](engineering-studies.md)** |
+| Model an EV charging site and size what a feeder can absorb (managed charging, headroom) | **[EV Charging & Feeder Headroom](ev-charging-guide.md)** |
 | Provision users, author feature classes, stand up an environment, use break-glass | **[Admin & Break-Glass Guide](admin-break-glass-guide.md)** |
 | Log a defect, raise a work order, build an inspection checklist | **[Works, Inspections & Maintenance Guide](works-inspections-maintenance-guide.md)** |
 | Capture and wire up a substation, end to end | **[Substation Guide](substation-guide.md)** |

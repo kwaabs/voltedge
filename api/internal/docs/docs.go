@@ -77,6 +77,13 @@ var manifest = []Doc{
 		Filename:    "engineering-studies.md",
 	},
 	{
+		ID:          "ev-charging-guide",
+		Title:       "EV Charging & Feeder Headroom",
+		Description: "Modelling a charging site end to end: the managed-charging load formula (connected load × diversity, clamped to the cap), how it loads the network, and the feeder-headroom study — what the number means and how to act on it.",
+		Category:    "Manuals",
+		Filename:    "ev-charging-guide.md",
+	},
+	{
 		ID:          "substation-guide",
 		Title:       "Substation Guide",
 		Description: "Modelling and working with substations end to end — bays, panels, the site model and the live one-line.",
@@ -89,6 +96,14 @@ var manifest = []Doc{
 		Description: "The same substation model as a hands-on guide: hover to cross-reference the containment and connectivity graphs, click switches on a live one-line to watch the trace respond, and toggle fields to see what the load-flow engine makes of a node.",
 		Category:    "Interactive guides",
 		Filename:    "substation-guide-interactive.html",
+		Format:      "html",
+	},
+	{
+		ID:          "ev-charging-guide-interactive",
+		Title:       "EV Charging Guide (interactive)",
+		Description: "Model a charging site end to end: a managed-charging calculator that shows the effective load the grid sees, a headroom-search visualiser you drag until a limit binds, and a planner that fits a site's cap to a feeder's headroom.",
+		Category:    "Interactive guides",
+		Filename:    "ev-charging-guide-interactive.html",
 		Format:      "html",
 	},
 	{
