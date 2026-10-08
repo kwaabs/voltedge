@@ -213,10 +213,15 @@ func setStatus(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id, sta
 	// out of the snapshot. "published" is the only publish target; every other
 	// value (today just "draft") is an unpublish.
 	action := historyUnpublish
+	event := eventFeatureUnpublished
 	if status == "published" {
 		action = historyPublish
+		event = eventFeaturePublished
 	}
 	if err := recordFeatureHistory(ctx, db, loaded, action, out); err != nil {
+		return nil, err
+	}
+	if err := emitFeatureEvent(ctx, db, loaded, event, out); err != nil {
 		return nil, err
 	}
 	return out, nil

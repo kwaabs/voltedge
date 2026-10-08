@@ -253,9 +253,22 @@ Extend the existing `/webhook-endpoints` admin API + page:
   `POST /{id}/outbound-deliveries/{deliveryID}/replay`). Backend: `webhookout/admin.go`
   (`Ping`/`ListDeliveries`/`ReplayDelivery`) called from `webhook/handler.go` (webhook
   may import webhookout — no cycle). Frontend: `admin-webhooks.tsx` + `use-webhooks.ts`.
-- **S4 — feature events + mapping.** Add the `crud` feature-CRUD events + the
-  class/territory filters that make them usable, and the optional per-subscription
-  mapping.
+- **S4 — feature events + mapping. BUILT (2026-10-08).** Feature lifecycle events
+  (`feature.created/updated/published/unpublished/deleted/restored/purged`) emitted from
+  the crud low-level writers next to `recordFeatureHistory` (`crud/events.go` helper;
+  payload = the formatRow snapshot + injected `feature_class`). The fan-out now honours a
+  subscription's `class_filter` (feature class) and `territory_id` (the feature's stored
+  Phase-11 territory, fail-closed like Phase 58 read scope — no spatial query needed), and
+  applies an optional per-subscription envelope `mapping` (`webhookout/mapping.go`, the
+  inbound mapping grammar inverted: one envelope → one receiver-shaped object; a failed
+  mapping falls back to the unmapped envelope with a warning). Admin UI (`admin-webhooks.tsx`)
+  exposes the class filter, territory scope, and a collapsible mapping editor.
+
+  > **Overhead note:** feature events are emitted UNCONDITIONALLY (the outbox is the source
+  > of truth), so every feature write inserts one outbox row even with no subscriptions, and
+  > the fan-out stamps it. This is the outbox pattern's cost; if feature-write volume ever
+  > makes it matter, gate emission behind a cached "any active feature subscription?" check
+  > or a config flag. The emit error propagates like the adjacent audit-trail write.
 
 S1–S2 is the whole capability (operational events delivered reliably); S3 makes it
 self-service; S4 widens coverage.

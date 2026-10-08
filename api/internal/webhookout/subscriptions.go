@@ -26,13 +26,15 @@ type Subscription struct {
 
 // outboundConfig is the outbound slice of an endpoint's config jsonb (design
 // doc §3). target_url is where the event is POSTed; event_types is the allow-list
-// a subscription hears (empty = all); class_filter narrows FEATURE-kind events to
-// named classes (inert for the operational events of v1, which carry no class).
-// (territory_id + mapping are reserved for S4 and ignored here.)
+// a subscription hears (empty = all); class_filter narrows feature events to named
+// classes; territory_id scopes to one territory; mapping (S4) is an optional spec
+// that reshapes the envelope into the receiver's own shape before sending.
 type outboundConfig struct {
-	TargetURL   string   `json:"target_url"`
-	EventTypes  []string `json:"event_types"`
-	ClassFilter []string `json:"class_filter"`
+	TargetURL   string          `json:"target_url"`
+	EventTypes  []string        `json:"event_types"`
+	ClassFilter []string        `json:"class_filter"`
+	TerritoryID string          `json:"territory_id"`
+	Mapping     json.RawMessage `json:"mapping"`
 }
 
 // parseConfig reads the outbound slice of a subscription's config jsonb.
@@ -48,16 +50,23 @@ func (s *Subscription) parseConfig() (outboundConfig, error) {
 }
 
 // matches reports whether this subscription should receive the given event: its
-// event_types allow-list must include the type (an empty list means "all"), and
-// for a feature-class-bearing event its class_filter (when set) must include the
-// class. An unparseable config matches nothing (surfaced by the caller).
-func (c outboundConfig) matches(eventType, featureClass string) bool {
+// event_types allow-list must include the type (empty = all), its class_filter
+// (when set) must include a feature event's class, and its territory_id (when set)
+// must equal the event's territory.
+func (c outboundConfig) matches(eventType, featureClass, territoryID string) bool {
 	if len(c.EventTypes) > 0 && !contains(c.EventTypes, eventType) {
 		return false
 	}
 	// class_filter only constrains events that actually carry a class; an
 	// operational event (no class) is never excluded by it.
 	if featureClass != "" && len(c.ClassFilter) > 0 && !contains(c.ClassFilter, featureClass) {
+		return false
+	}
+	// territory_id is fail-closed, mirroring Phase 58 read scope: a territory-
+	// scoped subscription hears an event ONLY when it carries that exact territory.
+	// An event with no territory (operational events, geometry-less features) never
+	// matches a territory-scoped subscription.
+	if c.TerritoryID != "" && territoryID != c.TerritoryID {
 		return false
 	}
 	return true

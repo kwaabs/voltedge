@@ -56,10 +56,14 @@ interface FormState {
   pullAuthHeader: string
   pullAuthQueryParam: string
   pullAuthUsername: string
-  /** Outbound subscription: where we POST events, and which event types it hears
-   * (one per line). */
+  /** Outbound subscription: where we POST events, which event types it hears, and
+   * optional class / territory scoping + an envelope mapping (one item per line
+   * for the list fields). */
   targetUrl: string
   eventTypes: string
+  classFilter: string
+  territoryId: string
+  outboundMappingText: string
   mappingText: string
 }
 
@@ -79,6 +83,9 @@ const EMPTY_FORM: FormState = {
   pullAuthUsername: "",
   targetUrl: "",
   eventTypes: "",
+  classFilter: "",
+  territoryId: "",
+  outboundMappingText: "",
   mappingText: "",
 }
 
@@ -99,6 +106,9 @@ function formFrom(ep: WebhookEndpoint): FormState {
     pullAuthUsername: ep.config?.pull_auth?.username ?? "",
     targetUrl: ep.config?.target_url ?? "",
     eventTypes: (ep.config?.event_types ?? []).join("\n"),
+    classFilter: (ep.config?.class_filter ?? []).join("\n"),
+    territoryId: ep.config?.territory_id ?? "",
+    outboundMappingText: ep.config?.mapping ? JSON.stringify(ep.config.mapping, null, 2) : "",
     mappingText: ep.mapping ? JSON.stringify(ep.mapping, null, 2) : "",
   }
 }
@@ -177,6 +187,12 @@ function toBody(form: FormState, { isEdit }: { isEdit: boolean }): Record<string
     config.target_url = form.targetUrl.trim()
     const types = parseEventTypes(form.eventTypes)
     if (types.length > 0) config.event_types = types
+    const classes = parseEventTypes(form.classFilter)
+    if (classes.length > 0) config.class_filter = classes
+    if (form.territoryId.trim()) config.territory_id = form.territoryId.trim()
+    // The envelope mapping lives in config.mapping (not the endpoint.mapping
+    // column, which is the inbound spec). Callers gate on its JSON validity first.
+    if (form.outboundMappingText.trim()) config.mapping = JSON.parse(form.outboundMappingText)
   }
 
   const body: Record<string, unknown> = {
@@ -585,9 +601,39 @@ function OutboundFields({
         />
         <p className="text-muted-foreground text-xs">
           One event type per line (e.g. <span className="font-mono">oms.incident.raised</span>,{" "}
-          <span className="font-mono">wam.workorder.completed</span>, <span className="font-mono">faults.event.*</span>{" "}
-          families). Leave blank to receive <span className="font-medium">every</span> event.
+          <span className="font-mono">wam.workorder.completed</span>, <span className="font-mono">feature.created</span>
+          ). Leave blank to receive <span className="font-medium">every</span> event.
         </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Feature class filter</label>
+          <textarea
+            className={`${inputClass} h-20 font-mono text-xs`}
+            value={value.classFilter}
+            onChange={(e) => onChange({ ...value, classFilter: e.target.value })}
+            placeholder={"DIST_XFMR\nMV_CONDUCTOR"}
+            spellCheck={false}
+          />
+          <p className="text-muted-foreground text-xs">
+            Limit <span className="font-mono">feature.*</span> events to these class codes (one per line). Blank = all
+            classes.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className={labelClass}>Territory scope</label>
+          <input
+            className={inputClass}
+            value={value.territoryId}
+            onChange={(e) => onChange({ ...value, territoryId: e.target.value })}
+            placeholder="territory UUID (optional)"
+          />
+          <p className="text-muted-foreground text-xs">
+            Only events whose feature carries this <span className="font-mono">territory_id</span> are sent. Blank = all
+            territories.
+          </p>
+        </div>
       </div>
 
       <div className="flex flex-col gap-1">
@@ -609,7 +655,81 @@ function OutboundFields({
           server's encryption key to be configured.
         </p>
       </div>
+
+      <OutboundMappingField value={value} onChange={onChange} />
     </>
+  )
+}
+
+const OUTBOUND_MAPPING_SAMPLE = `{
+  "fields": {
+    "id": { "path": "entity.id" },
+    "kind": { "path": "entity.kind" },
+    "type": { "path": "event_type" },
+    "at": { "path": "occurred_at" },
+    "record": { "path": "data" }
+  }
+}`
+
+/** Optional envelope mapping (outbound): reshape the VoltEdge event envelope into
+ * whatever shape the receiver expects, before it is signed and sent. Same grammar
+ * as the inbound mapping (const / path / map / default / nested fields), but it
+ * runs on the single envelope object. Blank = send the native envelope. */
+function OutboundMappingField({ value, onChange }: { value: FormState; onChange: (v: FormState) => void }) {
+  const [open, setOpen] = useState(value.outboundMappingText.trim().length > 0)
+  const error = mappingParseError(value.outboundMappingText)
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        className="hover:text-foreground text-muted-foreground flex items-center gap-1 self-start text-xs font-medium"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        Payload mapping (advanced)
+        {value.outboundMappingText.trim() && !open && (
+          <span className="bg-muted text-muted-foreground rounded px-1 py-0.5 text-[10px]">set</span>
+        )}
+      </button>
+      {open && (
+        <>
+          <p className="text-muted-foreground text-xs">
+            Leave blank to POST VoltEdge's native envelope (
+            <span className="font-mono">{"{ event_id, event_type, occurred_at, actor, entity, data }"}</span>). To
+            reshape it for a receiver that expects its own shape, describe each output field with{" "}
+            <span className="font-mono">const</span> / <span className="font-mono">path</span> (dot-path into the
+            envelope) / <span className="font-mono">map</span> / <span className="font-mono">default</span>.
+          </p>
+          <textarea
+            className={`${inputClass} h-48 font-mono text-xs`}
+            value={value.outboundMappingText}
+            onChange={(e) => onChange({ ...value, outboundMappingText: e.target.value })}
+            placeholder="(native envelope — no mapping)"
+            spellCheck={false}
+          />
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="text-primary text-xs hover:underline"
+              onClick={() => onChange({ ...value, outboundMappingText: OUTBOUND_MAPPING_SAMPLE })}
+            >
+              Insert sample
+            </button>
+            {value.outboundMappingText.trim() && (
+              <button
+                type="button"
+                className="text-muted-foreground text-xs hover:underline"
+                onClick={() => onChange({ ...value, outboundMappingText: "" })}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {error && <p className="text-destructive text-xs">{error}</p>}
+        </>
+      )}
+    </div>
   )
 }
 
@@ -624,6 +744,7 @@ function EditEndpointRow({ endpoint, onDone }: { endpoint: WebhookEndpoint; onDo
     (form.direction !== "pull" || form.pullUrl.trim().length > 0) &&
     (form.direction !== "outbound" || form.targetUrl.trim().length > 0) &&
     mappingParseError(form.mappingText) === null &&
+    mappingParseError(form.outboundMappingText) === null &&
     (!formNeedsSecret(form) || endpoint.has_signing_secret || form.signingSecret.trim().length > 0)
 
   async function handleSave() {
@@ -1141,6 +1262,12 @@ function EndpointCard({
                 {t}
               </span>
             ))}
+          {endpoint.direction === "outbound" && endpoint.config?.territory_id && (
+            <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">1 territory</span>
+          )}
+          {endpoint.direction === "outbound" && endpoint.config?.mapping != null && (
+            <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">mapped</span>
+          )}
           {endpoint.config?.feature_class && (
             <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 font-mono text-xs">
               {endpoint.config.feature_class}
@@ -1200,6 +1327,7 @@ export function AdminWebhooksPage() {
     (form.direction !== "pull" || form.pullUrl.trim().length > 0) &&
     (form.direction !== "outbound" || form.targetUrl.trim().length > 0) &&
     mappingParseError(form.mappingText) === null &&
+    mappingParseError(form.outboundMappingText) === null &&
     (!formNeedsSecret(form) || form.signingSecret.trim().length > 0)
 
   async function handleSave() {

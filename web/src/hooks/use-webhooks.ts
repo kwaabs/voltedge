@@ -48,6 +48,9 @@ export interface WebhookEndpoint {
     feature_class?: string
     target_url?: string
     event_types?: string[]
+    class_filter?: string[]
+    territory_id?: string
+    mapping?: unknown
   } & WebhookPullConfig &
     Record<string, unknown>
   mapping?: unknown

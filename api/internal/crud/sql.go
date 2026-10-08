@@ -319,6 +319,9 @@ func insertFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 	if err := recordFeatureHistory(ctx, db, loaded, historyCreate, out); err != nil {
 		return nil, err
 	}
+	if err := emitFeatureEvent(ctx, db, loaded, eventFeatureCreated, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -441,6 +444,9 @@ func updateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id 
 		return nil, err
 	}
 	if err := recordFeatureHistory(ctx, db, loaded, historyUpdate, out); err != nil {
+		return nil, err
+	}
+	if err := emitFeatureEvent(ctx, db, loaded, eventFeatureUpdated, out); err != nil {
 		return nil, err
 	}
 	return out, nil

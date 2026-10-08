@@ -33,6 +33,7 @@ const (
 	KindWorkOrder = "work_order"
 	KindDefect    = "defect"
 	KindFault     = "fault"
+	KindFeature   = "feature"
 )
 
 // Event types -- the semantic `event_type` a write path emits. Namespaced by module so
@@ -50,6 +51,17 @@ const (
 	EventFaultRaised  = "faults.event.raised"
 	EventFaultCleared = "faults.event.cleared"
 	EventFaultUpdated = "faults.event.updated"
+
+	// Feature lifecycle (S4). Higher-volume than the operational events above, so
+	// a subscription almost always pairs these with a class_filter and/or a
+	// territory_id scope to hear only the features it cares about.
+	EventFeatureCreated     = "feature.created"
+	EventFeatureUpdated     = "feature.updated"
+	EventFeaturePublished   = "feature.published"
+	EventFeatureUnpublished = "feature.unpublished"
+	EventFeatureDeleted     = "feature.deleted"
+	EventFeatureRestored    = "feature.restored"
+	EventFeaturePurged      = "feature.purged"
 )
 
 // OutboundEvent is one row of ops.webhook_outbound_events (migration 0133). Seq is

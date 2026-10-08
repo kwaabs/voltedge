@@ -58,6 +58,18 @@ func featureClassOf(payload json.RawMessage) string {
 	return probe.FeatureClass
 }
 
+// territoryOf pulls a territory_id out of an event payload when present, so a
+// subscription's territory_id filter can scope to it. A feature event carries the
+// feature's stored territory_id (Phase 11); operational and geometry-less events
+// carry none -> "" -> excluded from any territory-scoped subscription.
+func territoryOf(payload json.RawMessage) string {
+	var probe struct {
+		TerritoryID string `json:"territory_id"`
+	}
+	_ = json.Unmarshal(payload, &probe)
+	return probe.TerritoryID
+}
+
 // fanOutOne claims the oldest un-fanned outbox event, inserts one delivery per
 // matching active subscription, and stamps fanned_out_at -- all in ONE
 // transaction, so the whole step is atomic: a crash before commit rolls back both
@@ -99,6 +111,7 @@ LIMIT 1`).Scan(ctx, ev)
 			return err
 		}
 		fclass := featureClassOf(ev.Payload)
+		tid := territoryOf(ev.Payload)
 		body, err := buildEnvelope(ev)
 		if err != nil {
 			return err
@@ -114,8 +127,22 @@ LIMIT 1`).Scan(ctx, ev)
 					"subscription_id", sub.ID, "err", err)
 				continue
 			}
-			if !cfg.matches(ev.EventType, fclass) {
+			if !cfg.matches(ev.EventType, fclass, tid) {
 				continue
+			}
+			// Optional per-subscription mapping (S4): reshape the envelope into the
+			// receiver's own shape. A bad/failed mapping falls back to the unmapped
+			// envelope with a warning rather than dropping the event -- the admin
+			// validated the spec at save time, so this is a belt-and-braces guard.
+			deliveryBody := body
+			if len(cfg.Mapping) > 0 {
+				mapped, err := applyEnvelopeMapping(cfg.Mapping, body)
+				if err != nil {
+					logx.From(ctx).Warn("outbound mapping failed; sending unmapped envelope",
+						"subscription_id", sub.ID, "err", err)
+				} else {
+					deliveryBody = mapped
+				}
 			}
 			d := &OutboundDelivery{
 				SubscriptionID: sub.ID,
@@ -124,7 +151,7 @@ LIMIT 1`).Scan(ctx, ev)
 				EntityKind:     ev.EntityKind,
 				EntityID:       ev.EntityID,
 				EventType:      ev.EventType,
-				Payload:        body,
+				Payload:        deliveryBody,
 				Status:         "queued",
 			}
 			if err := insertDelivery(ctx, tx, d); err != nil {

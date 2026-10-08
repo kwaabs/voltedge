@@ -182,6 +182,9 @@ func purgeFeatureRow(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, i
 	if err := recordFeatureHistory(ctx, db, loaded, historyPurge, current); err != nil {
 		return fmt.Errorf("crud: purge: %w", err)
 	}
+	if err := emitFeatureEvent(ctx, db, loaded, eventFeaturePurged, current); err != nil {
+		return fmt.Errorf("crud: purge: %w", err)
+	}
 	return nil
 }
 
@@ -225,10 +228,15 @@ func setDeletedAt(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id s
 	// softDeleteFeature/restoreFeature short-circuit an already-in-that-state
 	// row before reaching here, so a repeated delete or restore records nothing.
 	action := historyRestore
+	event := eventFeatureRestored
 	if deleted {
 		action = historyDelete
+		event = eventFeatureDeleted
 	}
 	if err := recordFeatureHistory(ctx, db, loaded, action, out); err != nil {
+		return nil, err
+	}
+	if err := emitFeatureEvent(ctx, db, loaded, event, out); err != nil {
 		return nil, err
 	}
 	return out, nil
