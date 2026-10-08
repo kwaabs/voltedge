@@ -45,16 +45,62 @@ const (
 	forecastViolation = 100.0
 )
 
-// forecastRequest is POST /analysis/load-growth's body (Slice 1). Start +
-// NominalVoltageV are the same radial-load-flow inputs every sweep takes (nominal may
-// be 0 at a boundary-transformer start, where the secondary voltage is derived).
-// HorizonYears is the projection length; BaseGrowthPct is the blanket compound growth
-// applied to every load each year.
+// forecastRequest is POST /analysis/load-growth's body. Start + NominalVoltageV are
+// the same radial-load-flow inputs every sweep takes (nominal may be 0 at a boundary-
+// transformer start, where the secondary voltage is derived). HorizonYears is the
+// projection length; BaseGrowthPct is the blanket compound growth applied to every
+// load each year.
+//
+// PerFeeder / PerClass (Slice 2) are optional growth-rate overrides, keyed by circuit
+// ref and feature-class code respectively. A load's rate is resolved most-specific-
+// first: when both a feeder and a class rate match, their factors MULTIPLY; else the
+// one that matches; else BaseGrowthPct. BlockLoads (Slice 2) are hand-entered new
+// demand switched on at a given year at an existing feature.
 type forecastRequest struct {
 	Start           featureRef `json:"start"`
 	NominalVoltageV float64    `json:"nominal_voltage_v"`
 	HorizonYears    int        `json:"horizon_years"`
 	BaseGrowthPct   float64    `json:"base_growth_pct"`
+
+	PerFeeder  map[string]float64 `json:"per_feeder,omitempty"`
+	PerClass   map[string]float64 `json:"per_class,omitempty"`
+	BlockLoads []blockLoad        `json:"block_loads,omitempty"`
+}
+
+// blockLoad is a known future demand (Slice 2): [kw]/[kvar] added at [attach_ref]'s
+// node from [start_year] onward. Unlike grown load it is a fixed step (the planner
+// states the mature size) -- e.g. a new estate or an EV depot energising in year 3.
+type blockLoad struct {
+	Attach    featureRef `json:"attach_ref"`
+	KW        float64    `json:"kw"`
+	KVAR      float64    `json:"kvar"`
+	StartYear int        `json:"start_year"`
+}
+
+// growthRule is a node's resolved growth inputs (Slice 2): which of the per-feeder /
+// per-class overrides matched it (and their rates). effectiveFactor turns it into the
+// year-t multiplier.
+type growthRule struct {
+	hasFeeder bool
+	feederPct float64
+	hasClass  bool
+	classPct  float64
+}
+
+// effectiveFactor is the compound load multiplier for a node at a given year, applying
+// the most-specific growth rule: feeder ∧ class factors multiply when both match; else
+// the single matching factor; else the blanket basePct. A pure kernel (unit-tested).
+func effectiveFactor(rule growthRule, basePct float64, year int) float64 {
+	switch {
+	case rule.hasFeeder && rule.hasClass:
+		return growthFactor(rule.feederPct, year) * growthFactor(rule.classPct, year)
+	case rule.hasFeeder:
+		return growthFactor(rule.feederPct, year)
+	case rule.hasClass:
+		return growthFactor(rule.classPct, year)
+	default:
+		return growthFactor(basePct, year)
+	}
 }
 
 // forecastPoint is one year's loading for an asset.
@@ -140,6 +186,24 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 	if req.BaseGrowthPct < -50 || req.BaseGrowthPct > 100 {
 		return nil, invalid("base_growth_pct must be between -50 and 100")
 	}
+	for ref, pct := range req.PerFeeder {
+		if pct < -50 || pct > 100 {
+			return nil, invalid("per_feeder[%q] must be between -50 and 100", ref)
+		}
+	}
+	for code, pct := range req.PerClass {
+		if pct < -50 || pct > 100 {
+			return nil, invalid("per_class[%q] must be between -50 and 100", code)
+		}
+	}
+	for i, bl := range req.BlockLoads {
+		if bl.Attach.FeatureClass == "" || bl.Attach.FeatureID == "" {
+			return nil, invalid("block_loads[%d].attach_ref.feature_class and feature_id are required", i)
+		}
+		if bl.StartYear < 0 || bl.StartYear > req.HorizonYears {
+			return nil, invalid("block_loads[%d].start_year must be between 0 and horizon_years (%d)", i, req.HorizonYears)
+		}
+	}
 
 	// Build the tree + resolve node states ONCE -- the query-heavy work. Radial only
 	// in Slice 1 (breaks = nil, so buildTree rejects a mesh exactly as the plain
@@ -178,6 +242,49 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 		}
 	}
 
+	// Resolve each node's growth rule once (Slice 2): which per-feeder / per-class
+	// override matches it (feeder by the node's circuit ref, class by its class code).
+	rules := make(map[node]growthRule, len(states))
+	for n, st := range states {
+		if st == nil {
+			continue
+		}
+		var rule growthRule
+		if len(req.PerClass) > 0 {
+			if pct, ok := req.PerClass[classCodes[n.classID]]; ok {
+				rule.hasClass, rule.classPct = true, pct
+			}
+		}
+		if len(req.PerFeeder) > 0 {
+			if _, ref := circuitIdentity(st); ref != "" {
+				if pct, ok := req.PerFeeder[ref]; ok {
+					rule.hasFeeder, rule.feederPct = true, pct
+				}
+			}
+		}
+		rules[n] = rule
+	}
+
+	// Resolve each block load's attach feature to a node in the swept network. A block
+	// load attached to a feature not downstream of the start can't affect the result,
+	// so reject it rather than silently drop it. Several block loads on one node sum.
+	type blockDemand struct {
+		kw, kvar  float64
+		startYear int
+	}
+	nodeByRef := make(map[featureRef]node, len(tr.order))
+	for _, n := range tr.order {
+		nodeByRef[featureRef{FeatureClass: classCodes[n.classID], FeatureID: n.featureID}] = n
+	}
+	blocks := make(map[node][]blockDemand)
+	for i, bl := range req.BlockLoads {
+		n, ok := nodeByRef[featureRef{FeatureClass: bl.Attach.FeatureClass, FeatureID: bl.Attach.FeatureID}]
+		if !ok {
+			return nil, invalid("block_loads[%d]: attach feature %s/%s is not in the analysed network (downstream of the start)", i, bl.Attach.FeatureClass, bl.Attach.FeatureID)
+		}
+		blocks[n] = append(blocks[n], blockDemand{kw: bl.KW, kvar: bl.KVAR, startYear: bl.StartYear})
+	}
+
 	// Per-asset trajectory, keyed by class|id, built up over the year loop. order
 	// preserves first-seen (tree) order so the output is stable.
 	type assetAcc struct {
@@ -190,14 +297,27 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 	var usedNominalV float64
 
 	for t := 0; t <= req.HorizonYears; t++ {
-		f := growthFactor(req.BaseGrowthPct, t)
 		for n, st := range states {
 			if st == nil {
 				continue
 			}
+			f := effectiveFactor(rules[n], req.BaseGrowthPct, t)
 			b := base[n]
 			st.ownKW = b.kw * f
 			st.ownKVAR = b.kvar * f
+		}
+		// Add any block loads active by this year, on top of the grown base demand.
+		for n, bls := range blocks {
+			st := states[n]
+			if st == nil {
+				continue
+			}
+			for _, bl := range bls {
+				if t >= bl.startYear {
+					st.ownKW += bl.kw
+					st.ownKVAR += bl.kvar
+				}
+			}
 		}
 
 		backwardSweep(tr, states)
@@ -272,6 +392,23 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 		reinforcement = append(reinforcement, featureRef{FeatureClass: a.FeatureClass, FeatureID: a.FeatureID})
 	}
 
+	assumptions := []string{
+		fmt.Sprintf("%.2f%%/yr blanket load growth over %d year(s)", req.BaseGrowthPct, req.HorizonYears),
+	}
+	if len(req.PerFeeder) > 0 || len(req.PerClass) > 0 {
+		assumptions = append(assumptions, fmt.Sprintf(
+			"growth overrides: %d per-feeder, %d per-class (feeder and class rates multiply where both match a load)",
+			len(req.PerFeeder), len(req.PerClass)))
+	}
+	if len(req.BlockLoads) > 0 {
+		assumptions = append(assumptions, fmt.Sprintf(
+			"%d hand-entered block load(s) switched on at their stated year", len(req.BlockLoads)))
+	}
+	assumptions = append(assumptions,
+		"a scenario projection under your stated assumptions -- not a statistical prediction of actual future demand",
+		"thermal loading only (transformer rating + conductor ampacity); voltage-band violations, the planned-asset pipeline and DER headroom are later slices",
+	)
+
 	return &forecastResponse{
 		Start:              req.Start,
 		NominalVoltageV:    usedNominalV,
@@ -279,11 +416,7 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 		BaseGrowthPct:      req.BaseGrowthPct,
 		Assets:             assets,
 		ReinforcementOrder: reinforcement,
-		Assumptions: []string{
-			fmt.Sprintf("%.2f%%/yr blanket load growth over %d year(s)", req.BaseGrowthPct, req.HorizonYears),
-			"a scenario projection under your stated growth assumption -- not a statistical prediction of actual future demand",
-			"thermal loading only (transformer rating + conductor ampacity); voltage-band, per-feeder/class growth, planned assets and DER headroom are later slices",
-		},
-		Validation: "derived",
+		Assumptions:        assumptions,
+		Validation:         "derived",
 	}, nil
 }

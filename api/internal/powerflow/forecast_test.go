@@ -46,6 +46,41 @@ func TestGrowthFactorCompounds(t *testing.T) {
 	}
 }
 
+// TestEffectiveFactor checks the Slice-2 growth-rule precedence: when both a feeder
+// and a class rate match, their factors MULTIPLY; a single match uses that rate; no
+// match falls back to the blanket base rate. Year 0 is always unity.
+func TestEffectiveFactor(t *testing.T) {
+	const base = 1.5
+	year := 10
+	baseF := growthFactor(base, year)
+
+	cases := []struct {
+		name string
+		rule growthRule
+		want float64
+	}{
+		{"no override -> base", growthRule{}, baseF},
+		{"feeder only", growthRule{hasFeeder: true, feederPct: 3}, growthFactor(3, year)},
+		{"class only", growthRule{hasClass: true, classPct: 8}, growthFactor(8, year)},
+		{"both multiply", growthRule{hasFeeder: true, feederPct: 3, hasClass: true, classPct: 8},
+			growthFactor(3, year) * growthFactor(8, year)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := effectiveFactor(c.rule, base, year); !approxEqual(got, c.want, 1e-9) {
+				t.Fatalf("effectiveFactor(%+v) = %v, want %v", c.rule, got, c.want)
+			}
+		})
+	}
+
+	// Year 0 is unity whatever the rule.
+	for _, rule := range []growthRule{{}, {hasFeeder: true, feederPct: 9}, {hasFeeder: true, feederPct: 3, hasClass: true, classPct: 8}} {
+		if got := effectiveFactor(rule, base, 0); !approxEqual(got, 1.0, 1e-12) {
+			t.Fatalf("effectiveFactor at year 0 = %v, want 1 (rule %+v)", got, rule)
+		}
+	}
+}
+
 // TestFirstViolationYear checks the first-overload-year extraction: the earliest year
 // strictly above the threshold, nil when nothing crosses, and that exactly-at-threshold
 // does NOT count (the 100% line is a crossing only when exceeded, matching
