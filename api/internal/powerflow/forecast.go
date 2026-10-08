@@ -93,6 +93,19 @@ type forecastRequest struct {
 	PlannedDateField     string         `json:"planned_date_field,omitempty"`
 	PlannedYearOverrides map[string]int `json:"planned_year_overrides,omitempty"`
 	PlannedDefaultYear   *int           `json:"planned_default_year,omitempty"`
+
+	// DERHeadroom (Slice 4) adds the DER-headroom-over-time lens: at each year it runs
+	// the hosting-capacity study under that year's grown load, so the result carries a
+	// per-node curve of how much DER the feeder can still host as load rises. DERNodes
+	// restricts the scan (empty = every apparatus node, like the hosting study). The
+	// remaining fields are the hosting search's own knobs (same defaults). Committed
+	// FUTURE DER is entered as negative block_loads (a known injection switched on at a
+	// year); a per-class DER adoption curve is a later refinement.
+	DERHeadroom       bool         `json:"der_headroom"`
+	DERNodes          []featureRef `json:"der_nodes,omitempty"`
+	DERPowerFactor    *float64     `json:"der_power_factor,omitempty"`
+	DERMaxVoltagePu   *float64     `json:"der_max_voltage_pu,omitempty"`
+	DERMaxInjectionKW *float64     `json:"der_max_injection_kw,omitempty"`
 }
 
 // yearFromDateAttr interprets a date-valued attribute as a year OFFSET from nowYear
@@ -201,18 +214,36 @@ type forecastAsset struct {
 	Trajectory         []forecastPoint `json:"trajectory"`
 }
 
+// derHeadroomPoint is one year's DER hosting capacity at a node.
+type derHeadroomPoint struct {
+	Year              int     `json:"year"`
+	HostingCapacityKW float64 `json:"hosting_capacity_kw"`
+	BindingConstraint string  `json:"binding_constraint"` // overvoltage | thermal | none | pre_existing
+}
+
+// derHeadroomAsset is one candidate interconnection node's DER-headroom trajectory --
+// how much more DER it can host each year as load grows (Slice 4).
+type derHeadroomAsset struct {
+	FeatureClass string             `json:"feature_class"`
+	FeatureID    string             `json:"feature_id"`
+	CircuitRef   string             `json:"circuit_ref,omitempty"`
+	Trajectory   []derHeadroomPoint `json:"trajectory"`
+}
+
 // forecastResponse is the load-growth study result: the stressed assets with their
 // trajectories, the reinforcement order (violating assets, soonest + most severe
-// first), the echoed assumptions, and the Derived validation label.
+// first), the optional DER-headroom curves, the echoed assumptions, and the Derived
+// validation label.
 type forecastResponse struct {
-	Start              featureRef      `json:"start"`
-	NominalVoltageV    float64         `json:"nominal_voltage_v"`
-	HorizonYears       int             `json:"horizon_years"`
-	BaseGrowthPct      float64         `json:"base_growth_pct"`
-	Assets             []forecastAsset `json:"assets"`
-	ReinforcementOrder []featureRef    `json:"reinforcement_order"`
-	Assumptions        []string        `json:"assumptions"`
-	Validation         string          `json:"validation"`
+	Start              featureRef         `json:"start"`
+	NominalVoltageV    float64            `json:"nominal_voltage_v"`
+	HorizonYears       int                `json:"horizon_years"`
+	BaseGrowthPct      float64            `json:"base_growth_pct"`
+	Assets             []forecastAsset    `json:"assets"`
+	ReinforcementOrder []featureRef       `json:"reinforcement_order"`
+	DERHeadroom        []derHeadroomAsset `json:"der_headroom,omitempty"`
+	Assumptions        []string           `json:"assumptions"`
+	Validation         string             `json:"validation"`
 }
 
 // growthFactor is the compound load multiplier at a given year: (1 + pct/100)^year.
@@ -288,6 +319,15 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 		if y < 0 {
 			return nil, invalid("planned_year_overrides[%q] must not be negative", id)
 		}
+	}
+	if req.DERPowerFactor != nil && (*req.DERPowerFactor <= 0 || *req.DERPowerFactor > 1) {
+		return nil, invalid("der_power_factor must be in (0, 1]")
+	}
+	if req.DERMaxVoltagePu != nil && *req.DERMaxVoltagePu <= 0 {
+		return nil, invalid("der_max_voltage_pu must be a positive number")
+	}
+	if req.DERMaxInjectionKW != nil && *req.DERMaxInjectionKW <= 0 {
+		return nil, invalid("der_max_injection_kw must be a positive number")
 	}
 
 	// Build the tree + resolve node states ONCE -- the query-heavy work. Radial only
@@ -393,6 +433,58 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 		}
 	}
 
+	// DER-headroom setup (Slice 4): resolve the candidate interconnection nodes + the
+	// hosting search's parameters ONCE, so each year is a pure in-memory hosting run
+	// over that year's grown load. Candidates default to every non-source apparatus
+	// node (conductors aren't interconnection points), exactly like the hosting study.
+	type derAcc struct {
+		class, id, circuitRef string
+		traj                  []derHeadroomPoint
+	}
+	var derCandidates []node
+	var derMaxPu, derMaxInjKW, derQPerKW float64
+	derAccs := make(map[node]*derAcc)
+	if req.DERHeadroom {
+		derMaxPu = defaultMaxVoltagePu
+		if req.DERMaxVoltagePu != nil {
+			derMaxPu = *req.DERMaxVoltagePu
+		}
+		derMaxInjKW = defaultMaxInjectionKW
+		if req.DERMaxInjectionKW != nil {
+			derMaxInjKW = *req.DERMaxInjectionKW
+		}
+		pf := 1.0
+		if req.DERPowerFactor != nil {
+			pf = *req.DERPowerFactor
+		}
+		derQPerKW = math.Tan(math.Acos(pf))
+
+		if len(req.DERNodes) > 0 {
+			for i, ref := range req.DERNodes {
+				n, ok := nodeByRef[featureRef{FeatureClass: ref.FeatureClass, FeatureID: ref.FeatureID}]
+				if !ok {
+					return nil, invalid("der_nodes[%d]: %s/%s is not in the analysed network (downstream of the start)", i, ref.FeatureClass, ref.FeatureID)
+				}
+				derCandidates = append(derCandidates, n)
+			}
+		} else {
+			for _, n := range tr.order {
+				if n == start {
+					continue
+				}
+				st := states[n]
+				if st == nil || st.loaded.FeatureClass.NetworkRole == "edge" {
+					continue
+				}
+				derCandidates = append(derCandidates, n)
+			}
+		}
+		for _, c := range derCandidates {
+			_, ref := circuitIdentity(states[c])
+			derAccs[c] = &derAcc{class: classCodes[c.classID], id: c.featureID, circuitRef: ref}
+		}
+	}
+
 	// Per-asset trajectory, keyed by class|id, built up over the year loop. order
 	// preserves first-seen (tree) order so the output is stable.
 	type assetAcc struct {
@@ -468,6 +560,26 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 			}
 			a.traj = append(a.traj, forecastPoint{Year: t, LoadingPct: *nr.LoadingPct})
 		}
+
+		// DER headroom under this year's load (Slice 4): a hosting study over the SAME
+		// year-t states. size() mutates states during its bisection but restores each
+		// candidate's demand; the load trajectory above is already captured, and next
+		// year re-scales + re-sweeps fresh, so running it last is safe.
+		if req.DERHeadroom {
+			study := &hostingStudy{
+				tr: tr, states: states, start: start, classCodes: classCodes,
+				nominalV: startBaseV, sourceR: sourceR, sourceX: sourceX,
+				maxPu: derMaxPu, maxInjKW: derMaxInjKW, qPerKW: derQPerKW,
+			}
+			for _, c := range derCandidates {
+				hc := study.size(c)
+				derAccs[c].traj = append(derAccs[c].traj, derHeadroomPoint{
+					Year:              t,
+					HostingCapacityKW: hc.HostingCapacityKW,
+					BindingConstraint: hc.BindingConstraint,
+				})
+			}
+		}
 	}
 
 	// Keep only the assets that actually get stressed, compute each one's first
@@ -511,6 +623,21 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 		reinforcement = append(reinforcement, featureRef{FeatureClass: a.FeatureClass, FeatureID: a.FeatureID})
 	}
 
+	// DER-headroom curves (Slice 4), in tree order.
+	var derHeadroom []derHeadroomAsset
+	if req.DERHeadroom {
+		derHeadroom = make([]derHeadroomAsset, 0, len(derCandidates))
+		for _, c := range derCandidates {
+			a := derAccs[c]
+			derHeadroom = append(derHeadroom, derHeadroomAsset{
+				FeatureClass: a.class,
+				FeatureID:    a.id,
+				CircuitRef:   a.circuitRef,
+				Trajectory:   a.traj,
+			})
+		}
+	}
+
 	assumptions := []string{
 		fmt.Sprintf("%.2f%%/yr blanket load growth over %d year(s)", req.BaseGrowthPct, req.HorizonYears),
 	}
@@ -536,9 +663,13 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 		assumptions = append(assumptions, fmt.Sprintf(
 			"%d planned asset(s) excluded (include_planned off) -- base is in-service only", len(plannedISY)))
 	}
+	if req.DERHeadroom {
+		assumptions = append(assumptions, fmt.Sprintf(
+			"DER headroom (hosting capacity) sized at %d candidate node(s) each year under the grown load; committed future DER can be entered as negative block loads", len(derCandidates)))
+	}
 	assumptions = append(assumptions,
 		"a scenario projection under your stated assumptions -- not a statistical prediction of actual future demand",
-		"thermal loading only (transformer rating + conductor ampacity); voltage-band violations and DER headroom are later slices",
+		"thermal loading only for the overload timeline (transformer rating + conductor ampacity); voltage-band violations are a later slice",
 	)
 
 	return &forecastResponse{
@@ -548,6 +679,7 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 		BaseGrowthPct:      req.BaseGrowthPct,
 		Assets:             assets,
 		ReinforcementOrder: reinforcement,
+		DERHeadroom:        derHeadroom,
 		Assumptions:        assumptions,
 		Validation:         "derived",
 	}, nil
