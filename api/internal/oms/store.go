@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/trace"
+	"github.com/kwaabs/voltedge/api/internal/webhookout"
 	"github.com/uptrace/bun"
 )
 
@@ -373,6 +374,9 @@ RETURNING id`
 			if err != nil {
 				return err
 			}
+			if err := webhookout.Emit(ctx, tx, webhookout.EventIncidentRaised, webhookout.KindIncident, inc.ID, inc); err != nil {
+				return err
+			}
 			created = append(created, *inc)
 		}
 		return nil
@@ -518,7 +522,14 @@ RETURNING id`
 	).Scan(&id); err != nil {
 		return nil, fmt.Errorf("oms: creating planned outage: %w", err)
 	}
-	return GetIncident(ctx, db, id)
+	inc, err := GetIncident(ctx, db, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := webhookout.Emit(ctx, db, webhookout.EventIncidentRaised, webhookout.KindIncident, inc.ID, inc); err != nil {
+		return nil, err
+	}
+	return inc, nil
 }
 
 // RestoreIncident marks an incident restored (now), closing every open
@@ -552,7 +563,10 @@ func RestoreIncident(ctx context.Context, db *bun.DB, id string) (*Incident, err
 			return fmt.Errorf("oms: closing interruptions for incident %s: %w", id, err)
 		}
 		out, err = GetIncident(ctx, tx, id)
-		return err
+		if err != nil {
+			return err
+		}
+		return webhookout.Emit(ctx, tx, webhookout.EventIncidentRestored, webhookout.KindIncident, out.ID, out)
 	})
 	if err != nil {
 		return nil, err

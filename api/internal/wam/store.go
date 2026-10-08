@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/uptrace/bun"
+
+	"github.com/kwaabs/voltedge/api/internal/webhookout"
 )
 
 // ---------------------------------------------------------------------------
@@ -193,7 +195,17 @@ func CreateDefect(ctx context.Context, db bun.IDB, p CreateDefectParams) (*Defec
 	if err != nil {
 		return nil, fmt.Errorf("wam: inserting defect: %w", err)
 	}
-	return GetDefect(ctx, db, id)
+	d, err := GetDefect(ctx, db, id)
+	if err != nil {
+		return nil, err
+	}
+	// Outbound event (docs/outbound-webhooks-design.md): emitted on the write's db
+	// handle, so a tx-carrying caller is atomic; the idempotent no-op above returned
+	// before here, so a replayed capture never re-emits.
+	if err := webhookout.Emit(ctx, db, webhookout.EventDefectCreated, webhookout.KindDefect, d.ID, d); err != nil {
+		return nil, err
+	}
+	return d, nil
 }
 
 // GetDefect fetches one defect by id, location projected to lng/lat.
@@ -384,7 +396,14 @@ func CreateWorkOrder(ctx context.Context, db bun.IDB, p CreateWorkOrderParams) (
 	if err := db.QueryRowContext(ctx, query, args...).Scan(&id); err != nil {
 		return nil, fmt.Errorf("wam: inserting work order: %w", err)
 	}
-	return GetWorkOrder(ctx, db, id)
+	o, err := GetWorkOrder(ctx, db, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := webhookout.Emit(ctx, db, webhookout.EventWorkOrderCreated, webhookout.KindWorkOrder, o.ID, o); err != nil {
+		return nil, err
+	}
+	return o, nil
 }
 
 // GetWorkOrder fetches one work order by id, location projected to lng/lat.
@@ -540,7 +559,20 @@ func UpdateWorkOrder(ctx context.Context, db bun.IDB, id string, p UpdateWorkOrd
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil, invalidf("work order %q does not exist", id)
 	}
-	return GetWorkOrder(ctx, db, id)
+	o, err := GetWorkOrder(ctx, db, id)
+	if err != nil {
+		return nil, err
+	}
+	// A patch that lands the order on 'completed' is the lifecycle event subscribers
+	// care about (the job is done); anything else is a plain update.
+	event := webhookout.EventWorkOrderUpdated
+	if o.Status == WorkStatusCompleted {
+		event = webhookout.EventWorkOrderCompleted
+	}
+	if err := webhookout.Emit(ctx, db, event, webhookout.KindWorkOrder, o.ID, o); err != nil {
+		return nil, err
+	}
+	return o, nil
 }
 
 // RaiseWorkOrderFromDefectParams carries the corrective-order overrides. All

@@ -26,7 +26,7 @@ template cases.
 6. **Fault & protection** — fault current, SLG, arc flash, coordination,
    ampacity, contingency.
 7. **DER & optimization** — hosting capacity, EV hosting, storage dispatch,
-   volt-var, tap optimization, VVO.
+   volt-var, tap optimization, VVO, load-growth forecast.
 8. **Beyond correctness — the production-readiness tests** — the four things
    Chapters 3–7 do *not* prove: that the numbers are **accurate** (validated
    against a reference, not just "it ran"), that it holds at **scale**, that
@@ -207,7 +207,7 @@ hierarchy. Structural/off-path devices (relays, CT/VT) stay untiered/transparent
 
 | Region of Oakwood | Enables tests |
 |---|---|
-| GSP → POWER_XFMR → 11 kV bus → Feeder A → T1 → LV → services (radial) | 4.1, 4.2, 4.7 (load flow, voltage profile), 5.1–5.4 (traces), 6.1–6.5 (fault/coordination/ampacity) |
+| GSP → POWER_XFMR → 11 kV bus → Feeder A → T1 → LV → services (radial) | 4.1, 4.2, 4.7 (load flow, voltage profile), 5.1–5.4 (traces), 6.1–6.5 (fault/coordination/ampacity), 7.7 (load-growth forecast) |
 | RMU **closed** ring on Feeder A | 4.3 (meshed), and 4.4/4.5 when you make it dense |
 | Two GSPs + normally-open tie | 4.4 (multi-slack nodal), 6.6 (N-1 contingency), 4.5 (auto → nodal) |
 | Phase-coded LV tails (L1N/L2N/L3N + 3-ph) | 4.6 (unbalanced Tier 1; Tier 2 once LV geometry is filled) |
@@ -1543,6 +1543,34 @@ combined loss/voltage improvement. Cross-check: VVO's recommendation should not
 be worse than the best single-actor study (Tests 7.3–7.5) in isolation.
 **Failure modes:** non-convergence within `max_rounds` is returned **flagged**
 (`converged=false`), not silently trusted.
+
+## Test 7.7 — Load-growth forecast
+
+**Purpose:** Scenario projection of the feeder over a horizon — which assets
+overload (and in which year) and which nodes drop under-voltage as load grows, plus
+DER headroom over time. A planning *what-if*, not a prediction.
+**Endpoint:** `POST /analysis/load-growth`. **MCP:** none.
+
+**Run:** `{ start, nominal_voltage_v, horizon_years, base_growth_pct,
+min_voltage_pu?, include_planned?, der_headroom?, per_feeder?, per_class?,
+block_loads?, ... }` — note the field is **`start`** (like load flow), not `source`.
+
+```
+  loading% 120 |                         ___X  overload -> first_violation_year
+           100 |- - - - - - - - - -___---      (demand scaled (1+g)^year, re-swept each year)
+            80 |............___---             assets >= 80% are reported; voltage_violations[]
+               +-------------------------->    catch an under-voltage sag before any overload
+                 0    2    4    6    8  year
+```
+
+**Expected:** `assets[]` (each with `first_violation_year` + year-by-year
+`trajectory`), `voltage_violations[]` (nodes below `min_voltage_pu`, with the first
+year), `reinforcement_order` (soonest + most severe first), `der_headroom[]` when
+requested, the echoed `assumptions`, and `validation: "derived"`.
+**Failure modes:** a meshed feeder → validation error (radial only, like plain load
+flow); `horizon_years` outside 1–60 → error; a `block_loads`/`der_nodes` attach not
+on the swept feeder → error; with `include_planned` off, `operational_state=PLANNED`
+assets contribute **zero** demand (the base is in-service only — no double-count).
 
 ---
 

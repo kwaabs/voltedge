@@ -11,6 +11,7 @@ import (
 	"github.com/uptrace/bun"
 
 	"github.com/kwaabs/voltedge/api/internal/wam"
+	"github.com/kwaabs/voltedge/api/internal/webhookout"
 )
 
 // ---------------------------------------------------------------------------
@@ -212,6 +213,12 @@ func CreateFault(ctx context.Context, db bun.IDB, p CreateFaultParams) (*FaultEv
 	if err := recordFaultHistory(ctx, db, historyCreated, f); err != nil {
 		return nil, err
 	}
+	// Outbound event (docs/outbound-webhooks-design.md): emitted in the same db handle
+	// the write used, right beside the audit-history row -- so on a tx-carrying caller
+	// it is atomic, and the idempotent no-op above returns before here (no duplicate).
+	if err := webhookout.Emit(ctx, db, webhookout.EventFaultRaised, webhookout.KindFault, f.ID, f); err != nil {
+		return nil, err
+	}
 	return f, nil
 }
 
@@ -292,6 +299,15 @@ func SetFaultStatus(ctx context.Context, db bun.IDB, id, status string) (*FaultE
 		return nil, err
 	}
 	if err := recordFaultHistory(ctx, db, historyStatusChanged, f); err != nil {
+		return nil, err
+	}
+	// A terminal status (cleared/closed) is the "fault cleared" event subscribers care
+	// about most; any other transition is a plain status update.
+	event := webhookout.EventFaultUpdated
+	if terminal {
+		event = webhookout.EventFaultCleared
+	}
+	if err := webhookout.Emit(ctx, db, event, webhookout.KindFault, f.ID, f); err != nil {
 		return nil, err
 	}
 	return f, nil
