@@ -246,9 +246,13 @@ Extend the existing `/webhook-endpoints` admin API + page:
   strictly sequential by `seq` (plain `FOR UPDATE`), and the delivery claim holds a row
   while any earlier-seq delivery for the same entity is still queued/running. This is the
   working end-to-end pipeline.
-- **S3 — admin.** The outbound-subscription admin UI (pick event types, filters,
-  secret), the **test-ping**, and the delivery log/replay reused against the outbound
-  table.
+- **S3 — admin. BUILT (2026-10-08).** The `/webhook-endpoints` admin page now offers a
+  third direction, `outbound` (target_url + event_types + signing secret), a **Ping**
+  button (`POST /{id}/ping` → synthetic signed event, synchronous, result toast), and a
+  live outbound delivery log with replay (`GET /{id}/outbound-deliveries`,
+  `POST /{id}/outbound-deliveries/{deliveryID}/replay`). Backend: `webhookout/admin.go`
+  (`Ping`/`ListDeliveries`/`ReplayDelivery`) called from `webhook/handler.go` (webhook
+  may import webhookout — no cycle). Frontend: `admin-webhooks.tsx` + `use-webhooks.ts`.
 - **S4 — feature events + mapping.** Add the `crud` feature-CRUD events + the
   class/territory filters that make them usable, and the optional per-subscription
   mapping.

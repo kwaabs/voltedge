@@ -9,8 +9,10 @@ import { ApiError, apiFetch } from "@/lib/api"
  * convention the hook holds its own copy of the shape.
  */
 
-/** direction/target/auth_mode enums accepted by the create/update endpoints. */
-export type WebhookDirection = "push" | "pull"
+/** direction/target/auth_mode enums accepted by the create/update endpoints.
+ * 'outbound' is a subscription VoltEdge POSTs its own events to (migration 0134);
+ * 'push'/'pull' are the inbound directions. */
+export type WebhookDirection = "push" | "pull" | "outbound"
 export type WebhookTarget = "feature" | "reading" | "work" | "fault"
 export type WebhookAuthMode = "hmac" | "bearer" | "both"
 /** Outbound auth shape for a pull endpoint (mirrors the Go outbound.Auth). */
@@ -40,8 +42,14 @@ export interface WebhookEndpoint {
   has_signing_secret: boolean
   service_user_id: string
   /** Opaque per-endpoint config; the feature adapter reads config.feature_class,
-   * a pull endpoint reads config.pull_url / config.pull_auth. */
-  config?: { feature_class?: string } & WebhookPullConfig & Record<string, unknown>
+   * a pull endpoint reads config.pull_url / config.pull_auth, an outbound
+   * subscription reads config.target_url / config.event_types. */
+  config?: {
+    feature_class?: string
+    target_url?: string
+    event_types?: string[]
+  } & WebhookPullConfig &
+    Record<string, unknown>
   mapping?: unknown
   created_at: string
   updated_at: string
@@ -88,6 +96,36 @@ export function useWebhookDeliveries(endpointId: string | null) {
   return useQuery<{ deliveries: WebhookDelivery[] }, ApiError>({
     queryKey: ["webhook-endpoints", endpointId, "deliveries"],
     queryFn: () => apiFetch<{ deliveries: WebhookDelivery[] }>(`/webhook-endpoints/${endpointId}/deliveries`),
+    enabled: endpointId !== null,
+    refetchInterval: 4_000,
+    retry: false,
+  })
+}
+
+/** One outbound delivery (mirrors the Go DeliveryView). The envelope payload is
+ * not in the log list -- it carries status, timing, HTTP code and errors. */
+export interface OutboundDelivery {
+  id: string
+  event_type: string
+  entity_kind: string
+  entity_id: string
+  status: WebhookDeliveryStatus
+  attempts: number
+  response_code?: number
+  error?: string
+  next_attempt_at: string
+  created_at: string
+  finished_at?: string
+}
+
+/** The recent outbound delivery log for one subscription (newest first,
+ * server-capped at 100), polled every 4s while open so a queued/running delivery
+ * resolves without a manual refresh. */
+export function useOutboundDeliveries(endpointId: string | null) {
+  return useQuery<{ deliveries: OutboundDelivery[] }, ApiError>({
+    queryKey: ["webhook-endpoints", endpointId, "outbound-deliveries"],
+    queryFn: () =>
+      apiFetch<{ deliveries: OutboundDelivery[] }>(`/webhook-endpoints/${endpointId}/outbound-deliveries`),
     enabled: endpointId !== null,
     refetchInterval: 4_000,
     retry: false,

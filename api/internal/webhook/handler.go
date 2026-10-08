@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kwaabs/voltedge/api/internal/secretbox"
+	"github.com/kwaabs/voltedge/api/internal/webhookout"
 	"github.com/uptrace/bun"
 )
 
@@ -24,10 +25,13 @@ const deliveryListLimit = 100
 //	GET    /{id}                                 fetch one endpoint
 //	PATCH  /{id}                                 update an endpoint
 //	DELETE /{id}                                 remove an endpoint (cascades log)
-//	GET    /{id}/deliveries                      recent delivery log
+//	GET    /{id}/deliveries                      recent delivery log (inbound)
 //	POST   /{id}/test                            paste-and-apply a payload inline
 //	POST   /{id}/pull                            fetch a pull endpoint's URL now
 //	POST   /{id}/deliveries/{deliveryID}/replay  re-enqueue a stored delivery
+//	POST   /{id}/ping                            send a synthetic event to an outbound sub
+//	GET    /{id}/outbound-deliveries             recent delivery log (outbound)
+//	POST   /{id}/outbound-deliveries/{deliveryID}/replay  re-queue an outbound delivery
 func AdminRoutes(db *bun.DB, cipher *secretbox.Cipher) chi.Router {
 	h := &adminAPI{store: &store{db: db, cipher: cipher}}
 	r := chi.NewRouter()
@@ -40,6 +44,9 @@ func AdminRoutes(db *bun.DB, cipher *secretbox.Cipher) chi.Router {
 	r.Post("/{id}/test", h.test)
 	r.Post("/{id}/pull", h.pull)
 	r.Post("/{id}/deliveries/{deliveryID}/replay", h.replay)
+	r.Post("/{id}/ping", h.ping)
+	r.Get("/{id}/outbound-deliveries", h.listOutboundDeliveries)
+	r.Post("/{id}/outbound-deliveries/{deliveryID}/replay", h.replayOutbound)
 	return r
 }
 
@@ -187,6 +194,69 @@ func (h *adminAPI) replay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"delivery_id": deliveryID})
+}
+
+// outboundDeliveryLimit caps the outbound delivery log page (newest first).
+const outboundDeliveryLimit = 100
+
+// ping sends a synthetic event to an OUTBOUND subscription's target_url right now
+// and returns the outcome -- the "does this connection work" check (the outbound
+// analogue of pull's "fetch now"). A failed ping is a 200 whose body reports the
+// failure; only a non-outbound endpoint or an infra error is a non-200.
+func (h *adminAPI) ping(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	ep, err := getEndpoint(ctx, h.store, chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if ep.Direction != "outbound" {
+		writeError(w, invalid("ping is only available for an outbound subscription"))
+		return
+	}
+	res, err := webhookout.Ping(ctx, h.store.db, h.store.cipher, ep.ID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// listOutboundDeliveries returns an outbound subscription's recent delivery log.
+func (h *adminAPI) listOutboundDeliveries(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	ep, err := getEndpoint(ctx, h.store, chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	rows, err := webhookout.ListDeliveries(ctx, h.store.db, ep.ID, outboundDeliveryLimit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deliveries": rows})
+}
+
+// replayOutbound re-queues a terminal (dead/succeeded) outbound delivery to be
+// sent again, with a fresh attempt budget.
+func (h *adminAPI) replayOutbound(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	ep, err := getEndpoint(ctx, h.store, chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	found, err := webhookout.ReplayDelivery(ctx, h.store.db, ep.ID, chi.URLParam(r, "deliveryID"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !found {
+		writeError(w, invalid("no replayable (dead or succeeded) delivery %q on this subscription", chi.URLParam(r, "deliveryID")))
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // --- shared HTTP helpers (also used by receiver.go) ---

@@ -12,6 +12,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Send,
   Trash2,
   Webhook,
 } from "lucide-react"
@@ -25,12 +26,14 @@ import { usePermission } from "@/hooks/use-auth"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useAdminUsers } from "@/hooks/use-users"
 import {
+  type OutboundDelivery,
   type WebhookAuthMode,
   type WebhookDelivery,
   type WebhookDirection,
   type WebhookEndpoint,
   type WebhookPullAuthType,
   type WebhookTarget,
+  useOutboundDeliveries,
   useWebhookDeliveries,
   useWebhookEndpoints,
 } from "@/hooks/use-webhooks"
@@ -53,6 +56,10 @@ interface FormState {
   pullAuthHeader: string
   pullAuthQueryParam: string
   pullAuthUsername: string
+  /** Outbound subscription: where we POST events, and which event types it hears
+   * (one per line). */
+  targetUrl: string
+  eventTypes: string
   mappingText: string
 }
 
@@ -70,6 +77,8 @@ const EMPTY_FORM: FormState = {
   pullAuthHeader: "",
   pullAuthQueryParam: "",
   pullAuthUsername: "",
+  targetUrl: "",
+  eventTypes: "",
   mappingText: "",
 }
 
@@ -88,6 +97,8 @@ function formFrom(ep: WebhookEndpoint): FormState {
     pullAuthHeader: ep.config?.pull_auth?.header ?? "",
     pullAuthQueryParam: ep.config?.pull_auth?.query_param ?? "",
     pullAuthUsername: ep.config?.pull_auth?.username ?? "",
+    targetUrl: ep.config?.target_url ?? "",
+    eventTypes: (ep.config?.event_types ?? []).join("\n"),
     mappingText: ep.mapping ? JSON.stringify(ep.mapping, null, 2) : "",
   }
 }
@@ -117,10 +128,22 @@ function pullAuthNeedsSecret(t: WebhookPullAuthType): boolean {
   return t !== "none"
 }
 
-/** Whether THIS form needs a stored secret at all: an HMAC push, or an
- * authenticated pull (whose credential rides the same sealed column). */
+/** Whether THIS form needs a stored secret at all: an HMAC push, an authenticated
+ * pull (whose credential rides the same sealed column), or an outbound
+ * subscription (which always signs each delivery with it). */
 function formNeedsSecret(form: FormState): boolean {
-  return form.direction === "pull" ? pullAuthNeedsSecret(form.pullAuthType) : needsSecret(form.authMode)
+  if (form.direction === "pull") return pullAuthNeedsSecret(form.pullAuthType)
+  if (form.direction === "outbound") return true
+  return needsSecret(form.authMode)
+}
+
+/** The event types an outbound subscription hears, parsed from the textarea (one
+ * per line, commas also accepted; blanks dropped). */
+function parseEventTypes(text: string): string[] {
+  return text
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
 }
 
 /** feature and reading endpoints both write feature rows (a reading is modelled
@@ -149,6 +172,11 @@ function toBody(form: FormState, { isEdit }: { isEdit: boolean }): Record<string
       auth.username = form.pullAuthUsername.trim()
     }
     config.pull_auth = auth
+  }
+  if (form.direction === "outbound") {
+    config.target_url = form.targetUrl.trim()
+    const types = parseEventTypes(form.eventTypes)
+    if (types.length > 0) config.event_types = types
   }
 
   const body: Record<string, unknown> = {
@@ -199,24 +227,27 @@ function EndpointFormFields({
           >
             <option value="push">Push (external system sends to us)</option>
             <option value="pull">Pull (we fetch on demand)</option>
+            <option value="outbound">Outbound (we POST our events to them)</option>
           </select>
         </div>
-        <div className="flex flex-col gap-1">
-          <label className={labelClass}>Target</label>
-          <select
-            className={inputClass}
-            value={value.target}
-            onChange={(e) => onChange({ ...value, target: e.target.value as WebhookTarget })}
-          >
-            <option value="feature">Feature</option>
-            <option value="reading">Reading (recorded as a feature)</option>
-            <option value="work">Work order</option>
-            <option value="fault">Fault event</option>
-          </select>
-        </div>
+        {value.direction !== "outbound" && (
+          <div className="flex flex-col gap-1">
+            <label className={labelClass}>Target</label>
+            <select
+              className={inputClass}
+              value={value.target}
+              onChange={(e) => onChange({ ...value, target: e.target.value as WebhookTarget })}
+            >
+              <option value="feature">Feature</option>
+              <option value="reading">Reading (recorded as a feature)</option>
+              <option value="work">Work order</option>
+              <option value="fault">Fault event</option>
+            </select>
+          </div>
+        )}
       </div>
 
-      {usesFeatureClass(value.target) && (
+      {value.direction !== "outbound" && usesFeatureClass(value.target) && (
         <div className="flex flex-col gap-1">
           <label className={labelClass}>Default feature class</label>
           <select
@@ -277,6 +308,8 @@ function EndpointFormFields({
 
       {value.direction === "pull" ? (
         <PullFields value={value} onChange={onChange} hasSecret={hasSecret} />
+      ) : value.direction === "outbound" ? (
+        <OutboundFields value={value} onChange={onChange} hasSecret={hasSecret} />
       ) : (
         <>
           <div className="flex flex-col gap-1">
@@ -316,7 +349,7 @@ function EndpointFormFields({
         </>
       )}
 
-      <MappingField value={value} onChange={onChange} />
+      {value.direction !== "outbound" && <MappingField value={value} onChange={onChange} />}
 
       <label className="flex items-center gap-2 text-xs font-medium">
         <input
@@ -324,7 +357,7 @@ function EndpointFormFields({
           checked={value.active}
           onChange={(e) => onChange({ ...value, active: e.target.checked })}
         />
-        Active (a paused endpoint refuses incoming pushes and can't be pulled)
+        Active (a paused endpoint is skipped — no pushes, pulls, or outbound deliveries)
       </label>
     </div>
   )
@@ -510,6 +543,76 @@ function PullFields({
   )
 }
 
+/** The outbound half of the form: where VoltEdge POSTs its events, which event
+ * types this subscription hears, and the HMAC signing secret (always required —
+ * every outbound delivery is signed so the subscriber can verify it). */
+function OutboundFields({
+  value,
+  onChange,
+  hasSecret,
+}: {
+  value: FormState
+  onChange: (v: FormState) => void
+  hasSecret?: boolean
+}) {
+  return (
+    <>
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>
+          Target URL <span className="text-destructive">*</span>
+        </label>
+        <input
+          className={inputClass}
+          value={value.targetUrl}
+          onChange={(e) => onChange({ ...value, targetUrl: e.target.value })}
+          placeholder="https://cis.example.com/hooks/voltedge"
+        />
+        <p className="text-muted-foreground text-xs">
+          VoltEdge POSTs each matching event here. Must be a public http(s) address (internal/private hosts are
+          refused). The receiver should verify the <span className="font-mono">X-VoltEdge-Signature</span> header and
+          dedupe on <span className="font-mono">X-VoltEdge-Delivery</span>.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>Event types</label>
+        <textarea
+          className={`${inputClass} h-24 font-mono text-xs`}
+          value={value.eventTypes}
+          onChange={(e) => onChange({ ...value, eventTypes: e.target.value })}
+          placeholder={"oms.incident.raised\nwam.workorder.completed\nfaults.event.cleared"}
+          spellCheck={false}
+        />
+        <p className="text-muted-foreground text-xs">
+          One event type per line (e.g. <span className="font-mono">oms.incident.raised</span>,{" "}
+          <span className="font-mono">wam.workorder.completed</span>, <span className="font-mono">faults.event.*</span>{" "}
+          families). Leave blank to receive <span className="font-medium">every</span> event.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>
+          Signing secret
+          {!hasSecret && <span className="text-destructive"> *</span>}
+        </label>
+        <input
+          type="password"
+          autoComplete="new-password"
+          className={inputClass}
+          value={value.signingSecret}
+          onChange={(e) => onChange({ ...value, signingSecret: e.target.value })}
+          placeholder={hasSecret ? "Leave blank to keep the current secret" : ""}
+        />
+        <p className="text-muted-foreground text-xs">
+          Stored encrypted; never shown again. Each delivery is signed{" "}
+          <span className="font-mono">HMAC-SHA256(secret, "&lt;timestamp&gt;.&lt;body&gt;")</span>. Requires the
+          server's encryption key to be configured.
+        </p>
+      </div>
+    </>
+  )
+}
+
 function EditEndpointRow({ endpoint, onDone }: { endpoint: WebhookEndpoint; onDone: () => void }) {
   const [form, setForm] = useState<FormState>(formFrom(endpoint))
   const [saving, setSaving] = useState(false)
@@ -519,6 +622,7 @@ function EditEndpointRow({ endpoint, onDone }: { endpoint: WebhookEndpoint; onDo
     form.name.trim().length > 0 &&
     form.serviceUserId.trim().length > 0 &&
     (form.direction !== "pull" || form.pullUrl.trim().length > 0) &&
+    (form.direction !== "outbound" || form.targetUrl.trim().length > 0) &&
     mappingParseError(form.mappingText) === null &&
     (!formNeedsSecret(form) || endpoint.has_signing_secret || form.signingSecret.trim().length > 0)
 
@@ -671,6 +775,103 @@ function DeliveriesPanel({ endpointId }: { endpointId: string }) {
   )
 }
 
+/** One outbound delivery, its error/timing detail collapsed until expanded. */
+function OutboundDeliveryRow({ endpointId, delivery }: { endpointId: string; delivery: OutboundDelivery }) {
+  const [open, setOpen] = useState(false)
+  const [replaying, setReplaying] = useState(false)
+  const queryClient = useQueryClient()
+  const terminal = delivery.status === "dead" || delivery.status === "succeeded"
+
+  async function handleReplay() {
+    setReplaying(true)
+    try {
+      await apiFetch(`/webhook-endpoints/${endpointId}/outbound-deliveries/${delivery.id}/replay`, { method: "POST" })
+      queryClient.invalidateQueries({ queryKey: ["webhook-endpoints", endpointId, "outbound-deliveries"] })
+      useToastStore.getState().pushSuccess("Replay queued — watch the log for the re-send.")
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not replay this delivery.")
+    } finally {
+      setReplaying(false)
+    }
+  }
+
+  return (
+    <div className="border-border/60 rounded-md border">
+      <div className="flex items-center gap-2 px-2 py-1.5">
+        <button
+          type="button"
+          className="hover:text-foreground text-muted-foreground flex min-w-0 flex-1 items-center gap-2"
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+          <StatusBadge status={delivery.status} />
+          <span className="truncate font-mono text-xs">{delivery.event_type}</span>
+          <span className="text-muted-foreground truncate text-xs">{new Date(delivery.created_at).toLocaleString()}</span>
+          {delivery.attempts > 0 && (
+            <span className="text-muted-foreground text-xs">· {delivery.attempts} attempt(s)</span>
+          )}
+          {delivery.response_code != null && (
+            <span className="text-muted-foreground font-mono text-xs">· HTTP {delivery.response_code}</span>
+          )}
+        </button>
+        {terminal && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            title="Re-send this delivery"
+            onClick={handleReplay}
+            disabled={replaying}
+          >
+            {replaying ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+          </Button>
+        )}
+      </div>
+      {open && (
+        <div className="border-border/60 flex flex-col gap-1 border-t px-2 py-2 text-xs">
+          {delivery.error && <p className="text-destructive">{delivery.error}</p>}
+          <p className="text-muted-foreground font-mono">
+            entity: {delivery.entity_kind} / {delivery.entity_id}
+          </p>
+          {delivery.status === "queued" && (
+            <p className="text-muted-foreground">next attempt: {new Date(delivery.next_attempt_at).toLocaleString()}</p>
+          )}
+          {delivery.finished_at && (
+            <p className="text-muted-foreground">finished: {new Date(delivery.finished_at).toLocaleString()}</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The outbound delivery log for one subscription, polled while open. */
+function OutboundDeliveriesPanel({ endpointId }: { endpointId: string }) {
+  const { data, isPending, isError } = useOutboundDeliveries(endpointId)
+
+  if (isPending) {
+    return (
+      <div className="text-muted-foreground flex items-center gap-2 py-2 text-xs">
+        <Loader2 className="size-3.5 animate-spin" />
+        Loading deliveries…
+      </div>
+    )
+  }
+  if (isError || !data) {
+    return <p className="text-destructive py-2 text-xs">Could not load deliveries.</p>
+  }
+  if (data.deliveries.length === 0) {
+    return <p className="text-muted-foreground py-2 text-xs">No deliveries yet.</p>
+  }
+  return (
+    <div className="flex flex-col gap-1.5 py-2">
+      {data.deliveries.map((d) => (
+        <OutboundDeliveryRow key={d.id} endpointId={endpointId} delivery={d} />
+      ))}
+    </div>
+  )
+}
+
 const TEST_TEMPLATE = `{
   "changes": [
     {
@@ -768,7 +969,29 @@ function EndpointCard({
   const [testing, setTesting] = useState(false)
   const [copied, setCopied] = useState(false)
   const [pulling, setPulling] = useState(false)
+  const [pinging, setPinging] = useState(false)
   const queryClient = useQueryClient()
+
+  async function handlePing() {
+    setPinging(true)
+    try {
+      const res = await apiFetch<{ target_url: string; status_code?: number; delivered: boolean; error?: string }>(
+        `/webhook-endpoints/${endpoint.id}/ping`,
+        { method: "POST" },
+      )
+      if (res.delivered) {
+        useToastStore.getState().pushSuccess(`Ping delivered${res.status_code ? ` (HTTP ${res.status_code})` : ""}.`)
+      } else {
+        useToastStore
+          .getState()
+          .pushError(`Ping failed${res.status_code ? ` (HTTP ${res.status_code})` : ""}: ${res.error ?? "no response"}`)
+      }
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "The ping failed.")
+    } finally {
+      setPinging(false)
+    }
+  }
 
   async function handlePull() {
     setPulling(true)
@@ -811,7 +1034,13 @@ function EndpointCard({
             )}
           </CardTitle>
           <CardDescription className="font-mono text-xs">
-            {endpoint.direction} · {endpoint.target} · {endpoint.auth_mode}
+            {endpoint.direction === "outbound"
+              ? `outbound · ${
+                  endpoint.config?.event_types?.length
+                    ? `${endpoint.config.event_types.length} event type(s)`
+                    : "all events"
+                }`
+              : `${endpoint.direction} · ${endpoint.target} · ${endpoint.auth_mode}`}
           </CardDescription>
         </div>
         {canWrite && (
@@ -828,15 +1057,29 @@ function EndpointCard({
                 {pulling ? <Loader2 className="size-4 animate-spin" /> : <DownloadCloud className="size-4" />}
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              title="Test (paste and apply)"
-              onClick={() => setTesting(true)}
-            >
-              <FlaskConical className="size-4" />
-            </Button>
+            {endpoint.direction === "outbound" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="Ping (send a synthetic test event now)"
+                onClick={handlePing}
+                disabled={pinging}
+              >
+                {pinging ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+              </Button>
+            )}
+            {endpoint.direction !== "outbound" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="Test (paste and apply)"
+                onClick={() => setTesting(true)}
+              >
+                <FlaskConical className="size-4" />
+              </Button>
+            )}
             <Button variant="ghost" size="icon" className="size-7" title="Edit" onClick={onEdit}>
               <Pencil className="size-4" />
             </Button>
@@ -867,6 +1110,12 @@ function EndpointCard({
             <span className="text-muted-foreground truncate font-mono text-xs">{endpoint.config.pull_url}</span>
           </div>
         )}
+        {endpoint.direction === "outbound" && endpoint.config?.target_url && (
+          <div className="flex items-center gap-2">
+            <Send className="text-muted-foreground size-3.5 shrink-0" />
+            <span className="text-muted-foreground truncate font-mono text-xs">{endpoint.config.target_url}</span>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           {endpoint.direction === "push" && needsSecret(endpoint.auth_mode) && (
             <span className="bg-muted text-muted-foreground flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs">
@@ -880,6 +1129,18 @@ function EndpointCard({
               {endpoint.has_signing_secret ? "credential set" : "no credential"}
             </span>
           )}
+          {endpoint.direction === "outbound" && (
+            <span className="bg-muted text-muted-foreground flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs">
+              <KeyRound className="size-3" />
+              {endpoint.has_signing_secret ? "signing secret set" : "no signing secret"}
+            </span>
+          )}
+          {endpoint.direction === "outbound" &&
+            (endpoint.config?.event_types ?? []).map((t) => (
+              <span key={t} className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 font-mono text-xs">
+                {t}
+              </span>
+            ))}
           {endpoint.config?.feature_class && (
             <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 font-mono text-xs">
               {endpoint.config.feature_class}
@@ -897,7 +1158,12 @@ function EndpointCard({
           {showLog ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
           Delivery log
         </button>
-        {showLog && <DeliveriesPanel endpointId={endpoint.id} />}
+        {showLog &&
+          (endpoint.direction === "outbound" ? (
+            <OutboundDeliveriesPanel endpointId={endpoint.id} />
+          ) : (
+            <DeliveriesPanel endpointId={endpoint.id} />
+          ))}
       </CardContent>
 
       {testing && <TesterDialog endpoint={endpoint} onClose={() => setTesting(false)} />}
@@ -932,6 +1198,7 @@ export function AdminWebhooksPage() {
     form.name.trim().length > 0 &&
     form.serviceUserId.trim().length > 0 &&
     (form.direction !== "pull" || form.pullUrl.trim().length > 0) &&
+    (form.direction !== "outbound" || form.targetUrl.trim().length > 0) &&
     mappingParseError(form.mappingText) === null &&
     (!formNeedsSecret(form) || form.signingSecret.trim().length > 0)
 
@@ -958,8 +1225,9 @@ export function AdminWebhooksPage() {
           <div>
             <h1 className="text-lg font-semibold">Webhooks</h1>
             <p className="text-muted-foreground text-sm">
-              Inbound endpoints external systems push changes to. Each delivery is queued and applied as the endpoint's
-              service user — inheriting that user's permissions, territory scope, validation, and history.
+              Inbound endpoints external systems push to (or we pull from) — each delivery applied as the endpoint's
+              service user — and outbound subscriptions VoltEdge POSTs its own events to (incidents, work orders, faults)
+              as they happen, HMAC-signed and retried.
             </p>
           </div>
           {canWrite && (
