@@ -27,6 +27,7 @@ import { VoltageProfilePanel } from "@/components/map/voltage-profile-panel"
 import { ContingencyPanel } from "@/components/map/contingency-panel"
 import { HostingPanel } from "@/components/map/hosting-panel"
 import { EvHostingPanel } from "@/components/map/ev-hosting-panel"
+import { LoadGrowthPanel } from "@/components/map/load-growth-panel"
 import { MeshedLoadFlowPanel } from "@/components/map/meshed-load-flow-panel"
 import { NodalLoadFlowPanel } from "@/components/map/nodal-load-flow-panel"
 import { AutoLoadFlowPanel } from "@/components/map/auto-load-flow-panel"
@@ -274,6 +275,7 @@ export function MapPage() {
       <ContingencyPanel />
       <HostingPanel />
       <EvHostingPanel />
+      <LoadGrowthPanel />
       <MeshedLoadFlowPanel />
       <NodalLoadFlowPanel />
       <AutoLoadFlowPanel />

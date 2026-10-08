@@ -64,6 +64,10 @@ export const ANALYSIS_VALIDATION: Record<string, ValidationInfo> = {
     tier: "derived",
     note: "Binary search over the validated load-flow sweep (the under-voltage mirror of hosting capacity); not independently tested.",
   },
+  "load-growth": {
+    tier: "derived",
+    note: "A scenario projection: it re-runs the validated load-flow sweep (and, for DER headroom, the hosting-capacity search) across a horizon under the growth assumption you supply. The physics is validated; the projection is only as sound as that assumption — a what-if, not a statistical prediction of actual future demand.",
+  },
   "meshed-load-flow": {
     tier: "derived",
     note: "Solves a radial spanning tree with the validated sweep, then closes each loop by compensation; the loop compensation is not independently verified.",

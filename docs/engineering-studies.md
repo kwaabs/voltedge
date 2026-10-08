@@ -45,6 +45,7 @@ Every study is one `POST` under `/analysis`, is **strictly read-only** (it compu
 | **Capacity & planning** | Contingency / backfeed (N-1) | `/analysis/contingency` | 8 |
 | | Hosting capacity (DER) | `/analysis/hosting-capacity` | 8 |
 | | EV feeder headroom | `/analysis/ev-hosting` | 8 |
+| | Load-growth forecast | `/analysis/load-growth` | 8 |
 
 ### Validation status — how far to trust each number
 
@@ -65,6 +66,7 @@ Not every study has been checked to the same depth, and the platform is honest a
 | Contingency / backfeed (N-1) | `/analysis/contingency` | Derived | Re-solves a backfed section with the validated sweep; the transfer logic is not independently tested. |
 | Hosting capacity (DER) | `/analysis/hosting-capacity` | Derived | Binary search over the validated sweep for the first binding constraint. |
 | EV feeder headroom | `/analysis/ev-hosting` | Derived | Binary search over the validated sweep (under-voltage mirror of hosting capacity). |
+| Load-growth forecast | `/analysis/load-growth` | Derived | A **scenario projection**: it re-runs the validated sweep (and, for DER headroom, the hosting-capacity search) across a horizon under a *stated* growth assumption. The physics is validated; the result is only as sound as the growth input — a what-if, **not** a prediction of actual future demand. |
 | Meshed load flow | `/analysis/meshed-load-flow` | Derived | Validated radial sweep plus loop-closing compensation; the compensation is not independently verified. |
 | Auto load flow (router) | `/analysis/load-flow-auto` | Derived | Routes to the radial/meshed/nodal engine by topology; inherits whichever engine runs. |
 | Nodal (Y-bus) load flow | `/analysis/nodal-load-flow` | **Experimental** | Gauss-Seidel nodal solver; not yet verified against a reference power-flow. |
@@ -1080,13 +1082,14 @@ Same fault, same board — **45.6 cal/cm² becomes 1.14 cal/cm²** purely by cle
 
 ## Chapter 8 — Capacity & planning
 
-Every study so far has asked *"what is the network doing now?"* — the voltage profile, the fault current, the arc-flash hazard of the system as it stands. This chapter's three studies ask the planner's question instead: **"how much *more* can it take?"** Three flavours of "more":
+Every study so far has asked *"what is the network doing now?"* — the voltage profile, the fault current, the arc-flash hazard of the system as it stands. This chapter's four studies ask the planner's question instead: **"how much *more* can it take?"** — and one of them asks it *over time*. The flavours of "more":
 
 - **N-1 contingency** (`/analysis/contingency`) — a feeder is lost; how much of its load can a *neighbouring* feeder pick up by closing a tie?
 - **DER hosting capacity** (`/analysis/hosting-capacity`) — how much distributed generation (rooftop PV, a solar farm) can connect at a point before the feeder over-volts or overloads?
 - **EV feeder headroom** (`/analysis/ev-hosting`) — the mirror: how much extra charging load can connect before the feeder sags below its voltage floor or overloads?
+- **Load-growth forecast** (`/analysis/load-growth`) — the time dimension: under a stated growth assumption, *which* assets overload and in *what year* — and how DER headroom shifts as load rises.
 
-What unites them is that **none adds new electrical physics.** All three stand on the Chapter 2 radial sweep and reduce a planning question to *"re-sweep the feeder under a hypothetical change, and check the same two limits load flow already checks — voltage band and 100 % loading."* The hypothetical differs (a tie closed; a generator injected; a load added), but the machinery underneath is shared.
+What unites them is that **none adds new electrical physics.** All four stand on the Chapter 2 radial sweep (the forecast also reuses the hosting search) and reduce a planning question to *"re-sweep the feeder under a hypothetical change, and check the same two limits load flow already checks — voltage band and 100 % loading."* The hypothetical differs (a tie closed; a generator injected; a load added; the whole feeder grown year by year), but the machinery underneath is shared.
 
 ### 8.1 N-1 contingency & backfeed restoration ▶
 
@@ -1192,6 +1195,32 @@ This is the "resolve-once + in-memory re-sweep + ramp-then-bisect" engine the pl
 - **Power factor moves the answer.** A DER at leading/lagging PF injects vars and cuts hosting capacity; an EV load below unity draws vars and cuts headroom. Model the real PF for a firm number.
 - **Feeder-wide scans are cheap — use them.** Leaving `node` unset sizes every apparatus node in one resolve-once pass; that's the map of where DER/EV fits best, not just whether one point works.
 
+### 8.7 Load-growth forecast ▶∑
+
+The three studies above ask *"how much more can the network take?"* at a single instant. The **load-growth forecast** (`/analysis/load-growth`) asks it **over time**: it scales the feeder's demand year by year under a growth assumption, re-runs the sweep at each step, and reports **when** each asset overloads — the capex-timing answer a planner sizes reinforcement against.
+
+> ⚠️ **This is a scenario projection, not a prediction.** The output is the network as it *would be* under the growth assumption you supply — only as sound as that input. It carries no interval/metered history and does not forecast actual demand statistically. Read it as a disciplined what-if; the result is labelled **Derived** and echoes its assumptions.
+
+**What it does.** The feeder's tree and node states are resolved **once**; then for each year `0..horizon` the demand is scaled and only the in-memory backward/forward sweep re-runs — so a ten-year projection is barely more work than one load flow. At each year the same loading check load flow uses (`formatResults` — transformer loading vs rating, conductor current vs ampacity) flags what exceeds 100 %.
+
+**Inputs — the request ∑**
+
+- `start` + `nominal_voltage_v` — the feeder slack, exactly as load flow (nominal may be omitted at a boundary-transformer start).
+- `horizon_years` — the projection length (1–60); `base_growth_pct` — blanket compound %/yr on every load.
+- `per_feeder` / `per_class` — optional growth-rate overrides by circuit ref / class code. When both match a load, the two factors **multiply**; else the matching one; else the base rate.
+- `block_loads[]` — known new demand (`kw`/`kvar` from `start_year`) attached to an existing feature (a new estate, an EV depot). A fixed step at its stated size; a **negative** `kw` models committed future **DER**.
+- `include_planned` — bring `operational_state = PLANNED` assets in as *future* load, switched on at their in-service year (`planned_date_field` → `planned_year_overrides` → `planned_default_year`). Off (default), planned assets carry zero demand, so the base year is strictly in-service — the flag can never double-count.
+- `der_headroom` (+ `der_nodes` / the hosting knobs) — also run the hosting search each year, returning how DER headroom shifts as load grows.
+
+**Reading the result ▶**
+
+- `assets[]` — each stressed asset (peak loading ≥ 80 %): its `limit_kind` (transformer loading or ampacity), `rating`, `first_violation_year` (null if it never crosses within the horizon), `peak_loading_pct`, and the year-by-year `trajectory`.
+- `reinforcement_order[]` — the violating assets, **soonest and most severe first**: the ranked capex queue.
+- `der_headroom[]` — per candidate node, a trajectory of `hosting_capacity_kw` + `binding_constraint`. Headroom typically *rises* with load growth (more load absorbs injection before reverse-flow/over-voltage binds).
+- `assumptions[]` — every growth rate, planned decision, and DER setting the run applied, echoed so a figure is never read without its premises.
+
+**Caveats (v1).** Radial only (a meshed feeder errors, like plain load flow); thermal overloads only (voltage-band violations are a later slice); a planned asset's *demand* is gated by its in-service year, but its *topology* isn't pruned — correct for the common case (planned = new leaf loads + their service lines, which carry nothing once their demand is zero), but a planned asset that *re-routes existing* load is a reinforcement study, not a growth forecast.
+
 ---
 
 *Next chapter: **Appendix** — the assumptions, precedence rules, symbol glossary, and a one-page formula sheet spanning all the studies, plus how the dispatch router picks an engine. Tell me to proceed (or name a later chapter).*
@@ -1204,7 +1233,7 @@ This closing chapter is the reference the previous eight lean on. It gathers, in
 
 ### 9.1 The endpoint index ▶
 
-Every study lives under `/analysis`, is **POST**, is **read-only** (nothing here ever writes; they compute over what connectivity and the materials catalog have already committed), and requires the `analysis:run` permission. The twelve routes:
+Every study lives under `/analysis`, is **POST**, is **read-only** (nothing here ever writes; they compute over what connectivity and the materials catalog have already committed), and requires the `analysis:run` permission. The thirteen routes:
 
 | Endpoint | Study | Chapter |
 |---|---|---|
@@ -1220,6 +1249,7 @@ Every study lives under `/analysis`, is **POST**, is **read-only** (nothing here
 | `/contingency` | N-1 / backfeed restoration — load a donor feeder picks up per tie | 8 |
 | `/hosting-capacity` | DER hosting capacity — largest injection before over-voltage/thermal | 8 |
 | `/ev-hosting` | EV feeder headroom — largest added load before under-voltage/thermal | 8 |
+| `/load-growth` | Load-growth forecast — scenario projection: time-to-overload + DER headroom over a horizon | 8 |
 
 💡 **Errors are typed consistently.** A bad input → `400` (validation), a missing feature/class → `404`, anything else → `500`. The message always names the offending field or feature.
 

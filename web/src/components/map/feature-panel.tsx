@@ -45,6 +45,7 @@ import {
   Wand2,
   Waves,
   Waypoints,
+  TrendingUp,
   Workflow,
   Wrench,
   X,
@@ -131,6 +132,7 @@ import { useVoltageProfileStore } from "@/stores/voltage-profile-store"
 import { useContingencyStore } from "@/stores/contingency-store"
 import { useHostingStore } from "@/stores/hosting-store"
 import { useEvHostingStore } from "@/stores/ev-hosting-store"
+import { useLoadGrowthStore } from "@/stores/load-growth-store"
 import { useMeshedLoadFlowStore } from "@/stores/meshed-load-flow-store"
 import { useNodalLoadFlowStore } from "@/stores/nodal-load-flow-store"
 import { useAutoLoadFlowStore } from "@/stores/auto-load-flow-store"
@@ -1881,6 +1883,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -1927,6 +1930,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -1976,6 +1980,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2030,6 +2035,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2100,6 +2106,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2173,6 +2180,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2242,6 +2250,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2269,6 +2278,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2297,6 +2307,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2326,6 +2337,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2353,6 +2365,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2382,6 +2395,7 @@ export function FeaturePanel() {
     useVoltageProfileStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2419,6 +2433,7 @@ export function FeaturePanel() {
     useStorageDispatchStore.getState().clear()
     useVvoStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useHostingStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
@@ -2448,7 +2463,37 @@ export function FeaturePanel() {
     useTapOptimizationStore.getState().clear()
     useStorageDispatchStore.getState().clear()
     useVvoStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useEvHostingStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
+  // Arms the load-growth forecast panel (load-growth-panel.tsx) with the selected
+  // feature as the feeder's start. Like load-flow it only arms (the study needs
+  // nominal_voltage_v + a horizon + growth rate first); the panel's own Run button
+  // makes the POST /analysis/load-growth call, which projects the load-flow across a
+  // horizon under a growth assumption and reports which assets overload and when (plus
+  // optional DER headroom). Clears the other mutually-exclusive workflows.
+  function armLoadGrowth() {
+    if (!selected) return
+    useTraceStore.getState().clear()
+    useIsolateStore.getState().clear()
+    useLoadFlowStore.getState().clear()
+    useFaultCurrentStore.getState().clear()
+    useAmpacityStore.getState().clear()
+    useCoordinationStore.getState().clear()
+    useVoltageProfileStore.getState().clear()
+    useContingencyStore.getState().clear()
+    useMeshedLoadFlowStore.getState().clear()
+    useNodalLoadFlowStore.getState().clear()
+    useAutoLoadFlowStore.getState().clear()
+    useUnbalancedLoadFlowStore.getState().clear()
+    useVoltVarStore.getState().clear()
+    useTapOptimizationStore.getState().clear()
+    useStorageDispatchStore.getState().clear()
+    useVvoStore.getState().clear()
+    useHostingStore.getState().clear()
+    useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
   // Arms the meshed load-flow panel (meshed-load-flow-panel.tsx) with the
@@ -2469,6 +2514,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
@@ -2499,6 +2545,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
@@ -2527,6 +2574,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useUnbalancedLoadFlowStore.getState().clear()
@@ -2555,6 +2603,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2584,6 +2633,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2613,6 +2663,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2644,6 +2695,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -2674,6 +2726,7 @@ export function FeaturePanel() {
     useContingencyStore.getState().clear()
     useHostingStore.getState().clear()
     useEvHostingStore.getState().clear()
+    useLoadGrowthStore.getState().clear()
     useMeshedLoadFlowStore.getState().clear()
     useNodalLoadFlowStore.getState().clear()
     useAutoLoadFlowStore.getState().clear()
@@ -3027,6 +3080,10 @@ export function FeaturePanel() {
                       <DropdownMenuItem onSelect={armEvHosting}>
                         <BatteryCharging className="size-4" />
                         EV feeder headroom…
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={armLoadGrowth}>
+                        <TrendingUp className="size-4" />
+                        Load-growth forecast…
                       </DropdownMenuItem>
                       <DropdownMenuItem onSelect={armVoltVar}>
                         <Gauge className="size-4" />
