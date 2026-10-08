@@ -25,6 +25,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
+	"time"
 
 	"github.com/uptrace/bun"
 )
@@ -43,6 +45,19 @@ const (
 	// forecastViolation is the loading (%) that counts as an overload -- the same
 	// 100%-of-rating line formatResults flags.
 	forecastViolation = 100.0
+
+	// operationalStatePlanned is the OPERATIONAL_STATE code for a not-yet-built asset
+	// (seed/operational_state_example.sql: PLANNED -> IN_SERVICE -> ISOLATED -> RETIRED).
+	operationalStatePlanned = "PLANNED"
+
+	// defaultPlannedDateField is the attribute a planned asset's in-service year is
+	// read from when the request names none -- a conventional date field a utility opts
+	// into (no schema change; absent on a class that doesn't maintain it).
+	defaultPlannedDateField = "in_service_date"
+
+	// defaultPlannedYear is the fallback in-service year for a planned asset with no
+	// date field and no per-asset override.
+	defaultPlannedYear = 1
 )
 
 // forecastRequest is POST /analysis/load-growth's body. Start + NominalVoltageV are
@@ -65,6 +80,68 @@ type forecastRequest struct {
 	PerFeeder  map[string]float64 `json:"per_feeder,omitempty"`
 	PerClass   map[string]float64 `json:"per_class,omitempty"`
 	BlockLoads []blockLoad        `json:"block_loads,omitempty"`
+
+	// IncludePlanned (Slice 3) brings operational_state=PLANNED assets in as FUTURE
+	// load, switched on at their in-service year. Off (default), planned assets carry
+	// ZERO demand every year -- so the base year-0 case is always in-service-only and
+	// the flag can never double-count. The in-service year per planned asset resolves
+	// most-specific-first: PlannedDateField (an attribute date, default in_service_date,
+	// interpreted as a year offset from today) -> PlannedYearOverrides[feature_id] ->
+	// PlannedDefaultYear (nil = 1). An asset whose year lands beyond the horizon simply
+	// never appears.
+	IncludePlanned       bool           `json:"include_planned"`
+	PlannedDateField     string         `json:"planned_date_field,omitempty"`
+	PlannedYearOverrides map[string]int `json:"planned_year_overrides,omitempty"`
+	PlannedDefaultYear   *int           `json:"planned_default_year,omitempty"`
+}
+
+// yearFromDateAttr interprets a date-valued attribute as a year OFFSET from nowYear
+// (the reference for turning absolute in-service dates into horizon years). It accepts
+// a time.Time, a common date string, or a bare 4-digit year; a past date yields a
+// negative offset the caller floors to 0. Returns ok=false when the value is absent or
+// unparseable, so the caller falls through to the next precedence tier.
+func yearFromDateAttr(v any, nowYear int) (int, bool) {
+	switch t := v.(type) {
+	case nil:
+		return 0, false
+	case time.Time:
+		return t.Year() - nowYear, true
+	case string:
+		if t == "" {
+			return 0, false
+		}
+		for _, layout := range []string{time.RFC3339, "2006-01-02", "2006-01-02T15:04:05", "2006/01/02"} {
+			if parsed, err := time.Parse(layout, t); err == nil {
+				return parsed.Year() - nowYear, true
+			}
+		}
+		if y, err := strconv.Atoi(t); err == nil && y > 1900 && y < 3000 {
+			return y - nowYear, true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
+}
+
+// resolvePlannedYear applies the in-service-year precedence for one planned asset:
+// date field -> per-asset override -> scenario default. A resolved year is floored at
+// 0 (a past/already-due date is "on now"); it is NOT capped at the horizon -- a year
+// beyond it means the asset never appears, which the loop handles naturally.
+func resolvePlannedYear(req forecastRequest, attrs map[string]any, featureID, dateField string, nowYear int) int {
+	if dateField != "" {
+		if y, ok := yearFromDateAttr(attrs[dateField], nowYear); ok {
+			return max(0, y)
+		}
+	}
+	if y, ok := req.PlannedYearOverrides[featureID]; ok {
+		return max(0, y)
+	}
+	d := defaultPlannedYear
+	if req.PlannedDefaultYear != nil {
+		d = *req.PlannedDefaultYear
+	}
+	return max(0, d)
 }
 
 // blockLoad is a known future demand (Slice 2): [kw]/[kvar] added at [attach_ref]'s
@@ -204,6 +281,14 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 			return nil, invalid("block_loads[%d].start_year must be between 0 and horizon_years (%d)", i, req.HorizonYears)
 		}
 	}
+	if req.PlannedDefaultYear != nil && *req.PlannedDefaultYear < 0 {
+		return nil, invalid("planned_default_year must not be negative")
+	}
+	for id, y := range req.PlannedYearOverrides {
+		if y < 0 {
+			return nil, invalid("planned_year_overrides[%q] must not be negative", id)
+		}
+	}
 
 	// Build the tree + resolve node states ONCE -- the query-heavy work. Radial only
 	// in Slice 1 (breaks = nil, so buildTree rejects a mesh exactly as the plain
@@ -285,6 +370,29 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 		blocks[n] = append(blocks[n], blockDemand{kw: bl.KW, kvar: bl.KVAR, startYear: bl.StartYear})
 	}
 
+	// Identify the PLANNED nodes and resolve each one's in-service year (Slice 3). This
+	// runs regardless of IncludePlanned: when the flag is OFF these nodes are forced to
+	// zero demand every year (so the base is in-service-only and can never double-count
+	// a planned asset); when ON, their demand switches on at the resolved year. Only
+	// their DEMAND is gated -- a planned node's topology, if it is in the tree, is not
+	// pruned, which is correct for the common case (planned = new leaf loads + their
+	// service lines, carrying no flow once their demand is zero); a planned asset that
+	// re-routes existing load is a reinforcement study, not a growth forecast.
+	nowYear := time.Now().Year()
+	dateField := req.PlannedDateField
+	if dateField == "" {
+		dateField = defaultPlannedDateField
+	}
+	plannedISY := make(map[node]int)
+	for n, st := range states {
+		if st == nil {
+			continue
+		}
+		if s, _ := st.attrs["operational_state"].(string); s == operationalStatePlanned {
+			plannedISY[n] = resolvePlannedYear(req, st.attrs, n.featureID, dateField, nowYear)
+		}
+	}
+
 	// Per-asset trajectory, keyed by class|id, built up over the year loop. order
 	// preserves first-seen (tree) order so the output is stable.
 	type assetAcc struct {
@@ -301,10 +409,21 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 			if st == nil {
 				continue
 			}
-			f := effectiveFactor(rules[n], req.BaseGrowthPct, t)
 			b := base[n]
-			st.ownKW = b.kw * f
-			st.ownKVAR = b.kvar * f
+			if isy, planned := plannedISY[n]; planned {
+				// Planned asset: zero until it is both included and in service, then its
+				// demand grows from its in-service year (exponent t-isy, so it comes on at
+				// its stated size and grows thereafter at its resolved rate).
+				if !req.IncludePlanned || t < isy {
+					st.ownKW, st.ownKVAR = 0, 0
+					continue
+				}
+				f := effectiveFactor(rules[n], req.BaseGrowthPct, t-isy)
+				st.ownKW, st.ownKVAR = b.kw*f, b.kvar*f
+				continue
+			}
+			f := effectiveFactor(rules[n], req.BaseGrowthPct, t)
+			st.ownKW, st.ownKVAR = b.kw*f, b.kvar*f
 		}
 		// Add any block loads active by this year, on top of the grown base demand.
 		for n, bls := range blocks {
@@ -404,9 +523,22 @@ func runLoadGrowthForecast(ctx context.Context, db bun.IDB, req forecastRequest)
 		assumptions = append(assumptions, fmt.Sprintf(
 			"%d hand-entered block load(s) switched on at their stated year", len(req.BlockLoads)))
 	}
+	if req.IncludePlanned {
+		assumptions = append(assumptions, fmt.Sprintf(
+			"%d planned asset(s) included as future load (in-service year from the %q field, else a per-asset override, else year %d)",
+			len(plannedISY), dateField, func() int {
+				if req.PlannedDefaultYear != nil {
+					return *req.PlannedDefaultYear
+				}
+				return defaultPlannedYear
+			}()))
+	} else if len(plannedISY) > 0 {
+		assumptions = append(assumptions, fmt.Sprintf(
+			"%d planned asset(s) excluded (include_planned off) -- base is in-service only", len(plannedISY)))
+	}
 	assumptions = append(assumptions,
 		"a scenario projection under your stated assumptions -- not a statistical prediction of actual future demand",
-		"thermal loading only (transformer rating + conductor ampacity); voltage-band violations, the planned-asset pipeline and DER headroom are later slices",
+		"thermal loading only (transformer rating + conductor ampacity); voltage-band violations and DER headroom are later slices",
 	)
 
 	return &forecastResponse{

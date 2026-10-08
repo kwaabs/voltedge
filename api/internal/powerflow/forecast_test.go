@@ -1,6 +1,9 @@
 package powerflow
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // forecast_test.go pins the pure kernels the load-growth forecast (forecast.go)
 // rests on -- the compound-growth multiplier and the first-overload-year extraction.
@@ -110,6 +113,68 @@ func TestFirstViolationYear(t *testing.T) {
 	// Empty trajectory -> nil.
 	if got := firstViolationYear(nil, forecastViolation); got != nil {
 		t.Fatalf("expected nil for an empty trajectory, got %d", *got)
+	}
+}
+
+// TestYearFromDateAttr checks the date-to-year-offset kernel (Slice 3): a time.Time, a
+// common date string, and a bare year all resolve to (dateYear - nowYear); absent or
+// unparseable values return ok=false so the caller falls through to the next tier.
+func TestYearFromDateAttr(t *testing.T) {
+	const now = 2026
+	cases := []struct {
+		name   string
+		v      any
+		want   int
+		wantOk bool
+	}{
+		{"time.Time", time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC), 4, true},
+		{"ISO date string", "2029-06-01", 3, true},
+		{"RFC3339 string", "2028-01-01T00:00:00Z", 2, true},
+		{"bare year string", "2031", 5, true},
+		{"past date -> negative (caller floors)", "2020-01-01", -6, true},
+		{"nil -> not ok", nil, 0, false},
+		{"empty -> not ok", "", 0, false},
+		{"garbage -> not ok", "someday", 0, false},
+		{"non-date type -> not ok", 42, 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := yearFromDateAttr(c.v, now)
+			if ok != c.wantOk || (ok && got != c.want) {
+				t.Fatalf("yearFromDateAttr(%v) = (%d, %v), want (%d, %v)", c.v, got, ok, c.want, c.wantOk)
+			}
+		})
+	}
+}
+
+// TestResolvePlannedYear checks the in-service-year precedence (Slice 3): the date
+// field wins, then a per-asset override, then the scenario default; a past date (and a
+// negative override/default) floors to 0.
+func TestResolvePlannedYear(t *testing.T) {
+	const now = 2026
+	three := 3
+
+	// Date field present -> used, ahead of override + default.
+	req := forecastRequest{PlannedYearOverrides: map[string]int{"F1": 5}, PlannedDefaultYear: &three}
+	if got := resolvePlannedYear(req, map[string]any{"in_service_date": "2030-01-01"}, "F1", "in_service_date", now); got != 4 {
+		t.Fatalf("date field should win: got %d, want 4", got)
+	}
+	// No date -> per-asset override wins over default.
+	if got := resolvePlannedYear(req, map[string]any{}, "F1", "in_service_date", now); got != 5 {
+		t.Fatalf("override should win: got %d, want 5", got)
+	}
+	// No date, no override -> scenario default.
+	if got := resolvePlannedYear(req, map[string]any{}, "F2", "in_service_date", now); got != 3 {
+		t.Fatalf("default should apply: got %d, want 3", got)
+	}
+	// No default supplied -> defaultPlannedYear (1).
+	bare := forecastRequest{}
+	if got := resolvePlannedYear(bare, map[string]any{}, "X", "in_service_date", now); got != defaultPlannedYear {
+		t.Fatalf("missing default -> %d, want %d", got, defaultPlannedYear)
+	}
+	// A past date floors to 0 (on now).
+	if got := resolvePlannedYear(bare, map[string]any{"in_service_date": "2000-01-01"}, "X", "in_service_date", now); got != 0 {
+		t.Fatalf("past date should floor to 0: got %d", got)
 	}
 }
 
