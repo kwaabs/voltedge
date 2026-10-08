@@ -34,11 +34,16 @@ import (
 // means "any authenticated user"; a non-empty value is an RBAC permission key
 // (auth.Perm*) the caller must hold to list or read the document.
 type Doc struct {
-	ID           string `json:"id"`
-	Title        string `json:"title"`
-	Description  string `json:"description"`
-	Category     string `json:"category"`
-	Filename     string `json:"-"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Category    string `json:"category"`
+	Filename    string `json:"-"`
+	// Format is how the viewer should render the content: "" or "markdown" is the
+	// default (ReactMarkdown prose); "html" is a self-contained interactive guide
+	// served verbatim and shown in a sandboxed iframe. The content endpoint returns
+	// the file's bytes as a string either way -- only the client rendering differs.
+	Format       string `json:"format,omitempty"`
 	RequiredPerm string `json:"required_permission,omitempty"`
 }
 
@@ -77,6 +82,14 @@ var manifest = []Doc{
 		Description: "Modelling and working with substations end to end — bays, panels, the site model and the live one-line.",
 		Category:    "Manuals",
 		Filename:    "substation-guide.md",
+	},
+	{
+		ID:          "substation-guide-interactive",
+		Title:       "Substation Guide (interactive)",
+		Description: "The same substation model as a hands-on guide: hover to cross-reference the containment and connectivity graphs, click switches on a live one-line to watch the trace respond, and toggle fields to see what the load-flow engine makes of a node.",
+		Category:    "Interactive guides",
+		Filename:    "substation-guide-interactive.html",
+		Format:      "html",
 	},
 	{
 		ID:          "works-inspections-maintenance-guide",

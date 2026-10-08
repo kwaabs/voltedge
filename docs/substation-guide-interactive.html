@@ -1,0 +1,1281 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Substation Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a long-form engineering manual — sticky chapter rail on top, a reading column for prose, diagrams break out to the full width. Colours borrowed from VoltEdge's own map symbology. */
+:root{
+  --bg:#eceff0; --surface:#f7f9f9; --raise:#ffffff; --ink:#15201f; --muted:#56635f; --line:#c8d1cf; --line2:#dde3e2;
+  --teal:#0e7a75;   /* POWER_XFMR teal square — also our accent */
+  --blue:#2b5ead;   /* DIST_XFMR blue */
+  --amber:#b8720c;  /* AUX_TRANSFORMER amber */
+  --olive:#68731a;  /* LVAC_BOARD olive */
+  --red:#bf3b26;    /* open switch */
+  --dead:#a5b0ad;
+  --live:#0e7a75;
+  --tint:#e1ecea; --amber-tint:#f5ead6; --olive-tint:#ecefd8; --red-tint:#f6e1dc;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1514; --surface:#141d1c; --raise:#192423; --ink:#e2eae8; --muted:#94a4a0; --line:#2b3a38; --line2:#223030;
+  --teal:#3fbdb4; --blue:#7aa4ea; --amber:#e3a23f; --olive:#b5c24f; --red:#ee6a54; --dead:#4a5a57; --live:#3fbdb4;
+  --tint:#173230; --amber-tint:#33281a; --olive-tint:#2a2f17; --red-tint:#3a1f1a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1514; --surface:#141d1c; --raise:#192423; --ink:#e2eae8; --muted:#94a4a0; --line:#2b3a38; --line2:#223030;
+  --teal:#3fbdb4; --blue:#7aa4ea; --amber:#e3a23f; --olive:#b5c24f; --red:#ee6a54; --dead:#4a5a57; --live:#3fbdb4;
+  --tint:#173230; --amber-tint:#33281a; --olive-tint:#2a2f17; --red-tint:#3a1f1a; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1100px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(28px,4vw,40px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:21px;font-weight:700;font-stretch:92%;margin-top:34px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:68ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--teal)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+
+/* top rail */
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1100px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.lane-sw{display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden;flex-shrink:0}
+.lane-sw button{font:600 12px/1 var(--f-body);background:transparent;color:var(--muted);border:0;padding:7px 10px;cursor:pointer}
+.lane-sw button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+
+/* hero */
+.hero{padding-block:52px 28px;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:40px;align-items:end;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(40px,6.4vw,74px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--teal)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:18px}
+.thesis{border-left:3px solid var(--teal);padding:6px 0 6px 18px;font-size:19px;line-height:1.45;font-family:var(--f-display);font-stretch:95%;font-weight:500}
+.cast{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:28px}
+.who{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-width:0}
+.who b{font-family:var(--f-display);font-size:16px}
+.who small{display:block;color:var(--muted);font-size:13px;line-height:1.35}
+.lanes-key{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:22px}
+.lk{padding:12px 14px;border-radius:6px;border:1px solid var(--line);background:var(--surface)}
+.lk .tag{margin-bottom:6px}
+
+/* lane tags */
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;padding:4px 7px;border-radius:3px}
+.tag.op{background:var(--tint);color:var(--teal)}
+.tag.md{background:var(--amber-tint);color:var(--amber)}
+.op-b,.md-b{border-radius:6px;padding:14px 18px;margin:18px 0;max-width:76ch}
+.op-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--teal) 30%,transparent)}
+.md-b{background:var(--surface);border:1px solid var(--line)}
+.op-b p:first-of-type,.md-b p:first-of-type{margin-top:8px}
+.op-b>*:last-child,.md-b>*:last-child{margin-bottom:0}
+body[data-lane="op"] .md-only{display:none}
+body[data-lane="md"] .op-only{display:none}
+
+section.ch{padding-top:64px;scroll-margin-top:56px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:8px}
+.ch-num{font:800 56px/0.85 var(--f-display);font-stretch:75%;color:var(--teal)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+/* figure */
+figure{margin:26px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:80ch}
+figcaption b{color:var(--ink);font-weight:600}
+.fig-t{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline;margin-bottom:14px}
+.fig-t h4{font-size:16px}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+svg .lbl{font-size:11px} svg .sm{font-size:9.5px;fill:var(--muted)} svg .hd{font-family:var(--f-display);font-weight:700;font-size:13px}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:21px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:18px 0;margin:28px 0;max-width:60ch}
+
+/* tables */
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.y{color:var(--teal);font-weight:600}.n{color:var(--muted)}
+
+/* chips & swatches */
+.sw{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface)}
+
+/* one-line */
+#ol svg{width:100%;min-width:640px;height:auto;display:block}
+.w{stroke:var(--dead);stroke-width:2.2;fill:none;transition:stroke .25s}
+.w.live{stroke:var(--live)}
+.bar{stroke:var(--dead);stroke-width:7;stroke-linecap:round;transition:stroke .25s}
+.bar.live{stroke:var(--live)}
+.sw-brk rect{fill:var(--dead);stroke:var(--dead);stroke-width:2;transition:.25s}
+.sw-brk.live rect{fill:var(--live);stroke:var(--live)}
+.sw-brk.open rect{fill:var(--raise);stroke:var(--red)}
+.sw-iso .blade{stroke:var(--dead);stroke-width:2.6;stroke-linecap:round;transform-box:view-box;transition:transform .3s,stroke .25s}
+.sw-iso.live .blade{stroke:var(--live)}
+.sw-iso.open .blade{stroke:var(--red)}
+.sw-iso circle{fill:var(--raise);stroke:var(--muted);stroke-width:1.5}
+.clk{cursor:pointer}
+.clk:hover rect,.clk:hover .blade{filter:brightness(1.15)}
+.clk .hit{fill:transparent}
+.xf circle{fill:none;stroke:var(--dead);stroke-width:2.2;transition:.25s}
+.xf.live circle{stroke:var(--teal)}
+.aux rect{fill:var(--dead);transition:.25s}.aux.live rect{fill:var(--amber)}
+.lvac rect{fill:var(--dead);transition:.25s}.lvac.live rect{fill:var(--olive)}
+.ezt polyline{stroke:var(--dead);stroke-width:2;fill:none}.ezt.live polyline{stroke:var(--teal)}
+.fence{fill:none;stroke:var(--muted);stroke-dasharray:6 5;stroke-width:1.2}
+.cr{fill:var(--surface);stroke:var(--line);stroke-dasharray:4 4}
+.ol-ctrl{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.btn{font:600 13px/1 var(--f-body);padding:9px 12px;border-radius:5px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.btn:hover{border-color:var(--teal)}
+.btn.pri{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.readout{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}
+.ro{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-width:0}
+.ro .big{font:800 30px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums}
+.ro ul{margin:6px 0 0;padding-left:16px;font-size:12.5px;font-family:var(--f-mono);color:var(--muted)}
+.ro.dead .big{color:var(--red)} .ro.live .big{color:var(--teal)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--muted);margin-top:10px}
+
+/* two graphs */
+.tg{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.pane{border:1px solid var(--line);border-radius:6px;padding:14px;background:var(--surface);min-width:0}
+.pane h4{margin-bottom:4px}
+.tree{list-style:none;padding:0;margin:10px 0 0;font:13px/1.9 var(--f-mono)}
+.tree ul{list-style:none;padding-left:20px;margin:0;border-left:1px dashed var(--line)}
+.it{padding:1px 6px;border-radius:3px;cursor:default;transition:background .15s}
+.it.hi{background:var(--amber-tint);outline:1px solid var(--amber)}
+#tgsvg .gn rect{fill:var(--raise);stroke:var(--line);stroke-width:1.2;transition:.15s}
+#tgsvg .gn.hi rect{fill:var(--amber-tint);stroke:var(--amber)}
+#tgsvg .ge{stroke:var(--teal);stroke-width:1.6;fill:none;marker-end:url(#ah)}
+.absent{margin-top:10px;border-top:1px dashed var(--line);padding-top:8px;font-size:12.5px;color:var(--muted)}
+.absent .it{display:inline-block;margin:2px 4px 2px 0;font-family:var(--f-mono);border:1px dashed var(--line)}
+
+/* layer matrix */
+.lm{display:grid;gap:6px}
+.lm-r{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,2fr) 110px 110px;gap:10px;align-items:center;padding:12px 14px;border-radius:6px;background:var(--surface);border:1px solid var(--line)}
+.lm-r.h{background:transparent;border:0;padding-block:0;font:600 11px/1.2 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lm-r b{font-family:var(--f-display);font-size:17px}
+.lm-r .cls{font:12px/1.5 var(--f-mono);color:var(--muted)}
+.dot{display:inline-flex;align-items:center;gap:6px;font:600 12px var(--f-mono)}
+.dot i{width:12px;height:12px;border-radius:50%;display:inline-block}
+.dot.yes i{background:var(--teal)} .dot.no i{border:1.5px solid var(--muted)} .dot.root i{background:var(--ink)}
+
+/* flows */
+.flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.fn{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:10px 12px;min-width:0;flex:1 1 140px}
+.fn small{display:block;font-size:12px;color:var(--muted);line-height:1.35;margin-top:3px}
+.fn b{font:600 13px var(--f-mono)}
+.fa{display:flex;align-items:center;justify-content:center;padding:0 6px;color:var(--muted);font:600 11px var(--f-mono);flex:0 0 auto}
+.fn.t{border-color:var(--teal)} .fn.a{border-color:var(--amber)} .fn.o{border-color:var(--olive)} .fn.r{border-color:var(--red);border-style:dashed}
+.fn.e{border-style:dashed;background:transparent}
+
+/* field checker */
+.fc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:18px}
+.fc label{display:flex;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:5px;background:var(--surface);font:13px var(--f-mono);cursor:pointer;margin-bottom:6px}
+.fc label:has(input:checked){border-color:var(--teal);background:var(--tint)}
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.verdict{border:1px solid var(--line);border-radius:6px;padding:14px;background:var(--surface);min-width:0}
+.verdict .v-h{font:800 24px/1.1 var(--f-display);font-stretch:85%}
+.verdict ul{padding-left:18px;margin:10px 0 0}
+.verdict li{margin:4px 0;font-size:14.5px}
+
+/* cascade */
+.casc{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));align-items:center;gap:6px}
+.vb{border-radius:6px;padding:16px 12px;text-align:center;border:1px solid var(--line)}
+.vb .kv{font:800 30px/1 var(--f-display);font-stretch:80%}
+.vb small{display:block;color:var(--muted);font-size:12px;margin-top:4px}
+.step{font:600 11px/1.3 var(--f-mono);color:var(--muted);text-align:center}
+
+/* build order */
+.bo{list-style:none;padding:0;margin:18px 0;display:grid;gap:0;counter-reset:s}
+.bo li{display:grid;grid-template-columns:44px minmax(0,1fr) 120px;gap:14px;padding:12px 0;border-bottom:1px solid var(--line2);max-width:none;counter-increment:s;align-items:start}
+.bo li::before{content:counter(s);font:800 28px/1 var(--f-display);font-stretch:75%;color:var(--teal)}
+.bo .ph{font:600 11px var(--f-mono);text-transform:uppercase;letter-spacing:.08em;text-align:right;padding-top:5px}
+.ph.nodes{color:var(--teal)}.ph.wires{color:var(--amber)}.ph.views{color:var(--olive)}.ph.an{color:var(--blue)}
+
+.cl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.clb{border:1px solid var(--line);border-radius:6px;padding:14px;background:var(--raise);min-width:0}
+.clb h4{display:flex;justify-content:space-between}
+.clb label{display:flex;gap:10px;align-items:flex-start;font-size:14px;padding:6px 0;cursor:pointer;line-height:1.45}
+.clb input{margin-top:3px;accent-color:var(--teal)}
+.clb label:has(input:checked) span{color:var(--muted);text-decoration:line-through}
+.prog{font:600 12px var(--f-mono);color:var(--muted)}
+
+.note{font-size:13px;color:var(--muted);border-left:2px solid var(--line);padding-left:12px;margin:12px 0}
+footer{margin-top:70px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+@media (max-width:820px){
+  .hero{grid-template-columns:1fr;gap:22px;padding-top:34px}
+  .tg,.two,.fc,.cl{grid-template-columns:1fr}
+  .three{grid-template-columns:1fr}
+  .readout{grid-template-columns:1fr}
+  .lm-r{grid-template-columns:1fr 1fr}.lm-r .cls{grid-column:1/-1}.lm-r.h{display:none}
+  .lanes-key{grid-template-columns:1fr}
+  .casc{grid-template-columns:1fr}.step{padding:2px 0}
+  .bo li{grid-template-columns:36px minmax(0,1fr)}.bo .ph{grid-column:2;text-align:left;padding:0}
+  .fa{width:100%;padding:4px 0}.flow{flex-direction:column}
+  .ch-num{font-size:44px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head><body>
+
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · What it is</a><a href="#c2">2 · Yard</a><a href="#c3">3 · Control room</a><a href="#c4">4 · LVAC</a><a href="#c5">5 · Connectivity</a><a href="#c6">6 · Containment</a><a href="#c7">7 · One-line</a><a href="#c8">8 · Live</a><a href="#c9">9 · Build</a>
+    </div>
+    <div class="lane-sw" role="group" aria-label="Reading lane">
+      <button id="ln-both" aria-pressed="true" data-l="both">Both</button>
+      <button id="ln-op" aria-pressed="false" data-l="op" title="Operator lane only">▶ Operator</button>
+      <button id="ln-md" aria-pressed="false" data-l="md" title="Model lane only">∑ Model</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<header class="hero">
+  <div>
+    <div class="eyebrow">VoltEdge manual 6 · running example: Adenta Primary, 33/11 kV</div>
+    <h1>The Substation<br><span>Guide</span></h1>
+    <p class="lede">How a substation is modelled in VoltEdge, and how to model one yourself. Two books braided into one: the step-by-step path for building a station in the app, and the reference for why the model is shaped the way it is.</p>
+  </div>
+  <div>
+    <p class="thesis">A substation is not one object. It is a <em>place</em> plus a <em>population</em> of equipment, tied together by relationships. The equipment, not the boundary, is where the electrical reality lives.</p>
+    <div class="lanes-key">
+      <div class="lk"><span class="tag op">▶ Operator lane</span><div style="font-size:14px">Click here, place that, wire this. Read only these to capture and operate a station.</div></div>
+      <div class="lk"><span class="tag md">∑ Model lane</span><div style="font-size:14px">Why each class, terminal, rule and relationship is shaped this way, grounded in <code>/seed</code>.</div></div>
+    </div>
+  </div>
+</header>
+
+<div class="cast" aria-label="The cast">
+  <div class="who"><b>Kwame</b> <span class="tag md" style="font-size:9px">new</span><small>Substation / primary-plant design engineer. Drives most chapters.</small></div>
+  <div class="who"><b>Dana</b><small>Network editor &amp; planner. Connectivity, containment, one-lines.</small></div>
+  <div class="who"><b>Tom</b><small>Network analyst. Trace, load flow, fault, energization.</small></div>
+  <div class="who"><b>Priya</b><small>Control-room operator. Reads the station, operates switches.</small></div>
+  <div class="who"><b>Femi</b><small>Field technician. Captures plant on site, offline.</small></div>
+</div>
+
+<!-- ============ CH1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>What a substation is in VoltEdge</h2><p>The mental model: one place, one population, two graphs.</p></div>
+
+  <h3>The trap of the word “substation”</h3>
+  <p>Kwame has designed substations for fifteen years. He types “substation” into the class list expecting <em>the</em> substation object: rating, voltage, fence, bays, schematic. He places a <code>SUBSTATION</code> and gets a <strong>polygon</strong>. No transformers inside, no switchgear, no voltage. A coloured boundary on the map.</p>
+  <p>That polygon is the <em>place</em>. The transformers, busbars, switches, panels and batteries are <strong>separate features</strong>, each its own class with its own identity, that happen to <em>live inside</em> the polygon and <em>wire together</em> electrically.</p>
+
+  <div class="md-b md-only">
+    <span class="tag md">∑ Why not one fat object?</span>
+    <div class="two" style="margin-top:12px">
+      <div><h4>A transformer is a network node; a fence is not</h4><p class="muted" style="font-size:14.5px">Load flow walks <em>through</em> a transformer (HV in, LV out, impedance drop, tap ratio). It never walks through a boundary. Plant as features with terminals lets the analyses treat the station as what it is: a small network.</p></div>
+      <div><h4>Equipment has independent lifecycles</h4><p class="muted" style="font-size:14.5px">A breaker is replaced, a transformer uprated, a battery bank swapped. One record cannot carry twenty independent condition ratings and histories.</p></div>
+      <div><h4>The same classes appear outside substations</h4><p class="muted" style="font-size:14.5px"><code>POWER_XFMR</code>, <code>MV_BUSBAR</code> and switches also exist at pole tops, packaged substations and customer yards. One definition, one symbology, one rule set everywhere.</p></div>
+      <div><h4>Metadata, not code</h4><p class="muted" style="font-size:14.5px">A class is rows in <code>metadata.feature_classes</code> / <code>fields</code> / <code>terminals</code> / <code>network_rules</code>. Adding the station-service transformer was a seed file, not a migration and redeploy.</p></div>
+    </div>
+  </div>
+
+  <h3>The two graphs</h3>
+  <p>Every piece of equipment sits in two completely separate graphs. Confusing them is the number-one modelling mistake. Hover any item below and watch where it appears in each graph, and where it is missing.</p>
+
+  <figure>
+    <div class="fig-t"><h4>Same equipment, two graphs</h4><span class="eyebrow">hover to cross-reference</span></div>
+    <div class="tg">
+      <div class="pane">
+        <span class="eyebrow">Containment · “what is inside what”</span>
+        <h4>A tree. One parent each.</h4>
+        <ul class="tree">
+          <li><span class="it" data-k="sub">SUBSTATION</span>
+            <ul>
+              <li><span class="it" data-k="xf">POWER_XFMR</span></li>
+              <li><span class="it" data-k="b33">MV_BUSBAR 33 kV</span></li>
+              <li><span class="it" data-k="b11">MV_BUSBAR 11 kV</span></li>
+              <li><span class="it" data-k="brk">MV_BREAKER</span></li>
+              <li><span class="it" data-k="aux">AUX_TRANSFORMER</span></li>
+              <li><span class="it" data-k="lvac">LVAC_BOARD</span></li>
+              <li><span class="it" data-k="pnl">SUBSTATION_PANEL</span>
+                <ul>
+                  <li><span class="it" data-k="bat">STATION_BATTERY</span></li>
+                  <li><span class="it" data-k="ied">CONTROL_IED</span></li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+        </ul>
+        <div class="absent">Carries no electricity. Stored in <code>runtime.feature_relationships</code>. Read by CIM export.</div>
+      </div>
+      <div class="pane">
+        <span class="eyebrow">Connectivity · “what feeds what”</span>
+        <h4>A graph. Ignores the fence.</h4>
+        <svg id="tgsvg" viewBox="0 0 300 300" style="width:100%;max-width:340px;display:block;margin:10px auto 0" role="img" aria-label="Connectivity chain from 33 kV bus to LVAC board">
+          <defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 8 4 0 8z" fill="var(--teal)"/></marker></defs>
+          <g class="gn" data-k="b33"><rect x="70" y="6" width="160" height="30" rx="4"/><text x="150" y="25" text-anchor="middle" class="lbl">MV_BUSBAR 33 kV</text></g>
+          <path class="ge" d="M150 36V60"/>
+          <g class="gn" data-k="brk"><rect x="70" y="62" width="160" height="30" rx="4"/><text x="150" y="81" text-anchor="middle" class="lbl">MV_BREAKER</text></g>
+          <path class="ge" d="M150 92V116"/>
+          <g class="gn" data-k="xf"><rect x="70" y="118" width="160" height="30" rx="4"/><text x="150" y="137" text-anchor="middle" class="lbl">POWER_XFMR HV→LV</text></g>
+          <path class="ge" d="M150 148V172"/>
+          <g class="gn" data-k="b11"><rect x="70" y="174" width="160" height="30" rx="4"/><text x="150" y="193" text-anchor="middle" class="lbl">MV_BUSBAR 11 kV</text></g>
+          <path class="ge" d="M150 204V228"/>
+          <g class="gn" data-k="aux"><rect x="70" y="230" width="160" height="26" rx="4"/><text x="150" y="247" text-anchor="middle" class="lbl">AUX_TRANSFORMER</text></g>
+          <path class="ge" d="M150 256V268"/>
+          <g class="gn" data-k="lvac"><rect x="70" y="270" width="160" height="26" rx="4"/><text x="150" y="287" text-anchor="middle" class="lbl">LVAC_BOARD</text></g>
+        </svg>
+        <div class="absent">Not on this graph (<code>network_role 'none'</code>):
+          <span class="it" data-k="sub">SUBSTATION</span><span class="it" data-k="pnl">SUBSTATION_PANEL</span><span class="it" data-k="bat">STATION_BATTERY</span><span class="it" data-k="ied">CONTROL_IED</span>
+        </div>
+      </div>
+    </div>
+    <figcaption><b>The Phase 47 tenet.</b> Connectivity crosses station boundaries (a feeder leaves Adenta and enters another station); containment never does. A spare transformer can be inside the station and wired to nothing. The analyses (<code>api/internal/powerflow</code>, <code>trace</code>) read only connectivity; CIM export is essentially the only consumer of containment.</figcaption>
+  </figure>
+
+  <div class="op-b op-only">
+    <span class="tag op">▶ Rule of thumb at the keyboard</span>
+    <p>Dragging a feature into a station does <strong>not</strong> wire it to anything. These are three separate acts:</p>
+    <div class="flow" style="margin-top:10px">
+      <div class="fn"><b>Placement</b><small>sets geometry</small></div><div class="fa">≠</div>
+      <div class="fn"><b>Containment</b><small>a relationship you or an assembly create</small></div><div class="fa">≠</div>
+      <div class="fn"><b>Connectivity</b><small>wiring at the terminals</small></div>
+    </div>
+    <p>If a trace can’t find a transformer you just placed, you have geometry without connectivity. That is the model asking you to wire it.</p>
+  </div>
+
+  <h3>The four layers of a real station</h3>
+  <figure>
+    <div class="fig-t"><h4>Which graph each layer joins</h4><span class="eyebrow">the map of this guide</span></div>
+    <div class="lm">
+      <div class="lm-r h"><span>Layer</span><span>Classes</span><span>Containment</span><span>Connectivity</span></div>
+      <div class="lm-r"><div><b>The place</b><div class="muted" style="font-size:13px">Fenced site · Ch 1</div></div><div class="cls">SUBSTATION (polygon)</div><span class="dot root"><i></i>root</span><span class="dot no"><i></i>none</span></div>
+      <div class="lm-r"><div><b>The yard</b><div class="muted" style="font-size:13px">Open-air HV/MV plant · Ch 2</div></div><div class="cls">POWER_XFMR · MV_BUSBAR · switching devices · EARTHING_XFMR</div><span class="dot yes"><i></i>yes</span><span class="dot yes"><i></i>junction</span></div>
+      <div class="lm-r"><div><b>The control room</b><div class="muted" style="font-size:13px">Protection, control, DC · Ch 3</div></div><div class="cls">SUBSTATION_PANEL + STATION_BATTERY · BATTERY_CHARGER · CONTROL_IED · ANNUNCIATOR</div><span class="dot yes"><i></i>yes</span><span class="dot no"><i></i>none</span></div>
+      <div class="lm-r"><div><b>Station AC (LVAC)</b><div class="muted" style="font-size:13px">The station’s own supply · Ch 4</div></div><div class="cls">AUX_TRANSFORMER · LVAC_BOARD</div><span class="dot yes"><i></i>yes</span><span class="dot yes"><i></i>junction</span></div>
+    </div>
+    <figcaption><b>The asymmetry is deliberate.</b> DC secondary is contained but not connected. AC auxiliary is contained <em>and</em> connected. That boundary reflects what VoltEdge’s analyses can reason about today; Chapters 3 and 4 each defend their side.</figcaption>
+  </figure>
+
+  <h3>Meet Adenta Primary</h3>
+  <p>One station, built across the whole guide. Here it is finished, wired the way Chapter 5 wires it. It is live: <strong>click any breaker or isolator</strong> to open it and watch the trace respond, exactly as <code>device_state = OPEN</code> behaves as a barrier.</p>
+
+  <figure id="ol">
+    <div class="fig-t"><h4>Adenta Primary — interactive one-line</h4><span class="eyebrow">click switches · trace runs from both 33 kV incomers</span></div>
+    <div class="scroll">
+    <svg viewBox="0 0 760 650" role="img" aria-label="Adenta Primary one-line diagram with clickable switches">
+      <rect class="fence" x="28" y="38" width="704" height="584" rx="6"/>
+      <text x="40" y="56" class="sm">SUBSTATION · Adenta Primary · polygon · network_role 'none' · containment root</text>
+
+      <!-- control building -->
+      <rect class="cr" x="584" y="150" width="136" height="196" rx="5"/>
+      <text x="594" y="168" class="hd" style="font-size:11.5px">Control building</text>
+      <text x="594" y="183" class="sm">contained, not connected</text>
+      <text x="594" y="206" class="sm">SUBSTATION_PANEL ×5</text>
+      <text x="594" y="221" class="sm"> PROTECTION · CONTROL</text>
+      <text x="594" y="236" class="sm"> METERING · RTU_SCADA</text>
+      <text x="594" y="251" class="sm"> AUXILIARY_DC</text>
+      <text x="594" y="274" class="sm">STATION_BATTERY</text>
+      <text x="594" y="289" class="sm">BATTERY_CHARGER</text>
+      <text x="594" y="304" class="sm">CONTROL_IED</text>
+      <text x="594" y="319" class="sm">ANNUNCIATOR</text>
+      <text x="594" y="336" class="sm" style="fill:var(--red)">no terminals → no trace</text>
+
+      <!-- incomers -->
+      <text x="160" y="14" text-anchor="middle" class="lbl">33 kV incomer</text>
+      <text x="540" y="14" text-anchor="middle" class="lbl">33 kV incomer</text>
+      <line class="w" data-w="srcA>brkInA" x1="160" y1="20" x2="160" y2="72"/>
+      <line class="w" data-w="srcB>brkInB" x1="540" y1="20" x2="540" y2="72"/>
+      <g class="sw-brk clk" data-n="brkInA" tabindex="0" role="button" aria-label="33 kV incomer breaker"><rect class="hit" x="140" y="64" width="40" height="36"/><rect x="150" y="72" width="20" height="20" rx="2"/></g>
+      <g class="sw-brk clk" data-n="brkInB" tabindex="0" role="button" aria-label="33 kV incomer breaker"><rect class="hit" x="520" y="64" width="40" height="36"/><rect x="530" y="72" width="20" height="20" rx="2"/></g>
+      <text x="178" y="86" class="sm">MV_BREAKER</text>
+      <line class="w" data-w="brkInA>bus33" x1="160" y1="92" x2="160" y2="128"/>
+      <line class="w" data-w="brkInB>bus33" x1="540" y1="92" x2="540" y2="128"/>
+
+      <line class="bar" data-n="bus33" x1="100" y1="130" x2="570" y2="130"/>
+      <text x="100" y="120" class="lbl">MV_BUSBAR · 33 kV</text>
+
+      <!-- bay A -->
+      <line class="w" data-w="bus33>isoA" x1="300" y1="130" x2="300" y2="160"/>
+      <g class="sw-iso clk" data-n="isoA" tabindex="0" role="button" aria-label="T1A isolator"><rect class="hit" x="282" y="156" width="40" height="34"/><circle cx="300" cy="162" r="2.5"/><line class="blade" x1="300" y1="186" x2="300" y2="162" style="transform-origin:300px 186px"/><circle cx="300" cy="186" r="2.5"/></g>
+      <text x="314" y="178" class="sm">MV_ISOLATOR</text>
+      <line class="w" data-w="isoA>brkHvA" x1="300" y1="188" x2="300" y2="200"/>
+      <g class="sw-brk clk" data-n="brkHvA" tabindex="0" role="button" aria-label="T1A 33 kV bay breaker"><rect class="hit" x="280" y="196" width="40" height="30"/><rect x="290" y="200" width="20" height="20" rx="2"/></g>
+      <line class="w" data-w="brkHvA>T1A" x1="300" y1="220" x2="300" y2="252"/>
+      <text x="310" y="242" class="sm">HV</text>
+      <g class="xf" data-n="T1A"><circle cx="300" cy="266" r="14"/><circle cx="300" cy="286" r="14"/></g>
+      <text x="320" y="272" class="lbl">T1A</text><text x="320" y="285" class="sm">POWER_XFMR</text>
+      <text x="310" y="312" class="sm">LV</text>
+      <line class="w" data-w="T1A>brkLvA" x1="300" y1="300" x2="300" y2="332"/>
+      <g class="sw-brk clk" data-n="brkLvA" tabindex="0" role="button" aria-label="T1A 11 kV bay breaker"><rect class="hit" x="280" y="326" width="40" height="32"/><rect x="290" y="332" width="20" height="20" rx="2"/></g>
+      <line class="w" data-w="brkLvA>bus11" x1="300" y1="352" x2="300" y2="388"/>
+
+      <!-- bay B -->
+      <line class="w" data-w="bus33>isoB" x1="460" y1="130" x2="460" y2="160"/>
+      <g class="sw-iso clk" data-n="isoB" tabindex="0" role="button" aria-label="T1B isolator"><rect class="hit" x="442" y="156" width="40" height="34"/><circle cx="460" cy="162" r="2.5"/><line class="blade" x1="460" y1="186" x2="460" y2="162" style="transform-origin:460px 186px"/><circle cx="460" cy="186" r="2.5"/></g>
+      <line class="w" data-w="isoB>brkHvB" x1="460" y1="188" x2="460" y2="200"/>
+      <g class="sw-brk clk" data-n="brkHvB" tabindex="0" role="button" aria-label="T1B 33 kV bay breaker"><rect class="hit" x="440" y="196" width="40" height="30"/><rect x="450" y="200" width="20" height="20" rx="2"/></g>
+      <line class="w" data-w="brkHvB>T1B" x1="460" y1="220" x2="460" y2="252"/>
+      <g class="xf" data-n="T1B"><circle cx="460" cy="266" r="14"/><circle cx="460" cy="286" r="14"/></g>
+      <text x="480" y="272" class="lbl">T1B</text><text x="480" y="285" class="sm">POWER_XFMR</text>
+      <line class="w" data-w="T1B>brkLvB" x1="460" y1="300" x2="460" y2="332"/>
+      <g class="sw-brk clk" data-n="brkLvB" tabindex="0" role="button" aria-label="T1B 11 kV bay breaker"><rect class="hit" x="440" y="326" width="40" height="32"/><rect x="450" y="332" width="20" height="20" rx="2"/></g>
+      <line class="w" data-w="brkLvB>bus11" x1="460" y1="352" x2="460" y2="388"/>
+
+      <line class="bar" data-n="bus11" x1="80" y1="390" x2="700" y2="390"/>
+      <text x="80" y="380" class="lbl">MV_BUSBAR · 11 kV</text>
+
+      <!-- feeders -->
+      <g>
+        <line class="w" data-w="bus11>f1b" x1="130" y1="390" x2="130" y2="424"/>
+        <g class="sw-brk clk" data-n="f1b" tabindex="0" role="button" aria-label="11 kV feeder breaker 1"><rect class="hit" x="110" y="418" width="40" height="32"/><rect x="120" y="424" width="20" height="20" rx="2"/></g>
+        <line class="w" data-w="f1b>f1" x1="130" y1="444" x2="130" y2="644"/>
+        <line class="w" data-w="bus11>f2b" x1="210" y1="390" x2="210" y2="424"/>
+        <g class="sw-brk clk" data-n="f2b" tabindex="0" role="button" aria-label="11 kV feeder breaker 2"><rect class="hit" x="190" y="418" width="40" height="32"/><rect x="200" y="424" width="20" height="20" rx="2"/></g>
+        <line class="w" data-w="f2b>f2" x1="210" y1="444" x2="210" y2="644"/>
+        <line class="w" data-w="bus11>f3b" x1="290" y1="390" x2="290" y2="424"/>
+        <g class="sw-brk clk" data-n="f3b" tabindex="0" role="button" aria-label="11 kV feeder breaker 3"><rect class="hit" x="270" y="418" width="40" height="32"/><rect x="280" y="424" width="20" height="20" rx="2"/></g>
+        <line class="w" data-w="f3b>f3" x1="290" y1="444" x2="290" y2="644"/>
+        <text x="306" y="500" class="sm">outgoing 11 kV feeders</text>
+        <text x="306" y="513" class="sm">MV_CONDUCTOR → beyond</text>
+        <text x="306" y="526" class="sm">the fence</text>
+      </g>
+
+      <!-- aux tap -->
+      <line class="w" data-w="bus11>aux" x1="490" y1="390" x2="490" y2="440"/>
+      <text x="498" y="420" class="sm">T2 → T1 tap</text>
+      <g class="aux" data-n="aux"><rect x="476" y="440" width="28" height="28" rx="2"/></g>
+      <text x="512" y="452" class="lbl">AUX_TRANSFORMER</text><text x="512" y="465" class="sm">11 kV → 400 V</text>
+      <line class="w" data-w="aux>lvac" x1="490" y1="468" x2="490" y2="510"/>
+      <g class="lvac" data-n="lvac"><rect x="450" y="510" width="80" height="9" rx="2"/></g>
+      <text x="538" y="519" class="lbl">LVAC_BOARD</text>
+      <line class="w" data-w="lvac>lvRuns" x1="460" y1="519" x2="460" y2="562"/>
+      <line class="w" data-w="lvac>lvRuns" x1="490" y1="519" x2="490" y2="562"/>
+      <line class="w" data-w="lvac>lvRuns" x1="520" y1="519" x2="520" y2="562"/>
+      <text x="450" y="580" class="sm">LV_CONDUCTOR aux runs</text>
+      <text x="450" y="594" class="sm" style="fill:var(--red)">trace stops here: charger has</text>
+      <text x="450" y="607" class="sm" style="fill:var(--red)">no terminals (deferred edge)</text>
+
+      <!-- earthing -->
+      <line class="w" data-w="bus11>ezt" x1="660" y1="390" x2="660" y2="440"/>
+      <g class="ezt" data-n="ezt"><polyline points="660,440 652,448 668,456 652,464 668,472 660,480 660,494"/><polyline points="648,494 672,494"/><polyline points="652,500 668,500"/><polyline points="656,506 664,506"/></g>
+      <text x="676" y="452" class="lbl">EARTHING</text><text x="676" y="465" class="lbl">_XFMR</text><text x="676" y="478" class="sm">leaf · z0_ohm</text>
+    </svg>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--live)"></i>energised (reached by trace)</span>
+      <span><i class="sw" style="background:var(--dead)"></i>de-energised</span>
+      <span><i class="sw" style="border:2px solid var(--red)"></i>OPEN device: a barrier</span>
+      <span><i class="sw" style="background:var(--amber)"></i>AUX_TRANSFORMER amber</span>
+      <span><i class="sw" style="background:var(--olive)"></i>LVAC_BOARD olive</span>
+    </div>
+    <div class="ol-ctrl">
+      <button class="btn pri" data-sc="reset">Normal running · all CLOSED</button>
+      <button class="btn" data-sc="incomers">Open both 33 kV incomers</button>
+      <button class="btn" data-sc="lv">Open both 11 kV transformer-bay breakers</button>
+      <button class="btn" data-sc="feeder">Open one feeder breaker</button>
+      <button class="btn" data-sc="t1a">Take T1A out (open HV isolator)</button>
+    </div>
+    <div class="readout">
+      <div class="ro live"><div class="eyebrow">Energised features</div><div class="big" id="ro-live">0</div></div>
+      <div class="ro dead"><div class="eyebrow">De-energised cone</div><div class="big" id="ro-dead">0</div><ul id="ro-list"></ul></div>
+      <div class="ro"><div class="eyebrow">Station AC supply</div><div class="big" id="ro-aux">—</div><div class="muted" style="font-size:12.5px;margin-top:6px">MV bus → AUX_TRANSFORMER → LVAC_BOARD, visible only because Chapter 4 made them junctions.</div></div>
+    </div>
+    <figcaption><b>What the guide fixes and what it doesn’t.</b> Two 33/11 kV transformers (T1A, T1B), each fed from a 33 kV incomer; 33 kV and 11 kV <code>MV_BUSBAR</code>s; bay breakers and isolators; an aux transformer tapped off the 11 kV bus; an optional earthing transformer on the 11 kV bus. The number of outgoing feeders isn’t given, so three are drawn for illustration. The control building appears here as a note because its classes have no terminals.</figcaption>
+  </figure>
+
+  <div class="op-b op-only">
+    <span class="tag op">▶ Your first act</span>
+    <p>On the map, choose the <code>SUBSTATION</code> class, draw the site polygon around the yard and control building, and name it. It will never be a trace node, but it is the containment root every other feature in this guide hangs beneath.</p>
+  </div>
+</section>
+<!-- ============ CH2 ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>The yard</h2><p>Primary plant. Every class here is a live junction with terminals.</p></div>
+
+  <h3>What “a junction with terminals” means</h3>
+  <figure>
+    <div class="fig-t"><h4>The shared shape of every yard class</h4></div>
+    <div class="three">
+      <div class="fn t"><b>geometry_type 'point'</b><small>placed as a single location: transformer, breaker, busbar</small></div>
+      <div class="fn t"><b>network_role 'junction'</b><small>an inline node; power flows <em>through</em> it</small></div>
+      <div class="fn t"><b>terminals</b><small>named connection points (T1, T2, HV, LV, N) with a role and a phase_capable flag</small></div>
+      <div class="fn"><b>geometry_optional true</b><small>may exist with NULL geometry (migration 0052)</small></div>
+      <div class="fn"><b>is_diagram_placeable true</b><small>may be stamped on a schematic (migration 0032)</small></div>
+      <div class="fn"><b>set explicitly in seeds</b><small>0032’s backfill only touched classes that existed then; later classes default to false</small></div>
+    </div>
+    <figcaption><b>Captured three ways:</b> geographically (a real yard coordinate), only on a one-line (a bay breaker nobody surveyed), or both. The MV switching classes are, in the seed author’s words, “byte-for-byte the DIST_SWITCH pattern.” The engines are field-name- and role-driven, so a new junction class is new rows, not new code.</figcaption>
+  </figure>
+
+  <h3>The power transformer — <code>POWER_XFMR</code></h3>
+  <p>The heart of the yard. Adenta has two, T1A and T1B, both two-winding.</p>
+
+  <figure>
+    <div class="fig-t"><h4>Terminals are subtype-scoped</h4>
+      <div class="lane-sw" role="group" aria-label="Winding subtype"><button id="xw2" aria-pressed="true">two_winding</button><button id="xw3" aria-pressed="false">three_winding</button></div>
+    </div>
+    <div class="scroll"><svg id="xwsvg" viewBox="0 0 560 220" style="width:100%;min-width:460px;max-width:620px;display:block;margin:auto" role="img" aria-label="Power transformer terminals">
+      <line x1="140" y1="20" x2="140" y2="62" stroke="var(--teal)" stroke-width="2.5"/>
+      <rect x="112" y="8" width="56" height="20" rx="3" fill="var(--tint)" stroke="var(--teal)"/><text x="140" y="22" text-anchor="middle" class="lbl">HV</text>
+      <circle cx="140" cy="84" r="22" fill="none" stroke="var(--teal)" stroke-width="2.5"/>
+      <circle cx="140" cy="116" r="22" fill="none" stroke="var(--teal)" stroke-width="2.5"/>
+      <g id="tv"><circle cx="168" cy="100" r="22" fill="none" stroke="var(--amber)" stroke-width="2.5"/><line x1="190" y1="100" x2="236" y2="100" stroke="var(--amber)" stroke-width="2.5"/><rect x="236" y="90" width="56" height="20" rx="3" fill="var(--amber-tint)" stroke="var(--amber)"/><text x="264" y="104" text-anchor="middle" class="lbl">TV</text></g>
+      <line x1="140" y1="138" x2="140" y2="180" stroke="var(--teal)" stroke-width="2.5"/>
+      <rect x="112" y="180" width="56" height="20" rx="3" fill="var(--tint)" stroke="var(--teal)"/><text x="140" y="194" text-anchor="middle" class="lbl">LV</text>
+      <line x1="118" y1="100" x2="70" y2="100" stroke="var(--muted)" stroke-width="2" stroke-dasharray="4 3"/>
+      <rect x="20" y="90" width="50" height="20" rx="3" fill="var(--surface)" stroke="var(--muted)"/><text x="45" y="104" text-anchor="middle" class="lbl">N</text>
+      <text x="330" y="40" class="hd" id="xwt">two_winding</text>
+      <text x="330" y="62" class="lbl" id="xwl">HV (primary) · LV (secondary) · N (ground)</text>
+      <text x="330" y="96" class="sm">terminals.subtype_id is non-NULL on this class,</text>
+      <text x="330" y="110" class="sm">the only one in the model where it is.</text>
+      <text x="330" y="140" class="sm" id="xwn">The TV role required widening a CHECK</text>
+      <text x="330" y="154" class="sm" id="xwn2">constraint (migration 0070) before seeding.</text>
+    </svg></div>
+    <figcaption><b>Why its own class, not a <code>DIST_XFMR</code> subtype:</b> the winding count changes the terminals (a subtype can’t add a real third connection point to another class), and the nameplate is in MVA (<code>rated_mva</code>, multiplied by 1000 to kVA), not kVA.</figcaption>
+  </figure>
+
+  <div class="op-b op-only">
+    <span class="tag op">▶ Placing a power transformer</span>
+    <ol style="margin:8px 0 0;padding-left:20px">
+      <li>Inside the <code>SUBSTATION</code> polygon, choose <strong>Power Transformer</strong> and place a point where T1A stands.</li>
+      <li>Choose the subtype: <code>two_winding</code> for a plain 33/11 kV unit.</li>
+      <li>Fill the nameplate. <code>primary_voltage</code> (<code>33KV</code>) and <code>condition_rating</code> are required; everything else is optional so an un-surveyed unit degrades gracefully.</li>
+    </ol>
+  </div>
+
+  <div class="md-b md-only">
+    <span class="tag md">∑ How it behaves in a load flow, for free</span>
+    <div class="tbl" style="margin-bottom:6px"><table>
+      <tr><th>Field</th><th>What the sweep does with it</th></tr>
+      <tr><td><code>primary_voltage</code> (coded, e.g. <code>33KV</code>)</td><td>HV nominal, the “from” voltage</td></tr>
+      <tr><td><code>secondary_voltage</code> (numeric, e.g. <code>11000</code>)</td><td>LV nominal. Both present ⇒ voltage-transforming node; absent ⇒ pass-through</td></tr>
+      <tr><td><code>impedance_pct</code> + <code>x_r_ratio</code></td><td>nameplate %Z and X/R: the series impedance drop</td></tr>
+      <tr><td><code>rated_mva</code></td><td>loading % is reported against it</td></tr>
+      <tr><td><code>tap_position</code> + <code>tap_step_pct</code></td><td>effective LV ratio × <code>1 + position·step/100</code>, so LV voltage tracks the live tap</td></tr>
+      <tr><td><code>vector_group</code></td><td><em>record-only</em> until a meshed/parallel study exists</td></tr>
+    </table></div>
+    <p style="font-size:14.5px">Tertiary fields (<code>tertiary_voltage</code>, <code>z_hv_tv_pct</code>, …) are recorded and staged; the sweep models HV↔LV today. <strong>Record the field first, key an engine off it later</strong> is a recurring VoltEdge discipline. Map symbol: a <span class="sw" style="background:var(--teal)"></span>teal square, distinct from the <span class="sw" style="background:var(--blue)"></span>blue <code>DIST_XFMR</code>.</p>
+  </div>
+
+  <h3>The busbar — <code>MV_BUSBAR</code></h3>
+  <p>A solid equipotential conductor, not a set of switchable ways. Two terminals scale to any number of feeders: <code>T1</code> is the incoming way, <code>T2</code> is the bar that fans out, and every outgoing circuit is a distinct connectivity edge on the same <code>T2</code>.</p>
+
+  <figure>
+    <div class="fig-t"><h4>The four rule patterns on a busbar</h4></div>
+    <div class="scroll"><svg viewBox="0 0 720 230" style="width:100%;min-width:600px;display:block" role="img" aria-label="Busbar rule patterns A to D">
+      <defs><marker id="ah2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 8 4 0 8z" fill="var(--teal)"/></marker></defs>
+      <!-- bus -->
+      <rect x="250" y="96" width="220" height="38" rx="4" fill="var(--tint)" stroke="var(--teal)" stroke-width="1.5"/>
+      <text x="360" y="119" text-anchor="middle" class="hd">MV_BUSBAR</text>
+      <rect x="226" y="104" width="26" height="22" rx="3" fill="var(--raise)" stroke="var(--teal)"/><text x="239" y="119" text-anchor="middle" class="lbl">T1</text>
+      <rect x="468" y="104" width="26" height="22" rx="3" fill="var(--raise)" stroke="var(--teal)"/><text x="481" y="119" text-anchor="middle" class="lbl">T2</text>
+      <!-- A -->
+      <rect x="20" y="30" width="130" height="30" rx="4" fill="var(--raise)" stroke="var(--line)"/><text x="85" y="49" text-anchor="middle" class="lbl">MV_CONDUCTOR</text>
+      <path d="M150 45 C 190 45 200 108 224 112" stroke="var(--teal)" stroke-width="1.8" fill="none" marker-end="url(#ah2)"/>
+      <text x="170" y="34" class="hd">A</text>
+      <!-- D -->
+      <rect x="20" y="170" width="130" height="30" rx="4" fill="var(--raise)" stroke="var(--line)"/><text x="85" y="189" text-anchor="middle" class="lbl">{switch} T2</text>
+      <path d="M150 185 C 190 185 200 124 224 120" stroke="var(--teal)" stroke-width="1.8" fill="none" marker-end="url(#ah2)"/>
+      <text x="170" y="214" class="hd">D</text>
+      <!-- B -->
+      <rect x="570" y="30" width="130" height="30" rx="4" fill="var(--raise)" stroke="var(--line)"/><text x="635" y="49" text-anchor="middle" class="lbl">MV_CONDUCTOR</text>
+      <path d="M496 112 C 520 108 530 45 568 45" stroke="var(--teal)" stroke-width="1.8" fill="none" marker-end="url(#ah2)"/>
+      <text x="540" y="34" class="hd">B</text>
+      <!-- C -->
+      <rect x="570" y="170" width="130" height="30" rx="4" fill="var(--raise)" stroke="var(--line)"/><text x="635" y="189" text-anchor="middle" class="lbl">{switch} T1</text>
+      <path d="M496 120 C 520 124 530 185 568 185" stroke="var(--teal)" stroke-width="1.8" fill="none" marker-end="url(#ah2)"/>
+      <text x="540" y="214" class="hd">C</text>
+    </svg></div>
+    <div class="tbl"><table>
+      <tr><th></th><th>Rule</th><th>Meaning</th></tr>
+      <tr><td><b>A</b></td><td><code>MV_CONDUCTOR → MV_BUSBAR T1</code></td><td>a feeder or transformer tail lands onto the incoming way</td></tr>
+      <tr><td><b>B</b></td><td><code>MV_BUSBAR T2 → MV_CONDUCTOR</code></td><td>the bar fans out to a bay feeder</td></tr>
+      <tr><td><b>C</b></td><td><code>MV_BUSBAR T2 → {switch} T1</code></td><td>the bar feeds a bay switch’s line side directly</td></tr>
+      <tr><td><b>D</b></td><td><code>{switch} T2 → MV_BUSBAR T1</code></td><td>a switch’s load side lands onto a bus (incomer breaker onto the bar)</td></tr>
+    </table></div>
+    <figcaption>Same shape as the LV distribution board <code>LV_BUSBAR</code>. On the map the busbar is a point; with <code>diagram_geometry_type 'line'</code> it draws as a <b>bar</b> on the one-line.</figcaption>
+  </figure>
+
+  <div class="op-b op-only"><span class="tag op">▶ Placing Adenta’s two busbars</span><p>Place one <code>MV_BUSBAR</code> for 33 kV and a second for 11 kV, each with its voltage set. They are not connected to each other directly; the transformers sit between them. Two features (not one) is what lets the model say “33 kV live, 11 kV dead” during a transformer outage.</p></div>
+
+  <h3>The switching devices</h3>
+  <div class="tbl"><table>
+    <tr><th>Class</th><th>Physical role</th><th>Interrupts fault current?</th></tr>
+    <tr><td><code>MV_BREAKER</code></td><td>Bay / feeder circuit breaker; subtypes name the interrupting medium (vacuum, SF₆)</td><td class="y">Yes</td></tr>
+    <tr><td><code>MV_ISOLATOR</code></td><td>Off-load isolator / disconnector: a visible gap</td><td class="n">No (off-load)</td></tr>
+    <tr><td><code>MV_SECTIONALIZER</code></td><td>Counts fault passages, opens on a dead line</td><td class="n">No (opens dead)</td></tr>
+    <tr><td><code>DIST_SWITCH</code></td><td>General MV load-break switch; its <code>automatic_recloser</code> subtype is the recloser (CIM <code>Recloser</code>)</td><td>Load-break / recloser</td></tr>
+  </table></div>
+
+  <figure>
+    <div class="fig-t"><h4>One field turns a node into a switch</h4></div>
+    <div class="flow">
+      <div class="fn"><b>MV_CONDUCTOR</b><small>line side</small></div><div class="fa">→ T1</div>
+      <div class="fn t"><b>switch</b><small><code>device_state</code>: CLOSED / OPEN<br><code>normal_state</code>: its steady-state position</small></div><div class="fa">T2 →</div>
+      <div class="fn"><b>MV_CONDUCTOR</b><small>load side</small></div>
+    </div>
+    <figcaption><b>OPEN is a barrier.</b> When a trace respects barriers it stops at an OPEN device and everything beyond is de-energised. <code>device_state</code> is live: OMS flips it in the same transaction as a switching step. <code>normal_state</code> tells “abnormally open for switching” from “normally open tie.” Try it in the Adenta one-line above.</figcaption>
+  </figure>
+
+  <h3>The earthing transformer — <code>EARTHING_XFMR</code></h3>
+  <div class="two">
+    <div class="md-b" style="margin:0">
+      <span class="tag md">∑ A pass-through leaf, by its fields</span>
+      <p style="font-size:14.5px">It carries <code>primary_voltage</code> but <strong>no</strong> <code>secondary_voltage</code>, so <code>resolveTransformerModel</code> treats it as a plain leaf: a dead-end shunt with no through-power and no loading %. Its <code>z0_ohm</code> (plus 3 × any <code>neutral_resistance_ohm</code>) is read by <code>groundfault.go</code> as the zero-sequence path, turning an ungrounded bus grounded and bounding SLG current.</p>
+    </div>
+    <div class="md-b" style="margin:0">
+      <span class="tag md">∑ Why no subtypes</span>
+      <p style="font-size:14.5px">Zig-zag and grounded-wye-delta present the same connection points: a three-phase line terminal plus a neutral/earth terminal. No terminal or behaviour difference, so the construction is a coded attribute (<code>GROUNDING_TYPE</code>).</p>
+    </div>
+  </div>
+  <p class="callout">A subtype is for differences the network can see: different terminals, different engine behaviour. Everything else is a field.</p>
+</section>
+
+<!-- ============ CH3 ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>The control room</h2><p>Protected, controlled, kept alive in a grid failure. Contained, deliberately not connected.</p></div>
+
+  <h3>The enclosure — <code>SUBSTATION_PANEL</code></h3>
+  <p>Each cubicle in the control building is a <code>SUBSTATION_PANEL</code>, with <code>geometry_type 'none'</code> like <code>BAY</code>. Its meaningful form is a schematic, not a GPS point; CRUD rejects one created with geometry.</p>
+  <div class="two">
+    <div><h4 style="margin-bottom:6px"><code>panel_type</code></h4><div style="display:flex;flex-wrap:wrap;gap:6px"><span class="chip">PROTECTION</span><span class="chip">CONTROL</span><span class="chip">METERING</span><span class="chip">RTU_SCADA</span><span class="chip">AUXILIARY_DC</span><span class="chip">MARSHALLING</span></div><p class="muted" style="font-size:14px">One class, six roles, distinguished by a field.</p></div>
+    <div><h4 style="margin-bottom:6px"><code>control_mode</code></h4><div style="display:flex;flex-wrap:wrap;gap:6px"><span class="chip">LOCAL</span><span class="chip">REMOTE</span><span class="chip">LOCAL_REMOTE</span></div><p class="muted" style="font-size:14px">Whether the bay can be operated from SCADA or only at the panel.</p></div>
+  </div>
+
+  <figure>
+    <div class="fig-t"><h4>A panel sits in two kinds of relationship</h4><span class="eyebrow">panel ↔ bay pairing below is illustrative</span></div>
+    <div class="scroll"><svg viewBox="0 0 720 270" style="width:100%;min-width:600px;display:block" role="img" aria-label="Panels contained by substation and serving bays many-to-many">
+      <rect x="20" y="110" width="140" height="44" rx="5" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.5"/><text x="90" y="137" text-anchor="middle" class="hd">SUBSTATION</text>
+      <g stroke="var(--muted)" stroke-width="1.4" fill="none"><path d="M160 132 H190 V48 H240"/><path d="M190 132 H240"/><path d="M190 132 V216 H240"/></g>
+      <text x="168" y="100" class="sm" transform="rotate(-90 178 100)">contains</text>
+      <g><rect x="240" y="30" width="170" height="36" rx="4" fill="var(--raise)" stroke="var(--line)"/><text x="325" y="45" text-anchor="middle" class="lbl">SUBSTATION_PANEL</text><text x="325" y="59" text-anchor="middle" class="sm">PROTECTION</text></g>
+      <g><rect x="240" y="114" width="170" height="36" rx="4" fill="var(--raise)" stroke="var(--line)"/><text x="325" y="129" text-anchor="middle" class="lbl">SUBSTATION_PANEL</text><text x="325" y="143" text-anchor="middle" class="sm">CONTROL</text></g>
+      <g><rect x="240" y="198" width="170" height="36" rx="4" fill="var(--raise)" stroke="var(--line)"/><text x="325" y="213" text-anchor="middle" class="lbl">SUBSTATION_PANEL</text><text x="325" y="227" text-anchor="middle" class="sm">METERING</text></g>
+      <rect x="560" y="64" width="140" height="40" rx="4" fill="var(--amber-tint)" stroke="var(--amber)"/><text x="630" y="82" text-anchor="middle" class="lbl">BAY</text><text x="630" y="96" text-anchor="middle" class="sm">logical circuit 1</text>
+      <rect x="560" y="164" width="140" height="40" rx="4" fill="var(--amber-tint)" stroke="var(--amber)"/><text x="630" y="182" text-anchor="middle" class="lbl">BAY</text><text x="630" y="196" text-anchor="middle" class="sm">logical circuit 2</text>
+      <g stroke="var(--amber)" stroke-width="1.6" fill="none" stroke-dasharray="5 3">
+        <path d="M410 48 C 480 48 500 84 560 84"/><path d="M410 48 C 480 48 500 184 560 184"/>
+        <path d="M410 132 C 480 132 500 92 560 88"/><path d="M410 216 C 480 216 500 96 560 92"/>
+      </g>
+      <text x="440" y="20" class="sm" style="fill:var(--amber)">serves · many_to_many · panel_bay</text>
+    </svg></div>
+    <figcaption><b>Model the real relationship, not a convenient tree.</b> One protection panel may serve two bays; one bay’s protection, control and metering may spread across three panels. So the panel <em>serves</em> the bay through a <code>many_to_many</code> association (kind <code>panel_bay</code>, migration 0083) instead of either containing the other.</figcaption>
+  </figure>
+
+  <div class="op-b op-only"><span class="tag op">▶ Placing Adenta’s panels</span><p>Create one <code>SUBSTATION_PANEL</code> per cubicle: a <code>PROTECTION</code> and a <code>CONTROL</code> panel per transformer bay, a <code>METERING</code> panel, an <code>RTU_SCADA</code> cabinet and an <code>AUXILIARY_DC</code> board. They are geometry-none, so create them as records, not map points, and stamp them on the one-line later (Chapter 7).</p></div>
+
+  <h3>The secondary equipment</h3>
+  <div class="tbl"><table>
+    <tr><th>Class</th><th>What it is</th><th>Identity field</th></tr>
+    <tr><td><code>STATION_BATTERY</code></td><td>DC battery bank: the trip/close/control supply that operates a breaker’s trip coil</td><td><code>battery_technology</code></td></tr>
+    <tr><td><code>BATTERY_CHARGER</code></td><td>Rectifier/charger feeding the DC bus and float-charging the battery</td><td><code>charger_type</code></td></tr>
+    <tr><td><code>CONTROL_IED</code></td><td>Bay controller, RTU, SCADA gateway, station HMI or protocol converter; comms in <code>COMMS_PROTOCOL</code> (iec61850 / dnp3 / iec60870_5_104 / modbus)</td><td><code>ied_role</code></td></tr>
+    <tr><td><code>ANNUNCIATOR</code></td><td>Alarm annunciator / facia-window panel</td><td>—</td></tr>
+  </table></div>
+
+  <figure>
+    <div class="fig-t"><h4>Three classes, one physical action</h4></div>
+    <div class="flow">
+      <div class="fn"><b>PROTECTIVE_RELAY</b><small><em>decides</em> to trip · geometry 'none' · in a PROTECTION panel · ANSI device number</small></div><div class="fa">→</div>
+      <div class="fn a"><b>STATION_BATTERY</b><small><em>provides the energy</em> to trip · network_role 'none'</small></div><div class="fa">→</div>
+      <div class="fn t"><b>MV_BREAKER</b><small><em>does</em> the tripping · a live junction in the yard</small></div>
+    </div>
+    <figcaption>Fed by <code>MV_CT</code> / <code>MV_VT</code> instrument transformers. The relay-to-trip-coil link is control/trip wiring, recorded today as <b>schematic annotation</b> on the panel diagram, not as a connectivity edge. A first-class second wiring layer (“dual line semantics”) is an open item.</figcaption>
+  </figure>
+
+  <div class="md-b md-only">
+    <span class="tag md">∑ Two ‘none’s tell the whole story</span>
+    <p><code>geometry_type 'none'</code>: the only visual form is a diagram placement, so each class needs an explicit <code>render_context 'diagram'</code> symbology rule or it renders as nothing. <code>network_role 'none'</code>: no terminals, no wiring, no trace. They join containment (<code>SUBSTATION_PANEL contains STATION_BATTERY</code>, all <code>one_to_many</code>) and nothing else.</p>
+    <p><strong>Coded roles, not subtypes.</strong> One <code>standard</code> subtype each. Every field is nullable in the DB with requiredness enforced through <code>subtype_field_rules</code>, because the compiler emits <code>NOT NULL</code> for <code>nullable = false</code>, which fails on a populated table when a re-seed adds a field. Nullable-in-DB keeps every re-compile additive.</p>
+  </div>
+</section>
+
+<!-- ============ CH4 ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>The LVAC layer</h2><p>The station’s own AC supply, and the answer to “what feeds the charger?”</p></div>
+
+  <p>A HV/MV station makes its own auxiliary supply: a station-service transformer taps the MV bus and steps it down to <strong>400/230 V</strong>, feeding an LVAC board that distributes to every auxiliary circuit. A modelling review found the gap: yard ✓, control-room DC ✓, station AC ✗.</p>
+
+  <figure>
+    <div class="fig-t"><h4>The design choice</h4></div>
+    <div class="two">
+      <div class="pane" style="opacity:.75"><span class="eyebrow">Option A · not chosen</span><h4 style="margin-top:6px">Geometry-less inventory rows</h4><p style="font-size:14px" class="muted">“There is an aux transformer, there is an LVAC board,” modelled like the DC layer. Would reproduce the blind spot it was meant to remove.</p></div>
+      <div class="pane" style="border-color:var(--teal)"><span class="eyebrow" style="color:var(--teal)">Option B · chosen</span><h4 style="margin-top:6px">Real junctions with terminals</h4><p style="font-size:14px">Wired into the network so trace and load flow walk MV bus → aux transformer → LVAC board → auxiliary feeders. Contained <em>and</em> connected.</p></div>
+    </div>
+  </figure>
+
+  <div class="two">
+    <div>
+      <h3 style="margin-top:8px"><span class="sw" style="background:var(--amber)"></span><code>AUX_TRANSFORMER</code></h3>
+      <p style="font-size:15px">Point junction, one <code>standard</code> subtype, terminals <code>T1</code> (MV in) and <code>T2</code> (LV out). Maps to CIM <code>PowerTransformer</code>.</p>
+      <div class="tbl"><table>
+        <tr><td><code>primary_voltage</code></td><td>coded, <b>required</b> · e.g. 11KV</td></tr>
+        <tr><td><code>secondary_voltage</code></td><td>numeric · e.g. 400</td></tr>
+        <tr><td><code>impedance_pct</code></td><td>nameplate %Z</td></tr>
+        <tr><td><code>rated_kva</code></td><td>rating → loading %</td></tr>
+        <tr><td><code>condition_rating</code></td><td>coded, <b>required</b></td></tr>
+      </table></div>
+    </div>
+    <div>
+      <h3 style="margin-top:8px"><span class="sw" style="background:var(--olive)"></span><code>LVAC_BOARD</code></h3>
+      <p style="font-size:15px">Point junction, same one-in/one-fan-out shape as <code>LV_BUSBAR</code>: <code>T1</code> incoming, <code>T2</code> fan-out. Maps to CIM <code>BusbarSection</code>.</p>
+      <div class="tbl"><table>
+        <tr><td><code>board_ref</code></td><td>asset tag (nullable)</td></tr>
+        <tr><td><code>phase</code></td><td>coded <code>PHASE</code>, <b>required</b></td></tr>
+        <tr><td><code>incoming_rating_a</code></td><td>incomer rating</td></tr>
+        <tr><td><code>num_ways</code></td><td>outgoing ways</td></tr>
+        <tr><td><code>condition_rating</code></td><td>coded, <b>required</b></td></tr>
+      </table></div>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-t"><h4>The four rules, and where the trace stops</h4></div>
+    <div class="scroll"><svg viewBox="0 0 760 260" style="width:100%;min-width:680px;display:block" role="img" aria-label="LVAC connectivity rules">
+      <defs><marker id="ah3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 8 4 0 8z" fill="var(--ink)"/></marker></defs>
+      <rect x="10" y="30" width="130" height="36" rx="4" fill="var(--tint)" stroke="var(--teal)"/><text x="75" y="52" text-anchor="middle" class="lbl">MV_BUSBAR · T2</text>
+      <rect x="10" y="130" width="130" height="36" rx="4" fill="var(--raise)" stroke="var(--line)"/><text x="75" y="152" text-anchor="middle" class="lbl">MV_CONDUCTOR</text>
+      <rect x="220" y="80" width="150" height="40" rx="4" fill="var(--amber-tint)" stroke="var(--amber)" stroke-width="1.5"/><text x="295" y="98" text-anchor="middle" class="lbl">AUX_TRANSFORMER</text><text x="295" y="112" text-anchor="middle" class="sm">T1 → T2</text>
+      <path d="M140 48 C 180 48 185 92 218 96" stroke="var(--ink)" stroke-width="1.6" fill="none" marker-end="url(#ah3)"/>
+      <text x="150" y="38" class="sm">① tap · NULL</text>
+      <path d="M140 148 C 180 148 185 108 218 104" stroke="var(--ink)" stroke-width="1.6" fill="none" marker-end="url(#ah3)"/>
+      <text x="40" y="188" class="sm">② direct feeder tap</text>
+      <text x="40" y="200" class="sm">from.voltage_class = to.primary_voltage</text>
+      <rect x="440" y="80" width="120" height="40" rx="4" fill="var(--olive-tint)" stroke="var(--olive)" stroke-width="1.5"/><text x="500" y="98" text-anchor="middle" class="lbl">LVAC_BOARD</text><text x="500" y="112" text-anchor="middle" class="sm">T1 → T2</text>
+      <path d="M370 100 H438" stroke="var(--ink)" stroke-width="1.6" fill="none" marker-end="url(#ah3)"/>
+      <text x="378" y="92" class="sm">③ NULL</text>
+      <rect x="620" y="80" width="130" height="40" rx="4" fill="var(--raise)" stroke="var(--line)"/><text x="685" y="98" text-anchor="middle" class="lbl">LV_CONDUCTOR</text><text x="685" y="112" text-anchor="middle" class="sm">aux wiring runs</text>
+      <path d="M560 100 H618" stroke="var(--ink)" stroke-width="1.6" fill="none" marker-end="url(#ah3)"/>
+      <text x="566" y="92" class="sm">④ NULL</text>
+      <line x1="600" y1="140" x2="600" y2="250" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="4 4"/>
+      <text x="610" y="152" class="sm" style="fill:var(--red)">connectivity ends here</text>
+      <rect x="620" y="180" width="130" height="40" rx="4" fill="none" stroke="var(--red)" stroke-dasharray="5 4"/><text x="685" y="198" text-anchor="middle" class="lbl">BATTERY_CHARGER</text><text x="685" y="212" text-anchor="middle" class="sm">network_role 'none'</text>
+      <path d="M685 120 V178" stroke="var(--red)" stroke-width="1.4" stroke-dasharray="3 4" fill="none"/>
+      <text x="456" y="208" class="sm" style="fill:var(--red)">deferred edge:</text>
+      <text x="456" y="220" class="sm" style="fill:var(--red)">no terminals to land on</text>
+    </svg></div>
+    <figcaption><b>The <code>phase_rule</code> difference.</b> The bus tap (①) is a plain device hop, <code>NULL</code>. The direct feeder tap (②) carries a voltage match because a conductor has a voltage class to check. Containment runs in parallel: <code>SUBSTATION contains AUX_TRANSFORMER</code> and <code>LVAC_BOARD</code>, both <code>one_to_many</code>.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-t"><h4>Two supplies, two graph memberships</h4></div>
+    <div class="two">
+      <div class="pane" style="border-color:var(--teal)"><span class="eyebrow" style="color:var(--teal)">AC · live connectivity · Ch 4</span>
+        <div class="flow" style="margin-top:10px;flex-direction:column">
+          <div class="fn t"><b>MV bus</b></div><div class="fa">↓</div><div class="fn a"><b>AUX_TRANSFORMER</b></div><div class="fa">↓</div><div class="fn o"><b>LVAC_BOARD</b></div><div class="fa">↓</div><div class="fn"><b>auxiliary runs</b><small>traceable · solvable</small></div>
+        </div>
+      </div>
+      <div class="pane"><span class="eyebrow">DC · contained inventory · Ch 3</span>
+        <div class="flow" style="margin-top:10px;flex-direction:column">
+          <div class="fn r"><b>BATTERY_CHARGER</b><small>bridges AC-in to DC-out; currently on the DC side</small></div><div class="fa">↓</div><div class="fn e"><b>STATION_BATTERY → DC bus</b></div><div class="fa">↓</div><div class="fn e"><b>trip coils</b><small>wiring drawn as annotation</small></div>
+        </div>
+      </div>
+    </div>
+    <figcaption>When a future slice gives the charger terminals, that one edge closes the loop and a trace runs clean from the MV bus to the DC bus.</figcaption>
+  </figure>
+
+  <div class="op-b op-only"><span class="tag op">▶ Wiring Adenta’s LVAC</span><p>Place an <code>AUX_TRANSFORMER</code> tapping the 11 kV bus and wire its <code>T1</code> to the bar’s <code>T2</code>. Place the <code>LVAC_BOARD</code>, wire its <code>T1</code> to the transformer’s <code>T2</code>, then run <code>LV_CONDUCTOR</code> from the board’s <code>T2</code> to each auxiliary circuit. A downstream trace from the 11 kV bus now reaches the board, and de-energising the 11 kV isolator shows the station’s own supply going dark.</p></div>
+</section>
+<!-- ============ CH5 ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>The connectivity graph</h2><p>Turning placed features into a network a trace can walk.</p></div>
+
+  <figure>
+    <div class="fig-t"><h4>A real path alternates node → edge → node</h4></div>
+    <div class="flow">
+      <div class="fn e"><b>33 kV supply</b><small>edge</small></div><div class="fa">→</div>
+      <div class="fn t"><b>breaker</b><small>node · T1 / T2</small></div><div class="fa">→</div>
+      <div class="fn e"><b>MV_CONDUCTOR</b><small>edge</small></div><div class="fa">→</div>
+      <div class="fn t"><b>POWER_XFMR</b><small>node · HV / LV</small></div><div class="fa">→</div>
+      <div class="fn e"><b>MV_CONDUCTOR</b><small>edge</small></div><div class="fa">→</div>
+      <div class="fn t"><b>11 kV bus</b><small>node · T1 / T2</small></div>
+    </div>
+    <figcaption><b>Junctions</b> (solid) have terminals; power flows in one and out another. <b>Conductors</b> (dashed) are lines with <b>no terminals</b>: they attach at their endpoints and are never the “to” side of a rule. A wire has no meaningful “which terminal,” so rules are written from the node side. Each wire you make is a row in <code>runtime.feature_connectivity</code>.</figcaption>
+  </figure>
+
+  <h3><code>network_rules</code> — the grammar of legal connections</h3>
+  <div class="two">
+    <div class="tbl" style="margin:0"><table>
+      <tr><th>Column</th><th>Meaning</th></tr>
+      <tr><td><code>from_feature_class_id</code><br><code>from_terminal_id</code></td><td>source class and terminal; a conductor source leaves the terminal NULL</td></tr>
+      <tr><td><code>to_feature_class_id</code><br><code>to_terminal_id</code></td><td>destination class and terminal</td></tr>
+      <tr><td><code>phase_rule</code></td><td>optional guard string</td></tr>
+      <tr><td><code>is_valid</code></td><td>whether this pairing is allowed</td></tr>
+    </table></div>
+    <div>
+      <h4>Rules are directed</h4><p style="font-size:14.5px;margin-top:4px"><code>MV_CONDUCTOR → POWER_XFMR HV</code> and <code>POWER_XFMR LV → MV_CONDUCTOR</code> are two rules. Direction tells a downstream trace which way current flows, which is why switches also have a <code>Tn → MV_CONDUCTOR</code> rule.</p>
+      <h4>No unique constraint</h4><p style="font-size:14.5px;margin-top:4px">A rule set is a collection of rows, so seeds guard inserts with <code>WHERE NOT EXISTS</code>, not <code>ON CONFLICT</code>. Re-running never duplicates.</p>
+      <h4>A missing rule is a silent “no”</h4><p style="font-size:14.5px;margin-top:4px">No <code>is_valid</code> rule, no wire. The rules are the schematic grammar of your network.</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-t"><h4><code>phase_rule</code> in action</h4><span class="eyebrow">from.voltage_class = to.primary_voltage</span></div>
+    <div class="two">
+      <div class="flow"><div class="fn"><b>MV_CONDUCTOR</b><small>voltage_class 33 kV</small></div><div class="fa" style="color:var(--teal)">✓ wires</div><div class="fn t"><b>POWER_XFMR HV</b><small>primary_voltage 33KV</small></div></div>
+      <div class="flow"><div class="fn"><b>MV_CONDUCTOR</b><small>voltage_class 33 kV</small></div><div class="fa" style="color:var(--red)">✗ refused</div><div class="fn r"><b>POWER_XFMR HV</b><small>HV nameplate 11 kV</small></div></div>
+    </div>
+  </figure>
+
+  <h3>Connectivity is not relationships</h3>
+  <div class="tbl"><table>
+    <tr><th></th><th>Connectivity</th><th>Relationships</th></tr>
+    <tr><td>Governed by</td><td><code>terminals</code> + <code>network_rules</code></td><td><code>relationship_classes</code></td></tr>
+    <tr><td>Instances in</td><td><code>runtime.feature_connectivity</code></td><td><code>runtime.feature_relationships</code></td></tr>
+    <tr><td>Means</td><td>electrically wired; power flows</td><td>contained / owns / supports</td></tr>
+    <tr><td>Read by</td><td>trace, load flow, fault</td><td>CIM export, “what’s inside” queries</td></tr>
+    <tr><td>At the keyboard</td><td><b>Connect</b> tool / terminals tab</td><td><b>Relationships</b> tab</td></tr>
+  </table></div>
+  <p class="note"><code>SUBSTATION contains AUX_TRANSFORMER</code> is a relationship; the station does not conduct to the transformer. <code>AUX_TRANSFORMER T2 → LVAC_BOARD T1</code> is connectivity; it is a wire. Both can exist between the same pair and neither implies the other.</p>
+
+  <div class="op-b op-only">
+    <span class="tag op">▶ Wiring Adenta end to end</span>
+    <div class="tbl" style="background:transparent"><table>
+      <tr><th>Hop</th><th>Rule(s) that permit it</th></tr>
+      <tr><td>33 kV incomer → bus</td><td><code>MV_CONDUCTOR → MV_BUSBAR T1</code>, or via incomer <code>MV_BREAKER T2 → MV_BUSBAR T1</code></td></tr>
+      <tr><td>33 kV bus → transformer HV</td><td><code>MV_BUSBAR T2 → MV_BREAKER T1</code>, then <code>MV_CONDUCTOR → POWER_XFMR HV</code> (phase_rule checks 33 kV)</td></tr>
+      <tr><td>Through the transformer</td><td>HV → LV is internal; external: <code>POWER_XFMR LV → MV_CONDUCTOR</code>, <code>MV_CONDUCTOR → MV_BUSBAR T1</code></td></tr>
+      <tr><td>11 kV bus → feeders</td><td><code>MV_BUSBAR T2 → MV_BREAKER T1</code>, <code>MV_BREAKER T2 → MV_CONDUCTOR</code></td></tr>
+      <tr><td>Station-service tap</td><td>the four LVAC rules of Chapter 4</td></tr>
+    </table></div>
+    <p>Then Tom launches a downstream trace from the 33 kV incomer, and one trace lights up the whole station, primary and auxiliary.</p>
+  </div>
+
+  <h3>What the wired graph gives you</h3>
+  <div class="three">
+    <div class="pane"><h4>Isolation respects switches</h4><p style="font-size:14px" class="muted">Open the 11 kV transformer-bay breaker and the 11 kV bus, feeders and LVAC board fall dark. The outage console’s core move.</p></div>
+    <div class="pane"><h4><code>circuit_ref</code> derives itself</h4><p style="font-size:14px" class="muted">Derive-only, written only by assign-by-trace, so labels and trace display stay consistent with no dual writer.</p></div>
+    <div class="pane"><h4>The load flow has a network</h4><p style="font-size:14px" class="muted">Voltages, impedances and ratings on nodes plus a connected graph. Chapter 8.</p></div>
+  </div>
+</section>
+
+<!-- ============ CH6 ============ -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>The containment graph</h2><p>“What is inside what,” and the one consumer that depends on it.</p></div>
+
+  <div class="tbl"><table>
+    <tr><th>Relationship kind</th><th>Meaning</th><th>Example</th></tr>
+    <tr><td><code>containment</code></td><td>spatial “physically inside”; strict single-parent tree</td><td><code>SUBSTATION contains POWER_XFMR</code></td></tr>
+    <tr><td><code>composite</code></td><td>ownership “owns / is made of”</td><td><code>SERVICE_POINT owns METER</code></td></tr>
+    <tr><td><code>spatial_support</code></td><td><code>many_to_many</code> support</td><td>double-circuit tower carrying two circuits</td></tr>
+    <tr><td><code>panel_bay</code></td><td><code>many_to_many</code> “panel serves bay”</td><td><code>SUBSTATION_PANEL serves BAY</code></td></tr>
+  </table></div>
+  <p>Cardinality is enforced: <code>api/internal/relationship/cardinality.go</code> caps the destination side, so a transformer has at most one station while a station holds many. A second parent is refused.</p>
+
+  <figure>
+    <div class="fig-t"><h4>Adenta’s containment tree</h4><span class="eyebrow">tint shows graph membership</span></div>
+    <ul class="tree" style="font-size:13.5px">
+      <li><b>SUBSTATION</b> “Adenta Primary”
+        <ul>
+          <li><span class="sw" style="background:var(--teal)"></span>POWER_XFMR · T1A, T1B</li>
+          <li><span class="sw" style="background:var(--teal)"></span>MV_BUSBAR · 33 kV bus, 11 kV bus</li>
+          <li><span class="sw" style="background:var(--teal)"></span>MV_BREAKER · each bay breaker</li>
+          <li><span class="sw" style="background:var(--teal)"></span>MV_ISOLATOR · each isolator</li>
+          <li><span class="sw" style="background:var(--teal)"></span>EARTHING_XFMR · if fitted</li>
+          <li><span class="sw" style="background:var(--amber)"></span>AUX_TRANSFORMER <span class="muted">← Ch 4</span></li>
+          <li><span class="sw" style="background:var(--olive)"></span>LVAC_BOARD <span class="muted">← Ch 4</span></li>
+          <li><span class="sw" style="border:1.5px solid var(--muted)"></span>SUBSTATION_PANEL · PROTECTION / CONTROL / METERING / RTU_SCADA / AUXILIARY_DC
+            <ul>
+              <li><span class="sw" style="border:1.5px solid var(--muted)"></span>PROTECTIVE_RELAY <span class="muted">(PROTECTION panel)</span></li>
+              <li><span class="sw" style="border:1.5px solid var(--muted)"></span>METER <span class="muted">(METERING panel)</span></li>
+              <li><span class="sw" style="border:1.5px solid var(--muted)"></span>STATION_BATTERY · BATTERY_CHARGER · CONTROL_IED · ANNUNCIATOR <span class="muted">(AUXILIARY_DC panel) ← Ch 3</span></li>
+            </ul>
+          </li>
+        </ul>
+      </li>
+    </ul>
+    <figcaption><b>Filled swatch:</b> also on the connectivity graph. <b>Hollow:</b> this tree is the only graph it belongs to. That is why “list what’s in the DC board” works while “trace to the charger” does not.</figcaption>
+  </figure>
+
+  <h3>The one consumer — CIM export</h3>
+  <p>Turning VoltEdge into an IEC 61968-13 <strong>CDPSM</strong> model needs nesting, and nesting is containment. <code>SUBSTATION</code> maps to CIM <code>Substation</code> with <code>cim_kind 'container'</code>; the exporter reads the tree to place each piece of equipment inside its <code>Substation</code> and, where present, its <code>Bay</code>.</p>
+
+  <figure>
+    <div class="fig-t"><h4>From containment tree to CIM nesting</h4></div>
+    <div class="scroll"><svg viewBox="0 0 720 210" style="width:100%;min-width:620px;display:block" role="img" aria-label="CIM container nesting">
+      <rect x="10" y="10" width="440" height="190" rx="6" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.4"/>
+      <text x="24" y="32" class="hd">cim:Substation</text><text x="140" y="32" class="sm">container · from SUBSTATION</text>
+      <rect x="24" y="46" width="200" height="140" rx="5" fill="var(--raise)" stroke="var(--amber)" stroke-dasharray="5 3"/>
+      <text x="36" y="66" class="hd" style="fill:var(--amber)">cim:Bay</text><text x="96" y="66" class="sm">container · where present</text>
+      <rect x="36" y="80" width="176" height="24" rx="3" fill="var(--tint)" stroke="var(--teal)"/><text x="46" y="96" class="lbl">LoadBreakSwitch …</text>
+      <rect x="36" y="112" width="176" height="24" rx="3" fill="var(--tint)" stroke="var(--teal)"/><text x="46" y="128" class="lbl">PowerTransformer</text>
+      <text x="36" y="160" class="sm">conducting_junction</text>
+      <rect x="240" y="80" width="196" height="24" rx="3" fill="var(--amber-tint)" stroke="var(--amber)"/><text x="250" y="96" class="lbl">PowerTransformer · AUX</text>
+      <rect x="240" y="112" width="196" height="24" rx="3" fill="var(--olive-tint)" stroke="var(--olive)"/><text x="250" y="128" class="lbl">BusbarSection · LVAC</text>
+      <rect x="240" y="144" width="196" height="24" rx="3" fill="var(--raise)" stroke="var(--line)"/><text x="250" y="160" class="lbl">ProtectionEquipment</text>
+      <rect x="480" y="10" width="230" height="86" rx="6" fill="none" stroke="var(--red)" stroke-dasharray="5 4"/>
+      <text x="494" y="32" class="hd" style="fill:var(--red)">cim:VoltageLevel</text>
+      <text x="494" y="52" class="sm">retired · migration 0086</text>
+      <text x="494" y="68" class="sm">voltage rides on each</text>
+      <text x="494" y="82" class="sm">equipment’s BaseVoltage</text>
+      <rect x="480" y="112" width="230" height="88" rx="6" fill="none" stroke="var(--muted)" stroke-dasharray="3 4"/>
+      <text x="494" y="134" class="hd">Unmapped class</text>
+      <text x="494" y="154" class="sm">silently skipped, tallied</text>
+      <text x="494" y="170" class="sm">as “unmapped” · vanishes</text>
+      <text x="494" y="186" class="sm">from the file with no error</text>
+    </svg></div>
+  </figure>
+
+  <div class="tbl"><table>
+    <tr><th><code>cim_kind</code></th><th>For</th><th>CIM shape</th></tr>
+    <tr><td><code>conducting_edge</code></td><td>line equipment (<code>MV_CONDUCTOR</code>)</td><td><code>ACLineSegment</code>, 2 synthesized terminals</td></tr>
+    <tr><td><code>conducting_junction</code></td><td>transformers, busbars, switches</td><td><code>PowerTransformer</code>, <code>BusbarSection</code>, <code>LoadBreakSwitch</code></td></tr>
+    <tr><td><code>container</code></td><td>nesting tiers</td><td><code>Substation</code>, <code>Bay</code>, <code>EquipmentContainer</code></td></tr>
+    <tr><td><code>asset</code></td><td>non-conducting physical (<code>POLE</code>, <code>METER</code>)</td><td><code>Asset</code> / <code>UsagePoint</code></td></tr>
+    <tr><td><code>protection</code></td><td>protection equipment</td><td><code>ProtectionEquipment</code></td></tr>
+  </table></div>
+
+  <div class="md-b md-only">
+    <span class="tag md">∑ Three tables drive the export (migration 0034)</span>
+    <p><code>cim_profiles</code> (RDF/XML header; default <code>CDPSM_CIM16</code>), <code>cim_class_mappings</code> (which CIM class, and the <code>cim_kind</code> axis), <code>cim_attribute_mappings</code> (e.g. <code>POWER_XFMR.rated_mva</code> scaled to VA). Authored in <code>seed/cim_mapping_example.sql</code>, editable in the admin CIM-mappings screen.</p>
+    <p><strong>Three guards against silent drops:</strong> an admin coverage card listing unmapped classes with a prefilled “Map…” button; a CIM WARNING log with the dropped count; and a per-class CIM preview showing the byte-exact XML for one real feature. The LVAC seed ships its own mappings, which are skipped on a database without migration 0034.</p>
+  </div>
+</section>
+<!-- ============ CH7 ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>The one-line diagram</h2><p>The only visual home of half the control room.</p></div>
+
+  <div class="tbl"><table>
+    <tr><th>Knob</th><th>Question it answers</th><th>Where</th></tr>
+    <tr><td><code>is_diagram_container</code></td><td>May this class <b>own</b> a diagram?</td><td><code>feature_classes</code></td></tr>
+    <tr><td><code>is_diagram_placeable</code></td><td>May this class be <b>dropped onto</b> a diagram?</td><td><code>feature_classes</code></td></tr>
+    <tr><td><code>DIAGRAM_TYPE</code></td><td>What <b>kind</b>? (<code>ONE_LINE</code>, <code>CHAMBER_SCHEMATIC</code>, …)</td><td>domains / domain_values</td></tr>
+    <tr><td><code>diagram_placement_rules</code></td><td>On <b>this</b> container’s <b>this</b> type, which classes are allowed?</td><td>table (migration 0068)</td></tr>
+  </table></div>
+
+  <figure>
+    <div class="fig-t"><h4>Three independent properties</h4></div>
+    <div class="tbl" style="margin:0"><table>
+      <tr><th>Class</th><th>Owns a diagram</th><th>Appears on one</th><th>Has map geometry</th></tr>
+      <tr><td><code>SUBSTATION</code></td><td class="y">✓ ONE_LINE</td><td class="n">—</td><td class="y">✓ polygon</td></tr>
+      <tr><td><code>METER_CHAMBER</code></td><td class="y">✓ CHAMBER_SCHEMATIC</td><td class="n">—</td><td class="y">✓</td></tr>
+      <tr><td><code>MV_BUSBAR</code></td><td class="n">—</td><td class="y">✓ as a bar</td><td class="y">✓ point</td></tr>
+      <tr><td><code>SUBSTATION_PANEL</code></td><td class="n">—</td><td class="y">✓</td><td class="n">✗ none</td></tr>
+    </table></div>
+  </figure>
+
+  <figure>
+    <div class="fig-t"><h4>The allow-list is opt-in by absence</h4></div>
+    <div class="two">
+      <div class="pane"><span class="eyebrow">(SUBSTATION, ONE_LINE)</span><h4 style="margin:6px 0">0 rows → open</h4>
+        <div style="display:flex;flex-wrap:wrap;gap:6px"><span class="chip">POWER_XFMR ✓</span><span class="chip">MV_BUSBAR ✓</span><span class="chip">MV_BREAKER ✓</span><span class="chip">SUBSTATION_PANEL ✓</span><span class="chip">AUX_TRANSFORMER ✓</span><span class="chip">any placeable ✓</span></div>
+      </div>
+      <div class="pane"><span class="eyebrow">(METER_CHAMBER, CHAMBER_SCHEMATIC)</span><h4 style="margin:6px 0">2 rows → restricted</h4>
+        <div style="display:flex;flex-wrap:wrap;gap:6px"><span class="chip" style="border-color:var(--teal)">LV_BUSBAR ✓</span><span class="chip" style="border-color:var(--teal)">METER ✓</span><span class="chip" style="border-color:var(--red);color:var(--red)">MV_BREAKER ✗</span><span class="chip" style="border-color:var(--red);color:var(--red)">everything else ✗</span></div>
+      </div>
+    </div>
+    <figcaption><code>placeFeature</code> rejects any class not on a restricted list, even a globally placeable one. No “unrestricted” flag to maintain: presence or absence of rows decides.</figcaption>
+  </figure>
+
+  <div class="md-b md-only">
+    <span class="tag md">∑ Context-aware geometry and symbology</span>
+    <p>Diagram rendering uses <code>render_context 'diagram'</code>, falling back to <code>'map'</code>. Geometry-none classes have no map rule to fall back to, so the DC classes carry an explicit diagram rule. ANSI one-line stencils (two-/three-winding transformer, open switch) are the natural follow-up for classes that ship with a plain diagram node, such as <code>POWER_XFMR</code> and the LVAC classes. Each open diagram has its own coordinate space, with a per-diagram status bar showing live cursor X/Y.</p>
+  </div>
+
+  <div class="op-b op-only">
+    <span class="tag op">▶ Building Adenta’s one-line</span>
+    <ol style="margin:8px 0 0;padding-left:20px">
+      <li>On the <code>SUBSTATION</code>, Dana chooses <b>Create diagram → ONE_LINE</b>. A blank canvas opens.</li>
+      <li>Stamp the 33 kV bus as a bar across the top, the two transformers below, the 11 kV bus as a second bar, and bay breakers as boxes.</li>
+      <li>Stamp the panels and the DC classes. This is the only view where they are visible at all.</li>
+      <li>Place the amber aux transformer off the 11 kV bar and the olive LVAC board below it.</li>
+    </ol>
+  </div>
+  <p class="callout">The diagram shows the network; it does not define it. Drawing a line between two symbols does not wire them.</p>
+</section>
+
+<!-- ============ CH8 ============ -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>Making it live</h2><p>No analysis knows what a substation is. That is the point.</p></div>
+
+  <figure>
+    <div class="fig-t"><h4>Four analyses, one graph</h4></div>
+    <div class="scroll"><svg viewBox="0 0 720 200" style="width:100%;min-width:600px;display:block" role="img" aria-label="Analyses read connectivity and fields">
+      <rect x="230" y="70" width="260" height="60" rx="6" fill="var(--tint)" stroke="var(--teal)" stroke-width="1.6"/>
+      <text x="360" y="96" text-anchor="middle" class="hd">connectivity graph + fields</text>
+      <text x="360" y="114" text-anchor="middle" class="sm">runtime.feature_connectivity · device_state · nameplates</text>
+      <g fill="var(--raise)" stroke="var(--line)">
+        <rect x="20" y="16" width="170" height="44" rx="5"/><rect x="530" y="16" width="170" height="44" rx="5"/>
+        <rect x="20" y="140" width="170" height="44" rx="5"/><rect x="530" y="140" width="170" height="44" rx="5"/>
+      </g>
+      <text x="105" y="35" text-anchor="middle" class="hd">Trace</text><text x="105" y="51" text-anchor="middle" class="sm">reachability walk</text>
+      <text x="615" y="35" text-anchor="middle" class="hd">Load flow</text><text x="615" y="51" text-anchor="middle" class="sm">resolveTransformerModel</text>
+      <text x="105" y="159" text-anchor="middle" class="hd">Fault study</text><text x="105" y="175" text-anchor="middle" class="sm">impedance_pct · z0_ohm</text>
+      <text x="615" y="159" text-anchor="middle" class="hd">OMS energization</text><text x="615" y="175" text-anchor="middle" class="sm">DeEnergizedCone</text>
+      <g stroke="var(--teal)" stroke-width="1.5" fill="none"><path d="M190 38 C 220 38 230 80 240 82"/><path d="M530 38 C 500 38 490 80 480 82"/><path d="M190 162 C 220 162 230 120 240 118"/><path d="M530 162 C 500 162 490 120 480 118"/></g>
+      <text x="360" y="160" text-anchor="middle" class="sm" style="fill:var(--red)">never consulted: containment tree · diagram</text>
+    </svg></div>
+  </figure>
+
+  <h3>Trace</h3>
+  <p>A downstream trace from the 33 kV incomer walks through the transformer, down the 11 kV bus, out every feeder, and down the station-service tap into the LVAC board with zero special handling. It is gated by two things: <code>device_state OPEN</code> is a barrier, and edges are never the “to” side of a rule. Running it also stamps <code>circuit_ref</code>. <a href="#ol">Try it on the one-line in Chapter 1.</a></p>
+
+  <h3>Load flow — field names are load-bearing API</h3>
+  <p>The engine asks one structural question of every junction: does it carry both <code>primary_voltage</code> and <code>secondary_voltage</code>? It never checks the class name. Toggle fields below to see what the engine would make of a node, using the rules in Appendix C.</p>
+
+  <figure>
+    <div class="fig-t"><h4>What does the engine see?</h4><span class="eyebrow">rules from §9.6</span></div>
+    <div class="fc">
+      <div>
+        <div class="presets">
+          <button class="btn" data-p="px">POWER_XFMR</button>
+          <button class="btn" data-p="aux">AUX_TRANSFORMER</button>
+          <button class="btn" data-p="ezt">EARTHING_XFMR</button>
+          <button class="btn" data-p="bad">Misnamed fields</button>
+          <button class="btn" data-p="brk">Open breaker</button>
+        </div>
+        <label><input type="checkbox" id="f-pv" data-f="pv"> primary_voltage</label>
+        <label><input type="checkbox" id="f-sv" data-f="sv"> secondary_voltage</label>
+        <label><input type="checkbox" id="f-hv" data-f="hv"> hv_voltage / lv_voltage <span class="muted">(wrong names)</span></label>
+        <label><input type="checkbox" id="f-mva" data-f="mva"> rated_mva</label>
+        <label><input type="checkbox" id="f-kva" data-f="kva"> rated_kva</label>
+        <label><input type="checkbox" id="f-z" data-f="z"> impedance_pct</label>
+        <label><input type="checkbox" id="f-z0" data-f="z0"> z0_ohm</label>
+        <label><input type="checkbox" id="f-ds" data-f="ds"> device_state = OPEN</label>
+      </div>
+      <div class="verdict" aria-live="polite">
+        <div class="eyebrow" id="v-name">custom node</div>
+        <div class="v-h" id="v-h">—</div>
+        <ul id="v-list"></ul>
+      </div>
+    </div>
+  </figure>
+
+  <figure>
+    <div class="fig-t"><h4>Adenta’s voltage bases in the sweep</h4></div>
+    <div class="casc">
+      <div class="vb" style="background:var(--surface)"><div class="kv">33 kV</div><small>grid source · 33 kV base</small></div>
+      <div class="step">step down at<br><b style="color:var(--teal)">POWER_XFMR</b><br>rated_mva × 1000</div>
+      <div class="vb" style="background:var(--tint)"><div class="kv">11 kV</div><small>11 kV base</small></div>
+      <div class="step">step down at<br><b style="color:var(--amber)">AUX_TRANSFORMER</b><br>rated_kva</div>
+      <div class="vb" style="background:var(--olive-tint)"><div class="kv">400 V</div><small>LV base at the board</small></div>
+    </div>
+    <figcaption>I²R losses and per-node voltage in per-unit against the ANSI <b>0.95–1.05</b> band, as the voltage-profile analysis reports for any feeder. The aux transformer’s own load appears in the result.</figcaption>
+  </figure>
+
+  <h3>Fault study — sink and source</h3>
+  <div class="two">
+    <div class="pane"><h4>A fault sink</h4><p style="font-size:14.5px" class="muted">Prospective short-circuit current at the 11 kV bus accumulates source impedance back to the grid through <code>POWER_XFMR</code>’s windings. Transformer impedance dominates; the station is where fault level is set. The aux transformer adds a modest series impedance on its branch.</p></div>
+    <div class="pane"><h4>A fault source</h4><p style="font-size:14.5px" class="muted">Embedded generation superimposes a second infeed on the Thévenin impedances, so the bus fault level rises. SLG stays grid-only, with <code>EARTHING_XFMR</code>’s <code>z0_ohm</code> setting the zero-sequence path. The clearing device the study names is the upstream bay breaker, a junction it can point at.</p></div>
+  </div>
+
+  <h3>Energization and outage</h3>
+  <figure>
+    <div class="fig-t"><h4>OMS turns plant into supply</h4></div>
+    <div class="flow">
+      <div class="fn"><b>Incident opens a switch</b><small>Priya, in OMS</small></div><div class="fa">→</div>
+      <div class="fn t"><b>device_state flips</b><small>same transaction · Phase 62</small></div><div class="fa">→</div>
+      <div class="fn"><b>trace.DeEnergizedCone</b><small>what fell dark downstream</small></div><div class="fa">+</div>
+      <div class="fn"><b>oms.IncidentEnergization</b><small><code>GET …/energization</code>: back-fed vs truly dead</small></div><div class="fa">→</div>
+      <div class="fn a"><b>ServiceRollup</b><small>customers · connected kW/kVA · critical loads (load_priority ≤ P2)</small></div>
+    </div>
+    <figcaption>Traces reach the meter (“the network ends at the meter”), so “de-energize Adenta Primary” returns customers, kW and critical services affected, not just a list of dark equipment.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ CH9 ============ -->
+<section class="ch" id="c9">
+  <div class="ch-head"><div class="ch-num">09</div><h2>Building Adenta end to end</h2><p>One procedure, then the tables you keep on a second monitor.</p></div>
+
+  <h3>The build, in order</h3>
+  <ol class="bo">
+    <li><div><b>The place.</b> Draw the <code>SUBSTATION</code> polygon “Adenta Primary.” Containment root; not connected.</div><span class="ph nodes">nodes</span></li>
+    <li><div><b>The yard, HV to LV.</b> 33 kV bus → incomer and bay breakers → two <code>POWER_XFMR</code> (<code>rated_mva</code>, <code>impedance_pct</code>) → 11 kV bus → feeder breakers → <code>EARTHING_XFMR</code> (<code>z0_ohm</code>).</div><span class="ph nodes">nodes</span></li>
+    <li><div><b>The control room.</b> <code>SUBSTATION_PANEL</code>s, the DC layer, plus <code>PROTECTIVE_RELAY</code> / <code>MV_CT</code> / <code>MV_VT</code>.</div><span class="ph nodes">nodes</span></li>
+    <li><div><b>The LVAC tap.</b> <code>AUX_TRANSFORMER</code> (small <code>rated_kva</code>) off the 11 kV bus, <code>LVAC_BOARD</code> below.</div><span class="ph nodes">nodes</span></li>
+    <li><div><b>Wire connectivity</b> in path order. Each hop needs a matching <code>network_rule</code> or the connect is silently refused.</div><span class="ph wires">wires</span></li>
+    <li><div><b>Establish containment.</b> Equipment under the <code>SUBSTATION</code>; DC devices under their panels.</div><span class="ph views">views</span></li>
+    <li><div><b>Draw the one-line.</b> The geometry-none control room’s first visual appearance.</div><span class="ph views">views</span></li>
+    <li><div><b>Run it.</b> Trace (stamps <code>circuit_ref</code>), load flow, fault at the 11 kV bus, hand to OMS.</div><span class="ph an">analyses</span></li>
+  </ol>
+  <p class="callout">Nodes before wires, wires before views, views before analyses.</p>
+
+  <div class="md-b md-only">
+    <span class="tag md">∑ The seed author’s path, for a new class</span>
+    <div class="flow" style="margin-top:12px">
+      <div class="fn t"><b>1 · Shape</b><small>point/line/polygon; junction/edge/none</small></div><div class="fa">→</div>
+      <div class="fn t"><b>2 · Field names</b><small>reuse primary_voltage, rated_kva…</small></div><div class="fa">→</div>
+      <div class="fn"><b>3 · Domains</b><small>VOLTAGE_CLASS, PHASE, CONDITION_RATING</small></div><div class="fa">→</div>
+      <div class="fn"><b>4 · Terminals</b><small>subtype-agnostic unless the network sees it</small></div>
+    </div>
+    <div class="flow" style="margin-top:8px">
+      <div class="fn"><b>5 · Rules</b><small>WHERE NOT EXISTS; phase_rule or NULL</small></div><div class="fa">→</div>
+      <div class="fn"><b>6 · Containment, CIM, symbology</b><small>diagram rule for geometry-none</small></div><div class="fa">→</div>
+      <div class="fn a"><b>7 · Apply &amp; compile</b><small><code>task seed-&lt;name&gt;</code>, <code>task compile CODE=&lt;CLASS&gt;</code></small></div><div class="fa">→</div>
+      <div class="fn o"><b>8 · Verify by behaviour</b><small>done when it traces and sweeps</small></div>
+    </div>
+    <p style="font-size:14.5px">Seed order matters: the LVAC seed must run after <code>seed-mv-busbar</code>, or the busbar-tap rule finds no busbar and is silently skipped.</p>
+    <p style="font-size:14.5px"><b>Still owed for the LVAC layer:</b> the seed is written and reviewed, but <code>task seed-lvac-auxiliary</code>, <code>task compile CODE=AUX_TRANSFORMER</code>, <code>task compile CODE=LVAC_BOARD</code> and a trace/load-flow re-check need a live database.</p>
+  </div>
+
+  <h3>Commissioning checklists</h3>
+  <p class="muted" style="font-size:14px">Ticks are remembered in this browser only.</p>
+  <div class="cl" id="cl">
+    <div class="clb"><h4>Yard <span class="prog"></span></h4>
+      <label><input type="checkbox" id="c-y1"><span>Every transformer has <code>primary_voltage</code>, <code>secondary_voltage</code> and <code>rated_mva</code> or <code>rated_kva</code>, or it won’t sweep</span></label>
+      <label><input type="checkbox" id="c-y2"><span>Every busbar’s <code>T2</code> fan-out reaches the devices it feeds</span></label>
+      <label><input type="checkbox" id="c-y3"><span>Every switching device has <code>device_state</code> and <code>normal_state</code></span></label>
+      <label><input type="checkbox" id="c-y4"><span>The earthing transformer carries <code>z0_ohm</code></span></label>
+    </div>
+    <div class="clb"><h4>Control room <span class="prog"></span></h4>
+      <label><input type="checkbox" id="c-c1"><span>Each <code>SUBSTATION_PANEL</code> is contained by the <code>SUBSTATION</code></span></label>
+      <label><input type="checkbox" id="c-c2"><span>Each DC device is contained by a panel and has a <code>'diagram'</code> symbology rule</span></label>
+      <label><input type="checkbox" id="c-c3"><span>Panels that serve bays have <code>panel_bay</code> relationships</span></label>
+    </div>
+    <div class="clb"><h4>LVAC <span class="prog"></span></h4>
+      <label><input type="checkbox" id="c-l1"><span><code>AUX_TRANSFORMER</code> is tapped off an energised MV source</span></label>
+      <label><input type="checkbox" id="c-l2"><span>Its field names match the transformer contract</span></label>
+      <label><input type="checkbox" id="c-l3"><span><code>LVAC_BOARD</code> fans out from <code>AUX_TRANSFORMER</code> T2</span></label>
+    </div>
+    <div class="clb"><h4>Graphs &amp; views <span class="prog"></span></h4>
+      <label><input type="checkbox" id="c-g1"><span>A downstream trace from the incomer reaches the LVAC board and the feeders</span></label>
+      <label><input type="checkbox" id="c-g2"><span>Containment nests everything under the <code>SUBSTATION</code>; CIM preview shows no silent drops</span></label>
+      <label><input type="checkbox" id="c-g3"><span>The <code>ONE_LINE</code> shows the geometry-none control room</span></label>
+      <label><input type="checkbox" id="c-g4"><span>Load flow reports a sane per-unit voltage at the 11 kV bus and the board</span></label>
+    </div>
+  </div>
+
+  <h3>Appendix A — the substation classes</h3>
+  <div class="tbl"><table>
+    <tr><th>Class</th><th>Geometry</th><th>network_role</th><th>Role</th></tr>
+    <tr><td><code>SUBSTATION</code></td><td>polygon</td><td>none</td><td>The place; containment root</td></tr>
+    <tr><td><span class="sw" style="background:var(--teal)"></span><code>POWER_XFMR</code></td><td>point</td><td>junction</td><td>Main step-down transformer (MVA)</td></tr>
+    <tr><td><code>MV_BUSBAR</code></td><td>point (bar on diagram)</td><td>junction</td><td>Bus; T1 in, T2 fan-out</td></tr>
+    <tr><td><code>MV_BREAKER</code> / <code>MV_ISOLATOR</code> / <code>MV_SECTIONALIZER</code></td><td>point</td><td>junction</td><td>Switching; <code>device_state</code></td></tr>
+    <tr><td><code>EARTHING_XFMR</code></td><td>point</td><td>junction</td><td>Neutral earthing; <code>z0_ohm</code> leaf</td></tr>
+    <tr><td><code>SUBSTATION_PANEL</code></td><td>none</td><td>none</td><td>Control cubicle; contains DC + relays</td></tr>
+    <tr><td><code>STATION_BATTERY</code> / <code>BATTERY_CHARGER</code> / <code>CONTROL_IED</code> / <code>ANNUNCIATOR</code></td><td>none</td><td>none</td><td>P&amp;C DC secondary; contained, not connected</td></tr>
+    <tr><td><code>PROTECTIVE_RELAY</code> / <code>MV_CT</code> / <code>MV_VT</code></td><td>point/none</td><td>none</td><td>Protection &amp; instrument</td></tr>
+    <tr><td><span class="sw" style="background:var(--amber)"></span><code>AUX_TRANSFORMER</code></td><td>point</td><td>junction</td><td>Station-service transformer (kVA); sweeps</td></tr>
+    <tr><td><span class="sw" style="background:var(--olive)"></span><code>LVAC_BOARD</code></td><td>point</td><td>junction</td><td>Station LVAC board; T2 fan-out</td></tr>
+  </table></div>
+
+  <h3>Appendix B — the LVAC connectivity rules</h3>
+  <div class="tbl"><table>
+    <tr><th>From</th><th>To</th><th>phase_rule</th></tr>
+    <tr><td><code>MV_BUSBAR · T2</code></td><td><code>AUX_TRANSFORMER · T1</code></td><td>NULL (station-service tap)</td></tr>
+    <tr><td><code>MV_CONDUCTOR</code></td><td><code>AUX_TRANSFORMER · T1</code></td><td><code>from.voltage_class = to.primary_voltage</code></td></tr>
+    <tr><td><code>AUX_TRANSFORMER · T2</code></td><td><code>LVAC_BOARD · T1</code></td><td>NULL</td></tr>
+    <tr><td><code>LVAC_BOARD · T2</code></td><td><code>LV_CONDUCTOR</code></td><td>NULL (aux fan-out)</td></tr>
+  </table></div>
+
+  <h3>Appendix C — the field-name contract</h3>
+  <div class="tbl"><table>
+    <tr><th>If a node carries…</th><th>…the engine treats it as</th><th>Read by</th></tr>
+    <tr><td><code>primary_voltage</code> <b>and</b> <code>secondary_voltage</code></td><td>a step-down transformer</td><td><code>resolveTransformerModel</code></td></tr>
+    <tr><td><code>rated_mva</code></td><td>rating = value × 1000 kVA</td><td><code>resolveTransformerRating</code></td></tr>
+    <tr><td><code>rated_kva</code></td><td>rating = value kVA</td><td><code>resolveTransformerRating</code></td></tr>
+    <tr><td><code>impedance_pct</code></td><td>series impedance (load flow + fault)</td><td>sweep / fault study</td></tr>
+    <tr><td><code>z0_ohm</code></td><td>zero-sequence path (SLG fault)</td><td>fault study</td></tr>
+    <tr><td><code>device_state = OPEN</code></td><td>a trace barrier</td><td>every graph walk</td></tr>
+    <tr><td><code>load_priority</code> (P1–P4)</td><td>service criticality (critical ≤ P2)</td><td><code>ServiceRollup</code></td></tr>
+  </table></div>
+
+  <p class="callout">Get the shape and the names right, and Adenta Primary is not a diagram of a station. It is one.</p>
+</section>
+
+<footer>
+  <p>End of the Substation Guide. Keep the appendices open when you model; re-read Chapter 8’s load-flow section and Appendix C when a new device refuses to sweep.</p>
+  <p class="note">Two places where the source text disagrees with itself: Chapter 9 gives <code>POWER_XFMR</code> the subtype “33/11” while Chapter 2 uses <code>two_winding</code>, and Chapter 9 puts <code>EARTHING_XFMR</code> “on the transformer neutral” while Chapter 2 puts it on the 11 kV bus. This page follows Chapter 2 in both cases.</p>
+</footer>
+</div>
+<script>
+(function(){
+  // ---- lane switch
+  var btns=document.querySelectorAll('.rail .lane-sw button');
+  function setLane(l){document.body.dataset.lane=l;btns.forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.l===l))});try{localStorage.setItem('ve-lane',l)}catch(e){}}
+  btns.forEach(function(b){b.addEventListener('click',function(){setLane(b.dataset.l)})});
+  try{var sl=localStorage.getItem('ve-lane');if(sl)setLane(sl)}catch(e){}
+
+  // ---- chapter rail highlight
+  var links=[].slice.call(document.querySelectorAll('#chaps a'));
+  var secs=links.map(function(a){return document.querySelector(a.getAttribute('href'))});
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){var i=secs.indexOf(e.target);links.forEach(function(l,j){l.classList.toggle('on',i===j)});links[i].scrollIntoView({block:'nearest',inline:'nearest'})}})},{rootMargin:'-40% 0px -55% 0px'});
+    secs.forEach(function(s){io.observe(s)});
+  }
+
+  // ---- two graphs hover
+  document.querySelectorAll('[data-k]').forEach(function(el){
+    el.addEventListener('mouseenter',function(){var k=el.dataset.k;document.querySelectorAll('[data-k="'+k+'"]').forEach(function(x){x.classList.add('hi')})});
+    el.addEventListener('mouseleave',function(){document.querySelectorAll('.hi').forEach(function(x){x.classList.remove('hi')})});
+  });
+
+  // ---- transformer subtype
+  var x2=document.getElementById('xw2'),x3=document.getElementById('xw3'),tv=document.getElementById('tv');
+  function xw(three){x2.setAttribute('aria-pressed',String(!three));x3.setAttribute('aria-pressed',String(three));tv.style.display=three?'':'none';
+    document.getElementById('xwt').textContent=three?'three_winding':'two_winding';
+    document.getElementById('xwl').textContent=three?'HV · LV · TV (tertiary) · N':'HV (primary) · LV (secondary) · N (ground)';}
+  x2.addEventListener('click',function(){xw(false)});x3.addEventListener('click',function(){xw(true)});xw(false);
+
+  // ---- one-line trace
+  var E=[['srcA','brkInA'],['srcB','brkInB'],['brkInA','bus33'],['brkInB','bus33'],
+    ['bus33','isoA'],['isoA','brkHvA'],['brkHvA','T1A'],['T1A','brkLvA'],['brkLvA','bus11'],
+    ['bus33','isoB'],['isoB','brkHvB'],['brkHvB','T1B'],['T1B','brkLvB'],['brkLvB','bus11'],
+    ['bus11','f1b'],['f1b','f1'],['bus11','f2b'],['f2b','f2'],['bus11','f3b'],['f3b','f3'],
+    ['bus11','aux'],['aux','lvac'],['lvac','lvRuns'],['bus11','ezt']];
+  var L={brkInA:'MV_BREAKER · 33 kV incomer',brkInB:'MV_BREAKER · 33 kV incomer',bus33:'MV_BUSBAR · 33 kV',isoA:'MV_ISOLATOR · T1A',isoB:'MV_ISOLATOR · T1B',brkHvA:'MV_BREAKER · T1A 33 kV',brkHvB:'MV_BREAKER · T1B 33 kV',T1A:'POWER_XFMR · T1A',T1B:'POWER_XFMR · T1B',brkLvA:'MV_BREAKER · T1A 11 kV',brkLvB:'MV_BREAKER · T1B 11 kV',bus11:'MV_BUSBAR · 11 kV',f1b:'MV_BREAKER · feeder',f2b:'MV_BREAKER · feeder',f3b:'MV_BREAKER · feeder',f1:'11 kV feeder',f2:'11 kV feeder',f3:'11 kV feeder',aux:'AUX_TRANSFORMER',lvac:'LVAC_BOARD',lvRuns:'LV aux runs',ezt:'EARTHING_XFMR'};
+  var open=new Set();
+  function run(){
+    var live=new Set(),st=['srcA','srcB'];
+    while(st.length){var n=st.pop();if(live.has(n))continue;live.add(n);if(open.has(n))continue;E.forEach(function(e){if(e[0]===n)st.push(e[1])})}
+    document.querySelectorAll('#ol [data-n]').forEach(function(el){var n=el.dataset.n;el.classList.toggle('live',live.has(n)&&!open.has(n));el.classList.toggle('open',open.has(n));
+      var bl=el.querySelector('.blade');if(bl)bl.style.transform=open.has(n)?'rotate(-38deg)':'none';
+      if(el.getAttribute('role')==='button')el.setAttribute('aria-pressed',String(open.has(n)))});
+    document.querySelectorAll('#ol [data-w]').forEach(function(el){var f=el.dataset.w.split('>')[0];el.classList.toggle('live',live.has(f)&&!open.has(f))});
+    var dead=Object.keys(L).filter(function(k){return !live.has(k)});
+    var lv=Object.keys(L).filter(function(k){return live.has(k)&&!open.has(k)});
+    document.getElementById('ro-live').textContent=lv.length;
+    document.getElementById('ro-dead').textContent=dead.length;
+    var ul=document.getElementById('ro-list');ul.innerHTML='';
+    var seen={};dead.forEach(function(k){var t=L[k];seen[t]=(seen[t]||0)+1});
+    Object.keys(seen).forEach(function(t){var li=document.createElement('li');li.textContent=t+(seen[t]>1?' ×'+seen[t]:'');ul.appendChild(li)});
+    var a=document.getElementById('ro-aux');var on=live.has('lvRuns');a.textContent=on?'Live':'Dark';a.style.color=on?'var(--teal)':'var(--red)';
+  }
+  document.querySelectorAll('#ol .clk').forEach(function(el){
+    function t(){var n=el.dataset.n;open.has(n)?open.delete(n):open.add(n);run()}
+    el.addEventListener('click',t);el.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();t()}});
+  });
+  var SC={reset:[],incomers:['brkInA','brkInB'],lv:['brkLvA','brkLvB'],feeder:['f2b'],t1a:['isoA']};
+  document.querySelectorAll('[data-sc]').forEach(function(b){b.addEventListener('click',function(){open=new Set(SC[b.dataset.sc]);run()})});
+  run();
+
+  // ---- field checker
+  var P={px:{n:'POWER_XFMR',f:['pv','sv','mva','z']},aux:{n:'AUX_TRANSFORMER',f:['pv','sv','kva','z']},ezt:{n:'EARTHING_XFMR',f:['pv','z0']},bad:{n:'a device with hv_voltage / lv_voltage',f:['hv','kva']},brk:{n:'MV_BREAKER, opened',f:['ds']}};
+  var boxes=[].slice.call(document.querySelectorAll('.fc input'));
+  function verdict(){
+    var s={};boxes.forEach(function(b){s[b.dataset.f]=b.checked});
+    var out=[],h;
+    if(s.pv&&s.sv){h='Step-down transformer';out.push('Has primary_voltage and secondary_voltage → resolveTransformerModel steps the voltage base across it.')}
+    else if(s.pv){h='Pass-through leaf';out.push('primary_voltage without secondary_voltage → swept as a plain pass-through, no voltage change.')}
+    else{h='Plain node';}
+    if(s.hv)out.push('hv_voltage / lv_voltage are not names the engine reads. Traceable, but invisible to the solver as a transformer.');
+    if(s.pv&&s.sv){ if(s.mva)out.push('rated_mva → rating = value × 1000 kVA; loading % reported.'); else if(s.kva)out.push('rated_kva → rating = value kVA; loading % reported.'); else out.push('No rating field → no loading %. Fails the commissioning checklist.');}
+    else if(s.mva||s.kva){out.push('A rating is present, but without both voltage fields the node does not transform.')}
+    if(s.z)out.push('impedance_pct → series impedance in load flow and fault study.');
+    if(s.z0)out.push('z0_ohm → zero-sequence shunt to earth; grounds the bus and bounds SLG current.');
+    if(s.ds){h=(h==='Plain node'?'':h+' · ')+'Trace barrier';out.push('device_state = OPEN → every graph walk stops here; everything downstream is de-energised.')}
+    if(!out.length)out.push('No load-bearing field names. It can still be wired and traced as a junction, but no numeric analysis keys off it.');
+    document.getElementById('v-h').textContent=h;
+    var ul=document.getElementById('v-list');ul.innerHTML='';out.forEach(function(t){var li=document.createElement('li');li.textContent=t;ul.appendChild(li)});
+  }
+  boxes.forEach(function(b){b.addEventListener('change',function(){document.getElementById('v-name').textContent='custom node';verdict()})});
+  document.querySelectorAll('[data-p]').forEach(function(btn){btn.addEventListener('click',function(){var p=P[btn.dataset.p];boxes.forEach(function(b){b.checked=p.f.indexOf(b.dataset.f)>=0});document.getElementById('v-name').textContent=p.n;verdict()})});
+  (function(){var p=P.aux;boxes.forEach(function(b){b.checked=p.f.indexOf(b.dataset.f)>=0});document.getElementById('v-name').textContent=p.n;verdict()})();
+
+  // ---- checklists
+  var cbs=[].slice.call(document.querySelectorAll('#cl input'));
+  var saved={};try{saved=JSON.parse(localStorage.getItem('ve-cl')||'{}')}catch(e){}
+  function prog(){document.querySelectorAll('#cl .clb').forEach(function(b){var c=b.querySelectorAll('input'),d=b.querySelectorAll('input:checked');b.querySelector('.prog').textContent=d.length+'/'+c.length})}
+  cbs.forEach(function(c){c.checked=!!saved[c.id];c.addEventListener('change',function(){saved[c.id]=c.checked;try{localStorage.setItem('ve-cl',JSON.stringify(saved))}catch(e){}prog()})});
+  prog();
+})();
+</script>
+
+</body></html>

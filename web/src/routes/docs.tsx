@@ -174,6 +174,23 @@ function DocContentPane({ id, docs }: { id: string | null; docs: DocSummary[] })
   const doc = docQuery.data
   if (!doc) return null
 
+  // Interactive HTML guides are self-contained documents (their own styles,
+  // scripts and layout). They render full-bleed in a sandboxed iframe that owns
+  // the whole pane -- allow-scripts for the interactions, allow-same-origin so
+  // the guide's own localStorage (reading-lane, checklist ticks) persists. The
+  // content is first-party and authored in-repo, the same trust level as the
+  // markdown docs. srcDoc keeps it on the existing /docs/{id} fetch.
+  if (doc.format === "html") {
+    return (
+      <iframe
+        title={doc.title}
+        srcDoc={doc.content}
+        sandbox="allow-scripts allow-same-origin"
+        className="h-full w-full border-0"
+      />
+    )
+  }
+
   return (
     <article className="mx-auto max-w-5xl px-12 py-10">
       <header className="mb-8 border-b pb-5">

@@ -13,6 +13,10 @@ export interface DocSummary {
   title: string
   description: string
   category: string
+  /** How the viewer should render this doc's content: absent/"markdown" is the
+   * default prose render; "html" is a self-contained interactive guide shown in
+   * a sandboxed iframe. */
+  format?: string
   /** An RBAC permission key the reader must hold; absent for general manuals.
    * The server enforces it -- this is only here so the UI can label the doc. */
   required_permission?: string
