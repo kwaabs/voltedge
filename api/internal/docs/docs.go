@@ -107,6 +107,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "engineering-studies-interactive",
+		Title:       "Network Analysis (interactive)",
+		Description: "The shared model behind every analysis study, hands-on: how features become a radial graph, how transformers rebase the voltage, and a live voltage-profile widget you drive — grow the load and watch the far end sag past the ANSI band.",
+		Category:    "Interactive guides",
+		Filename:    "engineering-studies-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "works-inspections-maintenance-guide",
 		Title:       "Works, Inspections & Maintenance",
 		Description: "The Work & Asset Management manual: defects, inspections and the typed work-order lifecycle, on the desk and in the field.",
