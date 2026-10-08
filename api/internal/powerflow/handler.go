@@ -104,7 +104,28 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/tap-optimization", tapOptimizationHandler(db))
 	r.Post("/storage-dispatch", storageDispatchHandler(db))
 	r.Post("/vvo", vvoHandler(db))
+	r.Post("/load-growth", loadGrowthHandler(db))
 	return r
+}
+
+// loadGrowthHandler is POST /analysis/load-growth: the load-growth forecast study
+// (forecast.go). A scenario projection of the radial load-flow across a horizon under
+// a growth assumption -- labelled Derived, not a statistical prediction.
+func loadGrowthHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req forecastRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runLoadGrowthForecast(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
 }
 
 func loadFlowHandler(db *bun.DB) http.HandlerFunc {
