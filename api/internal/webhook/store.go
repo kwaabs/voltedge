@@ -26,7 +26,7 @@ type store struct {
 }
 
 var (
-	validDirections = map[string]bool{"push": true, "pull": true}
+	validDirections = map[string]bool{"push": true, "pull": true, "outbound": true}
 	validTargets    = map[string]bool{"feature": true, "reading": true, "work": true, "fault": true}
 	validAuthModes  = map[string]bool{"hmac": true, "bearer": true, "both": true}
 )
@@ -82,7 +82,7 @@ func createEndpoint(ctx context.Context, s *store, req createEndpointRequest) (*
 
 	direction := defaulted(req.Direction, "push")
 	if !validDirections[direction] {
-		return nil, invalid("direction must be one of push, pull")
+		return nil, invalid("direction must be one of push, pull, outbound")
 	}
 	target := defaulted(req.Target, "feature")
 	if !validTargets[target] {
@@ -127,6 +127,18 @@ func createEndpoint(ctx context.Context, s *store, req createEndpointRequest) (*
 		// Inbound HMAC: the receiver needs the plaintext back to verify a signature.
 		if secret == "" {
 			return nil, invalid("signing_secret is required for auth_mode %s", authMode)
+		}
+		sealed, err := s.sealSecret(secret)
+		if err != nil {
+			return nil, err
+		}
+		ep.SigningSecretEnc = sealed
+	case direction == "outbound":
+		// An outbound subscription signs every delivery with this secret (HMAC),
+		// so the subscriber can verify it came from us; without it the delivery
+		// worker dead-letters, so require it up front.
+		if secret == "" {
+			return nil, invalid("signing_secret is required for an outbound subscription (it signs each delivery)")
 		}
 		sealed, err := s.sealSecret(secret)
 		if err != nil {
@@ -198,7 +210,7 @@ func updateEndpoint(ctx context.Context, s *store, id string, req updateEndpoint
 	if req.Direction != nil {
 		d := strings.TrimSpace(*req.Direction)
 		if !validDirections[d] {
-			return nil, invalid("direction must be one of push, pull")
+			return nil, invalid("direction must be one of push, pull, outbound")
 		}
 		ep.Direction = d
 	}

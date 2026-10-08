@@ -235,10 +235,17 @@ Extend the existing `/webhook-endpoints` admin API + page:
   the **OMS / WAM / Faults** write paths within their change transactions. Verify event
   rows appear atomically with the change (and roll back with it). No delivery yet — a
   pure, testable capture slice.
-- **S2 — delivery.** `ops.webhook_outbound_deliveries` + outbound subscriptions
-  (`direction='outbound'` on `webhook_endpoints`) + the fan-out + the delivery worker
-  (SKIP LOCKED, backoff, dead-letter) + HMAC signing → real POSTs through the SSRF
-  client. This is the working end-to-end pipeline.
+- **S2 — delivery. BUILT (2026-10-08).** `ops.webhook_outbound_deliveries` (migration
+  0134) + outbound subscriptions (`direction='outbound'` on `webhook_endpoints`, accepted
+  by the existing admin create/update) + the fan-out + the delivery worker (SKIP LOCKED,
+  exponential backoff, lease heartbeat, stuck-delivery reaper, panic guard, dead-letter)
+  + HMAC signing → real POSTs through `internal/outbound.SafeClient`. All in the new
+  `internal/webhookout` files (`deliveries.go`, `subscriptions.go`, `signing.go`,
+  `fanout.go`, `send.go`, `worker.go`, `errors.go`); both the inbound and outbound workers
+  now run in `cmd/webhookworker`. Per-entity ordering is enforced two ways: fan-out is
+  strictly sequential by `seq` (plain `FOR UPDATE`), and the delivery claim holds a row
+  while any earlier-seq delivery for the same entity is still queued/running. This is the
+  working end-to-end pipeline.
 - **S3 — admin.** The outbound-subscription admin UI (pick event types, filters,
   secret), the **test-ping**, and the delivery log/replay reused against the outbound
   table.
