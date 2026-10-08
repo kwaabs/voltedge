@@ -114,7 +114,7 @@ export function FeatureEditForm({ featureClassCode, featureId }: FeatureEditForm
   }
 
   async function handleSave() {
-    if (!canSave) return
+    if (!canSave || !feature) return
     setSaving(true)
     // Captured before the await: only a geometry change moves a feature near
     // new candidates, so only then does the assistant ask for suggestions

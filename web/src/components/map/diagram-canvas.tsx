@@ -185,9 +185,9 @@ function elbowPath(x1: number, y1: number, x2: number, y2: number): string {
  * free diagonals -- the "routing" a busbar and its T-taps need that a plain
  * hand-drawn line does not. */
 function orthoSnap(from: DiagramPathPoint, next: { x: number; y: number }): { x: number; y: number } {
-  const dx = Math.abs(next.x - from.x)
-  const dy = Math.abs(next.y - from.y)
-  return dx >= dy ? { x: next.x, y: from.y } : { x: from.x, y: next.y }
+  const dx = Math.abs(next.x - from[0])
+  const dy = Math.abs(next.y - from[1])
+  return dx >= dy ? { x: next.x, y: from[1] } : { x: from[0], y: next.y }
 }
 
 /** A {x,y} point to the [x, y] pair a stored path/vertex list uses. */
@@ -1752,7 +1752,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // draw-store.ts), same guard voltedge-map.tsx's own click handler
   // applies -- a click shouldn't silently change what's selected out
   // from under an in-progress, unsaved create form.
-  function selectOrPickTarget(featureClass: string, featureId: string, placementId?: number) {
+  function selectOrPickTarget(featureClass: string, featureId: string, placementId?: string) {
     if (useDrawStore.getState().draft) return
     const connectState = useConnectStore.getState()
     // Connect/Relate tool armed (Phase 26): this click is the source of a
@@ -1790,7 +1790,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // uses. The stack is built from effectivePlacements' stable authoring order --
   // NOT the selection-sorted pointItems, which moves the selected member to the
   // end each cycle and would trap the walk bouncing between the first two.
-  function nextStackedSelection(placementId: number): DiagramPlacement | null {
+  function nextStackedSelection(placementId: string): DiagramPlacement | null {
     const clicked = effectivePlacements.find((p) => p.id === placementId)
     if (!clicked) return null
     const threshold = iconSize * 0.5
@@ -2976,7 +2976,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
     }
     const subtypeSeed = element.kind === "slot" ? (element.slot_subtype ?? undefined) : undefined
     if (subtypeSeed != null) {
-      useDrawStore.getState().startDiagramCopyDraft(promoteClass, { subtype: subtypeSeed }, diagramPlacement)
+      useDrawStore.getState().startDiagramCopyDraft(promoteClass, { subtype: subtypeSeed, attributes: {} }, diagramPlacement)
     } else {
       useDrawStore.getState().startDiagramDraft(promoteClass, diagramPlacement)
     }

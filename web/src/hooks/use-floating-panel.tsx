@@ -31,7 +31,7 @@ const MIN_HEIGHT = 160
 
 interface FloatingPanel {
   /** Attach to the panel's root div. */
-  panelRef: RefObject<HTMLDivElement>
+  panelRef: RefObject<HTMLDivElement | null>
   /** Inline width (+left/top/height once moved/resized) for the root div. */
   shellStyle: CSSProperties
   /** Full className for the root div (positioning, flex column, shrink-wrap). */

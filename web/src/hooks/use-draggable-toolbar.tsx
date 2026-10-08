@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from "react"
+import type { CSSProperties, JSX, PointerEvent as ReactPointerEvent, RefObject } from "react"
 import { GripVertical } from "lucide-react"
 
 /**
@@ -21,7 +21,7 @@ import { GripVertical } from "lucide-react"
  */
 
 interface DraggableToolbar {
-  ref: RefObject<HTMLDivElement>
+  ref: RefObject<HTMLDivElement | null>
   /** Inline left/top once dragged; empty until then (Tailwind anchor holds). */
   style: CSSProperties
   /** true once the user has dragged -- drop the default anchor classes. */

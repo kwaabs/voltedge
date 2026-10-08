@@ -828,7 +828,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     const territorySource = new VectorSource()
     const territoryLayer = new VectorLayer({
       source: territorySource,
-      style: territoryStyleForFeature,
+      style: (f) => territoryStyleForFeature(f),
       visible: false,
     })
     map.addLayer(territoryLayer)
@@ -1755,7 +1755,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     const traceLineFlowSign = (
       line: LineString | MultiLineString,
       ref: TracedFeature,
-      geomByKey: Map<string, Geometry>,
+      geomByKey: globalThis.Map<string, Geometry>,
     ): 1 | -1 => {
       if (!ref.parent_feature_class || !ref.parent_feature_id) return 1
       const parentGeom = geomByKey.get(`${ref.parent_feature_class}:${ref.parent_feature_id}`)
@@ -1790,7 +1790,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
 
       // Build every reached feature's OL geometry first, keyed by ref, so a line
       // can look up its BFS parent's geometry to orient the marching ants below.
-      const geomByKey = new Map<string, Geometry>()
+      const geomByKey = new globalThis.Map<string, Geometry>()
       const built: { ref: TracedFeature; geometry: Geometry }[] = []
       for (const f of fetched) {
         if (!f?.geometry) continue
@@ -2038,7 +2038,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       if (token !== 0 && token !== affectedFittedTokenRef.current) {
         const map = mapRef.current
         const extent = src.getExtent()
-        if (map && !isEmptyExtent(extent)) {
+        if (map && extent && !isEmptyExtent(extent)) {
           map.getView().fit(extent, { padding: [80, 80, 80, 80], maxZoom: 18, duration: 400 })
         }
         affectedFittedTokenRef.current = token
@@ -2210,7 +2210,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       if (token !== 0 && token !== faultImpactFittedTokenRef.current) {
         const map = mapRef.current
         const extent = src.getExtent()
-        if (map && !isEmptyExtent(extent)) {
+        if (map && extent && !isEmptyExtent(extent)) {
           map.getView().fit(extent, { padding: [80, 80, 80, 80], maxZoom: 18, duration: 400 })
         }
         faultImpactFittedTokenRef.current = token
@@ -2380,8 +2380,10 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
         const map = mapRef.current
         // Fit to the frozen affected cone (the wider set); fall back to the live
         // cone when the incident was never confirmed and has no frozen area.
-        const extent = !isEmptyExtent(affected.getExtent()) ? affected.getExtent() : energized.getExtent()
-        if (map && !isEmptyExtent(extent)) {
+        const affectedExtent = affected.getExtent()
+        const extent =
+          affectedExtent && !isEmptyExtent(affectedExtent) ? affectedExtent : energized.getExtent()
+        if (map && extent && !isEmptyExtent(extent)) {
           map.getView().fit(extent, { padding: [80, 80, 80, 80], maxZoom: 18, duration: 400 })
         }
         incidentConeFittedTokenRef.current = token
@@ -2426,6 +2428,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     const overloadedKeys = new Set(result.overloaded.map((r) => `${r.feature_class}:${r.feature_id}`))
 
     async function loadLoadFlowFeatures() {
+      if (!result) return
       const refs = [
         ...result.nodes.map((n) => ({
           ref: { feature_class: n.feature_class, feature_id: n.feature_id },
@@ -3108,8 +3111,12 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
           },
           { layerFilter: isVectorLayer, hitTolerance: 5 },
         )
-        if (topHit) {
-          selectState.pick({ featureClassCode: topHit.code, featureId: topHit.id })
+        // Cast to defeat TS's narrowing: the hit is assigned inside the
+        // forEachFeatureAtPixel callback, which control-flow analysis can't see,
+        // so without this it treats topHit as still-null (never) in the branch.
+        const picked = topHit as { code: string; id: string } | null
+        if (picked) {
+          selectState.pick({ featureClassCode: picked.code, featureId: picked.id })
         }
         return
       }
@@ -3355,8 +3362,11 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
           },
           { layerFilter: (l) => l === importedLayer, hitTolerance: 5 },
         )
-        if (importedHit) {
-          const props = { ...importedHit.getProperties() }
+        // Cast to defeat TS's narrowing: assigned inside the callback above, so
+        // control-flow analysis still sees importedHit as null (never) here.
+        const hit = importedHit as Feature | null
+        if (hit) {
+          const props = { ...hit.getProperties() }
           delete props.geometry
           const overlayName = (props.__overlayName as string | undefined) ?? "Imported overlay"
           delete props.__overlayId

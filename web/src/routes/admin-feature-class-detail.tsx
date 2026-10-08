@@ -1834,7 +1834,6 @@ function RuleForm({
  */
 const LABEL_DEFAULT_COLOR = "#1f2937"
 const LABEL_DEFAULT_HALO_COLOR = "#ffffff"
-const LABEL_DEFAULT_HALO_WIDTH = 3
 
 /** The label-editor form state -- strings for the numeric fields (empty
  * stays empty, coerced only on save), mirroring StyleFields' discipline. */
