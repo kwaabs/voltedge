@@ -147,6 +147,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "admin-break-glass-guide-interactive",
+		Title:       "Administration & Break-Glass (interactive)",
+		Description: "The administrator's reference as a simulated deployment you can't hurt: send any caller through RequirePermission and the territory predicate, build the four column-by-role accounts and try each emergency, bring up a system in the wrong order, run the user console and sign-in lab (lockout, SSO linking, bearer tokens), resolve territory scope from the two trees, work the SSO-outage runbook, plan and run resetdata and uncompile, evolve a class with blueprint-vs-building, and query the audit trail. A persona switch changes who is acting.",
+		Category:    "Interactive guides",
+		Filename:    "admin-break-glass-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "everyday-operations-interactive",
 		Title:       "Everyday Operations (interactive)",
 		Description: "The task cookbook as a live, simulated Oakwood map: pan/zoom/box-zoom with layers and a full status bar, a Features browser and Query builder (filter, aggregate, radius scope), create-and-duplicate workbench, attribute editing with the real PATCH body and 409 guard, move/reshape/split/delete geometry tools, measure with live geodesic labels and units, a Snap/Ortho playground, connect-and-trace with loop check and network rules, relationships with the Kind picker, guided assemblies, redlines, labels, files and links, a settings lab that shows what survives a reload, and a missing-button diagnoser. A persona switch re-gates every widget by permission and territory.",
