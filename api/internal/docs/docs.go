@@ -147,6 +147,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "symbology-guide-interactive",
+		Title:       "Symbology & Map Styling (interactive)",
+		Description: "The symbology manual as a working engine painting a sample Oakwood network: a why-can't-Priya-see-it pipeline with the cache and hard-refresh, a most-specific-wins scorer, a real SVG icon library and editor with live width/height and intrinsic-size diagnostics, a sizing calculator, the per-class rule editor (default rule, subtype and field targeting, line and polygon styles) with a click inspector, zoom bands vs Display zoom vs labels, map and diagram contexts side by side, and a seven-step diagnoser with SQL peeks. A persona switch gates every control by metadata permission.",
+		Category:    "Interactive guides",
+		Filename:    "symbology-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "admin-break-glass-guide-interactive",
 		Title:       "Administration & Break-Glass (interactive)",
 		Description: "The administrator's reference as a simulated deployment you can't hurt: send any caller through RequirePermission and the territory predicate, build the four column-by-role accounts and try each emergency, bring up a system in the wrong order, run the user console and sign-in lab (lockout, SSO linking, bearer tokens), resolve territory scope from the two trees, work the SSO-outage runbook, plan and run resetdata and uncompile, evolve a class with blueprint-vs-building, and query the audit trail. A persona switch changes who is acting.",
