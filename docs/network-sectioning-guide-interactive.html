@@ -1,0 +1,1025 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Feeders, Sections &amp; Subnetworks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#0b7a8c; --acc-deep:#075c6b; --tint:#d9eef2;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  /* section palette (categorical, validated for both themes) */
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3cb7cc; --acc-deep:#54c6da; --tint:#123038; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3cb7cc; --acc-deep:#54c6da; --tint:#123038; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.role{display:inline-block;font:600 11px/1 var(--f-mono);padding:3px 7px;border-radius:3px;letter-spacing:.03em}
+.role.protective{background:var(--red-tint);color:var(--red)}
+.role.switching{background:var(--blue-tint);color:var(--blue)}
+.role.transformer{background:var(--amber-tint);color:var(--amber)}
+.role.source{background:var(--green-tint);color:var(--green)}
+.role.none{background:var(--line2);color:var(--muted)}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+/* schematic */
+svg.net{display:block;width:100%;height:auto;min-width:640px;background:var(--surface);border-radius:6px;border:1px solid var(--line2)}
+svg.net .edge{stroke-width:3.2;stroke-linecap:round;fill:none}
+svg.net .nd{cursor:pointer}
+svg.net .nd:focus-visible{outline:none}
+svg.net .nd:focus-visible .hit{stroke:var(--acc);stroke-width:2}
+svg.net .nlbl{font-size:9.5px;fill:var(--muted);pointer-events:none}
+svg.net .sel .nlbl{fill:var(--ink);font-weight:600}
+svg.net .zone{font-size:10px;font-weight:600}
+
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head><body>
+
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Sections</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · One idea</a><a href="#c2">2 · Three kinds</a><a href="#c3">3 · boundary_role</a><a href="#c4">4 · Feeders</a><a href="#c5">5 · In results</a><a href="#c6">6 · On the map</a><a href="#c7">7 · From an agent</a><a href="#c8">8 · vs full UN</a><a href="#c9">9 · Practice</a><a href="#ca">Appendix</a>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · running example: Feeder 7 off a station breaker, with a tie to Feeder 8</div>
+  <h1>Feeders, Sections<br>&amp; <span>Subnetworks</span></h1>
+  <p class="lede">How VoltEdge divides the network into named, meaningful pieces — feeders, protection zones and switching sections — with one small schematic you can operate: trip a recloser, open a switch, close the tie, change a class's role, and watch every section re-draw itself.</p>
+  <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
+    <span class="tag pl" style="margin:0">▶ How to use it</span>
+    <span class="tag en" style="margin:0">∑ Why / the model</span>
+  </div>
+  <p class="muted" style="font-size:14px;margin-top:18px">The cast: <b>Dana</b> (editor) curates feeders · <b>Tom</b> (analyst) reads sections off traces and load flows · <b>Priya</b> (dispatcher) scopes isolations during outages · <b>Ada</b> (admin) classifies the boundary devices. 🔒 marks a step that needs a permission.</p>
+</header>
+
+<!-- ================= CH1 ================= -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>The one idea</h2><p>A subnetwork is a named section of the network, defined by where it starts.</p></div>
+
+  <div class="callout">A section is the span between boundary devices — and the kind of device decides the kind of section.</div>
+
+  <p>There is no separate “subnetwork” object to create and keep in sync. A section <em>falls out</em> of two things VoltEdge already has: the network’s <strong>topology</strong> and one <strong>attribute on each device class</strong> (<code>boundary_role</code>). Everything in this guide is a consequence of that.</p>
+
+  <p>The schematic below is the model we’ll use all the way through. It’s <b>Feeder 7</b> (left) leaving a station breaker, with two MV taps down to distribution transformers and their LV networks, and a normally-open <b>tie</b> to the short <b>Feeder 8</b> (right). Click any device to select it; use the buttons to see the network divided three different ways.</p>
+
+  <div class="widget" id="w1">
+    <div class="w-head"><span class="eyebrow">Interactive · 1</span><h4>Carve the feeder three ways</h4></div>
+    <div class="w-bar">
+      <span class="lab">Colour by</span>
+      <div class="seg" id="w1-mode">
+        <button data-m="feeder" aria-pressed="true">Feeder</button>
+        <button data-m="zone" aria-pressed="false">Protection zone</button>
+        <button data-m="switching" aria-pressed="false">Switching section</button>
+      </div>
+    </div>
+    <div class="w-split">
+      <div class="w-main"><div class="scroll" id="w1-svg"></div><div class="legend" id="w1-legend"></div></div>
+      <div class="w-side" id="w1-side"></div>
+    </div>
+  </div>
+
+  <div class="pl-b">
+    <span class="tag pl">▶ Try this</span>
+    <p>Flip between the three views and watch the same wires get carved into <b><span data-n="feeders"></span></b> feeders, then <b><span data-n="zones"></span></b> protection zones, then <b><span data-n="switching"></span></b> switching sections. The finer the question you ask (“what trips?”, then “what can I isolate?”), the more boundary devices count. That’s the entire feature, in one picture.</p>
+  </div>
+</section>
+
+<!-- ================= CH2 ================= -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>The three kinds of section</h2><p>∑ The grounded model — nested, and LV mirrors MV.</p></div>
+
+  <p>A distribution feeder isn’t one undifferentiated blob. It’s carved up by its own devices, and <strong>the kind of section depends on the kind of device</strong>:</p>
+
+  <div class="cards">
+    <div class="card"><span class="role source">1 · feeder</span><h4 style="margin-top:8px">Everything load-side of a station breaker</h4><p>The top-level subnetwork — off the station bus. The feeder head is a <em>placement fact</em> (this breaker, on this bus), so it’s modelled as a circuit’s source, not a class property.</p></div>
+    <div class="card"><span class="role protective">2 · protection zone</span><h4 style="margin-top:8px">What de-energises when this device trips</h4><p>Bounded by the <em>next downstream protective device</em> (breaker, recloser, fuse). Answers <b>“what goes dark on a fault?”</b></p></div>
+    <div class="card"><span class="role switching">3 · switching section</span><h4 style="margin-top:8px">What I can isolate to work on it</h4><p>Bounded by the next <em>switch in any state</em> (disconnector, load-break switch, tie). Answers <b>“what can I take out for work?”</b></p></div>
+  </div>
+
+  <h3>They nest</h3>
+  <p>Feeder ⊃ protection zones ⊃ switching sections. Every protective device is <em>also</em> a switching boundary (it can be opened), so the finer carve strictly subdivides the coarser one. In Interactive 1 you saw this as <span data-n="feeders"></span> → <span data-n="zones"></span> → <span data-n="switching"></span> pieces (the ‘feeder’ count is the number of source breakers; the finer carves add a section for every extra boundary device). The widget below makes the nesting explicit: pick a device and read off the section it heads under each view.</p>
+
+  <div class="widget" id="w2">
+    <div class="w-head"><span class="eyebrow">Interactive · 2</span><h4>Nesting: one device, three scopes</h4></div>
+    <div class="w-split">
+      <div class="w-main"><div class="scroll" id="w2-svg"></div></div>
+      <div class="w-side" id="w2-side"></div>
+    </div>
+  </div>
+
+  <h3>LV mirrors MV exactly</h3>
+  <p>The elegant part of the model is that the same grammar repeats at low voltage. The <b>distribution transformer</b> is the LV network’s “station breaker”; the <b>pillar fuses</b> are its downstream protective devices; the <b>link box</b> is its switch.</p>
+
+  <figure>
+    <div class="scroll"><svg viewBox="0 0 760 210" width="100%" role="img" aria-label="MV and LV rows aligned by role" style="min-width:620px" id="mirror"></svg></div>
+    <figcaption><b>Same grammar, two voltages.</b> Hover (or focus) a column to align the MV device with its LV counterpart. The colours are the three roles; the dashed spine is the energy flow.</figcaption>
+  </figure>
+
+  <div class="tbl"><table>
+    <tr><th>Role in the (sub)network</th><th>MV</th><th>LV</th></tr>
+    <tr><td>Originates the (sub)network</td><td>station <b>circuit breaker</b> off the bus</td><td><b>distribution transformer</b> secondary</td></tr>
+    <tr><td>Protective section boundary</td><td>recloser, line fuse, breaker</td><td><b>feeder-pillar fuse</b>, service cut-out</td></tr>
+    <tr><td>Switching section boundary</td><td>load-break switch, isolator, tie</td><td>LV switch, link box</td></tr>
+  </table></div>
+</section>
+
+<!-- ================= CH3 ================= -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>The backbone: <code style="font-size:.7em">boundary_role</code></h2><p>🔒 One class-level attribute classifies what each device <em>does</em> to the network.</p></div>
+
+  <p>The whole model rests on one attribute, <code>boundary_role</code> (migration 0129). It has four values, and “unset” is a meaningful fifth:</p>
+
+  <div class="tbl"><table>
+    <tr><th>Value</th><th>What it means</th><th>Carves</th></tr>
+    <tr><td><span class="role source">source</span></td><td>originates a (sub)network at its load side — a generator, a grid infeed</td><td>a new network</td></tr>
+    <tr><td><span class="role protective">protective</span></td><td>interrupts fault current</td><td>a <b>protection zone</b></td></tr>
+    <tr><td><span class="role switching">switching</span></td><td>isolates or transfers without being primarily protective</td><td>a <b>switching section</b></td></tr>
+    <tr><td><span class="role transformer">transformer</span></td><td>a voltage boundary — originates the next-voltage network at its secondary</td><td>the next voltage’s network</td></tr>
+    <tr><td><span class="role none">(unset)</span></td><td>not a boundary: conductors, busbars, meters, poles, service points…</td><td>—</td></tr>
+  </table></div>
+
+  <div class="tip"><b>Tip</b><br>This is the one piece of structure worth adding, and it’s electrically honest: it’s finer than lumping every switch together, because a fault-interrupting recloser and a manual isolator create <em>different kinds</em> of section.</div>
+
+  <div class="caution"><b>Caution — the feeder head is per-instance</b><br>Whether a given breaker is <em>the</em> station feeder breaker is a placement fact, not a property of the breaker class — a mid-feeder breaker is still a <code>protective</code> boundary. VoltEdge models the feeder head as a <b>circuit’s source</b> (Chapter 4), not via <code>boundary_role</code>.</div>
+
+  <h3>Be Ada for a minute</h3>
+  <p>🔒 Ada sets <code>boundary_role</code> per class on the admin feature-class screens (it’s metadata, like <code>functional_role</code>). Most deployments inherit the seeded defaults and never touch it. Below, you can <b>re-classify the device classes yourself</b> and see what it does to the carve — this is a sandbox; nothing is saved.</p>
+
+  <div class="widget" id="w3">
+    <div class="w-head"><span class="eyebrow">Interactive · 3</span><h4>Admin → Feature classes → <code>boundary_role</code></h4>
+      <span style="flex:1"></span><button class="btn" id="w3-reset">Reset to seeded defaults</button></div>
+    <div class="w-split">
+      <div class="w-main"><div class="scroll" id="w3-svg"></div>
+        <div class="readout" id="w3-read" style="margin-top:12px"></div></div>
+      <div class="w-side">
+        <div class="lab" style="margin-bottom:6px">Classes in this network</div>
+        <div id="w3-classes"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pl-b">
+    <span class="tag pl">▶ Things to try</span>
+    <ul style="margin:6px 0 0;padding-left:20px">
+      <li>Set <code>MV_RECLOSER</code> to <b>switching</b>. The protection-zone count drops by one — the recloser no longer clears faults <em>as far as the model knows</em>, so its zone merges upstream. Setting a class wrong makes sections wrong; that is why this is an admin screen.</li>
+      <li>Set <code>MV_ISOLATOR</code> to <i>(unset)</i>. The tap it guards stops being a separate switching section.</li>
+      <li>Set <code>DIST_XFMR</code> to <i>(unset)</i>: the LV network is no longer its own section — it merges into the MV section above it.</li>
+    </ul>
+  </div>
+
+  <div class="en-b">
+    <span class="tag en">∑ Two seeded edge cases</span>
+    <p><code>MV_EARTH_SWITCH</code> is <b>deliberately not</b> a boundary — it grounds for safety, it doesn’t section the network. And <code>MV_SECTIONALIZER</code> is <b>not in the seeded backfill</b> (<code>seed/boundary_role_backfill.sql</code>) even though a sectionaliser is conceptually a switching device — if your network uses them as section boundaries, set the role on that class yourself.</p>
+  </div>
+</section>
+
+<!-- ================= CH4 ================= -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>Feeders are circuits</h2><p>▶ 🔒 You don’t build a separate “feeder” thing — it’s the circuit VoltEdge already has (migration 0062).</p></div>
+
+  <div class="pl-b">
+    <span class="tag pl">▶ Create and populate one — 🔒 <code>circuits:write</code> + <code>features:write</code></span>
+    <ol class="steps">
+      <li><b>Admin → Circuits</b> → create a circuit: name, MV/LV network, optional voltage.</li>
+      <li>Set its <b>source feature</b> — the station circuit breaker (or the transformer secondary for an LV feeder). That’s the feeder head / subnetwork controller.</li>
+      <li><b>Assign by trace</b> — VoltEdge traces downstream from the source and <b>stamps the circuit onto every feature it reaches</b> (the <code>circuit_ref</code> label). Every conductor, switch and device on the feeder now knows which feeder it belongs to — on the map and in every feature’s panel.</li>
+    </ol>
+  </div>
+
+  <h3>Freshness — the one bit of “is it stale?”</h3>
+  <p>After you assign, the network keeps changing. VoltEdge flags when a circuit’s stamped membership may be out of date: the <b>Circuits</b> list shows a <span class="pill stale">stale — re-assign</span> badge when a member feature has been edited since the last assign (migration 0130, one timestamp: <code>members_synced_at</code>).</p>
+
+  <p>Run the whole lifecycle yourself below. Note carefully what the badge <em>does</em> and <em>doesn’t</em> catch — that’s the caution in the manual, made visible.</p>
+
+  <div class="widget" id="w4">
+    <div class="w-head"><span class="eyebrow">Interactive · 4</span><h4>Admin → Circuits: assign, edit, go stale</h4></div>
+    <div class="w-bar" id="w4-bar"></div>
+    <div class="w-split">
+      <div class="w-main"><div class="scroll" id="w4-svg"></div><div class="legend" id="w4-legend"></div></div>
+      <div class="w-side" id="w4-side"></div>
+    </div>
+  </div>
+
+  <div class="caution"><b>Caution — what the stale check can’t see</b><br>It catches member <b>edits, moves and deletes</b>. It does <em>not</em> catch a pure connect/disconnect that touches no existing member — for example closing a tie that pulls brand-new features onto the feeder. (Try it: assign Feeder 7, then <b>Close the tie</b> after opening SW-101. The badge stays green, yet the live trace now reaches Feeder 8’s features.) <b>Re-assigning is always safe</b>, so when in doubt, re-assign.</div>
+
+  <div class="en-b">
+    <span class="tag en">∑ Why feeders are stamped but sections aren’t</span>
+    <p>A feeder’s membership is <em>stored</em> (<code>circuit_ref</code> on each feature) because it’s a human-meaningful, named, durable label — you want it in exports, on the map, in reports. A section is a <em>read-time</em> concept (next chapter), so it has no stored id and nothing to go stale.</p>
+  </div>
+</section>
+
+<!-- ================= CH5 ================= -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>A feature’s section, in results</h2><p>▶ You never label sections by hand — VoltEdge derives them from the result you’re already looking at.</p></div>
+
+  <p>Run any trace, or a load flow, and each row knows its section:</p>
+  <ul>
+    <li><b>In a trace result</b>, each feature carries a small <span class="pill sec">§ section</span> tag — its nearest upstream boundary device (the <em>section head</em>). You read <em>“MV-4 · § past F-301”</em> at a glance.</li>
+    <li><b>In a load flow</b>, the results table gains a <b>Section</b> column showing the same section head per node.</li>
+  </ul>
+
+  <div class="en-b">
+    <span class="tag en">∑ How it’s derived (and why it’s free)</span>
+    <p>Every trace and load-flow result already carries a <b>parent tree</b> — each feature’s one-hop-upstream neighbour. To find a feature’s section, VoltEdge <b>climbs that tree to the nearest device whose class has a <code>boundary_role</code></b>. No extra queries, nothing stored on the feature, and always correct for the <em>current switching state</em>. A boundary device heads its own section.</p>
+  </div>
+
+  <p>Operate it: <b>click a start point</b> on the schematic to trace downstream from there, then <b>click a row</b> in the results table to watch the climb. Open a switch and re-trace — the parent tree (and so the sections) changes with the switching state.</p>
+
+  <div class="widget" id="w5">
+    <div class="w-head"><span class="eyebrow">Interactive · 5</span><h4>Run a trace → read the § section column</h4></div>
+    <div class="w-bar">
+      <span class="lab">Result type</span>
+      <div class="seg" id="w5-kind"><button data-k="trace" aria-pressed="true">Trace</button><button data-k="lf" aria-pressed="false">Load flow</button></div>
+      <span class="lab" style="margin-left:8px">Section view</span>
+      <div class="seg" id="w5-view"><button data-v="switching" aria-pressed="true">Switching</button><button data-v="zone" aria-pressed="false">Protection</button></div>
+      <span style="flex:1"></span>
+      <span class="muted mono" style="font-size:12px">Click a device to set the trace start · double-click a switch to toggle it</span>
+    </div>
+    <div class="w-split">
+      <div class="w-main"><div class="scroll" id="w5-svg"></div></div>
+      <div class="w-side" id="w5-side"></div>
+    </div>
+    <div class="w-body" style="border-top:1px solid var(--line2)"><div class="tbl" style="margin:0"><table id="w5-tbl"></table></div></div>
+  </div>
+
+  <div class="tip"><b>Tip — why no “re-assign” for sections</b><br>Because a section is derived, there’s no membership to go stale — unlike feeders, which <em>are</em> stamped. Sections are a read-time concept; feeders are a stored one. Operate a switch in the widget above and the section heads change instantly; that’s exactly what happens against live data.</div>
+</section>
+
+<!-- ================= CH6 ================= -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>Highlighting a section on the map</h2><p>▶ Select a feature → actions menu (⌄) → one of two choices.</p></div>
+
+  <p>To <em>see</em> a section, select a feature and open its <b>actions menu</b> (the ⌄ in the panel header). There are two choices because the two kinds answer different questions:</p>
+
+  <div class="cards">
+    <div class="card"><span class="role switching">Switching section</span><p>Bounded by any isolating device (protective + switching) and the transformer. <b>“What would I isolate to work on this?”</b></p></div>
+    <div class="card"><span class="role protective">Protection zone</span><p>Bounded only by fault-interrupting protective devices (and the transformer). <b>“What de-energises if a fault here trips the upstream device?”</b> It stops at <em>fewer</em> devices — a plain switch doesn’t bound a protection zone.</p></div>
+  </div>
+
+  <p>Either one highlights the section on the map, with its upstream and downstream bounding devices marked. Priya uses <b>Switching section</b> to scope a planned outage (“who’s between these two switches”); Tom uses <b>Protection zone</b> when reasoning about coordination.</p>
+
+  <div class="widget" id="w6">
+    <div class="w-head"><span class="eyebrow">Interactive · 6</span><h4>Priya’s outage planner</h4></div>
+    <div class="w-bar">
+      <span class="lab">Actions ⌄</span>
+      <div class="seg" id="w6-mode">
+        <button data-m="switching" aria-pressed="true">Switching section</button>
+        <button data-m="zone" aria-pressed="false">Protection zone</button>
+      </div>
+      <span style="flex:1"></span>
+      <span class="muted mono" style="font-size:12px">Click any feature to select it</span>
+    </div>
+    <div class="w-split">
+      <div class="w-main"><div class="scroll" id="w6-svg"></div></div>
+      <div class="w-side" id="w6-side"></div>
+    </div>
+  </div>
+
+  <div class="en-b">
+    <span class="tag en">∑ Why “devices to open” excludes the transformer</span>
+    <p>The <b>isolation</b> walk uses <code>protective</code> + <code>switching</code> only — <em>not</em> the transformer, because you can’t “open” a transformer. But the transformer <em>does</em> bound a section (it’s where the next voltage starts). Select a LV feature above and compare the “bounding devices” list with the “devices to open” list.</p>
+  </div>
+</section>
+
+<!-- ================= CH7 ================= -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>From an agent</h2><p>The same section trace is on the MCP surface.</p></div>
+
+  <p>The assistant and any MCP client get <code>run_section_trace</code>. It takes the same inputs the UI uses and answers “what’s in this section?” the same way. The widget below builds the actual request for whatever you select, and the shape of the answer.</p>
+
+  <div class="widget" id="w7">
+    <div class="w-head"><span class="eyebrow">Interactive · 7</span><h4><code>run_section_trace</code> — request builder</h4></div>
+    <div class="w-bar">
+      <span class="lab">Start</span><select id="w7-sel" class="btn" style="padding:6px"></select>
+      <label style="display:flex;align-items:center;gap:6px;font:600 12px var(--f-mono)"><input type="checkbox" id="w7-pz"> protection_zone</label>
+    </div>
+    <div class="w-split">
+      <div class="w-main"><div class="lab" style="margin-bottom:6px">Request</div><pre class="pre" id="w7-req"></pre></div>
+      <div class="w-side"><div class="lab" style="margin-bottom:6px">Response (shape)</div><pre class="pre" id="w7-res"></pre></div>
+    </div>
+  </div>
+
+  <ul>
+    <li><b><code>protection_zone</code></b> flips the result from the default <em>switching section</em> to the <em>protection zone</em>.</li>
+    <li><b><code>boundary_class</code></b> is an optional override: name one class and only that class bounds the section (the older single-class behaviour). Omit it to use the <code>boundary_role</code> backbone.</li>
+    <li>It composes an <b>upstream</b> and a <b>downstream</b> search from the start feature, each stopping at — but not crossing — the first boundary in its direction. Either boundary can be absent when the section runs to the edge of the modelled network.</li>
+    <li>The result includes a <b>service rollup</b> of the section’s service points — the load and customers, by restoration tier, that an outage on that section would interrupt — and a <code>truncated</code> flag if a bounded walk hit the hop cap.</li>
+    <li>Read-only; requires the trace-run permission.</li>
+  </ul>
+  <p class="muted" style="font-size:14px">The sample values in the response above are illustrative; the field names are those of the real <code>sectionResponse</code> (<code>start</code>, <code>features</code>, <code>upstream_boundary</code>, <code>downstream_boundary</code>, <code>service</code>, <code>truncated</code>).</p>
+</section>
+
+<!-- ================= CH8 ================= -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>How this compares to a full utility-network model</h2><p>VoltEdge intentionally does <em>not</em> clone the heavyweight apparatus.</p></div>
+
+  <p>Tiers, terminal-precise controllers, per-tier subnetwork-name fields, a derived subnetwork-line, a clean/dirty/invalid state machine, network-wide name-uniqueness — none of that is here. This is the lean mapping. Filter it, or click a heavyweight concept to see what VoltEdge does instead.</p>
+
+  <div class="widget" id="w8">
+    <div class="w-head"><span class="eyebrow">Interactive · 8</span><h4>The lean mapping</h4></div>
+    <div class="w-bar"><span class="lab">Show</span>
+      <div class="seg" id="w8-f"><button data-f="all" aria-pressed="true">All</button><button data-f="stored" aria-pressed="false">Stored</button><button data-f="derived" aria-pressed="false">Derived at read time</button><button data-f="none" aria-pressed="false">Deliberately absent</button></div></div>
+    <div class="tbl" style="margin:0;border:0;border-radius:0"><table id="w8-tbl"></table></div>
+  </div>
+
+  <h3>What’s deliberately out of scope</h3>
+  <div class="cards">
+    <div class="card"><h4>No section-coloured map tiles</h4><p>Sections appear on demand (a highlight) and in results — not as a persistent per-feature colour. Addable later if a section-coloured overview is ever needed. (The colour-by-section views in this guide are teaching aids, not a map feature.)</p></div>
+    <div class="card"><h4>No multi-tier labels on one feature</h4><p>A feature carries <em>one</em> feeder (<code>circuit_ref</code>), not simultaneously a feeder <em>and</em> an LV-network name.</p></div>
+    <div class="card"><h4>No tiers table, subnetwork-line, terminal controllers or validity state machine</h4><p>One class attribute, one timestamp, and the trace/circuit machinery that already existed.</p></div>
+  </div>
+
+  <div class="callout">The payoff: feeders, protection zones and switching sections are all usable today — with one new attribute, one timestamp, and machinery that already existed.</div>
+</section>
+
+<!-- ================= CH9 ================= -->
+<section class="ch" id="c9">
+  <div class="ch-head"><div class="ch-num">09</div><h2>Practice</h2><p>Four questions, answered live against the schematic’s own model.</p></div>
+
+  <p>Each answer below is <em>computed</em> from the same network model the widgets use — not hard-coded — so if you change a role in Interactive 3 it doesn’t affect these (they always use the seeded defaults), but the logic you’re rehearsing is exactly the product’s.</p>
+
+  <div id="quiz"></div>
+
+  <h3>A short checklist for rolling this out</h3>
+  <div class="cards">
+    <div class="card"><span class="role none">Ada</span><h4>Classify</h4><p>Check the seeded <code>boundary_role</code> values against your class list. Add the ones you use that aren’t seeded (e.g. <code>MV_SECTIONALIZER</code>).</p></div>
+    <div class="card"><span class="role none">Dana</span><h4>Create feeders</h4><p>One circuit per station breaker; source = the breaker; assign by trace. Re-assign after tie operations or structural edits.</p></div>
+    <div class="card"><span class="role none">Tom</span><h4>Read sections</h4><p>Use § tags in traces and the Section column in load flows to explain where voltage drop and loading sit.</p></div>
+    <div class="card"><span class="role none">Priya</span><h4>Scope outages</h4><p>Switching section for planned work, protection zone for fault impact; the service rollup tells you who’s affected.</p></div>
+  </div>
+</section>
+
+<!-- ================= APPENDIX ================= -->
+<section class="ch" id="ca">
+  <div class="ch-head"><div class="ch-num">A</div><h2>Appendix</h2><p>Reference tables, and where this is grounded in the code.</p></div>
+
+  <h3>A · The <code>boundary_role</code> taxonomy</h3>
+  <p>Seeded defaults (<code>seed/boundary_role_backfill.sql</code>); adjust per class on the admin feature-class screens.</p>
+  <div class="tbl"><table>
+    <tr><th><code>boundary_role</code></th><th>Bounds…</th><th>Default classes</th></tr>
+    <tr><td><span class="role source">source</span></td><td>originates a (sub)network</td><td><code>GENERATOR</code></td></tr>
+    <tr><td><span class="role protective">protective</span></td><td>protection zone (fault interruption)</td><td><code>MV_BREAKER</code> <code>MV_RECLOSER</code> <code>MV_FUSE</code> <code>SERVICE_CUTOUT</code> <code>LV_FUSE</code></td></tr>
+    <tr><td><span class="role switching">switching</span></td><td>switching / isolation section</td><td><code>MV_SWITCH</code> <code>MV_ISOLATOR</code> <code>LV_SWITCH</code> <code>LV_LINK_BOX</code></td></tr>
+    <tr><td><span class="role transformer">transformer</span></td><td>voltage boundary (next-voltage origin)</td><td><code>DIST_XFMR</code> <code>POWER_XFMR</code></td></tr>
+    <tr><td><span class="role none">(unset)</span></td><td>not a boundary</td><td>conductors, busbars, meters, poles, service points, <code>MV_EARTH_SWITCH</code>…</td></tr>
+  </table></div>
+
+  <h3>Which role set does each walk use?</h3>
+  <p>Hover a row to see it applied to the schematic’s device classes.</p>
+  <div class="tbl"><table id="walkmatrix"></table></div>
+
+  <h3>B · Where this is grounded</h3>
+  <p><b>Backbone:</b> <code>migrations/0129_feature_class_boundary_role.sql</code>, <code>seed/boundary_role_backfill.sql</code>. <b>Feeders / freshness:</b> <code>api/internal/circuit</code> (+ <code>migrations/0130_circuit_members_synced_at.sql</code>). <b>Section walk:</b> <code>api/internal/trace/section.go</code>, <code>api/internal/trace/class_walk.go</code> (the <code>boundary_role</code> sets). <b>MCP tool:</b> <code>api/internal/agenttools</code> (<code>run_section_trace</code>). <b>Result display:</b> <code>web/src/lib/network-section.ts</code> (client-side derivation), <code>web/src/components/map/trace-result-table.tsx</code>, <code>web/src/components/map/load-flow-panel.tsx</code>.</p>
+  <p>Pairs with the <b>LV Network &amp; Metering</b> guide (which the sections run through) and the <b>Feature Catalog</b>.</p>
+</section>
+
+<footer>VoltEdge · Feeders, Sections &amp; Subnetworks — interactive companion to the Markdown guide. The schematic is a teaching model, not live data.</footer>
+</div>
+
+<script>
+/* =====================================================================
+   The teaching model: one small network every widget shares.
+   Nodes: id, class, label, x, y.  Edges: undirected adjacency.
+   Switchable classes carry a closed/open state.
+   ===================================================================== */
+const SEEDED = {
+  GENERATOR:'source',
+  MV_BREAKER:'protective', MV_RECLOSER:'protective', MV_FUSE:'protective', SERVICE_CUTOUT:'protective', LV_FUSE:'protective',
+  MV_SWITCH:'switching', MV_ISOLATOR:'switching', LV_SWITCH:'switching', LV_LINK_BOX:'switching',
+  DIST_XFMR:'transformer', POWER_XFMR:'transformer'
+};
+const CLASS_LABEL = {
+  MV_BUSBAR:'MV busbar', MV_BREAKER:'MV breaker', MV_CONDUCTOR:'MV conductor', MV_SWITCH:'MV switch', MV_RECLOSER:'MV recloser',
+  MV_FUSE:'MV fuse', MV_ISOLATOR:'MV isolator', DIST_XFMR:'Dist. transformer', LV_CONDUCTOR:'LV conductor', LV_FUSE:'LV (pillar) fuse',
+  LV_LINK_BOX:'LV link box', SERVICE_POINT:'Service point'
+};
+const SWITCHABLE = new Set(['MV_BREAKER','MV_SWITCH','MV_RECLOSER','MV_FUSE','MV_ISOLATOR','LV_FUSE','LV_LINK_BOX','LV_SWITCH']);
+
+const N = [
+ // id, cls, x, y
+ ['BUS-7','MV_BUSBAR',40,60],['CB-7','MV_BREAKER',100,60],['MV-1','MV_CONDUCTOR',160,60],['SW-101','MV_SWITCH',215,60],
+ ['MV-2','MV_CONDUCTOR',270,60],['RC-201','MV_RECLOSER',330,60],['MV-3','MV_CONDUCTOR',390,60],['TIE-1','MV_SWITCH',465,60],
+ ['MV-6','MV_CONDUCTOR',540,60],['CB-8','MV_BREAKER',610,60],['BUS-8','MV_BUSBAR',675,60],
+ // tap A off MV-2
+ ['ISO-401','MV_ISOLATOR',270,125],['MV-5','MV_CONDUCTOR',270,175],['F-501','MV_FUSE',270,225],['TX-102','DIST_XFMR',270,275],['LV-3','LV_CONDUCTOR',270,320],['SP-C','SERVICE_POINT',270,365],
+ // tap B off MV-3
+ ['F-301','MV_FUSE',390,125],['MV-4','MV_CONDUCTOR',390,175],['TX-101','DIST_XFMR',390,225],['LV-1','LV_CONDUCTOR',390,270],['LF-1','LV_FUSE',390,315],
+ ['LV-2','LV_CONDUCTOR',390,360],['SP-A','SERVICE_POINT',390,410],['LB-1','LV_LINK_BOX',465,360],['LV-4','LV_CONDUCTOR',540,360],['SP-B','SERVICE_POINT',615,360]
+];
+const E = [
+ ['BUS-7','CB-7'],['CB-7','MV-1'],['MV-1','SW-101'],['SW-101','MV-2'],['MV-2','RC-201'],['RC-201','MV-3'],['MV-3','TIE-1'],['TIE-1','MV-6'],['MV-6','CB-8'],['CB-8','BUS-8'],
+ ['MV-2','ISO-401'],['ISO-401','MV-5'],['MV-5','F-501'],['F-501','TX-102'],['TX-102','LV-3'],['LV-3','SP-C'],
+ ['MV-3','F-301'],['F-301','MV-4'],['MV-4','TX-101'],['TX-101','LV-1'],['LV-1','LF-1'],['LF-1','LV-2'],['LV-2','SP-A'],['LV-2','LB-1'],['LB-1','LV-4'],['LV-4','SP-B']
+];
+const SOURCES = [{id:'CB-7',bus:'BUS-7',circuit:'FDR-7'},{id:'CB-8',bus:'BUS-8',circuit:'FDR-8'}];
+const CIRCUIT_COL = {'FDR-7':'var(--s0)','FDR-8':'var(--s1)'};
+const byId = {}; N.forEach(([id,cls,x,y])=>byId[id]={id,cls,x,y});
+const adj = {}; N.forEach(([id])=>adj[id]=[]); E.forEach(([a,b])=>{adj[a].push(b);adj[b].push(a)});
+const ABOVE=new Set(['LV-2','LB-1','LV-4','SP-B']);
+const isBusLike = id => byId[id].cls==='MV_BUSBAR';
+
+/* Per-instance network state (open set + deleted set + role map) */
+function newState(){ return {open:new Set(['TIE-1']), deleted:new Set(), roles:Object.assign({},SEEDED)}; }
+
+/* BFS energise from every closed source. Returns parent map (first reach wins) + circuit of reach. */
+function energise(st){
+  const parent={}, circ={}, order=[];
+  for(const s of SOURCES){
+    if(st.open.has(s.id)||st.deleted.has(s.id)) continue;
+    const q=[s.id]; const seen=new Set([s.bus]);
+    if(!(s.id in parent)){parent[s.id]=null;circ[s.id]=s.circuit;order.push(s.id);}
+    while(q.length){
+      const u=q.shift();
+      if(u!==s.id && st.open.has(u)) continue;      // an open device is reached but does not pass current
+      for(const v of adj[u]){
+        if(seen.has(v)||st.deleted.has(v)||isBusLike(v)) continue;
+        seen.add(v);
+        if(v in parent) continue;                     // already fed by a nearer source
+        parent[v]=u; circ[v]=s.circuit; order.push(v); q.push(v);
+      }
+    }
+  }
+  return {parent,circ,order};
+}
+const roleOf=(st,id)=>st.roles[byId[id].cls]||null;
+const SETS={ switching:new Set(['protective','switching','transformer','source']), zone:new Set(['protective','transformer','source']), isolate:new Set(['protective','switching']) };
+const isB=(st,id,set)=>{const r=roleOf(st,id);return !!r && set.has(r)};
+/* section head: nearest ancestor-or-self that is a boundary (a boundary heads its own section) */
+function headOf(st,tree,id,set){
+  let c=id; while(c){ if(isB(st,c,set)) return c; c=tree.parent[c]; } return null;
+}
+/* members of a section = nodes whose head is h; bounding devices downstream = boundary children reached while walking down from h's members */
+function sectionOf(st,tree,id,set){
+  const h=headOf(st,tree,id,set);
+  const members=[]; const down=[];
+  for(const n of tree.order){ if(headOf(st,tree,n,set)===h){ if(n!==h||h!==null) members.push(n);} }
+  const mset=new Set(members);
+  for(const n of tree.order){ const p=tree.parent[n]; if(p && mset.has(p) && !mset.has(n) && isB(st,n,set)) down.push(n); }
+  return {head:h,members,down};
+}
+/* all bounding devices around a selected feature (upstream head and downstream boundaries) */
+function describeSection(st,tree,id,set){
+  const sec=sectionOf(st,tree,id,set);
+  const memb=sec.members.filter(n=>!(n===sec.head));
+  const sps=sec.members.filter(n=>byId[n].cls==='SERVICE_POINT');
+  return {head:sec.head,down:sec.down,members:sec.members,sps};
+}
+function sectionIndexMap(st,tree,set){
+  const heads=[]; const idx={};
+  for(const n of tree.order){ const h=headOf(st,tree,n,set)||'(source)'; if(!heads.includes(h)) heads.push(h); idx[n]=heads.indexOf(h); }
+  return {idx,heads};
+}
+const sCol=i=>`var(--s${i%9})`;
+
+/* ================= schematic renderer ================= */
+const SVGNS='http://www.w3.org/2000/svg';
+function renderNet(host,st,opt){
+  // opt: {color(id)->css|null, ring(id)->css|null, label(id)->string|null, sel, onClick, onDbl, dim(id)->bool, extra(svg)}
+  const tree=energise(st);
+  const W=700,H=440;
+  let svg=`<svg class="net" viewBox="0 0 ${W} ${H}" role="group" aria-label="Feeder schematic">`;
+  // edges
+  for(const [a,b] of E){
+    if(st.deleted.has(a)||st.deleted.has(b)) continue;
+    const A=byId[a],B=byId[b];
+    const live=(a in tree.parent)&&(b in tree.parent)&&(tree.parent[a]===b||tree.parent[b]===a);
+    const col=opt.edgeColor?opt.edgeColor(a,b,tree,live):(live?'var(--muted)':'var(--dead)');
+    let pts;
+    if(A.x===B.x||A.y===B.y) pts=`M${A.x},${A.y} L${B.x},${B.y}`;
+    else pts=`M${A.x},${A.y} L${A.x},${B.y} L${B.x},${B.y}`;
+    svg+=`<path class="edge" d="${pts}" stroke="${col}" ${live?'':'stroke-dasharray="2 5"'}/>`;
+  }
+  // zone labels for sub-networks
+  svg+=`<text x="14" y="22" class="zone" fill="var(--muted)" style="fill:var(--muted)">MV · Feeder 7</text>`;
+  svg+=`<text x="520" y="22" class="zone" style="fill:var(--muted)">Feeder 8</text>`;
+  svg+=`<text x="470" y="395" class="zone" style="fill:var(--muted);display:none"></text>`;
+  for(const [id] of N){
+    if(st.deleted.has(id)) continue;
+    const n=byId[id]; const live=id in tree.parent;
+    const col=(opt.color?opt.color(id,tree):null)||(live?'var(--muted)':'var(--dead)');
+    const ring=opt.ring?opt.ring(id,tree):null;
+    const open=st.open.has(id);
+    const sel=opt.sel===id;
+    let shape='';
+    const cls=n.cls;
+    const r=roleOf(st,id);
+    if(cls==='MV_BUSBAR') shape=`<rect x="${n.x-9}" y="${n.y-13}" width="18" height="26" rx="2" fill="${col}"/>`;
+    else if(cls==='MV_CONDUCTOR'||cls==='LV_CONDUCTOR') shape=`<circle cx="${n.x}" cy="${n.y}" r="5" fill="${col}"/>`;
+    else if(cls==='SERVICE_POINT') shape=`<path d="M${n.x},${n.y-9} L${n.x+9},${n.y} L${n.x},${n.y+9} L${n.x-9},${n.y} Z" fill="${col}"/>`;
+    else if(cls==='DIST_XFMR') shape=`<circle cx="${n.x-5}" cy="${n.y}" r="9" fill="none" stroke="${col}" stroke-width="3"/><circle cx="${n.x+5}" cy="${n.y}" r="9" fill="none" stroke="${col}" stroke-width="3"/>`;
+    else { // switchable device = square (filled when closed, hollow when open)
+      const sz=open?`fill="var(--raise)" stroke="${col}" stroke-width="3"`:`fill="${col}" stroke="${col}" stroke-width="3"`;
+      if(r==='protective') shape=`<rect x="${n.x-9}" y="${n.y-9}" width="18" height="18" rx="2" ${sz}/>`;
+      else shape=`<path d="M${n.x},${n.y-11} L${n.x+11},${n.y} L${n.x},${n.y+11} L${n.x-11},${n.y} Z" ${sz}/>`;
+    }
+    const ringSvg=ring?`<circle cx="${n.x}" cy="${n.y}" r="17" fill="none" stroke="${ring}" stroke-width="2.5" stroke-dasharray="${ring==='var(--red)'?'':'4 3'}"/>`:'';
+    const selSvg=sel?`<circle cx="${n.x}" cy="${n.y}" r="21" fill="none" stroke="var(--ink)" stroke-width="1.5"/>`:'';
+    const lbl=opt.label?opt.label(id,tree):id;
+    const below = (n.cls==='SERVICE_POINT'||n.cls==='MV_BUSBAR'||n.x>520&&n.y>300)?false:false;
+    const above=(n.y<=70)||ABOVE.has(id);
+    const ty = above? n.y-20 : n.y; const tx = above? n.x : n.x+24;
+    const anchor=above?'middle':'start';
+    const dim=opt.dim&&opt.dim(id)?' opacity=".32"':'';
+    svg+=`<g class="nd${sel?' sel':''}" data-id="${id}" tabindex="0" role="button" aria-label="${id}, ${CLASS_LABEL[cls]||cls}${open?', open':''}"${dim}>
+      <circle class="hit" cx="${n.x}" cy="${n.y}" r="19" fill="transparent"/>${ringSvg}${selSvg}${shape}
+      <text class="nlbl" x="${tx}" y="${ty+3}" text-anchor="${anchor}">${lbl}</text></g>`;
+  }
+  if(opt.overlay) svg+=opt.overlay(tree);
+  svg+='</svg>';
+  host.innerHTML=svg;
+  host.querySelectorAll('.nd').forEach(g=>{
+    const id=g.dataset.id;
+    g.addEventListener('click',()=>opt.onClick&&opt.onClick(id));
+    g.addEventListener('dblclick',()=>opt.onDbl&&opt.onDbl(id));
+    g.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();opt.onClick&&opt.onClick(id)} if(e.key==='t'&&opt.onDbl) opt.onDbl(id)});
+  });
+  return tree;
+}
+const roleChip=r=>`<span class="role ${r||'none'}">${r||'(unset)'}</span>`;
+const clsName=id=>byId[id].cls;
+function toggleDevice(st,id){ if(!SWITCHABLE.has(clsName(id))) return false; st.open.has(id)?st.open.delete(id):st.open.add(id); return true; }
+const $=s=>document.querySelector(s);
+function seg(sel,cb){ const el=$(sel); el.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b) return; el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); cb(b)}); }
+
+const SEEDCOUNT=(()=>{const s=newState(),t=energise(s);return {feeders:SOURCES.length,zone:sectionIndexMap(s,t,SETS.zone).heads.length,switching:sectionIndexMap(s,t,SETS.switching).heads.length}})();
+document.querySelectorAll('[data-n]').forEach(e=>e.textContent=({feeders:SEEDCOUNT.feeders,zones:SEEDCOUNT.zone,switching:SEEDCOUNT.switching})[e.dataset.n]);
+/* ================= W1: carve three ways ================= */
+(function(){
+  const st=newState(); let mode='feeder', sel='RC-201';
+  function draw(){
+    const tree=energise(st);
+    let colorFn, legend='', info='';
+    if(mode==='feeder'){
+      colorFn=id=>id in tree.circ?CIRCUIT_COL[tree.circ[id]]:'var(--dead)';
+      legend=`<span><i class="sw" style="background:var(--s0)"></i>FDR-7 (source CB-7)</span><span><i class="sw" style="background:var(--s1)"></i>FDR-8 (source CB-8)</span><span><i class="sw" style="background:var(--dead)"></i>de-energised / not reached</span>`;
+    } else {
+      const set=mode==='zone'?SETS.zone:SETS.switching;
+      const m=sectionIndexMap(st,tree,set);
+      colorFn=id=>id in m.idx?sCol(m.idx[id]):'var(--dead)';
+      legend=m.heads.map((h,i)=>`<span><i class="sw" style="background:${sCol(i)}"></i>${h==='(source)'?'station bus side':'§ '+h}</span>`).join('');
+      info=m.heads.length;
+    }
+    const set=mode==='zone'?SETS.zone:SETS.switching;
+    const hd=mode==='feeder'?(tree.circ[sel]||'—'):(headOf(st,tree,sel,set)||'(station)');
+    renderNet($('#w1-svg'),st,{color:colorFn,sel,onClick:id=>{sel=id;draw()},onDbl:id=>{if(toggleDevice(st,id))draw()}});
+    $('#w1-legend').innerHTML=legend;
+    const count = mode==='feeder'? new Set(Object.values(tree.circ)).size : info;
+    const sec=mode==='feeder'?null:describeSection(st,tree,sel,set);
+    $('#w1-side').innerHTML=`
+      <div class="lab">Selected</div>
+      <p style="margin:4px 0 8px"><b class="mono">${sel}</b> · ${CLASS_LABEL[clsName(sel)]} ${roleChip(roleOf(st,sel))}</p>
+      <dl class="kv">
+        <dt>${mode==='feeder'?'Circuit':'Section head'}</dt><dd>${hd}</dd>
+        <dt>${mode==='feeder'?'Feeders':'Sections'}</dt><dd>${count} in view</dd>
+        ${sec?`<dt>Members</dt><dd>${sec.members.length} feature${sec.members.length===1?'':'s'}</dd><dt>Ends at</dt><dd>${sec.down.length?sec.down.join(', '):'network edge'}</dd>`:''}
+      </dl>
+      <p class="muted" style="font-size:13px;margin-top:12px">${mode==='feeder'?'Whole-feeder view: everything load-side of a station breaker, stamped with its circuit.':mode==='zone'?'Only fault-interrupting devices (and the transformer) cut a protection zone. Plain switches don’t.':'Every isolating device cuts a switching section — the finest carve.'}</p>
+      <p class="muted" style="font-size:12.5px">Double-click a device (or focus it and press <kbd>t</kbd>) to open/close it.</p>`;
+  }
+  seg('#w1-mode',b=>{mode=b.dataset.m;draw()});
+  draw();
+})();
+
+/* ================= W2: nesting ================= */
+(function(){
+  const st=newState(); let sel='TX-101';
+  function draw(){
+    const tree=energise(st);
+    const mset=SETS.switching, mz=SETS.zone;
+    const sw=describeSection(st,tree,sel,mset), pz=describeSection(st,tree,sel,mz);
+    const feeder=tree.circ[sel]||null;
+    const feederMembers=tree.order.filter(n=>tree.circ[n]===feeder);
+    const inPZ=new Set(pz.members), inSW=new Set(sw.members), inF=new Set(feederMembers);
+    renderNet($('#w2-svg'),st,{
+      sel,onClick:id=>{sel=id;draw()},
+      color:id=>inSW.has(id)?'var(--s1)':inPZ.has(id)?'var(--s0)':inF.has(id)?'var(--s8)':'var(--dead)',
+      ring:id=>sw.head===id||(pz.head===id)?'var(--ink)':null
+    });
+    $('#w2-side').innerHTML=`
+      <p style="margin-top:0">Selected <b class="mono">${sel}</b> (${CLASS_LABEL[clsName(sel)]}). Bright colour = the <em>smallest</em> scope it sits in.</p>
+      <dl class="kv">
+        <dt><i class="sw" style="background:var(--s1)"></i>Switching</dt><dd>§ ${sw.head||'(station)'} · ${sw.members.length} features</dd>
+        <dt><i class="sw" style="background:var(--s0)"></i>Protection</dt><dd>§ ${pz.head||'(station)'} · ${pz.members.length} features</dd>
+        <dt><i class="sw" style="background:var(--s8)"></i>Feeder</dt><dd>${feeder||'—'} · ${feederMembers.length} features</dd>
+      </dl>
+      <div class="readout" style="margin-top:12px">${sw.members.length} ⊆ ${pz.members.length} ⊆ ${feederMembers.length}<br><span class="muted">switching ⊆ protection ⊆ feeder</span></div>
+      <p class="muted" style="font-size:13px;margin-top:10px">Select a <b>switch</b> (SW-101, ISO-401): it heads a switching section but sits <em>inside</em> a larger protection zone. Select a <b>fuse</b> or <b>recloser</b>: it heads both.</p>`;
+  }
+  draw();
+})();
+
+/* ================= mirror figure ================= */
+(function(){
+  const cols=[
+    {r:'source',mv:'Station breaker',mvc:'MV_BREAKER',lv:'Transformer secondary',lvc:'DIST_XFMR',lab:'originates'},
+    {r:'protective',mv:'Recloser / line fuse',mvc:'MV_RECLOSER · MV_FUSE',lv:'Pillar fuse / cut-out',lvc:'LV_FUSE · SERVICE_CUTOUT',lab:'protects'},
+    {r:'switching',mv:'Load-break switch / isolator',mvc:'MV_SWITCH · MV_ISOLATOR',lv:'LV switch / link box',lvc:'LV_SWITCH · LV_LINK_BOX',lab:'isolates'}
+  ];
+  const colr={source:'var(--green)',protective:'var(--red)',switching:'var(--blue)'};
+  let s='';
+  s+=`<text x="10" y="42" style="font-size:11px;font-weight:600;fill:var(--muted)">MV</text><text x="10" y="162" style="font-size:11px;font-weight:600;fill:var(--muted)">LV</text>`;
+  cols.forEach((c,i)=>{
+    const x=60+i*230;
+    s+=`<g class="mcol" tabindex="0" data-i="${i}" style="cursor:default">
+      <rect class="mbg" x="${x-6}" y="8" width="212" height="196" rx="8" fill="${colr[c.r]}" opacity="0"/>
+      <rect x="${x}" y="20" width="200" height="56" rx="6" fill="var(--raise)" stroke="${colr[c.r]}" stroke-width="2"/>
+      <text x="${x+10}" y="40" style="font-size:12px;font-weight:700">${c.mv}</text>
+      <text x="${x+10}" y="60" style="font-size:9.5px;fill:var(--muted)">${c.mvc}</text>
+      <path d="M${x+100},78 L${x+100},132" stroke="${colr[c.r]}" stroke-width="2" stroke-dasharray="3 4"/>
+      <text x="${x+108}" y="109" style="font-size:10px;font-weight:600;fill:${colr[c.r]}">${c.lab}</text>
+      <rect x="${x}" y="134" width="200" height="56" rx="6" fill="var(--raise)" stroke="${colr[c.r]}" stroke-width="2"/>
+      <text x="${x+10}" y="154" style="font-size:12px;font-weight:700">${c.lv}</text>
+      <text x="${x+10}" y="174" style="font-size:9.5px;fill:var(--muted)">${c.lvc}</text></g>`;
+  });
+  $('#mirror').innerHTML=s;
+  document.querySelectorAll('.mcol').forEach(g=>{
+    const bg=g.querySelector('.mbg');
+    const on=()=>bg.setAttribute('opacity','.14'), off=()=>bg.setAttribute('opacity','0');
+    g.addEventListener('mouseenter',on);g.addEventListener('mouseleave',off);g.addEventListener('focus',on);g.addEventListener('blur',off);
+  });
+})();
+
+/* ================= W3: admin classes sandbox ================= */
+(function(){
+  const st=newState(); let sel='RC-201';
+  const classes=['MV_BREAKER','MV_RECLOSER','MV_FUSE','MV_SWITCH','MV_ISOLATOR','DIST_XFMR','LV_FUSE','LV_LINK_BOX'];
+  const opts=['protective','switching','transformer','source',''];
+  function draw(){
+    const tree=energise(st);
+    const mZ=sectionIndexMap(st,tree,SETS.zone), mS=sectionIndexMap(st,tree,SETS.switching);
+    // roles may have changed -> recompute sets membership dynamically (SETS refer to role names, so fine)
+    renderNet($('#w3-svg'),st,{
+      sel,onClick:id=>{sel=id;draw()},
+      color:id=>id in mS.idx?sCol(mS.idx[id]):'var(--dead)',
+      label:id=>id
+    });
+    $('#w3-read').innerHTML=`<b>${mS.heads.length}</b> switching sections · <b>${mZ.heads.length}</b> protection zones<br><span class="muted">seeded defaults give '+SEEDCOUNT.switching+' and '+SEEDCOUNT.zone+' — coloured above by switching section</span>`;
+    $('#w3-classes').innerHTML=classes.map(c=>`<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line2)">
+      <code style="white-space:normal">${c}</code>
+      <select data-c="${c}" class="btn" style="padding:4px 6px">${opts.map(o=>`<option value="${o}"${(st.roles[c]||'')===o?' selected':''}>${o||'(unset)'}</option>`).join('')}</select></div>`).join('');
+    document.querySelectorAll('#w3-classes select').forEach(s=>s.onchange=()=>{ const v=s.value; if(v) st.roles[s.dataset.c]=v; else delete st.roles[s.dataset.c]; draw(); });
+  }
+  $('#w3-reset').onclick=()=>{st.roles=Object.assign({},SEEDED);draw()};
+  draw();
+})();
+
+/* ================= W4: circuits lifecycle ================= */
+(function(){
+  const st=newState();
+  let stamp=null;       // {id: circuitId} at assign time
+  let stale=false, sel=null, log=[];
+  const cname='FDR-7';
+  function liveTrace(){ // downstream trace from source CB-7 in the current network
+    const t=energise(st); return new Set(t.order.filter(n=>t.circ[n]==='FDR-7'));
+  }
+  function addLog(m){ log.unshift(m); log=log.slice(0,6) }
+  function draw(){
+    const live=liveTrace();
+    const stamped=stamp?new Set(Object.keys(stamp)):new Set();
+    const missing=[...live].filter(n=>stamp&&!stamped.has(n));   // reached now, never stamped
+    const ghost=[...stamped].filter(n=>!live.has(n));            // stamped, no longer reached
+    renderNet($('#w4-svg'),st,{
+      sel,onClick:id=>{sel=id;draw()},
+      color:id=>stamped.has(id)?'var(--s0)':'var(--dead)',
+      ring:id=>missing.includes(id)?'var(--amber)':null,
+      edgeColor:(a,b,tree,liveE)=>(stamped.has(a)&&stamped.has(b))?'var(--s0)':(liveE?'var(--muted)':'var(--dead)')
+    });
+    $('#w4-bar').innerHTML=`
+      <button class="btn pri" id="a-assign">${stamp?'Re-assign by trace':'Assign by trace'}</button>
+      <span class="lab" style="margin-left:6px">Then change the network</span>
+      <button class="btn" id="a-edit">Edit MV-2</button>
+      <button class="btn" id="a-move">Move TX-101</button>
+      <button class="btn" id="a-del">Delete F-501</button>
+      <button class="btn warn" id="a-sw">Open SW-101</button>
+      <button class="btn warn" id="a-tie">Close TIE-1</button>
+      <button class="btn" id="a-reset">Reset</button>`;
+    $('#a-assign').onclick=()=>{ stamp={}; [...liveTrace()].forEach(n=>stamp[n]=cname); stale=false; addLog(`Assign by trace → stamped ${Object.keys(stamp).length} features with circuit_ref=${cname}; members_synced_at = now`); draw() };
+    $('#a-edit').onclick=()=>{ addLog('Edited MV-2 (a member) → updated_at > members_synced_at'); if(stamp) stale=true; draw() };
+    $('#a-move').onclick=()=>{ addLog('Moved TX-101 (a member) → updated_at > members_synced_at'); if(stamp) stale=true; draw() };
+    $('#a-del').onclick=()=>{ if(st.deleted.has('F-501')) return; st.deleted.add('F-501'); addLog('Deleted F-501 (a member) → membership changed'); if(stamp) stale=true; draw() };
+    $('#a-sw').onclick=()=>{ if(st.open.has('SW-101')) st.open.delete('SW-101'); else st.open.add('SW-101'); addLog(`SW-101 ${st.open.has('SW-101')?'opened':'closed'} → no feature record edited (switch state is operational)`); draw() };
+    $('#a-tie').onclick=()=>{ if(st.open.has('TIE-1')) st.open.delete('TIE-1'); else st.open.add('TIE-1'); addLog(`TIE-1 ${st.open.has('TIE-1')?'opened':'closed'} → pure connect/disconnect; no member edited`); draw() };
+    $('#a-reset').onclick=()=>{ st.open=new Set(['TIE-1']); st.deleted=new Set(); stamp=null; stale=false; log=[]; sel=null; draw() };
+    const badge=!stamp?'<span class="pill">no members yet</span>':stale?'<span class="pill stale">stale — re-assign</span>':'<span class="pill fresh">in sync</span>';
+    const drift=stamp&&!stale&&(missing.length||ghost.length);
+    $('#w4-legend').innerHTML=`<span><i class="sw" style="background:var(--s0)"></i>stamped circuit_ref = FDR-7</span><span><i class="sw" style="background:var(--dead)"></i>not stamped</span><span><i class="sw" style="background:none;border:2px dashed var(--amber)"></i>reached by a live trace but <b>not</b> stamped</span>`;
+    $('#w4-side').innerHTML=`
+      <div class="lab">Circuits list</div>
+      <div class="readout" style="margin:6px 0 12px">
+        <b>FDR-7</b> · MV · source <b>CB-7</b><br>
+        stamped: <b>${stamp?Object.keys(stamp).length:0}</b> features<br>
+        status: ${badge}
+      </div>
+      ${drift?`<div class="caution" style="margin:0 0 12px"><b>Silent drift</b><br>Badge says in sync, but a live trace from CB-7 now reaches <b>${missing.length}</b> unstamped feature${missing.length===1?'':'s'}${ghost.length?` and <b>${ghost.length}</b> stamped one${ghost.length===1?' is':'s are'} no longer reached`:''}. The stale check can’t see pure connect/disconnect. Re-assign to refresh.</div>`:''}
+      <div class="lab">Event log</div>
+      <ul style="padding-left:16px;margin:6px 0;font-size:12.5px">${log.length?log.map(l=>`<li>${l}</li>`).join(''):'<li class="muted">Nothing yet — start with “Assign by trace”.</li>'}</ul>`;
+  }
+  draw();
+})();
+
+/* ================= W5: trace table ================= */
+(function(){
+  const st=newState(); let start='TX-101', kind='trace', view='switching', pick=null;
+  function draw(){
+    const set=view==='zone'?SETS.zone:SETS.switching;
+    const tree=energise(st);
+    // downstream sub-tree from `start`
+    const kids={}; for(const n of tree.order){const p=tree.parent[n]; if(p){(kids[p]=kids[p]||[]).push(n)}}
+    const rows=[]; (function walk(n,d){ rows.push([n,d]); (kids[n]||[]).forEach(k=>walk(k,d+1)) })(start,0);
+    const inRes=new Set(rows.map(r=>r[0]));
+    const climb=pick?(()=>{const p=[];let c=pick;while(c){p.push(c);if(isB(st,c,set))break;c=tree.parent[c]}return p})():[];
+    const m=sectionIndexMap(st,tree,set);
+    renderNet($('#w5-svg'),st,{
+      sel:start,onClick:id=>{start=id;pick=null;draw()},onDbl:id=>{if(toggleDevice(st,id)){pick=null;draw()}},
+      color:id=>inRes.has(id)?sCol(m.idx[id]):'var(--dead)',
+      ring:id=>climb.includes(id)?'var(--ink)':null,
+      dim:id=>!inRes.has(id)
+    });
+    const head=id=>headOf(st,tree,id,set);
+    const open=[...st.open];
+    $('#w5-side').innerHTML=`
+      <p style="margin-top:0">Trace start: <b class="mono">${start}</b> · ${rows.length} feature${rows.length===1?'':'s'} reached.</p>
+      <p class="muted" style="font-size:13px">Open devices: <span class="mono">${open.length?open.join(', '):'none'}</span></p>
+      ${pick?`<div class="lab">Climb for <span class="mono">${pick}</span></div>
+      <ol class="mono" style="font-size:12.5px;padding-left:18px;margin:6px 0">${climb.map((c,i)=>`<li>${c} ${isB(st,c,set)?`— <b style="color:var(--green)">boundary (${roleOf(st,c)}) ✔ stop</b>`:'— no boundary role, go to parent'}</li>`).join('')}</ol>
+      <div class="readout">${isB(st,climb[climb.length-1],set)?`§ ${climb[climb.length-1]}`:'no boundary upstream → section runs to the network edge (§ —)'}</div>`
+      :'<p class="muted" style="font-size:13px">Click a row below to watch the parent-tree climb.</p>'}`;
+    $('#w5-tbl').innerHTML=`<tr><th>Feature</th><th>Class</th><th>Hops</th>${kind==='lf'?'<th>Voltage (p.u.)</th>':''}<th>${kind==='trace'?'§ section':'Section'}</th></tr>`+
+      rows.map(([id,d])=>{const h=head(id);const v=(1-0.0025*d).toFixed(3);
+        return `<tr data-id="${id}" style="cursor:pointer${pick===id?';background:var(--tint)':''}"><td><code>${id}</code></td><td>${CLASS_LABEL[clsName(id)]}</td><td class="mono">${d}</td>${kind==='lf'?`<td class="mono">${v}</td>`:''}<td>${h?(kind==='trace'?`<span class="pill sec">§ ${h===id?'(heads) ':'past '}${h}</span>`:`<code>${h}</code>`):'<span class="muted">—</span>'}</td></tr>`}).join('');
+    document.querySelectorAll('#w5-tbl tr[data-id]').forEach(tr=>tr.onclick=()=>{pick=tr.dataset.id;draw()});
+  }
+  seg('#w5-kind',b=>{kind=b.dataset.k;draw()});
+  seg('#w5-view',b=>{view=b.dataset.v;pick=null;draw()});
+  draw();
+})();
+
+/* ================= W6: outage planner ================= */
+(function(){
+  const st=newState(); let mode='switching', sel='MV-4';
+  function draw(){
+    const tree=energise(st);
+    const set=mode==='zone'?SETS.zone:SETS.switching;
+    const sec=describeSection(st,tree,sel,set);
+    const up=sec.head, down=sec.down;
+    const inS=new Set(sec.members);
+    const bounders=[up,...down].filter(Boolean);
+    const toOpen=bounders.filter(b=>isB(st,b,SETS.isolate));
+    renderNet($('#w6-svg'),st,{
+      sel,onClick:id=>{sel=id;draw()},
+      color:id=>inS.has(id)?'var(--s1)':(id in tree.parent?'var(--muted)':'var(--dead)'),
+      ring:id=>bounders.includes(id)?'var(--ink)':null,
+      dim:id=>!inS.has(id)&&!bounders.includes(id)
+    });
+    const sps=sec.sps;
+    const downSPs=h=>h?tree.order.filter(n=>byId[n].cls==='SERVICE_POINT'&&(()=>{let c=n;while(c){if(c===h)return true;c=tree.parent[c]}return false})()).length:tree.order.filter(n=>byId[n].cls==='SERVICE_POINT').length;
+    $('#w6-side').innerHTML=`
+      <p style="margin-top:0"><b class="mono">${sel}</b> in ${mode==='zone'?'its <b>protection zone</b>':'its <b>switching section</b>'}.</p>
+      <dl class="kv">
+        <dt>Upstream</dt><dd>${up?`${up} ${roleChip(roleOf(st,up))}`:'network edge'}</dd>
+        <dt>Downstream</dt><dd>${down.length?down.map(d=>`${d} ${roleChip(roleOf(st,d))}`).join('<br>'):'network edge'}</dd>
+        <dt>Features</dt><dd>${sec.members.length}</dd>
+        <dt>Service points</dt><dd>${sps.length?sps.join(', '):'none'}</dd>
+      </dl>
+      <div class="readout" style="margin-top:12px">
+        ${mode==='switching'?'<b>Devices to open</b> to isolate this section:<br>'+(toOpen.length?toOpen.map(d=>`• ${d}`).join('<br>'):'(none — section is open-ended)')
+        :'<b>If '+(up||'the source')+' opens:</b><br>'+downSPs(up)+' service point'+(downSPs(up)===1?'':'s')+' lose supply — '+sps.length+' inside this zone, the rest in zones hanging off it'}
+        ${mode==='switching'&&up&&!isB(st,up,SETS.isolate)?`<br><span class="muted">${up} bounds the section but is a ${roleOf(st,up)} — you can’t open it.</span>`:''}
+      </div>`;
+  }
+  seg('#w6-mode',b=>{mode=b.dataset.m;draw()});
+  draw();
+})();
+
+/* ================= W7: MCP builder ================= */
+(function(){
+  const st=newState(); const sel=$('#w7-sel'), pz=$('#w7-pz');
+  const ids=N.map(n=>n[0]).filter(id=>!isBusLike(id));
+  sel.innerHTML=ids.map(id=>`<option value="${id}"${id==='MV-4'?' selected':''}>${id} · ${CLASS_LABEL[clsName(id)]}</option>`).join('');
+  const fake=id=>'a3f1c9e2-'+[...id].map(c=>c.charCodeAt(0).toString(16)).join('').slice(0,12).padEnd(12,'0');
+  function draw(){
+    const id=sel.value; const set=pz.checked?SETS.zone:SETS.switching; const tree=energise(st);
+    const sec=describeSection(st,tree,id,set);
+    const ref=n=>`{ <span class="k">"feature_class"</span>: <span class="s">"${clsName(n)}"</span>, <span class="k">"feature_id"</span>: <span class="s">"${fake(n)}"</span> }`;
+    $('#w7-req').innerHTML=`{
+  <span class="k">"trace_configuration"</span>: <span class="s">"MV_CIRCUIT_TRACE"</span>,
+  <span class="k">"start"</span>: ${ref(id)}${pz.checked?',\n  <span class="k">"protection_zone"</span>: <span class="n">true</span>':''}
+}`;
+    const feats=sec.members.slice(0,4).map(n=>`    ${ref(n)}`).join(',\n')+(sec.members.length>4?`,\n    <span class="muted">… ${sec.members.length-4} more</span>`:'');
+    $('#w7-res').innerHTML=`{
+  <span class="k">"start"</span>: ${ref(id)},
+  <span class="k">"features"</span>: [
+${feats}
+  ],
+  <span class="k">"upstream_boundary"</span>: ${sec.head?ref(sec.head):'<span class="n">null</span> <span class="muted">/* omitted */</span>'},
+  <span class="k">"downstream_boundary"</span>: ${sec.down.length?ref(sec.down[0]):'<span class="n">null</span> <span class="muted">/* omitted */</span>'},
+  <span class="k">"service"</span>: { <span class="muted">/* ${sec.sps.length} service point${sec.sps.length===1?'':'s'} rolled up */</span> },
+  <span class="k">"truncated"</span>: <span class="n">false</span>
+}`;
+  }
+  sel.onchange=draw; pz.onchange=draw; draw();
+})();
+
+/* ================= W8: lean mapping ================= */
+(function(){
+  const rows=[
+    ['Domain network / tier definition','the <code>network</code> column (MV/LV) + <code>trace_tier</code>','stored'],
+    ['Subnetwork / feeder','a <b>circuit</b> (source feature = the feeder head)','stored'],
+    ['Subnetwork controller','the circuit’s source feature (no terminal-level controllers)','stored'],
+    ['Subnetwork <b>name</b> stamped on features','<code>circuit_ref</code>','stored'],
+    ['Update Subnetwork','assign-by-trace','stored'],
+    ['Section <i>kinds</i>','<code>boundary_role</code> (protective / switching / transformer / source)','stored'],
+    ['Clean / dirty / invalid','one <b>timestamp</b> (<code>members_synced_at</code>) → “stale — re-assign”','stored'],
+    ['Section membership','<b>derived at read time</b> (no stored section id)','derived'],
+    ['Tiers table, subnetwork-line, terminal-precise controllers, validity state machine, network-wide name uniqueness','not built — deliberately','none']
+  ];
+  let f='all';
+  function draw(){
+    $('#w8-tbl').innerHTML='<tr><th>Heavyweight concept</th><th>VoltEdge’s lean version</th><th>Kind</th></tr>'+
+      rows.filter(r=>f==='all'||r[2]===f).map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td><span class="role ${r[2]==='stored'?'switching':r[2]==='derived'?'source':'none'}">${r[2]==='stored'?'stored':r[2]==='derived'?'derived':'absent'}</span></td></tr>`).join('');
+  }
+  seg('#w8-f',b=>{f=b.dataset.f;draw()}); draw();
+})();
+
+/* ================= Quiz (computed from the model) ================= */
+(function(){
+  const st=newState(); const tree=energise(st);
+  const spCount=(id,set)=>describeSection(st,tree,id,set).sps.length;
+  const downstreamSPs=id=>tree.order.filter(n=>byId[n].cls==='SERVICE_POINT'&&(()=>{let c=n;while(c){if(c===id)return true;c=tree.parent[c]}return false})()).length;
+  const q=[
+    {t:'RC-201 (the recloser) opens and locks out. How many service points are left without supply? (TIE-1 is normally open.)',
+     a:()=>downstreamSPs('RC-201'),
+     opts:[0,1,2,3], why:()=>`Everything downstream of RC-201 in the live tree loses supply: through F-301 and TX-101 to SP-A and SP-B. SP-C hangs off MV-2, upstream of the recloser, so it keeps supply. Note the <em>protection zone</em> itself contains ${spCount('RC-201',SETS.zone)} service points — the LV networks behind the transformers are separate zones, but they still hang off this one.`},
+    {t:'Priya wants to work on MV-5. Which devices must she open to isolate its switching section?',
+     a:()=>{const s=describeSection(st,tree,'MV-5',SETS.switching);return [s.head,...s.down].filter(d=>d&&isB(st,d,SETS.isolate)).join(' + ')},
+     opts:['ISO-401 + F-501','SW-101 + RC-201','ISO-401 + TX-102','F-501 only'], why:()=>`MV-5 sits between the isolator ISO-401 (upstream) and the fuse F-501 (downstream). Both are protective or switching, so both can be opened.`},
+    {t:'The class of F-301 (a fuse) were changed to “(unset)”. Which section would TX-101’s MV feeder (MV-4) then belong to?',
+     a:()=>{ const s2=newState(); delete s2.roles.MV_FUSE; const t2=energise(s2); return headOf(s2,t2,'MV-4',SETS.switching)},
+     opts:['F-301','RC-201','TX-101','SW-101'], why:()=>`With F-301 no longer a boundary, MV-4’s upstream climb passes MV-3 and lands on RC-201 — the nearest remaining boundary. (Note that all MV_FUSE devices lose their role: F-501 too.)`},
+    {t:'Everything on FDR-7 has been stamped. SW-101 is opened and TIE-1 is closed, so Feeder 8 now supplies MV-2 downstream. Will the Circuits list show “stale — re-assign”?',
+     a:()=>'No', opts:['Yes','No'], why:()=>`Opening and closing switches edits no member feature — and the stale check only watches member edits, moves and deletes. Re-assign is always safe, so do it after tie operations.`}
+  ];
+  const host=$('#quiz');
+  host.innerHTML=q.map((x,i)=>`<div class="quiz-q" data-i="${i}"><b>${i+1}.</b> ${x.t}<div class="opts">${x.opts.map(o=>`<button class="btn" data-o="${o}">${o}</button>`).join('')}</div><div class="fb" aria-live="polite"></div></div>`).join('');
+  host.querySelectorAll('.quiz-q').forEach(el=>{
+    const x=q[el.dataset.i];
+    el.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+      const ans=String(x.a()); const good=String(b.dataset.o)===ans;
+      const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad');
+      fb.innerHTML=(good?'✔ Correct. ':'✘ Not quite — answer: <b>'+ans+'</b>. ')+x.why();
+    });
+  });
+})();
+
+/* ================= Walk-set matrix ================= */
+(function(){
+  const roles=['source','protective','switching','transformer'];
+  const walks=[['Isolation (switches to open)','isolate'],['Switching section','switching'],['Protection zone','zone']];
+  $('#walkmatrix').innerHTML='<tr><th>Walk</th>'+roles.map(r=>`<th>${r}</th>`).join('')+'<th>Notes</th></tr>'+
+    walks.map(([n,k])=>`<tr><td><b>${n}</b></td>${roles.map(r=>`<td>${SETS[k].has(r)?'<span class="ok">✔</span>':'<span class="no">—</span>'}</td>`).join('')}<td class="muted">${k==='isolate'?'not the transformer — you can’t “open” a transformer':k==='switching'?'finest carve':'no plain switches'}</td></tr>`).join('');
+})();
+
+/* ================= chapter rail highlight ================= */
+(function(){
+  const links=[...document.querySelectorAll('#chaps a')];
+  const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));
+  const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'});
+  document.querySelectorAll('section.ch').forEach(s=>io.observe(s));
+})();
+</script>
+</body></html>

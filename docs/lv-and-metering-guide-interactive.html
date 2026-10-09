@@ -1,0 +1,1181 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge LV Network &amp; Metering</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#6a4fc4; --acc-deep:#53399f; --tint:#e8e2f7;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  /* section palette (categorical, validated for both themes) */
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#a592f0; --acc-deep:#bba9f5; --tint:#231c3d; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#a592f0; --acc-deep:#bba9f5; --tint:#231c3d; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.role{display:inline-block;font:600 11px/1 var(--f-mono);padding:3px 7px;border-radius:3px;letter-spacing:.03em}
+.role.protective{background:var(--red-tint);color:var(--red)}
+.role.switching{background:var(--blue-tint);color:var(--blue)}
+.role.transformer{background:var(--amber-tint);color:var(--amber)}
+.role.source{background:var(--green-tint);color:var(--green)}
+.role.none{background:var(--line2);color:var(--muted)}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+input[type=number],input[type=text],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--acc-deep);font-weight:700}
+.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+.bar{height:18px;background:var(--line2);border-radius:4px;position:relative;overflow:hidden}
+.bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .15s}
+.big{font:800 28px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums;color:var(--acc-deep)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono)}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.chainrow .arr{color:var(--muted);font:600 12px var(--f-mono)}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>LV &amp; Metering</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · LV in a page</a><a href="#c2">2 · Conductor</a><a href="#c3">3 · Devices</a><a href="#c4">4 · Service point</a><a href="#c5">5 · LV metering</a><a href="#c6">6 · MV metering</a><a href="#c7">7 · Network meter</a><a href="#c8">8 · Seven chains</a><a href="#c9">9 · Consumption</a><a href="#c10">10 · Examples</a><a href="#c11">11 · Ownership</a><a href="#ca">Appendix</a>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · running example: transformer TX-101 feeding SP-A and SP-B through meters MTR-A and MTR-B</div>
+  <h1>LV Network<br>&amp; <span>Metering</span></h1>
+  <p class="lede">From the transformer’s secondary down to the customer’s meter, and the energy-accounting meters scattered across the grid above it — with a rule engine you can build supply chains against, a cable calculator, a CT/VT metering bench, a consumption roll-up that shows you how double-counting happens, and an ownership propagator.</p>
+  <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
+    <span class="tag pl" style="margin:0">▶ The build lane</span>
+    <span class="tag en" style="margin:0">∑ The model &amp; physics lane</span>
+  </div>
+  <p class="muted" style="font-size:14px;margin-top:18px">The cast: <b>Dana</b> (editor/field supervisor) captures LV feeders, pillars and services · <b>Tom</b> (analyst) reads demand and runs consumption rollups · <b>Priya</b> (dispatcher) cares about affected customers · <b>Ada</b> (admin) authors the metadata. 🔒 marks a step that needs a permission.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px">
+  <span class="tag en">∑ One structural fact first</span>
+  <p>The LV and metering <b>classes</b> are not defined in a migration — they’re authored as <b>seed</b> metadata (<code>seed/*.sql</code>) and then <b>compiled</b> into physical <code>gis.&lt;class&gt;</code> tables (<code>task compile CODE=…</code>). Migrations only create the generic machinery (the <code>feature_classes</code> / <code>fields</code> / <code>terminals</code> / <code>network_rules</code> tables, new relationship <em>kinds</em>). So “which migration adds <code>LV_CONDUCTOR</code>?” has no answer — it’s <code>seed/lv_conductors_example.sql</code>. The migrations that <em>do</em> matter are the relationship-kind wideners (0080, 0121), called out where relevant.</p>
+</div>
+
+<!-- ============ CH1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>The LV layer in one page</h2><p>The same graph as MV, starting where MV ends.</p></div>
+
+  <p>VoltEdge models a network as a <strong>graph</strong>: <b>edge</b> features (conductors) joined at <b>junction</b> features (devices) through typed <b>terminals</b>, with every join authorised by a <b>network rule</b>. The LV layer is that same graph, starting at a distribution transformer’s <b>secondary</b>. Four ideas carry the chapter:</p>
+  <ul>
+    <li><b>LV starts at the transformer’s T2.</b> A <code>DIST_XFMR</code> has three terminals: <code>T1</code> (primary, the MV side), <b><code>T2</code> (secondary — the LV bus)</b>, and <code>T3</code> (ground). Every LV feeder originates at a <code>T2</code>.</li>
+    <li><b>Conductors are edges; everything else is a node.</b> <code>LV_CONDUCTOR</code> is an <code>edge</code> with <b>no terminals</b> — it’s the wire. Cut-outs, switches, pillars, meters and service points are <code>junction</code> nodes whose terminals power flows through or into. Chambers and pillars are <code>container</code>s — they <em>hold</em> things; they’re not on the electrical path.</li>
+    <li><b>Phase is data, not structure.</b> A conductor doesn’t come in “single-phase” and “three-phase” <em>classes</em>; it carries a <code>phase</code> field. Some connections are <b>phase-gated</b> (§8).</li>
+    <li><b>The meter is optional and the service point is the leaf.</b> What always terminates an LV supply is a <code>SERVICE_POINT</code> (the point of delivery) or an unmetered leaf like a <code>STREET_LIGHT</code>.</li>
+  </ul>
+  <p>From those four ideas the model authorises exactly <b>seven valid supply chains</b> (§8). Click any part of the tour below to see its class.</p>
+
+  <div class="widget" id="w1">
+    <div class="w-head"><span class="eyebrow">Interactive · 1</span><h4>A tour of the LV classes</h4></div>
+    <div class="w-body">
+      <div class="scroll"><svg id="w1-svg" viewBox="0 0 720 230" width="100%" style="min-width:640px;background:var(--surface);border:1px solid var(--line2);border-radius:6px" role="group" aria-label="LV class tour"></svg></div>
+      <div class="readout" id="w1-info" style="margin-top:12px"></div>
+      <p class="muted" style="font-size:13px;margin:8px 0 0">A tour of classes, not one of the seven valid chains (those come in Chapter 8). Dashed shapes are off the electrical path.</p>
+    </div>
+  </div>
+
+  <div class="widget" id="w1b">
+    <div class="w-head"><span class="eyebrow">Drill</span><h4>Edge, junction, container — or off the path?</h4><span style="flex:1"></span><span class="mono" id="w1b-score" style="font-size:12px"></span></div>
+    <div class="w-body">
+      <div id="w1b-q" style="font-size:16px;margin-bottom:10px"></div>
+      <div class="seg" id="w1b-opts"><button data-r="edge">edge</button><button data-r="junction">junction</button><button data-r="container">container</button><button data-r="none">off-path (none)</button></div>
+      <div id="w1b-fb" style="margin-top:10px;min-height:2.6em;font-size:14px" aria-live="polite"></div>
+      <button class="btn pri" id="w1b-next" style="margin-top:6px;display:none">Next →</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CH2 ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>The LV conductor</h2><p>The wire every supply rides.</p></div>
+
+  <p><code>LV_CONDUCTOR</code> is drawn as a <b>map line</b>, <code>network_role = edge</code>, and carries <b>no terminals</b> — an edge is joined <em>to</em> nodes; it doesn’t own join points. Three fields are required on every span:</p>
+  <div class="tbl"><table>
+    <tr><th>Field</th><th>Domain</th><th>What it is</th></tr>
+    <tr><td><code>phase</code></td><td><code>PHASE</code></td><td>Which phases the span carries — <code>L1L2L3N</code> for a three-phase main, <code>L1N</code> for a single-phase service, etc.</td></tr>
+    <tr><td><code>conductor_spec</code></td><td><code>LV_CABLE_SPEC</code></td><td>The cable type — resolves to real impedance/ampacity for load flow <em>and</em> to a per-km cost for the Bill of Quantities.</td></tr>
+    <tr><td><code>lv_role</code></td><td><code>LV_ROLE</code></td><td><code>main</code> (the backbone down a street) or <code>service</code> (the drop to one premises).</td></tr>
+  </table></div>
+
+  <div class="tip"><b>Tip — <code>lv_role</code> is a field, not a subtype, on purpose</b><br>An abandoned design split LV into separate <code>LV_MAIN</code> and <code>LV_SERVICE</code> <em>classes</em>; the model instead keeps one class and makes main-vs-service an attribute, so a main re-tasked as a service is an edit, not a re-creation. The <b>subtypes</b> encode <em>construction</em> instead: <code>1 = overhead_lv_conductor</code>, <code>2 = underground_lv_conductor</code>.</div>
+
+  <h3>The cable catalog, in your hands</h3>
+  <p>Each <code>conductor_spec</code> points at an <code>LV_CABLE_SPEC</code> coded value backed by a <code>material_specs</code> row. Pick one, set a length and a load, and see what the numbers on that row <em>do</em> to the voltage at the far end. (The arithmetic is the standard line-drop approximation — a teaching aid; the load-flow engine is authoritative.)</p>
+
+  <div class="widget" id="w2">
+    <div class="w-head"><span class="eyebrow">Interactive · 2</span><h4>Cable explorer — <code>LV_CABLE_SPEC</code></h4></div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="ctl"><label>conductor_spec</label>
+          <div class="seg" id="w2-spec"><button data-s="ABC_95" aria-pressed="true">ABC_95</button><button data-s="WAVEFORM_185" aria-pressed="false">WAVEFORM_185</button><button data-s="CONCENTRIC_25" aria-pressed="false">CONCENTRIC_25</button></div></div>
+        <div class="ctl"><label>Supply <span class="v" id="w2-ph-v"></span></label>
+          <div class="seg" id="w2-ph"><button data-p="3" aria-pressed="true">3-phase · 400 V</button><button data-p="1" aria-pressed="false">single-phase · 230 V</button></div></div>
+        <div class="ctl"><label>Length <span class="v" id="w2-L-v"></span></label><input type="range" id="w2-L" min="10" max="1000" step="10" value="200"></div>
+        <div class="ctl"><label>Load current <span class="v" id="w2-I-v"></span></label><input type="range" id="w2-I" min="5" max="400" step="5" value="100"></div>
+        <div class="ctl"><label>Power factor <span class="v" id="w2-pf-v"></span></label><input type="range" id="w2-pf" min="0.7" max="1" step="0.01" value="0.95"></div>
+      </div>
+      <div class="w-side" id="w2-out"></div>
+    </div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>Spec</th><th>Description</th><th>R (Ω/km)</th><th>X (Ω/km)</th><th>Ampacity</th><th>Ø</th></tr>
+    <tr><td><code>ABC_95</code></td><td>ABC 95 mm² (aerial bundled)</td><td>0.320</td><td>0.080</td><td>240 A</td><td>14 mm</td></tr>
+    <tr><td><code>WAVEFORM_185</code></td><td>Waveform 185 mm² (LV underground)</td><td>0.164</td><td>0.070</td><td>313 A</td><td>30 mm</td></tr>
+    <tr><td><code>CONCENTRIC_25</code></td><td>Concentric 25 mm² (service)</td><td>0.727</td><td>0.080</td><td>100 A</td><td>12 mm</td></tr>
+  </table></div>
+  <p>Picking a cable size resolves straight to its impedance (for the load-flow voltage drop) and — once you’ve seeded cost (see the <b>Bill of Quantities</b> guide) — its <code>cost_per_km</code>.</p>
+
+  <h3>Where a span originates — and what’s phase-gated</h3>
+  <p>The rule <code>DIST_XFMR T2 → LV_CONDUCTOR</code> is the LV source hop. ⚠️ Once an LV conductor exists on a transformer, the <em>direct</em> <code>DIST_XFMR T2 → SERVICE_POINT</code> rule is <b>retired</b> (<code>is_valid=false</code>) — supply must flow through the conductor, not leap from the transformer to a customer.</p>
+  <p>The <code>LV_CONDUCTOR → LV_CONDUCTOR</code> splice rule is <b>phase-gated</b> (<code>phase_rule = phases_intersect</code>): a single-phase <code>L1N</code> service can tap a three-phase <code>L1L2L3N</code> main (they share line phase L1) but two services on different phases can’t be spliced together by mistake. Both endpoints must carry a phase — a missing one is a hard error, not a silent pass. And <b>neutral is deliberately ignored</b>: <code>L1N</code> and <code>L2N</code> both contain an N, but they’re on different phases and are <em>not</em> connectable. Test it:</p>
+
+  <div class="widget" id="w2b">
+    <div class="w-head"><span class="eyebrow">Interactive · 3</span><h4><code>phases_intersect</code> tester</h4></div>
+    <div class="w-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;align-items:start">
+      <div class="ctl"><label>Main <code>phase</code></label><select class="fld" id="w2b-a"></select></div>
+      <div class="ctl"><label>Service / splice <code>phase</code></label><select class="fld" id="w2b-b"></select></div>
+      <div id="w2b-out"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CH3 ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>LV devices: cut-outs, switches, pillars</h2><p>Between the main and the customer. All are junction nodes.</p></div>
+
+  <div class="cards">
+    <div class="card"><h4>Service cut-out — the intake fuse</h4><p><code>SERVICE_CUTOUT</code>. Subtypes <code>1 = fuse_carrier</code>, <code>2 = switch_fuse</code>. <code>T1</code> (line) / <code>T2</code> (load) and a <code>device_state</code>; an <b>OPEN cut-out is a trace barrier</b> — a trace stops at a pulled fuse exactly as the network does.</p></div>
+    <div class="card"><h4>LV switch — the generic switch</h4><p><code>LV_SWITCH</code>. Geometry-optional inline switch, one subtype <code>standard</code>, <code>device_state</code> plus optional protection attributes (<code>is_fused</code>, <code>fuse_rating_a</code>, <code>curve_ref</code>). OPEN is a barrier.</p></div>
+    <div class="card"><h4>Link box / feeder pillar — the flat junction</h4><p><code>LV_LINK_BOX</code>. Subtypes <code>1 = feeder_pillar</code>, <code>2 = link_box</code>. One incoming <code>T1</code> and <b>three switchable outgoing ways</b> <code>T2</code>/<code>T3</code>/<code>T4</code>.</p></div>
+    <div class="card"><h4>LV pillar — the assembly</h4><p><code>LV_PILLAR</code> is a <b>container</b> (network <code>LV</code>) — the LV sibling of the RMU. You place it as an <b>assembly</b> (🔒 <code>features:write</code> + <code>relationships:commit</code>) and it fans out its internals in one transaction.</p></div>
+  </div>
+
+  <div class="caution"><b>Honest limitation</b><br>The link box’s OPEN barrier is <em>feature-level</em>, not per-way. A normally-open way is modelled by the <b>absence</b> of a connection on that terminal, not by a per-way open flag. If you need true per-way isolation, use the LV pillar instead.</div>
+
+  <h3>Place a pillar, commission it way by way</h3>
+  <p>An assembly fans out one <code>LV_BUSBAR</code> and N <code>LV_FUSE</code>s: <b><code>WAYS_4</code></b> → 1× busbar + 4× fuse, <b><code>WAYS_6</code></b> → 1× busbar + 6× fuse. Each <code>LV_FUSE</code> is a <b>diagram-only</b> node (<code>geometry_type=none</code>) with <code>T1</code> (bus side) / <code>T2</code> (out), a <code>fuse_rating</code> (<code>100A</code>…<code>400A</code>, BS88) and a <code>device_state</code>. The fuses are <b>born OPEN</b> — a pillar is commissioned way by way. <b><code>LV_FUSE</code> OPEN is a <em>per-way</em> barrier</b>. Compare it with the link box below.</p>
+
+  <div class="widget" id="w3">
+    <div class="w-head"><span class="eyebrow">Interactive · 4</span><h4>Pillar vs link box: where does the barrier live?</h4></div>
+    <div class="w-bar">
+      <span class="lab">Device</span>
+      <div class="seg" id="w3-dev"><button data-d="pillar" aria-pressed="true">LV_PILLAR (assembly)</button><button data-d="box" aria-pressed="false">LV_LINK_BOX</button></div>
+      <span class="lab" style="margin-left:8px" id="w3-wl">Ways</span>
+      <div class="seg" id="w3-ways"><button data-w="4" aria-pressed="true">WAYS_4</button><button data-w="6" aria-pressed="false">WAYS_6</button></div>
+      <span style="flex:1"></span><button class="btn" id="w3-reset">Reset (born open)</button>
+    </div>
+    <div class="w-split">
+      <div class="w-main"><div class="scroll"><svg id="w3-svg" viewBox="0 0 740 300" width="100%" style="min-width:640px;background:var(--surface);border:1px solid var(--line2);border-radius:6px"></svg></div></div>
+      <div class="w-side" id="w3-side"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CH4 ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>Service points: the point of delivery</h2><p>The leaf of an LV supply.</p></div>
+
+  <p><code>SERVICE_POINT</code> is a <code>junction</code> with a <b>single</b> terminal <code>T1</code>, drawn as a <b style="color:var(--s2)">violet diamond</b>.</p>
+  <ul>
+    <li><b>Subtypes = customer class:</b> <code>1 = residential</code>, <code>2 = commercial</code>, <code>3 = industrial</code>.</li>
+    <li><b>Load fields:</b> <code>demand_kw</code>, <code>power_factor</code> (unset = unity), and <code>customers_served</code> (integer; <b>NULL reads as 1</b> — it’s the SAIDI/SAIFI denominator).</li>
+    <li>💡 <b>No <code>phase</code> field.</b> Phase lives on the conductor and the meter, not the leaf. And the old <code>meter_number</code> scalar is <b>gone</b> — the meter is a first-class <code>METER</code> feature linked by ownership (Chapter 5), not a string on the service point.</li>
+    <li>Fed by <code>…→SERVICE_POINT T1</code> from the conductor, <code>SERVICE_CUTOUT T2</code>, or <code>METER T2</code> — the last of which is what makes it a <em>metered</em> leaf.</li>
+  </ul>
+  <div class="callout">Ownership says who bills. Connectivity says where the current flows. The model keeps them apart on purpose.</div>
+  <p>That distinction is the subject of the next chapter’s first widget.</p>
+</section>
+
+<!-- ============ CH5 ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>LV metering: the revenue meter</h2><p>∑ The heart of the guide — and one physical fact drives all of it.</p></div>
+
+  <p>At LV the meter is <b>inline</b> — the customer’s current physically flows <em>through</em> it — so <code>METER</code> is a real <code>junction</code> node with <code>T1</code> (line) and <code>T2</code> (load). That single fact drives the whole LV metering model, and it’s the sharpest contrast with MV metering (Chapter 6), where current never flows through the meter at all.</p>
+
+  <h3>The meter’s record</h3>
+  <p>The <b>subtype</b> encodes the <em>metering arrangement</em>: <code>1 = whole_current</code> (the meter carries full load current) and <code>2 = ct_metered</code> (it reads a current transformer’s 5 A secondary). <code>ct_ratio</code> is the model’s canonical example of a <b>per-subtype-required field</b>: physically nullable on the class, but made mandatory for <code>ct_metered</code> by a single <code>subtype_field_rules</code> row. Fill in a record and try to save:</p>
+
+  <div class="widget" id="w5">
+    <div class="w-head"><span class="eyebrow">Interactive · 5</span><h4>New METER — feature form</h4></div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="ctl"><label>Subtype</label><div class="seg" id="w5-sub"><button data-s="whole_current" aria-pressed="true">1 · whole_current</button><button data-s="ct_metered" aria-pressed="false">2 · ct_metered</button></div></div>
+        <div class="ctl"><label>meter_serial <span class="v" style="color:var(--red)">required</span></label><input type="text" id="w5-ser" value="MTR-A-0001"></div>
+        <div class="ctl"><label>account_ref <span class="v" style="color:var(--muted)">optional</span></label><input type="text" id="w5-acc" placeholder="blank = in stock / unassigned"></div>
+        <div class="ctl"><label>phase <span class="v" style="color:var(--red)">required</span></label><select class="fld" id="w5-ph"><option value="">— choose —</option><option>L1</option><option>L2</option><option>L3</option><option>L1N</option><option>L2N</option><option>L3N</option><option selected>L1L2L3N</option></select></div>
+        <div class="ctl" id="w5-ct-wrap"><label>ct_ratio <span class="v" id="w5-ct-req"></span></label><select class="fld" id="w5-ct"><option value="">— none —</option><option>100_5</option><option>200_5</option><option>400_5</option><option>800_5</option><option>1600_5</option></select></div>
+        <button class="btn pri" id="w5-save">Save feature</button>
+      </div>
+      <div class="w-side" id="w5-out"></div>
+    </div>
+  </div>
+
+  <h3>The SP-owns-METER model</h3>
+  <p>A service point <b>owns</b> its meter through a <code>composite</code> (ownership) relationship, <code>one_to_many</code>: <em>0..N meters per service point; each meter belongs to at most one service point</em> (enforced in <code>api/internal/relationship/cardinality.go</code>). That’s why a service point can carry a main meter <em>and</em> a check meter, a multi-rate pair, or no meter at all, without any of it being a magic string.</p>
+  <p>Note the <b>two</b> relationships a meter is in: <em>owned</em> by a service point (the commercial/billing fact) and <em>wired inline</em> on the electrical path. They usually point at the same service point but are modelled separately on purpose. Toggle the layers, then try breaking the cardinality:</p>
+
+  <div class="widget" id="w5b">
+    <div class="w-head"><span class="eyebrow">Interactive · 6</span><h4>Two relationships, one meter</h4></div>
+    <div class="w-bar"><span class="lab">Show</span><div class="seg" id="w5b-layer"><button data-l="conn" aria-pressed="false">Connectivity (where current flows)</button><button data-l="own" aria-pressed="false">Ownership (who bills)</button><button data-l="both" aria-pressed="true">Both</button></div></div>
+    <div class="w-split">
+      <div class="w-main"><div class="scroll"><svg id="w5b-svg" viewBox="0 0 640 300" width="100%" style="min-width:560px;background:var(--surface);border:1px solid var(--line2);border-radius:6px"></svg></div></div>
+      <div class="w-side">
+        <div class="lab" style="margin-bottom:6px">Try to attach (composite · one_to_many)</div>
+        <div class="ctl"><label>Meter</label><select class="fld" id="w5b-m"><option>MTR-A</option><option>MTR-B</option><option>MTR-C (in stock)</option></select></div>
+        <div class="ctl"><label>→ owned by service point</label><select class="fld" id="w5b-s"><option>SP-A</option><option>SP-B</option></select></div>
+        <button class="btn pri" id="w5b-go">Attach</button>
+        <div class="readout" id="w5b-out" style="margin-top:12px"></div>
+      </div>
+    </div>
+  </div>
+
+  <h3>The meter chamber and the busbar fan-out</h3>
+  <p>Several meters in one cabinet (an apartment block) use two more classes. <b><code>METER_CHAMBER</code></b> is the physical enclosure — a <code>container</code> (not on the electrical path, no terminals), subtypes <code>cabinet</code>/<code>room</code>, carrying a <code>chamber_ref</code> asset tag. It <b>contains</b> its busbar and meters (<code>containment</code>) and owns a <code>CHAMBER_SCHEMATIC</code> diagram restricted to exactly <code>{LV_BUSBAR, METER}</code>. <b><code>LV_BUSBAR</code></b> is the distribution board inside it: <code>T1</code> is the incoming supply; <b><code>T2</code> is the equipotential bar</b> that fans out to every tenant meter.</p>
+
+  <div class="en-b"><span class="tag en">∑ Why one terminal feeds twenty meters</span>
+    <p>A busbar is a <em>solid bar</em> — every tap is the same electrical node. So instead of modelling twenty switchable ways, the model uses <b>one rule</b>, <code>LV_BUSBAR T2 → METER T1</code>, and lets it be satisfied <b>N times</b> — one <code>runtime.feature_connectivity</code> row per meter on the same <code>T2</code>. Twenty flats need no twenty-terminal schema, just twenty connections on the one bar.</p></div>
+
+  <div class="widget" id="w5c">
+    <div class="w-head"><span class="eyebrow">Interactive · 7</span><h4>Apartment block: slide the number of flats</h4></div>
+    <div class="w-body">
+      <div class="ctl" style="max-width:420px"><label>Flats (METER → SERVICE_POINT pairs) <span class="v" id="w5c-v"></span></label><input type="range" id="w5c-n" min="1" max="20" value="8"></div>
+      <div class="scroll"><svg id="w5c-svg" viewBox="0 0 700 220" width="100%" style="min-width:600px;background:var(--surface);border:1px solid var(--line2);border-radius:6px"></svg></div>
+      <div class="tbl" style="margin-top:12px"><table><tr><th></th><th>Network rules</th><th>Terminals on LV_BUSBAR</th><th>Connection rows on T2</th></tr>
+        <tr><td><b>VoltEdge: one bar, N taps</b></td><td id="w5c-r1" class="mono"></td><td id="w5c-t1" class="mono"></td><td id="w5c-c1" class="mono"></td></tr>
+        <tr><td class="muted">Hypothetical: a terminal per flat</td><td id="w5c-r2" class="mono muted"></td><td id="w5c-t2" class="mono muted"></td><td id="w5c-c2" class="mono muted"></td></tr></table></div>
+    </div>
+  </div>
+
+  <h3>Unmetered supplies and CT metering</h3>
+  <p><b><code>STREET_LIGHT</code></b> is an unmetered leaf — subtypes <code>column_mounted</code>/<code>wall_mounted</code>, a <code>luminaire_type</code> (<code>LED</code>/<code>SON</code>/<code>SOX</code>/<code>MH</code>), fed by a <b>phase-gated</b> rule <code>LV_CONDUCTOR → STREET_LIGHT T1</code> (<code>phases_intersect</code>) so a light only hangs off a phase the conductor actually carries. And <b>CT metering at LV is an <em>attribute</em>, not a class</b> — the <code>ct_metered</code> subtype plus the <code>ct_ratio</code> field on the ordinary meter. (That changes at MV — next chapter.)</p>
+</section>
+
+<!-- ============ CH6 ============ -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>MV metering: a different shape, for a reason</h2><p>∑ The physics that forces a different model.</p></div>
+
+  <p>At MV the primary current is far too large to run through a meter, so it never does. The meter instead reads the <b>secondaries</b> of instrument transformers — a <b>CT</b> steps the line current down to 5 A, a <b>VT</b> steps the voltage down to 110 V, and the meter multiplies those back up. So an MV meter is <b>off the primary path entirely</b>. Modelling it as an inline <code>METER</code> would be a lie about where the current goes.</p>
+
+  <div class="widget" id="w6">
+    <div class="w-head"><span class="eyebrow">Interactive · 8</span><h4>Where does the current go? — and what does the meter actually read?</h4></div>
+    <div class="w-bar"><span class="lab">Voltage</span>
+      <div class="seg" id="w6-lvl"><button data-l="lv" aria-pressed="false">LV · inline METER</button><button data-l="mv" aria-pressed="true">MV · off-path MV_METER</button></div></div>
+    <div class="w-split">
+      <div class="w-main"><div class="scroll"><svg id="w6-svg" viewBox="0 0 640 250" width="100%" style="min-width:560px;background:var(--surface);border:1px solid var(--line2);border-radius:6px"></svg></div></div>
+      <div class="w-side">
+        <div id="w6-mvctl">
+          <div class="ctl"><label>Supply voltage <code>supply_voltage</code></label><div class="seg" id="w6-sv"><button data-v="11" aria-pressed="true">11KV</button><button data-v="33" aria-pressed="false">33KV</button></div></div>
+          <div class="ctl"><label>CT <code>ct_ratio</code></label><select class="fld" id="w6-ct"><option>100_5</option><option selected>200_5</option><option>400_5</option><option>800_5</option><option>1600_5</option></select></div>
+          <div class="ctl"><label>Line current <span class="v" id="w6-I-v"></span></label><input type="range" id="w6-I" min="5" max="1600" step="5" value="100"></div>
+          <div class="ctl"><label>Power factor <span class="v" id="w6-pf-v"></span></label><input type="range" id="w6-pf" min="0.7" max="1" step="0.01" value="0.95"></div>
+        </div>
+        <div id="w6-out"></div>
+      </div>
+    </div>
+  </div>
+
+  <p>So MV metering mirrors the LV <code>SERVICE_POINT</code> + <code>METER</code> split, but with the meter <b>off-path</b>:</p>
+  <ul>
+    <li><b><code>MV_METERING_POINT</code></b> — the <b>delivery-point leaf</b>, the commercial boundary where the utility hands off to the customer; a “trace to the customer” ends here. A <code>junction</code> with a single <code>T1</code>, subtypes <code>industrial</code>/<code>commercial_complex</code>/<code>bulk_supply</code>, the <b>required</b> <code>supply_voltage</code> (<code>11KV</code>/<code>33KV</code>) and <code>contracted_demand_kva</code>, plus optional <code>tariff_ref</code>/<code>account_ref</code>.</li>
+    <li><b><code>MV_METER</code></b> — the meter <b>device</b>, <code>network_role = none</code>, <b>no terminals</b> (like a pole — an asset, not a path node). Subtypes <code>main_meter</code>/<code>check_meter</code>; required <code>meter_serial</code> and <code>metering_class</code> (IEC 62053: <code>0.2S</code>/<code>0.5S</code>/<code>1.0</code>). It carries <b>no CT/VT ratio of its own</b> — it reads them from the linked instrument transformers.</li>
+    <li><b><code>MV_METERING_CUBICLE</code></b> — the enclosure, a <code>container</code> (<code>indoor</code>/<code>outdoor_kiosk</code>) that <b>contains</b> <code>{MV_METER, MV_CT, MV_VT}</code>.</li>
+  </ul>
+  <figure>
+    <pre class="pre" style="border:0;background:transparent;padding:0">MV_CONDUCTOR ─► MV_METERING_POINT   (leaf — the commercial boundary)
+                     │ owns (composite)
+                     ▼
+                  MV_METER   (off-path; network_role=none)
+                     │ measures via  metering_sensing  (many-to-many)
+                     ├──► MV_CT   (reads the 5 A current secondary)
+                     └──► MV_VT   (reads the 110 V voltage secondary)</pre>
+    <figcaption><b>Ownership + sensing, not connectivity.</b> <code>metering_sensing</code> is many-to-many because a meter reads several CTs (one per phase) <em>and</em> a single CT/VT can feed both a main and a check meter. Added by migration 0080 — the metering twin of protection’s <code>protection_sensing</code>.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ CH7 ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>Network metering: energy accounting</h2><p>The third kind of meter has no customer at all.</p></div>
+
+  <p><code>NETWORK_METER</code> (migration <b>0121</b>) meters a point of the <b>network itself</b> — a substation incomer, a feeder head, a transformer’s output, a bus section, or a tie between territories — so the utility can <b>account for energy</b>.</p>
+  <ul>
+    <li><code>network_role = none</code>, <b>no terminals, no network rules, no trace barrier.</b> It is an <b>accounting overlay</b>, not a topology node — a trace never walks <em>through</em> it. “What’s downstream of this meter?” is answered by tracing the <em>element it meters</em>, not the meter.</li>
+    <li><b>Subtypes = accounting purpose:</b> <code>substation_incomer</code>, <code>feeder_head</code>, <code>transformer_metering</code>, <code>bus_section</code>, <code>boundary_exchange</code>, <code>interchange_tie</code>, <code>generation_export</code>.</li>
+    <li><b>Fields:</b> required <code>meter_serial</code> + <code>metering_class</code>; optional <code>ct_ratio</code>, <code>vt_ratio</code> (<code>11KV_110</code>/<code>33KV_110</code>) and <b><code>external_ref</code></b> — the join key into the external MDM/head-end.</li>
+  </ul>
+  <div class="caution"><b>It stores no readings</b><br>kWh / kVArh / demand live in the external metering system; VoltEdge holds only the asset and the <code>external_ref</code> to fetch them at view time. The class is a registry of <em>where</em> energy is accounted, not a store of <em>how much</em>.</div>
+  <p>It attaches through a <code>metering_accounting</code> relationship (migration 0121, <code>many_to_many</code>) onto the metered element — <code>DIST_XFMR</code>, <code>POWER_XFMR</code>, <code>MV_BUSBAR</code>, <code>MV_CONDUCTOR</code> or <code>LV_CONDUCTOR</code>. Try to trace through one:</p>
+
+  <div class="widget" id="w7">
+    <div class="w-head"><span class="eyebrow">Interactive · 9</span><h4>Trace from a <code>NETWORK_METER</code></h4></div>
+    <div class="w-bar">
+      <span class="lab">Meter at</span>
+      <div class="seg" id="w7-at"><button data-a="TX-101" aria-pressed="true">TX-101 (transformer_metering)</button><button data-a="LV-1" aria-pressed="false">LV-1 (LV_CONDUCTOR)</button></div>
+      <span style="flex:1"></span>
+      <button class="btn pri" id="w7-trace1">Trace from the meter</button>
+      <button class="btn" id="w7-trace2">Trace the element it meters</button>
+    </div>
+    <div class="w-split">
+      <div class="w-main"><div class="scroll"><svg id="w7-svg" viewBox="0 0 640 230" width="100%" style="min-width:560px;background:var(--surface);border:1px solid var(--line2);border-radius:6px"></svg></div></div>
+      <div class="w-side" id="w7-out"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CH8 ============ -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>How it all connects: the rules and the seven chains</h2><p>Memorise these and you know what the model will — and won’t — let you build.</p></div>
+
+  <p>Every LV connection is authorised by a row in <code>metadata.network_rules</code> (from-class [+ terminal] → to-class [+ terminal], with an optional <code>phase_rule</code>). The LV rule set authorises exactly <b>seven valid supply chains</b>:</p>
+  <div class="tbl"><table>
+    <tr><th>#</th><th>Chain</th><th>Use</th></tr>
+    <tr><td>1</td><td><code>LV_CONDUCTOR → SERVICE_POINT</code></td><td>bare / unmetered tap</td></tr>
+    <tr><td>2</td><td><code>LV_CONDUCTOR → SERVICE_CUTOUT → SERVICE_POINT</code></td><td>fused, unmetered</td></tr>
+    <tr><td>3</td><td><code>LV_CONDUCTOR → METER → SERVICE_POINT</code></td><td>metered, no cut-out</td></tr>
+    <tr><td>4</td><td><code>LV_CONDUCTOR → SERVICE_CUTOUT → METER → SERVICE_POINT</code></td><td><b>the standard house</b></td></tr>
+    <tr><td>5</td><td><code>LV_CONDUCTOR → LV_BUSBAR → METER×N → SERVICE_POINT×N</code></td><td>board fan-out</td></tr>
+    <tr><td>6</td><td><code>LV_CONDUCTOR → SERVICE_CUTOUT → LV_BUSBAR → METER×N → SERVICE_POINT×N</code></td><td><b>the apartment block</b></td></tr>
+    <tr><td>7</td><td><code>LV_CONDUCTOR → STREET_LIGHT</code></td><td>unmetered leaf</td></tr>
+  </table></div>
+  <p>Two rules are <b>phase-gated</b> (<code>phases_intersect</code>): the conductor-to-conductor splice and the conductor-to-street-light hop. Everywhere else a phase mismatch is allowed because the device handles it. And remember the <b>retired</b> rule: once an LV conductor exists, the direct transformer-to-service-point hop is invalid.</p>
+
+  <p>Build a supply against that rule set yourself. Each button is a real attempt; the engine below accepts or rejects it the way the rule table would.</p>
+
+  <div class="widget" id="w8">
+    <div class="w-head"><span class="eyebrow">Interactive · 10</span><h4>Supply-chain builder</h4><span style="flex:1"></span><button class="btn" id="w8-reset">Start over</button></div>
+    <div class="w-bar"><span class="lab">Presets</span><div class="seg" id="w8-pre"></div></div>
+    <div class="w-body">
+      <div class="chainrow" id="w8-chain"></div>
+      <div class="lab" style="margin:14px 0 6px">Phases (used by the two phase-gated hops)</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;max-width:520px"><div class="ctl" style="margin:0"><label>Main <code>phase</code></label><select class="fld" id="w8-pm"></select></div><div class="ctl" style="margin:0"><label>Next element’s <code>phase</code></label><select class="fld" id="w8-pn"></select></div></div>
+      <div class="lab" style="margin:14px 0 6px">Add next</div>
+      <div class="seg" id="w8-add"></div>
+      <div class="readout" id="w8-msg" style="margin-top:12px" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <div class="tip"><b>Tip — LV also originates inside a substation</b><br><code>DIST_XFMR T2 → LV_BUSBAR T1</code> feeds a station LV board, and station auxiliaries run <code>AUX_TRANSFORMER T2 → LVAC_BOARD T1 → LV_CONDUCTOR</code>. Same edge/node grammar, different enclosure.</div>
+</section>
+
+<!-- ============ CH9 ============ -->
+<section class="ch" id="c9">
+  <div class="ch-head"><div class="ch-num">09</div><h2>Reading consumption off the LV network</h2><p>▶ How much load, how many customers, at what priority, sits below here?</p></div>
+
+  <p>The <b>service / consumption rollup</b> (<code>api/internal/trace/service.go</code>) answers it — not with a power-flow solve, but by summing the planner’s stored nameplate figures across the <b>load leaves</b> a trace reaches. <b>What counts as a load leaf:</b> <code>SERVICE_POINT</code> always, and a <code>METER</code> <b>only when its <code>meter_role = PRIMARY</code></b>. A <code>CHECK</code> meter or a role-less device meter contributes <b>nothing</b>.</p>
+  <p><b>What it computes:</b> per set of reached leaves it sums <code>service_points</code>, <code>customers</code> (NULL <code>customers_served</code> = 1), <code>demand_kw</code> and <code>demand_kva</code> — where <b>kVA = kW ÷ power_factor</b> <em>per leaf</em> (pf defaults to unity), summed, not re-derived off an averaged power factor. It also buckets load by <b>restoration tier</b> (<code>LOAD_PRIORITY</code> P1…P4; P1 “Life support”, P2 “Essential”; “critical” = P1 or P2).</p>
+
+  <div class="widget" id="w9">
+    <div class="w-head"><span class="eyebrow">Interactive · 11</span><h4>Consumption roll-up bench — the test network</h4></div>
+    <div class="w-bar"><span class="lab">Presets</span>
+      <div class="seg" id="w9-pre"><button data-p="seed" aria-pressed="true">Seed as shipped</button><button data-p="half" aria-pressed="false">Half-migrated (hazard)</button><button data-p="mig" aria-pressed="false">Migrated: PRIMARY meters</button></div></div>
+    <div class="w-body" style="padding-bottom:0"><div class="tbl" style="margin:0"><table id="w9-in"></table></div></div>
+    <div class="w-split" style="border-top:1px solid var(--line2);margin-top:14px">
+      <div class="w-main" id="w9-out"></div>
+      <div class="w-side" id="w9-warn"></div>
+    </div>
+  </div>
+
+  <p>Where it surfaces: every ordinary trace (run / feeder / section / isolation / supply) attaches a consumption summary; <code>POST /trace/service</code> 🔒 (<code>trace:run</code>) runs a dedicated downstream rollup returning the totals plus a per-service-point breakdown; and <b>OMS</b> reuses the same rollup for “affected customers” during an outage, so the dispatcher’s number can never drift from a downstream trace.</p>
+  <div class="tip"><b>Tip</b><br>When <b>Priya</b> sees “1,240 customers affected, 85 critical” on an outage, that figure came from this rollup walking the de-energised LV leaves — the same code <b>Tom</b> gets when he runs a feeder consumption trace.</div>
+</section>
+
+<!-- ============ CH10 ============ -->
+<section class="ch" id="c10">
+  <div class="ch-head"><div class="ch-num">10</div><h2>Worked examples</h2><p>Every value is in the seeds, so you can reproduce it.</p></div>
+
+  <h3>10.1 The standard metered feeder (the test network)</h3>
+  <p>The seeded test network is chain #3 built twice off one LV main:</p>
+  <figure>
+    <pre class="pre" style="border:0;background:transparent;padding:0">TX-101  (DIST_XFMR, pad-mounted, 11 kV → 400 V, 500 kVA, Z = 4.5 %)
+  │ T2
+  ▼
+LV-1  (LV_CONDUCTOR, overhead, WAVEFORM_185, phase L1L2L3N, lv_role = main)
+  ├─► MTR-A.T1  [METER whole_current · MTR-A-0001 · ACC-A · L1L2L3N] ─T2─► SP-A.T1  [commercial · 15 kW · pf 0.95]
+  └─► MTR-B.T1  [METER whole_current · MTR-B-0001 · ACC-B · L1L2L3N] ─T2─► SP-B.T1  [industrial · 30 kW · pf 0.90]</pre>
+    <figcaption>Trace supply from either service point back to TX-101 and roll up consumption: SP-A + SP-B give <b>45 kW</b>, and <b>≈ 49.1 kVA</b> (15/0.95 + 30/0.90 = 15.79 + 33.33). Reproduce it in the roll-up bench above with “Seed as shipped”.</figcaption>
+  </figure>
+  <div class="caution"><b>A subtlety worth seeing in a real tool</b><br>MTR-A and MTR-B in the seed have <b>no <code>meter_role</code> set</b>, so under the Chapter 9 PRIMARY contract the <em>meters</em> are inert — the 45 kW rolls up via SP-A/SP-B, not the meters. Mark a meter <code>PRIMARY</code> only when you want the network to “end” there; otherwise the service point is the load leaf. Set PRIMARY and leave the SP’s load in place and you’ve built the double-count in the bench (“Half-migrated”).</div>
+
+  <h3>10.2 A closed LV loop (the ring network)</h3>
+  <p>The LV ring is the one <b>closed-loop</b> LV example: two mains from one transformer meeting at a single meter (<code>MTR-R</code> → <code>SP-R</code>, commercial · 30 kW · pf 1.0). LVB is exactly twice LVA’s length, so twice its resistance. <b>Current splits inverse to resistance</b>, so of SP-R’s 30 kW, <b>LVA carries 20 kW and LVB carries 10 kW</b>. pf is unity on purpose so kW = kVA and the arithmetic is clean. Move the lengths and watch the split follow — the default is the seed’s 2 : 1.</p>
+
+  <div class="widget" id="w10">
+    <div class="w-head"><span class="eyebrow">Interactive · 12</span><h4>Ring hand-check: two parallel mains, one meter</h4><span style="flex:1"></span><button class="btn" id="w10-reset">Seed values</button></div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="ctl"><label>LVA length <span class="v" id="w10-a-v"></span></label><input type="range" id="w10-a" min="50" max="400" step="10" value="100"></div>
+        <div class="ctl"><label>LVB length <span class="v" id="w10-b-v"></span></label><input type="range" id="w10-b" min="50" max="400" step="10" value="200"></div>
+        <div class="ctl"><label>SP-R demand <span class="v" id="w10-p-v"></span></label><input type="range" id="w10-p" min="5" max="100" step="5" value="30"></div>
+        <div class="scroll"><svg id="w10-svg" viewBox="0 0 560 190" width="100%" style="min-width:480px;background:var(--surface);border:1px solid var(--line2);border-radius:6px"></svg></div>
+      </div>
+      <div class="w-side" id="w10-out"></div>
+    </div>
+  </div>
+
+  <h3>10.3 The apartment block (chain #6)</h3>
+  <p>A twenty-flat block is chain #6: one <code>SERVICE_CUTOUT</code> off the street main, into one <code>LV_BUSBAR</code> inside one <code>METER_CHAMBER</code>, with twenty <code>METER → SERVICE_POINT</code> pairs hanging off the <b>one</b> <code>T2</code> bar. You build it by placing the chamber, dropping the busbar and meters on its <code>CHAMBER_SCHEMATIC</code> diagram, and letting the single <code>LV_BUSBAR T2 → METER T1</code> rule be satisfied twenty times. Each flat’s meter is <em>owned</em> by its own service point; all twenty are <em>contained</em> in the one chamber. (Slide it to 20 in Interactive 7.)</p>
+</section>
+
+<!-- ============ CH11 ============ -->
+<section class="ch" id="c11">
+  <div class="ch-head"><div class="ch-num">11</div><h2>Asset ownership: utility vs private</h2><p>Declare private at the boundary; it propagates downstream.</p></div>
+
+  <p>Not every asset on the map belongs to the utility. A common arrangement: the utility supplies and <b>meters an MV bulk supply</b> (an <code>MV_METERING_POINT</code> of subtype <code>bulk_supply</code>), and the <b>customer owns everything below it</b> — their own distribution transformer and LV network. The <b>ownership axis</b> captures that: every transformer and LV-set class carries a coded <code>ownership</code> field — <code>utility</code> (the default; unset reads as utility) or <code>private</code>.</p>
+  <div class="callout">Mark the customer’s <code>DIST_XFMR</code> private, and everything electrically downstream is private too.</div>
+  <div class="en-b"><span class="tag en">∑ Why propagation, not per-feature tagging</span>
+    <p>Ownership is a <b>connectivity</b> property: an asset is the customer’s if it hangs off the customer’s transformer. So the propagation is a downstream walk that <b>ignores open switches</b> (a normally-open tie inside the private network doesn’t change who owns what lies beyond it) and <b>crosses the transformer</b> into the LV (the whole galvanic island below the boundary is private). It is <em>not</em> an energisation trace.</p></div>
+
+  <p>🔒 <i>Needs <code>features:write</code>.</i> Open the customer’s transformer’s <b>actions menu</b> (⌄). On a transformer it carries two actions: <b>Mark downstream private</b> (declares it private and stamps the whole downstream LV network in one transaction) and <b>Re-sync ownership</b> (recomputes the whole map from every currently-private transformer — the drift fix after a re-wire). Drive both:</p>
+
+  <div class="widget" id="w11">
+    <div class="w-head"><span class="eyebrow">Interactive · 13</span><h4>TX-101 actions menu ⌄ — ownership</h4><span style="flex:1"></span><button class="btn" id="w11-reset">Reset</button></div>
+    <div class="w-bar" id="w11-bar"></div>
+    <div class="w-split">
+      <div class="w-main"><div class="scroll"><svg id="w11-svg" viewBox="0 0 700 330" width="100%" style="min-width:600px;background:var(--surface);border:1px solid var(--line2);border-radius:6px"></svg></div><div class="legend" id="w11-leg"></div></div>
+      <div class="w-side" id="w11-out"></div>
+    </div>
+  </div>
+
+  <h3>How private assets read</h3>
+  <ul>
+    <li><b>On the map:</b> private plant looks <b>exactly like every other feature</b> — standard colours and symbology. Ownership is a <em>data flag</em>, not a restyle. (The tinted nodes above are a teaching aid.)</li>
+    <li><b>In the feature panel:</b> a private feature shows a small <b>“Privately owned”</b> chip; a transformer (the declare boundary) carries the two actions. A plain utility feature shows no ownership UI at all — utility is the silent default.</li>
+    <li><b>In a trace / load flow:</b> a trace does <b>not</b> stop at the ownership boundary — it crosses and includes the private section — but every private feature in the result carries a <b>“Private”</b> badge (and the load-flow table an <b>Owner</b> column). The deliberate “include it, but flag it” behaviour.</li>
+    <li><b>From an agent:</b> <code>mark_ownership_downstream_private</code> and <code>resync_ownership</code> do the same two actions over the MCP surface.</li>
+  </ul>
+  <div class="tip"><b>Tip</b><br>You <em>can</em> set <code>ownership</code> by hand on a single feature (it’s a normal attribute edit) — and that’s exactly how drift starts. The <b>Mark downstream</b> action is the intended workflow.</div>
+
+  <h3>What’s deliberately not (yet) modelled</h3>
+  <div class="cards">
+    <div class="card"><h4>Who owns it</h4><p>v1 is a plain <code>utility</code>/<code>private</code> flag, not a named organisation. A richer “owned by <em>Acme Steelworks</em>” layer (CIM <code>AssetOwner</code>) can come later.</p></div>
+    <div class="card"><h4>The boundary</h4><p>Declared on the <b>transformer</b> today. A private <em>MV</em> network above it would want the boundary at the MV intake / metering point — a fast follow; the engine already handles any start feature.</p></div>
+    <div class="card"><h4>Load flow</h4><p>Treats the private site’s downstream as ordinary network for now; the trace family tags ownership, but the power-flow bus/branch tables don’t yet.</p></div>
+  </div>
+</section>
+
+<!-- ============ APPENDIX ============ -->
+<section class="ch" id="ca">
+  <div class="ch-head"><div class="ch-num">A</div><h2>Appendix</h2><p>Reference, a decision helper and a quiz.</p></div>
+
+  <h3>Which metering class, when?</h3>
+  <div class="widget" id="wA">
+    <div class="w-head"><span class="eyebrow">Decision helper</span><h4>What am I modelling?</h4></div>
+    <div class="w-body">
+      <div class="seg" id="wA-q1"><button data-v="cust">A customer’s supply</button><button data-v="grid">Energy accounting on the grid (no customer)</button><button data-v="light">Street lighting</button></div>
+      <div id="wA-q2" style="margin-top:10px"></div>
+      <div class="readout" id="wA-out" style="margin-top:12px">Pick one above.</div>
+    </div>
+  </div>
+
+  <h3>A · Class quick reference</h3>
+  <div class="w-bar" style="border:1px solid var(--line);border-radius:6px 6px 0 0;border-bottom:0;background:var(--surface)"><span class="lab">Filter</span><div class="seg" id="wB-f"><button data-f="all" aria-pressed="true">All</button><button data-f="edge" aria-pressed="false">edge</button><button data-f="junction" aria-pressed="false">junction</button><button data-f="container" aria-pressed="false">container</button><button data-f="none" aria-pressed="false">off-path</button></div></div>
+  <div class="tbl" style="margin-top:0;border-radius:0 0 6px 6px"><table id="wB-t"></table></div>
+
+  <h3>B · Metering relationship kinds</h3>
+  <div class="tbl"><table>
+    <tr><th>Kind</th><th>Meaning</th><th>Used by</th><th>Migration</th></tr>
+    <tr><td><code>composite</code></td><td>ownership</td><td><code>SERVICE_POINT</code> owns <code>METER</code>; <code>MV_METERING_POINT</code> owns <code>MV_METER</code></td><td>0010</td></tr>
+    <tr><td><code>containment</code></td><td>spatial enclosure</td><td><code>METER_CHAMBER</code> contains <code>{LV_BUSBAR, METER}</code>; <code>MV_METERING_CUBICLE</code> contains <code>{MV_METER, MV_CT, MV_VT}</code></td><td>0010</td></tr>
+    <tr><td><code>metering_sensing</code></td><td>meter fed by instrument transformer</td><td><code>MV_METER</code> measures via <code>MV_CT</code> / <code>MV_VT</code></td><td><b>0080</b></td></tr>
+    <tr><td><code>metering_accounting</code></td><td>meter accounts for energy through an element</td><td><code>NETWORK_METER</code> meters <code>{DIST_XFMR, POWER_XFMR, MV_BUSBAR, MV_CONDUCTOR, LV_CONDUCTOR}</code></td><td><b>0121</b></td></tr>
+  </table></div>
+
+  <h3>C · Key domains</h3>
+  <p><code>PHASE</code> L1 · L2 · L3 · N · L1N · L2N · L3N · L1L2L3N &nbsp;|&nbsp; <code>LV_CABLE_SPEC</code> ABC_95 · WAVEFORM_185 · CONCENTRIC_25 &nbsp;|&nbsp; <code>LV_ROLE</code> main · service &nbsp;|&nbsp; <code>CT_RATIO</code> 100_5 · 200_5 · 400_5 · 800_5 · 1600_5 &nbsp;|&nbsp; <code>VT_RATIO</code> 11KV_110 · 33KV_110 &nbsp;|&nbsp; <code>METERING_CLASS</code> 0.2S · 0.5S · 1.0 (IEC 62053) &nbsp;|&nbsp; <code>MV_SUPPLY_VOLTAGE</code> 11KV · 33KV &nbsp;|&nbsp; <code>FUSE_RATING</code> 100A · 160A · 200A · 250A · 315A · 400A (BS88) &nbsp;|&nbsp; <code>LUMINAIRE_TYPE</code> LED · SON · SOX · MH &nbsp;|&nbsp; <code>LOAD_PRIORITY</code> P1 (Life support) … P4 (Standard) &nbsp;|&nbsp; <code>OWNERSHIP</code> utility (default) · private</p>
+
+  <h3>D · Test yourself</h3>
+  <div id="quiz"></div>
+
+  <h3>E · Where this is grounded</h3>
+  <p><b>LV:</b> <code>seed/lv_conductors_example.sql</code>, <code>lv_devices_example.sql</code>, <code>lv_metering_example.sql</code>, <code>lv_unmetered_ct_example.sql</code>, <code>lv_pillar_example.sql</code>, <code>mv_lv_switch_example.sql</code>, <code>service_point_example.sql</code>. <b>Metering:</b> the same plus <code>mv_metering_example.sql</code>, <code>mv_metering_cubicle_example.sql</code>, <code>network_meter_example.sql</code>, <code>meter_load_leaf.sql</code>. <b>Examples:</b> <code>test_network_example.sql</code>, <code>lv_ring_network_example.sql</code>. <b>Engine:</b> <code>api/internal/trace/service.go</code> (consumption rollup), <code>api/internal/relationship/cardinality.go</code> (ownership/containment caps). <b>Design:</b> <code>docs/phase-9-lv-service-delivery.md</code>. Relationship-kind migrations: <code>0080</code>, <code>0121</code>.</p>
+</section>
+
+<footer>VoltEdge · LV Network &amp; Metering — interactive companion to the Markdown guide. Calculators are teaching approximations; the load-flow and trace engines are authoritative.</footer>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+function seg(sel,cb){ const el=$(sel); el.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b) return; el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); cb(b)}); }
+const fx=(x,d=1)=>Number(x).toFixed(d);
+const SQ3=Math.sqrt(3);
+const PHASES=['L1','L2','L3','N','L1N','L2N','L3N','L1L2L3N'];
+const phSet=p=>new Set((p.match(/L1|L2|L3|N/g)||[]));
+const lineSet=p=>new Set((String(p).match(/L1|L2|L3/g)||[]));   // neutral is deliberately ignored
+const phInter=(a,b)=>[...lineSet(a)].filter(x=>lineSet(b).has(x));
+
+/* ---------- class facts used by W1, the drill and the appendix ---------- */
+const CLS={
+  DIST_XFMR:{role:'junction',geo:'point',term:'T1 primary (MV) · T2 secondary (LV bus) · T3 ground',sub:'—',note:'LV starts at T2. Every LV feeder originates at a T2.'},
+  LV_CONDUCTOR:{role:'edge',geo:'line',term:'— (an edge owns no terminals)',sub:'overhead / underground',note:'The wire. Fields: phase, conductor_spec, lv_role. Phase-gated splice rule.'},
+  SERVICE_CUTOUT:{role:'junction',geo:'point',term:'T1 line · T2 load',sub:'fuse_carrier / switch_fuse',note:'The intake fuse. OPEN is a trace barrier.'},
+  LV_SWITCH:{role:'junction',geo:'point (optional)',term:'T1 · T2',sub:'standard',note:'Generic inline switch. OPEN is a barrier.'},
+  LV_LINK_BOX:{role:'junction',geo:'point',term:'T1 in · T2/T3/T4 out',sub:'feeder_pillar / link_box',note:'Three switchable ways; the OPEN barrier is feature-level, not per-way.'},
+  LV_PILLAR:{role:'container',geo:'point',term:'— (owns bus + fuses)',sub:'standard',note:'Placed as an assembly; fans out 1× LV_BUSBAR + N× LV_FUSE.'},
+  LV_BUSBAR:{role:'junction',geo:'point',term:'T1 in · T2 bar',sub:'lv_distribution_board / busbar_riser',note:'T2 is one equipotential bar: one rule satisfied N times fans out to N meters.'},
+  LV_FUSE:{role:'junction',geo:'none (diagram)',term:'T1 bus · T2 out',sub:'standard',note:'Born OPEN; OPEN is a per-way barrier.'},
+  METER_CHAMBER:{role:'container',geo:'point',term:'—',sub:'cabinet / room',note:'Physical enclosure; contains {LV_BUSBAR, METER}.'},
+  METER:{role:'junction',geo:'point',term:'T1 line · T2 load',sub:'whole_current / ct_metered',note:'Inline: customer current flows through it. Owned by a SERVICE_POINT.'},
+  SERVICE_POINT:{role:'junction',geo:'point',term:'T1',sub:'residential / commercial / industrial',note:'The leaf and point of delivery. Violet diamond.'},
+  STREET_LIGHT:{role:'junction',geo:'point',term:'T1',sub:'column_mounted / wall_mounted',note:'Unmetered leaf, phase-gated off the conductor.'},
+  MV_METERING_POINT:{role:'junction',geo:'point',term:'T1',sub:'industrial / commercial_complex / bulk_supply',note:'MV delivery-point leaf — the commercial boundary.'},
+  MV_METER:{role:'none',geo:'point',term:'—',sub:'main_meter / check_meter',note:'Off-path asset; reads the CT/VT secondaries.'},
+  MV_METERING_CUBICLE:{role:'container',geo:'point',term:'—',sub:'indoor / outdoor_kiosk',note:'Contains {MV_METER, MV_CT, MV_VT}.'},
+  NETWORK_METER:{role:'none',geo:'point',term:'—',sub:'incomer / feeder_head / transformer / bus_section / boundary / tie / generation_export',note:'Accounting overlay. Stores no readings — external_ref joins to the MDM.'}
+};
+
+/* ================= W1: class tour ================= */
+(function(){
+  const svg=$('#w1-svg'), info=$('#w1-info');
+  const col='var(--muted)', acc='var(--acc)', v='var(--s2)';
+  const parts=[
+    {k:'DIST_XFMR',x:100,svg:`<circle cx="88" cy="125" r="22" fill="none" stroke="${col}" stroke-width="3"/><circle cx="112" cy="125" r="22" fill="none" stroke="${col}" stroke-width="3"/>
+      <circle cx="52" cy="125" r="4" fill="${acc}"/><text x="52" y="152" font-size="10" text-anchor="middle">T1</text>
+      <circle cx="148" cy="125" r="5" fill="${acc}"/><text x="148" y="152" font-size="10" text-anchor="middle" style="font-weight:700">T2</text>
+      <circle cx="100" cy="162" r="4" fill="${acc}"/><text x="114" y="175" font-size="10">T3</text>
+      <text x="100" y="97" font-size="10" text-anchor="middle">DIST_XFMR</text>`},
+    {k:'LV_CONDUCTOR',x:210,svg:`<path d="M148,125 L264,125" stroke="${acc}" stroke-width="5" stroke-linecap="round"/><text x="206" y="108" font-size="10" text-anchor="middle">LV_CONDUCTOR</text><text x="206" y="146" font-size="9" fill="var(--muted)" text-anchor="middle" style="fill:var(--muted)">edge · no terminals</text>`},
+    {k:'SERVICE_CUTOUT',x:290,svg:`<rect x="276" y="111" width="28" height="28" rx="3" fill="${col}"/><text x="290" y="100" font-size="10" text-anchor="middle">CUTOUT</text><path d="M304,125 L340,125" stroke="${acc}" stroke-width="3"/>`},
+    {k:'LV_PILLAR',x:420,svg:`<rect x="340" y="58" width="160" height="130" rx="8" fill="none" stroke="${col}" stroke-width="2" stroke-dasharray="6 4"/><text x="420" y="50" font-size="10" text-anchor="middle">LV_PILLAR (container)</text>`},
+    {k:'LV_BUSBAR',x:372,svg:`<rect x="364" y="85" width="9" height="80" rx="2" fill="${col}"/><text x="368" y="180" font-size="9.5" text-anchor="middle">BUSBAR</text><path d="M340,125 L364,125 M373,125 L400,125" stroke="${acc}" stroke-width="3"/>`},
+    {k:'LV_FUSE',x:430,svg:`<rect x="414" y="115" width="22" height="20" rx="2" fill="none" stroke="${col}" stroke-width="3"/><text x="425" y="152" font-size="9.5" text-anchor="middle">LV_FUSE</text><path d="M436,125 L500,125" stroke="${acc}" stroke-width="3"/>`},
+    {k:'METER',x:545,svg:`<circle cx="545" cy="125" r="21" fill="var(--raise)" stroke="${col}" stroke-width="3"/><text x="545" y="130" font-size="14" text-anchor="middle" style="font-weight:700">M</text><text x="545" y="94" font-size="10" text-anchor="middle">METER</text><path d="M500,125 L524,125 M566,125 L610,125" stroke="${acc}" stroke-width="3"/>`},
+    {k:'SERVICE_POINT',x:640,svg:`<path d="M640,104 L661,125 L640,146 L619,125 Z" fill="${v}"/><text x="640" y="95" font-size="10" text-anchor="middle">SERVICE_POINT</text><text x="640" y="166" font-size="9" text-anchor="middle" style="fill:var(--muted)">the leaf</text>`},
+    {k:'NETWORK_METER',x:100,svg:`<rect x="46" y="18" width="108" height="26" rx="4" fill="none" stroke="${col}" stroke-width="2" stroke-dasharray="4 3"/><text x="100" y="35" font-size="9.5" text-anchor="middle">NETWORK_METER</text><path d="M100,44 L100,66" stroke="${col}" stroke-width="1.5" stroke-dasharray="3 3"/>`}
+  ];
+  // NETWORK_METER title overlaps XFMR label; nudge xfmr label lower
+  svg.innerHTML=`<text x="10" y="18" font-size="10" style="fill:var(--muted)">MV ◄</text>`+parts.map(p=>`<g class="nd" data-k="${p.k}" tabindex="0" role="button" aria-label="${p.k}">${p.svg}<rect x="${p.x-(p.k==='LV_PILLAR'?80:34)}" y="${p.k==='LV_PILLAR'?58:p.k==='NETWORK_METER'?14:84}" width="${p.k==='LV_PILLAR'?160:68}" height="${p.k==='LV_PILLAR'?130:p.k==='NETWORK_METER'?34:96}" fill="transparent"/></g>`).join('');
+  function show(k){
+    const c=CLS[k];
+    info.innerHTML=`<b>${k}</b> &nbsp;<span class="role ${c.role==='none'?'none':c.role==='junction'?'switching':c.role==='edge'?'source':'transformer'}">network_role = ${c.role}</span><br>
+      <span class="muted">terminals</span> ${c.term}<br><span class="muted">geometry</span> ${c.geo} &nbsp; <span class="muted">subtypes</span> ${c.sub}<br>${c.note}`;
+    svg.querySelectorAll('.nd').forEach(g=>g.style.opacity=g.dataset.k===k?1:.55);
+  }
+  svg.querySelectorAll('.nd').forEach(g=>{g.addEventListener('click',()=>show(g.dataset.k));g.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();show(g.dataset.k)}})});
+  show('DIST_XFMR');
+})();
+
+/* ================= Drill ================= */
+(function(){
+  const items=['LV_CONDUCTOR','LV_PILLAR','LV_BUSBAR','MV_METER','SERVICE_POINT','METER_CHAMBER','NETWORK_METER','SERVICE_CUTOUT','MV_METERING_CUBICLE','METER'];
+  let i=0, score=0, answered=false;
+  const q=$('#w1b-q'), fb=$('#w1b-fb'), nx=$('#w1b-next');
+  function draw(){
+    if(i>=items.length){ q.innerHTML=`<b>Done.</b> You scored ${score} / ${items.length}.`; $('#w1b-opts').style.display='none'; fb.innerHTML=''; nx.style.display='inline-block'; nx.textContent='Restart'; $('#w1b-score').textContent=''; return; }
+    q.innerHTML=`<code style="font-size:15px">${items[i]}</code> — what is its <code>network_role</code>?`;
+    fb.innerHTML=''; nx.style.display='none'; answered=false; $('#w1b-opts').style.display='flex';
+    $('#w1b-opts').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed','false'));
+    $('#w1b-score').textContent=`${i+1} / ${items.length} · score ${score}`;
+  }
+  $('#w1b-opts').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b||answered) return; answered=true;
+    const c=CLS[items[i]]; const ok=b.dataset.r===c.role; if(ok) score++;
+    b.setAttribute('aria-pressed','true');
+    fb.innerHTML=(ok?'<span style="color:var(--green)">✔ Correct.</span> ':`<span style="color:var(--red)">✘ It’s <b>${c.role==='none'?'off-path (none)':c.role}</b>.</span> `)+c.note;
+    nx.style.display='inline-block'; nx.textContent='Next →';
+  });
+  nx.onclick=()=>{ if(i>=items.length){i=0;score=0} else i++; draw(); };
+  draw();
+})();
+
+/* ================= W2: cable explorer ================= */
+(function(){
+  const SPEC={ABC_95:{R:.32,X:.08,A:240},WAVEFORM_185:{R:.164,X:.07,A:313},CONCENTRIC_25:{R:.727,X:.08,A:100}};
+  let spec='ABC_95', ph=3;
+  const g=id=>$(id);
+  function draw(){
+    const L=+g('#w2-L').value, I=+g('#w2-I').value, pf=+g('#w2-pf').value;
+    g('#w2-L-v').textContent=L+' m'; g('#w2-I-v').textContent=I+' A'; g('#w2-pf-v').textContent=pf.toFixed(2);
+    const s=SPEC[spec], sinp=Math.sqrt(1-pf*pf);
+    const z=(s.R*pf+s.X*sinp)*(L/1000);                 // Ω effective per conductor
+    const V0=ph===3?400:230;
+    const dV=ph===3?SQ3*I*z:2*I*z;
+    const pct=dV/V0*100, load=I/s.A*100;
+    const vend=V0-dV;
+    const ok=pct<=5&&load<=100, st=load>100?'over ampacity':pct>5?'drop > 5 %':'within limits';
+    g('#w2-out').innerHTML=`
+      <div class="lab">Voltage at the far end</div>
+      <div class="big" style="margin:4px 0 2px;color:${ok?'var(--acc-deep)':'var(--red)'}">${fx(vend,1)} V</div>
+      <div class="muted mono" style="font-size:12px">${fx(dV,1)} V drop · ${fx(pct,2)} % of ${V0} V</div>
+      <div class="lab" style="margin:12px 0 4px">Ampacity use — ${I} A of ${s.A} A</div>
+      <div class="bar"><i style="width:${Math.min(100,load)}%;background:${load>100?'var(--red)':load>80?'var(--amber)':'var(--acc)'}"></i></div>
+      <div class="lab" style="margin:12px 0 4px">Voltage drop vs a 5 % budget</div>
+      <div class="bar"><i style="width:${Math.min(100,pct/5*100)}%;background:${pct>5?'var(--red)':pct>4?'var(--amber)':'var(--acc)'}"></i></div>
+      <div class="readout" style="margin-top:12px"><b>${st}</b><br>ΔV = ${ph===3?'√3':'2'} · I · L · (R cosφ + X sinφ)<br>= ${ph===3?'1.732':'2'} · ${I} · ${L/1000} km · (${s.R}·${pf.toFixed(2)} + ${s.X}·${sinp.toFixed(3)})</div>`;
+  }
+  seg('#w2-spec',b=>{spec=b.dataset.s;draw()}); seg('#w2-ph',b=>{ph=+b.dataset.p;draw()});
+  ['#w2-L','#w2-I','#w2-pf'].forEach(s=>$(s).addEventListener('input',draw)); draw();
+})();
+
+/* ================= W2b: phases_intersect ================= */
+(function(){
+  const a=$('#w2b-a'), b=$('#w2b-b'); const opts='<option value="">(unset)</option>'+PHASES.map(p=>`<option>${p}</option>`).join('');
+  a.innerHTML=opts; b.innerHTML=opts; a.value='L1L2L3N'; b.value='L1N';
+  function draw(){
+    if(!a.value||!b.value){ $('#w2b-out').innerHTML=`<div class="fbox bad">✘ refused — phase missing</div><p class="muted" style="font-size:13px;margin:8px 0 0">The rule opted in to phase matching, so unset phase data is a gap you must fill — it’s a hard error, never a silent pass.</p>`; return; }
+    const i=phInter(a.value,b.value), ok=i.length>0, onlyN=!ok&&phSet(a.value).has('N')&&phSet(b.value).has('N');
+    $('#w2b-out').innerHTML=`<div class="fbox ${ok?'good':'bad'}">${ok?'✔ rule fires':'✘ rule does not fire'}</div>
+      <div class="readout" style="margin-top:8px">line phases {${[...lineSet(a.value)].join(',')||'∅'}} ∩ {${[...lineSet(b.value)].join(',')||'∅'}}<br>= {${i.join(',')||'∅'}}</div>
+      <p class="muted" style="font-size:13px;margin:8px 0 0">${ok?'They share a live line phase, so the splice (or street-light hop) is authorised.':onlyN?'They share only the neutral — which is deliberately ignored. Different phases: refused.':'No shared line phase — the rule is phase-gated, so this connection is refused.'}</p>`;
+  }
+  a.onchange=draw; b.onchange=draw; draw();
+})();
+
+/* ================= W3: pillar vs link box ================= */
+(function(){
+  let dev='pillar', ways=4; let fuse=[], box={open:true,conn:[true,true,false]};
+  const cust=[14,9,22,7,11,5];
+  const reset=()=>{fuse=Array(6).fill(false);box={open:true,conn:[true,true,false]}};
+  reset();
+  function draw(){
+    const svg=$('#w3-svg'); const n=dev==='pillar'?ways:3;
+    const y0=dev==='pillar'?(ways===4?60:36):70, dy=dev==='pillar'?(ways===4?60:44):70;
+    let s=`<text x="12" y="16" font-size="11" style="fill:var(--muted)">${dev==='pillar'?'LV_PILLAR (container)':'LV_LINK_BOX'}</text>
+      <path d="M12,150 L90,150" stroke="var(--acc)" stroke-width="5"/><text x="50" y="140" font-size="10" text-anchor="middle">main</text>`;
+    let on=0, cs=0;
+    if(dev==='pillar'){
+      s+=`<rect x="80" y="${y0-24}" width="12" height="${(n-1)*dy+48}" rx="3" fill="var(--muted)"/><text x="112" y="${y0-30}" font-size="10" text-anchor="middle">LV_BUSBAR</text>`;
+      for(let i=0;i<n;i++){
+        const y=y0+i*dy, c=fuse[i];
+        s+=`<path d="M92,${y} L230,${y}" stroke="var(--acc)" stroke-width="3"/>
+        <g class="nd" data-i="${i}" tabindex="0" role="button" aria-label="Fuse way ${i+1} ${c?'closed':'open'}"><rect x="230" y="${y-12}" width="32" height="24" rx="3" fill="${c?'var(--muted)':'var(--raise)'}" stroke="var(--muted)" stroke-width="3"/><text x="246" y="${y+4}" font-size="9.5" text-anchor="middle" style="fill:${c?'var(--bg)':'var(--ink)'}">${c?'ON':'OPEN'}</text><rect x="222" y="${y-20}" width="48" height="40" fill="transparent"/></g>
+        <path d="M262,${y} L440,${y}" stroke="${c?'var(--acc)':'var(--dead)'}" stroke-width="3" ${c?'':'stroke-dasharray="2 5"'}/>
+        <text x="146" y="${y-8}" font-size="9" style="fill:var(--muted)">LV_FUSE · way ${i+1}</text>
+        <text x="450" y="${y+4}" font-size="11" style="fill:${c?'var(--ink)':'var(--muted)'}">feeder ${i+1} · ${cust[i]} customers ${c?'':'(isolated)'}</text>`;
+        if(c){on++;cs+=cust[i]}
+      }
+    } else {
+      const fy=150;
+      s+=`<g class="nd" data-box="1" tabindex="0" role="button" aria-label="Link box feature-level state ${box.open?'open':'closed'}"><rect x="100" y="${fy-60}" width="72" height="120" rx="6" fill="var(--raise)" stroke="var(--muted)" stroke-width="3"/>
+        <text x="136" y="${fy-12}" font-size="10" text-anchor="middle">link box</text><text x="136" y="${fy+6}" font-size="10" text-anchor="middle" style="font-weight:700;fill:${box.open?'var(--red)':'var(--green)'}">${box.open?'OPEN':'CLOSED'}</text><text x="136" y="${fy+22}" font-size="8.5" text-anchor="middle" style="fill:var(--muted)">(click: feature-level)</text></g>
+        <path d="M90,${fy} L100,${fy}" stroke="var(--acc)" stroke-width="5"/>`;
+      for(let i=0;i<3;i++){
+        const y=y0+i*dy+10, c=box.conn[i]&&!box.open;
+        s+=`<path d="M172,${y} L440,${y}" stroke="${box.conn[i]?(c?'var(--acc)':'var(--dead)'):'var(--line)'}" stroke-width="3" ${box.conn[i]&&c?'':'stroke-dasharray="2 5"'}/>
+        <text x="${200}" y="${y-8}" font-size="9" style="fill:var(--muted)">T${i+2}</text>
+        <g class="nd" data-conn="${i}" tabindex="0" role="button" aria-label="Way T${i+2} connection"><rect x="290" y="${y-11}" width="64" height="22" rx="3" fill="var(--raise)" stroke="var(--line)" stroke-width="1.5"/><text x="322" y="${y+4}" font-size="9.5" text-anchor="middle">${box.conn[i]?'connected':'no connection'}</text></g>
+        <text x="450" y="${y+4}" font-size="11" style="fill:${c?'var(--ink)':'var(--muted)'}">way T${i+2} · ${cust[i]} customers ${c?'':'(dead)'}</text>`;
+        if(c){on++;cs+=cust[i]}
+      }
+    }
+    svg.innerHTML=s;
+    svg.querySelectorAll('[data-i]').forEach(g=>g.onclick=()=>{fuse[+g.dataset.i]=!fuse[+g.dataset.i];draw()});
+    svg.querySelectorAll('[data-box]').forEach(g=>g.onclick=()=>{box.open=!box.open;draw()});
+    svg.querySelectorAll('[data-conn]').forEach(g=>g.onclick=()=>{box.conn[+g.dataset.conn]=!box.conn[+g.dataset.conn];draw()});
+    svg.querySelectorAll('.nd').forEach(g=>g.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();g.dispatchEvent(new Event('click'))}}));
+    $('#w3-side').innerHTML=dev==='pillar'
+      ? `<div class="readout"><b>${on} / ${n}</b> ways energised<br><b>${cs}</b> customers supplied<br><span class="muted">${n-on} ways open (born OPEN)</span></div>
+         <p style="font-size:13.5px;margin:12px 0 0">Each way has its <b>own</b> <code>LV_FUSE</code>. Click one to commission that way; the others stay isolated. That’s <b>per-way</b> isolation.</p>`
+      : `<div class="readout"><b>${on} / 3</b> ways energised<br><b>${cs}</b> customers supplied</div>
+         <p style="font-size:13.5px;margin:12px 0 0">One <b>feature-level</b> state: click the box and <em>every</em> way goes with it. To keep a way normally open you remove its <b>connection</b> — there’s no per-way flag. Need to isolate one way while the others stay live? That’s the pillar.</p>`;
+    $('#w3-ways').style.display=dev==='pillar'?'flex':'none'; $('#w3-wl').style.display=dev==='pillar'?'inline':'none';
+  }
+  seg('#w3-dev',b=>{dev=b.dataset.d;draw()}); seg('#w3-ways',b=>{ways=+b.dataset.w;draw()});
+  $('#w3-reset').onclick=()=>{reset();draw()}; draw();
+})();
+
+/* ================= W5: meter form ================= */
+(function(){
+  let sub='whole_current';
+  function draw(){
+    const ct=sub==='ct_metered';
+    $('#w5-ct-req').textContent=ct?'required for ct_metered':'not applicable';
+    $('#w5-ct-req').style.color=ct?'var(--red)':'var(--muted)';
+    $('#w5-ct').disabled=!ct; if(!ct) $('#w5-ct').value='';
+    $('#w5-ct-wrap').style.opacity=ct?1:.55;
+  }
+  seg('#w5-sub',b=>{sub=b.dataset.s;draw();$('#w5-out').innerHTML=''});
+  $('#w5-save').onclick=()=>{
+    const errs=[];
+    if(!$('#w5-ser').value.trim()) errs.push('meter_serial is required.');
+    if(!$('#w5-ph').value) errs.push('phase is required.');
+    if(sub==='ct_metered'&&!$('#w5-ct').value) errs.push('ct_ratio is required for subtype ct_metered (subtype_field_rules).');
+    $('#w5-out').innerHTML=errs.length
+      ? `<div class="fbox bad">✘ Save refused</div><ul style="padding-left:18px;font-size:13.5px">${errs.map(e=>`<li>${e}</li>`).join('')}</ul>`
+      : `<div class="fbox good">✔ Saved · METER (${sub})</div><p style="font-size:13.5px">${sub==='ct_metered'?`Reads a CT secondary (ratio ${$('#w5-ct').value}); the same record on a <code>whole_current</code> meter would carry no <code>ct_ratio</code>.`:'Whole-current: the meter carries the full load current; no CT, so no ct_ratio.'}${$('#w5-acc').value?'':' <span class="muted">No account_ref — an in-stock or unassigned meter is valid.</span>'}</p>`;
+  };
+  draw();
+})();
+
+/* ================= W5b: two relationships ================= */
+(function(){
+  let layer='both';
+  const owners={'MTR-A':'SP-A','MTR-B':'SP-B','MTR-C':null};
+  function draw(){
+    const svg=$('#w5b-svg'); const showC=layer!=='own', showO=layer!=='conn';
+    const pos={'SP-A':[560,60],'SP-B':[560,180],'MTR-A':[360,60],'MTR-B':[360,180],'MTR-C':[360,240]};
+    let s=`<path d="M20,120 L130,120" stroke="var(--acc)" stroke-width="5" opacity="${showC?1:.2}"/><text x="75" y="108" font-size="10" text-anchor="middle">LV-1</text>`;
+    if(showC) s+=`<path d="M130,120 L130,60 L338,60 M130,120 L130,180 L338,180" stroke="var(--acc)" stroke-width="3" fill="none"/><path d="M384,60 L538,60 M384,180 L538,180" stroke="var(--acc)" stroke-width="3"/>
+      <text x="460" y="50" font-size="9.5" text-anchor="middle" style="fill:var(--acc-deep)">METER.T2 → SERVICE_POINT.T1</text><text x="234" y="50" font-size="9.5" text-anchor="middle" style="fill:var(--acc-deep)">LV-1 → METER.T1</text>`;
+    for(const m of ['MTR-A','MTR-B','MTR-C']){
+      const [x,y]=pos[m];
+      s+=`<circle cx="${x}" cy="${y}" r="22" fill="var(--raise)" stroke="var(--muted)" stroke-width="3"/><text x="${x}" y="${y+4}" font-size="9.5" text-anchor="middle" style="font-weight:700">${m.replace('MTR-','M·')}</text>`;
+    }
+    for(const sp of ['SP-A','SP-B']){ const [x,y]=pos[sp]; s+=`<path d="M${x},${y-22} L${x+24},${y} L${x},${y+22} L${x-24},${y} Z" fill="var(--s2)"/><text x="${x}" y="${y+36}" font-size="10" text-anchor="middle">${sp}</text>`; }
+    if(showO) for(const m in owners){ const sp=owners[m]; if(!sp) continue; const [x1,y1]=pos[sp],[x2,y2]=pos[m];
+      s+=`<path d="M${x1-18},${y1-26} C${x1-60},${y1-60} ${x2+60},${y2-60} ${x2+8},${y2-24}" fill="none" stroke="var(--amber)" stroke-width="2" stroke-dasharray="5 3"/><circle cx="${x1-18}" cy="${y1-26}" r="4" fill="var(--amber)"/>`; }
+    if(showO) s+=`<text x="470" y="20" font-size="9.5" text-anchor="middle" style="fill:var(--amber)">composite · SP owns METER (who bills)</text>`;
+    s+=`<text x="360" y="292" font-size="9.5" text-anchor="middle" style="fill:var(--muted)">MTR-C: in stock — no owner, no wiring</text>`;
+    svg.innerHTML=s;
+    $('#w5b-out').innerHTML=Object.entries(owners).map(([m,sp])=>`${m} → ${sp||'<span class="muted">(unowned)</span>'}`).join('<br>');
+  }
+  seg('#w5b-layer',b=>{layer=b.dataset.l;draw()});
+  $('#w5b-go').onclick=()=>{
+    const m=$('#w5b-m').value.split(' ')[0], sp=$('#w5b-s').value, cur=owners[m];
+    const out=$('#w5b-out'); let msg;
+    if(cur===sp) msg=`<span class="muted">${m} is already owned by ${sp}.</span>`;
+    else if(cur) msg=`<span style="color:var(--red)">✘ Refused — ${m} already belongs to ${cur}. one_to_many caps the <b>destination</b>: a meter belongs to at most one service point.</span>`;
+    else { owners[m]=sp; msg=`<span style="color:var(--green)">✔ ${sp} now owns ${m}. A service point can own 0..N meters (e.g. a main + a check meter).</span>`; }
+    draw(); out.innerHTML+=`<hr style="border:0;border-top:1px solid var(--line);margin:8px 0">${msg}`;
+  };
+  draw();
+})();
+
+/* ================= W5c: busbar fan-out ================= */
+(function(){
+  function draw(){
+    const n=+$('#w5c-n').value; $('#w5c-v').textContent=n+' flat'+(n>1?'s':'');
+    let s=`<path d="M10,60 L70,60" stroke="var(--acc)" stroke-width="5"/><text x="40" y="48" font-size="9" text-anchor="middle">main</text>
+      <rect x="70" y="42" width="30" height="36" rx="3" fill="var(--muted)"/><text x="85" y="94" font-size="8.5" text-anchor="middle">CUTOUT</text><path d="M100,60 L130,60" stroke="var(--acc)" stroke-width="4"/>
+      <rect x="40" y="20" width="620" height="188" rx="8" fill="none" stroke="var(--muted)" stroke-dasharray="6 4"/><text x="660" y="36" font-size="9.5" text-anchor="end" style="fill:var(--muted)">METER_CHAMBER</text>
+      <rect x="130" y="100" width="520" height="9" rx="2" fill="var(--muted)"/><text x="132" y="126" font-size="9">LV_BUSBAR · T2 = one equipotential bar</text><path d="M130,60 L130,100" stroke="var(--acc)" stroke-width="4"/>`;
+    const cols=Math.min(n,20), step=Math.min(48,500/cols);
+    for(let i=0;i<n;i++){ const x=150+i*step+ (step/2)*0; const y=109;
+      s+=`<path d="M${x},${y} L${x},146" stroke="var(--acc)" stroke-width="2"/><circle cx="${x}" cy="156" r="${Math.min(8,step/2-2)}" fill="var(--raise)" stroke="var(--muted)" stroke-width="2"/><path d="M${x},${164+0} L${x},176" stroke="var(--acc)" stroke-width="2"/><path d="M${x},172 l${Math.min(6,step/3)},6 l-${Math.min(6,step/3)},6 l-${Math.min(6,step/3)},-6 Z" fill="var(--s2)"/>`; }
+    $('#w5c-svg').innerHTML=s;
+    $('#w5c-r1').textContent='1  (BUSBAR T2 → METER T1)'; $('#w5c-t1').textContent='2  (T1, T2)'; $('#w5c-c1').textContent=n;
+    $('#w5c-r2').textContent=n; $('#w5c-t2').textContent=(n+1); $('#w5c-c2').textContent=n;
+  }
+  $('#w5c-n').addEventListener('input',draw); draw();
+})();
+
+/* ================= W6: inline vs off-path + CT/VT bench ================= */
+(function(){
+  let lvl='mv', sv=11;
+  function draw(){
+    const mv=lvl==='mv';
+    $('#w6-mvctl').style.display=mv?'block':'none';
+    const I=+$('#w6-I').value, pf=+$('#w6-pf').value; $('#w6-I-v').textContent=I+' A'; $('#w6-pf-v').textContent=pf.toFixed(2);
+    const ctS=$('#w6-ct').value; const [p,sec]=ctS.split('_').map(Number); const ctr=p/sec;
+    const vtr=sv*1000/110;
+    const V=sv*1000, P=SQ3*V*I*pf/1000;                       // kW primary
+    const I2=I/ctr, V2=110, P2=SQ3*V2*I2*pf;                  // W secondary
+    const back=P2*ctr*vtr/1000;
+    const over=I2>5*1.2, high=I2>5, low=I2<0.25;
+    const svg=$('#w6-svg'); let s='';
+    if(!mv){
+      s=`<text x="14" y="22" font-size="11" style="fill:var(--muted)">LV: current flows <b>through</b> the meter</text>
+      <path d="M20,125 L230,125" stroke="var(--acc)" stroke-width="6" stroke-dasharray="14 8"><animate attributeName="stroke-dashoffset" from="0" to="-22" dur=".8s" repeatCount="indefinite"/></path>
+      <circle cx="270" cy="125" r="38" fill="var(--raise)" stroke="var(--muted)" stroke-width="4"/><text x="270" y="132" font-size="22" text-anchor="middle" style="font-weight:700">M</text><text x="270" y="82" font-size="10" text-anchor="middle">METER (junction · T1/T2)</text>
+      <path d="M308,125 L470,125" stroke="var(--acc)" stroke-width="6" stroke-dasharray="14 8"><animate attributeName="stroke-dashoffset" from="0" to="-22" dur=".8s" repeatCount="indefinite"/></path>
+      <path d="M500,100 L526,125 L500,150 L474,125 Z" fill="var(--s2)"/><text x="500" y="176" font-size="10" text-anchor="middle">SERVICE_POINT</text>
+      <text x="270" y="190" font-size="10" text-anchor="middle" style="fill:var(--muted)">100 % of the customer’s current passes through it</text>`;
+    } else {
+      s=`<text x="14" y="22" font-size="11" style="fill:var(--muted)">MV: current bypasses the meter</text>
+      <path d="M20,100 L400,100" stroke="var(--acc)" stroke-width="6" stroke-dasharray="14 8"><animate attributeName="stroke-dashoffset" from="0" to="-22" dur=".8s" repeatCount="indefinite"/></path>
+      <text x="40" y="88" font-size="10">MV_CONDUCTOR · ${I} A at ${sv} kV</text>
+      <path d="M430,78 L458,100 L430,122 L402,100 Z" fill="var(--s2)"/><text x="430" y="64" font-size="10" text-anchor="middle">MV_METERING_POINT</text>
+      <rect x="180" y="118" width="46" height="26" rx="3" fill="none" stroke="var(--blue)" stroke-width="2.5"/><text x="203" y="135" font-size="10" text-anchor="middle">MV_CT</text>
+      <rect x="290" y="118" width="46" height="26" rx="3" fill="none" stroke="var(--blue)" stroke-width="2.5"/><text x="313" y="135" font-size="10" text-anchor="middle">MV_VT</text>
+      <path d="M203,100 L203,118 M313,100 L313,118" stroke="var(--blue)" stroke-width="2"/>
+      <path d="M203,144 L203,183 L226,183 M313,144 L313,183 L304,183" fill="none" stroke="var(--blue)" stroke-width="2" stroke-dasharray="4 3"/>
+      <rect x="226" y="166" width="78" height="34" rx="4" fill="var(--raise)" stroke="var(--muted)" stroke-width="3" stroke-dasharray="5 3"/><text x="265" y="187" font-size="11" text-anchor="middle" style="font-weight:700">MV_METER</text>
+      <text x="203" y="162" font-size="9" style="fill:var(--blue)" text-anchor="middle">${fx(I2,2)} A</text><text x="313" y="162" font-size="9" style="fill:var(--blue)" text-anchor="middle">110 V</text>
+      <text x="430" y="170" font-size="9.5" style="fill:var(--muted)" text-anchor="middle">meter has no terminals —</text><text x="430" y="184" font-size="9.5" style="fill:var(--muted)" text-anchor="middle">only sensing links (dashed)</text>`;
+    }
+    svg.innerHTML=s;
+    $('#w6-out').innerHTML=mv?`
+      <div class="lab" style="margin-top:4px">What the meter sees</div>
+      <dl class="kv" style="margin:6px 0">
+        <dt>CT ratio</dt><dd>${p}:${sec} = ${fx(ctr,0)} : 1</dd><dt>VT ratio</dt><dd>${sv*1000}:110 = ${fx(vtr,0)} : 1</dd>
+        <dt>Secondary I</dt><dd style="color:${over?'var(--red)':high?'var(--amber)':'inherit'}">${fx(I2,2)} A (rated 5 A)</dd><dt>Secondary V</dt><dd>110 V</dd>
+        <dt>Meter reads</dt><dd>${fx(P2,0)} W</dd><dt>× CT × VT</dt><dd>${fx(ctr*vtr,0)}</dd></dl>
+      <div class="readout"><b>${fx(back,0)} kW</b> primary<br><span class="muted">check: √3·${sv} kV·${I} A·${pf.toFixed(2)} = ${fx(P,0)} kW</span></div>
+      ${over?'<p style="color:var(--red);font-size:13px">CT over-ranged: the secondary is above its rating — pick a bigger ratio.</p>':low?'<p style="color:var(--amber);font-size:13px">Very small secondary current — poor accuracy; a smaller ratio would read better.</p>':''}`
+      :`<div class="readout">The meter sits <b>in series</b> — so a <code>METER</code> is a real <b>junction</b> with <b>T1/T2</b>. An open meter would break the supply.<br><br><span class="muted">Switch to MV to see why that model fails there.</span></div>`;
+  }
+  seg('#w6-lvl',b=>{lvl=b.dataset.l;draw()}); seg('#w6-sv',b=>{sv=+b.dataset.v;draw()});
+  ['#w6-I','#w6-pf'].forEach(x=>$(x).addEventListener('input',draw)); $('#w6-ct').onchange=draw; draw();
+})();
+
+/* ================= W7: network meter ================= */
+(function(){
+  let at='TX-101', mode=null;
+  const net={'B-1':['TX-101'],'TX-101':['LV-1'],'LV-1':['MTR-A','MTR-B'],'MTR-A':['SP-A'],'MTR-B':['SP-B']};
+  const walk=s=>{const out=[];(function w(n){out.push(n);(net[n]||[]).forEach(w)})(s);return out};
+  function draw(){
+    const pos={'B-1':[60,100],'TX-101':[170,100],'LV-1':[290,100],'MTR-A':[420,60],'SP-A':[550,60],'MTR-B':[420,150],'SP-B':[550,150]};
+    const reach=mode==='bad'?[]:mode==='good'?walk(at):[];
+    let s='';
+    for(const a in net) for(const b of net[a]){ const [x1,y1]=pos[a],[x2,y2]=pos[b]; s+=`<path d="M${x1},${y1} L${x1+((x2-x1)/2)},${y1} L${x1+((x2-x1)/2)},${y2} L${x2},${y2}" fill="none" stroke="${reach.includes(a)&&reach.includes(b)?'var(--acc)':'var(--muted)'}" stroke-width="3"/>`; }
+    for(const n in pos){ const [x,y]=pos[n]; const on=reach.includes(n);
+      const shape=n.startsWith('SP')?`<path d="M${x},${y-14} L${x+14},${y} L${x},${y+14} L${x-14},${y} Z" fill="${on?'var(--acc)':'var(--s2)'}"/>`:n.startsWith('MTR')?`<circle cx="${x}" cy="${y}" r="13" fill="var(--raise)" stroke="${on?'var(--acc)':'var(--muted)'}" stroke-width="3"/>`:n==='TX-101'?`<circle cx="${x-6}" cy="${y}" r="11" fill="none" stroke="${on?'var(--acc)':'var(--muted)'}" stroke-width="3"/><circle cx="${x+6}" cy="${y}" r="11" fill="none" stroke="${on?'var(--acc)':'var(--muted)'}" stroke-width="3"/>`:n==='B-1'?`<rect x="${x-6}" y="${y-18}" width="12" height="36" fill="var(--muted)"/>`:`<circle cx="${x}" cy="${y}" r="5" fill="${on?'var(--acc)':'var(--muted)'}"/>`;
+      s+=shape+`<text x="${x}" y="${y+(n.startsWith('M')||n.startsWith('S')?30:34)}" font-size="9.5" text-anchor="middle">${n}</text>`; }
+    // network meter overlay
+    const [mx,my]=pos[at]; const ox=mx, oy=at==='TX-101'?28:34;
+    s+=`<rect x="${ox-44}" y="${oy-14}" width="88" height="28" rx="4" fill="var(--raise)" stroke="var(--amber)" stroke-width="2" stroke-dasharray="5 3"/><text x="${ox}" y="${oy+4}" font-size="9.5" text-anchor="middle" style="fill:var(--amber);font-weight:700">NETWORK_METER</text>
+      <path d="M${ox},${oy+14} L${mx},${my-(at==='TX-101'?16:10)}" stroke="var(--amber)" stroke-width="1.8" stroke-dasharray="3 3"/><text x="${ox+50}" y="${oy+34}" font-size="8.5" style="fill:var(--amber)">metering_accounting</text>`;
+    $('#w7-svg').innerHTML=s;
+    $('#w7-out').innerHTML=mode==='bad'
+      ? `<div class="fbox bad">✘ Nothing to walk</div><p style="font-size:13.5px">A <code>NETWORK_METER</code> has <b>no terminals</b>, sits on <b>no network rule</b>, and is <b>no barrier</b> — a trace has no node to start from, and never walks <em>through</em> it. It’s an accounting overlay, not a topology node.</p>`
+      : mode==='good'
+      ? `<div class="fbox good">✔ ${walk(at).length} features downstream of ${at}</div><div class="readout" style="margin-top:8px">${walk(at).join(' → ')}</div><p style="font-size:13.5px">“What’s downstream of this meter?” is answered by tracing the <b>element it meters</b>. The kWh for it live in the MDM, fetched through the meter’s <code>external_ref</code> — VoltEdge stores none.</p>`
+      : `<p class="muted" style="font-size:13.5px;margin-top:0">Pick where the meter sits, then try the two traces.</p><dl class="kv"><dt>Accounting purpose</dt><dd class="muted">typically on</dd><dt>substation_incomer</dt><dd>POWER_XFMR · MV_BUSBAR</dd><dt>feeder_head</dt><dd>MV_CONDUCTOR</dd><dt>transformer_metering</dt><dd>DIST_XFMR · POWER_XFMR</dd><dt>bus_section</dt><dd>MV_BUSBAR</dd><dt>boundary_exchange<br>interchange_tie</dt><dd>MV_CONDUCTOR</dd><dt>generation_export</dt><dd>MV_CONDUCTOR</dd></dl><p class="muted" style="font-size:12px;margin:6px 0 0">“Typically on” is a modelling convention, not enforced: the relationship accepts any of the five element classes.</p>`;
+  }
+  seg('#w7-at',b=>{at=b.dataset.a;mode=null;draw()});
+  $('#w7-trace1').onclick=()=>{mode='bad';draw()}; $('#w7-trace2').onclick=()=>{mode='good';draw()}; draw();
+})();
+
+/* ================= W8: supply-chain builder ================= */
+(function(){
+  const RULES={LV_CONDUCTOR:['LV_CONDUCTOR','SERVICE_POINT','SERVICE_CUTOUT','METER','LV_BUSBAR','STREET_LIGHT'],SERVICE_CUTOUT:['SERVICE_POINT','METER','LV_BUSBAR'],METER:['SERVICE_POINT'],LV_BUSBAR:['METER'],SERVICE_POINT:[],STREET_LIGHT:[]};
+  const GATED=new Set(['LV_CONDUCTOR','STREET_LIGHT']);   // phase-gated hops FROM a conductor
+  const PRESETS=[['1',['SERVICE_POINT']],['2',['SERVICE_CUTOUT','SERVICE_POINT']],['3',['METER','SERVICE_POINT']],['4 · house',['SERVICE_CUTOUT','METER','SERVICE_POINT']],['5',['LV_BUSBAR','METER','SERVICE_POINT']],['6 · block',['SERVICE_CUTOUT','LV_BUSBAR','METER','SERVICE_POINT']],['7',['STREET_LIGHT']]];
+  const CHAINS={'LV_CONDUCTOR,SERVICE_POINT':[1,'bare / unmetered tap'],'LV_CONDUCTOR,SERVICE_CUTOUT,SERVICE_POINT':[2,'fused, unmetered'],'LV_CONDUCTOR,METER,SERVICE_POINT':[3,'metered, no cut-out'],'LV_CONDUCTOR,SERVICE_CUTOUT,METER,SERVICE_POINT':[4,'the standard house'],'LV_CONDUCTOR,LV_BUSBAR,METER,SERVICE_POINT':[5,'board fan-out (METER×N → SERVICE_POINT×N)'],'LV_CONDUCTOR,SERVICE_CUTOUT,LV_BUSBAR,METER,SERVICE_POINT':[6,'the apartment block (METER×N → SERVICE_POINT×N)'],'LV_CONDUCTOR,STREET_LIGHT':[7,'unmetered leaf']};
+  let chain=['LV_CONDUCTOR'], msg='Start from a conductor off a transformer’s T2. Add the next element, or load a preset.';
+  const popt=PHASES.map(p=>`<option>${p}</option>`).join(''); $('#w8-pm').innerHTML=popt; $('#w8-pn').innerHTML=popt; $('#w8-pm').value='L1L2L3N'; $('#w8-pn').value='L1N';
+  $('#w8-pre').innerHTML=PRESETS.map((p,i)=>`<button data-i="${i}">#${p[0]}</button>`).join('');
+  $('#w8-add').innerHTML=['LV_CONDUCTOR','SERVICE_CUTOUT','LV_BUSBAR','METER','SERVICE_POINT','STREET_LIGHT'].map(c=>`<button data-c="${c}">+ ${c}</button>`).join('')+'<button data-c="DIRECT" class="no">DIST_XFMR → SERVICE_POINT (direct)</button>';
+  const norm=c=>c.filter((x,i)=>!(x==='LV_CONDUCTOR'&&c[i-1]==='LV_CONDUCTOR'));
+  function draw(){
+    const last=chain[chain.length-1]; const leaf=last==='SERVICE_POINT'||last==='STREET_LIGHT';
+    const key=norm(chain).join(','); const hit=CHAINS[key];
+    $('#w8-chain').innerHTML=`<span class="fbox">DIST_XFMR · T2</span>`+chain.map(c=>`<span class="arr">→</span><span class="fbox ${c==='SERVICE_POINT'||c==='STREET_LIGHT'?'good':''}">${c}</span>`).join('');
+    const status=hit?`<span style="color:var(--green);font-weight:700">✔ Complete — chain #${hit[0]}: ${hit[1]}.</span>`:leaf?'':'<span class="muted">Incomplete — a supply must end at a SERVICE_POINT or STREET_LIGHT.</span>';
+    $('#w8-msg').innerHTML=`${msg}<br>${status}`;
+    $('#w8-add').querySelectorAll('button[data-c]').forEach(b=>{ const c=b.dataset.c; b.disabled = c!=='DIRECT' && (leaf || !RULES[last].includes(c)); });
+  }
+  $('#w8-add').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b||b.disabled) return; const c=b.dataset.c; const last=chain[chain.length-1];
+    if(c==='DIRECT'){ msg=`<span style="color:var(--red)">✘ Rejected.</span> The <code>DIST_XFMR T2 → SERVICE_POINT</code> rule is <b>retired</b> (<code>is_valid=false</code>) once an LV conductor exists on the transformer — supply must flow through the wire.`; draw(); return; }
+    if(last==='LV_CONDUCTOR' && GATED.has(c)){
+      const i=phInter($('#w8-pm').value,$('#w8-pn').value);
+      if(!i.length){ msg=`<span style="color:var(--red)">✘ Rejected by <code>phase_rule = phases_intersect</code>.</span> line phases {${[...lineSet($('#w8-pm').value)]}} ∩ {${[...lineSet($('#w8-pn').value)]}} = ∅ (neutral is ignored). Choose phases that share a live line phase.`; draw(); return; }
+      msg=`<span style="color:var(--green)">✔ Accepted</span> — they share line phase {${i}}.`;
+    } else msg=`<span style="color:var(--green)">✔ Accepted</span> — a rule authorises <code>${last} → ${c}</code>.`;
+    chain.push(c); draw();
+  });
+  $('#w8-pre').addEventListener('click',e=>{const b=e.target.closest('button'); if(!b) return; chain=['LV_CONDUCTOR',...PRESETS[+b.dataset.i][1]]; msg=`Loaded preset #${PRESETS[+b.dataset.i][0]}.`; draw()});
+  $('#w8-reset').onclick=()=>{chain=['LV_CONDUCTOR'];msg='Start over.';draw()}; draw();
+  // attempts that the rule table doesn't contain are simply disabled; show why on hover
+  $('#w8-add').querySelectorAll('button[data-c]').forEach(b=>{ if(b.dataset.c!=='DIRECT') b.title='Enabled only when a network rule authorises this hop from the last element'; });
+})();
+
+/* ================= W9: consumption roll-up ================= */
+(function(){
+  const PR={P1:'Life support',P2:'Essential',P3:'Priority',P4:'Standard'};
+  const CRIT=new Set(['P1','P2']);
+  const state={A:{},B:{}};
+  function preset(p){
+    const sp={A:{present:true,kw:15,pf:.95,cust:'',pri:'P4',sub:'commercial'},B:{present:true,kw:30,pf:.90,cust:'',pri:'P4',sub:'industrial'}};
+    const m={A:{role:'',kw:'',pf:'',cust:''},B:{role:'',kw:'',pf:'',cust:''}};
+    if(p==='half'){ m.A.role='PRIMARY';m.A.kw=15;m.A.pf=.95; m.B.role='PRIMARY';m.B.kw=30;m.B.pf=.90; }
+    if(p==='mig'){ m.A.role='PRIMARY';m.A.kw=15;m.A.pf=.95; m.B.role='PRIMARY';m.B.kw=30;m.B.pf=.90; sp.A.present=false; sp.B.present=false; }
+    state.sp=sp; state.m=m;
+  }
+  const num=v=>v===''||v==null||isNaN(+v)?null:+v;
+  function draw(){
+    const rows=['A','B'];
+    $('#w9-in').innerHTML=`<tr><th>Leaf</th><th>Class</th><th>meter_role</th><th>present</th><th>demand_kw</th><th>power_factor</th><th>customers_served</th><th>load_priority</th></tr>`+
+      rows.map(k=>{const m=state.m[k],s=state.sp[k];return `
+      <tr><td><code>MTR-${k}</code></td><td>METER</td><td><select data-k="${k}" data-f="m.role" class="fld"><option value="">(unset)</option><option${m.role==='CHECK'?' selected':''}>CHECK</option><option${m.role==='PRIMARY'?' selected':''}>PRIMARY</option></select></td><td class="muted">—</td>
+        <td><input type="number" class="fld" data-k="${k}" data-f="m.kw" value="${m.kw}" placeholder="—" style="width:80px"></td><td><input type="number" step=".01" class="fld" data-k="${k}" data-f="m.pf" value="${m.pf}" placeholder="1" style="width:70px"></td><td><input type="number" class="fld" data-k="${k}" data-f="m.cust" value="${m.cust}" placeholder="NULL" style="width:70px"></td><td class="muted">—</td></tr>
+      <tr><td><code>SP-${k}</code></td><td>SERVICE_POINT</td><td class="muted">—</td><td><input type="checkbox" data-k="${k}" data-f="s.present" ${s.present?'checked':''}></td>
+        <td><input type="number" class="fld" data-k="${k}" data-f="s.kw" value="${s.kw}" style="width:80px"></td><td><input type="number" step=".01" class="fld" data-k="${k}" data-f="s.pf" value="${s.pf}" style="width:70px"></td><td><input type="number" class="fld" data-k="${k}" data-f="s.cust" value="${s.cust}" placeholder="NULL" style="width:70px"></td>
+        <td><select class="fld" data-k="${k}" data-f="s.pri">${Object.keys(PR).map(x=>`<option${s.pri===x?' selected':''}>${x}</option>`).join('')}</select></td></tr>`}).join('');
+    $('#w9-in').querySelectorAll('[data-f]').forEach(el=>{ const h=()=>{ const [t,f]=el.dataset.f.split('.'); const o=t==='m'?state.m[el.dataset.k]:state.sp[el.dataset.k]; o[f]= el.type==='checkbox'?el.checked:(el.tagName==='SELECT'?el.value:el.value); draw0(); }; el.addEventListener('change',h); });
+    draw0();
+  }
+  function draw0(){
+    const leaves=[];
+    for(const k of ['A','B']){
+      const m=state.m[k], s=state.sp[k];
+      if(m.role==='PRIMARY') leaves.push({id:'MTR-'+k,cls:'METER',kw:num(m.kw)||0,pf:num(m.pf)||1,cust:num(m.cust)>0?Math.floor(num(m.cust)):1,pri:'P4'});
+      if(s.present) leaves.push({id:'SP-'+k,cls:'SERVICE_POINT',kw:num(s.kw)||0,pf:num(s.pf)||1,cust:num(s.cust)>0?Math.floor(num(s.cust)):1,pri:s.pri});
+    }
+    const T={n:leaves.length,cust:0,kw:0,kva:0}; const tier={P1:{...{n:0,cust:0,kw:0,kva:0}},P2:{n:0,cust:0,kw:0,kva:0},P3:{n:0,cust:0,kw:0,kva:0},P4:{n:0,cust:0,kw:0,kva:0}};
+    const crit={n:0,cust:0,kw:0,kva:0};
+    for(const l of leaves){ l.kva=l.kw/l.pf; const add=o=>{o.n++;o.cust+=l.cust;o.kw+=l.kw;o.kva+=l.kva}; T.cust+=l.cust;T.kw+=l.kw;T.kva+=l.kva; add(tier[l.pri]); if(CRIT.has(l.pri)) add(crit); }
+    const hazards=[];
+    for(const k of ['A','B']){ const m=state.m[k],s=state.sp[k]; if(m.role==='PRIMARY'&&s.present) hazards.push(k); }
+    const inert=[]; for(const k of ['A','B']){ const m=state.m[k]; if(m.role!=='PRIMARY') inert.push(`MTR-${k} (${m.role||'role unset'})`); }
+    $('#w9-out').innerHTML=`
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+        <div class="readout"><div class="lab">leaves</div><div class="big">${T.n}</div></div><div class="readout"><div class="lab">customers</div><div class="big">${T.cust}</div></div>
+        <div class="readout"><div class="lab">demand kW</div><div class="big">${fx(T.kw,1)}</div></div><div class="readout"><div class="lab">demand kVA</div><div class="big">${fx(T.kva,1)}</div></div></div>
+      <div class="tbl" style="margin:0"><table><tr><th>Counted leaf</th><th>kW</th><th>pf</th><th>kVA = kW ÷ pf</th><th>customers</th><th>tier</th></tr>
+      ${leaves.map(l=>`<tr><td><code>${l.id}</code></td><td>${fx(l.kw,1)}</td><td>${l.pf}</td><td>${fx(l.kva,2)}</td><td>${l.cust}</td><td>${l.pri}</td></tr>`).join('')||'<tr><td colspan="6" class="muted">Nothing counted.</td></tr>'}</table></div>
+      <div class="tbl" style="margin:12px 0 0"><table><tr><th>Tier</th>${Object.keys(PR).map(k=>`<th>${k} · ${PR[k]}</th>`).join('')}<th>critical (P1+P2)</th></tr>
+      <tr><td>customers / kW</td>${Object.keys(PR).map(k=>`<td>${tier[k].cust} / ${fx(tier[k].kw,1)}</td>`).join('')}<td>${crit.cust} / ${fx(crit.kw,1)}</td></tr></table></div>
+      <p class="muted" style="font-size:12.5px;margin:10px 0 0">Per-leaf kVA, summed — not derived from an averaged pf. Seed values: 15/0.95 + 30/0.90 = 15.79 + 33.33 = <b>49.12 kVA</b>.</p>`;
+    $('#w9-warn').innerHTML=(hazards.length?`<div class="caution" style="margin:0 0 12px"><b>Double-count hazard</b><br>${hazards.map(k=>`Supply ${k}: a <code>PRIMARY</code> meter <em>and</em> its service point both count`).join('; ')} — the walk reaches both leaves, so kW <em>and</em> customers are counted twice. Load must live in <b>one</b> place per supply: move it to the meter and retire the SP (the “Migrated” preset), or leave the meter role unset.</div>`:'<div class="tip" style="margin:0 0 12px"><b>Counted once</b><br>Each supply’s load lives in exactly one place.</div>')+
+      `<div class="lab">Inert meters</div><p style="font-size:13px;margin:4px 0 0">${inert.length?inert.join(', ')+' — contribute nothing (only PRIMARY meters count).':'none — every meter is PRIMARY.'}</p>`;
+  }
+  seg('#w9-pre',b=>{preset(b.dataset.p);draw()}); preset('seed'); draw();
+})();
+
+/* ================= W10: ring ================= */
+(function(){
+  const R=.164; // WAVEFORM_185 ohm/km
+  function draw(){
+    const a=+$('#w10-a').value, b=+$('#w10-b').value, P=+$('#w10-p').value;
+    $('#w10-a-v').textContent=a+' m'; $('#w10-b-v').textContent=b+' m'; $('#w10-p-v').textContent=P+' kW';
+    const Ra=R*a/1000, Rb=R*b/1000, Pa=P*Rb/(Ra+Rb), Pb=P-Pa;
+    const I=P*1000/(SQ3*400), Ia=I*Pa/P, Ib=I-Ia;
+    const Rp=Ra*Rb/(Ra+Rb), dV=SQ3*I*Rp;
+    const wa=2+8*Pa/P, wb=2+8*Pb/P;
+    $('#w10-svg').innerHTML=`<circle cx="50" cy="95" r="20" fill="none" stroke="var(--muted)" stroke-width="3"/><circle cx="68" cy="95" r="20" fill="none" stroke="var(--muted)" stroke-width="3"/><text x="58" y="140" font-size="10" text-anchor="middle">TX-R</text>
+      <path d="M88,95 C110,40 150,40 220,40 L440,40 C470,40 480,60 490,95" fill="none" stroke="var(--acc)" stroke-width="${wa}"/><text x="260" y="30" font-size="10.5" text-anchor="middle" style="font-weight:700">LVA · ${a} m · ${fx(Pa,1)} kW</text>
+      <path d="M88,95 C110,150 150,150 220,150 L440,150 C470,150 480,130 490,95" fill="none" stroke="var(--s1)" stroke-width="${wb}"/><text x="260" y="176" font-size="10.5" text-anchor="middle" style="font-weight:700">LVB · ${b} m · ${fx(Pb,1)} kW</text>
+      <circle cx="505" cy="95" r="15" fill="var(--raise)" stroke="var(--muted)" stroke-width="3"/><text x="505" y="99" font-size="10" text-anchor="middle" style="font-weight:700">M</text><text x="505" y="128" font-size="9" text-anchor="middle">MTR-R</text><path d="M520,95 L536,95" stroke="var(--acc)" stroke-width="3"/><path d="M548,81 L562,95 L548,109 L534,95 Z" fill="var(--s2)" transform="translate(-4,0)"/>`;
+    $('#w10-out').innerHTML=`
+      <dl class="kv"><dt>R(LVA)</dt><dd>${fx(Ra*1000,2)} mΩ</dd><dt>R(LVB)</dt><dd>${fx(Rb*1000,2)} mΩ</dd><dt>Ratio</dt><dd>R<sub>B</sub> : R<sub>A</sub> = ${fx(b/a,2)} : 1</dd></dl>
+      <div class="readout" style="margin-top:10px">P<sub>A</sub> = P · R<sub>B</sub>/(R<sub>A</sub>+R<sub>B</sub>) = <b>${fx(Pa,2)} kW</b><br>P<sub>B</sub> = P − P<sub>A</sub> = <b>${fx(Pb,2)} kW</b><br><span class="muted">split ${fx(Pa/Pb,2)} : 1 &nbsp;·&nbsp; I<sub>total</sub> ${fx(I,1)} A (${fx(Ia,1)} + ${fx(Ib,1)})</span></div>
+      <p style="font-size:13px;margin:10px 0 0">Loop drop ≈ ${fx(dV,2)} V (resistive, pf = 1). Current takes the <em>short</em> way: at the seed’s 100 m / 200 m, LVA carries <b>20 kW</b> and LVB <b>10 kW</b>.</p>`;
+  }
+  ['#w10-a','#w10-b','#w10-p'].forEach(x=>$(x).addEventListener('input',draw));
+  $('#w10-reset').onclick=()=>{$('#w10-a').value=100;$('#w10-b').value=200;$('#w10-p').value=30;draw()}; draw();
+})();
+
+/* ================= W11: ownership ================= */
+(function(){
+  const POS={UMV:[60,40],BULK:[200,40],'TX-101':[340,40],'LV-1':[340,110],'MTR-A':[200,190],'SP-A':[200,270],'MTR-B':[340,190],'SP-B':[340,270],'SW-P':[480,110],'LV-9':[570,110],'SP-C':[570,190],'TX-200':[480,40],'LV-X':[610,40],'SP-D':[660,110]};
+  const LBL={UMV:'utility MV',BULK:'MV_METERING_POINT (bulk_supply)'};
+  const KIND={UMV:'bus','TX-200':'xf','TX-101':'xf',BULK:'diamond','SW-P':'sw','SP-A':'sp','SP-B':'sp','SP-C':'sp','SP-D':'sp','MTR-A':'m','MTR-B':'m'};
+  let st;
+  const init=()=>({ch:{UMV:['BULK','TX-200'],BULK:['TX-101'],'TX-101':['LV-1'],'LV-1':['MTR-A','MTR-B','SW-P'],'MTR-A':['SP-A'],'MTR-B':['SP-B'],'SW-P':['LV-9'],'LV-9':['SP-C'],'TX-200':['LV-X'],'LV-X':['SP-D']},own:{},priv:new Set(),sw:{'SW-P':'open'},log:[]});
+  const down=(ch,from)=>{const out=[];(function w(n){(ch[n]||[]).forEach(c=>{out.push(c);w(c)})})(from);return out};   // ignores open switches, crosses transformers
+  const should=()=>{const s=new Set();st.priv.forEach(t=>{s.add(t);down(st.ch,t).forEach(x=>s.add(x))});return s};
+  function reset(){st=init();draw()}
+  function bar(){
+    const t='TX-101', isP=st.priv.has(t);
+    $('#w11-bar').innerHTML=`<button class="btn pri" id="a-mark">${isP?'Re-mark downstream private':'Mark downstream private'}</button><button class="btn" id="a-sync">Re-sync ownership</button><span class="lab" style="margin-left:8px">Change something</span>
+      <button class="btn warn" id="a-unp">Set TX-101 ownership = utility (by hand)</button><button class="btn warn" id="a-rew">Re-wire MTR-B onto LV-X (utility TX-200)</button>`;
+    $('#a-mark').onclick=()=>{ st.priv.add(t); const d=down(st.ch,t); st.own[t]='private'; d.forEach(x=>st.own[x]='private'); st.log.unshift(`Marked TX-101 private → stamped ${d.length+1} features, one transaction.`); draw() };
+    $('#a-sync').onclick=()=>{ const s=should(); const before=Object.keys(st.own).length; st.own={}; s.forEach(x=>st.own[x]='private'); st.log.unshift(`Re-sync → recomputed from ${st.priv.size} private transformer${st.priv.size===1?'':'s'}; ${s.size} features private.`); draw() };
+    $('#a-unp').onclick=()=>{ st.priv.delete(t); delete st.own[t]; st.log.unshift('Hand-edit: TX-101 → utility. Its downstream stamps are untouched.'); draw() };
+    $('#a-rew').onclick=()=>{ if(!(st.ch['LV-1']||[]).includes('MTR-B')) return; st.ch['LV-1']=st.ch['LV-1'].filter(x=>x!=='MTR-B'); st.ch['LV-X'].push('MTR-B'); st.log.unshift('Re-wired MTR-B (and SP-B) off LV-X. Stamps unchanged.'); draw() };
+  }
+  function draw(){
+    bar();
+    const sh=should(); const drift=new Set();
+    const all=Object.keys(POS); all.forEach(n=>{ if((st.own[n]==='private')!==sh.has(n)) drift.add(n); });
+    let s=''; for(const a in st.ch) for(const b of st.ch[a]){ const [x1,y1]=POS[a],[x2,y2]=POS[b]; s+=`<path d="M${x1},${y1} L${x1},${(y1+y2)/2} L${x2},${(y1+y2)/2} L${x2},${y2}" fill="none" stroke="var(--muted)" stroke-width="2.5" ${st.sw[b]==='open'||st.sw[a]==='open'?'stroke-dasharray="4 4"':''}/>`; }
+    for(const n of all){ const [x,y]=POS[n]; const pv=st.own[n]==='private'; const dr=drift.has(n);
+      const fill=pv?'var(--s2)':'var(--raise)', stroke=dr?'var(--amber)':'var(--muted)', sw=dr?4:2.5;
+      let sh_;
+      const k=KIND[n];
+      if(k==='xf') sh_=`<circle cx="${x-6}" cy="${y}" r="12" fill="${pv?'var(--s2)':'none'}" fill-opacity=".35" stroke="${stroke}" stroke-width="${sw}"/><circle cx="${x+6}" cy="${y}" r="12" fill="${pv?'var(--s2)':'none'}" fill-opacity=".35" stroke="${stroke}" stroke-width="${sw}"/>`;
+      else if(k==='sp') sh_=`<path d="M${x},${y-13} L${x+13},${y} L${x},${y+13} L${x-13},${y} Z" fill="${pv?'var(--s2)':'var(--raise)'}" stroke="${stroke}" stroke-width="${sw}"/>`;
+      else if(k==='m') sh_=`<circle cx="${x}" cy="${y}" r="11" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`;
+      else if(k==='bus') sh_=`<rect x="${x-6}" y="${y-16}" width="12" height="32" fill="var(--muted)"/>`;
+      else if(k==='diamond') sh_=`<rect x="${x-13}" y="${y-13}" width="26" height="26" rx="3" fill="var(--raise)" stroke="var(--muted)" stroke-width="2.5"/>`;
+      else if(k==='sw') sh_=`<rect x="${x-9}" y="${y-9}" width="18" height="18" rx="2" fill="${st.sw[n]==='open'?'var(--raise)':'var(--muted)'}" stroke="${stroke}" stroke-width="${sw}"/>`;
+      else sh_=`<circle cx="${x}" cy="${y}" r="5" fill="${pv?'var(--s2)':'var(--muted)'}"/>`;
+      s+=`${sh_}<text x="${x}" y="${y+(k==='sp'?28:k==='bus'?30:26)}" font-size="9.5" text-anchor="middle">${n}${n==='SW-P'?' (open)':''}</text>${pv?`<text x="${x}" y="${y-(k==='xf'?18:16)}" font-size="8.5" text-anchor="middle" style="fill:var(--s2);font-weight:700">PRIVATE</text>`:''}`; }
+    s+=`<text x="200" y="14" font-size="9" text-anchor="middle" style="fill:var(--muted)">utility bulk supply (metered)</text><text x="590" y="14" font-size="9" text-anchor="middle" style="fill:var(--muted)">utility TX-200 branch</text>`;
+    $('#w11-svg').innerHTML=s;
+    $('#w11-leg').innerHTML=`<span><i class="sw" style="background:var(--s2)"></i>ownership = private (stamped)</span><span><i class="sw" style="background:none;border:2px solid var(--amber)"></i>drift — stamp ≠ what traces from a private transformer</span><span class="muted">dashed = open switch (ignored by the walk)</span>`;
+    const supply=['SP-A','MTR-A','LV-1','TX-101','BULK','UMV'];
+    $('#w11-out').innerHTML=`
+      <div class="lab">Supply trace from SP-A (flags, not stops)</div>
+      <div class="readout" style="margin:6px 0 10px">${supply.map(n=>`${n} ${st.own[n]==='private'?'<span class="pill sec" style="background:var(--s2);color:#fff;border-color:var(--s2)">Private</span>':''}`).join('<br>')}</div>
+      <div class="lab">State</div>
+      <div class="readout" style="margin:6px 0 10px"><b>${[...Object.keys(st.own)].filter(n=>st.own[n]==='private').length}</b> features stamped private<br>should be private: <b>${sh.size}</b>${drift.size?`<br><span style="color:var(--amber)">drift on ${drift.size}: ${[...drift].join(', ')}</span>`:'<br><span style="color:var(--green)">in sync</span>'}</div>
+      ${drift.size?'<p style="font-size:13px;margin:0 0 10px"><b>Re-sync ownership</b> reconciles it: ownership always equals “what traces from a private transformer right now”.</p>':''}
+      <div class="lab">Log</div><ul style="padding-left:16px;margin:6px 0;font-size:12.5px">${st.log.slice(0,5).map(l=>`<li>${l}</li>`).join('')||'<li class="muted">Start with “Mark downstream private”.</li>'}</ul>
+      <p class="muted" style="font-size:12.5px;margin:8px 0 0">Note SW-P is open, yet once TX-101 is marked, LV-9 and SP-C are private too: the walk <b>ignores open switches</b>. And the utility’s bulk-supply point (BULK) stays utility.</p>`;
+  }
+  $('#w11-reset').onclick=reset; reset();
+})();
+
+/* ================= Appendix: decision helper ================= */
+(function(){
+  const out=$('#wA-out'), q2=$('#wA-q2');
+  seg('#wA-q1',b=>{
+    const v=b.dataset.v; q2.innerHTML='';
+    if(v==='cust'){ q2.innerHTML=`<div class="seg" id="wA-q2s"><button data-v="lv">LV supply (400 V / 230 V)</button><button data-v="mv">MV handover (11 / 33 kV)</button></div>`;
+      out.innerHTML='Which voltage level does the customer take supply at?';
+      $('#wA-q2s').addEventListener('click',e=>{const c=e.target.closest('button'); if(!c) return; $('#wA-q2s').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===c));
+        out.innerHTML=c.dataset.v==='lv'?'<b><code>METER</code> (inline) + <code>SERVICE_POINT</code></b><br>Current flows through the meter; the service point is the leaf and the owner.':'<b><code>MV_METERING_POINT</code> + <code>MV_METER</code> + <code>MV_CT</code>/<code>MV_VT</code></b><br>Current never flows through the meter; it reads the instrument-transformer secondaries.'});
+    } else if(v==='grid') out.innerHTML='<b><code>NETWORK_METER</code></b><br>An off-path accounting overlay on a transformer / busbar / conductor; readings are external (<code>external_ref</code> → MDM).';
+    else out.innerHTML='<b><code>STREET_LIGHT</code></b><br>An unmetered LV leaf, phase-gated off the main.';
+  });
+})();
+
+/* ================= Appendix: class table ================= */
+(function(){
+  let f='all';
+  function draw(){
+    $('#wB-t').innerHTML='<tr><th>Class</th><th>Role</th><th>Geometry</th><th>Terminals</th><th>Subtypes</th></tr>'+Object.entries(CLS).filter(([k,c])=>f==='all'||c.role===f).map(([k,c])=>`<tr><td><code>${k}</code></td><td><span class="role ${c.role==='none'?'none':c.role==='junction'?'switching':c.role==='edge'?'source':'transformer'}">${c.role==='none'?'off-path':c.role}</span></td><td>${c.geo}</td><td>${c.term}</td><td>${c.sub}</td></tr>`).join('');
+  }
+  seg('#wB-f',b=>{f=b.dataset.f;draw()}); draw();
+})();
+
+/* ================= Quiz ================= */
+(function(){
+  const q=[
+    {t:'A twenty-flat block hangs twenty METERs off one LV_BUSBAR. How many network rules does that fan-out need?',a:'1',o:['1','20','21'],w:'One rule — LV_BUSBAR T2 → METER T1 — satisfied twenty times (one connection row per meter). The bar is one equipotential node.'},
+    {t:'You set PRIMARY on MTR-A but leave SP-A’s 15 kW in place. Roughly what does the roll-up report for that supply?',a:'Counted twice',o:['Counted once','Counted twice','Not counted'],w:'The walk reaches both leaves and both count. Load must live in exactly one place per supply.'},
+    {t:'Which relationship records that SP-A is the one that bills for MTR-A?',a:'composite (ownership)',o:['composite (ownership)','containment','metering_accounting'],w:'Ownership is the commercial/billing fact. Connectivity (where the current flows) is a separate thing, modelled on purpose.'},
+    {t:'A conductor carries L2N. Which street-light phase code is refused under phases_intersect?',a:'L1N',o:['L2','L2N','L1N'],w:'L1N shares only the neutral with L2N — and neutral is deliberately ignored, so the line-phase intersection is empty and the hop is refused.'},
+    {t:'Why is an MV_METER modelled with no terminals?',a:'The primary current never flows through it',o:['It has no geometry','The primary current never flows through it','MV has no network rules'],w:'At MV the meter reads CT/VT secondaries, so it is off the primary path — modelling it inline would misstate where the current goes.'},
+    {t:'TX-101 is private and TIE-1 (inside its LV network) is open. Is the LV beyond TIE-1 private?',a:'Yes',o:['Yes','No'],w:'Ownership propagation is a connectivity walk that ignores open switches — it isn’t an energisation trace.'}
+  ];
+  const host=$('#quiz');
+  host.innerHTML=q.map((x,i)=>`<div class="quiz-q" data-i="${i}"><b>${i+1}.</b> ${x.t}<div class="opts">${x.o.map(o=>`<button class="btn" data-o="${o}">${o}</button>`).join('')}</div><div class="fb" aria-live="polite"></div></div>`).join('');
+  host.querySelectorAll('.quiz-q').forEach(el=>{ const x=q[el.dataset.i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===x.a; const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Not quite — answer: <b>${x.a}</b>. `)+x.w; }); });
+})();
+
+/* ================= chapter rail ================= */
+(function(){
+  const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));
+  const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'});
+  document.querySelectorAll('section.ch').forEach(s=>io.observe(s));
+})();
+
+</script>
+</body></html>
