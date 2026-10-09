@@ -147,6 +147,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "works-inspections-maintenance-guide-interactive",
+		Title:       "Works, Inspections & Maintenance (interactive)",
+		Description: "The WAM manual as something you operate: a persona switch gating every widget by wam:write, a live work board, the defect and work-order state machines with the real auto-status and severity-to-priority rules, a template builder and retire/restore library, an inspection recorder that auto-raises defects and replays idempotently, a maintenance-cycle simulator, Femi's offline field round with outbox sync, the permission and territory gaps, an assistant triage run over the wam_* tools, and a quiz.",
+		Category:    "Interactive guides",
+		Filename:    "works-inspections-maintenance-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "works-inspections-maintenance-guide",
 		Title:       "Works, Inspections & Maintenance",
 		Description: "The Work & Asset Management manual: defects, inspections and the typed work-order lifecycle, on the desk and in the field.",

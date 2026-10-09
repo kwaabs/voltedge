@@ -1,0 +1,935 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Works, Inspections &amp; Maintenance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  /* section palette (categorical, validated for both themes) */
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.role{display:inline-block;font:600 11px/1 var(--f-mono);padding:3px 7px;border-radius:3px;letter-spacing:.03em}
+.role.protective{background:var(--red-tint);color:var(--red)}
+.role.switching{background:var(--blue-tint);color:var(--blue)}
+.role.transformer{background:var(--amber-tint);color:var(--amber)}
+.role.source{background:var(--green-tint);color:var(--green)}
+.role.none{background:var(--line2);color:var(--muted)}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.bgrid{display:grid;grid-template-columns:minmax(0,1fr) 110px 150px auto;gap:5px;align-items:center}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+input[type=number],input[type=text],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--acc-deep);font-weight:700}
+.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+.bar{height:18px;background:var(--line2);border-radius:4px;position:relative;overflow:hidden}
+.bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .15s}
+.big{font:800 28px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums;color:var(--acc-deep)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono)}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.chainrow .arr{color:var(--muted);font:600 12px var(--f-mono)}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+
+/* handbook additions */
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+.matrix{border-collapse:collapse;font-size:12px;width:100%}
+.matrix th,.matrix td{padding:4px 6px;text-align:center;border-bottom:1px solid var(--line2)}
+.matrix td:first-child,.matrix th:first-child{text-align:left;position:sticky;left:0;background:var(--raise)}
+.matrix td.y{background:color-mix(in srgb,var(--green) 22%,transparent);color:var(--green);font-weight:700}
+.matrix tr:hover td{background:var(--surface)} .matrix tr:hover td.y{background:color-mix(in srgb,var(--green) 30%,transparent)}
+.tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:10px}
+.tabs button{font:600 11.5px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:6px 9px;border-radius:5px 5px 0 0;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.tabs button[disabled]{opacity:.4;cursor:not-allowed}
+.tree{font:500 13px var(--f-mono)} .tree .n{padding:3px 6px;border-radius:4px;display:inline-block}
+.tree .n.g{background:var(--tint);color:var(--acc-deep);font-weight:700}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+.ants{animation:march .9s linear infinite} @keyframes march{to{stroke-dashoffset:-16}}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sev{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.sev.low{background:var(--line2);color:var(--muted)} .sev.medium{background:var(--blue-tint);color:var(--blue)} .sev.high{background:var(--amber-tint);color:var(--amber)} .sev.critical{background:var(--red-tint);color:var(--red)} .sev.urgent{background:var(--red-tint);color:var(--red)}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.kpi div{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.kpi b{display:block;font:800 22px/1 var(--f-display);font-stretch:80%}
+.kpi span{font:600 10px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rec{border:1px solid var(--line2);border-radius:6px;padding:6px 8px;margin:5px 0;background:var(--raise);font-size:13px}
+.rec .t{font-weight:600}.rec .m{font-size:11.5px;color:var(--muted)}
+.rec .a{margin-top:4px;display:flex;gap:4px;flex-wrap:wrap}
+.state-chip{display:inline-block;font:700 10.5px var(--f-mono);padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.state-chip.applied,.state-chip.completed,.state-chip.resolved{background:var(--green-tint);color:var(--green);border-color:var(--green)} .state-chip.in_progress,.state-chip.work_ordered,.state-chip.assigned{background:var(--tint);color:var(--acc-deep);border-color:var(--acc)} .state-chip.cancelled,.state-chip.dismissed,.state-chip.rejected{background:var(--line2);color:var(--muted)} .state-chip.open,.state-chip.draft,.state-chip.scheduled{background:var(--amber-tint);color:var(--amber);border-color:var(--amber)}
+@media (max-width:760px){.kpi{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .bgrid{grid-template-columns:1fr 1fr}
+  .bgrid>input:first-child{grid-column:1/-1}
+  li,.rec .t,.rec .m{overflow-wrap:anywhere}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Works</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · Mental model</a><a href="#c2">2 · Defects</a><a href="#c3">3 · Work orders</a><a href="#c4">4 · Templates</a><a href="#c5">5 · Inspections</a><a href="#c6">6 · Maintenance</a><a href="#c7">7 · Field</a><a href="#c8">8 · Permissions</a><a href="#c9">9 · Reference</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge manual · Works, Inspections &amp; Maintenance · running example: SW-Feeder7-03</div>
+  <h1>Find it, fix it,<br><span>keep it healthy</span></h1>
+  <p class="lede">Defects, work orders, checklists and maintenance on a cycle — as one live board you operate. Everything below reads and writes the <em>same</em> simulated Works store, so a defect Femi’s checklist raises in Chapter 5 is sitting in Dana’s inbox in Chapter 2.</p>
+  <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap"><span class="tag pl" style="margin:0">🔒 needs a permission</span><span class="tag en" style="margin:0">🗺️ also depends on territory</span></div>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar: <b>Priya</b> (viewer) and <b>Tom</b> (analyst) hold <span class="perm">wam:read</span> only; <b>Dana</b> (editor, planner), <b>Femi</b> (field technician) and <b>Ada</b> (admin) also hold <span class="perm">wam:write</span>. Buttons that need write are disabled — with the permission named — for the readers.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">About this manual</span>
+<p>The how-to companion for the <b>Works</b> area — the Works page in the sidebar and the <b>Works tab</b> on any asset. It covers <b>Works</b> (defects and work orders), <b>Inspections</b> (reusable checklists that turn findings into tracked defects) and <b>Maintenance</b> (those parts run on a cycle). It documents <b>what has been built</b>: most importantly, <b>recurring, auto-generated maintenance plans are not built yet</b> (Chapter 6). If you administer VoltEdge see the Admin &amp; Break-Glass Guide; for the map and the rest of the product, the User Handbook.</p></div>
+
+<!-- ============ CH1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>The WAM mental model</h2><p>Three record types, one closed loop, two permissions.</p></div>
+
+  <h3>1.1 What WAM is — and what it is not</h3>
+  <p>VoltEdge’s core is a <b>map of the network</b>: every pole, transformer, switch and cable is a <em>feature</em> with a geometry and electrical intelligence. WAM sits alongside it and records the <b>operational life of those assets</b> — the problems found on them, the jobs done to them, and the routine checks run against them.</p>
+  <ul>
+    <li>A <b>transformer</b> is a GIS feature — location, terminals, rated kVA, connections; it appears in traces and analyses.</li>
+    <li>A <b>defect on that transformer</b> (“oil weeping at the LV bushing”) is <b>not</b> a feature. It’s an operational record <em>about</em> it, pointing at it by reference. You never “draw” a defect or a work order — you <b>log</b> it against an asset.</li>
+  </ul>
+  <div class="callout">If it exists in the world and connects to other things, it’s a <em>feature</em>. If it’s something that <em>happened to</em> or <em>needs to happen to</em> a feature, it’s a <em>WAM record</em>.</div>
+
+  <h3>1.2 The three record types</h3>
+  <div class="cards">
+    <div class="card"><span class="tag pl">Defect</span><h4>“What is wrong.”</h4><p>One health finding on one asset: a <b>severity</b>, a <b>source</b>, a short <b>status</b> lifecycle. The module’s inbox.</p></div>
+    <div class="card"><span class="tag pl">Work order</span><h4>“The job that gets done.”</h4><p>One <b>typed engine</b> for inspection, corrective, preventive and construction work — one lifecycle, a priority, an asset, an assignee, a schedule.</p></div>
+    <div class="card"><span class="tag pl">Inspection</span><h4>“The routine check.”</h4><p>A reusable <b>template</b> (checklist) and a filled-out <b>inspection</b> of it against an asset. A failing item can be armed to <b>auto-log a defect</b>.</p></div>
+  </div>
+
+  <h3>1.3 The closed loop</h3>
+  <p>Findings become tracked problems; problems become planned work; completed work and fresh inspections reveal the next findings. A defect enters by hand, from an OMS outage, or automatically from a failing inspection item. From an open defect you <b>raise a corrective work order</b> in one action; the crew completes it; the defect is <b>resolved</b>.</p>
+  <figure><div class="scroll"><svg viewBox="0 0 700 150" width="100%" style="min-width:600px" id="loop"></svg></div><figcaption><b>The loop.</b> Hover a box. Preventive orders and inspection rounds run on a cycle — that’s Chapter 6.</figcaption></figure>
+  <div class="tip"><b>The habit this manual teaches</b><br><b>Don’t resolve a defect by fixing it quietly.</b> Raise a work order from it, do the work against that order, complete the order, then resolve the defect — leaving a linked finding → job → done trail an audit, a reliability report, or next year’s engineer can read.</div>
+
+  <h3>1.4 Where WAM lives — two front doors</h3>
+  <p>The <b>Works page (the board)</b> is the cross-asset view for planning and triage: a <b>KPI strip</b> (Open defects, Active orders, In progress, Unassigned), a <b>defect → order flow board</b> (inbox on the left, orders in flight on the right), and the inspection templates and history below, with each row’s actions in a compact <b>⋯ menu</b>. The <b>Works tab</b> on an asset’s panel is the single-asset view — only that transformer’s or pole’s records, with the asset already filled in when you log. It appears on <b>any</b> asset, electrically connected or not. Same records, two angles — try both:</p>
+
+  <div class="widget" id="w1">
+    <div class="w-head"><span class="eyebrow">Interactive · 1</span><h4>The Works board — as <span id="w1-who"></span></h4><span style="flex:1"></span><button class="btn" id="w1-reset">Reset store</button></div>
+    <div class="w-bar"><span class="lab">View</span><div class="seg" id="w1-view"><button data-v="board" aria-pressed="true">Works board (all assets)</button><button data-v="tab" aria-pressed="false">Works tab (one asset)</button></div><select class="fld" id="w1-asset" style="max-width:200px;display:none"></select><label style="font-size:13px"><input type="checkbox" id="w1-mine"> Mine</label></div>
+    <div class="w-body" id="w1-body"></div>
+  </div>
+
+  <h3>1.5 Who can do what — the two-permission model</h3>
+  <div class="tbl"><table>
+    <tr><th>Permission</th><th>Grants</th><th>Held by (seeded roles)</th></tr>
+    <tr><td><span class="perm">wam:read</span></td><td>See the Works board and tab; read every defect, work order, template and inspection.</td><td>viewer, analyst, editor, admin, break-glass</td></tr>
+    <tr><td><span class="perm">wam:write</span></td><td>Everything write: log/triage/resolve defects; create, assign, schedule, complete, cancel work orders; author, retire, restore templates; record inspections.</td><td>editor, admin, break-glass, <b>field roles</b></td></tr>
+  </table></div>
+  <ul>
+    <li><b>Read is broad; write is narrower.</b> Priya opens a transformer’s Works tab and reads its whole history but sees no buttons. Tom is the same unless separately granted write.</li>
+    <li><b>Write is flat</b> — the same permission that lets Femi close a work order lets him author an org-wide template (Chapter 8).</li>
+    <li><b>Territory applies — but see Chapter 8.5:</b> the Works <em>board</em> is not territory-scoped the way the map is.</li>
+    <li><b>The tab hides itself</b> without <span class="perm">wam:read</span> — absence, not an error.</li>
+  </ul>
+
+  <h3>1.6 A day in the loop</h3>
+  <p>The whole module in one story. Step through it; each step really changes the board above.</p>
+  <div class="widget" id="w1b">
+    <div class="w-head"><span class="eyebrow">Interactive · 2</span><h4>Monday 08:10 → Thursday 11:05</h4><span style="flex:1"></span><button class="btn" id="w1b-reset">Restart story</button></div>
+    <div class="w-body"><div id="w1b-steps"></div><div class="readout" id="w1b-log" style="margin-top:8px" aria-live="polite"></div></div>
+  </div>
+</section>
+
+<!-- ============ CH2 ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>Defects: recording what’s wrong</h2><p>The module’s atom — everything downstream is only as good as the defects feeding it.</p></div>
+
+  <h3>2.1 What a defect records</h3>
+  <ul>
+    <li><b>An anchor</b> — an <b>asset</b> (feature class + id), <em>or</em> a map <b>location</b> (an “orphan”). Never half of one (a class with no id) and never neither — VoltEdge rejects those.</li>
+    <li><b>A title</b> (required) — what shows in every list. <b>A severity</b> (low/medium/high/critical, default <b>medium</b>). <b>A source</b> (inspection/outage/condition_monitoring/ad_hoc, default <b>ad_hoc</b>). <b>A status</b> (starts <b>open</b>).</li>
+    <li>Optional: a free-text <b>defect type</b>, <b>description</b>, <b>notes</b>, <b>reported by/at</b>, and for outage-sourced defects the <b>OMS incident</b> it explains.</li>
+  </ul>
+  <div class="tip"><b>Tip</b><br>“Corrosion” is a bad title; “Heavy corrosion on the HV earth strap, ~30% section loss” is a good one. Put the actionable specifics in the title, the evidence in the description.</div>
+
+  <h3>2.2 The four ways a defect is born</h3>
+  <div class="cards">
+    <div class="card"><h4>1 · Board</h4><p><b>Works → Log defect.</b> Pick the asset class + id. Dana’s usual door for second-hand reports.</p></div>
+    <div class="card"><h4>2 · Works tab</h4><p>On the map, asset in view: the asset is <b>already filled in</b>. Also where a defect can be <b>orphaned to a location</b>.</p></div>
+    <div class="card"><h4>3 · OMS outage</h4><p>An implicated asset leaves a durable record: <b>source = outage</b>, linked to the incident.</p></div>
+    <div class="card"><h4>4 · Inspection</h4><p>A failing armed checklist item <b>auto-logs</b> one: <b>source = inspection</b>, titled from the prompt, linked to the item (Chapter 5).</p></div>
+  </div>
+  <div class="caution"><b>One inbox</b><br>However born, a defect lands in <b>one</b> place — the board’s Defects column and the asset’s Works tab. Source is a <em>label on</em> the defect, not a place it lives.</div>
+
+  <h3>2.5 Logging a defect, step by step</h3>
+  <p>Try the rules: leave the title empty; set an asset class without an id; submit with neither an asset nor a location. For an orphan, click the map to drop the pin.</p>
+  <div class="widget" id="w2a">
+    <div class="w-head"><span class="eyebrow">Interactive · 3</span><h4>Log defect <span id="w2a-gate"></span></h4></div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="ctl"><label>Anchor</label><div class="seg" id="d-anch"><button data-a="asset" aria-pressed="true">An asset</button><button data-a="loc" aria-pressed="false">No asset — a map location</button></div></div>
+        <div id="d-anchbox"></div>
+        <div class="ctl"><label>Title <span class="v" style="color:var(--red)">required</span></label><input type="text" id="d-title" placeholder="Stay wire heavily corroded, near failure"></div>
+        <div class="row2"><div class="ctl"><label>Severity <span class="muted">default medium</span></label><select class="fld" id="d-sev"><option>low</option><option selected>medium</option><option>high</option><option>critical</option></select></div>
+        <div class="ctl"><label>Source <span class="muted">default ad_hoc</span></label><select class="fld" id="d-src"><option>inspection</option><option>outage</option><option>condition_monitoring</option><option selected>ad_hoc</option></select></div></div>
+        <button class="btn pri" id="d-save">Save defect</button>
+      </div>
+      <div class="w-side" id="d-out"></div>
+    </div>
+  </div>
+
+  <h3>2.3 Choosing severity well</h3>
+  <p>Severity drives triage order <em>and</em> the priority of any work raised from it. Click a row to see what you’d be signing up for:</p>
+  <div class="widget" id="w2b"><div class="w-body"><div class="tbl" style="margin:0"><table id="sv-t"></table></div><div class="readout" id="sv-out" style="margin-top:8px"></div></div></div>
+  <div class="tip"><b>Tip</b><br>If you want to mark everything <b>high</b> “so it gets done,” you’ve moved the problem to the work-order queue. Severity is triage signal, not a plea.</div>
+
+  <h3>2.4 The status lifecycle · 2.6 Triage · 2.7 Raise a work order</h3>
+  <p>Four states: <b>open</b> → <b>work_ordered</b> → <b>resolved</b> / <b>dismissed</b>, reopenable back to open. Terminal moves <b>stamp a resolved timestamp</b>; reopening <b>clears</b> it. <b>You can’t raise work for a closed defect</b> — reopen it first. Triage means one of three decisions per open defect: needs a fix → <b>raise a work order</b>; fixed/not real → <b>resolve or dismiss</b>; needs watching → leave open <em>with a note</em>.</p>
+  <p><b>Raise work order</b> is the hinge, and it’s one atomic action: it creates a <b>corrective</b> order linked to the defect, titled <code>Repair: &lt;defect title&gt;</code>, with <b>priority derived from severity</b>, carrying the asset (and any location pin — for an orphan, the only anchor the crew gets), and flips the defect to <b>work_ordered</b> — but only from <code>open</code>. A second order against an already-ordered defect is allowed; a resolved/dismissed one is refused. Pick a defect and drive it:</p>
+
+  <div class="widget" id="w2c">
+    <div class="w-head"><span class="eyebrow">Interactive · 4</span><h4>Triage a defect <span id="w2c-gate"></span></h4></div>
+    <div class="w-split">
+      <div class="w-main"><div class="ctl"><label>Defect</label><select class="fld" id="t-sel"></select></div><div id="t-card"></div>
+        <div class="p-acts" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="btn pri" id="t-raise">Raise work order…</button><button class="btn" id="t-res">Resolve</button><button class="btn" id="t-dis">Dismiss</button><button class="btn" id="t-re">Reopen</button></div>
+        <div id="t-dlg" style="margin-top:10px"></div></div>
+      <div class="w-side" id="t-out"></div>
+    </div>
+  </div>
+  <div class="caution"><b>Don’t resolve quietly</b><br>Resolving the moment work is done in the field, without a work order, is quicker in the moment and destroys the trail — a year later a report can’t show <em>what</em> was done or <em>by whom</em>. Resolve <em>after</em> the order that fixed it completes.</div>
+  <div class="tip"><b>Pitfalls</b><br>Vague titles bury problems. Severity inflation breaks triage. Don’t re-log a defect that’s already work-ordered (dismiss genuine duplicates). Orphan defects must be pinned. Log where you are — on the map with the asset in view, use its Works tab.</div>
+</section>
+
+<!-- ============ CH3 ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>Work orders: the one typed engine</h2><p>Not four systems — one record type, four flavours.</p></div>
+
+  <h3>3.1–3.3 One engine, four flavours</h3>
+  <p>Every unit of work is the same kind of record, distinguished by a <b>work type</b>: <b>corrective</b> (fix a known problem — born from a defect), <b>inspection</b> (a checklist round — fulfilled by recording an inspection), <b>preventive</b> (time-based servicing, no specific defect) and <b>construction</b> (new build). The type is <em>guidance, not a gate</em> — pick it so the work is findable and reportable. You get one place to look, one set of habits, and consistent reporting. An order carries a <b>title</b>, a <b>type</b>, a <b>priority</b> (default medium), a <b>status</b>, an optional <b>primary asset</b> (naming it puts the order on that asset’s Works tab), an optional <b>assignment</b> and <b>schedule</b>, auto-stamped <b>started/completed</b> times and a <b>completion note</b>.</p>
+
+  <h3>3.4 The shared lifecycle</h3>
+  <p><b>draft → scheduled → assigned → in_progress → completed</b>, or <b>cancelled</b> any time before done. Three mechanics keep it from being bureaucratic: <b>creation auto-advances</b> (name an assignee → assigned; a schedule only → scheduled; neither → draft); <b>timestamps keep themselves honest</b> (started-at is set once; completed-at is set on completion and cleared if you move off completed); and you <b>don’t have to walk every step</b> — the board gives you Start, Complete, Cancel.</p>
+
+  <h3>3.5–3.8 Priority, assignment, schedule — create one</h3>
+  <ul>
+    <li><b>Assignment:</b> an <b>internal worker</b> (picked from everyone holding <span class="perm">wam:write</span> — which is why Femi is in Dana’s picker, and why you can never assign work to someone who can’t close it) and/or a free-text <b>external crew</b> label.</li>
+    <li><b>Scheduled-for</b> vs <b>due-by</b> (API/agent): both are planning <em>labels</em> — they don’t alert. Scheduled and unassigned is a perfectly good state.</li>
+  </ul>
+  <div class="widget" id="w3a">
+    <div class="w-head"><span class="eyebrow">Interactive · 5</span><h4>New work order <span id="w3a-gate"></span></h4></div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="row2"><div class="ctl"><label>Work type</label><select class="fld" id="o-type"><option>inspection</option><option>preventive</option><option>construction</option><option>corrective</option></select></div><div class="ctl"><label>Priority</label><select class="fld" id="o-pri"><option>low</option><option selected>medium</option><option>high</option><option>urgent</option></select></div></div>
+        <div class="ctl"><label>Title</label><input type="text" id="o-title" value="Q3 pole-top inspection, Feeder 7 north"></div>
+        <div class="ctl"><label>Asset <span class="muted">optional</span></label><select class="fld" id="o-asset"></select></div>
+        <div class="row2"><div class="ctl"><label>Assign to worker <span class="muted">(wam:write holders)</span></label><select class="fld" id="o-who"></select></div><div class="ctl"><label>External crew <span class="muted">label</span></label><input type="text" id="o-crew" placeholder="Contractor: Voltaic Ltd"></div></div>
+        <div class="ctl"><label>Scheduled for</label><input type="text" id="o-sched" placeholder="e.g. Mon 08:00"></div>
+        <button class="btn pri" id="o-save">Create work order</button>
+      </div>
+      <div class="w-side" id="o-out"></div>
+    </div>
+  </div>
+
+  <h3>3.10–3.11 Driving an order, reading the board</h3>
+  <p><b>Start</b> → in_progress and stamps started-at (the In progress KPI ticks up). <b>Complete</b> → completed and stamps completed-at. <b>Cancel</b> → cancelled (the record is kept). The KPIs: <b>Active orders</b> (not completed/cancelled), <b>In progress</b> (if it stays high, jobs are started but not finished) and <b>Unassigned</b> (no owner at all — drive it to zero each pass). Note the engine detail: completing an order that was never started stamps <em>both</em> times.</p>
+  <div class="widget" id="w3b">
+    <div class="w-head"><span class="eyebrow">Interactive · 6</span><h4>Drive an order <span id="w3b-gate"></span></h4></div>
+    <div class="w-split">
+      <div class="w-main"><div class="ctl"><label>Work order</label><select class="fld" id="m-sel"></select></div><div id="m-card"></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="btn pri" id="m-start">Start</button><button class="btn" id="m-done">Complete</button><button class="btn" id="m-cancel">Cancel</button><button class="btn" id="m-reopen">Move back to assigned</button></div><div class="ctl" style="margin-top:8px"><label>Completion note</label><input type="text" id="m-note" placeholder="Reseated gasket, topped up oil, no weep after 30 min"></div></div>
+      <div class="w-side" id="m-out"></div>
+    </div>
+  </div>
+  <div class="tip"><b>Pitfalls</b><br>Corrective work belongs to its defect — raise it <em>from</em> the defect. Drive Unassigned to zero. Assign to a <em>user</em> where you can (it powers “Mine”). Start when you start, complete when you finish — a batch “completed” at 5 pm with no start times tells a report nothing. Cancel; don’t delete-by-neglect.</div>
+</section>
+
+
+<!-- ============ CH4 ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>Inspection templates: reusable checklists</h2><p>The fail-severity arm is the heart of it.</p></div>
+
+  <h3>4.1–4.2 Why checklists, and what a template is made of</h3>
+  <p>Templates beat paragraphs on <b>consistency</b> (everyone answers the same questions in the same order), <b>completeness</b> (the twelve things are <em>listed</em>), <b>automation</b> (a structured “fail” can raise a defect) and <b>evidence</b> (this asset, these criteria, this date). A template has a <b>head</b> — a stable <b>code</b> (<code>MV_SWGR_ANNUAL</code>), a <b>name</b>, a description and an optional <b>asset class</b> scope — and at least one ordered <b>item</b>: a <b>prompt</b> (phrase it so “pass” is the good answer), a <b>response type</b>, an optional <b>fail severity</b> and optional <b>guidance</b>. Items appear in the order you list them — put them in the sequence a person walks the asset.</p>
+
+  <h3>4.3 The four response types</h3>
+  <div class="tbl"><table>
+    <tr><th>Type</th><th>The inspector records…</th><th>Use for</th></tr>
+    <tr><td><code>pass_fail</code></td><td>Pass / Fail (or N/A)</td><td>Most of a checklist — “Any corrosion on the tank?”</td></tr>
+    <tr><td><code>rating</code></td><td>A number on a scale (plus pass/fail)</td><td>Graded condition — “Paintwork 1–5.”</td></tr>
+    <tr><td><code>numeric</code></td><td>A measured reading (plus pass/fail)</td><td>“Earth resistance (Ω)”, “Oil temperature (°C)”</td></tr>
+    <tr><td><code>text</code></td><td>Free text (plus pass/fail)</td><td>“Nameplate serial”, “Observations”</td></tr>
+  </table></div>
+  <p>Every type still has a <b>pass/fail outcome</b> — it’s that outcome, not the raw number, that drives the auto-defect and the overall result. The default is <code>pass_fail</code>.</p>
+
+  <h3>4.4 The fail-severity arm</h3>
+  <p>Each item’s fail severity is either <b>unset</b> (“None — informational”: a fail is recorded with a ✗ but raises <b>no</b> defect) or <b>armed</b> at low/medium/high/critical (a failing answer <b>auto-logs a defect</b> at that severity when the inspection is recorded — on the asset, source <code>inspection</code>, titled from the prompt, linked to the item). Authoring is largely deciding <b>which items are armed, and how urgently</b> — you are pre-deciding the triage of a whole class of future failures. Leave observational items unset so a checklist doesn’t spray low-value defects into the inbox.</p>
+  <div class="caution"><b>The field-app UI defaults a new item to <code>medium</code> — armed</b><br>A sensible default, but you must <em>deliberately</em> choose “None (informational)” for observational items, or every one will raise a defect when failed. Review each item before saving.</div>
+
+  <h3>4.5 Building a template</h3>
+  <div class="widget" id="w4a">
+    <div class="w-head"><span class="eyebrow">Interactive · 7</span><h4>New template <span id="w4a-gate"></span></h4><span style="flex:1"></span><button class="btn" id="b-load">Load Dana’s MV_SWGR_V2 draft</button></div>
+    <div class="w-split" style="grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)">
+      <div class="w-main">
+        <div class="row2"><div class="ctl"><label>Code</label><input type="text" id="b-code" placeholder="MV_SWGR_ANNUAL_V2"></div><div class="ctl"><label>Name</label><input type="text" id="b-name" placeholder="MV switchgear annual inspection (v2)"></div></div>
+        <div class="ctl"><label>Asset class <span class="muted">optional scope</span></label><select class="fld" id="b-cls"><option value="">— general (any asset) —</option><option>MV_SWITCHGEAR_PANEL</option><option>DIST_XFMR</option><option>POLE</option></select></div>
+        <div class="lab" style="margin:8px 0 4px">Checklist items (in walk order)</div>
+        <div id="b-items"></div>
+        <button class="btn" id="b-add">＋ item</button> <button class="btn pri" id="b-save">Create template</button>
+      </div>
+      <div class="w-side" id="b-out"></div>
+    </div>
+  </div>
+
+  <h3>4.6–4.9 Scope, versioning, retiring — and who can author</h3>
+  <ul>
+    <li><b>Scope</b> documents intent and <b>pre-fills the asset class</b> at record time; leave it blank for a general checklist.</li>
+    <li><b>Templates are versioned, not edited.</b> There is no “edit items.” When a recorded inspection saves, each answer <b>snapshots the prompt and response type</b>, so a completed inspection is a permanent standalone record. To revise: create a <b>new template</b> and <b>retire the old one</b>.</li>
+    <li><b>Retired</b> hides a template from the record picker but keeps it, so every inspection ever recorded against it still reads correctly. <b>Restore</b> reverses it. Nothing is deleted.</li>
+    <li><b>Write is flat:</b> authoring, retiring and restoring all sit under <span class="perm">wam:write</span> — the same permission that lets a field technician log a defect. (Chapter 8.)</li>
+  </ul>
+  <div class="widget" id="w4b">
+    <div class="w-head"><span class="eyebrow">Interactive · 8</span><h4>Template library <span id="w4b-gate"></span></h4></div>
+    <div class="w-body" id="l-lib"></div>
+  </div>
+  <div class="tip"><b>Pitfalls</b><br>Arm deliberately — the UI defaults to armed. Phrase prompts so “pass” is good. Order items as you walk the asset. Use guidance to make judgements objective. Scope class-specific lists. Don’t over-arm — a checklist where every item is high floods triage on a bad day.</div>
+</section>
+
+<!-- ============ CH5 ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>Recording inspections: executing a checklist</h2><p>The single most valuable action in WAM — and the one field crews do most.</p></div>
+
+  <h3>5.1 What recording does — atomically</h3>
+  <ol class="steps">
+    <li>Writes the <b>inspection</b> and <b>one result row per item</b> (each snapshotting its prompt and type).</li>
+    <li>For every item answered <b>Fail</b> that carries a <b>fail severity</b>, <b>logs a defect</b> (asset, source <code>inspection</code>, armed severity, titled from the prompt) and links it back onto the item result.</li>
+    <li>Rolls up the <b>overall result</b>: <b>pass</b> unless any item failed (a <b>conditional</b> override exists for processes that need a middle ground).</li>
+    <li>If it’s <b>fulfilling a work order</b> and you asked, marks that order <b>completed</b> with the inspection outcome as its note.</li>
+  </ol>
+  <p>All of it succeeds or none of it does, and a device-minted id makes replays no-ops (§5.9). Pick a template, optionally the planned order it fulfils (which pre-fills the asset), fill the checklist and watch the <b>live preview line</b> — then save:</p>
+
+  <div class="widget" id="w5a">
+    <div class="w-head"><span class="eyebrow">Interactive · 9</span><h4>Record inspection <span id="w5a-gate"></span></h4></div>
+    <div class="w-split" style="grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)">
+      <div class="w-main">
+        <div class="row2"><div class="ctl"><label>Template <span class="muted">active only</span></label><select class="fld" id="r-tpl"></select></div><div class="ctl"><label>Fulfilling work order</label><select class="fld" id="r-wo"></select></div></div>
+        <label id="r-cwrap" style="font-size:13px;display:block;margin-bottom:6px"><input type="checkbox" id="r-cw" checked> Mark this work order completed</label>
+        <div class="ctl"><label>Asset <span class="muted">class + id, required</span></label><select class="fld" id="r-asset"></select></div>
+        <div id="r-items"></div>
+        <div id="r-prev" class="readout" style="margin:8px 0" aria-live="polite"></div>
+        <button class="btn pri" id="r-save">Record inspection</button> <button class="btn" id="r-replay" disabled>Sync the same inspection again</button>
+      </div>
+      <div class="w-side" id="r-out"></div>
+    </div>
+  </div>
+
+  <h3>5.8 Reviewing recorded inspections</h3>
+  <p>Each row shows the overall result as a badge; <b>click to expand</b> item-by-item: ✓ passed, ✗ failed, — unanswered/N/A, the value where there was one, and a <b>defect link</b> on any item that raised one. This is the audit artefact — readers (<span class="perm">wam:read</span>), including Priya, can browse it; they just can’t record.</p>
+  <div class="widget" id="w5b"><div class="w-head"><span class="eyebrow">Interactive · 10</span><h4>Inspections</h4></div><div class="w-body" id="h-list"></div></div>
+  <div class="tip"><b>Pitfalls</b><br>Read the preview before saving. Record N/A honestly — never Pass what doesn’t apply. Put the substance in notes and readings (“slow weep, ~1 drop/min”) — the defect inherits the context. Fulfil the work order when there is one. Don’t hand-log a defect for an armed fail — the inspection already raised it. A missing template has been retired.</div>
+</section>
+
+<!-- ============ CH6 ============ -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>Maintenance: running it on a cycle</h2><p>The most honest chapter: strong tools — and <em>you</em> supply the cadence.</p></div>
+
+  <h3>6.1–6.2 What maintenance means here</h3>
+  <p>Maintenance isn’t a fourth module — it’s the deliberate, scheduled use of the three record types in three modes: <b>inspection rounds</b> (inspection orders fulfilled by recorded inspections), <b>preventive servicing</b> (greasing, tightening, oil top-ups, vegetation — preventive orders) and <b>corrective follow-through</b> (fix what the rounds find). Chapter 1’s loop, run on a schedule, <em>is</em> a regime.</p>
+
+  <h3>6.3 What’s automated, and what you drive by hand</h3>
+  <div class="tbl"><table>
+    <tr><th>Automated for you</th><th>You drive by hand (today)</th></tr>
+    <tr><td>A failing <b>armed</b> item raises a defect.</td><td>Deciding the <b>cadence</b>. VoltEdge stores no maintenance interval.</td></tr>
+    <tr><td><b>Raise work order</b> creates a linked corrective order and flips the defect.</td><td><b>Creating each cycle’s</b> inspection and preventive orders.</td></tr>
+    <tr><td>Status <b>auto-advances</b> at creation; timestamps stamp themselves.</td><td><b>Remembering when a cycle is due</b> — no reminders, alerts or notifications; due-by and scheduled-for are <em>labels</em>, not triggers.</td></tr>
+    <tr><td>Recording an inspection can <b>complete</b> its order.</td><td><b>Re-running the round</b> next period. Completing this quarter’s orders does not schedule next quarter’s.</td></tr>
+    <tr><td>Offline records sync <b>idempotently</b>.</td><td>A <b>“what’s due this month”</b> view — assemble it from the board’s filters.</td></tr>
+  </table></div>
+  <div class="caution"><b>Recurring, auto-generated plans are a planned capability, not a built one</b><br>Nothing in VoltEdge will create a work order on a timer. Treat it as a superb <em>execution and record</em> system whose <em>cadence you own</em> — assets silently fall out of cycle otherwise.</div>
+
+  <h3>6.4–6.7 Run a cycle</h3>
+  <p>The recipe: author scoped, armed checklists once; <b>write the cadences down outside VoltEdge</b>; each cycle <b>create the work orders</b>, pre-assigned and scheduled; crews <b>execute</b> (record inspections fulfilling their orders; Start/Complete preventive orders); the planner <b>triages and corrects</b>; then <b>close the cycle and diarise the next</b>. Run July’s Q3 switchgear round — and notice what does <em>not</em> happen when you finish:</p>
+  <div class="widget" id="w6">
+    <div class="w-head"><span class="eyebrow">Interactive · 11</span><h4>Q3 round <span id="w6-gate"></span></h4><span style="flex:1"></span><button class="btn" id="mc-reset">Restart round</button></div>
+    <div class="w-split">
+      <div class="w-main"><div id="mc-steps"></div><div class="readout" id="mc-log" style="margin-top:8px" aria-live="polite"></div></div>
+      <div class="w-side"><div class="lab" style="margin-bottom:4px">Your maintenance calendar <span class="muted">(outside VoltEdge)</span></div><div class="readout" id="mc-cal"></div>
+        <label style="font-size:13px;display:block;margin-top:10px"><input type="checkbox" id="mc-future"> Show what changes when recurring plans arrive</label><div id="mc-fut" style="font-size:13px;margin-top:6px"></div></div>
+    </div>
+  </div>
+  <p><b>6.5–6.6 Tracking without a scheduler:</b> filter by <b>work type</b> (inspection/preventive), by <b>open</b> (empty = round done), read the KPIs as progress, let crews use <b>Mine</b>, and use scheduled-for/due-by as <em>dates</em> (they inform; they don’t alert). Maintenance plugs into <b>asset tags</b> (scan the asset, open its Works tab), the <b>offline field pack</b>, and <b>OMS</b> (outage-sourced defects land in the same inbox your rounds feed).</p>
+  <div class="tip"><b>Pitfalls</b><br>The system won’t remind you — keep an external cadence document and diarise the next cycle every time you close one. A completed round isn’t a scheduled next one. Scope templates and assign at creation. Let rounds feed triage; don’t shadow-track findings. Use preventive vs corrective honestly. Due-by is a plan, not an alarm.</div>
+</section>
+
+<!-- ============ CH7 ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>In the field, offline</h2><p>The field app is a capture tool, not a second control room.</p></div>
+
+  <h3>7.1–7.2 A pack and an outbox</h3>
+  <p>The <b>pack</b> is a snapshot of the network and the Works context frozen when you build it; the <b>outbox</b> is a local queue of everything you do. Works captures ride the <b>same outbox and the same sync button</b> as map edits. A Works-enabled pack carries your <b>open and work-ordered defects</b> on the packed assets, <b>your own</b> non-terminal work orders, and every <b>active template</b>. It’s <b>frozen at build time</b>, and <b>whether it includes Works at all is decided by your <span class="perm">wam:read</span> at that moment</b>.</p>
+
+  <h3>7.3–7.8 Build, go offline, sync</h3>
+  <p>Build a pack for Femi, take it offline, work a round — start and complete orders, run an inspection, log a defect (including an <b>orphan by GPS</b>) — then sync. Drop the connection halfway and sync again: <b>device-minted ids</b> mean nothing doubles.</p>
+  <div class="widget" id="w7">
+    <div class="w-head"><span class="eyebrow">Interactive · 12</span><h4>Femi’s dead-spot round</h4><span style="flex:1"></span><button class="btn" id="f-reset">Reset round</button></div>
+    <div class="w-bar"><div class="seg" id="f-mode"><button data-m="depot" aria-pressed="true">● At the depot (online)</button><button data-m="field" aria-pressed="false">○ In the field (offline)</button></div></div>
+    <div class="w-split" style="grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)">
+      <div class="w-main" id="f-main"></div>
+      <div class="w-side"><div class="lab" style="margin-bottom:4px">Outbox (on the phone)</div><div id="f-box"></div><div class="readout" id="f-log" style="margin-top:8px" aria-live="polite"></div></div>
+    </div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>You <b>can</b>, offline</th><th>You <b>cannot</b>, offline</th></tr>
+    <tr><td>Work your assigned orders — start, complete, note.</td><td>Create a brand-new work order (log a defect; a planner raises the order).</td></tr>
+    <tr><td>Log defects against packed assets (or by GPS).</td><td>See defects that weren’t packed.</td></tr>
+    <tr><td>Record inspections from any active checklist.</td><td>Author or edit a checklist template.</td></tr>
+    <tr><td>Let armed fails auto-raise defects on sync.</td><td>Assign work to others, or see other crews’ orders.</td></tr>
+    <tr><td>Update a defect’s status; complete a fulfilling order.</td><td>Attach a photo to an <em>orphan</em> defect.</td></tr>
+  </table></div>
+  <div class="en-b"><span class="tag en">∑ Why sync is replay-safe</span><p>Every record created in the field gets a unique id <b>on the device</b>, before it syncs. When the server sees a create it already has, it returns the existing record instead of making a second. <b>Inspections get extra care</b> — recording has side effects (it raises defects), so the server checks “have I already recorded this inspection id?” first, and a replay doesn’t re-raise anything. Status updates and start/complete are naturally safe (last write wins).</p></div>
+  <div class="tip"><b>Pitfalls</b><br>Build the pack close to departure. Check the manifest counts before you lose signal. Make titles and notes specific. Sync early, sync often, sync without fear. Log the defect — don’t wait to make the order. Photograph asset-anchored problems; describe orphan ones. Don’t hunt for other crews’ work.</div>
+</section>
+
+<!-- ============ CH8 ============ -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>Permissions, territory &amp; the agent</h2><p>Two honest sharp edges — and the whole module through MCP.</p></div>
+
+  <h3>8.1–8.3 Two permissions, one method-aware gate</h3>
+  <p>One gate at the module’s mount: <b>GET</b> requires <span class="perm">wam:read</span>, <b>POST/PATCH</b> requires <span class="perm">wam:write</span>. The browser UI, the field app and the agent all pass through it. Per role:</p>
+  <div class="widget" id="w8a"><div class="w-body"><div class="tbl" style="margin:0"><table id="g-grid"></table></div><div class="readout" id="g-out" style="margin-top:8px"></div></div></div>
+  <p>Because the assignee picker is exactly the set of <span class="perm">wam:write</span> holders, you can never assign work to someone who can’t complete it.</p>
+
+  <h3>8.4 The first sharp edge: write is flat</h3>
+  <p>There is no “template author” permission. <b>Anyone who can write to Works can create — and retire — templates the entire organisation runs.</b> The blast radius is bounded (templates can’t be deleted, only retired/restored; recorded inspections snapshot their items), so manage it <b>by convention</b>: agree who curates the library. If it must be locked down, that’s a permission-model change, not a setting. See it happen:</p>
+  <div class="widget" id="w8b"><div class="w-body"><div class="seg" id="s-who"></div><div class="readout" id="s-out" style="margin-top:8px"></div></div></div>
+
+  <h3>8.5 The second sharp edge: Works is <em>not</em> territory-scoped</h3>
+  <p>The map is spatially access-controlled; <b>Works is not</b>. A user with <span class="perm">wam:read</span> sees the <b>entire</b> board, org-wide; with <span class="perm">wam:write</span> they can act on <b>any</b> record, wherever the asset sits. Territory reaches Works only indirectly — through the feature-panel Works tab (scoped by the asset you can open) and the field pack (area-filtered). The <code>/works</code> board and the agent tools go straight at the <code>wam</code> schema and are bounded by neither. Treat <span class="perm">wam:read</span> as an organisation-wide grant, and don’t use Works as a data-isolation boundary.</p>
+  <div class="widget" id="w8c">
+    <div class="w-head"><span class="eyebrow">Interactive · 14</span><h4>Same user, three doors</h4></div>
+    <div class="w-bar"><span class="lab">A planner scoped on the map to</span><div class="seg" id="t-terr"><button data-t="north" aria-pressed="true">North district</button><button data-t="south" aria-pressed="false">South district</button></div></div>
+    <div class="w-body"><div class="row3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px" id="t-doors"></div></div>
+  </div>
+
+  <h3>8.6–8.8 Break-glass and the agent (MCP)</h3>
+  <p>Break-glass satisfies both permissions and sees everything — audited, for emergencies. The whole module is exposed as <b>17 MCP tools</b> (9 reads, 8 writes), one thin adapter per engine function. The agent <b>acts as you</b>, with your permissions; writes are annotated so a good client <b>asks a human first</b>; the engine validates identically for every caller. Run Dana’s triage:</p>
+  <div class="widget" id="w8d">
+    <div class="w-head"><span class="eyebrow">Interactive · 15</span><h4>Agent console — as <span id="a-who"></span></h4></div>
+    <div class="w-split" style="grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)">
+      <div class="w-main"><div class="lab" style="margin-bottom:4px">Tools</div><div id="a-tools"></div></div>
+      <div class="w-side"><div class="lab" style="margin-bottom:4px">Session</div><div id="a-log" style="font-size:13px;min-height:120px"></div></div>
+    </div>
+  </div>
+  <div class="tip"><b>Pitfalls</b><br>Grant <span class="perm">wam:read</span> knowing it’s global. Curate templates by convention. Assign only to write holders — the picker ensures it. Don’t use Works as an isolation boundary. Let the agent confirm writes. Break-glass is total and audited.</div>
+</section>
+
+<!-- ============ CH9 ============ -->
+<section class="ch" id="c9">
+  <div class="ch-head"><div class="ch-num">09</div><h2>Appendix: reference tables &amp; cheat sheet</h2><p>The lookup — gathered so you don’t have to hunt.</p></div>
+
+  <h3>9.1–9.2 Records and enumerated values</h3>
+  <div class="tbl"><table>
+    <tr><th>Record</th><th>What it is</th><th>Anchored by</th><th>Terminal states</th></tr>
+    <tr><td>Defect</td><td>A problem found on an asset</td><td>an asset <b>or</b> a location (never a partial of either)</td><td><code>resolved</code>, <code>dismissed</code></td></tr>
+    <tr><td>Work order</td><td>A job to be done</td><td>optionally an asset / location / defect</td><td><code>completed</code>, <code>cancelled</code></td></tr>
+    <tr><td>Inspection</td><td>A recorded execution of a checklist</td><td>an asset (required)</td><td>— (a point-in-time record)</td></tr>
+  </table></div>
+  <div class="widget" id="w9a"><div class="w-bar"><div class="seg" id="e-k"></div></div><div class="w-body" id="e-body"></div></div>
+
+  <h3>9.3–9.4 Lifecycles and what the engine derives for you</h3>
+  <div class="tbl"><table>
+    <tr><th>The engine does this</th><th>Rule</th></tr>
+    <tr><td>Auto-advances a new order’s status</td><td>assignee ⇒ <code>assigned</code>; schedule only ⇒ <code>scheduled</code>; neither ⇒ <code>draft</code></td></tr>
+    <tr><td>Stamps lifecycle timestamps</td><td>→ <code>in_progress</code> stamps started-at; → <code>completed</code> stamps completed-at (set once, preserved)</td></tr>
+    <tr><td>Derives corrective priority</td><td>critical → urgent, high → high, low → low, else medium</td></tr>
+    <tr><td>Titles a raised order</td><td><code>Repair: &lt;defect title&gt;</code> unless overridden</td></tr>
+    <tr><td>Rolls up the overall result</td><td>fail if any item failed, else pass</td></tr>
+    <tr><td>Auto-raises defects from an inspection</td><td>every failing item carrying a <code>fail_severity</code> → one linked defect (<code>source = inspection</code>)</td></tr>
+    <tr><td>Completes a work order from its inspection</td><td>with <code>complete_work_order</code>, in the same transaction, note “Inspection recorded: &lt;overall&gt;”</td></tr>
+    <tr><td>Flips the defect on raise · rejects a raise from a terminal defect</td><td><code>open</code> → <code>work_ordered</code>, atomically · a resolved/dismissed defect must be reopened first</td></tr>
+  </table></div>
+  <div class="caution"><b>A discrepancy in the Markdown manual</b><br>§9.2 and §9.4 say <code>pass_fail</code> is “the only type that can auto-raise a defect.” Chapter 4 says every type has a pass/fail outcome that can arm a defect — and the engine agrees with Chapter 4: it raises a defect for <em>any</em> item answered fail that carries a fail severity, whatever its response type. (In the field app, §7.4 only shows pass/fail chips on pass/fail items, so offline you’d arm via those.)</div>
+
+  <h3>9.5–9.8 Permission grid, REST, offline ops, agent tools</h3>
+  <div class="tbl"><table>
+    <tr><th>Surface</th><th>Detail</th></tr>
+    <tr><td>REST <code>/wam</code></td><td>GET <code>defects</code>, <code>defects/{id}</code>, <code>work-orders</code>, <code>work-orders/{id}</code>, <code>assignable-users</code>, <code>inspection-templates[/{id}]</code>, <code>inspections[/{id}]</code> (<span class="perm">wam:read</span>) · POST <code>defects</code>, <code>defects/{id}/status</code>, <code>defects/{id}/work-order</code>, <code>work-orders</code>, <code>inspection-templates</code>, <code>inspection-templates/{id}/active</code>, <code>inspections</code>; PATCH <code>work-orders/{id}</code> (<span class="perm">wam:write</span>)</td></tr>
+    <tr><td>Offline sync ops</td><td><code>wam_defect_create</code> (device UUID, <em>ON CONFLICT DO NOTHING</em>) · <code>wam_defect_status</code> · <code>wam_workorder_update</code> (naturally safe) · <code>wam_inspection_record</code> (device UUID, existence-check up front). <b>No</b> offline work-order create.</td></tr>
+    <tr><td>Agent reads (9)</td><td><code>wam_list_defects</code> <code>wam_get_defect</code> <code>wam_list_work_orders</code> <code>wam_get_work_order</code> <code>wam_list_assignable_users</code> <code>wam_list_templates</code> <code>wam_get_template</code> <code>wam_list_inspections</code> <code>wam_get_inspection</code></td></tr>
+    <tr><td>Agent writes (8)</td><td><code>wam_create_defect</code> <code>wam_set_defect_status</code> <code>wam_create_work_order</code> <code>wam_update_work_order</code> <code>wam_raise_work_order_from_defect</code> <code>wam_create_template</code> <code>wam_set_template_active</code> <code>wam_record_inspection</code></td></tr>
+  </table></div>
+
+  <h3>9.9 “How do I…” — search</h3>
+  <div class="widget" id="w9b"><div class="w-bar"><input type="text" id="h-q" placeholder="Search — e.g. orphan, retire, offline, assign…" style="max-width:320px"></div><div class="tbl" style="margin:0;border:0"><table id="h-t"></table></div></div>
+
+  <h3>9.10 Watch-outs, collected — and a self-check</h3>
+  <div class="widget" id="w9c"><div class="w-body" id="qz"></div></div>
+  <div class="callout">Maintenance has no scheduler. Templates are immutable and delete-proof. Write is flat. Works is not territory-scoped. Orphan defects carry no photos and don’t re-pack. No offline work-order create. A completed cycle doesn’t schedule the next.</div>
+</section>
+
+<footer>VoltEdge · Works, Inspections &amp; Maintenance — interactive companion to the Markdown manual. The Works store, clock and field app are teaching simulations that follow the engine’s rules.</footer>
+</div>
+
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+function seg(sel,cb){ const el=$(sel); el.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b||b.disabled) return; el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); cb(b)}); }
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fx=(x,d=1)=>Number(x).toFixed(d);
+
+/* ---------- personas ---------- */
+const PERSONAS=[['dana','Dana · Editor (planner)','editor'],['femi','Femi · Field technician','field'],['priya','Priya · Viewer','viewer'],['tom','Tom · Analyst','analyst'],['ada','Ada · Admin','admin']];
+let PERSONA=PERSONAS[0]; const personaL=[];
+const WRITERS=new Set(['editor','field','admin']);
+const can=p=>p==='wam:read'?true:WRITERS.has(PERSONA[2]);
+const gateTip=()=>`<span class="gate" title="needs wam:write">🔒 wam:write</span>`;
+const myName=()=>PERSONA[1].split(' · ')[0];
+function onPersona(fn){ personaL.push(fn); fn(); }
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=PERSONAS.map(p=>`<option value="${p[0]}">${p[1]}</option>`).join(''); sel.onchange=()=>{ PERSONA=PERSONAS.find(p=>p[0]===sel.value); personaL.forEach(f=>f()); emit(); }; })();
+const ASSIGNABLE=['Dana','Femi','Ada'];
+
+/* ---------- clock ---------- */
+let clk=0; const DAYS=['Mon','Tue','Wed','Thu','Fri'];
+const stamp=()=>{ clk+=20; const m=8*60+clk; const d=Math.floor(m/1440), h=Math.floor((m%1440)/60), mm=m%60; return `${DAYS[d%5]} ${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; };
+const setClock=(day,h,m)=>{ clk=day*1440+h*60+m-8*60-20; };
+
+/* ---------- the shared Works store ---------- */
+const ASSETS=[['MV_SWITCHGEAR_PANEL','SW-Feeder7-03'],['MV_SWITCHGEAR_PANEL','SW-Feeder7-01'],['MV_SWITCHGEAR_PANEL','SW-Feeder7-05'],['DIST_XFMR','TX-Feeder7-014'],['POLE','POLE-F7-22'],['POLE','POLE-F7-23']];
+const SWGR_ITEMS=[['Enclosure/fencing secure and undamaged?','pass_fail','critical',''],['Any oil weeping at the tank seal?','pass_fail','high',''],['Silica-gel breather colour acceptable?','pass_fail','medium','Blue = pass; amber/pink = fail.'],['Earth resistance reading (Ω)?','numeric','high',''],['SF6 / oil pressure gauge in green band?','pass_fail','high',''],['Nameplate serial number','text','',''],['General paintwork condition (1–5)','rating','low','']];
+let S, subs=[];
+const onStore=fn=>{ subs.push(fn); fn(); }; const emit=()=>subs.forEach(f=>f());
+function reset(){ clk=-20; S={did:204,wid:88,tid:3,iid:1,defects:[],orders:[],templates:[],inspections:[],dev:new Set()};
+  S.defects.push({id:'D-201',title:'Faded labelling on POLE-F7-22',asset:['POLE','POLE-F7-22'],loc:null,severity:'low',source:'ad_hoc',status:'open',at:'Mon 07:40',resolvedAt:null},{id:'D-202',title:'Heavy corrosion on the HV earth strap, ~30% section loss',asset:['DIST_XFMR','TX-Feeder7-014'],loc:null,severity:'high',source:'ad_hoc',status:'open',at:'Mon 07:50',resolvedAt:null},{id:'D-203',title:'Fly-tipped pile blocking access to chamber',asset:null,loc:[220,70],severity:'medium',source:'ad_hoc',status:'open',at:'Mon 07:55',resolvedAt:null});
+  S.orders.push({id:'W-85',type:'preventive',status:'assigned',priority:'medium',title:'Grease ring-main isolators, SW-Feeder7-01',asset:['MV_SWITCHGEAR_PANEL','SW-Feeder7-01'],defect:null,who:'Femi',crew:'',sched:'Wed 09:00',started:null,done:null,note:''},{id:'W-86',type:'inspection',status:'assigned',priority:'medium',title:'Q3 switchgear inspection — SW-Feeder7-03',asset:['MV_SWITCHGEAR_PANEL','SW-Feeder7-03'],defect:null,who:'Femi',crew:'',sched:'Mon 08:00',started:null,done:null,note:''},{id:'W-87',type:'construction',status:'draft',priority:'low',title:'New pole PX-9, Feeder 7 north',asset:null,defect:null,who:'',crew:'',sched:'',started:null,done:null,note:''});
+  S.templates.push({id:'T-1',code:'MV_SWGR_ANNUAL',name:'MV switchgear annual inspection',cls:'MV_SWITCHGEAR_PANEL',active:true,items:SWGR_ITEMS.map(i=>({prompt:i[0],rt:i[1],fs:i[2],guide:i[3]}))},{id:'T-2',code:'POLE_TOP_VISUAL',name:'Pole-top visual',cls:'POLE',active:true,items:[{prompt:'Cross-arm sound?',rt:'pass_fail',fs:'high',guide:''},{prompt:'Insulators clean and uncracked?',rt:'pass_fail',fs:'medium',guide:''},{prompt:'Stay wire tension acceptable?',rt:'pass_fail',fs:'',guide:''}]});
+  emit(); }
+const sevPri={critical:'urgent',high:'high',medium:'medium',low:'low'};
+const autoStatus=o=>(o.who||o.crew)?'assigned':o.sched?'scheduled':'draft';
+function logDefect(d){ if(!d.title||!d.title.trim()) return {err:'A title is required — it’s what shows in every list.'};
+  if(!d.asset&&!d.loc) return {err:'A defect must point at something: an asset, or a map location. Neither was given.'};
+  const x={id:'D-'+(S.did++),title:d.title.trim(),asset:d.asset||null,loc:d.loc||null,severity:d.severity||'medium',source:d.source||'ad_hoc',status:'open',at:stamp(),resolvedAt:null,item:d.item||null}; S.defects.unshift(x); emit(); return {ok:x}; }
+function setDefect(id,st){ const d=S.defects.find(x=>x.id===id); d.status=st; d.resolvedAt=(st==='resolved'||st==='dismissed')?stamp():null; emit(); return d; }
+function createWO(o){ const x={id:'W-'+(S.wid++),type:o.type,status:autoStatus(o),priority:o.priority||'medium',title:o.title,asset:o.asset||null,loc:o.loc||null,defect:o.defect||null,who:o.who||'',crew:o.crew||'',sched:o.sched||'',started:null,done:null,note:''}; S.orders.unshift(x); emit(); return x; }
+function raise(id,opts){ opts=opts||{}; const d=S.defects.find(x=>x.id===id); if(d.status==='resolved'||d.status==='dismissed') return {err:'A closed defect can’t spawn a work order — reopen it first.'};
+  const o=createWO({type:'corrective',title:opts.title||('Repair: '+d.title),priority:opts.priority||sevPri[d.severity]||'medium',asset:d.asset,loc:d.loc,defect:d.id,who:opts.who,sched:opts.sched}); let flipped=false; if(d.status==='open'){ d.status='work_ordered'; flipped=true; } emit(); return {ok:o,flipped}; }
+function setWO(id,st,note){ const o=S.orders.find(x=>x.id===id); o.status=st; if(st==='in_progress'){ o.started=o.started||stamp(); o.done=null; } else if(st==='completed'){ o.started=o.started||stamp(); o.done=o.done||stamp(); if(note!=null) o.note=note; } else o.done=null; emit(); return o; }
+function patchWO(id,p){ const o=S.orders.find(x=>x.id===id); Object.assign(o,p); if(o.status==='draft'||o.status==='scheduled') o.status=autoStatus(o); emit(); return o; }
+function createTpl(t){ const x={id:'T-'+(S.tid++),code:t.code,name:t.name,cls:t.cls||'',active:true,items:t.items}; S.templates.push(x); emit(); return x; }
+function record(r){ if(r.deviceId&&S.dev.has(r.deviceId)) return {dup:true}; if(r.deviceId) S.dev.add(r.deviceId);
+  const t=S.templates.find(x=>x.id===r.tplId); const res=t.items.map((it,i)=>({prompt:it.prompt,rt:it.rt,outcome:(r.results[i]||{}).outcome||'pass',value:(r.results[i]||{}).value||'',note:(r.results[i]||{}).note||'',defect:null}));
+  res.forEach((x,i)=>{ if(x.outcome==='fail'&&t.items[i].fs){ const d=logDefect({title:'Inspection: '+x.prompt,asset:r.asset,severity:t.items[i].fs,source:'inspection',item:x.prompt}); x.defect=d.ok.id; } });
+  const overall=res.some(x=>x.outcome==='fail')?'fail':'pass'; const insp={id:'I-'+(S.iid++),asset:r.asset,tpl:t.code,overall,by:r.by,at:stamp(),results:res,wo:r.woId||null}; S.inspections.unshift(insp);
+  if(r.woId&&r.completeWO) setWO(r.woId,'completed','Inspection recorded: '+overall); emit(); return {ok:insp}; }
+
+reset();
+/* ---------- board renderer ---------- */
+function boardHTML(opt){ opt=opt||{}; const w=can('wam:write');
+  let D=S.defects, O=S.orders; if(opt.asset){ D=D.filter(d=>d.asset&&d.asset[1]===opt.asset); O=O.filter(o=>o.asset&&o.asset[1]===opt.asset); }
+  if(opt.mine) O=O.filter(o=>o.who===myName());
+  const live=S.orders.filter(o=>!['completed','cancelled'].includes(o.status));
+  const kpi=opt.asset?'':`<div class="kpi"><div><b>${S.defects.filter(d=>d.status==='open').length}</b><span>Open defects</span></div><div><b>${live.length}</b><span>Active orders</span></div><div><b>${S.orders.filter(o=>o.status==='in_progress').length}</b><span>In progress</span></div><div><b>${live.filter(o=>!o.who&&!o.crew).length}</b><span>Unassigned</span></div></div>`;
+  const dis=w?'':'disabled title="needs wam:write"';
+  const dRows=D.map(d=>`<div class="rec"><div class="t"><span class="sev ${d.severity}">${d.severity}</span> ${esc(d.title)}</div><div class="m">${d.id} · ${d.asset?d.asset[1]:'📍 location '+d.loc.join(',')} · ${d.source} · <span class="state-chip ${d.status}">${d.status}</span>${d.resolvedAt?' · closed '+d.resolvedAt:''}</div><div class="a">${d.status==='open'||d.status==='work_ordered'?`<button class="btn" data-ra="${d.id}" ${dis}>Raise work order</button><button class="btn" data-rs="${d.id}" ${dis}>Resolve</button><button class="btn" data-ds="${d.id}" ${dis}>Dismiss</button>`:`<button class="btn" data-ro="${d.id}" ${dis}>Reopen</button>`}</div></div>`).join('')||'<div class="muted" style="font-size:13px">No defects.</div>';
+  const oRows=O.map(o=>`<div class="rec"><div class="t"><span class="sev ${o.priority}">${o.priority}</span> ${esc(o.title)}</div><div class="m">${o.id} · ${o.type} · ${o.asset?o.asset[1]:'no asset'} · ${o.who||o.crew||'<b>unassigned</b>'}${o.sched?' · '+o.sched:''} · <span class="state-chip ${o.status}">${o.status}</span>${o.defect?' · from '+o.defect:''}</div>${o.started||o.done?`<div class="m">${o.started?'started '+o.started:''}${o.done?' · completed '+o.done:''}</div>`:''}${o.note?`<div class="m">note: ${esc(o.note)}</div>`:''}<div class="a">${['completed','cancelled'].includes(o.status)?'':`<button class="btn" data-st="${o.id}" ${o.status==='in_progress'?'disabled':dis}>Start</button><button class="btn" data-co="${o.id}" ${dis}>Complete</button><button class="btn" data-ca="${o.id}" ${dis}>Cancel</button>`}</div></div>`).join('')||'<div class="muted" style="font-size:13px">No work orders.</div>';
+  const foot=opt.asset?'':`<div class="muted" style="font-size:12.5px;margin-top:8px">Below the board: ${S.templates.filter(t=>t.active).length} active inspection template(s) · ${S.inspections.length} recorded inspection(s)</div>`;
+  return kpi+`<div class="row2"><div><div class="lab" style="margin-bottom:4px">Defects (inbox)</div>${dRows}</div><div><div class="lab" style="margin-bottom:4px">Work orders in flight →</div>${oRows}</div></div>`+foot; }
+function bindBoard(host,after){ host.querySelectorAll('[data-ra]').forEach(b=>b.onclick=()=>{ const r=raise(b.dataset.ra); if(r.err) alert(r.err); after&&after(); });
+  host.querySelectorAll('[data-rs]').forEach(b=>b.onclick=()=>setDefect(b.dataset.rs,'resolved')); host.querySelectorAll('[data-ds]').forEach(b=>b.onclick=()=>setDefect(b.dataset.ds,'dismissed')); host.querySelectorAll('[data-ro]').forEach(b=>b.onclick=()=>setDefect(b.dataset.ro,'open'));
+  host.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>setWO(b.dataset.st,'in_progress')); host.querySelectorAll('[data-co]').forEach(b=>b.onclick=()=>setWO(b.dataset.co,'completed')); host.querySelectorAll('[data-ca]').forEach(b=>b.onclick=()=>setWO(b.dataset.ca,'cancelled')); }
+
+/* ================= Loop figure ================= */
+(function(){
+  const B=[['Inspection',20,'Armed failing items auto-log defects.'],['Defect',270,'Logged by hand, from OMS, from the map, or auto from an inspection.'],['Work order',520,'Raised from the defect in one atomic action; assigned, scheduled, executed.']];
+  let s='<defs><marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="var(--muted)"/></marker></defs>';
+  B.forEach(([n,x],i)=>{ s+=`<g class="nd" data-i="${i}"><rect x="${x}" y="30" width="160" height="50" rx="8" fill="var(--tint)" stroke="var(--acc)" stroke-width="2"/><text x="${x+80}" y="60" font-size="14" text-anchor="middle" style="font-weight:700">${n}</text></g>`; });
+  s+=`<path d="M180,55 L268,55" stroke="var(--muted)" stroke-width="2.5" marker-end="url(#ar)"/><text x="224" y="46" font-size="9" text-anchor="middle" style="fill:var(--muted)">fail item (auto)</text><path d="M430,55 L518,55" stroke="var(--muted)" stroke-width="2.5" marker-end="url(#ar)"/><text x="474" y="46" font-size="9" text-anchor="middle" style="fill:var(--muted)">raise</text><path d="M600,82 C600,130 100,130 100,82" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-dasharray="5 4" marker-end="url(#ar)"/><text x="350" y="124" font-size="10" text-anchor="middle" style="fill:var(--muted)">completed work · next inspection on a cycle</text><text x="350" y="145" id="loop-n" font-size="11" text-anchor="middle" style="font-weight:600"></text>`;
+  $('#loop').innerHTML=s; $$('#loop .nd').forEach(g=>g.onmouseenter=()=>{$('#loop-n').textContent=B[+g.dataset.i][2]});
+})();
+
+/* ================= W1 board ================= */
+(function(){
+  let view='board';
+  const as=$('#w1-asset'); as.innerHTML=ASSETS.map(a=>`<option>${a[1]}</option>`).join(''); as.value='SW-Feeder7-03';
+  function draw(){ $('#w1-who').textContent=PERSONA[1]; as.style.display=view==='tab'?'inline-block':'none';
+    $('#w1-body').innerHTML=(view==='tab'?`<div class="lab" style="margin-bottom:6px">${as.value} · Works tab ${can('wam:write')?'':'<span class="muted" style="text-transform:none">(read-only: tab visible, no buttons)</span>'}</div>`:'')+boardHTML({asset:view==='tab'?as.value:null,mine:$('#w1-mine').checked}); bindBoard($('#w1-body')); }
+  seg('#w1-view',b=>{view=b.dataset.v;draw()}); as.onchange=draw; $('#w1-mine').onchange=draw; $('#w1-reset').onclick=reset;
+  onStore(draw); onPersona(draw);
+})();
+
+/* ================= W1b story ================= */
+(function(){
+  const STEPS=[
+    ['Mon 08:10 · Femi records the MV switchgear annual on SW-Feeder7-03; item 2 (oil weep, armed high) fails',()=>{ setClock(0,8,10); const w=S.orders.find(o=>o.id==='W-86'); const r=record({tplId:'T-1',asset:['MV_SWITCHGEAR_PANEL','SW-Feeder7-03'],woId:'W-86',completeWO:true,by:'Femi',results:{1:{outcome:'fail',note:'slow weep, ~1 drop/min at base gasket'}},deviceId:'story-1'}); return `Inspection ${r.ok.id} is <b>${r.ok.overall}</b>. The armed item <b>auto-logged ${S.defects[0].id}</b> (high, source inspection) and W-86 was completed with “Inspection recorded: fail”. Femi never opened the defect form.`; }],
+    ['Mon 09:30 · Dana triages and raises a corrective order from the defect',()=>{ setClock(0,9,30); const d=S.defects.find(x=>x.source==='inspection'); const r=raise(d.id); return `Created <b>${r.ok.id}</b> “${esc(r.ok.title)}” — priority <b>${r.ok.priority}</b> (from severity ${d.severity}); ${d.id} flipped to <b>work_ordered</b>. Dana re-typed nothing.`; }],
+    ['Mon 09:35 · Dana schedules it for Thursday and assigns it to Femi',()=>{ setClock(0,9,35); const o=S.orders.find(x=>x.defect&&x.type==='corrective'&&x.title.includes('oil weeping')); patchWO(o.id,{who:'Femi',sched:'Thu 11:00',title:'Reseal SW-Feeder7-03 tank, oil weep'}); return `${o.id} renamed to something a crew reads at a glance, now <b>assigned</b> (assigning advanced it; the <b>Unassigned</b> KPI did not tick up).`; }],
+    ['Thu 11:00 · Femi taps Start on site',()=>{ setClock(3,11,0); const o=S.orders.find(x=>x.title.startsWith('Reseal')); setWO(o.id,'in_progress'); return `${o.id} → <b>in_progress</b>, started-at stamped. The In progress KPI ticks up.`; }],
+    ['Thu 11:00 · Femi reseals the tank and taps Complete with a note',()=>{ setClock(3,11,40); const o=S.orders.find(x=>x.title.startsWith('Reseal')); setWO(o.id,'completed','Reseated gasket, topped up oil, no weep after 30 min'); return `${o.id} → <b>completed</b>, completed-at stamped, note recorded.`; }],
+    ['Thu 11:05 · Dana resolves the defect',()=>{ setClock(3,11,45); const d=S.defects.find(x=>x.source==='inspection'); setDefect(d.id,'resolved'); return `${d.id} → <b>resolved</b>. The trail is whole: inspection item → defect → corrective order → work done → defect resolved.`; }]];
+  let i=0, log='';
+  function draw(){ $('#w1b-steps').innerHTML=STEPS.map((s,k)=>`<div style="display:flex;gap:8px;align-items:center;margin:4px 0;opacity:${k<=i?1:.5}"><button class="btn ${k===i?'pri':''}" data-k="${k}" ${k!==i||!can('wam:write')?'disabled':''}>${k<i?'✔':k+1}</button><span style="font-size:13.5px">${s[0]}</span></div>`).join('')+(i>=STEPS.length?'<div class="tip" style="margin-top:8px"><b>Done.</b> Priya could read all of it on SW-Feeder7-03’s Works tab — and see no buttons.</div>':'')+(can('wam:write')?'':'<div class="muted" style="font-size:12.5px">The story needs write access to replay — switch to Dana, Femi or Ada (the characters act as themselves regardless).</div>'); $('#w1b-log').innerHTML=log||'Press step 1.';
+    $$('#w1b-steps [data-k]').forEach(b=>b.onclick=()=>{ log=STEPS[i][1](); i++; draw(); }); }
+  $('#w1b-reset').onclick=()=>{ reset(); i=0; log=''; draw(); }; onPersona(draw);
+})();
+
+/* ================= W2a log defect ================= */
+(function(){
+  let anch='asset', pin=null, msg='';
+  function draw(){ const w=can('wam:write'); $('#w2a-gate').innerHTML=w?'':gateTip();
+    $('#d-anchbox').innerHTML=anch==='asset'?`<div class="row2"><div class="ctl"><label>Asset class</label><select class="fld" id="d-cls"><option value="">— choose —</option>${[...new Set(ASSETS.map(a=>a[0]))].map(c=>`<option>${c}</option>`).join('')}</select></div><div class="ctl"><label>Asset id</label><select class="fld" id="d-id"><option value="">— none —</option>${ASSETS.map(a=>`<option>${a[1]}</option>`).join('')}</select></div></div><div class="muted" style="font-size:12px;margin-top:-6px">Logging from an asset’s Works tab pre-fills both.</div>`:`<svg id="d-map" viewBox="0 0 300 130" width="100%" style="background:var(--surface);border:1px solid var(--line2);border-radius:6px;cursor:crosshair"><path d="M0,100 C80,60 200,110 300,60" stroke="var(--line)" stroke-width="12" fill="none"/>${pin?`<circle cx="${pin[0]}" cy="${pin[1]}" r="7" fill="var(--red)" stroke="var(--ink)" stroke-width="2"/>`:''}</svg><div class="muted" style="font-size:12px">${pin?'Pinned at '+pin.map(Math.round).join(', ')+' — the crew’s only anchor.':'Click the map to drop the pin.'}</div>`;
+    $('#d-out').innerHTML=msg||`<p class="muted" style="font-size:13.5px;margin:0">Required: a <b>title</b>, and <b>either</b> an asset (class + id together) <b>or</b> a pin. Severity defaults to medium, source to ad_hoc, status starts open.</p>`;
+    $('#d-save').disabled=!w;
+    const m=$('#d-map'); if(m) m.onclick=e=>{ const b=m.getBoundingClientRect(); pin=[(e.clientX-b.left)*300/b.width,(e.clientY-b.top)*130/b.height]; draw(); };
+    const c=$('#d-cls'),i=$('#d-id'); if(c&&i){ c.onchange=()=>{}; i.onchange=()=>{ const a=ASSETS.find(x=>x[1]===i.value); if(a) c.value=a[0]; }; } }
+  seg('#d-anch',b=>{anch=b.dataset.a;msg='';draw()});
+  $('#d-save').onclick=()=>{ let asset=null,loc=null; if(anch==='asset'){ const c=$('#d-cls').value,i=$('#d-id').value; if(c&&!i||!c&&i){ msg='<div class="fbox bad">✘ Rejected</div><p style="font-size:13px">An asset class with no id (or an id with no class) is half an anchor — VoltEdge rejects it.</p>'; draw(); return; } if(c&&i) asset=[c,i]; } else loc=pin;
+    const r=logDefect({title:$('#d-title').value,asset,loc,severity:$('#d-sev').value,source:$('#d-src').value}); if(r.err){ msg=`<div class="fbox bad">✘ Rejected</div><p style="font-size:13px">${r.err}</p>`; draw(); return; }
+    msg=`<div class="fbox good">✔ ${r.ok.id} logged — open</div><p style="font-size:13px">It’s at the top of Dana’s inbox and on ${asset?asset[1]+'’s Works tab':'the board as a located, asset-less defect'}. Orphans still triage and still raise work — the order inherits the pin.${asset?'':' <b>Limitation:</b> photos attach to the asset, so an orphan can’t carry any.'}</p>`; $('#d-title').value=''; draw(); };
+  onPersona(draw);
+})();
+
+/* ================= W2b severity ================= */
+(function(){
+  const R=[['critical','Imminent safety or supply risk — act now. Exposed live parts, a leaning pole over a road.','urgent'],['high','Real degradation that will bite soon — oil weeping, ~30% section loss, a cracked but holding insulator.','high'],['medium','A genuine defect with headroom — surface corrosion, a loose but present cover. (Default.)','medium'],['low','Cosmetic or watch-list — faded labelling, minor rust bloom.','low']];
+  let k='high';
+  function draw(){ $('#sv-t').innerHTML='<tr><th>Severity</th><th>Use it when…</th><th>Becomes work-order priority</th></tr>'+R.map(r=>`<tr data-k="${r[0]}" style="cursor:pointer;${k===r[0]?'background:var(--tint)':''}"><td><span class="sev ${r[0]}">${r[0]}</span></td><td>${r[1]}</td><td><span class="sev ${r[2]}">${r[2]}</span></td></tr>`).join('');
+    const r=R.find(x=>x[0]===k); $('#sv-out').innerHTML=`A <b>${k}</b> defect, if raised into work, produces a <b>${r[2]}</b> corrective order. Armed on a checklist item, it pre-decides that triage for a whole class of future failures.`;
+    $$('#sv-t tr[data-k]').forEach(t=>t.onclick=()=>{k=t.dataset.k;draw()}); }
+  draw();
+})();
+
+/* ================= W2c triage ================= */
+(function(){
+  let sel=null, msg='', dlg=false;
+  function draw(){ const w=can('wam:write'); $('#w2c-gate').innerHTML=w?'':gateTip(); const s=$('#t-sel'); const keep=sel||(S.defects[0]&&S.defects[0].id);
+    s.innerHTML=S.defects.map(d=>`<option value="${d.id}">${d.id} · ${d.severity} · ${d.status} · ${esc(d.title).slice(0,40)}</option>`).join(''); if(S.defects.some(d=>d.id===keep)) s.value=keep; sel=s.value; const d=S.defects.find(x=>x.id===sel);
+    $('#t-card').innerHTML=d?`<div class="rec"><div class="t"><span class="sev ${d.severity}">${d.severity}</span> ${esc(d.title)}</div><div class="m">${d.id} · ${d.asset?d.asset[1]:'📍 orphan'} · <span class="state-chip ${d.status}">${d.status}</span> · resolved-stamp: <b>${d.resolvedAt||'—'}</b></div></div>`:'';
+    ['#t-raise','#t-res','#t-dis','#t-re'].forEach(x=>$(x).disabled=!w||!d); if(d){ $('#t-re').disabled=!w||!(d.status==='resolved'||d.status==='dismissed'); }
+    $('#t-dlg').innerHTML=dlg&&d?`<div class="rec"><b>Raise corrective work order</b><div class="row2" style="margin-top:6px"><div class="ctl"><label>Title <span class="muted">default “Repair: …”</span></label><input type="text" id="r-title" value="Repair: ${esc(d.title)}"></div><div class="ctl"><label>Priority <span class="muted">derived: ${sevPri[d.severity]}</span></label><select class="fld" id="r-pri">${['low','medium','high','urgent'].map(p=>`<option ${p===sevPri[d.severity]?'selected':''}>${p}</option>`).join('')}</select></div><div class="ctl"><label>Assign to</label><select class="fld" id="r-who"><option value="">— nobody —</option>${ASSIGNABLE.map(a=>`<option>${a}</option>`).join('')}</select></div><div class="ctl"><label>Schedule</label><input type="text" id="r-sch" placeholder="Fri 10:00"></div></div><button class="btn pri" id="r-go">Create &amp; flip defect</button></div>`:'';
+    $('#t-out').innerHTML=msg||'<p class="muted" style="font-size:13.5px;margin:0">Try each button on an open defect, then on a resolved one. The raise is <b>atomic</b>: the order is created and the defect flips together, or neither.</p>';
+    s.onchange=()=>{sel=s.value;msg='';dlg=false;draw()};
+    const go=$('#r-go'); if(go) go.onclick=()=>{ const r=raise(sel,{title:$('#r-title').value,priority:$('#r-pri').value,who:$('#r-who').value,sched:$('#r-sch').value}); dlg=false; msg=`<div class="fbox good">✔ ${r.ok.id} created</div><div class="readout" style="margin:8px 0">type corrective · priority ${r.ok.priority} · status <b>${r.ok.status}</b><br>asset ${r.ok.asset?r.ok.asset[1]:'📍 pin carried over'}<br>defect ${d.id} → ${r.flipped?'<b>work_ordered</b>':'unchanged (already ordered — a second order is allowed)'}</div>`; draw(); }; }
+  $('#t-raise').onclick=()=>{ const d=S.defects.find(x=>x.id===sel); if(d.status==='resolved'||d.status==='dismissed'){ msg='<div class="fbox bad">✘ Refused</div><p style="font-size:13px">A closed defect can’t spawn a work order. Reopen it first (or log a fresh defect).</p>'; dlg=false; } else { dlg=true; msg=''; } draw(); };
+  $('#t-res').onclick=()=>{ const d=setDefect(sel,'resolved'); msg=`<div class="readout">${d.id} → resolved · resolved-stamp <b>${d.resolvedAt}</b></div><div class="caution" style="margin-top:8px"><b>Best practice</b><br>Resolve <em>after</em> the order that fixed it completes — otherwise the trail is a rumour.</div>`; draw(); };
+  $('#t-dis').onclick=()=>{ const d=setDefect(sel,'dismissed'); msg=`<div class="readout">${d.id} → dismissed (closed without a fix) · stamped ${d.resolvedAt}. The record is kept for the audit trail.</div>`; draw(); };
+  $('#t-re').onclick=()=>{ const d=setDefect(sel,'open'); msg=`<div class="readout">${d.id} reopened → open · resolved-stamp <b>cleared</b> (“when was this resolved?” always has a truthful answer).</div>`; draw(); };
+  onStore(draw); onPersona(draw);
+})();
+
+/* ================= W3a create WO ================= */
+(function(){
+  let msg='';
+  function draw(){ const w=can('wam:write'); $('#w3a-gate').innerHTML=w?'':gateTip();
+    const a=$('#o-asset'), k=a.value; a.innerHTML='<option value="">— none (e.g. a survey covering many assets) —</option>'+ASSETS.map(x=>`<option value="${x[0]}|${x[1]}">${x[1]}</option>`).join(''); a.value=k;
+    const wsel=$('#o-who'), kw=wsel.value; wsel.innerHTML='<option value="">— nobody —</option>'+ASSIGNABLE.map(n=>`<option>${n}</option>`).join(''); wsel.value=kw;
+    $('#o-save').disabled=!w; $('#o-out').innerHTML=msg||`<p class="muted" style="font-size:13.5px;margin:0">The picker lists only <span class="perm">wam:write</span> holders (${ASSIGNABLE.join(', ')}). Assign → <b>assigned</b>. Schedule only → <b>scheduled</b>. Neither → <b>draft</b>. Try each.</p>`; }
+  $('#o-save').onclick=()=>{ const as=$('#o-asset').value; const o=createWO({type:$('#o-type').value,priority:$('#o-pri').value,title:$('#o-title').value||'(untitled)',asset:as?as.split('|'):null,who:$('#o-who').value,crew:$('#o-crew').value,sched:$('#o-sched').value}); const why=(o.who||o.crew)?'you named an assignee':o.sched?'you gave a schedule but no assignee':'you gave neither'; msg=`<div class="fbox good">✔ ${o.id} created at <b>${o.status}</b></div><p style="font-size:13px">Auto-advanced because ${why}. ${o.who||o.crew?'The <b>Unassigned</b> KPI did not tick up.':'It counts toward <b>Unassigned</b> until someone owns it.'}${o.type==='corrective'?'<br><b>Tip:</b> corrective work should be raised <em>from its defect</em> so the trail is linked.':''}</p>`; draw(); };
+  onPersona(draw);
+})();
+
+/* ================= W3b drive WO ================= */
+(function(){
+  let sel=null, msg='';
+  function draw(){ const w=can('wam:write'); $('#w3b-gate').innerHTML=w?'':gateTip(); const s=$('#m-sel'); const keep=sel||(S.orders[0]&&S.orders[0].id); s.innerHTML=S.orders.map(o=>`<option value="${o.id}">${o.id} · ${o.status} · ${esc(o.title).slice(0,40)}</option>`).join(''); if(S.orders.some(o=>o.id===keep)) s.value=keep; sel=s.value; const o=S.orders.find(x=>x.id===sel);
+    $('#m-card').innerHTML=o?`<div class="rec"><div class="t"><span class="sev ${o.priority}">${o.priority}</span> ${esc(o.title)}</div><div class="m">${o.id} · ${o.type} · ${o.who||o.crew||'unassigned'} · <span class="state-chip ${o.status}">${o.status}</span></div><div class="m">started-at: <b>${o.started||'—'}</b> · completed-at: <b>${o.done||'—'}</b>${o.note?'<br>note: '+esc(o.note):''}</div></div>`:'';
+    ['#m-start','#m-done','#m-cancel','#m-reopen'].forEach(x=>$(x).disabled=!w||!o||['cancelled'].includes(o.status)); if(o){ $('#m-start').disabled=!w||o.status==='in_progress'||o.status==='completed'; $('#m-reopen').disabled=!w||o.status!=='completed'; }
+    $('#m-out').innerHTML=msg||'<p class="muted" style="font-size:13.5px;margin:0">Start stamps started-at <b>once</b>. Complete stamps completed-at (and started-at too, if it was never started). Moving a completed order back clears completed-at — completion is reversible.</p>'; s.onchange=()=>{sel=s.value;msg='';draw()}; }
+  $('#m-start').onclick=()=>{ const o=setWO(sel,'in_progress'); msg=`<div class="readout">→ in_progress · started-at <b>${o.started}</b> (kept if you bounce back and forth). The <b>In progress</b> KPI ticked up.</div>`; draw(); };
+  $('#m-done').onclick=()=>{ const had=S.orders.find(x=>x.id===sel).started; const o=setWO(sel,'completed',$('#m-note').value||undefined); msg=`<div class="readout">→ completed · completed-at <b>${o.done}</b>${had?'':' · started-at <b>also stamped</b> (it was never started)'}${o.note?'<br>note recorded.':''}</div>`; draw(); };
+  $('#m-cancel').onclick=()=>{ setWO(sel,'cancelled'); msg='<div class="readout">→ cancelled. The record is kept; the Active KPI drops. Cancel rather than leave it rotting as an open order.</div>'; draw(); };
+  $('#m-reopen').onclick=()=>{ const o=setWO(sel,'assigned'); msg='<div class="readout">Moved off completed → <b>completed-at cleared</b>. A mistaken complete is fully reversible.</div>'; draw(); };
+  onStore(draw); onPersona(draw);
+})();
+
+/* ================= W4a template builder ================= */
+(function(){
+  let items=[{prompt:'Any oil weeping at the tank seal?',rt:'pass_fail',fs:'high',guide:''}], msg='';
+  const SEV=['','low','medium','high','critical'];
+  function draw(){ const w=can('wam:write'); $('#w4a-gate').innerHTML=w?'':gateTip();
+    $('#b-items').innerHTML=items.map((it,i)=>`<div class="rec"><div class="bgrid"><input type="text" data-k="prompt" data-i="${i}" value="${esc(it.prompt)}" placeholder="Prompt — phrase it so pass is good"><select class="fld" data-k="rt" data-i="${i}">${['pass_fail','rating','numeric','text'].map(t=>`<option ${it.rt===t?'selected':''}>${t}</option>`).join('')}</select><select class="fld" data-k="fs" data-i="${i}">${SEV.map(s=>`<option value="${s}" ${it.fs===s?'selected':''}>${s||'None (informational)'}</option>`).join('')}</select><button class="btn" data-del="${i}">✕</button></div><input type="text" data-k="guide" data-i="${i}" value="${esc(it.guide)}" placeholder="Guidance (optional) — e.g. Blue = pass; amber/pink = fail" style="margin-top:4px"></div>`).join('');
+    $$('#b-items [data-k]').forEach(el=>el.onchange=()=>{ items[+el.dataset.i][el.dataset.k]=el.value; draw(); }); $$('#b-items [data-del]').forEach(b=>b.onclick=()=>{ items.splice(+b.dataset.del,1); draw(); });
+    const armed=items.filter(i=>i.fs).length; $('#b-save').disabled=!w; $('#b-add').disabled=!w;
+    $('#b-out').innerHTML=msg||`<div class="readout">${items.length} item${items.length===1?'':'s'} · <b>${armed}</b> armed · ${items.length-armed} informational</div><p style="font-size:13px;margin:8px 0 0">A new item defaults to <b>medium</b> (armed), as in the field-app UI — set observational ones to <b>None (informational)</b>. After you create it, <b>its items can’t be edited</b>.</p>`; }
+  $('#b-add').onclick=()=>{ items.push({prompt:'',rt:'pass_fail',fs:'medium',guide:''}); msg=''; draw(); };
+  $('#b-load').onclick=()=>{ items=[['Enclosure/fencing secure and undamaged?','pass_fail','critical'],['Any oil weeping at the tank seal?','pass_fail','high'],['Silica-gel breather colour acceptable?','pass_fail','medium','Blue = pass; amber/pink = fail.'],['Earth resistance reading (Ω)?','numeric','high'],['SF6 / oil pressure gauge in green band?','pass_fail','high'],['Nameplate serial number','text',''],['General paintwork condition (1–5)','rating','low'],['Door seals intact?','pass_fail','medium']].map(a=>({prompt:a[0],rt:a[1],fs:a[2],guide:a[3]||''})); $('#b-code').value='MV_SWGR_ANNUAL_V2'; $('#b-name').value='MV switchgear annual inspection (v2)'; $('#b-cls').value='MV_SWITCHGEAR_PANEL'; msg=''; draw(); };
+  $('#b-save').onclick=()=>{ const code=$('#b-code').value.trim(), name=$('#b-name').value.trim(); const ok=items.filter(i=>i.prompt.trim());
+    if(!code||!name||!ok.length){ msg=`<div class="fbox bad">✘ Rejected</div><p style="font-size:13px">A template needs a <b>code</b>, a <b>name</b> and at least one item with a prompt.</p>`; draw(); return; }
+    if(S.templates.some(t=>t.code===code)){ msg='<div class="fbox bad">✘ That code exists</div><p style="font-size:13px">Codes are stable handles — pick a new one (e.g. a version suffix).</p>'; draw(); return; }
+    const t=createTpl({code,name,cls:$('#b-cls').value,items:ok.map(i=>({...i}))}); msg=`<div class="fbox good">✔ ${t.code} created — active</div><p style="font-size:13px">It’s now in the record picker. Its items are frozen; to change it you’ll create a new version and retire this one.</p>`; draw(); };
+  onPersona(draw); window.__loadTpl=null;
+})();
+
+/* ================= W4b library ================= */
+(function(){
+  function draw(){ const w=can('wam:write'); $('#w4b-gate').innerHTML=w?'':gateTip();
+    $('#l-lib').innerHTML=S.templates.map(t=>`<div class="rec"><div class="t">${esc(t.name)} <span class="state-chip ${t.active?'applied':'cancelled'}">${t.active?'active':'retired'}</span></div><div class="m"><code>${t.code}</code> · scope ${t.cls||'general'} · ${t.items.length} items (${t.items.filter(i=>i.fs).length} armed)</div><div class="a"><button class="btn" data-tg="${t.id}" ${w?'':'disabled'}>${t.active?'Retire':'Restore'}</button><button class="btn" disabled title="Templates can’t be edited — create a new version and retire this one">Edit items</button><button class="btn" data-v2="${t.id}" ${w?'':'disabled'}>New version from this…</button></div></div>`).join('')+`<div class="muted" style="font-size:12.5px;margin-top:6px">Retired templates vanish from the Record-inspection picker (Interactive 9) but every inspection ever recorded against them still reads correctly. There is no delete.</div>`;
+    $$('#l-lib [data-tg]').forEach(b=>b.onclick=()=>{ const t=S.templates.find(x=>x.id===b.dataset.tg); t.active=!t.active; emit(); });
+    $$('#l-lib [data-v2]').forEach(b=>b.onclick=()=>{ $('#b-load').click(); const t=S.templates.find(x=>x.id===b.dataset.v2); $('#b-code').value=t.code+'_V2'; $('#b-name').value=t.name+' (v2)'; $('#w4a').scrollIntoView({block:'center',behavior:'smooth'}); }); }
+  onStore(draw); onPersona(draw);
+})();
+
+/* ================= W5a recorder ================= */
+(function(){
+  let res={}, last=null, msg='';
+  function draw(){ const w=can('wam:write'); $('#w5a-gate').innerHTML=w?'':gateTip();
+    const act=S.templates.filter(t=>t.active); const ts=$('#r-tpl'); const kt=ts.value; ts.innerHTML=act.map(t=>`<option value="${t.id}">${t.code}</option>`).join('')||'<option value="">(no active templates)</option>'; if(act.some(t=>t.id===kt)) ts.value=kt; const t=S.templates.find(x=>x.id===ts.value);
+    const ws=$('#r-wo'), kw=ws.value; const inspWOs=S.orders.filter(o=>o.type==='inspection'&&!['completed','cancelled'].includes(o.status)); ws.innerHTML='<option value="">None (ad-hoc)</option>'+inspWOs.map(o=>`<option value="${o.id}">${o.id} · ${esc(o.title).slice(0,36)}</option>`).join(''); if(inspWOs.some(o=>o.id===kw)) ws.value=kw; const wo=S.orders.find(o=>o.id===ws.value);
+    $('#r-cwrap').style.display=wo?'block':'none';
+    const as=$('#r-asset'), ka=as.value; const pool=ASSETS.filter(a=>!t||!t.cls||a[0]===t.cls); as.innerHTML=pool.map(a=>`<option value="${a[0]}|${a[1]}">${a[0]} · ${a[1]}</option>`).join(''); if(wo&&wo.asset) as.value=wo.asset.join('|'); else if(pool.some(a=>a.join('|')===ka)) as.value=ka;
+    $('#r-items').innerHTML=t?t.items.map((it,i)=>{ const r=res[i]||(res[i]={outcome:'pass',value:'',note:''}); return `<div class="rec"><div class="t">${i+1}. ${esc(it.prompt)} ${it.fs?`<span class="sev ${it.fs}" title="armed">armed · ${it.fs}</span>`:'<span class="sev low" style="opacity:.7">informational</span>'}</div>${it.guide?`<div class="m">${esc(it.guide)}</div>`:''}<div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap"><span class="seg" data-i="${i}">${['pass','fail','na'].map(o=>`<button data-o="${o}" aria-pressed="${r.outcome===o}">${o==='na'?'N/A':o[0].toUpperCase()+o.slice(1)}</button>`).join('')}</span>${it.rt!=='pass_fail'?`<input type="${it.rt==='text'?'text':'number'}" data-v="${i}" value="${esc(r.value)}" placeholder="${it.rt==='text'?'value':'reading'}" style="max-width:130px">`:''}<input type="text" data-n="${i}" value="${esc(r.note)}" placeholder="note" style="flex:1;min-width:120px"></div></div>`; }).join(''):'';
+    $$('#r-items .seg').forEach(s=>s.onclick=e=>{ const b=e.target.closest('button'); if(!b) return; res[+s.dataset.i].outcome=b.dataset.o; draw(); }); $$('#r-items [data-v]').forEach(x=>x.oninput=()=>{res[+x.dataset.v].value=x.value}); $$('#r-items [data-n]').forEach(x=>x.oninput=()=>{res[+x.dataset.n].note=x.value});
+    if(t){ const fails=t.items.map((it,i)=>[it,res[i]||{outcome:'pass'}]).filter(([it,r])=>r.outcome==='fail'); const armed=fails.filter(([it])=>it.fs); $('#r-prev').innerHTML=!fails.length?'All passing.':`${fails.length} failing · ${armed.length?armed.length+' will be logged as defect'+(armed.length>1?'s':''):'none arm a defect'}`; }
+    $('#r-save').disabled=!w||!t; $('#r-replay').disabled=!last;
+    $('#r-out').innerHTML=msg||'<p class="muted" style="font-size:13.5px;margin:0">Fail an <b>armed</b> item and save: the inspection is written, a defect is raised and linked to the item, the overall rolls up to <b>fail</b>, and — if you tick “fulfilling” — the work order is completed. Then press “Sync the same inspection again”.</p>';
+    ts.onchange=()=>{res={};msg='';draw()}; ws.onchange=()=>{msg='';draw()}; }
+  $('#r-save').onclick=()=>{ const t=S.templates.find(x=>x.id===$('#r-tpl').value); const asset=$('#r-asset').value.split('|'); const woId=$('#r-wo').value; const dev='ui-'+Date.now();
+    const r=record({tplId:t.id,asset,woId:woId||null,completeWO:woId&&$('#r-cw').checked,by:myName(),results:res,deviceId:dev}); last={t,asset,woId,dev}; const dd=r.ok.results.filter(x=>x.defect);
+    msg=`<div class="fbox ${r.ok.overall==='pass'?'good':'bad'}">${r.ok.id} recorded · overall <b>${r.ok.overall}</b></div><p style="font-size:13px;margin:8px 0">${dd.length?`<b>${dd.length} defect${dd.length>1?'s':''} auto-raised</b> (source inspection):<br>${dd.map(x=>`• ${x.defect} — ${esc(x.prompt)}`).join('<br>')}`:'No defect raised.'}${woId&&$('#r-cw').checked?`<br><b>${woId}</b> completed — note “Inspection recorded: ${r.ok.overall}”.`:woId?`<br>${woId} left open (you unticked it).`:''}</p>`; res={}; draw(); };
+  $('#r-replay').onclick=()=>{ const l=last; const r=record({tplId:l.t.id,asset:l.asset,woId:l.woId,completeWO:false,by:myName(),results:{},deviceId:l.dev}); msg=`<div class="fbox good">Replay recognised — no-op</div><p style="font-size:13px;margin:8px 0 0">The same device id arrived again (a flaky upload). The server found it already recorded: it did <b>not</b> re-write the inspection, re-raise its defects, or re-complete the order. Defects on the board: ${S.defects.length} (unchanged).</p>`; draw(); };
+  onStore(draw); onPersona(draw);
+})();
+
+/* ================= W5b history ================= */
+(function(){
+  let open=null;
+  function draw(){ $('#h-list').innerHTML=S.inspections.map(i=>`<div class="rec" data-i="${i.id}" style="cursor:pointer"><div class="t"><span class="state-chip ${i.overall==='pass'?'applied':'rejected'}">${i.overall}</span> ${i.id} · ${i.asset[1]}</div><div class="m">${i.tpl} · by ${i.by} · ${i.at}${i.wo?' · fulfilled '+i.wo:''}</div>${open===i.id?`<div style="margin-top:6px">${i.results.map(r=>`<div style="font-size:12.5px;padding:2px 0"><b style="color:${r.outcome==='pass'?'var(--green)':r.outcome==='fail'?'var(--red)':'var(--muted)'}">${r.outcome==='pass'?'✓':r.outcome==='fail'?'✗':'—'}</b> ${esc(r.prompt)}${r.value?' <span class="muted">= '+esc(r.value)+'</span>':''}${r.note?' <i class="muted">“'+esc(r.note)+'”</i>':''}${r.defect?` <span class="state-chip open">→ ${r.defect}</span>`:''}</div>`).join('')}</div>`:''}</div>`).join('')||'<div class="muted" style="font-size:13px">No inspections yet — record one above (or play the Chapter 1 story).</div>';
+    $$('#h-list [data-i]').forEach(r=>r.onclick=()=>{ open=open===r.dataset.i?null:r.dataset.i; draw(); }); }
+  onStore(draw);
+})();
+
+/* ================= W6 maintenance cycle ================= */
+(function(){
+  let step=0, log='', diarised=false, ids=[];
+  const STEPS=[['1 · July — plan: create the round’s work orders (three inspections, one preventive), assigned and scheduled'],['2 · July — execute: Femi records each annual inspection (fulfilling its order) and does the greasing'],['3 · July — triage &amp; correct: raise, assign, complete and resolve the finding'],['4 · August — close the cycle: confirm the round is done']];
+  function draw(){ const w=can('wam:write'); $('#w6-gate').innerHTML=w?'':gateTip();
+    $('#mc-steps').innerHTML=STEPS.map((s,i)=>`<div style="display:flex;gap:8px;align-items:center;margin:4px 0;opacity:${i<=step?1:.5}"><button class="btn ${i===step?'pri':''}" data-k="${i}" ${i!==step||!w?'disabled':''}>${i<step?'✔':i+1}</button><span style="font-size:13.5px">${s[0]}</span></div>`).join('')+(step>=4?`<div style="margin-top:8px"><button class="btn ${diarised?'':'pri'}" id="mc-d" ${diarised?'disabled':''}>${diarised?'✔ Next July diarised':'Diarise next July in my calendar'}</button></div>`:'');
+    $('#mc-log').innerHTML=log||'Press step 1.';
+    $('#mc-cal').innerHTML=`Switchgear: annual, each Q3 ✔<br>Transformers: 2-yearly, alternating districts<br>Pole-tops: quarterly on storm-exposed feeders<br><b>${step>=4?(diarised?'Q3 next year: reminder set ✔':'Q3 next year: <span style="color:var(--red)">nothing scheduled — VoltEdge won’t remind you</span>'):'Q3 this year: due'}</b>`;
+    $('#mc-fut').innerHTML=$('#mc-future').checked?`<div class="tip"><b>When recurring plans land</b><br>A plan will hold a <b>cadence</b> (checklist · asset class · every N months) and <b>auto-generate</b> the inspection and preventive orders when due — replacing steps “write cadences down”, “create the orders” and “diarise next” of the hand-driven recipe. Everything else here stays exactly as it is.</div>`:'';
+    $$('#mc-steps [data-k]').forEach(b=>b.onclick=()=>run(+b.dataset.k)); const d=$('#mc-d'); if(d) d.onclick=()=>{diarised=true;draw()}; }
+  function run(i){ if(i===0){ setClock(0,8,0); ['SW-Feeder7-01','SW-Feeder7-03','SW-Feeder7-05'].forEach((a,k)=>{ const o=createWO({type:'inspection',priority:'medium',title:'Q3 annual — '+a,asset:['MV_SWITCHGEAR_PANEL',a],who:'Femi',sched:'Jul wk'+(k+1)}); ids.push(o.id); }); const p=createWO({type:'preventive',priority:'low',title:'Grease ring-main isolators, SW-Feeder7-01/03/05',who:'Femi',sched:'Jul wk1'}); ids.push(p.id); log='Four orders created, each <b>assigned</b> at creation — so the <b>Unassigned</b> KPI stays at zero. (Check the board in Chapter 1.)'; }
+    if(i===1){ const t=S.templates.find(x=>x.code==='MV_SWGR_ANNUAL'); if(!t||!t.active){ log='<span style="color:var(--red)">MV_SWGR_ANNUAL is retired — restore it or create the current version first (Chapter 4).</span>'; draw(); return; } let defect=null; ids.slice(0,3).forEach(id=>{ const o=S.orders.find(x=>x.id===id); const bad=o.asset[1]==='SW-Feeder7-03'; const r=record({tplId:t.id,asset:o.asset,woId:id,completeWO:true,by:'Femi',results:bad?{1:{outcome:'fail',note:'slow weep, ~1 drop/min'}}:{},deviceId:'mc-'+id}); if(bad) defect=r.ok.results.find(x=>x.defect).defect; }); const p=S.orders.find(x=>x.id===ids[3]); setWO(p.id,'in_progress'); setWO(p.id,'completed','Greased all three isolators'); ids.defect=defect; log=`Two inspections pass clean; SW-Feeder7-03’s oil weep fails → <b>${defect}</b> auto-raised. The preventive order was just Started and Completed with a note.`; }
+    if(i===2){ const r=raise(ids.defect,{who:'Femi',sched:'Jul wk2'}); setWO(r.ok.id,'in_progress'); setWO(r.ok.id,'completed','Reseated gasket; no weep after 30 min'); setDefect(ids.defect,'resolved'); log=`Corrective <b>${r.ok.id}</b> raised from the defect, assigned, completed; <b>${ids.defect}</b> resolved. The round’s one real finding is fixed and on the record.`; }
+    if(i===3){ const open=S.orders.filter(o=>ids.includes(o.id)&&!['completed','cancelled'].includes(o.status)).length; log=`Round orders still open: <b>${open}</b> — the round is done. <b>Nothing has been scheduled for next year.</b> Completing this cycle created no future work: the recurrence lives in <i>your</i> calendar (right).`; }
+    step=i+1; draw(); }
+  $('#mc-future').onchange=draw; $('#mc-reset').onclick=()=>{ step=0; log=''; diarised=false; ids=[]; draw(); }; onPersona(draw);
+})();
+
+/* ================= W7 field round ================= */
+(function(){
+  let mode='depot', pack=null, box=[], log='', seen=new Set(), hasRead=true, gps=true, wrote=0, dev=1, dups=0;
+  const init=()=>{ mode='depot'; pack=null; box=[]; log='Build a pack at the depot, then go offline.'; seen=new Set(); dups=0; };
+  init();
+  function build(){ const assets=ASSETS.filter(a=>a[1].startsWith('SW-')||a[1].startsWith('TX-')); const ids=new Set(assets.map(a=>a[1]));
+    pack={at:'just now',works:hasRead,assets:assets.length,defects:hasRead?S.defects.filter(d=>['open','work_ordered'].includes(d.status)&&d.asset&&ids.has(d.asset[1])).map(d=>({...d})):[],orders:hasRead?S.orders.filter(o=>o.who==='Femi'&&!['completed','cancelled'].includes(o.status)).map(o=>({...o})):[],templates:hasRead?S.templates.filter(t=>t.active).map(t=>({...t})):[],assetList:assets}; }
+  function q(kind,desc,fn){ box.push({id:'dev-'+(dev++),kind,desc,fn}); }
+  function draw(){ const m=$('#f-main'); $$('#f-mode button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.m===mode));
+    if(mode==='depot'){ m.innerHTML=`<label style="font-size:13px"><input type="checkbox" id="f-read" ${hasRead?'checked':''}> I hold <span class="perm">wam:read</span> (frozen into the pack at build time)</label><br><button class="btn pri" id="f-build" style="margin:8px 0">Build field pack over Feeder 7</button>${pack?`<div class="rec"><b>Manifest</b><div class="m">${pack.assets} assets · ${pack.works?`${pack.defects.length} open defects · ${pack.orders.length} work orders (<b>yours only</b>) · ${pack.templates.length} active checklists`:'<b>no Works context</b> — built without wam:read'}</div></div><div class="muted" style="font-size:12.5px">Zero work orders when you expected a round means they weren’t assigned to you or you packed the wrong area — catch it here, not up the pole. The pack is a snapshot: a defect raised after this moment isn’t in it.</div>`:''}<hr style="border:0;border-top:1px solid var(--line);margin:10px 0"><div class="lab">Sync (when online)</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><button class="btn pri" id="f-sync" ${box.length?'':'disabled'}>Sync ${box.length} op${box.length===1?'':'s'}</button><button class="btn" id="f-drop" ${box.length>1?'':'disabled'}>Sync — connection drops after 3 ops</button></div>`;
+      $('#f-read').onchange=e=>{hasRead=e.target.checked}; $('#f-build').onclick=()=>{ build(); log='Pack built and downloaded. Drive out.'; draw(); }; $('#f-sync').onclick=()=>sync(false); $('#f-drop').onclick=()=>sync(true); }
+    else if(!pack){ m.innerHTML='<div class="fbox bad">No pack on the device</div><p style="font-size:13px">You can’t pack an area you can’t reach. Go back to the depot (online) and build one.</p>'; }
+    else if(!pack.works){ m.innerHTML='<div class="fbox bad">No “Work &amp; assets” button</div><p style="font-size:13px">This pack was built without <span class="perm">wam:read</span>, so it carries no Works context. You need a new pack — no setting on the device can conjure it.</p>'; }
+    else { m.innerHTML=`<div class="lab">Work board — your assigned orders</div>${pack.orders.map(o=>`<div class="rec"><div class="t">${esc(o.title)}</div><div class="m">${o.id} · ${o.type} · <span class="state-chip ${o.status}">${o.status}</span></div><div class="a">${o.status!=='in_progress'?`<button class="btn" data-s="${o.id}">Start</button>`:''}${o.type==='inspection'?`<button class="btn pri" data-i="${o.id}">Run inspection (oil weep fails)</button>`:''}<button class="btn" data-c="${o.id}">Complete</button></div></div>`).join('')||'<div class="muted">No orders assigned to you.</div>'}<div class="muted" style="font-size:12.5px">There is <b>no “create work order”</b> offline: log the defect; a planner raises the order back at base.</div><div class="lab" style="margin-top:10px">Log a defect</div><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><select class="fld" id="f-as" style="max-width:190px">${pack.assetList.map(a=>`<option>${a[1]}</option>`).join('')}<option value="__none">No asset — report by location</option></select><input type="text" id="f-t" placeholder="Title (specific!)" style="max-width:200px"><label style="font-size:12.5px"><input type="checkbox" id="f-gps" ${gps?'checked':''}> GPS fix</label><button class="btn" id="f-ld">Log</button></div><div class="lab" style="margin-top:10px">Defects in the pack (${pack.defects.length})</div>${pack.defects.map(d=>`<div style="font-size:12.5px">${d.id} · <span class="sev ${d.severity}">${d.severity}</span> ${esc(d.title)}</div>`).join('')}`;
+      $$('#f-main [data-s]').forEach(b=>b.onclick=()=>{ const o=pack.orders.find(x=>x.id===b.dataset.s); o.status='in_progress'; q('wam_workorder_update','Start '+o.id,()=>setWO(o.id,'in_progress')); log='Started — queued in the outbox.'; draw(); });
+      $$('#f-main [data-c]').forEach(b=>b.onclick=()=>{ const o=pack.orders.find(x=>x.id===b.dataset.c); o.status='completed'; q('wam_workorder_update','Complete '+o.id,()=>setWO(o.id,'completed','Done in the field')); pack.orders=pack.orders.filter(x=>x!==o); log='Completed — queued.'; draw(); });
+      $$('#f-main [data-i]').forEach(b=>b.onclick=()=>{ const o=pack.orders.find(x=>x.id===b.dataset.i); const t=pack.templates.find(x=>x.cls===(o.asset&&o.asset[0])); if(!t){ log='No checklist for this asset class in the pack.'; draw(); return; } const asset=o.asset; const wid=o.id; q('wam_inspection_record','Inspection of '+asset[1]+' (1 armed fail) fulfilling '+wid,()=>{ const r=record({tplId:t.id,asset,woId:wid,completeWO:true,by:'Femi',results:{1:{outcome:'fail',note:'weep at gasket, north face'}},deviceId:'dev-insp-'+wid}); return r; }); pack.orders=pack.orders.filter(x=>x!==o); log='Recorded offline. The armed item is carried in the op — the <b>server</b> will raise the defect on sync.'; draw(); });
+      $('#f-gps').onchange=e=>{gps=e.target.checked}; $('#f-ld').onclick=()=>{ const as=$('#f-as').value,t=$('#f-t').value.trim(); if(!t){log='A title is required.';draw();return} if(as==='__none'){ if(!gps){ log='<span style="color:var(--red)">An orphan defect needs a GPS fix before it will let you save.</span>'; draw(); return; } q('wam_defect_create','Orphan defect (GPS): '+t,()=>logDefect({title:t,loc:[130,60],severity:'medium'})); log='Orphan defect queued, pinned to your coordinates. It can’t carry photos, and won’t re-pack into future packs.'; } else { const a=ASSETS.find(x=>x[1]===as); q('wam_defect_create','Defect on '+as+': '+t,()=>logDefect({title:t,asset:a,severity:'medium'})); log='Defect queued against '+as+'. (You could attach photos here.)'; } draw(); }; }
+    $('#f-box').innerHTML=box.map(o=>`<div style="font-size:12.5px;padding:2px 0"><code>${o.id}</code> ${esc(o.desc)}</div>`).join('')||'<div class="muted" style="font-size:12.5px">Empty.</div>';
+    $('#f-log').innerHTML=log; }
+  function sync(drop){ let applied=0,dup=0; const send=drop?box.slice(0,Math.min(3,box.length)):box.slice(); send.forEach(o=>{ if(seen.has(o.id)){dup++;return} seen.add(o.id); o.fn(); applied++; });
+    if(drop){ log=`Connection dropped after ${send.length} ops. The app can’t know what landed, so it keeps the whole outbox (${box.length}). Press Sync again: the ${applied} that landed carry device ids and are recognised — <b>nothing doubles</b>.`; }
+    else { dups+=dup; log=`Synced: ${applied} applied${dup?`, <b>${dup} duplicate${dup>1?'s':''} ignored (replay-safe)</b>`:''}. Board defects now ${S.defects.length}; armed fails raised their defects on the server.`; box=[]; } emit(); draw(); }
+  $$('#f-mode button').forEach(b=>b.onclick=()=>{mode=b.dataset.m;draw()}); $('#f-reset').onclick=()=>{ reset(); init(); draw(); }; onStore(()=>{}); draw();
+})();
+
+/* ================= W8a grid + W8b flat write + W8c doors + W8d agent ================= */
+(function(){
+  const R=[['Viewer','viewer',1,0],['Analyst','analyst',1,0],['Editor','editor',1,1],['Field roles','field',1,1],['Admin','admin',1,1],['Break-glass','bg',1,1]];
+  function draw(){ $('#g-grid').innerHTML='<tr><th>Role</th><th>wam:read</th><th>wam:write</th><th>In Works</th></tr>'+R.map(r=>`<tr style="${PERSONA[2]===r[1]?'background:var(--tint)':''}"><td>${r[0]}${PERSONA[2]===r[1]?' ◀ you':''}</td><td class="${r[2]?'ok':'no'}">${r[2]?'✓':'—'}</td><td class="${r[3]?'ok':'no'}">${r[3]?'✓':'—'}</td><td>${r[3]?'full operator / capture':'see the board and history, no buttons'}</td></tr>`).join('');
+    const caps=[['See the board & Works tab',1],['Log a defect · set its status',0],['Create / update / start / complete a work order',0],['Raise a corrective order from a defect',0],['Author / retire / restore a template',0],['Record an inspection',0],['Be listed as assignable',0]]; $('#g-out').innerHTML=`<b>${PERSONA[1]}</b>: ${caps.map(c=>`${c[1]||can('wam:write')?'✔':'✘'} ${c[0]}`).join(' · ')}`; }
+  onPersona(draw);
+  /* flat write */
+  const W=[['dana','Dana (editor)',1],['femi','Femi (field technician)',1],['priya','Priya (viewer)',0]]; let who='femi';
+  function flat(){ $('#s-who').innerHTML=W.map(w=>`<button data-w="${w[0]}" aria-pressed="${who===w[0]}">${w[1]}</button>`).join(''); const w=W.find(x=>x[0]===who);
+    $('#s-out').innerHTML=`<button class="btn" id="s-a" ${w[2]?'':'disabled'}>Author an org-wide template</button> <button class="btn" id="s-r" ${w[2]?'':'disabled'}>Retire MV_SWGR_ANNUAL</button><div id="s-m" style="margin-top:8px;font-size:13px">${w[2]?`${w[1]} holds <span class="perm">wam:write</span> — so the system will let them.`:'Read-only: no buttons.'}</div>`;
+    $('#s-who').querySelectorAll('button').forEach(b=>b.onclick=()=>{who=b.dataset.w;flat()});
+    const a=$('#s-a'); if(a) a.onclick=()=>{ createTpl({code:'FIELD_'+(S.tid),name:'Ad-hoc checklist by '+w[1].split(' ')[0],cls:'',items:[{prompt:'Looks OK?',rt:'pass_fail',fs:'medium',guide:''}]}); $('#s-m').innerHTML=`<b>Created</b> — it’s now in everyone’s record picker (and every field pack built from now on). Nothing but process stops a field tech doing this. It can only ever be <i>retired</i>, never deleted.`; };
+    const r=$('#s-r'); if(r) r.onclick=()=>{ const t=S.templates.find(x=>x.code==='MV_SWGR_ANNUAL'); t.active=false; emit(); $('#s-m').innerHTML='<b>Retired</b> — hidden from the picker; recorded inspections still read correctly (they snapshotted their items). Restore it in Interactive 8.'; }; }
+  flat();
+  /* doors */
+  let terr='north'; const FEAT={north:5,south:5};
+  function doors(){ const live=S.defects.length; const inN=S.defects.filter((d,i)=>(d.asset&&d.asset[1].length%2===(terr==='north'?0:1))).length;
+    $('#t-doors').innerHTML=`<div class="card"><h4>Map (territory-scoped)</h4><p><b>${FEAT[terr]}</b> of 10 assets visible — only ${terr==='north'?'North':'South'}.</p></div><div class="card"><h4>Works tab on an asset</h4><p>Reached <em>through</em> the asset, so as scoped as the asset: a defect on a ${terr==='north'?'South':'North'} asset isn’t reachable from here.</p></div><div class="card" style="border-color:var(--amber)"><h4>/works board &amp; agent</h4><p><b>${live} defects, ${S.orders.length} orders</b> — all of them, ${terr==='north'?'South':'North'} included. No territory check.</p></div>`; }
+  seg('#t-terr',b=>{terr=b.dataset.t;doors()}); onStore(doors); doors();
+  /* agent */
+  const TOOLS=[['wam_list_defects','r'],['wam_get_defect','r'],['wam_list_work_orders','r'],['wam_get_work_order','r'],['wam_list_assignable_users','r'],['wam_list_templates','r'],['wam_get_template','r'],['wam_list_inspections','r'],['wam_get_inspection','r'],['wam_create_defect','w'],['wam_set_defect_status','w'],['wam_create_work_order','w'],['wam_update_work_order','w'],['wam_raise_work_order_from_defect','w'],['wam_create_template','w'],['wam_set_template_active','w'],['wam_record_inspection','w']];
+  let alog=[], pend=null;
+  function agent(){ $('#a-who').textContent=PERSONA[1]; $('#a-tools').innerHTML=`<button class="btn pri" id="a-triage" style="margin-bottom:8px">Run: “high/critical open defects with no order → raise &amp; assign to Femi”</button><div style="font-size:12px;line-height:1.7">${TOOLS.map(t=>`<span class="chipx" style="display:inline-block;max-width:100%;overflow-wrap:anywhere;font:600 10.5px var(--f-mono);padding:2px 7px;border-radius:9px;margin:2px;border:1px solid ${t[1]==='r'?'var(--green)':'var(--amber)'};color:${t[1]==='r'?'var(--green)':'var(--amber)'}">${t[0]} · ${t[1]==='r'?'read':'write'}</span>`).join('')}</div>`;
+    $('#a-log').innerHTML=alog.map(l=>`<div style="margin:4px 0">${l}</div>`).join('')||'<span class="muted">Press the button.</span>';
+    if(pend) $('#a-log').innerHTML+=`<div style="border:1px solid var(--amber);border-radius:6px;padding:8px;background:var(--amber-tint)"><b>Confirm with a human</b> — <code>wam_raise_work_order_from_defect</code> on ${pend.id}<br><button class="btn pri" id="a-ok">Confirm</button> <button class="btn" id="a-no">Skip</button></div>`;
+    $('#a-triage').onclick=()=>{ alog=[]; const hi=S.defects.filter(d=>['high','critical'].includes(d.severity)&&d.status==='open'); alog.push(`<code>wam_list_defects</code> severity high/critical, open → <b>${hi.length}</b> defect(s) <span class="muted">(a read: runs without a prompt; needs wam:read)</span>`); alog.push('<code>wam_list_assignable_users</code> → Dana, Femi, Ada'); pend=hi[0]||null; if(!pend) alog.push('Nothing to raise.'); agent(); };
+    const ok=$('#a-ok'); if(ok) ok.onclick=()=>{ if(!can('wam:write')){ alog.push('<span style="color:var(--red)"><b>Permission error</b> — Priya lacks wam:write. The agent enforces exactly the boundary the UI does: same gate.</span>'); pend=null; agent(); return; } const r=raise(pend.id,{who:'Femi',sched:'Fri'}); alog.push(`✔ ${r.ok.id} raised (priority ${r.ok.priority}), ${pend.id} → work_ordered, assigned to Femi.`); const more=S.defects.filter(d=>['high','critical'].includes(d.severity)&&d.status==='open'); pend=more[0]||null; if(!pend) alog.push('Done.'); agent(); };
+    const no=$('#a-no'); if(no) no.onclick=()=>{pend=null;agent()}; }
+  onPersona(agent); onStore(()=>{});
+})();
+
+/* ================= W9 reference ================= */
+(function(){
+  const E={Defect:[['severity','low · medium (default) · high · critical'],['source','inspection · outage · condition_monitoring · ad_hoc (default)'],['status','open → work_ordered → resolved / dismissed (reopenable; terminal moves stamp resolved_at, reopening clears it)']],'Work order':[['work_type','inspection · corrective · preventive · construction (required, no default)'],['status','draft → scheduled → assigned → in_progress → completed / cancelled'],['priority','low · medium (default) · high · urgent']],Inspection:[['response_type','pass_fail (default) · rating · numeric · text'],['overall_result','pass · fail · conditional (any fail ⇒ fail unless overridden)'],['fail_severity','low · medium · high · critical — when set, a failing answer arms an auto-defect; omit for informational']]};
+  let k='Defect'; $('#e-k').innerHTML=Object.keys(E).map(x=>`<button data-k="${x}" aria-pressed="${x===k}">${x}</button>`).join('');
+  function draw(){ $('#e-body').innerHTML='<div class="tbl" style="margin:0"><table><tr><th>Field</th><th>Values</th></tr>'+E[k].map(r=>`<tr><td><code>${r[0]}</code></td><td>${r[1]}</td></tr>`).join('')+'</table></div>'; } seg('#e-k',b=>{k=b.dataset.k;draw()}); draw();
+  const H=[['Record a problem on an asset','Feature panel → Works tab → Log defect; or /works → Log defect; or wam_create_defect.'],['Record a problem on something not in the catalogue','Field app → defect → “No asset — report by location” (captures GPS). Orphan defects can’t hold photos.'],['Turn a defect into a job','Defect’s ⋯ → Raise work order. Priority derives from severity.'],['Create a job not tied to a defect','/works → work order; pick preventive (servicing) or construction (new build).'],['Assign a job','Set an assignee on create or via patch — the picker lists only people who can complete it.'],['Start / finish a job','Open the order → Start (stamps start) / Complete (stamps finish).'],['Build a reusable checklist','Inspections → New template; arm items with a fail_severity.'],['Fix a bad checklist','You can’t edit — retire it and create a corrected one.'],['Run a checklist','Inspections → Record inspection, or an inspection order → Run inspection (completes the order).'],['Auto-log the failures','Fail the armed items — one linked defect per armed fail on save/sync.'],['Work with no signal','Build a field pack (needs wam:read) → Work & assets → capture offline → sync.'],['Run a maintenance cycle','Create the round’s orders each period (no auto-recurrence), execute, triage, close, diarise the next.'],['See only my work','/works → Mine.'],['Drive it from the assistant','The wam_* MCP tools — reads run free, writes ask you to confirm.']];
+  function h(){ const q=$('#h-q').value.toLowerCase(); $('#h-t').innerHTML='<tr><th>I want to…</th><th>Do this</th></tr>'+H.filter(r=>!q||(r[0]+r[1]).toLowerCase().includes(q)).map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join(''); } $('#h-q').oninput=h; h();
+  const Q=[['A defect marked critical is raised into work. What priority does the order get?','urgent',['low','high','urgent'],'critical → urgent, high → high, low → low, anything else → medium.'],['You create an order with a schedule but no assignee. Its status?','scheduled',['draft','scheduled','assigned'],'Assignee ⇒ assigned; schedule only ⇒ scheduled; neither ⇒ draft.'],['A resolved defect needs more work. What do you do?','Reopen it, then raise',['Raise an order directly','Reopen it, then raise','Log a duplicate'],'A closed defect can’t spawn work; reopening clears the resolved stamp.'],['A checklist item’s wording is wrong. How do you fix it?','New template + retire the old one',['Edit the item','Delete the template','New template + retire the old one'],'Templates are immutable so recorded inspections keep reading correctly.'],['Planner A is scoped to North on the map. What does the /works board show them?','Everything, org-wide',['Only North','Everything, org-wide','Nothing until granted'],'Works carries no territory enforcement of its own.'],['You complete this quarter’s round. What gets scheduled for next quarter?','Nothing — you diarise it',['The next round, automatically','Nothing — you diarise it','Only preventive orders'],'There is no scheduler yet; the cadence is yours.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q" data-i="${i}"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach(el=>{ const x=Q[el.dataset.i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===x[1]; const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Answer: <b>${x[1]}</b>. `)+x[3]; }); });
+})();
+
+/* chapter rail */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a])); const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'}); document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+
+</script>
+</body></html>
