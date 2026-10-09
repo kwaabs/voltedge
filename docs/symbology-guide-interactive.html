@@ -1,0 +1,1211 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Symbology &amp; Map Styling</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  /* section palette (categorical, validated for both themes) */
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.role{display:inline-block;font:600 11px/1 var(--f-mono);padding:3px 7px;border-radius:3px;letter-spacing:.03em}
+.role.protective{background:var(--red-tint);color:var(--red)}
+.role.switching{background:var(--blue-tint);color:var(--blue)}
+.role.transformer{background:var(--amber-tint);color:var(--amber)}
+.role.source{background:var(--green-tint);color:var(--green)}
+.role.none{background:var(--line2);color:var(--muted)}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.bgrid{display:grid;grid-template-columns:minmax(0,1fr) 110px 150px auto;gap:5px;align-items:center}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+input[type=number],input[type=text],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--acc-deep);font-weight:700}
+.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+.bar{height:18px;background:var(--line2);border-radius:4px;position:relative;overflow:hidden}
+.bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .15s}
+.big{font:800 28px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums;color:var(--acc-deep)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono)}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.chainrow .arr{color:var(--muted);font:600 12px var(--f-mono)}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+
+/* handbook additions */
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+.matrix{border-collapse:collapse;font-size:12px;width:100%}
+.matrix th,.matrix td{padding:4px 6px;text-align:center;border-bottom:1px solid var(--line2)}
+.matrix td:first-child,.matrix th:first-child{text-align:left;position:sticky;left:0;background:var(--raise)}
+.matrix td.y{background:color-mix(in srgb,var(--green) 22%,transparent);color:var(--green);font-weight:700}
+.matrix tr:hover td{background:var(--surface)} .matrix tr:hover td.y{background:color-mix(in srgb,var(--green) 30%,transparent)}
+.tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:10px}
+.tabs button{font:600 11.5px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:6px 9px;border-radius:5px 5px 0 0;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.tabs button[disabled]{opacity:.4;cursor:not-allowed}
+.tree{font:500 13px var(--f-mono)} .tree .n{padding:3px 6px;border-radius:4px;display:inline-block}
+.tree .n.g{background:var(--tint);color:var(--acc-deep);font-weight:700}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+.ants{animation:march .9s linear infinite} @keyframes march{to{stroke-dashoffset:-16}}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sev{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.sev.low{background:var(--line2);color:var(--muted)} .sev.medium{background:var(--blue-tint);color:var(--blue)} .sev.high{background:var(--amber-tint);color:var(--amber)} .sev.critical{background:var(--red-tint);color:var(--red)} .sev.urgent{background:var(--red-tint);color:var(--red)}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.kpi div{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.kpi b{display:block;font:800 22px/1 var(--f-display);font-stretch:80%}
+.kpi span{font:600 10px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rec{border:1px solid var(--line2);border-radius:6px;padding:6px 8px;margin:5px 0;background:var(--raise);font-size:13px}
+.rec .t{font-weight:600}.rec .m{font-size:11.5px;color:var(--muted)}
+.rec .a{margin-top:4px;display:flex;gap:4px;flex-wrap:wrap}
+.state-chip{display:inline-block;font:700 10.5px var(--f-mono);padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.state-chip.applied,.state-chip.completed,.state-chip.resolved{background:var(--green-tint);color:var(--green);border-color:var(--green)} .state-chip.in_progress,.state-chip.work_ordered,.state-chip.assigned{background:var(--tint);color:var(--acc-deep);border-color:var(--acc)} .state-chip.cancelled,.state-chip.dismissed,.state-chip.rejected{background:var(--line2);color:var(--muted)} .state-chip.open,.state-chip.draft,.state-chip.scheduled{background:var(--amber-tint);color:var(--amber);border-color:var(--amber)}
+@media (max-width:760px){.kpi{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .bgrid{grid-template-columns:1fr 1fr}
+  .bgrid>input:first-child{grid-column:1/-1}
+  li,.rec .t,.rec .m{overflow-wrap:anywhere}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* everyday-operations additions */
+.gm{position:relative;border:1px solid var(--line);border-radius:6px 6px 0 0;overflow:hidden;background:var(--bg)}
+.gm-svg{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none}
+.gm-svg .gm-lab{fill:var(--ink);pointer-events:none}
+.gm-svg .gf{cursor:inherit}
+.gm-zoom{position:absolute;left:8px;top:8px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--raise)}
+.gm-zoom button{width:28px;height:28px;border:0;background:none;color:var(--ink);font:700 16px var(--f-mono);cursor:pointer}
+.gm-zoom button+button{border-top:1px solid var(--line)}
+.gm-north{position:absolute;left:8px;top:74px;width:28px;height:28px;border:1px solid var(--line);border-radius:50%;background:var(--raise);display:grid;place-items:center;cursor:pointer;padding:0}
+.gm-ban{position:absolute;left:50%;top:8px;transform:translateX(-50%);max-width:calc(100% - 100px);background:var(--ink);color:var(--bg);font:600 12px var(--f-mono);padding:6px 11px;border-radius:5px;z-index:3;text-align:center}
+.gm-tip{position:absolute;right:8px;bottom:8px;max-width:60%;background:var(--raise);border:1px solid var(--line);border-radius:5px;padding:6px 9px;font:500 12px var(--f-mono);box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.gm-status{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;background:var(--surface);padding:5px 10px;font:500 11.5px var(--f-mono);color:var(--muted)}
+.gm-status b{color:var(--ink);font-weight:600;margin-right:3px}
+.gm-status .gsr{margin-left:auto}
+.gm-status .attr{margin-left:8px;opacity:.8}
+.gsb{font:600 11px var(--f-mono);border:1px solid var(--line);background:var(--raise);color:var(--ink);border-radius:4px;padding:3px 7px;cursor:pointer}
+.gsb:hover{border-color:var(--muted)}
+.goto{font:500 11px var(--f-mono);width:128px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--raise);color:var(--ink)}
+.apid{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.apid.ok{background:var(--green)} .apid.bad{background:var(--red)}
+.story{border-left:3px solid var(--acc);background:var(--surface);padding:10px 16px;border-radius:0 6px 6px 0;margin:16px 0;max-width:78ch;font-size:15px}
+.story>*:last-child{margin-bottom:0}
+.story .who{font:700 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--acc-deep);display:block;margin-bottom:2px}
+.qs{max-width:78ch;margin:16px 0;border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:6px 16px 10px}
+.qs>b.k{display:block;font:700 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--acc-deep);margin:8px 0 0}
+.qs .steps{margin:4px 0 0}
+.ptabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:8px 0}
+.ptabs button{font:600 11px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:5px 8px;border-radius:5px 5px 0 0;cursor:pointer}
+.ptabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.ptabs button[disabled]{opacity:.35;cursor:not-allowed}
+.panelbox{border:1px solid var(--line);border-radius:6px;background:var(--raise);padding:9px 11px;font-size:13px}
+.panelbox h5{margin:0 0 4px;font:700 14px var(--f-display)}
+.kvt{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px;margin:6px 0}
+.kvt dt{font:600 10.5px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+.kvt dd{margin:0;font-family:var(--f-mono);font-size:12px}
+.fld-row{display:grid;grid-template-columns:130px 1fr;gap:6px;align-items:center;margin:5px 0;font-size:12.5px}
+.fld-row label{font:600 11.5px var(--f-mono)}
+.fld-row .rq{color:var(--red);font-weight:800}
+.fld-row.lock input,.fld-row.lock select{opacity:.6}
+.fld-row.chg input,.fld-row.chg select{border-color:var(--amber);background:var(--amber-tint)}
+.tog{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.tog input{accent-color:var(--acc)}
+.dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:60;padding:16px}
+.dlg>div{background:var(--raise);border:1px solid var(--line);border-radius:8px;max-width:420px;padding:16px 18px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.dlg h4{margin-bottom:6px}
+.dlg .a{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.sugg{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:5px;padding:5px 8px;margin:4px 0;font-size:12.5px;background:var(--raise);flex-wrap:wrap}
+.sugg .tx{flex:1;min-width:140px}
+.chipx{font:600 10.5px var(--f-mono)}
+.cardsel{border:1.5px solid var(--line);border-radius:7px;padding:8px 10px;background:var(--raise);cursor:pointer;font-size:13px;text-align:left}
+.cardsel[aria-pressed="true"]{border-color:var(--acc);background:var(--tint)}
+.pop{position:relative}
+.floatp{position:absolute;background:var(--raise);border:1.5px solid var(--line);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:5}
+.floatp .hd{background:var(--surface);border-bottom:1px solid var(--line);padding:6px 10px;font:700 12px var(--f-mono);cursor:grab;display:flex;justify-content:space-between;align-items:center;user-select:none;touch-action:none}
+.floatp .bd{padding:10px;font-size:12.5px;overflow:auto;flex:1}
+.floatp .grip{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 55%,var(--muted) 55%,var(--muted) 62%,transparent 62%,transparent 72%,var(--muted) 72%,var(--muted) 79%,transparent 79%)}
+@media (max-width:760px){
+  .gm-status{font-size:10.5px}
+  .gm-status .gsr{margin-left:0}
+  .goto{width:100px}
+  .fld-row{grid-template-columns:1fr}
+}
+
+[hidden]{display:none!important}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Symbology</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · How it works</a><a href="#c2">2 · Icons</a><a href="#c3">3 · Attach</a><a href="#c4">4 · Targeting</a><a href="#c5">5 · Lines &amp; polygons</a><a href="#c6">6 · Zoom &amp; labels</a><a href="#c7">7 · Diagrams</a><a href="#c8">8 · Troubleshooting</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · Symbology &amp; Map Styling · make your network look the way you mean it to</div>
+  <h1>Draw it.<br><span>Attach it.</span></h1>
+  <p class="lede">The copper dot that says “transformer here,” the hollow triangle that says “this switch is open,” the dashed line that says “this span is underground.” Everything below is a <em>working</em> symbology engine: the same icon library, the same most-specific-wins matcher, the same render math — painting a sample Oakwood network you can restyle as you read.</p>
+  <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap"><span class="tag pl" style="margin:0">▶ operator lane — do the work</span><span class="tag en" style="margin:0">∑ model lane — why it behaves so</span></div>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Ada</b> holds <span class="perm">metadata:write</span> — every authoring control works. <b>Tom</b> holds <span class="perm">metadata:read</span>: he sees the gallery and rule lists but no way to change them. <b>Priya</b> and <b>Dana</b> hold neither, so the Admin symbology screens aren’t theirs — Priya is the reason a symbol exists; Dana places the features that wear them.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">How to read this guide</span>
+<p>Symbology is the layer of VoltEdge that turns rows in a table into a picture. This guide braids two lanes into one text: the <b>▶ operator lane</b> — the step-by-step path for actually getting a symbol onto the map (drawing an SVG icon, registering it, attaching it to a feature class, making it change with a feature’s own attributes) — and the <b>∑ model lane</b> — the “why it behaves this way” reference (the two tables behind every symbol, the client-side matcher, the most-specific-wins rule, the render math). Skip the ∑ parts freely; the ▶ parts stand alone. It assumes you have met feature classes, subtypes, fields and domains, the map, and permissions in the User Handbook.</p>
+<p><b>Symbology is metadata configuration</b>, so the whole of it lives behind the <code>metadata:*</code> permissions and the <b>Admin</b> area: reading the symbology screens needs <span class="perm">metadata:read</span>; changing anything needs <span class="perm">metadata:write</span>. Every 🔒 names the exact permission.</p></div>
+
+<h3 style="margin-top:28px">The cast &amp; the running example</h3>
+<div class="tbl"><table>
+  <tr><th>Who</th><th>Role</th><th>Shows up when…</th></tr>
+  <tr><td><b>Ada</b></td><td>System administrator (<code>metadata:write</code>)</td><td>Drawing icons, authoring rules — the main character of almost every chapter</td></tr>
+  <tr><td><b>Priya</b></td><td>Read-only viewer / dispatcher (<code>features:read</code>)</td><td>Looking at the map and asking “why can’t I <em>see</em> the RMUs?” — the reason a symbol exists</td></tr>
+  <tr><td><b>Tom</b></td><td>Network analyst (<code>metadata:read</code>)</td><td>Wanting a switch to <em>look</em> open when it is open — the driver of field-based styling in Chapter 4</td></tr>
+  <tr><td><b>Dana</b></td><td>Network editor (<code>features:write</code>)</td><td>Placing the features that then wear Ada’s symbols</td></tr>
+</table></div>
+<p>One symbol threads through the whole guide: the <b>Ring Main Unit</b> glyph. By the end you will have drawn an SVG icon called <code>voltedge-rmu</code> — a small square switch box with three leads — registered it in the icon library, attached it to the <code>RMU</code> feature class so every ring main unit wears it, and learned how to make it change colour, size and shape in response to a feature’s own fields. 🔒 marks an action that needs a permission · 💡 a tip · ⚠️ a caution.</p>
+
+<!-- ============ CH1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>How symbology works</h2><p>Two tables, a client-side matcher — and nothing baked.</p></div>
+  <p>This chapter builds the vocabulary the rest of the guide assumes, and answers the single most common confusion up front — the one that sends people restarting services that have nothing to do with the problem. If you only ever remember one thing: <b>a symbol is chosen in your browser, per feature, from rules the server hands down — nothing is “baked” and no picture is stored.</b></p>
+
+  <h3>1.1 ▶ The problem symbology solves</h3>
+  <p>Priya opens the map. She can see conductors and transformers, but the ring main units her team just surveyed are invisible — or worse, they are all identical grey dots she can’t tell apart from anything else. She pings Ada: <em>“Can you make the RMUs actually look like RMUs?”</em> That request — “make this kind of feature look like <em>that</em>” — is the whole of symbology. Every feature in VoltEdge is stored as plain geometry plus attributes. None of that says anything about <em>appearance</em>. Symbology is the configuration that sits on top and says: <em>when you draw an <code>RMU</code>, draw it as this little square icon in copper; when you draw an <code>MV_CONDUCTOR</code> that is underground, draw it as a dashed line.</em></p>
+  <p>Ada owns that configuration. She never edits Priya’s features to change how they look — she edits the <b>rules</b> that decide how a whole <em>class</em> is drawn. Do it once, and every ring main unit — the thousand already on the map and the next one Dana places tomorrow — wears the symbol automatically.</p>
+
+  <h3>1.2 ∑ Two tables, two different jobs</h3>
+  <p>Here is the fact that trips up almost everyone the first time: <b>symbology is two separate things, in two separate tables, and doing only the first one renders nothing.</b></p>
+  <div class="tbl"><table>
+    <tr><th>Table</th><th>What it holds</th><th>The analogy</th></tr>
+    <tr><td><code>metadata.symbology_icons</code></td><td>Named pieces of SVG artwork: <code>icon_ref</code> → markup</td><td>A <b>library of stamps</b>. A stamp on the shelf marks nothing.</td></tr>
+    <tr><td><code>metadata.symbology_rules</code></td><td>Which style (which icon, colour, size…) applies to which feature</td><td>The <b>instruction</b> “stamp <em>this</em> stamp on every RMU”</td></tr>
+  </table></div>
+  <div class="caution"><b>The number-one mistake</b><br>Uploading an SVG to the icon library and expecting it to appear on the map. It won’t — you have created a stamp but never told anything to stamp it. You need <em>both</em> an icon <b>and</b> a rule that references it. Chapters 2 and 3 are exactly those two steps, in order.</div>
+  <p>Why split them at all? Because the two jobs change independently. You can redraw what a symbol <em>looks like</em> (edit the icon markup) without touching a single rule about <em>where</em> it is used — and vice versa. A stroke-width tweak to the RMU glyph instantly re-flows to every rule that uses it. That separation is why the icon’s identity (its <code>icon_ref</code>) is fixed and only its artwork is editable in place.</p>
+
+  <h3>1.3 ∑ The picture is never stored — it is resolved, in your browser</h3>
+  <p>The second surprise: <b>the map’s tile server never sees a symbol at all.</b> VoltEdge serves feature <em>geometry</em> as vector tiles through Martin. Those tiles carry the shapes and every attribute column — a point, its subtype, its voltage, its status — but <b>not one byte of styling</b>. Instead, when the map layer for a class loads, the browser fetches that class’s <b>schema</b> — <code>GET /feature-classes/{code}/schema</code> — and inside it a <code>symbology</code> array: the class’s rules, pre-resolved into a shape the browser can match directly. Then, for <em>each feature the tiles deliver</em>, the browser runs a tiny matcher (<code>resolveSymbology</code>) that reads that feature’s own attributes, picks the best-fitting rule, and paints the glyph.</p>
+<pre class="pre">  metadata.symbology_icons ─┐                     Martin tiles
+  (icon_ref → SVG markup)   │                (geometry + attributes,
+                            │                    NO styling)
+                            ▼                          │
+                   GET /symbology/icons                │
+                            │                          ▼
+   metadata.symbology_rules │                   ┌─────────────┐
+   (which style, which      ├──► browser ──────►│ resolve per │──► glyph
+    feature)                │                   │   feature   │    on map
+                            │                   └─────────────┘
+                   GET /feature-classes/RMU/schema
+                     (rules, pre-resolved)</pre>
+  <p>This is why the two “obvious” fixes are the wrong ones. <b>Restarting Martin does nothing for symbology</b> — it serves geometry and has no idea symbols exist. <b>Recompiling a class does not drive its map symbols either</b> — recompiling rebuilds the class’s <em>table and tile function</em>; the schema endpoint reads <code>symbology_rules</code> <b>live</b> at request time. What <em>does</em> make a change appear: a fresh fetch of the class schema. The map caches each class’s schema for a few minutes and only rebuilds a layer when that fetch changes, so the reliable trigger is a <b>hard browser refresh</b> (Ctrl/Cmd-Shift-R). Try every “fix” on a real RMU layer:</p>
+
+  <div class="widget" id="w1">
+    <div class="w-head"><span class="eyebrow">Interactive · 1</span><h4>“I made it — why can’t Priya see it?”</h4><span style="flex:1"></span><button class="btn" id="d-reset">Reset</button></div>
+    <div class="w-bar"><button class="btn" data-k="icon">① Author <code>voltedge-rmu</code> in the library</button><label class="tog"><input type="checkbox" id="d-wh" checked> carries width/height</label><button class="btn" data-k="rule">② Point the RMU default rule at it</button><span class="lab">context</span><div class="seg" id="d-ctx"><button data-v="map" aria-pressed="true">map</button><button data-v="diagram" aria-pressed="false">diagram</button></div></div>
+    <div class="w-bar"><span class="lab">Try the “fixes”</span><button class="btn" data-k="martin">Restart Martin</button><button class="btn" data-k="compile">Recompile RMU</button><button class="btn" data-k="soft">Soft refresh</button><button class="btn" data-k="wait">Wait 5 minutes</button><button class="btn pri" data-k="hard">Hard refresh (Ctrl/Cmd-Shift-R)</button></div>
+    <div class="w-split"><div class="w-main"><div class="lab" style="margin-bottom:4px">What Priya’s browser draws (from its cached schema)</div><div id="d-map"></div></div><div class="w-side"><div id="d-state"></div><div class="readout" id="d-log" style="margin-top:10px;font-size:12px;min-height:84px" aria-live="polite"></div></div></div>
+  </div>
+
+  <h3>1.4 ∑ How one feature’s style gets picked: most-specific-wins</h3>
+  <p>A class can carry many rules at once — a plain default, a different look for one subtype, a special colour when a status field has a certain value. When the browser draws a single feature, several might match. VoltEdge scores each matching rule by <b>how narrowly it targets</b>, and the narrowest match wins. A rule can be pinned on two independent axes: <b>Subtype</b> — worth <b>2</b> points; <b>a field value</b> — worth <b>1</b> point. For each feature, every matching rule is scored and <b>the highest score paints it.</b></p>
+<pre class="pre">  Specificity of a rule = (subtype pinned ? 2 : 0) + (field value pinned ? 1 : 0)
+
+   subtype 3  AND  status = open   →  3   (most specific — wins over all below)
+   subtype 3                       →  2
+   status = open                   →  1
+   (neither — the default)         →  0   (the safety net — always matches)</pre>
+  <p>That score-0 “neither” rule is special: it matches <em>every</em> feature of the class, so it is the guaranteed fallback. <b>Every class must have exactly one of these</b> — the mandatory <b>default rule</b>. Ties are not expected: authoring is meant never to produce two equally-specific rules for the same combination. 💡 Think of it as a cascade of increasingly specific overrides on a base coat. Pick a switch and watch the scoring:</p>
+  <div class="widget" id="w1b">
+    <div class="w-head"><span class="eyebrow">Interactive · 2</span><h4>Score a switch against four rules</h4></div>
+    <div class="w-bar"><span class="lab">Subtype</span><div class="seg" id="sc-sub"><button data-v="3" aria-pressed="true">3 · Load-break</button><button data-v="4" aria-pressed="false">4 · Isolator</button></div><span class="lab">state</span><div class="seg" id="sc-st"><button data-v="open" aria-pressed="true">open</button><button data-v="closed" aria-pressed="false">closed</button></div></div>
+    <div class="w-body"><div id="sc-out"></div></div>
+  </div>
+
+  <h3>1.5 ∑ Two worlds: the <code>map</code> and the <code>diagram</code></h3>
+  <p>Every rule also declares a <b>render context</b>: <b><code>map</code></b> — the geographic map (the vector-tile layers Priya is looking at) — or <b><code>diagram</code></b> — the schematic single-line diagram (the stencils on a substation one-line). The same class can, and usually does, carry rules for both: a real-world copper icon on the map, a standardised schematic symbol on the diagram. They are authored side by side and never interfere — each consumer reads only its own context’s rules.</p>
+  <div class="caution"><b>A <code>diagram</code> rule never shows on the geographic map</b><br>However perfect its icon. If a symbol is missing from the map, the first thing to check — after “does a rule exist at all” — is that the rule’s context is <code>map</code>, not <code>diagram</code>. A real and easy mix-up. (Flip the context switch in Interactive 1.)</div>
+
+  <h3>1.6 ▶ The shape of the work ahead</h3>
+  <p>With the model in hand, the operator path for Priya’s request is three moves, and the rest of this guide is those moves in depth:</p>
+  <ol class="steps">
+    <li><b>Draw and register the icon</b> (Chapter 2) — create the <code>voltedge-rmu</code> artwork in the icon library. 🔒 <code>metadata:write</code></li>
+    <li><b>Attach it to the class</b> (Chapter 3) — add a <code>map</code> symbology rule to the <code>RMU</code> class whose icon is <code>voltedge-rmu</code>. This is the step that actually puts it on the map. 🔒 <code>metadata:write</code></li>
+    <li><b>Refine it</b> (Chapters 4–6) — make it change with the feature’s fields, tune its size and colour, control when it labels and at what zoom it shows.</li>
+  </ol>
+  <p>Then hard-refresh, and Priya’s RMUs appear — wearing a symbol that finally looks like an RMU.</p>
+
+  <h3>1.7 Chapter summary</h3>
+  <ul>
+    <li>Symbology turns stored geometry + attributes into a styled picture; it is <b>configuration on a feature class</b>, not an edit to any feature.</li>
+    <li>It lives in <b>two tables</b>: <code>symbology_icons</code> (artwork, keyed by <code>icon_ref</code>) and <code>symbology_rules</code>. <b>An icon alone renders nothing</b> — a rule must reference it.</li>
+    <li>Symbols are <b>resolved in the browser, per feature</b>, from rules the schema endpoint hands down live. <b>Martin never sees a symbol; recompiling does not drive map symbology.</b> The reliable “make it appear” action is a <b>hard refresh</b>.</li>
+    <li>When several rules match, the <b>most specific wins</b> (subtype = 2, field value = 1); a mandatory <b>default rule</b> is the always-matching safety net.</li>
+    <li>Every rule has a <b>render context</b> — <code>map</code> or <code>diagram</code>. A <code>diagram</code> rule never shows on the map.</li>
+  </ul>
+</section>
+
+<!-- ============ CH2 ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>Authoring SVG icons</h2><p>The artwork half: a stamp on the shelf.</p></div>
+  <p>This is the first of Ada’s three moves: drawing the artwork. By the end of the chapter she has a valid, named icon — <code>voltedge-rmu</code> — sitting in the library, previewed and ready. It still won’t be on the map (that is Chapter 3’s job — the rule), but it will exist as a reusable stamp. Everything here is the <b>icon library</b>: <code>metadata.symbology_icons</code>. Nothing in this chapter mentions a feature class, because an icon knows nothing about where it will be used.</p>
+
+  <h3>2.1 ∑ The library, and the five shapes you already have</h3>
+  <p>The library is never empty. Five shapes are <b>built into the frontend as a fallback</b> (<code>FALLBACK_ICONS</code> in <code>symbology-icons.ts</code>) and always resolve, even on a database with zero authored icons:</p>
+  <div class="tbl"><table>
+    <tr><th><code>icon_ref</code></th><th>Shape</th><th></th></tr>
+    <tr><td><code>circle</code></td><td>Filled disc (the default when a rule names no icon)</td><td><span id="fb-circle"></span></td></tr>
+    <tr><td><code>square</code></td><td>Rounded filled square</td><td><span id="fb-square"></span></td></tr>
+    <tr><td><code>triangle</code></td><td>Filled triangle</td><td><span id="fb-triangle"></span></td></tr>
+    <tr><td><code>triangle-outline</code></td><td><em>Hollow</em> triangle — stroke only, transparent centre</td><td><span id="fb-triangle-outline"></span></td></tr>
+    <tr><td><code>diamond</code></td><td>Filled diamond</td><td><span id="fb-diamond"></span></td></tr>
+  </table></div>
+  <p>Two reasons they matter. A brand-new install can style its whole network from these alone. And — the safety net Chapter 1 promised — if a rule names an <code>icon_ref</code> that isn’t in the database (a typo, or a fetch still in flight), the resolver falls back to <code>circle</code> rather than drawing nothing. <b>A missing icon degrades to a shape; it never makes a feature invisible.</b></p>
+  <div class="en-b"><span class="tag en">∑ shape vs. modifier</span><p><code>triangle-outline</code> is the same triangle as <code>triangle</code> but with <code>fill="none"</code> and a stroke — a genuinely hollow silhouette. It exists so an <em>open</em> switch can differ from a <em>closed</em> one by <b>shape</b>, not merely by colour. Chapter 4 uses exactly this pair.</p></div>
+
+  <h3>2.2 ▶ Where you author icons</h3>
+  <p>Ada opens <b>Admin → Symbology icons</b>. 🔒 Seeing the page needs <span class="perm">metadata:read</span>. The <b>New icon</b>, edit (✏️) and delete (🗑️) controls only appear with <span class="perm">metadata:write</span> — the page gates its own write buttons to match what the server will allow, so Tom sees the gallery but no way to change it. The page lists every authored icon as a card: a live thumbnail, the <code>icon_ref</code> in monospace, and a badge reading <b>Tintable</b> or <b>Full-color</b> (§2.5).</p>
+
+  <h3>2.3 ▶ Creating the icon — the two fields</h3>
+  <ol class="steps">
+    <li><b>Name</b> — becomes the <code>icon_ref</code>, the permanent identity a rule uses to reach this artwork. <b>lower-kebab-case</b>: a letter, then lowercase letters, digits or hyphens — <code>^[a-z][a-z0-9-]*$</code>, enforced in the form and again on the server (<code>iconRefPattern</code>). The field lowercases as you type. <code>voltedge-rmu</code> is valid; <code>Voltedge_RMU</code> and <code>2-rmu</code> are not.</li>
+    <li><b>SVG markup</b> — the drawing, pasted as raw <code>&lt;svg&gt;…&lt;/svg&gt;</code>. Beside it: a <b>live preview</b> and a <b>tint colour</b> swatch, re-rendering as you type (once the text contains <code>&lt;svg</code>).</li>
+  </ol>
+  <div class="caution">The name is the identity and it does <b>not</b> change later — editing an icon changes only its markup, never its <code>icon_ref</code>. A house prefix like <code>voltedge-…</code> or a standards prefix like <code>iec-…</code> keeps the library legible.</div>
+  <p><b>Create</b> writes the row (<code>POST /admin/symbology-icons</code>) and the icon is immediately live in the library — no deploy needed. (The map still needs a rule before it draws it — Chapter 3.)</p>
+
+  <h3>2.4 ∑ What makes a valid, renderable SVG</h3>
+  <p>Three rules separate an icon that renders from one that silently fails. <b>Rule 1 — carry explicit <code>width</code> and <code>height</code>, not just a <code>viewBox</code>.</b> The failure mode is nasty because <em>nothing errors</em> — the icon just never appears. The browser rasterises an SVG for a map glyph through a detached <code>Image()</code>, and Chromium sizes an image with no intrinsic width/height at <b>150×150</b> — far too big for the icon slot, so it drops out. The editor hint says so: <em>“Must carry explicit width/height, not just a viewBox.”</em></p>
+<pre class="pre">&lt;!-- ✅ renders --&gt;
+&lt;svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"&gt;…&lt;/svg&gt;
+
+&lt;!-- ❌ viewBox but no width/height → 150×150 → silently vanishes --&gt;
+&lt;svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"&gt;…&lt;/svg&gt;</pre>
+  <p>This is exactly the trap behind “I attached the symbol, recompiled, restarted the tile server, and nothing showed up.” The recompile and restart were red herrings (Chapter 1); the icon simply had no width/height. <b>Rule 2 — author on a 24×24 canvas.</b> Every built-in is drawn at <code>viewBox="0 0 24 24"</code>, and the render math assumes it (§2.7). <b>Rule 3 — use <code>{{COLOR}}</code> where the rule’s colour should go</b> (optional, next section).</p>
+
+  <h3>2.5 ∑ Tintable vs. full-colour: the <code>{{COLOR}}</code> placeholder</h3>
+  <p>Write <code>fill="{{COLOR}}"</code> or <code>stroke="{{COLOR}}"</code> and at render time that token is replaced by the colour the rule specifies — one icon, any colour. The library card badges these <b>Tintable</b>. Leave <code>{{COLOR}}</code> out and the artwork renders <b>exactly as authored</b> — a harmless no-op, how a multi-colour logo or a standards symbol with fixed colours opts out of tinting. Badge: <b>Full-color</b>. You never choose a “mode”; the markup decides.</p>
+
+  <h3>2.6 ▶ Drawing <code>voltedge-rmu</code> — in the real editor</h3>
+  <p>Ada wants an RMU to read as a small <b>switch box with three leads</b>: a box for the enclosure, three stubs for the ways. Below is the library and editor, working against the same rules as the live screen. Load the presets, break them, and watch the diagnostics — including the <em>real</em> intrinsic size the browser reports for your markup.</p>
+  <div class="widget" id="w2">
+    <div class="w-head"><span class="eyebrow">Interactive · 3</span><h4>The icon library &amp; editor</h4><span style="flex:1"></span><span id="ic-gate"></span></div>
+    <div class="w-body"><div class="lab" style="margin-bottom:6px">Library <span class="muted">— built-ins first, then authored icons</span></div><div id="ic-gal" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px"></div></div>
+    <div class="w-bar" style="border-top:1px solid var(--line)"><span class="lab">Load a preset</span><button class="btn" data-p="good">✓ voltedge-rmu (correct)</button><button class="btn" data-p="vb">viewBox only</button><button class="btn" data-p="big">100-unit canvas</button><button class="btn" data-p="full">Full-colour logo</button><button class="btn" data-p="bad">Bad name</button></div>
+    <div class="w-split"><div class="w-main">
+      <div class="fld"><label class="lab" for="ic-name">Name (<code>icon_ref</code>)</label><input id="ic-name" autocomplete="off" spellcheck="false" style="width:100%;font:14px var(--f-mono);padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--raise);color:var(--ink)"></div>
+      <div class="fld" style="margin-top:8px"><label class="lab" for="ic-svg">SVG markup</label><textarea id="ic-svg" rows="9" spellcheck="false" style="width:100%;font:12.5px/1.45 var(--f-mono);padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--raise);color:var(--ink)"></textarea></div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center"><button class="btn pri" id="ic-save">Create</button><button class="btn" id="ic-new">New</button><span id="ic-msg" style="font-size:13px" aria-live="polite"></span></div>
+    </div><div class="w-side">
+      <div class="lab">Live preview</div>
+      <div style="display:flex;gap:14px;align-items:center;margin:6px 0"><div id="ic-prev" style="width:96px;height:96px;border:1px dashed var(--line);border-radius:8px;display:grid;place-items:center;background:var(--surface)"></div><div><label class="lab" for="ic-tint">Tint</label><br><input type="color" id="ic-tint" value="#b5651d" style="width:44px;height:30px;border:none;background:none;padding:0"></div></div>
+      <div class="lab" style="margin-top:8px">Diagnostics</div><div id="ic-diag" style="font-size:13px;margin-top:4px"></div>
+    </div></div>
+  </div>
+
+  <div class="en-b" style="margin-top:14px"><span class="tag en">∑ line weight &amp; canvas size</span>
+  <p>Raise <code>stroke-width</code> for a bolder glyph; <code>fill="none"</code> keeps the box hollow, <code>fill="{{COLOR}}"</code> on the <code>&lt;rect&gt;</code> makes it solid; <code>stroke-linecap="round"</code> softens the leads. These are ordinary SVG attributes — the editor imposes nothing beyond the three rules. If you draw on a larger canvas (say <code>viewBox="0 0 100 100"</code> with heavier strokes) the icon still renders once it carries width/height — but it looks <em>smaller</em>, because the map scales the whole box down and your art fills only part of it. That is “it’s authored but looks tiny.” Fixes, in order of preference: redraw at 24×24; tighten the viewBox to the artwork’s bounds; or drive its size up with the <b>rule’s <code>scale</code></b> (Chapter 3).</p></div>
+
+  <h3>2.7 ∑ How big the icon actually lands</h3>
+<pre class="pre">  on-screen scale = ICON_BASE_SCALE (0.65)  ×  (rule.scale ?? 1)</pre>
+  <p><code>ICON_BASE_SCALE</code> is a fixed <code>0.65</code> (in <code>map-layers.ts</code>) — it scales a 24-unit icon down to roughly the size of the plain dot it replaces. The rule’s own <code>scale</code> (default 1) multiplies that. Experiment: how big is the <em>art</em> itself, given the canvas it was drawn on?</p>
+  <div class="widget" id="w2b">
+    <div class="w-head"><span class="eyebrow">Interactive · 4</span><h4>Sizing calculator</h4></div>
+    <div class="w-bar"><span class="lab">Canvas</span><div class="seg" id="sz-vb"><button data-v="24" aria-pressed="true">24×24</button><button data-v="48" aria-pressed="false">48×48</button><button data-v="100" aria-pressed="false">100×100</button></div><span class="lab">Art spans</span><input type="range" id="sz-fill" min="20" max="100" value="75" aria-label="Art as percent of canvas" style="width:140px"><b id="sz-fill-v"></b><span class="lab">rule.scale</span><input type="range" id="sz-sc" min="0.5" max="4" step="0.1" value="1" aria-label="rule scale" style="width:140px"><b id="sz-sc-v"></b></div>
+    <div class="w-split"><div class="w-main"><svg id="sz-svg" viewBox="0 0 420 150" width="100%" role="img" aria-label="Icon box and art next to built-in dot"></svg></div><div class="w-side"><div id="sz-out"></div></div></div>
+  </div>
+
+  <h3>2.8 ▶ Editing and deleting icons</h3>
+  <p><b>Editing</b> (✏️) reopens the editor on the existing markup. Rewrite the drawing freely and <b>Save</b> (<code>PATCH /admin/symbology-icons/{icon_ref}</code>). The change is instant and global: every rule that references this <code>icon_ref</code> now draws the new artwork, because the identity never moved. The one thing you cannot change is the <code>icon_ref</code> itself. <b>Deleting</b> (🗑️) is guarded: an icon can only be deleted <b>while no symbology rule references it</b>; otherwise the server refuses rather than leave rules pointing at a hole. Safe order: repoint or remove the rules first, then delete the icon. (Try it in Interactive 3: press “↪ use” on a card, then delete it.)</p>
+  <div class="tip"><b>Prefer SQL?</b> The library is a plain table — <code>metadata.symbology_icons</code> (migration 0023), <code>icon_ref</code> → <code>svg</code>. <code>INSERT INTO metadata.symbology_icons (icon_ref, svg) VALUES (…)</code> works and takes effect on the next schema/registry fetch. The same three rules apply — width/height especially, since SQL won’t warn you.</div>
+
+  <h3>2.9 Chapter summary</h3>
+  <ul>
+    <li>Icons live in <b><code>metadata.symbology_icons</code></b>, authored at <b>Admin → Symbology icons</b> (🔒 <code>metadata:read</code> to view, <code>metadata:write</code> to change). Five built-in shapes always resolve; a bad <code>icon_ref</code> degrades to a shape.</li>
+    <li>A new icon needs a <b>lower-kebab name</b> (its permanent <code>icon_ref</code>) and <b>SVG markup</b>, checked against a live tinted preview.</li>
+    <li>A renderable SVG <b>carries explicit <code>width</code>/<code>height</code></b> (missing → silent 150×150 failure), is best <b>authored at 24×24</b>, and uses <b><code>{{COLOR}}</code></b> where the rule’s colour applies.</li>
+    <li>On-screen size = <b><code>0.65 × (rule.scale ?? 1)</code></b>. Editing changes only the artwork and is global and instant; deletion is blocked while any rule references the icon.</li>
+  </ul>
+</section>
+
+<!-- ============ CH3 ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>Attaching a symbol to a feature class</h2><p>The rule that actually puts it on the map.</p></div>
+  <p>The icon exists; now make it appear. This is the step that puts a symbol on the map — the <b>rule</b> that says “draw every <code>RMU</code> as <code>voltedge-rmu</code>.” By the end, Priya’s ring main units finally look like ring main units.</p>
+
+  <h3>3.1 ▶ Where rules live</h3>
+  <p>Rules are edited <b>per feature class</b>, not in one global list: <b>Admin → Feature classes → open the class (e.g. <code>RMU</code>) → the <em>Symbology</em> section.</b> That section lists every rule the class already has, each with a <b>live swatch</b> of exactly how it renders, and gives you four actions: <b>Add rule</b>, <b>Edit</b>, <b>Duplicate</b>, <b>Delete</b> (🔒 all <span class="perm">metadata:write</span>; <span class="perm">metadata:read</span> sees the list read-only). Separate <b>Labelling</b> and <b>Display zoom</b> sections sit nearby — those are Chapter 6.</p>
+
+  <h3>3.2 ▶ The Add-rule form, field by field</h3>
+  <p><b>Add rule</b> opens one dialog. The top row is <b>targeting</b> (who the rule applies to); the bottom is <b>style</b> (what it draws). For a first default rule you touch only two things — render context and the icon — and leave the rest at “any”.</p>
+  <div class="tbl"><table>
+    <tr><th>Field</th><th>What it does</th><th>For the RMU default</th></tr>
+    <tr><td><b>Render context</b></td><td><code>map</code> or <code>diagram</code> — which surface this rule paints</td><td><b><code>map</code></b></td></tr>
+    <tr><td><b>Subtype</b></td><td>Restrict to one subtype, or <b>any</b></td><td>any</td></tr>
+    <tr><td><b>Field</b></td><td>Restrict to a coded field’s value, or <b>any</b></td><td>any</td></tr>
+    <tr><td><b>Value</b></td><td>(appears only after a Field is chosen) the required value</td><td>—</td></tr>
+    <tr><td><b>Apply rule from / to zoom</b></td><td>Zoom band this <em>style</em> applies over (Chapter 6)</td><td>leave blank</td></tr>
+    <tr><td><b>Color</b></td><td>The colour — fills <code>{{COLOR}}</code> in the icon</td><td>your copper tone</td></tr>
+    <tr><td><b>Scale</b></td><td>Multiplies the icon’s size (<code>0.65 × scale</code>)</td><td><code>1</code> (or <code>2</code> to enlarge)</td></tr>
+    <tr><td><b>Icon</b></td><td>The icon picker — pick <code>voltedge-rmu</code></td><td><b>voltedge-rmu</b></td></tr>
+  </table></div>
+  <p>The style controls change with the class’s geometry: a <b>point</b> shows <b>Scale + Icon</b>; a <b>line</b> shows <b>Width + Dash</b>; a <b>polygon</b> shows <b>Fill color + Stroke color</b> (Chapter 5). <code>RMU</code> is a point, so you get the icon picker.</p>
+
+  <h3>3.3 ∑ The default rule — the one every class must have</h3>
+  <p>A rule with <b>Subtype = any</b> and <b>Field = any</b> targets <em>nothing in particular</em>, so it matches <b>every</b> feature of the class. That is the <b>default rule</b>, and every class must have <b>exactly one</b> (per render context). It is what guarantees a feature is never unstyled.</p>
+  <ul>
+    <li>The <b>compiler enforces “exactly one default” at publish time</b>, not the rule editor. You can freely add, edit and delete rules; but leave a class with <b>no</b> default and its <b>next compile fails loudly</b>. (Two defaults is likewise rejected.)</li>
+    <li>Deleting rules has <b>no guard</b> — deletion can only ever remove specificity, and the compiler re-checks the whole set. The safety is at publish, not at the click.</li>
+  </ul>
+  <div class="tip">Rule of thumb: <b>always keep one any/any rule per class</b>. Build specificity <em>on top</em> of it (Chapter 4), never by removing it.</div>
+
+  <h3>3.4 ▶ Worked example — put <code>voltedge-rmu</code> on the map</h3>
+  <ol class="steps">
+    <li><b>Admin → Feature classes → <code>RMU</code> → Symbology → Add rule.</b></li>
+    <li><b>Render context:</b> <code>map</code>. <b>Subtype:</b> any. <b>Field:</b> any. <em>(This is the default rule.)</em></li>
+    <li><b>Color:</b> pick the copper tone. <b>Icon:</b> choose <b><code>voltedge-rmu</code></b> (its thumbnail is tinted with the colour you picked). <b>Scale:</b> <code>1</code> — or <code>2</code> if it reads small.</li>
+    <li><b>Add rule</b> → the row appears with a live swatch (<code>POST /admin/feature-classes/RMU/symbology-rules</code>).</li>
+    <li><b>Hard-refresh the map</b> (Ctrl/Cmd-Shift-R). Every RMU now wears the glyph.</li>
+  </ol>
+  <p>If the <code>RMU</code> class already had a plain default rule (many seeded classes do), Ada doesn’t add a second one — she <b>Edits</b> the existing default and swaps its icon. One default, edited, not duplicated. Do it for real below — the form, the list and the preview are the live behaviour. (This map re-reads rules instantly; on the real map you’d add the hard refresh from Chapter 1.)</p>
+  <div class="widget" id="w3">
+    <div class="w-head"><span class="eyebrow">Interactive · 5</span><h4>Put <code>voltedge-rmu</code> on the map</h4><span style="flex:1"></span><button class="btn" id="w3-lib">Load <code>voltedge-rmu</code> into the library</button></div>
+    <div id="rb3"></div>
+    <div class="w-body" style="font-size:13.5px"><b>Try it:</b> ① load the icon (Chapter 2 did this if you ran the editor) → ② <b>✏️ Edit</b> the default rule: pick <code>voltedge-rmu</code>, a copper colour → ③ <b>＋ Add rule</b> and tick yourself a second <em>any/any</em> map rule → press <b>Compile check</b> and see why one default is the law → ④ delete the default and compile-check again.</div>
+  </div>
+  <div class="caution">If nothing changes after the refresh, the usual causes are: the rule’s render context is <code>diagram</code> not <code>map</code>; the icon has no width/height (Chapter 2); or the browser is still on the cached schema — a <em>hard</em> refresh, not a soft one. Chapter 8 is the full checklist.</div>
+
+  <h3>3.5 Chapter summary</h3>
+  <ul>
+    <li>Rules are authored per class at <b>Admin → Feature classes → {class} → Symbology</b> (🔒 <code>metadata:write</code>), each shown with a live swatch.</li>
+    <li>The <b>Add rule</b> dialog is <b>targeting</b> (render context / subtype / field / value / zoom) over <b>style</b> (colour + geometry-specific knobs + icon).</li>
+    <li>A <b>default rule</b> (any/any) matches every feature; <b>keep exactly one per class</b> — the compiler enforces it at publish, and a missing default fails the next compile.</li>
+    <li>Attaching <code>voltedge-rmu</code> to <code>RMU</code> is one <code>map</code> default rule with that icon; a <b>hard refresh</b> makes it appear.</li>
+  </ul>
+</section>
+
+<!-- ============ CH4 ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>Targeting: by subtype and by field value</h2><p>Narrow rules over a base coat; the engine picks.</p></div>
+  <p>A single glyph for a whole class is rarely enough. You want <em>open</em> switches to look different from <em>closed</em> ones, transmission poles heavier than distribution poles, faulted assets to jump out. That is <b>targeting</b>: narrowing a rule so it paints only some features, and letting the most specific rule win.</p>
+
+  <h3>4.1 ∑ The two axes, and who wins</h3>
+  <div class="tbl"><table>
+    <tr><th>Rule pins…</th><th>Specificity</th><th>Beats</th></tr>
+    <tr><td>Subtype <b>and</b> field value</td><td><b>3</b></td><td>everything below</td></tr>
+    <tr><td>Subtype only</td><td><b>2</b></td><td>field-only and default</td></tr>
+    <tr><td>Field value only</td><td><b>1</b></td><td>default</td></tr>
+    <tr><td>Neither (the default)</td><td><b>0</b></td><td>nothing — the fallback</td></tr>
+  </table></div>
+  <p>For each feature the browser scores every matching rule and paints with the highest. You never order rules by hand; you author the narrow ones and the engine picks. <b>Authoring should never create two equally-specific rules for the same subtype+value combination</b> — that is the one ambiguity to avoid (the list flags it with a ⚠ tie).</p>
+
+  <h3>4.2 ▶ Targeting by subtype</h3>
+  <p>Use this when a subtype should simply look different — an underground vs overhead conductor, a transmission vs distribution pole. <b>Add rule</b> → <b>Subtype:</b> pick it (the dropdown shows <code>code: name</code>) → <b>Field:</b> any → set the style → <b>Add rule</b>. That rule scores 2 and overrides the default for just that subtype; everything else falls through.</p>
+
+  <h3>4.3 ▶ Targeting by field value — the coded-field requirement</h3>
+  <p>The value axis only works on a <b>coded field</b>: one backed by a <b>domain</b> (a fixed list of allowed values). In the Add-rule form the <b>Field</b> dropdown lists <b>only</b> the class’s coded fields; a free-text or numeric field never appears. Once you pick a field a <b>Value</b> dropdown appears, populated from that field’s own domain, and it is <b>required</b> — a field without a value is rejected both in the form and on the server.</p>
+  <div class="tbl"><table>
+    <tr><th>Field on <code>SWITCH</code></th><th>Kind</th><th>In the Field dropdown?</th></tr>
+    <tr><td><code>name</code></td><td>free text</td><td class="no">no</td></tr>
+    <tr><td><code>rated_a</code></td><td>number</td><td class="no">no</td></tr>
+    <tr><td><code>state</code></td><td>coded (domain: open, closed)</td><td class="ok">yes</td></tr>
+  </table></div>
+  <div class="en-b"><span class="tag en">∑ exact string equality</span><p>At render time the match is exact string equality: the feature’s stored value must equal the rule’s <b>value code</b>. So the codes you target are the domain’s value <em>codes</em> (<code>open</code>, <code>oh</code>, <code>CU</code>…), not their display labels.</p></div>
+
+  <h3>4.4 ▶ Worked example — open vs closed switches</h3>
+  <p>Tom wants open switches to read as a <b>hollow</b> triangle and closed ones as a <b>solid</b> triangle. His switch class has a coded <b>state</b> field whose domain includes <code>open</code> and <code>closed</code>. Three rules:</p>
+  <ol class="steps">
+    <li><b>Default (any/any)</b> — <code>triangle</code>, normal device colour. <em>(Score 0 — a switch with no state, or an unexpected state, still draws.)</em></li>
+    <li><b>Field = state, Value = <code>closed</code></b> — <code>triangle</code> (solid). <em>(Score 1.)</em></li>
+    <li><b>Field = state, Value = <code>open</code></b> — <code>triangle-outline</code> (hollow). <em>(Score 1.)</em></li>
+  </ol>
+  <p>A closed switch matches rules 1 and 2 → rule 2 wins. An open switch matches 1 and 3 → rule 3 wins. This is exactly why <code>triangle-outline</code> exists. 💡 <b>Want open switches red <em>and</em> hollow?</b> Give rule 3 a red <b>Color</b> too — a rule sets targeting and style together.</p>
+  <div class="widget" id="w4">
+    <div class="w-head"><span class="eyebrow">Interactive · 6</span><h4>Open vs closed — build it, then break the tie</h4></div>
+    <div class="w-bar"><span class="lab">Recipes</span><button class="btn" id="w4-a">① closed → solid</button><button class="btn" id="w4-b">② open → hollow, red</button><button class="btn" id="w4-c">③ score-3 exception: open load-break → diamond</button><button class="btn warn" id="w4-d">④ add a tied rule</button></div>
+    <div id="rb4"></div>
+    <div class="w-body" style="font-size:13.5px">Click switches on the map: the inspector lists every rule, whether it matched, its score and the winner. S3 and S5 are <em>isolators</em> (subtype 4); S2 and S6 are open <em>load-breaks</em> (subtype 3) — the only features that reach the score-3 rule.</div>
+  </div>
+
+  <h3>4.5 ▶ Combining both axes</h3>
+  <p>Pin <b>Subtype and Field</b> together for a score-3 rule — e.g. “load-break switches (subtype) that are open” drawn differently from other open switches (recipe ③). Reach for this only when a broad field rule genuinely needs a per-subtype exception; most maps never need score-3 rules.</p>
+
+  <h3>4.6 Chapter summary</h3>
+  <ul>
+    <li><b>Targeting narrows a rule</b>; specificity = subtype (2) + field value (1); the highest-scoring matching rule paints each feature, automatically.</li>
+    <li>The <b>value axis needs a coded (domain-backed) field</b> — only those appear in the Field dropdown, and a chosen field <b>requires</b> a value.</li>
+    <li>Layer narrow rules <b>on top of</b> the default; default <code>triangle</code>, <code>closed</code>→solid, <code>open</code>→hollow <code>triangle-outline</code> is the canonical example.</li>
+    <li>A rule sets <b>style and targeting together</b>, so one rule can change both shape and colour for its slice.</li>
+  </ul>
+</section>
+
+<!-- ============ CH5 ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>Styling lines and polygons</h2><p>Points wear icons; lines and polygons wear strokes and fills.</p></div>
+  <p>When the class’s geometry is a line or a polygon, the Add-rule form swaps the icon picker for the knobs that geometry actually uses — and shows a <b>live swatch</b>. Targeting (Chapter 4), the default rule (Chapter 3), and zoom (Chapter 6) work identically; only the style controls differ.</p>
+
+  <h3>5.1 ▶ Line styles — colour, width, dash</h3>
+  <p>A <b>line</b> class (a conductor, a cable, a boundary run) shows <b>Color</b> (stroke), <b>Width</b> (px) and <b>Dash</b> — one of exactly four named patterns:</p>
+  <div class="tbl"><table><tr><th><code>dash</code></th><th>Looks like</th><th><code>dash</code></th><th>Looks like</th></tr>
+    <tr><td><code>solid</code></td><td><svg width="90" height="12"><line x1="2" y1="6" x2="88" y2="6" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></td><td><code>dotted</code></td><td><svg width="90" height="12"><line x1="2" y1="6" x2="88" y2="6" stroke="currentColor" stroke-width="3" stroke-dasharray="2 4" stroke-linecap="round"/></svg></td></tr>
+    <tr><td><code>dashed</code></td><td><svg width="90" height="12"><line x1="2" y1="6" x2="88" y2="6" stroke="currentColor" stroke-width="3" stroke-dasharray="8 5" stroke-linecap="round"/></svg></td><td><code>dashdot</code></td><td><svg width="90" height="12"><line x1="2" y1="6" x2="88" y2="6" stroke="currentColor" stroke-width="3" stroke-dasharray="9 4 2 4" stroke-linecap="round"/></svg></td></tr></table></div>
+  <p>💡 The list-row subtitle summarises a line rule as e.g. <em>“dashed · 3px”</em>, so you can read a class’s line rules at a glance. <b>Worked example — underground conductors dashed.</b> Dana wants overhead solid and underground dashed on <code>MV_CONDUCTOR</code> (a subtype swap on that class): a default (colour, Width 2, <code>solid</code>) plus <b>Subtype = Underground</b> (same colour, Width 2, <code>dashed</code>, score 2). Add a <b>voltage-class</b> rule on top to thicken 33 kV runs — Width 4 — and it layers cleanly.</p>
+  <div class="widget" id="w5a">
+    <div class="w-head"><span class="eyebrow">Interactive · 7</span><h4>Lines: underground dashed, 33 kV heavy</h4></div>
+    <div class="w-bar"><span class="lab">Recipes</span><button class="btn" id="w5-a">① underground → dashed</button><button class="btn" id="w5-b">② 33 kV → width 5</button><button class="btn" id="w5-c">③ underground 33 kV → both (score 3)</button></div>
+    <div id="rb5a"></div>
+  </div>
+
+  <h3>5.2 ▶ Polygon styles — fill and stroke</h3>
+  <p>A <b>polygon</b> class (a site boundary, a zone) shows <b>Fill color</b> (interior) and <b>Stroke color</b> (outline). Colour these to sit <em>under</em> the network without drowning it — a pale fill and a darker stroke usually read best.</p>
+  <div class="widget" id="w5b">
+    <div class="w-head"><span class="eyebrow">Interactive · 8</span><h4>Polygons: permanent vs mobile compounds</h4></div>
+    <div class="w-bar"><span class="lab">Recipe</span><button class="btn" id="w5-d">mobile → amber, tenure rule</button></div>
+    <div id="rb5b"></div>
+    <div class="w-body" style="font-size:13.5px">Click a compound: the box under the rules shows the <em>stored</em> blob — only the keys that geometry uses (§5.3).</div>
+  </div>
+
+  <h3>5.3 ∑ What’s written, and why blobs stay clean</h3>
+  <p>Behind the form a rule stores only the style keys its geometry uses: <code>icon_ref</code>/<code>color</code>/<code>scale</code> for a point, <code>color</code>/<code>width</code>/<code>dash</code> for a line, <code>fill_color</code>/<code>stroke_color</code> for a polygon (<code>color</code> is shared). Only keys you set are written — a point rule never carries empty line keys. You don’t manage this; it’s why the form shows only the relevant knobs.</p>
+
+  <h3>5.4 Chapter summary</h3>
+  <ul>
+    <li>Style controls follow geometry: <b>point → Scale + Icon</b>, <b>line → Width + Dash</b>, <b>polygon → Fill + Stroke</b> (Color is shared).</li>
+    <li>Dash is one of <b><code>solid</code> / <code>dashed</code> / <code>dotted</code> / <code>dashdot</code></b>.</li>
+    <li>Targeting, default rule and zoom behave exactly as for points — style underground conductors dashed via a subtype rule over a solid default; thicken by voltage with a field rule on top.</li>
+  </ul>
+</section>
+
+<!-- ============ CH6 ============ -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>Zoom, labels, and visibility</h2><p>The decluttering toolkit — three controls, three jobs.</p></div>
+  <p>A correct symbol on a crowded map is still unreadable if everything draws at every zoom. This chapter hinges on telling apart <b>three</b> different zoom controls that beginners conflate. Get these straight and map tuning becomes easy.</p>
+
+  <h3>6.1 ∑ Three controls, three jobs — do not confuse them</h3>
+  <div class="tbl"><table>
+    <tr><th>Control</th><th>Where</th><th>What it does</th></tr>
+    <tr><td><b>Rule zoom band</b> (<em>Apply rule from/to zoom</em>)</td><td>inside a <b>rule</b></td><td>Picks <em>which style</em> applies at a zoom — <b>never hides</b> anything</td></tr>
+    <tr><td><b>Display zoom</b> (min/max)</td><td>the <b>Display zoom</b> section</td><td><b>Hides the whole feature</b> (glyph <em>and</em> label) outside a zoom range</td></tr>
+    <tr><td><b>Label min zoom</b></td><td>the <b>Labelling</b> section</td><td>Suppresses just the <b>text label</b> below a zoom</td></tr>
+  </table></div>
+  <div class="caution"><b>The trap:</b> a <em>rule’s</em> zoom band does <b>not</b> hide features. Outside it the feature still draws — some <em>other</em> rule (or the default) paints it. If you want a class to actually <b>disappear</b> when zoomed out, that is <b>Display zoom</b>, not a rule band. The rule form even says so inline.</div>
+
+  <h3>6.2 ▶ Restyle by zoom (rule band)</h3>
+  <p>Use a rule band to simplify a symbol when zoomed out — a small dot far out, the full icon up close. A <b>default</b> rule (no band): the full icon <em>(applies where no banded rule does)</em>. A rule with <b>Apply rule to zoom = 12</b>, styled as a small plain <code>circle</code> <em>(wins at low zoom; above 12 it drops out and the default takes over)</em>. Because a banded rule that falls out simply yields to a lower-specificity rule, <b>keep an unbanded rule</b> to cover the zooms the band doesn’t — otherwise a feature can be left with no matching rule at that zoom and fall back to plain styling.</p>
+
+  <h3>6.3 ▶ Hide a class at some zooms (Display zoom)</h3>
+  <p><b>Admin → Feature classes → {class} → Display zoom → Set range.</b> Enter a <b>Min</b> and/or <b>Max</b> zoom (whole numbers 0–24; leave either blank for no bound). Outside the range the <b>entire feature</b> vanishes — glyph and label. This is how service points or LV detail stay hidden until you zoom in, and how a transmission backbone can drop out when you zoom way out. 💡 It’s the big hammer for clutter, and it’s map-only — the diagram one-line always shows everything.</p>
+
+  <h3>6.4 ▶ Labels — the map label editor</h3>
+  <p><b>Admin → Feature classes → {class} → Labelling → Add label.</b> There is <b>one label config per class</b> (not per rule):</p>
+  <ul>
+    <li><b>Template</b> — the label text with <b><code>{field}</code></b> placeholders substituted from each feature’s attributes, e.g. <code>{name} ({voltage_kv} kV)</code>. An <b>Insert field…</b> dropdown appends tokens. <b>An empty template turns labels off.</b> Missing values collapse out cleanly.</li>
+    <li><b>Size</b>, <b>Color</b>, <b>Bold</b>, <b>Italic</b> — text appearance, with a live preview.</li>
+    <li><b>Halo</b> (on by default) with its <b>color</b> and <b>width</b> — the legibility outline over busy backgrounds. Leave it on.</li>
+    <li><b>Min zoom</b> — suppress the label below this zoom (declutter without hiding the glyph).</li>
+    <li><b>Offset X/Y</b> and <b>Rotation</b> — nudge and spin point/polygon labels (a line label rides its line and ignores these).</li>
+  </ul>
+  <p><b>Worked example — name your transformers.</b> Dana labels <code>DIST_XFMR</code> with <code>{name}</code> at <b>Size 11</b>, halo on, <b>Min zoom 14</b> — so names appear only when zoomed into a neighbourhood, not as a wall of text across the region. ∑ The label config rides <code>label_def</code> jsonb on the feature class and is published on the same class schema the map already reads — so, like rules, a label change is live on the next schema fetch (hard refresh), no recompile.</p>
+
+  <p>The bench below holds all three controls at once. Drag the zoom slider after each recipe and read the right-hand panel: it says which control is responsible for what you see.</p>
+  <div class="widget" id="w6">
+    <div class="w-head"><span class="eyebrow">Interactive · 9</span><h4>Three zoom controls, one transformer class</h4></div>
+    <div class="w-bar"><span class="lab">Recipes</span><button class="btn" id="w6-a">① rule band: circle up to zoom 12</button><button class="btn warn" id="w6-b">② trap: band the <em>default</em> to 13–19</button><button class="btn" id="w6-c">③ Display zoom: min 13</button><button class="btn" id="w6-d">④ label <code>{name}</code>, min zoom 14</button><button class="btn" id="w6-e">⑤ halo off / on</button></div>
+    <div id="rb6"></div>
+  </div>
+  <p class="muted" style="font-size:13.5px">What to notice: ① at zoom 11 the plain dots appear and the full icons return above 12 — nothing ever vanished. ② below 13 the default drops out and every transformer is drawn with <b>plain fallback styling</b> — the amber “plain” count — still not hidden. ③ is the only recipe that makes the “drawn” count fall. ④ affects text only. ⑤ shows why the halo exists: it is the pale outline that keeps the label legible on the grid lines.</p>
+
+  <h3>6.5 Chapter summary</h3>
+  <ul>
+    <li><b>Three zoom controls:</b> a <b>rule band</b> picks a style (never hides); <b>Display zoom</b> hides the whole feature; <b>Label min zoom</b> hides only the text.</li>
+    <li>To make a class <b>disappear</b> when zoomed out, use <b>Display zoom</b>, not a rule band — and keep an unbanded rule so banded features never fall through to plain styling.</li>
+    <li><b>One label per class</b>: a <code>{field}</code> <b>template</b> (empty = off), text styling, a legibility <b>halo</b> (keep on), and a <b>min zoom</b> to declutter.</li>
+  </ul>
+</section>
+
+<!-- ============ CH7 ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>Diagram symbology</h2><p>Same machinery, render context flipped.</p></div>
+  <p>Everything so far has styled the <b>geographic map</b>. VoltEdge also draws the <b>schematic single-line diagram</b>, and it has its <b>own</b> symbology — a standard stencil for each class, independent of how the class looks on the map. This chapter is short because you already know the machinery: it’s the same rule editor, with the render context flipped.</p>
+
+  <h3>7.1 ∑ Why diagram symbology is separate</h3>
+  <p>On the map a transformer is a real-world glyph at a real location; on a one-line it is a standardised schematic symbol wired into a bus. Different pictures of the same asset, so each class carries <b>two independent sets of rules</b>, told apart by <b>render context</b>: <code>map</code> rules paint the map, <code>diagram</code> rules paint the one-line. Each consumer reads <b>only its own context</b>. The resolution is otherwise identical: most-specific-wins, the same subtype/field targeting, the same default-rule requirement <b>per context</b>. Diagram resolution runs without a “current zoom”, so <b>rule zoom bands don’t apply there</b> — a diagram isn’t zoomed the way a map is.</p>
+
+  <h3>7.2 ▶ Authoring a diagram symbol</h3>
+  <ol class="steps">
+    <li><b>Admin → Feature classes → {class} → Symbology → Add rule.</b></li>
+    <li><b>Render context: <code>diagram</code>.</b></li>
+    <li>Target and style exactly as for a map rule — pick a schematic icon, set colour, layer subtype/field rules the same way.</li>
+    <li>Save; the one-line canvas uses it (no zoom to gate on, so it reads <code>diagram</code> rules directly).</li>
+  </ol>
+  <div class="caution"><b>The most common mix-up, restated:</b> a rule authored <code>diagram</code> will <b>never</b> show on the geographic map, and a <code>map</code> rule never shows on the one-line. If a class looks right on the map but wrong on the diagram (or vice versa), you’re almost always looking at the wrong context’s rules. Check the <b>Render context</b> column first.</div>
+
+  <div class="widget" id="w7">
+    <div class="w-head"><span class="eyebrow">Interactive · 10</span><h4>One class, two surfaces</h4></div>
+    <div class="w-bar"><span class="lab">Recipes</span><button class="btn" id="w7-a">① load two IEC-style full-colour icons</button><button class="btn" id="w7-b">② diagram: closed → <code>iec-closed</code>, open → <code>iec-open</code></button><button class="btn" id="w7-c">③ add a map-only zoom band on the diagram default</button></div>
+    <div class="w-split"><div class="w-main"><div class="lab" style="margin-bottom:4px">Geographic map (reads <code>map</code> rules)</div><div id="d7m"></div></div><div class="w-side"><div class="lab" style="margin-bottom:4px">Single-line diagram (reads <code>diagram</code> rules)</div><div id="d7d"></div></div></div>
+    <div class="w-body" style="font-size:13.5px"><div id="rb7"></div><p style="margin:8px 0 0">The rule list above follows the <b>context</b> switch: edit a <code>diagram</code> rule and only the right-hand picture changes. Recipe ③ gives the diagram default a zoom band — the diagram ignores it, because it resolves with no zoom.</p></div>
+  </div>
+
+  <h3>7.3 ▶ Practical guidance</h3>
+  <ul>
+    <li>Give a class a <b><code>diagram</code> default rule</b> too, if it appears on one-lines — the same “exactly one default per context” discipline keeps its schematic never unstyled.</li>
+    <li>Diagram icons are typically <b>standards symbols</b> (IEC-style), often authored as <b>full-colour</b> artwork (no <code>{{COLOR}}</code>) so they render as-drawn regardless of a rule’s colour. The icon library is shared — one <code>iec-…</code> icon can serve many classes’ diagram rules.</li>
+    <li>Use <b>field-value diagram rules</b> to reflect state schematically — e.g. an open disconnector drawn as a break in the line — exactly as §4.4 does for the map.</li>
+  </ul>
+
+  <h3>7.4 Chapter summary</h3>
+  <ul>
+    <li>Each class carries <b>separate <code>map</code> and <code>diagram</code> rule sets</b>, chosen by <b>render context</b>; each surface reads only its own.</li>
+    <li>Authoring a diagram symbol is the same editor with <b>Render context = diagram</b>; give it its <b>own default rule</b>, and note <b>rule zoom bands don’t apply</b> on the diagram.</li>
+    <li>A symbol on the wrong surface almost always means the <b>wrong render context</b> — check that column first.</li>
+  </ul>
+</section>
+
+<!-- ============ CH8 ============ -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>Troubleshooting &amp; recipes</h2><p>The reference you jump to when a symbol misbehaves.</p></div>
+  <p>This chapter distils every gotcha in the guide into a checklist, a set of SQL peeks, and a one-page cheat sheet. The checklist is a live diagnoser: pick a fault, and each step below tells you — against the actual rules, icons and cache — whether it passes. The preview is what Priya’s <em>browser</em> is drawing.</p>
+
+  <h3>8.1 ▶ “I attached a symbol and nothing appears” — the checklist</h3>
+  <p>Walk these in order; the top three catch almost everything:</p>
+  <ol class="steps">
+    <li><b>Is there a <em>rule</em>, not just an icon?</b> An icon in the library renders nothing on its own (Chapter 3). <em>(The #1 cause.)</em></li>
+    <li><b>Does the icon carry <code>width</code> and <code>height</code>?</b> Not just a <code>viewBox</code> — a missing intrinsic size resolves to 150×150 and <b>silently vanishes</b> (Chapter 2). <em>(The #2 cause, and the one this network actually hit.)</em></li>
+    <li><b>Is the rule’s render context <code>map</code>?</b> A <code>diagram</code> rule never shows on the map (Chapter 7).</li>
+    <li><b>Did you <em>hard</em>-refresh?</b> The map caches each class’s schema for a few minutes; a soft refresh may keep the old one. <b>Restarting Martin and recompiling do <em>not</em> help</b> — symbology is resolved client-side from the live schema (Chapter 1).</li>
+    <li><b>Is the class hidden by Display zoom</b> at your current zoom (Chapter 6)?</li>
+    <li><b>Does the targeting actually match?</b> If the rule pins a field value, the feature’s stored value must equal the rule’s <b>value code</b> exactly (Chapter 4). A default (any/any) rule is immune — add or check one.</li>
+    <li><b>Does the class have its mandatory default?</b> No default → the class fails its next compile, and features with no more-specific match fall back to plain styling.</li>
+  </ol>
+
+  <div class="widget" id="w8">
+    <div class="w-head"><span class="eyebrow">Interactive · 11</span><h4>The diagnoser — break it, then walk the list</h4></div>
+    <div class="w-bar"><span class="lab">Healthy</span><button class="btn" data-f="ok">✓ everything right</button><span class="lab">Break it</span><button class="btn warn" data-f="a">icon, no rule</button><button class="btn warn" data-f="b">no width/height</button><button class="btn warn" data-f="c">diagram rule only</button><button class="btn warn" data-f="d">stale browser</button><button class="btn warn" data-f="e">Display zoom</button><button class="btn warn" data-f="f">wrong value code</button><button class="btn warn" data-f="g">default deleted</button></div>
+    <div class="w-split"><div class="w-main"><div class="lab" style="margin-bottom:4px">What Priya’s browser draws (RMU, cached schema)</div><div id="d8"></div></div><div class="w-side"><div id="d8-v" style="font-size:13.5px"></div><button class="btn pri" id="d8-hard" style="margin-top:8px">Hard refresh (Ctrl/Cmd-Shift-R)</button></div></div>
+    <div class="w-body" id="d8-steps" aria-live="polite"></div>
+  </div>
+
+  <h3>8.2 ▶ “It shows, but it’s the wrong size”</h3>
+  <ul>
+    <li><b>Too small / too big:</b> drive the <b>rule’s <code>scale</code></b> (on-screen = <code>0.65 × scale</code>), Chapter 2.7 — don’t resize the SVG unless the artwork is genuinely off.</li>
+    <li><b>Authored on a big viewBox and reads tiny:</b> the art fills only part of a large canvas that gets scaled down. Redraw at <b>24×24</b>, tighten the viewBox, or bump <code>scale</code> (Chapter 2.6). The sizing calculator in Interactive 4 does this arithmetic.</li>
+  </ul>
+
+  <h3>8.3 ▶ “Wrong colour”</h3>
+  <ul>
+    <li><b>Tint ignored:</b> the icon has <b>no <code>{{COLOR}}</code> placeholder</b>, so it renders as authored (<b>Full-color</b>). Add <code>{{COLOR}}</code> to the fill/stroke you want the rule to control (Chapter 2.5).</li>
+    <li><b>Everything one colour:</b> you’re seeing the <b>default</b> rule; add a subtype/field rule to differentiate (Chapter 4).</li>
+  </ul>
+
+  <h3>8.4 ∑ SQL peeks — see what the map sees</h3>
+  <p>The tables are directly readable (and editable). Each query below runs against the <em>simulated</em> store from the diagnoser above — break something and re-open them.</p>
+  <div id="sql8"></div>
+  <div class="tip">Editing these rows directly is supported — it takes effect on the next schema fetch, same as the UI. Just honour the width/height rule when inserting an icon by hand; SQL won’t warn you.</div>
+
+  <h3>8.5 Recipe cheat sheet</h3>
+  <div class="tbl"><table>
+    <tr><th>Goal</th><th>Recipe</th></tr>
+    <tr><td>Give a class a symbol</td><td>Icon in library → <b>one <code>map</code> default rule</b> referencing it → hard refresh</td></tr>
+    <tr><td>Different look per subtype</td><td>Rule with <b>Subtype</b> set (score 2) over the default</td></tr>
+    <tr><td>Style by an attribute</td><td>Rule with <b>Field + Value</b> (needs a coded field; score 1)</td></tr>
+    <tr><td>Open vs closed switch</td><td>default <code>triangle</code> + <code>closed</code>→solid + <code>open</code>→hollow <code>triangle-outline</code></td></tr>
+    <tr><td>Underground dashed</td><td>Subtype rule, <b>Dash = dashed</b>, over a solid default</td></tr>
+    <tr><td>Thicker by voltage</td><td>Field rule on a coded voltage class, <b>Width</b> raised</td></tr>
+    <tr><td>Enlarge a symbol</td><td>Rule <b>Scale</b> (e.g. <code>2</code>) — not by resizing the SVG</td></tr>
+    <tr><td>Hide a class when zoomed out</td><td><b>Display zoom</b> min/max — <em>not</em> a rule zoom band</td></tr>
+    <tr><td>Simplify a symbol when zoomed out</td><td>Rule <b>zoom band</b> + keep an unbanded rule</td></tr>
+    <tr><td>Name features on the map</td><td><b>Labelling</b> → template <code>{name} …</code>, set <b>Min zoom</b> to declutter</td></tr>
+    <tr><td>Schematic symbol</td><td>Same editor, <b>Render context = diagram</b>, own default rule</td></tr>
+    <tr><td>Recolourable icon</td><td>Author with <b><code>{{COLOR}}</code></b>; omit it for fixed full-colour art</td></tr>
+    <tr><td>Delete an icon</td><td>Repoint/remove referencing rules first (delete is blocked otherwise)</td></tr>
+  </table></div>
+
+  <h3>8.6 The one-paragraph mental model (keep this)</h3>
+  <div class="callout">Two tables — <b>icons</b> (artwork) and <b>rules</b> (which style for which feature) — resolved <b>in the browser, per feature</b>, most-specific-wins, from rules the class schema hands down <b>live</b>. An icon alone draws nothing; a rule attaches it. Every class needs <b>one default rule per render context</b>. Symbols must carry <b>width/height</b>. Nothing is baked: <b>a hard refresh</b> — never a recompile or a Martin restart — is what makes a change appear.</div>
+
+  <h4 style="margin-top:26px">Check yourself</h4>
+  <div id="qz"></div>
+</section>
+</div>
+
+<footer style="max-width:1040px;margin:0 auto;padding:0 20px 60px"><p class="muted" style="font-size:13px">VoltEdge · Symbology &amp; Map Styling — interactive edition. Every widget runs on a simulated Oakwood network held entirely in your browser; nothing here talks to a server and nothing here changes your real symbology. The matching rules, error strings and the render maths mirror the guide’s source references.</p></footer>
+
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+function seg(sel,cb){ const el=$(sel); el.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b||b.disabled) return; el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); cb(b)}); }
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nf=(x,d=0)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+
+/* ---------- personas ---------- */
+const PERSONAS=[['ada','Ada · System administrator',{mr:1,mw:1}],['tom','Tom · Network analyst',{mr:1}],['priya','Priya · Read-only viewer',{}],['dana','Dana · Network editor',{}]];
+let PERSONA=PERSONAS[0]; const personaL=[]; const PNAME={mr:'metadata:read',mw:'metadata:write'};
+const can=p=>!!PERSONA[2][p];
+const gateTip=p=>`<span class="gate" title="needs ${PNAME[p]}">🔒 ${PNAME[p]}</span>`;
+function onPersona(fn){ personaL.push(fn); fn(); }
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=PERSONAS.map(p=>`<option value="${p[0]}">${p[1]}</option>`).join(''); sel.onchange=()=>{ PERSONA=PERSONAS.find(p=>p[0]===sel.value); personaL.forEach(f=>f()); emit(); }; })();
+
+/* ---------- the icon library: five built-in fallbacks ---------- */
+const SVGH='<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">';
+const FALLBACK={circle:SVGH+'<circle cx="12" cy="12" r="9" fill="{{COLOR}}"/></svg>',square:SVGH+'<rect x="3" y="3" width="18" height="18" rx="3" fill="{{COLOR}}"/></svg>',triangle:SVGH+'<polygon points="12,3 22,21 2,21" fill="{{COLOR}}"/></svg>','triangle-outline':SVGH+'<polygon points="12,4 21,20 3,20" fill="none" stroke="{{COLOR}}" stroke-width="2.5" stroke-linejoin="round"/></svg>',diamond:SVGH+'<polygon points="12,2 22,12 12,22 2,12" fill="{{COLOR}}"/></svg>'};
+const RMU_SVG=SVGH.replace('viewBox="0 0 24 24"','viewBox="0 0 24 24"\n     fill="none" stroke="{{COLOR}}" stroke-width="2"\n     stroke-linecap="round" stroke-linejoin="round"')+'\n  <rect x="5" y="8" width="14" height="9" rx="1.5"/>\n  <line x1="9"  y1="8" x2="9"  y2="3"/>\n  <line x1="12" y1="8" x2="12" y2="3"/>\n  <line x1="15" y1="8" x2="15" y2="3"/>\n</svg>';
+const rootTag=svg=>(String(svg).match(/<svg\b[^>]*>/i)||[''])[0];
+const svgHasSize=svg=>{ const t=rootTag(svg); return /\swidth\s*=/.test(t)&&/\sheight\s*=/.test(t); };
+const svgTintable=svg=>String(svg).includes('{{COLOR}}');
+const tint=(svg,c)=>String(svg).replace(/\{\{COLOR\}\}/g,c);
+const dataURI=(svg,c)=>'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(tint(svg,c));
+function measure(svg,cb){ const img=new Image(); img.onload=()=>cb(img.naturalWidth,img.naturalHeight); img.onerror=()=>cb(0,0); img.src=dataURI(svg,'#888888'); }
+const REF_RE=/^[a-z][a-z0-9-]*$/;
+
+/* ---------- feature classes (the map's sample network) ---------- */
+const CLS={
+ RMU:{name:'Ring Main Unit',geom:'pt',subs:[],coded:[{k:'status',l:'status',dom:[['in_service','In service'],['out_of_service','Out of service']]}],plain:['name'],lab:['name']},
+ SWITCH:{name:'MV switch',geom:'pt',subs:[['3','Load-break'],['4','Isolator']],coded:[{k:'state',l:'state',dom:[['open','Open'],['closed','Closed']]}],plain:['name','rated_a'],lab:['name']},
+ MV_CONDUCTOR:{name:'MV conductor',geom:'ln',subs:[['1','Overhead'],['2','Underground']],coded:[{k:'voltage_class',l:'voltage class',dom:[['11','11 kV'],['33','33 kV']]}],plain:['name','span_m'],lab:['voltage_kv']},
+ DIST_XFMR:{name:'Distribution transformer',geom:'pt',subs:[],coded:[{k:'phases',l:'phases',dom:[['3ph','3-phase'],['1ph','1-phase']]}],plain:['name','rated_kva','voltage_kv'],lab:['name','rated_kva','voltage_kv']},
+ SITE:{name:'Substation compound',geom:'pg',subs:[],coded:[{k:'tenure',l:'tenure',dom:[['permanent','Permanent'],['mobile','Mobile']]}],plain:['name'],lab:['name']}};
+const FEATS=[
+ {id:'R1',cls:'RMU',p:[150,120],a:{name:'RMU-OAK-01',status:'in_service'}},{id:'R2',cls:'RMU',p:[330,90],a:{name:'RMU-OAK-02',status:'in_service'}},{id:'R3',cls:'RMU',p:[520,150],a:{name:'RMU-ELM-03',status:'out_of_service'}},{id:'R4',cls:'RMU',p:[250,290],a:{name:'RMU-RIV-04',status:'in_service'}},{id:'R5',cls:'RMU',p:[610,300],a:{name:'RMU-RIV-05',status:'out_of_service'}},
+ {id:'S1',cls:'SWITCH',p:[95,210],sub:'3',a:{name:'SW-F7-01',state:'closed'}},{id:'S2',cls:'SWITCH',p:[205,210],sub:'3',a:{name:'SW-F7-03',state:'open'}},{id:'S3',cls:'SWITCH',p:[315,210],sub:'4',a:{name:'ISO-F7-04',state:'closed'}},{id:'S4',cls:'SWITCH',p:[425,210],sub:'3',a:{name:'SW-F7-08',state:'closed'}},{id:'S5',cls:'SWITCH',p:[535,210],sub:'4',a:{name:'ISO-F7-09',state:'open'}},{id:'S6',cls:'SWITCH',p:[650,210],sub:'3',a:{name:'SW-F7-11',state:'open'}},
+ {id:'C1',cls:'MV_CONDUCTOR',line:[[95,210],[205,210]],sub:'1',a:{name:'C-F7-01',voltage_class:'11',voltage_kv:'11',span_m:210}},{id:'C2',cls:'MV_CONDUCTOR',line:[[205,210],[315,210]],sub:'2',a:{name:'C-F7-02',voltage_class:'11',voltage_kv:'11',span_m:240}},{id:'C3',cls:'MV_CONDUCTOR',line:[[315,210],[425,210]],sub:'1',a:{name:'C-F7-03',voltage_class:'33',voltage_kv:'33',span_m:180}},{id:'C4',cls:'MV_CONDUCTOR',line:[[425,210],[535,210]],sub:'2',a:{name:'C-F7-04',voltage_class:'33',voltage_kv:'33',span_m:320}},{id:'C5',cls:'MV_CONDUCTOR',line:[[535,210],[650,210]],sub:'1',a:{name:'C-F7-05',voltage_class:'11',voltage_kv:'11',span_m:150}},
+ {id:'X1',cls:'DIST_XFMR',p:[150,160],a:{name:'TX-F7-009',phases:'3ph',rated_kva:315,voltage_kv:11}},{id:'X2',cls:'DIST_XFMR',p:[260,250],a:{name:'TX-F7-011',phases:'3ph',rated_kva:200,voltage_kv:11}},{id:'X3',cls:'DIST_XFMR',p:[370,160],a:{name:'TX-F7-014',phases:'3ph',rated_kva:315,voltage_kv:11}},{id:'X4',cls:'DIST_XFMR',p:[480,260],a:{name:'TX-ELM-002',phases:'1ph',rated_kva:50,voltage_kv:33}},{id:'X5',cls:'DIST_XFMR',p:[590,250],a:{name:'TX-ELM-005',phases:'3ph',rated_kva:500,voltage_kv:33}},
+ {id:'P1',cls:'SITE',poly:[[30,60],[120,60],[120,120],[30,120]],a:{name:'Oakwood primary',tenure:'permanent'}},{id:'P2',cls:'SITE',poly:[[640,60],[730,60],[730,125],[640,125]],a:{name:'Mobile unit site',tenure:'mobile'}}];
+const feat=id=>FEATS.find(f=>f.id===id);
+const fval=(f,k)=>k==='subtype'?f.sub:f.a[k];
+
+/* ---------- the shared store: icons, rules, labels, display zoom ---------- */
+let S; const subs=[]; const onStore=fn=>{ subs.push(fn); fn(); }; const emit=()=>subs.forEach(f=>f());
+let RID=1; const rid=()=>'r'+(RID++);
+function R(cls,ctx,sub,field,val,zmin,zmax,style){ return {id:rid(),cls,ctx,sub:sub||null,field:field||null,val:val||null,zmin:zmin==null?null:zmin,zmax:zmax==null?null:zmax,style}; }
+function reset(){ RID=1; S={ icons:{}, rules:[
+   R('RMU','map',null,null,null,null,null,{icon:'circle',color:'#7c8a93',scale:1}),R('RMU','diagram',null,null,null,null,null,{icon:'square',color:'#7c8a93',scale:1}),
+   R('SWITCH','map',null,null,null,null,null,{icon:'triangle',color:'#2b5ead',scale:1}),R('SWITCH','diagram',null,null,null,null,null,{icon:'square',color:'#2b5ead',scale:1}),
+   R('MV_CONDUCTOR','map',null,null,null,null,null,{color:'#2b5ead',width:2,dash:'solid'}),R('MV_CONDUCTOR','diagram',null,null,null,null,null,{color:'#2b5ead',width:2,dash:'solid'}),
+   R('DIST_XFMR','map',null,null,null,null,null,{icon:'circle',color:'#c2650a',scale:1}),R('DIST_XFMR','diagram',null,null,null,null,null,{icon:'circle',color:'#c2650a',scale:1}),
+   R('SITE','map',null,null,null,null,null,{fill:'#cfe3dc',stroke:'#13795b'}),R('SITE','diagram',null,null,null,null,null,{fill:'#cfe3dc',stroke:'#13795b'})],
+  labels:{}, dzoom:{} };
+  emit(); }
+const allIcons=()=>Object.assign({},FALLBACK,S.icons);
+const iconSvg=ref=>allIcons()[ref]||FALLBACK.circle;
+const rulesOf=(cls,ctx)=>S.rules.filter(r=>r.cls===cls&&(!ctx||r.ctx===ctx));
+const spec=r=>(r.sub?2:0)+(r.field?1:0);
+const isDefault=r=>!r.sub&&!r.field;
+function resolve(rules,f,ctx,z){ const all=rules.filter(r=>r.cls===f.cls&&r.ctx===ctx).map(r=>{ const subOK=!r.sub||r.sub===f.sub; const fldOK=!r.field||String(fval(f,r.field))===String(r.val); let band=true,bandWhy=''; if(ctx==='map'&&z!=null){ if(r.zmin!=null&&z<r.zmin){ band=false; bandWhy='zoom below band'; } if(r.zmax!=null&&z>r.zmax){ band=false; bandWhy='zoom above band'; } } return {r,score:spec(r),subOK,fldOK,band,bandWhy,match:subOK&&fldOK&&band}; }); const m=all.filter(x=>x.match).sort((a,b)=>b.score-a.score); return {winner:m[0]?m[0].r:null,all}; }
+const ruleTitle=r=>{ const cl=CLS[r.cls]; const bits=[]; if(r.sub){ const s=cl.subs.find(x=>x[0]===r.sub); bits.push('subtype '+r.sub+(s?': '+s[1]:'')); } if(r.field){ const c=cl.coded.find(x=>x.k===r.field); const v=c&&c.dom.find(d=>d[0]===r.val); bits.push(r.field+' = '+r.val); } return bits.length?bits.join(' · '):'default (any / any)'; };
+const styleSub=r=>{ const cl=CLS[r.cls],st=r.style; const z=(r.zmin!=null||r.zmax!=null)?` · zoom ${r.zmin!=null?r.zmin:'∞'}–${r.zmax!=null?r.zmax:'∞'}`:''; if(cl.geom==='pt') return `${st.icon||'circle'} · ${st.color} · ×${st.scale??1}${z}`; if(cl.geom==='ln') return `${st.dash||'solid'} · ${st.width||2}px · ${st.color}${z}`; return `fill ${st.fill} · stroke ${st.stroke}${z}`; };
+const DASH={solid:'',dashed:'8 5',dotted:'2 4',dashdot:'9 4 2 4'};
+function swatch(r,w){ const cl=CLS[r.cls],st=r.style; w=w||34; if(cl.geom==='pt'){ if(!svgHasSize(iconSvg(st.icon||'circle'))) return `<span title="icon has no width/height — would silently vanish" style="display:inline-block;width:${w}px;height:24px;border:1px dashed var(--red);border-radius:4px;color:var(--red);font:700 11px var(--f-mono);text-align:center;line-height:22px">✕</span>`; return `<img alt="" width="24" height="24" src="${dataURI(iconSvg(st.icon||'circle'),st.color)}" style="vertical-align:middle;transform:scale(${Math.min(1.6,.65*(st.scale||1)*1.4)})">`; } if(cl.geom==='ln') return `<svg width="${w}" height="14" viewBox="0 0 ${w} 14"><line x1="2" y1="7" x2="${w-2}" y2="7" stroke="${st.color}" stroke-width="${st.width||2}" stroke-dasharray="${DASH[st.dash||'solid']}" stroke-linecap="round"/></svg>`; return `<svg width="${w}" height="20" viewBox="0 0 ${w} 20"><rect x="2" y="2" width="${w-4}" height="16" rx="2" fill="${st.fill}" stroke="${st.stroke}" stroke-width="2"/></svg>`; }
+
+/* ---------- the map renderer: resolves a style per feature, like the browser does ---------- */
+const BASE_Z=14;
+function labelText(tpl,f){ if(!tpl) return ''; return tpl.replace(/\{(\w+)\}/g,(m,k)=>{ const v=f.a[k]; return v==null?'':v; }).replace(/\(\s*\)/g,'').replace(/\s+/g,' ').replace(/\s+([,;])/g,'$1').trim(); }
+function SymMap(host,o){ o=o||{}; const W=o.w||760,H=o.h||420; const M={z:o.z||14,ctx:'map',sel:null,classes:o.classes||null,src:null,dbg:!!o.dbg}; /* src: optional {rules,icons} snapshot (the browser cache) */
+  host.innerHTML=`<div class="gm"><svg class="gm-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Sample network map"></svg><div class="gm-zoom"><button data-z="1" aria-label="Zoom in">+</button><button data-z="-1" aria-label="Zoom out">−</button></div></div><div class="gm-status"><span class="gs"><b>Zoom</b> <span class="zv"></span></span><input type="range" class="zr" min="8" max="19" step="0.1" aria-label="Zoom" style="width:140px"><span class="gs gsr zi"></span></div>`;
+  const svg=host.querySelector('svg'), zv=host.querySelector('.zv'), zr=host.querySelector('.zr'), zi=host.querySelector('.zi'); const K=()=>Math.pow(2,(M.z-BASE_Z)*0.55); const sx=x=>W/2+(x-380)*K(), sy=y=>H/2+(y-210)*K();
+  const rulesSrc=()=>M.src?M.src.rules:S.rules; const icons=()=>M.src?Object.assign({},FALLBACK,M.src.icons):allIcons();
+  M.render=function(){ zv.textContent=M.z.toFixed(1); zr.value=M.z; let s='<rect width="100%" height="100%" fill="var(--surface)"/>'; for(let i=-4;i<12;i++){ s+=`<line x1="${sx(i*100)}" y1="0" x2="${sx(i*100)}" y2="${H}" stroke="var(--line2)" stroke-width="1"/><line x1="0" y1="${sy(i*100-60)}" x2="${W}" y2="${sy(i*100-60)}" stroke="var(--line2)" stroke-width="1"/>`; }
+    let hidden=0,vanished=0,drawn=0,plain=0; const order=f=>CLS[f.cls].geom==='pg'?0:CLS[f.cls].geom==='ln'?1:2; const fs=FEATS.filter(f=>!M.classes||M.classes.includes(f.cls)).slice().sort((a,b)=>order(a)-order(b));
+    fs.forEach(f=>{ const cl=CLS[f.cls]; const dz=S.dzoom[f.cls]; if(M.ctx==='map'&&dz&&((dz.min!=null&&M.z<dz.min)||(dz.max!=null&&M.z>dz.max))){ hidden++; return; } const res=resolve(rulesSrc(),f,M.ctx,M.ctx==='map'?M.z:null); let r=res.winner; let plainFb=false; if(!r){ plainFb=true; plain++; r={style:cl.geom==='pt'?{icon:'circle',color:'#7c8a93',scale:1}:cl.geom==='ln'?{color:'#7c8a93',width:2,dash:'solid'}:{fill:'#dde5e9',stroke:'#7c8a93'}}; } const st=r.style; const sel=M.sel===f.id; drawn++;
+      if(cl.geom==='pg'){ s+=`<polygon data-f="${f.id}" points="${f.poly.map(p=>sx(p[0])+','+sy(p[1])).join(' ')}" fill="${st.fill}" fill-opacity=".55" stroke="${st.stroke}" stroke-width="${sel?3.5:2}"/>`; }
+      else if(cl.geom==='ln'){ const pts=f.line.map(p=>sx(p[0])+','+sy(p[1])).join(' '); if(sel) s+=`<polyline points="${pts}" fill="none" stroke="var(--acc)" stroke-width="${(st.width||2)+7}" stroke-opacity=".3" stroke-linecap="round"/>`; s+=`<polyline data-f="${f.id}" points="${pts}" fill="none" stroke="${st.color}" stroke-width="${st.width||2}" stroke-dasharray="${DASH[st.dash||'solid']}" stroke-linecap="round" stroke-linejoin="round"/>`; }
+      else { const ref=st.icon||'circle'; const svgm=icons()[ref]||FALLBACK.circle; const px=24*0.65*(st.scale||1); const x=sx(f.p[0]),y=sy(f.p[1]); if(!svgHasSize(svgm)){ vanished++; drawn--; if(M.dbg) s+=`<g data-f="${f.id}"><circle cx="${x}" cy="${y}" r="9" fill="none" stroke="var(--red)" stroke-dasharray="3 3"/><text x="${x}" y="${y+4}" font-size="11" text-anchor="middle" style="fill:var(--red);font-weight:700">✕</text></g>`; else s+=`<circle data-f="${f.id}" cx="${x}" cy="${y}" r="10" fill="transparent"/>`; }
+        else { if(sel) s+=`<circle cx="${x}" cy="${y}" r="${px/2+5}" fill="var(--acc)" fill-opacity=".18" stroke="var(--acc)" stroke-width="2"/>`; s+=`<image data-f="${f.id}" href="${dataURI(svgm,st.color)}" x="${x-px/2}" y="${y-px/2}" width="${px}" height="${px}"/>`; } }
+      const ld=S.labels[f.cls]; if(ld&&ld.tpl&&M.ctx==='map'&&(ld.minz==null||M.z>=ld.minz)){ const t=labelText(ld.tpl,f); if(t){ let x,y; if(cl.geom==='pt'){ x=sx(f.p[0]); y=sy(f.p[1])+(cl.geom==='pt'?24*0.65*(st.scale||1)/2+11:0); } else if(cl.geom==='ln'){ const m=Math.floor((f.line.length-1)/2); x=(sx(f.line[m][0])+sx(f.line[m+1][0]))/2; y=(sy(f.line[m][1])+sy(f.line[m+1][1]))/2-8; } else { const c=f.poly.reduce((a,p)=>[a[0]+p[0]/f.poly.length,a[1]+p[1]/f.poly.length],[0,0]); x=sx(c[0]); y=sy(c[1]); } if(cl.geom!=='ln'){ x+=(ld.ox||0); y+=(ld.oy||0); } const rot=cl.geom==='ln'?0:(ld.rot||0); s+=`<text x="${x}" y="${y}" font-size="${ld.size||11}" text-anchor="middle" font-weight="${ld.bold?700:500}" font-style="${ld.italic?'italic':'normal'}" fill="${ld.color||'var(--ink)'}" ${ld.halo?`paint-order="stroke" stroke="${ld.haloColor||'#ffffff'}" stroke-width="${ld.haloW||3}" stroke-linejoin="round"`:''} transform="rotate(${rot} ${x} ${y})" style="pointer-events:none">${esc(t)}</text>`; } } });
+    svg.innerHTML=s; zi.textContent=`${drawn} drawn${hidden?` · ${hidden} hidden by Display zoom`:''}${plain?` · ${plain} on plain fallback`:''}${vanished?` · ${vanished} not drawn`:''}`; if(o.onRender) o.onRender(M,{drawn,hidden,vanished,plain}); };
+  M.setZ=z=>{ M.z=Math.max(8,Math.min(19,z)); M.render(); };
+  host.querySelectorAll('[data-z]').forEach(b=>b.onclick=()=>M.setZ(M.z+ +b.dataset.z)); zr.oninput=()=>M.setZ(+zr.value);
+  svg.addEventListener('click',e=>{ const t=e.target.closest('[data-f]'); M.sel=t?t.dataset.f:null; M.render(); if(o.onPick) o.onPick(M.sel?feat(M.sel):null,M); });
+  svg.addEventListener('wheel',e=>{ e.preventDefault(); M.setZ(M.z+(e.deltaY<0?0.3:-0.3)); },{passive:false});
+  M.svg=svg; M.host=host; M.render(); onStore(()=>M.render()); return M; }
+reset();
+function alertDlg(parent,title,html,yes,onYes,danger){ const old=parent.querySelector(':scope > .dlg'); if(old) old.remove(); const d=document.createElement('div'); d.className='dlg'; d.innerHTML=`<div role="alertdialog" aria-modal="true"><h4>${title}</h4><p style="font-size:13.5px">${html}</p><div class="a"><button class="btn" data-n>Cancel</button><button class="btn ${danger?'warn':'pri'}" data-y>${yes}</button></div></div>`; parent.appendChild(d); d.querySelector('[data-n]').onclick=()=>d.remove(); d.querySelector('[data-y]').onclick=()=>{ d.remove(); onYes(); }; d.querySelector('[data-y]').focus(); }
+
+/* ===== W1: "I made it — why can't Priya see it?" ===== */
+(function(){
+  const snap=()=>JSON.parse(JSON.stringify({rules:S.rules,icons:S.icons}));
+  let cache=snap(), ctx='map', hasIcon=false, ruleSet=false;
+  const COPPER='#b5651d';
+  const m=SymMap($('#d-map'),{w:760,h:300,z:14,classes:['RMU'],dbg:true});
+  m.src=cache; m.render();
+  const log=$('#d-log'); const say=(t,cls)=>{ log.innerHTML=`<span class="${cls||''}">${t}</span>`; };
+  seg('#d-ctx',b=>{ ctx=b.dataset.v; paint(); });
+  const rmuRule=c=>S.rules.find(r=>r.cls==='RMU'&&r.ctx===c&&isDefault(r));
+  const sameAsCache=()=>JSON.stringify(S.rules.filter(r=>r.cls==='RMU'))===JSON.stringify(cache.rules.filter(r=>r.cls==='RMU'))&&JSON.stringify(S.icons)===JSON.stringify(cache.icons);
+  function paint(){
+    const live=rmuRule('map'); const liveIcon=live&&live.style.icon;
+    const ok=hasIcon&&svgHasSize(iconSvg('voltedge-rmu'));
+    const stale=!sameAsCache();
+    const cr=cache.rules.find(r=>r.cls==='RMU'&&r.ctx==='map'&&isDefault(r));
+    $('#d-state').innerHTML=
+     `<div class="kv"><span>Icon library</span><b>${hasIcon?(ok?'voltedge-rmu ✓':'voltedge-rmu ✕ no width/height'):'no voltedge-rmu yet'}</b></div>`+
+     `<div class="kv"><span>Server rule (map)</span><b>${esc(liveIcon||'circle')}</b></div>`+
+     (ruleSet&&ctx==='diagram'?`<div class="kv"><span>Server rule (diagram)</span><b>${esc((rmuRule('diagram')||{style:{}}).style.icon)}</b></div>`:'')+
+     `<div class="kv"><span>Browser’s cached schema</span><b>${esc(cr&&cr.style.icon||'circle')}</b></div>`+
+     `<div style="margin-top:8px">${stale?'<span class="pill stale">cache is stale — server has changed</span>':'<span class="pill fresh">browser matches server</span>'}</div>`;
+    $$('#w1 [data-k]').forEach(b=>{ if(b.dataset.k==='icon') b.textContent=hasIcon?'① Re-author (replace) the icon':'① Author voltedge-rmu in the library'; });
+  }
+  const author=()=>{ const wh=$('#d-wh').checked; let svg=RMU_SVG; if(!wh) svg=svg.replace(/\swidth="24"\s+height="24"/,''); S.icons['voltedge-rmu']=svg; hasIcon=true; emit(); };
+  const refetch=()=>{ cache=snap(); m.src=cache; m.render(); };
+  $('#d-wh').onchange=()=>{ if(hasIcon) author(); paint(); };
+  $('#w1').addEventListener('click',e=>{ const b=e.target.closest('[data-k]'); if(!b) return; const k=b.dataset.k;
+    if(k==='icon'){ author(); say(`Icon <b>voltedge-rmu</b> saved to <code>symbology_icons</code>. A stamp on the shelf — <b>no rule uses it yet</b>, so nothing on the map can change.`); }
+    else if(k==='rule'){ if(!hasIcon){ say('The rule would point at an <code>icon_ref</code> that is not in the library — the renderer falls back to the plain circle. Author the icon first.','muted'); }
+      const r=rmuRule(ctx); r.style=Object.assign({},r.style,{icon:'voltedge-rmu',color:COPPER}); ruleSet=true; emit();
+      say(ctx==='map'?`Default <b>map</b> rule for RMU now says <code>voltedge-rmu</code>. The server will hand this out — but Priya’s browser has not re-fetched the schema yet.`:`You edited the <b>diagram</b> rule. The geographic map reads only <code>map</code> rules — it will never show this, however long you wait.`); }
+    else if(k==='martin') say('Martin restarted. It serves <b>geometry only</b> and has never heard of symbols — nothing changes.','bad');
+    else if(k==='compile') say('RMU recompiled: table + tile function rebuilt. The schema endpoint reads <code>symbology_rules</code> <b>live</b> — recompiling is not what drives map symbols. Nothing changes.','bad');
+    else if(k==='soft') say('Soft refresh: the page reloads but the class schema is still inside its cache window — same rules as before.', sameAsCache()?'':'bad');
+    else if(k==='wait'){ say('Five minutes later the cache expired and the schema was re-fetched. It works — but you waited.'); refetch(); }
+    else if(k==='hard'){ say('Hard refresh: schema re-fetched, layer rebuilt.<b> This is the reliable trigger.</b>'); refetch(); }
+    paint(); });
+  $('#d-reset').onclick=()=>{ reset(); hasIcon=false; ruleSet=false; ctx='map'; $('#d-ctx').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x.dataset.v==='map')); $('#d-wh').checked=true; cache=snap(); m.src=cache; m.render(); say(''); paint(); };
+  onStore(paint);
+  const _r=m.render; m.render=function(){ _r(); const live=m.src.rules.find(r=>r.cls==='RMU'&&r.ctx==='map'&&isDefault(r)); if(live&&live.style.icon==='voltedge-rmu'&&!svgHasSize(m.src.icons['voltedge-rmu']||'')) say('The cached rule points at <code>voltedge-rmu</code>, but the SVG has no <code>width</code>/<code>height</code> — every RMU <b>silently vanishes</b> (dashed ✕ marks where they should be). See Chapter 2.','bad'); };
+  m.render(); paint();
+})();
+
+/* ===== W1b: score a switch against four rules ===== */
+(function(){
+  const rules=[
+   {id:'a',cls:'SWITCH',ctx:'map',sub:null,field:null,val:null,style:{icon:'triangle',color:'#2b5ead',scale:1}},
+   {id:'b',cls:'SWITCH',ctx:'map',sub:null,field:'state',val:'open',style:{icon:'triangle-outline',color:'#bf3b26',scale:1}},
+   {id:'c',cls:'SWITCH',ctx:'map',sub:'3',field:null,val:null,style:{icon:'square',color:'#2b5ead',scale:1}},
+   {id:'d',cls:'SWITCH',ctx:'map',sub:'3',field:'state',val:'open',style:{icon:'diamond',color:'#bf3b26',scale:1.2}}];
+  let sub='3',st='open';
+  function paint(){
+    const f={cls:'SWITCH',sub,a:{state:st}}; const res=resolve(rules,f,'map',null);
+    $('#sc-out').innerHTML=`<div class="tbl"><table><tr><th>Rule</th><th>Subtype test</th><th>State test</th><th>Score</th><th>Result</th></tr>`+res.all.map(x=>{ const win=res.winner===x.r; return `<tr style="${win?'background:var(--tint)':''}"><td>${swatch(x.r)} ${esc(ruleTitle(x.r))}</td><td>${x.r.sub?(x.subOK?'✓ matches':'✕ no'):'<span class="muted">—</span>'}</td><td>${x.r.field?(x.fldOK?'✓ matches':'✕ no'):'<span class="muted">—</span>'}</td><td><b>${x.score}</b></td><td>${win?'<b>WINS</b> → '+esc(styleSub(x.r)):x.match?'matches, outranked':'does not match'}</td></tr>`; }).join('')+`</table></div><p class="muted" style="font-size:13.5px;margin:8px 0 0">Subtype 4 matches only the default and the <code>state = open</code> rule; a closed load-break matches the default and the subtype-3 rule. Only an <em>open load-break</em> reaches the score-3 rule.</p>`;
+  }
+  seg('#sc-sub',b=>{ sub=b.dataset.v; paint(); }); seg('#sc-st',b=>{ st=b.dataset.v; paint(); });
+  paint();
+})();
+
+/* ===== W2: icon library & editor ===== */
+(function(){
+  Object.keys(FALLBACK).forEach(k=>{ const el=$('#fb-'+k); if(el) el.innerHTML=`<img alt="" width="24" height="24" src="${dataURI(FALLBACK[k],'#2b5ead')}">`; });
+  const PRE={
+   good:['voltedge-rmu',RMU_SVG],
+   vb:['rmu-viewbox','<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"\n     fill="none" stroke="{{COLOR}}" stroke-width="2">\n  <rect x="5" y="8" width="14" height="9" rx="1.5"/>\n  <line x1="9" y1="8" x2="9" y2="3"/>\n  <line x1="12" y1="8" x2="12" y2="3"/>\n  <line x1="15" y1="8" x2="15" y2="3"/>\n</svg>'],
+   big:['rmu-big','<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 100 100"\n     fill="none" stroke="{{COLOR}}" stroke-width="8">\n  <rect x="30" y="38" width="40" height="26" rx="4"/>\n  <line x1="42" y1="38" x2="42" y2="22"/><line x1="58" y1="38" x2="58" y2="22"/>\n</svg>'],
+   full:['voltedge-logo','<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">\n  <circle cx="12" cy="12" r="10" fill="#13795b"/>\n  <polygon points="13,3 6,13 11,13 10,21 18,10 13,10" fill="#ffd23f"/>\n</svg>'],
+   bad:['Voltedge_RMU',RMU_SVG]};
+  let editing=null, seq=0; const nm=$('#ic-name'), tx=$('#ic-svg'), msg=$('#ic-msg');
+  const say=(t,c)=>{ msg.className=c||''; msg.style.color=c==='bad'?'var(--red)':c==='good'?'var(--green)':'var(--muted)'; msg.innerHTML=t; };
+  const usedBy=ref=>S.rules.filter(r=>r.style&&r.style.icon===ref);
+  function gallery(){
+    const g=$('#ic-gal'); const items=[...Object.keys(FALLBACK).map(k=>[k,FALLBACK[k],true]),...Object.keys(S.icons).map(k=>[k,S.icons[k],false])];
+    g.innerHTML=items.map(([k,sv,bi])=>{ const ok=svgHasSize(sv); return `<div class="card" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--raise)"><div style="display:flex;align-items:center;gap:8px"><span style="width:32px;height:32px;display:grid;place-items:center;border-radius:6px;background:var(--surface)">${ok?`<img alt="" width="24" height="24" src="${dataURI(sv,'#b5651d')}">`:'<span style="color:var(--red);font-weight:700" title="no width/height">✕</span>'}</span><div style="min-width:0"><div class="mono" style="font-size:12px;overflow-wrap:anywhere">${esc(k)}</div><span class="pill ${svgTintable(sv)?'fresh':'stale'}" style="font-size:10.5px">${svgTintable(sv)?'Tintable':'Full-color'}</span>${bi?' <span class="muted" style="font-size:10.5px">built-in</span>':''}</div></div>${bi?'':`<div style="margin-top:6px;display:flex;gap:6px"><button class="btn" data-e="${esc(k)}" ${can('mw')?'':'disabled'} title="edit">✏️</button><button class="btn" data-u="${esc(k)}" ${can('mw')?'':'disabled'} title="use in the RMU map rule">↪ use</button><button class="btn warn" data-x="${esc(k)}" ${can('mw')?'':'disabled'} title="delete">🗑️</button></div>`}</div>`; }).join('');
+  }
+  function diag(){
+    const name=nm.value, sv=tx.value; const items=[]; const ok=(c,t,bad)=>items.push(`<div style="margin:2px 0;color:${c?'var(--green)':(bad?'var(--red)':'var(--amber)')}">${c?'✓':bad?'✕':'⚠'} ${t}</div>`);
+    const nameOK=REF_RE.test(name); if(!editing){ ok(nameOK,nameOK?'name matches <code>^[a-z][a-z0-9-]*$</code>':'name must match <code>^[a-z][a-z0-9-]*$</code>',true); if(nameOK&&(allIcons()[name])) ok(false,'name already exists in the library',true); }
+    const has=/<svg\b/i.test(sv); ok(has,has?'contains <code>&lt;svg</code>':'no <code>&lt;svg</code> element yet',true);
+    if(has){ const wh=svgHasSize(sv); ok(wh,wh?'explicit <code>width</code> + <code>height</code>':'<b>no width/height</b> → Chromium sizes it 150×150; it will vanish on the map',true);
+      const vb=(rootTag(sv).match(/viewBox\s*=\s*"([^"]+)"/)||[])[1]; const w=vb&&vb.split(/[ ,]+/).map(Number); if(vb&&w[2]===24&&w[3]===24) ok(true,'24×24 canvas'); else ok(false,vb?`canvas is ${w[2]}×${w[3]} — art may land small (§2.7)`:'no viewBox');
+      const t=svgTintable(sv); items.push(`<div style="margin:2px 0;color:var(--muted)">ⓘ ${t?'<code>{{COLOR}}</code> present → <b>Tintable</b>':'no <code>{{COLOR}}</code> → <b>Full-color</b> (the tint swatch does nothing)'}</div>`);
+      const my=++seq; items.push(`<div id="ic-meas" style="margin:2px 0;color:var(--muted)">ⓘ browser reports intrinsic size …</div>`); $('#ic-diag').innerHTML=items.join(''); measure(sv,(w2,h2)=>{ if(my!==seq) return; const e=$('#ic-meas'); if(e) e.innerHTML=`ⓘ browser reports intrinsic size <b>${w2}×${h2}</b>${w2===150?' <span style="color:var(--red)">← the 150×150 failure</span>':''}`; });
+      $('#ic-prev').innerHTML=`<img alt="preview" style="width:72px;height:72px" src="${dataURI(sv,$('#ic-tint').value)}">`; }
+    else { $('#ic-prev').innerHTML=''; }
+    if(!has) $('#ic-diag').innerHTML=items.join('');
+    $('#ic-save').textContent=editing?'Save':'Create'; nm.readOnly=!!editing; nm.style.opacity=editing?.6:1;
+    $('#ic-save').disabled=!can('mw');
+  }
+  nm.oninput=()=>{ nm.value=nm.value.toLowerCase().replace(/_/g,'_'); diag(); }; tx.oninput=diag; $('#ic-tint').oninput=diag;
+  $$('#w2 [data-p]').forEach(b=>b.onclick=()=>{ const p=PRE[b.dataset.p]; editing=null; nm.value=p[0]; tx.value=p[1]; say(''); diag(); });
+  $('#ic-new').onclick=()=>{ editing=null; nm.value=''; tx.value=''; say(''); diag(); };
+  $('#ic-gal').onclick=e=>{ const b=e.target.closest('button'); if(!b||b.disabled) return;
+    if(b.dataset.e){ editing=b.dataset.e; nm.value=editing; tx.value=S.icons[editing]; say('Editing — only the markup can change.'); diag(); }
+    else if(b.dataset.u){ const r=S.rules.find(r=>r.cls==='RMU'&&r.ctx==='map'&&isDefault(r)); r.style=Object.assign({},r.style,{icon:b.dataset.u}); emit(); say(`RMU map default rule now references <code>${esc(b.dataset.u)}</code>.`,'good'); }
+    else if(b.dataset.x){ const k=b.dataset.x, u=usedBy(k); if(u.length) say(`✕ <b>409</b> — icon <code>${esc(k)}</code> is referenced by ${u.length} rule${u.length>1?'s':''} (${u.map(r=>r.cls+'/'+r.ctx).join(', ')}). Repoint or remove them first.`,'bad'); else { delete S.icons[k]; if(editing===k){ editing=null; } emit(); say(`Deleted <code>${esc(k)}</code>.`,'good'); } } };
+  $('#ic-save').onclick=()=>{ if(!can('mw')) return; const name=nm.value, sv=tx.value;
+    if(!editing){ if(!REF_RE.test(name)) return say('✕ 400 — name must match ^[a-z][a-z0-9-]*$','bad'); if(allIcons()[name]) return say('✕ 409 — that icon_ref already exists','bad'); }
+    if(!/<svg\b/i.test(sv)) return say('✕ 400 — svg must contain an &lt;svg&gt; element','bad');
+    S.icons[name]=sv; const wh=svgHasSize(sv); const was=editing; editing=name; emit();
+    say(`${was?'Saved':'Created'} <code>${esc(name)}</code>. ${wh?'Live in the library — and in every rule that references it.':'<b>Saved — but it has no width/height</b>, so any rule using it will draw nothing.'}`,wh?'good':'bad'); };
+  onPersona(()=>{ $('#ic-gate').innerHTML=can('mw')?gateTip('mw'):`<span class="gate locked" title="read-only">read-only: needs ${PNAME.mw}</span>`; $('#ic-save').disabled=!can('mw'); gallery(); });
+  onStore(gallery); $$('#w2 [data-p="good"]')[0].click();
+})();
+
+/* ===== W2b: sizing calculator ===== */
+(function(){
+  let vb=24; const fill=$('#sz-fill'), sc=$('#sz-sc');
+  function paint(){
+    const f=+fill.value/100, s=+sc.value; $('#sz-fill-v').textContent=Math.round(f*100)+'%'; $('#sz-sc-v').textContent='×'+s.toFixed(1);
+    const box=24*0.65*s, art=box*f, dot=24*0.65*0.75; /* the plain default circle fills 18/24 */
+    const k=4, cx=70, cy=75;
+    $('#sz-svg').innerHTML=`<rect x="0" y="0" width="420" height="150" fill="var(--surface)"/>`+
+     `<g><rect x="${cx-box*k/2}" y="${cy-box*k/2}" width="${box*k}" height="${box*k}" fill="none" stroke="var(--muted)" stroke-dasharray="4 3"/><rect x="${cx-art*k/2}" y="${cy-art*k/2}" width="${art*k}" height="${art*k}" rx="4" fill="var(--acc)" fill-opacity=".35" stroke="var(--acc)" stroke-width="2"/><text x="${cx}" y="143" text-anchor="middle" font-size="11" style="fill:var(--muted)">your icon (×4 zoom)</text></g>`+
+     `<g><circle cx="250" cy="${cy}" r="${dot*k/2}" fill="#7c8a93"/><text x="250" y="143" text-anchor="middle" font-size="11" style="fill:var(--muted)">built-in circle (×4)</text></g>`+
+     `<text x="330" y="${cy-4}" font-size="12" style="fill:var(--ink)">box ${box.toFixed(1)} px</text><text x="330" y="${cy+14}" font-size="12" style="fill:var(--ink)">art ${art.toFixed(1)} px</text>`;
+    const rel=art/dot, need=dot/(0.65*24*f);
+    $('#sz-out').innerHTML=`<div class="kv"><span>on-screen box</span><b>24 × 0.65 × ${s.toFixed(1)} = ${box.toFixed(1)} px</b></div><div class="kv"><span>art inside it</span><b>${art.toFixed(1)} px</b></div><div class="kv"><span>vs. built-in dot</span><b>${Math.round(rel*100)}%</b></div><p style="font-size:13px;margin:8px 0 0">${Math.abs(rel-1)<.12?'Reads at about the same size as the plain dot it replaces.':rel<1?`Looks small. Redraw tighter, or set <code>scale</code> ≈ <b>${need.toFixed(1)}</b> to match the dot.`:'Looks large — lower the rule’s scale.'}</p>${vb!==24&&f<.6?`<p class="muted" style="font-size:12.5px;margin:6px 0 0">Drawn on a ${vb}-unit canvas with art filling ${Math.round(f*100)}% — the map scales the whole ${vb}-unit box into ${24} px.</p>`:''}`;
+  }
+  seg('#sz-vb',b=>{ vb=+b.dataset.v; fill.value=vb===24?75:vb===48?55:35; paint(); }); fill.oninput=paint; sc.oninput=paint; paint();
+})();
+
+/* ===== RuleBench: per-class Symbology section + preview map ===== */
+function RuleBench(host,cfg){
+  const cls=cfg.cls, cl=CLS[cls]; const B={cls:cls,id:host.id,ctx:cfg.ctx||'map',editing:null,hook:[]};
+  host.innerHTML=`<div class="rb-lock" style="display:none;padding:16px" ></div><div class="rb-main">
+   <div class="w-bar"><b class="mono" style="font-size:13px">${esc(cls)}</b><span class="muted" style="font-size:12.5px">${esc(cl.name)} · ${{pt:'point',ln:'line',pg:'polygon'}[cl.geom]}</span><span style="flex:1"></span>${cfg.ctxToggle?'<span class="lab">context</span><div class="seg rb-ctx"><button data-v="map" aria-pressed="true">map</button><button data-v="diagram" aria-pressed="false">diagram</button></div>':''}<span class="rb-gate"></span></div>
+   <div class="w-split"><div class="w-main"><div class="rb-map"></div></div><div class="w-side">
+     <div class="lab" style="margin-bottom:4px">Symbology <span class="muted">— ${cfg.ctxToggle?'rules for this context':'map rules'}</span></div><div class="rb-list"></div>
+     <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn pri rb-add">＋ Add rule</button><button class="btn rb-check">✓ Compile check</button><button class="btn rb-reset">Reset class</button></div>
+     <div class="rb-warn" style="font-size:12.5px;margin-top:6px" aria-live="polite"></div>
+     <div class="rb-insp" style="margin-top:10px"></div>
+   </div></div>
+   <div class="rb-extra"></div></div>`;
+  const q=s=>host.querySelector(s);
+  const ctxRules=()=>S.rules.filter(r=>r.cls===cls&&r.ctx===B.ctx);
+  const ICOLS=['#b5651d','#2b5ead','#bf3b26','#13795b','#7c8a93','#6a4fc4'];
+  B.map=SymMap(q('.rb-map'),{w:cfg.w||760,h:cfg.h||330,z:cfg.z||14,classes:cfg.classes||[cls],dbg:cfg.dbg,onPick:(f)=>{ B.pick=f; inspect(); }});
+  const _rr=B.map.render; B.map.render=function(){ B.map.ctx=B.ctx; _rr(); };
+  function gate(){ const a=can('mr'); q('.rb-lock').style.display=a?'none':'block'; q('.rb-main').style.display=a?'':'none'; q('.rb-lock').innerHTML=`<b>🔒 ${PNAME.mr} required.</b> <span class="muted">The Symbology section is part of the Admin area — ${PERSONA[1].split(' · ')[0]} can look at the map but not at these screens. Switch persona to Ada or Tom.</span>`; q('.rb-gate').innerHTML=can('mw')?gateTip('mw'):'<span class="gate locked" title="read-only">read-only</span>'; q('.rb-add').disabled=!can('mw'); q('.rb-reset').disabled=!can('mw'); }
+  function list(){
+    const rs=ctxRules().slice().sort((a,b)=>spec(b)-spec(a)); const dups=new Set(); rs.forEach(a=>rs.forEach(b=>{ if(a!==b&&a.sub===b.sub&&a.field===b.field&&a.val===b.val) dups.add(a.id); }));
+    q('.rb-list').innerHTML=rs.length?rs.map(r=>`<div style="display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:7px;margin-bottom:5px;background:${B.pick&&B.hl===r.id?'var(--tint)':'var(--surface)'}" data-r="${r.id}"><span style="width:40px;text-align:center">${swatch(r)}</span><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${esc(ruleTitle(r))} ${dups.has(r.id)?'<span class="pill stale" title="another rule has identical targeting">⚠ tie</span>':''}</div><div class="mono muted" style="font-size:11.5px;overflow-wrap:anywhere">${esc(styleSub(r))}</div></div><span class="pill sec" title="specificity">${spec(r)}</span><span style="display:flex;gap:3px"><button class="btn" data-a="edit" ${can('mw')?'':'disabled'} title="Edit">✏️</button><button class="btn" data-a="dup" ${can('mw')?'':'disabled'} title="Duplicate">⧉</button><button class="btn" data-a="del" ${can('mw')?'':'disabled'} title="Delete">🗑️</button></span></div>`).join(''):'<p class="muted" style="font-size:13px">No rules in this context.</p>';
+  }
+  q('.rb-list').onclick=e=>{ const b=e.target.closest('button[data-a]'); if(!b||b.disabled) return; const id=b.closest('[data-r]').dataset.r; const r=S.rules.find(x=>x.id===id);
+    if(b.dataset.a==='edit') openForm(r); else if(b.dataset.a==='dup'){ const c=JSON.parse(JSON.stringify(r)); c.id=rid(); S.rules.push(c); emit(); openForm(c); } else { S.rules=S.rules.filter(x=>x.id!==id); emit(); warn(`Deleted. <span class="muted">There is no guard here — the compiler re-checks the whole set at publish.</span>`); } };
+  function warn(h){ q('.rb-warn').innerHTML=h; }
+  q('.rb-check').onclick=()=>{ const bad=[]; ['map','diagram'].forEach(c=>{ const n=S.rules.filter(r=>r.cls===cls&&r.ctx===c&&isDefault(r)&&r.zmin==null&&r.zmax==null).length; if(n!==1) bad.push(`<code>${c}</code> context has <b>${n}</b> unbanded default rule${n===1?'':'s'}`); });
+    warn(bad.length?`<span style="color:var(--red)">✕ compile fails: ${bad.join('; ')} — exactly one any/any rule is required per render context.</span>`:`<span style="color:var(--green)">✓ compile check passes — exactly one default per context.</span>`); };
+  q('.rb-reset').onclick=()=>{ const keep=S.rules.filter(r=>r.cls!==cls); const fresh=SEED(cls); S.rules=keep.concat(fresh); delete S.labels[cls]; delete S.dzoom[cls]; warn(''); emit(); };
+  if(B.map) {}
+  /* ----- the Add / Edit rule dialog ----- */
+  function openForm(r0){
+    const isNew=!r0; const r=r0?JSON.parse(JSON.stringify(r0)):{id:null,cls,ctx:B.ctx,sub:null,field:null,val:null,zmin:null,zmax:null,style:cl.geom==='pt'?{icon:'circle',color:'#b5651d',scale:1}:cl.geom==='ln'?{color:'#2b5ead',width:2,dash:'solid'}:{fill:'#cfe3dc',stroke:'#13795b'}};
+    B.editing=r; document.querySelectorAll('.rb-dlgw').forEach(x=>x.remove());
+    const d=document.createElement('div'); d.className='dlg rb-dlgw'; document.body.appendChild(d);
+    const draw=()=>{ const st=r.style; const codedOpts=cl.coded.map(c=>`<option value="${c.k}" ${r.field===c.k?'selected':''}>${c.l}</option>`).join(''); const cf=r.field&&cl.coded.find(c=>c.k===r.field);
+      let sty=''; if(cl.geom==='pt'){ sty=`<div class="fld-row"><label>Color</label><input type="color" data-k="color" value="${st.color}"></div><div class="fld-row"><label>Scale</label><input type="number" data-k="scale" step="0.1" min="0.2" max="6" value="${st.scale??1}"></div><div class="fld-row"><label>Icon</label><div style="display:flex;gap:5px;flex-wrap:wrap" class="rb-ic">${Object.keys(allIcons()).map(k=>{ const ok=svgHasSize(allIcons()[k]); return `<button type="button" class="cardsel" data-ic="${esc(k)}" aria-pressed="${(st.icon||'circle')===k}" title="${esc(k)}${ok?'':' — no width/height'}" style="padding:4px 6px">${ok?`<img alt="" width="24" height="24" src="${dataURI(allIcons()[k],st.color)}">`:'<span style="color:var(--red)">✕</span>'}<div class="mono" style="font-size:10px">${esc(k)}</div></button>`; }).join('')}</div></div>`; }
+      else if(cl.geom==='ln'){ sty=`<div class="fld-row"><label>Color</label><input type="color" data-k="color" value="${st.color}"></div><div class="fld-row"><label>Width (px)</label><input type="number" data-k="width" min="1" max="12" value="${st.width||2}"></div><div class="fld-row"><label>Dash</label><select class="fld" data-k="dash">${['solid','dashed','dotted','dashdot'].map(x=>`<option ${st.dash===x?'selected':''}>${x}</option>`).join('')}</select></div>`; }
+      else sty=`<div class="fld-row"><label>Fill color</label><input type="color" data-k="fill" value="${st.fill}"></div><div class="fld-row"><label>Stroke color</label><input type="color" data-k="stroke" value="${st.stroke}"></div>`;
+      d.innerHTML=`<div role="dialog" aria-modal="true" style="max-width:480px;width:100%;max-height:92vh;overflow:auto"><h4>${isNew?'Add rule':'Edit rule'} — ${esc(cls)}</h4><div class="lab" style="margin-top:8px">Targeting</div>
+       <div class="fld-row"><label>Render context</label><select class="fld" data-t="ctx"><option ${r.ctx==='map'?'selected':''}>map</option><option ${r.ctx==='diagram'?'selected':''}>diagram</option></select></div>
+       <div class="fld-row"><label>Subtype</label><select class="fld" data-t="sub"><option value="">any</option>${cl.subs.map(s=>`<option value="${s[0]}" ${r.sub===s[0]?'selected':''}>${s[0]}: ${s[1]}</option>`).join('')}</select></div>
+       <div class="fld-row"><label>Field</label><select class="fld" data-t="field"><option value="">any</option>${codedOpts}</select></div>
+       ${cf?`<div class="fld-row"><label>Value <span class="rq">*</span></label><select class="fld" data-t="val"><option value="">— choose —</option>${cf.dom.map(v=>`<option value="${v[0]}" ${r.val===v[0]?'selected':''}>${v[0]} (${v[1]})</option>`).join('')}</select></div>`:''}
+       ${r.ctx==='map'?`<div class="fld-row"><label>Apply from zoom</label><input type="number" data-t="zmin" step="0.5" min="0" max="22" placeholder="blank = no lower limit" value="${r.zmin??''}"></div><div class="fld-row"><label>Apply to zoom</label><input type="number" data-t="zmax" step="0.5" min="0" max="22" placeholder="blank = no upper limit" value="${r.zmax??''}"></div>`:''}
+       <div class="lab" style="margin-top:8px">Style <span class="muted">— ${{pt:'point: Color + Scale + Icon',ln:'line: Color + Width + Dash',pg:'polygon: Fill + Stroke'}[cl.geom]}</span></div>${sty}
+       <div class="mono muted" style="font-size:11.5px;margin-top:6px">specificity ${spec(r)} · ${esc(ruleTitle(r))}</div><div class="rb-err" style="color:var(--red);font-size:12.5px;min-height:18px;margin-top:4px"></div>
+       <div class="a"><button class="btn" data-n>Cancel</button><button class="btn pri" data-y>${isNew?'Add rule':'Save'}</button></div></div>`;
+      d.querySelectorAll('[data-t]').forEach(el=>el.onchange=()=>{ const k=el.dataset.t; let v=el.value; if(k==='zmin'||k==='zmax') v=v===''?null:+v; else if(v==='') v=null; r[k]=v; if(k==='field'){ r.val=null; } if(k==='ctx'&&v==='diagram'){ r.zmin=r.zmax=null; } draw(); });
+      d.querySelectorAll('[data-k]').forEach(el=>el.onchange=el.oninput=()=>{ const k=el.dataset.k; r.style[k]=(k==='scale'||k==='width')?+el.value:el.value; if(k==='color') d.querySelectorAll('[data-ic] img').forEach(i=>{ const key=i.parentElement.dataset.ic; i.src=dataURI(allIcons()[key],r.style.color); }); });
+      d.querySelectorAll('[data-ic]').forEach(b=>b.onclick=()=>{ r.style.icon=b.dataset.ic; d.querySelectorAll('[data-ic]').forEach(x=>x.setAttribute('aria-pressed',x===b)); });
+      d.querySelector('[data-n]').onclick=()=>{ d.remove(); B.editing=null; };
+      d.querySelector('[data-y]').onclick=()=>{ const err=d.querySelector('.rb-err'); if(r.field&&!r.val){ err.textContent='400 — a field rule requires a value.'; return; } if(r.zmin!=null&&r.zmax!=null&&r.zmin>r.zmax){ err.textContent='400 — zoom “from” must not exceed “to”.'; return; }
+        if(isNew){ r.id=rid(); S.rules.push(r); } else { const i=S.rules.findIndex(x=>x.id===r.id); S.rules[i]=r; }
+        d.remove(); B.editing=null; if(r.ctx!==B.ctx&&cfg.ctxToggle){ B.setCtx(r.ctx); } emit(); warn(`${isNew?'Added':'Saved'}: <b>${esc(ruleTitle(r))}</b>${r.ctx!==B.ctx?` <span class="muted">(in the ${r.ctx} context — not shown here)</span>`:''}`); }; };
+    draw(); const f=d.querySelector('select,input'); if(f) f.focus(); }
+  q('.rb-add').onclick=()=>openForm(null);
+  /* ----- click inspector ----- */
+  function inspect(){ const f=B.pick; B.hl=null; if(!f){ q('.rb-insp').innerHTML='<p class="muted" style="font-size:12.5px;margin:0">Click a feature on the map to see how its style is chosen.</p>'; return list(); }
+    const res=resolve(S.rules,f,B.ctx,B.ctx==='map'?B.map.z:null); B.hl=res.winner&&res.winner.id;
+    q('.rb-insp').innerHTML=`<div class="lab">${esc(f.a.name)} <span class="muted">${f.sub?'· subtype '+f.sub:''} ${Object.keys(f.a).filter(k=>cl.coded.some(c=>c.k===k)).map(k=>'· '+k+'='+f.a[k]).join(' ')}</span></div>`+res.all.slice().sort((a,b)=>b.score-a.score).map(x=>`<div style="font-size:12.5px;padding:2px 0;${res.winner===x.r?'color:var(--acc-deep);font-weight:700':x.match?'':'color:var(--muted)'}">${res.winner===x.r?'▶ ':x.match?'· ':'✕ '}score ${x.score} — ${esc(ruleTitle(x.r))}${!x.band?` <i>(${x.bandWhy})</i>`:''}${res.winner===x.r?' <b>WINS</b>':''}</div>`).join('')+(res.winner?'':'<div style="color:var(--red);font-size:12.5px">no rule matched — drawn with plain fallback styling</div>')+(cfg.json&&res.winner?`<div class="lab" style="margin-top:8px">stored style of the winner</div><pre class="pre" style="margin:4px 0 0;font-size:11.5px">${esc(JSON.stringify(persist(res.winner),null,1))}</pre>`:''); list(); }
+  B.setCtx=c=>{ B.ctx=c; const s=q('.rb-ctx'); if(s) s.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x.dataset.v===c)); B.map.render(); list(); inspect(); B.hook.forEach(f=>f()); };
+  if(cfg.ctxToggle) seg(`#${host.id} .rb-ctx`,b=>B.setCtx(b.dataset.v));
+  onStore(()=>{ list(); if(B.pick) inspect(); B.hook.forEach(f=>f()); });
+  onPersona(()=>{ gate(); list(); }); inspect();
+  B.q=q; B.warn=warn; B.list=list; return B; }
+/* seeds: a pristine rule set for one class */
+function SEED(cls){ const m=R(cls,'map',null,null,null,null,null,null), d=R(cls,'diagram',null,null,null,null,null,null); const g=CLS[cls].geom; const mk=ctx=>g==='pt'?{icon:cls==='RMU'?'circle':cls==='SWITCH'?'triangle':'circle',color:cls==='RMU'?'#7c8a93':cls==='SWITCH'?'#2b5ead':'#c2650a',scale:1}:g==='ln'?{color:'#2b5ead',width:2,dash:'solid'}:{fill:'#cfe3dc',stroke:'#13795b'}; m.style=mk('map'); d.style=g==='pt'?Object.assign(mk(),{icon:'square'}):mk(); return [m,d]; }
+
+function persist(r){ const g=CLS[r.cls].geom,st=r.style,o={}; if(g==='pt'){ o.icon_ref=st.icon; o.color=st.color; if(st.scale!=null&&st.scale!==1) o.scale=st.scale; } else if(g==='ln'){ o.color=st.color; o.width=st.width; o.dash=st.dash; } else { o.fill_color=st.fill; o.stroke_color=st.stroke; } return o; }
+
+/* ===== ch3/4/5 benches ===== */
+(function(){
+  const b3=RuleBench($('#rb3'),{cls:'RMU',classes:['RMU'],h:300,z:14});
+  $('#w3-lib').onclick=()=>{ S.icons['voltedge-rmu']=RMU_SVG; emit(); b3.warn('<span style="color:var(--green)">voltedge-rmu is now in the library — open ✏️ Edit on the default rule and pick it.</span>'); };
+  const b4=RuleBench($('#rb4'),{cls:'SWITCH',classes:['SWITCH','MV_CONDUCTOR'],h:300,z:14.5});
+  const add=(cls,ctx,sub,field,val,style,warnEl)=>{ const ex=S.rules.find(r=>r.cls===cls&&r.ctx===ctx&&r.sub===(sub||null)&&r.field===(field||null)&&r.val===(val||null)); if(ex){ ex.style=style; } else S.rules.push(R(cls,ctx,sub,field,val,null,null,style)); emit(); };
+  $('#w4-a').onclick=()=>add('SWITCH','map',null,'state','closed',{icon:'triangle',color:'#2b5ead',scale:1});
+  $('#w4-b').onclick=()=>add('SWITCH','map',null,'state','open',{icon:'triangle-outline',color:'#bf3b26',scale:1});
+  $('#w4-c').onclick=()=>add('SWITCH','map','3','state','open',{icon:'diamond',color:'#bf3b26',scale:1.3});
+  $('#w4-d').onclick=()=>{ S.rules.push(R('SWITCH','map',null,'state','open',null,null,{icon:'square',color:'#6a4fc4',scale:1})); emit(); b4.warn('<span style="color:var(--amber)">⚠ Two rules now pin <code>state = open</code> with identical targeting — a tie. The engine would still pick one, but authoring should never create this.</span>'); };
+  const b5=RuleBench($('#rb5a'),{cls:'MV_CONDUCTOR',classes:['MV_CONDUCTOR','SWITCH'],h:260,z:14.5,json:true});
+  $('#w5-a').onclick=()=>add('MV_CONDUCTOR','map','2',null,null,{color:'#2b5ead',width:2,dash:'dashed'});
+  $('#w5-b').onclick=()=>add('MV_CONDUCTOR','map',null,'voltage_class','33',{color:'#2b5ead',width:5,dash:'solid'});
+  $('#w5-c').onclick=()=>add('MV_CONDUCTOR','map','2','voltage_class','33',{color:'#2b5ead',width:5,dash:'dashed'});
+  const b6=RuleBench($('#rb5b'),{cls:'SITE',classes:['SITE'],h:240,z:14,json:true});
+  $('#w5-d').onclick=()=>add('SITE','map',null,'tenure','mobile',{fill:'#f5ead6',stroke:'#b8720c'});
+})();
+
+/* ===== Labelling + Display zoom sections ===== */
+function addExtras(B,o){
+  const cls=B.q('.rb-extra').closest('.widget')&&B.cls||null; const host=B.q('.rb-extra'); const cname=B.cls;
+  const cl=CLS[cname];
+  host.innerHTML=`<div class="w-split" style="border-top:1px solid var(--line)"><div class="w-main">
+   ${o.dz?`<div class="lab">Display zoom <span class="muted">— hides the whole feature, glyph and label</span></div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 12px"><label class="lab" for="${B.id}-dmin">Min</label><input type="number" id="${B.id}-dmin" min="0" max="24" step="1" style="width:84px" placeholder="none"><label class="lab" for="${B.id}-dmax">Max</label><input type="number" id="${B.id}-dmax" min="0" max="24" step="1" style="width:84px" placeholder="none"><button class="btn pri" data-d="set">Set range</button><button class="btn" data-d="clr">Clear</button><span class="dz-msg muted" style="font-size:12.5px"></span></div>`:''}
+   ${o.label?`<div class="lab">Labelling <span class="muted">— one label config per class</span></div>
+   <div class="fld-row"><label for="${B.id}-tpl">Template</label><div style="display:flex;gap:6px"><input type="text" id="${B.id}-tpl" placeholder="{name} ({voltage_kv} kV) — empty = labels off"><select class="fld" data-l="ins" style="width:130px" aria-label="Insert field"><option value="">Insert field…</option>${['name',...cl.plain.filter(x=>x!=='name'),...cl.coded.map(c=>c.k)].map(k=>`<option>${k}</option>`).join('')}</select></div></div>
+   <div class="fld-row"><label>Size · Color</label><div style="display:flex;gap:8px;align-items:center"><input type="number" data-l="size" min="8" max="24" style="width:70px"><input type="color" data-l="color"><label class="tog"><input type="checkbox" data-l="bold"> Bold</label><label class="tog"><input type="checkbox" data-l="italic"> Italic</label></div></div>
+   <div class="fld-row"><label>Halo</label><div style="display:flex;gap:8px;align-items:center"><label class="tog"><input type="checkbox" data-l="halo"> on</label><input type="color" data-l="haloColor"><input type="number" data-l="haloW" min="1" max="8" style="width:70px"></div></div>
+   <div class="fld-row"><label>Min zoom</label><input type="number" data-l="minz" min="0" max="24" step="1" style="width:84px" placeholder="always"></div>
+   <div class="fld-row"><label>Offset X · Y · Rot</label><div style="display:flex;gap:6px"><input type="number" data-l="ox" style="width:70px"><input type="number" data-l="oy" style="width:70px"><input type="number" data-l="rot" min="-180" max="180" style="width:70px"></div></div>
+   <div class="lbl-note muted" style="font-size:12.5px"></div>`:''}
+  </div><div class="w-side"><div class="lab">What the map is doing</div><div class="ex-stat" style="font-size:13px;margin-top:6px"></div></div></div>`;
+  const q=s=>host.querySelector(s); const L=()=>S.labels[cname]||(S.labels[cname]={tpl:'',size:11,color:'#14202a',bold:false,italic:false,halo:true,haloColor:'#ffffff',haloW:3,minz:null,ox:0,oy:0,rot:0});
+  const dim=!can('mw');
+  function sync(){ if(host.contains(document.activeElement)&&document.activeElement.tagName==='INPUT') return;
+    if(o.dz){ const d=S.dzoom[cname]||{}; q(`#${B.id}-dmin`).value=d.min??''; q(`#${B.id}-dmax`).value=d.max??''; }
+    if(o.label){ const l=S.labels[cname]||{tpl:'',size:11,color:'#14202a',halo:true,haloColor:'#ffffff',haloW:3}; q(`#${B.id}-tpl`).value=l.tpl||''; host.querySelectorAll('[data-l]').forEach(e=>{ const k=e.dataset.l; if(k==='ins') return; if(e.type==='checkbox') e.checked=!!l[k]; else e.value=l[k]??(k==='ox'||k==='oy'||k==='rot'?0:''); }); q('.lbl-note').innerHTML=cl.geom==='ln'?'A line label rides its line and ignores Offset and Rotation.':''; }
+    host.querySelectorAll('input,select,button').forEach(e=>e.disabled=!can('mw'));
+    stat(); }
+  function stat(){ const m=B.map, z=m.z; const d=S.dzoom[cname]; const fs=FEATS.filter(f=>f.cls===cname); const hidden=m.ctx==='map'&&d&&((d.min!=null&&z<d.min)||(d.max!=null&&z>d.max)); const l=S.labels[cname]; const lab=l&&l.tpl&&(l.minz==null||z>=l.minz); const rs=fs.map(f=>resolve(S.rules,f,'map',z)); const unm=rs.filter(r=>!r.winner).length; const restyled=rs.filter(r=>r.winner&&(r.winner.zmin!=null||r.winner.zmax!=null)).length;
+    q('.ex-stat').innerHTML=`<div class="kv"><span>zoom</span><b>${z.toFixed(1)}</b></div><div class="kv"><span>Display zoom</span><b>${d&&(d.min!=null||d.max!=null)?`${d.min??'—'} … ${d.max??'—'}`:'not set'} → ${hidden?'<span style="color:var(--red)">class HIDDEN</span>':'visible'}</b></div><div class="kv"><span>Rule band</span><b>${hidden?'—':`${restyled} restyled by a banded rule${unm?`, <span style="color:var(--amber)">${unm} fell through to plain</span>`:''}`}</b></div><div class="kv"><span>Label</span><b>${hidden?'—':l&&l.tpl?(lab?'shown':`suppressed below zoom ${l.minz}`):'off (empty template)'}</b></div>`; }
+  B.hook.push(stat); const _r=B.map.render; B.map.render=function(){ _r(); try{ stat(); }catch(e){} };
+  if(o.dz){ host.querySelector('[data-d=set]').onclick=()=>{ const mn=q(`#${B.id}-dmin`).value,mx=q(`#${B.id}-dmax`).value; const msg=q('.dz-msg'); const mi=mn===''?null:+mn, ma=mx===''?null:+mx; if((mi!=null&&(!Number.isInteger(mi)||mi<0||mi>24))||(ma!=null&&(!Number.isInteger(ma)||ma<0||ma>24))){ msg.style.color='var(--red)'; msg.textContent='whole numbers 0–24'; return; } if(mi!=null&&ma!=null&&mi>ma){ msg.style.color='var(--red)'; msg.textContent='Min must not exceed Max'; return; } if(mi==null&&ma==null) delete S.dzoom[cname]; else S.dzoom[cname]={min:mi,max:ma}; msg.style.color='var(--muted)'; msg.textContent='saved'; emit(); };
+    host.querySelector('[data-d=clr]').onclick=()=>{ delete S.dzoom[cname]; q('.dz-msg').textContent='cleared'; emit(); }; }
+  if(o.label){ q(`#${B.id}-tpl`).oninput=e=>{ L().tpl=e.target.value; emit(); };
+    host.querySelectorAll('[data-l]').forEach(e=>{ const k=e.dataset.l; if(k==='ins') e.onchange=()=>{ if(!e.value) return; const t=q(`#${B.id}-tpl`); t.value=(t.value+(t.value&&!/\s$/.test(t.value)?' ':'')+'{'+e.value+'}'); e.value=''; L().tpl=t.value; emit(); }; else e.oninput=e.onchange=()=>{ const l=L(); if(e.type==='checkbox') l[k]=e.checked; else if(e.type==='number') l[k]=e.value===''?(k==='minz'?null:0):+e.value; else l[k]=e.value; emit(); }; }); }
+  onStore(sync); onPersona(sync); return {sync};
+}
+
+/* ===== ch6 + ch7 ===== */
+(function(){
+  const b6=RuleBench($('#rb6'),{cls:'DIST_XFMR',classes:['DIST_XFMR'],h:300,z:14});
+  addExtras(b6,{dz:true,label:true});
+  const add=(cls,ctx,sub,field,val,zmin,zmax,style)=>{ S.rules.push(R(cls,ctx,sub,field,val,zmin,zmax,style)); emit(); };
+  $('#w6-a').onclick=()=>{ add('DIST_XFMR','map',null,null,null,null,12,{icon:'circle',color:'#c2650a',scale:0.6}); const d=S.rules.find(r=>r.cls==='DIST_XFMR'&&r.ctx==='map'&&isDefault(r)&&r.zmax==null&&r.zmin==null); d.style=Object.assign({},d.style,{icon:'diamond',scale:1.3}); S.rules[S.rules.length-1].sub=null; emit(); b6.map.setZ(11); };
+  $('#w6-b').onclick=()=>{ const d=S.rules.find(r=>r.cls==='DIST_XFMR'&&r.ctx==='map'&&isDefault(r)&&r.zmax==null); if(d){ d.zmin=13; d.zmax=19; } emit(); b6.map.setZ(11); };
+  $('#w6-c').onclick=()=>{ S.dzoom.DIST_XFMR={min:13,max:null}; emit(); b6.map.setZ(11); };
+  $('#w6-d').onclick=()=>{ S.labels.DIST_XFMR={tpl:'{name}',size:11,color:'#14202a',bold:false,italic:false,halo:true,haloColor:'#ffffff',haloW:3,minz:14,ox:0,oy:0,rot:0}; emit(); b6.map.setZ(14); };
+  $('#w6-e').onclick=()=>{ const l=S.labels.DIST_XFMR||(S.labels.DIST_XFMR={tpl:'{name}',size:11,color:'#14202a',halo:true,haloColor:'#ffffff',haloW:3,minz:null}); l.halo=!l.halo; if(!l.tpl) l.tpl='{name}'; emit(); b6.map.setZ(15.5); };
+
+  /* chapter 7: two surfaces, one class */
+  const ICO_C='<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><line x1="1" y1="12" x2="7" y2="12" stroke="#14202a" stroke-width="2"/><line x1="17" y1="12" x2="23" y2="12" stroke="#14202a" stroke-width="2"/><line x1="7" y1="12" x2="17" y2="12" stroke="#14202a" stroke-width="2"/><circle cx="7" cy="12" r="2" fill="#14202a"/><circle cx="17" cy="12" r="2" fill="#14202a"/></svg>';
+  const ICO_O='<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><line x1="1" y1="12" x2="7" y2="12" stroke="#14202a" stroke-width="2"/><line x1="17" y1="12" x2="23" y2="12" stroke="#14202a" stroke-width="2"/><line x1="7" y1="12" x2="15" y2="4" stroke="#bf3b26" stroke-width="2"/><circle cx="7" cy="12" r="2" fill="#14202a"/><circle cx="17" cy="12" r="2" fill="#14202a"/></svg>';
+  const mm=SymMap($('#d7m'),{w:420,h:240,z:14,classes:['SWITCH'],h:240}); const dm=SymMap($('#d7d'),{w:420,h:240,z:14,classes:['SWITCH']});
+  const _dr=dm.render; dm.render=function(){ dm.ctx='diagram'; _dr(); }; dm.render();
+  const b7=RuleBench($('#rb7'),{cls:'SWITCH',classes:['SWITCH'],ctxToggle:true,h:10,w:10,z:14});
+  b7.q('.rb-map').closest('.w-main').style.display='none'; b7.q('.w-split').style.gridTemplateColumns='1fr';
+  $('#w7-a').onclick=()=>{ S.icons['iec-closed']=ICO_C; S.icons['iec-open']=ICO_O; emit(); b7.warn('<span style="color:var(--green)">iec-closed and iec-open are in the library — full-colour (no <code>{{COLOR}}</code>), shared by any class.</span>'); };
+  $('#w7-b').onclick=()=>{ if(!S.icons['iec-closed']){ S.icons['iec-closed']=ICO_C; S.icons['iec-open']=ICO_O; } if(!(b7.ctx==='diagram')) b7.setCtx('diagram'); const d=S.rules.find(r=>r.cls==='SWITCH'&&r.ctx==='diagram'&&isDefault(r)); d.style={icon:'iec-closed',color:'#14202a',scale:1.3}; S.rules=S.rules.filter(r=>!(r.cls==='SWITCH'&&r.ctx==='diagram'&&r.field)); S.rules.push(R('SWITCH','diagram',null,'state','open',null,null,{icon:'iec-open',color:'#14202a',scale:1.3})); emit(); };
+  $('#w7-c').onclick=()=>{ const d=S.rules.find(r=>r.cls==='SWITCH'&&r.ctx==='diagram'&&isDefault(r)); d.zmin=16; d.zmax=19; emit(); b7.warn('<span class="muted">The diagram default now says “from zoom 16”. Look at the right-hand picture: nothing changed. Diagram resolution carries no zoom, so bands are ignored there.</span>'); };
+})();
+
+/* ===== ch8: diagnoser, SQL peeks, quiz ===== */
+(function(){
+  const snap=()=>JSON.parse(JSON.stringify({rules:S.rules,icons:S.icons,dzoom:S.dzoom}));
+  let cache=snap(); const m=SymMap($('#d8'),{w:760,h:260,z:14,classes:['RMU'],dbg:true}); m.src=cache; m.render();
+  const COP='#b5651d'; const mapDef=()=>S.rules.find(r=>r.cls==='RMU'&&r.ctx==='map'&&isDefault(r)&&r.zmin==null&&r.zmax==null);
+  const icon=(wh=true)=>{ S.icons['voltedge-rmu']=wh?RMU_SVG:RMU_SVG.replace(/\swidth="24"\s+height="24"/,''); };
+  const healthy=()=>{ reset(); icon(); mapDef().style={icon:'voltedge-rmu',color:COP,scale:1}; };
+  const F={ ok:healthy, a:()=>{ reset(); icon(); }, b:()=>{ healthy(); icon(false); },
+    c:()=>{ reset(); icon(); const d=S.rules.find(r=>r.cls==='RMU'&&r.ctx==='diagram'&&isDefault(r)); d.style={icon:'voltedge-rmu',color:COP,scale:1}; },
+    e:()=>{ healthy(); S.dzoom.RMU={min:16,max:null}; },
+    f:()=>{ reset(); icon(); S.rules.push(R('RMU','map',null,'status','in-service',null,null,{icon:'voltedge-rmu',color:COP,scale:1})); },
+    g:()=>{ healthy(); const d=mapDef(); S.rules=S.rules.filter(r=>r!==d); S.rules.push(R('RMU','map',null,'status','in_service',null,null,{icon:'voltedge-rmu',color:COP,scale:1})); } };
+  const refetch=()=>{ cache=snap(); m.src=cache; m.render(); };
+  $('#w8').addEventListener('click',e=>{ const b=e.target.closest('[data-f]'); if(!b) return; const k=b.dataset.f;
+    if(k==='d'){ reset(); cache=snap(); m.src=cache; healthy(); emit(); m.setZ(14); return; }
+    F[k](); emit(); refetch(); m.setZ(14); });
+  $('#d8-hard').onclick=()=>{ refetch(); steps(); };
+  const vr=()=>S.rules.filter(r=>r.cls==='RMU'&&r.style&&r.style.icon==='voltedge-rmu');
+  const RMUS=FEATS.filter(f=>f.cls==='RMU');
+  function steps(){
+    const v=vr(), vm=v.filter(r=>r.ctx==='map'); const lib=S.icons['voltedge-rmu']; const dz=S.dzoom.RMU; const z=m.z;
+    const hidden=dz&&((dz.min!=null&&z<dz.min)||(dz.max!=null&&z>dz.max));
+    const same=JSON.stringify([S.rules.filter(r=>r.cls==='RMU'),S.icons,S.dzoom.RMU||null])===JSON.stringify([cache.rules.filter(r=>r.cls==='RMU'),cache.icons,cache.dzoom.RMU||null]);
+    const pinned=vm.filter(r=>!isDefault(r)); const deadPins=pinned.filter(r=>!RMUS.some(f=>String(fval(f,r.field))===String(r.val)));
+    const defs=S.rules.filter(r=>r.cls==='RMU'&&r.ctx==='map'&&isDefault(r)&&r.zmin==null&&r.zmax==null).length;
+    const rows=[
+     [v.length>0,'A rule references <code>voltedge-rmu</code>',v.length?`${v.length} rule${v.length>1?'s':''} found`:'only the icon exists in the library (or not even that) — nothing says to use it','fix1'],
+     [!!lib&&svgHasSize(lib),'The icon is in the library and carries width/height',!lib?'<code>voltedge-rmu</code> is not in <code>symbology_icons</code> — rules would fall back to <code>circle</code>':svgHasSize(lib)?'explicit width/height ✓':'no width/height → 150×150 → silently vanishes','fix2'],
+     [vm.length>0,'The rule’s render context is <code>map</code>',vm.length?'a <code>map</code> rule uses it':v.length?'the only rule using it is in the <code>diagram</code> context':'(no rule yet)','fix3'],
+     [same,'The browser’s cached schema matches the server',same?'cache is current':'server changed since the browser fetched — soft refresh and Martin/compile will not help','fix4'],
+     [!hidden,'The class isn’t hidden by Display zoom',hidden?`Display zoom ${dz.min??'—'}…${dz.max??'—'} hides it at zoom ${z.toFixed(1)}`:'visible at this zoom','fix5'],
+     [deadPins.length===0,'The targeting matches real values',deadPins.length?`rule pins <code>${esc(deadPins[0].field)} = ${esc(deadPins[0].val)}</code> but RMUs store ${[...new Set(RMUS.map(f=>f.a[deadPins[0].field]))].map(x=>'<code>'+esc(x)+'</code>').join(', ')} — exact string equality`:pinned.length?'every pinned value matches some feature':'no pinned rules (default is immune)','fix6'],
+     [defs===1,'The class has its one unbanded map default',defs===1?'exactly one':`${defs} defaults — next compile fails; features without a narrower match draw plain`,'fix7']];
+    const first=rows.findIndex(r=>!r[0]);
+    $('#d8-steps').innerHTML=`<div style="display:grid;gap:6px">`+rows.map((r,i)=>`<div style="display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:center;padding:7px 10px;border:1px solid ${r[0]?'var(--line)':'var(--red)'};border-radius:7px;background:${r[0]?'var(--surface)':'var(--red-tint)'}"><b style="color:${r[0]?'var(--green)':'var(--red)'}">${r[0]?'✓':'✕'}</b><div style="font-size:13.5px"><b>${i+1}.</b> ${r[1]}<div class="muted" style="font-size:12.5px">${r[2]}</div></div>${r[0]?'':`<button class="btn pri" data-fx="${r[3]}" ${can('mw')||r[3]==='fix4'?'':'disabled'}>${r[3]==='fix4'?'Hard refresh':'Fix'}</button>`}</div>`).join('')+`</div>`;
+    const ok=rows.every(r=>r[0]);
+    $('#d8-v').innerHTML=ok?'<span class="pill fresh">all seven pass</span><p style="margin:6px 0 0">Priya sees the copper glyph on every RMU.</p>':`<span class="pill stale">step ${first+1} fails</span><p style="margin:6px 0 0">${rows[first][1]}</p>`;
+  }
+  $('#d8-steps').addEventListener('click',e=>{ const b=e.target.closest('[data-fx]'); if(!b||b.disabled) return; const k=b.dataset.fx;
+    if(k==='fix1'){ let d=mapDef(); if(!d){ d=R('RMU','map',null,null,null,null,null,{}); S.rules.push(d); } d.style={icon:'voltedge-rmu',color:COP,scale:1}; }
+    else if(k==='fix2') icon();
+    else if(k==='fix3'){ let d=mapDef(); if(!d){ d=R('RMU','map',null,null,null,null,null,{}); S.rules.push(d); } d.style={icon:'voltedge-rmu',color:COP,scale:1}; }
+    else if(k==='fix4'){ refetch(); steps(); return; }
+    else if(k==='fix5') delete S.dzoom.RMU;
+    else if(k==='fix6'){ S.rules.filter(r=>r.cls==='RMU'&&r.ctx==='map'&&!isDefault(r)&&r.style.icon==='voltedge-rmu'&&!RMUS.some(f=>String(fval(f,r.field))===String(r.val))).forEach(r=>{ r.val='in_service'; }); }
+    else if(k==='fix7'){ S.rules.push(R('RMU','map',null,null,null,null,null,{icon:'circle',color:'#7c8a93',scale:1})); }
+    emit(); });
+  const _r=m.render; m.render=function(){ _r(); try{ steps(); sql(); }catch(e){} };
+  /* SQL peeks */
+  const tbl=(cols,rows)=>`<div class="tbl" style="margin:6px 0"><table><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>${rows.length?rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" class="muted">(0 rows)</td></tr>`}</table></div>`;
+  function sql(){
+    const rs=S.rules.filter(r=>r.cls==='RMU').sort((a,b)=>spec(b)-spec(a));
+    const q1=tbl(['render_context','subtype_id','domain_value_id','min_zoom','max_zoom','style_def'],rs.map(r=>[r.ctx,r.sub??'NULL',r.field?esc(r.field+'='+r.val):'NULL',r.zmin??'NULL',r.zmax??'NULL',`<code style="white-space:normal">${esc(JSON.stringify(persist(r)))}</code>`]));
+    const ic=S.icons['voltedge-rmu']; const q2=tbl(['icon_ref','svg','width/height?'],ic?[['voltedge-rmu',`<code style="white-space:pre-wrap;font-size:11px">${esc(rootTag(ic))}…</code>`,svgHasSize(ic)?'<b style="color:var(--green)">yes</b>':'<b style="color:var(--red)">NO — 150×150</b>']]:[]);
+    const q3=tbl(['feature_class_id','icon_ref'],vr().map(r=>['RMU/'+r.ctx,'voltedge-rmu']));
+    $('#sql8').innerHTML=[['Every rule on a class, most-specific first, with its style',"SELECT r.render_context, r.subtype_id, r.domain_value_id, r.min_zoom, r.max_zoom, r.style_def\nFROM metadata.symbology_rules r\nJOIN metadata.feature_classes fc ON fc.id = r.feature_class_id\nWHERE fc.code = 'RMU';",q1],['The icon markup a rule points at (does it carry width/height?)',"SELECT icon_ref, svg FROM metadata.symbology_icons WHERE icon_ref = 'voltedge-rmu';",q2],['Which rules reference an icon (why a delete is blocked)',"SELECT feature_class_id, style_def->>'icon_ref' AS icon_ref\nFROM metadata.symbology_rules\nWHERE style_def->>'icon_ref' = 'voltedge-rmu';",q3]].map((x,i)=>`<details ${i===0?'open':''} style="margin:8px 0"><summary style="cursor:pointer;font-weight:600">${x[0]}</summary><pre class="pre">${esc(x[1])}</pre>${x[2]}</details>`).join('');
+  }
+  onPersona(steps); onStore(()=>{ steps(); sql(); }); steps(); sql(); $('#w8 [data-f=ok]').click();
+})();
+
+/* ===== quiz ===== */
+(function(){
+  const Q=[
+   ['You uploaded <code>voltedge-rmu</code> to the icon library, but the RMUs on the map are unchanged. First thing to check?','A rule on the RMU class that references it',['A rule on the RMU class that references it','Restart Martin','Recompile RMU','Re-upload the icon'],'An icon is a stamp on the shelf; only a rule tells the map to use it.'],
+   ['Which action does <em>not</em> make a symbology change appear on the map?','Restarting Martin',['Hard-refreshing the browser','Waiting for the schema cache to expire','Restarting Martin'],'Martin serves geometry only and has never seen a symbol; the schema is read live and cached by the browser.'],
+   ['A rule has subtype 3 pinned and also <code>state = open</code>. Its specificity is…','3',['1','2','3','4'],'Subtype is worth 2, a field value 1; both together score 3.'],
+   ['An SVG has <code>viewBox="0 0 24 24"</code> but no width/height. On the map it…','silently vanishes (150×150)',['renders normally','renders blurred','silently vanishes (150×150)','shows an error toast'],'A detached Image() sizes it 150×150, far too big for the slot, and nothing errors.'],
+   ['You want the transformer class to disappear entirely when zoomed out past 11. Use…','Display zoom',['A rule zoom band','Display zoom','Label min zoom','Delete the default rule'],'A rule band only chooses a style — the feature still draws. Display zoom hides the whole feature.'],
+   ['The Field dropdown in the Add-rule form does not list <code>rated_a</code>. Why?','It isn’t a coded (domain-backed) field',['It isn’t a coded (domain-backed) field','It is read-only','Numbers are not allowed on switches','Only the first three fields are shown'],'The value axis works on coded fields only; the dropdown lists only those.'],
+   ['The rule list shows a perfect <code>diagram</code> rule for RMU but the map shows grey dots. Cause?','Wrong render context — the map reads only <code>map</code> rules',['The icon is full-colour','Wrong render context — the map reads only <code>map</code> rules','The default rule is missing','The schema cache is too fresh'],'Each surface reads only its own context.'],
+   ['A rule styles <code>icon</code> at <code>scale = 2</code> on a 24×24 icon. On-screen size is…','0.65 × 2 × 24 = 31.2 px',['24 px','48 px','0.65 × 2 × 24 = 31.2 px','2 px'],'ICON_BASE_SCALE (0.65) × rule.scale multiplies the 24-unit box.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach((el,i)=>{ const x=Q[i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===x[1].replace(/&/g,'&amp;'); const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Answer: <b>${x[1]}</b>. `)+x[3]; }); });
+})();
+
+/* chapter rail */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a])); const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'}); document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+
+</script>
+</body></html>
