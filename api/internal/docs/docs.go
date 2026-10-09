@@ -147,6 +147,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "everyday-operations-interactive",
+		Title:       "Everyday Operations (interactive)",
+		Description: "The task cookbook as a live, simulated Oakwood map: pan/zoom/box-zoom with layers and a full status bar, a Features browser and Query builder (filter, aggregate, radius scope), create-and-duplicate workbench, attribute editing with the real PATCH body and 409 guard, move/reshape/split/delete geometry tools, measure with live geodesic labels and units, a Snap/Ortho playground, connect-and-trace with loop check and network rules, relationships with the Kind picker, guided assemblies, redlines, labels, files and links, a settings lab that shows what survives a reload, and a missing-button diagnoser. A persona switch re-gates every widget by permission and territory.",
+		Category:    "Interactive guides",
+		Filename:    "everyday-operations-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "works-inspections-maintenance-guide-interactive",
 		Title:       "Works, Inspections & Maintenance (interactive)",
 		Description: "The WAM manual as something you operate: a persona switch gating every widget by wam:write, a live work board, the defect and work-order state machines with the real auto-status and severity-to-priority rules, a template builder and retire/restore library, an inspection recorder that auto-raises defects and replays idempotently, a maintenance-cycle simulator, Femi's offline field round with outbox sync, the permission and territory gaps, an assistant triage run over the wam_* tools, and a quiz.",
