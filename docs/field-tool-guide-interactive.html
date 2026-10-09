@@ -1,0 +1,1289 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Field Tool — Field Crew Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#1f6fb2; --acc-deep:#17517f; --tint:#dcebf7;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  /* section palette (categorical, validated for both themes) */
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#5aa7e8; --acc-deep:#7bbcf0; --tint:#14283a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#5aa7e8; --acc-deep:#7bbcf0; --tint:#14283a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.role{display:inline-block;font:600 11px/1 var(--f-mono);padding:3px 7px;border-radius:3px;letter-spacing:.03em}
+.role.protective{background:var(--red-tint);color:var(--red)}
+.role.switching{background:var(--blue-tint);color:var(--blue)}
+.role.transformer{background:var(--amber-tint);color:var(--amber)}
+.role.source{background:var(--green-tint);color:var(--green)}
+.role.none{background:var(--line2);color:var(--muted)}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+input[type=number],input[type=text],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--acc-deep);font-weight:700}
+.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+.bar{height:18px;background:var(--line2);border-radius:4px;position:relative;overflow:hidden}
+.bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .15s}
+.big{font:800 28px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums;color:var(--acc-deep)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono)}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.chainrow .arr{color:var(--muted);font:600 12px var(--f-mono)}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+
+/* ---- field layout + phone ---- */
+.field-grid{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:32px;align-items:start}
+.field-phone{position:sticky;top:58px;align-self:start;padding-top:60px}
+.phone{width:350px;margin:0 auto;border:9px solid var(--ink);border-radius:34px;background:var(--raise);overflow:hidden;position:relative;box-shadow:0 10px 30px rgba(0,0,0,.18);font-size:13px;line-height:1.35}
+.p-top{display:flex;align-items:center;gap:6px;padding:7px 8px;background:var(--surface);border-bottom:1px solid var(--line)}
+.p-title{font:700 12px var(--f-display);font-stretch:90%;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pbtn{font:600 10.5px var(--f-mono);border:1px solid var(--line);background:var(--raise);color:var(--ink);border-radius:12px;padding:4px 8px;cursor:pointer;white-space:nowrap}
+.pbtn:hover{border-color:var(--muted)}
+.pbtn.on{background:var(--green);border-color:var(--green);color:#fff}
+.pbtn.off{background:var(--red);border-color:var(--red);color:#fff}
+.pbtn.attn{background:var(--red);border-color:var(--red);color:#fff}
+.pbtn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.pbtn[disabled]{opacity:.45;cursor:not-allowed}
+.p-banner{padding:6px 10px;font:600 11.5px var(--f-body);background:var(--tint);color:var(--acc-deep);border-bottom:1px solid var(--line);min-height:0}
+.p-banner:empty{display:none}
+.p-banner.green{background:var(--green-tint);color:var(--green)} .p-banner.purple{background:#ece7fa;color:#5b43b0} .p-banner.amber{background:var(--amber-tint);color:var(--amber)}
+:root[data-theme="dark"] .p-banner.purple{background:#241d3c;color:#b6a7f2}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .p-banner.purple{background:#241d3c;color:#b6a7f2}}
+.p-map{position:relative;background:var(--surface)}
+.p-map svg{display:block;width:100%;height:auto;touch-action:none;user-select:none}
+.p-fabs{position:absolute;right:6px;bottom:6px;display:flex;flex-direction:column;gap:5px}
+.p-sheet{padding:9px 10px;min-height:150px;max-height:300px;overflow-y:auto;border-top:1px solid var(--line);background:var(--raise)}
+.p-sheet h5{margin:0 0 4px;font:700 13px var(--f-display);font-stretch:92%}
+.p-sheet .row{display:flex;justify-content:space-between;gap:8px;padding:2px 0;border-bottom:1px dotted var(--line2);font-size:12px}
+.p-sheet .row span:first-child{color:var(--muted)}
+.p-sec{font:700 10px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:9px 0 3px}
+.p-acts{display:flex;gap:4px;flex-wrap:wrap;margin:6px 0 2px}
+.p-acts button{font-size:14px;border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--ink)}
+.p-acts button:hover{border-color:var(--acc)}
+.p-acts button[hidden]{display:none}
+.chipx{display:inline-block;font:600 10px var(--f-mono);padding:2px 6px;border-radius:9px;margin:2px 3px 2px 0}
+.chipx.amber{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)} .chipx.green{background:var(--green-tint);color:var(--green);border:1px solid var(--green)} .chipx.red{background:var(--red-tint);color:var(--red);border:1px solid var(--red)} .chipx.blue{background:var(--tint);color:var(--acc-deep);border:1px solid var(--acc)} .chipx.grey{background:var(--line2);color:var(--muted)}
+.p-modal{position:absolute;inset:0;background:rgba(10,18,26,.45);display:none;align-items:flex-end;z-index:5}
+.p-modal.on{display:flex}
+.p-modal .m-in{background:var(--raise);width:100%;max-height:78%;overflow-y:auto;border-radius:14px 14px 0 0;padding:12px;border-top:2px solid var(--acc)}
+.m-in h5{margin:0 0 8px;font:700 14px var(--f-display)}
+.m-in .mi{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 6px;border:1px solid var(--line2);border-radius:6px;margin:5px 0;cursor:pointer;font-size:12.5px;background:var(--surface);width:100%;text-align:left;color:var(--ink)}
+.m-in .mi:hover{border-color:var(--acc)} .m-in .mi.dis{opacity:.45;cursor:not-allowed}
+.p-form label{display:block;font:600 11px var(--f-mono);margin:8px 0 2px}
+.p-form input[type=text],.p-form input[type=number],.p-form input[type=date],.p-form select{font:500 12.5px var(--f-body);width:100%;padding:5px 6px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--ink)}
+.p-form .req{color:var(--red)} .p-form .err{color:var(--red);font-size:11px}
+.p-form .lock{color:var(--muted);font-size:10.5px}
+.sw-t{position:relative;display:inline-block;width:34px;height:18px;vertical-align:middle}
+.sw-t input{opacity:0;width:0;height:0}.sw-t i{position:absolute;inset:0;background:var(--line);border-radius:18px;cursor:pointer;transition:.15s}.sw-t i::before{content:"";position:absolute;width:14px;height:14px;left:2px;top:2px;background:#fff;border-radius:50%;transition:.15s}.sw-t input:checked+i{background:var(--acc)}.sw-t input:checked+i::before{transform:translateX(16px)}
+.ants{animation:march .9s linear infinite}
+@keyframes march{to{stroke-dashoffset:-16}}
+.mission{display:flex;gap:8px;align-items:flex-start;font-size:13px;padding:4px 0}
+.mission i{flex:0 0 18px;height:18px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font:700 11px var(--f-mono);color:#fff;font-style:normal;margin-top:1px}
+.mission.done i{background:var(--green);border-color:var(--green)}
+.mission.done span{color:var(--muted);text-decoration:line-through}
+.state-chip{display:inline-block;font:700 10.5px var(--f-mono);padding:3px 8px;border-radius:10px;letter-spacing:.03em;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.state-chip.pending{background:var(--surface);color:var(--muted)} .state-chip.captured{background:var(--tint);color:var(--acc-deep);border-color:var(--acc)} .state-chip.applied{background:var(--green-tint);color:var(--green);border-color:var(--green)} .state-chip.rejected{background:var(--red-tint);color:var(--red);border-color:var(--red)} .state-chip.conflict{background:var(--amber-tint);color:var(--amber);border-color:var(--amber)} .state-chip.superseded{background:var(--line2);color:var(--muted);text-decoration:line-through}
+.ring{transform:rotate(-90deg)}
+@media (max-width:1020px){.field-grid{grid-template-columns:1fr}.field-phone{position:static;order:-1;padding-top:20px}}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Field Tool</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · What it is</a><a href="#c2">2 · How it works</a><a href="#c3">3 · The pack</a><a href="#c4">4 · Colours</a><a href="#c5">5 · Sync lifecycle</a><a href="#c6">6 · Needs attention</a><a href="#c7">7 · Connection</a><a href="#c8">8 · Packs</a><a href="#c9">9 · Detail</a><a href="#c10">10 · Edit</a><a href="#c11">11 · Move</a><a href="#c12">12 · Create</a><a href="#c13">13 · Delete</a><a href="#c14">14 · Wiring</a><a href="#c15">15 · GPS</a><a href="#c16">16 · Photos</a><a href="#c17">17 · Work &amp; faults</a><a href="#c18">18 · Tags</a><a href="#c19">19 · Syncing</a><a href="#c20">20 · Troubleshooting</a><a href="#c21">21 · Quick ref</a>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge Field Tool · field crew guide · running example: a day on the Oakwood feeder</div>
+  <h1>Working with<br><span>no signal</span></h1>
+  <p class="lede">View and update the network in the field, offline, and sync it all back when you’re in coverage. This guide has a working phone in it — a small pack you can select from, edit, move, create in, delete from, wire up, scan and sync — so every rule on the page is one you can try.</p>
+  <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
+    <span class="tag pl" style="margin:0">▶ For field technicians and crews</span>
+    <span class="tag en" style="margin:0">Admins: see the Field Tool Admin Guide</span>
+  </div>
+</header>
+
+<!-- ============ CH1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>What the field tool is</h2><p>An offline-first app: pull a pack, work anywhere, sync when you’re back.</p></div>
+
+  <p>Before you head out you pull a <b>pack</b> — a self-contained copy of one work area — onto your device. In the field you view the network, edit it, create and delete features, wire connections, take photos, run inspections, raise faults and scan asset tags — <b>all with no network connection</b>. Everything is saved on the device. When you’re back in coverage you <b>sync</b>, and your work goes to the office system.</p>
+  <div class="callout">The golden rule: your edits are never lost. They live on the device until the server confirms it received them — and then the app tells you whether each one was <em>accepted</em> or <em>needs your attention</em>.</div>
+  <p>You only need a connection at the <b>start</b> (download your work area) and at the <b>end</b> (sync). Everything in between is fully offline. Flip the signal switch and try each action:</p>
+
+  <div class="widget" id="w1">
+    <div class="w-head"><span class="eyebrow">Interactive · 1</span><h4>What needs signal?</h4></div>
+    <div class="w-bar"><span class="lab">Signal</span><div class="seg" id="w1-sig"><button data-s="1" aria-pressed="true">● Online (depot)</button><button data-s="0" aria-pressed="false">○ Offline (field)</button></div></div>
+    <div class="w-body">
+      <div class="scroll"><svg id="w1-svg" viewBox="0 0 720 150" width="100%" style="min-width:600px"></svg></div>
+      <div class="seg" id="w1-act" style="margin-top:10px"><button data-a="dl">⬇ Download a pack</button><button data-a="view">🗺 View the network</button><button data-a="edit">✎ Edit / create / delete</button><button data-a="photo">📷 Photo · GPS · scan a tag</button><button data-a="sync">⟳ Sync</button></div>
+      <div class="readout" id="w1-out" style="margin-top:10px" aria-live="polite">Pick an action.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CH2 ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>How it works, at a glance</h2><p>Two files come down together; a third appears when you first edit.</p></div>
+
+  <div class="tbl"><table>
+    <tr><th>File</th><th>What it is</th><th>What you notice</th></tr>
+    <tr><td><b>The map tiles</b></td><td>A pre-drawn map of your work area</td><td>The map draws instantly, even with no signal</td></tr>
+    <tr><td><b>The data pack</b></td><td>The real features, with full detail, and the connectivity/relationship links between them</td><td>Tapping a feature shows its full record; you can edit it</td></tr>
+    <tr><td><b>The local edit store</b> <span class="muted">(created on your first edit)</span></td><td>Holds your offline changes until they sync</td><td>You never manage it — it’s just where unsynced work is kept safe</td></tr>
+  </table></div>
+  <div class="callout">The map you see is a <em>picture</em>. The feature you <em>tap</em> and <em>edit</em> is the real, full-detail record.</div>
+  <p>So you can trust the detail panel and the edit form even though the map is a lightweight drawing. Zoom in past the tile detail and see for yourself — the picture goes coarse, the record stays exact:</p>
+
+  <div class="widget" id="w2">
+    <div class="w-head"><span class="eyebrow">Interactive · 2</span><h4>Tiles are a picture; the pack is the record</h4></div>
+    <div class="w-split">
+      <div class="w-main"><div class="ctl"><label>Map zoom <span class="v" id="w2-v"></span></label><input type="range" id="w2-z" min="14" max="22" step="1" value="16"></div>
+        <svg id="w2-svg" viewBox="0 0 400 220" width="100%" style="background:var(--surface);border:1px solid var(--line2);border-radius:6px"></svg></div>
+      <div class="w-side" id="w2-out"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CH3 ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>Your work area: the pack</h2><p>A snapshot of one bounded area at one moment in time.</p></div>
+
+  <ul>
+    <li><b>It’s bounded.</b> You choose the area (a box on the map) and which layers to include. A pack covers <em>that</em> area — not the whole network. For a different area, download a different pack.</li>
+    <li><b>It’s a snapshot.</b> The pack reflects the network as it was <b>at the moment it was built</b>. If the office changes something afterwards, your pack won’t show it until you download a fresh one. (It matters at sync time — chapters 5 and 6.)</li>
+    <li><b>It carries only what you’re allowed to see.</b> The extras a pack ships — connectivity links, relationships, the work board, the fault board, asset tags — depend on your account’s permissions. If your pack has no work board or fault board, your account isn’t set up for them; ask your administrator.</li>
+  </ul>
+
+  <div class="widget" id="w3">
+    <div class="w-head"><span class="eyebrow">Interactive · 3</span><h4>Snapshot and permissions</h4></div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="lab" style="margin-bottom:6px">Timeline — drag to move through the day</div>
+        <input type="range" id="w3-t" min="0" max="3" step="1" value="1" aria-label="Time">
+        <div class="seg" style="justify-content:space-between;margin:4px 0 12px;font:600 10.5px var(--f-mono);color:var(--muted)"><span>T0 · pack built</span><span>T1 · you’re in the field</span><span>T2 · office edits POLE-102</span><span>T3 · fresh pack</span></div>
+        <div class="tbl" style="margin:0"><table><tr><th></th><th>Office system</th><th>Your pack</th></tr>
+          <tr><td>POLE-102 <code>condition</code></td><td id="w3-office"></td><td id="w3-pack"></td></tr></table></div>
+        <p class="muted" style="font-size:13px;margin-top:8px" id="w3-note"></p>
+      </div>
+      <div class="w-side">
+        <div class="lab" style="margin-bottom:6px">Your account can see…</div>
+        <label style="display:block;font-size:13px"><input type="checkbox" class="w3p" data-k="conn" checked> connectivity &amp; relationships</label>
+        <label style="display:block;font-size:13px"><input type="checkbox" class="w3p" data-k="work"> Work &amp; Asset Management</label>
+        <label style="display:block;font-size:13px"><input type="checkbox" class="w3p" data-k="fault"> Faults</label>
+        <label style="display:block;font-size:13px"><input type="checkbox" class="w3p" data-k="tags" checked> asset tags</label>
+        <div class="lab" style="margin:12px 0 4px">Your pack contains</div>
+        <div id="w3-has"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CH4 ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>Reading the map — the colour code</h2><p>It’s how the app tells you what’s saved and what still needs to sync.</p></div>
+
+  <div class="widget" id="w4">
+    <div class="w-head"><span class="eyebrow">Interactive · 4</span><h4>The legend — hover a row to find it on the sample map</h4></div>
+    <div class="w-split">
+      <div class="w-main"><svg id="w4-svg" viewBox="0 0 420 210" width="100%" style="background:var(--surface);border:1px solid var(--line2);border-radius:6px"></svg></div>
+      <div class="w-side" id="w4-leg"></div>
+    </div>
+  </div>
+
+  <p>Alongside the colours, the detail panel shows a small <b>“Edited offline — not yet synced”</b> chip on any feature with pending work, so you can tell at a glance which records are still waiting to go up.</p>
+  <div class="callout">Amber or green on the map = unsynced work. When everything is synced <em>and</em> you’ve downloaded a fresh pack, the amber and green clear.</div>
+  <div class="tip"><b>Shared packs</b><br>On a shared pack, your own <b>drafts</b> (unpublished features you’re still working on) also show <b>green</b> — they’re work-in-progress that isn’t in the published base. See chapter 8, <em>My drafts</em>.</div>
+</section>
+
+<!-- ============ CH5 ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>What happens when you sync — the lifecycle</h2><p>Two stages — and understanding the difference saves confusion.</p></div>
+
+  <ol class="steps">
+    <li><b>Captured</b> — your device hands the edit to the server, which stores it durably. It’s <em>safe on the server</em> but <b>not yet applied</b> to the live network.</li>
+    <li><b>Applied</b> — moments later the server processes the edit against the live network. This is where it’s actually accepted — or held back.</li>
+  </ol>
+
+  <div class="cards">
+    <div class="card"><span class="state-chip applied">APPLIED ✓</span><p>Done. The office now has your change.</p></div>
+    <div class="card"><span class="state-chip rejected">REJECTED ✗</span><p>It couldn’t be applied — a rule failed, or a connection you drew isn’t allowed. Lands in <b>needs attention</b> with a reason.</p></div>
+    <div class="card"><span class="state-chip conflict">CONFLICT ⚠</span><p>Someone in the office changed the same feature <em>after</em> your pack was built; applying yours would overwrite theirs. Held for a supervisor.</p></div>
+    <div class="card"><span class="state-chip superseded">SUPERSEDED –</span><p>You edited the same feature twice offline; only your latest is kept. Silent — nothing for you to do.</p></div>
+  </div>
+
+  <div class="tip"><b>A dropped connection mid-sync is safe</b><br>Whatever was captured stays captured; you just sync again to send the rest. The full lifecycle runs against your own edits in chapter 19 — make a few in the phone first.</div>
+</section>
+
+<!-- ============ CH6 ============ -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>When an edit needs attention</h2><p>Rejected or conflict — what you do about each.</p></div>
+
+  <p>If an edit comes back <b>Rejected</b> or <b>Conflict</b>, the app flags it: a badge/count on the sync control and a “needs attention” list, each with its reason.</p>
+
+  <div class="widget" id="w6">
+    <div class="w-head"><span class="eyebrow">Interactive · 5</span><h4>Triage a flagged edit</h4></div>
+    <div class="w-bar"><span class="lab">Flagged edit</span><div class="seg" id="w6-k"><button data-k="rej" aria-pressed="true">REJECTED · “MV-1 ↔ SW-201: Connection not allowed”</button><button data-k="con" aria-pressed="false">CONFLICT · “TX-101: changed in the office after your pack”</button></div></div>
+    <div class="w-body" id="w6-body"></div>
+  </div>
+  <p class="muted" style="font-size:14px">Acknowledging a flagged edit only clears it from <em>your</em> list — the office keeps the full record either way.</p>
+</section>
+
+<!-- ============ CH7 ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>Getting set up — the Connection screen</h2><p>Point the app at your server and sign in. The gear icon on the home screen.</p></div>
+
+  <ol class="steps">
+    <li><b>fieldsync base URL</b> — your server’s address, e.g. <code>http://10.0.2.2:3706</code> on an emulator or <code>http://&lt;LAN-ip&gt;:3706</code> on a real device (your administrator gives you this). Tap <b>Save base URL</b> if you change it.</li>
+    <li>Enter your <b>Email</b> and <b>Password</b> (the eye icon shows/hides it) and tap <b>Sign in</b>. The button reads <em>Signing in…</em> while it works.</li>
+  </ol>
+  <p>When you’re signed in the screen shows <b>Signed in as …</b>. You stay signed in — you don’t log in every time. Use <b>Sign out</b> only when handing the device to someone else: it keeps the base URL and just drops your login. <span class="muted">You never type or see a “token”.</span></p>
+
+  <div class="widget" id="w7">
+    <div class="w-head"><span class="eyebrow">Interactive · 6</span><h4>Connection</h4></div>
+    <div class="w-split">
+      <div class="w-main" style="max-width:420px">
+        <div class="ctl"><label>fieldsync base URL</label><input type="text" id="w7-url" value="http://10.0.2.2:3706"><div class="hint">Emulator? 10.0.2.2. Real device? Your LAN address.</div></div>
+        <button class="btn" id="w7-save">Save base URL</button>
+        <div id="w7-auth" style="margin-top:14px"></div>
+      </div>
+      <div class="w-side" id="w7-out"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CH8 ============ -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>Getting your work area — downloading a pack</h2><p>Pick up a shared pack (instant) or request a new one (draw an area and wait for the build).</p></div>
+
+  <p>On the home screen (<b>VoltEdge Field</b>) packs are in three lists: <b>On this device</b> (ready offline), <b>Shared packs</b> (ready-made areas an administrator pre-built for your team — a plain download, no build wait), and <b>Available from server</b> (packs <em>you</em> asked the server to build). Use whichever fits.</p>
+
+  <div class="widget" id="w8">
+    <div class="w-head"><span class="eyebrow">Interactive · 7</span><h4>VoltEdge Field — home screen</h4><span style="flex:1"></span><button class="btn pri" id="w8-new">＋ New pack</button><button class="btn" id="w8-refresh">⟳ Pull to refresh</button></div>
+    <div class="w-body" id="w8-body"></div>
+  </div>
+
+  <h3>Requesting a new pack</h3>
+  <ol class="steps">
+    <li>Tap <b>New pack</b>.</li>
+    <li>Set the <b>Bounding box</b> — easiest is <b>Draw on map</b>: tap two opposite corners of your work area (or <b>Use current view</b>), then <b>Use this box</b>.</li>
+    <li>Under <b>Feature classes</b>, tick the layers you need. Use the search box and the per-group <b>All</b> / <b>None</b> toggles; the count shows <em>N selected</em>.</li>
+    <li>Tap <b>Request build</b>. It moves through <code>queued → running → succeeded</code> (then <b>Download</b>) — or <code>failed</code> (tap to see why).</li>
+  </ol>
+  <div id="w8-builder"></div>
+  <div class="caution"><b>Downloads and syncs need signal; everything in between does not</b><br>Download your packs at the depot on wifi before you head out — a pack can be tens of MB.</div>
+
+  <h3>Shared packs — what’s different</h3>
+  <ul>
+    <li><b>It carries the published network only.</b> A shared pack is a clean, team-wide copy, so it has no one else’s draft work — only published features. Your <em>own</em> drafts still come along (below).</li>
+    <li><b>Your work board comes with it.</b> If your account uses Work &amp; Asset Management, your assigned jobs are added when you pick it up.</li>
+    <li>It shows a <b>Shared</b> label on the device and works <b>exactly like any other pack</b>. A crew can keep one for weeks and <b>sync each week</b> — you only pick up a fresh copy to get the latest published state.</li>
+  </ul>
+  <h3>My drafts</h3>
+  <p>Your own <b>drafts</b> — features you’ve started but not published — aren’t part of the published shared base, so they’re delivered separately: a <b>My drafts</b> button on <b>Pack detail</b> lists them; on the map they’re <b style="color:var(--green)">green</b> like an offline-created feature. Tap one to read it, then <b>Edit attributes</b> to keep working — changes sync back the normal way.</p>
+  <h3>Using and managing a pack</h3>
+  <p>Tap a downloaded pack to open <b>Pack detail</b> (summary, feature classes, <b>My drafts</b> if any, <b>Open map</b>). The pack’s <b>⋮</b> menu has <b>Open map</b> and <b>Delete</b> (from the device). Use the stop icon to <b>Cancel</b> a build that’s queued or running.</p>
+</section>
+
+<!-- ======== FIELD WORKSPACE: sticky phone beside chapters 9-18 ======== -->
+<div class="field-grid" id="fieldgrid">
+<div class="field-text">
+
+<!-- ============ CH9 ============ -->
+<section class="ch" id="c9">
+  <div class="ch-head"><div class="ch-num">09</div><h2>Looking at a feature — the detail panel</h2><p>Open a pack and tap <b>Open map</b>. The phone on the right is that workspace.</p></div>
+
+  <p>From here on, the phone is live — everything you do in it is real to the guide’s own sync engine (chapter 19). The sample pack has three poles, a transformer, two switches and three conductors from the Oakwood feeder. Missions tick off as you go.</p>
+  <div class="callout">Tap a feature to select it. It gets a <span style="color:var(--red)">red</span> outline and opens its detail.</div>
+  <p>If several features sit on the same spot, a <b>“N features here”</b> sheet lets you pick the right one — so a line hidden under a point stays reachable. (Try tapping POLE-102 — three conductors start there.) The detail panel shows <b>Identity</b> (ID, Class, Status, Subtype, Territory), <b>Attributes (N)</b>, <b>Photos</b>, <b>GPS survey quality</b>, <b>Connections (N)</b> and <b>Relationships (N)</b>. The <b>neighbour rows</b> under Connections/Relationships are tappable — jump to that feature and <b>walk the network hop by hop</b>.</p>
+  <div class="en-b"><span class="tag en">Phone vs tablet</span><p>On a tablet the detail is a 360 px panel beside the map; on a phone it’s a bottom sheet. The action icons across the top of the panel are where you <b>Edit attributes</b> ✎, <b>Edit geometry</b> ⌖, <b>Connect</b> 🔗, <b>Relate</b> ⇄, <b>Delete</b> 🗑 and — for a feature you created offline — <b>Discard</b> ↩.</p></div>
+</section>
+
+<!-- ============ CH10 ============ -->
+<section class="ch" id="c10">
+  <div class="ch-head"><div class="ch-num">10</div><h2>Editing a feature’s attributes</h2><p>The panel becomes a form; the controls match each field’s type.</p></div>
+
+  <ol class="steps">
+    <li>Select the feature and tap <b>Edit attributes</b> ✎.</li>
+    <li>Controls follow the field type: a <b>switch</b> for yes/no, a <b>dropdown</b> for coded fields (pick from the allowed list), a <b>date picker</b>, a <b>number</b> keyboard for integer/decimal, plain text otherwise.</li>
+    <li>Fields marked with a red <b class="req" style="color:var(--red)">*</b> are <b>required</b> for this feature’s subtype — Save is blocked until they’re filled.</li>
+    <li>Fields under <b>LOCKED AFTER PUBLISH</b> (padlock) can’t change once published — shown read-only for reference.</li>
+    <li>Tap <b>Save</b> (or <b>Cancel</b>).</li>
+  </ol>
+  <p>The feature now shows a <b style="color:var(--amber)">hollow amber ring</b> on the map and an <b>“Edited offline — not yet synced”</b> chip. It stays that way until you sync.</p>
+  <div class="tip"><b>Revert and it disappears</b><br>Revert a field to its original value and it drops out of your pending change automatically — undo <em>every</em> change and the pending edit is gone. Try it on POLE-101: change <code>material</code>, save; edit again and put it back.</div>
+</section>
+
+<!-- ============ CH11 ============ -->
+<section class="ch" id="c11">
+  <div class="ch-head"><div class="ch-num">11</div><h2>Moving a feature — the geometry editor</h2><p>Drag to move; the original position is hidden so you only see where it is now.</p></div>
+
+  <ol class="steps">
+    <li>Select the feature and tap <b>Edit geometry</b> ⌖.</li>
+    <li>A bar appears: <b>Point</b> — <em>drag the point to move it</em>. <b>Line / polygon</b> — drag any <b style="color:var(--acc)">blue</b> vertex; tap a <b>white</b> midpoint to <b>add</b> a vertex; select a vertex and use <b>Delete selected point</b> to remove one (down to the minimum — 2 for a line, 3 for a polygon).</li>
+    <li><b>Undo</b> steps back one change; <b>Cancel</b> throws the edit away. Tap <b>Save</b>.</li>
+  </ol>
+  <p>A moved feature shows as a <b style="color:var(--amber)">filled amber dot</b>. Like an attribute edit it’s pending until you sync.</p>
+  <div class="tip"><b>Snapping</b><br>Turn on <b>Snapping</b> in Map settings and a placed point, dragged vertex or inserted midpoint snaps onto the nearest existing feature vertex — so a new connection lines up exactly with the asset it joins. <label style="margin-left:6px;font-weight:600"><input type="checkbox" id="snapchk"> Snapping (phone)</label></div>
+</section>
+
+<!-- ============ CH12 ============ -->
+<section class="ch" id="c12">
+  <div class="ch-head"><div class="ch-num">12</div><h2>Creating a feature — point, line, polygon</h2><p>Class → draw → Place → form → Create.</p></div>
+
+  <ol class="steps">
+    <li>Tap <b>Create</b> on the map.</li>
+    <li>Choose the class. Classes you can’t draw are greyed out as <em>… — not supported</em>.</li>
+    <li><b>Draw the geometry</b> — a banner guides you.</li>
+    <li>Tap <b>Place</b>.</li>
+    <li>Fill the <b>create form</b>: pick a <b>Subtype</b> first (it decides which fields are required), an optional <b>Name</b>, then the attributes.</li>
+    <li>Tap <b>Create</b>.</li>
+  </ol>
+  <div class="tbl"><table>
+    <tr><th>Geometry</th><th>Draw it by…</th><th>Place when</th></tr>
+    <tr><td>POINT</td><td>Tap the map (or <b>Use my location</b>)</td><td>one point placed</td></tr>
+    <tr><td>LINE</td><td>Tap to add points</td><td>≥ 2 points</td></tr>
+    <tr><td>POLYGON</td><td>Tap to add points; the ring closes automatically</td><td>≥ 3 points</td></tr>
+  </table></div>
+  <ul>
+    <li><b>Use my location</b> drops the point/vertex at your GPS position.</li>
+    <li>For lines/polygons you can <b>Record a GPS track</b> and <em>walk</em> the line, then <b>Stop GPS tracking</b>. <b>Undo last point</b> removes the last one.</li>
+  </ul>
+  <p>The new feature appears <b style="color:var(--green)">filled green</b> and is selected. It’s yours and pending until you sync. To fix it first, select it and <b>Edit</b>; to abandon it, <b>Discard</b> — a created feature has no server copy, so discarding simply removes it.</p>
+</section>
+
+<!-- ============ CH13 ============ -->
+<section class="ch" id="c13">
+  <div class="ch-head"><div class="ch-num">13</div><h2>Deleting a feature</h2><p>Soft-deleted on the server when you sync — and reversible until then.</p></div>
+
+  <ol class="steps">
+    <li>Select a packed feature and tap <b>Delete feature</b> 🗑.</li>
+    <li>Confirm on <b>Delete feature?</b> — <em>“… will be marked deleted and soft-deleted on the server when you sync. You can undo before then.”</em></li>
+  </ol>
+  <p>It <b>disappears from the map</b> and the panel shows a <em>Marked deleted offline…</em> banner. Changed your mind? Tap <b>Undo delete</b> — on the banner right after deleting, or from the pending sheet later (the ⟳ badge) — and it comes back. A feature you <em>created</em> offline is removed with <b>Discard</b> instead — there’s nothing on the server to delete.</p>
+</section>
+
+<!-- ============ CH14 ============ -->
+<section class="ch" id="c14">
+  <div class="ch-head"><div class="ch-num">14</div><h2>Wiring connections and relationships</h2><p>Both work the same way: start on one feature, then tap the other.</p></div>
+
+  <h3>Connections (electrical links)</h3>
+  <ol class="steps">
+    <li>Select a feature and tap <b>Connect to another feature</b> 🔗. <span class="muted">(Hidden for features that aren’t part of the electrical network — try it on a pole.)</span></li>
+    <li>If the feature has named <b>terminals</b>, pick one on the <b>Terminal on …</b> sheet (or <b>No specific terminal</b>) — try it on TX-101.</li>
+    <li>A green banner reads <em>Tap the feature to connect to …</em> — tap the target.</li>
+  </ol>
+  <p>The connection is queued and drawn as a <b style="color:var(--green)">green dashed “marching-ants” line</b> — it reads like current flowing, distinct from a real solid conductor. If the pack carries network rules and the connection isn’t allowed you’ll get <b>Connection not allowed</b> and a reason.</p>
+  <h3>Relationships (non-electrical links, e.g. containment)</h3>
+  <ol class="steps">
+    <li>Select a feature and tap <b>Relate to another feature</b> ⇄.</li>
+    <li>A purple banner reads <em>Tap the feature to relate to …</em> — tap the target.</li>
+    <li>If the pair supports more than one kind, pick it on the <b>Relationship to …</b> sheet.</li>
+  </ol>
+  <p>Drawn as a <b style="color:var(--s2)">purple dashed line</b>. A pair no class permits shows <b>Relationship not allowed</b>.</p>
+  <div class="caution"><b>Advisory on the device, re-checked on the server</b><br>Connections and relationships you make offline are advisory on the device and re-checked by the server when you sync — so an edge the server ultimately rejects comes back in your “needs attention” list. (The sample pack’s rules are a teaching set: a node connects to a conductor; two nodes can’t connect directly; poles support things rather than connect to them.)</div>
+</section>
+
+<!-- ============ CH15 ============ -->
+<section class="ch" id="c15">
+  <div class="ch-head"><div class="ch-num">15</div><h2>Using GPS and external GNSS receivers</h2><p>The GPS quality pill, top-left of the map.</p></div>
+
+  <p>Tap the pill to expand the live readout: <b>Fix quality</b> (<em>RTK fixed / RTK float / DGPS / GPS fix / No fix</em>) with a coloured tier — <b style="color:var(--green)">green</b> Excellent/Good, <b style="color:var(--amber)">amber</b> Moderate, <b style="color:var(--red)">red</b> Poor — plus <b>Accuracy</b>, <b>Satellites</b> (used / in view), <b>PDOP/HDOP/VDOP</b>, altitude, and <b>Internal</b> or <b>External receiver</b>. Wherever you see <b>Use my location</b> it uses this fix, and the quality at that moment is saved with the feature (<b>GPS survey quality</b>).</p>
+
+  <div class="widget" id="w15">
+    <div class="w-head"><span class="eyebrow">Interactive · 8</span><h4>GPS source and fix quality</h4></div>
+    <div class="w-bar"><span class="lab">GPS source</span><div class="seg" id="w15-src"><button data-s="phone" aria-pressed="true">Phone GPS</button><button data-s="bt" aria-pressed="false">Bluetooth receiver</button></div><span class="lab" style="margin-left:8px">Platform</span><div class="seg" id="w15-os"><button data-o="android" aria-pressed="true">Android</button><button data-o="ios" aria-pressed="false">iOS</button></div></div>
+    <div class="w-split">
+      <div class="w-main"><div class="lab" style="margin-bottom:6px">Fix (illustrative scenarios)</div><div class="seg" id="w15-fix"></div><div class="readout" id="w15-ro" style="margin-top:12px"></div></div>
+      <div class="w-side" id="w15-note"></div>
+    </div>
+  </div>
+  <div class="caution"><b>External receivers are Android-only</b><br>On iOS the app uses the built-in GPS. If Bluetooth is off or permission hasn’t been granted, the picker tells you exactly what to do (<b>Allow Bluetooth</b>, or pair the device in system settings first). The values above are illustrative; the phone’s GPS pill uses this same selection.</div>
+</section>
+
+<!-- ============ CH16 ============ -->
+<section class="ch" id="c16">
+  <div class="ch-head"><div class="ch-num">16</div><h2>Taking photos</h2><p>Detail panel → <b>Photos (N)</b> → <b>Add</b>.</p></div>
+
+  <p><b>Take a photo</b> with the camera or <b>Choose from gallery</b>. Each photo carries a badge: <span class="chipx amber">Not uploaded</span> until it syncs, then <span class="chipx green">Uploaded</span>. Tap a photo to view it full-screen (pinch to zoom). Your offline captures open from the device even with no signal; already-synced photos fetch the full-resolution original when you’re online. Photos sync alongside your other changes (chapter 19). Add one to a feature in the phone, then look at the pending sheet.</p>
+</section>
+
+<!-- ============ CH17 ============ -->
+<section class="ch" id="c17">
+  <div class="ch-head"><div class="ch-num">17</div><h2>Inspections, defects and faults</h2><p>If your pack includes Work &amp; Asset Management or Faults data.</p></div>
+
+  <p>You’ll see <b>Work &amp; assets</b> and <b>Faults</b> entry points (on Pack detail, and as badges on the map) — your offline work board and fault board.</p>
+  <h3>Work &amp; assets — three tabs</h3>
+  <ul>
+    <li><b>Work</b> — work orders assigned to you. Open one to <b>Start work</b>, <b>Complete</b> (optional <em>Completion notes</em>), <b>Run inspection</b> or <b>Raise defect</b>.</li>
+    <li><b>Defects</b> — open defects on your assets. Tap <b>Defect</b> to capture one: pick the asset, fill <b>Severity</b>, <b>Title *</b>, type, description, and attach a photo. <b>Update status</b> (<em>Mark work ordered / resolved / dismissed</em>) on an existing one.</li>
+    <li><b>Inspections</b> — the active checklists. Open one, pick the asset, answer each item (<b>Pass</b> / <b>Fail</b>, or a value/rating, with an optional note), add <b>Overall notes</b>, tap <b>Record inspection</b>. <em>A failed item that carries a severity automatically raises a defect when you sync.</em></li>
+  </ul>
+
+  <div class="widget" id="w17">
+    <div class="w-head"><span class="eyebrow">Interactive · 9</span><h4>Record an inspection — what will sync as a defect?</h4></div>
+    <div class="w-split">
+      <div class="w-main"><div class="ctl"><label>Asset</label><select class="fld" id="w17-asset"><option>POLE-101</option><option>POLE-102</option><option>TX-101</option></select></div><div id="w17-items"></div>
+        <div class="ctl"><label>Overall notes</label><input type="text" id="w17-notes" placeholder="optional"></div><button class="btn pri" id="w17-rec">Record inspection</button></div>
+      <div class="w-side" id="w17-out"></div>
+    </div>
+  </div>
+
+  <h3>Faults — the Faults screen</h3>
+  <p>The open faults on your assets. Tap <b>Fault</b> to raise one: pick the asset (or <b>No asset — report by location</b> to pin your GPS position), choose a <b>Fault type</b>, fill <b>Title *</b> and the rest, and <b>Save fault</b>. On an existing fault use <b>Update status</b> (<em>investigating / cleared / closed</em>) or <b>Book defect</b> to turn it into a WAM defect.</p>
+  <div class="tip"><b>Reporting without an asset</b><br>For a problem on something not in the system yet, choose <b>No asset — report by location</b>. The app pins your current <b>GPS position</b> so the office can find it.</div>
+  <p>Everything you capture here is <b>saved offline</b> and goes up on the next sync, like a feature edit. A <span class="chipx grey">Not synced</span> / <span class="chipx grey">Captured offline</span> / <span class="chipx grey">Raised offline</span> pill marks what’s still pending.</p>
+</section>
+
+<!-- ============ CH18 ============ -->
+<section class="ch" id="c18">
+  <div class="ch-head"><div class="ch-num">18</div><h2>Scanning an asset tag</h2><p>Tap <b>Scan asset tag</b> (the ▦ on the map).</p></div>
+
+  <p>Point the camera at the <b>QR or barcode</b> on the asset’s tag — the app reads it and jumps to that feature. Use <b>Torch</b> in the dark, <b>Switch camera</b> if needed, or <b>Enter code manually</b> to type a code like <code>VE-7F3K2Q</code>. Scanning works <b>offline</b> against the pack’s tag index first, then checks online if the pack doesn’t have it. Try each of these codes in the phone’s scanner:</p>
+  <div class="tbl"><table>
+    <tr><th>Code</th><th>Outcome</th></tr>
+    <tr><td><code>VE-7F3K2Q</code></td><td><b>Resolved …</b> — the feature is selected on the map.</td></tr>
+    <tr><td><code>VE-2B9D4M</code></td><td><b>Resolved … — superseded label</b> — a reissued tag; it still works.</td></tr>
+    <tr><td><code>VE-000000</code></td><td><b>No asset found for tag …</b> — the code isn’t in this pack.</td></tr>
+    <tr><td><code>VE-9Z8Y7X</code></td><td><b>Tag … (outside the downloaded pack)</b> — the asset exists but isn’t in your work area; build a pack covering it.</td></tr>
+  </table></div>
+</section>
+
+</div><!-- /field-text -->
+<aside class="field-phone" aria-label="Field tool simulator">
+  <div class="phone" id="phone">
+    <div class="p-top"><span class="p-title" id="p-title">Oakwood · North pack</span><button class="pbtn on" id="p-sig" aria-label="Toggle signal">● signal</button><button class="pbtn" id="p-sync" aria-label="Pending changes">⟳ 0</button></div>
+    <div class="p-banner" id="p-banner"></div>
+    <div class="p-map"><svg id="p-svg" viewBox="0 0 320 300"></svg>
+      <button class="pbtn" id="p-gps" style="position:absolute;left:6px;top:6px">GPS ●</button>
+      <div class="p-fabs"><button class="pbtn pri" id="p-create">＋ Create</button><button class="pbtn" id="p-scan">▦ Scan tag</button></div></div>
+    <div class="p-sheet" id="p-sheet"></div>
+    <div class="p-modal" id="p-modal"><div class="m-in" id="p-modal-in"></div></div>
+  </div>
+  <div style="max-width:350px;margin:14px auto 0">
+    <div class="lab" style="margin-bottom:4px">Missions</div><div id="missions"></div>
+    <div class="lab" style="margin:12px 0 4px">Last action</div><div class="readout" id="p-log" style="font-size:12px">Tap a feature on the map to begin.</div>
+    <button class="btn" id="p-reset" style="margin-top:8px">Reset the sample pack</button>
+  </div>
+</aside>
+</div><!-- /field-grid -->
+
+<!-- ============ CH19 ============ -->
+<section class="ch" id="c19">
+  <div class="ch-head"><div class="ch-num">19</div><h2>Syncing your work</h2><p>When you’re back in coverage, send your work up.</p></div>
+
+  <p>The map’s top bar shows a <b>sync badge</b> with your <b>pending count</b> (and a red <b>“needs attention”</b> badge if an earlier edit was flagged). Tap it to open the pending sheet. It lists everything waiting — edits, creates, deletes, connections, relationships, WAM/fault captures and photos — each with its own <b>Push this change</b> button, plus a single <b>Sync N changes</b> button at the bottom.</p>
+  <p>This is the same engine as the phone’s badge. Make a few changes in the phone above (or load samples), choose what the “office” will do, and sync:</p>
+
+  <div class="widget" id="w19">
+    <div class="w-head"><span class="eyebrow">Interactive · 10</span><h4>Pending changes</h4><span style="flex:1"></span><button class="btn" id="w19-samples">Load sample changes</button></div>
+    <div class="w-bar" style="align-items:flex-start;flex-direction:column;gap:6px">
+      <span class="lab">What will the office do? (scenarios)</span>
+      <label style="font-size:13px"><input type="checkbox" id="s-conf"> Someone edited <b>TX-101</b> after my pack was built → conflict</label>
+      <label style="font-size:13px"><input type="checkbox" id="s-rule"> A rule changed → the server rejects my connections and relationships</label>
+      <label style="font-size:13px"><input type="checkbox" id="s-twice"> I edited the first item again while it was captured → superseded</label>
+      <label style="font-size:13px"><input type="checkbox" id="s-drop"> The connection drops after 2 items</label>
+    </div>
+    <div class="w-body" id="w19-body"></div>
+  </div>
+
+  <ul>
+    <li>After syncing you’ll see <b>“Synced 4 changes.”</b> (with <em>“ · 1 needs attention”</em> if flagged). A successful sync means your work is <b>safely captured</b>; the office applies it moments later, and anything it can’t apply comes back to <b>needs attention</b>.</li>
+    <li>A dropped connection mid-sync is safe — re-open and <b>Sync</b> again; already-sent changes won’t double up.</li>
+    <li>You don’t have to sync everything at once — <b>Push this change</b> sends one item.</li>
+    <li>Colours clear only when edits are <b>applied and you pick up a fresh pack</b> — the button in the widget runs that.</li>
+  </ul>
+</section>
+
+<!-- ============ CH20 ============ -->
+<section class="ch" id="c20">
+  <div class="ch-head"><div class="ch-num">20</div><h2>Troubleshooting</h2><p>Type a symptom, or pick one.</p></div>
+  <div class="widget" id="w20">
+    <div class="w-bar"><input type="text" id="w20-q" placeholder="Search — e.g. blank, GPS, photo, conflict…" style="max-width:360px"></div>
+    <div class="tbl" style="margin:0;border:0;border-radius:0"><table id="w20-t"></table></div>
+  </div>
+</section>
+
+<!-- ============ CH21 ============ -->
+<section class="ch" id="c21">
+  <div class="ch-head"><div class="ch-num">21</div><h2>Quick reference</h2><p>The one page to keep.</p></div>
+
+  <h3>Map colours</h3>
+  <div class="tbl"><table>
+    <tr><th>Colour</th><th>Meaning</th></tr>
+    <tr><td>🔴 Red outline</td><td>Selected feature</td></tr>
+    <tr><td>🟠 Amber (hollow ring)</td><td>Edited offline, not synced</td></tr>
+    <tr><td>🟠 Amber (filled dot)</td><td>Moved offline, not synced</td></tr>
+    <tr><td>🟢 Green (filled)</td><td>Created offline — or your own draft on a shared pack — not synced</td></tr>
+    <tr><td>🟢 Green dashed line</td><td>Connection made offline</td></tr>
+    <tr><td>🟣 Purple dashed line</td><td>Relationship made offline</td></tr>
+    <tr><td>🔵 Blue</td><td>A point/line you’re drawing; vertex handles</td></tr>
+    <tr><td>(hidden)</td><td>Deleted offline</td></tr>
+  </table></div>
+
+  <h3>Sync states</h3>
+  <div class="tbl"><table>
+    <tr><th>State</th><th>Meaning</th></tr>
+    <tr><td><span class="state-chip pending">Pending</span></td><td>On your device, not sent yet</td></tr>
+    <tr><td><span class="state-chip captured">Captured</span></td><td>Sent and safe on the server, not applied yet</td></tr>
+    <tr><td><span class="state-chip applied">Applied ✓</span></td><td>Accepted into the office system</td></tr>
+    <tr><td><span class="state-chip rejected">Rejected ✗</span></td><td>Couldn’t apply — needs your attention</td></tr>
+    <tr><td><span class="state-chip conflict">Conflict ⚠</span></td><td>Office changed it first — a supervisor resolves it</td></tr>
+    <tr><td><span class="state-chip superseded">Superseded –</span></td><td>Replaced by your own newer edit (nothing to do)</td></tr>
+  </table></div>
+
+  <h3>Key actions</h3>
+  <div class="tbl"><table>
+    <tr><th>To…</th><th>Do this</th></tr>
+    <tr><td>Select a feature</td><td>Tap it (pick from <em>N features here</em> if stacked)</td></tr>
+    <tr><td>Edit attributes</td><td>Select → <b>Edit attributes</b> → <b>Save</b></td></tr>
+    <tr><td>Move it</td><td>Select → <b>Edit geometry</b> → drag → <b>Save</b></td></tr>
+    <tr><td>Create one</td><td><b>Create</b> → class → draw → <b>Place</b> → <b>Create</b></td></tr>
+    <tr><td>Delete one</td><td>Select → <b>Delete feature</b> → confirm (<b>Undo delete</b> to reverse)</td></tr>
+    <tr><td>Connect / relate</td><td><b>Connect to</b> / <b>Relate to another feature</b> → tap target</td></tr>
+    <tr><td>Place at GPS</td><td><b>Use my location</b> while drawing</td></tr>
+    <tr><td>Add a photo</td><td>Detail panel → <b>Photos</b> → <b>Add</b></td></tr>
+    <tr><td>Scan a tag</td><td><b>Scan asset tag</b></td></tr>
+    <tr><td>Send your work</td><td>Sync badge → <b>Sync N changes</b></td></tr>
+  </table></div>
+
+  <div class="callout">Remember: amber or green on the map = unsynced work. Sync before you consider a job finished, and check the <b>needs attention</b> list for anything the office couldn’t apply.</div>
+</section>
+
+<footer>VoltEdge · Field Tool — interactive companion to the Markdown field crew guide. The sample pack, GPS values and “office” behaviour are teaching simulations.</footer>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+function seg(sel,cb){ const el=$(sel); el.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b) return; el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); cb(b)}); }
+const fx=(x,d=1)=>Number(x).toFixed(d);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let UID=1;
+
+/* ======================================================================
+   W1 · what needs signal
+   ====================================================================== */
+(function(){
+  let on=true;
+  const A={dl:[true,'⬇ Download a pack','Needs a connection — a pack can be tens of MB, so do it at the depot on wifi.'],
+    view:[false,'🗺 View the network','Tiles and the data pack are already on the device — it all works offline.'],
+    edit:[false,'✎ Edit / create / delete','Saved to the on-device edit store. Nothing leaves the phone until you sync.'],
+    photo:[false,'📷 Photo · GPS · scan a tag','Camera, GPS and the pack’s tag index are all on the device. Offline captures open without signal.'],
+    sync:[true,'⟳ Sync','Needs a connection. Without one, your changes simply wait — they are not lost.']};
+  function draw(){
+    const col=on?'var(--green)':'var(--muted)';
+    $('#w1-svg').innerHTML=`
+      <g><rect x="10" y="20" width="200" height="90" rx="8" fill="var(--raise)" stroke="${on?'var(--green)':'var(--line)'}" stroke-width="2.5"/><text x="110" y="48" text-anchor="middle" font-size="12" style="font-weight:700">AT THE DEPOT</text><text x="110" y="68" text-anchor="middle" font-size="10" style="fill:var(--muted)">Download a pack</text><text x="110" y="86" text-anchor="middle" font-size="10" style="fill:${on?'var(--green)':'var(--red)'};font-weight:700">${on?'needs signal ✔':'needs signal ✘'}</text></g>
+      <path d="M212,65 L252,65" stroke="var(--muted)" stroke-width="3"/><path d="M246,59 l8,6 l-8,6" fill="none" stroke="var(--muted)" stroke-width="3"/>
+      <g><rect x="256" y="20" width="208" height="90" rx="8" fill="var(--tint)" stroke="var(--acc)" stroke-width="2.5"/><text x="360" y="48" text-anchor="middle" font-size="12" style="font-weight:700">IN THE FIELD</text><text x="360" y="68" text-anchor="middle" font-size="10" style="fill:var(--muted)">view · edit · create · delete</text><text x="360" y="86" text-anchor="middle" font-size="10" style="fill:var(--acc-deep);font-weight:700">NO signal needed</text></g>
+      <path d="M466,65 L506,65" stroke="var(--muted)" stroke-width="3"/><path d="M500,59 l8,6 l-8,6" fill="none" stroke="var(--muted)" stroke-width="3"/>
+      <g><rect x="510" y="20" width="200" height="90" rx="8" fill="var(--raise)" stroke="${on?'var(--green)':'var(--line)'}" stroke-width="2.5"/><text x="610" y="48" text-anchor="middle" font-size="12" style="font-weight:700">BACK AT THE DEPOT</text><text x="610" y="68" text-anchor="middle" font-size="10" style="fill:var(--muted)">Sync — work goes to the office</text><text x="610" y="86" text-anchor="middle" font-size="10" style="fill:${on?'var(--green)':'var(--red)'};font-weight:700">${on?'needs signal ✔':'needs signal ✘'}</text></g>
+      <text x="360" y="136" text-anchor="middle" font-size="10" style="fill:var(--muted)">edits stay on the device until the server confirms it received them</text>`;
+  }
+  seg('#w1-sig',b=>{on=b.dataset.s==='1';draw();$('#w1-out').textContent='Pick an action.'});
+  seg('#w1-act',b=>{ const [need,name,why]=A[b.dataset.a]; const ok=!need||on;
+    $('#w1-out').innerHTML=`<b>${name}</b> — ${ok?'<span style="color:var(--green)">✔ works</span>':'<span style="color:var(--red)">✘ no signal</span>'}<br>${why}${!ok?'<br><b>Nothing is lost</b> — go to coverage and try again.':''}`; });
+  draw();
+})();
+
+/* ======================================================================
+   W2 · tiles vs data
+   ====================================================================== */
+(function(){
+  function draw(){
+    const z=+$('#w2-z').value; $('#w2-v').textContent='z'+z;
+    const over=Math.max(0,z-17), k=Math.pow(2,over), blk=Math.max(5,6*k);
+    let s='';
+    // blocky "raster tile" background once past tile max zoom
+    if(over>0){ for(let y=0;y<220;y+=blk) for(let x=0;x<400;x+=blk){ const v=((Math.floor(x/blk)*7+Math.floor(y/blk)*13)%5); s+=`<rect x="${x}" y="${y}" width="${blk}" height="${blk}" fill="var(--ink)" opacity="${0.04+v*0.02}"/>`; } }
+    else { for(let i=0;i<9;i++) s+=`<path d="M0,${i*28} L400,${i*28+((i%2)?10:-6)}" stroke="var(--line)" stroke-width="1"/>`; }
+    s+=`<path d="M40,170 L170,110 L330,60" stroke="${over>0?'var(--muted)':'var(--ink)'}" stroke-width="${over>0?6+k:2}" fill="none" opacity="${over>0?.45:.7}" ${over>0?'filter="blur('+Math.min(3,over*0.8)+'px)"':''}/>`;
+    s+=`<circle cx="170" cy="110" r="5" fill="var(--red)"/><circle cx="170" cy="110" r="11" fill="none" stroke="var(--red)" stroke-width="2"/><text x="182" y="106" font-size="11" style="font-weight:700">POLE-102</text><text x="182" y="120" font-size="9" style="fill:var(--muted)">exact record</text>`;
+    $('#w2-svg').innerHTML=s;
+    $('#w2-out').innerHTML=over>0
+      ?`<div class="readout"><b>Tiles: ×${k} over-scaled</b><br>the picture goes coarse<br><b>Tap: exact</b><br>lands on the full-precision record</div><p style="font-size:13px;margin:10px 0 0">Past the tile detail the app scales the map up so you can get right on top of a feature. Don’t worry about the blur — the data underneath is exact.</p>`
+      :`<div class="readout"><b>Tiles: native detail</b><br>drawn for zoom ${z}<br><b>Tap: exact</b></div><p style="font-size:13px;margin:10px 0 0">Zoom <b>out</b> to see the whole work area and navigate between jobs; zoom <b>in</b> past z17 to see the over-scaling.</p>`;
+  }
+  $('#w2-z').addEventListener('input',draw); draw();
+})();
+
+/* ======================================================================
+   W3 · snapshot + permissions
+   ====================================================================== */
+(function(){
+  const P={conn:true,work:false,fault:false,tags:true};
+  const notes=['Pack built — it matches the office exactly.','You’re in the field, offline. The pack still matches the office.','The office edits POLE-102 after your pack was built. Your pack can’t know — you’re still looking at the old value. If you edit POLE-102 now, that edit will conflict at sync (chapter 6).','You picked up a fresh pack — it reflects the office as of its build time.'];
+  function draw(){
+    const t=+$('#w3-t').value;
+    const office=t>=2?'Poor':'Fair', pack=t>=3?'Poor':'Fair';
+    $('#w3-office').innerHTML=`<code>${office}</code>`; $('#w3-pack').innerHTML=`<code style="${office!==pack?'background:var(--amber-tint);color:var(--amber)':''}">${pack}</code>${office!==pack?' <span class="chipx amber">stale snapshot</span>':''}`;
+    $('#w3-note').textContent=notes[t];
+    const has=[['Map tiles',1],['Data pack — features with full detail',1],['Local edit store (on your first edit)',1],['Connectivity links',P.conn],['Relationships',P.conn],['Work board',P.work],['Fault board',P.fault],['Asset tag index',P.tags]];
+    $('#w3-has').innerHTML=has.map(([n,v])=>`<div style="font-size:13px;color:${v?'var(--ink)':'var(--muted)'}">${v?'✔':'—'} ${n}</div>`).join('')+(!P.work||!P.fault?'<p class="muted" style="font-size:12px;margin:8px 0 0">No work/fault board? Your account isn’t set up for it — ask your administrator.</p>':'');
+  }
+  $('#w3-t').addEventListener('input',draw);
+  $$('.w3p').forEach(c=>{ c.checked=P[c.dataset.k]; c.onchange=()=>{P[c.dataset.k]=c.checked;draw()}; });
+  draw();
+})();
+
+/* ======================================================================
+   W4 · legend
+   ====================================================================== */
+(function(){
+  const rows=[['sel','🔴 Red outline','The feature you have selected right now'],['edit','🟠 Amber hollow ring','Edited offline, not yet synced'],['move','🟠 Amber filled dot','Moved offline, not yet synced'],['new','🟢 Green','Created offline (or your own draft on a shared pack), not yet synced'],['conn','🟢 Green dashed line','A connection made offline'],['rel','🟣 Purple dashed line','A relationship made offline'],['draft','🔵 Blue','A point/line you’re placing; vertex handles'],['del','(hidden)','A feature deleted offline is removed from the map']];
+  const sample=`
+    <g data-k="sel"><circle cx="60" cy="50" r="6" fill="var(--muted)"/><circle cx="60" cy="50" r="13" fill="none" stroke="var(--red)" stroke-width="3"/><text x="60" y="78" font-size="9" text-anchor="middle">selected</text></g>
+    <g data-k="edit"><circle cx="150" cy="50" r="6" fill="var(--muted)"/><circle cx="150" cy="50" r="13" fill="none" stroke="var(--amber)" stroke-width="3"/><text x="150" y="78" font-size="9" text-anchor="middle">edited</text></g>
+    <g data-k="move"><circle cx="240" cy="50" r="7" fill="var(--amber)"/><circle cx="215" cy="30" r="5" fill="none" stroke="var(--line)" stroke-dasharray="2 2"/><text x="240" y="78" font-size="9" text-anchor="middle">moved (original hidden)</text></g>
+    <g data-k="new"><circle cx="330" cy="50" r="7" fill="var(--green)"/><text x="330" y="78" font-size="9" text-anchor="middle">created</text></g>
+    <g data-k="conn"><circle cx="60" cy="140" r="6" fill="var(--muted)"/><circle cx="150" cy="140" r="6" fill="var(--muted)"/><path d="M66,140 L144,140" stroke="var(--green)" stroke-width="3" stroke-dasharray="6 5" class="ants"/><text x="105" y="162" font-size="9" text-anchor="middle">connection</text></g>
+    <g data-k="rel"><circle cx="190" cy="140" r="6" fill="var(--muted)"/><circle cx="280" cy="140" r="6" fill="var(--muted)"/><path d="M196,140 L274,140" stroke="var(--s2)" stroke-width="3" stroke-dasharray="6 5"/><text x="235" y="162" font-size="9" text-anchor="middle">relationship</text></g>
+    <g data-k="draft"><circle cx="340" cy="135" r="6" fill="var(--acc)"/><path d="M340,135 L385,160" stroke="var(--acc)" stroke-width="2.5"/><circle cx="385" cy="160" r="5" fill="var(--acc)"/><text x="360" y="185" font-size="9" text-anchor="middle">drawing</text></g>
+    <g data-k="del"><circle cx="385" cy="50" r="6" fill="none" stroke="var(--line)" stroke-dasharray="2 2"/><text x="385" y="78" font-size="9" text-anchor="middle">deleted (gone)</text></g>`;
+  $('#w4-svg').innerHTML=sample;
+  $('#w4-leg').innerHTML=rows.map(r=>`<div class="mi4" data-k="${r[0]}" tabindex="0" style="padding:6px 4px;border-bottom:1px solid var(--line2);cursor:default"><b style="font-size:13px">${r[1]}</b><div class="muted" style="font-size:12.5px">${r[2]}</div></div>`).join('');
+  const hl=k=>$$('#w4-svg g[data-k]').forEach(g=>g.style.opacity=(!k||g.dataset.k===k)?1:.2);
+  $$('.mi4').forEach(el=>{el.onmouseenter=()=>hl(el.dataset.k);el.onfocus=()=>hl(el.dataset.k);el.onmouseleave=()=>hl(null);el.onblur=()=>hl(null)});
+})();
+
+/* ======================================================================
+   W6 · triage a flagged edit
+   ====================================================================== */
+(function(){
+  let k='rej', step=0;
+  const S={
+    rej:[['Read the reason','“Connection not allowed — the network rule needs a conductor between two devices.” A rejection is usually a data problem: a required field, a bad value, or a connection the rules don’t allow.'],['Fix the feature and edit it again','Editing again submits a <b>fresh attempt</b>. (Here: connect each device to a conductor instead.)'],['Acknowledge the old one','It drops off your “needs attention” list. The office keeps the full record.']],
+    con:[['Read the reason','“TX-101 was changed in the office after your pack was built.” Applying your edit would overwrite their change, so it’s held.'],['You can’t resolve this yourself','A supervisor decides whether to keep your version or theirs — or you re-do the edit on a fresh pack if asked.'],['Acknowledge it once they’ve sorted it','It drops off your list. The office keeps the full record.']]
+  };
+  function draw(){
+    const st=S[k], done=step>=3;
+    $('#w6-body').innerHTML=`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px"><span class="state-chip ${k==='rej'?'rejected':'conflict'}">${k==='rej'?'REJECTED ✗':'CONFLICT ⚠'}</span><span class="pbadge">${done?'<span class="chipx green">cleared from your list</span>':'<span class="chipx red">needs attention</span>'}</span></div>`+
+      `<ol class="steps">${st.map((s,i)=>`<li style="opacity:${i<=step?1:.45}"><b>${s[0]}</b><br><span style="font-size:14px">${s[1]}</span>${i===step&&!done?`<br><button class="btn pri" data-next style="margin-top:6px">${i===0?'I’ve read it':i===1?(k==='rej'?'Fix & edit again':'Ask a supervisor'):'Acknowledge'}</button>`:''}${i<step?' <span class="ok">✔</span>':''}</li>`).join('')}</ol>`;
+    const b=$('#w6-body [data-next]'); if(b) b.onclick=()=>{step++;draw()};
+  }
+  seg('#w6-k',b=>{k=b.dataset.k;step=0;draw()}); draw();
+})();
+
+/* ======================================================================
+   W7 · connection screen
+   ====================================================================== */
+(function(){
+  let signed=null, busy=false, show=false, savedUrl='http://10.0.2.2:3706';
+  function draw(){
+    $('#w7-auth').innerHTML=signed?`<div class="fbox good">Signed in as <b>${esc(signed)}</b></div><button class="btn" id="w7-out-b" style="margin-top:10px">Sign out</button>`:
+      `<div class="ctl"><label>Email</label><input type="text" id="w7-em" value="sam.okafor@utility.example"></div>
+       <div class="ctl"><label>Password <button class="btn" id="w7-eye" type="button" style="padding:2px 6px;margin-left:6px">${show?'🙈 hide':'👁 show'}</button></label><input type="${show?'text':'password'}" id="w7-pw" value="correct horse"></div>
+       <button class="btn pri" id="w7-in" ${busy?'disabled':''}>${busy?'Signing in…':'Sign in'}</button>`;
+    $('#w7-out').innerHTML=`<div class="lab">State</div><div class="readout" style="margin:6px 0">base URL: <b>${esc(savedUrl)}</b><br>login: <b>${signed?'signed in':'signed out'}</b></div>
+      <p style="font-size:13px;margin:8px 0 0">${signed?'You stay signed in — no login every time. <b>Sign out</b> keeps the base URL and only drops your login.':'Downloads show <em>“Set the fieldsync base URL and sign in…”</em> until you do. No tokens — signing in handles that.'}</p>`;
+    if(signed) $('#w7-out-b').onclick=()=>{signed=null;draw()};
+    else{ $('#w7-eye').onclick=()=>{show=!show;draw()}; $('#w7-in').onclick=()=>{ const em=$('#w7-em').value.trim(); if(!em) return; busy=true;draw(); setTimeout(()=>{busy=false;signed=em;draw()},800); }; }
+  }
+  $('#w7-save').onclick=()=>{savedUrl=$('#w7-url').value.trim()||savedUrl;draw()}; draw();
+})();
+
+/* ======================================================================
+   W8 · home screen + pack builder
+   ====================================================================== */
+(function(){
+  let device=[{n:'Oakwood depot area',size:'31 MB',built:'built 2 days ago',shared:false}], shared=[{n:'North region — weekly',size:'48 MB',built:'built 03:10',pick:null},{n:'Harbour district',size:'21 MB',built:'built 03:10',pick:null}], server=[]; let toast='';
+  const GROUPS={'MV network':['MV_CONDUCTOR','MV_SWITCH','MV_RECLOSER','MV_FUSE','MV_BREAKER'],'Structures':['POLE','SUBSTATION','SUBSTATION_YARD'],'Transformers':['DIST_XFMR'],'LV network':['LV_CONDUCTOR','LV_PILLAR','SERVICE_POINT','METER'],'Lighting':['STREET_LIGHT']};
+  const ALL=Object.values(GROUPS).flat();
+  const sel=new Set(['MV_CONDUCTOR','MV_SWITCH','POLE','DIST_XFMR']); let filter=''; let box=null, corner=null, open=false;
+  const cellCount=(cx,cy,c)=>((cx*7+cy*13+c.length*5+c.charCodeAt(0))%9);
+  function boxStats(){ if(!box) return {cells:0,feat:0}; let cells=0,feat=0; for(let x=box.x1;x<=box.x2;x++) for(let y=box.y1;y<=box.y2;y++){cells++; sel.forEach(c=>feat+=cellCount(x,y,c));} return {cells,feat}; }
+  function ring(p){ const r=16,c=2*Math.PI*r; return `<svg width="40" height="40" viewBox="0 0 40 40" class="ring"><circle cx="20" cy="20" r="${r}" fill="none" stroke="var(--line)" stroke-width="4"/><circle cx="20" cy="20" r="${r}" fill="none" stroke="var(--acc)" stroke-width="4" stroke-dasharray="${c*p} ${c}"/></svg>`; }
+  function listBlock(title,items,render,empty){ return `<h4 style="margin:14px 0 6px">${title}</h4>`+(items.length?items.map(render).join(''):`<p class="muted" style="font-size:13px;margin:4px 0">${empty}</p>`); }
+  const row=(l,r)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;border:1px solid var(--line2);border-radius:6px;padding:8px 10px;margin:5px 0;background:var(--surface)">${l}<span style="display:flex;gap:6px;align-items:center">${r}</span></div>`;
+  function draw(){
+    $('#w8-body').innerHTML=(toast?`<div class="readout" style="margin-bottom:10px">${toast}</div>`:'')+
+      listBlock('On this device',device,(p,i)=>row(`<div><b>${p.n}</b> ${p.shared?'<span class="chipx blue">Shared</span>':''}<div class="muted" style="font-size:12px">${p.size} · ${p.built}</div></div>`,`<button class="btn" data-open="${i}">Open map</button><button class="btn" data-del="${i}">Delete</button>`),'Nothing downloaded yet.')+
+      listBlock('Shared packs',shared,(p,i)=>row(`<div><b>${p.n}</b><div class="muted" style="font-size:12px">${p.size} · ${p.built}</div></div>`,p.pick!=null?ring(p.pick):`<button class="btn" data-pick="${i}" title="Pick up">⇩ Pick up</button>`),'You’ve picked up everything shared with you. (Not listed? Your access doesn’t cover it — ask your administrator.)')+
+      listBlock('Available from server',server,(p,i)=>row(`<div><b>${p.n}</b> <span class="state-chip ${p.state==='succeeded'?'applied':p.state==='failed'?'rejected':p.state==='running'?'captured':'pending'}">${p.state}</span><div class="muted" style="font-size:12px">${p.state==='failed'?esc(p.why):p.state==='succeeded'?esc(p.size):'area '+p.cells+' cells · '+p.feat+' features'}</div></div>`,
+        p.state==='succeeded'?(p.dl!=null?ring(p.dl):`<button class="btn pri" data-dl="${i}">⇩ Download</button>`):p.state==='failed'?`<button class="btn" data-rm="${i}">Dismiss</button>`:`<button class="btn" data-cancel="${i}">⏹ Cancel</button>`),'Request a new pack and it will appear here as it builds.');
+    $$('#w8-body [data-open]').forEach(b=>b.onclick=()=>{toast=`Opening <b>${esc(device[+b.dataset.open].n)}</b> → Pack detail (summary, feature classes, My drafts, Open map). The phone below is that map.`;draw()});
+    $$('#w8-body [data-del]').forEach(b=>b.onclick=()=>{device.splice(+b.dataset.del,1);toast='Deleted from this device. (Unsynced work stays safe in the edit store — sync before you delete a pack.)';draw()});
+    $$('#w8-body [data-pick]').forEach(b=>b.onclick=()=>{ const p=shared[+b.dataset.pick]; p.pick=0; draw(); const iv=setInterval(()=>{p.pick+=.12; if(p.pick>=1){clearInterval(iv); shared.splice(shared.indexOf(p),1); device.push({n:p.n,size:p.size,built:p.built,shared:true}); toast=`<b>${esc(p.n)}</b> picked up — a plain download, no build wait. It carries the <b>published network only</b> (plus your own drafts and, if you use WAM, your work board).`;} draw(); },180); });
+    $$('#w8-body [data-dl]').forEach(b=>b.onclick=()=>{ const p=server[+b.dataset.dl]; p.dl=0; draw(); const iv=setInterval(()=>{p.dl+=.15; if(p.dl>=1){clearInterval(iv); server.splice(server.indexOf(p),1); device.push({n:p.n,size:p.size,built:'built just now',shared:false}); toast=`<b>${esc(p.n)}</b> downloaded — opens like any pack.`;} draw(); },180); });
+    $$('#w8-body [data-cancel],#w8-body [data-rm]').forEach(b=>b.onclick=()=>{server.splice(+(b.dataset.cancel??b.dataset.rm),1);draw()});
+  }
+  function tick(){ server.forEach(p=>{ if(p.state==='queued'){p.state='running';} else if(p.state==='running'){ if(p.fail){p.state='failed';p.why=p.fail;} else {p.state='succeeded';p.size=fx(p.feat*.011+.3,1)+' MB';} } }); draw(); }
+  function builder(){
+    const st=boxStats();
+    const cells=[]; for(let y=0;y<6;y++) for(let x=0;x<8;x++){ const inb=box&&x>=box.x1&&x<=box.x2&&y>=box.y1&&y<=box.y2; const isC=corner&&corner.x===x&&corner.y===y;
+      cells.push(`<rect x="${x*46+4}" y="${y*34+4}" width="44" height="32" rx="3" fill="${inb?'var(--tint)':'var(--surface)'}" stroke="${isC?'var(--acc)':inb?'var(--acc)':'var(--line)'}" stroke-width="${isC||inb?2:1}" data-x="${x}" data-y="${y}" style="cursor:pointer"/>`); }
+    const q=filter.toLowerCase();
+    $('#w8-builder').innerHTML=!open?'':`<div class="widget"><div class="w-head"><span class="eyebrow">New pack</span><h4>Draw bounding box · Feature classes</h4><span style="flex:1"></span><button class="btn" id="b-x">✕ Close</button></div>
+      <div class="w-split"><div class="w-main"><div class="lab" style="margin-bottom:6px">Draw bounding box — tap two opposite corners</div>
+        <svg id="b-map" viewBox="0 0 376 212" width="100%" style="max-width:420px;background:var(--surface);border:1px solid var(--line2);border-radius:6px">${cells.join('')}</svg>
+        <div class="readout" style="margin-top:8px">${box?`Box: ${st.cells} cell${st.cells===1?'':'s'} · ≈ ${st.feat} features in the selected classes`:corner?'Tap the opposite corner…':'Tap the first corner.'}</div>
+        <div style="margin-top:8px;display:flex;gap:6px"><button class="btn" id="b-view">Use current view</button><button class="btn" id="b-clear">Clear box</button></div></div>
+        <div class="w-side"><div class="lab">Feature classes · <b>${sel.size} selected</b></div>
+        <input type="text" id="b-f" placeholder="Filter by name or code" value="${esc(filter)}" style="margin:6px 0">
+        <div style="max-height:200px;overflow:auto">${Object.entries(GROUPS).map(([g,cs])=>{const vis=cs.filter(c=>c.toLowerCase().includes(q)); if(!vis.length) return ''; return `<div style="margin:6px 0 2px;font:600 11px var(--f-mono);color:var(--muted)">${g.toUpperCase()} <button class="btn" data-all="${g}" style="padding:1px 5px">All</button> <button class="btn" data-none="${g}" style="padding:1px 5px">None</button></div>`+vis.map(c=>`<label style="display:block;font-size:12.5px"><input type="checkbox" data-c="${c}" ${sel.has(c)?'checked':''}> <code>${c}</code></label>`).join('')}).join('')}</div>
+        <button class="btn pri" id="b-req" style="margin-top:10px" ${box&&sel.size?'':'disabled'}>Request build</button></div></div></div>`;
+    if(!open) return;
+    $$('#b-map rect').forEach(r=>r.onclick=()=>{ const x=+r.dataset.x,y=+r.dataset.y; if(!corner||box){corner={x,y};box=null} else {box={x1:Math.min(corner.x,x),x2:Math.max(corner.x,x),y1:Math.min(corner.y,y),y2:Math.max(corner.y,y)};corner=null} builder(); });
+    $('#b-x').onclick=()=>{open=false;builder()}; $('#b-clear').onclick=()=>{box=null;corner=null;builder()}; $('#b-view').onclick=()=>{box={x1:2,x2:4,y1:2,y2:3};corner=null;builder()};
+    $('#b-f').oninput=e=>{filter=e.target.value;builder();$('#b-f').focus();$('#b-f').setSelectionRange(filter.length,filter.length)};
+    $$('#b-all,[data-all]').forEach(b=>b.onclick=()=>{GROUPS[b.dataset.all].forEach(c=>sel.add(c));builder()}); $$('[data-none]').forEach(b=>b.onclick=()=>{GROUPS[b.dataset.none].forEach(c=>sel.delete(c));builder()});
+    $$('#w8-builder [data-c]').forEach(c=>c.onchange=()=>{c.checked?sel.add(c.dataset.c):sel.delete(c.dataset.c);builder()});
+    $('#b-req').onclick=()=>{ const s=boxStats(); const fail=s.feat===0?'The area has no features in the selected classes.':s.cells>14?'The area is too large — narrow the box or pick fewer classes.':null; server.push({n:'My pack '+(server.length+device.length+1),state:'queued',cells:s.cells,feat:s.feat,fail}); open=false; toast='Build requested — pull to refresh as it moves queued → running → succeeded.'; builder(); draw(); setTimeout(tick,1400); setTimeout(tick,3000); };
+  }
+  $('#w8-new').onclick=()=>{open=true;builder();$('#w8-builder').scrollIntoView({block:'nearest'})};
+  $('#w8-refresh').onclick=tick;
+  draw();
+})();
+
+/* ======================================================================
+   THE FIELD SIMULATOR
+   ====================================================================== */
+const CLASSDEF={
+  POLE:{label:'Pole',type:'point',electrical:false,prefix:'POLE',subs:['wood','steel','concrete'],fields:[
+    {k:'material',l:'Material',t:'coded',o:['wood','steel','concrete'],req:()=>true},{k:'height_m',l:'Height (m)',t:'dec'},{k:'treated',l:'Treated',t:'bool'},{k:'last_inspected',l:'Last inspected',t:'date'},{k:'condition',l:'Condition',t:'text',req:s=>s==='wood'},{k:'asset_id',l:'Asset ID',t:'text',lock:true}]},
+  DIST_XFMR:{label:'Distribution transformer',type:'point',electrical:true,terminals:['T1 · primary','T2 · secondary','T3 · ground'],prefix:'TX',subs:['pad_mounted','pole_mounted'],fields:[
+    {k:'rating_kva',l:'Rating (kVA)',t:'int',req:()=>true},{k:'voltage_class',l:'Voltage class',t:'coded',o:['11 kV','33 kV']},{k:'oil_filled',l:'Oil filled',t:'bool'},{k:'asset_id',l:'Asset ID',t:'text',lock:true}]},
+  MV_SWITCH:{label:'MV switch',type:'point',electrical:true,prefix:'SW',subs:['load_break','isolator'],fields:[
+    {k:'device_state',l:'Device state',t:'coded',o:['closed','open'],req:()=>true},{k:'rated_current_a',l:'Rated current (A)',t:'int'},{k:'asset_id',l:'Asset ID',t:'text',lock:true}]},
+  MV_CONDUCTOR:{label:'MV conductor',type:'line',electrical:true,prefix:'MV',subs:['overhead','underground'],fields:[
+    {k:'conductor_spec',l:'Conductor spec',t:'coded',o:['ACSR_100','ACSR_150','XLPE_240'],req:()=>true},{k:'asset_id',l:'Asset ID',t:'text',lock:true}]},
+  SUBSTATION_YARD:{label:'Substation yard',type:'polygon',electrical:false,prefix:'YARD',subs:['outdoor','indoor'],fields:[
+    {k:'fenced',l:'Fenced',t:'bool'},{k:'asset_id',l:'Asset ID',t:'text',lock:true}]},
+  MV_RMU:{label:'MV RMU',unsupported:true}
+};
+const FIXES={rtkfixed:{label:'RTK fixed',acc:'±0.02 m',sat:'24 / 27',dop:'0.6 / 1.1 / 0.9',tier:'Excellent',col:'green',ext:true},rtkfloat:{label:'RTK float',acc:'±0.35 m',sat:'22 / 27',dop:'0.9 / 1.5 / 1.2',tier:'Good',col:'green',ext:true},dgps:{label:'DGPS',acc:'±1.2 m',sat:'14 / 22',dop:'1.1 / 1.8 / 1.4',tier:'Moderate',col:'amber'},gps:{label:'GPS fix',acc:'±4.5 m',sat:'9 / 17',dop:'1.6 / 2.4 / 1.8',tier:'Moderate',col:'amber'},none:{label:'No fix',acc:'—',sat:'0 / 12',dop:'—',tier:'Poor',col:'red'}};
+const base0=()=>[
+  {id:'POLE-101',cls:'POLE',sub:'wood',terr:'North',g:[[60,70]],attrs:{material:'wood',height_m:11,treated:true,last_inspected:'2025-06-12',condition:'Fair',asset_id:'P-0101'}},
+  {id:'POLE-102',cls:'POLE',sub:'wood',terr:'North',g:[[150,110]],attrs:{material:'wood',height_m:12,treated:true,last_inspected:'2025-03-02',condition:'Fair',asset_id:'P-0102'}},
+  {id:'POLE-103',cls:'POLE',sub:'steel',terr:'North',g:[[260,70]],attrs:{material:'steel',height_m:12,treated:false,last_inspected:'2024-11-20',condition:'',asset_id:'P-0103'}},
+  {id:'SW-201',cls:'MV_SWITCH',sub:'load_break',terr:'North',g:[[60,190]],attrs:{device_state:'closed',rated_current_a:400,asset_id:'S-0201'}},
+  {id:'SW-202',cls:'MV_SWITCH',sub:'isolator',terr:'North',g:[[260,190]],attrs:{device_state:'closed',rated_current_a:630,asset_id:'S-0202'}},
+  {id:'TX-101',cls:'DIST_XFMR',sub:'pad_mounted',terr:'North',g:[[150,230]],attrs:{rating_kva:500,voltage_class:'11 kV',oil_filled:true,asset_id:'T-0101'}},
+  {id:'MV-1',cls:'MV_CONDUCTOR',sub:'overhead',terr:'North',g:[[60,190],[60,70],[150,110]],attrs:{conductor_spec:'ACSR_100',asset_id:'C-0001'}},
+  {id:'MV-2',cls:'MV_CONDUCTOR',sub:'overhead',terr:'North',g:[[150,110],[150,230]],attrs:{conductor_spec:'ACSR_150',asset_id:'C-0002'}},
+  {id:'MV-3',cls:'MV_CONDUCTOR',sub:'overhead',terr:'North',g:[[150,110],[260,70],[260,190]],attrs:{conductor_spec:'ACSR_100',asset_id:'C-0003'}}
+];
+const MISSIONS=[['select','Select a feature (tap POLE-102 and pick from the stack)'],['walk','Walk to a neighbour from a Connections / Relationships row'],['edit','Edit attributes and Save'],['revert','Edit it back to the original — watch the pending edit vanish'],['move','Move a feature with Edit geometry'],['create','Create a feature (try Use my location)'],['delete','Delete a feature, then Undo delete'],['connect','Connect TX-101 to a conductor (pick a terminal)'],['relate','Relate a pole to something'],['photo','Add a photo to a feature'],['scan','Scan a tag'],['sync','Open the sync badge and Sync (needs signal)']];
+const GPSSTATE={src:'phone',os:'android',fix:'gps'};
+const gpsEff=()=>{ let fix=GPSSTATE.fix; const ext=GPSSTATE.src==='bt'&&GPSSTATE.os==='android'; if(!ext&&FIXES[fix].ext) fix='gps'; return {fix,ext,def:FIXES[fix]} };
+let FT;
+const L=id=>FT.loc[id]||(FT.loc[id]={});
+const fget=id=>FT.feats.find(f=>f.id===id);
+const gcur=f=>L(f.id).geom||f.g;
+const vis=f=>!L(f.id).deleted;
+const centroid=g=>[g.reduce((a,p)=>a+p[0],0)/g.length,g.reduce((a,p)=>a+p[1],0)/g.length];
+function newFT(){ return {feats:base0(),loc:{},conns:[['MV-1','SW-201',null,{base:true}],['MV-2','TX-101','T2 · secondary',{base:true}],['MV-3','SW-202',null,{base:true}]],rels:[['POLE-101','MV-1','supports',{base:true}],['POLE-102','MV-2','supports',{base:true}]],pend:[],sel:null,mode:'browse',done:new Set(),online:true,snap:false,log:'Tap a feature on the map to begin.',draft:null,editBuf:null,geomBuf:null,geomUndo:[],vSel:null,link:null,tracking:null}; }
+function logm(t){FT.log=t;$('#p-log').innerHTML=t}
+function mission(k){FT.done.add(k);renderMissions()}
+function upsert(kind,fid,desc,key){ let e=FT.pend.find(x=>x.kind===kind&&x.key===key&&x.state==='pending'); if(e){e.desc=desc;return e} e={id:UID++,kind,fid,key,desc,state:'pending',note:'',ack:false}; FT.pend.push(e); return e; }
+function dropPend(kind,key){ FT.pend=FT.pend.filter(x=>!(x.kind===kind&&x.key===key&&x.state==='pending')); }
+const pendCount=()=>FT.pend.filter(e=>e.state==='pending').length;
+const attnCount=()=>FT.pend.filter(e=>(e.state==='rejected'||e.state==='conflict')&&!e.ack).length;
+const humanize=k=>k.replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
+const curAttr=(f,k)=>{ const l=L(f.id); return l.edit&&k in l.edit?l.edit[k]:f.attrs[k] };
+const fval=v=>v===true?'Yes':v===false?'No':(v===''||v==null)?'—':v;
+
+/* ---- map rendering ---- */
+function symbol(f,pts,fill,ringCol){
+  const [x,y]=pts[0]; let s='';
+  if(f.cls==='DIST_XFMR') s=`<circle cx="${x-4}" cy="${y}" r="7" fill="none" stroke="${fill}" stroke-width="3"/><circle cx="${x+4}" cy="${y}" r="7" fill="none" stroke="${fill}" stroke-width="3"/>`;
+  else if(f.cls==='MV_SWITCH') s=`<rect x="${x-6}" y="${y-6}" width="12" height="12" rx="1.5" fill="${fill}"/>`;
+  else s=`<circle cx="${x}" cy="${y}" r="6" fill="${fill}"/>`;
+  if(ringCol) s+=`<circle cx="${x}" cy="${y}" r="13" fill="none" stroke="${ringCol}" stroke-width="3"/>`;
+  return s;
+}
+function renderMap(){
+  const svg=$('#p-svg'); let s='';
+  // pseudo basemap tiles
+  s+=`<rect width="320" height="300" fill="var(--surface)"/>`;
+  for(let i=0;i<7;i++) s+=`<path d="M0,${i*46+10} L320,${i*46-6}" stroke="var(--line2)" stroke-width="1"/>`;
+  s+=`<path d="M0,265 C60,240 120,285 210,262 S300,250 320,270 L320,300 L0,300Z" fill="var(--tint)" opacity=".55"/><text x="12" y="290" font-size="8" style="fill:var(--muted)">river (basemap tiles)</text>`;
+  const fs=FT.feats.filter(vis);
+  const col=f=>{ const l=L(f.id); return l.created?'var(--green)':(l.geom||l.edit)?'var(--amber)':'var(--muted)'; };
+  // polygons
+  fs.filter(f=>CLASSDEF[f.cls].type==='polygon').forEach(f=>{const g=gcur(f),l=L(f.id); s+=`<polygon points="${g.map(p=>p.join(',')).join(' ')}" fill="${l.created?'var(--green)':'var(--muted)'}" fill-opacity=".18" stroke="${col(f)}" stroke-width="2.5"/>`;});
+  // selection halos for lines
+  fs.filter(f=>CLASSDEF[f.cls].type==='line').forEach(f=>{const g=gcur(f); const d=g.map((p,i)=>(i?'L':'M')+p.join(',')).join(' '); const l=L(f.id);
+    if(FT.sel===f.id) s+=`<path d="${d}" fill="none" stroke="var(--red)" stroke-width="9" opacity=".35" stroke-linejoin="round"/>`;
+    s+=`<path d="${d}" fill="none" stroke="${col(f)}" stroke-width="${(l.created||l.geom||l.edit)?4:3}" stroke-linejoin="round" stroke-linecap="round"/>`; });
+  // connections / relationships
+  FT.conns.forEach(c=>{ const a=fget(c[0]),b=fget(c[1]); if(!a||!b||!vis(a)||!vis(b)||c[3].base) return; const [x1,y1]=centroid(gcur(a)),[x2,y2]=centroid(gcur(b)); s+=`<path d="M${x1},${y1} L${x2},${y2}" stroke="var(--green)" stroke-width="3" stroke-dasharray="6 5" class="ants" fill="none"/>`; });
+  FT.rels.forEach(c=>{ const a=fget(c[0]),b=fget(c[1]); if(!a||!b||!vis(a)||!vis(b)||c[3].base) return; const [x1,y1]=centroid(gcur(a)),[x2,y2]=centroid(gcur(b)); s+=`<path d="M${x1},${y1} L${x2},${y2}" stroke="var(--s2)" stroke-width="3" stroke-dasharray="6 5" fill="none"/>`; });
+  // points
+  fs.filter(f=>CLASSDEF[f.cls].type==='point').forEach(f=>{ const l=L(f.id); const pts=gcur(f);
+    let fill='var(--muted)', ringc=null;
+    if(l.created) fill='var(--green)'; else if(l.geom) fill='var(--amber)'; if(l.edit&&!l.created) ringc='var(--amber)';
+    if(FT.sel===f.id) ringc=(ringc&&FT.mode==='x')?ringc:'var(--red)';
+    const ring2=(l.edit&&!l.created&&FT.sel===f.id)?`<circle cx="${pts[0][0]}" cy="${pts[0][1]}" r="19" fill="none" stroke="var(--amber)" stroke-width="2.5"/>`:'';
+    const right=pts[0][0]>232; s+=symbol(f,pts,fill,ringc)+ring2+`<text x="${pts[0][0]+(right?-11:11)}" y="${pts[0][1]-9}" font-size="8.5" text-anchor="${right?'end':'start'}">${f.id}</text>`; });
+  // line labels
+  fs.filter(f=>CLASSDEF[f.cls].type==='line').forEach(f=>{const g=gcur(f); const m=[(g[0][0]+g[1][0])/2,(g[0][1]+g[1][1])/2]; s+=`<text x="${m[0]+6}" y="${m[1]-4}" font-size="8" style="fill:var(--muted)">${f.id}</text>`;});
+  // geometry editing handles
+  if(FT.mode==='editGeom'&&FT.geomBuf){ const f=fget(FT.sel), t=CLASSDEF[f.cls].type, g=FT.geomBuf;
+    if(t==='point') s+=`<circle class="hv" data-v="0" cx="${g[0][0]}" cy="${g[0][1]}" r="9" fill="var(--acc)" stroke="#fff" stroke-width="2" style="cursor:grab"/>`;
+    else { for(let i=0;i<g.length-1;i++){ const mx=(g[i][0]+g[i+1][0])/2,my=(g[i][1]+g[i+1][1])/2; s+=`<circle class="hm" data-m="${i}" cx="${mx}" cy="${my}" r="5" fill="#fff" stroke="var(--acc)" stroke-width="2" style="cursor:pointer"/>`; }
+      g.forEach((p,i)=>s+=`<circle class="hv" data-v="${i}" cx="${p[0]}" cy="${p[1]}" r="${FT.vSel===i?9:7}" fill="var(--acc)" stroke="${FT.vSel===i?'var(--red)':'#fff'}" stroke-width="2" style="cursor:grab"/>`); } }
+  // draft (create)
+  if(FT.mode==='draw'&&FT.draft){ const g=FT.draft.pts, t=CLASSDEF[FT.draft.cls].type; if(g.length>1) s+=(t==='polygon'?`<polygon points="${g.map(p=>p.join(',')).join(' ')}" fill="var(--acc)" fill-opacity=".15" stroke="var(--acc)" stroke-width="2.5"/>`:`<path d="${g.map((p,i)=>(i?'L':'M')+p.join(',')).join(' ')}" fill="none" stroke="var(--acc)" stroke-width="3"/>`); g.forEach(p=>s+=`<circle cx="${p[0]}" cy="${p[1]}" r="6" fill="var(--acc)" stroke="#fff" stroke-width="2"/>`); }
+  svg.innerHTML=s;
+}
+function svgPt(e){ const r=$('#p-svg').getBoundingClientRect(); return [(e.clientX-r.left)*320/r.width,(e.clientY-r.top)*300/r.height]; }
+function dseg(p,a,b){ const dx=b[0]-a[0],dy=b[1]-a[1],t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/(dx*dx+dy*dy||1))); return Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy); }
+function hit(p){ const out=[]; FT.feats.filter(vis).forEach(f=>{ const g=gcur(f),t=CLASSDEF[f.cls].type; let d=1e9; if(t==='point') d=Math.hypot(p[0]-g[0][0],p[1]-g[0][1])-4; else if(t==='line'){ for(let i=0;i<g.length-1;i++) d=Math.min(d,dseg(p,g[i],g[i+1])); } else { const [cx,cy]=centroid(g); const inside=(()=>{let c=false;for(let i=0,j=g.length-1;i<g.length;j=i++){ if(((g[i][1]>p[1])!==(g[j][1]>p[1]))&&(p[0]<(g[j][0]-g[i][0])*(p[1]-g[i][1])/(g[j][1]-g[i][1])+g[i][0])) c=!c;} return c})(); d=inside?0:99; } if(d<=(t==='line'?8:11)) out.push(f); }); return out; }
+function snapPt(p){ if(!FT.snap) return p; let best=null,bd=14; FT.feats.filter(vis).forEach(f=>gcur(f).forEach(v=>{const d=Math.hypot(p[0]-v[0],p[1]-v[1]); if(d<bd){bd=d;best=v}})); return best?[best[0],best[1]]:p; }
+
+/* ---- modal ---- */
+function openModal(html){ $('#p-modal-in').innerHTML=html; $('#p-modal').classList.add('on'); }
+function closeModal(){ $('#p-modal').classList.remove('on'); }
+$('#p-modal').addEventListener('click',e=>{ if(e.target.id==='p-modal') closeModal(); });
+
+/* ---- selection + detail sheet ---- */
+function select(id,walk){ FT.sel=id; FT.mode='browse'; if(id){ mission('select'); if(walk) mission('walk'); } render(); }
+function neighbours(id){ const out=[]; FT.conns.forEach(c=>{ if(c[0]===id) out.push({o:c[1],kind:'conn',t:c[2]}); else if(c[1]===id) out.push({o:c[0],kind:'conn',t:c[2]}); }); FT.rels.forEach(c=>{ if(c[0]===id) out.push({o:c[1],kind:'rel',t:c[2]}); else if(c[1]===id) out.push({o:c[0],kind:'rel',t:c[2]}); }); return out.filter(n=>fget(n.o)&&vis(fget(n.o))); }
+function chipsFor(f){ const l=L(f.id), ps=FT.pend.filter(e=>e.fid===f.id&&e.state==='pending'), ap=FT.pend.filter(e=>e.fid===f.id&&e.state==='applied'); let h='';
+  if(l.created&&ps.length) h+=`<span class="chipx green">Created offline — not yet synced</span>`; else if(ps.length) h+=`<span class="chipx amber">Edited offline — not yet synced</span>`;
+  else if(ap.length) h+=`<span class="chipx green">Synced ✓ — a fresh pack clears the colour</span>`;
+  if(FT.pend.some(e=>e.fid===f.id&&(e.state==='rejected'||e.state==='conflict')&&!e.ack)) h+=`<span class="chipx red">Needs attention</span>`;
+  return h; }
+function detailHTML(f){
+  const def=CLASSDEF[f.cls], l=L(f.id), ns=neighbours(f.id), cn=ns.filter(n=>n.kind==='conn'), rl=ns.filter(n=>n.kind==='rel');
+  const photos=l.photos||[];
+  let h=`<h5>${f.id} ${chipsFor(f)}</h5>`;
+  if(l.deleted) return h;
+  h+=`<div class="p-sec">Identity</div><div class="row"><span>ID</span><span>${f.id}</span></div><div class="row"><span>Class</span><span>${f.cls}</span></div><div class="row"><span>Status</span><span>${l.created?'Draft':'Published'}</span></div><div class="row"><span>Subtype</span><span>${f.sub}</span></div><div class="row"><span>Territory</span><span>${f.terr}</span></div>`;
+  h+=`<div class="p-sec">Attributes (${def.fields.length})</div>`+def.fields.map(x=>{const v=curAttr(f,x.k),ch=l.edit&&x.k in l.edit&&!l.created; return `<div class="row"><span>${x.l}${x.lock?' 🔒':''}</span><span style="${ch?'color:var(--amber);font-weight:700':''}">${esc(fval(v))}</span></div>`}).join('');
+  h+=`<div class="p-sec">Photos (${photos.length}) <button class="pbtn" id="d-photo" style="margin-left:6px">＋ Add</button></div>`+photos.map(p=>`<div class="row"><span>🖼 ${p.n}</span><span class="chipx ${p.up?'green':'amber'}">${p.up?'Uploaded':'Not uploaded'}</span></div>`).join('');
+  if(l.gps) h+=`<div class="p-sec">GPS survey quality</div><div class="row"><span>Fix at placement</span><span>${esc(l.gps)}</span></div>`;
+  h+=`<div class="p-sec">Connections (${cn.length})</div>`+(cn.map(n=>`<div class="row"><span>${n.o}</span><span><button class="pbtn" data-go="${n.o}">${n.t?esc(n.t):'›'}</button></span></div>`).join('')||'<div class="row"><span>none</span><span></span></div>');
+  h+=`<div class="p-sec">Relationships (${rl.length})</div>`+(rl.map(n=>`<div class="row"><span>${n.o}</span><span><button class="pbtn" data-go="${n.o}">${esc(n.t)}</button></span></div>`).join('')||'<div class="row"><span>none</span><span></span></div>');
+  h+=`<div class="p-acts"><button data-a="edit" title="Edit attributes">✎</button><button data-a="geom" title="Edit geometry">⌖</button>${def.electrical?'<button data-a="conn" title="Connect to another feature">🔗</button>':''}<button data-a="rel" title="Relate to another feature">⇄</button>${l.created?'<button data-a="discard" title="Discard">↩ Discard</button>':'<button data-a="del" title="Delete feature">🗑</button>'}</div><div class="muted" style="font-size:10.5px">✎ Edit attributes · ⌖ Edit geometry${def.electrical?' · 🔗 Connect':' · (no Connect — not electrical)'} · ⇄ Relate · ${l.created?'↩ Discard':'🗑 Delete'}</div>`;
+  return h;
+}
+function fieldHTML(f,x,val,errs){
+  const id='f_'+x.k, req=x.req&&x.req(f.sub||FT.draft&&FT.draft.sub);
+  let inp='';
+  if(x.lock&&!(L(f.id).created)) return `<label>${x.l} <span class="lock">🔒 locked after publish</span></label><div style="font-size:12px;color:var(--muted)">${esc(fval(val))}</div>`;
+  if(x.t==='bool') inp=`<label class="sw-t"><input type="checkbox" id="${id}" ${val?'checked':''}><i></i></label>`;
+  else if(x.t==='coded') inp=`<select id="${id}"><option value="">Select…</option>${x.o.map(o=>`<option ${o===val?'selected':''}>${o}</option>`).join('')}</select>`;
+  else if(x.t==='date') inp=`<input type="date" id="${id}" value="${val||''}">`;
+  else if(x.t==='int'||x.t==='dec') inp=`<input type="number" step="${x.t==='int'?1:0.1}" id="${id}" value="${val==null?'':val}">`;
+  else inp=`<input type="text" id="${id}" value="${esc(val==null?'':val)}">`;
+  return `<label>${x.l}${req?' <span class="req">*</span>':''}</label>${inp}${errs&&errs[x.k]?'<div class="err">Required</div>':''}`;
+}
+function readForm(f,def){ const v={}; def.fields.forEach(x=>{ const el=$('#f_'+x.k); if(!el) return; v[x.k]= x.t==='bool'?el.checked:x.t==='int'||x.t==='dec'?(el.value===''?'':+el.value):el.value; }); return v; }
+const same=(a,b)=>(a===''||a==null)&&(b===''||b==null)||a===b;
+
+function renderSheet(){
+  const sh=$('#p-sheet'); const f=FT.sel&&fget(FT.sel);
+  const ban=$('#p-banner'); ban.className='p-banner'; ban.textContent='';
+  if(FT.mode==='link'){ ban.classList.add(FT.link.kind==='conn'?'green':'purple'); ban.textContent=FT.link.kind==='conn'?`Tap the feature to connect to ${FT.sel}…`:`Tap the feature to relate to ${FT.sel}…`; sh.innerHTML=`<button class="btn" id="s-cancel">Cancel</button>`; $('#s-cancel').onclick=()=>{FT.mode='browse';FT.link=null;render()}; return; }
+  if(FT.mode==='draw'){ const d=FT.draft,t=CLASSDEF[d.cls].type; ban.textContent=t==='point'?'Tap the map (or Use my location) to place it.':t==='line'?'Tap to add points, then Place (≥ 2 points).':'Tap to add points; the ring closes automatically (≥ 3 points).'; const need=t==='point'?1:t==='line'?2:3;
+    sh.innerHTML=`<h5>Create a ${CLASSDEF[d.cls].label}</h5><div class="muted" style="font-size:12px;margin-bottom:6px">${d.pts.length} point${d.pts.length===1?'':'s'} so far${d.tracking?' · recording GPS track…':''}</div><div class="p-acts" style="gap:6px"><button class="pbtn" id="s-gps">◎ Use my location</button>${t!=='point'?`<button class="pbtn" id="s-track">${d.tracking?'■ Stop GPS tracking':'● Record a GPS track'}</button>`:''}<button class="pbtn" id="s-undo">Undo last point</button><button class="pbtn pri" id="s-place" ${d.pts.length>=need?'':'disabled'}>Place</button><button class="pbtn" id="s-cancel">Cancel</button></div>`;
+    $('#s-gps').onclick=()=>{ const g=gpsEff(); if(g.fix==='none'){logm('<b>GPS unavailable</b> — check location permission (or move to open sky).');return} const p=[200+Math.round(Math.random()*8),245+Math.round(Math.random()*8)]; if(t==='point') d.pts=[p]; else d.pts.push(p); d.gps=`${g.def.label} · ${g.def.acc}`; mission('create'); render(); };
+    $('#s-undo').onclick=()=>{d.pts.pop();render()};
+    $('#s-cancel').onclick=()=>{stopTrack();FT.mode='browse';FT.draft=null;render()};
+    $('#s-place').onclick=()=>{stopTrack();FT.mode='form';render()};
+    const tr=$('#s-track'); if(tr) tr.onclick=()=>{ if(d.tracking) stopTrack(); else startTrack(d); render(); };
+    return; }
+  if(FT.mode==='form'){ const d=FT.draft, def=CLASSDEF[d.cls]; const errs=d.errs||{}; sh.innerHTML=`<h5>Create ${def.label}</h5><div class="p-form"><label>Subtype <span class="req">*</span></label><select id="c_sub">${def.subs.map(s=>`<option ${s===d.sub?'selected':''}>${s}</option>`).join('')}</select><label>Name (optional)</label><input type="text" id="c_name" value="${esc(d.name||'')}">`+def.fields.filter(x=>!x.lock).map(x=>fieldHTML({id:'__new',sub:d.sub},x,d.vals&&d.vals[x.k],errs)).join('')+`</div><div class="p-acts" style="gap:6px;margin-top:8px"><button class="pbtn pri" id="s-create">Create</button><button class="pbtn" id="s-cancel">Cancel</button></div>`;
+    $('#c_sub').onchange=()=>{ d.vals=readForm({id:'__new'},def); d.sub=$('#c_sub').value; d.name=$('#c_name').value; render(); };
+    $('#s-cancel').onclick=()=>{FT.mode='browse';FT.draft=null;render()};
+    $('#s-create').onclick=()=>{ const v=readForm({id:'__new'},def); const e={}; def.fields.forEach(x=>{ if(!x.lock&&x.req&&x.req(d.sub)&&(v[x.k]===''||v[x.k]==null)) e[x.k]=1; }); if(Object.keys(e).length){d.errs=e;d.vals=v;d.name=$('#c_name').value;render();return}
+      const n=FT.feats.filter(x=>x.cls===d.cls).length+100+UID; const id=def.prefix+'-'+(n%900+100); const nf={id,cls:d.cls,sub:d.sub,terr:'North',g:d.pts.slice(),attrs:Object.assign({asset_id:''},v)}; FT.feats.push(nf); const l=L(id); l.created=true; l.gps=d.gps||null; upsert('create',id,`${d.cls} · new feature`,id); FT.draft=null; FT.mode='browse'; FT.sel=id; mission('create'); logm(`Created <b>${id}</b> — filled <b style="color:var(--green)">green</b>, pending until you sync.`); render(); };
+    return; }
+  if(!f){ sh.innerHTML=`<div class="muted" style="padding:6px 0">Tap a feature on the map to select it and open its detail. Use <b>＋ Create</b> to add one, <b>▦ Scan tag</b> to jump to an asset, or the <b>⟳</b> badge for pending changes.</div>`; return; }
+  const def=CLASSDEF[f.cls];
+  if(FT.mode==='editAttrs'){ const errs=FT.editBuf&&FT.editBuf.errs||{}; sh.innerHTML=`<h5>Edit ${f.id}</h5><div class="p-form">`+def.fields.map(x=>fieldHTML(f,x,FT.editBuf?FT.editBuf.vals[x.k]:curAttr(f,x.k),errs)).join('')+`</div><div class="p-acts" style="gap:6px;margin-top:8px"><button class="pbtn pri" id="s-save">Save</button><button class="pbtn" id="s-cancel">Cancel</button></div>`;
+    $('#s-cancel').onclick=()=>{FT.mode='browse';FT.editBuf=null;render()};
+    $('#s-save').onclick=()=>{ const v=readForm(f,def); const l=L(f.id); const e={}; def.fields.forEach(x=>{ if(!(x.lock&&!l.created)&&x.req&&x.req(f.sub)&&(v[x.k]===''||v[x.k]==null)) e[x.k]=1; });
+      if(Object.keys(e).length){FT.editBuf={vals:v,errs:e};render();return}
+      if(l.created){ Object.assign(f.attrs,v); FT.mode='browse';FT.editBuf=null; mission('edit'); logm(`Updated created feature <b>${f.id}</b>.`); render(); return; }
+      const ch={}; def.fields.forEach(x=>{ if(x.lock) return; if(!same(v[x.k],f.attrs[x.k])) ch[x.k]=v[x.k]; });
+      const n=Object.keys(ch).length;
+      if(n){ l.edit=ch; upsert('edit',f.id,`${f.cls} · ${n} field${n>1?'s':''} changed`,f.id); mission('edit'); logm(`Saved — <b>${f.id}</b> now has a <b style="color:var(--amber)">hollow amber ring</b> and an “Edited offline” chip.`); }
+      else { const had=!!l.edit; delete l.edit; dropPend('edit',f.id); if(had){ mission('revert'); logm(`Every change undone — the pending edit on <b>${f.id}</b> <b>disappeared</b>.`);} else logm('No changes to save.'); }
+      FT.mode='browse';FT.editBuf=null; render(); };
+    return; }
+  if(FT.mode==='editGeom'){ const t=def.type, min=t==='line'?2:3; ban.textContent=t==='point'?'Drag the point to move it.':'Drag a blue vertex · tap a white midpoint to add one · select a vertex to delete it.';
+    sh.innerHTML=`<h5>Edit geometry · ${f.id}</h5><div class="p-acts" style="gap:6px">${t!=='point'?`<button class="pbtn" id="s-delv" ${FT.vSel!=null&&FT.geomBuf.length>min?'':'disabled'}>Delete selected point</button>`:''}<button class="pbtn" id="s-undo" ${FT.geomUndo.length?'':'disabled'}>Undo</button><button class="pbtn pri" id="s-save">Save</button><button class="pbtn" id="s-cancel">Cancel</button></div><div class="muted" style="font-size:11.5px;margin-top:6px">Snapping is ${FT.snap?'ON':'off'} (toggle it in chapter 11).</div>`;
+    $('#s-cancel').onclick=()=>{FT.mode='browse';FT.geomBuf=null;render()};
+    $('#s-undo').onclick=()=>{ FT.geomBuf=FT.geomUndo.pop(); FT.vSel=null; render(); };
+    const dv=$('#s-delv'); if(dv) dv.onclick=()=>{ FT.geomUndo.push(FT.geomBuf.map(p=>p.slice())); FT.geomBuf.splice(FT.vSel,1); FT.vSel=null; render(); };
+    $('#s-save').onclick=()=>{ const l=L(f.id); const orig=JSON.stringify(f.g), now=JSON.stringify(FT.geomBuf);
+      if(l.created){ f.g=FT.geomBuf; } else if(orig===now){ delete l.geom; dropPend('move',f.id); logm('Geometry back at its original position — the pending move disappeared.'); }
+      else { l.geom=FT.geomBuf; upsert('move',f.id,`${f.cls} · moved`,f.id); mission('move'); logm(`Saved — <b>${f.id}</b> shows as a <b style="color:var(--amber)">filled amber dot</b>; its original position is hidden.`); }
+      FT.mode='browse';FT.geomBuf=null;render(); };
+    return; }
+  // browse + selected
+  const l=L(f.id);
+  if(l.deleted){ ban.className='p-banner amber'; ban.textContent=`Marked deleted offline — it will be soft-deleted on the server when you sync.`; sh.innerHTML=chipsFor(f)+`<div class="p-acts"><button class="pbtn pri" id="s-undel">Undo delete</button></div>`; $('#s-undel').onclick=()=>undoDelete(f.id); return; }
+  sh.innerHTML=detailHTML(f);
+  $$('#p-sheet [data-go]').forEach(b=>b.onclick=()=>select(b.dataset.go,true));
+  const ph=$('#d-photo'); if(ph) ph.onclick=()=>photoModal(f);
+  $$('#p-sheet [data-a]').forEach(b=>b.onclick=()=>action(b.dataset.a,f));
+}
+function startTrack(d){ d.tracking=setInterval(()=>{ const last=d.pts[d.pts.length-1]||[190,260]; d.pts.push([Math.min(310,last[0]+12),Math.max(235,last[1]-3+(Math.random()*6-3))]); const g=gpsEff(); d.gps=`${g.def.label} · ${g.def.acc} (track)`; mission('create'); render(); },420); }
+function stopTrack(){ const d=FT.draft; if(d&&d.tracking){clearInterval(d.tracking);d.tracking=null} }
+function undoDelete(id){ const l=L(id); delete l.deleted; dropPend('delete',id); mission('undelete'); if(FT.done.has('delete')) {} logm(`<b>${id}</b> is back on the map.`); mission('delete'); render(); }
+function action(a,f){
+  const def=CLASSDEF[f.cls], l=L(f.id);
+  if(a==='edit'){FT.mode='editAttrs';FT.editBuf=null;render();}
+  else if(a==='geom'){FT.mode='editGeom';FT.geomBuf=gcur(f).map(p=>p.slice());FT.geomUndo=[];FT.vSel=null;render();}
+  else if(a==='del'){ openModal(`<h5>Delete feature?</h5><p style="font-size:12.5px;margin:0 0 10px">${f.id} will be marked deleted and soft-deleted on the server when you sync. You can undo before then.</p><div class="p-acts" style="gap:6px"><button class="pbtn pri" id="m-yes">Delete</button><button class="pbtn" id="m-no">Cancel</button></div>`); $('#m-no').onclick=closeModal; $('#m-yes').onclick=()=>{ l.deleted=true; upsert('delete',f.id,`${f.cls} · delete`,f.id); closeModal(); mission('delete'); logm(`<b>${f.id}</b> disappeared from the map; the panel keeps the <b>Undo delete</b> banner until you tap away.`); render(); }; }
+  else if(a==='discard'){ FT.feats=FT.feats.filter(x=>x.id!==f.id); FT.pend=FT.pend.filter(e=>!(e.fid===f.id&&e.state==='pending')); FT.conns=FT.conns.filter(c=>c[0]!==f.id&&c[1]!==f.id); FT.rels=FT.rels.filter(c=>c[0]!==f.id&&c[1]!==f.id); delete FT.loc[f.id]; FT.sel=null; logm(`Discarded <b>${f.id}</b> — a created feature has no server copy, so it’s simply gone.`); render(); }
+  else if(a==='conn'){ const start=t=>{ FT.mode='link'; FT.link={kind:'conn',term:t}; closeModal(); render(); }; if(def.terminals){ openModal(`<h5>Terminal on ${f.id}</h5>`+def.terminals.map((t,i)=>`<button class="mi" data-t="${t}">${t}</button>`).join('')+`<button class="mi" data-t="">No specific terminal</button>`); $$('#p-modal-in [data-t]').forEach(b=>b.onclick=()=>start(b.dataset.t||null)); } else start(null); }
+  else if(a==='rel'){ FT.mode='link'; FT.link={kind:'rel'}; render(); }
+}
+function linkTarget(t){
+  const a=fget(FT.sel), b=t, da=CLASSDEF[a.cls], db=CLASSDEF[b.cls];
+  if(FT.link.kind==='conn'){
+    let why=null;
+    if(!db.electrical) why=`${b.id} isn’t part of the electrical network.`;
+    else if(da.type!==db.type&&(da.type==='line'||db.type==='line')){}
+    else if(da.type==='line'&&db.type==='line') why='Two conductors join at a device, not to each other.';
+    else why='Two devices can’t connect directly — a conductor goes between them.';
+    if(FT.conns.some(c=>(c[0]===a.id&&c[1]===b.id)||(c[0]===b.id&&c[1]===a.id))) why='They’re already connected.';
+    if(why){ logm(`<b style="color:var(--red)">Connection not allowed.</b> ${why}`); FT.mode='browse'; FT.link=null; render(); return; }
+    FT.conns.push([a.id,b.id,FT.link.term,{}]); upsert('connect',a.id,`${a.id} ↔ ${b.id}${FT.link.term?' ('+FT.link.term+')':''}`,a.id+'|'+b.id); mission('connect'); logm(`Connected <b>${a.id}</b> ↔ <b>${b.id}</b> — a <b style="color:var(--green)">green marching-ants</b> line, queued for sync. The server re-checks it.`); FT.mode='browse'; FT.link=null; render();
+  } else {
+    const kinds=relKinds(a,b);
+    const done=k=>{ FT.rels.push([a.id,b.id,k,{}]); upsert('relate',a.id,`${a.id} ${k} ${b.id}`,a.id+'|'+b.id+'|'+k); mission('relate'); logm(`Related <b>${a.id}</b> → <b>${b.id}</b> (${k}) — a <b style="color:var(--s2)">purple dashed</b> line.`); FT.mode='browse'; FT.link=null; closeModal(); render(); };
+    if(!kinds.length){ logm(`<b style="color:var(--red)">Relationship not allowed.</b> No class permits ${a.cls} → ${b.cls}.`); FT.mode='browse'; FT.link=null; render(); return; }
+    if(kinds.length===1) done(kinds[0]); else { openModal(`<h5>Relationship to ${b.id}</h5>`+kinds.map(k=>`<button class="mi" data-k="${k}">${k}</button>`).join('')); $$('#p-modal-in [data-k]').forEach(x=>x.onclick=()=>done(x.dataset.k)); }
+  }
+}
+function relKinds(a,b){ if(a.cls==='POLE'){ if(b.cls==='DIST_XFMR') return ['supports','mounts']; if(b.cls==='MV_CONDUCTOR'||b.cls==='MV_SWITCH') return ['supports']; } if(a.cls==='SUBSTATION_YARD'&&b.cls!=='MV_CONDUCTOR') return ['contains']; return []; }
+function photoModal(f){ openModal(`<h5>Add a photo to ${f.id}</h5><button class="mi" data-p="cam">📷 Take a photo</button><button class="mi" data-p="gal">🖼 Choose from gallery</button>`); $$('#p-modal-in [data-p]').forEach(b=>b.onclick=()=>{ const l=L(f.id); l.photos=l.photos||[]; const n=`IMG_${400+l.photos.length+FT.pend.length}.jpg`; l.photos.push({n,up:false}); upsert('photo',f.id,`${n} · ${f.id} · photo`,n); closeModal(); mission('photo'); logm(`Added <b>${n}</b> — badge <b style="color:var(--amber)">Not uploaded</b> until it syncs.`); render(); }); }
+
+/* ---- scan ---- */
+function scanModal(){ openModal(`<h5>Scan asset tag</h5><div style="background:var(--surface);border:1px dashed var(--line);border-radius:6px;padding:16px;text-align:center;font-size:12px;color:var(--muted)">▦ camera viewfinder <div style="margin-top:6px"><button class="pbtn">🔦 Torch</button> <button class="pbtn">⟲ Switch camera</button></div></div><label style="display:block;font:600 11px var(--f-mono);margin:8px 0 2px">Enter code manually</label><div style="display:flex;gap:6px"><input type="text" id="m-code" placeholder="VE-7F3K2Q" style="flex:1;font:500 12.5px var(--f-mono);padding:5px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--ink)"><button class="pbtn pri" id="m-go">Resolve</button></div><div style="margin:6px 0;font-size:11px;color:var(--muted)">Try:${['VE-7F3K2Q','VE-2B9D4M','VE-000000','VE-9Z8Y7X'].map(c=>` <button class="pbtn" data-c="${c}">${c}</button>`).join('')}</div><div id="m-res" style="font-size:12.5px;min-height:3em" aria-live="polite"></div>`);
+  const go=c=>{ c=c.trim().toUpperCase(); let r; const inPack=(c==='VE-7F3K2Q'?'POLE-102':c==='VE-2B9D4M'?'TX-101':null);
+    if(inPack&&fget(inPack)&&vis(fget(inPack))){ const sup=c==='VE-2B9D4M'; r=`<b style="color:var(--green)">Resolved ${inPack}${sup?' — superseded label':''}</b>${sup?'<br>A reissued tag; it still works.':''}<br><span class="muted">resolved offline, from the pack’s tag index</span>`; mission('scan'); setTimeout(()=>{closeModal();select(inPack)},900); }
+    else if(c==='VE-9Z8Y7X'){ r=FT.online?`<b style="color:var(--amber)">Tag ${c} (outside the downloaded pack)</b><br>Not in the pack — checked online: the asset exists but isn’t in your work area. Build a pack covering it.`:`<b style="color:var(--red)">Not in this pack</b><br>You’re offline, so it can’t be checked online. Reconnect to look further.`; mission('scan'); }
+    else r=FT.online?`<b style="color:var(--red)">No asset found for tag ${esc(c||'…')}</b><br>Not in the pack; checked online too.`:`<b style="color:var(--red)">No asset found for tag ${esc(c||'…')}</b><br>Not in the pack, and you’re offline so the online check was skipped.`;
+    if(r&&!inPack) mission('scan'); $('#m-res').innerHTML=r; };
+  $('#m-go').onclick=()=>go($('#m-code').value); $$('#p-modal-in [data-c]').forEach(b=>b.onclick=()=>{$('#m-code').value=b.dataset.c;go(b.dataset.c)}); }
+
+/* ---- gps pill ---- */
+function gpsModal(){ const g=gpsEff(), d=g.def; openModal(`<h5>GPS quality</h5><div class="row" style="display:flex;justify-content:space-between;padding:3px 0"><span>Fix quality</span><span class="chipx ${d.col}">${d.label} · ${d.tier}</span></div><div class="row" style="display:flex;justify-content:space-between;padding:3px 0"><span>Accuracy</span><span>${d.acc}</span></div><div class="row" style="display:flex;justify-content:space-between;padding:3px 0"><span>Satellites (used / in view)</span><span>${d.sat}</span></div><div class="row" style="display:flex;justify-content:space-between;padding:3px 0"><span>PDOP / HDOP / VDOP</span><span>${d.dop}</span></div><div class="row" style="display:flex;justify-content:space-between;padding:3px 0"><span>Source</span><span>${g.ext?'External receiver':'Internal'}</span></div><p style="font-size:11.5px;color:var(--muted)">Change the source and fix in Interactive 8 (chapter 15).</p>`); }
+
+/* ---- pending sheet (phone) ---- */
+const KICON={edit:'✎',move:'⌖',create:'＋',delete:'🗑',connect:'🔗',relate:'⇄',photo:'📷',wam:'🛠'};
+function pendingModal(){
+  const items=FT.pend.filter(e=>e.state!=='superseded'||true);
+  const live=FT.pend.filter(e=>e.state==='pending');
+  openModal(`<h5>Pending changes</h5>${attnCount()?`<div class="chipx red">⚠ ${attnCount()} change${attnCount()>1?'s':''} need${attnCount()>1?'':'s'} attention</div>`:''}`+
+    (items.length?items.map(e=>`<div class="row" style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:5px 0;border-bottom:1px dotted var(--line2)"><span style="font-size:12px">${KICON[e.kind]||'•'} ${esc(e.desc)}<br><span class="state-chip ${e.state}">${e.state.toUpperCase()}</span></span><span>${e.state==='pending'?`<button class="pbtn" data-push="${e.id}">Push</button>`:''}${e.kind==='delete'&&e.state==='pending'?`<button class="pbtn" data-undel="${e.fid}">Undo</button>`:''}</span></div>`).join(''):'<p class="muted" style="font-size:12.5px">Nothing waiting. Make an edit first.</p>')+
+    `<div class="p-acts" style="margin-top:8px;gap:6px"><button class="pbtn pri" id="m-sync" ${live.length?'':'disabled'}>Sync ${live.length} change${live.length===1?'':'s'}</button><button class="pbtn" id="m-fresh">Fresh pack</button></div><div id="m-msg" style="font-size:12px;margin-top:6px" aria-live="polite"></div><p style="font-size:11px;color:var(--muted);margin:6px 0 0">Scenarios for the “office” are in chapter 19.</p>`);
+  $$('#p-modal-in [data-push]').forEach(b=>b.onclick=()=>doSync([FT.pend.find(e=>e.id===+b.dataset.push)],m=>{ $('#m-msg')&&($('#m-msg').textContent=m); }));
+  $$('#p-modal-in [data-undel]').forEach(b=>b.onclick=()=>{undoDelete(b.dataset.undel);closeModal();pendingModal()});
+  $('#m-sync').onclick=()=>doSync(FT.pend.filter(e=>e.state==='pending'),m=>{ $('#m-msg')&&($('#m-msg').textContent=m); });
+  $('#m-fresh').onclick=()=>{ freshPack(); closeModal(); };
+}
+
+/* ---- sync engine (shared) ---- */
+const SCEN={conf:false,rule:false,twice:false,drop:false};
+let syncing=false;
+function doSync(items,cb){
+  items=items.filter(Boolean);
+  if(!FT.online){ const m='No signal — sync needs a connection. Your changes are safe on the device and will wait.'; cb&&cb(m); logm(m); return; }
+  if(syncing||!items.length) return; syncing=true;
+  const sendN=SCEN.drop?Math.min(2,items.length):items.length; const sent=items.slice(0,sendN);
+  sent.forEach((e,i)=>setTimeout(()=>{e.state='captured';render()},300*(i+1)));
+  setTimeout(()=>{
+    let applied=0,attn=0;
+    sent.forEach((e,i)=>{
+      if(SCEN.twice&&i===0&&e.state==='captured'&&!FT._twice){ FT._twice=true; const c={...e,id:UID++,desc:e.desc+' (latest)'}; e.state='superseded'; e.note='You edited this again — only your latest edit is kept.'; FT.pend.splice(FT.pend.indexOf(e)+1,0,c); outcome(c); if(c.state==='applied')applied++; else attn++; return; }
+      outcome(e); if(e.state==='applied')applied++; else if(e.state!=='superseded')attn++;
+    });
+    FT._twice=false; syncing=false;
+    mission('sync');
+    const left=items.length-sendN;
+    const msg=left>0?`Connection dropped — ${sendN} captured, ${left} still pending. Sync again; the sent ones won’t double up.`:`Synced ${sent.length} change${sent.length===1?'':'s'}.${attn?` · ${attn} need${attn===1?'s':''} attention`:''}`;
+    logm(msg); cb&&cb(msg); render();
+  },300*sendN+800);
+}
+function outcome(e){
+  if(SCEN.conf&&e.fid==='TX-101'&&['edit','move','delete'].includes(e.kind)){ e.state='conflict'; e.note='TX-101 was changed in the office after your pack was built. A supervisor decides.'; return; }
+  if(SCEN.rule&&['connect','relate'].includes(e.kind)){ e.state='rejected'; e.note='Server re-check: the network rule no longer permits this pairing.'; return; }
+  e.state='applied'; e.note='';
+}
+function freshPack(){
+  FT.pend.filter(e=>e.state==='applied').forEach(e=>{
+    const f=fget(e.fid), l=L(e.fid);
+    if(e.kind==='edit'&&f&&l.edit){ Object.assign(f.attrs,l.edit); delete l.edit; }
+    if(e.kind==='move'&&f&&l.geom){ f.g=l.geom; delete l.geom; }
+    if(e.kind==='create'&&f){ delete l.created; }
+    if(e.kind==='delete'&&f){ FT.feats=FT.feats.filter(x=>x.id!==e.fid); }
+    if(e.kind==='connect'){ const c=FT.conns.find(c=>c[0]+'|'+c[1]===e.key); if(c) c[3]={base:true}; }
+    if(e.kind==='relate'){ const r=FT.rels.find(c=>c[0]+'|'+c[1]+'|'+c[2]===e.key); if(r) r[3]={base:true}; }
+    if(e.kind==='photo'&&l.photos){ const p=l.photos.find(p=>p.n===e.key); if(p) p.up=true; }
+  });
+  FT.pend=FT.pend.filter(e=>e.state!=='applied'&&e.state!=='superseded');
+  logm('Fresh pack picked up — applied work is now part of the base, so amber and green clear for it.'); render();
+}
+function loadSamples(){
+  const f1=fget('POLE-101'); if(f1&&!L('POLE-101').edit&&f1.attrs.material!=='steel'){ L('POLE-101').edit={material:'steel'}; upsert('edit','POLE-101','POLE · 1 field changed','POLE-101'); }
+  const tx=fget('TX-101'); if(tx&&!L('TX-101').edit&&vis(tx)){ L('TX-101').edit={rating_kva:630}; upsert('edit','TX-101','DIST_XFMR · 1 field changed','TX-101'); }
+  const p3=fget('POLE-103'); if(p3&&vis(p3)&&!L('POLE-103').geom){ L('POLE-103').geom=[[274,86]]; upsert('move','POLE-103','POLE · moved','POLE-103'); }
+  if(!FT.conns.some(c=>c[0]==='MV-3'&&c[1]==='TX-101')){ FT.conns.push(['MV-3','TX-101','T1 · primary',{}]); upsert('connect','MV-3','MV-3 ↔ TX-101 (T1 · primary)','MV-3|TX-101'); }
+  if(!FT.rels.some(c=>c[0]==='POLE-103'&&c[1]==='MV-3')){ FT.rels.push(['POLE-103','MV-3','supports',{}]); upsert('relate','POLE-103','POLE-103 supports MV-3','POLE-103|MV-3|supports'); }
+  const p2=fget('POLE-102'); if(p2&&!(L('POLE-102').photos||[]).length){ L('POLE-102').photos=[{n:'IMG_388.jpg',up:false}]; upsert('photo','POLE-102','IMG_388.jpg · POLE-102 · photo','IMG_388.jpg'); }
+  logm('Loaded six sample changes (edits, a move, a connection, a relationship, a photo).'); render();
+}
+
+/* ---- missions + top bar ---- */
+function renderMissions(){ $('#missions').innerHTML=MISSIONS.map(([k,t])=>`<div class="mission ${FT.done.has(k)?'done':''}"><i>${FT.done.has(k)?'✓':''}</i><span>${t}</span></div>`).join(''); }
+function renderTop(){ const s=$('#p-sig'); s.textContent=FT.online?'● signal':'○ no signal'; s.className='pbtn '+(FT.online?'on':'off'); const sy=$('#p-sync'); const a=attnCount(); sy.textContent=`⟳ ${pendCount()}${a?' ⚠'+a:''}`; sy.className='pbtn'+(a?' attn':''); $('#p-gps').innerHTML=`GPS <span style="color:var(--${gpsEff().def.col})">●</span> ${gpsEff().def.label}`; $('#p-create').disabled=FT.mode!=='browse'; $('#p-scan').disabled=FT.mode!=='browse'; }
+
+/* ---- W19 UI ---- */
+function renderW19(){
+  const b=$('#w19-body'); if(!b) return; const live=FT.pend.filter(e=>e.state==='pending');
+  const attn=FT.pend.filter(e=>(e.state==='rejected'||e.state==='conflict')&&!e.ack);
+  b.innerHTML=`
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><span class="lab">Lifecycle</span><span class="state-chip pending">PENDING</span>→<span class="state-chip captured">CAPTURED</span>→<span class="state-chip applied">APPLIED</span><span class="muted">/</span><span class="state-chip rejected">REJECTED</span><span class="state-chip conflict">CONFLICT</span><span class="state-chip superseded">SUPERSEDED</span><span style="flex:1"></span><button class="btn" id="w19-sig">${FT.online?'● Signal on':'○ No signal'} (toggle)</button></div>
+    ${attn.length?`<div class="caution" style="margin:0 0 10px"><b>⚠ ${attn.length} change${attn.length>1?'s':''} need${attn.length>1?'':'s'} attention</b><br>`+attn.map(e=>`${KICON[e.kind]||''} ${esc(e.desc)} — <span class="state-chip ${e.state}">${e.state.toUpperCase()}</span> <span style="font-size:13px">${esc(e.note)}</span><br><span style="display:inline-flex;gap:6px;margin:4px 0 8px">${e.state==='rejected'?`<button class="btn" data-fix="${e.id}">Fix &amp; edit again (resubmit)</button>`:`<button class="btn" data-keep="${e.id}">Supervisor: keep mine</button><button class="btn" data-theirs="${e.id}">Supervisor: keep theirs</button>`}<button class="btn" data-ack="${e.id}">Acknowledge</button></span>`).join('<br>')+`</div>`:''}
+    <div class="tbl" style="margin:0"><table><tr><th>Change</th><th>State</th><th></th></tr>${FT.pend.length?FT.pend.map(e=>`<tr><td>${KICON[e.kind]||''} ${esc(e.desc)}${e.note?`<div class="muted" style="font-size:12px">${esc(e.note)}</div>`:''}</td><td><span class="state-chip ${e.state}">${e.state.toUpperCase()}${e.state==='applied'?' ✓':''}</span></td><td>${e.state==='pending'?`<button class="btn" data-push="${e.id}">Push this change</button>`:''}</td></tr>`).join(''):'<tr><td colspan="3" class="muted">Nothing pending. Edit something in the phone, or load samples.</td></tr>'}</table></div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn pri" id="w19-sync" ${live.length?'':'disabled'}>Sync ${live.length} change${live.length===1?'':'s'}</button><button class="btn" id="w19-fresh">⇩ Pick up a fresh pack</button></div>
+    <div class="readout" id="w19-msg" style="margin-top:10px" aria-live="polite">${esc($('#p-log').textContent)}</div>`;
+  $('#w19-sig').onclick=()=>{FT.online=!FT.online;render()};
+  $('#w19-sync').onclick=()=>doSync(live,m=>{$('#w19-msg')&&($('#w19-msg').textContent=m)});
+  $('#w19-fresh').onclick=freshPack;
+  $$('#w19-body [data-push]').forEach(x=>x.onclick=()=>doSync([FT.pend.find(e=>e.id===+x.dataset.push)]));
+  $$('#w19-body [data-ack]').forEach(x=>x.onclick=()=>{FT.pend.find(e=>e.id===+x.dataset.ack).ack=true;render()});
+  $$('#w19-body [data-fix]').forEach(x=>x.onclick=()=>{const e=FT.pend.find(e=>e.id===+x.dataset.fix);e.state='pending';e.note='Resubmitted as a fresh attempt.';render()});
+  $$('#w19-body [data-keep]').forEach(x=>x.onclick=()=>{const e=FT.pend.find(e=>e.id===+x.dataset.keep);e.state='applied';e.note='Supervisor kept your version.';render()});
+  $$('#w19-body [data-theirs]').forEach(x=>x.onclick=()=>{const e=FT.pend.find(e=>e.id===+x.dataset.theirs);const l=L(e.fid);if(e.kind==='edit')delete l.edit;if(e.kind==='move')delete l.geom;if(e.kind==='delete')delete l.deleted;FT.pend=FT.pend.filter(z=>z!==e);render()});
+}
+
+function render(){ renderMap(); renderSheet(); renderTop(); renderMissions(); renderW19(); }
+
+/* ---- phone wiring ---- */
+(function(){
+  const svg=$('#p-svg');
+  FT=newFT(); window.FT=FT;
+  let drag=null;
+  svg.addEventListener('pointerdown',e=>{
+    if(FT.mode==='editGeom'){ const v=e.target.closest('.hv'), m=e.target.closest('.hm');
+      if(m){ FT.geomUndo.push(FT.geomBuf.map(p=>p.slice())); const i=+m.dataset.m; FT.geomBuf.splice(i+1,0,[(FT.geomBuf[i][0]+FT.geomBuf[i+1][0])/2,(FT.geomBuf[i][1]+FT.geomBuf[i+1][1])/2]); FT.vSel=i+1; render(); return; }
+      if(v){ FT.vSel=+v.dataset.v; FT.geomUndo.push(FT.geomBuf.map(p=>p.slice())); drag=+v.dataset.v; svg.setPointerCapture(e.pointerId); renderSheetOnly(); e.preventDefault(); } return; }
+  });
+  function renderSheetOnly(){ renderSheet(); }
+  svg.addEventListener('pointermove',e=>{ if(drag==null) return; let p=svgPt(e); p=[Math.max(6,Math.min(314,p[0])),Math.max(6,Math.min(294,p[1]))]; p=snapPt(p).map(Math.round); FT.geomBuf[drag]=p; renderMap(); });
+  svg.addEventListener('pointerup',e=>{ if(drag!=null){ drag=null; render(); } });
+  svg.addEventListener('click',e=>{
+    const p=svgPt(e);
+    if(FT.mode==='draw'){ const d=FT.draft,t=CLASSDEF[d.cls].type; const q=snapPt(p).map(Math.round); if(t==='point') d.pts=[q]; else d.pts.push(q); render(); return; }
+    if(FT.mode==='link'){ const hs=hit(p).filter(f=>f.id!==FT.sel); if(!hs.length) return; if(hs.length===1) linkTarget(hs[0]); else { openModal(`<h5>${hs.length} features here</h5>`+hs.map(f=>`<button class="mi" data-id="${f.id}">${f.id}<span class="muted">${f.cls}</span></button>`).join('')); $$('#p-modal-in [data-id]').forEach(b=>b.onclick=()=>{closeModal();linkTarget(fget(b.dataset.id))}); } return; }
+    if(FT.mode==='browse'){ const hs=hit(p); if(!hs.length){ FT.sel=null; render(); return; } if(hs.length===1) select(hs[0].id); else { openModal(`<h5>${hs.length} features here</h5>`+hs.map(f=>`<button class="mi" data-id="${f.id}">${f.id}<span class="muted">${f.cls}</span></button>`).join('')); $$('#p-modal-in [data-id]').forEach(b=>b.onclick=()=>{closeModal();select(b.dataset.id)}); } }
+  });
+  $('#p-sig').onclick=()=>{FT.online=!FT.online;render()};
+  $('#p-sync').onclick=pendingModal;
+  $('#p-gps').onclick=gpsModal;
+  $('#p-scan').onclick=scanModal;
+  $('#p-create').onclick=()=>{ openModal(`<h5>Create a feature</h5>`+Object.entries(CLASSDEF).map(([k,d])=>`<button class="mi ${d.unsupported?'dis':''}" data-k="${k}"><span>${d.label} <span class="muted">${d.unsupported?'':k}</span></span><span class="muted">${d.unsupported?'— not supported':d.type}</span></button>`).join('')); $$('#p-modal-in [data-k]').forEach(b=>{ if(b.classList.contains('dis')) return; b.onclick=()=>{ FT.draft={cls:b.dataset.k,pts:[],sub:CLASSDEF[b.dataset.k].subs[0],vals:{}}; FT.mode='draw'; FT.sel=null; closeModal(); render(); }; }); };
+  $('#p-reset').onclick=()=>{ stopTrack(); const keep=FT.done; FT=newFT(); window.FT=FT; FT.done=keep; logm('Sample pack reset.'); render(); };
+  const snapchk=$('#snapchk'); if(snapchk) snapchk.onchange=()=>{FT.snap=snapchk.checked;render()};
+  $$('.w19s,#s-conf,#s-rule,#s-twice,#s-drop').forEach(x=>{});
+  $('#s-conf').onchange=e=>SCEN.conf=e.target.checked; $('#s-rule').onchange=e=>SCEN.rule=e.target.checked; $('#s-twice').onchange=e=>SCEN.twice=e.target.checked; $('#s-drop').onchange=e=>SCEN.drop=e.target.checked;
+  $('#w19-samples').onclick=loadSamples;
+  render();
+})();
+
+/* ======================================================================
+   W15 · GPS
+   ====================================================================== */
+(function(){
+  function draw(){
+    const g=gpsEff(), d=g.def, want=GPSSTATE.src==='bt', iosBT=want&&GPSSTATE.os==='ios';
+    const avail=Object.entries(FIXES).filter(([k,f])=>g.ext||!f.ext);
+    $('#w15-fix').innerHTML=Object.entries(FIXES).map(([k,f])=>`<button data-f="${k}" aria-pressed="${GPSSTATE.fix===k}" ${(!g.ext&&f.ext)?'disabled style="opacity:.4"':''}>${f.label}</button>`).join('');
+    $('#w15-ro').innerHTML=`<span class="chipx ${d.col}">${d.label} · ${d.tier}</span><br>Accuracy ${d.acc} · Satellites ${d.sat}<br>PDOP/HDOP/VDOP ${d.dop}<br>Source: <b>${g.ext?'External receiver':'Internal'}</b>`;
+    $('#w15-note').innerHTML=(iosBT?`<div class="caution" style="margin:0 0 8px"><b>iOS</b><br>External receivers are Android-only — the app uses the built-in GPS.</div>`:'')+(!g.ext&&GPSSTATE.fix&&FIXES[GPSSTATE.fix].ext?`<div class="muted" style="font-size:13px">RTK needs an external receiver — the internal GPS tops out at a normal fix.</div>`:'')+`<p style="font-size:13px;margin:0">Wherever you see <b>Use my location</b> it uses <b>this</b> fix, and the quality at that moment is saved with the feature (<em>GPS survey quality</em>). Try it in the phone: Create → <b>Use my location</b>, then open the new feature.</p>`;
+    renderTop();
+  }
+  seg('#w15-src',b=>{GPSSTATE.src=b.dataset.s;draw()}); seg('#w15-os',b=>{GPSSTATE.os=b.dataset.o;draw()});
+  $('#w15-fix').addEventListener('click',e=>{const b=e.target.closest('button'); if(!b||b.disabled) return; GPSSTATE.fix=b.dataset.f;draw()});
+  draw();
+})();
+
+/* ======================================================================
+   W17 · inspection
+   ====================================================================== */
+(function(){
+  const ITEMS=[['Pole top condition','High'],['Cross-arm and insulators','Medium'],['Earth continuity','High'],['Signage and labelling','']];
+  const st=ITEMS.map(()=>({res:'pass',note:''}));
+  function draw(){
+    $('#w17-items').innerHTML=ITEMS.map((it,i)=>`<div style="border-bottom:1px solid var(--line2);padding:7px 0"><div style="font-size:13.5px"><b>${it[0]}</b> ${it[1]?`<span class="chipx amber">severity ${it[1]}</span>`:'<span class="chipx grey">no severity</span>'}</div><div class="seg" data-i="${i}" style="margin-top:4px"><button data-r="pass" aria-pressed="${st[i].res==='pass'}">Pass</button><button data-r="fail" aria-pressed="${st[i].res==='fail'}">Fail</button></div></div>`).join('');
+    $$('#w17-items .seg').forEach(s=>s.onclick=e=>{const b=e.target.closest('button'); if(!b) return; st[+s.dataset.i].res=b.dataset.r; draw();});
+  }
+  $('#w17-rec').onclick=()=>{
+    const asset=$('#w17-asset').value; const fails=ITEMS.map((it,i)=>[it,st[i]]).filter(([it,s])=>s.res==='fail'); const defects=fails.filter(([it])=>it[1]);
+    FT.pend.push({id:UID++,kind:'wam',fid:asset,key:'insp'+UID,desc:`Inspection · ${asset} · ${fails.length} failed`,state:'pending',note:'',ack:false}); render();
+    $('#w17-out').innerHTML=`<div class="fbox good">✔ Recorded offline</div><div style="margin-top:8px"><span class="chipx grey">Captured offline</span></div><p style="font-size:13.5px;margin:8px 0 0">${defects.length?`On sync, <b>${defects.length} defect${defects.length>1?'s':''}</b> will be raised automatically: ${defects.map(([it])=>`<b>${it[0]}</b> (${it[1]})`).join(', ')}.`:fails.length?'The failed item carries no severity, so it does <b>not</b> raise a defect.':'All items passed — no defects.'} It’s now in the phone’s pending sheet.</p>`;
+  };
+  draw();
+})();
+
+/* ======================================================================
+   W20 · troubleshooting
+   ====================================================================== */
+(function(){
+  const T=[['The map is blank','Zoom/pan to your work area — the pack covers only the area you drew. If still blank, the pack may have no features in view; check the pack’s class list.'],['“Set the fieldsync base URL and sign in…”','You’re not signed in. Open Connection, set the base URL, and sign in.'],['New pack build shows “failed”','Tap it to read the reason. Common causes: the area has no features, or it’s too large (narrow the box or pick fewer classes).'],['Can’t download / “Download failed”','You’ve lost signal, or the server host isn’t reachable. Downloads need a connection; try again on wifi.'],['An edit came back “rejected”','Read the reason in needs attention, fix the feature, and edit it again (that resubmits). Then Acknowledge the old one.'],['An edit came back “conflict”','The office changed that feature after your pack was built. A supervisor resolves it — re-do your edit on a fresh pack if asked.'],['A photo won’t open','Already-synced photos need a connection to fetch the full-resolution image; your own offline captures always open.'],['Scanned tag “outside the pack”','The asset is real but not in your work area — download a pack that covers it.'],['“GPS unavailable — check location permission”','Grant the app location permission in system settings. For a Bluetooth receiver, also allow Bluetooth and pair it first.'],['My amber/green markers won’t clear','They clear once the edits are synced and you download a fresh pack (the current pack predates your changes, so it still shows your local copy).']];
+  function draw(){ const q=$('#w20-q').value.toLowerCase(); $('#w20-t').innerHTML='<tr><th>Problem</th><th>What’s happening / what to do</th></tr>'+T.filter(r=>!q||(r[0]+r[1]).toLowerCase().includes(q)).map(r=>`<tr><td><b>${r[0]}</b></td><td>${r[1]}</td></tr>`).join(''); }
+  $('#w20-q').addEventListener('input',draw); draw();
+})();
+
+/* ---- chapter rail ---- */
+(function(){
+  const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));
+  const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'});
+  document.querySelectorAll('section.ch').forEach(s=>io.observe(s));
+})();
+
+</script>
+</body></html>

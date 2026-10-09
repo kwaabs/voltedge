@@ -131,6 +131,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "field-tool-guide-interactive",
+		Title:       "Field Tool (interactive)",
+		Description: "A working phone inside the guide: select, edit, move, create, delete, connect and relate features on a sample pack, scan tags, switch signal off, then run the real sync lifecycle — captured, applied, rejected, conflict, superseded — with office scenarios you control.",
+		Category:    "Interactive guides",
+		Filename:    "field-tool-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "works-inspections-maintenance-guide",
 		Title:       "Works, Inspections & Maintenance",
 		Description: "The Work & Asset Management manual: defects, inspections and the typed work-order lifecycle, on the desk and in the field.",
