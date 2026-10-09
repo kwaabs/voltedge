@@ -139,6 +139,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "user-handbook-interactive",
+		Title:       "User Handbook (interactive)",
+		Description: "The whole handbook as something you operate. A persona switch (viewer, analyst, editor, supervisor, admin) re-gates every widget by the real permission; plus a permission explorer built from the authorization seed data, territory grants, a working Query Builder, create/split/subtype/conflict editors, a trace and analysis bench, an operations storm-to-repair simulator, diagrams, annotations, field packs and sync review, the assistant, asset-tag minting with the real check character, and label printing.",
+		Category:    "Interactive guides",
+		Filename:    "user-handbook-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "works-inspections-maintenance-guide",
 		Title:       "Works, Inspections & Maintenance",
 		Description: "The Work & Asset Management manual: defects, inspections and the typed work-order lifecycle, on the desk and in the field.",
