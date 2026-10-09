@@ -115,6 +115,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "network-sectioning-guide-interactive",
+		Title:       "Feeders, Sections & Subnetworks (interactive)",
+		Description: "One small Feeder 7 schematic you can operate: carve it into feeders, protection zones and switching sections, re-classify a device class and watch the sections re-draw, assign a circuit and see exactly what the stale badge can and can't catch, run a trace and read the section column, and plan an outage.",
+		Category:    "Interactive guides",
+		Filename:    "network-sectioning-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "works-inspections-maintenance-guide",
 		Title:       "Works, Inspections & Maintenance",
 		Description: "The Work & Asset Management manual: defects, inspections and the typed work-order lifecycle, on the desk and in the field.",
