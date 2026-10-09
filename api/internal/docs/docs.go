@@ -123,6 +123,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "lv-and-metering-guide-interactive",
+		Title:       "LV Network & Metering (interactive)",
+		Description: "Build LV supply chains against the real rule set (and see exactly why a hop is refused), size a cable, commission a pillar way by way, read a meter through a CT/VT bench, run the consumption roll-up and watch how double-counting happens, split a ring's load by resistance, and propagate private ownership downstream.",
+		Category:    "Interactive guides",
+		Filename:    "lv-and-metering-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "works-inspections-maintenance-guide",
 		Title:       "Works, Inspections & Maintenance",
 		Description: "The Work & Asset Management manual: defects, inspections and the typed work-order lifecycle, on the desk and in the field.",
