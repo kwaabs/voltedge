@@ -108,8 +108,8 @@ var manifest = []Doc{
 	},
 	{
 		ID:          "engineering-studies-interactive",
-		Title:       "Network Analysis (interactive)",
-		Description: "The shared model behind every analysis study, hands-on: how features become a radial graph, how transformers rebase the voltage, and a live voltage-profile widget you drive — grow the load and watch the far end sag past the ANSI band.",
+		Title:       "Engineering Studies (interactive)",
+		Description: "The full analysis manual as a live workbench: one Feeder 7 schematic that every worked example hangs off, and calculators that run the real formulas and verify against the guide's own published numbers — the transformer model, fault level, a TCC coordination chart, IEEE-738 ampacity, the IEEE-1584 arc-flash model, the ramp-then-bisect hosting search, and more. The interactive companion to the Engineering Studies manual.",
 		Category:    "Interactive guides",
 		Filename:    "engineering-studies-interactive.html",
 		Format:      "html",

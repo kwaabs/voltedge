@@ -1,466 +1,1492 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>VoltEdge Network Analysis Guide</title>
+<title>VoltEdge Engineering Studies</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&family=STIX+Two+Text:ital@0;1&display=swap">
 <style>
+/* Layout: companion to the Substation Guide — same VoltEdge manual system. Reading column for prose, full-width "bench" panels where each study runs live on the guide's own numbers. */
 :root{
-  --bg:#edeff3; --surface:#f6f8fb; --raise:#ffffff; --ink:#151a24; --muted:#586071; --line:#ccd2dd; --line2:#dde1ea;
-  --an:#2b5ead;        /* analysis / voltage blue — the accent */
-  --an-deep:#1f4a8f;
-  --ev:#16a34a;        /* generation / ok green */
-  --amber:#b8720c;     /* loading / warn */
-  --red:#bf3b26;       /* violation */
-  --tint:#dde6f5; --ev-tint:#dcefe2; --amber-tint:#f5ead6; --red-tint:#f6e1dc;
+  --bg:#eceff0; --surface:#f7f9f9; --raise:#ffffff; --ink:#15201f; --muted:#56635f; --line:#c8d1cf; --line2:#dde3e2;
+  --teal:#0e7a75; --blue:#2b5ead; --amber:#b8720c; --olive:#68731a; --red:#bf3b26; --violet:#6b4fa8;
+  --tint:#e1ecea; --amber-tint:#f5ead6; --red-tint:#f6e1dc; --blue-tint:#dfe7f4; --olive-tint:#ecefd8;
+  --ppe0:#cfe5d6; --ppe1:#e5ecc4; --ppe2:#f3e3b3; --ppe3:#f2cc9e; --ppe4:#eeb08f; --ppe5:#e48b7a;
   --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
   --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --f-math:"STIX Two Text","Cambria Math","Times New Roman",serif;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0e1118; --surface:#141924; --raise:#19202c; --ink:#e3e7ef; --muted:#97a0b2; --line:#2a3242; --line2:#212838;
-  --an:#6f9ae8; --an-deep:#86aaec; --ev:#3ec46e; --amber:#e3a23f; --red:#ee6a54;
-  --tint:#17233b; --ev-tint:#15301f; --amber-tint:#33281a; --red-tint:#3a1f1a; color-scheme:dark}}
+  --bg:#0e1514; --surface:#141d1c; --raise:#192423; --ink:#e2eae8; --muted:#94a4a0; --line:#2b3a38; --line2:#223030;
+  --teal:#3fbdb4; --blue:#7aa4ea; --amber:#e3a23f; --olive:#b5c24f; --red:#ee6a54; --violet:#a891e0;
+  --tint:#173230; --amber-tint:#33281a; --red-tint:#3a1f1a; --blue-tint:#1a2638; --olive-tint:#2a2f17;
+  --ppe0:#1d3a2a; --ppe1:#2f3a1a; --ppe2:#3d3417; --ppe3:#452d17; --ppe4:#4b2518; --ppe5:#5a1f19; color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#0e1118; --surface:#141924; --raise:#19202c; --ink:#e3e7ef; --muted:#97a0b2; --line:#2a3242; --line2:#212838;
-  --an:#6f9ae8; --an-deep:#86aaec; --ev:#3ec46e; --amber:#e3a23f; --red:#ee6a54;
-  --tint:#17233b; --ev-tint:#15301f; --amber-tint:#33281a; --red-tint:#3a1f1a; color-scheme:dark}
+  --bg:#0e1514; --surface:#141d1c; --raise:#192423; --ink:#e2eae8; --muted:#94a4a0; --line:#2b3a38; --line2:#223030;
+  --teal:#3fbdb4; --blue:#7aa4ea; --amber:#e3a23f; --olive:#b5c24f; --red:#ee6a54; --violet:#a891e0;
+  --tint:#173230; --amber-tint:#33281a; --red-tint:#3a1f1a; --blue-tint:#1a2638; --olive-tint:#2a2f17;
+  --ppe0:#1d3a2a; --ppe1:#2f3a1a; --ppe2:#3d3417; --ppe3:#452d17; --ppe4:#4b2518; --ppe5:#5a1f19; color-scheme:dark}
 
 *{box-sizing:border-box}
-body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
-.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body)}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
 h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
-h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
-h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
-h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+h2{font-size:clamp(28px,4vw,40px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:21px;font-weight:700;font-stretch:92%;margin-top:36px}
+h4{font-size:15px;font-weight:700;letter-spacing:.01em}
 p,li{max-width:70ch}
 p{margin:12px 0}
 code,.mono{font-family:var(--f-mono);font-size:.86em}
-code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
-a{color:var(--an-deep)}
+code{background:var(--line2);padding:1px 5px;border-radius:3px}
+a{color:var(--teal)}
 .muted{color:var(--muted)}
-.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.eyebrow{font:600 11px/1.2 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.sm{font-size:14px}
 
+/* rail */
 .rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
-.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.rail-in{max-width:1120px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
 .chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
 .chaps::-webkit-scrollbar{display:none}
 .chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
 .chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
-.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--an-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
-.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--an)}
-button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--an);outline-offset:2px}
+.seg{display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden;flex-shrink:0}
+.seg button{font:600 12px/1 var(--f-body);background:transparent;color:var(--muted);border:0;padding:7px 10px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+body[data-lane="op"] .md-only{display:none}
+body[data-lane="md"] .op-only{display:none}
 
-.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
-.hero h1{font-size:clamp(36px,6vw,66px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
-.hero h1 span{color:var(--an)}
-.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+/* hero */
+.hero{padding-block:52px 26px;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:40px;align-items:end}
+.hero h1{font-size:clamp(40px,6.2vw,72px);font-weight:800;font-stretch:76%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--teal)}
+.lede{font-size:18px;color:var(--muted);margin-top:18px}
+.thesis{border-left:3px solid var(--teal);padding:6px 0 6px 18px;font:500 19px/1.45 var(--f-display);font-stretch:95%}
+.cast{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:18px}
+.who{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-width:0}
+.who b{font-family:var(--f-display);font-size:16px}
+.who small{display:block;color:var(--muted);font-size:13px;line-height:1.35}
 
-.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
-.tag.pl{background:var(--ev-tint);color:var(--ev)}
-.tag.en{background:var(--tint);color:var(--an)}
-.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
-.pl-b{background:var(--ev-tint);border:1px solid color-mix(in srgb,var(--ev) 30%,transparent)}
-.en-b{background:var(--surface);border:1px solid var(--line)}
-.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+/* tags & tiers */
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;padding:4px 7px;border-radius:3px}
+.tag.op{background:var(--tint);color:var(--teal)}
+.tag.md{background:var(--amber-tint);color:var(--amber)}
+.tier{display:inline-flex;align-items:center;gap:5px;font:600 10.5px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:20px;border:1px solid;white-space:nowrap;vertical-align:2px}
+.tier::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.tier.v{color:var(--teal);border-color:color-mix(in srgb,var(--teal) 45%,transparent)}
+.tier.d{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 45%,transparent)}
+.tier.e{color:var(--red);border-color:color-mix(in srgb,var(--red) 45%,transparent)}
+.op-b,.md-b{border-radius:6px;padding:14px 18px;margin:18px 0;max-width:80ch}
+.op-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--teal) 30%,transparent)}
+.md-b{background:var(--surface);border:1px solid var(--line)}
+.op-b>*:last-child,.md-b>*:last-child{margin-bottom:0}
+.warn{border-left:3px solid var(--red);background:var(--red-tint);padding:10px 14px;border-radius:0 6px 6px 0;margin:16px 0;max-width:80ch;font-size:15px}
+.tip{border-left:3px solid var(--teal);background:var(--surface);padding:10px 14px;border-radius:0 6px 6px 0;margin:16px 0;max-width:80ch;font-size:15px}
 
-section.ch{padding-top:60px;scroll-margin-top:54px}
-.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
-.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--an)}
+section.ch{padding-top:64px;scroll-margin-top:56px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:8px}
+.ch-num{font:800 56px/.85 var(--f-display);font-stretch:75%;color:var(--teal)}
 .ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+.ch-head .tiers{grid-column:2;display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 
-figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
-figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+/* figures & bench */
+figure{margin:26px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:84ch}
 figcaption b{color:var(--ink);font-weight:600}
 .fig-t{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline;margin-bottom:14px}
 .fig-t h4{font-size:16px}
 .scroll{overflow-x:auto}
+.bench{border:1.5px solid var(--ink);border-radius:8px;background:var(--raise);margin:26px 0;overflow:hidden}
+.bench-h{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;padding:12px 18px;background:var(--ink);color:var(--bg)}
+.bench-h h4{font-size:16px}
+.bench-h .eyebrow{color:color-mix(in srgb,var(--bg) 70%,transparent)}
+.bench-b{display:grid;grid-template-columns:minmax(0,300px) minmax(0,1fr);gap:0}
+.ins{padding:16px 18px;border-right:1px solid var(--line);background:var(--surface);display:grid;gap:10px;align-content:start;min-width:0}
+.outs{padding:16px 18px;min-width:0}
+.fld{display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:4px 10px;align-items:center}
+.fld label{font-size:13px;line-height:1.25}
+.fld label small{display:block;font:11px var(--f-mono);color:var(--muted)}
+.fld input[type=number],.fld select{width:100%;font:500 14px var(--f-mono);padding:6px 7px;border:1px solid var(--line);border-radius:4px;background:var(--raise);color:var(--ink);font-variant-numeric:tabular-nums}
+.fld input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--teal);margin:0}
+.chk{display:flex;gap:8px;align-items:center;font-size:13.5px;cursor:pointer}
+.chk input{accent-color:var(--teal)}
+.grp{font:600 10.5px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);border-top:1px solid var(--line);padding-top:10px;margin-top:2px}
+.presets{display:flex;flex-wrap:wrap;gap:6px}
+.btn{font:600 12.5px/1 var(--f-body);padding:8px 11px;border-radius:5px;border:1px solid var(--line);background:var(--raise);color:var(--ink);cursor:pointer}
+.btn:hover{border-color:var(--teal)}
+.btn.pri{background:var(--teal);border-color:var(--teal);color:var(--bg)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.kpi{border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:var(--surface);min-width:0}
+.kpi .v{font:800 28px/1.05 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums}
+.kpi .u{font:500 13px var(--f-mono);color:var(--muted);margin-left:3px}
+.kpi.hl{border-color:var(--teal);background:var(--tint)}
+.kpi.bad{border-color:var(--red);background:var(--red-tint)}
+.kpi.bad .v{color:var(--red)}
+.kpi.good .v{color:var(--teal)}
+.rows{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0;font-size:13.5px;border:1px solid var(--line2);border-radius:6px;overflow:hidden}
+.rows>div{padding:6px 10px;border-bottom:1px solid var(--line2)}
+.rows>div:nth-child(even){text-align:right;font:500 13px var(--f-mono);font-variant-numeric:tabular-nums}
+.rows>div:nth-last-child(-n+2){border-bottom:0}
+.rows .f{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.guide-check{font:12px var(--f-mono);color:var(--muted);margin-top:10px}
+.guide-check b{color:var(--teal)}
+.chart svg{width:100%;height:auto;display:block}
 svg text{font-family:var(--f-mono);fill:var(--ink)}
-svg .lbl{font-size:11px} svg .sm{font-size:9.5px;fill:var(--muted)} svg .hd{font-family:var(--f-display);font-weight:700;font-size:13px}
-.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:62ch}
+svg .ax{font-size:10px;fill:var(--muted)}
+svg .lbl{font-size:11px}
+svg .sml{font-size:9.5px;fill:var(--muted)}
+svg .hd{font-family:var(--f-display);font-weight:700;font-size:13px}
+.grid line{stroke:var(--line2);stroke-width:1}
 
+/* math */
+.eq{font-family:var(--f-math);font-size:19px;background:var(--surface);border:1px solid var(--line2);border-radius:6px;padding:12px 16px;margin:12px 0;overflow-x:auto;white-space:nowrap;max-width:80ch}
+.eq i{font-style:italic}
+.eq .note{font:12px var(--f-body);color:var(--muted);margin-left:12px;white-space:normal}
+.frac{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;margin:0 3px}
+.frac>span:first-child{border-bottom:1px solid currentColor;padding:0 4px}
+.frac>span{padding:0 4px;line-height:1.25}
+
+/* tables */
 .tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
 table{border-collapse:collapse;width:100%;font-size:14px}
 th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
-th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:var(--surface)}
 tr:last-child td{border-bottom:0}
 td code{white-space:nowrap}
-.ok{color:var(--ev);font-weight:600}.no{color:var(--red);font-weight:600}
-.badge{font:600 10px var(--f-mono);text-transform:uppercase;letter-spacing:.04em;padding:3px 6px;border-radius:3px}
-.badge.val{background:var(--ev-tint);color:var(--ev)}
-.badge.der{background:var(--tint);color:var(--an)}
-.badge.exp{background:var(--red-tint);color:var(--red)}
+td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:right}
 
-.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
-.flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
-.fn{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:10px 12px;min-width:0;flex:1 1 120px}
+/* flows */
+.flow{display:flex;align-items:stretch;flex-wrap:wrap}
+.fn{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:10px 12px;min-width:0;flex:1 1 130px}
 .fn small{display:block;font-size:12px;color:var(--muted);line-height:1.35;margin-top:3px}
 .fn b{font:600 13px var(--f-mono)}
-.fa{display:flex;align-items:center;justify-content:center;padding:0 6px;color:var(--muted);font:600 11px var(--f-mono);flex:0 0 auto}
-.fn.an{border-color:var(--an)} .fn.load{border-color:var(--amber)} .fn.gen{border-color:var(--ev)} .fn.inv{border-style:dashed;background:transparent}
+.fn.t{border-color:var(--teal)} .fn.a{border-color:var(--amber)} .fn.r{border-color:var(--red)} .fn.b{border-color:var(--blue)}
+.fa{display:flex;align-items:center;justify-content:center;padding:0 6px;color:var(--muted);font:600 12px var(--f-mono);flex:0 0 auto}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.pane{border:1px solid var(--line);border-radius:6px;padding:14px;background:var(--surface);min-width:0}
+.callout{font:600 21px/1.35 var(--f-display);font-stretch:95%;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:18px 0;margin:28px 0;max-width:62ch}
 
-/* widget shell */
-.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden}
-.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.w-head .eyebrow{color:var(--an-deep)}
-.w-body{display:grid;grid-template-columns:minmax(0,280px) minmax(0,1fr);gap:0}
-.w-ctrl{padding:14px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:13px}
-.w-out{padding:14px;min-width:0}
-.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
-.ctl label .v{color:var(--an-deep);font-weight:700}
-.ctl input[type=range]{width:100%;accent-color:var(--an);margin:0}
-.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+/* feeder map */
+#fmap svg{width:100%;min-width:760px;height:auto;display:block}
+.hs{cursor:pointer}
+.hs .hit{fill:transparent}
+.hs:hover .hit,.hs:focus .hit,.hs.on .hit{fill:color-mix(in srgb,var(--teal) 14%,transparent);stroke:var(--teal);stroke-dasharray:3 3}
+.mvline{stroke:var(--ink);stroke-width:2.4;fill:none}
+.lvline{stroke:var(--olive);stroke-width:2;fill:none}
+.info{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;border:1px solid var(--line);border-radius:6px;padding:12px 14px;background:var(--surface);margin-top:12px;min-height:64px}
+.info .big{font:800 26px/1 var(--f-display);font-stretch:80%;color:var(--teal);white-space:nowrap}
 
-#vp-svg{width:100%;height:auto;display:block}
-.vp-band{fill:color-mix(in srgb,var(--ev) 14%,transparent)}
-.vp-line{fill:none;stroke:var(--an);stroke-width:2.4}
-.vp-dot{fill:var(--raise);stroke:var(--an);stroke-width:2}
-.vp-dot.bad{stroke:var(--red);fill:var(--red)}
-.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
-.ro{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
-.ro .k{font:600 10px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-.ro .v{font:800 20px/1.1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums}
-.verdict{margin-top:12px;border-radius:6px;padding:10px 12px;font:600 14px var(--f-body);border:1px solid var(--line)}
-.verdict.ok{background:var(--ev-tint);border-color:color-mix(in srgb,var(--ev) 40%,transparent);color:var(--ev)}
-.verdict.bad{background:var(--red-tint);border-color:color-mix(in srgb,var(--red) 40%,transparent);color:var(--red)}
+/* tree walk */
+.tw-node circle{fill:var(--raise);stroke:var(--line);stroke-width:2;transition:.2s}
+.tw-node.seen circle{fill:var(--tint);stroke:var(--teal)}
+.tw-node.barrier circle{fill:var(--red-tint);stroke:var(--red)}
+.tw-node.loop circle{fill:var(--red);stroke:var(--red)}
+.tw-e{stroke:var(--line);stroke-width:2;transition:.2s}
+.tw-e.seen{stroke:var(--teal)}
+.tw-e.loopedge{stroke:var(--red);stroke-dasharray:5 4}
 
+/* sweep */
+.sweep{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;align-items:stretch}
+.sw-n{border:1.5px solid var(--line);border-radius:6px;padding:10px;background:var(--raise);min-width:0;position:relative;transition:.3s}
+.sw-n b{font:600 12px var(--f-mono);display:block}
+.sw-n small{display:block;font-size:11.5px;color:var(--muted);line-height:1.3}
+.sw-n .val{font:700 15px var(--f-mono);margin-top:8px;font-variant-numeric:tabular-nums;min-height:22px;transition:.3s}
+.sw-n.act{border-color:var(--teal);background:var(--tint)}
+
+/* band */
+.band{position:relative;height:56px;margin:8px 0 4px}
+.band .track{position:absolute;left:0;right:0;top:20px;height:14px;border-radius:7px;background:var(--red-tint)}
+.band .ok{position:absolute;top:20px;height:14px;background:var(--tint);border-left:2px solid var(--teal);border-right:2px solid var(--teal)}
+.band .mk{position:absolute;top:8px;width:2px;height:38px;background:var(--ink)}
+.band .mk span{position:absolute;top:-16px;left:50%;transform:translateX(-50%);font:600 11px var(--f-mono);white-space:nowrap;color:var(--ink)}
+.band .tk{position:absolute;top:38px;font:10px var(--f-mono);color:var(--muted);transform:translateX(-50%)}
+
+/* router */
+.route{display:grid;gap:6px}
+.rt{display:grid;grid-template-columns:28px minmax(0,1fr) 90px;gap:10px;align-items:center;padding:8px 12px;border:1px solid var(--line);border-radius:6px;background:var(--surface);transition:.2s;font-size:14px}
+.rt .n{font:800 18px var(--f-display);color:var(--muted)}
+.rt .e{font:600 12px var(--f-mono);text-align:right;color:var(--muted)}
+.rt.skip{opacity:.4}
+.rt.hit{border-color:var(--teal);background:var(--tint);opacity:1}
+.rt.hit .e,.rt.hit .n{color:var(--teal)}
+
+/* hosting */
+.hbar{position:relative;height:42px;border-radius:6px;background:var(--surface);border:1px solid var(--line);margin:10px 0}
+.hbar .feas{position:absolute;top:0;bottom:0;left:0;background:var(--tint);border-radius:6px 0 0 6px}
+.hbar .brk{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--amber) 28%,transparent);border-left:2px solid var(--teal);border-right:2px solid var(--red)}
+.hbar .tr{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--ink)}
+.trials{font:12.5px/1.7 var(--f-mono);max-height:220px;overflow:auto;border:1px solid var(--line2);border-radius:6px;padding:8px 10px;background:var(--surface)}
+.trials .ok{color:var(--teal)} .trials .no{color:var(--red)}
+.pu-line{position:relative;height:80px;margin:16px 0 6px}
+
+/* ties */
+.ties{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.tie{border:1.5px solid var(--line);border-radius:8px;padding:14px;background:var(--raise);cursor:pointer;text-align:left;font:inherit;color:inherit;min-width:0}
+.tie[aria-pressed="true"]{border-color:var(--ink)}
+.tie h4{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.verdict{font:700 13px var(--f-mono);padding:3px 8px;border-radius:4px}
+.verdict.ok{background:var(--tint);color:var(--teal)} .verdict.no{background:var(--red-tint);color:var(--red)}
+
+/* ppe */
+.ppe{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px;margin-top:10px}
+.ppe div{padding:8px 6px;border-radius:4px;font:600 11.5px/1.3 var(--f-mono);text-align:center;border:2px solid transparent}
+.ppe div small{display:block;font-weight:400;font-size:10.5px;color:var(--muted)}
+.ppe div.on{border-color:var(--ink)}
+
+/* flags decoder */
+.chipset{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.chipset button{font:500 12.5px var(--f-mono);padding:6px 10px;border-radius:20px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.chipset button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+footer{margin-top:70px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
 .note{font-size:13px;color:var(--muted);border-left:2px solid var(--line);padding-left:12px;margin:12px 0}
-.tip{border-left-color:var(--an)}
-footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
 
-@media (max-width:760px){
-  .w-body{grid-template-columns:1fr}
-  .w-ctrl{border-right:0;border-bottom:1px solid var(--line)}
-  .flow{flex-direction:column}.fa{width:100%;padding:4px 0}
-  .two{grid-template-columns:1fr}.readout{grid-template-columns:1fr}
-  .ch-num{font-size:40px}
+@media (max-width:860px){
+  .hero{grid-template-columns:1fr;gap:22px;padding-top:34px}
+  .bench-b{grid-template-columns:1fr}.ins{border-right:0;border-bottom:1px solid var(--line)}
+  .two,.three,.ties{grid-template-columns:1fr}
+  .sweep{grid-template-columns:1fr 1fr}
+  .ppe{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .flow{flex-direction:column}.fa{padding:4px 0}
+  .ch-num{font-size:44px}
+  .info{grid-template-columns:1fr}
 }
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head><body>
 
 <nav class="rail" aria-label="Chapters">
   <div class="rail-in">
-    <div class="brand"><span class="dot"></span>Network Analysis</div>
     <div class="chaps" id="chaps">
-      <a href="#c1">1 · The graph</a><a href="#c2">2 · Tree &amp; barriers</a><a href="#c3">3 · What nodes do</a><a href="#c4">4 · Transformers</a><a href="#c5">5 · Voltage profile</a><a href="#c6">6 · Graceful degradation</a><a href="#c7">7 · Anatomy of a run</a><a href="#c8">8 · The studies</a>
+      <a href="#c0">Overview</a><a href="#c1">1 · Model</a><a href="#c2">2 · Load flow</a><a href="#c3">3 · Mesh</a><a href="#c4">4 · Fault</a><a href="#c5">5 · Protection</a><a href="#c6">6 · Ampacity</a><a href="#c7">7 · Arc-flash</a><a href="#c8">8 · Planning</a><a href="#c9">9 · Appendix</a>
+    </div>
+    <div class="seg" role="group" aria-label="Reading lane">
+      <button data-l="both" aria-pressed="true">Both</button>
+      <button data-l="op" aria-pressed="false" title="Operator / planner layer only">▶ Operator</button>
+      <button data-l="md" aria-pressed="false" title="Method &amp; math layer only">∑ Math</button>
     </div>
   </div>
 </nav>
 
 <div class="wrap">
 
-<header class="hero">
-  <div class="eyebrow">VoltEdge guide · the shared model behind every analysis study</div>
-  <h1>Network Analysis:<br><span>how features become maths</span></h1>
-  <p class="lede">Every study — load flow, fault, hosting, EV headroom — runs over one shared model: your connected features, read as a graph. Understand that model and you understand all seventeen studies. Drive the voltage profile yourself below.</p>
-  <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
-    <span class="tag pl" style="margin:0">▶ Planner — what it means &amp; when to run it</span>
-    <span class="tag en" style="margin:0">∑ Engineer — the model &amp; equations</span>
+<header class="hero" id="c0">
+  <div>
+    <div class="eyebrow">VoltEdge companion · every study under /analysis</div>
+    <h1>Engineering<br><span>Studies</span></h1>
+    <p class="lede">What each network study actually computes: the model, the assumptions, the maths, and how far to trust the number. Every calculator on this page runs the guide’s own formulas on the guide’s own worked data, so you can move an input and watch the answer respond.</p>
+  </div>
+  <div>
+    <p class="thesis">One engine, many questions. Turn connected features into a graph, walk it, read each feature’s inputs from its own attributes, and solve. Every study is a variation on that.</p>
+    <div class="cast">
+      <div class="who"><b>Tom</b><small>Network analyst / planner. Runs most studies.</small></div>
+      <div class="who"><b>Priya</b><small>Control-room dispatcher. Fault levels, backfeed, arc-flash before switching.</small></div>
+      <div class="who"><b>Dana</b><small>Field-supervising editor. Surveys the nameplates studies depend on.</small></div>
+    </div>
   </div>
 </header>
 
-<!-- ============ CH1 ============ -->
-<section class="ch" id="c1">
-  <div class="ch-head"><div class="ch-num">01</div><h2>Your features become a graph</h2><p>A study doesn't look at a map. It looks at the connectivity graph.</p></div>
+<figure id="fmap">
+  <div class="fig-t"><h4>Feeder 7, the guide’s recurring network</h4><span class="eyebrow">schematic · hover or tap a part to see where it appears</span></div>
+  <div class="scroll">
+  <svg viewBox="0 0 940 340" role="img" aria-label="Schematic of Feeder 7 and the assets used in the worked examples">
+    <!-- source & head breaker -->
+    <g class="hs" data-i="head" tabindex="0"><rect class="hit" x="8" y="80" width="150" height="80" rx="6"/>
+      <rect x="20" y="100" width="34" height="40" rx="3" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.5"/><text x="37" y="125" text-anchor="middle" class="lbl">11kV</text>
+      <rect x="92" y="110" width="20" height="20" rx="2" fill="var(--ink)"/><circle cx="102" cy="150" r="9" fill="var(--raise)" stroke="var(--blue)" stroke-width="1.5"/><text x="102" y="154" text-anchor="middle" class="sml" style="fill:var(--blue)">R</text>
+      <text x="20" y="94" class="sml">Oakwood Zone · head</text></g>
+    <line class="mvline" x1="54" y1="120" x2="92" y2="120"/>
+    <line class="mvline" x1="112" y1="120" x2="200" y2="120"/>
+    <!-- overhead -->
+    <g class="hs" data-i="ohl" tabindex="0"><rect class="hit" x="198" y="96" width="140" height="44" rx="6"/>
+      <line x1="200" y1="120" x2="336" y2="120" stroke="var(--ink)" stroke-width="2.4" stroke-dasharray="10 4"/>
+      <text x="268" y="110" text-anchor="middle" class="sml">overhead · ACSR Dog</text></g>
+    <line class="mvline" x1="336" y1="120" x2="850" y2="120"/>
+    <text x="560" y="112" class="sml">Feeder 7 · 11 kV</text>
+    <!-- lateral fuse -->
+    <g class="hs" data-i="fuse" tabindex="0"><rect class="hit" x="350" y="10" width="120" height="104" rx="6"/>
+      <line class="mvline" x1="400" y1="120" x2="400" y2="34"/>
+      <rect x="392" y="62" width="16" height="26" rx="2" fill="var(--raise)" stroke="var(--amber)" stroke-width="2"/><line x1="400" y1="62" x2="400" y2="88" stroke="var(--amber)" stroke-width="1.5"/>
+      <path d="M392 28 l8 -12 l2 8 l8 -10" stroke="var(--red)" stroke-width="2" fill="none"/>
+      <text x="414" y="72" class="sml">MV_FUSE 63 A</text><text x="414" y="84" class="sml">Oakwood lateral</text><text x="416" y="30" class="sml" style="fill:var(--red)">fault</text></g>
+    <!-- TX-014 -->
+    <g class="hs" data-i="tx14" tabindex="0"><rect class="hit" x="470" y="124" width="110" height="70" rx="6"/>
+      <line class="mvline" x1="520" y1="120" x2="520" y2="140"/>
+      <circle cx="520" cy="152" r="12" fill="none" stroke="var(--teal)" stroke-width="2.2"/><circle cx="520" cy="170" r="12" fill="none" stroke="var(--teal)" stroke-width="2.2"/>
+      <text x="538" y="156" class="lbl">TX-Feeder7-014</text><text x="538" y="169" class="sml">315 kVA · 4.5 %</text></g>
+    <!-- LV board -->
+    <g class="hs" data-i="board" tabindex="0"><rect class="hit" x="440" y="190" width="160" height="34" rx="6"/>
+      <line x1="520" y1="182" x2="520" y2="206" stroke="var(--olive)" stroke-width="2"/>
+      <rect x="450" y="206" width="140" height="8" rx="2" fill="var(--olive)"/>
+      <text x="596" y="215" class="sml">LV board · 415 V</text></g>
+    <!-- spur -->
+    <g class="hs" data-i="spur" tabindex="0"><rect class="hit" x="444" y="218" width="226" height="100" rx="6"/>
+      <path class="lvline" d="M470 214 V280 H640"/>
+      <circle cx="470" cy="290" r="5" fill="var(--olive)"/><circle cx="555" cy="290" r="5" fill="var(--olive)"/><circle cx="640" cy="290" r="5" fill="var(--olive)"/>
+      <line x1="470" y1="280" x2="470" y2="285" stroke="var(--olive)" stroke-width="2"/><line x1="555" y1="280" x2="555" y2="285" stroke="var(--olive)" stroke-width="2"/><line x1="640" y1="280" x2="640" y2="285" stroke="var(--olive)" stroke-width="2"/>
+      <text x="470" y="308" text-anchor="middle" class="sml">221</text><text x="555" y="308" text-anchor="middle" class="sml">222</text><text x="640" y="308" text-anchor="middle" class="sml">223</text>
+      <text x="500" y="274" class="sml">A 60 m</text><text x="585" y="274" class="sml">B · C</text></g>
+    <!-- generator -->
+    <g class="hs" data-i="gen" tabindex="0"><rect class="hit" x="370" y="218" width="72" height="66" rx="6"/>
+      <path class="lvline" d="M450 210 H410 V236" style="stroke-dasharray:4 3"/>
+      <circle cx="410" cy="250" r="13" fill="var(--raise)" stroke="var(--violet)" stroke-width="2"/><text x="410" y="254" text-anchor="middle" class="lbl" style="fill:var(--violet)">G</text>
+      <text x="380" y="280" class="sml">500 kVA what-if</text></g>
+    <!-- link box -->
+    <g class="hs" data-i="lb" tabindex="0"><rect class="hit" x="676" y="186" width="120" height="70" rx="6"/>
+      <path class="lvline" d="M590 204 H700 V196 H740"/><path class="lvline" d="M590 212 H700 V228 H740"/>
+      <rect x="740" y="190" width="22" height="44" rx="3" fill="var(--raise)" stroke="var(--olive)" stroke-width="2"/>
+      <text x="704" y="248" class="sml">LB-Oakwood-3</text><text x="704" y="186" class="sml">legs A · B</text></g>
+    <!-- TX-019 -->
+    <g class="hs" data-i="tx19" tabindex="0"><rect class="hit" x="764" y="124" width="104" height="110" rx="6"/>
+      <line class="mvline" x1="810" y1="120" x2="810" y2="140"/>
+      <circle cx="810" cy="152" r="12" fill="none" stroke="var(--teal)" stroke-width="2.2"/><circle cx="810" cy="170" r="12" fill="none" stroke="var(--teal)" stroke-width="2.2"/>
+      <path class="lvline" d="M810 182 V212 H762" style="stroke-dasharray:4 3"/>
+      <text x="776" y="200" class="sml">TX-Feeder7-019</text></g>
+    <!-- ties -->
+    <g class="hs" data-i="ties" tabindex="0"><rect class="hit" x="846" y="20" width="90" height="140" rx="6"/>
+      <rect x="852" y="111" width="18" height="18" rx="2" fill="var(--raise)" stroke="var(--red)" stroke-width="2"/>
+      <path class="mvline" d="M740 120 V60 H852" style="stroke-width:1.6"/>
+      <rect x="852" y="51" width="18" height="18" rx="2" fill="var(--raise)" stroke="var(--red)" stroke-width="2"/>
+      <line x1="870" y1="120" x2="906" y2="120" stroke="var(--blue)" stroke-width="2.4"/><line x1="870" y1="60" x2="906" y2="60" stroke="var(--blue)" stroke-width="2.4"/>
+      <line x1="906" y1="36" x2="906" y2="150" stroke="var(--blue)" stroke-width="6" stroke-linecap="round"/>
+      <text x="848" y="146" class="sml">TIE-79-A</text><text x="848" y="44" class="sml">TIE-79-B</text><text x="896" y="168" class="sml" style="fill:var(--blue)">Feeder 9</text></g>
+  </svg>
+  </div>
+  <div class="info" aria-live="polite"><div class="eyebrow" id="fi-ch">select a part</div><div id="fi-t" class="sm">Every worked example in the guide happens somewhere on this feeder. Positions are schematic; the guide doesn’t give a full single-line.</div><div class="big" id="fi-n"></div></div>
+</figure>
 
-  <p><strong>▶</strong> When you run a study, VoltEdge ignores the map. It reads the <strong>connectivity graph</strong>: every feature is a <em>node</em>, every committed electrical connection is an <em>edge</em>. You nominate one <strong>start feature</strong> — the source — and the engine walks <em>outward along power flow</em>, away from the source, following connections until it runs out of network or hits something that stops it.</p>
+<h3>The studies at a glance</h3>
+<p>Every study is one <code>POST</code> under <code>/analysis</code>, strictly read-only, gated by the <code>analysis:run</code> permission. Each carries a <strong>validation tier</strong> on its “How this was calculated” strip, so you know how far to trust it.</p>
+<div class="three" style="margin-top:14px">
+  <div class="pane"><span class="tier v">Validated</span><p class="sm" style="margin:8px 0 0">Checked against independent hand calculations or canonical reference data. Safe to defend in a design review, within its assumptions.</p></div>
+  <div class="pane"><span class="tier d">Derived</span><p class="sm" style="margin:8px 0 0">Built on a validated core, but the study’s own extra layer isn’t independently tested. Sound physics, reasoned wrapping.</p></div>
+  <div class="pane"><span class="tier e">Experimental</span><p class="sm" style="margin:8px 0 0">Novel or complex and not yet verified. Indicative only, a first look, not an authoritative figure.</p></div>
+</div>
+<div class="tbl"><table>
+  <tr><th>Family</th><th>Study</th><th>Endpoint</th><th>Tier</th><th>Ch</th></tr>
+  <tr><td rowspan="5"><b>Load flow</b></td><td>Radial load flow</td><td><code>/load-flow</code></td><td><span class="tier v">Validated</span></td><td><a href="#c2">2</a></td></tr>
+  <tr><td>Voltage profile</td><td><code>/voltage-profile</code></td><td><span class="tier d">Derived</span></td><td><a href="#c2">2</a></td></tr>
+  <tr><td>Meshed load flow</td><td><code>/meshed-load-flow</code></td><td><span class="tier d">Derived</span></td><td><a href="#c3">3</a></td></tr>
+  <tr><td>Nodal (Y-bus) load flow</td><td><code>/nodal-load-flow</code></td><td><span class="tier e">Experimental</span></td><td><a href="#c3">3</a></td></tr>
+  <tr><td>Auto load flow (router)</td><td><code>/load-flow-auto</code></td><td><span class="tier d">Derived</span></td><td><a href="#c3">3</a></td></tr>
+  <tr><td rowspan="4"><b>Fault &amp; protection</b></td><td>Fault current (3-ph + SLG)</td><td><code>/fault-current</code></td><td><span class="tier v">Validated</span></td><td><a href="#c4">4</a></td></tr>
+  <tr><td>Protection coordination</td><td><code>/coordination</code></td><td><span class="tier d">Derived</span></td><td><a href="#c5">5</a></td></tr>
+  <tr><td>Conductor ampacity (IEEE 738)</td><td><code>/ampacity</code></td><td><span class="tier d">Derived</span></td><td><a href="#c6">6</a></td></tr>
+  <tr><td>Arc-flash (IEEE 1584)</td><td><code>/arc-flash</code></td><td><span class="tier e">Experimental</span></td><td><a href="#c7">7</a></td></tr>
+  <tr><td rowspan="4"><b>Capacity &amp; planning</b></td><td>Contingency / backfeed (N-1)</td><td><code>/contingency</code></td><td><span class="tier d">Derived</span></td><td><a href="#c8">8</a></td></tr>
+  <tr><td>Hosting capacity (DER)</td><td><code>/hosting-capacity</code></td><td><span class="tier d">Derived</span></td><td><a href="#c8">8</a></td></tr>
+  <tr><td>EV feeder headroom</td><td><code>/ev-hosting</code></td><td><span class="tier d">Derived</span></td><td><a href="#c8">8</a></td></tr>
+  <tr><td>Load-growth forecast</td><td><code>/load-growth</code></td><td><span class="tier d">Derived</span></td><td><a href="#c8">8</a></td></tr>
+</table></div>
+<p class="note">Also listed with tiers in the guide: unbalanced load flow (coupled Carson, <b>Validated</b> against IEEE 13-node Config 601 to 4 decimals; the decoupled path and Carson self-impedance diagonal are not verified), and Volt-VAR control, tap optimization, storage dispatch and VVO (all <b>Experimental</b>). The validated tiers rest on the <code>*_integration_test.go</code> suite in <code>api/internal/powerflow</code>; moving a study up a tier means adding a reference check there.</p>
+
+<!-- ================= CH1 ================= -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>Foundations: the shared network model</h2><p>Understand this once and every later chapter is the same engine asking a different question.</p></div>
+
+  <h3>Your features become a graph</h3>
+  <p>A study never looks at the map. It looks at the <strong>connectivity graph</strong> and walks outward from a <strong>start feature</strong> along power flow, building a <strong>tree</strong> where every feature hangs off the source by exactly one path. Try it: open the switch, or close a second path.</p>
 
   <figure>
-    <div class="fig-t"><h4>Same features, two different pictures</h4></div>
+    <div class="fig-t"><h4>The radial walk, barriers and loops</h4>
+      <div class="presets"><button class="btn" id="tw-sw">Open the switch</button><button class="btn" id="tw-lp">Add a second path</button><button class="btn pri" id="tw-run">Run the walk</button></div></div>
+    <div class="scroll"><svg id="tw" viewBox="0 0 700 230" style="width:100%;min-width:560px;display:block" role="img" aria-label="Breadth-first walk over a small feeder"></svg></div>
+    <div class="info" style="grid-template-columns:auto 1fr"><div class="eyebrow" id="tw-st">ready</div><div id="tw-msg" class="sm">The walk is breadth-first from the start node, queries only downstream neighbours, and is capped defensively at 2000 nodes.</div></div>
+    <figcaption><b>Barriers are data, not code.</b> The engine loads the <code>DOWNSTREAM_TRACE</code> configuration’s <code>trace_barrier_rules</code>: <code>DIST_SWITCH</code>, <code>SERVICE_CUTOUT</code>, <code>LV_LINK_BOX</code>, each on <code>device_state = OPEN</code>, checked live on every run. <b>Loops abort radial studies</b> with an error naming the feature; the meshed engine instead records the loop-closing edge as a <code>meshBreak</code> (Chapter 3). The one override: a tie the contingency study closes hypothetically, in memory only.</figcaption>
+  </figure>
+
+  <div class="tip">💡 If a study fails with “not radial (loop/mesh detected)”, run <code>LOOP_CHECK_TRACE</code> to find and open the loop, or switch to the meshed or nodal engine.</div>
+
+  <h3>What each feature contributes</h3>
+  <div class="three">
+    <div class="pane"><span class="eyebrow">Source · start node</span><h4 style="margin:6px 0">Nominal + Thévenin</h4><p class="sm muted" style="margin:0"><code>nominal_voltage_v</code> is required. <code>source_r_ohm</code> / <code>source_x_ohm</code> make it sag under load and give a finite fault level; absent means an ideal stiff source. Zero-sequence via <code>source_r0_ohm</code> / <code>source_x0_ohm</code>.</p></div>
+    <div class="pane"><span class="eyebrow">Load · generation</span><h4 style="margin:6px 0">kW + power factor</h4><p class="sm muted" style="margin:0"><code>demand_kw</code> and <code>power_factor</code> give <span class="mono">Q = P·tan(acos pf)</span>; bad pf → unity. Generation is negative load from <code>dispatch_kw</code> (authoritative even at 0), falling back to <code>rated_kw</code>.</p></div>
+    <div class="pane"><span class="eyebrow">EV charging</span><h4 style="margin:6px 0">Diversified, then capped</h4><p class="sm muted" style="margin:0"><span class="mono">effective_kw = min(managed_demand_cap_kw, connected_load_kw × diversity_factor)</span>, read from the station’s own roll-up. Diversity defaults to 1.0; no cap if absent.</p></div>
+  </div>
+
+  <h3>Transformers: where the voltage base changes</h3>
+  <p>A transformer rebases everything below it and drops voltage through its own impedance. Below is the exact two-winding model, preloaded with <strong>TX-Feeder7-014</strong> and the 100 kW service from the guide’s micro-example.</p>
+
+  <div class="bench" id="bA">
+    <div class="bench-h"><h4>Transformer model &amp; drop</h4><span class="eyebrow">§1.6 · §1.11</span></div>
+    <div class="bench-b">
+      <div class="ins">
+        <div class="presets"><button class="btn" data-preset="A-guide">TX-Feeder7-014 · 100 kW</button></div>
+        <div class="grp">Nameplate</div>
+        <div class="fld"><label for="a-kva">rated_kva</label><input id="a-kva" type="number" value="315" min="1" step="5"></div>
+        <div class="fld"><label for="a-vp">primary_voltage<small>V (from "11KV")</small></label><input id="a-vp" type="number" value="11000" min="1"></div>
+        <div class="fld"><label for="a-vs">secondary_voltage<small>V</small></label><input id="a-vs" type="number" value="415" min="1"></div>
+        <div class="fld"><label for="a-z">impedance_pct</label><input id="a-z" type="number" value="4.5" min="0" step="0.1"><input type="range" id="a-zr" min="0" max="10" step="0.1" value="4.5" aria-label="impedance percent slider"></div>
+        <div class="fld"><label for="a-xr">x_r_ratio<small>default 2.0</small></label><input id="a-xr" type="number" value="2" min="0.1" step="0.1"></div>
+        <div class="fld"><label for="a-tp">tap_position</label><input id="a-tp" type="number" value="0" step="1"></div>
+        <div class="fld"><label for="a-ts">tap_step_pct</label><input id="a-ts" type="number" value="0" step="0.25"></div>
+        <div class="grp">Downstream load</div>
+        <div class="fld"><label for="a-p">demand_kw</label><input id="a-p" type="number" value="100" min="0" step="5"><input type="range" id="a-pr" min="0" max="400" step="5" value="100" aria-label="demand slider"></div>
+        <div class="fld"><label for="a-pf">power_factor</label><input id="a-pf" type="number" value="0.95" min="0" max="1" step="0.01"></div>
+      </div>
+      <div class="outs">
+        <div class="kpis">
+          <div class="kpi hl"><div class="eyebrow">Secondary voltage</div><div class="v" id="a-o-v">—</div></div>
+          <div class="kpi"><div class="eyebrow">Transformer drop</div><div class="v" id="a-o-dv">—</div></div>
+          <div class="kpi"><div class="eyebrow">Loading</div><div class="v" id="a-o-ld">—</div></div>
+        </div>
+        <div class="rows" id="a-rows"></div>
+        <div class="eq" style="margin-top:14px">Z<sub>base</sub> = <span class="frac"><span>V<sub>sec</sub>²</span><span>S<sub>rated</sub></span></span>&nbsp;&nbsp; Z<sub>series</sub> = <span class="frac"><span>%Z</span><span>100</span></span>·Z<sub>base</sub>&nbsp;&nbsp; R = <span class="frac"><span>Z<sub>series</sub></span><span>√(1+XR²)</span></span>&nbsp;&nbsp; ΔV ≈ <span class="frac"><span>P·R + Q·X</span><span>V</span></span></div>
+        <p class="guide-check" id="a-chk"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="md-b md-only">
+    <span class="tag md">∑ Three-winding units</span>
+    <p>A <code>tertiary_voltage</code> turns on the star equivalent: three arms meeting at a common point, from the three measured pair impedances.</p>
+    <div class="eq">Z<sub>H</sub> = ½(Z<sub>HL</sub> + Z<sub>HT</sub> − Z<sub>LT</sub>)&nbsp;&nbsp;&nbsp; Z<sub>L</sub> = ½(Z<sub>HL</sub> + Z<sub>LT</sub> − Z<sub>HT</sub>)&nbsp;&nbsp;&nbsp; Z<sub>T</sub> = ½(Z<sub>HT</sub> + Z<sub>LT</sub> − Z<sub>HL</sub>)</div>
+    <p class="sm">Each arm is pre-referred to its own winding’s base. With only HV-LV surveyed, it goes on the L arm and the tertiary is ideal. <code>vector_group</code> (default <b>Dyn</b>) is read only by the ground-fault calc.</p>
+  </div>
+
+  <h3>Conductors and the voltage-base convention</h3>
+  <p>A conductor’s impedance is <span class="mono">resistance_ohm_per_km × length_km</span>, with length from <code>ST_Length(geom::geography)</code> in true metres. The engine scans every field on the edge class for one linked to a material spec, so <code>LV_CONDUCTOR</code> and <code>MV_CONDUCTOR</code> needn’t share a field name. Zero-sequence falls back to 3× positive when unrecorded. The spec’s <code>ampacity_amps</code> rides along so overloads are flagged in the same pass.</p>
+
+  <figure>
+    <div class="fig-t"><h4>The base flips at every transformer</h4><span class="eyebrow">read the drop locally</span></div>
     <div class="two">
       <div>
-        <span class="eyebrow">The map — geography</span>
-        <div class="scroll"><svg viewBox="0 0 300 150" style="width:100%;max-width:320px;display:block;margin-top:8px" role="img" aria-label="Features scattered on a map">
-          <rect x="2" y="2" width="296" height="146" rx="6" fill="var(--surface)" stroke="var(--line)"/>
-          <circle cx="40" cy="40" r="6" fill="var(--an)"/><text x="40" y="28" text-anchor="middle" class="sm">src</text>
-          <circle cx="120" cy="80" r="5" fill="var(--amber)"/>
-          <circle cx="200" cy="50" r="5" fill="var(--amber)"/>
-          <circle cx="250" cy="110" r="5" fill="var(--ev)"/>
-          <circle cx="90" cy="120" r="5" fill="var(--amber)"/>
-          <path d="M40 40 L120 80 M120 80 L200 50 M200 50 L250 110 M120 80 L90 120" stroke="var(--muted)" stroke-width="1" stroke-dasharray="2 2"/>
-          <text x="150" y="142" text-anchor="middle" class="sm">coordinates &amp; wiggly cables</text>
-        </svg></div>
+        <div class="fld" style="max-width:340px"><label for="bt-v">voltage_v at an LV service</label><input id="bt-v" type="number" value="409" step="1"></div>
+        <div class="seg" style="margin-top:10px;width:max-content" role="group" aria-label="Base"><button id="bt-lv" aria-pressed="true">nominal_base_v = 415</button><button id="bt-mv" aria-pressed="false">wrongly vs 11 000</button></div>
       </div>
-      <div>
-        <span class="eyebrow">The graph — what the engine sees</span>
-        <div class="scroll"><svg viewBox="0 0 300 150" style="width:100%;max-width:320px;display:block;margin-top:8px" role="img" aria-label="The same features as a radial tree">
-          <g stroke="var(--an)" stroke-width="1.6" fill="none"><path d="M150 24 V54"/><path d="M150 72 L90 102"/><path d="M150 72 L210 102"/><path d="M210 102 V128"/></g>
-          <g><rect x="118" y="10" width="64" height="22" rx="4" fill="var(--tint)" stroke="var(--an)"/><text x="150" y="25" text-anchor="middle" class="lbl">SOURCE</text></g>
-          <g><rect x="118" y="56" width="64" height="20" rx="4" fill="var(--raise)" stroke="var(--line)"/><text x="150" y="70" text-anchor="middle" class="lbl">node</text></g>
-          <g><rect x="60" y="100" width="60" height="20" rx="4" fill="var(--raise)" stroke="var(--line)"/><text x="90" y="114" text-anchor="middle" class="lbl">load</text></g>
-          <g><rect x="180" y="100" width="60" height="20" rx="4" fill="var(--raise)" stroke="var(--line)"/><text x="210" y="114" text-anchor="middle" class="lbl">node</text></g>
-          <g><rect x="180" y="128" width="60" height="20" rx="4" fill="var(--ev-tint)" stroke="var(--ev)"/><text x="210" y="142" text-anchor="middle" class="lbl">gen</text></g>
-        </svg></div>
-      </div>
+      <div class="kpis" style="margin:0"><div class="kpi" id="bt-k"><div class="eyebrow">voltage_drop_pct</div><div class="v" id="bt-o">—</div></div><div class="kpi"><div class="eyebrow">voltage_pu</div><div class="v" id="bt-pu">—</div></div></div>
     </div>
-    <figcaption><b>∑</b> A node is the pair <code>(feature_class_id, feature_id)</code> — the same identity the tracing engine uses. Edges come from <code>runtime.feature_connectivity</code>; the walk only ever follows <b>downstream</b> neighbours, because a study always goes with power away from the source. Each node records its <b>parent</b> and its <b>children</b> — and, for a transformer, which winding each child left through.</figcaption>
+    <figcaption>Every node reports against <b>its own base</b>: the run nominal above a transformer, the secondary below it. A ~96 % “drop” means you’re reading an LV voltage against the MV base; <code>nominal_base_v</code> exists so you don’t.</figcaption>
   </figure>
+
+  <h3>Anatomy of a run: the micro-example, step by step</h3>
+  <p>Every radial study follows five steps: resolve the start, build the tree, resolve node states, solve, format. Nothing writes to the database. Step through the solve on the smallest slice of Feeder 7.</p>
+
+  <figure>
+    <div class="fig-t"><h4>Backward pass, then forward pass</h4>
+      <div class="presets"><button class="btn" id="sw-back">◀ Backward pass</button><button class="btn" id="sw-fwd">Forward pass ▶</button><button class="btn" id="sw-reset">Reset</button></div></div>
+    <div class="sweep" id="sweep">
+      <div class="sw-n" data-i="0"><b>Source</b><small>11 000 V nominal</small><div class="val"></div></div>
+      <div class="sw-n" data-i="1"><b>MV cable</b><small>240 mm² AL, 300 m</small><div class="val"></div></div>
+      <div class="sw-n" data-i="2"><b>TX-Feeder7-014</b><small>315 kVA, 4.5 %, X/R 2</small><div class="val"></div></div>
+      <div class="sw-n" data-i="3"><b>LV cable</b><small>185 mm² AL, 60 m</small><div class="val"></div></div>
+      <div class="sw-n" data-i="4"><b>SERVICE-Oakwood-221</b><small>100 kW, pf 0.95</small><div class="val"></div></div>
+    </div>
+    <div class="info" style="grid-template-columns:auto 1fr"><div class="eyebrow" id="sw-st">idle</div><div id="sw-msg" class="sm">Backward walks the BFS order in reverse so every child is done before its parent. Forward runs a fixed <b>3 iterations</b>, each re-measuring a branch’s ΔV against the previous pass’s sending-end voltage.</div></div>
+    <figcaption><b>The takeaway for Tom:</b> the base correctly flips to 415 V below the transformer, and the transformer, not the cables, is where most of this feeder’s drop happens. Branch current comes back as <span class="mono">I = S / V</span>; anything over its ampacity or kVA rating is flagged <i>overloaded</i> in the same pass.</figcaption>
+  </figure>
+
+  <h3>Graceful degradation</h3>
+  <p class="callout">Missing data degrades the answer; it doesn’t fail the run. And the result tells you which numbers were assumed.</p>
+  <div class="tbl"><table>
+    <tr><th>Missing</th><th>Fallback</th><th>Flag / effect</th></tr>
+    <tr><td>Conductor material / resistance</td><td>drops nothing</td><td><code>material_resolved = false</code></td></tr>
+    <tr><td>Transformer X/R</td><td>2.0</td><td>—</td></tr>
+    <tr><td>Transformer %Z</td><td>ideal ratio</td><td>optimistic</td></tr>
+    <tr><td>Power factor</td><td>1.0 (unity)</td><td>Q = 0</td></tr>
+    <tr><td>Tap position</td><td>nominal</td><td>—</td></tr>
+    <tr><td>Generator dispatch</td><td>nameplate <code>rated_kw</code></td><td>—</td></tr>
+    <tr><td>Source impedance</td><td>ideal stiff</td><td>infinite fault level at source</td></tr>
+    <tr><td>Zero-sequence</td><td>3× positive (line) · Z0 = Z1 (transformer/source)</td><td><code>zero_seq_estimated</code></td></tr>
+  </table></div>
+  <div class="tip">💡 A first run on a new feeder that looks “too good” (no drops, no losses) is the signal to send Dana out to survey nameplates, not a bug.</div>
 </section>
 
-<!-- ============ CH2 ============ -->
+<!-- ================= CH2 ================= -->
 <section class="ch" id="c2">
-  <div class="ch-head"><div class="ch-num">02</div><h2>The radial tree &amp; its barriers</h2><p>One path to every point — and open devices stop the walk.</p></div>
+  <div class="ch-head"><div class="ch-num">02</div><h2>Radial load flow &amp; the voltage profile</h2><p>Is the voltage acceptable at the far end? Is anything overloaded? One solve, two readings.</p>
+    <div class="tiers"><span class="tier v">Load flow · Validated</span><span class="tier d">Voltage profile · Derived</span></div></div>
 
-  <p><strong>▶</strong> The fast load-flow and fault engines assume the network downstream of your start is <strong>radial</strong> — a tree, where power reaches every point by a single path. Real distribution is almost always run radially (rings exist but are run open at a tie), so this is usually exactly right. Two things shape the tree:</p>
-
-  <div class="flow" style="margin:18px 0">
-    <div class="fn no" style="border-color:var(--red)"><b>A loop → it stops</b><small>a point reachable two ways isn't radial. The engine <em>names the feature and refuses</em> rather than guess a path. (Use the meshed/nodal engine for loops.)</small></div>
-    <div class="fa"> </div>
-    <div class="fn" style="border-color:var(--amber)"><b>An open device → a barrier</b><small>an open switch/cutout/link box de-energises everything beyond it, so the walk stops there and records a <em>barrier hit</em>. An open ring becomes two radial feeders.</small></div>
+  <div class="two">
+    <div class="pane"><span class="eyebrow">/analysis/load-flow</span><h4 style="margin:6px 0">Chasing loadings</h4><p class="sm muted" style="margin:0">Per-feature voltage, cumulative kW/kVAR, conductor current vs ampacity, transformer kVA vs rating, plus ready lists of <b>overloaded</b> and <b>barriers</b>.</p></div>
+    <div class="pane"><span class="eyebrow">/analysis/voltage-profile</span><h4 style="margin:6px 0">Signing off compliance</h4><p class="sm muted" style="margin:0">The identical sweep, plus a per-unit band check against ANSI C84.1 and an I²R loss summary. Costs nothing extra.</p></div>
   </div>
 
-  <div class="en-b">
-    <span class="tag en">∑ Barriers are data, not code</span>
-    <p>"Radial" is enforced in <code>buildTree</code>: reach an already-visited node by a second path and the radial callers abort with an <code>invalid</code> error. Barriers load the <code>DOWNSTREAM_TRACE</code> config's own <code>trace_barrier_rules</code> — the same rows the downstream trace uses (<code>DIST_SWITCH</code>, <code>SERVICE_CUTOUT</code>, <code>LV_LINK_BOX</code> on <code>device_state = OPEN</code>) — checked <b>live</b> against each feature's current attributes on every run, never baked into a stored graph. The one override: a node the contingency study hypothetically <em>closed</em> (a normally-open tie) isn't treated as a barrier for that run — in memory only, never touching committed connectivity.</p>
+  <div class="md-b md-only">
+    <span class="tag md">∑ The request</span>
+    <pre class="mono" style="margin:8px 0;white-space:pre-wrap">{ "start": { "feature_class": "MV_CONDUCTOR", "feature_id": "…" },
+  "nominal_voltage_v": 11000 }</pre>
+    <p class="sm"><code>nominal_voltage_v</code> is required, never derived: <code>LV_CONDUCTOR</code> carries no voltage class and a <code>DIST_XFMR</code> records only its primary. Line-to-line or phase-to-neutral both work if you stay consistent; the engine doesn’t convert. The profile adds optional <code>min_voltage_pu</code> / <code>max_voltage_pu</code>.</p>
   </div>
 
-  <p class="note tip">💡 If a study fails with <em>"not radial (loop/mesh detected)"</em>, run the <code>LOOP_CHECK_TRACE</code> to find and open the loop — or switch to the meshed/nodal engine (the markdown guide, Chapter 3).</p>
-</section>
-<!-- ============ CH3 ============ -->
-<section class="ch" id="c3">
-  <div class="ch-head"><div class="ch-num">03</div><h2>What a node contributes</h2><p>Load, generation, or both — resolved to one net injection.</p></div>
-
-  <div class="flow" style="margin:18px 0">
-    <div class="fn load"><b>Load</b><small>a demand: <code>demand_kw</code> + <code>power_factor</code>. A <code>SERVICE_POINT</code> at 100 kW, 0.95 pf is the common case.</small></div>
-    <div class="fa">−</div>
-    <div class="fn gen"><b>Generation</b><small>PV, a diesel set, a battery: modelled as <em>negative load</em> — it injects power, lifting local voltage, reducing upstream flow.</small></div>
-    <div class="fa">=</div>
-    <div class="fn an"><b>Net injection</b><small><code>demand − generation</code>. A rooftop-PV-behind-a-meter nets the two; a pure generator ends up negative.</small></div>
-  </div>
-
-  <div class="en-b">
-    <span class="tag en">∑ How each resolves</span>
-    <p><b>Load</b> → <code>(P, Q)</code> from <code>demand_kw</code> and <code>power_factor</code>: <code>Q = P · tan(acos(pf))</code>, with pf defaulting to <b>unity</b> (<code>Q = 0</code>) when unset/invalid — the load is kept, not discarded. <b>Generation</b> → an injection from <code>dispatch_kw</code> (authoritative even at 0 — a curtailed unit injects nothing), falling back to the <code>rated_kw</code> nameplate, at the unit's <code>power_factor</code>. The backward pass carries a negative own-kW up the tree as reduced upstream flow; the forward pass reads it as a local voltage rise — the same negative-demand model the hosting-capacity study uses for a candidate DER.</p>
-    <p class="note" style="margin-top:10px">⚠️ A generator's <em>fault</em> contribution is separate (<code>fault_contribution_ka</code>, <code>subtransient_reactance_pct</code>) — a generator is a load-flow injection <b>and</b> a second fault source, modelled independently (Chapter 4 of the markdown guide).</p>
-  </div>
-
-  <div class="pl-b">
-    <span class="tag pl">▶ Smart EV charging is a special load</span>
-    <p>A charging site's coincident demand is its installed charger load, diversified, then clamped to a managed cap: <code>effective_kw = min(managed_demand_cap_kw, connected_load_kw × diversity_factor)</code>. That's a whole topic — see the dedicated <b>EV Charging</b> interactive guide for the calculator and the feeder-headroom study.</p>
-  </div>
-</section>
-
-<!-- ============ CH4 ============ -->
-<section class="ch" id="c4">
-  <div class="ch-head"><div class="ch-num">04</div><h2>Transformers — where voltage changes base</h2><p>Report a drop against 415 V, not against 11 kV.</p></div>
-
-  <p><strong>▶</strong> A transformer does two things to a study: it <strong>changes the voltage base</strong> (an 11 kV/415 V unit means everything below it is analysed at 415 V), and it <strong>drops some voltage</strong> through its own impedance under load. VoltEdge reads both from the nameplate — the primary/secondary voltages give the ratio, the impedance-percent plus the rating give the through-impedance.</p>
-
+  <h3>The worked example: signing off the Oakwood spur</h3>
   <figure>
-    <div class="fig-t"><h4>The base propagates down through each transformer</h4></div>
-    <div class="scroll"><svg viewBox="0 0 720 150" style="width:100%;min-width:560px;display:block" role="img" aria-label="Voltage base changes from 11 kV to 415 V across the transformer">
-      <line x1="30" y1="60" x2="300" y2="60" stroke="var(--an)" stroke-width="2"/>
-      <text x="40" y="48" class="sm">11 kV base</text><text x="150" y="80" class="sm">MV network — drops vs 11 000 V</text>
-      <rect x="300" y="44" width="60" height="32" rx="5" fill="var(--tint)" stroke="var(--an)"/><text x="330" y="64" text-anchor="middle" class="lbl">XFMR</text>
-      <text x="330" y="96" text-anchor="middle" class="sm">ratio + Z%</text>
-      <line x1="360" y1="60" x2="690" y2="60" stroke="var(--ev)" stroke-width="2"/>
-      <text x="370" y="48" class="sm" style="fill:var(--ev)">415 V base</text><text x="470" y="80" class="sm">LV network — drops vs 415 V</text>
+    <div class="fig-t"><h4>The spur off TX-Feeder7-014, as the guide reports it</h4><span class="eyebrow">voltage profile from the LV board at 415 V</span></div>
+    <div class="scroll"><svg viewBox="0 0 760 210" style="width:100%;min-width:620px;display:block" role="img" aria-label="Oakwood spur with three services">
+      <rect x="20" y="70" width="110" height="40" rx="4" fill="var(--tint)" stroke="var(--teal)"/><text x="75" y="88" text-anchor="middle" class="lbl">LV board</text><text x="75" y="102" text-anchor="middle" class="sml">415 V</text>
+      <line x1="130" y1="90" x2="300" y2="90" stroke="var(--olive)" stroke-width="7"/><text x="215" y="80" text-anchor="middle" class="sml">cable A · 185 mm² AL · 60 m</text><text x="215" y="114" text-anchor="middle" class="sml" style="fill:var(--amber)">≈ 189 kVA · ≈ 459 A · ≈ 2.07 kW loss</text>
+      <line x1="300" y1="90" x2="470" y2="90" stroke="var(--olive)" stroke-width="4"/><text x="385" y="80" text-anchor="middle" class="sml">cable B · 95 mm² AL · 45 m</text>
+      <line x1="470" y1="90" x2="640" y2="90" stroke="var(--olive)" stroke-width="4"/><text x="555" y="80" text-anchor="middle" class="sml">cable C · 95 mm² AL · 40 m</text>
+      <g><circle cx="300" cy="90" r="8" fill="var(--raise)" stroke="var(--olive)" stroke-width="2"/><line x1="300" y1="98" x2="300" y2="140" stroke="var(--olive)" stroke-width="2"/><text x="300" y="158" text-anchor="middle" class="lbl">221</text><text x="300" y="172" text-anchor="middle" class="sml">100 kW · pf 0.95</text></g>
+      <g><circle cx="470" cy="90" r="8" fill="var(--raise)" stroke="var(--olive)" stroke-width="2"/><line x1="470" y1="98" x2="470" y2="140" stroke="var(--olive)" stroke-width="2"/><text x="470" y="158" text-anchor="middle" class="lbl">222</text><text x="470" y="172" text-anchor="middle" class="sml">40 kW · pf 0.95</text></g>
+      <g><circle cx="640" cy="90" r="8" fill="var(--raise)" stroke="var(--olive)" stroke-width="2"/><line x1="640" y1="98" x2="640" y2="140" stroke="var(--olive)" stroke-width="2"/><text x="640" y="158" text-anchor="middle" class="lbl">223 · far end</text><text x="640" y="172" text-anchor="middle" class="sml">40 kW · ≈ 402 V · 0.969 pu</text></g>
+      <text x="20" y="34" class="hd">Summary</text><text x="20" y="52" class="sml">180 kW · 59 kVAR · min 0.969 pu at 223 · ≈ 3 kW loss (1.7 %) · losses_complete = true · 0 violations</text>
     </svg></div>
-    <figcaption>💡 A node deep in LV reports its drop <b>against 415 V</b>, not the 11 kV nominal. A 5 % drop at the service is 5 % of 415 V — not a spurious 96 % drop from 11 kV. The base flips at each transformer and propagates down.</figcaption>
+    <figcaption><b>Tom signs it off.</b> Cable A, the shared trunk, carries the bulk of current and loss, which is where he’d reinforce first. Had cable C no material assigned, it would drop nothing, 223 would read optimistically high, and <code>losses_complete</code> would be <b>false</b>.</figcaption>
   </figure>
 
-  <div class="en-b">
-    <span class="tag en">∑ The two-winding model</span>
-    <p>From <code>primary_voltage</code> (a coded <code>VOLTAGE_CLASS</code>, parsed — "11KV" → 11000), <code>secondary_voltage</code>, <code>impedance_pct</code>, and <code>x_r_ratio</code> (default 2.0). Ratio = <code>secondary/primary</code> × tap factor <code>(1 + tap_position·tap_step_pct/100)</code>. The series impedance referred to the secondary:</p>
-    <div style="font-family:var(--f-mono);font-size:13px;line-height:1.8;margin-top:6px">
-      Z_base&nbsp;&nbsp;= secondary² / S_rated&nbsp;&nbsp;&nbsp;(per-phase ohm)<br>
-      Z_series = (impedance_pct / 100) × Z_base<br>
-      R = Z_series / √(1 + XR²),&nbsp;&nbsp;X = R · XR
-    </div>
-    <p style="margin-top:10px">Rating from <code>rated_kva</code> (distribution) or <code>rated_mva</code> (power, ×1000). Three-winding units (a <code>tertiary_voltage</code> turns the model on) resolve to a <b>star equivalent</b> (three arms meeting at a point); the <code>vector_group</code> (default Dyn) is read only by the ground-fault calc — the balanced load flow ignores it.</p>
-  </div>
-
-  <p class="callout">The transformer — not the cables — is usually where most of a feeder's drop happens. The widget in Chapter 5 shows it.</p>
-</section>
-<!-- ============ CH5 ============ -->
-<section class="ch" id="c5">
-  <div class="ch-head"><div class="ch-num">05</div><h2>The voltage profile</h2><p>The study you run most — drive it yourself.</p></div>
-
-  <p>The everyday study answers two questions: <em>"is the voltage acceptable at the far end?"</em> and <em>"is anything overloaded?"</em> — both from one radial <strong>forward-backward sweep</strong>. The widget below is that sweep on the guide's micro-feeder: source → MV cable → a 315 kVA 11 kV/415 V transformer → LV cable → a service. Each node is plotted in <strong>per-unit against its own base</strong>, so the 11 kV and 415 V halves share one chart; the green band is the ANSI C84.1 <strong>0.95–1.05</strong> range.</p>
-
-  <figure>
-    <div class="widget" id="vp">
-      <div class="w-head"><span class="eyebrow">Interactive · radial voltage profile</span><span class="muted" style="font-size:12px">grow the load, lengthen the cable, watch the far end sag</span></div>
-      <div class="w-body">
-        <div class="w-ctrl">
-          <div class="ctl">
-            <label>service load <span class="v" id="vp-load-v">100 kW</span></label>
-            <input type="range" id="vp-load" min="0" max="300" step="5" value="100">
-          </div>
-          <div class="ctl">
-            <label>power factor <span class="v" id="vp-pf-v">0.95</span></label>
-            <input type="range" id="vp-pf" min="0.8" max="1" step="0.01" value="0.95">
-            <div class="hint">Lower pf draws more kVAR — deeper drop.</div>
-          </div>
-          <div class="ctl">
-            <label>LV cable length <span class="v" id="vp-lv-v">60 m</span></label>
-            <input type="range" id="vp-lv" min="0" max="300" step="10" value="60">
-          </div>
-          <div class="ctl">
-            <label>MV cable length <span class="v" id="vp-mv-v">300 m</span></label>
-            <input type="range" id="vp-mv" min="0" max="2000" step="50" value="300">
-            <div class="hint">At 11 kV its drop is tiny — see for yourself.</div>
-          </div>
+  <div class="bench">
+    <div class="bench-h"><h4>Branch loss &amp; the voltage band</h4><span class="eyebrow">§2.4 · §2.5</span></div>
+    <div class="bench-b">
+      <div class="ins">
+        <div class="presets"><button class="btn" data-preset="C-guide">Cable A · 223 (guide)</button></div>
+        <div class="grp">Branch loss · I²R</div>
+        <div class="fld"><label for="c-s">through kVA</label><input id="c-s" type="number" value="189" min="0"></div>
+        <div class="fld"><label for="c-v">sending-end V</label><input id="c-v" type="number" value="412" min="1"></div>
+        <div class="fld"><label for="c-r">resistance_ohm_per_km</label><input id="c-r" type="number" value="0.164" step="0.001" min="0"></div>
+        <div class="fld"><label for="c-l">length m</label><input id="c-l" type="number" value="60" min="0"><input type="range" id="c-lr" min="0" max="300" value="60" aria-label="length slider"></div>
+        <div class="grp">Band check</div>
+        <div class="fld"><label for="c-nv">voltage_v</label><input id="c-nv" type="number" value="402" step="1"><input type="range" id="c-nvr" min="370" max="450" value="402" aria-label="node voltage slider"></div>
+        <div class="fld"><label for="c-nb">nominal_base_v</label><input id="c-nb" type="number" value="415"></div>
+        <div class="fld"><label for="c-mn">min_voltage_pu</label><input id="c-mn" type="number" value="0.95" step="0.01"></div>
+        <div class="fld"><label for="c-mx">max_voltage_pu</label><input id="c-mx" type="number" value="1.05" step="0.01"></div>
+      </div>
+      <div class="outs">
+        <div class="kpis">
+          <div class="kpi"><div class="eyebrow">Branch current</div><div class="v" id="c-o-i">—</div></div>
+          <div class="kpi hl"><div class="eyebrow">Branch loss</div><div class="v" id="c-o-l">—</div></div>
+          <div class="kpi" id="c-k-pu"><div class="eyebrow">voltage_pu</div><div class="v" id="c-o-pu">—</div></div>
         </div>
-        <div class="w-out">
-          <div class="scroll"><svg id="vp-svg" viewBox="0 0 600 220" role="img" aria-label="Voltage profile from source to service">
-            <rect class="vp-band" x="60" y="31" width="500" height="113"/>
-            <line x1="60" y1="31" x2="560" y2="31" stroke="var(--ev)" stroke-width="1" stroke-dasharray="4 3"/><text x="564" y="34" class="sm" style="fill:var(--ev)">1.05</text>
-            <line x1="60" y1="144" x2="560" y2="144" stroke="var(--red)" stroke-width="1" stroke-dasharray="4 3"/><text x="564" y="147" class="sm" style="fill:var(--red)">0.95</text>
-            <line x1="60" y1="88" x2="560" y2="88" stroke="var(--line)" stroke-width="0.8"/><text x="564" y="91" class="sm">1.00</text>
-            <polyline class="vp-line" id="vp-poly" points="90,88 240,88 400,90 540,95"/>
-            <g id="vp-dots"></g>
-            <text x="90" y="212" text-anchor="middle" class="sm">Source</text>
-            <text x="240" y="212" text-anchor="middle" class="sm">XFMR HV</text>
-            <text x="400" y="212" text-anchor="middle" class="sm">XFMR LV</text>
-            <text x="540" y="212" text-anchor="middle" class="sm">Service</text>
-          </svg></div>
-          <div class="readout">
-            <div class="ro"><div class="k">Service voltage</div><div class="v" id="vp-sv">—</div></div>
-            <div class="ro"><div class="k">Drop (vs 415 V)</div><div class="v" id="vp-drop">—</div></div>
-            <div class="ro"><div class="k">XFMR loading</div><div class="v" id="vp-load2">—</div></div>
-          </div>
-          <div class="verdict ok" id="vp-verdict">Within the ANSI band.</div>
-        </div>
+        <div class="band" id="c-band"><div class="track"></div><div class="ok" id="c-okz"></div><div class="mk" id="c-mk"><span id="c-mkl"></span></div></div>
+        <div class="rows" id="c-rows" style="margin-top:22px"></div>
+        <p class="note">Bands change <b>only the judging, never the solve</b>: the same swept voltages are compared against a different band. A node with base 0 (never reached) is not flagged under-voltage.</p>
       </div>
     </div>
-    <figcaption><b>Watch where the drop happens.</b> The MV cable barely moves the line even at 2 km (the drop is <code>(P·R+Q·X)/11000</code> — divided by 11 kV); the big step is <em>across the transformer</em>, and then the LV cable adds the rest. Push the load up or the pf down and the service dips below the 0.95 floor. This is an illustrative model of the real sweep (<code>runSweep</code> in <code>resolve.go</code>); the live study runs it over your actual feeder.</figcaption>
+  </div>
+
+  <div class="md-b md-only">
+    <span class="tag md">∑ Why a sweep, not Newton–Raphson</span>
+    <p class="sm">Kersting’s forward-backward sweep is the standard technique for a radial feeder. Loads are constant-power, so demand doesn’t change between passes; only the voltage the drop is measured against is refined, and three passes over-converge at distribution drop magnitudes. A full AC solve would be needless complexity for a loop-free tree; the meshed and nodal engines exist for when it isn’t one.</p>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>Gotcha</th><th>What to do</th></tr>
+    <tr><td>Flat, no-drop profile</td><td>Loads live only where <code>demand_kw</code> is set. Populate service demands first.</td></tr>
+    <tr><td>“Loop detected”</td><td>Open the loop, or use the meshed / nodal engine (Ch 3).</td></tr>
+    <tr><td>Mixed voltage bases</td><td>Pick line-to-line or phase-to-neutral and read every result on that basis.</td></tr>
+    <tr><td>First run looks too good</td><td>Check <code>material_resolved</code> per node and <code>losses_complete</code>.</td></tr>
+  </table></div>
+</section>
+
+<!-- ================= CH3 ================= -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>Meshed &amp; nodal load flow</h2><p>When a load can be reached two ways at once, a tree isn’t enough.</p>
+    <div class="tiers"><span class="tier d">Meshed · Derived</span><span class="tier e">Nodal · Experimental</span><span class="tier d">Router · Derived</span></div></div>
+
+  <p>Ring mains run closed, closed link boxes, parallel conductors and meshed urban secondary grids all make current <strong>divide</strong> between paths in inverse proportion to their impedance, with both paths arriving at the same voltage. There’s no single parent for the shared node, so the radial ladder refuses.</p>
+
+  <div class="tbl"><table>
+    <tr><th></th><th>Radial <code>/load-flow</code></th><th>Meshed <code>/meshed-load-flow</code></th><th>Nodal <code>/nodal-load-flow</code></th></tr>
+    <tr><td>Method</td><td>forward-backward ladder</td><td>radial base + loop compensation</td><td>Y-bus, Gauss–Seidel or Newton</td></tr>
+    <tr><td>Network</td><td>tree only</td><td>tree + a few weak loops</td><td>any mesh</td></tr>
+    <tr><td>Loops</td><td>hard error</td><td>closes them by circulating power</td><td>solved natively</td></tr>
+    <tr><td>Multiple infeeds</td><td>no</td><td>no</td><td><b>yes</b> (multi-slack)</td></tr>
+    <tr><td>Grid-forming (PV) gen</td><td>no</td><td>no</td><td><b>yes</b></td></tr>
+    <tr><td>Cost</td><td>cheapest</td><td>cheap</td><td>a matrix solve</td></tr>
+  </table></div>
+
+  <h3>Tier 1: closing a loop by circulating power</h3>
+  <p>The engine solves a radial spanning tree with each loop broken open, measures the voltage mismatch at the break, and injects a circulating power to drive it to zero. Below, the <strong>LB-Oakwood-3</strong> ring: two legs from TX-Feeder7-014’s LV board to a 60 kW load.</p>
+
+  <div class="bench">
+    <div class="bench-h"><h4>How a ring splits its load</h4><span class="eyebrow">§3.3 · inverse-impedance split</span></div>
+    <div class="bench-b">
+      <div class="ins">
+        <div class="presets"><button class="btn" data-preset="D-sym">Identical legs (guide)</button><button class="btn" data-preset="D-open">Link box left open</button></div>
+        <div class="fld"><label for="d-p">load kW</label><input id="d-p" type="number" value="60" min="0"></div>
+        <div class="fld"><label for="d-r">Z<sub>B</sub> / Z<sub>A</sub><small>leg B impedance relative to A</small></label><input id="d-r" type="number" value="1" step="0.05" min="0.1"><input type="range" id="d-rr" min="0.25" max="4" step="0.05" value="1" aria-label="impedance ratio"></div>
+        <label class="chk"><input type="checkbox" id="d-open"> Link box is an open device</label>
+        <p class="note" style="margin:0">The guide gives no impedance for a 95 mm² leg, so the ratio is yours to set. A thinner leg B means Z<sub>B</sub>/Z<sub>A</sub> &gt; 1.</p>
+      </div>
+      <div class="outs">
+        <div class="scroll"><svg id="d-svg" viewBox="0 0 520 190" style="width:100%;min-width:420px;display:block" role="img" aria-label="Two legs feeding the link box"></svg></div>
+        <div class="rows" id="d-rows" style="margin-top:8px"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="md-b md-only">
+    <span class="tag md">∑ The compensation step</span>
+    <div class="eq">M = V(existing) − V(closer)&nbsp;&nbsp;&nbsp;&nbsp; dP = −<span class="frac"><span>M · V<sub>ref</sub></span><span>R<sub>loop</sub> + k · X<sub>loop</sub></span></span>&nbsp;&nbsp;&nbsp; dQ = k · dP</div>
+    <p class="sm">Each broken loop is two tree paths from their lowest common ancestor. <code>V_ref</code> is the endpoints’ <b>own</b> base, so an LV ring isn’t scaled by an MV nominal. Corrections are accumulated and re-applied Gauss–Seidel style so loops sharing branches reconcile; converged when the largest residual is below <b>1e-4 V</b>. <code>max_iterations</code> defaults to 25; one independent loop closes in one pass.</p>
+    <p class="sm"><b>Why k = Q/P of the load.</b> Continuity gives one equation in two unknowns, <span class="mono">cP·R + cQ·X = −V·M</span>. Circulating at the load’s power factor reproduces the exact 50/50 split two identical legs must carry. The loop-impedance-angle alternative (<span class="mono">cQ/cP = X/R</span>) was tried first and gave roughly 75/25, so it was replaced.</p>
+  </div>
+
+  <div class="warn">⚠️ <b>Meshed load flow never silently energises a normally-open tie.</b> A loop that meets at an open device comes back <code>compensated: false</code>, “loop meets at an open device — left open, not compensated.” A loop of only zero-impedance junctions is also <code>compensated: false</code>; its ends are already one point.</div>
+
+  <h3>Tier 2: the nodal Y-bus</h3>
+  <figure>
+    <div class="fig-t"><h4>From features to buses and branches</h4></div>
+    <div class="flow">
+      <div class="fn"><b>Connectivity graph</b><small>every feature and edge</small></div><div class="fa">union-find →</div>
+      <div class="fn t"><b>Buses</b><small>features shorted through zero impedance, incl. unresolved conductors/transformers</small></div><div class="fa">+</div>
+      <div class="fn t"><b>Branches</b><small>resolved R + jX conductors, resolved-ratio transformers; parallel cables = two branches</small></div><div class="fa">→</div>
+      <div class="fn a"><b>Y-bus, per-unit</b><small>baseVA = 1 MVA; base propagated by BFS from the slack; at-nominal transformer = 1:1</small></div><div class="fa">→</div>
+      <div class="fn b"><b>Solve</b><small>Gauss–Seidel (default) or Newton</small></div>
+    </div>
+    <figcaption>Each branch stamps <span class="mono">y_pu = Z_base / Z_ohm</span> with <span class="mono">Z_base = V_base² / baseVA</span>: +y on both diagonals, −y off-diagonal. An un-surveyed transformer gets <span class="mono">idealXfmrXPU = 1e-4</span> pu so the matrix isn’t singular. <b>Off-nominal taps aren’t modelled in the nodal engine yet</b>; use the radial ladder for a tap-dependent study.</figcaption>
   </figure>
 
-  <div class="en-b">
-    <span class="tag en">∑ The sweep, exactly</span>
-    <p><b>Backward pass</b> walks the tree in reverse (every child before its parent), setting each node's cumulative power to its own net plus its children's. <b>Forward pass</b> runs a fixed <b>3 iterations</b> (not a convergence loop — at distribution drops, three passes over-converge), each re-measuring a branch's ΔV against the previous pass's sending voltage:</p>
-    <p class="callout" style="margin:10px 0 0">ΔV (volts) ≈ (P·R + Q·X) / V</p>
-    <p style="margin-top:10px">The start node absorbs the source impedance against total demand; a conductor drops across its resolved impedance; a transformer rebases to <code>parent_voltage × ratio</code> then drops on the secondary base; a junction is a pass-through. Branch current <code>I = S/V</code>, and a conductor over its ampacity (or a transformer over its kVA) is flagged <em>overloaded</em> in the same pass. The <b>load flow</b> and the <b>voltage profile</b> run this identical sweep — the profile just adds the band check and loss summary, at no extra solve cost.</p>
+  <div class="two">
+    <div class="pane"><span class="eyebrow">Gauss–Seidel · default</span><h4 style="margin:6px 0">Linear, monotonic, proven</h4>
+      <p class="sm" style="margin:0">Flat start <span class="mono">1∠0</span>. PQ: <span class="mono">I = conj(S/V)</span>, <span class="mono">V = (I − ΣY<sub>ij</sub>V<sub>j</sub>)/Y<sub>ii</sub></span>. PV holds |V| and solves Q. Slack never updated; isolated buses skipped. Tolerance <b>1e-9</b> pu, cap <b>5000</b> passes, else flagged not converged.</p></div>
+    <div class="pane"><span class="eyebrow">Newton–Raphson · opt-in</span><h4 style="margin:6px 0">Quadratic, for stiff meshes</h4>
+      <p class="sm" style="margin:0"><code>"solver": "newton"</code>. Polar form, <span class="mono">J·Δx = mismatch</span> with blocks H N / M L. Tolerance <b>1e-9</b>, cap <b>40</b>, usually a handful. Hand-rolled Gaussian elimination with partial pivoting (<code>solveDenseLinear</code>), no external library. PV limits latch one-way.</p></div>
   </div>
+
+  <figure>
+    <div class="fig-t"><h4>The two-infeed Oakwood grid</h4><span class="eyebrow">nodal · sources[] + regulated[]</span></div>
+    <div class="scroll"><svg viewBox="0 0 720 200" style="width:100%;min-width:600px;display:block" role="img" aria-label="Two transformers sharing 200 kW">
+      <rect x="20" y="30" width="170" height="44" rx="5" fill="var(--tint)" stroke="var(--teal)"/><text x="105" y="50" text-anchor="middle" class="lbl">TX-Feeder7-014</text><text x="105" y="64" text-anchor="middle" class="sml">slack · lower impedance</text>
+      <rect x="20" y="126" width="170" height="44" rx="5" fill="var(--tint)" stroke="var(--teal)"/><text x="105" y="146" text-anchor="middle" class="lbl">TX-Feeder7-019</text><text x="105" y="160" text-anchor="middle" class="sml">sources[] · 2nd slack</text>
+      <path d="M190 52 C 260 52 280 100 330 100" stroke="var(--teal)" stroke-width="7" fill="none"/>
+      <path d="M190 148 C 260 148 280 100 330 100" stroke="var(--teal)" stroke-width="3.5" fill="none"/>
+      <text x="236" y="40" class="lbl" style="fill:var(--teal)">≈ 133 kW</text><text x="236" y="180" class="lbl" style="fill:var(--teal)">≈ 67 kW</text>
+      <rect x="330" y="80" width="150" height="40" rx="5" fill="var(--raise)" stroke="var(--ink)"/><text x="405" y="98" text-anchor="middle" class="lbl">meshed LV grid</text><text x="405" y="112" text-anchor="middle" class="sml">200 kW load</text>
+      <line x1="480" y1="100" x2="540" y2="100" stroke="var(--violet)" stroke-width="2"/>
+      <circle cx="560" cy="100" r="20" fill="var(--raise)" stroke="var(--violet)" stroke-width="2"/><text x="560" y="104" text-anchor="middle" class="lbl" style="fill:var(--violet)">PV</text>
+      <text x="590" y="94" class="lbl">solar inverter</text><text x="590" y="108" class="sml">regulated[] · 0.983 pu ≈ 408 V</text><text x="590" y="122" class="sml">reports reactive_kvar</text>
+    </svg></div>
+    <figcaption>The 200 kW splits in inverse proportion to impedance, roughly <b>2 : 1</b>, each reported as that slack’s <code>supplied_kw</code>. The radial ladder would refuse this outright. <b>Always check <code>converged</code> first</b>, then <code>max_mismatch_pu</code>. Flipping to Newton is a useful cross-check.</figcaption>
+  </figure>
+
+  <h3>The auto-dispatch router</h3>
+  <p>Not sure which engine? <code>/analysis/load-flow-auto</code> counts loop-closing edges with one barrier-aware walk and routes. Set the inputs and watch the decision fall through the rules.</p>
+  <div class="bench">
+    <div class="bench-h"><h4>Which engine runs?</h4><span class="eyebrow">routerMaxWeakLoops = 3</span></div>
+    <div class="bench-b">
+      <div class="ins">
+        <div class="fld"><label for="r-eng">engine override</label><select id="r-eng"><option value="">none</option><option>radial</option><option>meshed</option><option>nodal</option></select></div>
+        <label class="chk"><input type="checkbox" id="r-src"> sources[] in request</label>
+        <label class="chk"><input type="checkbox" id="r-reg"> regulated[] in request</label>
+        <div class="fld"><label for="r-lp">loop_count found</label><input id="r-lp" type="number" value="1" min="0" max="20"><input type="range" id="r-lpr" min="0" max="8" value="1" aria-label="loop count"></div>
+      </div>
+      <div class="outs">
+        <div class="route" id="r-route">
+          <div class="rt"><span class="n">1</span><span>An explicit <code>engine</code> override always wins</span><span class="e">override</span></div>
+          <div class="rt"><span class="n">2</span><span>Any <code>sources[]</code> or <code>regulated[]</code> → only nodal models multi-slack / PV</span><span class="e">nodal</span></div>
+          <div class="rt"><span class="n">3</span><span>0 loops → fastest, exact for a tree</span><span class="e">radial</span></div>
+          <div class="rt"><span class="n">4</span><span>1–3 loops → weak loops, cheaply compensated</span><span class="e">meshed</span></div>
+          <div class="rt"><span class="n">5</span><span>&gt; 3 loops → dense mesh, solve the admittance matrix</span><span class="e">nodal</span></div>
+        </div>
+        <div class="kpis" style="margin-top:12px"><div class="kpi hl"><div class="eyebrow">engine</div><div class="v" id="r-out">—</div></div><div class="kpi" style="grid-column:span 2"><div class="eyebrow">engine_reason</div><div class="sm" id="r-why" style="margin-top:6px"></div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="tip">💡 Reach for <code>load-flow-auto</code> as your default. A loop that only closes through an open device is still counted, then reported by the meshed engine as an open, uncompensated loop.</div>
 </section>
-<!-- ============ CH6 ============ -->
+
+<!-- ================= CH4 ================= -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>Fault current &amp; embedded-generation infeed</h2><p>How much current flows if a conductor is bolted to another phase, or to earth, right here?</p>
+    <div class="tiers"><span class="tier v">Validated</span></div></div>
+
+  <p>The load flow’s mirror image: it accumulates <strong>series impedance forward</strong> (source → leaves) and derives current at each node. Run <code>three_phase</code> to size switchgear breaking capacity; run <code>slg</code> to set earth-fault protection.</p>
+
+  <figure>
+    <div class="fig-t"><h4>Forward impedance accumulation</h4></div>
+    <div class="flow">
+      <div class="fn t"><b>Start</b><small>seeds the total with the source Thévenin R + jX on the run nominal</small></div><div class="fa">→</div>
+      <div class="fn"><b>Conductor</b><small>adds its own resolved R + jX</small></div><div class="fa">→</div>
+      <div class="fn"><b>Junction</b><small>adds nothing</small></div><div class="fa">→</div>
+      <div class="fn a"><b>Transformer</b><small>refers upstream by ratio², adds its own Z, rebases everything below</small></div><div class="fa">→</div>
+      <div class="fn r"><b>Node</b><small>I = V<sub>base</sub> / |Z<sub>total</sub>|</small></div>
+    </div>
+  </figure>
+
+  <div class="bench" id="bE">
+    <div class="bench-h"><h4>Prospective fault current at an LV board</h4><span class="eyebrow">§4.5 · §4.7 · §4.8</span></div>
+    <div class="bench-b">
+      <div class="ins">
+        <div class="presets"><button class="btn" data-preset="E-guide">TX-Feeder7-014 board</button><button class="btn" data-preset="E-gen">+ 500 kVA diesel</button></div>
+        <div class="grp">Source (MV side)</div>
+        <div class="fld"><label for="e-vm">nominal_voltage_v</label><input id="e-vm" type="number" value="11000"></div>
+        <div class="fld"><label for="e-sr">source_r_ohm</label><input id="e-sr" type="number" value="0.05" step="0.01"></div>
+        <div class="fld"><label for="e-sx">source_x_ohm</label><input id="e-sx" type="number" value="0.48" step="0.01"></div>
+        <div class="grp">Transformer</div>
+        <div class="fld"><label for="e-kva">rated_kva</label><input id="e-kva" type="number" value="315"></div>
+        <div class="fld"><label for="e-vl">secondary_voltage</label><input id="e-vl" type="number" value="415"></div>
+        <div class="fld"><label for="e-z">impedance_pct</label><input id="e-z" type="number" value="4.5" step="0.1"><input type="range" id="e-zr" min="0.5" max="10" step="0.1" value="4.5" aria-label="impedance percent"></div>
+        <div class="fld"><label for="e-xr">x_r_ratio</label><input id="e-xr" type="number" value="2" step="0.1"></div>
+        <div class="grp">Embedded generator on the board</div>
+        <label class="chk"><input type="checkbox" id="e-g"> Include generator infeed</label>
+        <div class="fld"><label for="e-gk">generator rated kVA</label><input id="e-gk" type="number" value="500"></div>
+        <div class="fld"><label for="e-gx">subtransient_reactance_pct<small>X″d</small></label><input id="e-gx" type="number" value="15" step="0.5"></div>
+      </div>
+      <div class="outs">
+        <div class="kpis">
+          <div class="kpi hl"><div class="eyebrow">fault_current_amps</div><div class="v" id="e-o-i">—</div></div>
+          <div class="kpi"><div class="eyebrow">grid / generator</div><div class="v" id="e-o-s" style="font-size:20px">—</div></div>
+          <div class="kpi"><div class="eyebrow">peak_fault_current</div><div class="v" id="e-o-p">—</div></div>
+        </div>
+        <div class="eyebrow" style="margin-bottom:6px">Where the limiting impedance comes from</div>
+        <div id="e-bar" style="display:flex;height:30px;border-radius:5px;overflow:hidden;border:1px solid var(--line)"></div>
+        <div class="legend sm muted" id="e-leg" style="display:flex;gap:16px;flex-wrap:wrap;margin:6px 0 14px"></div>
+        <div class="rows" id="e-rows"></div>
+        <p class="guide-check" id="e-chk"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="md-b md-only">
+    <span class="tag md">∑ Peak (making) duty · IEC 60909</span>
+    <div class="eq">κ = 1.02 + 0.98 e<sup>−3R/X</sup>&nbsp;&nbsp;(1.02 &lt; κ ≤ 2.0)&nbsp;&nbsp;&nbsp;&nbsp; i<sub>p</sub> = κ √2 I<sub>sym</sub></div>
+    <p class="sm">A stiff, inductive path pushes κ toward 2.0, so the crest approaches 2√2 ≈ 2.83× RMS. This is the closed-form <b>making</b> duty, not a time-domain breaking duty, and it does not change the arc-flash figure. The guide gives the formula but not the Adenta number; the calculator applies it to the path’s own X/R.</p>
+    <span class="tag md" style="margin-top:8px">∑ Generator infeed by superposition</span>
+    <p class="sm">Loop impedance is <span class="mono">Z(g) + Z(f) − 2·Z(lca)</span> on a common base. Precedence: <code>fault_contribution_ka</code> → <code>subtransient_reactance_pct</code> on rated kVA → inverters (<code>solar_pv</code> / <code>battery</code>) at <b>1.2×</b> rated current → none. A synchronous machine gets no default. Keyed off nameplate <code>rated_kw</code>, not dispatch: a curtailed machine still contributes fully. Exact for disjoint paths, slightly conservative when shared. <b>Three-phase only</b>; SLG stays grid-only.</p>
+  </div>
+
+  <h3>The single-line-to-ground fault</h3>
+  <div class="eq">I<sub>SLG</sub> = <span class="frac"><span>3 · V<sub>base</sub></span><span>| Z<sub>1</sub> + Z<sub>2</sub> + Z<sub>0</sub> + 3·Z<sub>f</sub> |</span></span>&nbsp;&nbsp;&nbsp; Z<sub>2</sub> = Z<sub>1</sub><span class="note">Z0 is a genuinely different network: earth-return current only flows where a winding gives it a path.</span></div>
+
+  <figure>
+    <div class="fig-t"><h4>What the transformer’s vector group does to Z0</h4>
+      <div class="seg" role="group" aria-label="Vector group"><button data-vg="ynyn" aria-pressed="false">YNyn</button><button data-vg="dyn" aria-pressed="true">Dyn</button><button data-vg="dd" aria-pressed="false">Delta / ungr. LV</button></div></div>
+    <div class="scroll"><svg id="vg-svg" viewBox="0 0 700 170" style="width:100%;min-width:560px;display:block" role="img" aria-label="Zero-sequence path through a transformer"></svg></div>
+    <p class="sm" id="vg-t"></p>
+    <figcaption>An <b>earthing transformer</b> (<code>z0_ohm</code>, plus <code>neutral_resistance_ohm</code> seen at 3×) parallels an existing path at a grounded bus, or establishes one at an ungrounded bus, flipping <code>grounded</code> to true from there down. Two flags ride on each SLG node: <code>ground_path_resolved</code> and <code>zero_seq_estimated</code>. A good figure has resolved true, estimated false.</figcaption>
+  </figure>
+
+  <div class="tbl"><table>
+    <tr><th>Tip</th><th>Why</th></tr>
+    <tr><td>Bolted (<code>fault_impedance_ohm = 0</code>) is the worst case</td><td>Use it to size equipment; a positive Z<sub>f</sub> lowers the current.</td></tr>
+    <tr><td>Check the transformer %Z first</td><td>It dominates an LV fault level.</td></tr>
+    <tr><td><code>material_resolved: false</code></td><td>Missing ohms only reduce current, so the figure is an optimistic <b>upper bound</b>.</td></tr>
+    <tr><td>Zero path impedance</td><td>Reports no current rather than infinity. Set <code>source_r_ohm</code> / <code>source_x_ohm</code>.</td></tr>
+    <tr><td><code>grounded = false</code></td><td>Information, not an error: an SLG fault there draws almost nothing.</td></tr>
+  </table></div>
+</section>
+
+<!-- ================= CH5 ================= -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>Protection coordination</h2><p>When a fault happens, do the protective devices trip in the right order?</p>
+    <div class="tiers"><span class="tier d">Derived</span></div></div>
+
+  <p>Selectivity means the device <strong>nearest</strong> the fault clears it, and every upstream backup waits at least one <strong>coordination time interval</strong> (CTI) longer. The study walks from source to a postulated fault and grades each adjacent pair.</p>
+
+  <div class="tbl"><table>
+    <tr><th>Device</th><th>Graded via</th></tr>
+    <tr><td><code>MV_BREAKER</code></td><td>its <code>PROTECTIVE_RELAY</code> through the <code>protection_trip</code> relationship: pickup, curve type, time dial, instantaneous</td></tr>
+    <tr><td><code>MV_FUSE</code></td><td>inline <code>curve_ref</code>, total-clear band</td></tr>
+    <tr><td>fused <code>MV_SWITCH</code> / <code>LV_SWITCH</code></td><td><code>curve_ref</code>, only when <code>is_fused</code></td></tr>
+    <tr><td><code>MV_RECLOSER</code></td><td><code>slow_curve_ref</code> (falls back to <code>fast_curve_ref</code>)</td></tr>
+    <tr><td>unfused switch · sectionalizer</td><td>not graded (topological hop · counts passages, out of scope)</td></tr>
+  </table></div>
+
+  <div class="bench" id="bF">
+    <div class="bench-h"><h4>Grade the Oakwood lateral fuse against the feeder relay</h4><span class="eyebrow">§5.7 · IEC standard-inverse</span></div>
+    <div class="bench-b">
+      <div class="ins">
+        <div class="presets"><button class="btn" data-preset="F-guide">Guide · TD 0.2</button><button class="btn" data-preset="F-fail">Failure · TD 0.1</button></div>
+        <div class="fld"><label for="f-i">fault_current_amps<small>at the lateral end, 11 kV</small></label><input id="f-i" type="number" value="2000" step="50"><input type="range" id="f-ir" min="300" max="8000" step="50" value="2000" aria-label="fault current"></div>
+        <div class="grp">Backup · relay on MV_BREAKER</div>
+        <div class="fld"><label for="f-pu">pickup A</label><input id="f-pu" type="number" value="200" step="10"></div>
+        <div class="fld"><label for="f-td">time dial</label><input id="f-td" type="number" value="0.2" step="0.01" min="0.01"><input type="range" id="f-tdr" min="0.05" max="1" step="0.01" value="0.2" aria-label="time dial"></div>
+        <div class="grp">Primary · MV_FUSE 63 A</div>
+        <div class="fld"><label for="f-ft">total-clear time at this current<small>s · from the fuse curve</small></label><input id="f-ft" type="number" value="0.08" step="0.01" min="0"></div>
+        <div class="fld"><label for="f-cti">cti_seconds</label><input id="f-cti" type="number" value="0.3" step="0.05"></div>
+      </div>
+      <div class="outs">
+        <div class="kpis">
+          <div class="kpi"><div class="eyebrow">relay operate_time_s</div><div class="v" id="f-o-t">—</div></div>
+          <div class="kpi"><div class="eyebrow">margin_s</div><div class="v" id="f-o-m">—</div></div>
+          <div class="kpi" id="f-k-c"><div class="eyebrow">coordinated</div><div class="v" id="f-o-c">—</div></div>
+        </div>
+        <div class="chart" id="f-chart"></div>
+        <p class="note">The relay curve is the IEC standard-inverse shape the guide names, <span class="mono">t = TD · 0.14 / (M<sup>0.02</sup> − 1)</span>, which reproduces the guide’s 0.59 s and 0.30 s. The engine reads a tabulated copy (seeded in migration 0076) and interpolates in log-log space; outside the table it clamps and flags <code>extrapolated</code>. The fuse curve itself isn’t in the guide, so only its time at the fault current is plotted.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="md-b md-only">
+    <span class="tag md">∑ From fault current to operate time</span>
+    <ol class="sm" style="padding-left:18px;margin:8px 0 0">
+      <li><b>Path</b>: <code>pathToFault</code> walks <code>tr.parent</code> up from the fault, ordered fault-first.</li>
+      <li><b>Through-current</b>: <span class="mono">I<sub>device</sub>·V<sub>device</sub> = I<sub>fault</sub>·V<sub>fault</sub></span>; a device on the HV side sees proportionally less.</li>
+      <li><b>Operate time</b>: inverse-time <span class="mono">TD × curve(I/pickup)</span>, no operation at M ≤ 1; instantaneous element → 0 s; definite-time → fixed <code>definite_time_s</code>; fuse / recloser → total-clear band.</li>
+      <li><b>Grading</b>: first resolved device is primary; <code>gradePairs</code> checks <span class="mono">t<sub>backup</sub> − t<sub>primary</sub> ≥ CTI</span>, skipping non-operating devices. Top-level <code>coordinated</code> is the AND of every gradeable pair.</li>
+    </ol>
+    <p class="sm">Plotting curves are referred to one <code>common_base_v</code> (the fault node’s), so the fault current is a single vertical line each curve crosses at its own operate time.</p>
+  </div>
+
+  <div class="tip">💡 To fix a failing pair, slow the backup (raise its time dial) rather than speeding the primary, which can break <i>its</i> coordination further down. Run the study for a fault at the end of each protected section. The default 0.3 s CTI is relay-to-relay; set your own for fuse-fuse or fuse-relay.</div>
+</section>
+
+<!-- ================= CH6 ================= -->
 <section class="ch" id="c6">
-  <div class="ch-head"><div class="ch-num">06</div><h2>Graceful degradation</h2><p>Missing data degrades the answer — it doesn't fail the run.</p></div>
+  <div class="ch-head"><div class="ch-num">06</div><h2>Conductor ampacity (IEEE 738)</h2><p>What can this line actually carry today, rather than on the catalog’s assumed day?</p>
+    <div class="tiers"><span class="tier d">Derived</span></div></div>
 
-  <p><strong>▶</strong> Real networks are never fully surveyed. Every study follows one rule: <strong>a missing value becomes a documented assumption, not an error.</strong> And the result tells you when a value was assumed rather than resolved — so you know which numbers to trust and which to go survey.</p>
+  <p>A bare overhead line’s safe current depends on the weather. The study solves IEEE 738’s steady-state heat balance for the current that heats the conductor exactly to its maximum operating temperature.</p>
+  <div class="eq">q<sub>c</sub> + q<sub>r</sub> = q<sub>s</sub> + I²R(T<sub>c</sub>)&nbsp;&nbsp;⇒&nbsp;&nbsp; I = √<span class="frac"><span>q<sub>c</sub> + q<sub>r</sub> − q<sub>s</sub></span><span>R(T<sub>c</sub>)</span></span></div>
 
-  <div class="tbl"><table>
-    <tr><th>Missing…</th><th>…is treated as</th></tr>
-    <tr><td>a conductor's material / resistance</td><td>drops nothing (<code>resolved = false</code>)</td></tr>
-    <tr><td>a transformer's impedance percent</td><td>an ideal ratio (no series drop)</td></tr>
-    <tr><td>a transformer's X/R</td><td>2.0</td></tr>
-    <tr><td>a load's power factor</td><td>unity (Q = 0)</td></tr>
-    <tr><td>a generator's dispatch</td><td>its nameplate <code>rated_kw</code></td></tr>
-    <tr><td>the source impedance</td><td>ideal / infinitely stiff</td></tr>
-    <tr><td>a zero-sequence impedance</td><td>3× positive (conductor) or Z0 = Z1 (transformer/source), flagged estimated</td></tr>
-  </table></div>
+  <div class="bench" id="bG">
+    <div class="bench-h"><h4>Rate the Feeder 7 overhead line</h4><span class="eyebrow">ACSR Dog · §6.6</span></div>
+    <div class="bench-b">
+      <div class="ins">
+        <div class="presets"><button class="btn" data-preset="G-guide">Summer, breezy (guide)</button><button class="btn" data-preset="G-still">Still air 0.2 m/s</button><button class="btn" data-preset="G-night">Omit solar (clear night)</button></div>
+        <div class="grp">Environment</div>
+        <div class="fld"><label for="g-ta">ambient_temp_c<small>required</small></label><input id="g-ta" type="number" value="35" step="1"><input type="range" id="g-tar" min="-10" max="50" value="35" aria-label="ambient"></div>
+        <div class="fld"><label for="g-w">wind_speed_mps<small>omitted → 0 (conservative)</small></label><input id="g-w" type="number" value="0.6" step="0.1" min="0"><input type="range" id="g-wr" min="0" max="3" step="0.05" value="0.6" aria-label="wind"></div>
+        <div class="fld"><label for="g-a">wind_angle_deg<small>90 = across the line</small></label><input id="g-a" type="number" value="90" min="0" max="90"><input type="range" id="g-ar" min="0" max="90" value="90" aria-label="wind angle"></div>
+        <div class="fld"><label for="g-s">solar_heat_flux_w_m2<small>omitted → 0 (NOT conservative)</small></label><input id="g-s" type="number" value="1000" step="50" min="0"><input type="range" id="g-sr" min="0" max="1200" step="50" value="1000" aria-label="solar"></div>
+        <div class="grp">Material spec · ACSR_DOG</div>
+        <div class="fld"><label for="g-d">diameter_mm</label><input id="g-d" type="number" value="14.15" step="0.01"></div>
+        <div class="fld"><label for="g-r">resistance_ohm_per_km<small>at 20 °C</small></label><input id="g-r" type="number" value="0.27" step="0.01"></div>
+        <div class="fld"><label for="g-al">resistance_temp_coefficient</label><input id="g-al" type="number" value="0.004" step="0.0005"></div>
+        <div class="fld"><label for="g-e">emissivity</label><input id="g-e" type="number" value="0.5" step="0.05"></div>
+        <div class="fld"><label for="g-g">absorptivity</label><input id="g-g" type="number" value="0.5" step="0.05"></div>
+        <div class="fld"><label for="g-tc">max_operating_temp_c</label><input id="g-tc" type="number" value="75"></div>
+        <div class="fld"><label for="g-st">static ampacity (catalog)</label><input id="g-st" type="number" value="300"></div>
+        <div class="fld"><label for="g-ld">load-flow current to check</label><input id="g-ld" type="number" value="320"></div>
+      </div>
+      <div class="outs">
+        <div class="kpis">
+          <div class="kpi hl"><div class="eyebrow">ampacity_amps</div><div class="v" id="g-o-i">—</div></div>
+          <div class="kpi"><div class="eyebrow">vs catalog 300 A</div><div class="v" id="g-o-c">—</div></div>
+          <div class="kpi" id="g-k-l"><div class="eyebrow">320 A load is</div><div class="v" id="g-o-l">—</div></div>
+        </div>
+        <div class="eyebrow" style="margin-bottom:6px">Heat balance, W/m</div>
+        <div class="chart" id="g-hb"></div>
+        <div class="eyebrow" style="margin:14px 0 6px">Rating vs wind speed, everything else held</div>
+        <div class="chart" id="g-chart"></div>
+        <div class="rows" id="g-rows" style="margin-top:12px"></div>
+        <p class="guide-check" id="g-chk"></p>
+      </div>
+    </div>
+  </div>
 
-  <p class="note tip">💡 Your <strong>first</strong> run on a new feeder is often "optimistic" — no drops, no losses. That's not a bug; it's the signal to send Dana out to survey the transformer and conductor nameplates. Results carry a <code>material_resolved</code> flag per node, so a client can tell "0 % drop because stiff" from "0 % drop because unsurveyed."</p>
+  <div class="md-b md-only">
+    <span class="tag md">∑ The terms, and why there’s no iteration</span>
+    <div class="eq">R(T<sub>c</sub>) = <span class="frac"><span>R<sub>20</sub></span><span>1000</span></span>(1 + α(T<sub>c</sub> − 20))&nbsp;&nbsp;&nbsp; q<sub>r</sub> = πDεσ((T<sub>c</sub>+273.15)<sup>4</sup> − (T<sub>a</sub>+273.15)<sup>4</sup>)&nbsp;&nbsp;&nbsp; q<sub>s</sub> = γΦD</div>
+    <div class="eq">Re = <span class="frac"><span>D ρ<sub>f</sub> V</span><span>μ<sub>f</sub></span></span>&nbsp;&nbsp; q<sub>c1</sub> = K<sub>angle</sub>(1.01 + 1.35Re<sup>0.52</sup>)k<sub>f</sub>ΔT&nbsp;&nbsp; q<sub>c2</sub> = K<sub>angle</sub>·0.754Re<sup>0.6</sup>k<sub>f</sub>ΔT&nbsp;&nbsp; q<sub>cn</sub> = 0.0205√ρ<sub>f</sub> D<sup>0.75</sup>ΔT<sup>1.25</sup></div>
+    <p class="sm">Air properties are held <b>constant</b> near a ~40 °C film at sea level (ρ<sub>f</sub> = 1.029, μ<sub>f</sub> = 1.9×10⁻⁵, k<sub>f</sub> = 0.028), so q<sub>c</sub> and q<sub>r</sub> depend only on temperatures and the current comes out in closed form. Convection is the greatest of the two forced forms and natural convection, so low wind falls through to the natural floor with no special case. The guide names the two Reynolds forms without spelling them out; the standard IEEE 738 forms and <span class="mono">K<sub>angle</sub> = 1.194 − cos φ + 0.194 cos 2φ + 0.368 sin 2φ</span> used here reproduce its 339 A and 258 A exactly. Net cooling ≤ 0 reports <b>0 A</b>.</p>
+  </div>
+  <div class="warn">⚠️ Worst case = hot ambient + near-zero wind + full sun. Always supply a solar figure for a daytime rating; omitted solar assumes a clear night and flatters the result. This is steady-state only, not a short-time emergency rating.</div>
 </section>
 
-<!-- ============ CH7 ============ -->
+<!-- ================= CH7 ================= -->
 <section class="ch" id="c7">
-  <div class="ch-head"><div class="ch-num">07</div><h2>Anatomy of a run</h2><p>Five steps, nothing written to the database.</p></div>
+  <div class="ch-head"><div class="ch-num">07</div><h2>Arc-flash hazard (IEEE 1584)</h2><p>If an arc struck here, how much heat reaches the worker, and what must they wear?</p>
+    <div class="tiers"><span class="tier e">Experimental</span></div></div>
 
-  <div class="flow" style="margin:18px 0">
-    <div class="fn"><b>1 · Resolve start</b><small>the start feature exists and isn't deleted</small></div><div class="fa">→</div>
-    <div class="fn"><b>2 · Build tree</b><small>walk downstream, honour barriers, reject loops</small></div><div class="fa">→</div>
-    <div class="fn"><b>3 · Resolve states</b><small>load each feature once; read its electrical inputs</small></div><div class="fa">→</div>
-    <div class="fn an"><b>4 · Solve</b><small>backward pass (accumulate), forward pass (drop voltage)</small></div><div class="fa">→</div>
-    <div class="fn"><b>5 · Format</b><small>shape the answer the study asked for</small></div>
+  <div class="warn">⚠️ <b>Safety-relevant and not independently verified.</b> The guide labels arc-flash Experimental: indicative only, never a basis for PPE selection or energized-work permits. The calculator below is for understanding the model.</div>
+
+  <figure>
+    <div class="fig-t"><h4>A study built on two engines</h4></div>
+    <div class="flow">
+      <div class="fn t"><b>Fault engine</b><small><code>runFaultCurrent</code>: bolted current + voltage base, identical to /fault-current</small></div><div class="fa">+</div>
+      <div class="fn b"><b>Coordination evaluators</b><small>second independent walk; clearing time from the first resolving device</small></div><div class="fa">+</div>
+      <div class="fn a"><b>IEEE 1584-2002</b><small>arcing current, incident energy, boundary</small></div><div class="fa">→</div>
+      <div class="fn r"><b>Label</b><small>cal/cm², boundary, PPE category</small></div>
+    </div>
+  </figure>
+
+  <div class="bench" id="bH">
+    <div class="bench-h"><h4>Arc-flash at the TX-Feeder7-014 LV board</h4><span class="eyebrow">§7.5 · §7.6</span></div>
+    <div class="bench-b">
+      <div class="ins">
+        <div class="presets"><button class="btn" data-preset="H-guide">Guide · feeder relay only</button><button class="btn" data-preset="H-fix">+ LV main at 0.05 s</button></div>
+        <div class="grp">From the fault engine</div>
+        <div class="fld"><label for="h-v">system voltage kV</label><input id="h-v" type="number" value="0.415" step="0.001"></div>
+        <div class="fld"><label for="h-i">bolted fault kA</label><input id="h-i" type="number" value="16.4" step="0.1"><input type="range" id="h-ir" min="1" max="60" step="0.1" value="16.4" aria-label="bolted fault"></div>
+        <div class="grp">Geometry · switchgear defaults</div>
+        <label class="chk"><input type="checkbox" id="h-enc" checked> Enclosed (box)</label>
+        <label class="chk"><input type="checkbox" id="h-gnd"> Grounded</label>
+        <div class="fld"><label for="h-g">gap G mm</label><input id="h-g" type="number" value="32"></div>
+        <div class="fld"><label for="h-d">working distance D mm</label><input id="h-d" type="number" value="610" step="10"><input type="range" id="h-dr" min="300" max="1500" step="10" value="610" aria-label="working distance"></div>
+        <div class="fld"><label for="h-x">distance exponent x</label><input id="h-x" type="number" value="1.473" step="0.001"></div>
+        <div class="grp">Clearing</div>
+        <div class="fld"><label for="h-mode">clearing device</label><select id="h-mode"><option value="relay">Upstream relay (IEC SI)</option><option value="fixed">Fixed clearing time</option></select></div>
+        <div class="fld"><label for="h-vd">device voltage V</label><input id="h-vd" type="number" value="11000"></div>
+        <div class="fld"><label for="h-pu">relay pickup A</label><input id="h-pu" type="number" value="200"></div>
+        <div class="fld"><label for="h-td">relay time dial</label><input id="h-td" type="number" value="0.2" step="0.01"></div>
+        <div class="fld"><label for="h-t">fixed clearing s</label><input id="h-t" type="number" value="0.05" step="0.01"></div>
+        <div class="fld"><label for="h-cap">max_clearing_time_s</label><input id="h-cap" type="number" value="2.0" step="0.1"></div>
+      </div>
+      <div class="outs">
+        <div class="kpis">
+          <div class="kpi hl" id="h-k-e"><div class="eyebrow">incident_energy</div><div class="v" id="h-o-e">—</div></div>
+          <div class="kpi"><div class="eyebrow">clearing_time_s</div><div class="v" id="h-o-t">—</div></div>
+          <div class="kpi"><div class="eyebrow">arc_flash_boundary</div><div class="v" id="h-o-b">—</div></div>
+        </div>
+        <div class="ppe" id="h-ppe">
+          <div style="background:var(--ppe0)">Cat 0<small>&lt; 1.2</small></div>
+          <div style="background:var(--ppe1)">Cat 1<small>≤ 4</small></div>
+          <div style="background:var(--ppe2)">Cat 2<small>≤ 8</small></div>
+          <div style="background:var(--ppe3)">Cat 3<small>≤ 25</small></div>
+          <div style="background:var(--ppe4)">Cat 4<small>≤ 40</small></div>
+          <div style="background:var(--ppe5)">−1<small>&gt; 40 · no live work</small></div>
+        </div>
+        <div class="eyebrow" style="margin:16px 0 6px">Incident energy is linear in clearing time</div>
+        <div class="chart" id="h-chart"></div>
+        <div class="rows" id="h-rows" style="margin-top:12px"></div>
+        <p class="guide-check" id="h-chk"></p>
+      </div>
+    </div>
   </div>
 
-  <p><strong>∑</strong> The shared core is <code>runSweep</code>; nothing in the sequence writes to the database. The query-heavy work (walk the tree, load every node) happens <strong>once</strong> — which is why a capacity search can run dozens of trial sweeps in memory, and why two studies can share one solve (the load flow and the voltage profile are the <em>same</em> sweep, formatted differently). Every result panel also carries a collapsible <strong>"How this was calculated"</strong> strip that restates, from the run's own figures, the worst node and the binding constraint — so the explanation travels with the number.</p>
-
-  <p class="callout">Resolve once, sweep many, write nothing. That one discipline is why every study over your live data is fast and side-effect-free.</p>
-</section>
-
-<!-- ============ CH8 ============ -->
-<section class="ch" id="c8">
-  <div class="ch-head"><div class="ch-num">08</div><h2>The seventeen studies</h2><p>All built on the model above — and honest about how far to trust each.</p></div>
-
-  <p>Every study is one read-only <code>POST</code> under <code>/analysis</code>, needs the <code>analysis:run</code> permission, and runs over the shared model. Each carries a <strong>validation tier</strong> — a coloured badge on its result panel — so the platform is honest about confidence rather than presenting every number with equal weight:</p>
-
-  <div class="flow" style="margin:14px 0">
-    <div class="fn gen"><b><span class="badge val">Validated</span></b><small>checked against hand calcs or IEEE reference data — defensible in a design review</small></div>
-    <div class="fn an"><b><span class="badge der">Derived</span></b><small>built on the validated sweep/primitives (a search or re-reading of them)</small></div>
-    <div class="fn" style="border-color:var(--red)"><b><span class="badge exp">Experimental</span></b><small>not independently verified — indicative only</small></div>
+  <div class="md-b md-only">
+    <span class="tag md">∑ The 1584-2002 model</span>
+    <div class="eq">lg I<sub>a</sub> = K + 0.662 lg I<sub>bf</sub> + 0.0966V + 0.000526G + 0.5588V lg I<sub>bf</sub> − 0.00304G lg I<sub>bf</sub><span class="note">eq 1, below 1 kV · K = −0.097 box, −0.153 open</span></div>
+    <div class="eq">lg I<sub>a</sub> = 0.00402 + 0.983 lg I<sub>bf</sub><span class="note">eq 2, ≥ 1 kV</span></div>
+    <div class="eq">lg E<sub>n</sub> = K<sub>1</sub> + K<sub>2</sub> + 1.081 lg I<sub>a</sub> + 0.0011G&nbsp;&nbsp;&nbsp; E = C<sub>f</sub> E<sub>n</sub> <span class="frac"><span>t</span><span>0.2</span></span> <span style="font-size:1.4em">(</span><span class="frac"><span>610</span><span>D</span></span><span style="font-size:1.4em">)</span><sup>x</sup></div>
+    <p class="sm">K<sub>1</sub> = −0.555 enclosed / −0.792 open; K<sub>2</sub> = −0.113 grounded / 0 ungrounded; C<sub>f</sub> = 1.5 at ≤ 1 kV, else 1.0. The boundary inverts eq 4 for E = 1.2 cal/cm². Everything is computed at I<sub>a</sub> and at <b>0.85·I<sub>a</sub></b>; the worse governs. The guide refers to eq 1 without printing its constants; the standard’s published coefficients used here reproduce its 8.47 kA, 45.6 cal/cm² and 7.2 m. It also cites the standard’s own check: 0.48 kV, 20 kA, box, grounded, G 32, D 457 → ~7.29 cal/cm², ~1555 mm. Validity 0.208–15 kV, 0.7–106 kA, else <code>out_of_range</code>.</p>
   </div>
 
   <div class="tbl"><table>
-    <tr><th>Study</th><th>Tier</th><th>What it answers</th></tr>
-    <tr><td>Radial load flow &amp; voltage profile</td><td><span class="badge val">Validated</span></td><td>voltage &amp; loading down a feeder, vs the ANSI band</td></tr>
-    <tr><td>Meshed / nodal load flow</td><td><span class="badge der">Derived</span></td><td>loops the radial engine can't take (compensation / Y-bus Newton)</td></tr>
-    <tr><td>Fault current (+ SLG, embedded-gen infeed)</td><td><span class="badge val">Validated</span></td><td>prospective short-circuit level for switchgear duty</td></tr>
-    <tr><td>Protection coordination</td><td><span class="badge der">Derived</span></td><td>does the downstream device clear before the upstream one?</td></tr>
-    <tr><td>Conductor ampacity (IEEE 738)</td><td><span class="badge val">Validated</span></td><td>a conductor's thermal current rating</td></tr>
-    <tr><td>DER hosting capacity</td><td><span class="badge der">Derived</span></td><td>how much generation a point can absorb before over-voltage</td></tr>
-    <tr><td>EV feeder headroom <span class="muted">→ EV guide</span></td><td><span class="badge der">Derived</span></td><td>how much charging load before under-voltage / thermal binds</td></tr>
-    <tr><td>Contingency / back-feed restoration</td><td><span class="badge der">Derived</span></td><td>can a neighbouring feeder pick up this one via a tie?</td></tr>
-    <tr><td>Load-growth forecast</td><td><span class="badge der">Derived</span></td><td>a what-if projection of the sweep under a growth assumption</td></tr>
-    <tr><td>Arc-flash (IEEE 1584)</td><td><span class="badge exp">Experimental</span></td><td>incident energy — <b>indicative only, never a basis for PPE selection</b></td></tr>
+    <tr><th>Geometry input</th><th>Declared field</th><th>Fallback (leans conservative)</th></tr>
+    <tr><td>Electrode configuration</td><td><code>arc_electrode_configuration</code></td><td><code>switchgear</code> (enclosed)</td></tr>
+    <tr><td>Electrode gap</td><td><code>arc_conductor_gap_mm</code></td><td>class / voltage typical (Table 4)</td></tr>
+    <tr><td>Working distance</td><td><code>arc_working_distance_mm</code></td><td>request <code>working_distance_mm</code> → typical</td></tr>
+    <tr><td>Grounding</td><td><code>arc_system_grounded</code></td><td><code>false</code> (ungrounded)</td></tr>
+  </table></div>
+  <p class="callout">Incident energy is a protection-speed problem far more than a fault-current problem.</p>
+</section>
+
+<!-- ================= CH8 ================= -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>Capacity &amp; planning</h2><p>How much more can this network take, and when will it run out?</p>
+    <div class="tiers"><span class="tier d">All Derived</span></div></div>
+
+  <p>None of these four studies adds new physics. Each re-sweeps the Chapter 2 feeder under a hypothetical change and checks the same two limits: the voltage band and 100 % loading.</p>
+  <div class="tbl"><table>
+    <tr><th>Study</th><th>Hypothetical</th><th>Binds on</th></tr>
+    <tr><td>N-1 contingency</td><td>a tie overridden closed, in memory</td><td>band (both ends) + thermal</td></tr>
+    <tr><td>DER hosting</td><td>negative demand at a node</td><td><b>over</b>-voltage (1.05) + thermal</td></tr>
+    <tr><td>EV headroom</td><td>positive demand at a node</td><td><b>under</b>-voltage (0.95) + thermal</td></tr>
+    <tr><td>Load-growth forecast</td><td>whole feeder scaled year by year</td><td>thermal + under-voltage per year</td></tr>
   </table></div>
 
-  <p class="muted" style="font-size:14px">…and more (storage dispatch, volt-VAR optimisation, voltage-profile contingencies) — <strong>17 in all</strong>. The complete catalog, each study's inputs/method/worked example, and the full validation table live in the markdown <strong>Engineering Studies</strong> manual. Run any of them from the map's analysis menu.</p>
+  <h3>N-1 contingency: restoring Oakwood</h3>
+  <p>A cable fault takes out the source end of Feeder 7. Priya asks donor <strong>Feeder 9</strong> (11 kV, base load 3.2 MW) which tie to close. Ties are evaluated <code>NORMALLY_OPEN</code> first.</p>
+  <div class="ties" id="ties">
+    <button class="tie" data-t="a" aria-pressed="true"><h4>TIE-79-A <span class="verdict ok">feasible</span></h4><p class="sm muted" style="margin:4px 0 10px">declared NORMALLY_OPEN · purpose-built standby · ranked first</p>
+      <div class="rows"><div>restored_load_kw</div><div>+0.8 MW</div><div>restored_node_count</div><div>46</div><div>min_voltage_pu</div><div>0.958</div><div>overloaded</div><div>—</div></div></button>
+    <button class="tie" data-t="b" aria-pressed="false"><h4>TIE-79-B <span class="verdict no">not feasible</span></h4><p class="sm muted" style="margin:4px 0 10px">normally-open sectionaliser of convenience</p>
+      <div class="rows"><div>restored_load_kw</div><div>+1.4 MW</div><div>restored_node_count</div><div>71</div><div>min_voltage_pu</div><div style="color:var(--red)">0.941 ⚠</div><div>overloaded</div><div style="color:var(--red)">1 cable @ 108 %</div></div></button>
+  </div>
+  <figure style="margin-top:12px">
+    <div class="pu-line" id="ct-line"></div>
+    <p class="sm" id="ct-t" style="margin:0"></p>
+    <figcaption><b>feasible: true</b> only if the transfer restores load and introduces no violation and no overload. Restored load is just the change in the donor source’s accumulated demand; nothing new is computed. A tie that forms a loop is reported (“run LOOP_CHECK_TRACE”), as is one that restores nothing.</figcaption>
+  </figure>
+
+  <h3>Hosting capacity and EV headroom: one search, two directions</h3>
+  <p>Same node, the Oakwood LV board at 0.969 pu. Generation pushes it up toward 1.05; charging load pulls it down toward 0.95. Replay the guide’s ramp-then-bisect search for each.</p>
+
+  <div class="bench" id="bI">
+    <div class="bench-h"><h4>Ramp, then bisect</h4><span class="eyebrow">§8.4 · resolve once, sweep many</span></div>
+    <div class="bench-b">
+      <div class="ins">
+        <div class="seg" role="group" aria-label="Study"><button id="i-der" aria-pressed="true">DER hosting</button><button id="i-ev" aria-pressed="false">EV headroom</button></div>
+        <button class="btn pri" id="i-play">▶ Replay the search</button>
+        <div class="rows">
+          <div>start (rampStartKW)</div><div>50 kW</div>
+          <div>ramp</div><div>×2 per trial</div>
+          <div>cap</div><div>100 MW</div>
+          <div>bisect stop</div><div>&lt; 0.1 kW or 40 it.</div>
+        </div>
+        <p class="note" style="margin:0">The real study re-sweeps the feeder at every trial. This replay uses the guide’s own result as the feasibility edge (≈ 480 kW for DER, ≈ 250 kW for EV), so it shows how the search lands there.</p>
+      </div>
+      <div class="outs">
+        <div class="kpis">
+          <div class="kpi hl"><div class="eyebrow" id="i-lab">hosting_capacity_kw</div><div class="v" id="i-cap">—</div></div>
+          <div class="kpi"><div class="eyebrow">binding_constraint</div><div class="v" id="i-bind" style="font-size:20px">—</div></div>
+          <div class="kpi"><div class="eyebrow">worst_loading_pct</div><div class="v" id="i-ld">—</div></div>
+        </div>
+        <div class="eyebrow">bracket: lo feasible · hi infeasible (0–1000 kW)</div>
+        <div class="hbar" id="i-bar"><div class="feas" id="i-feas"></div><div class="brk" id="i-brk"></div><div class="tr" id="i-tr"></div></div>
+        <div class="trials" id="i-log" aria-live="polite"></div>
+      </div>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-t"><h4>The asymmetry, in one picture</h4></div>
+    <div class="scroll"><svg viewBox="0 0 720 120" style="width:100%;min-width:560px;display:block" role="img" aria-label="Per-unit line from 0.94 to 1.06">
+      <rect x="40" y="50" width="640" height="14" rx="7" fill="var(--red-tint)"/>
+      <rect x="93" y="50" width="533" height="14" fill="var(--tint)"/>
+      <line x1="93" y1="40" x2="93" y2="74" stroke="var(--teal)" stroke-width="2"/><text x="93" y="92" text-anchor="middle" class="ax">0.95 floor</text>
+      <line x1="626" y1="40" x2="626" y2="74" stroke="var(--teal)" stroke-width="2"/><text x="626" y="92" text-anchor="middle" class="ax">1.05 ceiling</text>
+      <line x1="194" y1="34" x2="194" y2="80" stroke="var(--ink)" stroke-width="2.5"/><text x="194" y="26" text-anchor="middle" class="lbl">base 0.969</text>
+      <path d="M200 57 H618" stroke="var(--violet)" stroke-width="2" marker-end="url(#ah9)"/><text x="410" y="110" text-anchor="middle" class="lbl" style="fill:var(--violet)">+480 kW of PV to reach the ceiling</text>
+      <path d="M188 57 H101" stroke="var(--amber)" stroke-width="2" marker-end="url(#ah8)"/><text x="140" y="110" text-anchor="middle" class="lbl" style="fill:var(--amber)">+250 kW of EV</text>
+      <defs><marker id="ah9" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 8 4 0 8z" fill="var(--violet)"/></marker><marker id="ah8" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 8 4 0 8z" fill="var(--amber)"/></marker></defs>
+    </svg></div>
+    <figcaption>The node starts closer to the floor than the ceiling, so it hosts more generation than it absorbs load. Both are <b>voltage-limited</b>, so the remedy is voltage management (an inverter absorbing vars, a regulator), not a bigger cable. With <b>managed charging</b> the hub could install, say, 400 kW of nameplate and cap coincident draw at 250 kW.</figcaption>
+  </figure>
+
+  <div class="md-b md-only">
+    <span class="tag md">∑ The shared search machinery</span>
+    <ol class="sm" style="padding-left:18px;margin:8px 0 0">
+      <li><b>Resolve once, sweep many</b>: queries happen once; every trial is an in-memory backward/forward sweep.</li>
+      <li><b>Base-case gate</b>: if the feeder already violates, report 0 with <code>pre_existing</code>.</li>
+      <li><b>Exponential ramp</b> from 50 kW, doubling to the 100 MW cap; reaching the cap still feasible → <code>unbounded</code>, binding <code>none</code>.</li>
+      <li><b>Bisect</b> [lo, hi] for up to 40 iterations or until it narrows below 0.1 kW.</li>
+      <li><b>Name the binding limit</b> by the smallest remaining margin: <span class="mono">ovMargin = maxPu − worstHighPu</span> (or <span class="mono">uvMargin</span>) vs <span class="mono">thMargin = 1 − worstLoading/100</span>.</li>
+    </ol>
+    <p class="sm">Power factor below unity adds <span class="mono">kW·tan(acos pf)</span> of kVAR, which lifts voltage further for DER and deepens the drop for EV, lowering both capacities. Conductors are skipped in a feeder-wide scan; they aren’t interconnection points.</p>
+  </div>
+
+  <h3>Load-growth forecast</h3>
+  <div class="warn">⚠️ <b>A scenario projection, not a prediction.</b> It shows the network as it would be under the growth you supply, and carries no metered history.</div>
+  <figure>
+    <div class="fig-t"><h4>One resolve, one sweep per year</h4></div>
+    <div class="flow">
+      <div class="fn t"><b>Resolve once</b><small>tree + node states</small></div><div class="fa">→</div>
+      <div class="fn"><b>Year y = 0 … horizon</b><small>scale demand: <code>base_growth_pct</code> compound; <code>per_feeder</code> × <code>per_class</code> multiply when both match; <code>block_loads[]</code> from <code>start_year</code> (negative kW = committed DER); planned assets from their in-service year</small></div><div class="fa">→</div>
+      <div class="fn"><b>Sweep</b><small>in memory</small></div><div class="fa">→</div>
+      <div class="fn a"><b>Check</b><small>thermal via <code>formatResults</code>; under-voltage vs <code>min_voltage_pu</code></small></div><div class="fa">→</div>
+      <div class="fn r"><b>Report</b><small><code>assets[]</code> (≥ 80 % peak), <code>voltage_violations[]</code>, <code>reinforcement_order[]</code>, <code>der_headroom[]</code>, <code>assumptions[]</code></small></div>
+    </div>
+    <figcaption>Horizon 1–60 years. On a long rural or LV feeder, under-voltage often binds before anything thermally overloads, and the forecast catches it. DER headroom typically <b>rises</b> with load growth. <code>include_planned</code> is off by default, so the base year is strictly in-service and can’t double-count. Radial only; a planned asset that re-routes existing load is a reinforcement study, not a growth forecast.</figcaption>
+  </figure>
+</section>
+
+<!-- ================= CH9 ================= -->
+<section class="ch" id="c9">
+  <div class="ch-head"><div class="ch-num">09</div><h2>Appendix</h2><p>The decoder ring: conventions, precedence, assumptions, flags and formulas.</p></div>
+
+  <h3>The honesty flags</h3>
+  <p>Scan for these first. A clean result is an engineered number you can put on a drawing; a flagged one is a screening number. Pick a study to see what to look for.</p>
+  <figure>
+    <div class="chipset" id="fl-chips"></div>
+    <div class="tbl" style="margin:0"><table><thead><tr><th>Flag</th><th>Meaning when set the “bad” way</th></tr></thead><tbody id="fl-body"></tbody></table></div>
+  </figure>
+
+  <h3>The precedence ladder</h3>
+  <div class="flow">
+    <div class="fn t"><b>1 · Declared per-feature</b><small>a field on the asset itself</small></div><div class="fa">beats</div>
+    <div class="fn"><b>2 · Request override</b><small>a value in the study body</small></div><div class="fa">beats</div>
+    <div class="fn a"><b>3 · Engineered default</b><small>IEEE typical, catalog figure, package constant · flagged</small></div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>Quantity</th><th>Declared</th><th>Request</th><th>Default</th></tr>
+    <tr><td>Arc-flash working distance</td><td><code>arc_working_distance_mm</code></td><td><code>working_distance_mm</code></td><td>class / voltage typical</td></tr>
+    <tr><td>Arc-flash electrode config</td><td><code>arc_electrode_configuration</code></td><td>—</td><td><code>switchgear</code></td></tr>
+    <tr><td>Generator fault infeed</td><td><code>fault_contribution_ka</code> → X″d</td><td>—</td><td>inverter 1.2× / none</td></tr>
+    <tr><td>Voltage band</td><td>—</td><td><code>min/max_voltage_pu</code></td><td>ANSI 0.95–1.05</td></tr>
+    <tr><td>Fault impedance</td><td>—</td><td><code>fault_impedance_ohm</code></td><td>0 (bolted)</td></tr>
+  </table></div>
+  <div class="warn">⚠️ Defaults lean to the safe side of the question being asked: hazard defaults maximise energy, fault defaults maximise current. The one asymmetry: omitted wind is conservative, omitted solar is not.</div>
+
+  <h3>Assumptions and which way they err</h3>
+  <div class="tbl"><table>
+    <tr><th>Study</th><th>Key assumption</th><th>Direction</th></tr>
+    <tr><td>Radial load flow</td><td>Linearized ΔV, 3 fixed forward iterations</td><td>Small under-estimate on very heavily loaded feeders</td></tr>
+    <tr><td>Loss summary</td><td>I²R series only; no shunt / iron losses</td><td>Lower bound if <code>losses_complete = false</code></td></tr>
+    <tr><td>Meshed</td><td>Circulating power at load pf</td><td>Exact for balanced loops; approximate as R/X diverge</td></tr>
+    <tr><td>Nodal</td><td>Ideal transformers (no off-nominal taps)</td><td><code>converged</code> / <code>max_mismatch_pu</code></td></tr>
+    <tr><td>Fault current</td><td>Bolted unless given; unresolved Z omitted</td><td>Optimistic upper bound</td></tr>
+    <tr><td>SLG</td><td>Line Z0 ≈ 3× Z1 if unmeasured</td><td><code>zero_seq_estimated</code></td></tr>
+    <tr><td>Coordination / arc-flash</td><td>Tabulated curves, log-log interpolated</td><td><code>extrapolated</code> off the data</td></tr>
+    <tr><td>Ampacity</td><td>Constant air properties; steady-state</td><td>Planning-level; no emergency rating</td></tr>
+    <tr><td>Arc-flash</td><td>1584-2002 fit, 0.208–15 kV / 0.7–106 kA</td><td><code>out_of_range</code>; defaults maximise energy</td></tr>
+    <tr><td>Hosting / EV / contingency</td><td>Re-sweep under a hypothetical</td><td>Inherits the radial sweep</td></tr>
+  </table></div>
+
+  <h3>Formula sheet</h3>
+  <div class="two">
+    <div><div class="eyebrow">Load flow</div><div class="eq">ΔV ≈ <span class="frac"><span>PR + QX</span><span>V</span></span>&nbsp;&nbsp; loss = I²R</div></div>
+    <div><div class="eyebrow">Fault · 3-phase</div><div class="eq">I<sub>bf</sub> = <span class="frac"><span>V<sub>base</sub></span><span>|Z<sub>series</sub> + Z<sub>f</sub>|</span></span>&nbsp;&nbsp; Z<sub>ref</sub> = Z<sub>up</sub>n² + Z<sub>own</sub></div></div>
+    <div><div class="eyebrow">Fault · SLG</div><div class="eq">I<sub>SLG</sub> = <span class="frac"><span>3V</span><span>|Z<sub>1</sub>+Z<sub>2</sub>+Z<sub>0</sub>+3Z<sub>f</sub>|</span></span></div></div>
+    <div><div class="eyebrow">Generator infeed</div><div class="eq">Z<sub>eff</sub> = Z<sub>g</sub> + Z<sub>f</sub> − 2Z<sub>lca</sub></div></div>
+    <div><div class="eyebrow">Coordination</div><div class="eq">t = TD · curve(I/I<sub>pu</sub>)&nbsp;&nbsp; t<sub>b</sub> − t<sub>p</sub> ≥ CTI</div></div>
+    <div><div class="eyebrow">Ampacity</div><div class="eq">I = √((q<sub>c</sub> + q<sub>r</sub> − q<sub>s</sub>) / R(T<sub>c</sub>))</div></div>
+    <div><div class="eyebrow">Arc-flash</div><div class="eq">E = C<sub>f</sub>E<sub>n</sub>(t/0.2)(610/D)<sup>x</sup></div></div>
+    <div><div class="eyebrow">Reactive at a pf</div><div class="eq">Q = P · tan(arccos pf)</div></div>
+  </div>
+
+  <h3>Defaults &amp; constants</h3>
+  <div class="tbl"><table>
+    <tr><th>Constant</th><th>Value</th><th>Where</th></tr>
+    <tr><td>Voltage band (ANSI C84.1 Range A)</td><td class="num">0.95–1.05 pu</td><td>all band judging</td></tr>
+    <tr><td>Forward sweep iterations</td><td class="num">3</td><td>radial ladder</td></tr>
+    <tr><td>Default CTI</td><td class="num">0.3 s</td><td>coordination</td></tr>
+    <tr><td>Max clearing time cap</td><td class="num">2.0 s</td><td>arc-flash</td></tr>
+    <tr><td>Arcing-current sensitivity</td><td class="num">0.85</td><td>arc-flash</td></tr>
+    <tr><td>Resistance reference temperature</td><td class="num">20 °C</td><td>ampacity</td></tr>
+    <tr><td>Air ρ / μ / k</td><td class="num">1.029 / 1.9e-5 / 0.028</td><td>ampacity</td></tr>
+    <tr><td>DER search cap / start / resolution</td><td class="num">100 MW / 50 kW / 0.1 kW</td><td>hosting, EV</td></tr>
+    <tr><td>Bisection iterations</td><td class="num">40</td><td>hosting, EV</td></tr>
+    <tr><td>Router weak-loop threshold</td><td class="num">3</td><td>dispatch router</td></tr>
+    <tr><td>Nodal base VA / GS tolerance</td><td class="num">1 MVA / 1e-9</td><td>nodal</td></tr>
+  </table></div>
+  <p class="note">Errors are typed consistently: bad input → <code>400</code>, missing feature/class → <code>404</code>, anything else → <code>500</code>, always naming the offending field or feature.</p>
 </section>
 
 <footer>
-  <p>End of the Network Analysis guide — the shared model behind every study. The voltage-profile widget is an illustrative model of the real engine (<code>resolve.go</code>, <code>runSweep</code>); run the live studies from the map's analysis menu over your own feeder. See also the full <b>Engineering Studies</b> manual (all 17 studies, deep) and the interactive <b>EV Charging</b> guide.</p>
+  <p>This completes Engineering Studies, the deep-dive reference across the <code>/analysis</code> endpoints. Companions: the user handbook (how-to voice) and the Substation Guide.</p>
+  <p class="note">Notes on this edition. The calculators use only the guide’s formulas and worked data. Where the guide names a standard curve without printing its constants (IEC standard-inverse, the IEEE 738 Reynolds forms, IEEE 1584-2002 eq 1), the published standard form is used, and each reproduces the guide’s own figures; the check line under each bench shows the match. The guide counts “thirteen routes” and “twelve endpoints” in different places; thirteen are listed.</p>
 </footer>
 </div>
 <script>
 (function(){
-  function $(id){return document.getElementById(id)}
+const $=id=>document.getElementById(id);
+const num=id=>{const v=parseFloat($(id).value);return isFinite(v)?v:0};
+const f=(n,d=2)=>isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}):'—';
+const setv=(id,v)=>{const el=$(id);if(el){el.value=v;const r=$(id+'r');if(r)r.value=v}};
+function rows(id,list){$(id).innerHTML=list.map(r=>'<div>'+r[0]+(r[2]?' <span class="f">'+r[2]+'</span>':'')+'</div><div>'+r[1]+'</div>').join('')}
+function link(id){const r=$(id+'r');if(!r)return;r.addEventListener('input',()=>{$(id).value=r.value;$(id).dispatchEvent(new Event('input'))});$(id).addEventListener('input',()=>{r.value=$(id).value})}
+function bind(ids,fn){ids.forEach(i=>{link(i);$(i).addEventListener('input',fn);$(i).addEventListener('change',fn)});fn()}
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
-  // ---- chapter rail highlight
-  var links=[].slice.call(document.querySelectorAll('#chaps a'));
-  var secs=links.map(function(a){return document.querySelector(a.getAttribute('href'))});
-  if('IntersectionObserver' in window){
-    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){var i=secs.indexOf(e.target);links.forEach(function(l,j){l.classList.toggle('on',i===j)});links[i]&&links[i].scrollIntoView({block:'nearest',inline:'nearest'})}})},{rootMargin:'-40% 0px -55% 0px'});
-    secs.forEach(function(s){s&&io.observe(s)});
-  }
+// lanes
+const lb=document.querySelectorAll('.rail .seg button');
+function lane(l){document.body.dataset.lane=l;lb.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.l===l)));try{localStorage.setItem('ves-lane',l)}catch(e){}}
+lb.forEach(b=>b.addEventListener('click',()=>lane(b.dataset.l)));
+try{const s=localStorage.getItem('ves-lane');if(s)lane(s)}catch(e){}
 
-  // ---- Widget: radial voltage profile (illustrative model of runSweep)
-  (function(){
-    var load=$('vp-load'),pf=$('vp-pf'),lv=$('vp-lv'),mv=$('vp-mv'); if(!load)return;
-    var XS=[90,240,400,540];
-    // SVG y for a per-unit voltage, matching the static band (1.05→31, 0.95→144).
-    function y(pu){var yy=31+(1.05-pu)/0.10*113; return Math.max(16,Math.min(206,yy));}
-    function upd(){
-      var kW=+load.value,p=+pf.value,lvm=+lv.value,mvm=+mv.value;
-      $('vp-load-v').textContent=kW+' kW';
-      $('vp-pf-v').textContent=p.toFixed(2);
-      $('vp-lv-v').textContent=lvm+' m';
-      $('vp-mv-v').textContent=mvm+' m';
-      var P=kW*1000, Q=P*Math.tan(Math.acos(p));
-      // MV cable 240 mm² AL ≈ 0.125 + j0.08 Ω/km; drop at 11 kV
-      var Rmv=0.125*mvm/1000, Xmv=0.08*mvm/1000;
-      var primaryV=11000-(P*Rmv+Q*Xmv)/11000;
-      // 315 kVA 11 kV/415 V, Z=4.5%, X/R=2
-      var Zbase=415*415/315000, Zs=0.045*Zbase, Rxf=Zs/Math.sqrt(5), Xxf=2*Rxf;
-      var secIdeal=primaryV*(415/11000);
-      var secV=secIdeal-(P*Rxf+Q*Xxf)/415;
-      // LV cable 185 mm² AL ≈ 0.164 + j0.07 Ω/km; drop on the 415 base
-      var Rlv=0.164*lvm/1000, Xlv=0.07*lvm/1000;
-      var serviceV=secV-(P*Rlv+Q*Xlv)/415;
-      var pus=[1.00, primaryV/11000, secV/415, serviceV/415];
-      // draw
-      $('vp-poly').setAttribute('points', pus.map(function(pu,i){return XS[i]+','+y(pu).toFixed(1)}).join(' '));
-      var g=$('vp-dots'), out='';
-      pus.forEach(function(pu,i){
-        var yy=y(pu), bad=(pu<0.95||pu>1.05);
-        out+='<circle class="vp-dot'+(bad?' bad':'')+'" cx="'+XS[i]+'" cy="'+yy.toFixed(1)+'" r="4.5"/>'
-            +'<text x="'+XS[i]+'" y="'+(yy-9).toFixed(1)+'" text-anchor="middle" class="sm" style="fill:'+(bad?'var(--red)':'var(--ink)')+'">'+pu.toFixed(3)+'</text>';
-      });
-      g.innerHTML=out;
-      // readouts
-      var servicePu=serviceV/415, dropPct=(415-serviceV)/415*100;
-      var S=Math.sqrt(P*P+Q*Q)/1000, ldg=S/315*100;
-      $('vp-sv').textContent=Math.round(serviceV)+' V';
-      $('vp-drop').textContent=dropPct.toFixed(1)+'%';
-      $('vp-load2').textContent=Math.round(ldg)+'%';
-      var v=$('vp-verdict');
-      if(servicePu<0.95){v.className='verdict bad';v.textContent='⚠ Service '+Math.round(serviceV)+' V ('+servicePu.toFixed(3)+' pu) is below the 0.95 floor.';}
-      else if(ldg>100){v.className='verdict bad';v.textContent='⚠ Transformer at '+Math.round(ldg)+'% — over its 315 kVA rating.';}
-      else{v.className='verdict ok';v.textContent='✓ Within band — service '+Math.round(serviceV)+' V ('+servicePu.toFixed(3)+' pu), transformer '+Math.round(ldg)+'% loaded.';}
-    }
-    [load,pf,lv,mv].forEach(function(e){e.addEventListener('input',upd)}); upd();
-  })();
+// rail highlight
+const links=[...document.querySelectorAll('#chaps a')],secs=links.map(a=>document.querySelector(a.getAttribute('href')));
+if('IntersectionObserver'in window){const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){const i=secs.indexOf(e.target);links.forEach((l,j)=>l.classList.toggle('on',i===j));links[i].scrollIntoView({block:'nearest',inline:'nearest'})}}),{rootMargin:'-40% 0px -55% 0px'});secs.forEach(s=>io.observe(s))}
+
+// feeder map
+const FI={
+ head:['Ch 5 · Protection','Feeder 7 head: MV_BREAKER driven by a PROTECTIVE_RELAY, IEC standard-inverse, pickup 200 A, time dial 0.2. Also the only upstream protection for the LV board in Ch 7.','200 A · TD 0.2','#c5'],
+ ohl:['Ch 6 · Ampacity','Overhead run through open country in ACSR “Dog”: D 14.15 mm, R₂₀ 0.27 Ω/km, T_c 75 °C, catalog static ampacity 300 A.','339 A / 258 A','#c6'],
+ fuse:['Ch 5 · Coordination','Oakwood lateral protected by an MV_FUSE (63 A curve). A fault at its end draws about 2 000 A at 11 kV; the fuse clears in ~0.08 s.','margin 0.51 s','#c5'],
+ tx14:['Ch 1 · Ch 4','TX-Feeder7-014: 315 kVA, 11 kV/415 V, 4.5 % impedance. Its own %Z supplies ~97 % of the limiting impedance for an LV fault.','16.4 kA','#c4'],
+ board:['Ch 4 · Ch 7 · Ch 8','The 415 V LV board. Fault level 16.4 kA; arc-flash 45.6 cal/cm² with only the feeder relay upstream; base voltage 0.969 pu for hosting studies.','45.6 cal/cm²','#c7'],
+ spur:['Ch 2 · Voltage profile','Three new houses: 221 (100 kW), 222 (40 kW), 223 (40 kW), all pf 0.95, on cables A 60 m, B 45 m, C 40 m. Far end ≈ 402 V.','0.969 pu','#c2'],
+ gen:['Ch 4 · What-if','A 500 kVA standby diesel set, X″d = 15 %, added to the LV board. It contributes about 8.0 kA, lifting the board’s duty to ~24.4 kA.','+8.0 kA','#c4'],
+ lb:['Ch 3 · Meshed','LB-Oakwood-3, a normally-closed link box tying two 185 mm² legs of 80 m each to a 60 kW load. Identical legs split exactly 50/50.','30 / 30 kW','#c3'],
+ tx19:['Ch 3 · Nodal','TX-Feeder7-019, the second infeed to Oakwood’s meshed secondary grid. The 200 kW block splits roughly 2 : 1 between the two transformers.','≈ 67 kW','#c3'],
+ ties:['Ch 8 · Contingency','Feeder 9 (3.2 MW) is the donor. TIE-79-A (NORMALLY_OPEN) restores 0.8 MW at 0.958 pu; TIE-79-B restores 1.4 MW but sags to 0.941 pu and overloads a cable.','close A','#c8']};
+document.querySelectorAll('#fmap .hs').forEach(g=>{
+ const show=()=>{const d=FI[g.dataset.i];document.querySelectorAll('#fmap .hs').forEach(x=>x.classList.toggle('on',x===g));$('fi-ch').innerHTML='<a href="'+d[3]+'">'+d[0]+' →</a>';$('fi-t').textContent=d[1];$('fi-n').textContent=d[2]};
+ g.addEventListener('mouseenter',show);g.addEventListener('focus',show);g.addEventListener('click',show);
+});
+
+// tree walk
+const TW={nodes:{S:[50,115,'Source'],a:[170,115,''],b:[290,60,''],c:[290,170,'DIST_SWITCH'],d:[420,60,''],e:[420,170,''],f:[550,60,'SERVICE'],g:[550,170,'SERVICE'],h:[650,115,'']},
+ edges:[['S','a'],['a','b'],['a','c'],['b','d'],['c','e'],['d','f'],['e','g'],['f','h']],loop:['g','h']};
+let twOpen=false,twLoop=false,twTimer=null;
+function twDraw(state){
+ const s=state||{};let h='';
+ const E=TW.edges.concat(twLoop?[TW.loop]:[]);
+ E.forEach(([u,v])=>{const A=TW.nodes[u],B=TW.nodes[v];const isL=twLoop&&u===TW.loop[0]&&v===TW.loop[1];h+='<line class="tw-e'+(s.e&&s.e[u+v]?' seen':'')+(isL?' loopedge':'')+'" x1="'+A[0]+'" y1="'+A[1]+'" x2="'+B[0]+'" y2="'+B[1]+'"/>'});
+ Object.keys(TW.nodes).forEach(k=>{const n=TW.nodes[k];let c='';if(s.n&&s.n[k])c=' seen';if(k==='c'&&twOpen)c+=' barrier';if(s.loopAt===k)c=' loop';
+  h+='<g class="tw-node'+c+'"><circle cx="'+n[0]+'" cy="'+n[1]+'" r="15"/>'+(k==='c'?'<text x="'+n[0]+'" y="'+(n[1]+4)+'" text-anchor="middle" class="sml" style="fill:var(--ink)">'+(twOpen?'OPEN':'SW')+'</text>':'')+(k==='S'?'<text x="'+n[0]+'" y="'+(n[1]+4)+'" text-anchor="middle" class="sml" style="fill:var(--ink)">S</text>':'')+(s.ord&&s.ord[k]!==undefined?'<text x="'+n[0]+'" y="'+(n[1]-21)+'" text-anchor="middle" class="sml" style="fill:var(--teal)">#'+s.ord[k]+'</text>':'')+(n[2]&&k!=='S'&&k!=='c'?'<text x="'+n[0]+'" y="'+(n[1]+32)+'" text-anchor="middle" class="sml">'+n[2]+'</text>':'')+'</g>'});
+ $('tw').innerHTML=h;
+}
+function twRun(){
+ clearInterval(twTimer);
+ const E=TW.edges.concat(twLoop?[TW.loop]:[]);
+ const q=['S'],seen={S:1},ord={S:0},st={n:{S:1},e:{},ord};let i=1,steps=[],barrier=null,loopAt=null;
+ while(q.length){const u=q.shift();if(u==='c'&&twOpen){barrier=u;continue}
+  for(const [a,b] of E){if(a!==u)continue;if(seen[b]){loopAt=b;steps.push({u,b,loop:true});break}seen[b]=1;ord[b]=i++;steps.push({u,b});q.push(b)}
+  if(loopAt)break}
+ let k=0;st.n={S:1};st.e={};st.ord={S:0};twDraw(st);$('tw-st').textContent='walking';$('tw-msg').textContent='Breadth-first from the start node, recording each node’s parent.';
+ twTimer=setInterval(()=>{if(k>=steps.length){clearInterval(twTimer);
+   if(loopAt){$('tw-st').textContent='invalid';$('tw-msg').innerHTML='<b style="color:var(--red)">Aborted.</b> The node was reached by a second independent path, so the radial engine refuses and names the feature. The meshed engine would record this edge as a <code>meshBreak</code> and compensate it.'}
+   else{$('tw-st').textContent='radial tree';$('tw-msg').innerHTML='Clean radial tree of <b>'+Object.keys(st.n).length+'</b> nodes.'+(barrier?' The walk stopped at the open DIST_SWITCH and recorded it as a <b>barrier hit</b>; everything beyond is de-energised and left out.':' No barriers hit.')}
+   return}
+  const s=steps[k++];if(s.loop){st.loopAt=s.b;st.e[s.u+s.b]=1}else{st.n[s.b]=1;st.e[s.u+s.b]=1;st.ord[s.b]=ord[s.b]}twDraw(st)},window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:380);
+}
+$('tw-sw').addEventListener('click',()=>{twOpen=!twOpen;$('tw-sw').textContent=twOpen?'Close the switch':'Open the switch';twDraw();$('tw-st').textContent='ready';});
+$('tw-lp').addEventListener('click',()=>{twLoop=!twLoop;$('tw-lp').textContent=twLoop?'Remove second path':'Add a second path';twDraw();$('tw-st').textContent='ready'});
+$('tw-run').addEventListener('click',twRun);twDraw();
+
+// A transformer
+function A(){
+ const kva=num('a-kva'),vp=num('a-vp'),vs=num('a-vs'),z=num('a-z'),xr=num('a-xr')||2,tp=num('a-tp'),ts=num('a-ts'),P=num('a-p');let pf=num('a-pf');
+ if(!(pf>0&&pf<=1))pf=1;
+ const tap=1+tp*ts/100,ratio=vs/vp*tap,vi=vp*ratio;
+ const zb=vs*vs/(kva*1000),zs=z/100*zb,R=zs/Math.sqrt(1+xr*xr),X=R*xr;
+ const Q=P*Math.tan(Math.acos(pf)),S=Math.hypot(P,Q);
+ const dv=(P*1000*R+Q*1000*X)/vi,v=vi-dv,ld=S/kva*100;
+ $('a-o-v').innerHTML=f(v,1)+'<span class="u">V</span>';$('a-o-dv').innerHTML=f(dv,2)+'<span class="u">V · '+f(dv/vi*100,2)+' %</span>';
+ $('a-o-ld').innerHTML=f(ld,1)+'<span class="u">%</span>';$('a-o-ld').parentNode.classList.toggle('bad',ld>100);
+ rows('a-rows',[['turns ratio × tap',f(ratio,5),'secondary/primary · '+f(tap,4)],['ideal secondary',f(vi,1)+' V'],['Z_base',f(zb,4)+' Ω'],['Z_series',f(zs,4)+' Ω'],['R · X',f(R,4)+' · '+f(X,4)+' Ω'],['Q',f(Q,1)+' kVAR','P·tan(acos pf)'],['S',f(S,1)+' kVA','through every upstream branch']]);
+ const g=Math.abs(kva-315)<.01&&vp===11000&&vs===415&&z===4.5&&xr===2&&P===100&&pf===.95&&tp===0;
+ $('a-chk').innerHTML=g?'Guide §1.11: Z_base 0.547 Ω, Z_series 0.0246 Ω, R 0.011, X 0.022, drop ≈ 4.4 V → <b>≈ 410.6 V</b>. Matches.':'Edited from the guide’s example. Reset with the preset.';
+}
+bind(['a-kva','a-vp','a-vs','a-z','a-xr','a-tp','a-ts','a-p','a-pf'],A);
+// sliders with different ids
+[['a-zr','a-z'],['a-pr','a-p']].forEach(([r,i])=>{$(r).addEventListener('input',()=>{$(i).value=$(r).value;A()});$(i).addEventListener('input',()=>{$(r).value=$(i).value})});
+
+// base trap
+let btMV=false;
+function BT(){const v=num('bt-v'),b=btMV?11000:415,d=(b-v)/b*100;$('bt-o').innerHTML=f(d,1)+'<span class="u">%</span>';$('bt-pu').textContent=f(v/b,btMV?4:3);$('bt-k').classList.toggle('bad',btMV);$('bt-lv').setAttribute('aria-pressed',String(!btMV));$('bt-mv').setAttribute('aria-pressed',String(btMV))}
+$('bt-v').addEventListener('input',BT);$('bt-lv').addEventListener('click',()=>{btMV=false;BT()});$('bt-mv').addEventListener('click',()=>{btMV=true;BT()});BT();
+
+// sweep
+const SW={back:['105.3 kVA','105.3 kVA','105.3 kVA','105.3 kVA','100 kW · 32.9 kVAR'],fwd:['11 000 V','≈ 11 000 V','≈ 410.6 V','—','≈ 408–409 V']};
+const swN=[...document.querySelectorAll('#sweep .sw-n')];let swT=null;
+function swPlay(kind){clearInterval(swT);const order=kind==='back'?[4,3,2,1,0]:[0,1,2,3,4];let k=0;swN.forEach(n=>n.classList.remove('act'));
+ $('sw-st').textContent=kind==='back'?'backward pass':'forward pass';
+ $('sw-msg').innerHTML=kind==='back'?'Each node’s cumulative power = its own net power + its children’s cumulatives. Only the service draws load, so every upstream node carries <b>S = √(100² + 32.9²) = 105.3 kVA</b>.':'The MV cable drop is a fraction of a volt at 11 kV. The transformer rebases to 11 000 × 415/11 000 = 415 V, then drops ≈ <b>4.4 V</b>. The 60 m LV cable lands the service around 408–409 V, roughly a <b>1.5 %</b> drop.';
+ const step=()=>{if(k>=order.length){clearInterval(swT);return}const i=order[k++];swN.forEach(n=>n.classList.remove('act'));swN[i].classList.add('act');
+  let val=SW[kind][i];if(kind==='fwd'&&i===3)val='drop on 415 V base';swN[i].querySelector('.val').textContent=val};
+ step();swT=setInterval(step,window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:550)}
+$('sw-back').addEventListener('click',()=>swPlay('back'));$('sw-fwd').addEventListener('click',()=>swPlay('fwd'));
+$('sw-reset').addEventListener('click',()=>{clearInterval(swT);swN.forEach(n=>{n.classList.remove('act');n.querySelector('.val').textContent=''});$('sw-st').textContent='idle'});
+
+// C loss & band
+function C(){
+ const S=num('c-s'),V=num('c-v'),r=num('c-r'),L=num('c-l');const I=S*1000/V,R=r*L/1000,loss=I*I*R/1000;
+ $('c-o-i').innerHTML=f(I,0)+'<span class="u">A</span>';$('c-o-l').innerHTML=f(loss,2)+'<span class="u">kW</span>';
+ const nv=num('c-nv'),nb=num('c-nb'),mn=num('c-mn'),mx=num('c-mx'),pu=nb>0?nv/nb:0;const ok=nb>0&&pu>=mn&&pu<=mx;
+ $('c-o-pu').textContent=f(pu,3);$('c-k-pu').classList.toggle('bad',!ok);$('c-k-pu').classList.toggle('good',ok);
+ const lo=.9,hi=1.1,pos=p=>Math.max(0,Math.min(100,(p-lo)/(hi-lo)*100));
+ $('c-okz').style.left=pos(mn)+'%';$('c-okz').style.width=(pos(mx)-pos(mn))+'%';$('c-mk').style.left=pos(pu)+'%';$('c-mkl').textContent=f(pu,3)+' pu';
+ const band=$('c-band');band.querySelectorAll('.tk').forEach(t=>t.remove());[.9,.95,1,1.05,1.1].forEach(t=>{const d=document.createElement('div');d.className='tk';d.style.left=pos(t)+'%';d.textContent=t.toFixed(2);band.appendChild(d)});
+ rows('c-rows',[['R = r × length',f(R,4)+' Ω'],['I = S / V',f(I,1)+' A'],['loss = I²R',f(loss*1000,0)+' W'],['within_limits',ok?'true':'false'],['band',f(mn,2)+' – '+f(mx,2)+' pu']]);
+}
+bind(['c-s','c-v','c-r','c-l','c-nv','c-nb','c-mn','c-mx'],C);
+
+// D parallel legs
+function D(){
+ const P=num('d-p'),r=Math.max(.01,num('d-r')),open=$('d-open').checked;
+ const a=open?P:P*r/(1+r),b=open?0:P-a;const wA=2+a/P*10,wB=2+b/P*10;
+ $('d-svg').innerHTML='<rect x="10" y="75" width="90" height="40" rx="4" fill="var(--tint)" stroke="var(--teal)"/><text x="55" y="93" text-anchor="middle" class="lbl">LV board</text><text x="55" y="107" text-anchor="middle" class="sml">415 V</text>'+
+ '<path d="M100 88 C 180 88 200 40 260 40 H330 C 380 40 390 88 400 92" stroke="var(--olive)" stroke-width="'+wA.toFixed(1)+'" fill="none"/>'+
+ '<path d="M100 102 C 180 102 200 150 260 150 H330 C 380 150 390 102 400 98" stroke="var(--olive)" stroke-width="'+(wB||1).toFixed(1)+'" fill="none"'+(open?' stroke-dasharray="4 4" opacity=".5"':'')+'/>'+
+ '<text x="250" y="28" class="lbl">leg A · '+f(a,1)+' kW</text><text x="250" y="174" class="lbl">leg B · '+f(b,1)+' kW</text>'+
+ '<rect x="400" y="75" width="26" height="40" rx="3" fill="var(--raise)" stroke="'+(open?'var(--red)':'var(--olive)')+'" stroke-width="2"/><text x="413" y="130" text-anchor="middle" class="sml">LB-3</text>'+
+ '<line x1="426" y1="95" x2="470" y2="95" stroke="var(--olive)" stroke-width="2"/><circle cx="485" cy="95" r="14" fill="var(--raise)" stroke="var(--olive)" stroke-width="2"/><text x="485" y="99" text-anchor="middle" class="sml">'+f(P,0)+'kW</text>';
+ rows('d-rows',open?[['compensated','false'],['note','loop meets at an open device — left open, not compensated'],['leg A carries','all '+f(P,1)+' kW (radial)']]:[['split A : B',f(a/P*100,1)+' : '+f(b/P*100,1)],['compensated','true'],['residual_mismatch_v','< 1e-4 V'],['compensation_passes','1 (single independent loop)']]);
+}
+bind(['d-p','d-r'],D);$('d-open').addEventListener('change',D);
+$('d-rr').addEventListener('input',D);
+
+// Router
+function RT(){
+ const eng=$('r-eng').value,src=$('r-src').checked,reg=$('r-reg').checked,lp=Math.max(0,Math.round(num('r-lp')));
+ let hit,out,why;
+ if(eng){hit=0;out=eng;why='explicit engine override in the request'}
+ else if(src||reg){hit=1;out='nodal';why='sources[]/regulated[] present: only the nodal engine models multi-slack / PV'}
+ else if(lp===0){hit=2;out='radial';why='0 loops: radial tree, ladder sweep is fastest and exact'}
+ else if(lp<=3){hit=3;out='meshed';why=lp+' weak loop'+(lp>1?'s':'')+' (≤ 3): cheap Tier 1 compensation'}
+ else{hit=4;out='nodal';why=lp+' loops (> 3): too meshed for compensation, solve the Y-bus'}
+ document.querySelectorAll('#r-route .rt').forEach((r,i)=>{r.classList.toggle('hit',i===hit);r.classList.toggle('skip',i<hit)});
+ $('r-out').textContent=out;$('r-why').textContent=why+' · loop_count '+lp;
+}
+['r-eng','r-src','r-reg','r-lp'].forEach(i=>{$(i).addEventListener('input',RT);$(i).addEventListener('change',RT)});link('r-lp');$('r-lpr').addEventListener('input',RT);RT();
+
+// E fault
+function E(){
+ const vm=num('e-vm'),sr=num('e-sr'),sx=num('e-sx'),kva=num('e-kva'),vl=num('e-vl'),z=num('e-z'),xr=num('e-xr')||2;
+ const n=vl/vm,rs=sr*n*n,xs=sx*n*n,zb=vl*vl/(kva*1000),zx=z/100*zb,rx=zx/Math.sqrt(1+xr*xr),xx=rx*xr;
+ const R=rs+rx,X=xs+xx,Z=Math.hypot(R,X),I=Z>0?vl/Z:NaN;
+ const gOn=$('e-g').checked,gk=num('e-gk'),gx=num('e-gx');const zg=gx/100*vl*vl/(gk*1000),Ig=gOn&&zg>0?vl/zg:0;
+ const tot=I+Ig,kap=X>0&&R>0?1.02+.98*Math.exp(-3*R/X):NaN,ip=kap*Math.SQRT2*tot;
+ $('e-o-i').innerHTML=f(tot/1000,1)+'<span class="u">kA</span>';
+ $('e-o-s').innerHTML=gOn?f(I/1000,1)+' + '+f(Ig/1000,1)+'<span class="u">kA</span>':f(I/1000,1)+'<span class="u">kA grid only</span>';
+ $('e-o-p').innerHTML=f(ip/1000,1)+'<span class="u">kA · κ '+f(kap,3)+'</span>';
+ const zs=Math.hypot(rs,xs),zt=Math.hypot(rx,xx),sum=zs+zt;
+ $('e-bar').innerHTML='<div style="width:'+(zt/sum*100)+'%;background:var(--teal)"></div><div style="width:'+(zs/sum*100)+'%;background:var(--amber)"></div>';
+ $('e-leg').innerHTML='<span><i style="display:inline-block;width:10px;height:10px;background:var(--teal);margin-right:6px"></i>transformer %Z · '+f(zt/sum*100,1)+' %</span><span><i style="display:inline-block;width:10px;height:10px;background:var(--amber);margin-right:6px"></i>11 kV source, referred · '+f(zs/sum*100,1)+' %</span>';
+ rows('e-rows',[['ratio²',f(n*n,5),'(V_sec / V_pri)²'],['source referred',f(rs,5)+' + j'+f(xs,5)+' Ω'],['transformer Z',f(rx,4)+' + j'+f(xx,4)+' Ω','|'+f(zt,4)+'|'],['|Z_total|',f(Z,4)+' Ω'],['I = V_base / |Z|',f(I,0)+' A'],['xr_ratio',f(X/R,2)]].concat(gOn?[['generator Z = X″d·V²/S',f(zg,4)+' Ω'],['generator_contribution',f(Ig,0)+' A']]:[]));
+ const g=vm===11000&&sr===.05&&sx===.48&&kva===315&&vl===415&&z===4.5&&xr===2;
+ $('e-chk').innerHTML=g?(gOn&&gk===500&&gx===15?'Guide §4.8: grid ≈ 16.4 kA + generator ≈ 8.0 kA = <b>≈ 24.4 kA</b>. Matches.':'Guide §4.8: |Z| ≈ 0.0253 Ω → <b>≈ 16.4 kA</b>, transformer ≈ 97 % of the limiting impedance. Matches.')+' The κ and peak figures apply the guide’s formula; the guide doesn’t quote them for this board.':'Edited from the guide’s example.';
+}
+bind(['e-vm','e-sr','e-sx','e-kva','e-vl','e-z','e-xr','e-gk','e-gx'],E);$('e-g').addEventListener('change',E);$('e-zr').addEventListener('input',()=>{$('e-z').value=$('e-zr').value;E()});
+
+// vector group
+const VG={ynyn:['YNyn: zero-sequence passes through. Upstream Z0 is referred across ratio² and the transformer’s own Z0 is added.','pass'],
+ dyn:['Dyn-type: the LV neutral grounds this side and the HV winding blocks upstream, so Z0 restarts at the transformer’s own Z0. This is TX-Feeder7-014, and why its board shows grounded = true.','restart'],
+ dd:['Delta / ungrounded-wye LV: no ground path onto this side. Everything below is grounded = false and draws almost no SLG current, until an earthing transformer establishes one.','none']};
+function VGd(k){
+ document.querySelectorAll('[data-vg]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.vg===k)));
+ const m=VG[k][1];let up=m==='pass'?'var(--teal)':'var(--line)',dn=m==='none'?'var(--line)':'var(--teal)';
+ $('vg-svg').innerHTML='<text x="20" y="22" class="sml">UPSTREAM 11 kV · Z0 network</text><text x="440" y="22" class="sml">DOWNSTREAM 415 V</text>'+
+ '<line x1="20" y1="85" x2="270" y2="85" stroke="'+up+'" stroke-width="'+(m==='pass'?4:2)+'"'+(m==='pass'?'':' stroke-dasharray="5 5"')+'/>'+
+ '<circle cx="315" cy="85" r="26" fill="none" stroke="var(--ink)" stroke-width="2"/><circle cx="355" cy="85" r="26" fill="none" stroke="var(--ink)" stroke-width="2"/>'+
+ '<text x="315" y="90" text-anchor="middle" class="lbl">'+(k==='ynyn'?'YN':'D')+'</text><text x="355" y="90" text-anchor="middle" class="lbl">'+(k==='dd'?'d':'yn')+'</text>'+
+ (m==='restart'?'<line x1="292" y1="60" x2="338" y2="110" stroke="var(--red)" stroke-width="2.5"/><text x="268" y="140" class="sml" style="fill:var(--red)">HV blocks upstream Z0</text>':'')+
+ (m!=='none'?'<line x1="355" y1="111" x2="355" y2="135" stroke="var(--teal)" stroke-width="2"/><line x1="343" y1="135" x2="367" y2="135" stroke="var(--teal)" stroke-width="2"/><line x1="347" y1="141" x2="363" y2="141" stroke="var(--teal)" stroke-width="2"/><line x1="351" y1="147" x2="359" y2="147" stroke="var(--teal)" stroke-width="2"/>':'')+
+ '<line x1="400" y1="85" x2="680" y2="85" stroke="'+dn+'" stroke-width="'+(m==='none'?2:4)+'"'+(m==='none'?' stroke-dasharray="5 5"':'')+'/>'+
+ '<text x="540" y="70" text-anchor="middle" class="lbl" style="fill:'+(m==='none'?'var(--red)':'var(--teal)')+'">'+(m==='none'?'grounded = false':m==='restart'?'Z0 restarts here · grounded = true':'Z0 = Z0_up·n² + Z0_own')+'</text>';
+ $('vg-t').textContent=VG[k][0];
+}
+document.querySelectorAll('[data-vg]').forEach(b=>b.addEventListener('click',()=>VGd(b.dataset.vg)));VGd('dyn');
+
+// F coordination
+const siT=(M,td)=>M>1?td*0.14/(Math.pow(M,0.02)-1):Infinity;
+function F(){
+ const I=num('f-i'),pu=num('f-pu'),td=num('f-td'),ft=num('f-ft'),cti=num('f-cti');
+ const M=I/pu,tr=siT(M,td),mar=tr-ft,ok=isFinite(tr)&&mar>=cti;
+ $('f-o-t').innerHTML=isFinite(tr)?f(tr,2)+'<span class="u">s · '+f(M,1)+'× pickup</span>':'nil';
+ $('f-o-m').innerHTML=isFinite(mar)?f(mar,2)+'<span class="u">s</span>':'—';
+ $('f-o-c').textContent=isFinite(tr)?(ok?'true':'false'):'n/a';$('f-k-c').classList.toggle('bad',isFinite(tr)&&!ok);$('f-k-c').classList.toggle('good',ok);
+ // chart
+ const W=560,H=330,ml=52,mr=16,mt=14,mb=40,x0=Math.log10(100),x1=Math.log10(20000),y0=Math.log10(0.01),y1=Math.log10(100);
+ const X=v=>ml+(Math.log10(v)-x0)/(x1-x0)*(W-ml-mr),Y=v=>mt+(y1-Math.log10(v))/(y1-y0)*(H-mt-mb);
+ let s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Time-current coordination chart"><g class="grid">';
+ [100,200,500,1000,2000,5000,10000,20000].forEach(v=>s+='<line x1="'+X(v)+'" y1="'+mt+'" x2="'+X(v)+'" y2="'+(H-mb)+'"/>');
+ [.01,.1,1,10,100].forEach(v=>s+='<line x1="'+ml+'" y1="'+Y(v)+'" x2="'+(W-mr)+'" y2="'+Y(v)+'"/>');s+='</g>';
+ [100,200,500,1000,2000,5000,10000,20000].forEach(v=>s+='<text class="ax" x="'+X(v)+'" y="'+(H-mb+14)+'" text-anchor="middle">'+(v>=1000?v/1000+'k':v)+'</text>');
+ [.01,.1,1,10,100].forEach(v=>s+='<text class="ax" x="'+(ml-6)+'" y="'+(Y(v)+3)+'" text-anchor="end">'+v+'</text>');
+ s+='<text class="ax" x="'+((W+ml)/2)+'" y="'+(H-6)+'" text-anchor="middle">current, A (fault-node base, 11 kV)</text><text class="ax" transform="translate(12 '+((H-mb+mt)/2)+') rotate(-90)" text-anchor="middle">time, s</text>';
+ let p='';for(let i=0;i<=120;i++){const m=1.02*Math.pow(20000/pu/1.02,i/120);const t=siT(m,td),a=m*pu;if(a<100||a>20000||t>100||t<.01)continue;p+=(p?'L':'M')+X(a).toFixed(1)+' '+Y(t).toFixed(1)}
+ s+='<path d="'+p+'" fill="none" stroke="var(--blue)" stroke-width="2.4"/>';
+ s+='<text class="lbl" x="'+(X(Math.min(19000,pu*3.2)))+'" y="'+(Y(Math.max(.012,Math.min(90,siT(3.2,td))))-8)+'" style="fill:var(--blue)">relay · TD '+td+'</text>';
+ if(I>=100&&I<=20000){s+='<line x1="'+X(I)+'" y1="'+mt+'" x2="'+X(I)+'" y2="'+(H-mb)+'" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="5 4"/><text class="lbl" x="'+(X(I)+5)+'" y="'+(mt+12)+'" style="fill:var(--red)">fault '+f(I,0)+' A</text>';
+  if(ft>=.01&&ft<=100)s+='<circle cx="'+X(I)+'" cy="'+Y(ft)+'" r="6" fill="var(--amber)"/><text class="lbl" x="'+(X(I)+10)+'" y="'+(Y(ft)+4)+'" style="fill:var(--amber)">fuse '+f(ft,2)+' s</text>';
+  if(isFinite(tr)&&tr>=.01&&tr<=100){s+='<circle cx="'+X(I)+'" cy="'+Y(tr)+'" r="6" fill="var(--blue)"/><text class="lbl" x="'+(X(I)+10)+'" y="'+(Y(tr)+4)+'" style="fill:var(--blue)">relay '+f(tr,2)+' s</text>';
+   if(ft>=.01)s+='<line x1="'+(X(I)-14)+'" y1="'+Y(tr)+'" x2="'+(X(I)-14)+'" y2="'+Y(ft)+'" stroke="'+(ok?'var(--teal)':'var(--red)')+'" stroke-width="3"/><text class="lbl" x="'+(X(I)-20)+'" y="'+((Y(tr)+Y(ft))/2+4)+'" text-anchor="end" style="fill:'+(ok?'var(--teal)':'var(--red)')+'">margin '+f(mar,2)+' s</text>'}}
+ s+='</svg>';$('f-chart').innerHTML=s;
+}
+bind(['f-i','f-pu','f-td','f-ft','f-cti'],F);
+[['f-ir','f-i'],['f-tdr','f-td']].forEach(([r,i])=>{$(r).addEventListener('input',()=>{$(i).value=$(r).value;F()});$(i).addEventListener('input',()=>{$(r).value=$(i).value})});
+
+// G ampacity
+function amp(o){
+ const D=o.D/1000,rho=1.029,mu=1.9e-5,kf=.028,dT=o.Tc-o.Ta,R=o.R20/1000*(1+o.al*(o.Tc-20));
+ const phi=o.ang*Math.PI/180,K=1.194-Math.cos(phi)+.194*Math.cos(2*phi)+.368*Math.sin(2*phi);
+ const Re=D*rho*o.V/mu;let q1=0,q2=0,qn=0;
+ if(dT>0){q1=K*(1.01+1.35*Math.pow(Re,.52))*kf*dT;q2=K*.754*Math.pow(Re,.6)*kf*dT;qn=.0205*Math.sqrt(rho)*Math.pow(D,.75)*Math.pow(dT,1.25)}
+ const qc=Math.max(q1,q2,qn),qr=o.Tc>o.Ta?Math.PI*D*o.e*5.670374419e-8*(Math.pow(o.Tc+273.15,4)-Math.pow(o.Ta+273.15,4)):0,qs=o.g*o.S*D;
+ const net=qc+qr-qs,I=net>0&&R>0?Math.sqrt(net/R):0;return{R,K,Re,q1,q2,qn,qc,qr,qs,net,I};
+}
+function G(){
+ const o={Ta:num('g-ta'),V:num('g-w'),ang:num('g-a'),S:num('g-s'),D:num('g-d'),R20:num('g-r'),al:num('g-al'),e:num('g-e'),g:num('g-g'),Tc:num('g-tc')};
+ const st=num('g-st'),ld=num('g-ld'),r=amp(o);
+ $('g-o-i').innerHTML=f(r.I,0)+'<span class="u">A</span>';
+ const dc=(r.I/st-1)*100;$('g-o-c').innerHTML=(dc>=0?'+':'')+f(dc,0)+'<span class="u">%</span>';$('g-o-c').style.color=dc>=0?'var(--teal)':'var(--red)';
+ const lp=ld/r.I*100;$('g-o-l').innerHTML=f(lp,0)+'<span class="u">% of rating</span>';$('g-k-l').classList.toggle('bad',lp>100);$('g-k-l').classList.toggle('good',lp<=100);
+ // heat bars
+ const mx=Math.max(r.qc,r.qr+r.qs,r.qs,1)*1.1,W=560,bw=v=>Math.max(0,v/mx*(W-170));
+ const bar=(y,l,v,c)=>'<text class="lbl" x="0" y="'+(y+13)+'">'+l+'</text><rect x="150" y="'+y+'" width="'+bw(v).toFixed(1)+'" height="18" rx="2" fill="'+c+'"/><text class="lbl" x="'+(156+bw(v))+'" y="'+(y+13)+'">'+f(v,1)+'</text>';
+ $('g-hb').innerHTML='<svg viewBox="0 0 '+W+' 112" role="img" aria-label="Heat balance terms">'+bar(4,'convection q_c',r.qc,'var(--teal)')+bar(30,'radiation q_r',r.qr,'var(--blue)')+bar(56,'solar gain q_s',r.qs,'var(--amber)')+bar(82,'net cooling',Math.max(0,r.net),'var(--ink)')+'</svg>';
+ // wind chart
+ const Wc=560,Hc=230,ml=48,mr=14,mt=12,mb=36,vmax=3;let pts=[],ymax=0;
+ for(let i=0;i<=60;i++){const v=i/60*vmax;const a=amp(Object.assign({},o,{V:v})).I;pts.push([v,a]);ymax=Math.max(ymax,a)}
+ ymax=Math.ceil(Math.max(ymax,st,ld)*1.12/100)*100;
+ const X=v=>ml+v/vmax*(Wc-ml-mr),Y=a=>mt+(1-a/ymax)*(Hc-mt-mb);
+ let s='<svg viewBox="0 0 '+Wc+' '+Hc+'" role="img" aria-label="Ampacity vs wind speed"><g class="grid">';
+ for(let a=0;a<=ymax;a+=100)s+='<line x1="'+ml+'" y1="'+Y(a)+'" x2="'+(Wc-mr)+'" y2="'+Y(a)+'"/>';s+='</g>';
+ for(let a=0;a<=ymax;a+=100)s+='<text class="ax" x="'+(ml-6)+'" y="'+(Y(a)+3)+'" text-anchor="end">'+a+'</text>';
+ [0,.5,1,1.5,2,2.5,3].forEach(v=>s+='<text class="ax" x="'+X(v)+'" y="'+(Hc-mb+14)+'" text-anchor="middle">'+v+'</text>');
+ s+='<text class="ax" x="'+((Wc+ml)/2)+'" y="'+(Hc-4)+'" text-anchor="middle">wind speed, m/s</text>';
+ s+='<line x1="'+ml+'" x2="'+(Wc-mr)+'" y1="'+Y(st)+'" y2="'+Y(st)+'" stroke="var(--muted)" stroke-dasharray="6 4"/><text class="ax" x="'+(Wc-mr)+'" y="'+(Y(st)-5)+'" text-anchor="end">catalog static '+st+' A</text>';
+ s+='<line x1="'+ml+'" x2="'+(Wc-mr)+'" y1="'+Y(ld)+'" y2="'+Y(ld)+'" stroke="var(--red)" stroke-dasharray="2 4"/><text class="ax" x="'+(ml+4)+'" y="'+(Y(ld)-5)+'" style="fill:var(--red)">load-flow current '+ld+' A</text>';
+ let area='M'+X(0)+' '+Y(0);pts.forEach(p=>area+='L'+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1));area+='L'+X(vmax)+' '+Y(0)+'Z';
+ s+='<path d="'+area+'" fill="var(--teal)" opacity=".1"/><path d="'+pts.map((p,i)=>(i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1)).join('')+'" fill="none" stroke="var(--teal)" stroke-width="2.4"/>';
+ if(o.V<=vmax)s+='<circle cx="'+X(o.V)+'" cy="'+Y(r.I)+'" r="6" fill="var(--teal)" stroke="var(--raise)" stroke-width="2"/><text class="lbl" x="'+(X(o.V)+9)+'" y="'+(Y(r.I)-8)+'">'+f(r.I,0)+' A</text>';
+ s+='</svg>';$('g-chart').innerHTML=s;
+ rows('g-rows',[['R(T_c)',f(r.R*1e6,1)+' µΩ/m'],['Reynolds',f(r.Re,0)],['K_angle',f(r.K,3)],['forced q_c1 · q_c2',f(r.q1,1)+' · '+f(r.q2,1)+' W/m'],['natural floor',f(r.qn,2)+' W/m'],['net cooling',f(r.net,1)+' W/m']]);
+ const isG=(o.Ta===35&&o.S===1000&&o.D===14.15&&o.R20===.27&&o.al===.004&&o.Tc===75&&o.ang===90&&o.e===.5&&o.g===.5);
+ $('g-chk').innerHTML=isG&&o.V===.6?'Guide §6.6: q_c 37.8, q_r 7.2, q_s 7.1 W/m → <b>≈ 339 A</b>, ~13 % above the 300 A stamp. Matches.':isG&&o.V===.2?'Guide §6.6 still-air case: q_c ≈ 22 W/m → <b>≈ 258 A</b>; the 320 A load is a ~24 % overload. Matches.':'Edited from the guide’s example.';
+}
+bind(['g-ta','g-w','g-a','g-s','g-d','g-r','g-al','g-e','g-g','g-tc','g-st','g-ld'],G);
+[['g-tar','g-ta'],['g-wr','g-w'],['g-ar','g-a'],['g-sr','g-s']].forEach(([r,i])=>{$(r).addEventListener('input',()=>{$(i).value=$(r).value;G()});$(i).addEventListener('input',()=>{$(r).value=$(i).value})});
+
+// H arc flash
+function arc(Ibf,V,enc,gnd,G,D,x,tfun){
+ const l=Math.log10(Ibf);const Ia=V<1?Math.pow(10,(enc?-0.097:-0.153)+.662*l+.0966*V+.000526*G+.5588*V*l-.00304*G*l):Math.pow(10,.00402+.983*l);
+ const t=tfun(Ia*1000);const En=Math.pow(10,(enc?-0.555:-0.792)+(gnd?-0.113:0)+1.081*Math.log10(Ia)+.0011*G);const Cf=V<=1?1.5:1;
+ const E=Cf*En*(t.t/0.2)*Math.pow(610/D,x);const B=610*Math.pow(Cf*En*(t.t/0.2)/1.2,1/x);return{Ia,En,E,B,t,Cf};
+}
+function ppe(E){return E<1.2?0:E<=4?1:E<=8?2:E<=25?3:E<=40?4:-1}
+function H(){
+ const V=num('h-v'),Ibf=num('h-i'),enc=$('h-enc').checked,gnd=$('h-gnd').checked,G=num('h-g'),D=num('h-d'),x=num('h-x'),mode=$('h-mode').value,cap=num('h-cap'),vd=num('h-vd'),pu=num('h-pu'),td=num('h-td'),tf=num('h-t');
+ const tfun=Ia=>{if(mode==='fixed')return{t:Math.min(tf,cap),thr:null,M:null,capped:tf>cap};const thr=Ia*(V*1000)/vd,M=thr/pu,raw=siT(M,td);return{t:Math.min(raw,cap),thr,M,raw,capped:raw>cap,assumed:!isFinite(raw)}};
+ const a=arc(Ibf,V,enc,gnd,G,D,x,tfun);
+ const Ia1=a.Ia,Ia2=Ia1*.85,t2=tfun(Ia2*1000);const En2=Math.pow(10,(enc?-0.555:-0.792)+(gnd?-0.113:0)+1.081*Math.log10(Ia2)+.0011*G);const E2=a.Cf*En2*(t2.t/.2)*Math.pow(610/D,x);
+ const red=E2>a.E,E=red?E2:a.E,t=red?t2:a.t,B=610*Math.pow(E*Math.pow(D/610,x)/1.2,1/x);const cat=ppe(E);
+ $('h-o-e').innerHTML=f(E,E<10?2:1)+'<span class="u">cal/cm²</span>';$('h-k-e').classList.toggle('bad',cat===-1);
+ $('h-o-t').innerHTML=f(t.t,2)+'<span class="u">s'+(t.capped?' · capped':'')+'</span>';
+ $('h-o-b').innerHTML=(B>=1000?f(B/1000,1)+'<span class="u">m</span>':f(B,0)+'<span class="u">mm</span>');
+ document.querySelectorAll('#h-ppe div').forEach((d,i)=>d.classList.toggle('on',(cat===-1?5:cat)===i));
+ const oor=V<.208||V>15||Ibf<.7||Ibf>106;
+ rows('h-rows',[['arcing_current (eq '+(V<1?'1':'2')+')',f(Ia1,2)+' kA · '+f(Ia1/Ibf*100,0)+' % of bolted'],
+  mode==='relay'?['through-current at relay',f(a.t.thr,0)+' A · '+f(a.t.M,2)+'× pickup']:['clearing device','fixed / local device'],
+  mode==='relay'?['relay raw time',isFinite(a.t.raw)?f(a.t.raw,2)+' s':'does not operate']:['clearing time',f(tf,2)+' s'],
+  ['E_n (0.2 s, 610 mm)',f(a.En,2)+' cal/cm²'],['E at I_a',f(a.E,1)+' cal/cm²'],['E at 0.85·I_a',f(E2,1)+' cal/cm²'],
+  ['reduced_current_governs',String(red)],['clearing_time_assumed',String(mode==='relay'&&!!a.t.assumed)],['out_of_range',String(oor)],['PPE',cat===-1?'−1 · Dangerous, no live work':'Category '+cat]]);
+ // chart E vs t
+ const W=560,Hh=220,ml=46,mr=14,mt=10,mb=34,tmax=Math.max(cap,2);const k=t.t>0?E/t.t:0;const ymax=Math.max(50,Math.ceil(k*tmax*1.1/10)*10);
+ const X=v=>ml+v/tmax*(W-ml-mr),Y=v=>mt+(1-Math.min(v,ymax)/ymax)*(Hh-mt-mb);
+ const bands=[[0,1.2,'--ppe0'],[1.2,4,'--ppe1'],[4,8,'--ppe2'],[8,25,'--ppe3'],[25,40,'--ppe4'],[40,ymax,'--ppe5']];
+ let s='<svg viewBox="0 0 '+W+' '+Hh+'" role="img" aria-label="Incident energy vs clearing time">';
+ bands.forEach(b=>{if(b[0]<ymax)s+='<rect x="'+ml+'" y="'+Y(b[1])+'" width="'+(W-ml-mr)+'" height="'+(Y(b[0])-Y(b[1]))+'" fill="var('+b[2]+')"/>'});
+ for(let v=0;v<=ymax;v+=ymax>100?50:10)s+='<text class="ax" x="'+(ml-6)+'" y="'+(Y(v)+3)+'" text-anchor="end">'+v+'</text>';
+ for(let v=0;v<=tmax+1e-9;v+=0.5)s+='<text class="ax" x="'+X(v)+'" y="'+(Hh-mb+14)+'" text-anchor="middle">'+v+'</text>';
+ s+='<text class="ax" x="'+((W+ml)/2)+'" y="'+(Hh-4)+'" text-anchor="middle">clearing time, s</text>';
+ s+='<line x1="'+X(0)+'" y1="'+Y(0)+'" x2="'+X(tmax)+'" y2="'+Y(k*tmax)+'" stroke="var(--ink)" stroke-width="2.2"/>';
+ s+='<line x1="'+X(cap)+'" y1="'+mt+'" x2="'+X(cap)+'" y2="'+(Hh-mb)+'" stroke="var(--muted)" stroke-dasharray="4 4"/><text class="ax" x="'+(X(cap)-4)+'" y="'+(mt+10)+'" text-anchor="end">cap '+cap+' s</text>';
+ s+='<circle cx="'+X(t.t)+'" cy="'+Y(E)+'" r="6" fill="var(--red)" stroke="var(--raise)" stroke-width="2"/><text class="lbl" x="'+(X(t.t)+(t.t>tmax*.7?-10:10))+'" y="'+(Y(E)+(E>ymax*.8?16:-8))+'" text-anchor="'+(t.t>tmax*.7?'end':'start')+'">'+f(E,1)+' cal/cm² at '+f(t.t,2)+' s</text></svg>';
+ $('h-chart').innerHTML=s;
+ const g=V===.415&&Ibf===16.4&&enc&&!gnd&&G===32&&D===610&&x===1.473;
+ $('h-chk').innerHTML=g&&mode==='relay'&&pu===200&&td===.2&&vd===11000&&cap===2?'Guide §7.6: I_a ≈ 8.47 kA, through ≈ 319 A (1.6× pickup), relay ~3 s → capped 2.0 s, <b>≈ 45.6 cal/cm², boundary ≈ 7.2 m, PPE −1</b>; 0.85·I_a gives ~38. Matches.':g&&mode==='fixed'&&tf===.05?'Guide §7.6 fix: 45.6 × 0.05/2.0 ≈ <b>1.14 cal/cm² → Category 0</b>. Matches.':'Edited from the guide’s example.';
+}
+bind(['h-v','h-i','h-g','h-d','h-x','h-vd','h-pu','h-td','h-t','h-cap'],H);['h-enc','h-gnd','h-mode'].forEach(i=>$(i).addEventListener('change',H));
+[['h-ir','h-i'],['h-dr','h-d']].forEach(([r,i])=>{$(r).addEventListener('input',()=>{$(i).value=$(r).value;H()});$(i).addEventListener('input',()=>{$(r).value=$(i).value})});
+
+// presets
+const PR={
+ 'A-guide':{'a-kva':315,'a-vp':11000,'a-vs':415,'a-z':4.5,'a-xr':2,'a-tp':0,'a-ts':0,'a-p':100,'a-pf':.95,_:A},
+ 'C-guide':{'c-s':189,'c-v':412,'c-r':.164,'c-l':60,'c-nv':402,'c-nb':415,'c-mn':.95,'c-mx':1.05,_:C},
+ 'D-sym':{'d-p':60,'d-r':1,_:()=>{$('d-open').checked=false;D()}},
+ 'D-open':{_:()=>{$('d-open').checked=true;D()}},
+ 'E-guide':{'e-vm':11000,'e-sr':.05,'e-sx':.48,'e-kva':315,'e-vl':415,'e-z':4.5,'e-xr':2,_:()=>{$('e-g').checked=false;E()}},
+ 'E-gen':{'e-vm':11000,'e-sr':.05,'e-sx':.48,'e-kva':315,'e-vl':415,'e-z':4.5,'e-xr':2,'e-gk':500,'e-gx':15,_:()=>{$('e-g').checked=true;E()}},
+ 'F-guide':{'f-i':2000,'f-pu':200,'f-td':.2,'f-ft':.08,'f-cti':.3,_:F},
+ 'F-fail':{'f-i':2000,'f-pu':200,'f-td':.1,'f-ft':.08,'f-cti':.3,_:F},
+ 'G-guide':{'g-ta':35,'g-w':.6,'g-a':90,'g-s':1000,'g-d':14.15,'g-r':.27,'g-al':.004,'g-e':.5,'g-g':.5,'g-tc':75,'g-st':300,'g-ld':320,_:G},
+ 'G-still':{'g-ta':35,'g-w':.2,'g-a':90,'g-s':1000,'g-d':14.15,'g-r':.27,'g-al':.004,'g-e':.5,'g-g':.5,'g-tc':75,'g-st':300,'g-ld':320,_:G},
+ 'G-night':{'g-s':0,_:G},
+ 'H-guide':{'h-v':.415,'h-i':16.4,'h-g':32,'h-d':610,'h-x':1.473,'h-vd':11000,'h-pu':200,'h-td':.2,'h-cap':2,_:()=>{$('h-enc').checked=true;$('h-gnd').checked=false;$('h-mode').value='relay';H()}},
+ 'H-fix':{'h-v':.415,'h-i':16.4,'h-g':32,'h-d':610,'h-x':1.473,'h-t':.05,'h-cap':2,_:()=>{$('h-enc').checked=true;$('h-gnd').checked=false;$('h-mode').value='fixed';H()}}};
+document.querySelectorAll('[data-preset]').forEach(b=>b.addEventListener('click',()=>{const p=PR[b.dataset.preset];Object.keys(p).forEach(k=>{if(k!=='_')setv(k,p[k])});
+ [['a-zr','a-z'],['a-pr','a-p'],['e-zr','e-z'],['f-ir','f-i'],['f-tdr','f-td'],['g-tar','g-ta'],['g-wr','g-w'],['g-ar','g-a'],['g-sr','g-s'],['h-ir','h-i'],['h-dr','h-d'],['c-lr','c-l'],['c-nvr','c-nv'],['d-rr','d-r']].forEach(([r,i])=>{if($(r))$(r).value=$(i).value});p._()}));
+
+// contingency
+function CT(t){document.querySelectorAll('.tie').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.t===t)));
+ const v=t==='a'?.958:.941,lo=.93,hi=1.06,pos=p=>(p-lo)/(hi-lo)*100;
+ $('ct-line').innerHTML='<div class="band" style="height:70px"><div class="track"></div><div class="ok" style="left:'+pos(.95)+'%;width:'+(pos(1.05)-pos(.95))+'%"></div><div class="mk" style="left:'+pos(v)+'%;background:'+(t==='a'?'var(--teal)':'var(--red)')+'"><span>'+(t==='a'?'TIE-79-A':'TIE-79-B')+' · '+v+' pu</span></div>'+[.93,.95,1,1.05].map(x=>'<div class="tk" style="left:'+pos(x)+'%">'+x.toFixed(2)+'</div>').join('')+'</div>';
+ $('ct-t').innerHTML=t==='a'?'<b>Close TIE-79-A.</b> It restores 0.8 MW across 46 nodes and Feeder 9 still holds 0.958 pu with nothing overloaded. One switching action.':'<b>Not as a straight close.</b> TIE-79-B restores more (1.4 MW, 71 nodes) but drives Feeder 9’s far end to 0.941 pu, below the 0.95 floor, and pushes a cable to 108 %. It just moves the problem onto Feeder 9; a partial transfer or load shed might still help.';}
+document.querySelectorAll('.tie').forEach(b=>b.addEventListener('click',()=>CT(b.dataset.t)));CT('a');
+
+// hosting replay
+let mode='der',hT=null;
+function hostSteps(limit){const st=[];let lo=0,hi=null,x=50;st.push({k:'gate',x:0,ok:true,lo,hi});
+ while(x<=1e5){const ok=x<=limit;st.push({k:'ramp',x,ok,lo:ok?x:lo,hi:ok?null:x});if(ok){lo=x;x*=2}else{hi=x;break}}
+ let it=0;while(hi!==null&&hi-lo>=0.1&&it<40){const m=(lo+hi)/2,ok=m<=limit;if(ok)lo=m;else hi=m;it++;st.push({k:'bisect',x:m,ok,lo,hi,it})}
+ return{st,lo,hi,it}}
+function hRender(s,fin,res){
+ const sc=v=>Math.min(100,v/1000*100);$('i-feas').style.width=sc(s.lo)+'%';
+ if(s.hi!==null){$('i-brk').style.left=sc(s.lo)+'%';$('i-brk').style.width=Math.max(.4,sc(s.hi)-sc(s.lo))+'%';$('i-brk').style.display=''}else $('i-brk').style.display='none';
+ $('i-tr').style.left=sc(s.x)+'%';
+ if(fin){const der=mode==='der';$('i-cap').innerHTML=f(res.lo,1)+'<span class="u">kW</span>';$('i-bind').textContent=der?'overvoltage':'undervoltage';$('i-ld').innerHTML=(der?'82':'71')+'<span class="u">%</span>'}
+}
+function hPlay(){clearInterval(hT);const der=mode==='der',lim=der?480:250,res=hostSteps(lim);$('i-lab').textContent=der?'hosting_capacity_kw':'ev_hosting_capacity_kw';
+ $('i-cap').textContent='…';$('i-bind').textContent='…';$('i-ld').textContent='…';const log=$('i-log');log.innerHTML='';let k=0;
+ const verb=der?'inject':'add';const lim2=der?'1.05 ceiling':'0.95 floor';
+ const add=s=>{const d=document.createElement('div');if(s.k==='gate')d.innerHTML='<span class="ok">base case at 0 kW · feasible (0.969 pu, no overload) → search</span>';
+  else if(s.k==='ramp')d.innerHTML='ramp  '+verb+' '+f(s.x,0)+' kW → '+(s.ok?'<span class="ok">feasible</span>':'<span class="no">infeasible ('+(der?'over':'under')+'-voltage past '+lim2+')</span>');
+  else d.innerHTML='bisect #'+s.it+'  '+f(s.x,2)+' kW → '+(s.ok?'<span class="ok">ok</span>':'<span class="no">no</span>')+'  [lo '+f(s.lo,2)+', hi '+f(s.hi,2)+']';
+  log.appendChild(d);log.scrollTop=log.scrollHeight};
+ const fast=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+ hT=setInterval(()=>{if(k>=res.st.length){clearInterval(hT);const d=document.createElement('div');d.innerHTML='<b>bracket &lt; 0.1 kW after '+res.it+' bisections → capacity ≈ '+f(res.lo,1)+' kW</b>';log.appendChild(d);log.scrollTop=log.scrollHeight;hRender(res.st[res.st.length-1],true,res);return}
+  const s=res.st[k++];add(s);hRender(s,false)},fast?0:(k<8?420:110));
+}
+$('i-play').addEventListener('click',hPlay);
+$('i-der').addEventListener('click',()=>{mode='der';$('i-der').setAttribute('aria-pressed','true');$('i-ev').setAttribute('aria-pressed','false');hPlay()});
+$('i-ev').addEventListener('click',()=>{mode='ev';$('i-ev').setAttribute('aria-pressed','true');$('i-der').setAttribute('aria-pressed','false');hPlay()});
+(function(){const res=hostSteps(480);res.st.forEach(s=>{});const log=$('i-log');log.innerHTML='<div>Press replay to watch the ramp from 50 kW, then the bisection. Final state shown.</div>';hRender(res.st[res.st.length-1],true,res)})();
+
+// flags decoder
+const FL=[['material_resolved: false',['load flow','fault'],'impedance unresolved → optimistic (drop under-stated, fault over-stated)'],
+ ['losses_complete: false',['voltage profile'],'loss figure is a lower bound'],
+ ['zero_seq_estimated: true',['fault'],'Z0 was assumed (≈3× Z1), not measured'],
+ ['ground_path_resolved: false',['fault'],'earth-return path incompletely modelled'],
+ ['geometry_assumed: true',['arc-flash'],'≥ 1 geometry input used an IEEE typical: fine to screen, not to label'],
+ ['clearing_time_assumed: true',['arc-flash'],'no upstream device resolved; time capped at 2 s'],
+ ['extrapolated: true',['coordination','arc-flash'],'fault current is off the end of the tabulated curve'],
+ ['out_of_range: true',['arc-flash'],'V or I_bf outside the 1584-2002 envelope'],
+ ['binding_constraint: pre_existing',['hosting / EV'],'the base case already violates → zero headroom'],
+ ['unbounded: true / binding: none',['hosting / EV'],'the search cap stopped it, not the feeder: capacity ≥ the figure'],
+ ['converged: false',['nodal','meshed'],'the iterative solve didn’t reach tolerance: read max_mismatch_pu'],
+ ['compensated: false',['meshed'],'loop left open (open device or ideal-wire loop)']];
+const studies=['all','load flow','voltage profile','meshed','nodal','fault','coordination','arc-flash','hosting / EV'];
+$('fl-chips').innerHTML=studies.map((s,i)=>'<button aria-pressed="'+(i===0)+'" data-s="'+s+'">'+s+'</button>').join('');
+function FLr(s){document.querySelectorAll('#fl-chips button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.s===s)));
+ $('fl-body').innerHTML=FL.filter(x=>s==='all'||x[1].includes(s)).map(x=>'<tr><td><code>'+x[0]+'</code><div class="sm muted">'+x[1].join(', ')+'</div></td><td>'+x[2]+'</td></tr>').join('')}
+document.querySelectorAll('#fl-chips button').forEach(b=>b.addEventListener('click',()=>FLr(b.dataset.s)));FLr('all');
 })();
 </script>
 

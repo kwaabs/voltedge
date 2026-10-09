@@ -656,9 +656,11 @@ The **History** view is the audit trail: who changed what, and when. 🗺️ Not
 
 The **Attachments** tab holds files pinned to the feature — site photos, datasheets, permits. Reading and downloading them needs `attachments:read` (viewers have it); uploading, replacing, or deleting needs `attachments:write` (editors and field roles). Field crews commonly attach photos on site, which then appear here (Chapter 11).
 
-#### 4.2.9 External links — pointers to other systems
+#### 4.2.9 External systems — links and live data from elsewhere
 
-A feature can carry **external links** — references out to related records in other systems your organisation runs. Where present, they appear in the panel so you can jump from the asset to its record elsewhere.
+A feature can carry **external links** out to the other systems your organisation runs — its CIS, work-management, document store — shown in the panel's **External systems** tab. Two kinds: a **hyperlink** opens that system's page in a new tab, and an **API link** goes one better and shows the **live record as a data card** right in the panel (the customer's balance, the open job's status), fetched server-side and read-only. See **§12.2** for the full story and how an administrator catalogues a system.
+
+(This chapter also mentions the **Faults** and **Works** operational tabs on a feature's panel — those are covered in Chapter 9.)
 
 #### 4.2.10 Worked example — reading a distribution transformer end to end
 
@@ -1445,11 +1447,27 @@ Each record type walks a defined **status lifecycle**, and the buttons you see d
 
 #### 9.1.4 The operations triangle — how the three interlock
 
-The three modules aren't silos. A **fault** is the causal hinge between the other two:
+The three modules aren't silos — they're **three views of one real-world event**. When a tree falls on a line, that single failure can produce a record in each module, and each answers a different question:
 
-> A **fault event** *explains* an **outage** (the incident it caused) and *triggers* a **defect** (the asset failure booked for repair).
+| Record | Module | The question it answers |
+|---|---|---|
+| **Incident** (outage) | OMS | *Who's off supply, and when are they back?* |
+| **Fault event** | Faults | *What electrically happened, and where?* |
+| **Defect** → **work order** | WAM | *What asset is damaged, and who repairs it?* |
 
-So a single failure can become: an **OMS incident** (customers are dark) ↔ a **Faults event** (the earth fault that caused it) ↔ a **WAM defect** (the damaged asset to fix) → a **WAM work order** (the crew job). VoltEdge provides one-click composites to create these links, so you don't re-key the same event three times. §9.5 walks a full storm-to-repair example through the whole triangle; each module section below shows its own corner.
+The **fault event is the hinge** because it sits in the middle of the cause-and-effect chain: the **damaged asset** *causes* the **fault**, and the **fault** *causes* the **outage**.
+
+```
+                causes              causes
+   DEFECT  ──────────►  FAULT   ──────────►  INCIDENT
+   damaged asset        EVENT               customers off supply
+      │
+      │ booked as
+      ▼
+   WORK ORDER  (the crew job)
+```
+
+So from the one fault you can reach both the customers it darkened and the asset to fix. These links are made **only when they actually relate** — a transient fault may clear with no lasting defect, and an inspection may raise a defect with no fault — and where they do, VoltEdge gives you **one-click composites** to create them (book a defect from a fault, raise an incident from a fault), so you never re-key the same event into three pages. §9.5 walks a full storm-to-repair example through the whole triangle; each module section below covers its own corner.
 
 ### 9.2 Outage Management (OMS) — the "Outages" page
 
@@ -1900,13 +1918,13 @@ The app reports **sync status** so you can see what's still **pending**, what's 
 
 ---
 
-*Next chapter: **External map layers & the assistant** — bringing third-party layers onto the map, click-to-identify, and the map assistant. Tell me to proceed.*
+*Next chapter: **External integrations** — third-party map layers with click-to-identify, external systems (live records on a feature), and the map assistant. Tell me to proceed.*
 
 ---
 
-## Chapter 12 — External map layers & the assistant
+## Chapter 12 — External integrations: map layers, data systems & the assistant
 
-Two features round out the map. The first looks *outward*: **external map layers** let you overlay third-party geographic data — aerial imagery, cadastral boundaries, someone else's asset service — beneath and around your own network, so your assets sit in real-world context. The second makes the map *conversational*: the **assistant** lets you ask questions and drive VoltEdge in plain language, safely bounded by exactly what you're allowed to do. Different as they are, they share one design principle you'll see throughout: **VoltEdge trusts neither the outside service nor the language model — your permissions and your explicit confirmation stay in charge.**
+Three features round out the workspace by connecting VoltEdge to the world outside it. Two look *outward* to other systems: **external map layers** overlay third-party *geographic* data — aerial imagery, cadastral boundaries, someone else's asset service — beneath and around your own network; and **external systems** bring third-party *records* — a customer account, a work-management job — onto a feature's panel. The third makes the map *conversational*: the **assistant** lets you ask questions and drive VoltEdge in plain language, safely bounded by exactly what you're allowed to do. Different as they are, they share one design principle you'll see throughout: **VoltEdge trusts neither the outside service nor the language model — your permissions, its server-side proxy, and your explicit confirmation stay in charge.**
 
 ### 12.1 External map layers (service layers)
 
@@ -1952,11 +1970,41 @@ For secured or cross-origin layers, VoltEdge routes requests through its **own s
 *Worked example — context for a planning study (Tom, analyst):*
 Tom is assessing a new connection. He turns on the **aerial imagery** WMS at 70% opacity to see ground truth, adds the **cadastral boundaries** WFS to see parcels, and leaves his network on top. He clicks a parcel — VoltEdge **identifies** it against the cadastral service and shows the owner and lot number in the read-only panel — all without importing a single external feature into VoltEdge.
 
-### 12.2 The map assistant
+### 12.2 External systems — live data on a feature
+
+Where a service layer (§12.1) brings an external *map*, an **external system** brings external *records* — a customer account from your CIS, a job from your work-management system, a document reference — and shows them **right on a feature's panel**, in its **External systems** tab (§4.2.9). It's the same principle as service layers: VoltEdge **fetches the outside data server-side and shows it read-only**, so the asset in front of you carries its context from the other systems your organisation runs, without that data ever entering VoltEdge's database.
+
+#### 12.2.1 The two kinds of link
+
+A feature can carry any number of **external links**, of two kinds:
+
+- **Hyperlink** — a plain web link (an `http`/`https` URL). The panel shows it as a button; clicking **opens it in a new tab**. Use it for "open this asset's page in system X." VoltEdge stores only the URL and fetches nothing.
+- **API data card** — a link to a **catalogued external system** plus a **resource path**. Here VoltEdge **fetches the live record** from that system and renders its fields as a **data card** inline — so you read the customer's balance or the open job's status without leaving the feature. This is the "live" one, and the rest of this section is about it.
+
+#### 12.2.2 Reading a data card
+
+🔒 `features:read`. Open a feature and go to the **External systems** tab. Each API link shows a card that, when displayed, triggers a **server-side fetch** of the external system's base URL + the link's resource path, flattens the response (JSON or XML) into readable fields, and shows them. It's **read-only** — the card reflects the external system's current data and never writes anything back, into VoltEdge or the other system. If the fetch fails — the system is unreachable, returns an error, or the URL isn't allowed — the card **says so**, so you can tell "no data" from "couldn't reach it." (Adding or removing a link on a feature needs `features:write`.)
+
+#### 12.2.3 Cataloguing a system (administrators)
+
+🔒 `metadata:write` — like service layers and domains, the external-systems catalog is an administrative task, done from the **External systems** card in the admin area (`/admin/external-systems`). For each system an administrator sets:
+
+- a **code** and **name** (how links refer to it);
+- the **base URL** — the system's API root. **End it with a trailing slash**: a link's resource path joins onto it RFC-style, so `https://cis.example.com/api/` + `customer/42` → `…/api/customer/42`, but *without* the slash the last segment is replaced;
+- the **response format** — **JSON** or **XML** (VoltEdge flattens either into the card);
+- **authentication** — **none**, an **API key** (sent as a configured header), a **bearer** token, or **basic** (username + password). The secret is **encrypted at rest and write-only**: once saved it is never shown again (the UI reports only *that* a credential is set).
+
+An API link on a feature then names this system plus the resource path for the specific record.
+
+#### 12.2.4 Safety — the same proxy as map layers
+
+Exactly like a secured service layer (§12.1.5), an external system's fetch runs through VoltEdge's **SSRF-hardened, same-origin proxy**: the stored **credential is injected server-side** (never reaching the browser), and the server **refuses any non-public address** — loopback, private, or link-local — so a base URL can't be used to make VoltEdge reach into its own network. The practical consequence when you test this: **a system on `localhost` or a private IP won't fetch** — give it a publicly reachable URL (a tunnel is fine for a mock). Storing a credential also needs the server's **external-systems encryption key** configured; with authentication set to **none** you don't need it.
+
+### 12.3 The map assistant
 
 The **assistant** is VoltEdge's in-app helper: a "second front door" onto the very same actions the rest of the app exposes, reached in plain language. It has two halves — deterministic **suggestions** that need no AI at all, and an AI **chat** that routes freeform requests to the right tool.
 
-#### 12.2.1 What it is — and, importantly, what it isn't
+#### 12.3.1 What it is — and, importantly, what it isn't
 
 The assistant runs **in-app, behind your ordinary session**, and **every action it takes is bounded by your RBAC** (Chapter 3). It's wired to the same large catalogue of **tools** the automation interface (MCP) exposes — well over a hundred of them, spanning features, connectivity and relationships, tracing and analysis, OMS/WAM/Faults, diagrams, annotations, and more — so it can drive most of what you can do by hand.
 
@@ -1966,11 +2014,11 @@ Three things it is *not*, and these are the safety guarantees worth internalisin
 - **Not an auto-writer.** It will happily *read* to answer you, but it **never silently changes anything**. Any change comes back as a **proposed action you must confirm** — your click is the commit.
 - **Not an oracle.** The model's only job is to *route* — pick the right tool and fill its arguments. All the real reasoning (the trace, the aggregate, the rule check) is done by VoltEdge's deterministic engines, exactly as when you click the buttons yourself.
 
-#### 12.2.2 Suggestion chips — help without AI
+#### 12.3.2 Suggestion chips — help without AI
 
 The simplest half needs no language model. When you **edit or snap a feature** on the map (say you drag a new cable so its end meets a transformer), VoltEdge asks its connectivity and relationship engines for the **ranked, rule-legal** things that feature could connect or relate to, and offers each as a **confirmation chip**. Click one and it commits that connection or relationship using the same establish path as the manual flow (Chapter 7) — nothing auto-writes. 🔒 These chips are gated on your **commit** permissions: if you can't establish connections, you won't see connect chips (you'd have nothing to click). It's the assistant catching "you probably meant to wire these together" and offering the one-click.
 
-#### 12.2.3 Chat — driving VoltEdge in plain language
+#### 12.3.3 Chat — driving VoltEdge in plain language
 
 The richer half is **chat**. You type a request; a small language model reads it and **picks the right tool and fills in its arguments** — but only from the tools you're permitted to run. From there:
 
@@ -1979,7 +2027,7 @@ The richer half is **chat**. You type a request; a small language model reads it
 
 So chat is fast and safe: instant for questions, confirm-first for changes.
 
-#### 12.2.4 What you can ask
+#### 12.3.4 What you can ask
 
 Because it's wired to the full tool catalogue, useful asks include:
 
@@ -1990,14 +2038,14 @@ Because it's wired to the full tool catalogue, useful asks include:
 
 Everything it does, you could do by hand — it just gets you there in a sentence.
 
-#### 12.2.5 Availability
+#### 12.3.5 Availability
 
 Chat needs a **configured language model**; a **status** indicator tells you whether it's available in your installation. The **suggestion chips work regardless** — they're deterministic and need no model — so even with no AI configured, the "you probably meant to connect these" help is still there.
 
 *Worked example — a quick answer and a quick fix (Priya, dispatcher):*
 Priya asks the assistant, *"How many trouble calls are open right now?"* — it routes to a read tool and answers **7** instantly. She then drags a newly-built service so it snaps to a pillar; a **suggestion chip** offers "connect SERVICE-… to PILLAR-…", and she clicks to commit. Later she types *"raise a fault on this cable"*; the assistant proposes the action, she reviews and **confirms**, and only then is the fault created — with her permission checked one more time.
 
-### 12.3 The shared safety model
+### 12.4 The shared safety model
 
 It's worth naming the pattern both features follow, because it's the same one:
 
@@ -2005,7 +2053,7 @@ It's worth naming the pattern both features follow, because it's the same one:
 - **Your permissions bound everything.** You only see and use layers and tools your roles permit.
 - **Nothing changes without your explicit confirmation.** Identify never writes; assistant writes are always confirm-first.
 
-### 12.4 Tips and gotchas
+### 12.5 Tips and gotchas
 
 - **Service layers are overlays, not imports.** An external layer draws on your map and can be identified, but its features never enter your database — you can't trace, analyse, or edit them. Import them (Chapter 6 tooling / admin ETL) if you need them as real features.
 - **Layer not showing?** Check it's **enabled**, that you're within its **zoom range**, and its **opacity** isn't at zero.

@@ -17,8 +17,8 @@ template cases.
    runs against, with schematics and a build sheet.
 3. **Building & maintaining the network** — the authoring workflows (create a
    station, draw a feeder, edit a feature, wire connectivity + relationships,
-   diagrams, territories, tags, import/export). Following this chapter *builds*
-   Oakwood.
+   diagrams, territories, tags, import/export, external systems). Following this
+   chapter *builds* Oakwood.
 4. **Load-flow analysis** — basic, meshed, nodal, auto, unbalanced, voltage
    profile.
 5. **Traces & OMS** — standard, feeder, section, service, supply-path, isolate,
@@ -236,7 +236,7 @@ GSP + tie for 4.4/6.6, and the DER for Chapter 7.
 Chapters 4–7 need Oakwood to exist. This chapter **builds it, in order**, and
 each step doubles as a test of an authoring workflow. Follow the tests
 top-to-bottom on a scratch territory and you finish with the reference network
-drawn, wired, diagrammed, and tagged — ready to analyse. The last test (3.15,
+drawn, wired, diagrammed, and tagged — ready to analyse. The last test (3.16,
 bulk wipe) is the teardown, so the whole build is repeatable.
 
 Template here is gesture-first: **Purpose → Preconditions → Steps (the gesture)
@@ -676,7 +676,55 @@ way out. Permission: export.
   format + a target SRID should be rejected at enqueue (`reprojectableFormats`
   gate).
 
-## Test 3.15 — Bulk wipe (nuke) — teardown
+## Test 3.15 — External systems (feature data links)
+
+**Purpose:** Catalogue an **external system** and attach a **live-data link** to a
+feature; confirm the feature panel's **External systems** tab fetches and renders it,
+and that the SSRF proxy + auth behave. Permissions: **`metadata:write`** (catalog),
+**`features:write`** (add a link), **`features:read`** (view).
+
+**Preconditions:** a mock HTTP endpoint returning JSON at a **public** URL (the proxy
+refuses loopback/private — tunnel a local mock); `EXTERNAL_SYSTEMS_ENCRYPTION_KEY` set
+**only** if you use an authenticated system.
+
+```
+  admin: catalogue system {base_url/, auth, format}   (metadata:write)
+  feature: add API link -> system + resource_path       (features:write)
+  panel "External systems" tab -> server-side fetch base_url+path -> read-only data card
+  base_url on localhost/private -> REFUSED (SSRF) ;  non-2xx upstream -> error on the card
+```
+
+**Steps**
+1. **Catalogue** (Admin → External systems, or `POST /external-systems`): create a
+   system — `code`, `name`, `base_url` **with a trailing slash**, `auth_type=none`,
+   `response_format=json`.
+2. **Link** on a feature's **External systems** tab (or `POST /feature-links`): add a
+   `kind=api` link → the system's `system_id` + a `resource_path` (e.g. `customer/42`).
+   Also add a plain **hyperlink** link and confirm it opens in a new tab.
+3. **View:** open the feature → **External systems** tab → the API link renders as a
+   **data card** carrying the mock's fields.
+4. **Provoke:** point `base_url` at `localhost`/a private IP and re-view → the card
+   must show a "not a public address" / unreachable **error**, not a crash.
+
+**Expected / pass criteria**
+- The API link **fetches server-side** and shows the external record read-only;
+  nothing is written into VoltEdge or the external system. The hyperlink opens a new
+  tab (no fetch).
+- A credential, if set, is **write-only** — the catalog returns only `has_credential`,
+  never the secret.
+- A `localhost`/private `base_url` is **refused by the SSRF proxy**; a non-2xx or
+  unreachable upstream surfaces as an error on the card.
+
+**Failure modes**
+- `metadata:write` absent → cannot catalogue; `features:write` absent → cannot add a
+  link.
+- `base_url` **without** a trailing slash drops the last path segment (RFC join) — the
+  usual "wrong URL" surprise.
+- Storing a credential with `EXTERNAL_SYSTEMS_ENCRYPTION_KEY` unset is refused.
+
+---
+
+## Test 3.16 — Bulk wipe (nuke) — teardown
 
 **Purpose:** Clear a class (or the whole scratch build) so the exercise is
 repeatable. Permission: **`features:wipe`** (admin-only), territory-scoped.
@@ -1785,7 +1833,8 @@ against the "writing checks the validation can't cash" risk.
 | 3.12 | Asset tags lifecycle | Tags | `asset-tags:write` |
 | 3.13 | Import with reprojection | Bulk / exchange | import |
 | 3.14 | Export jobs & CIM/DXF with target CRS | Exchange | export |
-| 3.15 | Bulk wipe (nuke) — teardown | Bulk | `features:wipe` |
+| 3.15 | External systems (feature data links) | Exchange | `metadata:write` + `features:write` |
+| 3.16 | Bulk wipe (nuke) — teardown | Bulk | `features:wipe` |
 
 ## Chapters 4–7 — analyses & traces
 
