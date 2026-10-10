@@ -30,6 +30,21 @@ the map, the feature panel, permissions, and territory — in the
 [User Handbook](user-handbook.md). Asset tags also get a shorter treatment in
 Handbook Chapter 13; this is the full manual.
 
+> **Interactive edition.** `asset-tags-guide-interactive.html` keeps everything
+> below and adds nineteen working widgets — a check-character generator, a Tags
+> tab running the real lifecycle rules, a label designer with a real QR code and
+> Code128 barcode, a scan resolver, an offline field pack, the admin console, the
+> query filter and the ten assistant tools. Pick a persona (Femi, Priya, Dana,
+> Ada) and each widget gates its buttons by that person's real permissions.
+>
+> **Code-verified edition.** Every rule, limit and error string in this guide was
+> re-checked against the code (`api/internal/assettag`, migrations 0114/0115, the
+> web components, the Flutter field app). Statements that the code does not bear
+> out were corrected in place; each correction is marked **Code-verified** and
+> they are collected in the ledger in §9.9. One visible change: the example
+> codes are now `VE-7Q3KA` and `VE-9F2P5` — the originals (`VE-7Q3K2`,
+> `VE-9F2P7`) did not satisfy the check-character rule of §2.3.
+
 ### The cast
 
 The recurring VoltEdge characters carry through, each holding a real set of
@@ -66,7 +81,7 @@ printed VoltEdge label that Femi can scan to open it on his phone with no signal
 6. **In the field, offline** — the field pack's tag index, offline-first resolution, and the online fallback.
 7. **The Admin → Asset Tags console** — browsing, searching, the KPI strip, inline lifecycle, register, and bulk print at estate scale.
 8. **Finding features by tag, and the agent** — the query-engine tag filter and the ten MCP tools; permissions and territory in full.
-9. **Appendix** — status/source reference, the lifecycle diagram, the permission matrix, and a one-page cheat sheet.
+9. **Appendix** — status/source reference, the lifecycle diagram, the permission matrix, troubleshooting, a corrections ledger, worked request/response examples, and a one-page cheat sheet.
 
 ---
 
@@ -81,7 +96,7 @@ mirrors the messy reality of labels in the field.
 
 ### 1.1 What an asset tag is ▶
 
-An **asset tag** is a short, scannable code — something like `VE-7Q3K2` — minted
+An **asset tag** is a short, scannable code — something like `VE-7Q3KA` — minted
 for a feature in your network, printed on a small label as a **QR code, a Code128
 barcode, and human-readable text**, and physically stuck on the plant: the
 transformer tank, the pole, the switch cubicle, the pillar door.
@@ -134,13 +149,13 @@ tags at once**. That is not a bug — it is the model bending to fit reality.
 
 Real plant already has numbers on it. TX-Feeder7-014 was surveyed years ago and
 someone painted **OLD-4471** on the tank. When VoltEdge was rolled out it minted
-its own code, **VE-7Q3K2**, for that transformer. Both are legitimate ways to name
+its own code, **VE-7Q3KA**, for that transformer. Both are legitimate ways to name
 the same asset, and a field worker might read either one. So the transformer
 carries both:
 
 ```
    TX-Feeder7-014  (a DIST_XFMR)
-     ├── VE-7Q3K2   generated,  PRIMARY     ← the VoltEdge-minted code, printed on the new label
+     ├── VE-7Q3KA   generated,  PRIMARY     ← the VoltEdge-minted code, printed on the new label
      └── OLD-4471   external                ← the legacy number, registered so it still resolves
 ```
 
@@ -200,6 +215,14 @@ so voiding it would leave the asset with no printable identity. If you need to
 retire the primary, you *reissue* it (which supersedes it and mints a replacement
 that becomes the new primary) — you never simply void it. Chapter 3 walks this.
 
+> **Code-verified — a quirk to know.** The server's `Reissue` refuses only a
+> *superseded* code (`tag "…" has already been reissued`). It does **not** refuse
+> a *void* one: reissuing a void code flips it to `superseded` — so it starts
+> resolving again — and mints a fresh **non-primary** generated code
+> (`assettag/store.go:472`). The web console hides the reissue button on
+> superseded rows only, so it offers it on void rows too. Treat it as a
+> last-resort correction path, not a normal move.
+
 ### 1.5 Where tags live, and who can touch them ∑
 
 Tags occupy a deliberately small footprint:
@@ -221,6 +244,15 @@ Tags occupy a deliberately small footprint:
     **set** the primary, **void**, **reissue**, and record a print. Dana holds it;
     Ada holds it through the admin role.
 
+> **Code-verified — the grants.** Migration 0115 seeds `tags:read` to the roles
+> `viewer`, `analyst`, `editor`, `admin`, `break-glass-admin` and
+> `field-technician`, and `tags:write` to `editor`, `admin` and
+> `break-glass-admin` only. The gate is method-aware: `GET` needs read, every
+> `POST` needs write; a miss is `403` with
+> `you do not have the required permission (tags:write)`. The same router is
+> mounted a second time under the field-sync API with the same gate (message
+> `this token's user lacks tags:write`), so a device can resolve online.
+
 🗺️ Crucially, reading a tag is **territory- and visibility-aware**. Holding
 `tags:read` does not let you resolve *any* code in the system — only codes on
 features **you can already see**. If TX-Feeder7-014 is outside your assigned
@@ -229,6 +261,13 @@ did not exist for you. This is not a special rule bolted onto tags; a resolve ru
 through the very same read-scope and private-draft checks that govern every other
 way you might reach a feature (Chapter 5 shows how, and why "not found" — rather
 than "forbidden" — is the deliberate answer).
+
+> **Code-verified — the exemptions.** Territory scoping is skipped for users who
+> hold `territories:unscoped` (the `admin` and break-glass roles) and for the whole
+> system when territory enforcement is switched off; the private-draft filter is
+> skipped for the same unscoped users. Geometry-less feature classes carry no
+> territory and are never territory-scoped; a geometry feature with no territory
+> is hidden from every scoped user (fail closed).
 
 ### 1.6 The shape of the rest of this guide
 
@@ -246,7 +285,7 @@ With the model in hand, the guide follows a tag through its life:
 - **Chapter 9** is the reference card.
 
 Next: **Chapter 2 — Anatomy of a tag & how minting works**, where we open up
-`VE-7Q3K2` and see why it is shaped the way it is.
+`VE-7Q3KA` and see why it is shaped the way it is.
 
 ---
 
@@ -261,15 +300,15 @@ trigger, and one partial unique index. If you only ever *use* tags you can skip
 to Chapter 3; nothing here changes what you press. If you *own* the system, this
 is the chapter that lets you sign off on it.
 
-### 2.1 Opening up `VE-7Q3K2` ▶
+### 2.1 Opening up `VE-7Q3KA` ▶
 
 Take the code VoltEdge minted for the running-example transformer and pull it
 apart:
 
 ```
-   VE-7Q3K2
+   VE-7Q3KA
    ─┬ ──┬─ ┬
-    │   │  └── check character   (2)  — a guard digit computed from the body
+    │   │  └── check character   (A)  — a guard digit computed from the body
     │   └───── body              (7Q3K) — a counter, rendered in Crockford base32
     └───────── prefix            (VE-) — "this is a VoltEdge-minted code"
 ```
@@ -281,9 +320,17 @@ Three parts, each with a job:
   from a registered legacy number (`OLD-4471`) at a glance.
 - The **body** (`7Q3K`) is the actual identity: a number from a single global
   counter, written in a compact, human-friendly alphabet.
-- The **check character** (`2`) is not part of the identity at all. It is
+- The **check character** (`A`) is not part of the identity at all. It is
   *derived* from the body, and its only purpose is to catch a typo before it can
   do harm.
+
+> **Code-verified — worked example.** `VE-7Q3KA` is sequence value 253,043
+> (7×32³ + 23×32² + 3×32 + 19). The check character of `7Q3K` is: digit values
+> 7, 23, 3, 19 (`Q` is 23, `K` is 19) weighted by position 1–4 →
+> 7×1 + 23×2 + 3×3 + 19×4 = 138; 138 mod 32 = 10; digit 10 is `A`. So the code is
+> `VE-7Q3KA`. (The first edition of this guide wrote `VE-7Q3K2`, which fails the
+> rule.) The reissue in §3.5 draws sequence value 310,358 → body `9F2P` →
+> 9 + 30 + 6 + 88 = 133 → 133 mod 32 = 5 → `VE-9F2P5`.
 
 The rest of this section is the **∑** justification for each part.
 
@@ -312,6 +359,12 @@ cannot mis-key an `O` for a `0` in a code that can never contain an `O`.
 if someone reads you a code containing an `L`, you know immediately they've
 misread a `1` — or they're reading a legacy number, not a VoltEdge code.
 
+> **Code-verified.** The body is **not** zero-padded: sequence value 1 is
+> `VE-11`, 32 is `VE-101`. Codes therefore grow one character each time the
+> counter passes a power of 32 (32⁴ = 1,048,576 for the first five-character
+> body). `nextval` is not rolled back with a failed transaction, so the sequence
+> can skip numbers: codes are unique and increasing, not gap-free.
+
 ### 2.3 The check character — catching a mis-read before it resolves ∑
 
 The last character, `runtime.asset_tag_check_char(body)`, is where a lot of the
@@ -321,11 +374,11 @@ Crockford alphabet.
 
 What that buys you: if a field worker (or an OCR scan of a smudged label)
 transposes two characters or reads a single character wrong, the check character
-computed from what they *typed* will almost certainly not match the check
-character that is *printed*, and the resolve is rejected before it ever touches a
-feature. A single mis-keyed character cannot quietly resolve to some *other*
-valid asset, because the odds of the corrupted body still producing the same
-guard digit are 1 in 32.
+computed from what they *typed* will usually not match the check character that is
+*printed* — so a validator that applies the rule can reject the code before a
+lookup is ever made. A single mis-keyed character cannot turn one minted code into
+another when the weighted change is not a multiple of 32 (exact conditions in the
+box below).
 
 Two design choices are worth calling out for anyone integrating:
 
@@ -340,6 +393,28 @@ Two design choices are worth calling out for anyone integrating:
   declared `IMMUTABLE`. That is not a footnote: it lets them be composed inside a
   single `INSERT … SELECT`, which is exactly how the backfill (§2.7) tags a whole
   pre-existing network in one statement.
+
+> **Code-verified — what the check character really guarantees.**
+>
+> - A one-character substitution at 1-based body position *i* with digit change
+>   *d* escapes detection only when *d*·*i* ≡ 0 (mod 32). Every **odd** position is
+>   therefore always caught; position 2 misses one substitution in 31 (*d* = 16),
+>   position 4 misses three (*d* = 8, 16, 24), position 8 seven. So the miss rate
+>   is not a flat "1 in 32" — it is 0 at odd positions and grows with the
+>   position's power-of-two factor. Averaged over a four-character body about 97%
+>   of single-character slips are caught.
+> - Swapping two **adjacent** different characters changes the sum by exactly
+>   their difference, so adjacent transpositions are **always** caught.
+>   Non-adjacent swaps can escape when (difference × distance) ≡ 0 (mod 32).
+> - A slip in the check character itself is always caught.
+> - **Nothing on the server verifies the check character today.** `Resolve` and
+>   `LookupByCode` do an exact primary-key lookup (`assettag/resolve.go:33`,
+>   `store.go:48`), and neither the web `/t/:code` page nor the Flutter app
+>   validates it. A mis-keyed code is simply "not found" — unless it happens to be
+>   another real code. What the scheme gives you today is a *design guarantee*
+>   about minted codes (two distinct same-length codes never differ in exactly one
+>   character at an odd position) and a rule that an integrator or a future client
+>   can apply to give a friendlier message before calling the API.
 
 ⚠️ The check character validates *shape*, not *authority*. It proves a code was
 typed without a single-character slip; it does **not** prove the code exists or
@@ -364,6 +439,14 @@ meet again throughout this guide:
 | `print_count` | how many times a label for this code has been rendered (Chapter 4) |
 | `created_by` | the user who registered or reissued it; **`NULL`** for a trigger-minted code, because no user minted it |
 | `created_at` / `updated_at` | timestamps |
+
+> **Code-verified — column details.** `tag_code` is a plain `text` primary key,
+> so lookups and uniqueness are **case-sensitive** (`old-4471` and `OLD-4471` are
+> different codes). `source` is constrained to `generated`/`external` (default
+> `generated`), `status` to `active`/`superseded`/`void` (default `active`),
+> `print_count` is an integer defaulting to 0, `created_at`/`updated_at` default to
+> `now()`. A `DELETE` on the registry removes the feature's tags; nothing else ever
+> deletes a row.
 
 Two ordinary indexes back the two hot read paths — `(feature_class_code,
 feature_id)` and `(feature_id)` — for "list this feature's tags" and "resolve
@@ -395,6 +478,11 @@ index would reject the write unless the clear and the set land together. The
 application does exactly that. The upshot for you: it is *structurally
 impossible* for a feature to end up with two primaries, no matter what sequence
 of clicks, API calls, or concurrent edits gets thrown at it.
+
+> **Code-verified.** The index guarantees *at most* one primary, never *at least*
+> one. Through the API a feature always keeps one (void refuses the primary,
+> reissue moves the flag), but direct data edits can leave a feature with none —
+> which is why the bulk printer (§4.3) falls back to the newest active tag.
 
 ### 2.6 How every feature gets a tag — the registry trigger ∑
 
@@ -438,6 +526,22 @@ The subtle, important part is what the trigger is **not** attached to:
 tags.** Everyday edits, soft-deletes, and re-syncs leave them exactly as they
 were.
 
+> **Code-verified.** The trigger is declared `AFTER INSERT OR DELETE` on
+> `runtime.feature_registry` — it is simply not attached to `UPDATE`. A soft-deleted
+> feature keeps its tags *and still resolves*: the feature read used by the resolver
+> has no soft-delete filter, so the envelope comes back with `deleted_at` set (the
+> console lists such tags too; the query filter of Chapter 8 and the field pack
+> exclude soft-deleted features).
+>
+> **Code-verified — a hazard.** `Register` accepts *any* text as an external code,
+> including text that looks like a future generated code. If an external code equal
+> to the **next** generated code already exists, the trigger's
+> `ON CONFLICT (tag_code) DO NOTHING` swallows the collision — the sequence value
+> is already spent — and the new feature is born with **no tag at all**. Never
+> register codes beginning `VE-` by hand. The "features with no live tag" probe of
+> §8.2 is how you would find such a feature; repair means inserting a generated
+> primary for it with the same expression the backfill uses.
+
 ### 2.7 The backfill — the day the migration landed ∑
 
 A "trigger on new features" would only tag features created *after* it was
@@ -448,6 +552,9 @@ mints a primary generated tag for every feature that was already in the network.
 pipeline runs inside that one `SELECT`.) The practical consequence: from the
 moment the module went live, **there was never a window of untagged plant**.
 TX-Feeder7-014, surveyed years earlier, got its `VE-` code in that sweep.
+
+> **Code-verified.** The backfill is a one-off statement at the end of migration
+> 0114. It is not re-run, and no endpoint exposes it.
 
 ### 2.8 Why tags ride `runtime`, not a schema of their own ∑
 
@@ -492,10 +599,15 @@ establishes — the things you can state as facts about your tag estate:
    and statuses; a voided code is never reused.
 3. **No feature can have two primaries** — the partial unique index forbids it
    structurally.
-4. **A single mis-read character won't resolve to the wrong asset** — the check
-   character rejects it first.
+4. **A single mis-read character at an odd body position, or any adjacent swap,
+   cannot turn one minted code into another** — the check character guarantees it
+   by construction (§2.3; the server does not additionally re-verify it on lookup).
 5. **Retiring a record doesn't blind a field scan** (soft delete keeps tags), but
    **purging a record cleans up after itself** (hard delete removes them).
+
+> **Code-verified exceptions.** Item 1 fails for a feature whose mint collided with
+> a hand-registered external code (§2.6). Item 3 is "at most one", not "at least
+> one" (§2.5).
 
 With the machinery trusted, the rest of the guide is about *using* it. Next:
 **Chapter 3 — Working with a feature's tags**, where Dana opens the Tags tab and
@@ -531,7 +643,7 @@ a short list:
 
 | code | source | primary | status | prints |
 | --- | --- | --- | --- | --- |
-| `VE-7Q3K2` | generated | ★ | active | 3 |
+| `VE-7Q3KA` | generated | ★ | active | 3 |
 
 One row: the code the mint trigger created (Chapter 2), still primary, still
 active, printed three times. Everything Dana is about to do adds rows to, or
@@ -545,6 +657,24 @@ the tags of a feature she's already allowed to see leaks nothing further, so the
 list query stays a plain two-column filter. (The org-wide console in Chapter 7 is
 the opposite case — there the scope check is essential, because that view starts
 from the *tags*, not from an already-authorised feature.)
+
+> **Code-verified — what the tab looks like.** Each row shows the code (with a copy
+> button), "Generated" or "Legacy", "printed N×" once the count is above zero, a
+> **Primary** badge and a status badge. The header has a **Legacy code** button
+> (shown only to `tags:write` holders) that opens the register form; the panel's
+> submit button is **Register**. The **Print / Set primary / Reissue / Void**
+> buttons are rendered **only on active rows** — a superseded or void row is
+> display-only on the tab (the console of Chapter 7 offers more). Set primary and
+> Void are hidden on the current primary.
+>
+> **Code-verified — the API is not scope-checked here.** The territory check lives
+> in the UI path (you reached the panel through a scoped feature read), not in the
+> store. `GET /tags?feature_class_code=&feature_id=` lists the tags of any
+> `(class, id)` pair a `tags:read` caller supplies; and the write verbs below are
+> gated by `tags:write` alone — `Register` only checks that the feature exists in
+> the registry, and `SetPrimary`/`Void`/`Reissue`/`MarkPrinted` look a tag up by code
+> without consulting territory. *Resolving* a code (Chapter 5) is scoped; *managing*
+> one is not. Grant `tags:write` accordingly.
 
 ### 3.2 Registering a legacy number ▶
 
@@ -568,7 +698,7 @@ which runs `Register`. Walk the **∑** through it, because several safety rails
 fire here:
 
 1. **Normalisation.** `normalizeCode` trims the code, rejects empty, caps it at
-   64 characters, and refuses control characters — but it **preserves case**. A
+   64 **bytes** (Go `len()` — multi-byte characters count double), and refuses control characters — but it **preserves case**. A
    legacy barcode may be a case-sensitive string; upper-casing `OLD-4471` could
    stop a later scan matching it byte-for-byte. 💡 This is also why a registered
    code *may* contain letters a generated code never would (`OLD-4471` is fine;
@@ -584,27 +714,61 @@ fire here:
    is rejected with `tag_code "OLD-4471" is already in use`. Codes are globally
    unique; you cannot register a legacy number that collides with anything.
 5. **The primary flip, if asked.** Because Dana ticked *make primary*, `Register`
-   first calls `clearPrimary` to demote `VE-7Q3K2`, then inserts `OLD-4471` with
+   first calls `clearPrimary` to demote `VE-7Q3KA`, then inserts `OLD-4471` with
    `is_primary = true`. Both happen inside the one transaction, so the
    `asset_tags_one_primary` index (§2.5) never sees two primaries at once.
 
 The row is written with `source = 'external'`, `status = 'active'`, and
-`created_by` = Dana's user id (unlike the trigger-minted `VE-7Q3K2`, whose
+`created_by` = Dana's user id (unlike the trigger-minted `VE-7Q3KA`, whose
 `created_by` is `NULL` — no human minted it). The tab now shows:
 
 | code | source | primary | status | prints |
 | --- | --- | --- | --- | --- |
 | `OLD-4471` | external | ★ | active | 0 |
-| `VE-7Q3K2` | generated | | active | 3 |
+| `VE-7Q3KA` | generated | | active | 3 |
 
 Two codes, one feature, one primary — exactly the model from Chapter 1.
+
+> **Code-verified — request, response and errors.** The full exchange for step 1
+> (`201 Created`; the body is the new row — `created_by` is Dana's user id,
+> `print_count` 0):
+>
+> ```
+> POST /tags
+> { "feature_class_code": "DIST_XFMR",
+>   "feature_id": "7d1f3a52-9c04-4b7e-a8d1-2f6c0b9e4a14",
+>   "tag_code": "OLD-4471", "make_primary": true }
+>
+> 201 Created
+> { "tag_code": "OLD-4471", "feature_class_code": "DIST_XFMR",
+>   "feature_id": "7d1f3a52-9c04-4b7e-a8d1-2f6c0b9e4a14",
+>   "source": "external", "is_primary": true, "status": "active",
+>   "created_by": "<dana's user id>", "print_count": 0,
+>   "created_at": "…", "updated_at": "…" }
+> ```
+>
+> Every refusal is `400` with `{"error": "<message>"}` (the UI shows it as a red
+> toast), checked in this order:
+>
+> | message | cause |
+> | --- | --- |
+> | `feature_class_code and feature_id are required` | a blank class or id (console dialog: pick a class, paste the UUID) |
+> | `tag_code is required` | empty or whitespace-only |
+> | `tag_code is too long (max 64 characters)` | more than 64 **bytes** after trimming |
+> | `tag_code contains a control character` | a tab, newline, NUL … or DEL inside the code |
+> | `no feature <id> in class <class>` | purged, mistyped id, or the wrong class for a real id |
+> | `tag_code "…" is already in use` | exact, case-sensitive match on any existing code of any status |
+> | `invalid JSON body: …` | malformed request body |
+>
+> A missing permission is `403`, not `400`. Registering `old-4471` when `OLD-4471`
+> exists **succeeds** — uniqueness is case-sensitive.
 
 ### 3.3 Setting the primary ▶
 
 A week later the new `VE-` label is fitted in the field and the old plate is
 painted over. Dana wants the *system* primary to match what's now physically on
-the tank, so she opens the tab, finds the `VE-7Q3K2` row, and clicks **Set as
-primary**. That's `POST /tags/VE-7Q3K2/primary` → `SetPrimary`.
+the tank, so she opens the tab, finds the `VE-7Q3KA` row, and clicks **Set as
+primary**. That's `POST /tags/VE-7Q3KA/primary` → `SetPrimary`.
 
 ∑ `SetPrimary` is careful in three ways:
 
@@ -614,10 +778,15 @@ primary**. That's `POST /tags/VE-7Q3K2/primary` → `SetPrimary`.
 - **It's idempotent.** If the tag is *already* primary, it just re-reads and
   returns — clicking twice is harmless.
 - **It flips atomically.** `clearPrimary` on the feature, then `is_primary =
-  true` on `VE-7Q3K2`, both inside `db.RunInTx`. Same one-transaction discipline
+  true` on `VE-7Q3KA`, both inside `db.RunInTx`. Same one-transaction discipline
   as register.
 
-Now `VE-7Q3K2` is primary and `OLD-4471` is a plain active tag — still
+> **Code-verified.** The refusal text includes the real status:
+> `tag "VE-7Q3KA" is superseded; only an active tag can be the primary` (or `is void;`).
+> An unknown code is `404 no tag "…"`. Success is `200` with the updated row; no
+> actor is recorded for this verb.
+
+Now `VE-7Q3KA` is primary and `OLD-4471` is a plain active tag — still
 resolvable (a stray scan of the old plate still finds the transformer), just no
 longer the printed one.
 
@@ -644,18 +813,25 @@ wants it gone. She clicks **Void** on that row → `POST /tags/OLD-4471X/void` �
 
 Void is also idempotent: voiding an already-void tag just returns it.
 
+> **Code-verified.** Voiding is `200` with the updated row; an unknown code is
+> `404 no tag "…"`. A superseded, non-primary code *can* be voided (the console
+> offers it); only the primary is protected. The assistant tool's description says
+> voiding the primary "leaves the feature with no primary until another is
+> promoted" — that sentence is stale; the store refuses (`store.go:439`). No actor
+> is recorded for void.
+
 ### 3.5 Reissuing a damaged label ▶
 
-The most interesting verb. Months on, TX-Feeder7-014's `VE-7Q3K2` label has been
+The most interesting verb. Months on, TX-Feeder7-014's `VE-7Q3KA` label has been
 scorched by a fault and the QR won't scan. The asset is fine; only the *label* is
-damaged. Dana clicks **Reissue** on the `VE-7Q3K2` row → `POST
-/tags/VE-7Q3K2/reissue` → `Reissue`.
+damaged. Dana clicks **Reissue** on the `VE-7Q3KA` row → `POST
+/tags/VE-7Q3KA/reissue` → `Reissue`.
 
 ∑ Reissue is a supersede-and-mint in one transaction:
 
 1. It draws a **fresh generated code** straight from the same machinery the mint
    trigger uses: `SELECT runtime.encode_asset_tag(nextval('runtime.asset_tag_seq'))`.
-   The new code — say `VE-9F2P7` — is therefore *indistinguishable* from a
+   The new code — say `VE-9F2P5` — is therefore *indistinguishable* from a
    natively minted one; nothing downstream can tell it was made by reissue.
 2. It marks the old code **`superseded`** (not void) and clears its primary flag.
 3. It inserts the new code `active`, carrying the **primary** flag over if the old
@@ -664,18 +840,25 @@ damaged. Dana clicks **Reissue** on the `VE-7Q3K2` row → `POST
 
 Why superseded rather than void? Because between the moment Dana reissues and the
 moment a crew actually fits the new label, the *old scorched label is still on
-the tank*. A scan of `VE-7Q3K2` in that window must still resolve to the
+the tank*. A scan of `VE-7Q3KA` in that window must still resolve to the
 transformer — superseded codes resolve; void codes don't (Chapter 5). So reissue
 keeps the old code alive-but-retired precisely long enough to bridge the
 re-labelling. Reissuing an already-superseded code is refused (`has already been
 reissued`) so the chain doesn't fork.
 
+> **Code-verified.** Reissue is `201 Created` and the body is the **new** tag. The
+> replacement is always `source = generated`; it is primary only if the old code was.
+> Reissuing a *non-primary* or *external* code therefore gives you a fresh `VE-`
+> code and supersedes the old one (the legacy plate keeps resolving). Reissuing a
+> **void** code is accepted too (see the §1.4 quirk). `created_by` of the new row
+> is the acting user.
+
 The tab now reads:
 
 | code | source | primary | status | prints |
 | --- | --- | --- | --- | --- |
-| `VE-9F2P7` | generated | ★ | active | 0 |
-| `VE-7Q3K2` | generated | | superseded | 3 |
+| `VE-9F2P5` | generated | ★ | active | 0 |
+| `VE-7Q3KA` | generated | | superseded | 3 |
 | `OLD-4471` | external | | active | 0 |
 
 The new primary is ready to print (Chapter 4); the scorched one is retired but
@@ -709,6 +892,13 @@ The acting user on every write comes from `auth.ActorID(r.Context())` and lands
 in `created_by`, so the console and history always know *who* registered or
 reissued a code.
 
+> **Code-verified.** Success codes: `201` for register and reissue, `200` for
+> everything else; errors are `{"error": "…"}` — `400` for invalid input, `404` for
+> unknown/hidden/retired, `403` for a missing permission, `500` otherwise. The actor
+> lands in `created_by` for **register and reissue only**; set-primary, void and
+> print record none. The same router is also mounted under the field-sync API
+> (`this token's user lacks tags:write` for a read-only token).
+
 Next: **Chapter 4 — Printing labels**, where the primary code becomes a physical
 QR-plus-barcode sticker, one at a time and by the sheet, and we see why printing
 is treated as a *read*.
@@ -734,7 +924,7 @@ out like this:
 
 ```
 ┌──────────────────────────────────────┐
-│  ▛▚▞▌   VE-9F2P7                      │   ← QR (top-left)  +  code in mono (top-right)
+│  ▛▚▞▌   VE-9F2P5                      │   ← QR (top-left)  +  code in mono (top-right)
 │  ▚▞▟▘   DIST_XFMR · Feeder 7          │   ← subtitle: class + anything short
 │         Scan to open in VoltEdge      │
 │  ║▍║▍║▎║▍║▎║▍║▎║▍║▎║▍║▎║▍║▎║▍║▎║▍║   │   ← Code128 barcode (full width, bottom)
@@ -743,15 +933,15 @@ out like this:
 
 - **The QR** encodes not the bare code but the **web deep-link**
   `<origin>/t/<code>` (`tagDeepLink`). So *any* phone camera — no special app —
-  scans it, the browser opens `/t/VE-9F2P7`, and VoltEdge resolves the code and
+  scans it, the browser opens `/t/VE-9F2P5`, and VoltEdge resolves the code and
   jumps to the feature (Chapter 5). Error-correction level **M** keeps it
   readable through a little dirt and scuffing.
-- **The Code128 barcode** encodes the **raw code** (`VE-9F2P7`), for a
+- **The Code128 barcode** encodes the **raw code** (`VE-9F2P5`), for a
   warehouse-style scanner gun that speaks barcodes, not URLs.
 - **The human text** — the code in bold monospace plus a subtitle (the class, a
   circuit, a name) — is the eyeball-and-manual-keying fallback for when both
   scanners fail. This is exactly why the code scheme is shaped the way it is
-  (Chapter 2): a human reading `VE-9F2P7` aloud over the radio can't confuse it,
+  (Chapter 2): a human reading `VE-9F2P5` aloud over the radio can't confuse it,
   and a human keying it into the search box can't slip a character past the check
   digit.
 
@@ -763,9 +953,19 @@ the browser's own print-to-PDF does the job today. If `jsbarcode` ever meets a
 code it can't encode, it swallows the error and leaves the QR and text intact
 rather than crashing the label — belt and braces.
 
+> **Code-verified — label details.** `tagDeepLink` strips trailing slashes from the
+> origin and `encodeURIComponent`-escapes the code, so a legacy code with a space or
+> a `/` is escaped inside the QR. The QR is drawn 16 mm square with no margin of
+> its own (the label's 2 mm padding is its quiet zone) at error-correction level M
+> (about 15% damage recoverable); the code is bold monospace at 3 mm; the subtitle
+> is clamped to two lines at 2.3 mm; the barcode is 7 mm tall, stretched to the
+> label width, and `jsbarcode` draws it as Code128 with no human-readable text of
+> its own. The interactive edition's label designer renders exactly this layout
+> with real QR (byte mode, level M) and Code128 encoders.
+
 ### 4.2 Printing one, from the Tags tab ▶
 
-Back on TX-Feeder7-014. Dana has just reissued to `VE-9F2P7` (§3.5) and needs the
+Back on TX-Feeder7-014. Dana has just reissued to `VE-9F2P5` (§3.5) and needs the
 new label for the crew. On that row's **Print** button, the panel opens the
 `TagPrintSheet` overlay with a single `TagLabel`. The overlay is a full-screen
 surface with a small toolbar; she clicks **Print**, and the browser's own print
@@ -780,6 +980,12 @@ fires `onPrinted`, which the caller uses to bump the count (§4.4). ⚠️ The b
 completed or cancelled the print dialog, so the count means "a label was *sent*
 to print," not "a label definitely came out." Treat it as a strong hint, not an
 audit fact.
+
+> **Code-verified.** The Tags tab's subtitle is `<class> · <first 8 characters of
+> the feature id>`; the features-browser's is `<feature name> · <class>`; the
+> console's is the class name. Escape or **Close** dismisses the overlay. The count
+> bump is fired only for `tags:write` holders; a `tags:read` user prints the label
+> and nothing is recorded.
 
 ### 4.3 Printing a sheet, from the features browser ▶
 
@@ -808,9 +1014,19 @@ encodes a sensible "print *something* for everything" rule:
   `len(result)` can be **less than** the number of features Tom selected.
 
 The browser prints what came back and, from the shortfall, shows the `note` line
-in the sheet toolbar — e.g. *"3 features had no active tag and were skipped."*
+in the sheet toolbar — e.g. *"3 selected features had no tag and were skipped."* (singular: *"1 selected feature had no tag and was skipped."*)
 Tom prints the sheet; the labels tile across the page (`flex flex-wrap`, one
 `TagLabel` each) and the print dialog gives him a PDF or a run of stickers.
+
+> **Code-verified.** The button reads **Print tags (N)**, beside **Select all**, and
+> only `tags:read` holders see the selection bar. Ids are trimmed and de-duplicated;
+> a blank `feature_class_code` with `feature_ids` is `400 feature_class_code is
+> required with feature_ids`; the client sends 120 ids per request. The lookup is
+> class-scoped but not territory-scoped in the store (the browser only lists
+> features Tom can read) and does not filter soft-deleted features, so a retired
+> transformer still prints. A feature with no *primary* but an active tag prints its
+> newest active tag; a feature whose tags are all void is skipped — a state the API
+> cannot create (the primary can't be voided), so it takes a direct data edit.
 
 💡 In practice the shortfall is almost always zero, because *every* feature is
 auto-tagged at birth (Chapter 2). You'd only see a skip for a feature whose only
@@ -841,6 +1057,12 @@ the print counter. That's the right split: printing a sticker doesn't change the
 network, so gating it behind write permission would be needless friction; the
 book-keeping that does change a row is what's gated.
 
+> **Code-verified.** `POST /tags/{code}/printed` on an unknown or blank code is
+> `404 no tag "…"`; the batch form silently drops blanks, duplicates and unknown
+> codes and answers `{"updated": n}` with the number of rows actually bumped. The
+> Tags tab only *offers* Print on active rows, so reprinting a superseded label is an
+> API/console action; the console prints any row you tick.
+
 ∑ Why is print a counter and not a boolean? Because a label is produced many
 times over an asset's life — reissued after damage, re-run after a smudged batch,
 re-fitted after a pole change. The count, paired with the console's **"unprinted"**
@@ -848,7 +1070,7 @@ KPI (Chapter 7, `status = 'active' AND print_count = 0`), lets a coordinator see
 at a glance which freshly-minted labels a crew still needs to physically produce.
 
 Next: **Chapter 5 — Scanning & resolving**, where a phone camera turns
-`VE-9F2P7` back into the transformer — and we see exactly which codes resolve,
+`VE-9F2P5` back into the transformer — and we see exactly which codes resolve,
 which are refused, and how territory and draft visibility ride along.
 
 ---
@@ -869,7 +1091,7 @@ A code reaches the resolver by three doors, all landing on the same logic:
 
 1. **The QR deep-link.** Priya, a field engineer at the pole, opens her phone
    camera — no app — and points it at the label's QR. It encodes
-   `<origin>/t/VE-9F2P7`, so the phone offers to open that URL; the browser loads
+   `<origin>/t/VE-9F2P5`, so the phone offers to open that URL; the browser loads
    VoltEdge's `/t/:code` route, which resolves the code and jumps straight to the
    feature on the map. 🗺️ This is the everyday field path, and it needs nothing
    installed but a camera and a login.
@@ -883,6 +1105,14 @@ A code reaches the resolver by three doors, all landing on the same logic:
 ∑ Doors 1–3 all call the same handler, and it calls one function: `Resolve`.
 Everything about *which* codes resolve and *who* may resolve them lives there, so
 there's exactly one place to reason about — no door has its own rules.
+
+> **Code-verified.** The API does **not** parse URLs: only the web `/t/:code` route
+> and the Flutter `extractTagCode` peel the code out of a deep link, so pasting the
+> whole URL into `?code=` is simply an unknown code. Lookup trims surrounding
+> whitespace and is **case-sensitive**: `ve-7q3ka` is not `VE-7Q3KA`. The web route
+> (and the bare `/t` manual-entry page, placeholder "e.g. VE-XXXXXXX") are gated
+> `tags:read`; on a hit the page selects the feature with focus and replaces itself
+> with the map so Back does not bounce through the resolver.
 
 ### 5.2 What a resolve returns ∑
 
@@ -899,13 +1129,13 @@ type Resolution struct {
 Three parts, each earning its place:
 
 - **`Tag`** is the *scanned* code specifically — so the field view can say "you
-  scanned `VE-7Q3K2`" even if that's a superseded code.
+  scanned `VE-7Q3KA`" even if that's a superseded code.
 - **`Feature`** is the **identical envelope** a normal `GET
   /features/{class}/{id}` returns — same attributes, geometry, everything. A scan
   is just *another way to open a feature*; downstream code treats the result like
   any feature read.
 - **`Tags`** is the whole tag list for that feature, so the view can add "…the
-  current primary is `VE-9F2P7`" — invaluable when Priya scanned a scorched old
+  current primary is `VE-9F2P5`" — invaluable when Priya scanned a scorched old
   label and needs to know the live one.
 
 ### 5.3 Which codes resolve, and which are refused ∑
@@ -919,7 +1149,7 @@ Three parts, each earning its place:
    wording tells an authenticated user *why*). ⚠️ This is the payoff of "never
    reuse a voided code" (Chapter 2/3): a stale label that was voided resolves to a
    clear "retired," never to some unrelated asset.
-3. **Superseded code → resolves.** A superseded label (say `VE-7Q3K2` after
+3. **Superseded code → resolves.** A superseded label (say `VE-7Q3KA` after
    reissue) *does* resolve to its feature — because that scorched label is still
    physically on the tank while the field is being re-labelled, and a scan of it
    must still find the transformer. The returned `Tags` list then shows the crew
@@ -932,6 +1162,11 @@ Three parts, each earning its place:
 So the rule of thumb: **active and superseded codes resolve; unknown and voided
 codes don't** — and even a resolvable code is subject to the same access gate any
 feature read faces.
+
+> **Code-verified.** A **soft-deleted** feature still resolves: the feature read has
+> no soft-delete filter and the envelope carries `deleted_at`. A purged feature (or
+> an uncompiled class) is not found. `Tags` in the response is ordered primary first
+> then newest and includes void rows. A blank code can never match.
 
 ### 5.4 The scan obeys territory and draft visibility ∑ 🔒
 
@@ -960,15 +1195,25 @@ layer gets this for nothing precisely because it *reuses* the feature read gate
 instead of rolling its own — the design argued for in Chapter 2 pays its dividend
 here.
 
+> **Code-verified.** Three details: (1) users holding `territories:unscoped` (admin,
+> break-glass) are not territory- or draft-scoped, and neither is anyone when
+> enforcement is off — they resolve everything; (2) the pending-edit overlay can hide
+> a row from *its own author* (a private delete staged by Dana makes the feature
+> "not found" to Dana alone); (3) the web `/t` page cannot tell the 404 flavours
+> apart — it shows one message, "Tag not found — `<code>` doesn't match any asset
+> you can view. It may be an unknown code, a retired label, or an asset outside your
+> area." — and offers the manual-entry box again. Only API callers see the
+> "has been retired" wording. Any non-404 error is shown with the server's message.
+
 ### 5.5 From resolve to the map ▶ 🗺️
 
 Put the pieces together as Priya experiences them. She scans the QR on
-TX-Feeder7-014; the browser opens `/t/VE-9F2P7`; `Resolve` runs the gauntlet,
+TX-Feeder7-014; the browser opens `/t/VE-9F2P5`; `Resolve` runs the gauntlet,
 `GetFeatureScoped` confirms Oakwood is in her territory, and the app lands her on
 the transformer on the map with its panel open — attributes, terminals, faults,
 works, and the Tags tab all one tap away. Had she scanned the *old* scorched
-`VE-7Q3K2`, she'd land on the very same transformer (superseded resolves), and the
-Tags tab would show her `VE-9F2P7` is now the primary to fit. Had the label been
+`VE-7Q3KA`, she'd land on the very same transformer (superseded resolves), and the
+Tags tab would show her `VE-9F2P5` is now the primary to fit. Had the label been
 one she'd voided by mistake last week, she'd see "this asset tag has been
 retired" and know the sticker itself is the problem, not the asset.
 
@@ -1014,6 +1259,16 @@ feature and every code in it is already something he was cleared to see at build
 time. The Phase 58 / Phase 61 gates did their work when the pack was cut; the
 offline index inherits that authority and just serves it back.
 
+> **Code-verified.** The pack's `asset_tags` table has five columns — `tag_code`
+> (primary key), `feature_class`, `feature_id`, `is_primary`, `status` — and
+> `loadPackAssetTags` selects `status IN ('active','superseded')` on features that are
+> in the pack (soft-deleted features are not packed). `IncludeTags` is resolved from
+> the requester's `tags:read` when the pack is *queued* and frozen into the scope, so
+> granting the permission later needs a rebuilt pack. **Staleness:** the snapshot is
+> frozen, and the app consults it *first even when online* — a code voided or
+> reissued on the server after the cut keeps resolving from the pack until it is
+> rebuilt.
+
 ### 6.2 Scanning with no signal ▶ 🗺️
 
 In the switch room, Tom taps the **scan** button on the pack map. The app opens
@@ -1023,13 +1278,20 @@ symbologies the label prints), with a torch toggle for the dark cabinet and a
 code it pops back with the code extracted.
 
 ∑ Extraction is `extractTagCode`, and it's the offline mirror of the deep-link
-logic from Chapter 4. A QR reads as `<origin>/t/VE-9F2P7`; a scanner-gun barcode
-reads as the raw `VE-9F2P7`. `extractTagCode` normalises both: if the value
-contains `/t/`, it takes everything after the **last** `/t/`, drops any query or
-fragment, percent-decodes it, and trims; otherwise it uses the value verbatim. So
+logic from Chapter 4. A QR reads as `<origin>/t/VE-9F2P5`; a scanner-gun barcode
+reads as the raw `VE-9F2P5`. `extractTagCode` normalises both: if the value
+contains `/t/`, it takes everything after the **last** `/t/`, cuts at the first `?`, `#` or `/`, percent-decodes it, and trims; otherwise it uses the value verbatim. So
 whether Tom's camera caught the QR or the barcode, the app ends up with the same
-bare code. (A stray non-tag barcode yields `null` and is ignored, so a random
-QR sticker on a panel doesn't trigger a bogus resolve.)
+bare code.
+
+> **Code-verified correction.** The original text claimed a stray non-tag barcode
+> "yields `null` and is ignored". It does not: `extractTagCode` returns `null` only
+> for an empty or whitespace-only value. Any other string — a product barcode, a
+> random QR sticker, a URL on another site that happens to contain `/t/` — is taken
+> to be a tag code, the scanner screen closes on it, and the app tries to resolve it
+> (miss in the pack, then `404` → "No asset found for tag …"). The origin of a deep
+> link is never checked. The manual-entry box capitalises as you type
+> (`textCapitalization.characters`), and the hint text is "e.g. VE-7F3K2Q".
 
 ### 6.3 Offline first, online fallback ∑
 
@@ -1040,7 +1302,7 @@ design:
    `tag_code` primary key in the local `asset_tags` table. A hit gives back the
    `(class, id)`; the app finds that feature in the pack (`featureById`) and
    selects it on the map — **the entire loop closed with no signal.** If the
-   scanned code was a superseded label, the app even notes *"Resolved VE-7Q3K2 —
+   scanned code was a superseded label, the app even notes *"Resolved VE-7Q3KA —
    superseded label,"* so Tom knows the sticker he scanned is the retired one.
 2. **Fall back online.** If the pack has no such code — an older pre-v10 pack, a
    pack built for a user without `tags:read`, or simply a code on a feature that
@@ -1057,6 +1319,19 @@ go straight online," whereas **table present but code absent** is an authoritati
 "not in this pack." Either way the fallback is the online resolver, so Tom always
 gets an answer when he has signal and a fast local one when he doesn't.
 
+> **Code-verified — what Tom actually sees.** After a pack hit on a packed feature:
+> "Resolved `<code>`." (or "Resolved `<code>` — superseded label."). After a miss and
+> a server answer: a `404` is "No asset found for tag `<code>`."; any other server
+> error is "Could not resolve `<code>`: `<message>`"; if the request cannot be made
+> at all (no signal) it is "Could not resolve `<code>` (are you online?)."; if the
+> server resolves it but the feature is not in the pack, a dialog says it "is
+> outside the downloaded pack, so it can't be shown on this map. Build a pack
+> covering it to work with it offline." Two consequences: (1) the `packsAssetTags`
+> flag exists on the pack database, but the scan flow does **not** read it — every
+> offline miss goes to the server; and (2) with no signal a void, unknown or unpacked
+> code does not give a crisp "not found" but the "are you online?" message — only
+> online does the user learn that a label is retired.
+
 💡 The practical upshot for a crew: a pack built by a tag-entitled user turns
 every phone into an offline asset-lookup terminal. Point it at a sticker in a
 concrete basement with zero bars and it still tells you what you're standing in
@@ -1070,6 +1345,10 @@ he tapped it on the map rather than scanning — the detail view can still show 
 `is_primary`-first code, so the code-of-record sits right beside the asset even
 offline. Scan *or* browse, the tag is always in reach.
 
+> **Code-verified.** The query is `ORDER BY is_primary DESC, tag_code LIMIT 1` — ties
+> are broken alphabetically, not by age — and returns nothing for a feature with no
+> packed tag.
+
 ### 6.5 Where writes fit ∑
 
 Scanning and resolving are **reads**, and that's almost all a field crew does with
@@ -1080,6 +1359,11 @@ not part of the offline scan loop. So the offline story is clean and bounded:
 **resolve anywhere, always; change tags when you're back on the network.** That
 keeps the pack a read-only snapshot and sidesteps any question of merging
 conflicting tag edits made by two crews on two phones — there are none to merge.
+
+> **Code-verified.** The field-sync API mounts the same `/tags` router (method-aware:
+> `GET` → `tags:read`, `POST` → `tags:write`), so a connected device whose user holds
+> `tags:write` *could* call the lifecycle verbs; the shipped Flutter app only uses the
+> resolve call, and the pack has no queue for tag edits.
 
 Next: **Chapter 7 — The Admin → Asset Tags console**, where Ada leaves the
 single-feature view behind and manages the *whole* tag estate at once — search,
@@ -1124,6 +1408,9 @@ zero.
 aggregates — a single round-trip, not seven queries — over the same scoped base
 as the table (§7.4).
 
+> **Code-verified.** The chips overlap by design (Active and Unprinted; Void or
+> Superseded and System-minted), so they do not sum to Total.
+
 ### 7.2 Browsing and filtering ▶
 
 Below the strip is a filter bar feeding a paged table (`GET /tags?view=list` →
@@ -1141,9 +1428,12 @@ Below the strip is a filter bar feeding a paged table (`GET /tags?view=list` →
 Changing any filter **resets to the first page** (paging an old offset into a
 smaller result would land on an empty page). The pager shows *"Showing 1–50 of
 812"* from the unpaged `total` the server returns beside the rows, so Ada always
-knows the size of what she's filtered to. ∑ `List` clamps `limit` to `[1, 200]`
-(default 50) and floors `offset` at 0, so a hand-edited query string can't ask for
-an unbounded page.
+knows the size of what she's filtered to. ∑ **Code-verified correction:** `List` does *not* clamp `limit` to `[1, 200]` — it
+resets an out-of-range value to the default: `if limit <= 0 || limit > 200 { limit
+= 50 }` (`store.go:197`), so `limit=500` returns **50** rows, not 200. `offset` is
+floored at 0. Either way a hand-edited query string can't ask for an unbounded
+page. The query engine's paging (`/query`, `find_features_by_tag`) has the same
+shape with 500 as the ceiling.
 
 Each row shows the code (with a ★ if it's the primary), the class *name* (not the
 bare code — the server `LEFT JOIN`s `metadata.feature_classes` so Ada reads "MV
@@ -1177,6 +1467,14 @@ The register-legacy-number button (top-right) opens the same `Register` flow fro
 §3.2, but here she supplies the feature class and id explicitly rather than
 starting from an open feature — the console's one "reach into any feature" action.
 
+> **Code-verified.** The dialog is titled **Register existing asset number**: a class
+> dropdown, a feature-id (UUID) box, the legacy code and a "Make this the primary
+> (printed) code" checkbox; **Register** stays disabled until class, id and code are
+> all non-blank, and a server refusal shows as a red toast with the server's
+> message. The Reissue button is hidden only on *superseded* rows, so it also
+> appears on *void* rows (the §1.4 quirk); Set primary needs an active non-primary
+> row; Void needs a non-void non-primary row.
+
 ### 7.4 Bulk print, and the scope that binds it all ▶ 🔒
 
 Ada can tick rows (or a whole page) and **Print selected** — the console tiles
@@ -1209,6 +1507,15 @@ South's.
 resolver reuses the *feature read* gate; the console reuses the *registry scope*.
 Neither reinvents access control, so neither can get it subtly wrong.
 
+> **Code-verified.** "Ada" here is a system administrator, and the `admin` role holds
+> `territories:unscoped` — so her console is *unscoped* and lists every territory. The
+> territory story describes a scoped user (an editor with a regional grant, say).
+> Geometry-less classes are never territory-scoped, tags of soft-deleted features
+> still appear (the join is to the registry, which keeps their rows), and the console
+> does **not** apply the pending-edit overlay that a resolve applies — a feature
+> someone has staged a private delete on can be listed here yet "not found" to a scan
+> by that person.
+
 Next: **Chapter 8 — Finding features by tag, and the agent**, where a tag becomes
 a *query filter* — "show me every feature that has a legacy number" — and where the
 AI assistant gets the same tag powers a person has, tool for tool.
@@ -1219,7 +1526,7 @@ AI assistant gets the same tag powers a person has, tool for tool.
 
 So far a code has been something you *resolve* — one code in, one feature out. This
 chapter turns it around and makes the tag a **search dimension**: not "what is
-`VE-7Q3K2`?" but "which transformers still carry a legacy number?", "find the
+`VE-7Q3KA`?" but "which transformers still carry a legacy number?", "find the
 feature whose code *starts* `VE-9F2`", "is there anything with no tag at all?"
 That's the query engine's **asset-tag filter**. Then we close the loop the whole
 platform is built around: the AI assistant gets the *same* tag abilities a person
@@ -1241,6 +1548,13 @@ So "every `DIST_XFMR` that still carries a registered legacy number" is: class
 `DIST_XFMR`, source `external`, present. Run it and the matching transformers come
 back — each row carrying its **`primary_tag_code`**, so Ada immediately sees which
 code a scan of each would land on.
+
+> **Code-verified.** The control appears in **Filter** mode only (the aggregate mode
+> has no tag predicate); a checkbox arms it, and off means no `tag` predicate is
+> sent. Presence reads "Has a matching tag" / "Has no matching tag"; source is "any /
+> generated / external"; the code box says "Tag code (optional)" with an exact /
+> prefix selector. The result table gets a **Tag** column only when a row carries
+> `primary_tag_code`.
 
 ### 8.2 What the filter compiles to ∑
 
@@ -1285,6 +1599,23 @@ each with its active primary code. (It's written inline in `crud` rather than
 calling the `assettag` package, because `assettag` imports `crud` — calling back
 would be an import cycle. A small, honest concession to Go's package graph.)
 
+> **Code-verified — the fine print.**
+>
+> - Prefix is `tag_code ILIKE <code>||'%'`; the code is **not** LIKE-escaped here
+>   (unlike the console search), so `%` and `_` typed into a prefix act as
+>   wildcards. Exact is a plain `=`, hence case-sensitive; prefix is not.
+> - Validation errors are `400`: `tag source must be "generated" or "external", got
+>   "…"` and `tag match must be "exact" or "prefix", got "…"`. A blank code means "any
+>   tag"; `present` defaults to true when omitted; source and match are trimmed (match
+>   is case-insensitive).
+> - Because void tags never match, a feature whose tags are **all** void also shows up
+>   in the "no tag at all" probe — the same state that makes the bulk printer skip
+>   it — so a hit means "no live tag", with a mint failure (§2.6) as one of two causes.
+> - `primary_tag_code` is the active, primary tag only; a feature with no active
+>   primary simply lacks the key.
+> - Soft-deleted and out-of-scope features are excluded here (unlike a resolve or the
+>   console).
+
 ### 8.3 Two granularities of "find" ∑
 
 It's worth being clear about the difference between the chapter's two tools,
@@ -1299,7 +1630,11 @@ because they answer different questions:
 Resolve is the scanner; find is the flashlight sweeping a class. `FindFeaturesByTag`
 is just the query engine's tag filter with **no field conditions** — a tag-only
 query over one class, returning the feature envelopes (each with
-`primary_tag_code`), page-capped 1–500.
+`primary_tag_code`), with a `limit` of 1–500 — anything outside that range (including 0) falls back to the engine default of 50; it does not clamp.
+
+> **Code-verified.** `find_features_by_tag` requires **both** `features:read` and
+> `tags:read` (the tool registers `features:read` as its primary permission and
+> `tags:read` as an extra); the other four read tools need `tags:read` only.
 
 ### 8.4 The agent has the same hands ▶
 
@@ -1336,6 +1671,20 @@ ones whose primary is still the legacy code"* and it can genuinely do it —
 `find_features_by_tag`, then `primary_asset_tags`, then a print — bounded by
 exactly what you'd be allowed to do yourself.
 
+> **Code-verified.** The tools answer in JSON: `list_feature_tags` and
+> `primary_asset_tags` return `{tags, count}`; `find_features_by_tag` returns
+> `{feature_class, features, count}`; `list_asset_tags` returns
+> `{rows, total, limit, offset}`; the writes return the affected tag (`reissue` the
+> *new* one). A caller lacking a permission gets an in-band
+> `permission denied: missing tags:write`. Argument errors read `code is required`,
+> `feature_class_code and feature_id are required`,
+> `feature_class_code and feature_ids are required`, `feature_class is required`,
+> or `no such feature class "…"`. `resolve_asset_tag` expects the **bare code** (its
+> description mentions the QR deep link, but the handler passes the string straight
+> to `Resolve`). The write tools declare `readOnlyHint: false` so a client confirms
+> with a human first; `void` is flagged destructive and idempotent, `set_primary`
+> idempotent, while `reissue`, `register` and `mark_printed` are not idempotent.
+
 Next: **Chapter 9 — Appendix**, the quick-reference: the code scheme at a glance,
 the lifecycle state machine, the full endpoint and tool tables, the permissions,
 and a troubleshooting list for the questions that come up in practice.
@@ -1345,12 +1694,13 @@ and a troubleshooting list for the questions that come up in practice.
 ## Chapter 9 — Appendix
 
 The reference chapter — everything the previous eight established, boiled down to
-tables you can scan while working. Nothing new here; it's the cheat sheet.
+tables you can scan while working. Nothing new here except where marked
+**Code-verified** and in §9.9–9.10; otherwise it's the cheat sheet.
 
 ### 9.1 The code at a glance
 
 ```
-   VE-7Q3K2
+   VE-7Q3KA
    ─┬ ──┬─ ┬
     │   │  └── check character  — position-weighted sum of the body, mod 32, same alphabet
     │   └───── body             — a value from runtime.asset_tag_seq, Crockford base32
@@ -1360,8 +1710,7 @@ tables you can scan while working. Nothing new here; it's the cheat sheet.
 - **Alphabet** (Crockford base32): `0123456789ABCDEFGHJKMNPQRSTVWXYZ` — no `I`,
   `L`, `O`, or `U`, so the common misreads can't occur and generated codes stay
   clean.
-- **Check character**: catches any single mis-keyed/mis-read character (1-in-32
-  it slips through); kept inside the 32-letter set so the whole code is
+- **Check character**: sum of (digit value × 1-based position) mod 32. Always catches a one-character slip at an odd body position and any adjacent swap; at even positions a slip with *d·i* ≡ 0 (mod 32) escapes (§2.3). The server does not verify it on lookup. Kept inside the 32-letter set so the whole code is
   URL- and label-safe with no escaping.
 - **Functions** (all `IMMUTABLE`): `runtime.encode_base32_crockford(bigint)`,
   `runtime.asset_tag_check_char(text)`, `runtime.encode_asset_tag(bigint)` (adds
@@ -1402,6 +1751,11 @@ stateDiagram-v2
 - **Void** and **superseded** are terminal; codes are never deleted (except when
   the feature is hard-purged) and never reused.
 
+- **Code-verified:** the diagram above omits one transition the server permits:
+  `void --> superseded` via **reissue** of a void code (§1.4 quirk), which also mints
+  a fresh non-primary active code. `set primary` accepts only `active`; `void` is
+  idempotent; `reissue` refuses only `superseded`.
+
 ### 9.4 REST endpoints (mount: `/tags`, gate `RequirePermission(tags:read, tags:write)`)
 
 | method + path | action | perm |
@@ -1421,6 +1775,12 @@ stateDiagram-v2
 
 Also: the query-engine tag filter rides `POST /{feature_class}/query` with a tag
 predicate; the public scan interstitial is the web route `/t/:code`.
+
+Code-verified: success is `201` for `POST /tags` and `POST /tags/{code}/reissue`
+and `200` for everything else; every error body is `{"error": "…"}` (`400` invalid,
+`404` not found/hidden/retired, `403` missing permission, `500` other); the batch
+print answers `{"updated": n}`; the same router is also mounted under the field-sync
+API.
 
 ### 9.5 MCP / assistant tools (ten)
 
@@ -1453,6 +1813,13 @@ count a tag whose feature you could open. This is enforced by *reusing* the
 feature read gate (resolve) and the registry scope (console/query), not by any
 tag-specific access code.
 
+> **Code-verified.** Seeds (migration 0115): `tags:read` → `viewer`, `analyst`,
+> `editor`, `admin`, `break-glass-admin`, `field-technician`; `tags:write` → `editor`,
+> `admin`, `break-glass-admin`. `find_features_by_tag` additionally needs
+> `features:read`. Users holding `territories:unscoped` (admin, break-glass) skip the
+> territory and draft scope. The per-feature list, the bulk primary lookup and all
+> write verbs are gated by the tag permission alone (no territory test in the store).
+
 ### 9.7 Where it lives
 
 | piece | location |
@@ -1465,7 +1832,10 @@ tag-specific access code.
 | web label + print | `web/src/components/map/tag-label.tsx`, `tag-print-sheet.tsx` |
 | web Tags tab | `web/src/components/map/feature-tags-tab.tsx` |
 | web console | `web/src/routes/admin-asset-tags.tsx` |
-| web scan route | `/t/:code` |
+| web scan route | `/t/:code` and bare `/t` → `web/src/routes/tag-resolve.tsx` |
+| web client hooks | `web/src/hooks/use-asset-tags.ts` |
+| features-browser bulk print | `web/src/routes/features.tsx` (`printSelected`, 120 ids per request) |
+| pack tag index | `api/internal/fieldpack/builder.go` (`loadPackAssetTags`), `mobile/lib/src/pack/pack_database.dart` (`resolveTag`, `primaryTagFor`) |
 | field app | `mobile/lib/src/ui/scan_tag_screen.dart`, `pack_map_page.dart`; pack index `asset_tags` (pack schema **v10+**) |
 | internals deep-dive | [asset-tagging-module.md](asset-tagging-module.md) |
 
@@ -1481,7 +1851,125 @@ tag-specific access code.
 | **Registered a legacy number and it was refused** | the code is already in use somewhere (codes are globally unique), or the feature was hard-purged. Check for an existing tag with that code. |
 | **Bulk print skipped some features** | those features had **no active tag** (e.g. all voided). The print sheet's note line reports the count; check those features individually. |
 | **Offline scan finds nothing but online works** | your field pack predates **v10** or was built without `tags:read`, so it has no tag index — the app falls back online automatically. Rebuild the pack as a `tags:read` user to resolve offline. |
-| **A query for "features with no tag" returns rows** | shouldn't happen — every feature is auto-tagged (Chapter 2). Treat a non-empty result as an integrity signal worth investigating. |
+\1| **Registering `old-4471` worked although `OLD-4471` exists** | by design: codes are stored verbatim and compared case-sensitively. |
+| **A lower-case code won't scan** | lookup is case-sensitive and minted codes are upper-case; check auto-correct. The field app's manual-entry box capitalises for you. |
+| **Offline: "Could not resolve … (are you online?)"** | the pack had no row (void, unknown, or unpacked code) **and** there is no signal, so the server fallback failed. Get coverage for the definitive answer ("No asset found for tag …" or the feature). |
+| **A code voided on the server still resolves in the field** | the pack is a frozen snapshot consulted first, even online. Rebuild the pack. |
+| **The scanner closed on a random barcode** | `extractTagCode` ignores only empty values; anything else is treated as a tag code (§6.2). |
+| **Console `limit=500` returned 50 rows** | an out-of-range limit resets to the default 50; it does not clamp (§7.2). |
+| **A feature was created with no tag at all** | a hand-registered external code equalled the next generated code, and the trigger's `ON CONFLICT DO NOTHING` swallowed the collision (§2.6). Insert a generated primary for it; never register `VE-` codes by hand. |
+| **403 `you do not have the required permission (tags:write)`** | a `tags:read`-only user sent a mutating request (the UI hides those buttons). |
+| **Print count didn't move** | only `tags:write` holders bump it; and it counts "sent to print" (§4.2). |
+
+### 9.9 Corrections ledger — where this edition departs from the original
+
+Everything below was checked against the code; the first column is what the original
+manual (or a comment in the code) said, the last is where to look.
+
+| original claim | what the code does | source |
+| --- | --- | --- |
+| Example codes `VE-7Q3K2` / `VE-9F2P7` | The real check characters are `A` and `5`: `VE-7Q3KA` / `VE-9F2P5`. | migration 0114 `asset_tag_check_char` |
+| The check character rejects a mis-read "before it ever touches a feature"; 1 in 32 slips through | Nothing validates it on lookup. As a property of minted codes: odd body positions and adjacent swaps are always caught; even positions miss the deltas where *d·i* ≡ 0 (mod 32). | `resolve.go:33`, `store.go:48`; web and mobile never check |
+| A stray non-tag barcode yields `null` and is ignored | `null` only for empty/whitespace; anything else is resolved as a code. | `scan_tag_screen.dart` `extractTagCode` |
+| `extractTagCode` drops any query or fragment | It also cuts at a following `/`. | `scan_tag_screen.dart` |
+| `packsAssetTags` lets the app tell the two misses apart | The flag exists but the scan flow never reads it; every miss goes online. | `pack_database.dart:1030`, `pack_map_page.dart:2351` |
+| `List` clamps `limit` to [1, 200] | Out of range resets to 50 (not 200); the query engine likewise (500 → 50). | `store.go:197`, `crud/query.go:436` |
+| Sheet note: "3 features had no active tag and were skipped" | "3 selected features had no tag and were skipped." | `features.tsx:326` |
+| Button labels "Print asset tags", "Register code" | "Print tags (N)"; Tags tab "Legacy code" + "Register"; console "Register number". | `features.tsx`, `feature-tags-tab.tsx`, `admin-asset-tags.tsx` |
+| A superseded code can be re-printed (§4.4) | True for the API and the console; the Tags tab only renders buttons on active rows. | `feature-tags-tab.tsx` (`isActive`) |
+| Reissue is offered when status isn't superseded, so void is excluded | The server accepts reissue of a void code (→ superseded + a fresh non-primary code). | `store.go:472` |
+| Ada, a coordinator, sees only her region | Admin/break-glass hold `territories:unscoped`; enforcement can be off; a *scoped* coordinator is the territory case. | `featureregistry/http.go` `resolveTerritoryScope` |
+| (silent) the per-feature list and lifecycle writes are scoped | They are not: `tags:read` / `tags:write` alone, by class+id or code. | `store.go` `Register`, `SetPrimary`, `Void`, `Reissue` |
+| "Every feature has a tag" | True unless an external code equals the next minted code (`ON CONFLICT DO NOTHING`). | migration 0114 `sync_asset_tag` |
+| `tag_code` capped at 64 "characters" | Bytes (`len()`); multi-byte text counts double. | `store.go:33` |
+| `void_asset_tag` tool text: voiding the primary "leaves no primary" | The store refuses to void a primary. | `tools_assettag.go` vs `store.go:439` |
+| `resolve_asset_tag` tool text: the code "may be … the QR deep link" | The handler passes the string to `Resolve` as-is; pass the bare code. | `tools_assettag.go` `toolResolveAssetTag` |
+| (silent) `find_features_by_tag` needs only `tags:read` | It needs `features:read` **and** `tags:read`. | `tools_assettag.go` (`ExtraPerms`) |
+| "No tag at all" probe means a mint failure | Also lists features whose tags are all void (void never matches). | `crud/query.go` `buildTagFilter` |
+
+### 9.10 Worked request / response examples
+
+All with the running example (TX-Feeder7-014, id `7d1f3a52-9c04-4b7e-a8d1-2f6c0b9e4a14`)
+after the Chapter 3 story. Timestamps elided.
+
+**Resolve a superseded label** — `GET /tags?code=VE-7Q3KA` → `200`
+
+```json
+{ "tag":  { "tag_code": "VE-7Q3KA", "feature_class_code": "DIST_XFMR",
+            "feature_id": "7d1f3a52-9c04-4b7e-a8d1-2f6c0b9e4a14",
+            "source": "generated", "is_primary": false, "status": "superseded",
+            "created_by": null, "print_count": 3, "created_at": "…", "updated_at": "…" },
+  "feature": { "id": "7d1f3a52-…", "name": "TX-Feeder7-014", "...": "full feature envelope" },
+  "tags": [ { "tag_code": "VE-9F2P5", "is_primary": true,  "status": "active",     "source": "generated" },
+            { "tag_code": "VE-7Q3KA", "is_primary": false, "status": "superseded", "source": "generated" },
+            { "tag_code": "OLD-4471", "is_primary": false, "status": "active",     "source": "external"  } ] }
+```
+
+**The three refusals** — all `404`, body `{"error": "…"}`:
+
+```
+GET /tags?code=VE-ZZZZ0      → no asset tag "VE-ZZZZ0"              (never minted)
+GET /tags?code=OLD-4471X     → asset tag "OLD-4471X" has been retired   (void)
+GET /tags?code=<out of your territory>
+                             → no asset tag "<code>"                (identical to the first)
+```
+
+**Void the primary** — `POST /tags/VE-9F2P5/void` → `400`
+
+```json
+{ "error": "tag \"VE-9F2P5\" is the primary; set another tag as primary before voiding it" }
+```
+
+**Set primary, then reissue** — `POST /tags/OLD-4471/primary` → `200` (the updated row);
+`POST /tags/VE-9F2P5/reissue` → `201` (the **new** row: `source: "generated"`,
+`is_primary` carried over, `created_by` = the caller).
+
+**A read-only user tries to write** — `POST /tags/OLD-4471/void` as Femi → `403`
+
+```json
+{ "error": "you do not have the required permission (tags:write)" }
+```
+
+**Bulk print lookup and count** —
+
+```
+GET /tags?feature_class_code=DIST_XFMR&feature_ids=<id1>,<id2>,<id3>
+→ 200 { "tags": [ <one row per feature that has an active tag> ] }       (may be fewer than 3)
+POST /tags/printed   { "codes": ["VE-9F2P5", "SN-88213-B", "NOPE"] }
+→ 200 { "updated": 2 }                                                   (unknown codes skipped)
+```
+
+**Console** — `GET /tags?view=list&status=active&source=external&limit=2` → `200`
+
+```json
+{ "rows": [ { "tag_code": "OLD-4471", "feature_class_code": "DIST_XFMR",
+              "class_name": "Distribution Transformer", "feature_id": "7d1f3a52-…",
+              "source": "external", "is_primary": false, "status": "active",
+              "print_count": 0, "created_by": "<user id>", "created_at": "…", "updated_at": "…" },
+            { "...": "second row" } ],
+  "total": 12, "limit": 2, "offset": 0 }
+```
+
+`GET /tags?view=stats` → `{"total":107,"active":96,"void":6,"superseded":5,"unprinted":29,"external":26,"generated":81}`
+(illustrative numbers); `view=list&limit=500` returns `"limit": 50`.
+
+**Query engine tag filter** — `POST /DIST_XFMR/query`
+
+```json
+{ "tag": { "source": "external", "present": true } }
+```
+
+returns the matching feature envelopes, each with `"primary_tag_code": "VE-9F2P5"`;
+`{"tag": {"source": "bogus"}}` → `400 tag source must be "generated" or "external", got "bogus"`.
+
+**Assistant tool call** — `find_features_by_tag`
+
+```json
+{ "feature_class": "DIST_XFMR", "code": "VE-9F", "match": "prefix", "limit": 10 }
+```
+
+→ `{ "feature_class": "DIST_XFMR", "features": [ … ], "count": 1 }`; without
+`tags:write`, `void_asset_tag` answers `permission denied: missing tags:write`.
 
 ---
 

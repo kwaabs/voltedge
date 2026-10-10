@@ -147,6 +147,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "asset-tags-guide-interactive",
+		Title:       "Asset Tags (interactive)",
+		Description: "Asset tagging as a working estate in your browser: the tag lifecycle and role permissions, a code generator with a real check-character lab, the one-primary index and registry trigger, the Tags tab and its exact errors, bulk legacy import, a label designer with real QR and Code 128, bulk print, a scan-and-resolve gauntlet with territory and draft scope, offline field-pack scanning, the admin console, the query tag filter, the assistant tools and a troubleshooting diagnoser. A persona switch applies the real role permissions.",
+		Category:    "Interactive guides",
+		Filename:    "asset-tags-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "cim-export-guide-interactive",
 		Title:       "CIM/XML Export (interactive)",
 		Description: "A working copy of the real CIM encoder (a JavaScript port that reproduces the server's Oakwood output byte-for-byte): follow a feature into its CIM objects, compute the UUIDv5 ids and see which ones are unstable, edit the declarative mapping and watch the file change, try the seven transforms, build connectivity nodes and the nearest-end heuristic, size an export job and its state machine, explore the file, classify classes into the four coverage buckets, build a hand-off note from the eighteen known gaps, see node-breaker vs bus-branch processing, generate the adapter pipeline for a recipient, reconcile counts, run a validator with defect injection, and generate the mapping SQL recipes. A persona switch gates export (features:read) and mapping edits (metadata:read/write).",
