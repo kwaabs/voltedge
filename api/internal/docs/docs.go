@@ -147,6 +147,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "cim-export-guide-interactive",
+		Title:       "CIM/XML Export (interactive)",
+		Description: "A working copy of the real CIM encoder (a JavaScript port that reproduces the server's Oakwood output byte-for-byte): follow a feature into its CIM objects, compute the UUIDv5 ids and see which ones are unstable, edit the declarative mapping and watch the file change, try the seven transforms, build connectivity nodes and the nearest-end heuristic, size an export job and its state machine, explore the file, classify classes into the four coverage buckets, build a hand-off note from the eighteen known gaps, see node-breaker vs bus-branch processing, generate the adapter pipeline for a recipient, reconcile counts, run a validator with defect injection, and generate the mapping SQL recipes. A persona switch gates export (features:read) and mapping edits (metadata:read/write).",
+		Category:    "Interactive guides",
+		Filename:    "cim-export-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "bill-of-quantities-guide-interactive",
 		Title:       "Bill of Quantities & Cost Catalog (interactive)",
 		Description: "The estimator and the price book as a working engine over a sample Feeder 7: a never-hidden Unpriced bucket, the real scope panel with currency switching and CSV/PDF previews, the rate-resolution ladder (override, material cost, subtype rate, class default), geodesic lengths, the wrong-unit-basis trap that silently ignores a rate, rounding, and the admin screens for currencies, the unit-rate price book and per-feature overrides - plus a POST /boq request builder and an Unpriced diagnoser. A persona switch applies territory visibility, private drafts and the metadata:write gate.",

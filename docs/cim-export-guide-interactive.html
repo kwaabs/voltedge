@@ -1,0 +1,1347 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge CIM Export Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  /* section palette (categorical, validated for both themes) */
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.role{display:inline-block;font:600 11px/1 var(--f-mono);padding:3px 7px;border-radius:3px;letter-spacing:.03em}
+.role.protective{background:var(--red-tint);color:var(--red)}
+.role.switching{background:var(--blue-tint);color:var(--blue)}
+.role.transformer{background:var(--amber-tint);color:var(--amber)}
+.role.source{background:var(--green-tint);color:var(--green)}
+.role.none{background:var(--line2);color:var(--muted)}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.bgrid{display:grid;grid-template-columns:minmax(0,1fr) 110px 150px auto;gap:5px;align-items:center}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+input[type=number],input[type=text],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--acc-deep);font-weight:700}
+.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+.bar{height:18px;background:var(--line2);border-radius:4px;position:relative;overflow:hidden}
+.bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .15s}
+.big{font:800 28px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums;color:var(--acc-deep)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono)}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.chainrow .arr{color:var(--muted);font:600 12px var(--f-mono)}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+
+/* handbook additions */
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+.matrix{border-collapse:collapse;font-size:12px;width:100%}
+.matrix th,.matrix td{padding:4px 6px;text-align:center;border-bottom:1px solid var(--line2)}
+.matrix td:first-child,.matrix th:first-child{text-align:left;position:sticky;left:0;background:var(--raise)}
+.matrix td.y{background:color-mix(in srgb,var(--green) 22%,transparent);color:var(--green);font-weight:700}
+.matrix tr:hover td{background:var(--surface)} .matrix tr:hover td.y{background:color-mix(in srgb,var(--green) 30%,transparent)}
+.tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:10px}
+.tabs button{font:600 11.5px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:6px 9px;border-radius:5px 5px 0 0;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.tabs button[disabled]{opacity:.4;cursor:not-allowed}
+.tree{font:500 13px var(--f-mono)} .tree .n{padding:3px 6px;border-radius:4px;display:inline-block}
+.tree .n.g{background:var(--tint);color:var(--acc-deep);font-weight:700}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+.ants{animation:march .9s linear infinite} @keyframes march{to{stroke-dashoffset:-16}}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sev{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.sev.low{background:var(--line2);color:var(--muted)} .sev.medium{background:var(--blue-tint);color:var(--blue)} .sev.high{background:var(--amber-tint);color:var(--amber)} .sev.critical{background:var(--red-tint);color:var(--red)} .sev.urgent{background:var(--red-tint);color:var(--red)}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.kpi div{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.kpi b{display:block;font:800 22px/1 var(--f-display);font-stretch:80%}
+.kpi span{font:600 10px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rec{border:1px solid var(--line2);border-radius:6px;padding:6px 8px;margin:5px 0;background:var(--raise);font-size:13px}
+.rec .t{font-weight:600}.rec .m{font-size:11.5px;color:var(--muted)}
+.rec .a{margin-top:4px;display:flex;gap:4px;flex-wrap:wrap}
+.state-chip{display:inline-block;font:700 10.5px var(--f-mono);padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.state-chip.applied,.state-chip.completed,.state-chip.resolved{background:var(--green-tint);color:var(--green);border-color:var(--green)} .state-chip.in_progress,.state-chip.work_ordered,.state-chip.assigned{background:var(--tint);color:var(--acc-deep);border-color:var(--acc)} .state-chip.cancelled,.state-chip.dismissed,.state-chip.rejected{background:var(--line2);color:var(--muted)} .state-chip.open,.state-chip.draft,.state-chip.scheduled{background:var(--amber-tint);color:var(--amber);border-color:var(--amber)}
+@media (max-width:760px){.kpi{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .bgrid{grid-template-columns:1fr 1fr}
+  .bgrid>input:first-child{grid-column:1/-1}
+  li,.rec .t,.rec .m{overflow-wrap:anywhere}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* everyday-operations additions */
+.gm{position:relative;border:1px solid var(--line);border-radius:6px 6px 0 0;overflow:hidden;background:var(--bg)}
+.gm-svg{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none}
+.gm-svg .gm-lab{fill:var(--ink);pointer-events:none}
+.gm-svg .gf{cursor:inherit}
+.gm-zoom{position:absolute;left:8px;top:8px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--raise)}
+.gm-zoom button{width:28px;height:28px;border:0;background:none;color:var(--ink);font:700 16px var(--f-mono);cursor:pointer}
+.gm-zoom button+button{border-top:1px solid var(--line)}
+.gm-north{position:absolute;left:8px;top:74px;width:28px;height:28px;border:1px solid var(--line);border-radius:50%;background:var(--raise);display:grid;place-items:center;cursor:pointer;padding:0}
+.gm-ban{position:absolute;left:50%;top:8px;transform:translateX(-50%);max-width:calc(100% - 100px);background:var(--ink);color:var(--bg);font:600 12px var(--f-mono);padding:6px 11px;border-radius:5px;z-index:3;text-align:center}
+.gm-tip{position:absolute;right:8px;bottom:8px;max-width:60%;background:var(--raise);border:1px solid var(--line);border-radius:5px;padding:6px 9px;font:500 12px var(--f-mono);box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.gm-status{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;background:var(--surface);padding:5px 10px;font:500 11.5px var(--f-mono);color:var(--muted)}
+.gm-status b{color:var(--ink);font-weight:600;margin-right:3px}
+.gm-status .gsr{margin-left:auto}
+.gm-status .attr{margin-left:8px;opacity:.8}
+.gsb{font:600 11px var(--f-mono);border:1px solid var(--line);background:var(--raise);color:var(--ink);border-radius:4px;padding:3px 7px;cursor:pointer}
+.gsb:hover{border-color:var(--muted)}
+.goto{font:500 11px var(--f-mono);width:128px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--raise);color:var(--ink)}
+.apid{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.apid.ok{background:var(--green)} .apid.bad{background:var(--red)}
+.story{border-left:3px solid var(--acc);background:var(--surface);padding:10px 16px;border-radius:0 6px 6px 0;margin:16px 0;max-width:78ch;font-size:15px}
+.story>*:last-child{margin-bottom:0}
+.story .who{font:700 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--acc-deep);display:block;margin-bottom:2px}
+.qs{max-width:78ch;margin:16px 0;border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:6px 16px 10px}
+.qs>b.k{display:block;font:700 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--acc-deep);margin:8px 0 0}
+.qs .steps{margin:4px 0 0}
+.ptabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:8px 0}
+.ptabs button{font:600 11px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:5px 8px;border-radius:5px 5px 0 0;cursor:pointer}
+.ptabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.ptabs button[disabled]{opacity:.35;cursor:not-allowed}
+.panelbox{border:1px solid var(--line);border-radius:6px;background:var(--raise);padding:9px 11px;font-size:13px}
+.panelbox h5{margin:0 0 4px;font:700 14px var(--f-display)}
+.kvt{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px;margin:6px 0}
+.kvt dt{font:600 10.5px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+.kvt dd{margin:0;font-family:var(--f-mono);font-size:12px}
+.fld-row{display:grid;grid-template-columns:130px 1fr;gap:6px;align-items:center;margin:5px 0;font-size:12.5px}
+.fld-row label{font:600 11.5px var(--f-mono)}
+.fld-row .rq{color:var(--red);font-weight:800}
+.fld-row.lock input,.fld-row.lock select{opacity:.6}
+.fld-row.chg input,.fld-row.chg select{border-color:var(--amber);background:var(--amber-tint)}
+.tog{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.tog input{accent-color:var(--acc)}
+.dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:60;padding:16px}
+.dlg>div{background:var(--raise);border:1px solid var(--line);border-radius:8px;max-width:420px;padding:16px 18px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.dlg h4{margin-bottom:6px}
+.dlg .a{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.sugg{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:5px;padding:5px 8px;margin:4px 0;font-size:12.5px;background:var(--raise);flex-wrap:wrap}
+.sugg .tx{flex:1;min-width:140px}
+.chipx{font:600 10.5px var(--f-mono)}
+.cardsel{border:1.5px solid var(--line);border-radius:7px;padding:8px 10px;background:var(--raise);cursor:pointer;font-size:13px;text-align:left}
+.cardsel[aria-pressed="true"]{border-color:var(--acc);background:var(--tint)}
+.pop{position:relative}
+.floatp{position:absolute;background:var(--raise);border:1.5px solid var(--line);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:5}
+.floatp .hd{background:var(--surface);border-bottom:1px solid var(--line);padding:6px 10px;font:700 12px var(--f-mono);cursor:grab;display:flex;justify-content:space-between;align-items:center;user-select:none;touch-action:none}
+.floatp .bd{padding:10px;font-size:12.5px;overflow:auto;flex:1}
+.floatp .grip{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 55%,var(--muted) 55%,var(--muted) 62%,transparent 62%,transparent 72%,var(--muted) 72%,var(--muted) 79%,transparent 79%)}
+@media (max-width:760px){
+  .gm-status{font-size:10.5px}
+  .gm-status .gsr{margin-left:0}
+  .goto{width:100px}
+  .fld-row{grid-template-columns:1fr}
+}
+
+[hidden]{display:none!important}
+
+.w-body{overflow-x:auto}
+pre.code{overflow-x:auto;max-width:100%}
+.w-bar{flex-wrap:wrap}
+.w-bar .seg{flex-wrap:wrap}
+.w-bar>*{max-width:100%}
+.w-split{flex-wrap:wrap}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>CIM Export</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · What</a><a href="#c2">2 · Model</a><a href="#c3">3 · Mapping</a><a href="#c4">4 · Topology</a><a href="#c5">5 · Export</a><a href="#c6">6 · Gaps</a><a href="#c7">7 · Standard</a><a href="#c8">8 · Consume</a><a href="#c9">9 · Validate</a><a href="#c10">10 · Cookbook</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · CIM/XML export · hand your network model to any engineering tool</div>
+  <h1>Not a map.<br><span>A network model.</span></h1>
+  <p class="lede">CIM export turns the features your crews survey into the language utility engineering software speaks: IEC 61970/61968 Common Information Model, serialised as RDF/XML. This guide is a <em>working</em> copy of the real encoder — a JavaScript port that, for the Oakwood sample, produces the <b>identical bytes</b> the server does. Change a mapping, cut a connection, tick a class, and watch the file change.</p>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Priya</b> (planner) holds <span class="perm">features:read</span> — she can export. <b>Tom</b> adds <span class="perm">metadata:read</span> and can open the mapping editor read-only. <b>Ada</b> adds <span class="perm">metadata:write</span> and can change mappings. <b>Dana</b> has no access to either. Widgets lock to what the persona may do and tell you what is missing.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">Who this is for</span>
+<p><b>Planners and network engineers</b> who need the model in a power-flow or planning tool; <b>GIS and asset administrators</b> who maintain the mapping; and <b>integrators</b> who receive the file. The full manual (<code>cim-export-guide.md</code>) holds every table, SQL recipe and appendix; this edition keeps all ten chapters and makes each idea something you can poke.</p>
+<p>Three honest limits up front, because they decide whether the file suits your tool: units are <b>SI base units</b> (volts, VA, metres, ohms); there is <b>no load, set-point or switch-position data</b> beyond <code>normalOpen</code>; and the file is a <b>single CDPSM-style document</b>, not a CGMES EQ/TP/SSH/SV split. Chapter 6 lists eighteen such limits with workarounds, Chapter 8 shows how to bridge them.</p></div>
+
+<h3 style="margin-top:28px">The cast &amp; the running example</h3>
+<div class="tbl"><table>
+  <tr><th>Who</th><th>Role</th><th>Shows up when…</th></tr>
+  <tr><td><b>Priya</b></td><td>Planner (<code>features:read</code>)</td><td>Running exports and loading them into a power-flow tool</td></tr>
+  <tr><td><b>Tom</b></td><td>GIS analyst (+ <code>metadata:read</code>)</td><td>Reading the mapping to explain why something is, or isn’t, in the file</td></tr>
+  <tr><td><b>Ada</b></td><td>Administrator (+ <code>metadata:write</code>)</td><td>Editing the mapping and profile</td></tr>
+  <tr><td><b>Dana</b></td><td>Crew lead (no export access)</td><td>Her survey data is what ends up in the file</td></tr>
+</table></div>
+<p>The running example is the <b>Oakwood zone</b>: a primary substation, a load-break switch SW-F7-03, an 11 kV conductor, a 315 kVA transformer TX-Feeder7-014 (11 kV / 415 V, with a ground terminal), an LV conductor, a service point and its meter. Seven features, four connections — small enough to read the whole file, real enough to hit every rule. 🔒 marks an action that needs a permission · 💡 a tip · ⚠️ a caution.</p>
+
+<!-- ============ CH1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>What CIM is, and why export it</h2><p>A model, not a map — and where the export sits among the others.</p></div>
+  <p><b>CIM</b> — the <em>Common Information Model</em> — is the IEC’s vocabulary for electric utilities: <b>IEC 61970</b> (energy management: <code>Terminal</code>, <code>ConnectivityNode</code>, <code>ACLineSegment</code>…), <b>IEC 61968</b> (distribution management: assets, metering, work) and <b>IEC 62325</b> (markets). It defines <em>what things are and how they connect</em>, independent of any drawing. A power-flow tool cannot do anything useful with a polyline; it needs to know that this conductor’s end 2 meets that transformer’s primary terminal at one electrical node.</p>
+  <p>The export therefore does three things your KMZ or Shapefile does not: it gives every feature a <b>CIM class</b> (a line segment, a load-break switch, a power transformer); it rebuilds the <b>topology</b> (terminals and connectivity nodes) from the connections your crews captured; and it writes the <b>attributes engineers need</b> in the units CIM tools expect (voltage, rating, length, impedance). Click through the pipeline to see which stage does what — and where each can fail.</p>
+  <div class="widget" id="w1">
+    <div class="w-head"><span class="eyebrow">Interactive · 1</span><h4>The export pipeline, stage by stage</h4></div>
+    <div class="w-bar" id="w1-b"></div>
+    <div class="w-split"><div class="w-main"><svg id="w1-svg" viewBox="0 0 760 210" width="100%" role="img" aria-label="CIM export pipeline"></svg></div><div class="w-side" id="w1-out"></div></div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>If the recipient wants…</th><th>Export</th><th>Why</th></tr>
+    <tr><td>to <em>look</em> at it in GIS</td><td>KMZ / Shapefile / GeoJSON</td><td>Geometry and attributes, no model needed</td></tr>
+    <tr><td>to draw it in CAD</td><td>DXF</td><td>Layers and linework</td></tr>
+    <tr><td>to <em>calculate</em> with it (load flow, hosting capacity, protection)</td><td><b>CIM/XML</b></td><td>Only CIM carries classes, terminals and nodes</td></tr>
+    <tr><td>a lossless copy for another VoltEdge</td><td>GeoJSON / backup</td><td>CIM is lossy by design — it keeps what the standard has a place for</td></tr></table></div>
+  <div class="caution"><b>CIM is lossy on purpose.</b> Anything the standard has no slot for is dropped (or, with the <code>carry</code> profile policy, parked in a <code>ve:</code> extension namespace). The manual’s old line that the encoder “streams in constant memory” was wrong: the topology pass holds the connection graph in memory, which is why the per-class cap exists (Chapter 5).</div>
+</section>
+
+<!-- ============ CH2 ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>The mental model</h2><p>Three graphs, a chain from feature to node, stable ids, and a scope that closes the graph.</p></div>
+  <p>A VoltEdge network is really <b>three graphs</b> sharing the same features. The <b>spatial</b> one (where things are) is what the map shows. The <b>connectivity</b> one (which feature touches which, via which terminal) is what crews capture. The <b>containment</b> one (this switch lives in that substation) is optional. CIM cares most about the second: it needs a <b>chain</b> from each feature to an electrical node.</p>
+  <div class="tbl"><table>
+    <tr><th>Link in the chain</th><th>CIM object</th><th>Where it comes from</th></tr>
+    <tr><td>the thing itself</td><td><code>ACLineSegment</code>, <code>PowerTransformer</code>…</td><td>class mapping (Chapter 3)</td></tr>
+    <tr><td>a place it can attach</td><td><code>Terminal</code> (one per end)</td><td>layer terminals, or the two ends of a conductor</td></tr>
+    <tr><td>where terminals meet</td><td><code>ConnectivityNode</code></td><td>union of connected terminals (Chapter 4)</td></tr>
+    <tr><td>what encloses the node</td><td>container (<code>Substation</code> or the default <code>Line</code>)</td><td>modelled containment, else polygon test</td></tr></table></div>
+
+  <h3>2.1 Follow a feature into the file</h3>
+  <p>Pick a feature and read the CIM objects it becomes — the real encoder output for that feature, with the references it holds. Everything that mentions the feature’s id is shown: its equipment element, its <code>Location</code>, its <code>Terminal</code>s and, for a transformer, its <code>PowerTransformerEnd</code>s.</p>
+  <div class="widget" id="w2">
+    <div class="w-head"><span class="eyebrow">Interactive · 2</span><h4>Feature → CIM objects</h4></div>
+    <div class="w-bar" id="w2-b"></div>
+    <div class="w-body"><pre class="code" id="w2-out" style="max-height:340px;overflow:auto;margin:0;font-size:12.5px"></pre><p class="muted" id="w2-note" style="font-size:13.5px;margin:8px 0 0"></p></div>
+  </div>
+
+  <h3>2.2 Identity — ids that survive re-export</h3>
+  <p>Every equipment element carries <b>the feature’s own UUID</b> as its <code>rdf:ID="_uuid"</code> and again as the <code>IdentifiedObject.mRID</code> literal. Re-export tomorrow and the same line is the same line — which is what lets a recipient diff two exports. Everything <em>derived</em> (a <code>Location</code>, a <code>Terminal</code>, a <code>BaseVoltage</code>) gets a deterministic <b>UUIDv5</b> (name-based, SHA-1) under one frozen namespace, so it too is repeatable. The lab computes them live; the namespace and name formats are exactly the encoder’s.</p>
+  <div class="widget" id="w3">
+    <div class="w-head"><span class="eyebrow">Interactive · 3</span><h4>UUIDv5 lab — and the one id that is not stable</h4></div>
+    <div class="w-bar"><label class="lab" for="id-k">Derived object</label><select id="id-k"></select><label class="lab" for="id-v">Value</label><input type="text" id="id-v" style="max-width:220px"></div>
+    <div class="w-body" id="id-out"></div>
+    <div class="w-bar"><b style="font-size:13.5px">Stability test</b><button class="btn" id="id-cut">Remove the switch→conductor connection</button><button class="btn" id="id-reset">Restore</button></div>
+    <div class="w-body" id="id-cmp"></div>
+  </div>
+  <div class="tip">A <code>ConnectivityNode</code>’s id is hashed from the <b>sorted keys of the terminals it joins</b>. Add or remove a connection and the node’s id changes — equipment ids never do. So diff exports on equipment and terminal ids, not node ids.</div>
+
+  <h3>2.3 Scope — the graph is closed over what you export</h3>
+  <p>The encoder only sees the classes you select (and, for non-admins, only what they may see). A connection to a feature that is <em>not</em> in the file is dropped, so the neighbouring terminal floats. Select classes below and watch which nodes survive.</p>
+  <div class="widget" id="w4">
+    <div class="w-head"><span class="eyebrow">Interactive · 4</span><h4>What the file keeps when you leave a class out</h4></div>
+    <div class="w-bar" id="w4-b"></div>
+    <div class="w-split"><div class="w-main"><svg id="w4-svg" viewBox="0 0 760 150" width="100%" role="img" aria-label="Oakwood chain"></svg></div><div class="w-side" id="w4-out"></div></div>
+  </div>
+</section>
+
+<!-- ============ CH3 ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>The declarative mapping</h2><p>Three tables decide everything — no code change, no redeploy.</p></div>
+  <p>What a feature becomes is <b>data</b>, held in three tables under <code>metadata</code> and edited in <b>Admin → CIM mappings</b> (🔒 <span class="perm">metadata:write</span> to change, <span class="perm">metadata:read</span> to look):</p>
+  <div class="tbl"><table>
+    <tr><th>Table</th><th>One row says…</th><th>Key columns</th></tr>
+    <tr><td><code>cim_profiles</code></td><td>the export <em>target</em>: namespace, profile URI, authority, CRS, and the <b>unmapped-attribute policy</b> (<code>drop</code> or <code>carry</code>)</td><td><code>code</code>, <code>cim_namespace</code>, <code>profile_uri</code>, <code>unmapped_attr_policy</code>, <code>is_default</code></td></tr>
+    <tr><td><code>cim_class_mappings</code></td><td>feature class (+ optional subtype) → <b>CIM class</b> and <b>kind</b></td><td><code>feature_class_id</code>, <code>subtype_id</code>, <code>cim_class</code>, <code>cim_kind</code></td></tr>
+    <tr><td><code>cim_attribute_mappings</code></td><td>a field → a <b>CIM attribute</b> through one of seven transforms</td><td><code>field_id</code>, <code>cim_attribute</code>, <code>transform</code>, <code>scale</code>, <code>value_map</code>, <code>unit</code></td></tr></table></div>
+  <p>The <b>kind</b> is what drives structure: <code>conducting_edge</code> (a line — two end terminals), <code>conducting_junction</code> (a device — its layer terminals), <code>container</code> (substation-like; carries a location, anchors other equipment), <code>asset</code> (a pole or meter — no terminals), <code>protection</code> (a relay) and <code>skip</code> (a recorded decision not to export).</p>
+
+  <h3>3.1 Edit the mapping, watch the file</h3>
+  <p>This lab is wired to the live encoder. Change a rating scale, a voltage, a switch state, a class or kind, or the policy, and the Oakwood file is re-encoded with your edit. The panel shows what changed against the shipped mapping. Editing needs <span class="perm">metadata:write</span> (Ada); Tom can see but not touch.</p>
+  <div class="widget" id="w5">
+    <div class="w-head"><span class="eyebrow">Interactive · 5</span><h4>Mapping lab</h4><span style="flex:1"></span><button class="btn" id="m-reset">Reset to shipped</button></div>
+    <div class="w-body" id="m-gate"></div>
+    <div class="w-split"><div class="w-side" style="order:0;flex:1 1 440px;max-width:540px" id="m-ctl"></div><div class="w-main" style="flex:1 1 320px;min-width:0"><div id="m-stat" style="margin-bottom:6px"></div><div class="lab">Lines changed against the shipped mapping</div><pre class="code" id="m-diff" style="max-height:300px;overflow:auto;margin:4px 0 0;font-size:12.5px"></pre></div></div>
+  </div>
+  <div class="caution">Two traps you can trigger above. Set the transformer <b>ratedS</b> scale to 1 and the winding says 315 VA, not 315 kVA — the encoder converts nothing on its own. And map a class to <code>skip</code> and it vanishes <em>silently</em>: no warning, because skipping is a decision. A class with no row at all is different — it is dropped <em>with</em> a warning.</div>
+
+  <h3>3.2 The seven transforms</h3>
+  <p>Every attribute mapping uses exactly one transform. Pick one and feed it a value; the output is what the encoder would write (or the reason it writes nothing).</p>
+  <div class="widget" id="w6">
+    <div class="w-head"><span class="eyebrow">Interactive · 6</span><h4>Transform playground</h4></div>
+    <div class="w-bar" id="t-b"></div>
+    <div class="w-body" id="t-ui"></div>
+    <div class="w-body" id="t-out" style="border-top:1px solid var(--line2)"></div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>Transform</th><th>Does</th><th>Writes nothing when…</th></tr>
+    <tr><td><code>direct</code></td><td>copies the value as text</td><td>the value is null</td></tr>
+    <tr><td><code>scale</code></td><td>number × <code>scale</code></td><td>not numeric, or no scale</td></tr>
+    <tr><td><code>domain_map</code></td><td>coded value → looked up in <code>value_map</code></td><td>the code is not in the map</td></tr>
+    <tr><td><code>boolean</code></td><td>coded value → <code>true</code>/<code>false</code> via <code>value_map</code></td><td>the map value is not a boolean</td></tr>
+    <tr><td><code>from_geometry</code></td><td>derives <code>Conductor.length</code> from the polyline (metres)</td><td>no geometry or zero length</td></tr>
+    <tr><td><code>material_spec</code></td><td>per-km resistance/reactance from a spec × length ÷ 1000, rounded to 0.001</td><td>no spec for the code, or no length</td></tr>
+    <tr><td><code>phase</code></td><td>phase code → one object per phase</td><td>unknown code</td></tr></table></div>
+  <div class="tip"><b>Special targets.</b> <code>BaseVoltage.nominalVoltage</code> and <code>.secondary</code> do not write a literal — they create shared <code>BaseVoltage</code> objects and references. <code>PowerTransformerEnd.*</code> / <code>TransformerEnd.*</code> go on the <em>windings</em> only (a bug fixed while building this guide: <code>ratedS</code> used to leak a stray literal onto the transformer element too). A target like <code>ACLineSegmentPhase.phase</code> names its <em>declaring class</em>, which is how the encoder knows which child object to create.</div>
+
+  <h3>3.3 Subtype overrides</h3>
+  <p>A class mapping with a subtype beats the class-wide default for features of that subtype. In Oakwood, <code>DIST_SWITCH</code> maps to <code>LoadBreakSwitch</code>; subtype 2 overrides it to <code>Recloser</code>.</p>
+  <div class="widget" id="w6b">
+    <div class="w-head"><span class="eyebrow">Interactive · 7</span><h4>Which mapping row wins?</h4></div>
+    <div class="w-bar" id="sb-b"></div><div class="w-body" id="sb-out"></div>
+  </div>
+</section>
+
+<!-- ============ CH4 ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>Topology</h2><p>From pairwise connections to terminals and nodes.</p></div>
+  <p>Crews capture connectivity as <b>pairs</b>: “conductor A connects to transformer terminal T1”. CIM wants <b>nodes</b>: the set of terminals that are electrically one point. The encoder builds them with <b>union-find</b> over endpoint keys — <code>T|feature|terminal</code> for a device terminal, <code>E|feature|0/1</code> for the two ends of a conductor — then writes one <code>ConnectivityNode</code> per set and one <code>Terminal</code> per key.</p>
+
+  <h3>4.1 Build the nodes yourself</h3>
+  <p>Switch a connection off to see the network split; add the ground connection to see it ignored. Every row shows how the encoder resolved the pair.</p>
+  <div class="widget" id="w7">
+    <div class="w-head"><span class="eyebrow">Interactive · 8</span><h4>Connections → nodes</h4><span style="flex:1"></span><button class="btn" id="tp-reset">Reset</button></div>
+    <div class="w-bar" id="tp-b"></div>
+    <div class="w-split"><div class="w-main"><div class="tbl"><table id="tp-dec"></table></div></div><div class="w-side" id="tp-out"></div></div>
+  </div>
+
+  <h3>4.2 Which end of a conductor? — the geometry heuristic</h3>
+  <p>A conductor connection usually names no terminal. The encoder picks the conductor’s <b>end nearest the other feature</b> (squared planar distance, strict “closer” — a tie goes to end 0). For two conductors it picks the closest <em>pair</em> of ends. It is a heuristic: it is right when features are drawn end-to-end and wrong when they are not. Drag the neighbour and see the choice flip.</p>
+  <div class="widget" id="w8">
+    <div class="w-head"><span class="eyebrow">Interactive · 9</span><h4>Nearest-end disambiguation</h4></div>
+    <div class="w-bar"><label class="lab" for="g-x">Neighbour’s position along the line</label><input type="range" id="g-x" min="-6" max="16" step="0.5" value="11" style="max-width:260px"><span id="g-v" class="mono"></span><label class="tog"><input type="checkbox" id="g-flip"> neighbour is a conductor drawn the other way round</label></div>
+    <div class="w-split"><div class="w-main"><svg id="g-svg" viewBox="0 0 760 160" width="100%" role="img" aria-label="Disambiguation"></svg></div><div class="w-side" id="g-out"></div></div>
+  </div>
+  <div class="caution">When both of a conductor’s ends are closest to the same neighbour, or a neighbour has no geometry, the heuristic can attach the wrong end or fall back to end 0 — and nothing complains. The validator’s <code>E-452</code> (both ends on one node) and “floating end” warnings are how you find these (Chapter 9).</div>
+
+  <h3>4.3 Complete terminal sets, and transformer windings</h3>
+  <p>Every conducting feature gets a complete terminal set, even when no connection mentions it. A conductor always has two. A device has one per non-ground layer terminal (or one implicit terminal if the layer defines none). A <code>PowerTransformer</code> is <b>padded to two windings</b>, because CIM requires an HV and an LV end. Each winding becomes a <code>PowerTransformerEnd</code> with its rated voltage and the shared rating.</p>
+  <div class="widget" id="w9">
+    <div class="w-head"><span class="eyebrow">Interactive · 10</span><h4>How many terminals and windings?</h4></div>
+    <div class="w-bar"><label class="lab">Layer terminals defined</label><div class="seg" id="tw-n"><button data-v="0">none</button><button data-v="2" aria-pressed="true">T1, T2</button><button data-v="3">T1, T2, T3 (3 windings)</button></div><label class="tog"><input type="checkbox" id="tw-g" checked> one of them is a <i>ground</i> terminal</label><label class="lab">Kind</label><select id="tw-k"><option value="PowerTransformer">PowerTransformer</option><option value="LoadBreakSwitch">LoadBreakSwitch</option></select></div>
+    <div class="w-body" id="tw-out"></div>
+  </div>
+
+  <h3>4.4 Phasing — one code, several objects</h3>
+  <p>A coded phase value becomes a set of child objects, one per phase, each with a <code>SinglePhaseKind</code> and a reference to its parent. Conductors get <code>ACLineSegmentPhase</code>; street lights get <code>EnergyConsumerPhase</code>. Transformers, busbars and meters are unphased, and <code>Terminal.phases</code> is never written (gap G6).</p>
+  <div class="widget" id="w10">
+    <div class="w-head"><span class="eyebrow">Interactive · 11</span><h4>Phase code → objects</h4></div>
+    <div class="w-bar" id="ph-b"></div><div class="w-body" id="ph-out"></div>
+  </div>
+
+  <h3>4.5 Containers</h3>
+  <p>A node and a piece of equipment each get a container: a <b>modelled container</b> (an explicit containment relationship) wins; otherwise the encoder tests whether the feature’s first point lies inside a <b>substation polygon</b>; otherwise the catch-all <code>Line</code> named “Unassigned equipment”. In Oakwood the switch sits inside the substation polygon and everything else is “Unassigned”. See it in the next widget’s counts, then in the file.</p>
+  <div class="widget" id="w11">
+    <div class="w-head"><span class="eyebrow">Interactive · 12</span><h4>Where does each thing live?</h4></div>
+    <div class="w-body" id="ct-out"></div>
+  </div>
+</section>
+
+<!-- ============ CH5 ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>Running an export &amp; reading the file</h2><p>Request, job, download — then a tour of what came out.</p></div>
+  <p>Exports are <b>asynchronous jobs</b>. The web app (or the API) creates a row in <code>ops.export_jobs</code>; a separate process, <code>cmd/exportworker</code>, claims it, encodes the file, uploads it to object storage and marks the job <code>succeeded</code>. You then download through a <b>presigned link valid for 15 minutes</b>; jobs and files are kept <b>7 days</b>. Any authenticated user with <span class="perm">features:read</span> can export what they can see (territory scope and private drafts apply).</p>
+
+  <h3>5.1 Build a request</h3>
+  <p>CIM is one of the <em>materialised</em> formats, capped at <b>50,000 features per class</b> (the topology pass holds the graph in memory). Classes with no geometry are refused outright, and the amber card lists classes that have no mapping. Try an over-cap class or a geometry-less one.</p>
+  <div class="widget" id="w13">
+    <div class="w-head"><span class="eyebrow">Interactive · 13</span><h4>Export request builder</h4></div>
+    <div class="w-body" id="rq-gate"></div>
+    <div class="w-split"><div class="w-side" style="order:0;max-width:340px"><div class="lab">Format</div><select id="rq-f"><option>cim</option><option>shapefile</option><option>kmz</option><option>dxf</option><option>geojson</option></select><div class="lab" style="margin-top:8px">Classes (features)</div><div id="rq-c"></div><div class="lab" style="margin-top:8px">Target SRID <span class="muted">(optional)</span></div><input type="text" id="rq-s" placeholder="e.g. 32630" style="max-width:130px"></div><div class="w-main"><div id="rq-out"></div></div></div>
+  </div>
+
+  <h3>5.2 Watch a job run</h3>
+  <p>The worker claims one job at a time per slot (<b>concurrency 2</b>), holds a <b>60-second lease</b>, and a job claimed <b>three times</b> without finishing is a <i>poison job</i> and fails permanently. Step through a happy path, a missing worker, and a crash-loop.</p>
+  <div class="widget" id="w14">
+    <div class="w-head"><span class="eyebrow">Interactive · 14</span><h4>Job state machine</h4><span style="flex:1"></span><button class="btn" id="jb-reset">New job</button></div>
+    <div class="w-bar"><label class="tog"><input type="checkbox" id="jb-w" checked> export worker running</label><label class="tog"><input type="checkbox" id="jb-c"> encode crashes (out of memory)</label><label class="tog"><input type="checkbox" id="jb-big"> class over the cap</label><button class="btn pri" id="jb-step">Advance one step</button></div>
+    <div class="w-split"><div class="w-main"><svg id="jb-svg" viewBox="0 0 760 130" width="100%" role="img" aria-label="Job states"></svg></div><div class="w-side" id="jb-out"></div></div>
+  </div>
+
+  <h3>5.3 Read the file</h3>
+  <p>The file is the real Oakwood output. Click an element type to list its objects, or search by name or id; cross-references (<code>rdf:resource="#_…"</code>) are resolved to names so you can follow a terminal to its equipment and node.</p>
+  <div class="widget" id="w15">
+    <div class="w-head"><span class="eyebrow">Interactive · 15</span><h4>File explorer</h4><span style="flex:1"></span><button class="btn" id="fx-dl">Show header</button></div>
+    <div class="w-bar" id="fx-b"></div>
+    <div class="w-bar"><label class="lab" for="fx-q">Search</label><input type="text" id="fx-q" placeholder="name or id…" style="max-width:240px"><span class="muted" id="fx-n" style="font-size:12.5px"></span></div>
+    <div class="w-body"><pre class="code" id="fx-out" style="max-height:360px;overflow:auto;margin:0;font-size:12.5px"></pre></div>
+  </div>
+  <p>The sample at <code>scripts/cim/samples/oakwood.xml</code> is a copy of this output (generated by <code>TestCIMOakwoodSample</code>), so every number you see here can be checked against the repository.</p>
+  <h3>5.4 Reprojection &amp; the 5-minute checklist</h3>
+  <p>If you set a <b>target SRID</b>, coordinates are reprojected, the <code>CoordinateSystem</code> declares <code>urn:ogc:def:crs:EPSG::&lt;srid&gt;</code> and lengths become <b>planar</b> — correct only in a metre-based CRS. Before handing a file over: well-formed? nodes ≪ terminals? every conducting class ticked? units briefed? mapped LV voltage? Chapter 9’s validator answers most of these in one run.</p>
+</section>
+
+<!-- ============ CH6 ============ -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>Coverage, gaps &amp; fidelity</h2><p>An honest ledger of what the file does and does not say.</p></div>
+  <p>Every feature class lands in one of four buckets, and one of them is a trap. Classify a class below, then use the ledger to build the note you send with the file.</p>
+  <div class="widget" id="w16">
+    <div class="w-head"><span class="eyebrow">Interactive · 16</span><h4>Which bucket is this class in?</h4></div>
+    <div class="w-bar"><label class="tog"><input type="checkbox" id="bk-g" checked> class has geometry</label><label class="tog"><input type="checkbox" id="bk-m" checked> has a class-mapping row</label><label class="lab">cim_kind</label><select id="bk-k"><option>conducting_edge</option><option>conducting_junction</option><option>container</option><option>asset</option><option>protection</option><option>skip</option></select></div>
+    <div class="w-body" id="bk-out"></div>
+    <div class="w-body" style="border-top:1px solid var(--line2)"><div class="lab">Shipped classes with a mapping but no geometry — never exportable</div><div class="bk-pills" id="bk-un" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div></div>
+  </div>
+  <div class="tip"><b>Workaround for a bay-like grouping.</b> Model it as a <em>point</em> container class with geometry and map it as <code>container</code>. Equipment contained by an <code>RMU</code> is emitted under the RMU’s container; the dormant <code>Bay</code> tier waits for a path that lets geometry-less containers ride along.</div>
+
+  <h3>6.1 The scorecard</h3>
+  <div class="tbl"><table>
+    <tr><th>Aspect</th><th>Status</th><th>In one line</th></tr>
+    <tr><td>Object identity</td><td>✅</td><td>the feature’s own UUID, stable</td></tr>
+    <tr><td>Connectivity</td><td>✅ heuristic</td><td>exact where connections are right; conductor ends inferred from geometry</td></tr>
+    <tr><td>Equipment class</td><td>✅</td><td>declarative, with subtype overrides</td></tr>
+    <tr><td>Nominal voltage</td><td>⚠️</td><td>MV classes and windings; LV classes carry none (G18)</td></tr>
+    <tr><td>Conductor length</td><td>✅</td><td>spherical geodesic ≈0.3 %</td></tr>
+    <tr><td>Line impedance</td><td>⚠️</td><td>positive sequence, only where a spec exists, 1 mΩ rounding</td></tr>
+    <tr><td>Transformer rating / voltage</td><td>✅</td><td>per winding</td></tr>
+    <tr><td>Transformer impedance, vector group, taps</td><td>❌</td><td>not carried</td></tr>
+    <tr><td>Switch state</td><td>✅ / ❌</td><td><code>normalOpen</code> yes; current state, loads, set-points no</td></tr>
+    <tr><td>Phases</td><td>⚠️</td><td>conductors and street lights only</td></tr>
+    <tr><td>Geometry</td><td>✅</td><td><code>Location</code> + <code>PositionPoint</code>, CRS declared</td></tr>
+    <tr><td>Ratings / thermal limits</td><td>❌</td><td>ampacity not exported</td></tr></table></div>
+
+  <h3>6.2 The ledger — and the note to send with the file</h3>
+  <p>Filter the eighteen known limits, tick the ones that matter to your recipient, and the box below writes the hand-off note. Each is numbered so a note can cite it.</p>
+  <div class="widget" id="w17">
+    <div class="w-head"><span class="eyebrow">Interactive · 17</span><h4>Gap ledger &amp; hand-off note</h4></div>
+    <div class="w-bar"><label class="lab" for="gl-q">Search</label><input type="text" id="gl-q" placeholder="units, load, taps…" style="max-width:200px"><div class="seg" id="gl-a"><button data-v="" aria-pressed="true">all</button><button data-v="load">stops a load flow</button><button data-v="data">needs data</button><button data-v="info">good to know</button></div><span id="gl-n" class="muted" style="font-size:12.5px"></span></div>
+    <div class="w-body" id="gl-list" style="padding:0"></div>
+    <div class="w-body" style="border-top:1px solid var(--line2)"><div class="lab">Generated note <button class="btn" id="gl-cp" style="margin-left:8px">Select all</button></div><textarea id="gl-note" rows="9" style="width:100%;font-family:var(--mono);font-size:12.5px" readonly></textarea></div>
+  </div>
+</section>
+
+<!-- ============ CH7 ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>The standard, in practice</h2><p>What CIM, CIMXML and the profiles actually say — and where VoltEdge follows or chooses.</p></div>
+  <p>“CIM” is not one document. It is a <b>family</b>: <b>IEC 61970-301</b> is the base schema (the classes and attributes, a UML model); <b>IEC 61968-11</b> extends it for distribution assets, metering and work; <b>IEC 62325-301</b> covers markets. A <b>profile</b> selects a subset for one exchange job — <b>IEC 61970-452</b> (the equipment/topology profiles used for network models), <b>IEC 61970-600</b> (the European CGMES), <b>IEC 61968-13</b> (CDPSM, the distribution profile VoltEdge targets). A <b>serialisation</b> is the file syntax: <b>IEC 61970-552</b> defines CIMXML, an RDF/XML dialect. Three layers — schema, profile, serialisation — and mixing them up is the commonest source of confusion.</p>
+  <div class="widget" id="w18">
+    <div class="w-head"><span class="eyebrow">Interactive · 18</span><h4>Three layers, and where VoltEdge sits</h4></div>
+    <div class="w-bar" id="st-b"></div>
+    <div class="w-body" id="st-out"></div>
+  </div>
+  <div class="caution"><b>A note on what this guide has and has not verified.</b> IEC standards are paywalled and the build environment could not fetch most external pages, so the statements about the standards come from published summaries, open-source tool documentation and search snippets, not from reading the full text. Attribute-level units and the exact profile identifiers should be confirmed against the profile your recipient’s tool targets before you rely on them.</div>
+
+  <h3>7.1 CIMXML in six rules</h3>
+  <div class="tbl"><table>
+    <tr><th>Rule</th><th>What the file shows</th></tr>
+    <tr><td>Each CIM object is an XML element named by its class</td><td><code>&lt;cim:ACLineSegment …&gt;</code></td></tr>
+    <tr><td>The element carries a unique id</td><td><code>rdf:ID="_&lt;uuid&gt;"</code> (underscore-prefixed to be a valid XML name), or <code>rdf:about</code></td></tr>
+    <tr><td>Attributes are child elements named <code>Class.attribute</code> (declaring class)</td><td><code>&lt;cim:ACLineSegment.r&gt;0.077&lt;/…&gt;</code></td></tr>
+    <tr><td>Associations are child elements with <code>rdf:resource</code> pointing at the target’s id</td><td><code>&lt;cim:Terminal.ConnectivityNode rdf:resource="#_…"/&gt;</code></td></tr>
+    <tr><td>Enumerations are also resources, a URI into the namespace</td><td><code>…#SinglePhaseKind.A</code></td></tr>
+    <tr><td>The document declares its namespaces and, in a <code>md:FullModel</code> header, its profile and authority</td><td>the first object in the file</td></tr></table></div>
+
+  <h3>7.2 Node-breaker or bus-branch? — switch state decides the nodes</h3>
+  <p>VoltEdge writes <b>node-breaker</b> detail: every terminal, every connectivity node, switches as equipment. A consumer builds <b>bus-branch</b> “topological nodes” by merging nodes through <em>closed</em> switches. Flip the switch and watch the consumer’s node count change — which is why <code>Switch.normalOpen</code> is the one state value VoltEdge does carry (G4/G5).</p>
+  <div class="widget" id="w19">
+    <div class="w-head"><span class="eyebrow">Interactive · 19</span><h4>Topology processing, as a consumer sees it</h4></div>
+    <div class="w-bar"><div class="seg" id="nb-s"><button data-v="false" aria-pressed="true">SW-F7-03 closed (normalOpen=false)</button><button data-v="true">SW-F7-03 open (normalOpen=true)</button></div></div>
+    <div class="w-body" id="nb-out"></div>
+  </div>
+
+  <h3>7.3 Where VoltEdge follows the standard — and where it chooses</h3>
+  <div class="tbl"><table>
+    <tr><th>Topic</th><th>The standard</th><th>VoltEdge</th></tr>
+    <tr><td>Serialisation</td><td>CIMXML (RDF/XML), <code>rdf:ID</code> with underscore ids</td><td>follows it</td></tr>
+    <tr><td>Profile split</td><td>CGMES: EQ / TP / SSH / SV / GL files</td><td>one combined CDPSM document (G8); <code>cim_adapt.py --split</code> makes EQ + GL</td></tr>
+    <tr><td><code>IdentifiedObject.mRID</code></td><td>CIM defines it; CGMES profiles omit it (id is the rdf:ID)</td><td>writes it on every object (strip with <code>--strip-mrid</code>)</td></tr>
+    <tr><td>Terminal count (CGMES constraint 452)</td><td>two-terminal equipment: distinct nodes</td><td>encodes two; the validator checks the nodes differ (E-452)</td></tr>
+    <tr><td>Units</td><td>CIM unit multipliers; CGMES uses kV, MW, MVA</td><td>SI base units (G1)</td></tr>
+    <tr><td>Geometry</td><td>GL profile: <code>Location</code> + <code>PositionPoint</code></td><td>follows it, CRS declared by <code>CoordinateSystem.crsUrn</code></td></tr>
+    <tr><td>Extension fields</td><td>allowed in a separate namespace</td><td><code>ve:</code> only under the <code>carry</code> policy</td></tr></table></div>
+  <p><b>Further reading</b> (open pages you can verify yourself): the CIM user group (cimug.ucaiug.org), ENTSO-E’s CGMES pages, the CIMHub and powsybl documentation. Treat vendor and tool docs as the authority on what <em>they</em> accept.</p>
+</section>
+
+<!-- ============ CH8 ============ -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>Taking the file into other tools</h2><p>Interview the recipient, adapt the file, import a small feeder first.</p></div>
+  <p><b>Step 0 is a conversation, not a command:</b> which profile does the tool read? Which units? Does it need <code>urn:uuid</code> ids? Does it reject <code>mRID</code>? Does it need split files? Where do loads come from? Answer those, then adapt. The chooser turns the answers into the exact pipeline from <code>scripts/cim/</code>.</p>
+  <div class="widget" id="w20">
+    <div class="w-head"><span class="eyebrow">Interactive · 20</span><h4>Recipient interview → adapter pipeline</h4></div>
+    <div class="w-bar"><label class="lab">Tool family</label><select id="ad-t"><option value="dsa">Distribution analysis (OpenDSS / CIMHub / GridAPPS-D)</option><option value="cgmes">CGMES-based (powsybl, pandapower converter)</option><option value="vendor">Commercial suite (CYME, PowerFactory …) — interview first</option><option value="look">Just wants to look</option></select></div>
+    <div class="w-bar"><label class="lab">Units</label><select id="ad-u"><option value="si">SI (V, VA, m)</option><option value="cgmes">CGMES (kV, MVA, km)</option></select><label class="lab">Ids</label><select id="ad-i"><option value="underscore">_uuid</option><option value="urn">urn:uuid:</option></select><label class="tog"><input type="checkbox" id="ad-m"> rejects mRID literals</label><label class="tog"><input type="checkbox" id="ad-s"> needs EQ + GL split</label><label class="tog"><input type="checkbox" id="ad-l" checked> needs loads</label></div>
+    <div class="w-body" id="ad-out"></div>
+  </div>
+
+  <h3>8.1 The first-import protocol</h3>
+  <ol class="steps"><li><b>One feeder first.</b> Export a single feeder (whole, not cut), adapt it, import it.</li><li><b>Reconcile</b> the recipient’s object counts, kilometres and kVA against yours (table below).</li><li><b>Fix mapping, not the file</b> when the discrepancy is systematic — a corrected mapping fixes every future export.</li><li><b>Only then</b> export the full network.</li></ol>
+  <div class="widget" id="w21">
+    <div class="w-head"><span class="eyebrow">Interactive · 21</span><h4>Reconciliation table (from the Oakwood file)</h4></div>
+    <div class="w-body" id="rc-out"></div>
+  </div>
+  <p>A reconciliation that says “1 transformer, 315 kVA, 0.28 km MV” on both sides is worth more than any claim in a covering email.</p>
+  <div class="tbl"><table><tr><th>Import error says…</th><th>Usually means</th></tr>
+    <tr><td>unknown attribute / unexpected element</td><td>a <code>ve:</code> or <code>mRID</code> the tool does not accept → <code>--strip-ve</code> / <code>--strip-mrid</code></td></tr>
+    <tr><td>missing mandatory attribute</td><td>a CGMES-strict importer wants impedance/vector group (G2) → add from nameplate</td></tr>
+    <tr><td>voltages 1000× off</td><td>kV vs V (G1) → <code>--units</code></td></tr>
+    <tr><td>duplicate / invalid id</td><td>id-style mismatch → <code>--id-style</code></td></tr>
+    <tr><td>islanded / no source</td><td>no external grid or generator in the file — add the source in the tool</td></tr></table></div>
+</section>
+
+<!-- ============ CH9 ============ -->
+<section class="ch" id="c9">
+  <div class="ch-head"><div class="ch-num">09</div><h2>Validate, diff and repair</h2><p>Three levels of “is it right?” — and a validator you can break.</p></div>
+  <p><b>Level 1 — well-formed:</b> it parses as XML. <b>Level 2 — structurally valid:</b> ids unique, references resolve, equipment has the right terminals on distinct nodes, transformers have two windings. <b>Level 3 — electrically sensible:</b> voltages agree across a node, units look right, lines have length. VoltEdge guarantees level 1 and most of 2 by construction; level 3 depends on your data, which is why <code>scripts/cim/cim_validate.py</code> exists. The widget below runs the same checks in your browser against the live Oakwood file, and lets you inject the defects it is designed to catch.</p>
+  <div class="widget" id="w22">
+    <div class="w-head"><span class="eyebrow">Interactive · 22</span><h4>Validator &amp; defect injector</h4><span style="flex:1"></span><button class="btn" id="vd-reset">Clean file</button></div>
+    <div class="w-bar" id="vd-b"></div>
+    <div class="w-split"><div class="w-main"><pre class="code" id="vd-out" style="max-height:340px;overflow:auto;margin:0;font-size:12.5px"></pre></div><div class="w-side" id="vd-sum"></div></div>
+  </div>
+  <div class="tip">Exit codes matter in a pipeline: errors (<code>E-…</code>) fail the run, warnings (<code>W-…</code>) do not unless <code>--strict</code>. <code>W-OPEN</code> on a fresh export is normal — every feeder end and every unconnected switch terminal is a legitimate single-terminal node. Compare it with your own list of intentional ends.</div>
+
+  <h3>9.1 Diffing two exports</h3>
+  <p>Because equipment and terminal ids are stable (Chapter 2), a diff between yesterday’s and today’s export shows real change. Strip the volatile header (<code>Model.created</code>, the <code>FullModel</code> id), then <code>diff</code>. Node ids will differ wherever connectivity changed — expected. The encoder is deterministic: same data and same mapping give the same bytes except for that header, which the test suite asserts.</p>
+  <div class="widget" id="w23">
+    <div class="w-head"><span class="eyebrow">Interactive · 23</span><h4>What changed between two exports?</h4></div>
+    <div class="w-bar"><label class="lab">Today’s edit</label><select id="df-e"><option value="none">nothing</option><option value="rename">rename TX-Feeder7-014</option><option value="kva">change rating to 500 kVA</option><option value="cut">remove the LV→service connection</option></select></div>
+    <div class="w-body"><pre class="code" id="df-out" style="max-height:260px;overflow:auto;margin:0;font-size:12.5px"></pre></div>
+  </div>
+</section>
+
+<!-- ============ CH10 ============ -->
+<section class="ch" id="c10">
+  <div class="ch-head"><div class="ch-num">10</div><h2>Cookbook, troubleshooting &amp; reference</h2><p>Recipes that extend the mapping, the symptom table, and a check on what you have learned.</p></div>
+  <p>Everything in <b>Admin → CIM mappings</b> can also be expressed as SQL seeds. Pick a recipe, fill the blanks, and copy the statement. (The shipped seeds guard class rows with <code>NOT EXISTS</code> because <code>UNIQUE(feature_class_id, subtype_id)</code> treats NULL subtypes as distinct, and attribute rows with <code>ON CONFLICT DO NOTHING</code>.)</p>
+  <div class="widget" id="w24">
+    <div class="w-head"><span class="eyebrow">Interactive · 24</span><h4>Recipe SQL generator</h4></div>
+    <div class="w-bar" id="rc-b"></div>
+    <div class="w-body" id="rc-f"></div>
+    <div class="w-body" style="border-top:1px solid var(--line2)"><pre class="code" id="rc-sql" style="margin:0;font-size:12.5px;white-space:pre-wrap"></pre><p class="muted" id="rc-note" style="font-size:13.5px;margin:8px 0 0"></p></div>
+  </div>
+  <div class="caution"><b>R9 trap.</b> Seeds use <code>ON CONFLICT DO NOTHING</code>. Re-running one after you <em>re-targeted</em> a mapping adds a second row and leaves the old one — the export then emits both attributes. To re-target, <code>UPDATE</code> the existing row.</div>
+
+  <h3>10.1 Troubleshooting</h3>
+  <div class="widget" id="w25">
+    <div class="w-head"><span class="eyebrow">Interactive · 25</span><h4>Symptom explorer</h4></div>
+    <div class="w-bar"><label class="lab" for="tr-q">Search</label><input type="text" id="tr-q" placeholder="e.g. queued, voltage, terminals…" style="max-width:300px"><span id="tr-n" class="muted" style="font-size:12.5px"></span></div>
+    <div class="w-body" id="tr-list" style="padding:0"></div>
+  </div>
+
+  <h3>10.2 Reference</h3>
+  <div class="tbl"><table><tr><th>Setting</th><th>Value</th></tr>
+    <tr><td>Endpoints</td><td><code>POST /api/export/jobs</code> · <code>GET /api/export/jobs/{id}</code> · <code>GET …/download</code> · <code>POST …/cancel</code></td></tr>
+    <tr><td>Per-class cap (CIM, Shapefile)</td><td>50 000 features</td></tr>
+    <tr><td>Worker</td><td><code>cmd/exportworker</code>, concurrency 2, 60 s lease, 3 attempts</td></tr>
+    <tr><td>Download link / retention</td><td>15 minutes / 7 days</td></tr>
+    <tr><td>Default profile</td><td><code>CDPSM_CIM16</code> — namespace <code>http://iec.ch/TC57/2013/CIM-schema-cim16#</code></td></tr>
+    <tr><td>Tools</td><td><code>scripts/cim/</code>: <code>cim_validate.py</code>, <code>cim_adapt.py</code>, <code>cim_add_loads.py</code>, sample <code>oakwood.xml</code></td></tr></table></div>
+
+  <div class="callout">A CIM file is a claim about your network. It is only as good as the connections your crews captured, the mapping your administrators keep, and the questions you ask before the first import. Everything else in this guide is a consequence.</div>
+  <h4 style="margin-top:26px">Check yourself</h4>
+  <div id="qz"></div>
+</section>
+</div>
+
+<footer style="max-width:1040px;margin:0 auto;padding:0 20px 60px"><p class="muted" style="font-size:13px">VoltEdge · CIM Export — interactive edition. Every widget runs the real Oakwood fixture through a JavaScript port of the encoder held entirely in your browser; nothing here talks to a server. The full manual (<code>cim-export-guide.md</code>) has every appendix, the complete sample file and the SQL recipes.</p></footer>
+
+</div>
+<script>
+/* ===== CIM engine: a faithful JavaScript port of api/internal/export/{cim,topology,electrical,phasing}.go =====
+   No DOM. Verified byte-for-byte against the Go encoder's output for the Oakwood fixture (see t_engine.js). */
+const CIMX=(function(){
+  /* --- SHA-1 + RFC 4122 UUIDv5 under the encoder's frozen namespace --- */
+  function sha1(msg){ const h=[0x67452301,0xEFCDAB89,0x98BADCFE,0x10325476,0xC3D2E1F0]; const ml=msg.length*8; const len=((msg.length+8>>6)+1)<<6; const w=new Uint8Array(len); w.set(msg); w[msg.length]=0x80; const dv=new DataView(w.buffer); dv.setUint32(len-4,ml>>>0); dv.setUint32(len-8,Math.floor(ml/4294967296));
+    const rol=(x,n)=>(x<<n)|(x>>>(32-n)); const W=new Array(80);
+    for(let o=0;o<len;o+=64){ for(let i=0;i<16;i++) W[i]=dv.getUint32(o+i*4); for(let i=16;i<80;i++) W[i]=rol(W[i-3]^W[i-8]^W[i-14]^W[i-16],1); let [a,b,c,d,e]=h;
+      for(let i=0;i<80;i++){ let f,k; if(i<20){f=(b&c)|(~b&d);k=0x5A827999;} else if(i<40){f=b^c^d;k=0x6ED9EBA1;} else if(i<60){f=(b&c)|(b&d)|(c&d);k=0x8F1BBCDC;} else {f=b^c^d;k=0xCA62C1D6;} const t=(rol(a,5)+f+e+k+W[i])>>>0; e=d; d=c; c=rol(b,30)>>>0; b=a; a=t; }
+      h[0]=(h[0]+a)>>>0; h[1]=(h[1]+b)>>>0; h[2]=(h[2]+c)>>>0; h[3]=(h[3]+d)>>>0; h[4]=(h[4]+e)>>>0; }
+    const out=new Uint8Array(20); const o=new DataView(out.buffer); h.forEach((x,i)=>o.setUint32(i*4,x)); return out; }
+  const NSBYTES=[0x9f,0x1a,0x4c,0x7e,0x3b,0x62,0x54,0xd8,0xa1,0x0c,0x77,0x2e,0x6b,0x90,0x11,0x3d];
+  const enc=new TextEncoder();
+  function uuidV5(name){ const n=enc.encode(name); const b=new Uint8Array(16+n.length); b.set(NSBYTES); b.set(n,16); const u=sha1(b).slice(0,16); u[6]=(u[6]&0x0f)|0x50; u[8]=(u[8]&0x3f)|0x80; const x=Array.from(u,v=>v.toString(16).padStart(2,'0')).join(''); return `${x.slice(0,8)}-${x.slice(8,12)}-${x.slice(12,16)}-${x.slice(16,20)}-${x.slice(20)}`; }
+
+  /* --- small helpers mirroring the Go ones --- */
+  const rdfNS='http://www.w3.org/1999/02/22-rdf-syntax-ns#', mdNS='http://iec.ch/TC57/61970-552/ModelDescription/1#', veNS='https://voltedge.local/CIM-extension/1#';
+  function xmlEsc(s){ s=Array.from(String(s)).filter(ch=>{ const c=ch.codePointAt(0); return c===9||c===10||c===13||(c>=0x20&&c<=0xD7FF)||(c>=0xE000&&c<=0xFFFD)||(c>=0x10000&&c<=0x10FFFF); }).join(''); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;'); }
+  function ff(f){ let s=String(f); if(/e/i.test(s)) s=Number(f).toLocaleString('en-US',{useGrouping:false,maximumFractionDigits:20}); return s; }
+  const round3=v=>Math.round(v*1000)/1000;
+  const toFloat=v=>{ if(typeof v==='number') return isFinite(v)?v:null; if(typeof v==='string'&&v.trim()!==''&&isFinite(+v)) return +v; return null; };
+  const toInt=v=>typeof v==='number'&&isFinite(v)?Math.trunc(v):null;
+  function literalString(v){ if(typeof v==='boolean') return v?'true':'false'; if(typeof v==='number') return ff(v); if(typeof v==='string') return v; return String(v); }
+  function scalarString(v){ if(v!==null&&typeof v==='object') return null; return literalString(v); }
+  function ncName(s){ let b=''; for(const r of s){ if(/[A-Za-z_0-9.\-]/.test(r)) b+=r; else b+='_'; } if(!b) return ''; if(/^[0-9.\-]/.test(b)) b='_'+b; return b; }
+  const keyStr=v=>typeof v==='number'?ff(v):String(v);
+
+  /* --- geometry --- */
+  function walk(v,out){ if(!Array.isArray(v)) return; if(v.length>=2&&typeof v[0]==='number'&&typeof v[1]==='number'){ out.push({x:v[0],y:v[1]}); return; } v.forEach(e=>walk(e,out)); }
+  const pointsOf=g=>{ if(!g||!g.type||!g.coordinates) return []; const o=[]; walk(g.coordinates,o); return o; };
+  function outerRingOf(g){ if(!g) return []; const tc=c=>c.map(p=>({x:p[0],y:p[1]})); if(g.type==='Polygon'&&g.coordinates.length) return tc(g.coordinates[0]); if(g.type==='MultiPolygon'&&g.coordinates.length&&g.coordinates[0].length) return tc(g.coordinates[0][0]); return []; }
+  function pointInRing(p,ring){ let inside=false; const n=ring.length; for(let i=0,j=n-1;i<n;j=i++){ const yi=ring[i].y,yj=ring[j].y; if((yi>p.y)!==(yj>p.y)){ const xc=(ring[j].x-ring[i].x)*(p.y-yi)/(yj-yi)+ring[i].x; if(p.x<xc) inside=!inside; } } return inside; }
+  function haversine(a,b){ const R=6371000, r=Math.PI/180; const la1=a.y*r, la2=b.y*r, dl=(b.y-a.y)*r, dn=(b.x-a.x)*r; const h=Math.sin(dl/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dn/2)**2; return 2*R*Math.asin(Math.min(1,Math.sqrt(h))); }
+  const geoLen=p=>{ let t=0; for(let i=1;i<p.length;i++) t+=haversine(p[i-1],p[i]); return p.length<2?0:t; };
+  const planarLen=p=>{ let t=0; for(let i=1;i<p.length;i++) t+=Math.hypot(p[i].x-p[i-1].x,p[i].y-p[i-1].y); return p.length<2?0:t; };
+  const dist2=(a,b)=>{ const dx=a.x-b.x,dy=a.y-b.y; return dx*dx+dy*dy; };
+
+  /* --- mapping lookups --- */
+  class Mapping{ constructor(profile,classes,attrs){ this.profile=profile; this.classes=classes; this.attrs=attrs; }
+    classFor(code,sub){ if(sub!=null){ const o=this.classes.find(c=>c.cls===code&&c.sub===sub); if(o) return o; } return this.classes.find(c=>c.cls===code&&(c.sub==null))||null; }
+    attrsFor(code){ return this.attrs.filter(a=>a.cls===code); } }
+
+  /* --- literal / voltage transforms --- */
+  function applyLiteral(a,raw){ switch(a.transform){
+    case 'direct': return literalString(raw);
+    case 'scale': { const fv=toFloat(raw); if(fv===null||a.scale==null) return null; return ff(fv*a.scale); }
+    case 'domain_map': { const mv=a.valueMap&&a.valueMap[keyStr(raw)]; return mv===undefined?null:literalString(mv); }
+    case 'boolean': { const mv=a.valueMap&&a.valueMap[keyStr(raw)]; return typeof mv==='boolean'?(mv?'true':'false'):null; }
+    } return null; }
+  function voltageForTarget(f,attrs,target){ for(const a of attrs){ if(a.attr!==target) continue; const raw=f.attrs[a.field]; if(raw===undefined||raw===null) continue;
+      if(a.transform==='domain_map'){ const mv=a.valueMap&&a.valueMap[keyStr(raw)]; if(mv!==undefined){ const n=toInt(mv); if(n!==null) return n; } }
+      else if(a.transform==='direct'){ const n=toInt(raw); if(n!==null) return n; }
+      else if(a.transform==='scale'){ const fv=toFloat(raw); if(fv!==null&&a.scale!=null) return Math.trunc(fv*a.scale); } } return null; }
+  const nominalVoltage=(f,attrs)=>voltageForTarget(f,attrs,'BaseVoltage.nominalVoltage');
+  const secondaryVoltage=(f,attrs)=>voltageForTarget(f,attrs,'BaseVoltage.nominalVoltage.secondary');
+  const windingVoltage=(f,attrs,seq)=>seq===1?nominalVoltage(f,attrs):seq===2?secondaryVoltage(f,attrs):null;
+  function literalAttributes(f,attrs){ const out=[]; for(const a of attrs){ if(a.attr==='BaseVoltage.nominalVoltage'||a.attr==='BaseVoltage.nominalVoltage.secondary') continue; if(['material_spec','from_geometry','phase'].includes(a.transform)) continue; if(a.attr.startsWith('PowerTransformerEnd.')||a.attr.startsWith('TransformerEnd.')) continue; const raw=f.attrs[a.field]; if(raw===undefined||raw===null) continue; const v=applyLiteral(a,raw); if(v!==null) out.push([a.attr,v]); } out.sort((x,y)=>x[0]<y[0]?-1:x[0]>y[0]?1:0); return out; }
+
+  const PHASEKINDS={L1:['A'],L2:['B'],L3:['C'],N:['N'],L1N:['A','N'],L2N:['B','N'],L3N:['C','N'],L1L2L3N:['A','B','C','N']};
+  const classOf=s=>{ const i=s.indexOf('.'); return i<0?'':s.slice(0,i); };
+
+  function resolveTerminals(terms,subs,subCode){ let subID=null; if(subCode!=null){ const s=subs.find(x=>x.code===subCode); if(s) subID=s.id; } const byCode={}; for(const t of terms){ if(t.role==='ground') continue; if(t.subtypeId==null||t.subtypeId===undefined){ if(!(t.code in byCode)) byCode[t.code]=t; } else if(subID!==null&&t.subtypeId===subID) byCode[t.code]=t; } return Object.values(byCode).sort((a,b)=>a.code<b.code?-1:a.code>b.code?1:0); }
+
+  /* --- the encoder --- */
+  function encode(scn){
+    const mapping=scn.mapping, profile=mapping.profile, layers=scn.layers, conns=scn.conns||[], contain=scn.contain||{}, specs=scn.specs||{}, srid=scn.targetSRID==null?null:scn.targetSRID;
+    const iso=d=>d.replace(/\.\d{3}Z$/,'Z'); const generated=iso(new Date(scn.generated).toISOString());
+    const geoID=uuidV5('geographical-region'), subID=uuidV5('sub-geographical-region'), csID=uuidV5('coordinate-system'), lineID=uuidV5('default-line-container');
+    const o=[]; const P=s=>o.push(s);
+    const unmapped={}, substations=[], subByID={}, containerClass={}, tierByID={};
+    const openObj=(c,id)=>P(`  <cim:${c} rdf:ID="_${id}">\n`), closeObj=c=>P(`  </cim:${c}>\n`);
+    const idName=n=>{ if(n) P(`    <cim:IdentifiedObject.name>${xmlEsc(n)}</cim:IdentifiedObject.name>\n`); };
+    const mRID=id=>P(`    <cim:IdentifiedObject.mRID>${id}</cim:IdentifiedObject.mRID>\n`);
+    const ref=(p,t)=>P(`    <cim:${p} rdf:resource="#_${t}"/>\n`);
+    const enumRef=(p,v)=>P(`    <cim:${p} rdf:resource="${profile.cimNamespace}${v}"/>\n`);
+    const lit=(p,v)=>P(`    <cim:${p}>${xmlEsc(v)}</cim:${p}>\n`);
+    const substationFor=p=>{ for(const s of substations) if(s.ring.length>=3&&pointInRing(p,s.ring)) return s.mRID; return null; };
+    const lengthM=pts=>srid!=null?planarLen(pts):geoLen(pts);
+
+    P('<?xml version="1.0" encoding="UTF-8"?>\n');
+    if(profile.policy==='carry') P(`<rdf:RDF xmlns:rdf="${rdfNS}" xmlns:cim="${profile.cimNamespace}" xmlns:md="${mdNS}" xmlns:ve="${veNS}">\n`); else P(`<rdf:RDF xmlns:rdf="${rdfNS}" xmlns:cim="${profile.cimNamespace}" xmlns:md="${mdNS}">\n`);
+    // header
+    const modelID=uuidV5('model:'+scn.docName+':'+generated);
+    P(`  <md:FullModel rdf:about="urn:uuid:${modelID}">\n    <md:Model.created>${generated}</md:Model.created>\n`); if(scn.docName) P(`    <md:Model.description>${xmlEsc(scn.docName)}</md:Model.description>\n`);
+    P(`    <md:Model.modelingAuthoritySet>${xmlEsc(profile.authority)}</md:Model.modelingAuthoritySet>\n    <md:Model.profile>${xmlEsc(profile.profileURI)}</md:Model.profile>\n  </md:FullModel>\n`);
+    // scaffold
+    openObj('GeographicalRegion',geoID); idName('VoltEdge'); mRID(geoID); closeObj('GeographicalRegion');
+    openObj('SubGeographicalRegion',subID); idName('VoltEdge'); mRID(subID); ref('SubGeographicalRegion.Region',geoID); closeObj('SubGeographicalRegion');
+    const crs=srid!=null?`urn:ogc:def:crs:EPSG::${srid}`:profile.crs;
+    openObj('CoordinateSystem',csID); idName(crs); mRID(csID); lit('CoordinateSystem.crsUrn',crs); closeObj('CoordinateSystem');
+    openObj('Line',lineID); idName('Unassigned equipment'); mRID(lineID); ref('Line.Region',subID); closeObj('Line');
+    // index containers
+    for(const l of layers) for(const f of l.features){ const cm=mapping.classFor(l.code,f.sub); if(!cm) continue; if(cm.cimClass==='Substation'){ subByID[f.id]=true; substations.push({mRID:f.id,ring:outerRingOf(f.geometry)}); } }
+    for(const l of layers) for(const f of l.features){ const cm=mapping.classFor(l.code,f.sub); if(!cm||cm.kind!=='container') continue; containerClass[f.id]=cm.cimClass; if(cm.cimClass==='VoltageLevel'||cm.cimClass==='Bay') tierByID[f.id]=true; }
+    const writeLocation=(locID,pts)=>{ openObj('Location',locID); mRID(locID); ref('Location.CoordinateSystem',csID); closeObj('Location'); pts.forEach((p,i)=>{ const pp=uuidV5(`positionpoint:${locID}:${i+1}`); openObj('PositionPoint',pp); ref('PositionPoint.Location',locID); lit('PositionPoint.sequenceNumber',String(i+1)); lit('PositionPoint.xPosition',ff(p.x)); lit('PositionPoint.yPosition',ff(p.y)); closeObj('PositionPoint'); }); };
+    const writeContainerObject=(cimClass,f,regionPred,regionID)=>{ const pts=pointsOf(f.geometry); const locID=pts.length?uuidV5('location:'+f.id):''; openObj(cimClass,f.id); idName(f.name); mRID(f.id); if(regionPred) ref(regionPred,regionID); if(locID) ref('PowerSystemResource.Location',locID); closeObj(cimClass); if(locID) writeLocation(locID,pts); };
+    const writeCarried=(f,attrs)=>{ if(profile.policy!=='carry') return; const mapped=new Set(attrs.map(a=>a.field)); const names=Object.keys(f.attrs).sort(); for(const n of names){ if(mapped.has(n)) continue; const raw=f.attrs[n]; if(raw===null||raw===undefined) continue; const v=scalarString(raw); if(v===null) continue; const loc=ncName(n); if(!loc) continue; P(`    <ve:${loc}>${xmlEsc(v)}</ve:${loc}>\n`); } };
+    const writePhases=(cm,f,attrs)=>{ for(const a of attrs){ if(a.transform!=='phase') continue; const code=f.attrs[a.field]; if(typeof code!=='string'||!code) continue; const kinds=PHASEKINDS[code]; if(!kinds) continue; const pc=classOf(a.attr); if(!pc) continue; const parentRef=pc+'.'+cm.cimClass; for(const k of kinds){ const pid=uuidV5(`phase:${pc}:${f.id}:${k}`); openObj(pc,pid); mRID(pid); enumRef(a.attr,'SinglePhaseKind.'+k); ref(parentRef,f.id); closeObj(pc); } } };
+    const writeConductorDetail=(cm,f,attrs,pts)=>{ if(cm.kind!=='conducting_edge') return; const L=lengthM(pts); for(const a of attrs){ if(a.transform==='from_geometry'){ if(a.attr==='Conductor.length'&&L>0) lit('Conductor.length',ff(round3(L))); } else if(a.transform==='material_spec'){ const code=f.attrs[a.field]; if(typeof code!=='string'||!code) continue; const sp=specs[code]; if(!sp) continue; const perKm=a.attr==='ACLineSegment.r'?sp.r:a.attr==='ACLineSegment.x'?sp.x:null; if(perKm==null||perKm===undefined||L<=0) continue; lit(a.attr,ff(round3(perKm*L/1000))); } } };
+
+    // Pass 1: substations
+    for(const l of layers) for(const f of l.features){ const cm=mapping.classFor(l.code,f.sub); if(!cm||cm.cimClass!=='Substation') continue; writeContainerObject(cm.cimClass,f,'Substation.Region',subID); }
+    // Pass 1b: tiers (VoltageLevel, Bay)
+    for(const want of ['VoltageLevel','Bay']) for(const l of layers){ const attrs=mapping.attrsFor(l.code); for(const f of l.features){ const cm=mapping.classFor(l.code,f.sub); if(!cm||cm.cimClass!==want) continue; const parent=contain[f.id], pc=containerClass[parent];
+      openObj(want,f.id); idName(f.name); mRID(f.id);
+      if(want==='VoltageLevel'){ if(pc==='Substation') ref('VoltageLevel.Substation',parent); const v=nominalVoltage(f,attrs); if(v!==null) ref('VoltageLevel.BaseVoltage',uuidV5(`basevoltage:${v}`)); }
+      else { if(pc==='VoltageLevel') ref('Bay.VoltageLevel',parent); else if(pc==='Substation') ref('Bay.Substation',parent); }
+      closeObj(want); } }
+    // Pass 2: base voltages
+    { const seen=new Set(); const volts=[]; for(const l of layers){ const attrs=mapping.attrsFor(l.code); for(const f of l.features){ for(const v of [nominalVoltage(f,attrs),secondaryVoltage(f,attrs)]){ if(v!==null&&!seen.has(v)){ seen.add(v); volts.push(v); } } } } volts.sort((a,b)=>a-b); for(const v of volts){ const id=uuidV5(`basevoltage:${v}`); openObj('BaseVoltage',id); idName(`${v} V`); mRID(id); lit('BaseVoltage.nominalVoltage',String(v)); closeObj('BaseVoltage'); } }
+    // Pass 3: equipment
+    for(const l of layers){ const attrs=mapping.attrsFor(l.code); for(const f of l.features){ const cm=mapping.classFor(l.code,f.sub); if(!cm){ unmapped[l.code]=(unmapped[l.code]||0)+1; continue; } if(cm.kind==='skip') continue; if(subByID[f.id]||tierByID[f.id]) continue;
+      if(cm.kind==='container'){ writeContainerObject(cm.cimClass,f,'',''); continue; }
+      if(cm.kind==='asset'){ const pts=pointsOf(f.geometry); const locID=pts.length?uuidV5('location:'+f.id):''; openObj(cm.cimClass,f.id); idName(f.name); mRID(f.id); if(locID) ref('PowerSystemResource.Location',locID); writeCarried(f,attrs); closeObj(cm.cimClass); if(locID) writeLocation(locID,pts); continue; }
+      if(cm.kind==='protection'){ openObj(cm.cimClass,f.id); idName(f.name); mRID(f.id); closeObj(cm.cimClass); continue; }
+      const pts=pointsOf(f.geometry); const locID=pts.length?uuidV5('location:'+f.id):''; let containerID=lineID; if(contain[f.id]!==undefined&&containerClass[contain[f.id]]) containerID=contain[f.id]; else if(pts.length){ const s=substationFor(pts[0]); if(s) containerID=s; }
+      openObj(cm.cimClass,f.id); idName(f.name); mRID(f.id); ref('Equipment.EquipmentContainer',containerID);
+      if(cm.cimClass!=='PowerTransformer'){ const v=nominalVoltage(f,attrs); if(v!==null) ref('ConductingEquipment.BaseVoltage',uuidV5(`basevoltage:${v}`)); }
+      if(locID) ref('PowerSystemResource.Location',locID);
+      for(const kv of literalAttributes(f,attrs)) lit(kv[0],kv[1]);
+      writeCarried(f,attrs); writeConductorDetail(cm,f,attrs,pts); closeObj(cm.cimClass); if(locID) writeLocation(locID,pts); writePhases(cm,f,attrs); } }
+
+    // Pass 4: topology
+    const feats={}; for(const l of layers) for(const f of l.features){ const cm=mapping.classFor(l.code,f.sub); if(!cm) continue; if(cm.kind!=='conducting_edge'&&cm.kind!=='conducting_junction') continue; feats[f.id]={id:f.id,layer:l,feat:f,cim:cm,sub:f.sub,isEdge:l.role==='edge',pts:pointsOf(f.geometry)}; }
+    const rep=ft=>ft.pts.length?ft.pts[0]:null; const ends=ft=>{ const n=ft.pts.length; if(n===0) return [{x:0,y:0},{x:0,y:0}]; if(n===1) return [ft.pts[0],ft.pts[0]]; return [ft.pts[0],ft.pts[n-1]]; };
+    const parent={}, endpoints={};
+    const find=x=>{ let root=x; for(;;){ const p=parent[root]; if(p===undefined||p===root){ parent[root]=root; break; } root=p; } while(x!==root){ const nx=parent[x]; parent[x]=root; x=nx; } return root; };
+    const union=(a,b)=>{ const ra=find(a), rb=find(b); if(ra!==rb) parent[ra]=rb; };
+    const ensure=(k,ep)=>{ if(!(k in endpoints)){ endpoints[k]=ep; parent[k]=k; } };
+    const termKey=(f,t)=>`T|${f}|${t}`, edgeKey=(f,i)=>`E|${f}|${i}`;
+    const ground={}; for(const l of layers) for(const t of l.terminals||[]) if(t.role==='ground') ground[t.id]=true;
+    const terminalSeq=(ft,tid)=>{ const ts=resolveTerminals(ft.layer.terminals||[],ft.layer.subtypes||[],ft.sub); const i=ts.findIndex(t=>t.id===tid); return i<0?1:i+1; };
+    const endpointKey=(ft,tid,other)=>{ if(tid!=null){ if(ground[tid]) return null; const k=termKey(ft.id,tid); ensure(k,{feature:ft.id,seq:terminalSeq(ft,tid)}); return k; } if(ft.isEdge){ let idx=0; const e=ends(ft); const anchor=rep(other); if(anchor&&dist2(anchor,e[1])<dist2(anchor,e[0])) idx=1; const k=edgeKey(ft.id,idx); ensure(k,{feature:ft.id,seq:idx+1}); return k; } const k=termKey(ft.id,''); ensure(k,{feature:ft.id,seq:1}); return k; };
+    const decisions=[]; // for the topology widget: how each connection was resolved
+    for(const c of conns){ const A=feats[c.ff], B=feats[c.tf]; if(!A||!B) continue;
+      if(c.ft==null&&A.isEdge&&c.tt==null&&B.isEdge){ const ea=ends(A), eb=ends(B); let bi=0,bj=0,best=dist2(ea[0],eb[0]); for(let i=0;i<2;i++) for(let j=0;j<2;j++){ const d=dist2(ea[i],eb[j]); if(d<best){ bi=i;bj=j;best=d; } } const kA=edgeKey(A.id,bi), kB=edgeKey(B.id,bj); ensure(kA,{feature:A.id,seq:bi+1}); ensure(kB,{feature:B.id,seq:bj+1}); union(kA,kB); decisions.push({conn:c,kind:'edge-edge',a:kA,b:kB}); continue; }
+      const kA=endpointKey(A,c.ft,B), kB=endpointKey(B,c.tt,A); if(kA&&kB){ union(kA,kB); decisions.push({conn:c,kind:'normal',a:kA,b:kB}); } else decisions.push({conn:c,kind:'dropped-ground'}); }
+    for(const id of Object.keys(feats)){ const ft=feats[id]; if(ft.isEdge){ for(let i=0;i<2;i++) ensure(edgeKey(ft.id,i),{feature:ft.id,seq:i+1}); continue; }
+      const terms=resolveTerminals(ft.layer.terminals||[],ft.layer.subtypes||[],ft.sub); let windings=0; if(!terms.length){ ensure(termKey(ft.id,''),{feature:ft.id,seq:1}); windings=1; } else { terms.forEach((t,i)=>ensure(termKey(ft.id,t.id),{feature:ft.id,seq:i+1})); windings=terms.length; }
+      if(ft.cim.cimClass==='PowerTransformer') for(let s=windings+1;s<=2;s++) ensure(termKey(ft.id,`@w${s}`),{feature:ft.id,seq:s}); }
+    const comps={}; for(const k of Object.keys(endpoints)){ const r=find(k); (comps[r]=comps[r]||[]).push(k); }
+    const roots=Object.keys(comps).sort(); const nodes=[];
+    for(const root of roots){ const members=comps[root].sort(); const nodeID=uuidV5('connectivitynode:'+members.join(';')); let container=lineID;
+      for(const k of members){ const ft=feats[endpoints[k].feature]; if(!ft) continue; const p=rep(ft); if(p){ const s=substationFor(p); if(s){ container=s; break; } } }
+      openObj('ConnectivityNode',nodeID); mRID(nodeID); ref('ConnectivityNode.ConnectivityNodeContainer',container); closeObj('ConnectivityNode');
+      const nodeInfo={id:nodeID,container,members:[]}; nodes.push(nodeInfo);
+      for(const k of members){ const ep=endpoints[k]; const tid=uuidV5('terminal:'+k); nodeInfo.members.push({key:k,terminalId:tid,feature:ep.feature,seq:ep.seq});
+        openObj('Terminal',tid); mRID(tid); ref('Terminal.ConductingEquipment',ep.feature); ref('Terminal.ConnectivityNode',nodeID); lit('Terminal.sequenceNumber',String(ep.seq)); closeObj('Terminal');
+        const ft=feats[ep.feature]; if(ft&&ft.cim.cimClass==='PowerTransformer'){ const endID=uuidV5('ptend:'+k); const attrs=mapping.attrsFor(ft.layer.code);
+          openObj('PowerTransformerEnd',endID); mRID(endID); ref('PowerTransformerEnd.PowerTransformer',ep.feature); lit('TransformerEnd.endNumber',String(ep.seq)); ref('TransformerEnd.Terminal',tid);
+          for(const a of attrs){ if(!a.attr.startsWith('PowerTransformerEnd.')&&!a.attr.startsWith('TransformerEnd.')) continue; const raw=ft.feat.attrs[a.field]; if(raw===undefined||raw===null) continue; const v=applyLiteral(a,raw); if(v!==null) lit(a.attr,v); }
+          const wv=windingVoltage(ft.feat,attrs,ep.seq); if(wv!==null){ lit('PowerTransformerEnd.ratedU',String(wv)); ref('TransformerEnd.BaseVoltage',uuidV5(`basevoltage:${wv}`)); } closeObj('PowerTransformerEnd'); } } }
+    P('</rdf:RDF>\n');
+    return {xml:o.join(''),stats:{conns:conns.length,terminals:Object.keys(endpoints).length,nodes:roots.length,unmapped},nodes,decisions,endpoints,feats};
+  }
+  return {uuidV5,sha1,xmlEsc,encode,Mapping,resolveTerminals,haversine,geoLen,planarLen,pointsOf,pointInRing,outerRingOf,applyLiteral,nominalVoltage,secondaryVoltage,literalAttributes,PHASEKINDS,ff,round3};
+})();
+
+/* ===== the Oakwood fixture, mirroring api/internal/export/cim_test.go oakwoodFixture() ===== */
+function oakwoodScenario(){
+  const U=CIMX.uuidV5, id=n=>U('oakwood-sample:'+n);
+  const pt=(x,y)=>({type:'Point',coordinates:[x,y]}), ln=(...c)=>({type:'LineString',coordinates:c}), poly=(...c)=>({type:'Polygon',coordinates:[c]});
+  const term=(cls,code,role)=>({id:`term:${cls}:${code}`,classId:cls,code,role});
+  const layers=[
+   {code:'SUBSTATION',name:'Substation',geom:'polygon',classId:'cls-sub',role:'none',terminals:[],subtypes:[],features:[{id:id('sub'),name:'Oakwood Primary',sub:null,geometry:poly([-0.2010,5.5995],[-0.1980,5.5995],[-0.1980,5.6020],[-0.2010,5.6020],[-0.2010,5.5995]),attrs:{}}]},
+   {code:'DIST_SWITCH',name:'Distribution switch',geom:'point',classId:'cls-sw',role:'junction',terminals:[term('cls-sw','T1','in'),term('cls-sw','T2','out')],subtypes:[{id:'st-lbs',code:1,name:'Load-break'}],features:[{id:id('sw'),name:'SW-F7-03',sub:1,geometry:pt(-0.1990,5.6006),attrs:{device_state:'CLOSED',manufacturer:'Acme',rated_amps:630}}]},
+   {code:'MV_CONDUCTOR',name:'MV conductor',geom:'line',classId:'cls-mv',role:'edge',terminals:[],subtypes:[],features:[{id:id('mv'),name:'C-F7-01',sub:null,geometry:ln([-0.1990,5.6006],[-0.1978,5.6009],[-0.1965,5.6012]),attrs:{voltage_class:'11KV',phase:'L1L2L3N'}}]},
+   {code:'DIST_XFMR',name:'Distribution transformer',geom:'point',classId:'cls-tx',role:'junction',terminals:[term('cls-tx','T1','in'),term('cls-tx','T2','out'),term('cls-tx','T3','ground')],subtypes:[],features:[{id:id('tx'),name:'TX-Feeder7-014',sub:null,geometry:pt(-0.1965,5.6012),attrs:{primary_voltage:'11KV',secondary_voltage:415,rated_kva:315,serial_no:'T-77-0412'}}]},
+   {code:'LV_CONDUCTOR',name:'LV conductor',geom:'line',classId:'cls-lv',role:'edge',terminals:[],subtypes:[],features:[{id:id('lv'),name:'LV-014-01',sub:null,geometry:ln([-0.1965,5.6012],[-0.1961,5.6016]),attrs:{conductor_spec:'ABC_95',phase:'L1L2L3N'}}]},
+   {code:'SERVICE_POINT',name:'Service point',geom:'point',classId:'cls-sp',role:'junction',terminals:[term('cls-sp','T1','in')],subtypes:[],features:[{id:id('sp'),name:'SP-0457',sub:null,geometry:pt(-0.1961,5.6016),attrs:{customer_class:'residential'}}]},
+   {code:'METER',name:'Meter',geom:'point',classId:'cls-mt',role:'none',terminals:[],subtypes:[],features:[{id:id('mt'),name:'M-0457',sub:null,geometry:pt(-0.1961,5.6016),attrs:{}}]}];
+  const cm=(cls,cim,kind,sub)=>({cls,cimClass:cim,kind,sub:sub==null?null:sub});
+  const classes=[cm('SUBSTATION','Substation','container'),cm('DIST_SWITCH','LoadBreakSwitch','conducting_junction'),cm('DIST_SWITCH','Recloser','conducting_junction',2),cm('MV_CONDUCTOR','ACLineSegment','conducting_edge'),cm('DIST_XFMR','PowerTransformer','conducting_junction'),cm('LV_CONDUCTOR','ACLineSegment','conducting_edge'),cm('SERVICE_POINT','EnergyConsumer','conducting_junction'),cm('METER','UsagePoint','asset')];
+  const v11={'11KV':11000,'33KV':33000};
+  const am=(cls,field,attr,transform,extra)=>Object.assign({cls,field,attr,transform,scale:null,valueMap:null},extra||{});
+  const attrs=[am('MV_CONDUCTOR','voltage_class','BaseVoltage.nominalVoltage','domain_map',{valueMap:v11}),am('MV_CONDUCTOR','voltage_class','Conductor.length','from_geometry'),am('MV_CONDUCTOR','phase','ACLineSegmentPhase.phase','phase'),
+   am('DIST_XFMR','primary_voltage','BaseVoltage.nominalVoltage','domain_map',{valueMap:v11}),am('DIST_XFMR','secondary_voltage','BaseVoltage.nominalVoltage.secondary','direct'),am('DIST_XFMR','rated_kva','PowerTransformerEnd.ratedS','scale',{scale:1000}),
+   am('DIST_SWITCH','device_state','Switch.normalOpen','boolean',{valueMap:{OPEN:true,CLOSED:false}}),
+   am('LV_CONDUCTOR','conductor_spec','Conductor.length','from_geometry'),am('LV_CONDUCTOR','conductor_spec','ACLineSegment.r','material_spec'),am('LV_CONDUCTOR','conductor_spec','ACLineSegment.x','material_spec'),am('LV_CONDUCTOR','phase','ACLineSegmentPhase.phase','phase')];
+  const profile={code:'CDPSM_CIM16',name:'CDPSM (IEC 61968-13), CIM16',cimNamespace:'http://iec.ch/TC57/2013/CIM-schema-cim16#',profileURI:'http://iec.ch/TC57/61968-13/CDPSM/2013#',authority:'https://voltedge.local/ModelAuthoritySet',crs:'urn:ogc:def:crs:EPSG::4326',policy:'drop'};
+  const s=v=>v;
+  const conns=[{fc:'cls-sw',ff:id('sw'),ft:'term:cls-sw:T2',tc:'cls-mv',tf:id('mv'),tt:null},{fc:'cls-mv',ff:id('mv'),ft:null,tc:'cls-tx',tf:id('tx'),tt:'term:cls-tx:T1'},{fc:'cls-tx',ff:id('tx'),ft:'term:cls-tx:T2',tc:'cls-lv',tf:id('lv'),tt:null},{fc:'cls-lv',ff:id('lv'),ft:null,tc:'cls-sp',tf:id('sp'),tt:'term:cls-sp:T1'}];
+  return {docName:'Oakwood Zone',generated:'2026-10-10T06:00:00Z',layers,mapping:new CIMX.Mapping(profile,classes,attrs),conns,contain:{},specs:{ABC_95:{r:0.32,x:0.08}},targetSRID:null};
+}
+
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+function seg(sel,cb){ const el=$(sel); el.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b||b.disabled) return; el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); cb(b)}); }
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nf=(x,d=0)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+/* ---------- personas ---------- */
+const PERSONAS=[['priya','Priya · Planner',{fr:1}],['tom','Tom · GIS analyst',{fr:1,mr:1}],['ada','Ada · Administrator',{fr:1,mr:1,mw:1}],['dana','Dana · Crew lead',{}]];
+let PERSONA=PERSONAS[0]; const personaL=[]; const PNAME={fr:'features:read',mr:'metadata:read',mw:'metadata:write'};
+const can=p=>!!PERSONA[2][p];
+const lockTip=p=>`<span class="gate locked" title="${PERSONA[1].split(' · ')[0]} lacks ${PNAME[p]}">needs ${PNAME[p]} — switch “As” to a persona that has it</span>`;
+function onPersona(fn){ personaL.push(fn); fn(); }
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=PERSONAS.map(p=>`<option value="${p[0]}">${p[1]}</option>`).join(''); sel.onchange=()=>{ PERSONA=PERSONAS.find(p=>p[0]===sel.value); personaL.forEach(f=>f()); }; })();
+const pill=(t,c)=>`<span class="pill ${c||''}">${t}</span>`;
+
+/* ---------- the live model: scenario + a tiny store ---------- */
+const BASE=oakwoodScenario();
+const M={ scn:null, drop:{}, removeConn:null };   // scn = working scenario; mapping edits live in scn.mapping
+function freshScn(){ const s=oakwoodScenario(); return s; }
+M.scn=freshScn();
+const _L=[]; const onModel=f=>{ _L.push(f); }; const emitModel=()=>_L.forEach(f=>f());
+function scenarioView(opts){ opts=opts||{}; const s=Object.assign({},M.scn); if(opts.classes) s.layers=M.scn.layers.filter(l=>opts.classes.includes(l.code)); if(opts.dropConn) s.conns=M.scn.conns.filter((c,i)=>!opts.dropConn.includes(i)); return s; }
+const encodeNow=opts=>CIMX.encode(scenarioView(opts));
+/* split a CIM file into top-level objects */
+function blocks(xml){ const re=/^  <(cim|md):(\w+) (?:rdf:ID="_([0-9a-f-]+)"|rdf:about="urn:uuid:([0-9a-f-]+)")>\n([\s\S]*?)^  <\/\1:\2>\n/gm; const out=[]; let m; while((m=re.exec(xml))){ out.push({cls:m[2],id:m[3]||m[4],text:m[0],body:m[5]}); } return out; }
+const FEAT=(()=>{ const m={}; BASE.layers.forEach(l=>l.features.forEach(f=>{ m[f.id]={name:f.name,code:l.code}; })); return m; })();
+const SHORT={}; Object.keys(FEAT).forEach(k=>{ SHORT[k]=FEAT[k].name; });
+
+/* ===== W1: the pipeline ===== */
+(function(){
+  const ST=[
+   {k:'src',t:'Features & connections',who:'database',txt:'Your surveyed features, their coded fields, the connectivity rows crews captured, and each layer’s terminal definitions.',fail:'Missing or wrong connections show up later as floating terminals. Garbage in, correctly-shaped garbage out.'},
+   {k:'map',t:'Declarative mapping',who:'metadata.cim_*',txt:'Three tables say which CIM class each feature class becomes (and its kind: conducting edge/junction, container, asset, protection, skip) and how each field becomes a CIM attribute (seven transforms).',fail:'An unmapped class is dropped with a warning; a skipped one silently. Mapping a field to the wrong target writes the wrong attribute.'},
+   {k:'topo',t:'Topology builder',who:'encoder',txt:'Union-find over terminal and conductor-end keys builds ConnectivityNodes. Conductor ends are chosen by geometry (nearest end). Ground terminals are dropped; transformers are padded to two windings.',fail:'Ambiguous geometry silently yields a floating end; nodes ≈ terminals means connectivity did not join.'},
+   {k:'enc',t:'Encoder',who:'export worker',txt:'Writes the RDF/XML: header, scaffold (region, CRS, default Line), containers, base voltages, equipment, locations, terminals, nodes, windings, phase objects.',fail:'Per-class cap 50,000. Geometry-less classes are refused. A stopped worker leaves the job queued forever.'},
+   {k:'file',t:'The file',who:'object storage',txt:'A single CDPSM-style CIM16 document, fetched through a presigned 15-minute link. Retained 7 days.',fail:'Expired link → click Download again. Swept after 7 days → re-export.'},
+   {k:'use',t:'The consumer',who:'your tool',txt:'OpenDSS/CIMHub, powsybl, a vendor suite. Each wants slightly different units, ids and profile splits — Chapter 8.',fail:'Wrong units (kV vs V), missing loads, mandatory attributes the CDPSM profile does not carry.'}];
+  let cur='map';
+  $('#w1-b').innerHTML=ST.map(s=>`<button class="btn" data-k="${s.k}" aria-pressed="${s.k===cur}">${s.t}</button>`).join('');
+  function paint(){
+    const i=ST.findIndex(s=>s.k===cur); let g='';
+    ST.forEach((s,j)=>{ const x=14+j*122, on=j===i; g+=`<g class="hit" data-k="${s.k}" style="cursor:pointer"><rect x="${x}" y="70" width="108" height="66" rx="9" fill="${on?'var(--tint)':'var(--raise)'}" stroke="${on?'var(--acc)':'var(--line)'}" stroke-width="${on?3:1.5}"/><text x="${x+54}" y="98" text-anchor="middle" font-size="11.5" font-weight="700" style="fill:var(--ink)">${s.t.split(' ')[0]}</text><text x="${x+54}" y="113" text-anchor="middle" font-size="11" style="fill:var(--ink)">${s.t.split(' ').slice(1).join(' ')}</text><text x="${x+54}" y="128" text-anchor="middle" font-size="9.5" style="fill:var(--muted)">${s.who}</text>`+(j<ST.length-1?`<path d="M${x+110},103 h10" stroke="var(--acc)" stroke-width="2" marker-end="url(#ar)"/>`:'')+`</g>`; });
+    $('#w1-svg').innerHTML=`<defs><marker id="ar" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--acc)"/></marker></defs>`+g+`<text x="14" y="40" font-size="12" font-weight="700" style="fill:var(--muted)">Click a stage</text>`;
+    const s=ST[i]; $('#w1-out').innerHTML=`<div class="kv"><span>Stage</span><b>${s.t}</b></div><div class="kv"><span>Lives in</span><b>${s.who}</b></div><p style="font-size:13.5px;margin:8px 0">${s.txt}</p><div class="caution" style="margin:0;font-size:13px"><b>Fails when:</b> ${s.fail}</div>`;
+    $$('#w1-b button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur));
+  }
+  $('#w1-b').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); };
+  $('#w1-svg').onclick=e=>{ const g=e.target.closest('[data-k]'); if(!g) return; cur=g.dataset.k; paint(); };
+  paint();
+})();
+
+/* ===== W2: feature → CIM objects ===== */
+(function(){
+  const ids=Object.keys(FEAT); let cur=ids[3];
+  $('#w2-b').innerHTML=ids.map(k=>`<button class="btn" data-k="${k}" aria-pressed="${k===cur}">${esc(FEAT[k].name)}</button>`).join('');
+  const NOTE={SUBSTATION:'A container: gets a Location from its polygon outline and anchors every piece of equipment whose first point falls inside it.',DIST_SWITCH:'Subtype 1 (load-break) overrides to LoadBreakSwitch; device_state CLOSED → Switch.normalOpen=false. Two layer terminals → two Terminal objects.',MV_CONDUCTOR:'An edge: no layer terminals, so it gets two end terminals chosen by geometry. Length comes from the polyline (from_geometry); phase code L1L2L3N becomes four ACLineSegmentPhase objects.',DIST_XFMR:'Primary/secondary voltage become BaseVoltages and winding ratedU; rated_kva × 1000 becomes ratedS on each winding. The ground terminal T3 is dropped.',LV_CONDUCTOR:'Impedance r,x = per-km spec × length / 1000, rounded to 1 mΩ. No voltage mapping on LV classes → no BaseVoltage (gap G18).',SERVICE_POINT:'An EnergyConsumer with one terminal. No p/q — loads must be supplied downstream (G4).',METER:'An asset (UsagePoint): emitted with a Location but no terminals and no link to the service point (G7).'};
+  function paint(){
+    const out=encodeNow(); const f=FEAT[cur]; const bs=blocks(out.xml).filter(b=>b.text.includes(cur));
+    $('#w2-out').textContent=bs.map(b=>b.text.replace(/rdf:ID="_([0-9a-f]{8})[0-9a-f-]+"/g,'rdf:ID="_$1…"').replace(/#_([0-9a-f]{8})[0-9a-f-]+/g,(m,a)=>'#_'+a+'…')).join('');
+    $('#w2-note').innerHTML=`<b>${esc(f.name)}</b> (${f.code}) → ${bs.length} object${bs.length===1?'':'s'}. ${NOTE[f.code]}`;
+    $$('#w2-b button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur));
+  }
+  $('#w2-b').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); };
+  onModel(paint); paint();
+})();
+
+/* ===== W3: UUIDv5 lab ===== */
+(function(){
+  const KINDS=[['basevoltage','basevoltage:','11000'],['location','location:',Object.keys(FEAT)[3]],['terminal','terminal:','E|'+Object.keys(FEAT)[2]+'|0'],['geographical-region','geographical-region',''],['model header','model:Oakwood Zone:','2026-10-10T06:00:00Z']];
+  $('#id-k').innerHTML=KINDS.map((k,i)=>`<option value="${i}">${k[0]}</option>`).join('');
+  const sync=()=>{ const k=KINDS[+$('#id-k').value]; $('#id-v').value=k[2]; paint(); };
+  function paint(){ const k=KINDS[+$('#id-k').value]; const name=k[1]+$('#id-v').value;
+    $('#id-out').innerHTML=`<div class="kv"><span>Hashed name</span><b class="mono" style="word-break:break-all">${esc(name)}</b></div><div class="kv"><span>UUIDv5</span><b class="mono">${CIMX.uuidV5(name)}</b></div><p class="muted" style="font-size:13px;margin:6px 0 0">Namespace <code>9f1a4c7e-3b62-54d8-a10c-772e6b90113d</code> (frozen). Same name → same id on every machine, every export. Try <code>basevoltage:11000</code> — it is the BaseVoltage reused by every 11 kV conductor and the transformer’s HV winding.</p>`; }
+  $('#id-k').onchange=sync; $('#id-v').oninput=paint;
+  function cmp(){ const a=encodeNow(), b=M.cutDemo!=null?encodeNow({dropConn:[0]}):null;
+    const eq=blocks(a.xml).filter(x=>!['ConnectivityNode','Terminal','PowerTransformerEnd','FullModel'].includes(x.cls)).map(x=>x.id);
+    if(!b){ $('#id-cmp').innerHTML=`<p class="muted" style="margin:0;font-size:13.5px">Baseline: ${a.stats.nodes} nodes, ${a.stats.terminals} terminal keys. Press the button to drop the switch→conductor connection and compare.</p>`; return; }
+    const A=new Set(blocks(a.xml).filter(x=>x.cls==='ConnectivityNode').map(x=>x.id)), B=new Set(blocks(b.xml).filter(x=>x.cls==='ConnectivityNode').map(x=>x.id));
+    const eqB=new Set(blocks(b.xml).filter(x=>!['ConnectivityNode','Terminal','PowerTransformerEnd','FullModel'].includes(x.cls)).map(x=>x.id));
+    const termA=new Set(blocks(a.xml).filter(x=>x.cls==='Terminal').map(x=>x.id)), termB=new Set(blocks(b.xml).filter(x=>x.cls==='Terminal').map(x=>x.id));
+    const keptN=[...A].filter(x=>B.has(x)).length, keptE=eq.filter(x=>eqB.has(x)).length, keptT=[...termA].filter(x=>termB.has(x)).length;
+    $('#id-cmp').innerHTML=`<div class="tbl"><table><tr><th>Id class</th><th>Before</th><th>After the cut</th><th>Unchanged</th></tr><tr><td>equipment, locations, base voltages</td><td>${eq.length}</td><td>${eqB.size}</td><td><b>${keptE}</b> ✔ all stable</td></tr><tr><td>terminals</td><td>${termA.size}</td><td>${termB.size}</td><td><b>${keptT}</b> ✔ (keyed by feature+end)</td></tr><tr><td>connectivity nodes</td><td>${A.size}</td><td>${B.size}</td><td><b style="color:var(--red)">${keptN}</b> — ids of every changed node differ</td></tr></table></div>`; }
+  $('#id-cut').onclick=()=>{ M.cutDemo=0; cmp(); }; $('#id-reset').onclick=()=>{ M.cutDemo=null; cmp(); };
+  sync(); cmp(); onModel(cmp);
+})();
+
+/* ===== W4: scope closure ===== */
+(function(){
+  const L=BASE.layers.map(l=>[l.code,l.name]); let on=new Set(L.map(l=>l[0]));
+  const xs=[60,160,260,380,500,590,690];
+  $('#w4-b').innerHTML=L.map(l=>`<label class="tog" style="font-size:13px;margin-right:10px"><input type="checkbox" data-c="${l[0]}" checked> ${esc(l[1])}</label>`).join('');
+  function paint(){
+    const cls=[...on]; const out=encodeNow({classes:cls}); const full=encodeNow();
+    const present=new Set(Object.keys(out.feats));
+    let g='<line x1="30" y1="75" x2="720" y2="75" stroke="var(--line)" stroke-width="2"/>';
+    BASE.layers.forEach((l,i)=>{ const inn=on.has(l.code); const x=xs[i]; const conducting=!!out.feats[l.features[0].id]; g+=`<circle cx="${x}" cy="75" r="14" fill="${inn?'var(--tint)':'transparent'}" stroke="${inn?'var(--acc)':'var(--muted)'}" stroke-width="2" stroke-dasharray="${inn?'0':'4 3'}"/><text x="${x}" y="54" text-anchor="middle" font-size="10.5" style="fill:var(--ink)">${esc(l.name.split(' ').slice(0,2).join(' '))}</text><text x="${x}" y="79" text-anchor="middle" font-size="11" style="fill:var(--ink)">${inn?(conducting?'●':'▪'):'✕'}</text>`; });
+    $('#w4-svg').innerHTML=g+`<text x="14" y="130" font-size="11.5" style="fill:var(--muted)">● conducting (gets terminals)  ▪ in file but not conducting  ✕ not selected</text>`;
+    const lost=full.stats.terminals-out.stats.terminals;
+    $('#w4-out').innerHTML=`<div class="kv"><span>Objects</span><b>${blocks(out.xml).length}</b></div><div class="kv"><span>Terminals</span><b>${out.stats.terminals}</b></div><div class="kv"><span>Nodes</span><b>${out.stats.nodes}</b></div><p style="font-size:13.5px;margin:8px 0 0">${on.size===L.length?'Everything selected — the graph is closed.':lost>0?`Left out classes take their terminals with them (<b>${lost}</b> fewer), and each connection to a missing feature is dropped, so neighbours’ ends become <b>floating</b> single-terminal nodes.`:'Only non-conducting classes were left out; topology is unchanged.'}</p>`;
+  }
+  $('#w4-b').onchange=e=>{ const c=e.target.closest('input'); if(!c) return; c.checked?on.add(c.dataset.c):on.delete(c.dataset.c); paint(); };
+  paint();
+})();
+
+/* ===== W5: mapping lab ===== */
+(function(){
+  const KINDS=['conducting_edge','conducting_junction','container','asset','protection','skip'];
+  const CLASSES=['Substation','LoadBreakSwitch','Recloser','Breaker','Disconnector','ACLineSegment','PowerTransformer','EnergyConsumer','UsagePoint','Pole'];
+  const base=encodeNow().xml; const baseLines=base.split('\n');
+  const mp=()=>M.scn.mapping;
+  const cm=code=>mp().classes.find(c=>c.cls===code&&c.sub==null);
+  const am=(cls,attr)=>mp().attrs.find(a=>a.cls===cls&&a.attr===attr);
+  function ctl(){
+    const rw=can('mw'); const ro=!rw?'disabled':'';
+    const rows=BASE.layers.map(l=>{ const c=cm(l.code); return `<tr><td class="mono" style="font-size:12px">${l.code}</td><td><select data-cc="${l.code}" ${ro} aria-label="CIM class for ${l.code}">${CLASSES.map(x=>`<option ${c.cimClass===x?'selected':''}>${x}</option>`).join('')}</select></td><td><select data-ck="${l.code}" ${ro} aria-label="kind for ${l.code}">${KINDS.map(x=>`<option ${c.kind===x?'selected':''}>${x}</option>`).join('')}</select></td></tr>`; }).join('');
+    $('#m-ctl').innerHTML=`<div class="lab">Class mappings</div><div class="tbl"><table><tr><th>Class</th><th>CIM class</th><th>kind</th></tr>${rows}</table></div>
+     <div class="lab" style="margin-top:8px">Attribute knobs</div>
+     <div class="kv"><span>transformer ratedS scale</span><b><input type="number" id="k-rs" value="${am('DIST_XFMR','PowerTransformerEnd.ratedS').scale}" ${ro} style="width:90px"></b></div>
+     <div class="kv"><span>“11KV” → nominalVoltage</span><b><input type="number" id="k-v" value="${am('DIST_XFMR','BaseVoltage.nominalVoltage').valueMap['11KV']}" ${ro} style="width:90px"></b></div>
+     <div class="kv"><span>CLOSED → normalOpen</span><b><select id="k-no" ${ro}><option ${am('DIST_SWITCH','Switch.normalOpen').valueMap.CLOSED===false?'selected':''}>false</option><option ${am('DIST_SWITCH','Switch.normalOpen').valueMap.CLOSED===true?'selected':''}>true</option></select></b></div>
+     <div class="kv"><span>secondary voltage mapped</span><b><input type="checkbox" id="k-sec" ${mp().attrs.some(a=>a.attr==='BaseVoltage.nominalVoltage.secondary')?'checked':''} ${ro}></b></div>
+     <div class="kv"><span>unmapped-attribute policy</span><b><select id="k-pol" ${ro}><option ${mp().profile.policy==='drop'?'selected':''}>drop</option><option ${mp().profile.policy==='carry'?'selected':''}>carry</option></select></b></div>`;
+    $('#m-gate').innerHTML=rw?'':`<div class="muted" style="font-size:13.5px">${can('mr')?'Read-only view: ':'This is the mapping editor. '}${lockTip('mw')}</div>`;
+    $('#m-gate').style.display=rw?'none':'block';
+  }
+  function report(){
+    const out=encodeNow(); const a=out.xml.split('\n'); const A=new Set(a), B=new Set(baseLines);
+    const add=a.filter(x=>!B.has(x)), del=baseLines.filter(x=>!A.has(x));
+    $('#m-stat').innerHTML=`${pill(out.stats.nodes+' nodes','sec')} ${pill(out.stats.terminals+' terminals','sec')} ${pill(blocks(out.xml).length+' objects','sec')} ${Object.keys(out.stats.unmapped).length?pill('unmapped: '+Object.keys(out.stats.unmapped).join(', '),'stale'):''}`;
+    const L=[...del.slice(0,10).map(x=>'- '+x.trim()),...add.slice(0,14).map(x=>'+ '+x.trim())];
+    $('#m-diff').textContent=L.length?L.join('\n')+((del.length>10||add.length>14)?`\n… (${del.length} removed, ${add.length} added in all)`:''):'(identical to the shipped mapping’s output)';
+  }
+  const change=()=>{ emitModel(); };
+  $('#m-ctl').addEventListener('change',e=>{ if(!can('mw')) return; const t=e.target;
+    if(t.dataset.cc){ cm(t.dataset.cc).cimClass=t.value; }
+    else if(t.dataset.ck){ cm(t.dataset.ck).kind=t.value; }
+    else if(t.id==='k-rs'){ const v=parseFloat(t.value); am('DIST_XFMR','PowerTransformerEnd.ratedS').scale=isFinite(v)?v:1; }
+    else if(t.id==='k-v'){ const v=parseInt(t.value,10); if(isFinite(v)) am('DIST_XFMR','BaseVoltage.nominalVoltage').valueMap['11KV']=v, am('MV_CONDUCTOR','BaseVoltage.nominalVoltage').valueMap['11KV']=v; }
+    else if(t.id==='k-no'){ am('DIST_SWITCH','Switch.normalOpen').valueMap.CLOSED=t.value==='true'; }
+    else if(t.id==='k-sec'){ const s=mp().attrs; const i=s.findIndex(a=>a.attr==='BaseVoltage.nominalVoltage.secondary'); if(!t.checked&&i>=0){ M._sec=s.splice(i,1)[0]; } else if(t.checked&&i<0&&M._sec) s.push(M._sec); }
+    else if(t.id==='k-pol'){ mp().profile.policy=t.value; }
+    change(); });
+  $('#m-reset').onclick=()=>{ if(!can('mw')) return; M.scn=freshScn(); change(); };
+  onPersona(()=>{ ctl(); }); onModel(()=>{ ctl(); report(); }); report();
+})();
+
+/* ===== W6: transform playground ===== */
+(function(){
+  const T=['direct','scale','domain_map','boolean','from_geometry','material_spec','phase']; let cur='scale';
+  $('#t-b').innerHTML=T.map(t=>`<button class="btn" data-t="${t}" aria-pressed="${t===cur}">${t}</button>`).join('');
+  const mv=BASE.layers.find(l=>l.code==='MV_CONDUCTOR').features[0], lv=BASE.layers.find(l=>l.code==='LV_CONDUCTOR').features[0];
+  function ui(){
+    const U={
+     direct:`<label class="lab">Raw value</label><input id="t1" value="Acme" style="max-width:200px">`,
+     scale:`<label class="lab">Raw value</label><input id="t1" value="315" style="max-width:120px"> <label class="lab">× scale</label><input id="t2" value="1000" style="max-width:100px">`,
+     domain_map:`<label class="lab">Raw code</label><input id="t1" value="11KV" style="max-width:120px"> <label class="lab">value_map (JSON)</label><input id="t2" value='{"11KV":11000,"33KV":33000}' style="max-width:300px">`,
+     boolean:`<label class="lab">Raw code</label><input id="t1" value="OPEN" style="max-width:120px"> <label class="lab">value_map (JSON)</label><input id="t2" value='{"OPEN":true,"CLOSED":false}' style="max-width:300px">`,
+     from_geometry:`<label class="lab">Conductor</label><select id="t1"><option value="mv">C-F7-01 (3 vertices)</option><option value="lv">LV-014-01 (2 vertices)</option></select> <label class="tog"><input type="checkbox" id="t2"> reprojected (planar)</label>`,
+     material_spec:`<label class="lab">Spec r (Ω/km)</label><input id="t1" value="0.32" style="max-width:90px"> <label class="lab">Span (m)</label><input id="t2" value="${Math.round(CIMX.geoLen(CIMX.pointsOf(lv.geometry))*1000)/1000}" style="max-width:110px">`,
+     phase:`<label class="lab">Phase code</label><select id="t1">${Object.keys(CIMX.PHASEKINDS).map(k=>`<option>${k}</option>`).join('')}</select>`};
+    $('#t-ui').innerHTML=U[cur]; run(); }
+  function run(){
+    const v1=($('#t1')||{}).value, v2=($('#t2')||{}).value; let res, why='';
+    try{ switch(cur){
+      case 'direct': res=CIMX.applyLiteral({transform:'direct'},v1); break;
+      case 'scale': { const n=parseFloat(v1); res=CIMX.applyLiteral({transform:'scale',scale:parseFloat(v2)},isFinite(n)?n:v1); if(res===null) why='not a number, or no scale'; break; }
+      case 'domain_map': { const mpv=JSON.parse(v2); res=CIMX.applyLiteral({transform:'domain_map',valueMap:mpv},v1); if(res===null) why=`“${esc(v1)}” is not a key of the map — nothing is written`; break; }
+      case 'boolean': { const mpv=JSON.parse(v2); res=CIMX.applyLiteral({transform:'boolean',valueMap:mpv},v1); if(res===null) why='the mapped value is missing or not a boolean — nothing is written'; break; }
+      case 'from_geometry': { const f=v1==='mv'?mv:lv; const pts=CIMX.pointsOf(f.geometry); const L=v2===undefined||!$('#t2').checked?CIMX.geoLen(pts):CIMX.planarLen(pts); res=CIMX.ff(CIMX.round3(L)); why=$('#t2').checked?'planar: correct only in a metre-based CRS (degrees here, so nonsense — that is the point)':'haversine on a 6 371 km sphere, ≈0.3 % of the ellipsoid (G15)'; break; }
+      case 'material_spec': { const r=parseFloat(v1), L=parseFloat(v2); if(!isFinite(r)||!isFinite(L)||L<=0){ res=null; why='no length or no spec: omitted, not guessed'; } else { const raw=r*L/1000; res=CIMX.ff(CIMX.round3(raw)); why=`${r} × ${L} ÷ 1000 = ${CIMX.ff(raw)} Ω, rounded to the nearest 0.001`+(raw>0&&CIMX.round3(raw)===0?' — <b>rounds to zero</b>':CIMX.round3(raw)!==raw?' — precision lost (G3)':''); } break; }
+      case 'phase': { const k=CIMX.PHASEKINDS[v1]; res=k.map(x=>`ACLineSegmentPhase → SinglePhaseKind.${x}`).join('<br>'); why=`${k.length} child object${k.length>1?'s':''}`; break; } }
+    }catch(e){ res=null; why='invalid JSON'; }
+    $('#t-out').innerHTML=res===null?`<span class="pill stale">writes nothing</span> <span style="font-size:13.5px">${why}</span>`:`<div class="kv"><span>Output</span><b class="mono">${cur==='phase'?res:esc(res)}</b></div><p class="muted" style="font-size:13px;margin:6px 0 0">${why}</p>`; }
+  $('#t-b').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.t; $$('#t-b button').forEach(x=>x.setAttribute('aria-pressed',x===b)); ui(); };
+  $('#t-ui').oninput=run; $('#t-ui').onchange=run; ui();
+})();
+
+/* ===== W7b: subtype override ===== */
+(function(){
+  const opts=[['','no subtype'],['1','subtype 1 — load-break'],['2','subtype 2 — recloser'],['9','subtype 9 — undefined']];
+  $('#sb-b').innerHTML=opts.map((o,i)=>`<button class="btn" data-v="${o[0]}" aria-pressed="${i===1}">${o[1]}</button>`).join('');
+  function paint(v){ const sub=v===''?null:+v; const m=M.scn.mapping; const hit=m.classFor('DIST_SWITCH',sub);
+    $('#sb-out').innerHTML=`<div class="tbl"><table><tr><th>Mapping row</th><th>Subtype</th><th>CIM class</th><th></th></tr>${m.classes.filter(c=>c.cls==='DIST_SWITCH').map(c=>`<tr style="${c===hit?'background:var(--tint)':''}"><td>DIST_SWITCH</td><td>${c.sub==null?'<i>default</i>':c.sub}</td><td><code>${c.cimClass}</code></td><td>${c===hit?'<b>WINS</b>':''}</td></tr>`).join('')}</table></div><p style="font-size:13.5px;margin:6px 0 0">${sub!=null&&!m.classes.some(c=>c.cls==='DIST_SWITCH'&&c.sub===sub)?`No row for subtype ${sub}, so the class-wide default applies.`:sub==null?'No subtype: the class-wide default.':'An exact subtype row beats the default.'}</p>`; }
+  seg('#sb-b',b=>paint(b.dataset.v)); paint('1');
+})();
+
+/* ===== W8: connections → nodes ===== */
+(function(){
+  const NAMES=SHORT; let off=new Set(), ground=false;
+  const label=c=>`${NAMES[c.ff]}${c.ft?' ('+c.ft.split(':').pop()+')':''} ⟷ ${NAMES[c.tf]}${c.tt?' ('+c.tt.split(':').pop()+')':''}`;
+  function paint(){
+    $('#tp-b').innerHTML=BASE.conns.map((c,i)=>`<label class="tog" style="font-size:13px;margin-right:10px"><input type="checkbox" data-i="${i}" ${off.has(i)?'':'checked'}> ${esc(label(c))}</label>`).join('')+`<label class="tog" style="font-size:13px"><input type="checkbox" id="tp-g" ${ground?'checked':''}> + TX-Feeder7-014 (T3 ground) ⟷ SW-F7-03</label>`;
+    const scn=Object.assign({},M.scn); scn.conns=BASE.conns.filter((c,i)=>!off.has(i)); if(ground) scn.conns=scn.conns.concat([{fc:'cls-tx',ff:BASE.conns[1].tf,ft:'term:cls-tx:T3',tc:'cls-sw',tf:BASE.conns[0].ff,tt:'term:cls-sw:T1'}]);
+    const out=CIMX.encode(scn);
+    $('#tp-dec').innerHTML=`<tr><th>Connection</th><th>Resolved as</th></tr>`+out.decisions.map(d=>`<tr><td style="font-size:13px">${esc(label(d.conn))}</td><td style="font-size:12.5px">${d.kind==='dropped-ground'?'<span class="pill stale">dropped — ground terminal</span>':d.kind==='edge-edge'?`closest pair of ends: <code>${d.a.replace(/[0-9a-f-]{36}/,m=>NAMES[m])}</code> = <code>${d.b.replace(/[0-9a-f-]{36}/,m=>NAMES[m])}</code>`:`<code>${d.a.replace(/[0-9a-f-]{36}/,m=>NAMES[m])}</code> = <code>${d.b.replace(/[0-9a-f-]{36}/,m=>NAMES[m])}</code>`}</td></tr>`).join('');
+    $('#tp-out').innerHTML=`<div class="kv"><span>Terminal keys</span><b>${out.stats.terminals}</b></div><div class="kv"><span>Nodes</span><b>${out.stats.nodes}</b></div>`+out.nodes.map((n,i)=>`<div style="font-size:12.5px;margin:6px 0;padding:6px 8px;border:1px solid var(--line);border-radius:6px"><b>Node ${i+1}</b> · ${n.members.length} terminal${n.members.length>1?'s':''}${n.members.length===1?' <span class="pill stale">floating</span>':''}<br>${n.members.map(m=>`<span class="mono">${esc(NAMES[m.feature])}#${m.seq}</span>`).join(', ')}</div>`).join('');
+  }
+  $('#tp-b').onchange=e=>{ const c=e.target; if(c.id==='tp-g'){ ground=c.checked; } else if(c.dataset.i!==undefined){ c.checked?off.delete(+c.dataset.i):off.add(+c.dataset.i); } paint(); };
+  $('#tp-reset').onclick=()=>{ off.clear(); ground=false; paint(); };
+  onModel(paint); paint();
+})();
+
+/* ===== W9: nearest-end disambiguation ===== */
+(function(){
+  function paint(){
+    const x=parseFloat($('#g-x').value), flip=$('#g-flip').checked; $('#g-v').textContent=x;
+    const A=[{x:0,y:0},{x:10,y:0}];
+    let html='', msg='';
+    const sx=v=>60+(v+8)*28, y=70;
+    let svg=`<line x1="${sx(0)}" y1="${y}" x2="${sx(10)}" y2="${y}" stroke="var(--s2)" stroke-width="5" stroke-linecap="round"/><text x="${sx(0)}" y="${y+28}" text-anchor="middle" font-size="11" style="fill:var(--ink)">A·end 0</text><text x="${sx(10)}" y="${y+28}" text-anchor="middle" font-size="11" style="fill:var(--ink)">A·end 1</text>`;
+    if(!flip){ const d0=(x-0)**2, d1=(x-10)**2; const idx=d1<d0?1:0; msg=`Device at x=${x}: dist² to end 0 = ${d0}, to end 1 = ${d1}. ${d1<d0?'End 1 is strictly closer':'End 0 wins (closer, or a tie)'} → key <code>E|A|${idx}</code>.`; svg+=`<circle cx="${sx(x)}" cy="${y}" r="11" fill="var(--acc)"/><text x="${sx(x)}" y="${y-18}" text-anchor="middle" font-size="11" style="fill:var(--ink)">device</text><line x1="${sx(x)}" y1="${y}" x2="${sx(idx*10)}" y2="${y}" stroke="var(--acc)" stroke-width="2" stroke-dasharray="4 3"/>`; }
+    else { const B=[{x:x,y:12},{x:x+10,y:12}], Bs=[B[0],B[1]]; const pts=flip?[B[1],B[0]]:B; // drawn the other way round: first vertex is the far end
+      let best=Infinity,bi=0,bj=0; for(let i=0;i<2;i++) for(let j=0;j<2;j++){ const d=(A[i].x-pts[j].x)**2+(A[i].y-pts[j].y)**2; if(d<best){best=d;bi=i;bj=j;} }
+      msg=`Conductor B is drawn ${flip?'right-to-left':'left-to-right'} (its end 0 is at x=${pts[0].x}). Closest pair of ends: A·end ${bi} with B·end ${bj} (dist² ${best}) → <code>E|A|${bi}</code> = <code>E|B|${bj}</code>. Because the rule uses the <em>pair</em>, drawing direction does not matter — but a far-off B can still land on the wrong end.`;
+      svg+=`<line x1="${sx(pts[0].x)}" y1="${y-25}" x2="${sx(pts[1].x)}" y2="${y-25}" stroke="var(--s6)" stroke-width="5" stroke-linecap="round"/><text x="${sx(pts[0].x)}" y="${y-34}" text-anchor="middle" font-size="11" style="fill:var(--ink)">B·0</text><text x="${sx(pts[1].x)}" y="${y-34}" text-anchor="middle" font-size="11" style="fill:var(--ink)">B·1</text><line x1="${sx(A[bi].x)}" y1="${y}" x2="${sx(pts[bj].x)}" y2="${y-25}" stroke="var(--acc)" stroke-width="2" stroke-dasharray="4 3"/>`; }
+    $('#g-svg').innerHTML=svg; $('#g-out').innerHTML=`<p style="font-size:13.5px;margin:0">${msg}</p>`; }
+  $('#g-x').oninput=paint; $('#g-flip').onchange=paint; paint();
+})();
+
+/* ===== W10: terminals & windings ===== */
+(function(){
+  let n=2;
+  function paint(){
+    const g=$('#tw-g').checked, kind=$('#tw-k').value; const total=n; const nonG=n===0?0:(g?Math.max(0,n-1):n);
+    const terms=nonG===0?['implicit (no layer terminals)']:Array.from({length:nonG},(_,i)=>'T'+(i+1)); let wind=kind==='PowerTransformer'?Math.max(nonG===0?1:nonG,2):0; const pad=kind==='PowerTransformer'&&nonG<2?2-Math.max(nonG,nonG===0?1:nonG):0;
+    $('#tw-out').innerHTML=`<div class="kv"><span>Layer terminals</span><b>${total===0?'none':Array.from({length:total},(_,i)=>'T'+(i+1)+(g&&i===total-1?' (ground)':'')).join(', ')}</b></div><div class="kv"><span>Terminals written</span><b>${terms.join(', ')}${pad?' + '+pad+' padding key @w2':''}</b></div>${kind==='PowerTransformer'?`<div class="kv"><span>PowerTransformerEnd objects</span><b>${wind}</b></div><p class="muted" style="font-size:13.5px;margin:6px 0 0">${g&&total>0?'The ground terminal never becomes a Terminal: connections that land on it are dropped (G12). ':''}${pad?'A transformer needs two windings, so a <code>@w2</code> padding terminal is added — a floating LV end. ':''}${nonG>2?'Three non-ground terminals → three windings; only windings 1 and 2 get a voltage (G2 family).':''}</p>`:`<p class="muted" style="font-size:13.5px;margin:6px 0 0">Non-transformers are never padded: ${terms.length} terminal${terms.length>1?'s':''}.</p>`}`; }
+  seg('#tw-n',b=>{ n=+b.dataset.v; paint(); }); $('#tw-g').onchange=paint; $('#tw-k').onchange=paint; paint();
+})();
+
+/* ===== W11: phases ===== */
+(function(){
+  const codes=Object.keys(CIMX.PHASEKINDS); let cur='L1L2L3N';
+  $('#ph-b').innerHTML=codes.map(c=>`<button class="btn" data-c="${c}" aria-pressed="${c===cur}">${c}</button>`).join('');
+  function paint(){ const k=CIMX.PHASEKINDS[cur]; $('#ph-out').innerHTML=`<p style="font-size:13.5px;margin:0 0 6px"><code>${cur}</code> → <b>${k.length}</b> <code>ACLineSegmentPhase</code> object${k.length>1?'s':''}:</p><pre class="code" style="margin:0;font-size:12.5px">${k.map(x=>`&lt;cim:ACLineSegmentPhase rdf:ID="_${CIMX.uuidV5('phase:ACLineSegmentPhase:'+Object.keys(FEAT)[2]+':'+x).slice(0,8)}…"&gt;\n  &lt;cim:ACLineSegmentPhase.phase rdf:resource="…#SinglePhaseKind.${x}"/&gt;\n  &lt;cim:ACLineSegmentPhase.ACLineSegment rdf:resource="#_C-F7-01…"/&gt;`).join('\n')}</pre><p class="muted" style="font-size:13px;margin:6px 0 0">Ids are <code>uuidV5("phase:" + class + ":" + feature + ":" + kind)</code>, so they too are stable.</p>`; $$('#ph-b button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.c===cur)); }
+  $('#ph-b').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.c; paint(); }; paint();
+})();
+
+/* ===== W12: containers ===== */
+(function(){
+  function paint(){ const out=encodeNow(); const bs=blocks(out.xml); const sub=bs.find(b=>b.cls==='Substation').id; const line=CIMX.uuidV5('default-line-container');
+    const eq=bs.filter(b=>/EquipmentContainer/.test(b.body)); const nodes=bs.filter(b=>b.cls==='ConnectivityNode');
+    const where=id=>id===sub?'Substation “Oakwood Primary”':id===line?'Line “Unassigned equipment”':id;
+    $('#ct-out').innerHTML=`<div class="tbl"><table><tr><th>Equipment</th><th>Container</th></tr>${eq.map(b=>{ const cid=(b.body.match(/EquipmentContainer rdf:resource="#_([0-9a-f-]+)"/)||[])[1]; return `<tr><td>${esc(SHORT[b.id]||b.id)} <span class="muted">(${b.cls})</span></td><td>${where(cid)}</td></tr>`; }).join('')}</table></div><p style="font-size:13.5px;margin:6px 0 0">${nodes.filter(n=>n.body.includes(sub)).length} of ${nodes.length} nodes sit in the substation: a node takes the container of the <b>first member whose position is inside a substation polygon</b>, which can differ from its equipment’s container (G9).</p>`; }
+  onModel(paint); paint();
+})();
+
+/* ===== W13: export request builder ===== */
+(function(){
+  const CL=[['MV_CONDUCTOR',1200,true],['DIST_XFMR',640,true],['DIST_SWITCH',510,true],['LV_CONDUCTOR',64000,true],['SERVICE_POINT',9800,true],['SUBSTATION',12,true],['BAY',30,false],['PROTECTIVE_RELAY',55,false],['CABLE_DUCT',410,true],['SPARE_NEW',20,true]];
+  const MAPPED={BAY:'container',PROTECTIVE_RELAY:'protection',CABLE_DUCT:'skip',SPARE_NEW:null};
+  let sel=new Set(['MV_CONDUCTOR','DIST_XFMR']);
+  $('#rq-c').innerHTML=CL.map(c=>`<label class="tog" style="display:block;font-size:13px"><input type="checkbox" data-c="${c[0]}" ${sel.has(c[0])?'checked':''}> <span class="mono">${c[0]}</span> <span class="muted">${nf(c[1])}${c[2]?'':' · no geometry'}</span></label>`).join('');
+  function paint(){
+    const fr=can('fr'); $('#rq-gate').innerHTML=fr?'':`<div class="muted" style="font-size:13.5px">${lockTip('fr')}</div>`; $('#rq-gate').style.display=fr?'none':'block';
+    const f=$('#rq-f').value, srid=$('#rq-s').value.trim(); const errs=[], warns=[];
+    CL.filter(c=>sel.has(c[0])).forEach(c=>{ if(!c[2]) errs.push(`<b>${c[0]}</b>: feature class has no geometry, so it can’t be exported (HTTP 400).`); else if((f==='cim'||f==='shapefile')&&c[1]>50000) errs.push(`<b>${c[0]}</b>: ${nf(c[1])} features — more than 50 000, the cap for materialised formats. Job would <b>fail</b>; narrow with a bbox/territory.`); if(f==='cim'&&c[2]&&MAPPED[c[0]]===null) warns.push(`<b>${c[0]}</b> has no CIM mapping — dropped, with a log line and the amber card.`); if(f==='cim'&&c[2]&&MAPPED[c[0]]==='skip') warns.push(`<b>${c[0]}</b> is mapped <code>skip</code> — silently excluded (a recorded decision).`); });
+    if(srid&&!/^\d{4,6}$/.test(srid)) errs.push('Target SRID must be a numeric EPSG code.');
+    if(!sel.size) errs.push('Pick at least one class.');
+    const body={format:f,classes:[...sel],cim_profile:f==='cim'?undefined:undefined,target_srid:srid?+srid:undefined};
+    $('#rq-out').innerHTML=`<div class="lab">POST /api/export/jobs</div><pre class="code" style="margin:4px 0 8px;font-size:12.5px">${esc(JSON.stringify(body,null,2))}</pre>`+(errs.length?`<div class="fbox bad" style="padding:8px 10px;border:1px solid var(--red);border-radius:7px;background:var(--red-tint);font-size:13.5px">${errs.map(e=>'✘ '+e).join('<br>')}</div>`:fr?`<div class="fbox good" style="padding:8px 10px;border:1px solid var(--green);border-radius:7px;background:var(--green-tint);font-size:13.5px">✔ Accepted — job queued. ${f==='cim'?'The file will use the default profile (CDPSM, CIM16).':''}</div>`:`<div class="muted">Locked.</div>`)+(warns.length?`<div class="caution" style="margin-top:8px;font-size:13px">${warns.join('<br>')}</div>`:'')+(f==='cim'&&sel.size?`<p class="muted" style="font-size:13px;margin:8px 0 0">${nf(CL.filter(c=>sel.has(c[0])&&c[2]).reduce((s,c)=>s+c[1],0))} features selected. CIM writes ~${(CL.filter(c=>sel.has(c[0])&&c[2]).reduce((s,c)=>s+c[1],0)*4.2/1000).toFixed(1)} MB per 1 000 features here (≈ 4 KB each with terminals and locations).</p>`:''); }
+  $('#rq-c').onchange=e=>{ const c=e.target.closest('input'); if(!c) return; c.checked?sel.add(c.dataset.c):sel.delete(c.dataset.c); paint(); };
+  $('#rq-f').onchange=paint; $('#rq-s').oninput=paint; onPersona(paint);
+})();
+
+/* ===== W14: job state machine ===== */
+(function(){
+  const ST=['queued','running','succeeded','failed'];
+  let j, log;
+  function reset(){ j={state:'queued',attempts:0,lease:0}; log=['Job created: <b>queued</b>.']; paint(); }
+  function step(){
+    const w=$('#jb-w').checked, crash=$('#jb-c').checked, big=$('#jb-big').checked;
+    if(j.state==='succeeded'||j.state==='failed'){ log.push('Terminal state — create a new job.'); return paint(); }
+    if(j.state==='queued'){ if(!w){ log.push('No export worker is running, so nothing claims the job. It stays <b>queued</b> indefinitely (start <code>cmd/exportworker</code>).'); return paint(); }
+      j.attempts++; j.state='running'; log.push(`Worker claims the job (attempt <b>${j.attempts}</b> of 3) and takes a 60 s lease.`); return paint(); }
+    if(j.state==='running'){
+      if(big){ j.state='failed'; log.push('Encoder enforces the cap: <b>more than 50 000 features</b> in a class → <b>failed</b> (a permanent error — no retry).'); return paint(); }
+      if(crash){ if(j.attempts>=3){ j.state='failed'; log.push('Lease expired again. Attempt limit reached → <b>failed</b> (poison job): “claimed 3 times, never finished”.'); } else { j.state='queued'; log.push('The process dies mid-encode. After the 60 s lease expires the job returns to <b>queued</b> for another attempt.'); } return paint(); }
+      j.state='succeeded'; log.push('Encoded, uploaded, marked <b>succeeded</b>. Download uses a presigned link valid <b>15 minutes</b>; files and jobs are swept after <b>7 days</b>.'); return paint(); }
+  }
+  function paint(){
+    const xs=[40,230,420,620]; const lbl={queued:'queued',running:'running',succeeded:'succeeded',failed:'failed'};
+    let g=''; ST.forEach((s,i)=>{ const on=j.state===s; const col=s==='failed'?'var(--red)':s==='succeeded'?'var(--green)':'var(--acc)'; g+=`<rect x="${xs[i]}" y="40" width="120" height="52" rx="9" fill="${on?'var(--tint)':'var(--raise)'}" stroke="${on?col:'var(--line)'}" stroke-width="${on?3:1.5}"/><text x="${xs[i]+60}" y="71" text-anchor="middle" font-size="13" font-weight="700" style="fill:var(--ink)">${lbl[s]}</text>`; });
+    g+=`<path d="M160,66 H228" stroke="var(--acc)" stroke-width="2" marker-end="url(#ar2)"/><path d="M350,66 H418" stroke="var(--acc)" stroke-width="2" marker-end="url(#ar2)"/><path d="M350,92 q0,28 -60,28 H230 q-70,0 -70,-28" fill="none" stroke="var(--muted)" stroke-dasharray="4 3" marker-end="url(#ar2)"/><text x="255" y="116" text-anchor="middle" font-size="10.5" style="fill:var(--muted)">lease expired → retry</text><path d="M350,40 q130,-34 270,0" fill="none" stroke="var(--red)" stroke-width="1.5" marker-end="url(#ar2)"/><text x="480" y="22" text-anchor="middle" font-size="10.5" style="fill:var(--red)">cap exceeded / 3rd attempt</text>`;
+    $('#jb-svg').innerHTML=`<defs><marker id="ar2" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--acc)"/></marker></defs>`+g;
+    $('#jb-out').innerHTML=`<div class="kv"><span>State</span><b>${j.state}</b></div><div class="kv"><span>Attempts</span><b>${j.attempts} / 3</b></div><ol class="steps" style="margin:8px 0 0;font-size:13px">${log.slice(-5).map(l=>`<li>${l}</li>`).join('')}</ol>`; }
+  $('#jb-step').onclick=step; $('#jb-reset').onclick=reset; reset();
+})();
+
+/* ===== W15: file explorer ===== */
+(function(){
+  let cls='ALL', showHead=false;
+  const out0=()=>encodeNow(); 
+  function names(xml){ const m={}; blocks(xml).forEach(b=>{ const n=(b.body.match(/IdentifiedObject.name>([^<]*)</)||[])[1]; m[b.id]=n||b.cls; }); return m; }
+  function paint(){
+    const out=out0(); const bs=blocks(out.xml); const nm=names(out.xml); const counts={}; bs.forEach(b=>counts[b.cls]=(counts[b.cls]||0)+1);
+    $('#fx-b').innerHTML=`<button class="btn" data-c="ALL" aria-pressed="${cls==='ALL'}">all (${bs.length})</button>`+Object.keys(counts).sort().map(c=>`<button class="btn" data-c="${c}" aria-pressed="${cls===c}">${c} · ${counts[c]}</button>`).join('');
+    const q=$('#fx-q').value.trim().toLowerCase(); let list=bs.filter(b=>(cls==='ALL'||b.cls===cls)&&(!q||b.text.toLowerCase().includes(q)||(nm[b.id]||'').toLowerCase().includes(q)));
+    $('#fx-n').textContent=list.length+' object'+(list.length===1?'':'s');
+    const head=showHead?out.xml.split('\n').slice(0,3).join('\n')+'\n  …\n\n':'';
+    $('#fx-out').textContent=head+list.slice(0,40).map(b=>b.text.replace(/#_([0-9a-f-]{36})/g,(m,id)=>'#_'+id.slice(0,8)+'… <!-- '+(nm[id]||'?')+' -->').replace(/rdf:ID="_([0-9a-f]{8})[0-9a-f-]{28}"/,'rdf:ID="_$1…"')).join('')+(list.length>40?`\n… ${list.length-40} more`:'');
+    $('#fx-dl').textContent=showHead?'Hide header':'Show header'; }
+  $('#fx-b').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cls=b.dataset.c; paint(); };
+  $('#fx-q').oninput=paint; $('#fx-dl').onclick=()=>{ showHead=!showHead; paint(); }; onModel(paint); paint();
+})();
+
+/* ===== W16: buckets ===== */
+(function(){
+  function paint(){ const geo=$('#bk-g').checked, mapped=$('#bk-m').checked, kind=$('#bk-k').value; $('#bk-k').disabled=!mapped;
+    let b,w,c;
+    if(!geo){ b='Mapped but unreachable'; w='never in the file'; c='stale'; if(!mapped) b='Not selectable (no geometry, no mapping)'; }
+    else if(!mapped){ b='Unmapped'; w='not in the file — logged, shown on the amber card'; c='stale'; }
+    else if(kind==='skip'){ b='Skipped'; w='not in the file — a recorded decision, no warning'; c='sec'; }
+    else { b='Mapped'; w=kind.startsWith('conducting')?'in the file, with terminals and nodes':kind==='asset'?'in the file as an asset, no terminals':kind==='protection'?'in the file as a bare ProtectionEquipment':'in the file as a container'; c='fresh'; }
+    $('#bk-out').innerHTML=`${pill(b,c)} <span style="font-size:14px">${w}</span>${!geo&&mapped?'<p class="caution" style="margin:8px 0 0;font-size:13px">The export refuses to select a geometry-less class (<code>feature class "X" has no geometry, so it can’t be exported</code>), so a mapping row on it is dead weight.</p>':''}`; }
+  ['bk-g','bk-m','bk-k'].forEach(i=>$('#'+i).onchange=paint);
+  $('#bk-un').innerHTML=['BAY','PROTECTIVE_RELAY','MV_SWITCHBOARD','MV_SWITCHGEAR_PANEL','SUBSTATION_PANEL'].map(x=>`<span class="pill stale mono">${x}</span>`).join(''); paint();
+})();
+
+/* ===== W17: gap ledger ===== */
+(function(){
+  const G=[
+   ['G1','Units are SI base units','V, VA, m, Ω — CGMES tools expect kV/MW/km.','load','Tell the recipient; convert with cim_adapt.py --units cgmes.'],
+   ['G2','No transformer impedance, vector group, taps','Windings carry rating and voltage only.','load','Add from nameplate/library downstream.'],
+   ['G3','Line impedance is partial','Only where a material spec exists; positive sequence; 1 mΩ rounding.','data','Enrich specs, or compute from Conductor.length.'],
+   ['G4','No steady-state data','No loads, set-points, switch.open.','load','Attach demand downstream (cim_add_loads.py).'],
+   ['G5','Connectivity nodes only','No TopologicalNodes; open switches matter.','info','Let the consumer’s topology processor resolve.'],
+   ['G6','Phases are partial','Conductors and street lights only; no Terminal.phases.','data','State phasing separately.'],
+   ['G7','Asset/metering links','A UsagePoint is not linked to its EnergyConsumer.','data','Join on name/position downstream.'],
+   ['G8','One combined file, not CGMES-split','Single CDPSM document; mRID literal; unnamed nodes.','info','cim_adapt.py --split --strip-mrid.'],
+   ['G9','Container quirks','Bay dormant; cubicles map to EquipmentContainer.','info','Model a point container class.'],
+   ['G10','Graph closed over selection; 50 000 cap','Cut feeders float.','data','Export whole feeders.'],
+   ['G11','Conductor ends are a geometry heuristic','Wrong geometry silently floats an end.','data','Validate; fix drawing.'],
+   ['G12','Ground terminals vanish','Connections to them are dropped.','info','None needed for load flow.'],
+   ['G13','Cross-class attributes land on equipment','Tap-changer/regulator attributes appear inside the transformer.','info','Treat as informational.'],
+   ['G14','No voltage-consistency check','A 33 kV span can meet an 11 kV terminal.','data','Run the validator (W-VOLT).'],
+   ['G15','Lengths are spherical geodesics','≈0.3 % of ellipsoid; planar if reprojected.','info','Fine for planning, not cadastral.'],
+   ['G16','Unplaced features','No Location; unplaced conductor has no length.','data','Place the feature.'],
+   ['G17','Profile label','Default label says 2013; not an edition claim.','info','Add a profile row if a specific URI is required.'],
+   ['G18','LV equipment has no BaseVoltage','Shipped mapping only voltage-tags MV and windings.','load','Recipe R2 (Chapter 10).']];
+  const chk=new Set(['G1','G4','G2']); let area='';
+  function paint(){
+    const q=$('#gl-q').value.trim().toLowerCase(); const rows=G.filter(g=>(!area||g[3]===area)&&(!q||g.join(' ').toLowerCase().includes(q)));
+    $('#gl-n').textContent=rows.length+' of '+G.length;
+    $('#gl-list').innerHTML=rows.map(g=>`<label style="display:flex;gap:10px;padding:9px 14px;border-top:1px solid var(--line2);align-items:flex-start;cursor:pointer"><input type="checkbox" data-g="${g[0]}" ${chk.has(g[0])?'checked':''} style="margin-top:4px"><span style="font-size:13.5px"><b>${g[0]} — ${g[1]}</b> ${g[3]==='load'?pill('stops a load flow','stale'):g[3]==='data'?pill('needs data','sec'):pill('good to know','fresh')}<br><span class="muted">${g[2]}</span><br><i>Workaround:</i> ${g[4]}</span></label>`).join('');
+    const sel=G.filter(g=>chk.has(g[0]));
+    $('#gl-note').value=`CIM export of the Oakwood zone — read before importing\n\nFormat: CIM/XML (RDF/XML), CIM16 namespace, single CDPSM-style document.\nUnits: SI base units (V, VA, m, ohm).\n\nKnown limits that affect you:\n`+sel.map(g=>`- ${g[0]}: ${g[1]}. ${g[2]} → ${g[4]}`).join('\n')+`\n\nPlease import a single feeder first and reconcile counts, kilometres and kVA with our figures before loading the full network.`; }
+  $('#gl-list').onchange=e=>{ const c=e.target.closest('input'); if(!c) return; c.checked?chk.add(c.dataset.g):chk.delete(c.dataset.g); paint(); };
+  $('#gl-q').oninput=paint; seg('#gl-a',b=>{ area=b.dataset.v; paint(); }); $('#gl-cp').onclick=()=>{ $('#gl-note').focus(); $('#gl-note').select(); }; paint();
+})();
+
+/* ===== W18: three layers ===== */
+(function(){
+  const L=[
+   {k:'schema',t:'Schema',std:'IEC 61970-301 · 61968-11',txt:'The UML model: every class (ACLineSegment, Terminal…), attribute and association, versioned (CIM16, 17, 100…). It says what exists, not what a file contains.',vs:'VoltEdge writes the <b>CIM16</b> namespace <code>http://iec.ch/TC57/2013/CIM-schema-cim16#</code> by default; the namespace is a profile column, so another version is one row away.'},
+   {k:'profile',t:'Profile',std:'IEC 61970-452 · 600 · 61968-13',txt:'A subset of the schema for one exchange job, with mandatory/optional attributes. CGMES splits a model into EQ (equipment), TP (topology), SSH (steady state), SV (solved state), GL (geography). CDPSM is the distribution profile.',vs:'VoltEdge targets <b>CDPSM-style</b>: a single combined document with equipment, connectivity and geometry, no SSH/SV. Its identifier <code>http://iec.ch/TC57/61968-13/CDPSM/2013#</code> is historical, not an edition claim (G17).'},
+   {k:'ser',t:'Serialisation',std:'IEC 61970-552',txt:'How the objects become bytes: CIMXML, a restricted RDF/XML. Defines ids, attribute/association encoding, the md:FullModel header.',vs:'VoltEdge follows CIMXML: <code>rdf:ID="_uuid"</code>, <code>cim:Class.attr</code> children, <code>rdf:resource</code> references.'}];
+  let cur='profile'; $('#st-b').innerHTML=L.map(l=>`<button class="btn" data-k="${l.k}" aria-pressed="${l.k===cur}">${l.t}</button>`).join('');
+  const GRID=[['EQ — equipment','✅ written (combined)'],['TP — topology','⚠️ ConnectivityNodes only, no TopologicalNodes'],['SSH — steady state','❌ only Switch.normalOpen'],['SV — state variables','❌ not applicable (no solved case)'],['GL — geography','✅ Location + PositionPoint']];
+  function paint(){ const l=L.find(x=>x.k===cur); $('#st-out').innerHTML=`<div class="kv"><span>Governing standard</span><b>${l.std}</b></div><p style="font-size:14px;margin:8px 0">${l.txt}</p><p style="font-size:14px;margin:0"><b>In VoltEdge:</b> ${l.vs}</p>`+(cur==='profile'?`<div class="tbl" style="margin-top:8px"><table><tr><th>CGMES-style part</th><th>VoltEdge file</th></tr>${GRID.map(g=>`<tr><td>${g[0]}</td><td>${g[1]}</td></tr>`).join('')}</table></div>`:'')+(cur==='schema'?`<div class="lab" style="margin-top:8px">Header the encoder writes for each namespace</div><pre class="code" style="margin:4px 0 0;font-size:12.5px">${esc(CIMX.encode(Object.assign({},M.scn,{mapping:(function(){const m=M.scn.mapping;return new CIMX.Mapping(Object.assign({},m.profile),m.classes,m.attrs);})()})).xml.split('\n').slice(1,2).join('\n'))}</pre>`:''); $$('#st-b button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur)); }
+  $('#st-b').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); }; onModel(paint); paint();
+})();
+
+/* ===== W19: node-breaker → bus-branch ===== */
+(function(){
+  let open=false;
+  function paint(){
+    const out=encodeNow(); const sw=Object.keys(FEAT).find(k=>FEAT[k].code==='DIST_SWITCH');
+    const bs=blocks(out.xml); const term=bs.filter(b=>b.cls==='Terminal'&&b.body.includes('ConductingEquipment rdf:resource="#_'+sw+'"')).map(b=>(b.body.match(/ConnectivityNode rdf:resource="#_([0-9a-f-]+)"/)||[])[1]);
+    const nodes=bs.filter(b=>b.cls==='ConnectivityNode').map(b=>b.id);
+    const parent={}; nodes.forEach(n=>parent[n]=n); const find=x=>parent[x]===x?x:(parent[x]=find(parent[x]));
+    if(!open&&term.length===2) parent[find(term[0])]=find(term[1]);
+    const topo=new Set(nodes.map(find)).size;
+    $('#nb-out').innerHTML=`<div class="kv"><span>ConnectivityNodes in the file</span><b>${nodes.length}</b></div><div class="kv"><span>Topological nodes after processing</span><b>${topo}</b></div><p style="font-size:13.5px;margin:8px 0 0">${open?'With the switch open its two terminals stay on separate nodes — the feeder end beyond it is a dead end for the solver.':'With the switch closed the consumer merges the switch’s two nodes into one bus — one fewer node. The file did not change; the <em>interpretation</em> did.'} (VoltEdge also writes <code>Switch.normalOpen=${open}</code> in the equipment element.)</p>`; }
+  seg('#nb-s',b=>{ open=b.dataset.v==='true'; paint(); }); onModel(paint); paint();
+})();
+
+/* ===== W20: adapter chooser ===== */
+(function(){
+  function paint(){
+    const t=$('#ad-t').value, u=$('#ad-u').value, id=$('#ad-i').value, sm=$('#ad-m').checked, sp=$('#ad-s').checked, ld=$('#ad-l').checked;
+    if(t==='look'){ $('#ad-out').innerHTML=`<p style="font-size:14px;margin:0">A CIM file is not a map. Give GIS users <b>KMZ or Shapefile</b>, CAD users <b>DXF</b>. If someone insists on seeing the CIM, any XML viewer works; <code>xmllint --xpath</code> finds a named piece of equipment in seconds.</p>`; return; }
+    const steps=[]; let cur='oakwood.xml';
+    const nx=(label)=>{ const n=label; return n; };
+    if(ld){ steps.push(`python3 scripts/cim/cim_add_loads.py ${cur} loads.csv with_loads.xml${u==='cgmes'?' --units cgmes':''}`); cur='with_loads.xml'; }
+    const a=['python3 scripts/cim/cim_adapt.py',cur,'adapted.xml']; if(u==='cgmes') a.push('--units cgmes'); if(id==='urn') a.push('--id-style urn'); if(sm||t==='cgmes') a.push('--strip-mrid'); a.push('--strip-ve'); if(sp||t==='cgmes') a.push('--split eq.xml gl.xml');
+    steps.push(a.join(' ')); steps.push(`python3 scripts/cim/cim_validate.py ${(sp||t==='cgmes')?'eq.xml gl.xml':'adapted.xml'} --summary`);
+    const notes=[]; if(t==='dsa') notes.push('Expect an asset-catalogue (CAT) step for wires and transformers, and phases stated explicitly. SI units are what this family already uses.'); if(t==='cgmes') notes.push('Expect complaints about mandatory attributes the CDPSM profile lacks, especially per-winding <code>r</code>/<code>x</code> (G2). EQ-only is a supported starting point for powsybl — confirm for your version. Loads (SSH) come separately.'); if(t==='vendor') notes.push('Ask the vendor: which profile and version, which units, are ids <code>urn:uuid</code>, does it accept <code>mRID</code>, does it need split files, where do loads come from? Then follow the matching row. Insist on the one-feeder first import.');
+    $('#ad-out').innerHTML=`<div class="lab">Pipeline</div><pre class="code" style="margin:4px 0 8px;font-size:12.5px;white-space:pre-wrap">${esc(steps.join('\n'))}</pre><ul style="font-size:13.5px;margin:0 0 0 18px">${notes.map(n=>`<li>${n}</li>`).join('')}<li>Order of <code>add_loads</code> and <code>adapt</code> does not matter — adapt never touches <code>p</code>/<code>q</code>.</li></ul>`; }
+  ['ad-t','ad-u','ad-i','ad-m','ad-s','ad-l'].forEach(i=>$('#'+i).onchange=paint); paint();
+})();
+
+/* ===== W21: reconciliation ===== */
+(function(){
+  function paint(){ const out=encodeNow(); const bs=blocks(out.xml); const c={}; bs.forEach(b=>c[b.cls]=(c[b.cls]||0)+1);
+    let km=0; bs.filter(b=>b.cls==='ACLineSegment').forEach(b=>{ const m=b.body.match(/Conductor.length>([\d.]+)</); if(m) km+=parseFloat(m[1])/1000; });
+    let kva=0; const seen={}; bs.filter(b=>b.cls==='PowerTransformerEnd').forEach(b=>{ const tx=(b.body.match(/PowerTransformer rdf:resource="#_([0-9a-f-]+)"/)||[])[1]; const m=b.body.match(/ratedS>([\d.]+)</); if(m&&!seen[tx]){ seen[tx]=1; kva+=parseFloat(m[1])/1000; } });
+    const rows=[['Substations',c.Substation||0],['Line segments',c.ACLineSegment||0],['Transformers',c.PowerTransformer||0],['Switches',(c.LoadBreakSwitch||0)+(c.Recloser||0)+(c.Breaker||0)],['Energy consumers',c.EnergyConsumer||0],['Usage points',c.UsagePoint||0],['Terminals',c.Terminal||0],['Connectivity nodes',c.ConnectivityNode||0],['Line length (km)',km.toFixed(3)],['Installed transformer capacity (kVA)',kva]];
+    $('#rc-out').innerHTML=`<div class="tbl"><table><tr><th>Quantity</th><th>Your export</th><th>Recipient reports</th><th></th></tr>${rows.map((r,i)=>`<tr><td>${r[0]}</td><td><b>${r[1]}</b></td><td><input type="text" data-r="${i}" style="width:90px" aria-label="recipient ${r[0]}"></td><td data-ok="${i}" style="font-size:13px"></td></tr>`).join('')}</table></div><p class="muted" style="font-size:13px;margin:6px 0 0">Type the recipient’s figures; a mismatch is flagged. Try 4 nodes instead of 5, or 0.285 km against ${km.toFixed(3)}.</p>`;
+    $('#rc-out').oninput=e=>{ const t=e.target.closest('input'); if(!t) return; const i=+t.dataset.r, td=$('#rc-out [data-ok="'+i+'"]'); if(!t.value.trim()){ td.textContent=''; return; } const a=parseFloat(t.value), b=parseFloat(rows[i][1]); td.innerHTML=Math.abs(a-b)<=Math.max(1e-6,Math.abs(b)*0.005)?'<span class="pill fresh">match</span>':'<span class="pill stale">differs — investigate</span>'; }; }
+  onModel(paint); paint();
+})();
+
+/* ===== W22: validator ===== */
+(function(){
+  let xml=null, injected=[];
+  const INJ=[['ref','Dangling reference',x=>x.replace(/(Terminal\.ConnectivityNode rdf:resource="#_)[0-9a-f-]{36}/,'$1'+'00000000-0000-4000-8000-000000000000')],
+   ['e452','Both ends of a conductor on one node',x=>{ const bs=blocks(x); const c=bs.find(b=>b.cls==='ACLineSegment'); const ts=bs.filter(b=>b.cls==='Terminal'&&b.body.includes('ConductingEquipment rdf:resource="#_'+c.id+'"')); const n0=ts[0].body.match(/ConnectivityNode rdf:resource="(#_[0-9a-f-]+)"/)[1]; const t1=ts[1].text; return x.replace(t1,t1.replace(/(ConnectivityNode rdf:resource=")#_[0-9a-f-]+/,'$1'+n0)); }],
+   ['wind','Delete a transformer winding',x=>{ const e=blocks(x).filter(b=>b.cls==='PowerTransformerEnd'); return x.replace(e[1].text,''); }],
+   ['volt','Wire a conductor to the wrong voltage',x=>{ const bs=blocks(x); const c=bs.find(b=>b.cls==='ACLineSegment'); const bv415=bs.find(b=>b.cls==='BaseVoltage'&&/>415</.test(b.body)).id; return x.replace(c.text,c.text.replace(/(ConductingEquipment\.BaseVoltage rdf:resource="#_)[0-9a-f-]+/,'$1'+bv415)); }],
+   ['kv','Write kV instead of volts',x=>x.replace(/BaseVoltage\.nominalVoltage>11000</,'BaseVoltage.nominalVoltage>11<').replace(/BaseVoltage\.nominalVoltage>415</,'BaseVoltage.nominalVoltage>0.415<')],
+   ['len','Strip a conductor length',x=>x.replace(/\s*<cim:Conductor\.length>[^<]*<\/cim:Conductor\.length>/,'')]];
+  function validate(x){
+    const E=[],W=[],I=[]; const bs=blocks(x); const objs={}; const dup=new Set();
+    bs.filter(b=>b.cls!=='FullModel').forEach(b=>{ if(objs[b.id]) E.push(['E-DUP',`duplicate id ${b.id.slice(0,8)}…`]); objs[b.id]=b; });
+    const nm=id=>{ const b=objs[id]; return b?((b.body.match(/IdentifiedObject.name>([^<]*)</)||[])[1]||b.cls):'?'; };
+    const ref=(b,p)=>{ const m=b.body.match(new RegExp('cim:'+p.replace('.','\\.')+' rdf:resource="#_([0-9a-f-]+)"')); return m?m[1]:null; };
+    bs.forEach(b=>{ const re=/rdf:resource="#_([0-9a-f-]+)"/g; let m; while((m=re.exec(b.body))){ if(!objs[m[1]]) E.push(['E-REF',`${b.cls} ${b.id.slice(0,8)}…: points at missing object ${m[1].slice(0,8)}…`]); } });
+    const by=c=>bs.filter(b=>b.cls===c); const termsOf={}, nodeTerms={};
+    by('Terminal').forEach(t=>{ const eq=ref(t,'Terminal.ConductingEquipment'), cn=ref(t,'Terminal.ConnectivityNode'); if(!eq) E.push(['E-TERM',`Terminal ${t.id.slice(0,8)}… has no ConductingEquipment`]); if(!cn) E.push(['E-TERM',`Terminal ${t.id.slice(0,8)}… has no ConnectivityNode`]); if(eq) (termsOf[eq]=termsOf[eq]||[]).push(t); if(cn) (nodeTerms[cn]=nodeTerms[cn]||[]).push(t); });
+    ['ACLineSegment','LoadBreakSwitch','Recloser','Breaker','Disconnector'].forEach(c=>by(c).forEach(b=>{ const ts=termsOf[b.id]||[]; if(ts.length!==2){ E.push(['E-2TERM',`${nm(b.id)}: ${c} has ${ts.length} terminals, expected 2`]); return; } const nodes=new Set(ts.map(t=>ref(t,'Terminal.ConnectivityNode'))); if(nodes.size===1) E.push(['E-452',`${nm(b.id)}: both terminals sit on the same ConnectivityNode (CGMES constraint 452)`]); }));
+    const endsOf={}; by('PowerTransformerEnd').forEach(e=>{ const tx=ref(e,'PowerTransformerEnd.PowerTransformer'); (endsOf[tx]=endsOf[tx]||[]).push(e); });
+    by('PowerTransformer').forEach(b=>{ const n=(endsOf[b.id]||[]).length; if(n<2) E.push(['E-WIND',`${nm(b.id)}: PowerTransformer has ${n} winding(s), a valid transformer needs at least 2`]); });
+    const open=[]; by('ConnectivityNode').forEach(n=>{ const k=(nodeTerms[n.id]||[]).length; if(k===0) E.push(['E-NODE',`ConnectivityNode ${n.id.slice(0,8)}… has no terminals`]); else if(k===1) open.push(nm(ref(nodeTerms[n.id][0],'Terminal.ConductingEquipment'))+' (terminal '+(nodeTerms[n.id][0].body.match(/sequenceNumber>(\d+)</)||[])[1]+')'); });
+    if(open.length) W.push(['W-OPEN',`${open.length} open end(s) on single-terminal nodes: ${open.sort().slice(0,12).join('; ')}`]);
+    const volts={}; by('BaseVoltage').forEach(b=>{ const v=parseFloat((b.body.match(/nominalVoltage>([^<]*)</)||[])[1]); if(isNaN(v)) E.push(['E-BV',`BaseVoltage ${b.id.slice(0,8)}… has no numeric nominalVoltage`]); else volts[b.id]=v; });
+    const endBV={}; by('PowerTransformerEnd').forEach(e=>{ const tm=ref(e,'TransformerEnd.Terminal'), bv=ref(e,'TransformerEnd.BaseVoltage'); if(tm&&bv) endBV[tm]=bv; });
+    Object.keys(nodeTerms).forEach(n=>{ const seen={}; nodeTerms[n].forEach(t=>{ const eid=ref(t,'Terminal.ConductingEquipment'); const bv=endBV[t.id]||(objs[eid]?ref(objs[eid],'ConductingEquipment.BaseVoltage'):null); if(bv&&bv in volts) seen[nm(eid)]=volts[bv]; }); if(new Set(Object.values(seen)).size>1) W.push(['W-VOLT',`node ${n.slice(0,8)}…: joins different voltages ${JSON.stringify(seen)}`]); });
+    const vs=Object.values(volts); if(vs.length&&Math.max(...vs)<1000) W.push(['W-UNIT',`largest BaseVoltage is ${Math.max(...vs)}: file looks like kV, not the SI volts VoltEdge writes`]);
+    const nolen=by('ACLineSegment').filter(b=>!/Conductor\.length/.test(b.body)).map(b=>nm(b.id)); if(nolen.length) W.push(['W-LEN',`${nolen.length} ACLineSegment(s) have no Conductor.length (unplaced?): ${nolen.join('; ')}`]);
+    const noimp=by('ACLineSegment').filter(b=>!/ACLineSegment\.r>/.test(b.body)).length; if(noimp) I.push(`${noimp} of ${by('ACLineSegment').length} ACLineSegment(s) carry no impedance (no material spec)`);
+    I.unshift(`${bs.length} objects; ${by('Terminal').length} terminals on ${by('ConnectivityNode').length} nodes; ${by('ACLineSegment').length} lines; ${by('PowerTransformer').length} transformers`);
+    return {E,W,I}; }
+  function paint(){
+    xml=encodeNow().xml; injected.forEach(k=>{ try{ xml=INJ.find(i=>i[0]===k)[2](xml); }catch(e){} });
+    $('#vd-b').innerHTML=INJ.map(i=>`<button class="btn" data-k="${i[0]}" aria-pressed="${injected.includes(i[0])}">${i[1]}</button>`).join('');
+    const r=validate(xml);
+    $('#vd-out').textContent=['INFO',...r.I.map(i=>'  '+i),'',...(r.E.length?['ERRORS',...r.E.map(e=>'  '+e[0]+'  '+e[1])]:['ERRORS','  (none)']),'',...(r.W.length?['WARNINGS',...r.W.map(e=>'  '+e[0]+'  '+e[1])]:['WARNINGS','  (none)'])].join('\n');
+    $('#vd-sum').innerHTML=`<div class="kv"><span>Exit status</span><b>${r.E.length?'1 (failed)':'0 (ok)'}</b></div><div class="kv"><span>Errors</span><b>${r.E.length}</b></div><div class="kv"><span>Warnings</span><b>${r.W.length}</b></div><p class="muted" style="font-size:13px;margin:8px 0 0">Click a defect to inject it into the file above and re-run. The clean Oakwood file has no errors and one expected warning: <code>W-OPEN</code> for the switch’s unconnected terminal 1 (a real network adds its feeder ends).</p>`; }
+  $('#vd-b').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; const k=b.dataset.k, i=injected.indexOf(k); i>=0?injected.splice(i,1):injected.push(k); paint(); };
+  $('#vd-reset').onclick=()=>{ injected=[]; paint(); }; onModel(paint); paint();
+  window.__validate=validate;
+})();
+
+/* ===== W23: diff ===== */
+(function(){
+  function paint(){ const e=$('#df-e').value; const a=encodeNow({}); const s=Object.assign({},M.scn); s.layers=M.scn.layers.map(l=>Object.assign({},l)); s.mapping=M.scn.mapping;
+    if(e==='rename'){ s.layers=s.layers.map(l=>l.code==='DIST_XFMR'?Object.assign({},l,{features:l.features.map(f=>Object.assign({},f,{name:'TX-Feeder7-014 (relabelled)'}))}):l); }
+    if(e==='kva'){ s.layers=s.layers.map(l=>l.code==='DIST_XFMR'?Object.assign({},l,{features:l.features.map(f=>Object.assign({},f,{attrs:Object.assign({},f.attrs,{rated_kva:500})}))}):l); }
+    if(e==='cut'){ s.conns=M.scn.conns.slice(0,3); }
+    const b=CIMX.encode(s); const strip=x=>x.split('\n').filter(l=>!/Model\.created|FullModel/.test(l)); const A=strip(a.xml), B=strip(b.xml); const SA=new Set(A), SB=new Set(B);
+    const del=A.filter(l=>!SB.has(l)), add=B.filter(l=>!SA.has(l));
+    $('#df-out').textContent=e==='none'?'(no differences — the encoder is deterministic; only the header would differ between runs)':[...del.slice(0,18).map(l=>'- '+l.trim()),...add.slice(0,18).map(l=>'+ '+l.trim())].join('\n')+(del.length>18||add.length>18?`\n… ${del.length} removed, ${add.length} added`:''); }
+  $('#df-e').onchange=paint; onModel(paint); paint();
+})();
+
+/* ===== W24: recipes ===== */
+(function(){
+  const R={
+   R1:{t:'R1 · Map a new conducting class',f:[['cls','Feature class code','MV_NEW_BREAKER'],['cim','CIM class','Breaker'],['kind','Kind','conducting_junction']],sql:v=>`INSERT INTO metadata.cim_class_mappings (feature_class_id, subtype_id, cim_class, cim_kind)\nSELECT fc.id, NULL, '${v.cim}', '${v.kind}'\nFROM metadata.feature_classes fc\nWHERE fc.code = '${v.cls}'\n  AND NOT EXISTS (SELECT 1 FROM metadata.cim_class_mappings m\n                  WHERE m.feature_class_id = fc.id AND m.subtype_id IS NULL);`,n:'A junction class needs terminal definitions (metadata.terminals) or it gets one implicit terminal — a switch needs two.'},
+   R2:{t:'R2 · Give LV equipment a voltage (closes G18)',f:[['cls','Classes (comma-separated)','LV_CONDUCTOR,SERVICE_POINT,LV_BUSBAR'],['fld','Voltage field','voltage_class'],['code','Code','LV'],['v','Volts','415']],sql:v=>`INSERT INTO metadata.cim_attribute_mappings (field_id, cim_attribute, transform, value_map, unit)\nSELECT f.id, 'BaseVoltage.nominalVoltage', 'domain_map', '{"${v.code}":${v.v}}'::jsonb, 'V'\nFROM metadata.fields f JOIN metadata.feature_classes fc ON fc.id = f.feature_class_id\nWHERE fc.code IN (${v.cls.split(',').map(x=>`'${x.trim()}'`).join(',')}) AND f.name = '${v.fld}'\nON CONFLICT (field_id, cim_attribute) DO NOTHING;`,n:'The class needs a coded voltage field first (add it in the metadata editor and recompile). The 415 V BaseVoltage already exists from the transformer winding and is reused by reference.'},
+   R3:{t:'R3 · Line impedance from a material spec',f:[['cls','Conductor class','MV_CONDUCTOR'],['fld','Spec field','conductor_spec']],sql:v=>`INSERT INTO metadata.cim_attribute_mappings (field_id, cim_attribute, transform, unit)\nSELECT f.id, x.attr, 'material_spec', 'ohm'\nFROM metadata.fields f JOIN metadata.feature_classes fc ON fc.id = f.feature_class_id\nCROSS JOIN (VALUES ('ACLineSegment.r'), ('ACLineSegment.x')) AS x(attr)\nWHERE fc.code = '${v.cls}' AND f.name = '${v.fld}'\nON CONFLICT (field_id, cim_attribute) DO NOTHING;`,n:'The class also needs the Conductor.length / from_geometry mapping: impedance is per-km × length. Short LV cables round to zero at 1 mΩ.'},
+   R5:{t:'R5 · Treat one subtype differently',f:[['cls','Class','DIST_SWITCH'],['sub','Subtype code','2'],['cim','CIM class','Recloser'],['kind','Kind','conducting_junction']],sql:v=>`INSERT INTO metadata.cim_class_mappings (feature_class_id, subtype_id, cim_class, cim_kind)\nSELECT fc.id, st.id, '${v.cim}', '${v.kind}'\nFROM metadata.feature_classes fc\nJOIN metadata.subtypes st ON st.feature_class_id = fc.id AND st.code = ${v.sub}\nWHERE fc.code = '${v.cls}'\n  AND NOT EXISTS (SELECT 1 FROM metadata.cim_class_mappings m\n                  WHERE m.feature_class_id = fc.id AND m.subtype_id = st.id);`,n:'The subtype row beats the class default for features of that subtype only.'},
+   R6:{t:'R6 · Exclude a class on purpose',f:[['cls','Class','CABLE_DUCT']],sql:v=>`INSERT INTO metadata.cim_class_mappings (feature_class_id, subtype_id, cim_class, cim_kind)\nSELECT fc.id, NULL, '(not exported)', 'skip'\nFROM metadata.feature_classes fc\nWHERE fc.code = '${v.cls}'\n  AND NOT EXISTS (SELECT 1 FROM metadata.cim_class_mappings m\n                  WHERE m.feature_class_id = fc.id AND m.subtype_id IS NULL);`,n:'A recorded decision: no warning, unlike an unmapped class.'},
+   R7:{t:'R7 · What is unmapped?',f:[],sql:()=>`SELECT fc.code, fc.name, fc.geometry_type\nFROM metadata.feature_classes fc\nWHERE NOT EXISTS (SELECT 1 FROM metadata.cim_class_mappings m WHERE m.feature_class_id = fc.id)\nORDER BY fc.code;`,n:'A class with geometry type none is mapped-but-unreachable, so “unmapped” and “will appear” are different questions.'},
+   R8:{t:'R8 · Authority set and a test profile',f:[['auth','Authority URI','https://assets.example-utility.com/cim/ModelAuthoritySet']],sql:v=>`UPDATE metadata.cim_profiles\n   SET model_authority = '${v.auth}'\n WHERE code = 'CDPSM_CIM16';\n\nINSERT INTO metadata.cim_profiles\n  (code, name, cim_namespace, profile_uri, model_authority, unmapped_attr_policy, is_default)\nVALUES ('CDPSM_CIM16_CARRY', 'CDPSM CIM16 + extension fields',\n        'http://iec.ch/TC57/2013/CIM-schema-cim16#',\n        'http://iec.ch/TC57/61968-13/CDPSM/2013#',\n        '${v.auth}', 'carry', false);`,n:'Request it with "cim_profile": "CDPSM_CIM16_CARRY". Mappings are global; profiles differ in namespace, identity and unmapped policy only.'}};
+  let cur='R1'; $('#rc-b').innerHTML=Object.keys(R).map(k=>`<button class="btn" data-k="${k}" aria-pressed="${k===cur}">${k}</button>`).join('');
+  const val={};
+  function paint(){ const r=R[cur]; $('#rc-f').innerHTML=`<h4 style="margin:0 0 8px">${r.t}</h4>`+r.f.map(f=>`<label class="lab" style="display:block;margin-top:6px">${f[1]}</label><input type="text" data-f="${f[0]}" value="${esc((val[cur+f[0]]!=null?val[cur+f[0]]:f[2]))}" style="width:100%;max-width:420px">`).join(''); run(); $$('#rc-b button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur)); }
+  function run(){ const r=R[cur], v={}; r.f.forEach(f=>{ const el=document.querySelector('#rc-f [data-f="'+f[0]+'"]'); v[f[0]]=(el?el.value:f[2]).replace(/'/g,"''"); }); $('#rc-sql').textContent=r.sql(v); $('#rc-note').innerHTML=r.n; }
+  $('#rc-b').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); };
+  $('#rc-f').oninput=e=>{ const t=e.target.closest('input'); if(t) val[cur+t.dataset.f]=t.value; run(); }; paint();
+})();
+
+/* ===== W25: troubleshooting ===== */
+(function(){
+  const T=[['Job stays queued','No export worker is running.','Start <code>cmd/exportworker</code> (the <code>exportworker</code> compose service).'],['Job failed: more than 50000 features','Per-class cap for materialised formats.','Narrow with a bbox/territory, or export in parts.'],['Job failed after a long wait, “attempts”','A poison job: claimed 3 times, never finished — the encode crashes or runs out of memory.','Export a smaller area; check worker memory/logs.'],['400 CIM export is not configured','No default profile, or the named one does not exist.','Seed/restore <code>metadata.cim_profiles</code>; check <code>cim_profile</code>.'],['400 … has no geometry','A geometry-less class was requested.','Remove it; it cannot be exported (Chapter 6).'],['Download says not ready (409)','The job has not succeeded.','Wait; check the job status.'],['Download link no longer works','The 15-minute link expired.','Click Download again.'],['A class is missing from the file','Unmapped (log line), skipped, geometry-less, not selected, or outside your territory/bbox.','Check the buckets in Chapter 6 and the log line “CIM unmapped classes dropped…”.'],['Features missing that you see on the map','Territory scope, someone’s private draft, or the bbox.','Export as a user who can see them; publish drafts; widen the box.'],['Equipment present but no terminals','The class is mapped asset/container/protection.','Change the kind if it carries current.'],['Everything on its own node (nodes ≈ terminals)','Classes missing from the selection, or connectivity not captured.','Tick all conducting classes; fix connectivity.'],['A conductor’s far end floats although the map looks joined','Both neighbours nearer the same end, or a neighbour without geometry.','Redraw end-to-end (Chapter 4).'],['Transformer has no voltage or rating','Field not mapped or null, or the code is not in the value_map.','Add the mapping / fix the value_map keys.'],['LV conductor/load has no voltage','Gap G18.','Recipe R2.'],['No r/x on a line','The conductor’s coded value has no material spec.','Add specs (R3).'],['r seems too small on short cables','Rounding to 1 mΩ.','See Chapter 3 precision note.'],['ve: elements in the file','The profile policy is carry.','Use the default profile for strict consumers.'],['Tool says coordinates are swapped','x = lon/easting, y = lat/northing vs a lat-first reading.','Tell the importer the axis order.'],['Lengths or voltages 1000× off','Units mismatch (G1).','<code>cim_adapt.py --units</code>.'],['E-452 from the validator','Both ends of a conductor on one node.','Find it by name; fix connectivity or geometry.'],['W-VOLT from the validator','A node joins different voltages.','Fix the voltage class on the wrong feature, or the connection.']];
+  function paint(){ const q=$('#tr-q').value.trim().toLowerCase(); const rows=T.filter(r=>!q||r.join(' ').replace(/<[^>]+>/g,' ').toLowerCase().includes(q)); $('#tr-n').textContent=rows.length+' of '+T.length;
+    $('#tr-list').innerHTML=rows.map(r=>`<details style="border-top:1px solid var(--line2);padding:10px 14px"><summary style="cursor:pointer;font-weight:600">${r[0]}</summary><div style="margin-top:6px;font-size:14px"><b>Cause:</b> ${r[1]}<br><b>Do:</b> ${r[2]}</div></details>`).join(''); }
+  $('#tr-q').oninput=paint; paint();
+})();
+
+/* ===== quiz ===== */
+(function(){
+  const Q=[
+   ['A planner opens the file in a CGMES tool and every voltage looks 1000× too high. Why?','VoltEdge writes SI base units (volts), CGMES expects kV',['The CRS is wrong','VoltEdge writes SI base units (volts), CGMES expects kV','The profile is CIM17','The file is not well-formed'],'G1: voltages are 11000, not 11. Use <code>cim_adapt.py --units cgmes</code> and tell the recipient.'],
+   ['You add a connection and re-export. Which ids change?','Only ConnectivityNode ids of the affected nodes',['Every id','Only ConnectivityNode ids of the affected nodes','Equipment ids','Location ids'],'Node ids are hashed from member terminal keys; equipment, locations and terminals are keyed by feature id.'],
+   ['A relay class is mapped <code>protection</code> but never appears. Why?','It has no geometry, so the export refuses to select it',['Protection is always skipped','It has no geometry, so the export refuses to select it','The cap was exceeded','Relays are mapped twice'],'Mapped-but-unreachable: BAY, PROTECTIVE_RELAY and others.'],
+   ['The export job sits at <code>queued</code> for an hour. First thing to check?','Is <code>cmd/exportworker</code> running?',['The mapping tables','Is <code>cmd/exportworker</code> running?','The CRS','The presigned link'],'Nothing claims a queued job without the worker.'],
+   ['A transformer is mapped with <code>PowerTransformerEnd.ratedS</code> scale 1000 from rated_kva = 315. What does each winding say?','315000 (VA)',['315','315000 (VA)','315 kVA, as text','Nothing — ratedS is not a winding attribute'],'The encoder converts nothing on its own; 315 × 1000 = 315 000 VA on each winding, none on the transformer element.'],
+   ['Two conductors’ drawn directions are opposite. Does the topology still join the right ends?','Usually yes — the closest pair of ends is chosen',['No, always wrong','Usually yes — the closest pair of ends is chosen','Only for transformers','Only if reprojected'],'The edge–edge rule compares all four end pairs, so drawing direction does not matter — unless ends are far apart.'],
+   ['The validator reports <code>W-OPEN</code> on a fresh Oakwood export. Is that a bug?','No — feeder ends and unconnected switch terminals are legitimate open ends',['Yes, abort','No — feeder ends and unconnected switch terminals are legitimate open ends','Only if --strict','Yes, the encoder dropped nodes'],'Compare with your own list of intended ends.'],
+   ['You must give a vendor a CGMES-split file. Which is the honest statement?','It needs an adapter step and may still lack mandatory attributes',['Export natively as EQ/TP/SSH/SV','It needs an adapter step and may still lack mandatory attributes','VoltEdge cannot produce CIM','Change the namespace only'],'G8/G2: split with <code>cim_adapt.py --split</code>, expect missing impedance, supply loads separately.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach((el,i)=>{ const x=Q[i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===esc(x[1]); const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Answer: <b>${x[1]}</b>. `)+x[3]; }); });
+})();
+
+/* chapter rail */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a])); const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'}); document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+
+</script>
+</body></html>
