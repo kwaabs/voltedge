@@ -147,6 +147,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "field-tool-admin-guide-interactive",
+		Title:       "Field Tool Admin (interactive)",
+		Description: "The field back-office as a working simulation: follow any action through cmd/fieldsync and cmd/server, watch pack contents freeze from a crew's permissions, run the Field Packs page, size a shift-start build surge and the apply side (with PgBouncer and CPU limits), and drive the real review pipeline - policy, per-device lanes, head-of-line blocking, conflicts and supersession. Then define, grid, gate, schedule, reap and audit shared cells, stage a pack on behalf of a crew member, and diagnose faults against the live simulation. A persona switch gates every control by admin:field-packs, sync:review and sync:post.",
+		Category:    "Interactive guides",
+		Filename:    "field-tool-admin-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "symbology-guide-interactive",
 		Title:       "Symbology & Map Styling (interactive)",
 		Description: "The symbology manual as a working engine painting a sample Oakwood network: a why-can't-Priya-see-it pipeline with the cache and hard-refresh, a most-specific-wins scorer, a real SVG icon library and editor with live width/height and intrinsic-size diagnostics, a sizing calculator, the per-class rule editor (default rule, subtype and field targeting, line and polygon styles) with a click inspector, zoom bands vs Display zoom vs labels, map and diagram contexts side by side, and a seven-step diagnoser with SQL peeks. A persona switch gates every control by metadata permission.",

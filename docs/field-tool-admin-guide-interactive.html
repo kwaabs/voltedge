@@ -1,0 +1,1200 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Field Tool — Admin Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  /* section palette (categorical, validated for both themes) */
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.role{display:inline-block;font:600 11px/1 var(--f-mono);padding:3px 7px;border-radius:3px;letter-spacing:.03em}
+.role.protective{background:var(--red-tint);color:var(--red)}
+.role.switching{background:var(--blue-tint);color:var(--blue)}
+.role.transformer{background:var(--amber-tint);color:var(--amber)}
+.role.source{background:var(--green-tint);color:var(--green)}
+.role.none{background:var(--line2);color:var(--muted)}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.bgrid{display:grid;grid-template-columns:minmax(0,1fr) 110px 150px auto;gap:5px;align-items:center}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+input[type=number],input[type=text],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--acc-deep);font-weight:700}
+.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+.bar{height:18px;background:var(--line2);border-radius:4px;position:relative;overflow:hidden}
+.bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .15s}
+.big{font:800 28px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums;color:var(--acc-deep)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono)}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.chainrow .arr{color:var(--muted);font:600 12px var(--f-mono)}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+
+/* handbook additions */
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+.matrix{border-collapse:collapse;font-size:12px;width:100%}
+.matrix th,.matrix td{padding:4px 6px;text-align:center;border-bottom:1px solid var(--line2)}
+.matrix td:first-child,.matrix th:first-child{text-align:left;position:sticky;left:0;background:var(--raise)}
+.matrix td.y{background:color-mix(in srgb,var(--green) 22%,transparent);color:var(--green);font-weight:700}
+.matrix tr:hover td{background:var(--surface)} .matrix tr:hover td.y{background:color-mix(in srgb,var(--green) 30%,transparent)}
+.tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:10px}
+.tabs button{font:600 11.5px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:6px 9px;border-radius:5px 5px 0 0;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.tabs button[disabled]{opacity:.4;cursor:not-allowed}
+.tree{font:500 13px var(--f-mono)} .tree .n{padding:3px 6px;border-radius:4px;display:inline-block}
+.tree .n.g{background:var(--tint);color:var(--acc-deep);font-weight:700}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+.ants{animation:march .9s linear infinite} @keyframes march{to{stroke-dashoffset:-16}}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sev{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.sev.low{background:var(--line2);color:var(--muted)} .sev.medium{background:var(--blue-tint);color:var(--blue)} .sev.high{background:var(--amber-tint);color:var(--amber)} .sev.critical{background:var(--red-tint);color:var(--red)} .sev.urgent{background:var(--red-tint);color:var(--red)}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.kpi div{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.kpi b{display:block;font:800 22px/1 var(--f-display);font-stretch:80%}
+.kpi span{font:600 10px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rec{border:1px solid var(--line2);border-radius:6px;padding:6px 8px;margin:5px 0;background:var(--raise);font-size:13px}
+.rec .t{font-weight:600}.rec .m{font-size:11.5px;color:var(--muted)}
+.rec .a{margin-top:4px;display:flex;gap:4px;flex-wrap:wrap}
+.state-chip{display:inline-block;font:700 10.5px var(--f-mono);padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.state-chip.applied,.state-chip.completed,.state-chip.resolved{background:var(--green-tint);color:var(--green);border-color:var(--green)} .state-chip.in_progress,.state-chip.work_ordered,.state-chip.assigned{background:var(--tint);color:var(--acc-deep);border-color:var(--acc)} .state-chip.cancelled,.state-chip.dismissed,.state-chip.rejected{background:var(--line2);color:var(--muted)} .state-chip.open,.state-chip.draft,.state-chip.scheduled{background:var(--amber-tint);color:var(--amber);border-color:var(--amber)}
+@media (max-width:760px){.kpi{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .bgrid{grid-template-columns:1fr 1fr}
+  .bgrid>input:first-child{grid-column:1/-1}
+  li,.rec .t,.rec .m{overflow-wrap:anywhere}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* everyday-operations additions */
+.gm{position:relative;border:1px solid var(--line);border-radius:6px 6px 0 0;overflow:hidden;background:var(--bg)}
+.gm-svg{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none}
+.gm-svg .gm-lab{fill:var(--ink);pointer-events:none}
+.gm-svg .gf{cursor:inherit}
+.gm-zoom{position:absolute;left:8px;top:8px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--raise)}
+.gm-zoom button{width:28px;height:28px;border:0;background:none;color:var(--ink);font:700 16px var(--f-mono);cursor:pointer}
+.gm-zoom button+button{border-top:1px solid var(--line)}
+.gm-north{position:absolute;left:8px;top:74px;width:28px;height:28px;border:1px solid var(--line);border-radius:50%;background:var(--raise);display:grid;place-items:center;cursor:pointer;padding:0}
+.gm-ban{position:absolute;left:50%;top:8px;transform:translateX(-50%);max-width:calc(100% - 100px);background:var(--ink);color:var(--bg);font:600 12px var(--f-mono);padding:6px 11px;border-radius:5px;z-index:3;text-align:center}
+.gm-tip{position:absolute;right:8px;bottom:8px;max-width:60%;background:var(--raise);border:1px solid var(--line);border-radius:5px;padding:6px 9px;font:500 12px var(--f-mono);box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.gm-status{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;background:var(--surface);padding:5px 10px;font:500 11.5px var(--f-mono);color:var(--muted)}
+.gm-status b{color:var(--ink);font-weight:600;margin-right:3px}
+.gm-status .gsr{margin-left:auto}
+.gm-status .attr{margin-left:8px;opacity:.8}
+.gsb{font:600 11px var(--f-mono);border:1px solid var(--line);background:var(--raise);color:var(--ink);border-radius:4px;padding:3px 7px;cursor:pointer}
+.gsb:hover{border-color:var(--muted)}
+.goto{font:500 11px var(--f-mono);width:128px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--raise);color:var(--ink)}
+.apid{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.apid.ok{background:var(--green)} .apid.bad{background:var(--red)}
+.story{border-left:3px solid var(--acc);background:var(--surface);padding:10px 16px;border-radius:0 6px 6px 0;margin:16px 0;max-width:78ch;font-size:15px}
+.story>*:last-child{margin-bottom:0}
+.story .who{font:700 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--acc-deep);display:block;margin-bottom:2px}
+.qs{max-width:78ch;margin:16px 0;border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:6px 16px 10px}
+.qs>b.k{display:block;font:700 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--acc-deep);margin:8px 0 0}
+.qs .steps{margin:4px 0 0}
+.ptabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:8px 0}
+.ptabs button{font:600 11px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:5px 8px;border-radius:5px 5px 0 0;cursor:pointer}
+.ptabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.ptabs button[disabled]{opacity:.35;cursor:not-allowed}
+.panelbox{border:1px solid var(--line);border-radius:6px;background:var(--raise);padding:9px 11px;font-size:13px}
+.panelbox h5{margin:0 0 4px;font:700 14px var(--f-display)}
+.kvt{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px;margin:6px 0}
+.kvt dt{font:600 10.5px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+.kvt dd{margin:0;font-family:var(--f-mono);font-size:12px}
+.fld-row{display:grid;grid-template-columns:130px 1fr;gap:6px;align-items:center;margin:5px 0;font-size:12.5px}
+.fld-row label{font:600 11.5px var(--f-mono)}
+.fld-row .rq{color:var(--red);font-weight:800}
+.fld-row.lock input,.fld-row.lock select{opacity:.6}
+.fld-row.chg input,.fld-row.chg select{border-color:var(--amber);background:var(--amber-tint)}
+.tog{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.tog input{accent-color:var(--acc)}
+.dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:60;padding:16px}
+.dlg>div{background:var(--raise);border:1px solid var(--line);border-radius:8px;max-width:420px;padding:16px 18px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.dlg h4{margin-bottom:6px}
+.dlg .a{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.sugg{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:5px;padding:5px 8px;margin:4px 0;font-size:12.5px;background:var(--raise);flex-wrap:wrap}
+.sugg .tx{flex:1;min-width:140px}
+.chipx{font:600 10.5px var(--f-mono)}
+.cardsel{border:1.5px solid var(--line);border-radius:7px;padding:8px 10px;background:var(--raise);cursor:pointer;font-size:13px;text-align:left}
+.cardsel[aria-pressed="true"]{border-color:var(--acc);background:var(--tint)}
+.pop{position:relative}
+.floatp{position:absolute;background:var(--raise);border:1.5px solid var(--line);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:5}
+.floatp .hd{background:var(--surface);border-bottom:1px solid var(--line);padding:6px 10px;font:700 12px var(--f-mono);cursor:grab;display:flex;justify-content:space-between;align-items:center;user-select:none;touch-action:none}
+.floatp .bd{padding:10px;font-size:12.5px;overflow:auto;flex:1}
+.floatp .grip{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 55%,var(--muted) 55%,var(--muted) 62%,transparent 62%,transparent 72%,var(--muted) 72%,var(--muted) 79%,transparent 79%)}
+@media (max-width:760px){
+  .gm-status{font-size:10.5px}
+  .gm-status .gsr{margin-left:0}
+  .goto{width:100px}
+  .fld-row{grid-template-columns:1fr}
+}
+
+[hidden]{display:none!important}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Field Admin</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · Pieces</a><a href="#c2">2 · Access</a><a href="#c3">3 · Packs</a><a href="#c4">4 · Scaling</a><a href="#c5">5 · Review</a><a href="#c6">6 · Shared packs</a><a href="#c7">7 · Troubleshooting</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · Field Tool — Admin · run the fleet, not the tablet</div>
+  <h1>Set up.<br><span>Review. Scale.</span></h1>
+  <p class="lede">Your crews work offline; you keep the system honest. This guide is a <em>working</em> field back-office: a pack queue that drains at shift start, a review queue where one held edit can silence a whole tablet, a conflict check that compares the right two timestamps, and shared packs you can grid, schedule, gate and reap. Everything below runs the same rules the field engine runs.</p>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Ada</b> holds <span class="perm">admin:field-packs</span>, <span class="perm">sync:review</span> and <span class="perm">sync:post</span> — everything works. <b>Sam</b> holds only <span class="perm">sync:review</span>: he can read the queue but not act on it. <b>Owen</b> holds only <span class="perm">admin:field-packs</span>: he manages packs but cannot see the review queue. <b>Dana</b> is a crew member — no admin surface is hers.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">Who this is for</span>
+<p>Administrators and supervisors who <b>set up, manage, review and scale</b> the field tool — not the crews using it. If you are a crew member, read the <b>Field Tool Guide</b> instead. The guide covers five jobs: <b>giving crews access</b> (logins and what a pack may contain), <b>managing packs</b> (listing, hiding, deleting everyone’s), <b>reviewing field work</b> (the QA queue), <b>tuning and scaling</b> (build/sync knobs and fleet provisioning), and <b>pre-building shared packs</b> (reusable coverage cells with scheduling, retention and usage accounting). Chapter 7 is the fault-finder.</p>
+<p>Where the manual says a thing happens, the widgets here make it happen; where the code does something the manual didn’t spell out — head-of-line blocking, exactly what a conflict compares, how a retention sweep decides — that is explained here and flagged in the chapter.</p></div>
+
+<h3 style="margin-top:28px">The cast &amp; the running example</h3>
+<div class="tbl"><table>
+  <tr><th>Who</th><th>Role</th><th>Shows up when…</th></tr>
+  <tr><td><b>Ada</b></td><td>Administrator (all three admin permissions)</td><td>Defining cells, setting the review policy, tuning the fleet</td></tr>
+  <tr><td><b>Sam</b></td><td>Supervisor (<code>sync:review</code>)</td><td>Reading the review queue — and discovering what <code>sync:post</code> adds</td></tr>
+  <tr><td><b>Owen</b></td><td>Platform admin (<code>admin:field-packs</code>)</td><td>Cleaning up packs, scheduling builds</td></tr>
+  <tr><td><b>Kofi &amp; Ama</b></td><td>Field crews (<code>features:read</code>/<code>write</code>)</td><td>Pulling packs and syncing edits — the people your settings affect</td></tr>
+</table></div>
+<p>One depot runs through the guide: <b>Oakwood</b>, 120 crews at shift change, a conductor class under review, and a shared cell built overnight. 🔒 marks an action that needs a permission · 💡 a tip · ⚠️ a caution.</p>
+
+<!-- ============ CH1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>How the pieces fit together</h2><p>Two server processes, two storage systems, two kinds of person.</p></div>
+  <p>Two server processes matter, and keeping them straight answers most “where do I look?” questions. <b><code>cmd/fieldsync</code></b> is the field engine: one process that <b>receives</b> a device’s edits, <b>builds packs</b> (tippecanoe + SQLite) and <b>applies</b> synced edits to the live database. It is the process you scale (Chapter 4). <b><code>cmd/server</code></b> is the main web API; it hosts the admin pack-management and sync-review surfaces you use, behind your web session and RBAC. <b>Everything a crew does flows through <code>cmd/fieldsync</code>; everything <em>you</em> do flows through <code>cmd/server</code>.</b> Pick an action and follow it:</p>
+  <div class="widget" id="w1">
+    <div class="w-head"><span class="eyebrow">Interactive · 1</span><h4>Follow one action through the system</h4></div>
+    <div class="w-bar" id="w1-b"></div>
+    <div class="w-split"><div class="w-main"><svg id="w1-svg" viewBox="0 0 740 320" width="100%" role="img" aria-label="Field tool architecture"></svg></div><div class="w-side" id="w1-out"></div></div>
+  </div>
+  <div class="tip">Notice how often Postgres is the meeting point. The two processes never call each other: a held edit is released by <code>cmd/server</code> flipping a status, and a worker in <code>cmd/fieldsync</code> picks it up. That is why a database that is slow or out of connections hurts <em>everything</em> in the field tool at once.</div>
+</section>
+
+<!-- ============ CH2 ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>Giving crews access</h2><p>A login, a handful of permissions, and a territory.</p></div>
+  <h3>2.1 Signing crews in</h3>
+  <p>Crews sign in with <b>email + password</b> on the app’s <b>Connection</b> screen, which exchanges them for a long-lived device token behind the scenes — they never handle a token. A crew member needs a <b>user account</b> (created the normal way in the web app) and the permissions below. There is also a lower-level path — minting an API token directly (<code>task authadmin-mint-token EMAIL=… NAME=field-tablet</code>) and pasting it — but the email/password login is the normal route.</p>
+
+  <h3>2.2 The permissions that gate the field tool</h3>
+  <p>A crew member’s RBAC decides both <em>whether</em> they can use the field tool and <em>what their packs contain</em>. Crucially, these are <b>frozen into the pack when it is built</b>, from the requester’s RBAC at that moment. So if a pack is missing a work board or won’t let a crew connect features, check their permissions — then they must <b>rebuild</b> to pick up the change. Try it: build a pack, then change the permissions.</p>
+  <div class="widget" id="w2">
+    <div class="w-head"><span class="eyebrow">Interactive · 2</span><h4>Permissions in, pack contents out</h4><span style="flex:1"></span><button class="btn" id="w2-reset">Reset</button></div>
+    <div class="w-split"><div class="w-side" style="order:0;max-width:260px"><div class="lab" style="margin-bottom:4px">Kofi’s RBAC</div><div id="w2-perms"></div><button class="btn pri" id="w2-build" style="margin-top:8px;width:100%">Build pack</button></div><div class="w-main" id="w2-out"></div></div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>Permission</th><th>Effect</th></tr>
+    <tr><td><code>features:read</code></td><td>Required to <b>download packs</b> and read features offline</td></tr>
+    <tr><td><code>features:write</code></td><td>Required to <b>sync edits</b> back (a read-only crew can pull but not push)</td></tr>
+    <tr><td><code>connectivity:read</code></td><td>The pack ships the <b>connectivity graph</b> (offline links)</td></tr>
+    <tr><td><code>relationships:read</code></td><td>The pack ships <b>relationships</b></td></tr>
+    <tr><td><code>wam:read</code></td><td>The pack ships the crew’s <b>work board</b> (work orders, defects, inspection checklists)</td></tr>
+    <tr><td><code>faults:read</code></td><td>The pack ships the open <b>fault board</b></td></tr>
+    <tr><td><code>tags:read</code></td><td>The pack ships the <b>asset-tag index</b> (offline tag scanning)</td></tr>
+    <tr><td><code>attachments:read/write</code></td><td>View / capture <b>photos</b></td></tr>
+  </table></div>
+
+  <h3>2.3 Territory scope</h3>
+  <p>If you use spatial access control (territories), a scoped crew member’s packs and their synced edits are confined to their territories, exactly as in the web app. Their offline edits <b>re-enforce that scope on the server when applied</b> — an edit outside their territory is refused on sync, however the tablet allowed it offline.</p>
+  <div class="widget" id="w2b">
+    <div class="w-head"><span class="eyebrow">Interactive · 3</span><h4>Will this synced edit be accepted?</h4></div>
+    <div class="w-bar"><span class="lab">Crew territories</span><span id="w2t-mine"></span><label class="tog"><input type="checkbox" id="w2t-uns"> unscoped</label><label class="tog"><input type="checkbox" id="w2t-enf" checked> enforcement on</label></div>
+    <div class="w-bar"><span class="lab">The edited feature is in</span><div class="seg" id="w2t-where"></div><span class="muted" style="font-size:12.5px">(uses Kofi’s <code>features:write</code> from Interactive 2)</span></div>
+    <div class="w-body" id="w2t-out"></div>
+  </div>
+
+  <h3>2.4 The admin permissions you need</h3>
+  <div class="tbl"><table>
+    <tr><th>Permission</th><th>Lets you</th></tr>
+    <tr><td><code>admin:field-packs</code></td><td>Manage <b>everyone’s</b> packs (list / disable / delete) and administer shared cells</td></tr>
+    <tr><td><code>sync:review</code></td><td><b>View</b> the sync-review queue</td></tr>
+    <tr><td><code>sync:post</code></td><td><b>Act</b> on held edits (post / reject / resolve conflicts, set policy)</td></tr>
+  </table></div>
+  <p>The review surface is <b>method-aware</b>: reading it (<code>GET</code>) needs <code>sync:review</code>, every change needs <code>sync:post</code>. Switch to <b>Sam</b> in Chapter 5 to feel the difference.</p>
+  <h4 style="margin-top:20px">Chapter summary</h4>
+  <ul>
+    <li>Crews sign in with email + password; a device token is minted behind the scenes.</li>
+    <li>Pack contents are decided by the crew’s <code>*:read</code> permissions <b>at build time</b> and frozen; grant a permission, then <b>rebuild</b>.</li>
+    <li><code>features:write</code> is what lets edits sync back; territory scope is re-enforced when the server applies each edit.</li>
+    <li>Admin work needs <code>admin:field-packs</code> (packs, cells) and <code>sync:review</code> / <code>sync:post</code> (the QA queue).</li>
+  </ul>
+</section>
+
+<!-- ============ CH3 ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>Managing packs — the Field Packs page</h2><p>Everyone’s packs, newest first, three actions.</p></div>
+  <p>Open <b>Field Packs</b> in the web app (<code>/field-packs</code>, gated on <span class="perm">admin:field-packs</span>). Unlike the crew view — which only shows a crew their <em>own</em> packs — this lists <b>every user’s</b> packs, newest first, with the owner, the area (bbox + classes), status, feature count and artifact sizes. Three actions:</p>
+  <div class="tbl"><table>
+    <tr><th>Action</th><th>What it does</th><th>Reversible?</th></tr>
+    <tr><td><b>Disable</b></td><td>Hides the pack from its owner’s device list (sets a flag). The files stay in storage. Stops a stale pack crowding a tablet.</td><td><b>Yes</b> — Enable brings it back</td></tr>
+    <tr><td><b>Enable</b></td><td>Un-hides a disabled pack</td><td>—</td></tr>
+    <tr><td><b>Delete</b></td><td>Permanently removes both pack files from storage <b>and</b> the record</td><td><b>No</b> — permanent</td></tr>
+  </table></div>
+  <p><b>Disable vs. Delete.</b> Disable is the everyday tool — it declutters a crew’s device without destroying anything. Delete is for reclaiming storage from packs you’re certain are finished with; it reaps the (potentially tens-of-MB) files. Deleting a pack that is still <b>building</b> just removes the record; if the build later finishes, its upload is left for the storage retention sweep. Play with a realistic page — and watch the storage gauge and Kofi’s tablet:</p>
+  <div class="widget" id="w3">
+    <div class="w-head"><span class="eyebrow">Interactive · 4</span><h4>The Field Packs page</h4><span style="flex:1"></span><span id="w3-gate"></span><button class="btn" id="w3-reset">Reset</button></div>
+    <div class="w-body" style="padding:0;overflow-x:auto"><table class="matrix" style="width:100%;font-size:13px" id="w3-t"></table></div>
+    <div class="w-split" style="border-top:1px solid var(--line)"><div class="w-main"><div class="lab">Storage (RustFS)</div><div id="w3-g" style="margin:6px 0"></div><div id="w3-msg" style="font-size:13px;min-height:20px" aria-live="polite"></div></div><div class="w-side"><div class="lab">Kofi’s tablet shows</div><div id="w3-dev" style="font-size:13px;margin-top:4px"></div></div></div>
+  </div>
+
+  <h4 style="margin-top:20px">Chapter summary</h4>
+  <ul>
+    <li>The page lists every user’s packs; actions need <code>admin:field-packs</code>.</li>
+    <li><b>Disable</b> is reversible and only hides; <b>Delete</b> is permanent and frees storage. A disabled pack still occupies storage.</li>
+    <li>Delete-while-building removes only the record; the late upload is cleaned by the retention sweep — until then it still costs space.</li>
+  </ul>
+</section>
+
+<!-- ============ CH4 ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>Tuning and scaling</h2><p>Two surges, two workloads, one process to scale.</p></div>
+  <p>This is the operational heart of running the field tool for more than a handful of crews. There are two workloads — <b>building packs</b> (a download surge, usually shift-start) and <b>applying synced edits</b> (an upload surge, usually shift-end) — and both run in <code>cmd/fieldsync</code>.</p>
+
+  <h3>4.1 The knobs</h3>
+  <p>All are environment variables on the <code>cmd/fieldsync</code> process.</p>
+  <div class="tbl"><table>
+    <tr><th>Variable</th><th>Default</th><th>What it controls</th></tr>
+    <tr><td colspan="3"><b>Pack build (download side)</b></td></tr>
+    <tr><td><code>FIELDSYNC_MAX_FEATURES</code></td><td><code>200000</code></td><td>Hard cap on features per pack. A bigger request <b>fails loudly</b> (“narrow the bbox or class set”) rather than building a giant pack that is slow to build, huge to download and risky to open.</td></tr>
+    <tr><td><code>FIELDPACK_MIN_ZOOM</code></td><td><code>8</code></td><td>Lowest map zoom in the pack. Keep it low — below it, the crew’s map goes <b>blank</b> when zoomed out to navigate.</td></tr>
+    <tr><td><code>FIELDPACK_MAX_ZOOM</code></td><td><code>16</code></td><td>Highest tile zoom. <b>16 (~2.4 m/pixel)</b> separates typical utility features; crews can zoom <em>past</em> it (tiles scale up) and taps still hit full-precision data. Each level higher ≈ 4× the build cost and size. Raise to <code>17</code> only for dense urban LV. <b>Do not lower it</b> — that stacks/hides dense features.</td></tr>
+    <tr><td><code>FIELDSYNC_WORKER_CONCURRENCY</code></td><td><code>2</code></td><td>How many packs build at once in this process. tippecanoe is CPU-heavy: size it to available cores.</td></tr>
+    <tr><td><code>FIELDSYNC_JOB_LEASE</code></td><td><code>60s</code></td><td>How long a build can run before a crashed worker’s job becomes reclaimable.</td></tr>
+    <tr><td><code>TIPPECANOE_BIN</code></td><td><code>tippecanoe</code></td><td>Path to the tile builder (the compose image bundles it).</td></tr>
+    <tr><td colspan="3"><b>Sync apply (upload side)</b></td></tr>
+    <tr><td><code>SYNC_WORKER_CONCURRENCY</code></td><td><code>2</code></td><td>How many synced edits apply at once. Edits from <b>one device</b> always apply in order; different devices parallelize up to this number.</td></tr>
+    <tr><td><code>SYNC_JOB_LEASE</code></td><td><code>60s</code></td><td>Lease before a stuck apply is reclaimed.</td></tr>
+  </table></div>
+
+  <h4>The feature cap, in practice</h4>
+  <p>The cap is the one knob a crew can trip by themselves. The cap counts <em>features</em>, so the answer to “why did my pack fail?” is the box multiplied by the density of every class they ticked. (The densities below are illustrative — your own counts differ.)</p>
+  <div class="widget" id="w4a">
+    <div class="w-head"><span class="eyebrow">Interactive · 5</span><h4>Will this pack request build?</h4></div>
+    <div class="w-bar"><span class="lab">Box</span><div class="seg" id="w4a-box"><button data-v="9" aria-pressed="true">Oakwood depot · 9 km²</button><button data-v="64" aria-pressed="false">Whole district · 64 km²</button><button data-v="420" aria-pressed="false">Region · 420 km²</button></div><span class="lab">Cap</span><select class="fld" id="w4a-cap" style="width:120px"><option>50000</option><option selected>200000</option><option>500000</option></select></div>
+    <div class="w-bar" id="w4a-cls"></div>
+    <div class="w-body" id="w4a-out"></div>
+  </div>
+
+  <h3>4.2 Scaling for a fleet</h3>
+  <p>The shipped defaults (one <code>cmd/fieldsync</code>, concurrency 2 each) are fine for a small team but <b>not</b> for a large fleet syncing at once. For hundreds of crews, many concurrent at shift change:</p>
+  <ol class="steps">
+    <li><b>Put PgBouncer in front of Postgres.</b> At high concurrency the single biggest limit is database connections; transaction pooling is effectively mandatory. (See the Production Deployment &amp; Scaling guide.)</li>
+    <li><b>Raise the concurrencies and run replicas.</b> Both workers claim work with <code>FOR UPDATE SKIP LOCKED</code>, so you can run <b>several <code>cmd/fieldsync</code> replicas</b> safely; they share the build and sync queues. Size build concurrency to CPU cores (tippecanoe) and sync concurrency to your PgBouncer pool.</li>
+    <li><b>If download and upload surges overlap</b> (staggered or round-the-clock shifts), consider a <b>read replica for pack builds</b> — the build is read-only and the heaviest DB consumer, so moving it off the primary protects the sync/edit path.</li>
+    <li><b>For a geographically clustered fleet</b>, the biggest lever is <b>not</b> building the same area many times. If 60 crews cover one depot, that is 60 identical builds. <b>Shared packs (Chapter 6)</b> pre-build a depot once as a <em>cell</em>, overnight, and every crew covering it picks up the same build.</li>
+  </ol>
+
+  <h4>4.2a Worked sizing example</h4>
+  <p>Build capacity is simple division, so you can predict the shift-start queue before it happens. Let <i>N</i> = packs requested in the surge, <i>t</i> = seconds one build takes (read it from the <code>elapsed_ms</code> the worker logs), <i>c</i> = <code>FIELDSYNC_WORKER_CONCURRENCY</code>, <i>r</i> = replicas.</p>
+<pre class="pre">   queue drains in  ≈  N × t / (c × r)
+   120 crews × 40 s / (2 × 1)  =  2 400 s  ≈ 40 min   ← the last crew waits 40 minutes
+   120 crews × 40 s / (4 × 3)  =    400 s  ≈  7 min   ← 3 replicas, concurrency 4</pre>
+  <p>Two things cap how far you can push it. <b>CPU:</b> tippecanoe is CPU-bound, so <i>c × r</i> beyond your total cores only makes each build slower. <b>Database connections:</b> every in-flight build and apply holds one, so <i>c × r</i> must fit inside the PgBouncer pool. And the cheapest lever is to reduce <i>N</i>: a shared cell turns 60 builds into 1.</p>
+  <div class="widget" id="w4b">
+    <div class="w-head"><span class="eyebrow">Interactive · 6</span><h4>Shift-start surge simulator</h4><span style="flex:1"></span><button class="btn" id="w4b-reset">Reset</button></div>
+    <div class="w-bar"><label class="lab" for="s-n">Crews</label><input type="range" id="s-n" min="10" max="400" step="10" value="120" style="width:130px"><b id="s-nv"></b>
+      <label class="lab" for="s-t">Build (s)</label><input type="range" id="s-t" min="5" max="120" step="5" value="40" style="width:110px"><b id="s-tv"></b>
+      <label class="lab" for="s-c">Concurrency</label><input type="range" id="s-c" min="1" max="8" value="2" style="width:90px"><b id="s-cv"></b>
+      <label class="lab" for="s-r">Replicas</label><input type="range" id="s-r" min="1" max="6" value="1" style="width:90px"><b id="s-rv"></b></div>
+    <div class="w-bar"><label class="lab" for="s-cores">Cores / replica</label><input type="range" id="s-cores" min="2" max="16" step="2" value="4" style="width:100px"><b id="s-coresv"></b>
+      <label class="tog"><input type="checkbox" id="s-pgb"> PgBouncer</label><label class="lab" for="s-pool">Pool</label><input type="range" id="s-pool" min="10" max="200" step="10" value="50" style="width:100px"><b id="s-poolv"></b>
+      <label class="lab" for="s-sh">Covered by shared cells</label><input type="range" id="s-sh" min="0" max="95" step="5" value="0" style="width:110px"><b id="s-shv"></b></div>
+    <div class="w-split"><div class="w-main"><svg id="s-svg" viewBox="0 0 520 190" width="100%" role="img" aria-label="Wait time per crew"></svg></div><div class="w-side" id="s-out"></div></div>
+  </div>
+  <p class="muted" style="font-size:13.5px">Things to try: set the default (120 crews, 40 s, concurrency 2, 1 replica) and read the 40-minute wait. Raise the concurrency without PgBouncer until the connection warning appears — that is the guide’s one rule. Then slide “covered by shared cells” up and watch the queue collapse without touching a single worker.</p>
+
+  <h4>Apply side: edits at shift end</h4>
+  <p>Edits from one device apply strictly in order, so one chatty tablet is a lower bound that no amount of concurrency beats. Different devices parallelize up to <code>SYNC_WORKER_CONCURRENCY</code> × replicas.</p>
+  <div class="widget" id="w4c">
+    <div class="w-head"><span class="eyebrow">Interactive · 7</span><h4>How long until the office sees the day’s edits?</h4></div>
+    <div class="w-bar"><label class="lab" for="y-d">Devices</label><input type="range" id="y-d" min="10" max="400" step="10" value="120" style="width:120px"><b id="y-dv"></b><label class="lab" for="y-k">Edits / device</label><input type="range" id="y-k" min="1" max="200" value="40" style="width:120px"><b id="y-kv"></b><label class="lab" for="y-a">Apply (s/edit)</label><input type="range" id="y-a" min="0.1" max="3" step="0.1" value="0.5" style="width:100px"><b id="y-av"></b><label class="lab" for="y-c">Sync concurrency × replicas</label><input type="range" id="y-c" min="1" max="24" value="2" style="width:100px"><b id="y-cv"></b></div>
+    <div class="w-body" id="y-out"></div>
+  </div>
+
+  <h3>4.3 Reading the signals</h3>
+  <ul>
+    <li>Every successful build logs its duration (<code>elapsed_ms</code>) and counts. Watch these to size build concurrency and spot packs that are too large.</li>
+    <li>A build queue draining slowly at shift start → raise build concurrency / add a replica / trim <code>FIELDPACK_MAX_ZOOM</code> or the class set.</li>
+    <li>Synced edits taking minutes to show up in the office → raise sync concurrency / add a replica — <b>but first check the review queue</b>: a held edit can block a device’s later edits (Chapter 5) and look exactly like a slow worker.</li>
+  </ul>
+  <div class="callout"><b>The one rule:</b> don’t raise the concurrencies without PgBouncer in front of the database. More workers hammering an unpooled Postgres makes things worse, not better.</div>
+
+  <h4>Zoom: what the two settings really do</h4>
+  <p><code>FIELDPACK_MAX_ZOOM</code> trades separation against size. At each tile zoom the ground resolution halves; the build cost and pack size roughly <b>quadruple per level</b>. Slide it and watch two feature rows — a typical utility spacing and a dense urban LV spacing:</p>
+  <div class="widget" id="w4d">
+    <div class="w-head"><span class="eyebrow">Interactive · 8</span><h4>Max zoom: separation vs. cost</h4></div>
+    <div class="w-bar"><label class="lab" for="z-mx">FIELDPACK_MAX_ZOOM</label><input type="range" id="z-mx" min="13" max="19" value="16" style="width:160px"><b id="z-mxv"></b><label class="lab" for="z-mn" style="margin-left:14px">FIELDPACK_MIN_ZOOM</label><input type="range" id="z-mn" min="4" max="14" value="8" style="width:140px"><b id="z-mnv"></b></div>
+    <div class="w-body"><svg id="z-svg" viewBox="0 0 640 150" width="100%" role="img" aria-label="Feature separation at the chosen zoom"></svg><div id="z-out" style="margin-top:8px;font-size:13.5px"></div></div>
+  </div>
+  <h4>Chapter summary</h4>
+  <ul>
+    <li>Two workloads, both in <code>cmd/fieldsync</code>: build (shift-start) and apply (shift-end). Defaults suit a small team.</li>
+    <li>Drain time ≈ <i>N × t / (c × r)</i>, bounded by cores and the pool. PgBouncer first; replicas are safe (<code>SKIP LOCKED</code>).</li>
+    <li>The feature cap fails loudly; max zoom 16 is the sweet spot; min zoom must stay low.</li>
+    <li>Fewer builds beat faster builds: shared cells cut <i>N</i>.</li>
+  </ul>
+</section>
+
+<!-- ============ CH5 ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>Reviewing field work — QA mode</h2><p>Auto-apply, or hold for a human. And what holding does to a tablet.</p></div>
+  <p>By default every synced edit <b>applies automatically</b> moments after it is captured. For classes where you want a human to check field edits before they reach the live network, switch that class (or everything) to <b>review mode</b>. Those edits are <b>held</b>, and a supervisor posts or rejects each one. This is the <b>Sync Review</b> surface (<code>/sync-review</code>): <span class="perm">sync:review</span> to view, <span class="perm">sync:post</span> to act.</p>
+
+  <h3>5.1 Setting the apply policy</h3>
+  <p>The <b>apply policy</b> decides, per feature class, whether synced edits auto-apply or wait for review. Set a <b>global default</b> and <b>per-class overrides</b> — for example, global <code>auto</code> but <code>MV_CONDUCTOR</code> on <code>review</code> so conductor edits get a second pair of eyes. Clearing an override reverts that class to the global default. A companion setting, <b>conflict detection</b>, is also per class (with a global default): with it on, an edit whose feature was changed in the office <em>after</em> the crew’s pack was built is held as a <b>conflict</b> rather than silently overwriting (§5.5).</p>
+  <div class="tbl"><table><tr><th>Mode</th><th>Behaviour</th></tr><tr><td><b>auto</b></td><td>Edits apply automatically (the default)</td></tr><tr><td><b>review</b></td><td>Edits are <b>held</b> until a supervisor posts them</td></tr></table></div>
+  <p><code>mode</code> and <code>detect conflicts</code> are independent dimensions: a class can auto-apply <em>and</em> still be conflict-checked. An empty policy table means everything auto-applies and nothing is conflict-checked — QA mode is switched on by writing a row, with no redeploy.</p>
+
+  <p>The simulation below is the real pipeline in miniature: two tablets (Kofi and Ama), four live features, a policy, and an apply worker that follows the same rules as the field engine. Capture some edits, run the worker, and watch each edit’s status. <b>Interactive 9</b> is the capture side; <b>Interactive 10</b> is the review queue the same edits land in.</p>
+
+  <div class="widget" id="w5a">
+    <div class="w-head"><span class="eyebrow">Interactive · 9</span><h4>Policy, capture, and the device lanes</h4><span style="flex:1"></span><span id="w5-clock" class="mono" style="font-size:12.5px"></span></div>
+    <div class="w-bar"><span class="lab">Scenarios</span><button class="btn" data-sc="hol">① one held edit blocks the tablet</button><button class="btn" data-sc="conf">② a conflict</button><button class="btn" data-sc="sup">③ three edits, one conflict</button><button class="btn" id="w5-reset">Reset</button></div>
+    <div class="w-split"><div class="w-main" style="flex:1.1">
+      <div class="lab">Apply policy <span id="w5-pg"></span></div>
+      <div class="tbl" style="margin:6px 0"><table id="w5-pol"></table></div>
+      <div class="lab" style="margin-top:12px">Live features (what the office sees)</div>
+      <div class="tbl" style="margin:6px 0"><table id="w5-feat"></table></div>
+    </div><div class="w-side" style="flex:.9">
+      <div class="lab">A crew captures an edit</div>
+      <div class="fld-row"><label for="w5-dev">Device</label><select class="fld" id="w5-dev"><option>Kofi</option><option>Ama</option></select></div>
+      <div class="fld-row"><label for="w5-ft">Feature</label><select class="fld" id="w5-ft"></select></div>
+      <div class="fld-row"><label for="w5-kind">Edit</label><select class="fld" id="w5-kind"><option value="update">update attributes</option><option value="delete">delete</option><option value="create">create new feature</option></select></div>
+      <label class="tog" style="font-size:12.5px"><input type="checkbox" id="w5-nobase"> older edit — no snapshot stamp</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="btn pri" id="w5-cap">Capture edit</button><button class="btn" id="w5-off">Office edits this feature</button><button class="btn" id="w5-rb">Crew rebuilds pack</button></div>
+    </div></div>
+    <div class="w-bar" style="border-top:1px solid var(--line)"><span class="lab">Apply worker</span><button class="btn pri" id="w5-run">▶ Run worker until idle</button><button class="btn" id="w5-step">Step (claim one)</button><span id="w5-wmsg" class="muted" style="font-size:12.5px" aria-live="polite"></span></div>
+    <div class="w-body"><div class="lab" style="margin-bottom:6px">Device lanes — strict order per device</div><div id="w5-lanes" style="display:grid;grid-template-columns:1fr 1fr;gap:12px"></div></div>
+  </div>
+
+  <h3>5.2 The review queue — post or reject</h3>
+  <p>Open <b>Sync Review</b>. The default view is the <b>pending review</b> queue, <b>oldest first</b> — which is also the order edits will apply in. For each held edit you see who submitted it, the feature and class, and the proposed change.</p>
+<pre class="pre">   held edit ──► review it ──► ┌─ POST   → released to apply (enters the normal queue)
+                               └─ REJECT → quarantined; the crew sees it in
+                                           "needs attention" with your reason</pre>
+  <p><b>Post</b> releases the edit — the worker applies it in order like any auto edit. <b>Reject</b> quarantines it with a reason you provide; the crew sees it on their device’s <b>needs attention</b> list and can re-do it. You can also filter to <b>applied</b>, <b>rejected</b> or <b>conflict</b> to audit what has been decided.</p>
+  <div class="widget" id="w5b">
+    <div class="w-head"><span class="eyebrow">Interactive · 10</span><h4>Sync Review</h4><span style="flex:1"></span><span id="w5b-gate"></span></div>
+    <div class="w-bar"><div class="seg" id="w5b-f"></div></div>
+    <div class="w-body" id="w5b-list" style="padding:0"></div>
+    <div class="w-body" style="border-top:1px solid var(--line)"><div class="lab">Kofi’s “needs attention” · Ama’s “needs attention”</div><div id="w5b-na" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px;margin-top:4px"></div></div>
+  </div>
+
+  <h3>5.3 Resolving conflicts</h3>
+  <p>A <b>conflict</b> means: the crew edited a feature offline, but the office changed the <em>same</em> feature after the crew’s pack was built. Applying the crew’s edit would overwrite the office change, so it is held. Open the conflict to see the crew’s proposed change <b>against the current live value</b>, then:</p>
+  <div class="tbl"><table><tr><th>Resolve as</th><th>Result</th></tr>
+    <tr><td><b>Apply anyway</b></td><td>The crew’s edit is applied, overwriting the current value</td></tr>
+    <tr><td><b>Keep</b></td><td>The crew’s edit is discarded; the live value stays. The crew sees it rejected in “needs attention” with your reason.</td></tr></table></div>
+  <p>Conflicts only happen for classes with <b>conflict detection</b> turned on. Leave it off and the system is last-write-wins — fine for capture-oriented fields, risky for contended ones.</p>
+
+  <h3>5.4 How held edits queue — one device, one lane <span class="tag en" style="vertical-align:middle">code-verified</span></h3>
+  <p>Edits from one device always apply <b>in the order the device captured them</b>. The worker enforces this with a per-device single-flight rule: it will not hand out an edit while an <b>earlier</b> edit from the <b>same device</b> is still <em>active</em> — <code>received</code>, <code>applying</code> with a live lease, <b><code>pending_review</code></b>, or <b><code>conflict</code></b>.</p>
+  <div class="caution"><b>The consequence catches administrators out.</b> A held edit blocks every <em>later</em> edit from that device — <b>even edits to classes set to <code>auto</code></b>. If a crew’s first edit is on a <code>review</code> class and nobody posts it, their next ten edits (on any class) sit <code>received</code> behind it, and nothing from that tablet reaches the office. An unresolved conflict does the same. Run scenario ① in Interactive 9: the transformer and RMU edits never apply until the conductor edit is posted.</div>
+  <div class="tbl"><table>
+    <tr><th>Edit status</th><th>Meaning</th><th>Blocks the device’s later edits?</th></tr>
+    <tr><td><code>received</code></td><td>Captured, waiting for a worker</td><td>Yes (earlier and not yet applied)</td></tr>
+    <tr><td><code>applying</code></td><td>A worker holds it; lease is live</td><td>Yes — until the lease lapses (then it is reclaimable)</td></tr>
+    <tr><td><code>pending_review</code></td><td>Held by a <code>review</code> policy; awaits Post/Reject</td><td><b>Yes</b></td></tr>
+    <tr><td><code>conflict</code></td><td>Held because the office changed the feature; awaits Apply anyway/Keep</td><td><b>Yes</b></td></tr>
+    <tr><td><code>applied</code></td><td>Done</td><td>No</td></tr>
+    <tr><td><code>rejected</code></td><td>A reviewer (or an apply failure) refused it; the crew sees it in <i>needs attention</i></td><td>No — one rejected edit never stalls the device</td></tr>
+    <tr><td><code>superseded</code></td><td>A newer edit to the same feature stepped in front of it</td><td>No</td></tr>
+  </table></div>
+  <p>So the practical rule for a supervisor: <b>clear a crew’s oldest held edit first</b> — the queue shows oldest first for exactly this reason — and read “a crew says none of their edits arrived” as “find their oldest held edit”.</p>
+
+  <h3>5.5 What a conflict check actually compares <span class="tag en" style="vertical-align:middle">code-verified</span></h3>
+  <p>When detection is on for a class, the worker checks each <b>update</b> or <b>delete</b> just before applying it. It compares the feature’s <b>current live version</b> with the <b>snapshot of the pack the crew made the edit against</b> (<code>base_version</code>, stamped on every edit by the device). If the live row changed <em>after</em> that snapshot, the edit is held as a <code>conflict</code>.</p>
+  <ul>
+    <li><b>Creates are never checked</b> — a create mints a new row, so there is nothing to conflict with.</li>
+    <li><b>An edit with no <code>base_version</code> is not checked</b> (older edits made before the stamp existed) — tick “older edit” in Interactive 9 to see it slip through.</li>
+    <li>If the crew edited the same feature several times offline, only the <b>newest</b> edit surfaces as the conflict; older ones become <code>superseded</code> and step aside silently — one conflict per feature, not per keystroke (scenario ③).</li>
+    <li><b>Apply anyway</b> re-queues the edit with the check waived; <b>Keep</b> discards it and tells the crew why.</li>
+    <li>If the check itself errors, the worker logs it and <b>applies the edit anyway</b> — detection fails open, so don’t treat it as a hard lock on a contended class.</li>
+  </ul>
+
+  <h4>Chapter summary</h4>
+  <ul>
+    <li>Policy is per class plus a global default: <code>auto</code> or <code>review</code>, and independently <code>detect conflicts</code>.</li>
+    <li>Post releases a held edit; Reject quarantines it with a reason the crew sees; conflicts resolve as Apply anyway or Keep.</li>
+    <li><b>One device, one lane:</b> a held edit or unresolved conflict blocks all of that device’s later edits.</li>
+    <li>A conflict compares the live row’s last change with the pack snapshot the edit was made against — updates and deletes only, and only if the edit carries a stamp.</li>
+  </ul>
+</section>
+
+<!-- ============ CH6 ============ -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>Pre-building shared packs</h2><p>Build an area once; let every crew that covers it pick up the same build.</p></div>
+  <p>For a clustered fleet, the biggest waste is many crews each building the <b>same</b> area. Shared packs fix that: you pre-build an area <b>once</b> as a reusable <b>cell</b>, and every crew whose access covers it <b>picks up that single build</b> — instantly, no build wait — and reuses it for as long as the job runs. It is optional: where coverage is unpredictable (roaming crews into new ground), define no cells and crews keep self-serving their own packs. The two coexist.</p>
+  <div class="tip"><b>How it’s managed today.</b> Cells and their usage are driven through the Field Packs <b>admin API</b> (<code>/field-packs/cells…</code> under <code>cmd/server</code>, gated on <span class="perm">admin:field-packs</span> + CSRF). A web UI for cells is planned; until then these are operator/API actions, so each widget below shows the request it stands for.</div>
+
+  <h3>Creating a pack as an admin — which route?</h3>
+  <p>Unlike a crew (who builds their own pack on the device), an admin has no ad-hoc “build a personal pack” button. There are three routes, depending on <b>who</b> the pack is for:</p>
+  <div class="tbl"><table>
+    <tr><th>You want to…</th><th>Use</th><th>How</th></tr>
+    <tr><td>Give <b>many crews</b> one reusable area</td><td>A <b>shared cell</b> (§6.2)</td><td>Define a cell → <b>build a version</b> → crews <b>pick it up</b></td></tr>
+    <tr><td>Cover a <b>big territory</b> in sub-areas</td><td>The <b>grid helper</b> (§6.3)</td><td>One call makes a whole grid of cells</td></tr>
+    <tr><td>Stage a <b>personal</b> pack for <b>one crew member</b></td><td><b>Build-on-behalf</b> (§6.7)</td><td>Build a pack owned by them, scoped from their RBAC</td></tr>
+  </table></div>
+  <p><b>The common case — build a shared pack (3 steps):</b> (1) <b>define the cell</b> — <code>POST /field-packs/cells</code>; (2) <b>build a version</b> — <code>POST /field-packs/cells/{id}/build</code> (or let a schedule do it overnight); it runs through the normal pack queue, <code>queued → running → succeeded</code>; (3) <b>crews pick it up</b> — anyone whose access covers the cell sees it under <b>Shared packs</b> and downloads it instantly. 💡 <b>Just want a pack for yourself?</b> You’re a user too — build one from the mobile app exactly as a crew does, or use build-on-behalf with your own user id.</p>
+
+  <h3>6.1 How shared packs work — base + overlay</h3>
+<pre class="pre">   SHARED BASE (one build, many crews)        PER-USER OVERLAY (each crew, live)
+  ┌────────────────────────────────┐         ┌────────────────────────────────┐
+  │  Published features + map tiles │    +    │  This crew's work board         │
+  │  Connectivity / relationships   │         │  This crew's OWN draft features │
+  │  Open faults, asset tags        │         │                                 │
+  │  NOTHING personal/unpublished   │         │  (fetched at pickup + each sync) │
+  └────────────────────────────────┘         └────────────────────────────────┘
+                     └──────────────┬──────────────────┘
+                        the device composes BASE + OVERLAY + the crew's own edits</pre>
+  <p>The <b>base</b> is <b>published-only and crew-neutral</b> — no one’s unpublished drafts and no personal work board. That is the safety guarantee that lets one build be handed to many crews. The <b>overlay</b> is each crew’s thin personal layer, delivered when they pick up and refreshed each sync.</p>
+  <p><b>Pickup gating.</b> A crew may pick up a cell <b>only if their entitlements cover it</b>: their <b>territory access</b> must include the cell’s territory, <b>and</b> they must hold the <code>*:read</code> permission for every extra the base carries. A crew that doesn’t fully cover a cell never sees it and can’t pull it — there is <b>no reduced fallback</b>. If crews have mixed permissions, define a leaner cell rather than weakening the rule. Test the gate yourself — it reports the <em>first</em> missing entitlement, in the order the server checks them:</p>
+  <div class="widget" id="w6g">
+    <div class="w-head"><span class="eyebrow">Interactive · 11</span><h4>Can this crew pick up that cell?</h4></div>
+    <div class="w-bar"><span class="lab">Crew</span><div class="seg" id="g-crew"></div><span class="lab">Cell</span><select class="fld" id="g-cell" style="width:200px" aria-label="Cell"></select><label class="tog"><input type="checkbox" id="g-enf" checked> territory enforcement on</label></div>
+    <div class="w-split"><div class="w-side" style="max-width:300px"><div class="lab" style="margin-bottom:4px" id="g-who"></div><div id="g-perms"></div></div><div class="w-main"><div id="g-chk"></div><div class="lab" style="margin:12px 0 4px">What the crew’s “Shared packs” list shows</div><div id="g-list"></div></div></div>
+  </div>
+  <p><b>The gate, check by check <span class="tag en" style="vertical-align:middle">code-verified</span></b> — in this order: (1) <code>connectivity:read</code> if the base includes connectivity; (2) <code>relationships:read</code>; (3) <code>faults:read</code>; (4) <code>tags:read</code>; (5) <b>territory</b> — checked <b>only when enforcement is on <em>and</em> the crew member is scoped</b>. Unscoped crew (<code>territories:unscoped</code>) skip it. Otherwise the cell’s territory must be inside the crew member’s accessible set (sub-territories included), and a cell with <b>no</b> territory is refused to <em>every</em> scoped crew — fail closed. What the crew sees: only <b>active</b> cells they cover; a covered cell with <b>no succeeded build yet</b> still lists, marked <i>not yet available</i>; a direct pickup of a cell they don’t cover is refused <code>403</code>.</p>
+
+  <h3>6.2 Defining a cell</h3>
+  <p>A <b>cell</b> is a definition (<code>POST /field-packs/cells</code>):</p>
+  <div class="tbl"><table>
+    <tr><th>Setting</th><th>What it does</th></tr>
+    <tr><td><b>Name</b></td><td>A label crews see in their Shared packs list.</td></tr>
+    <tr><td><b>Territory</b></td><td>The pickup access boundary <b>and</b> a content filter: the base carries only this territory’s features (even where the bbox spills past it), so a crew gated on the territory never receives out-of-area data. Omit only for a truly public baseline (then only unscoped crews can pull it).</td></tr>
+    <tr><td><b>Area (bbox)</b></td><td>The geographic box the base covers: <code>[minX, minY, maxX, maxY]</code>.</td></tr>
+    <tr><td><b>Feature classes</b></td><td>Which layers the base ships (same catalogue as a normal pack). At least one.</td></tr>
+    <tr><td><b>Include</b> connectivity / relationships / faults / tags</td><td>The extras the base carries. Each one also <b>raises the bar for pickup</b>.</td></tr>
+    <tr><td><b>Schedule</b></td><td>Automatic rebuild cadence — §6.4.</td></tr>
+    <tr><td><b>Retention</b></td><td>How old versions are reaped — §6.5.</td></tr>
+    <tr><td><b>Active</b></td><td>Inactive cells are hidden from crews and skipped by scheduling/retention.</td></tr>
+  </table></div>
+  <p><b>Building a version.</b> Each build of a cell is a <b>version</b> (an ordinary pack row, built by the same worker). Trigger one with <code>POST /field-packs/cells/{id}/build</code>, or let the schedule do it. Crews always pick up the <b>newest succeeded</b> version. Fill the form: the body it would send, and the exact validation messages, are on the right.</p>
+  <div class="widget" id="w6c">
+    <div class="w-head"><span class="eyebrow">Interactive · 12</span><h4>Define a cell</h4><span style="flex:1"></span><span id="c-gate"></span></div>
+    <div class="w-split"><div class="w-main">
+      <div class="fld-row"><label for="c-name">Name <span class="rq">*</span></label><input type="text" id="c-name" placeholder="Oakwood depot"></div>
+      <div class="fld-row"><label for="c-terr">Territory</label><select class="fld" id="c-terr"><option value="">(none — public baseline)</option><option>Oakwood</option><option>Riverside</option><option>Elm Grove</option></select></div>
+      <div class="fld-row"><label for="c-bb">bbox <span class="rq">*</span></label><input type="text" id="c-bb" value="-0.241, 5.552, -0.188, 5.601"></div>
+      <div class="fld-row"><label>Feature classes <span class="rq">*</span></label><div id="c-cls" style="display:flex;gap:8px;flex-wrap:wrap;font-size:13px"></div></div>
+      <div class="fld-row"><label>Include</label><div id="c-inc" style="display:flex;gap:10px;flex-wrap:wrap;font-size:13px"></div></div>
+      <div class="fld-row"><label for="c-sch">Schedule</label><select class="fld" id="c-sch"><option value="">none</option><option>hourly</option><option selected>daily</option><option>weekly</option></select></div>
+      <div class="fld-row"><label for="c-ret">Retention</label><select class="fld" id="c-ret"><option>manual</option><option>pinned</option><option selected>keep_n</option></select></div>
+      <label class="tog" style="font-size:13px"><input type="checkbox" id="c-act" checked> Active</label>
+      <div style="margin-top:10px"><button class="btn pri" id="c-save">Create cell</button> <span id="c-msg" style="font-size:13px" aria-live="polite"></span></div>
+    </div><div class="w-side"><div class="lab">Request body</div><pre class="pre" id="c-json" style="font-size:11.5px;margin:4px 0 8px"></pre><div class="lab">Cells defined</div><div id="c-list" style="font-size:13px;margin-top:4px"></div></div></div>
+  </div>
+
+  <h3>6.3 Covering a big area — the grid helper</h3>
+  <p>Defining a cell per sub-area of a large territory by hand is tedious. The <b>grid helper</b> (<code>POST /field-packs/cells/grid</code>) splits an outer bbox into a <code>rows × cols</code> set of cells in one call, each a real cell sharing one template (classes, includes, territory, schedule, retention). Give explicit <code>rows</code>/<code>cols</code> or a <code>cell_size_deg</code> it derives them from; one request is capped at <b>500 cells</b> and created <b>atomically</b> (all or none).</p>
+  <div class="widget" id="w6d">
+    <div class="w-head"><span class="eyebrow">Interactive · 13</span><h4>Grid a territory — and size every cell under the cap</h4></div>
+    <div class="w-bar"><span class="lab">Outer box</span><input type="text" id="d-bb" value="-0.30, 5.50, -0.10, 5.70" style="width:230px" aria-label="Outer bbox"><span class="lab">Split by</span><div class="seg" id="d-mode"><button data-v="size" aria-pressed="true">cell size (°)</button><button data-v="rc" aria-pressed="false">rows × cols</button></div><input type="number" id="d-size" value="0.05" step="0.005" min="0.001" style="width:84px" aria-label="cell_size_deg"><span id="d-rc" style="display:none"><input type="number" id="d-rows" value="4" min="1" style="width:60px" aria-label="rows"> × <input type="number" id="d-cols" value="4" min="1" style="width:60px" aria-label="cols"></span></div>
+    <div class="w-bar"><label class="lab" for="d-den">Features per km²</label><input type="range" id="d-den" min="50" max="1500" step="50" value="400" style="width:140px"><b id="d-denv"></b><label class="tog"><input type="checkbox" id="d-core"> dense urban core (centre cells ×8)</label><label class="lab" for="d-cap">Cap</label><select class="fld" id="d-cap" style="width:110px"><option>20000</option><option selected>50000</option><option>200000</option></select><label class="tog"><input type="checkbox" id="d-bad"> simulate one failing insert</label></div>
+    <div class="w-split"><div class="w-main"><svg id="d-svg" viewBox="0 0 420 300" width="100%" role="img" aria-label="Grid of cells"></svg></div><div class="w-side" id="d-out"></div></div>
+  </div>
+  <p><b>Worked example.</b> <code>[-0.30, 5.50, -0.10, 5.70]</code> is 0.20° × 0.20°: <code>cell_size_deg 0.05</code> → 4 × 4 = 16 cells; <code>0.01</code> → 20 × 20 = 400 (allowed); <code>0.005</code> → 40 × 40 = 1 600 (refused: “grid would be 1600 cells (max 500)”). Cells are named <code>&lt;name_prefix&gt; r&lt;row&gt;c&lt;col&gt;</code> with <b>row 1 at the bottom</b>. The last row and column are snapped to the outer edge so float drift never leaves a sliver uncovered, and the territory (if any) applies to <b>every</b> sub-cell. A size that doesn’t divide the box evenly still covers it fully — derived <code>rows/cols = ceil(size ÷ cell_size_deg)</code>. ⚠️ A sub-cell whose base would exceed <code>FIELDSYNC_MAX_FEATURES</code> fails its build loudly: your signal to regrid finer.</p>
+
+  <h3>6.4 Scheduling overnight rebuilds</h3>
+  <p>A cell’s <b>schedule</b> is a cadence token — <code>hourly</code>, <code>daily</code> or <code>weekly</code> (anything else, or empty, means no schedule). A scheduled cell is rebuilt when its newest version is older than the cadence. To keep heavy builds off peak hours, confine them to a <b>build window</b>:</p>
+  <div class="tbl"><table><tr><th>Variable (<code>cmd/fieldsync</code>)</th><th>Default</th><th>What it controls</th></tr>
+    <tr><td><code>FIELDSYNC_BUILD_WINDOW</code></td><td><i>(unset)</i></td><td>UTC hour window <code>start-end</code> (e.g. <code>0-5</code>) scheduled builds are allowed in. Wraps midnight (<code>22-5</code> works). Unset = any hour.</td></tr>
+    <tr><td><code>FIELDSYNC_MAINTENANCE_INTERVAL</code></td><td><code>15m</code></td><td>How often the maintenance loop checks for due rebuilds and runs retention.</td></tr></table></div>
+  <p>The loop is self-skipping (a cell with a build already in flight isn’t re-enqueued), so it is safe across replicas. Here is its logic made visible — set a cadence and a window, then watch two simulated days of ticks:</p>
+  <div class="widget" id="w6s">
+    <div class="w-head"><span class="eyebrow">Interactive · 14</span><h4>The maintenance loop, two days of ticks</h4></div>
+    <div class="w-bar"><span class="lab">Schedule</span><select class="fld" id="s2-sch" style="width:100px" aria-label="schedule"><option>hourly</option><option selected>daily</option><option>weekly</option><option value="monthly">monthly (invalid)</option></select><label class="lab" for="s2-win">Build window (UTC)</label><input type="text" id="s2-win" value="0-5" style="width:90px"><label class="lab" for="s2-int">Tick (min)</label><select class="fld" id="s2-int" style="width:80px"><option>15</option><option>30</option><option>60</option></select></div>
+    <div class="w-bar"><label class="lab" for="s2-b">Build takes (min)</label><input type="range" id="s2-b" min="5" max="180" step="5" value="30" style="width:110px"><b id="s2-bv"></b><label class="lab" for="s2-age">Last build (h ago)</label><input type="range" id="s2-age" min="0" max="48" value="30" style="width:110px"><b id="s2-agev"></b><label class="tog"><input type="checkbox" id="s2-fail"> builds keep failing</label><label class="tog"><input type="checkbox" id="s2-act" checked> active</label></div>
+    <div class="w-body"><svg id="s2-svg" viewBox="0 0 640 96" width="100%" role="img" aria-label="48-hour timeline"></svg><div id="s2-out" style="font-size:13.5px;margin-top:6px"></div><div id="s2-log" class="mono" style="font-size:12px;max-height:150px;overflow:auto;margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--surface)"></div></div>
+  </div>
+  <p><b>Exactly when does it fire? <span class="tag en" style="vertical-align:middle">code-verified</span></b> On a tick, each <b>active, scheduled</b> cell is enqueued only if <b>both</b> hold: no build is already <code>queued</code> or <code>running</code>, <b>and</b> its newest <b>succeeded</b> version is older than the cadence (or it never built). The window is hours <b><code>[start, end)</code> UTC</b> — <code>0-5</code> allows 00:xx–04:xx, not 05:xx; a malformed value is ignored (<i>any</i> hour). The age counts from when the last <em>successful</em> build was <b>enqueued</b>, so a cell whose builds keep failing is <b>due on every tick</b> — fix the cause (usually the feature cap) rather than waiting. A scheduled build is attributed to the cell’s <b>creator</b>. And <b>retention runs on every tick, in or out of the window</b> — only scheduling is window-bound.</p>
+
+  <h3>6.5 Retention — keeping storage in check</h3>
+  <p>Rebuilding piles up versions. <b>Retention</b> reaps old ones — but <b>never one a crew still holds</b>. The per-cell policy:</p>
+  <div class="tbl"><table><tr><th>Policy</th><th>Behaviour</th></tr>
+    <tr><td><b>manual</b></td><td>Never auto-reaped — you delete versions by hand (the per-pack Delete, §3).</td></tr>
+    <tr><td><b>pinned</b></td><td>Never auto-reaped — explicitly protected.</td></tr>
+    <tr><td><b>keep_n</b></td><td>Keep the newest <b>N</b> succeeded versions; reap older ones that <b>no crew holds</b>. <code>FIELDSYNC_KEEP_VERSIONS</code> (default <code>3</code>) sets N.</td></tr></table></div>
+  <p>The maintenance loop runs retention each tick; you can also apply a cell’s policy on demand with <code>POST /field-packs/cells/{id}/reap</code> (it reports how many were reaped). “Held” is precise: a version is held while it is some crew member’s <b>latest pickup</b> of the cell. Reaping deletes both stored files and the row; the ledger rows cascade with it. The next widget carries retention <em>and</em> the usage dashboard, because they read the same ledger.</p>
+
+  <h3>6.6 Who’s holding what — the usage dashboard</h3>
+  <p>Because a shared base lives for weeks and crews sync on their own cadence, the real operational question is <b>accounting</b>, not freshness: per cell, who is holding which version, who has synced work back, and who has <b>gone quiet</b>. <code>GET /field-packs/cells/{id}/usage</code> reconciles the <b>download ledger</b> (every pickup) against the <b>sync inbox</b> (every edit stamped with the version it was made against). It returns <b>versions</b> (with how many crews pulled each) and <b>holders</b> (the version held, pickup time, last sync, ops sent, and a <b>quiet</b> flag).</p>
+  <div class="widget" id="w6u">
+    <div class="w-head"><span class="eyebrow">Interactive · 15</span><h4>Versions, holders, retention</h4><span style="flex:1"></span><span id="u-gate"></span></div>
+    <div class="w-bar"><span class="lab">Cell</span><select class="fld" id="u-cell" style="width:190px" aria-label="Cell"></select><span class="lab">Retention</span><select class="fld" id="u-ret" style="width:100px" aria-label="Retention"><option>manual</option><option>pinned</option><option>keep_n</option></select><label class="lab" for="u-n">KEEP_VERSIONS</label><input type="range" id="u-n" min="1" max="5" value="3" style="width:80px"><b id="u-nv"></b></div>
+    <div class="w-bar"><button class="btn" id="u-build">＋ Build a version</button><button class="btn pri" id="u-reap">Reap now</button><span class="lab">Crews</span><span id="u-crew"></span><span id="u-msg" style="font-size:12.5px" aria-live="polite"></span></div>
+    <div class="w-split"><div class="w-main"><div class="lab">Versions</div><div id="u-ver" style="margin-top:4px"></div></div><div class="w-main"><div class="lab">Holders (one row per crew member)</div><div id="u-hold" style="margin-top:4px"></div></div></div>
+  </div>
+  <div class="en-b" style="margin-top:12px"><span class="tag en">∑ how “quiet” is worked out</span><p>Each synced edit carries the snapshot time of the pack it was made against. The report matches a crew member’s edits to the <b>exact version they currently hold</b>. So a crew member who just re-pulled a newer version shows <b>quiet</b> until they sync something made against <em>that</em> version, even if they synced plenty against the previous one. Read “quiet” as <i>nothing synced against the version they hold yet</i>, then look at the pickup date. Try it: press “re-pull latest” on a holder with synced work.</p></div>
+
+  <h3>6.7 Staging a pack for a crew — build-on-behalf</h3>
+  <p>Separately from cells, you can pre-stage a <b>personal</b> pack <b>as</b> a named crew member (<code>POST /field-packs/on-behalf</code>), so a tech finds a ready pack on first connection. Crucially it is scoped from <b>their</b> RBAC, not yours: the include flags come from the target’s permissions, their drafts from their own visibility, the territory filter bounded by <b>their</b> scope. The body carries only the crew member, bbox and classes — <b>the include flags are deliberately not in the body</b>, so an admin cannot widen them. The pack is owned by the target and shows up in <em>their</em> device list only.</p>
+  <div class="widget" id="w6o">
+    <div class="w-head"><span class="eyebrow">Interactive · 16</span><h4>Stage a pack as a crew member</h4><span style="flex:1"></span><span id="o-gate"></span></div>
+    <div class="w-bar"><span class="lab">Stage for</span><div class="seg" id="o-crew"></div><span class="lab">Area</span><div class="seg" id="o-area"><button data-v="Oakwood" aria-pressed="true">Oakwood</button><button data-v="Riverside" aria-pressed="false">Riverside</button><button data-v="both" aria-pressed="false">Both</button></div></div>
+    <div class="w-body" id="o-out"></div>
+  </div>
+
+  <h3>6.8 Permissions</h3>
+  <p>All cell administration is gated on <span class="perm">admin:field-packs</span> (plus CSRF), the same as the pack-management page. Pickup uses the <b>crew’s own</b> RBAC — territory access and <code>*:read</code> permissions decide which cells they may pull. Defining cells is an admin act; pulling them is self-service within each crew’s existing entitlements.</p>
+  <h4>Chapter summary</h4>
+  <ul>
+    <li>A shared <b>cell</b> is built once and picked up by every covered crew; the <b>base</b> is published-only and crew-neutral, the <b>overlay</b> is personal.</li>
+    <li>Pickup is all-or-nothing: every <code>*:read</code> for the base’s extras, plus territory (when enforcement is on and the crew is scoped). No reduced fallback.</li>
+    <li>Grid helper: ≤ 500 cells, atomic, row 1 at the bottom; size cells under the feature cap.</li>
+    <li>Scheduling: window <code>[start,end)</code> UTC, due = not in flight and last <em>successful</em> enqueue older than cadence; failing builds re-fire every tick. Retention reaps only unheld versions beyond the newest N.</li>
+    <li>Usage reconciles the ledger with the sync inbox per exact version; build-on-behalf can never exceed the target’s own entitlements.</li>
+  </ul>
+</section>
+
+<!-- ============ CH7 ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>Troubleshooting &amp; quick reference</h2><p>Symptom first, then the live check against the simulations you built.</p></div>
+  <p>Search a symptom or pick one. Each has the likely cause and the action; the five marked <span class="pill sec">live check</span> run against the state of the simulations above — the review queue, the pickup gate and the maintenance loop — so you can try the diagnosis after breaking something on purpose.</p>
+  <div class="widget" id="w7">
+    <div class="w-head"><span class="eyebrow">Interactive · 17</span><h4>Symptom explorer</h4></div>
+    <div class="w-bar"><label class="lab" for="t-q">Search</label><input type="text" id="t-q" placeholder="e.g. work board, queue, cell, stacked…" style="max-width:320px"><span id="t-n" class="muted" style="font-size:12.5px"></span></div>
+    <div class="w-body" id="t-list" style="padding:0"></div>
+  </div>
+
+  <h3>7.1 Quick reference</h3>
+  <h4>Permissions</h4>
+  <div class="tbl"><table><tr><th>Permission</th><th>For</th></tr>
+    <tr><td><code>features:read</code> / <code>features:write</code></td><td>Crew: download / sync</td></tr>
+    <tr><td><code>connectivity:read</code>, <code>relationships:read</code>, <code>wam:read</code>, <code>faults:read</code>, <code>tags:read</code></td><td>Crew: what a pack contains (and what shared cells they may pull)</td></tr>
+    <tr><td><code>admin:field-packs</code></td><td>Admin: manage packs, administer cells</td></tr>
+    <tr><td><code>sync:review</code> / <code>sync:post</code></td><td>Admin: view / act on the review queue</td></tr></table></div>
+  <h4>Environment (<code>cmd/fieldsync</code>)</h4>
+  <div class="tbl"><table><tr><th>Variable</th><th>Default</th><th>Side</th></tr>
+    <tr><td><code>FIELDSYNC_MAX_FEATURES</code></td><td>200000</td><td>build (size cap)</td></tr>
+    <tr><td><code>FIELDPACK_MIN_ZOOM</code> / <code>FIELDPACK_MAX_ZOOM</code></td><td>8 / 16</td><td>build (tiles)</td></tr>
+    <tr><td><code>FIELDSYNC_WORKER_CONCURRENCY</code></td><td>2</td><td>build (parallel builds)</td></tr>
+    <tr><td><code>FIELDSYNC_JOB_LEASE</code></td><td>60s</td><td>build (lease)</td></tr>
+    <tr><td><code>SYNC_WORKER_CONCURRENCY</code></td><td>2</td><td>sync (parallel applies)</td></tr>
+    <tr><td><code>SYNC_JOB_LEASE</code></td><td>60s</td><td>sync (lease)</td></tr>
+    <tr><td><code>TIPPECANOE_BIN</code></td><td>tippecanoe</td><td>build (tile binary)</td></tr>
+    <tr><td><code>FIELDSYNC_PORT</code></td><td>8091</td><td>HTTP receiver port</td></tr>
+    <tr><td><code>FIELDSYNC_BUILD_WINDOW</code></td><td><i>(unset)</i></td><td>shared packs — off-peak UTC hours <code>[start,end)</code> for scheduled rebuilds</td></tr>
+    <tr><td><code>FIELDSYNC_MAINTENANCE_INTERVAL</code></td><td>15m</td><td>shared packs — schedule/retention check cadence</td></tr>
+    <tr><td><code>FIELDSYNC_KEEP_VERSIONS</code></td><td>3</td><td>shared packs — N kept by <code>keep_n</code> retention</td></tr></table></div>
+  <h4>Admin actions</h4>
+  <div class="tbl"><table><tr><th>To…</th><th>Do this</th></tr>
+    <tr><td>See everyone’s packs</td><td>Field Packs page (<code>admin:field-packs</code>)</td></tr>
+    <tr><td>Declutter a crew’s device</td><td><b>Disable</b> the pack (reversible)</td></tr>
+    <tr><td>Reclaim storage</td><td><b>Delete</b> the pack (permanent)</td></tr>
+    <tr><td>Gate a class for review</td><td>Sync Review → set that class to <b>review</b> (<code>sync:post</code>)</td></tr>
+    <tr><td>Check / release held edits</td><td>Sync Review → <b>Post</b> / <b>Reject</b> — oldest first</td></tr>
+    <tr><td>Settle a conflict</td><td>Sync Review → conflict → <b>Apply anyway</b> / <b>Keep</b></td></tr>
+    <tr><td>Build faster for a fleet</td><td>PgBouncer + raise concurrencies + add <code>cmd/fieldsync</code> replicas</td></tr>
+    <tr><td>Pre-build a shared area</td><td>Define a <b>cell</b> (<code>POST /field-packs/cells</code>) → build it (<code>…/build</code>) or schedule it</td></tr>
+    <tr><td>Grid a big territory</td><td><code>POST /field-packs/cells/grid</code> (rows×cols or <code>cell_size_deg</code>)</td></tr>
+    <tr><td>See who holds / synced a cell</td><td><code>GET /field-packs/cells/{id}/usage</code></td></tr>
+    <tr><td>Reap old cell versions</td><td>Set <code>keep_n</code> retention; <code>POST /field-packs/cells/{id}/reap</code></td></tr>
+    <tr><td>Stage a pack for a crew</td><td><code>POST /field-packs/on-behalf</code> (scoped from <em>their</em> RBAC)</td></tr></table></div>
+  <p><b>See also:</b> the <b>Field Tool Guide</b> (what crews do) and the <b>Production Deployment &amp; Scaling</b> guide (PgBouncer, replicas, database topology).</p>
+
+  <div class="callout">One device, one lane. One build, many crews. One rule: don’t add workers without PgBouncer. Everything else in this guide is a consequence of those three.</div>
+  <h4 style="margin-top:26px">Check yourself</h4>
+  <div id="qz"></div>
+</section>
+</div>
+
+<footer style="max-width:1040px;margin:0 auto;padding:0 20px 60px"><p class="muted" style="font-size:13px">VoltEdge · Field Tool Admin — interactive edition. Every widget runs on a simulated Oakwood back-office held entirely in your browser; nothing here talks to a server and nothing here changes your real packs, queue or cells. The statuses, gate order, scheduler and retention rules mirror the field engine’s source.</p></footer>
+
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+function seg(sel,cb){ const el=$(sel); el.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b||b.disabled) return; el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); cb(b)}); }
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nf=(x,d=0)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+/* ---------- personas: who is acting in the web app ---------- */
+const PERSONAS=[['ada','Ada · Administrator',{ap:1,sr:1,sp:1}],['sam','Sam · Supervisor (view only)',{sr:1}],['owen','Owen · Platform admin',{ap:1}],['dana','Dana · Crew member',{}]];
+let PERSONA=PERSONAS[0]; const personaL=[]; const PNAME={ap:'admin:field-packs',sr:'sync:review',sp:'sync:post'};
+const can=p=>!!PERSONA[2][p];
+const gateTip=p=>`<span class="gate" title="needs ${PNAME[p]}">🔒 ${PNAME[p]}</span>`;
+const lockTip=p=>`<span class="gate locked" title="${PERSONA[1].split(' · ')[0]} lacks ${PNAME[p]}">needs ${PNAME[p]}</span>`;
+function onPersona(fn){ personaL.push(fn); fn(); }
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=PERSONAS.map(p=>`<option value="${p[0]}">${p[1]}</option>`).join(''); sel.onchange=()=>{ PERSONA=PERSONAS.find(p=>p[0]===sel.value); personaL.forEach(f=>f()); }; })();
+const pill=(t,c)=>`<span class="pill ${c||''}">${t}</span>`;
+
+/* ===== W1: who handles what — the request-path explorer ===== */
+(function(){
+  const N={app:{x:70,y:60,w:110,h:46,t:'Field app',s:'crews',c:'--s1'},web:{x:70,y:240,w:110,h:46,t:'Web app',s:'you',c:'--s6'},
+   recv:{x:290,y:30,w:130,h:34,t:'receiver',s:'HTTP',c:'--s0'},build:{x:290,y:72,w:130,h:34,t:'build worker',s:'tippecanoe + SQLite',c:'--s0'},apply:{x:290,y:114,w:130,h:34,t:'apply worker',s:'sync → live DB',c:'--s0'},maint:{x:290,y:156,w:130,h:34,t:'maintenance loop',s:'schedule + retention',c:'--s0'},
+   srv:{x:290,y:240,w:130,h:60,t:'cmd/server',s:'/field-packs · /sync-review',c:'--s6'},
+   rustfs:{x:560,y:50,w:120,h:50,t:'RustFS',s:'pack files',c:'--s3'},pg:{x:560,y:200,w:120,h:70,t:'Postgres',s:'the truth',c:'--s2'}};
+  const box={fs:{x:268,y:8,w:174,h:196,t:'cmd/fieldsync'}};
+  const A={
+   pack:{t:'Crew requests a pack',proc:'cmd/fieldsync',perm:'features:read (crew)',path:[['app','recv','request'],['recv','pg','queue row'],['pg','build','claimed (SKIP LOCKED)'],['build','pg','read features'],['build','rustfs','upload 2 files'],['rustfs','app','download']],note:'The crew\'s device asks the receiver for a pack. The build worker claims the queued job, reads the area from Postgres, builds tiles + a SQLite snapshot, uploads both to RustFS, and the device downloads them. Nothing here touches cmd/server.'},
+   sync:{t:'Crew syncs an edit',proc:'cmd/fieldsync',perm:'features:write (crew)',path:[['app','recv','edit + base_version'],['recv','pg','inbox row'],['pg','apply','claimed in device order'],['apply','pg','applied to live tables']],note:'The receiver only records the edit in the sync inbox. The apply worker then claims edits in per-device order and writes them to the live database — immediately for auto classes, after a Post for review classes.'},
+   disable:{t:'You disable a pack',proc:'cmd/server',perm:'admin:field-packs',path:[['web','srv','Disable'],['srv','pg','set flag']],note:'A flag on the pack row. The files stay in RustFS, so Enable brings it straight back.'},
+   delete:{t:'You delete a pack',proc:'cmd/server',perm:'admin:field-packs',path:[['web','srv','Delete'],['srv','rustfs','remove both files'],['srv','pg','remove record']],note:'Permanent. Both stored files and the record go. A pack still building loses only its record — if the build finishes later, the orphaned upload is left for the storage retention sweep.'},
+   post:{t:'You post a held edit',proc:'cmd/server → cmd/fieldsync',perm:'sync:post',path:[['web','srv','Post'],['srv','pg','held → received'],['pg','apply','claimed'],['apply','pg','applied']],note:'The web app only flips the edit\'s status. The apply worker in cmd/fieldsync does the actual writing, in the device\'s order.'},
+   sched:{t:'A scheduled cell is due',proc:'cmd/fieldsync',perm:'(automatic)',path:[['maint','pg','is a rebuild due?'],['maint','pg','enqueue build'],['pg','build','claimed'],['build','rustfs','new version']],note:'The maintenance loop runs inside cmd/fieldsync on a timer. It enqueues builds only inside the build window, and runs retention on every tick.'}};
+  const cx=n=>N[n].x+N[n].w/2, cy=n=>N[n].y+N[n].h/2;
+  $('#w1-b').innerHTML=Object.keys(A).map((k,i)=>`<button class="btn" data-k="${k}" aria-pressed="${i===0}">${A[k].t}</button>`).join('');
+  let cur='pack';
+  function paint(){
+    const a=A[cur]; const hl=new Set(a.path.map(p=>p[0]+'>'+p[1]));
+    const edges=[['app','recv'],['recv','pg'],['pg','build'],['build','rustfs'],['rustfs','app'],['apply','pg'],['pg','apply'],['web','srv'],['srv','pg'],['srv','rustfs'],['maint','pg'],['build','pg']];
+    let s='';
+    s+=`<rect x="${box.fs.x}" y="${box.fs.y}" width="${box.fs.w}" height="${box.fs.h}" rx="10" fill="var(--surface)" stroke="var(--s0)" stroke-dasharray="4 3"/><text x="${box.fs.x+10}" y="${box.fs.y+16}" font-size="11" font-weight="700" style="fill:var(--s0)">cmd/fieldsync</text>`;
+    edges.forEach(e=>{ const key=e.join('>'); s+=`<line x1="${cx(e[0])}" y1="${cy(e[0])}" x2="${cx(e[1])}" y2="${cy(e[1])}" stroke="var(--line)" stroke-width="1.5"/>`; });
+    a.path.forEach((p,i)=>{ const x1=cx(p[0]),y1=cy(p[0]),x2=cx(p[1]),y2=cy(p[1]); const off=((i%3)-1)*11; s+=`<line x1="${x1}" y1="${y1+off}" x2="${x2}" y2="${y2+off}" stroke="var(--acc)" stroke-width="3" stroke-linecap="round" marker-end="url(#ar)"/><circle cx="${x1+(x2-x1)*(.34+.09*i)}" cy="${y1+(y2-y1)*(.34+.09*i)+off}" r="9" fill="var(--acc)"/><text x="${x1+(x2-x1)*(.34+.09*i)}" y="${y1+(y2-y1)*(.34+.09*i)+off+4}" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">${i+1}</text>`; });
+    Object.keys(N).forEach(k=>{ const n=N[k]; const on=a.path.some(p=>p[0]===k||p[1]===k); s+=`<g><rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="8" fill="var(--raise)" stroke="var(${n.c})" stroke-width="${on?3:1.5}"/><text x="${n.x+n.w/2}" y="${n.y+n.h/2-(n.s?2:-4)}" text-anchor="middle" font-size="12.5" font-weight="700" style="fill:var(--ink)">${n.t}</text>${n.s?`<text x="${n.x+n.w/2}" y="${n.y+n.h/2+12}" text-anchor="middle" font-size="10" style="fill:var(--muted)">${n.s}</text>`:''}</g>`; });
+    $('#w1-svg').innerHTML=`<defs><marker id="ar" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--acc)"/></marker></defs>`+s;
+    $('#w1-out').innerHTML=`<div class="kv"><span>Handled by</span><b>${a.proc}</b></div><div class="kv"><span>Permission</span><b>${a.perm}</b></div><ol class="steps" style="margin:10px 0 6px;font-size:13px">${a.path.map(p=>`<li>${N[p[0]].t} → ${N[p[1]].t}: <i>${p[2]}</i></li>`).join('')}</ol><p style="font-size:13.5px;margin:6px 0 0">${a.note}</p>`;
+    $$('#w1-b button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur));
+  }
+  $('#w1-b').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); };
+  paint();
+})();
+
+/* ===== W2: what a pack contains — frozen at build time ===== */
+(function(){
+  const PERMS=[['features:read','features:read','Required to download packs and read features offline'],['features:write','features:write','Required to sync edits back'],['connectivity:read','connectivity:read','Connectivity graph (offline links)'],['relationships:read','relationships:read','Relationships'],['wam:read','wam:read','Work board: work orders, defects, inspection checklists'],['faults:read','faults:read','Open fault board'],['tags:read','tags:read','Asset-tag index (offline scanning)'],['attachments:read','attachments:read','View photos'],['attachments:write','attachments:write','Capture photos']];
+  const LAYERS=[['features:read','Features + map tiles'],['connectivity:read','Connectivity graph'],['relationships:read','Relationships'],['wam:read','Work board'],['faults:read','Fault board'],['tags:read','Asset-tag index'],['attachments:read','Photos (view)']];
+  const have=new Set(['features:read','features:write','connectivity:read','wam:read']); let frozen=null;
+  const contents=set=>set.has('features:read')?LAYERS.filter(l=>set.has(l[0])).map(l=>l[1]):null;
+  function paint(){
+    $('#w2-perms').innerHTML=PERMS.map(p=>`<label class="tog" title="${esc(p[2])}" style="display:flex;gap:6px;margin:3px 0;font-size:13px"><input type="checkbox" data-p="${p[0]}" ${have.has(p[0])?'checked':''}><span class="mono">${p[1]}</span></label>`).join('');
+    const now=contents(have); const was=frozen;
+    const row=(title,list,ref)=>{ if(list===null) return `<div class="lab">${title}</div><div style="color:var(--red);font-size:13px;margin:4px 0 10px">✕ no features:read — cannot download a pack at all</div>`; return `<div class="lab">${title}</div><div style="display:flex;flex-wrap:wrap;gap:5px;margin:5px 0 10px">${LAYERS.map(l=>{ const on=list.includes(l[1]); const diff=ref&&(ref.includes(l[1])!==on); return `<span style="padding:4px 8px;border-radius:6px;font-size:12.5px;border:1px ${on?'solid':'dashed'} ${diff?'var(--amber)':on?'var(--acc)':'var(--line)'};background:${on?'var(--tint)':'transparent'};color:${on?'var(--ink)':'var(--muted)'};${on?'':'text-decoration:line-through'}">${l[1]}</span>`; }).join('')}</div>`; };
+    $('#w2-out').innerHTML=row('If the crew built a pack right now',now,was)+(was!==undefined&&frozen!==null?row('The pack already on the tablet (frozen when built)',was,now):`<div class="muted" style="font-size:13px">No pack built yet — press <b>Build pack</b>.</div>`)+(frozen&&now&&was&&JSON.stringify(now)!==JSON.stringify(was)?`<div class="caution" style="margin:6px 0"><b>The tablet is out of date.</b> The contents above are frozen from the RBAC at the moment of the build. Grant the permission, then the crew must <b>rebuild</b> to pick it up.</div>`:'')+`<div style="margin-top:6px;font-size:13px">${have.has('features:write')?pill('can sync edits back','fresh'):pill('read-only: pulls but cannot push','stale')}${have.has('attachments:write')?' '+pill('can capture photos','fresh'):''}</div>`;
+  }
+  $('#w2-perms').onchange=e=>{ const c=e.target.closest('input'); if(!c) return; c.checked?have.add(c.dataset.p):have.delete(c.dataset.p); paint(); };
+  $('#w2-build').onclick=()=>{ frozen=contents(have); paint(); };
+  $('#w2-reset').onclick=()=>{ have.clear(); ['features:read','features:write','connectivity:read','wam:read'].forEach(x=>have.add(x)); frozen=null; paint(); };
+  paint();
+  /* territory scope on sync */
+  const TER=['Oakwood','Riverside','Elm Grove']; let mine=new Set(['Oakwood']), where='Oakwood', enf=true, unscoped=false;
+  function sy(){
+    $('#w2t-mine').innerHTML=TER.map(t=>`<label class="tog" style="font-size:13px"><input type="checkbox" data-t="${t}" ${mine.has(t)?'checked':''}> ${t}</label>`).join(' ');
+    $('#w2t-where').innerHTML=TER.map(t=>`<button data-v="${t}" aria-pressed="${t===where}">${t}</button>`).join('');
+    const w=have.has('features:write'); let r,ok;
+    if(!w){ ok=false; r='refused — this crew has <code>features:read</code> only: they can pull packs but not push edits.'; }
+    else if(!enf||unscoped){ ok=true; r=enf?'accepted — unscoped crew members are not confined to territories.':'accepted — territory enforcement is off, so no spatial check applies.'; }
+    else if(mine.has(where)){ ok=true; r=`accepted — ${where} is inside the crew’s territories.`; }
+    else { ok=false; r=`refused on apply — ${where} is outside the crew’s territories. The offline edit is re-checked on the server when it is applied.`; }
+    $('#w2t-out').innerHTML=`<div class="fbox ${ok?'good':'bad'}" style="padding:8px 10px;border:1px solid ${ok?'var(--green)':'var(--red)'};border-radius:7px;background:${ok?'var(--green-tint)':'var(--red-tint)'};font-size:13.5px"><b>${ok?'✔':'✘'}</b> An edit to a feature in <b>${where}</b>: ${r}</div>`;
+  }
+  $('#w2t-mine').onchange=e=>{ const c=e.target.closest('input'); if(!c) return; c.checked?mine.add(c.dataset.t):mine.delete(c.dataset.t); sy(); };
+  seg('#w2t-where',b=>{ where=b.dataset.v; sy(); });
+  $('#w2t-enf').onchange=e=>{ enf=e.target.checked; sy(); }; $('#w2t-uns').onchange=e=>{ unscoped=e.target.checked; sy(); };
+  $('#w2-perms').addEventListener('change',sy); $('#w2-reset').addEventListener('click',sy); sy();
+})();
+
+/* ===== W3: the Field Packs page ===== */
+(function(){
+  const SEED=()=>[
+   {id:'p-4102',owner:'Kofi',area:'Oakwood depot',classes:'MV_CONDUCTOR, DIST_XFMR, RMU',status:'succeeded',feats:18420,tiles:21.4,data:8.2,off:false},
+   {id:'p-4098',owner:'Ama',area:'Riverside east',classes:'LV_CONDUCTOR, SERVICE_POINT',status:'succeeded',feats:96310,tiles:44.9,data:31.6,off:false},
+   {id:'p-3987',owner:'Kofi',area:'Elm Grove (old job)',classes:'POLE, MV_CONDUCTOR',status:'succeeded',feats:9120,tiles:11.0,data:4.1,off:false},
+   {id:'p-4107',owner:'Yaw',area:'Whole district',classes:'MV_CONDUCTOR, DIST_XFMR',status:'building',feats:null,tiles:0,data:0,off:false},
+   {id:'p-4090',owner:'Ama',area:'Riverside west',classes:'DIST_XFMR',status:'failed',feats:null,tiles:0,data:0,off:false,err:'exceeds the 200000-feature limit — narrow the bbox or class set'}];
+  let P=SEED(), orphan=0, late=null, note='';
+  function paint(){
+    const g=can('ap');
+    $('#w3-t').innerHTML=`<tr><th>Pack</th><th>Owner</th><th>Area · classes</th><th>Status</th><th>Features</th><th>Tiles / data</th><th></th></tr>`+(P.length?P.map(p=>`<tr style="${p.off?'opacity:.6':''}"><td class="mono">${p.id}</td><td>${p.owner}</td><td>${esc(p.area)}<br><span class="muted" style="font-size:11.5px">${esc(p.classes)}</span></td><td>${p.status==='succeeded'?pill('succeeded','fresh'):p.status==='building'?pill('building','sec'):pill('failed','stale')}${p.off?' '+pill('disabled',''):''}${p.err?`<br><span style="font-size:11.5px;color:var(--red)">${esc(p.err)}</span>`:''}</td><td class="mono">${p.feats==null?'—':nf(p.feats)}</td><td class="mono">${p.status==='succeeded'?p.tiles.toFixed(1)+' / '+p.data.toFixed(1)+' MB':'—'}</td><td style="white-space:nowrap">${g?`<button class="btn" data-a="tog" data-id="${p.id}">${p.off?'Enable':'Disable'}</button> <button class="btn warn" data-a="del" data-id="${p.id}">Delete</button>${p.status==='building'?` <button class="btn" data-a="fin" data-id="${p.id}">⏩ finish build</button>`:''}`:`<span class="muted">—</span>`}</td></tr>`).join(''):`<tr><td colspan="7" class="muted">No packs.</td></tr>`);
+    $('#w3-gate').innerHTML=g?gateTip('ap'):lockTip('ap');
+    const used=P.reduce((a,p)=>a+p.tiles+p.data,0)+orphan, cap=200;
+    $('#w3-g').innerHTML=`<div class="bar" style="height:14px"><i style="width:${Math.min(100,used/cap*100)}%;background:var(--acc)"></i></div><div class="mono" style="font-size:12px;margin-top:3px">${used.toFixed(1)} MB of ${cap} MB${orphan?` · <span style="color:var(--amber)">${orphan.toFixed(1)} MB is an orphaned upload awaiting the retention sweep</span>`:''}</div>`;
+    const vis=P.filter(p=>!p.off&&p.owner==='Kofi'); $('#w3-dev').innerHTML=vis.length?vis.map(p=>`<div>• ${esc(p.area)} <span class="muted">${p.status}</span></div>`).join(''):'<span class="muted">no packs</span>';
+    $('#w3-msg').innerHTML=note+(late?` <button class="btn" id="w3-late">⏩ let the deleted build finish</button>`:'');
+    const lb=$('#w3-late'); if(lb) lb.onclick=()=>{ orphan+=40; late=null; note='The deleted build finished and uploaded its files. <b>No record points at them</b>, so they sit as an orphan until the storage retention sweep reaps them.'; paint(); };
+  }
+  $('#w3-t').onclick=e=>{ const b=e.target.closest('button[data-a]'); if(!b||!can('ap')) return; const p=P.find(x=>x.id===b.dataset.id); const a=b.dataset.a;
+    if(a==='tog'){ p.off=!p.off; note=p.off?`<b>${p.id}</b> disabled — hidden from ${p.owner}’s tablet. <span class="muted">Its ${(p.tiles+p.data).toFixed(1)} MB stay in storage; Enable brings it straight back.</span>`:`<b>${p.id}</b> enabled — visible on ${p.owner}’s tablet again.`; }
+    else if(a==='del'){ P=P.filter(x=>x!==p); if(p.status==='building'){ late=p; note=`<b>${p.id}</b> deleted while building: only the record was removed.`; } else note=`<b>${p.id}</b> deleted — both files (${(p.tiles+p.data).toFixed(1)} MB) and the record are gone. <b>Not reversible.</b>`; }
+    else if(a==='fin'){ p.status='succeeded'; p.feats=31200; p.tiles=26; p.data=14; note=`${p.id} finished building.`; }
+    paint(); };
+  $('#w3-reset').onclick=()=>{ P=SEED(); orphan=0; late=null; note=''; paint(); };
+  onPersona(paint);
+})();
+
+/* ===== W4a: will this pack request build? ===== */
+(function(){
+  const CL=[['MV_CONDUCTOR',40,1],['DIST_XFMR',12,1],['RMU',3,0],['POLE',150,0],['LV_CONDUCTOR',260,0],['SERVICE_POINT',480,0]]; const on=new Set(CL.filter(c=>c[2]).map(c=>c[0])); let km2=9;
+  $('#w4a-cls').innerHTML=CL.map(c=>`<label class="tog"><input type="checkbox" data-c="${c[0]}" ${c[2]?'checked':''}> <span class="mono">${c[0]}</span> <span class="muted" style="font-size:11px">${c[1]}/km²</span></label>`).join('');
+  function paint(){ const cap=+$('#w4a-cap').value; const dens=CL.filter(c=>on.has(c[0])).reduce((a,c)=>a+c[1],0); const f=Math.round(km2*dens); const ok=f<=cap;
+    const per=f?Math.round(cap/dens):0;
+    $('#w4a-out').innerHTML=`<div class="kv"><span>Estimated features</span><b>${nf(km2)} km² × ${nf(dens)}/km² = ${nf(f)}</b></div><div class="bar" style="height:14px;margin:6px 0"><i style="width:${Math.min(100,f/cap*100)}%;background:${ok?'var(--green)':'var(--red)'}"></i></div><div style="padding:8px 10px;border-radius:7px;border:1px solid ${ok?'var(--green)':'var(--red)'};background:${ok?'var(--green-tint)':'var(--red-tint)'};font-size:13.5px">${!on.size?'Pick at least one class.':ok?`<b>✔ Builds.</b> ${Math.round(f/cap*100)}% of the ${nf(cap)}-feature cap.`:`<b>✘ Fails loudly:</b> “exceeds the ${nf(cap)}-feature limit — narrow the bbox or class set.” This class set could cover about <b>${nf(per)} km²</b> within the cap.`}</div>`; }
+  seg('#w4a-box',b=>{ km2=+b.dataset.v; paint(); }); $('#w4a-cap').onchange=paint;
+  $('#w4a-cls').onchange=e=>{ const c=e.target.closest('input'); c.checked?on.add(c.dataset.c):on.delete(c.dataset.c); paint(); }; paint();
+})();
+
+/* ===== W4b: surge simulator ===== */
+(function(){
+  const IDS=['n','t','c','r','cores','pool','sh']; const D={n:120,t:40,c:2,r:1,cores:4,pool:50,sh:0};
+  const g=id=>$('#s-'+id);
+  function paint(){
+    IDS.forEach(i=>{ D[i]=+g(i).value; const v=$('#s-'+i+'v'); if(v) v.textContent=i==='t'?D.t+' s':i==='sh'?D.sh+'%':i==='n'?D.n:D[i]; });
+    const pgb=$('#s-pgb').checked; g('pool').disabled=!pgb;
+    const N=Math.round(D.n*(1-D.sh/100)), par=D.c*D.r, secs=Math.ceil(N/par)*D.t, last=secs;
+    const coreCap=D.cores*D.r; const cpuOver=par>coreCap; const eff=cpuOver?par/coreCap:1; const realSecs=Math.ceil(N/par)*D.t*eff;
+    const conns=par*2; const lim=pgb?D.pool:100; const connOver=conns>lim;
+    // wait per crew: rank i finishes at ceil(i/par)*t*eff
+    const W=520,H=190,pl=36,pb=24,max=Math.max(realSecs,60); let s=`<rect width="${W}" height="${H}" fill="var(--surface)"/>`;
+    for(let k=0;k<=4;k++){ const y=H-pb-(H-pb-14)*k/4; s+=`<line x1="${pl}" y1="${y}" x2="${W-8}" y2="${y}" stroke="var(--line2)"/><text x="${pl-4}" y="${y+4}" font-size="10" text-anchor="end" style="fill:var(--muted)">${Math.round(max*k/4/60)}m</text>`; }
+    if(N>0){ let pts=''; for(let i=1;i<=N;i++){ const w=Math.ceil(i/par)*D.t*eff; pts+=`${pl+(W-pl-8)*(i-1)/Math.max(1,N-1)},${H-pb-(H-pb-14)*w/max} `; } s+=`<polyline points="${pts}" fill="none" stroke="${connOver?'var(--red)':'var(--acc)'}" stroke-width="2.5"/>`; }
+    s+=`<text x="${(pl+W)/2}" y="${H-6}" font-size="10.5" text-anchor="middle" style="fill:var(--muted)">crews, in the order their request arrived</text>`;
+    $('#s-svg').innerHTML=s;
+    const warn=[]; if(connOver) warn.push(`<div style="color:var(--red);margin-top:6px">⚠ ${conns} DB connections wanted (builds + applies) vs ${pgb?'a pool of '+D.pool:'Postgres’s default 100 shared with the API'} — ${pgb?'size concurrency to the pool':'<b>put PgBouncer in front before raising concurrency</b>'}.</div>`); if(cpuOver) warn.push(`<div style="color:var(--amber);margin-top:6px">⚠ ${par} parallel builds on ${coreCap} cores: tippecanoe is CPU-bound, so each build slows ×${eff.toFixed(1)} — the bars above already include that.</div>`); if(!pgb&&par>=8) warn.push(`<div style="color:var(--amber);margin-top:6px">PgBouncer is off while you run ${par} workers: the guide’s one rule.</div>`);
+    $('#s-out').innerHTML=`<div class="kv"><span>Builds queued</span><b>${N}${D.sh?` <span class="muted">(was ${D.n})</span>`:''}</b></div><div class="kv"><span>Parallel builds</span><b>${D.c} × ${D.r} = ${par}</b></div><div class="kv"><span>Last crew waits</span><b style="font-size:16px">${realSecs>=120?(realSecs/60).toFixed(1)+' min':Math.round(realSecs)+' s'}</b></div><div class="kv"><span>Formula</span><b>${N} × ${D.t} / ${par}${cpuOver?' × '+eff.toFixed(1):''}</b></div>${warn.join('')}`;
+  }
+  $$('#w4b input').forEach(e=>e.oninput=paint); $('#s-pgb').onchange=paint;
+  $('#w4b-reset').onclick=()=>{ Object.entries(D).forEach(([k,v])=>{ g(k).value=v; }); g('n').value=120;g('t').value=40;g('c').value=2;g('r').value=1;g('cores').value=4;g('pool').value=50;g('sh').value=0; $('#s-pgb').checked=false; paint(); };
+  paint();
+})();
+
+/* ===== W4c: apply-side estimate ===== */
+(function(){
+  const g=id=>$('#y-'+id);
+  function paint(){ const d=+g('d').value,k=+g('k').value,a=+g('a').value,c=+g('c').value; $('#y-dv').textContent=d; $('#y-kv').textContent=k; $('#y-av').textContent=a.toFixed(1)+' s'; $('#y-cv').textContent=c;
+    const serial=k*a, par=d*k*a/c, t=Math.max(serial,par); const bound=serial>=par?'one device’s own serial lane':'total worker throughput';
+    $('#y-out').innerHTML=`<div class="kv"><span>One device (strictly in order)</span><b>${k} × ${a.toFixed(1)} s = ${serial<120?Math.round(serial)+' s':(serial/60).toFixed(1)+' min'}</b></div><div class="kv"><span>All devices ÷ workers</span><b>${d} × ${k} × ${a.toFixed(1)} / ${c} = ${par<120?Math.round(par)+' s':(par/60).toFixed(1)+' min'}</b></div><div style="margin-top:8px;padding:8px 10px;border-radius:7px;border:1px solid var(--line);background:var(--surface);font-size:13.5px"><b>The office is complete after ≈ ${t<120?Math.round(t)+' s':(t/60).toFixed(1)+' min'}</b> — limited by ${bound}. ${serial>=par?'More workers will not help; only fewer edits per device, or a faster apply, will.':'Raise sync concurrency / add replicas (with PgBouncer) to shorten this.'}</div>`; }
+  $$('#w4c input').forEach(e=>e.oninput=paint); paint();
+})();
+
+/* ===== W4d: zoom ===== */
+(function(){
+  function paint(){ const mx=+$('#z-mx').value, mn=+$('#z-mn').value; $('#z-mxv').textContent=mx; $('#z-mnv').textContent=mn; const mpp=156543.03/Math.pow(2,mx); const mult=Math.pow(4,mx-16);
+    const rows=[['Typical utility spacing · 30 m',30],['Dense urban LV · 3 m',3]]; let s=''; rows.forEach((r,i)=>{ const px=r[1]/mpp; const y=34+i*60; s+=`<text x="10" y="${y-14}" font-size="12" style="fill:var(--ink)" font-weight="600">${r[0]}</text>`; for(let k=0;k<7;k++){ s+=`<circle cx="${40+k*Math.min(px,70)}" cy="${y+6}" r="5" fill="var(--s1)" fill-opacity=".8" stroke="var(--s1)"/>`; } s+=`<text x="${520}" y="${y+10}" font-size="12" style="fill:${px<3?'var(--red)':'var(--muted)'}">${px.toFixed(1)} px apart ${px<3?'— stacked':''}</text>`; });
+    $('#z-svg').innerHTML=s;
+    const st=mx<16?`<span style="color:var(--red)"><b>Lowered below 16:</b> dense features stack and hide. Set it back.</span>`:mx===16?`<span style="color:var(--green)"><b>The default.</b> ~2.4 m/pixel separates typical utility features; taps still hit full-precision data and crews can zoom past it.</span>`:mx===17?`<span style="color:var(--amber)"><b>Only for dense urban LV</b> where service connections are 2–5 m apart — at ≈ 4× the build cost and size.</span>`:`<span style="color:var(--red)"><b>Not recommended:</b> ×${nf(mult)} the size of a level-16 pack for little gain.</span>`;
+    $('#z-out').innerHTML=`<div class="kv"><span>Ground resolution at ${mx}</span><b>${mpp.toFixed(2)} m / pixel</b></div><div class="kv"><span>Build cost &amp; pack size</span><b>≈ ×${mult>=1?nf(mult):mult.toFixed(2)} vs level 16</b></div><div style="margin-top:6px">${st}</div><div style="margin-top:6px;font-size:13px">${mn>10?'<span style="color:var(--red)"><b>Min zoom '+mn+':</b> the crew’s map goes <b>blank</b> as soon as they zoom out below it.</span>':'Min zoom '+mn+': the map is usable down to zoom '+mn+'. Keep it low.'}</div>`; }
+  $$('#w4d input').forEach(e=>e.oninput=paint); paint();
+})();
+
+/* ===== the review engine (shared by Interactive 9 + 10) ===== */
+const RV=(function(){
+  const CLSS=['MV_CONDUCTOR','DIST_XFMR','RMU'];
+  const FEAT0=()=>({'MV-1':{cls:'MV_CONDUCTOR',val:'ACSR 100 mm²',upd:0},'MV-2':{cls:'MV_CONDUCTOR',val:'ACSR 100 mm²',upd:0},'TX-9':{cls:'DIST_XFMR',val:'315 kVA',upd:0},'RMU-3':{cls:'RMU',val:'in service',upd:0}});
+  const NEWV={'MV_CONDUCTOR':['ACSR 150 mm²','XLPE 185 mm²','ACSR 70 mm²'],'DIST_XFMR':['500 kVA','200 kVA','315 kVA (tap 3)'],'RMU':['out of service','in service (relabelled)']};
+  const V={now:0,F:FEAT0(),snap:{Kofi:0,Ama:0},ops:[],seq:0,nv:0,pol:{def:'auto',mode:{MV_CONDUCTOR:'review'},detDef:false,det:{}},sub:[]};
+  const hm=t=>{ const m=360+t; return String(Math.floor(m/60)%24).padStart(2,'0')+':'+String(m%60).padStart(2,'0'); };
+  const ACTIVE=['received','pending_review','conflict','applying'];
+  V.modeFor=c=>V.pol.mode[c]||V.pol.def; V.detFor=c=>(c in V.pol.det)?V.pol.det[c]:V.pol.detDef;
+  V.hm=hm; V.on=f=>V.sub.push(f); V.emit=()=>V.sub.forEach(f=>f());
+  V.blockedBy=op=>V.ops.find(e=>e.dev===op.dev&&e.seq<op.seq&&ACTIVE.includes(e.status));
+  V.tick=n=>{ V.now+=n; };
+  V.reset=()=>{ V.now=0; V.F=FEAT0(); V.snap={Kofi:0,Ama:0}; V.ops=[]; V.seq=0; V.nv=0; V.pol={def:'auto',mode:{MV_CONDUCTOR:'review'},detDef:false,det:{}}; V.emit(); };
+  V.capture=(dev,feat,kind,nobase)=>{ V.tick(5); let cls,val; if(kind==='create'){ cls=['MV_CONDUCTOR','DIST_XFMR','RMU'].includes(feat)?feat:'DIST_XFMR'; feat='NEW-'+(++V.nv); val='new feature'; } else { cls=V.F[feat].cls; const L=NEWV[cls]; val=L[V.nv++%L.length]; }
+    const op={seq:++V.seq,dev,cls,feat,kind,val,base:nobase?null:V.snap[dev],status:V.modeFor(cls)==='review'?'pending_review':'received',t:V.now,msg:''}; V.ops.push(op); V.emit(); return op; };
+  V.office=feat=>{ V.tick(5); const f=V.F[feat]; if(!f||f.deleted) return; f.val=f.val.replace(/ \(office edit \d+\)$/,'')+` (office edit ${Math.floor(V.now/5)})`; f.upd=V.now; V.emit(); };
+  V.rebuild=dev=>{ V.snap[dev]=V.now; V.emit(); };
+  V.claimable=()=>V.ops.find(o=>o.status==='received'&&!V.blockedBy(o));
+  function process(op){ V.tick(1); if((op.kind==='update'||op.kind==='delete')&&V.detFor(op.cls)&&op.base!=null&&!op.waive){ const f=V.F[op.feat]; if(f&&f.upd>op.base){ const later=V.ops.some(o=>o.dev===op.dev&&o.feat===op.feat&&o.seq>op.seq&&ACTIVE.includes(o.status)); if(later){ op.status='superseded'; op.msg='a newer edit to the same feature stepped in front'; return; } op.status='conflict'; op.msg=`edit conflict: feature was modified in production (updated ${hm(f.upd)}) after this device’s snapshot (${hm(op.base)})`; return; } }
+    if(op.kind==='create'){ V.F[op.feat]={cls:op.cls,val:op.val,upd:V.now}; } else if(op.kind==='update'){ V.F[op.feat].val=op.val; V.F[op.feat].upd=V.now; } else { V.F[op.feat].deleted=true; V.F[op.feat].upd=V.now; }
+    op.status='applied'; }
+  V.step=()=>{ const op=V.claimable(); if(!op) return null; op.status='applying'; process(op); V.emit(); return op; };
+  V.run=()=>{ let n=0; while(V.step()&&n<200) n++; return n; };
+  V.post=seq=>{ const o=V.ops.find(x=>x.seq===seq); if(o&&o.status==='pending_review'){ o.status='received'; V.emit(); } };
+  V.reject=(seq,reason)=>{ const o=V.ops.find(x=>x.seq===seq); if(o&&(o.status==='pending_review'||o.status==='conflict')){ o.status='rejected'; o.msg=reason||'(no reason given)'; V.emit(); } };
+  V.resolve=(seq,how,reason)=>{ const o=V.ops.find(x=>x.seq===seq); if(!o||o.status!=='conflict') return; if(how==='apply'){ o.waive=true; o.status='received'; o.msg=''; } else { o.status='rejected'; o.msg=reason||'kept the live value'; } V.emit(); };
+  return V; })();
+
+/* ===== W5a: policy, capture, lanes ===== */
+(function(){
+  const V=RV; const feats=()=>Object.keys(V.F).filter(k=>!V.F[k].deleted);
+  const chip=s=>{ const m={received:'sec',applying:'sec',pending_review:'stale',conflict:'stale',applied:'fresh',rejected:'stale',superseded:''}; return `<span class="pill ${m[s]||''}" style="${s==='conflict'||s==='rejected'?'background:var(--red-tint);color:var(--red);border:1px solid var(--red)':s==='superseded'?'color:var(--muted);border:1px solid var(--line)':''}">${s}</span>`; };
+  V.chip=chip;
+  function paint(){
+    $('#w5-clock').textContent='clock '+V.hm(V.now); $('#w5-pg').innerHTML=can('sp')?gateTip('sp'):(can('sr')?lockTip('sp'):lockTip('sr'));
+    const ed=can('sp'); const sel=(id,cur,opts)=>`<select class="fld" data-p="${id}" style="width:104px" ${ed?'':'disabled'}>${opts.map(o=>`<option value="${o[0]}" ${o[0]===cur?'selected':''}>${o[1]}</option>`).join('')}</select>`;
+    $('#w5-pol').innerHTML=`<tr><th>Class</th><th>Mode</th><th>Detect conflicts</th></tr><tr><td><b>global default</b></td><td>${sel('def',V.pol.def,[['auto','auto'],['review','review']])}</td><td><input type="checkbox" data-p="detdef" ${V.pol.detDef?'checked':''} ${ed?'':'disabled'}></td></tr>`+['MV_CONDUCTOR','DIST_XFMR','RMU'].map(c=>`<tr><td class="mono">${c}</td><td>${sel('m:'+c,V.pol.mode[c]||'',[['','inherit ('+V.pol.def+')'],['auto','auto'],['review','review']])}</td><td><select class="fld" data-p="d:${c}" style="width:104px" ${ed?'':'disabled'}><option value="" ${(c in V.pol.det)?'':'selected'}>inherit (${V.pol.detDef?'on':'off'})</option><option value="1" ${V.pol.det[c]===true?'selected':''}>on</option><option value="0" ${V.pol.det[c]===false?'selected':''}>off</option></select></td></tr>`).join('');
+    $('#w5-feat').innerHTML=`<tr><th>Feature</th><th>Class</th><th>Live value</th><th>Changed</th></tr>`+Object.keys(V.F).map(k=>{ const f=V.F[k]; return `<tr style="${f.deleted?'opacity:.45;text-decoration:line-through':''}"><td class="mono">${k}</td><td class="mono" style="font-size:11.5px">${f.cls}</td><td>${esc(f.val)}</td><td class="mono">${f.upd?V.hm(f.upd):'—'}</td></tr>`; }).join('');
+    const cur=$('#w5-ft').value; $('#w5-ft').innerHTML=feats().map(k=>`<option ${k===cur?'selected':''}>${k}</option>`).join('');
+    $('#w5-lanes').innerHTML=['Kofi','Ama'].map(d=>{ const ops=V.ops.filter(o=>o.dev===d); return `<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface)"><div style="display:flex;justify-content:space-between"><b>${d}</b><span class="muted mono" style="font-size:11.5px">pack snapshot ${V.hm(V.snap[d])}</span></div>${ops.length?ops.map(o=>{ const b=o.status==='received'?V.blockedBy(o):null; return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:4px 0;border-top:1px dashed var(--line2);font-size:12.5px"><span class="mono">#${o.seq}</span><span class="mono">${o.kind}</span><span class="mono">${o.feat}</span><span class="muted" style="font-size:11.5px">${o.cls}</span>${chip(o.status)}${b?`<span style="color:var(--amber);font-size:12px">⛔ blocked by #${b.seq} (${b.status})</span>`:''}${o.base==null&&o.kind!=='create'?'<span class="muted" style="font-size:11px">no base_version</span>':''}${o.msg&&o.status!=='received'?`<div class="muted" style="flex-basis:100%;font-size:11.5px">${esc(o.msg)}</div>`:''}</div>`; }).join(''):'<div class="muted" style="font-size:12.5px;padding-top:4px">no edits yet</div>'}</div>`; }).join('');
+  }
+  $('#w5-pol').onchange=e=>{ const el=e.target.closest('[data-p]'); if(!el||!can('sp')) return; const k=el.dataset.p; if(k==='def') V.pol.def=el.value; else if(k==='detdef') V.pol.detDef=el.checked; else if(k.startsWith('m:')){ el.value?V.pol.mode[k.slice(2)]=el.value:delete V.pol.mode[k.slice(2)]; } else if(k.startsWith('d:')){ el.value===''?delete V.pol.det[k.slice(2)]:V.pol.det[k.slice(2)]=el.value==='1'; } V.emit(); };
+  $('#w5-kind').onchange=()=>{ $('#w5-ft').disabled=$('#w5-kind').value==='create'; };
+  $('#w5-cap').onclick=()=>{ const kind=$('#w5-kind').value; V.capture($('#w5-dev').value,kind==='create'?'DIST_XFMR':$('#w5-ft').value,kind,$('#w5-nobase').checked); };
+  $('#w5-off').onclick=()=>V.office($('#w5-ft').value); $('#w5-rb').onclick=()=>{ V.rebuild($('#w5-dev').value); };
+  $('#w5-run').onclick=()=>{ const n=V.run(); $('#w5-wmsg').textContent=n?`worker processed ${n} edit${n>1?'s':''}`:'nothing claimable — everything is applied, held, or blocked'; };
+  $('#w5-step').onclick=()=>{ const o=V.step(); $('#w5-wmsg').textContent=o?`claimed #${o.seq} → ${o.status}`:'nothing claimable'; };
+  $('#w5-reset').onclick=()=>{ V.reset(); $('#w5-wmsg').textContent=''; };
+  $$('#w5a [data-sc]').forEach(b=>b.onclick=()=>{ V.reset(); const k=b.dataset.sc; const m=$('#w5-wmsg');
+    if(k==='hol'){ V.capture('Kofi','MV-1','update'); V.capture('Kofi','TX-9','update'); V.capture('Kofi','RMU-3','update'); V.capture('Ama','TX-9','update'); V.run(); m.innerHTML='<b>Scenario ①.</b> MV_CONDUCTOR is on <code>review</code>. Kofi’s first edit is held, so his transformer and RMU edits are stuck <code>received</code> behind it even though those classes are <code>auto</code>. Ama’s edit applied. Open the review queue below, <b>Post</b> #1 and run the worker again.'; }
+    else if(k==='conf'){ V.pol.mode={}; V.pol.det={MV_CONDUCTOR:true}; V.emit(); V.office('MV-1'); V.capture('Kofi','MV-1','update'); V.run(); m.innerHTML='<b>Scenario ②.</b> Conflict detection is on for MV_CONDUCTOR. The office changed MV-1 at '+V.hm(V.F['MV-1'].upd)+', after Kofi’s pack snapshot ('+V.hm(0)+'). His edit is held as a <code>conflict</code>. Resolve it in the queue below — then press <b>Crew rebuilds pack</b> and capture again to see a fresh snapshot pass cleanly.'; }
+    else { V.pol.mode={}; V.pol.det={MV_CONDUCTOR:true}; V.emit(); V.capture('Kofi','MV-2','update'); V.capture('Kofi','MV-2','update'); V.capture('Kofi','TX-9','update'); V.office('MV-2'); V.run(); m.innerHTML='<b>Scenario ③.</b> Kofi edited MV-2 twice offline, then the office changed it. The first edit is <code>superseded</code> silently; only the newest surfaces as the conflict — and the TX-9 edit behind it waits for you to resolve it.'; } });
+  V.on(paint); paint(); onPersona(paint);
+})();
+
+/* ===== W5b: the review queue ===== */
+(function(){
+  const V=RV; let filt='pending_review'; const FS=['pending_review','conflict','applied','rejected','superseded','all'];
+  $('#w5b-f').innerHTML=FS.map(f=>`<button data-v="${f}" aria-pressed="${f===filt}">${f.replace('_',' ')}</button>`).join('');
+  seg('#w5b-f',b=>{ filt=b.dataset.v; paint(); });
+  function paint(){
+    const sr=can('sr'), sp=can('sp'); $('#w5b-gate').innerHTML=sr?(sp?gateTip('sp'):lockTip('sp')):lockTip('sr');
+    $$('#w5b-f button').forEach(b=>{ const n=b.dataset.v==='all'?V.ops.length:V.ops.filter(o=>o.status===b.dataset.v).length; b.textContent=b.dataset.v.replace('_',' ')+' · '+n; });
+    if(!sr){ $('#w5b-list').innerHTML=`<div style="padding:14px" class="muted"><b>🔒 ${PNAME.sr} required.</b> The review queue is not visible to ${PERSONA[1].split(' · ')[0]}.</div>`; }
+    else{ const rows=V.ops.filter(o=>filt==='all'||o.status===filt).sort((a,b)=>a.seq-b.seq);
+      $('#w5b-list').innerHTML=rows.length?rows.map(o=>{ const f=V.F[o.feat]; const act=o.status==='pending_review'?(sp?`<button class="btn pri" data-a="post" data-s="${o.seq}">Post</button> <button class="btn warn" data-a="rej" data-s="${o.seq}">Reject…</button>`:'<span class="muted" style="font-size:12px">view only</span>'):o.status==='conflict'?(sp?`<button class="btn pri" data-a="apply" data-s="${o.seq}">Apply anyway</button> <button class="btn" data-a="keep" data-s="${o.seq}">Keep live value…</button>`:'<span class="muted" style="font-size:12px">view only</span>'):''; const blocked=V.ops.filter(x=>x.dev===o.dev&&x.seq>o.seq&&ACT.includes(x.status)).length;
+        return `<div style="padding:10px 14px;border-top:1px solid var(--line2)"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="mono">#${o.seq}</span><b>${o.dev}</b><span class="mono">${o.kind} ${o.feat}</span><span class="muted mono" style="font-size:11.5px">${o.cls}</span>${V.chip(o.status)}<span style="flex:1"></span>${act}</div>
+        <div style="font-size:13px;margin-top:4px">${o.kind==='update'?`proposed: <b>${esc(o.val)}</b>`:o.kind==='delete'?'proposed: <b>delete</b>':`proposed: <b>create</b> “${esc(o.val)}”`}</div>
+        ${o.status==='conflict'&&f?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px"><div style="padding:6px 8px;border:1px solid var(--amber);border-radius:6px;background:var(--amber-tint);font-size:12.5px"><div class="lab">live now (changed ${V.hm(f.upd)})</div>${esc(f.val)}</div><div style="padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:12.5px"><div class="lab">crew’s proposal (snapshot ${V.hm(o.base)})</div>${esc(o.val)}</div></div><div class="muted" style="font-size:12px;margin-top:4px">${esc(o.msg)}</div>`:''}
+        ${o.msg&&o.status==='rejected'?`<div class="muted" style="font-size:12px">reason: ${esc(o.msg)}</div>`:''}
+        ${blocked&&(o.status==='pending_review'||o.status==='conflict')?`<div style="font-size:12px;color:var(--amber);margin-top:3px">⛔ ${blocked} later edit${blocked>1?'s':''} from ${o.dev} ${blocked>1?'are':'is'} stuck behind this one</div>`:''}</div>`; }).join(''):`<div style="padding:14px" class="muted">Nothing in “${filt.replace('_',' ')}”. Capture some edits in Interactive 9 and run the worker.</div>`; }
+    $('#w5b-na').innerHTML=['Kofi','Ama'].map(d=>{ const r=V.ops.filter(o=>o.dev===d&&o.status==='rejected'); return `<div><b>${d}</b>${r.length?r.map(o=>`<div>• #${o.seq} ${o.feat}: <i>${esc(o.msg)}</i></div>`).join(''):'<div class="muted">nothing</div>'}</div>`; }).join('');
+  }
+  const ACT=['received','pending_review','conflict','applying'];
+  $('#w5b-list').onclick=e=>{ const b=e.target.closest('button[data-a]'); if(!b||!can('sp')) return; const s=+b.dataset.s, a=b.dataset.a;
+    if(a==='post') V.post(s); else if(a==='apply') V.resolve(s,'apply');
+    else { const r=prompt(a==='rej'?'Reason for rejecting (the crew will see this):':'Reason for keeping the live value (the crew will see this):', a==='rej'?'Wrong conductor type for this span':'Office already corrected this'); if(r===null) return; a==='rej'?V.reject(s,r):V.resolve(s,'keep',r); } };
+  V.on(paint); paint(); onPersona(paint);
+})();
+
+/* ===== shared-packs store ===== */
+const FP=(function(){
+  const S={enf:true,sub:[],on:f=>S.sub.push(f),emit:()=>S.sub.forEach(f=>f()),id:10,
+   crews:{Kofi:{perm:new Set(['connectivity:read','faults:read','wam:read']),terr:new Set(['Oakwood']),uns:false},Ama:{perm:new Set(['faults:read','relationships:read']),terr:new Set(['Riverside']),uns:false},Yaw:{perm:new Set(['connectivity:read','relationships:read','faults:read','tags:read']),terr:new Set(),uns:true},Esi:{perm:new Set(['connectivity:read','relationships:read','faults:read','tags:read','wam:read']),terr:new Set(['Oakwood','Riverside']),uns:false}}};
+  const ver=(n,h,f,mb)=>({n,builtH:h,feats:f,mb});
+  S.seed=()=>{ S.cells=[
+    {id:'c1',name:'Oakwood depot',terr:'Oakwood',inc:{conn:1,rel:0,faults:1,tags:0},sched:'daily',ret:'keep_n',active:true,versions:[ver(1,96,18420,29),ver(2,72,18544,29),ver(3,48,18610,30),ver(4,24,18702,30)],holders:{Kofi:{ver:4,pickedH:20,ops:7,lastSyncH:3},Esi:{ver:2,pickedH:70,ops:0,lastSyncH:null},Yaw:{ver:4,pickedH:1,ops:0,lastSyncH:null}}},
+    {id:'c2',name:'Riverside east',terr:'Riverside',inc:{conn:0,rel:1,faults:0,tags:0},sched:'weekly',ret:'manual',active:true,versions:[ver(1,100,96310,76)],holders:{Ama:{ver:1,pickedH:90,ops:3,lastSyncH:5}}},
+    {id:'c3',name:'Public baseline',terr:'',inc:{conn:0,rel:0,faults:0,tags:0},sched:'',ret:'pinned',active:true,versions:[ver(1,200,5200,9)],holders:{}},
+    {id:'c4',name:'Elm Grove (new)',terr:'Elm Grove',inc:{conn:0,rel:0,faults:0,tags:1},sched:'',ret:'manual',active:true,versions:[],holders:{}},
+    {id:'c5',name:'Retired cell',terr:'Oakwood',inc:{conn:0,rel:0,faults:0,tags:0},sched:'',ret:'manual',active:false,versions:[ver(1,400,9000,14)],holders:{}}]; S.emit(); };
+  S.latest=c=>c.versions.length?c.versions[c.versions.length-1]:null;
+  S.covers=(c,u)=>{ const U=S.crews[u]; const steps=[]; let first=null; const chk=(name,need,have)=>{ const st=!need?'skip':have?'pass':'fail'; if(st==='fail'&&!first) first=name; steps.push([name,st]); };
+    chk('connectivity:read',c.inc.conn,U.perm.has('connectivity:read')); chk('relationships:read',c.inc.rel,U.perm.has('relationships:read')); chk('faults:read',c.inc.faults,U.perm.has('faults:read')); chk('tags:read',c.inc.tags,U.perm.has('tags:read'));
+    let tst,why; if(!S.enf){ tst='skip'; why='enforcement is off'; } else if(U.uns){ tst='skip'; why='crew is unscoped'; } else if(!c.terr){ tst='fail'; why='the cell has no territory — refused to every scoped crew (fail closed)'; } else if(U.terr.has(c.terr)){ tst='pass'; why=c.terr+' is in the crew’s territories'; } else { tst='fail'; why=c.terr+' is not in the crew’s territories'; }
+    if(tst==='fail'&&!first) first='territory'; steps.push(['territory',tst,why]); return {ok:!first,first,steps}; };
+  S.seed(); return S; })();
+const hAgo=h=>h==null?'—':h<1?'just now':h<48?Math.round(h)+' h ago':Math.round(h/24)+' d ago';
+
+/* ===== W11: the pickup gate ===== */
+(function(){
+  let crew='Kofi'; const P=['connectivity:read','relationships:read','faults:read','tags:read']; const T=['Oakwood','Riverside','Elm Grove'];
+  $('#g-crew').innerHTML=Object.keys(FP.crews).map(c=>`<button data-v="${c}" aria-pressed="${c===crew}">${c}</button>`).join('');
+  seg('#g-crew',b=>{ crew=b.dataset.v; paint(); });
+  function cells(){ const s=$('#g-cell'), cur=s.value; s.innerHTML=FP.cells.map(c=>`<option value="${c.id}" ${c.id===cur?'selected':''}>${esc(c.name)}${c.active?'':' (inactive)'}</option>`).join(''); }
+  function paint(){
+    cells(); const c=FP.cells.find(x=>x.id===$('#g-cell').value)||FP.cells[0]; const U=FP.crews[crew];
+    $('#g-who').textContent=crew+'’s entitlements';
+    $('#g-perms').innerHTML=P.map(p=>`<label class="tog" style="display:flex;gap:6px;margin:3px 0;font-size:13px"><input type="checkbox" data-p="${p}" ${U.perm.has(p)?'checked':''}><span class="mono">${p}</span></label>`).join('')+`<div class="lab" style="margin-top:8px">Territories</div>`+T.map(t=>`<label class="tog" style="display:flex;gap:6px;margin:3px 0;font-size:13px"><input type="checkbox" data-t="${t}" ${U.terr.has(t)?'checked':''}> ${t}</label>`).join('')+`<label class="tog" style="display:flex;gap:6px;margin:6px 0;font-size:13px"><input type="checkbox" data-u="1" ${U.uns?'checked':''}> <span class="mono">territories:unscoped</span></label>`;
+    $('#g-enf').checked=FP.enf;
+    const r=FP.covers(c,crew);
+    const inc=[c.inc.conn&&'connectivity',c.inc.rel&&'relationships',c.inc.faults&&'faults',c.inc.tags&&'tags'].filter(Boolean);
+    $('#g-chk').innerHTML=`<div class="lab">${esc(c.name)} · territory ${c.terr||'none'} · base carries ${inc.length?inc.join(', '):'no extras'}${c.active?'':' · <b>inactive</b>'}</div><ol class="steps" style="margin:6px 0">`+r.steps.map((s,i)=>`<li style="color:${s[1]==='fail'?'var(--red)':s[1]==='pass'?'var(--green)':'var(--muted)'}"><b>${s[1]==='fail'?'✕':s[1]==='pass'?'✓':'–'}</b> <span class="mono">${s[0]}</span> ${s[1]==='skip'?(i<4?'not needed — base doesn’t include it':'<i>skipped: '+s[2]+'</i>'):s[1]==='fail'?(i<4?'missing':'<b>'+s[2]+'</b>'):(i<4?'held':s[2])}</li>`).join('')+`</ol><div style="padding:8px 10px;border-radius:7px;border:1px solid ${r.ok&&c.active?'var(--green)':'var(--red)'};background:${r.ok&&c.active?'var(--green-tint)':'var(--red-tint)'};font-size:13.5px">${!c.active?'<b>Hidden</b> — inactive cells never appear.':r.ok?`<b>✔ Covered.</b> ${FP.latest(c)?`Pickup records the pickup in the ledger and returns the base manifest (v${FP.latest(c).n}).`:'It is listed as <i>not yet available</i> — no succeeded build yet, so there is nothing to download.'}`:`<b>✘ Not covered — first missing: <code>${r.first}</code>.</b> Hidden from ${crew}’s list; a direct pickup is refused <code>403</code>. There is no reduced fallback.`}</div><div style="margin-top:8px"><button class="btn pri" id="g-pick">Try pickup</button> <span id="g-pm" style="font-size:13px"></span></div>`;
+    const vis=FP.cells.filter(x=>x.active&&FP.covers(x,crew).ok); const hid=FP.cells.length-vis.length;
+    $('#g-list').innerHTML=vis.length?vis.map(x=>`<div style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;margin-bottom:4px;font-size:13px;display:flex;gap:8px;align-items:center">${esc(x.name)} <span style="flex:1"></span>${FP.latest(x)?pill('v'+FP.latest(x).n+' available','fresh'):pill('not yet available','stale')}</div>`).join('')+`<div class="muted" style="font-size:12px">${hid} cell${hid===1?'':'s'} hidden (inactive, or ${crew} doesn’t cover them)</div>`:`<div class="muted" style="font-size:13px">Nothing — ${crew} covers no active cell.</div>`;
+    $('#g-pick').onclick=()=>{ const m=$('#g-pm'); if(!c.active||!r.ok){ m.innerHTML=`<span style="color:var(--red)">403 — ${c.active?'not covered ('+r.first+')':'cell inactive'}</span>`; return; } const v=FP.latest(c); if(!v){ m.innerHTML='<span style="color:var(--amber)">no succeeded version yet — nothing to download</span>'; return; } c.holders[crew]={ver:v.n,pickedH:0,ops:0,lastSyncH:null}; FP.emit(); m.innerHTML=`<span style="color:var(--green)">recorded in the ledger: ${crew} now holds v${v.n}. See Interactive 15.</span>`; };
+  }
+  $('#g-cell').onchange=paint; $('#g-enf').onchange=e=>{ FP.enf=e.target.checked; paint(); };
+  $('#g-perms').onchange=e=>{ const el=e.target.closest('input'); if(!el) return; const U=FP.crews[crew]; if(el.dataset.p) el.checked?U.perm.add(el.dataset.p):U.perm.delete(el.dataset.p); else if(el.dataset.t) el.checked?U.terr.add(el.dataset.t):U.terr.delete(el.dataset.t); else U.uns=el.checked; FP.emit(); };
+  FP.on(paint); paint();
+})();
+
+/* ===== W12: define a cell ===== */
+(function(){
+  const CL=['MV_CONDUCTOR','DIST_XFMR','RMU','SWITCH','LV_CONDUCTOR']; const sel=new Set(['MV_CONDUCTOR','DIST_XFMR','RMU']); const INC=[['conn','connectivity'],['rel','relationships'],['faults','faults'],['tags','tags']]; const inc=new Set(['conn','faults']);
+  $('#c-cls').innerHTML=CL.map(c=>`<label class="tog"><input type="checkbox" data-c="${c}" ${sel.has(c)?'checked':''}> <span class="mono">${c}</span></label>`).join('');
+  $('#c-inc').innerHTML=INC.map(i=>`<label class="tog"><input type="checkbox" data-i="${i[0]}" ${inc.has(i[0])?'checked':''}> ${i[1]}</label>`).join('');
+  function body(){ const bb=$('#c-bb').value.split(/[,\s]+/).filter(Boolean).map(Number); return {name:$('#c-name').value,territory:$('#c-terr').value||null,bbox:bb,feature_classes:[...sel],include_connectivity:inc.has('conn'),include_relationships:inc.has('rel'),include_faults:inc.has('faults'),include_tags:inc.has('tags'),schedule:$('#c-sch').value||null,retention:$('#c-ret').value,active:$('#c-act').checked}; }
+  function problem(b){ if(!b.name) return 'name is required'; if(b.bbox.length!==4||b.bbox.some(x=>isNaN(x))) return 'bbox must be [minX, minY, maxX, maxY] (4 numbers)'; if(!b.feature_classes.length) return 'at least one feature class is required'; return ''; }
+  function paint(){ const b=body(); const j={name:b.name,territory_id:b.territory?'<'+b.territory+' id>':null,bbox:b.bbox.length===4&&!b.bbox.some(isNaN)?b.bbox:'?',feature_classes:b.feature_classes,include_connectivity:b.include_connectivity,include_relationships:b.include_relationships,include_faults:b.include_faults,include_tags:b.include_tags,schedule:b.schedule,retention:b.retention,active:b.active}; $('#c-json').textContent='POST /field-packs/cells\n'+JSON.stringify(j,null,2);
+    $('#c-gate').innerHTML=can('ap')?gateTip('ap'):lockTip('ap'); $('#c-save').disabled=!can('ap');
+    $('#c-list').innerHTML=FP.cells.map(c=>`<div style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;margin-bottom:4px;opacity:${c.active?1:.55}"><b>${esc(c.name)}</b> <span class="muted" style="font-size:11.5px">${c.terr||'no territory'} · ${c.sched||'no schedule'} · ${c.ret}</span><br>${FP.latest(c)?pill('latest v'+FP.latest(c).n+' · '+nf(FP.latest(c).feats)+' features','fresh'):pill('never built','stale')} <button class="btn" data-b="${c.id}" ${can('ap')?'':'disabled'} style="padding:2px 8px">Build version</button></div>`).join(''); }
+  $('#c-cls').onchange=e=>{ const el=e.target.closest('input'); el.checked?sel.add(el.dataset.c):sel.delete(el.dataset.c); paint(); }; $('#c-inc').onchange=e=>{ const el=e.target.closest('input'); el.checked?inc.add(el.dataset.i):inc.delete(el.dataset.i); paint(); };
+  ['c-name','c-terr','c-bb','c-sch','c-ret','c-act'].forEach(i=>$('#'+i).addEventListener('input',paint));
+  $('#c-save').onclick=()=>{ const b=body(); const p=problem(b); const m=$('#c-msg'); if(p){ m.innerHTML=`<span style="color:var(--red)">400 — ${p}</span>`; return; } FP.cells.push({id:'c'+(++FP.id),name:b.name,terr:b.territory||'',inc:{conn:+b.include_connectivity,rel:+b.include_relationships,faults:+b.include_faults,tags:+b.include_tags},sched:b.schedule||'',ret:b.retention,active:b.active,versions:[],holders:{}}); m.innerHTML=`<span style="color:var(--green)">201 — created. It has no version yet: build one below or set a schedule.</span>`; FP.emit(); };
+  $('#c-list').onclick=e=>{ const b=e.target.closest('button[data-b]'); if(!b||!can('ap')) return; const c=FP.cells.find(x=>x.id===b.dataset.b); const n=(FP.latest(c)?FP.latest(c).n:0)+1; c.versions.push({n,builtH:0,feats:9000+n*210,mb:14+n}); FP.emit(); };
+  FP.on(paint); onPersona(paint);
+})();
+
+/* ===== W13: grid helper ===== */
+(function(){
+  let mode='size'; const MAX=500;
+  seg('#d-mode',b=>{ mode=b.dataset.v; $('#d-size').style.display=mode==='size'?'':'none'; $('#d-rc').style.display=mode==='rc'?'':'none'; paint(); });
+  function dims(bb){ let rows=+$('#d-rows').value, cols=+$('#d-cols').value; if(mode==='size'){ const s=+$('#d-size').value; if(s>0){ cols=Math.ceil((bb[2]-bb[0])/s-1e-9); rows=Math.ceil((bb[3]-bb[1])/s-1e-9); } else return {err:'provide rows and cols (both >= 1), or a positive cell_size_deg'}; } if(!(rows>=1&&cols>=1)) return {err:'provide rows and cols (both >= 1), or a positive cell_size_deg'}; if(rows*cols>MAX) return {err:`grid would be ${rows*cols} cells (max ${MAX}) — use fewer rows/cols or a larger cell_size_deg`}; return {rows,cols}; }
+  function paint(){
+    const bb=$('#d-bb').value.split(/[,\s]+/).filter(Boolean).map(Number); const den=+$('#d-den').value, cap=+$('#d-cap').value; $('#d-denv').textContent=nf(den); const g=$('#d-out');
+    if(bb.length!==4||bb.some(isNaN)||bb[2]<=bb[0]||bb[3]<=bb[1]){ $('#d-svg').innerHTML=''; g.innerHTML='<div style="color:var(--red)">bbox must be [minX, minY, maxX, maxY] with maxX &gt; minX and maxY &gt; minY</div>'; return; }
+    const d=dims(bb); if(d.err){ $('#d-svg').innerHTML=''; g.innerHTML=`<div style="padding:8px 10px;border-radius:7px;border:1px solid var(--red);background:var(--red-tint);font-size:13.5px"><b>400</b> — ${d.err}</div>`; return; }
+    const {rows,cols}=d; const W=420,H=300,pad=14; const cw=(W-2*pad)/cols, ch=(H-2*pad)/rows; const wd=(bb[2]-bb[0])/cols, hd=(bb[3]-bb[1])/rows; const lat=(bb[1]+bb[3])/2; const km2=hd*111.32*wd*111.32*Math.cos(lat*Math.PI/180);
+    let over=0,maxF=0,s=''; for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){ const core=$('#d-core').checked&&Math.abs((c+.5)/cols-.5)<.2&&Math.abs((r+.5)/rows-.5)<.2; const f=Math.round(km2*den*(core?8:1)); const bad=f>cap; if(bad) over++; maxF=Math.max(maxF,f); const x=pad+c*cw, y=pad+(rows-1-r)*ch; s+=`<rect x="${x}" y="${y}" width="${cw}" height="${ch}" fill="${bad?'var(--red-tint)':core?'var(--amber-tint)':'var(--tint)'}" stroke="${bad?'var(--red)':'var(--line)'}" stroke-width="${bad?1.5:1}"/>`; if(cw>34&&ch>22) s+=`<text x="${x+cw/2}" y="${y+ch/2+(cw>46?-2:4)}" font-size="${cw>46?10:9}" text-anchor="middle" style="fill:var(--ink)">r${r+1}c${c+1}</text>${cw>46&&ch>30?`<text x="${x+cw/2}" y="${y+ch/2+11}" font-size="9" text-anchor="middle" style="fill:${bad?'var(--red)':'var(--muted)'}">${f>=1000?(f/1000).toFixed(f>=10000?0:1)+'k':f}</text>`:''}`; }
+    $('#d-svg').innerHTML=s+`<text x="${pad}" y="${H-2}" font-size="10" style="fill:var(--muted)">row 1 is the bottom row (minimum Y)</text>`;
+    const needKm2=cap/(den*($('#d-core').checked?8:1)); const sug=Math.sqrt(needKm2)/111.32;
+    g.innerHTML=`<div class="kv"><span>Grid</span><b>${rows} rows × ${cols} cols = ${rows*cols} cells</b></div><div class="kv"><span>Each cell</span><b>${wd.toFixed(4)}° × ${hd.toFixed(4)}° ≈ ${nf(km2)} km²</b></div><div class="kv"><span>Names</span><b>City r1c1 … r${rows}c${cols}</b></div><div class="kv"><span>Busiest cell</span><b>${nf(maxF)} features</b></div><div style="margin-top:8px;padding:8px 10px;border-radius:7px;border:1px solid ${over?'var(--red)':'var(--green)'};background:${over?'var(--red-tint)':'var(--green-tint)'};font-size:13.5px">${over?`<b>${over} cell${over>1?'s':''} would fail their build</b> (over the ${nf(cap)}-feature cap). Regrid finer: a cell size ≤ about <b>${sug.toFixed(3)}°</b> puts even the dense core under the cap.`:`<b>✔ Every cell builds</b> (busiest is ${Math.round(maxF/cap*100)}% of the cap).`}</div><div style="margin-top:8px"><button class="btn pri" id="d-go" ${can('ap')?'':'disabled'}>Create ${rows*cols} cells</button> ${can('ap')?gateTip('ap'):lockTip('ap')}</div><div id="d-msg" style="font-size:13px;margin-top:6px" aria-live="polite"></div>`;
+    $('#d-go').onclick=()=>{ $('#d-msg').innerHTML=$('#d-bad').checked?`<span style="color:var(--red)">One insert failed → the whole transaction rolled back. <b>0 cells created</b> — you never end up with a half-made grid.</span>`:`<span style="color:var(--green)">${rows*cols} cells created atomically (all or none).</span>`; };
+  }
+  ['d-bb','d-size','d-rows','d-cols','d-den','d-cap','d-core','d-bad'].forEach(i=>$('#'+i).addEventListener('input',paint)); $('#d-cap').addEventListener('change',paint); $('#d-core').addEventListener('change',paint);
+  onPersona(paint);
+})();
+
+/* ===== W14: the maintenance loop ===== */
+(function(){
+  const CAD={hourly:1,daily:24,weekly:168};
+  function parseWin(s){ const p=String(s).trim().split('-'); if(p.length!==2||p[0].trim()===''||p[1].trim()==='') return null; const a=Number(p[0]),b=Number(p[1]); if(!Number.isInteger(a)||!Number.isInteger(b)||a<0||a>24||b<0||b>24) return null; return [a,b]; }
+  const inWin=(w,h)=>!w||(w[0]<=w[1]?(h>=w[0]&&h<w[1]):(h>=w[0]||h<w[1]));
+  function paint(){
+    const sch=$('#s2-sch').value, win=parseWin($('#s2-win').value), ival=+$('#s2-int').value, B=+$('#s2-b').value, age0=+$('#s2-age').value, fail=$('#s2-fail').checked, act=$('#s2-act').checked;
+    $('#s2-bv').textContent=B+' min'; $('#s2-agev').textContent=age0+' h';
+    const cad=CAD[sch]; const end=48*60; let lastOK=-age0*60, inflightUntil=-1, pend=null; const log=[], marks=[]; let run=null;
+    const flush=()=>{ if(run){ log.push(`<div>${run.from}${run.n>1?'–'+run.to:''} · ${run.why}${run.n>1?` <span class="muted">×${run.n} ticks</span>`:''}</div>`); run=null; } };
+    const T=m=>{ const d=Math.floor(m/1440), h=Math.floor(m%1440/60), mm=m%60; return `d${d+1} ${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; };
+    let enq=0;
+    for(let t=0;t<end;t+=ival){ if(pend&&t>=pend.end){ if(!fail){ lastOK=pend.enq; } flush(); log.push(`<div style="color:${fail?'var(--red)':'var(--green)'}">${T(pend.end)} · build ${fail?'FAILED (does not count — the next tick is due again)':'succeeded'}</div>`); pend=null; }
+      const h=Math.floor(t%1440/60); let why; const retention='retention sweep runs'; 
+      if(!act) why='inactive — skipped'; else if(!cad) why='no valid schedule — never built'; else if(!inWin(win,h)) why='outside window'; else if(pend) why='build in flight — not stacked'; else if((t-lastOK)/60<cad) why=`not due (last success ${((t-lastOK)/60).toFixed(1)} h old < ${cad} h)`; else why=null;
+      if(why){ if(run&&run.why===why){ run.to=T(t); run.n++; } else { flush(); run={from:T(t),to:T(t),why,n:1}; } }
+      else { flush(); pend={enq:t,end:t+B}; enq++; marks.push([t,B]); log.push(`<div style="color:var(--acc-deep);font-weight:700">${T(t)} · ENQUEUED (due) — attributed to the cell’s creator</div>`); } }
+    flush();
+    const W=640, x=m=>20+(W-40)*m/end; let s=`<rect width="${W}" height="96" fill="var(--surface)"/>`;
+    for(let m=0;m<end;m+=60){ const h=Math.floor(m%1440/60); if(inWin(win,h)&&win) s+=`<rect x="${x(m)}" y="22" width="${x(60)-x(0)}" height="28" fill="var(--tint)"/>`; if(h%6===0) s+=`<line x1="${x(m)}" y1="22" x2="${x(m)}" y2="56" stroke="var(--line)"/><text x="${x(m)}" y="70" font-size="10" text-anchor="middle" style="fill:var(--muted)">${String(h).padStart(2,'0')}:00</text>`; }
+    marks.forEach(([t,b])=>{ s+=`<rect x="${x(t)}" y="30" width="${Math.max(2,x(b)-x(0))}" height="12" rx="3" fill="${fail?'var(--red)':'var(--acc)'}"/><line x1="${x(t)}" y1="18" x2="${x(t)}" y2="50" stroke="${fail?'var(--red)':'var(--acc-deep)'}" stroke-width="2"/>`; });
+    s+=`<text x="20" y="14" font-size="10.5" style="fill:var(--muted)">day 1</text><text x="${x(1440)}" y="14" font-size="10.5" style="fill:var(--muted)" text-anchor="middle">day 2</text><text x="${x(1440)+4}" y="86" font-size="10.5" style="fill:var(--muted)">shaded = inside the build window · bars = builds</text>`;
+    $('#s2-svg').innerHTML=s;
+    const notes=[]; if(!cad) notes.push('“'+esc(sch)+'” is not hourly/daily/weekly, so the cell is simply not scheduled.'); if($('#s2-win').value.trim()!==''&&!win) notes.push('That window is malformed, so it is <b>ignored</b> — scheduled builds may fire <b>any</b> hour.'); if(fail&&enq>2) notes.push('Builds keep failing, so the cell is <b>due on every tick</b> and re-enqueues each time a failed build ends — fix the cause (usually the feature cap).'); if(!win||!cad) {} else if(!enq&&act) notes.push('Nothing fired: check the window and the cadence against the age of the last success.');
+    $('#s2-out').innerHTML=`<b>${enq} build${enq===1?'':'s'} enqueued in 48 h.</b> ${notes.join(' ')} <span class="muted">Retention runs on every tick regardless of the window.</span>`;
+    $('#s2-log').innerHTML=log.join('')||'<span class="muted">no events</span>';
+  }
+  $$('#w6s input,#w6s select').forEach(e=>{ e.addEventListener('input',paint); e.addEventListener('change',paint); }); paint();
+})();
+
+/* ===== W15: versions, holders, retention ===== */
+(function(){
+  const CREWS=['Kofi','Ama','Yaw','Esi']; let cur='c1'; let KEEP=3;
+  function opts(){ const s=$('#u-cell'); const v=s.value||cur; s.innerHTML=FP.cells.map(c=>`<option value="${c.id}" ${c.id===v?'selected':''}>${esc(c.name)}</option>`).join(''); cur=s.value; }
+  const cell=()=>FP.cells.find(c=>c.id===cur);
+  function plan(c){ const vs=c.versions.slice().sort((a,b)=>b.n-a.n); const heldBy=n=>Object.keys(c.holders).filter(k=>c.holders[k].ver===n); return vs.map((v,i)=>{ const h=heldBy(v.n); let st,why; if(c.ret!=='keep_n'){ st='keep'; why=`policy <b>${c.ret}</b>: never auto-reaped`; } else if(i<KEEP){ st='keep'; why=`among the newest ${KEEP}`; } else if(h.length){ st='keep'; why=`held by ${h.join(', ')}`; } else { st='reap'; why='older than the newest '+KEEP+' and held by nobody'; } return {v,h,st,why}; }); }
+  function paint(){
+    opts(); const c=cell(); $('#u-ret').value=c.ret; $('#u-nv').textContent=KEEP; $('#u-gate').innerHTML=can('ap')?gateTip('ap'):lockTip('ap');
+    ['u-build','u-reap'].forEach(i=>$('#'+i).disabled=!can('ap'));
+    const pl=plan(c); $('#u-ver').innerHTML=pl.length?pl.map(p=>`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 8px;border:1px solid ${p.st==='reap'?'var(--amber)':'var(--line)'};border-radius:6px;margin-bottom:4px;background:${p.st==='reap'?'var(--amber-tint)':'var(--surface)'};font-size:13px"><b>v${p.v.n}</b><span class="muted">${hAgo(p.v.builtH)} · ${nf(p.v.feats)} features · ${p.v.mb} MB</span><span style="flex:1"></span><span style="font-size:12px">${p.h.length?`<b>${p.h.length}</b> crew${p.h.length>1?'s':''} · `:''}${p.st==='reap'?'<b style="color:var(--amber)">reapable</b> — ':'protected — '}${p.why}</span></div>`).join(''):'<div class="muted" style="font-size:13px">No versions yet — press “Build a version”.</div>';
+    const hs=Object.keys(c.holders); const latest=FP.latest(c);
+    $('#u-hold').innerHTML=hs.length?`<table class="matrix" style="width:100%;font-size:12.5px"><tr><th>Crew</th><th>Holds</th><th>Picked up</th><th>Last sync</th><th>Ops</th><th></th></tr>`+hs.map(k=>{ const h=c.holders[k]; const quiet=h.lastSyncH==null; return `<tr><td><b>${k}</b></td><td class="mono">v${h.ver}${latest&&h.ver<latest.n?` <span class="muted">(latest v${latest.n})</span>`:''}</td><td>${hAgo(h.pickedH)}</td><td>${hAgo(h.lastSyncH)}</td><td class="mono">${h.ops}</td><td>${quiet?pill('quiet','stale'):pill('synced','fresh')} <button class="btn" data-h="repull" data-k="${k}" style="padding:2px 6px">re-pull latest</button> <button class="btn" data-h="sync" data-k="${k}" style="padding:2px 6px">sync an edit</button></td></tr>`; }).join('')+`</table>`:'<div class="muted" style="font-size:13px">Nobody holds a version of this cell.</div>';
+    $('#u-crew').innerHTML=CREWS.filter(k=>!c.holders[k]).map(k=>`<button class="btn" data-pk="${k}" style="padding:2px 8px" ${latest?'':'disabled'}>＋ ${k} picks up</button>`).join(' ')+` <button class="btn" id="u-day">⏩ +1 day</button>`;
+    const d=$('#u-day'); if(d) d.onclick=()=>{ c.versions.forEach(v=>v.builtH+=24); FP.cells.forEach(cc=>Object.values(cc.holders).forEach(h=>{ h.pickedH+=24; if(h.lastSyncH!=null) h.lastSyncH+=24; })); FP.emit(); };
+  }
+  $('#u-cell').onchange=()=>{ cur=$('#u-cell').value; paint(); };
+  $('#u-ret').onchange=e=>{ if(!can('ap')){ paint(); return; } cell().ret=e.target.value; FP.emit(); };
+  $('#u-n').oninput=e=>{ KEEP=+e.target.value; paint(); };
+  $('#u-build').onclick=()=>{ const c=cell(); const n=(FP.latest(c)?FP.latest(c).n:0)+1; c.versions.push({n,builtH:0,feats:18700+n*37,mb:30}); $('#u-msg').textContent=`v${n} built (queued → running → succeeded).`; FP.emit(); };
+  $('#u-reap').onclick=()=>{ const c=cell(); if(c.ret!=='keep_n'){ $('#u-msg').innerHTML=`<b>0 reaped</b> — a <code>${c.ret}</code> cell is never auto-reaped.`; return; } const gone=plan(c).filter(p=>p.st==='reap').map(p=>p.v.n); c.versions=c.versions.filter(v=>!gone.includes(v.n)); $('#u-msg').innerHTML=gone.length?`<b>${gone.length} reaped</b> (v${gone.join(', v')}): both stored files and the row deleted; their ledger rows cascade.`:'<b>0 reaped</b> — everything is either among the newest or still held.'; FP.emit(); };
+  $('#u-hold').onclick=e=>{ const b=e.target.closest('button[data-h]'); if(!b||!can('ap')&&false) return; const c=cell(), h=c.holders[b.dataset.k]; if(b.dataset.h==='repull'){ const v=FP.latest(c); if(!v) return; c.holders[b.dataset.k]={ver:v.n,pickedH:0,ops:0,lastSyncH:null}; $('#u-msg').textContent=`${b.dataset.k} re-pulled v${v.n}: they no longer hold v${h.ver}, and have synced nothing against v${v.n} yet → quiet.`; } else { h.ops++; h.lastSyncH=0; $('#u-msg').textContent=`${b.dataset.k} synced an edit stamped with v${h.ver}.`; } FP.emit(); };
+  $('#u-crew').onclick=e=>{ const b=e.target.closest('button[data-pk]'); if(!b) return; const c=cell(), v=FP.latest(c); c.holders[b.dataset.pk]={ver:v.n,pickedH:0,ops:0,lastSyncH:null}; FP.emit(); };
+  FP.on(paint); onPersona(paint);
+})();
+
+/* ===== W16: build-on-behalf ===== */
+(function(){
+  let crew='Esi', area='Oakwood'; $('#o-crew').innerHTML=Object.keys(FP.crews).map(c=>`<button data-v="${c}" aria-pressed="${c===crew}">${c}</button>`).join('');
+  seg('#o-crew',b=>{ crew=b.dataset.v; paint(); }); seg('#o-area',b=>{ area=b.dataset.v; paint(); });
+  function paint(){
+    const U=FP.crews[crew]; $('#o-gate').innerHTML=can('ap')?gateTip('ap'):lockTip('ap'); const areas=area==='both'?['Oakwood','Riverside']:[area];
+    const inc=[['connectivity:read','connectivity graph'],['relationships:read','relationships'],['faults:read','fault board'],['tags:read','asset-tag index'],['wam:read','work board']];
+    const terrOK=t=>!FP.enf||U.uns||U.terr.has(t);
+    $('#o-out').innerHTML=`<div class="w-split" style="padding:0"><div class="w-main"><div class="lab">Request body (what you send)</div><pre class="pre" style="font-size:11.5px;margin:4px 0">POST /field-packs/on-behalf\n{ "user_id": "&lt;${crew}&gt;",\n  "bbox": [${areas.includes('Oakwood')&&areas.length===1?'-0.241, 5.552, -0.188, 5.601':areas.includes('Riverside')&&areas.length===1?'-0.190, 5.540, -0.140, 5.590':'-0.241, 5.540, -0.140, 5.601'}],\n  "feature_classes": ["MV_CONDUCTOR","DIST_XFMR","RMU"] }\n<span class="muted">// no include flags — they come from ${crew}’s RBAC</span></pre><div class="lab" style="margin-top:8px">The pack ${crew} would find waiting</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;margin:6px 0">${inc.map(i=>{ const on=U.perm.has(i[0]); return `<span style="padding:4px 8px;border-radius:6px;font-size:12.5px;border:1px ${on?'solid':'dashed'} ${on?'var(--acc)':'var(--line)'};background:${on?'var(--tint)':'transparent'};color:${on?'var(--ink)':'var(--muted)'};${on?'':'text-decoration:line-through'}" title="${i[0]}">${i[1]}</span>`; }).join('')}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;margin:6px 0">${areas.map(t=>{ const ok=terrOK(t); return `<span style="padding:4px 8px;border-radius:6px;font-size:12.5px;border:1px ${ok?'solid':'dashed'} ${ok?'var(--acc)':'var(--red)'};background:${ok?'var(--tint)':'var(--red-tint)'};${ok?'':'text-decoration:line-through'}">${t} features${ok?'':' — outside '+crew+'’s territories'}</span>`; }).join('')}<span style="padding:4px 8px;border-radius:6px;font-size:12.5px;border:1px solid var(--acc);background:var(--tint)">${crew}’s own drafts only</span></div></div>
+    <div class="w-side"><div class="lab">If it were scoped from you</div><div class="muted" style="font-size:13px;margin:4px 0 8px">As an administrator you hold every <code>*:read</code> and are unscoped — a pack scoped from <em>you</em> would carry all five extras and every territory. <b>That is exactly what on-behalf prevents.</b></div><button class="btn pri" id="o-go" ${can('ap')?'':'disabled'}>Stage pack for ${crew}</button><div id="o-msg" style="font-size:13px;margin-top:8px" aria-live="polite"></div></div></div>`;
+    $('#o-go').onclick=()=>{ const none=!areas.some(terrOK); $('#o-msg').innerHTML=none?`<span style="color:var(--red)">Accepted, but the territory filter is bounded by ${crew}’s scope — the pack would hold no features in that area.</span>`:`<span style="color:var(--green)"><b>202 Accepted.</b> A personal pack owned by ${crew} is queued. It appears in ${crew}’s device list only.</span>`; };
+  }
+  FP.on(paint); onPersona(paint);
+})();
+
+/* ===== symptom explorer ===== */
+(function(){
+  const R=[
+   ['A crew’s pack has no work board / fault board / connections','They lacked the matching <code>*:read</code> permission when the pack was built. Grant it; they <b>rebuild</b> the pack.',null,'Interactive 2'],
+   ['Build fails with “exceeds the N-feature limit”','The area/classes are over <code>FIELDSYNC_MAX_FEATURES</code>. Draw a smaller box, pick fewer classes (or raise the cap if devices can cope).',null,'Interactive 5'],
+   ['Build fails otherwise','Read the error on the Field Packs page. “No features in scope” means an empty area; a tippecanoe error points at the tile build.',null,'Chapter 3'],
+   ['Builds queue up at shift start','Raise <code>FIELDSYNC_WORKER_CONCURRENCY</code> (to CPU cores) and/or add a replica; consider trimming <code>FIELDPACK_MAX_ZOOM</code> or the class set — or pre-build the depot as a shared cell.',null,'Interactive 6'],
+   ['Synced edits are slow to appear in the office','First check the review queue for a held edit blocking that device (§5.4). Otherwise raise <code>SYNC_WORKER_CONCURRENCY</code> and/or add a replica; confirm PgBouncer is in place.','hol','Interactive 7, 9'],
+   ['A crew reports a rejected edit they don’t understand','It is in your review queue’s <b>rejected</b> filter (or was an apply failure) — the reason is on the record. Usually a data/rule problem; the crew re-does the edit.',null,'Interactive 10'],
+   ['Held edits piling up in review','A class is in <b>review</b> mode and nobody is posting them. Post/reject them, or switch the class back to <b>auto</b> if review isn’t needed.',null,'Interactive 9, 10'],
+   ['Database connection errors under load','You’re running without (or past) PgBouncer. Put transaction pooling in front of Postgres and size the pool.',null,'Interactive 6'],
+   ['Dense urban features look stacked on the map','<code>FIELDPACK_MAX_ZOOM</code> may have been lowered below 16; set it back to 16 (or 17 for very dense LV) and rebuild the affected packs.',null,'Interactive 8'],
+   ['A crew can’t see a shared pack you made','Pickup is gated on <em>their</em> access: territory (when enforcement is on and they’re scoped) and every <code>*:read</code> the base carries. A crew that doesn’t fully cover a cell never sees it.','gate','Interactive 11'],
+   ['A shared cell has no build to pick up','It has never been built (or every build failed). Trigger <code>POST /field-packs/cells/{id}/build</code>, or set a schedule; check the build didn’t fail on the feature cap (regrid finer).',null,'Interactive 12, 13'],
+   ['Old cell versions aren’t being cleaned up','Retention only reaps <code>keep_n</code> cells, never a version a crew still holds, and always keeps the newest N. Check the usage view for lingering holders.',null,'Interactive 15'],
+   ['A scheduled cell isn’t rebuilding','Its schedule must be <code>hourly</code>/<code>daily</code>/<code>weekly</code>, it must be <b>active</b>, a build must not already be in flight, the last success must be older than the cadence — and if <code>FIELDSYNC_BUILD_WINDOW</code> is set, ticks only fire inside that UTC window.','sched','Interactive 14'],
+   ['A crew says none of their edits are arriving, but their classes are all <code>auto</code>','Head-of-line blocking (§5.4): an <b>earlier</b> edit from that device is held (<code>pending_review</code> or <code>conflict</code>). Clear the <b>oldest</b> held edit and the rest flow.','hol','Interactive 9'],
+   ['A conflict keeps coming back for the same feature','The office is still editing it (live row newer than the crew’s snapshot each time). After <b>Apply anyway</b>, the crew should rebuild/re-pull so their next edit is made against a fresh snapshot.',null,'Interactive 9'],
+   ['Conflicts aren’t being detected on a class','Detection is per class and only checks update/delete edits that carry a snapshot stamp (§5.5). It also fails open if the check errors — don’t rely on it as a hard lock.',null,'§5.5'],
+   ['A cell is listed on the device as “not yet available”','It’s active and covered but has no succeeded version. Build it, or wait for the schedule.',null,'Interactive 11'],
+   ['A crew shows as “quiet” right after re-pulling','“Quiet” is per exact version. They haven’t yet synced anything made against the version they just picked up.',null,'Interactive 15'],
+   ['Sam can see the queue but the Post buttons are greyed','Reading the queue needs <code>sync:review</code>; every change needs <code>sync:post</code>. Grant it if Sam should act.',null,'Interactive 10']];
+  const live={
+   hol:()=>{ const out=['Kofi','Ama'].map(d=>{ const held=RV.ops.filter(o=>o.dev===d&&(o.status==='pending_review'||o.status==='conflict')).sort((a,b)=>a.seq-b.seq)[0]; const stuck=held?RV.ops.filter(o=>o.dev===d&&o.seq>held.seq&&['received','pending_review','conflict'].includes(o.status)&&o!==held).length:0; return held?`<b>${d}</b>: oldest held edit is <b>#${held.seq}</b> (${held.status}, ${held.cls}) — <b>${stuck}</b> later edit${stuck===1?'':'s'} stuck behind it. Clear this one first.`:`<b>${d}</b>: no held edits — nothing is blocking this device.`; }); return out.join('<br>')+'<div class="muted" style="font-size:12px;margin-top:4px">Run scenario ① in Interactive 9 and press this again.</div>'; },
+   gate:()=>FP.cells.map(c=>{ const crews=Object.keys(FP.crews); return `<b>${esc(c.name)}</b>${c.active?'':' (inactive)'}: `+crews.map(k=>{ const r=FP.covers(c,k); return `${k} ${r.ok?'✓':'✕ '+r.first}`; }).join(' · '); }).join('<br>'),
+   sched:()=>{ const sch=$('#s2-sch').value, win=$('#s2-win').value.trim(), act=$('#s2-act').checked; const r=[]; if(!act) r.push('The cell is <b>inactive</b>.'); if(!['hourly','daily','weekly'].includes(sch)) r.push(`Schedule “${esc(sch)}” isn’t hourly/daily/weekly.`); if(win){ const p=win.split('-'); const ok=p.length===2&&p.every(x=>/^\d+$/.test(x.trim())&&+x>=0&&+x<=24); if(!ok) r.push(`Window “${esc(win)}” is malformed — ignored, so it is <b>not</b> the cause.`); else r.push(`Window ${esc(win)} UTC: builds can only start in those hours (end hour excluded).`); } if($('#s2-fail').checked) r.push('Builds are failing — the cell re-fires every tick; fix the failure.'); return r.length?r.join('<br>'):'Schedule, window and activity all look fine — check whether a build is in flight or the last success is younger than the cadence (Interactive 14).'; }};
+  function paint(){ const q=$('#t-q').value.trim().toLowerCase(); const rows=R.filter(r=>!q||(r[0]+' '+r[1]).replace(/<[^>]+>/g,' ').toLowerCase().includes(q)); $('#t-n').textContent=rows.length+' of '+R.length;
+    $('#t-list').innerHTML=rows.map((r,i)=>`<details style="border-top:1px solid var(--line2);padding:10px 14px"><summary style="cursor:pointer;font-weight:600">${r[0]} ${r[2]?'<span class="pill sec">live check</span>':''}</summary><div style="margin-top:6px;font-size:14px">${r[1]}</div><div class="muted" style="font-size:12px;margin-top:4px">See ${r[3]}</div>${r[2]?`<div style="margin-top:8px"><button class="btn pri" data-l="${r[2]}">Check the simulation</button><div class="lv" style="font-size:13px;margin-top:8px;padding:8px 10px;border:1px dashed var(--line);border-radius:6px;display:none"></div></div>`:''}</details>`).join('')||'<div style="padding:14px" class="muted">No symptom matches.</div>'; }
+  $('#t-q').oninput=paint;
+  $('#t-list').onclick=e=>{ const b=e.target.closest('button[data-l]'); if(!b) return; const box=b.parentElement.querySelector('.lv'); box.style.display='block'; box.innerHTML=live[b.dataset.l](); };
+  paint();
+})();
+/* ===== quiz ===== */
+(function(){
+  const Q=[
+   ['A crew can pull packs but their edits never reach the office. Most likely?','They hold <code>features:read</code> but not <code>features:write</code>',['They hold <code>features:read</code> but not <code>features:write</code>','The pack is disabled','PgBouncer is off','Their pack was built at zoom 15'],'Reading and writing are separate permissions; a read-only crew can pull but not push.'],
+   ['You grant a crew <code>wam:read</code>. What must they do to see the work board?','Rebuild the pack',['Nothing — it appears live','Rebuild the pack','Log out and in','Wait for retention'],'Pack contents are frozen from the requester’s RBAC at build time.'],
+   ['Kofi’s first edit is on a <code>review</code> class and unposted. His next edit is on an <code>auto</code> class. What happens to it?','It waits, <code>received</code>, behind the held edit',['It applies immediately','It is rejected','It waits, <code>received</code>, behind the held edit','It is superseded'],'Edits from one device apply in order; a held edit blocks every later edit from that device.'],
+   ['Which edits are conflict-checked?','Updates and deletes that carry a snapshot stamp, on classes with detection on',['Every edit on every class','Creates only','Updates and deletes that carry a snapshot stamp, on classes with detection on','Only edits by read-only crews'],'Creates mint a new row; edits without <code>base_version</code> are not checked; detection is per class.'],
+   ['120 crews, 40 s builds, concurrency 2, one replica. Roughly how long until the last pack is ready?','About 40 minutes',['About 40 seconds','About 4 minutes','About 40 minutes','About 4 hours'],'N × t / (c × r) = 120 × 40 / 2 = 2 400 s.'],
+   ['A cell has no territory and enforcement is on. Who can pick it up?','Only unscoped crew members',['Every crew member','Only unscoped crew members','Nobody','Only crews with all four extras'],'A cell with no territory is refused to every scoped crew (fail closed).'],
+   ['<code>FIELDSYNC_BUILD_WINDOW=22-5</code>. At 05:30 UTC a scheduled cell is due. Does the loop enqueue it?','No — the window is hours [22,5)',['Yes','No — the window is hours [22,5)','Only if it is hourly','Only if no build is in flight'],'The end hour is excluded; 22-5 covers 22:00–04:59.'],
+   ['A <code>keep_n</code> cell keeps 3 versions; v1 is the oldest and Esi still holds it. Reaped?','No — held versions are never reaped',['Yes, it is old','No — held versions are never reaped','Only if she syncs','Only on the next tick'],'A version is reapable only if outside the newest N and held by nobody.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach((el,i)=>{ const x=Q[i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===esc(x[1]); const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Answer: <b>${x[1]}</b>. `)+x[3]; }); });
+})();
+
+/* chapter rail */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a])); const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'}); document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+
+</script>
+</body></html>
