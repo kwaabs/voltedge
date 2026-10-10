@@ -147,6 +147,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "bill-of-quantities-guide-interactive",
+		Title:       "Bill of Quantities & Cost Catalog (interactive)",
+		Description: "The estimator and the price book as a working engine over a sample Feeder 7: a never-hidden Unpriced bucket, the real scope panel with currency switching and CSV/PDF previews, the rate-resolution ladder (override, material cost, subtype rate, class default), geodesic lengths, the wrong-unit-basis trap that silently ignores a rate, rounding, and the admin screens for currencies, the unit-rate price book and per-feature overrides - plus a POST /boq request builder and an Unpriced diagnoser. A persona switch applies territory visibility, private drafts and the metadata:write gate.",
+		Category:    "Interactive guides",
+		Filename:    "bill-of-quantities-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "field-tool-admin-guide-interactive",
 		Title:       "Field Tool Admin (interactive)",
 		Description: "The field back-office as a working simulation: follow any action through cmd/fieldsync and cmd/server, watch pack contents freeze from a crew's permissions, run the Field Packs page, size a shift-start build surge and the apply side (with PgBouncer and CPU limits), and drive the real review pipeline - policy, per-device lanes, head-of-line blocking, conflicts and supersession. Then define, grid, gate, schedule, reap and audit shared cells, stage a pack on behalf of a crew member, and diagnose faults against the live simulation. A persona switch gates every control by admin:field-packs, sync:review and sync:post.",

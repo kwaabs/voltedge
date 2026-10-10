@@ -1,0 +1,860 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Bill of Quantities &amp; Cost Catalog</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  /* section palette (categorical, validated for both themes) */
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.role{display:inline-block;font:600 11px/1 var(--f-mono);padding:3px 7px;border-radius:3px;letter-spacing:.03em}
+.role.protective{background:var(--red-tint);color:var(--red)}
+.role.switching{background:var(--blue-tint);color:var(--blue)}
+.role.transformer{background:var(--amber-tint);color:var(--amber)}
+.role.source{background:var(--green-tint);color:var(--green)}
+.role.none{background:var(--line2);color:var(--muted)}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.bgrid{display:grid;grid-template-columns:minmax(0,1fr) 110px 150px auto;gap:5px;align-items:center}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+input[type=number],input[type=text],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--acc-deep);font-weight:700}
+.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+.bar{height:18px;background:var(--line2);border-radius:4px;position:relative;overflow:hidden}
+.bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .15s}
+.big{font:800 28px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums;color:var(--acc-deep)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono)}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.chainrow .arr{color:var(--muted);font:600 12px var(--f-mono)}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+
+/* handbook additions */
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+.matrix{border-collapse:collapse;font-size:12px;width:100%}
+.matrix th,.matrix td{padding:4px 6px;text-align:center;border-bottom:1px solid var(--line2)}
+.matrix td:first-child,.matrix th:first-child{text-align:left;position:sticky;left:0;background:var(--raise)}
+.matrix td.y{background:color-mix(in srgb,var(--green) 22%,transparent);color:var(--green);font-weight:700}
+.matrix tr:hover td{background:var(--surface)} .matrix tr:hover td.y{background:color-mix(in srgb,var(--green) 30%,transparent)}
+.tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:10px}
+.tabs button{font:600 11.5px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:6px 9px;border-radius:5px 5px 0 0;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.tabs button[disabled]{opacity:.4;cursor:not-allowed}
+.tree{font:500 13px var(--f-mono)} .tree .n{padding:3px 6px;border-radius:4px;display:inline-block}
+.tree .n.g{background:var(--tint);color:var(--acc-deep);font-weight:700}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+.ants{animation:march .9s linear infinite} @keyframes march{to{stroke-dashoffset:-16}}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sev{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.sev.low{background:var(--line2);color:var(--muted)} .sev.medium{background:var(--blue-tint);color:var(--blue)} .sev.high{background:var(--amber-tint);color:var(--amber)} .sev.critical{background:var(--red-tint);color:var(--red)} .sev.urgent{background:var(--red-tint);color:var(--red)}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.kpi div{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.kpi b{display:block;font:800 22px/1 var(--f-display);font-stretch:80%}
+.kpi span{font:600 10px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rec{border:1px solid var(--line2);border-radius:6px;padding:6px 8px;margin:5px 0;background:var(--raise);font-size:13px}
+.rec .t{font-weight:600}.rec .m{font-size:11.5px;color:var(--muted)}
+.rec .a{margin-top:4px;display:flex;gap:4px;flex-wrap:wrap}
+.state-chip{display:inline-block;font:700 10.5px var(--f-mono);padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.state-chip.applied,.state-chip.completed,.state-chip.resolved{background:var(--green-tint);color:var(--green);border-color:var(--green)} .state-chip.in_progress,.state-chip.work_ordered,.state-chip.assigned{background:var(--tint);color:var(--acc-deep);border-color:var(--acc)} .state-chip.cancelled,.state-chip.dismissed,.state-chip.rejected{background:var(--line2);color:var(--muted)} .state-chip.open,.state-chip.draft,.state-chip.scheduled{background:var(--amber-tint);color:var(--amber);border-color:var(--amber)}
+@media (max-width:760px){.kpi{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .bgrid{grid-template-columns:1fr 1fr}
+  .bgrid>input:first-child{grid-column:1/-1}
+  li,.rec .t,.rec .m{overflow-wrap:anywhere}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* everyday-operations additions */
+.gm{position:relative;border:1px solid var(--line);border-radius:6px 6px 0 0;overflow:hidden;background:var(--bg)}
+.gm-svg{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none}
+.gm-svg .gm-lab{fill:var(--ink);pointer-events:none}
+.gm-svg .gf{cursor:inherit}
+.gm-zoom{position:absolute;left:8px;top:8px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--raise)}
+.gm-zoom button{width:28px;height:28px;border:0;background:none;color:var(--ink);font:700 16px var(--f-mono);cursor:pointer}
+.gm-zoom button+button{border-top:1px solid var(--line)}
+.gm-north{position:absolute;left:8px;top:74px;width:28px;height:28px;border:1px solid var(--line);border-radius:50%;background:var(--raise);display:grid;place-items:center;cursor:pointer;padding:0}
+.gm-ban{position:absolute;left:50%;top:8px;transform:translateX(-50%);max-width:calc(100% - 100px);background:var(--ink);color:var(--bg);font:600 12px var(--f-mono);padding:6px 11px;border-radius:5px;z-index:3;text-align:center}
+.gm-tip{position:absolute;right:8px;bottom:8px;max-width:60%;background:var(--raise);border:1px solid var(--line);border-radius:5px;padding:6px 9px;font:500 12px var(--f-mono);box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.gm-status{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;background:var(--surface);padding:5px 10px;font:500 11.5px var(--f-mono);color:var(--muted)}
+.gm-status b{color:var(--ink);font-weight:600;margin-right:3px}
+.gm-status .gsr{margin-left:auto}
+.gm-status .attr{margin-left:8px;opacity:.8}
+.gsb{font:600 11px var(--f-mono);border:1px solid var(--line);background:var(--raise);color:var(--ink);border-radius:4px;padding:3px 7px;cursor:pointer}
+.gsb:hover{border-color:var(--muted)}
+.goto{font:500 11px var(--f-mono);width:128px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--raise);color:var(--ink)}
+.apid{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.apid.ok{background:var(--green)} .apid.bad{background:var(--red)}
+.story{border-left:3px solid var(--acc);background:var(--surface);padding:10px 16px;border-radius:0 6px 6px 0;margin:16px 0;max-width:78ch;font-size:15px}
+.story>*:last-child{margin-bottom:0}
+.story .who{font:700 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--acc-deep);display:block;margin-bottom:2px}
+.qs{max-width:78ch;margin:16px 0;border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:6px 16px 10px}
+.qs>b.k{display:block;font:700 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--acc-deep);margin:8px 0 0}
+.qs .steps{margin:4px 0 0}
+.ptabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:8px 0}
+.ptabs button{font:600 11px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:5px 8px;border-radius:5px 5px 0 0;cursor:pointer}
+.ptabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.ptabs button[disabled]{opacity:.35;cursor:not-allowed}
+.panelbox{border:1px solid var(--line);border-radius:6px;background:var(--raise);padding:9px 11px;font-size:13px}
+.panelbox h5{margin:0 0 4px;font:700 14px var(--f-display)}
+.kvt{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px;margin:6px 0}
+.kvt dt{font:600 10.5px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+.kvt dd{margin:0;font-family:var(--f-mono);font-size:12px}
+.fld-row{display:grid;grid-template-columns:130px 1fr;gap:6px;align-items:center;margin:5px 0;font-size:12.5px}
+.fld-row label{font:600 11.5px var(--f-mono)}
+.fld-row .rq{color:var(--red);font-weight:800}
+.fld-row.lock input,.fld-row.lock select{opacity:.6}
+.fld-row.chg input,.fld-row.chg select{border-color:var(--amber);background:var(--amber-tint)}
+.tog{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.tog input{accent-color:var(--acc)}
+.dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:60;padding:16px}
+.dlg>div{background:var(--raise);border:1px solid var(--line);border-radius:8px;max-width:420px;padding:16px 18px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.dlg h4{margin-bottom:6px}
+.dlg .a{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.sugg{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:5px;padding:5px 8px;margin:4px 0;font-size:12.5px;background:var(--raise);flex-wrap:wrap}
+.sugg .tx{flex:1;min-width:140px}
+.chipx{font:600 10.5px var(--f-mono)}
+.cardsel{border:1.5px solid var(--line);border-radius:7px;padding:8px 10px;background:var(--raise);cursor:pointer;font-size:13px;text-align:left}
+.cardsel[aria-pressed="true"]{border-color:var(--acc);background:var(--tint)}
+.pop{position:relative}
+.floatp{position:absolute;background:var(--raise);border:1.5px solid var(--line);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:5}
+.floatp .hd{background:var(--surface);border-bottom:1px solid var(--line);padding:6px 10px;font:700 12px var(--f-mono);cursor:grab;display:flex;justify-content:space-between;align-items:center;user-select:none;touch-action:none}
+.floatp .bd{padding:10px;font-size:12.5px;overflow:auto;flex:1}
+.floatp .grip{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 55%,var(--muted) 55%,var(--muted) 62%,transparent 62%,transparent 72%,var(--muted) 72%,var(--muted) 79%,transparent 79%)}
+@media (max-width:760px){
+  .gm-status{font-size:10.5px}
+  .gm-status .gsr{margin-left:0}
+  .goto{width:100px}
+  .fld-row{grid-template-columns:1fr}
+}
+
+[hidden]{display:none!important}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Bill of Quantities</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · What it is</a><a href="#c2">2 · Pricing a scope</a><a href="#c3">3 · The cost model</a><a href="#c4">4 · Currencies</a><a href="#c5">5 · Price book</a><a href="#c6">6 · Overrides</a><a href="#c7">7 · Beyond the panel</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · Bill of Quantities &amp; Cost Catalog · put money on the network</div>
+  <h1>Count it.<br><span>Price it.</span></h1>
+  <p class="lede">“What is in this part of the network, and what would it cost?” This guide answers it with a <em>working</em> estimator: the same scope picker, the same rate-resolution ladder, the same Unpriced bucket and the same rounding as the real engine — run over a sample Feeder 7 you can reprice, regroup and break as you read. Quantities come from the model; prices come from the catalog; and a gap is shown, never hidden.</p>
+  <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap"><span class="tag pl" style="margin:0">▶ operate it — the steps</span><span class="tag en" style="margin:0">∑ how it computes — read or skip</span></div>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Tom</b> (estimator, <span class="perm">features:read</span>) prices Oakwood only. <b>Ada</b> and <b>Dana</b> also hold <span class="perm">metadata:write</span>, so the Admin → Cost catalog screens and per-feature overrides open for them. <b>Priya</b> is a viewer confined to Riverside — her BoQ simply cannot see Oakwood, because you cannot price what you cannot list.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">How to read this guide</span>
+<p>This guide has two audiences that meet in the middle. <b>Estimators and planners</b> run the Bill of Quantities tool from the map and read a schedule — they need only <span class="perm">features:read</span>. <b>Administrators</b> maintain the catalog behind it — currencies, unit rates and per-feature overrides — which is metadata configuration and needs <span class="perm">metadata:write</span>. The administrative chapters (4–6) are marked 🔒 so you can skip them if the price book is someone else’s job. 🗺️ marks something that also depends on your <b>territory access</b>; 💡 is a tip, ⚠️ a caution.</p>
+<p>Where the code does something the original manual didn’t spell out — what a scope really counts, why a rate can sit in the book and be ignored, how rounding works — it is explained here and tagged <span class="tag en" style="margin:0;vertical-align:middle">code-verified</span>.</p></div>
+
+<h3 style="margin-top:28px">The cast &amp; the running example</h3>
+<div class="tbl"><table>
+  <tr><th>Who</th><th>Role</th><th>Shows up when…</th></tr>
+  <tr><td><b>Tom</b></td><td>Network analyst, wearing an estimator’s hat</td><td>Pricing scopes and exporting schedules</td></tr>
+  <tr><td><b>Ada</b></td><td>System administrator</td><td>Owning the cost catalog: currencies and the price book</td></tr>
+  <tr><td><b>Dana</b></td><td>Editor</td><td>Setting the occasional per-feature override</td></tr>
+  <tr><td><b>Priya</b></td><td>Viewer (Riverside)</td><td>Showing what territory scope does to a schedule</td></tr>
+</table></div>
+<p>The running assets are the shared <b>Feeder 7</b> (11 kV, Oakwood Zone) — its <code>MV_CONDUCTOR</code> spans and <code>DIST_XFMR</code> transformers, plus switches and ring main units — and a second feeder in Riverside Zone. Every figure is illustrative; rates are in the base currency (USD).</p>
+
+<!-- ============ CH1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>What the Bill of Quantities is</h2><p>Quantities from the model. Prices from the catalog. Gaps in plain sight.</p></div>
+  <p>A Bill of Quantities answers a deceptively simple question: <em>“what is in this part of the network, and what would it cost?”</em> VoltEdge builds it directly from the live model — no spreadsheet, no separate asset register. You pick a <b>scope</b> (what to count), the tool rolls the scoped features up into quantities, multiplies each quantity by a <b>catalog rate</b>, and hands back a grouped, totalled schedule you can read on screen or export. Two ideas are worth holding from the start:</p>
+  <ul>
+    <li><b>Quantities come from the model; prices come from the catalog.</b> Quantities are never guessed — a conductor’s length is measured from its geometry, a transformer is counted as one item. What turns a quantity into money is a <b>rate</b> someone entered. No rate, no price.</li>
+    <li><b>A costing gap is shown, never hidden.</b> A scoped feature with no applicable rate does <b>not</b> silently become zero. It appears in a separate <b>Unpriced</b> section with the quantity it would have contributed and the reason no rate applied. The grand total is therefore always honest: the sum of what <em>could</em> be priced, with the gaps listed beside it.</li>
+  </ul>
+  <p>The tool is read-only and read-scoped: it can only price what you are allowed to see. 🗺️ If your territory access hides a feeder, it is absent from your BoQ too. Try the second idea now — this is a what-if sandbox over the whole of Feeder 7’s switchgear (it does <em>not</em> change the real catalog). Watch what happens to the total, and to the Unpriced box, as you add and remove rates:</p>
+  <div class="widget" id="w1">
+    <div class="w-head"><span class="eyebrow">Interactive · 1</span><h4>A gap is never zero</h4><span style="flex:1"></span><button class="btn" id="w1-reset">Reset</button></div>
+    <div class="w-bar"><span class="lab">What-if</span><label class="tog"><input type="checkbox" id="w1-rmu"> price the 3 RMUs at 3,500 each</label><label class="tog"><input type="checkbox" id="w1-iso"> price isolators at 1,900 each</label><label class="tog"><input type="checkbox" id="w1-xf" checked> keep the transformer class default (4,200)</label></div>
+    <div class="w-split"><div class="w-main" id="w1-out"></div><div class="w-side"><div class="lab">Reading it</div><div id="w1-note" style="font-size:13.5px;margin-top:4px"></div></div></div>
+  </div>
+</section>
+
+<!-- ============ CH2 ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>Pricing a scope</h2><p>▶ the estimator’s workflow — five steps.</p></div>
+  <p>🔒 <i>Needs <span class="perm">features:read</span> — anyone who can read the map.</i> Tom has been asked for a rough materials cost of everything on Feeder 7. Here is the whole workflow, on a working copy of the panel.</p>
+  <ol class="steps">
+    <li><b>Open the panel.</b> On the map toolbar, press the <b>Bill of Quantities</b> button (the calculator icon). A floating panel opens; it can be moved and resized, and stays put as you pan.</li>
+    <li><b>Choose a scope.</b> The <b>Scope</b> dropdown offers four ways to say <em>what to count</em> (table below).</li>
+    <li><b>Press Price.</b> The schedule appears: priced lines grouped by class, each class subtotalled, under a single grand total. Any <b>Unpriced</b> buckets are listed in amber.</li>
+    <li><b>Switch currency (optional).</b> Once a result exists, a <b>Currency</b> dropdown lists every configured currency. The schedule re-prices instantly — the conversion happens server-side off the same base figures, so it never changes what was counted, only how it reads (§5.2).</li>
+    <li><b>Export.</b> <b>PDF</b> opens an A4 schedule in a preview dialog; <b>CSV</b> saves the spreadsheet-friendly form.</li>
+  </ol>
+  <div class="tbl"><table>
+    <tr><th>Scope</th><th>What it prices</th><th>How you narrow it</th></tr>
+    <tr><td><b>Whole network</b></td><td>Every feature of each chosen class</td><td>Optionally tick specific <b>Classes</b>; leave empty for all</td></tr>
+    <tr><td><b>Territory</b></td><td>Everything inside one territory <b>and its sub-territories</b></td><td>Pick the <b>Territory</b>; optionally tick <b>Classes</b></td></tr>
+    <tr><td><b>Current selection</b></td><td>The one feature selected on the map</td><td>Select a feature first</td></tr>
+    <tr><td><b>Trace result</b></td><td>Every feature the last trace reached</td><td>Run a trace first</td></tr>
+  </table></div>
+  <p>For “the whole of Feeder 7”, Tom runs a feeder trace first, then chooses <b>Trace result</b> — the scope becomes exactly the features the trace reached. 💡 The <b>Whole network</b> and <b>Territory</b> scopes expose a <b>Classes</b> multi-select: empty prices <em>every</em> class; ticking a few restricts the schedule. The other two scopes already name an explicit feature set, so they have no class filter.</p>
+  <div class="widget" id="w2">
+    <div class="w-head"><span class="eyebrow">Interactive · 2</span><h4>Bill of Quantities</h4><span style="flex:1"></span><span id="p-vis" class="muted mono" style="font-size:12px"></span></div>
+    <div class="w-bar"><label class="lab" for="p-scope">Scope</label><select class="fld" id="p-scope" style="width:170px"><option value="net">Whole network</option><option value="terr">Territory</option><option value="sel">Current selection</option><option value="trace">Trace result</option></select>
+      <span id="p-terrw" style="display:none"><label class="lab" for="p-terr">Territory</label> <select class="fld" id="p-terr" style="width:160px"></select></span>
+      <span id="p-selw" style="display:none"><label class="lab" for="p-sel">Selected</label> <select class="fld" id="p-sel" style="width:120px"></select></span>
+      <span id="p-trw" style="display:none"><button class="btn" id="p-trace">Run a feeder trace</button> <span id="p-trn" class="muted" style="font-size:12.5px"></span></span></div>
+    <div class="w-bar" id="p-clsw"></div>
+    <div class="w-bar"><button class="btn pri" id="p-price">Price</button><span id="p-curw" style="display:none"><label class="lab" for="p-cur">Currency</label> <select class="fld" id="p-cur" style="width:140px"></select></span><span id="p-expw" style="display:none"><button class="btn" id="p-pdf">PDF</button> <button class="btn" id="p-csv">CSV</button></span><span id="p-msg" style="font-size:13px" aria-live="polite"></span></div>
+    <div class="w-body" id="p-out"><span class="muted">Choose a scope and press Price.</span></div>
+  </div>
+  <p>⚠️ Both exports are a <b>snapshot of the schedule on screen</b>, in the currency currently shown. Re-price (or re-run the trace) before exporting if the network has changed since you last pressed Price. Exports are built entirely in the browser — nothing leaves the app until you choose Download or Print.</p>
+
+  <h3>2.1 Reading the schedule</h3>
+  <p>Each priced line reads <b>Item · Qty · Unit · Rate · Total</b>. <b>Item</b> is the grouping within a class — its subtype and/or material (e.g. <i>Underground · XLPE 185 mm²</i>), or <i>(all)</i> when a single class-default rate covers everything. <b>Qty</b> is the rolled-up quantity (a count for discrete assets, a length in km for linear ones); <b>Unit</b> is <code>each</code> or <code>km</code>; <b>Rate</b> is the unit price in the shown currency; <b>Total</b> is Qty × Rate. The footer reports the priced-line count and names the currency (and the base when you are viewing another). The <b>Unpriced</b> block lists each gap with its quantity, unit and a plain-language reason — the administrator’s to-do list.</p>
+
+  <div class="en-b"><span class="tag en">code-verified</span> <b>What a scope actually counts</b>
+  <p>The scope is only one of several filters applied to every class. The engine counts a feature only when <b>all</b> of these hold, and a feature that fails one simply isn’t in the schedule — it is not “Unpriced”:</p>
+  <ul>
+    <li><b>Not soft-deleted</b> (<code>deleted_at IS NULL</code>).</li>
+    <li><b>Readable by you</b> — 🗺️ territory read-enforcement and the private-drafts rule apply: a never-published feature authored by someone else is invisible (switch to <b>Dana</b> to see spare record K-04 appear). This is why two people can price “the whole network” and get different totals.</li>
+    <li><b>Placed, for linear classes.</b> A conductor with no geometry contributes <b>zero length</b>, a zero-quantity bucket is dropped, and it appears nowhere — neither priced nor Unpriced. (C-009 is such a span.)</li>
+    <li><b>In a compiled class.</b> A class not yet compiled has no table to count; it is skipped silently. An unknown class is skipped too.</li>
+    <li><b>Locatable, for spatial scopes.</b> Territory, radius and bbox scopes skip classes with <b>no geometry</b> (like the spare-equipment register) rather than erroring — so a Territory BoQ omits them, while Whole network includes them.</li>
+  </ul>
+  <p>If an <b>explicit feature list</b> (trace result or selection) is supplied it takes precedence and <em>defines</em> the classes; the other filters above still apply to those features. Try <b>Territory</b> vs <b>Whole network</b> in the panel and read the spare-register line.</p></div>
+
+  <div class="en-b" style="margin-top:12px"><span class="tag en">code-verified</span> <b>The two exports, precisely</b>
+  <p><b>CSV</b> — header <code>Class, Subtype, Material, Basis, Quantity, Unit, Rate (CUR), Total (CUR), Status</code>; one row per priced line (<code>Status = priced</code>), then one per unpriced item (<code>Status = unpriced: &lt;reason&gt;</code>, rate/total blank, material shown as its <em>code</em>), ending in a <code>Grand total</code> row. Note the CSV has <b>no column marking an overridden line</b> — a line priced off a per-feature override is just <code>priced</code> (only the on-screen schedule flags it). <b>PDF</b> — an A4 schedule with a title block (scope, currency, date), the grouped table with subtotals and grand total, the Unpriced section and a page footer; the dialog’s <b>Print</b> and <b>Download</b> buttons send it to a printer or save it, <b>Close</b> dismisses it with neither. Press the buttons in the panel above to see both.</p></div>
+  <h4 style="margin-top:20px">Chapter summary</h4>
+  <ul>
+    <li>Open the panel → choose a scope → Price → (currency) → export. Four scopes; two take a class filter.</li>
+    <li>Territory and draft visibility follow <em>you</em>; unplaced conductors and geometry-less classes drop out of a schedule without trace.</li>
+    <li>Exports snapshot the screen; re-price first if the network has changed.</li>
+  </ul>
+</section>
+
+<!-- ============ CH3 ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>The cost model</h2><p>∑ how a quantity becomes a number.</p></div>
+  <p>Administrators need this chapter to know <em>where</em> to enter a rate; estimators can read it to understand why a line priced the way it did. Every feature class is priced one of two ways, decided by its geometry: <b>line</b> classes by length, everything else by count.</p>
+
+  <h3>3.1 Linear classes — priced per kilometre</h3>
+  <p>A class drawn as a <b>line</b> (a conductor, a cable) is priced by <b>length</b>. The length is a true geodesic distance — <code>ST_Length</code> over the geometry transformed to a geography — so it is metres on the ground, not degrees, summed and divided into kilometres. The <b>rate</b> for that length is resolved in this order:</p>
+  <ol class="steps">
+    <li><b>The feature’s material</b>, via its material coded field. If the feature records a material whose <b>material spec</b> (<code>/admin/materials</code>) carries a <code>cost_per_km</code>, that is the rate. The preferred path: two spans of the same class but different conductor price differently, correctly.</li>
+    <li><b>A <code>per_km</code> rate from the price book</b>, as a fallback when the material carries no per-km cost. <span class="tag en" style="margin:0;vertical-align:middle">code-verified</span> This lookup is <em>subtype-aware</em>, exactly like the discrete one: a <code>per_km</code> row for the span’s <b>subtype</b> wins, else the class-default <code>per_km</code> row. (The original manual only mentioned a “class-level” fallback; you can price Overhead and Underground differently here too.)</li>
+  </ol>
+  <p>If neither resolves, the length is <b>unpriced</b>. 💡 This is why conductor prices live on their <b>material specs</b>, not only in the price book: a conductor’s cost is a property of the cable you chose. The class-level <code>per_km</code> rows are the backstop for lines you don’t vary by material.</p>
+  <p>The first widget measures a span the way the engine does — and shows why “metres on the ground” matters:</p>
+  <div class="widget" id="w4">
+    <div class="w-head"><span class="eyebrow">Interactive · 3</span><h4>Geodesic length vs. degrees</h4></div>
+    <div class="w-bar"><label class="lab" for="g-f">Span</label><select class="fld" id="g-f" style="width:130px"></select><label class="lab" for="g-lat">Latitude of a 0.01° east-west span</label><input type="range" id="g-lat" min="0" max="70" value="6" style="width:150px"><b id="g-latv"></b></div>
+    <div class="w-split"><div class="w-main"><svg id="g-svg" viewBox="0 0 440 180" width="100%" role="img" aria-label="Span geometry"></svg></div><div class="w-side" id="g-out"></div></div>
+  </div>
+
+  <h3>3.2 Discrete classes — priced ‘each’</h3>
+  <p>A class that is a point, a polygon, or has no geometry at all (a transformer, a switch, a compound, a register entry) is priced <b>per item</b> from the unit-rate price book (<code>metadata.cost_rates</code>), keyed by <b>feature class + subtype</b>. A rate with a <b>specific subtype</b> prices only features of that subtype; a rate with <b>no subtype</b> is the <b>class default</b>, covering every subtype that has no more specific rate of its own. A discrete feature whose class has neither a matching-subtype rate nor a class default is <b>unpriced</b>.</p>
+
+  <h3>3.3 Per-feature overrides — the exception that wins</h3>
+  <p>A <b>per-feature override</b> (Chapter 6) pins an exact unit cost to <b>one feature</b>, in the base currency, in that feature’s natural unit (<code>per km</code> for a line, <code>each</code> for a discrete asset). An overridden feature is pulled out of the normal roll-up and priced at its override — and is therefore <b>never</b> unpriced. Everything else in its class still prices off the catalog.</p>
+
+  <h3>3.4 Precedence, in one line</h3>
+  <div class="callout">per-feature override ▸ else <b>material <code>cost_per_km</code></b> (linear) / <b>subtype rate</b> (discrete) ▸ else <b>class default</b> (<code>per_km</code> fallback / default <code>each</code> rate) ▸ else <b>Unpriced</b>.</div>
+  <p>Walk any feature in the sample network down the ladder. The widget evaluates the same checks, in the same order, as the engine — including the one that trips people up (next section).</p>
+  <div class="widget" id="w3">
+    <div class="w-head"><span class="eyebrow">Interactive · 4</span><h4>Walk the ladder</h4><span style="flex:1"></span><button class="btn" id="l-reset">Reset catalog</button></div>
+    <div class="w-bar"><label class="lab" for="l-f">Feature</label><select class="fld" id="l-f" style="width:140px"></select><span id="l-info" class="muted mono" style="font-size:12px"></span></div>
+    <div class="w-split"><div class="w-main" id="l-ladder"></div><div class="w-side"><div class="lab">This class’s price-book rows</div><div id="l-rows" style="margin-top:6px"></div></div></div>
+  </div>
+
+  <h3>3.5 A rate can sit in the book and be ignored <span class="tag en" style="vertical-align:middle">code-verified</span></h3>
+  <div class="caution"><b>The unit basis must match the class’s geometry.</b> A <b>line</b> class reads <em>only</em> <code>per_km</code> rows; <b>every other</b> class reads <em>only</em> <code>each</code> rows. A row of the wrong basis is not an error and not a warning — the engine skips it as if it did not exist, and the feature lands in <b>Unpriced</b> with a reason that says “no rate is set”. The Add-rate form defaults to <code>each</code>, so adding a “default” rate to a conductor class without changing the basis quietly does nothing.</div>
+  <p>It gets one step worse: the price book allows <b>one row per (class, subtype) regardless of basis</b> (the unique index is on class + subtype only), so you cannot “fix” a wrong-basis class default by adding a second row — the form blocks it as a duplicate. The fix is to <b>edit the existing row’s unit basis</b> (the form allows it). Try it in Interactive 4: select a transformer, and in the price book (Chapter 5) change a rate’s basis.</p>
+  <div class="tbl"><table>
+    <tr><th>If the unpriced reason says…</th><th>The fix</th></tr>
+    <tr><td><i>“no 'each' rate is set for this class/subtype”</i></td><td>Add an <code>each</code> rate for the class (default or that subtype) — or check an existing row isn’t <code>per_km</code>.</td></tr>
+    <tr><td><i>“no material is selected and no per_km rate is set for this class”</i></td><td>Set the feature’s material, or add a <code>per_km</code> rate (class default or this subtype) — check an existing row isn’t <code>each</code>.</td></tr>
+    <tr><td><i>“the selected material has no cost_per_km, and no per_km rate is set for this class”</i></td><td>Set <code>cost_per_km</code> on the material spec, or add a <code>per_km</code> rate as a fallback.</td></tr>
+  </table></div>
+
+  <h3>3.6 Material grouping applies to every class <span class="tag en" style="vertical-align:middle">code-verified</span></h3>
+  <p>A schedule line is a (subtype, material) bucket. For a class that has a material-backed coded field — the first active field whose domain contains at least one material-backed value, <b>one per class</b> — the roll-up splits by that material <em>even for a discrete class</em>, where the material has no effect on the rate (it is priced by subtype only). So a class of equipment with a “model” material field can show several lines at the same unit rate. A class with no such field shows <i>(all)</i> or just the subtype.</p>
+
+  <h3>3.7 How the numbers are rounded <span class="tag en" style="vertical-align:middle">code-verified</span></h3>
+  <ul>
+    <li><b>Quantities</b> are rounded to <b>3 decimals</b> for display (a length in km is to the nearest metre).</li>
+    <li>The engine totals every line from the <b>unrounded</b> quantity × base rate, accumulating the <b>base-currency</b> figure (<code>total_base</code>).</li>
+    <li>Each displayed <b>rate</b> and <b>line total</b> is converted (× per-base) and rounded to <b>2 decimals</b> individually. The <b>grand total</b> is converted and rounded <em>once</em>, from the unrounded base total.</li>
+    <li>So the displayed lines can sum to a cent or two different from the grand total — the grand total is the more accurate figure. The panel footer in Interactive 2 flags the difference when it happens. Lines are sorted by <b>class code</b> (not display name), then subtype, then material.</li>
+  </ul>
+  <div class="widget" id="w5">
+    <div class="w-head"><span class="eyebrow">Interactive · 5</span><h4>Where the pennies go</h4></div>
+    <div class="w-bar"><label class="lab" for="r-per">Per base unit</label><input type="number" id="r-per" value="1" step="0.5" min="0.01" style="width:90px"><span class="muted" style="font-size:12.5px">three discrete lines, each: qty × base rate</span></div>
+    <div class="w-body"><div class="tbl" style="margin:0"><table id="r-t"></table></div><div id="r-out" style="margin-top:8px;font-size:13.5px"></div></div>
+  </div>
+  <h4 style="margin-top:20px">Chapter summary</h4>
+  <ul>
+    <li>Lines are priced per km (geodesic length), everything else per item. The ladder: <b>override ▸ material cost / subtype rate ▸ class default ▸ Unpriced</b>.</li>
+    <li>Linear price-book lookups are subtype-aware too. <b>A row of the wrong basis is invisible</b> to pricing, and you can’t add a second row for the same class+subtype — edit the basis instead.</li>
+    <li>Schedule lines are (subtype, material) buckets; quantities round to 3 dp, line figures to 2 dp, and the grand total once from the unrounded base.</li>
+  </ul>
+</section>
+
+<!-- ============ CH4 ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>Administering currencies 🔒</h2><p>One base currency; everything else is presentation.</p></div>
+  <p>🔒 <i>The cost catalog is admin-only to read as well as write — the <code>/admin</code> screens inherit the <span class="perm">metadata:write</span> gate. If you can’t see <code>/admin/cost-catalog</code>, you lack the permission.</i> Ada administers the catalog at <b>Admin → Cost catalog</b>. The page has two cards — <b>Currencies</b> and the <b>Unit-rate price book</b> — plus pointers out to material specs and the per-feature overrides.</p>
+  <h3>4.1 The base currency</h3>
+  <p>VoltEdge stores <b>every</b> cost — catalog rates, material per-km costs, overrides — in <b>one base currency</b>. This is the single source of truth; every other currency is a <em>presentation</em> layer computed from it. Exactly one currency is flagged <b>base</b>; its conversion factor is pinned to <b>1</b> (the form forces and locks that), it cannot be deleted, and the system enforces that there is always exactly one (a partial unique index plus a check constraint). 💡 Choose the base currency deliberately and early — it is the denomination in which you will actually type every rate. Seeded installs start with <b>USD</b>.</p>
+  <h3>4.2 Adding a presentation currency</h3>
+  <p>To let estimators read schedules in Ghana Cedi, Ada presses <b>Add currency</b> and enters a <b>Code</b> (fixed once created), a <b>Name</b>, and <b>Per base unit</b> — <em>how many of this currency equal one base unit</em> (if one USD is worth 12 GHS, the factor is <b>12</b>; it must be &gt; 0). The BoQ’s Currency dropdown then offers GHS, and choosing it multiplies every base figure by 12. ⚠️ These are <b>static</b> factors, not a live FX feed — update them when your rates move. Deleting a presentation currency leaves the base-denominated prices untouched; schedules simply can no longer be shown in it. An unknown currency in an API request is a <code>400</code>.</p>
+  <div class="widget" id="w6">
+    <div class="w-head"><span class="eyebrow">Interactive · 6</span><h4>Currencies card</h4><span style="flex:1"></span><span id="cu-gate"></span><button class="btn" id="cu-reset">Reset catalog</button></div>
+    <div id="cu-lock" style="display:none;padding:16px" class="muted"></div>
+    <div id="cu-main"><div class="w-split"><div class="w-main"><table class="matrix" style="width:100%;font-size:13px" id="cu-t"></table><div id="cu-msg" style="font-size:13px;margin-top:8px;min-height:20px" aria-live="polite"></div></div><div class="w-side"><div class="lab">Add currency</div>
+      <div class="fld-row"><label for="cu-code">Code</label><input type="text" id="cu-code" placeholder="EUR" maxlength="5" style="text-transform:uppercase"></div><div class="fld-row"><label for="cu-name">Name</label><input type="text" id="cu-name" placeholder="Euro"></div><div class="fld-row"><label for="cu-per">Per base unit</label><input type="number" id="cu-per" value="0.92" step="0.01" min="0"></div><button class="btn pri" id="cu-add">Add currency</button>
+      <div class="lab" style="margin-top:14px">What the estimator’s dropdown shows</div><div id="cu-prev" style="font-size:12.5px;margin-top:4px"></div></div></div>
+      <div class="w-body" style="border-top:1px solid var(--line)"><label class="tog"><input type="checkbox" id="cu-relabel"> <b>What if</b> someone re-labels the base currency from USD to GHS without touching the numbers?</label><div id="cu-rel" style="font-size:13.5px;margin-top:8px"></div></div></div>
+  </div>
+
+  <h4 style="margin-top:20px">Chapter summary</h4>
+  <ul><li>One base currency, factor pinned to 1, never deleted; every stored cost is in it.</li><li>Presentation currencies are static “per base unit” factors; the base is for typing rates, the others are for reading schedules.</li></ul>
+</section>
+
+<!-- ============ CH5 ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>Administering the price book 🔒</h2><p>The backbone that turns counts — and un-material’d lengths — into money.</p></div>
+  <p>The <b>Unit-rate price book</b> card lists the <code>each</code>/<code>per_km</code> rates keyed by class and subtype.</p>
+  <h3>5.1 Adding a rate</h3>
+  <p>Ada presses <b>Add rate</b> and fills: <b>Feature class</b> (fixed once created); <b>Subtype</b> — <i>Class default (all subtypes)</i> or a specific subtype; <b>Unit basis</b> — <code>each (per item)</code> or <code>per_km (per km of length)</code>; <b>Unit rate</b> — the price <b>in the base currency</b> (must be ≥ 0); <b>Notes</b> — free text (e.g. a supplier quote reference). The uniqueness rule is <b>one rate per (class, subtype)</b> — including one class-default row per class — and, as §3.5 explained, that holds <em>across both bases</em>. The form blocks a duplicate.</p>
+  <p>💡 <b>Where to put conductor costs.</b> For conductors you price by material, don’t add a class <code>per_km</code> rate — set <code>cost_per_km</code> on the <b>material spec</b> (<code>/admin/materials</code>) so each cable prices correctly. Use a class <code>per_km</code> rate only for linear classes you <em>don’t</em> vary by material (or as the backstop).</p>
+  <div class="widget" id="w7">
+    <div class="w-head"><span class="eyebrow">Interactive · 7</span><h4>Unit-rate price book</h4><span style="flex:1"></span><span id="pb-gate"></span></div>
+    <div id="pb-lock" style="display:none;padding:16px" class="muted"></div>
+    <div id="pb-main">
+      <div class="w-bar"><span class="lab">Scenarios</span><button class="btn" id="pb-s1">① close the RMU gap</button><button class="btn warn" id="pb-s2">② the trap: a per_km row for isolators</button><button class="btn" id="pb-s3">③ fix it by editing the basis</button><span style="flex:1"></span><label class="lab" for="pb-view">View rates in</label><select class="fld" id="pb-view" style="width:110px"></select></div>
+      <div class="w-split"><div class="w-main"><table class="matrix" style="width:100%;font-size:13px" id="pb-t"></table><div id="pb-msg" style="font-size:13px;margin-top:8px;min-height:20px" aria-live="polite"></div>
+        <div class="lab" style="margin-top:12px" id="pb-ft">Add rate</div>
+        <div class="fld-row"><label for="pb-cls">Feature class</label><select class="fld" id="pb-cls"></select></div>
+        <div class="fld-row"><label for="pb-sub">Subtype</label><select class="fld" id="pb-sub"></select></div>
+        <div class="fld-row"><label for="pb-basis">Unit basis</label><select class="fld" id="pb-basis"><option value="each">each (per item)</option><option value="per_km">per_km (per km of length)</option></select></div>
+        <div class="fld-row"><label for="pb-rate">Unit rate (base)</label><input type="number" id="pb-rate" min="0" step="0.01" value="3500"></div>
+        <div class="fld-row"><label for="pb-notes">Notes</label><input type="text" id="pb-notes" placeholder="Supplier quote reference"></div>
+        <div id="pb-warn" style="font-size:12.5px;min-height:18px;margin:4px 0"></div>
+        <button class="btn pri" id="pb-save">Add rate</button> <button class="btn" id="pb-cancel" style="display:none">Cancel edit</button></div>
+      <div class="w-side"><div class="lab">Whole-network BoQ, live <span class="muted" style="font-weight:400">(as you)</span></div><div id="pb-live" style="margin-top:6px"></div></div></div></div>
+  </div>
+  <h3>5.2 How currency conversion interacts with rates</h3>
+  <p>Every rate you type is in the <b>base</b> currency. The estimator’s currency dropdown never changes a stored rate — it reconverts the whole already-computed schedule for display. Flip “View rates in” above: the stored value does not move. A rate is entered once, in base, and read in any currency.</p>
+  <h3>5.3 Closing the Unpriced gap</h3>
+  <p>The fastest way to drive the catalog to completeness is to <b>run a whole-network BoQ and read the Unpriced section</b> (the right-hand panel above is exactly that, live). Each entry names a class (and subtype/material) with no rate. Add the missing rate, re-price, and watch the entry move up into the priced schedule. An empty Unpriced section means full costing coverage for that scope. ⚠️ Deleting a rate doesn’t error loudly — features it used to price simply <b>revert to unpriced</b> until another rate covers them. The confirmation dialog says exactly this.</p>
+  <div class="caution"><b>Run the trap (scenario ②).</b> It adds a <code>per_km</code> row to the isolator subtype — the kind of mistake the form allows. The row appears in the book, but the live panel still lists isolators as Unpriced, and the row is flagged <b>ignored</b>. Scenario ③ fixes it the right way: edit the row’s basis to <code>each</code>.</div>
+  <h4 style="margin-top:20px">Chapter summary</h4>
+  <ul><li>One rate per (class, subtype) across both bases; a class default covers subtypes without their own rate.</li><li>The unit basis must match the geometry (<b>line → per_km</b>, <b>else → each</b>) or the row is ignored.</li><li>Rates are typed in base; deleting one quietly reverts features to Unpriced. Use whole-network BoQ as the to-do list.</li></ul>
+</section>
+
+<!-- ============ CH6 ============ -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>Per-feature overrides 🔒</h2><p>When one real asset cost something the book can’t express.</p></div>
+  <p>🔒 <i>Needs <span class="perm">metadata:write</span>. The override controls are hidden entirely from users without it.</i> Dana sets a <b>per-feature override</b> without touching the catalog everyone else prices from.</p>
+  <p><b>▶ Steps.</b> Open the feature on the map, go to its <b>Materials</b> tab, and find the <b>Cost override</b> section. Press <b>Set override</b>, enter the unit cost (shown in the base currency, in the feature’s natural unit — <em>per km</em> for a line, <em>each</em> for a discrete asset), and save. An amber badge marks the feature as overridden. <b>Change</b> edits it; the reset/clear action removes it and returns the feature to normal catalog pricing.</p>
+  <p><b>∑ What it does.</b> The override is stored against that one feature (<code>metadata.feature_cost_overrides</code>, one per feature), in the base currency, and must be ≥ 0. At pricing time the feature is excluded from its class’s normal roll-up and priced at the override instead. <span class="tag en" style="margin:0;vertical-align:middle">code-verified</span> Overridden features are then <b>collapsed by (subtype, material, rate)</b>: two features at the same hand-set rate share one flagged line; different rates make separate lines. A linear override is the rate × <em>that feature’s own length</em>; an unplaced conductor (zero length) is skipped even when overridden. The override ignores the unit-basis rules of §3.5 — it prices whatever the feature’s natural unit is. And the same visibility filters (territory, drafts, deleted) still apply.</p>
+  <div class="widget" id="w8">
+    <div class="w-head"><span class="eyebrow">Interactive · 8</span><h4>Feature panel → Materials → Cost override</h4><span style="flex:1"></span><span id="ov-gate"></span></div>
+    <div class="w-bar"><label class="lab" for="ov-f">Feature</label><select class="fld" id="ov-f" style="width:130px"></select><span class="lab">Quick</span><button class="btn" id="ov-a">① C-001 at 20,000 / km</button><button class="btn" id="ov-b">② X-01 + X-02 at 3,900 (same rate)</button><button class="btn" id="ov-c">③ X-03 at 3,500 (different rate)</button><button class="btn warn" id="ov-d">④ override C-009 (unplaced)</button><button class="btn" id="ov-x">Clear all</button></div>
+    <div class="w-split"><div class="w-main"><div id="ov-panel"></div></div><div class="w-side"><div class="lab">That class’s schedule, live</div><div id="ov-sched" style="margin-top:6px"></div></div></div>
+  </div>
+  <p>💡 Use overrides sparingly and for genuine exceptions. If you find yourself overriding every feature of a subtype, that is a signal the <em>catalog</em> rate is wrong — fix the rate in the price book (§5.1) so the correction is reusable, rather than repeating it feature by feature. (The panel above nudges you when it sees three overrides in one subtype.)</p>
+  <h4>Chapter summary</h4>
+  <ul><li>An override pins a base-currency unit cost to one feature, which is then never Unpriced; its class-mates price from the catalog as usual.</li><li>Overridden features collapse by (subtype, material, rate) into flagged lines; the on-screen schedule flags them, the CSV does not.</li></ul>
+</section>
+
+<!-- ============ CH7 ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>Beyond the panel</h2><p>The API, the agent tool, and what the UI doesn’t surface yet.</p></div>
+  <ul>
+    <li><b>Pricing from an agent.</b> The BoQ engine is exposed as the <code>run_bill_of_quantities</code> MCP tool (gated <span class="perm">features:read</span>), so an AI assistant can price a scope and read back the same grouped schedule the panel shows. The catalog-administration side (currencies, rates, overrides) is <b>not</b> in MCP — it stays a deliberate admin-screen action.</li>
+    <li><b>Scopes the panel doesn’t surface yet.</b> The engine also supports <b>radius</b> and <b>bounding-box</b> spatial scopes. They are reachable through the API but not wired into the panel, because they need a map draw/point gesture that isn’t built. The four scopes in Chapter 2 are what the UI offers today.</li>
+    <li><b>What’s planned, not built.</b> Server-side CSV/XLSX export and a per-assembly Bill of Materials are the next slice; today’s exports are the client-side PDF and CSV in Chapter 2.</li>
+  </ul>
+  <h3>7.1 The request, field by field <span class="tag en" style="vertical-align:middle">code-verified</span></h3>
+  <p>The REST route is a single read-only <code>POST /boq</code>. Build a request below and run it against the sample network; the response summary and any <code>400</code> are exactly what the engine returns for that input.</p>
+  <div class="widget" id="w9">
+    <div class="w-head"><span class="eyebrow">Interactive · 9</span><h4>POST /boq</h4><span style="flex:1"></span><span class="muted" style="font-size:12px">runs as <b id="a-who"></b></span></div>
+    <div class="w-bar"><span class="lab">Choose</span><div class="seg" id="a-mode"><button data-v="classes" aria-pressed="true">feature_classes</button><button data-v="refs" aria-pressed="false">feature_refs</button></div><label class="lab" for="a-kind">scope.kind</label><select class="fld" id="a-kind" style="width:120px"><option value="">(none)</option><option>territory</option><option>radius</option><option>bbox</option><option>polygon</option></select><label class="lab" for="a-cur">display_currency</label><input type="text" id="a-cur" placeholder="(base)" style="width:90px"></div>
+    <div class="w-bar" id="a-extra"></div>
+    <div class="w-split"><div class="w-main"><div class="lab">Request</div><pre class="pre" id="a-req" style="font-size:11.5px;margin:4px 0"></pre><button class="btn pri" id="a-go">Send</button></div><div class="w-side"><div class="lab">Response</div><div id="a-res" style="font-size:13px;margin-top:4px"></div></div></div>
+  </div>
+  <ul>
+    <li><b><code>feature_refs</code> take precedence</b> over <code>feature_classes</code> and define which classes are priced — a trace result or map selection hands the BoQ its exact features this way. <code>scope</code> and the visibility filters still apply to those features.</li>
+    <li><code>scope.kind</code> is <code>none</code> / <code>territory</code> / <code>radius</code> / <code>bbox</code> (empty = none). <b>radius</b> needs <code>center: [lon, lat]</code> and <code>radius_m</code> (metres); <b>bbox</b> needs <code>[min_lon, min_lat, max_lon, max_lat]</code> and is a <em>coarse envelope intersection</em> — good enough to scope a BoQ, not exact containment. An unknown kind, or a bbox without four numbers, is a <code>400</code>.</li>
+    <li><code>display_currency</code> is a currency code (case-insensitive); empty means the base; an unknown one is a <code>400</code>. The response always echoes the full currency list (<code>currencies[]</code>), <code>total</code> in the shown currency and <code>total_base</code> in the base.</li>
+    <li>Each response <code>lines[]</code> row carries <code>unit_rate</code> and <code>line_total</code> already converted and rounded; <code>overridden: true</code> marks a hand-priced line; <code>unpriced[]</code> carries the exact <code>reason</code>.</li>
+  </ul>
+  <h3>Appendix — Quick reference</h3>
+  <p><b>Permissions.</b> Run a BoQ: <span class="perm">features:read</span>. Administer the catalog (currencies, rates) and set per-feature overrides: <span class="perm">metadata:write</span> (which the <code>/admin</code> metadata screens gate on for reading too).</p>
+  <div class="tbl"><table><tr><th>You want to price…</th><th>Set it at…</th></tr>
+    <tr><td>A conductor by its cable type</td><td><code>cost_per_km</code> on the <b>material spec</b> — <code>/admin/materials</code></td></tr>
+    <tr><td>A linear class not varied by material (or a backstop)</td><td>A <code>per_km</code> rate — <b>Cost catalog → price book</b> (class default, or per subtype)</td></tr>
+    <tr><td>A discrete asset (default for the class)</td><td>An <code>each</code> class-default rate — price book</td></tr>
+    <tr><td>A discrete asset of one rating only</td><td>An <code>each</code> rate for that <b>subtype</b> — price book</td></tr>
+    <tr><td>One specific real asset, one-off</td><td>A <b>per-feature override</b> — feature’s <b>Materials</b> tab</td></tr></table></div>
+  <p><b>Why is something Unpriced?</b> No rate resolved through the precedence chain (§3.4) — or a row exists but with the wrong unit basis for the class geometry (§3.5). Let the diagnoser read the live Unpriced list and propose the fix:</p>
+  <div class="widget" id="w10">
+    <div class="w-head"><span class="eyebrow">Interactive · 10</span><h4>Unpriced diagnoser</h4><span style="flex:1"></span><span id="dg-gate"></span></div>
+    <div class="w-bar"><button class="btn warn" id="dg-a">Break: delete the transformer default</button><button class="btn warn" id="dg-b">Break: blank AAAC’s cost_per_km and drop the conductor fallback</button><button class="btn warn" id="dg-c">Break: flip the SITE rate to per_km</button><button class="btn" id="dg-r">Reset catalog</button></div>
+    <div class="w-body" id="dg-out"></div>
+  </div>
+  <div class="callout">Quantities from the model, prices from the catalog, gaps in plain sight — and a rate that doesn’t match its geometry is the one gap that hides inside the price book itself.</div>
+  <p class="muted" style="font-size:13px"><b>Grounded in the code.</b> Engine: <code>api/internal/boq</code> and <code>api/internal/crud/boq.go</code>. Catalog metadata &amp; migrations: <code>0127_create_cost_rates_and_currencies.sql</code>, <code>0128_create_feature_cost_overrides.sql</code>. UI: <code>boq-panel.tsx</code>, <code>admin-cost-catalog.tsx</code>, the per-feature override in <code>feature-panel.tsx</code>, and the PDF writer <code>boq-print.ts</code>.</p>
+  <h4 style="margin-top:26px">Check yourself</h4>
+  <div id="qz"></div>
+</section>
+</div>
+
+<footer style="max-width:1040px;margin:0 auto;padding:0 20px 60px"><p class="muted" style="font-size:13px">VoltEdge · Bill of Quantities &amp; Cost Catalog — interactive edition. Every widget runs on a simulated Feeder 7 and price book held entirely in your browser; nothing here talks to a server and nothing here changes your real catalog. Rate resolution, scope filters, grouping and rounding mirror the BoQ engine’s source.</p></footer>
+
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+function seg(sel,cb){ const el=$(sel); el.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b||b.disabled) return; el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); cb(b)}); }
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nf=(x,d=0)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const pill=(t,c)=>`<span class="pill ${c||''}">${t}</span>`;
+const round2=v=>Math.round(v*100)/100, round3=v=>Math.round(v*1000)/1000;
+
+/* ---------- personas ---------- */
+/* terr: territories the persona may read (null = unscoped). mw = metadata:write */
+const PERSONAS=[['tom','Tom · Estimator',{mw:0,terr:['oak'],me:'Tom'}],['ada','Ada · System administrator',{mw:1,terr:null,me:'Ada'}],['dana','Dana · Editor',{mw:1,terr:['oak'],me:'Dana'}],['priya','Priya · Viewer',{mw:0,terr:['riv'],me:'Priya'}]];
+let PERSONA=PERSONAS[0]; const personaL=[];
+const can=p=>!!PERSONA[2][p];
+const gateTip=()=>`<span class="gate" title="needs metadata:write">🔒 metadata:write</span>`;
+const lockTip=()=>`<span class="gate locked" title="${PERSONA[1].split(' · ')[0]} lacks metadata:write">needs metadata:write</span>`;
+function onPersona(fn){ personaL.push(fn); fn(); }
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=PERSONAS.map(p=>`<option value="${p[0]}">${p[1]}</option>`).join(''); sel.onchange=()=>{ PERSONA=PERSONAS.find(p=>p[0]===sel.value); personaL.forEach(f=>f()); }; })();
+
+/* ---------- the model: territories, classes, materials, features ---------- */
+const TERR={oak:{name:'Oakwood Zone',parent:null},oakN:{name:'Oakwood North',parent:'oak'},riv:{name:'Riverside Zone',parent:null}};
+const subtree=id=>{ const out=[id]; Object.keys(TERR).forEach(k=>{ if(TERR[k].parent===id) out.push(...subtree(k)); }); return out; };
+const CLS={
+ MV_CONDUCTOR:{name:'MV conductor',geom:'line',compiled:true,subs:{1:'Overhead',2:'Underground'},matField:'conductor_type'},
+ DIST_XFMR:{name:'Distribution transformer',geom:'point',compiled:true,subs:{1:'Pole-mounted',2:'Ground-mounted'}},
+ SWITCH:{name:'MV switch',geom:'point',compiled:true,subs:{3:'Load-break',4:'Isolator'}},
+ RMU:{name:'Ring main unit',geom:'point',compiled:true,subs:{}},
+ SITE:{name:'Substation compound',geom:'polygon',compiled:true,subs:{}},
+ SPARE:{name:'Spare equipment register',geom:'none',compiled:true,subs:{}},
+ RECLOSER:{name:'Recloser (draft class)',geom:'point',compiled:false,subs:{}}};
+const MATNAME={'ACSR-100':'ACSR 100 mm²','ACSR-150':'ACSR 150 mm²','XLPE-185':'XLPE 185 mm²','AAAC-70':'AAAC 70 mm²'};
+const SUBNAME=(cls,s)=>s==null?'':(CLS[cls].subs[s]||'');
+const DEG=Math.PI/180, R_E=6371008.8;
+function hav(a,b){ const dl=(b[1]-a[1])*DEG, dn=(b[0]-a[0])*DEG; const x=Math.sin(dl/2)**2+Math.cos(a[1]*DEG)*Math.cos(b[1]*DEG)*Math.sin(dn/2)**2; return 2*R_E*Math.asin(Math.sqrt(x)); }
+const lineKm=l=>{ let m=0; for(let i=1;i<l.length;i++) m+=hav(l[i-1],l[i]); return m/1000; };
+const L=(lon,lat,dx,dy)=>[[lon,lat],[lon+dx,lat+dy]];
+const FEATS=[
+ {id:'C-001',cls:'MV_CONDUCTOR',sub:1,mat:'ACSR-100',terr:'oak',line:L(-0.2000,5.6000,0.0032,0.0005),feeder:1},
+ {id:'C-002',cls:'MV_CONDUCTOR',sub:1,mat:'ACSR-100',terr:'oak',line:L(-0.1968,5.6005,0.0030,0.0010),feeder:1},
+ {id:'C-003',cls:'MV_CONDUCTOR',sub:2,mat:'XLPE-185',terr:'oakN',line:L(-0.1938,5.6015,0.0010,0.0030),feeder:1},
+ {id:'C-004',cls:'MV_CONDUCTOR',sub:2,mat:'XLPE-185',terr:'oakN',line:L(-0.1928,5.6045,0.0025,0.0012),feeder:1},
+ {id:'C-005',cls:'MV_CONDUCTOR',sub:1,mat:'ACSR-150',terr:'oak',line:L(-0.1903,5.6057,0.0042,-0.0008),feeder:1},
+ {id:'C-006',cls:'MV_CONDUCTOR',sub:1,mat:'AAAC-70',terr:'oak',line:L(-0.1861,5.6049,0.0028,0.0004),feeder:1},
+ {id:'C-007',cls:'MV_CONDUCTOR',sub:2,mat:'XLPE-185',terr:'riv',line:L(-0.1500,5.5700,0.0035,0.0006)},
+ {id:'C-008',cls:'MV_CONDUCTOR',sub:1,mat:'ACSR-100',terr:'riv',line:L(-0.1465,5.5706,0.0040,0.0010)},
+ {id:'C-009',cls:'MV_CONDUCTOR',sub:1,mat:'ACSR-100',terr:'oak',line:null,feeder:1},
+ {id:'C-010',cls:'MV_CONDUCTOR',sub:2,mat:null,terr:'oak',line:L(-0.1833,5.6053,0.0020,0.0008),feeder:1},
+ {id:'X-01',cls:'DIST_XFMR',sub:1,terr:'oak',pt:[-0.1990,5.6006],feeder:1},{id:'X-02',cls:'DIST_XFMR',sub:1,terr:'oak',pt:[-0.1965,5.6012],feeder:1},{id:'X-03',cls:'DIST_XFMR',sub:1,terr:'oakN',pt:[-0.1930,5.6040],feeder:1},{id:'X-04',cls:'DIST_XFMR',sub:2,terr:'oak',pt:[-0.1890,5.6052],feeder:1},{id:'X-05',cls:'DIST_XFMR',sub:2,terr:'riv',pt:[-0.1480,5.5710]},{id:'X-06',cls:'DIST_XFMR',sub:2,terr:'riv',pt:[-0.1455,5.5716]},
+ {id:'S-01',cls:'SWITCH',sub:3,terr:'oak',pt:[-0.2000,5.6000],feeder:1},{id:'S-02',cls:'SWITCH',sub:3,terr:'oak',pt:[-0.1936,5.6010],feeder:1},{id:'S-03',cls:'SWITCH',sub:4,terr:'oakN',pt:[-0.1928,5.6045],feeder:1},{id:'S-04',cls:'SWITCH',sub:4,terr:'oak',pt:[-0.1861,5.6049],feeder:1},{id:'S-05',cls:'SWITCH',sub:3,terr:'riv',pt:[-0.1500,5.5700]},
+ {id:'R-01',cls:'RMU',sub:null,terr:'oak',pt:[-0.1950,5.6020],feeder:1},{id:'R-02',cls:'RMU',sub:null,terr:'oakN',pt:[-0.1920,5.6050],feeder:1},{id:'R-03',cls:'RMU',sub:null,terr:'riv',pt:[-0.1470,5.5715]},
+ {id:'P-01',cls:'SITE',sub:null,terr:'oak',pt:[-0.2010,5.5995],feeder:1},{id:'P-02',cls:'SITE',sub:null,terr:'riv',pt:[-0.1490,5.5690]},
+ {id:'K-01',cls:'SPARE',terr:'oak'},{id:'K-02',cls:'SPARE',terr:'oak'},{id:'K-03',cls:'SPARE',terr:'riv'},{id:'K-04',cls:'SPARE',terr:'oak',draft:'Dana'}];
+FEATS.forEach(f=>{ f.sub=f.sub==null?null:f.sub; if(f.line) f.km=lineKm(f.line); });
+const feat=id=>FEATS.find(f=>f.id===id);
+const geoOf=f=>f.line||f.pt||null;
+const visible=(f,P)=>{ P=P||PERSONA[2]; if(P.terr){ const ok=P.terr.flatMap(subtree); if(!ok.includes(f.terr)) return false; } if(f.draft&&f.draft!==P.me) return false; return true; };
+
+/* ---------- the catalog store ---------- */
+const S={sub:[],on:f=>S.sub.push(f),emit:()=>S.sub.forEach(f=>f()),rid:1};
+S.reset=()=>{ S.currencies=[{code:'USD',name:'US Dollar',per:1,base:true},{code:'GHS',name:'Ghana Cedi',per:12,base:false}];
+  S.specs={'ACSR-100':18500,'ACSR-150':24200,'XLPE-185':61000,'AAAC-70':null};
+  S.rates=[{id:1,cls:'DIST_XFMR',sub:null,basis:'each',rate:4200,notes:'Supplier quote Q-2291'},{id:2,cls:'DIST_XFMR',sub:2,basis:'each',rate:5600,notes:'Ground-mounted incl. plinth'},{id:3,cls:'SWITCH',sub:3,basis:'each',rate:2100,notes:''},{id:4,cls:'MV_CONDUCTOR',sub:null,basis:'per_km',rate:15000,notes:'Fallback for un-materialled spans'},{id:5,cls:'SITE',sub:null,basis:'each',rate:12000,notes:''},{id:6,cls:'SPARE',sub:null,basis:'each',rate:800,notes:''}]; S.rid=7;
+  S.overrides={}; S.emit(); };
+S.reset();
+
+/* ---------- the engine: a faithful port of boq.RunBoQ ---------- */
+function lookupRate(rates,sub,basis){ let def=null; for(const rt of rates){ if(rt.basis!==basis) continue; if(rt.sub==null){ if(!def) def=rt; continue; } if(sub!=null&&rt.sub===sub) return rt; } return def; }
+function resolveRate(cls,g){ const c=CLS[cls]; const rates=S.rates.filter(r=>r.cls===cls); if(c.geom==='line'){ if(g.mat){ const cost=S.specs[g.mat]; if(cost!=null) return {rate:cost,src:'material',why:`material ${MATNAME[g.mat]||g.mat} carries cost_per_km`}; } const rt=lookupRate(rates,g.sub,'per_km'); return rt?{rate:rt.rate,src:'price book',row:rt,why:rt.sub==null?'class-default per_km rate':'subtype per_km rate'}:null; } const rt=lookupRate(rates,g.sub,'each'); return rt?{rate:rt.rate,src:'price book',row:rt,why:rt.sub==null?'class-default each rate':'subtype each rate'}:null; }
+function unpricedReason(cls,g){ if(CLS[cls].geom==='line') return g.mat?'the selected material has no cost_per_km, and no per_km rate is set for this class':'no material is selected and no per_km rate is set for this class'; return "no 'each' rate is set for this class/subtype"; }
+function inScope(f,scope,P){ const k=(scope&&scope.kind||'').toLowerCase(); if(!k||k==='none') return true; const g=geoOf(f); if(k==='territory') return subtree(scope.terr).includes(f.terr); if(!g) return false;
+  if(k==='radius'){ const pts=f.line||[f.pt]; const c=scope.center; return pts.some(p=>hav(p,c)<=scope.radius); }
+  if(k==='bbox'){ const b=scope.bbox; const pts=f.line||[f.pt]; const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]); return !(Math.max(...xs)<b[0]||Math.min(...xs)>b[2]||Math.max(...ys)<b[1]||Math.min(...ys)>b[3]); } return true; }
+function runBoQ(req,P){ P=P||PERSONA[2];
+  const base=S.currencies.find(c=>c.base)||S.currencies[0]; let disp=base; const want=(req.currency||'').trim(); if(want){ disp=S.currencies.find(c=>c.code.toLowerCase()===want.toLowerCase()); if(!disp) throw {status:400,msg:`unknown display currency "${req.currency}"`}; }
+  const sc=req.scope||{}; const k=(sc.kind||'').toLowerCase(); if(k&&!['none','territory','radius','bbox'].includes(k)) throw {status:400,msg:`unknown scope kind "${sc.kind}"`}; if(k==='bbox'&&(!sc.bbox||sc.bbox.length!==4)) throw {status:400,msg:'a bbox scope needs [min_lon, min_lat, max_lon, max_lat]'};
+  let order=[]; const ids={}; if(req.refs&&req.refs.length){ req.refs.forEach(r=>{ if(!r.class||!r.id) return; if(!(r.class in ids)){ order.push(r.class); ids[r.class]=[]; } ids[r.class].push(r.id); }); } else { order=(req.classes&&req.classes.length?req.classes:Object.keys(CLS)).slice(); }
+  const res={currency:disp.code,currencyName:disp.name,baseCurrency:base.code,perBase:disp.per,lines:[],unpriced:[],total:0,totalBase:0,pricedCount:0,skipped:[]};
+  for(const code of order){ const c=CLS[code]; if(!c){ res.skipped.push([code,'unknown class — skipped']); continue; } if(!c.compiled){ res.skipped.push([code,'not compiled yet — nothing to count']); continue; } const spatial=['territory','radius','bbox'].includes(k); if(spatial&&c.geom==='none'){ res.skipped.push([code,'has no geometry — a spatial scope cannot locate it']); continue; }
+    const linear=c.geom==='line'; const ovr=Object.keys(S.overrides).filter(id=>{ const f=feat(id); return f&&f.cls===code; });
+    const pool=FEATS.filter(f=>f.cls===code&&visible(f,P)&&inScope(f,sc,P)&&(!ids[code]||ids[code].includes(f.id)));
+    const grp={}; pool.filter(f=>!ovr.includes(f.id)).forEach(f=>{ const key=(Object.keys(c.subs).length?f.sub:'')+'|'+(c.matField?(f.mat||''):''); const g=grp[key]||(grp[key]={sub:Object.keys(c.subs).length?f.sub:null,mat:c.matField?(f.mat||null):null,count:0,km:0}); g.count++; if(linear&&f.line) g.km+=f.km; });
+    Object.values(grp).forEach(g=>{ const basis=linear?'per_km':'each', unit=linear?'km':'each'; const qty=linear?g.km:g.count; if(qty<=0){ res.skipped.push([code,'zero-length bucket dropped (unplaced features)']); return; } const rr=resolveRate(code,g); const common={cls:code,clsName:c.name,sub:g.sub,subName:SUBNAME(code,g.sub),mat:g.mat,matName:g.mat?(MATNAME[g.mat]||g.mat):'',basis,qty:round3(qty),unit};
+      if(!rr){ res.unpriced.push(Object.assign(common,{reason:unpricedReason(code,g)})); return; } const bt=rr.rate*qty; res.totalBase+=bt; res.lines.push(Object.assign(common,{rate:round2(rr.rate*disp.per),total:round2(bt*disp.per),rawBase:bt,src:rr.src,why:rr.why})); });
+    const orow=pool.filter(f=>ovr.includes(f.id)); const ag={}; const aorder=[]; orow.forEach(f=>{ const q=linear?(f.km||0):1; if(q<=0) return; const rate=S.overrides[f.id]; const key=(Object.keys(c.subs).length&&f.sub!=null?f.sub:-1)+'|'+(c.matField&&f.mat?f.mat:'')+'|'+rate; const a=ag[key]||(ag[key]={sub:Object.keys(c.subs).length?f.sub:null,mat:c.matField?(f.mat||null):null,rate,qty:0,ids:[]}); if(!ag[key]._in){ ag[key]._in=1; aorder.push(key); } a.qty+=q; a.ids.push(f.id); });
+    aorder.forEach(key=>{ const a=ag[key]; const bt=a.rate*a.qty; res.totalBase+=bt; res.lines.push({cls:code,clsName:c.name,sub:a.sub,subName:SUBNAME(code,a.sub),mat:a.mat,matName:a.mat?(MATNAME[a.mat]||a.mat):'',basis:linear?'per_km':'each',qty:round3(a.qty),unit:linear?'km':'each',rate:round2(a.rate*disp.per),total:round2(bt*disp.per),rawBase:bt,over:true,ids:a.ids,src:'override',why:'per-feature override'}); }); }
+  const sk=(s)=>s==null?-1:s; res.lines.sort((a,b)=>a.cls<b.cls?-1:a.cls>b.cls?1:(sk(a.sub)-sk(b.sub))||((a.mat||'')<(b.mat||'')?-1:(a.mat||'')>(b.mat||'')?1:0)); res.unpriced.sort((a,b)=>a.cls<b.cls?-1:a.cls>b.cls?1:sk(a.sub)-sk(b.sub));
+  res.pricedCount=res.lines.length; res.total=round2(res.totalBase*disp.per); res.totalBase=round2(res.totalBase); return res; }
+const itemLabel=l=>{ const bits=[]; if(l.subName) bits.push(l.subName); if(l.matName) bits.push(l.matName); else if(l.mat) bits.push(l.mat); return bits.length?bits.join(' · '):'(all)'; };
+const money=(x,cur)=>nf(x,2)+(cur?' '+cur:'');
+function scheduleHTML(res,o){ o=o||{}; const byCls={}; res.lines.forEach(l=>(byCls[l.cls]=byCls[l.cls]||[]).push(l));
+  let h=`<div style="overflow-x:auto"><table class="matrix" style="width:100%;font-size:13px;min-width:420px"><tr><th style="text-align:left">Item</th><th style="text-align:right">Qty</th><th>Unit</th><th style="text-align:right">Rate</th><th style="text-align:right">Total</th></tr>`;
+  Object.keys(byCls).forEach(c=>{ const ls=byCls[c]; const sub=ls.reduce((a,l)=>a+l.total,0); h+=`<tr><td colspan="5" style="background:var(--surface);font-weight:700">${esc(ls[0].clsName)} <span class="muted mono" style="font-size:11px">${c}</span></td></tr>`; ls.forEach(l=>{ h+=`<tr${o.hl&&o.hl(l)?' style="background:var(--tint)"':''}><td>${esc(itemLabel(l))}${l.over?` <span class="pill stale" title="priced off a per-feature override">overridden</span>`:''}</td><td class="mono" style="text-align:right">${nf(l.qty,l.unit==='km'?3:0)}</td><td>${l.unit}</td><td class="mono" style="text-align:right">${nf(l.rate,2)}</td><td class="mono" style="text-align:right">${nf(l.total,2)}</td></tr>`; }); h+=`<tr><td colspan="4" style="text-align:right" class="muted">${esc(ls[0].clsName)} subtotal</td><td class="mono" style="text-align:right;font-weight:600">${nf(sub,2)}</td></tr>`; });
+  if(!res.lines.length) h+=`<tr><td colspan="5" class="muted">Nothing priced.</td></tr>`;
+  h+=`<tr><td colspan="4" style="text-align:right;font-weight:800">GRAND TOTAL (${res.currency})</td><td class="mono" style="text-align:right;font-weight:800;font-size:15px">${nf(res.total,2)}</td></tr></table></div>`;
+  if(res.unpriced.length) h+=`<div style="margin-top:10px;border:1px solid var(--amber);background:var(--amber-tint);border-radius:7px;padding:8px 10px"><div class="lab" style="color:var(--amber)">Unpriced — counted but no rate resolved</div>`+res.unpriced.map(u=>`<div style="font-size:12.5px;margin-top:4px"><b>${esc(u.clsName)}</b>${u.subName?' · '+esc(u.subName):''}${u.mat?' · '+esc(MATNAME[u.mat]||u.mat):''} — <span class="mono">${nf(u.qty,u.unit==='km'?3:0)} ${u.unit}</span><div class="muted" style="font-size:12px">${esc(u.reason)}</div></div>`).join('')+`</div>`;
+  const d=Math.abs(round2(res.lines.reduce((a,l)=>a+l.total,0))-res.total); h+=`<div class="muted" style="font-size:12px;margin-top:8px">${res.pricedCount} priced line${res.pricedCount===1?'':'s'} · ${res.currency}${res.currency!==res.baseCurrency?` (base ${res.baseCurrency}: ${nf(res.totalBase,2)})`:''}${d>=0.005?` · <span style="color:var(--amber)">displayed lines sum differs from the grand total by ${d.toFixed(2)} (rounding, §3.5)</span>`:''}</div>`; return h; }
+
+/* ===== W1: a gap is never zero (what-if over a copy of the price book) ===== */
+(function(){
+  function whatIf(){ const saved=S.rates; const rates=saved.map(r=>Object.assign({},r)).filter(r=>!(r.cls==='DIST_XFMR'&&r.sub==null&&!$('#w1-xf').checked));
+    if($('#w1-rmu').checked) rates.push({id:901,cls:'RMU',sub:null,basis:'each',rate:3500}); if($('#w1-iso').checked) rates.push({id:902,cls:'SWITCH',sub:4,basis:'each',rate:1900});
+    S.rates=rates; try{ return runBoQ({classes:['SWITCH','RMU','DIST_XFMR']}); } finally{ S.rates=saved; } }
+  function paint(){ const res=whatIf(); $('#w1-out').innerHTML=scheduleHTML(res);
+    const gaps=res.unpriced.length; $('#w1-note').innerHTML=`<div class="kv"><span>Grand total</span><b>${nf(res.total,2)} ${res.currency}</b></div><div class="kv"><span>Priced lines</span><b>${res.pricedCount}</b></div><div class="kv"><span>Unpriced buckets</span><b style="color:${gaps?'var(--amber)':'var(--green)'}">${gaps}</b></div><p style="margin:10px 0 0">${gaps?'The total is the sum of what <i>could</i> be priced. The amber box is the work still to do — each entry says exactly why no rate applied.':'Full costing coverage for this scope — an empty Unpriced section.'}</p><p class="muted" style="font-size:12.5px;margin:6px 0 0">Untick the transformer default: the pole-mounted transformers move into Unpriced, while ground-mounted ones still price off their own subtype rate. As ${PERSONA[1].split(' · ')[0]}, you see only what your territory lets you list.</p>`; }
+  $$('#w1 input').forEach(e=>e.onchange=paint); $('#w1-reset').onclick=()=>{ $('#w1-rmu').checked=false; $('#w1-iso').checked=false; $('#w1-xf').checked=true; paint(); };
+  S.on(paint); onPersona(paint);
+})();
+
+/* ===== W2: the BoQ panel ===== */
+(function(){
+  let scope='net', terr='oak', sel='C-001', trace=null, last=null; const classes=new Set();
+  const clsList=Object.keys(CLS).filter(c=>CLS[c].compiled);
+  $('#p-terr').innerHTML=Object.keys(TERR).map(k=>`<option value="${k}">${TERR[k].name}</option>`).join('');
+  $('#p-clsw').innerHTML=`<span class="lab">Classes</span>`+clsList.map(c=>`<label class="tog" title="${CLS[c].name}"><input type="checkbox" data-c="${c}"> <span class="mono" style="font-size:12px">${c}</span></label>`).join('')+`<span class="muted" style="font-size:12px">(none ticked = every class)</span>`;
+  function chrome(){ $('#p-terrw').style.display=scope==='terr'?'':'none'; $('#p-selw').style.display=scope==='sel'?'':'none'; $('#p-trw').style.display=scope==='trace'?'':'none'; $('#p-clsw').style.display=(scope==='net'||scope==='terr')?'':'none';
+    const vis=FEATS.filter(f=>visible(f)); $('#p-vis').textContent=`you can read ${vis.length} of ${FEATS.length} features`;
+    const s=$('#p-sel'); s.innerHTML=vis.map(f=>`<option ${f.id===sel?'selected':''}>${f.id}</option>`).join(''); if(!vis.some(f=>f.id===sel)&&vis.length){ sel=vis[0].id; s.value=sel; }
+    $('#p-trn').textContent=trace?`${trace.length} features reached`:'no trace yet';
+    $('#p-cur').innerHTML=S.currencies.map(c=>`<option value="${c.code}" ${last&&c.code===last.res.currency?'selected':''}>${c.code} — ${c.name}${c.base?' (base)':''}</option>`).join(''); }
+  function req(cur){ const r={classes:[...classes],currency:cur||''}; if(scope==='terr') r.scope={kind:'territory',terr}; else if(scope==='sel') r.refs=[{class:feat(sel).cls,id:sel}]; else if(scope==='trace') r.refs=trace.map(id=>({class:feat(id).cls,id})); if(scope==='sel'||scope==='trace') r.classes=[]; return r; }
+  function price(cur){ const m=$('#p-msg'); m.textContent=''; if(scope==='trace'&&!trace){ m.innerHTML='<span style="color:var(--amber)">Run a trace first — there is no trace result to price.</span>'; return; } if(scope==='sel'&&!sel){ m.innerHTML='<span style="color:var(--amber)">Select a feature first.</span>'; return; }
+    try{ const res=runBoQ(req(cur)); last={res,scope,terr,sel}; $('#p-curw').style.display=''; $('#p-expw').style.display=''; chrome(); $('#p-out').innerHTML=scheduleHTML(res)+(res.skipped.length?`<div class="muted" style="font-size:12px;margin-top:8px">Silently skipped: ${[...new Set(res.skipped.map(s=>s[0]+' ('+s[1]+')'))].map(esc).join('; ')}</div>`:''); }catch(e){ m.innerHTML=`<span style="color:var(--red)">${e.status||''} — ${esc(e.msg||e.message)}</span>`; } }
+  const label=()=>last.scope==='net'?'Whole network':last.scope==='terr'?'Territory: '+TERR[last.terr].name:last.scope==='sel'?'Selection: '+last.sel:'Trace result';
+  $('#p-scope').onchange=e=>{ scope=e.target.value; chrome(); };
+  $('#p-terr').onchange=e=>terr=e.target.value; $('#p-sel').onchange=e=>sel=e.target.value;
+  $('#p-trace').onclick=()=>{ trace=FEATS.filter(f=>f.feeder&&visible(f)).map(f=>f.id); chrome(); };
+  $('#p-clsw').onchange=e=>{ const c=e.target.closest('input'); c.checked?classes.add(c.dataset.c):classes.delete(c.dataset.c); };
+  $('#p-price').onclick=()=>price($('#p-cur').value&&last?$('#p-cur').value:''); $('#p-cur').onchange=()=>price($('#p-cur').value);
+  /* exports */
+  function dlg(title,html){ const old=document.querySelector('.dlg.bq'); if(old) old.remove(); const d=document.createElement('div'); d.className='dlg bq'; d.innerHTML=`<div role="dialog" aria-modal="true" style="max-width:760px;width:100%;max-height:90vh;overflow:auto"><h4>${title}</h4>${html}<div class="a"><button class="btn" data-x>Close</button></div></div>`; document.body.appendChild(d); d.querySelector('[data-x]').onclick=()=>d.remove(); d.addEventListener('click',e=>{ if(e.target===d) d.remove(); }); return d; }
+  const q=v=>{ const s=v==null?'':String(v); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  function csv(res){ const rows=[['Class','Subtype','Material','Basis','Quantity','Unit',`Rate (${res.currency})`,`Total (${res.currency})`,'Status']]; res.lines.forEach(l=>rows.push([l.clsName,l.subName||'',l.matName||l.mat||'',l.basis,l.qty,l.unit,l.rate,l.total,'priced'])); res.unpriced.forEach(u=>rows.push([u.clsName,u.subName||'',u.mat||'',u.basis,u.qty,u.unit,'','','unpriced: '+u.reason])); rows.push(['Grand total','','','','','','',res.total,'']); return rows.map(r=>r.map(q).join(',')).join('\n'); }
+  $('#p-csv').onclick=()=>{ if(!last) return; dlg(`bill-of-quantities-${last.res.currency}.csv`,`<pre class="pre" style="font-size:11.5px;max-height:48vh;overflow:auto;white-space:pre">${esc(csv(last.res))}</pre><p class="muted" style="font-size:12.5px;margin:6px 0 0">Simulated download: in the real panel the browser saves this text as a file. Note: no column marks overridden lines.</p>`); };
+  $('#p-pdf').onclick=()=>{ if(!last) return; const r=last.res; const by={}; r.lines.forEach(l=>(by[l.cls]=by[l.cls]||[]).push(l)); const today=new Date().toISOString().slice(0,10);
+    const body=`<div style="background:#fff;color:#14202a;border:1px solid var(--line);padding:18px 22px;font-size:12px"><div style="border-bottom:2px solid #13795b;padding-bottom:6px;margin-bottom:8px"><div style="font:700 18px var(--f-display)">Bill of Quantities</div><div>${esc(label())} · ${r.currency} · ${today}</div></div><table style="width:100%;border-collapse:collapse"><tr style="background:#e2e8f0"><th style="text-align:left;padding:3px 4px">Item</th><th style="text-align:right">Qty</th><th>Unit</th><th style="text-align:right">Rate</th><th style="text-align:right">Total</th></tr>${Object.keys(by).map(c=>`<tr style="background:#f1f5f9"><td colspan="5" style="padding:3px 4px;font-weight:700">${esc(by[c][0].clsName)}</td></tr>`+by[c].map(l=>`<tr><td style="padding:2px 4px">${esc(itemLabel(l))}${l.over?' *':''}</td><td style="text-align:right">${nf(l.qty,l.unit==='km'?3:0)}</td><td style="text-align:center">${l.unit}</td><td style="text-align:right">${nf(l.rate,2)}</td><td style="text-align:right">${nf(l.total,2)}</td></tr>`).join('')+`<tr><td colspan="4" style="text-align:right;color:#555">subtotal</td><td style="text-align:right;font-weight:600">${nf(by[c].reduce((a,l)=>a+l.total,0),2)}</td></tr>`).join('')}<tr><td colspan="4" style="text-align:right;font-weight:800;border-top:1px solid #000">GRAND TOTAL (${r.currency})</td><td style="text-align:right;font-weight:800;border-top:1px solid #000">${nf(r.total,2)}</td></tr></table>${r.unpriced.length?`<div style="margin-top:10px;font-weight:700;color:#b8720c">Unpriced</div>`+r.unpriced.map(u=>`<div>${esc(u.clsName)}${u.subName?' · '+esc(u.subName):''} — ${nf(u.qty,u.unit==='km'?3:0)} ${u.unit}: <i>${esc(u.reason)}</i></div>`).join(''):''}<div style="margin-top:14px;color:#777;border-top:1px solid #ccc;padding-top:4px">VoltEdge · Bill of Quantities · page 1 of 1</div></div>`;
+    const d=dlg(`bill-of-quantities-${r.currency}.pdf`,body+`<div style="display:flex;gap:8px;margin-top:10px"><button class="btn" data-fake>Print</button><button class="btn" data-fake>Download</button></div><p class="muted" style="font-size:12.5px;margin:6px 0 0">Simulated: the real dialog renders this sheet in the browser; Print and Download send it out, Close dismisses it with neither.</p>`); d.querySelectorAll('[data-fake]').forEach(b=>b.onclick=()=>{ b.textContent=b.textContent+' ✓ (simulated)'; }); };
+  S.on(()=>{ chrome(); }); onPersona(()=>{ trace=null; last=null; $('#p-curw').style.display='none'; $('#p-expw').style.display='none'; $('#p-out').innerHTML='<span class="muted">Choose a scope and press Price.</span>'; chrome(); });
+})();
+
+/* ===== geodesic widget ===== */
+(function(){
+  const sel=$('#g-f'); sel.innerHTML=FEATS.filter(f=>f.line).map(f=>`<option>${f.id}</option>`).join('');
+  function paint(){ const f=feat(sel.value); const lat=+$('#g-lat').value; $('#g-latv').textContent=lat+'°';
+    const pts=f.line, W=440,H=180; const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]); const mx=(xs[0]+xs[1])/2,my=(ys[0]+ys[1])/2;
+    const k=14000; const px=p=>W/2+(p[0]-mx)*k, py=p=>H/2-(p[1]-my)*k; let s=`<rect width="${W}" height="${H}" fill="var(--surface)"/>`;
+    s+=`<line x1="${px(pts[0])}" y1="${py(pts[0])}" x2="${px(pts[1])}" y2="${py(pts[1])}" stroke="var(--blue)" stroke-width="4" stroke-linecap="round"/>`+pts.map(p=>`<circle cx="${px(p)}" cy="${py(p)}" r="5" fill="var(--raise)" stroke="var(--blue)" stroke-width="2"/>`).join('');
+    s+=`<text x="${W/2}" y="${H-10}" text-anchor="middle" font-size="11" style="fill:var(--muted)">(${pts[0][0].toFixed(4)}, ${pts[0][1].toFixed(4)}) → (${pts[1][0].toFixed(4)}, ${pts[1][1].toFixed(4)})</text>`; $('#g-svg').innerHTML=s;
+    const dlon=Math.abs(pts[1][0]-pts[0][0]), dlat=Math.abs(pts[1][1]-pts[0][1]); const naive=Math.hypot(dlon,dlat)*111.32; const geo=f.km;
+    const span=0.01, naiveS=span*111.32, geoS=hav([0,lat],[span,lat])/1000;
+    $('#g-out').innerHTML=`<div class="kv"><span>Geodesic length</span><b>${geo.toFixed(3)} km</b></div><div class="kv"><span>Naive “degrees × 111.32”</span><b>${naive.toFixed(3)} km</b></div><div class="kv"><span>Error of the naive way</span><b>${((naive/geo-1)*100).toFixed(2)}%</b></div><p style="font-size:13px;margin:8px 0 6px">At latitude ${lat}°, a 0.01° east-west span is <b>${geoS.toFixed(3)} km</b> on the ground, not ${naiveS.toFixed(3)} km — <b>${((1-geoS/naiveS)*100).toFixed(1)}% shorter</b>. The engine measures metres on the ground (<code>ST_Length</code> over a geography), so a price never depends on how far from the equator the line is. <span class="muted">(Here: haversine, which agrees with the spheroid to a fraction of a percent.)</span></p>`; }
+  sel.onchange=paint; $('#g-lat').oninput=paint; paint();
+})();
+
+/* ===== the ladder ===== */
+(function(){
+  const sel=$('#l-f'); function fill(){ const cur=sel.value; const vis=FEATS.filter(f=>visible(f)&&CLS[f.cls].compiled); sel.innerHTML=vis.map(f=>`<option ${f.id===cur?'selected':''}>${f.id}</option>`).join(''); }
+  function paint(){ fill(); const f=feat(sel.value); if(!f){ $('#l-ladder').innerHTML=''; return; } const c=CLS[f.cls]; const linear=c.geom==='line'; const basis=linear?'per_km':'each'; const rows=S.rates.filter(r=>r.cls===f.cls);
+    $('#l-info').textContent=`${c.name} · ${f.sub!=null?'subtype '+f.sub+' '+SUBNAME(f.cls,f.sub):'no subtype'}${c.matField?' · material '+(f.mat||'—'):''}${f.km?' · '+f.km.toFixed(3)+' km':''}`;
+    const ov=S.overrides[f.id]; const steps=[]; let won=null;
+    const add=(n,title,ok,detail)=>{ const win=ok&&!won; if(win) won=n; steps.push([n,title,ok,detail,win]); };
+    add(1,'Per-feature override',ov!=null,ov!=null?`yes — <b>${nf(ov,2)}</b> / ${linear?'km':'each'} (base currency)`:'none set on this feature');
+    if(linear){ const cost=f.mat?S.specs[f.mat]:undefined; add(2,'Material cost_per_km',!won&&f.mat&&cost!=null,!f.mat?'the feature records no material':cost==null?`material ${MATNAME[f.mat]||f.mat} has <b>no cost_per_km</b>`:`${MATNAME[f.mat]} → <b>${nf(cost,0)}</b> / km`);
+      const sr=rows.find(r=>r.basis==='per_km'&&r.sub!=null&&r.sub===f.sub); add(3,'Subtype per_km rate',!!sr,sr?`row for subtype ${f.sub}: <b>${nf(sr.rate,0)}</b> / km`:`no per_km row for subtype ${f.sub}`);
+      const dr=rows.find(r=>r.basis==='per_km'&&r.sub==null); add(4,'Class-default per_km rate',!!dr,dr?`<b>${nf(dr.rate,0)}</b> / km`:'no per_km class default'); }
+    else { const sr=rows.find(r=>r.basis==='each'&&r.sub!=null&&r.sub===f.sub); add(2,'Subtype each rate',!!sr,sr?`row for subtype ${f.sub}: <b>${nf(sr.rate,2)}</b> each`:f.sub==null?'this feature has no subtype':`no each row for subtype ${f.sub}`);
+      const dr=rows.find(r=>r.basis==='each'&&r.sub==null); add(3,'Class-default each rate',!!dr,dr?`<b>${nf(dr.rate,2)}</b> each`:'no each class default'); }
+    // evaluate properly: first ok wins, later ones shown dimmed
+    let seen=false; const html=steps.map(s=>{ const hit=s[2]&&!seen; if(hit) seen=true; const dim=seen&&!hit; return `<div style="display:grid;grid-template-columns:30px 1fr;gap:8px;padding:7px 10px;border:1px solid ${hit?'var(--green)':'var(--line)'};border-radius:7px;margin-bottom:5px;background:${hit?'var(--green-tint)':'var(--surface)'};opacity:${dim?.55:1}"><b style="color:${hit?'var(--green)':'var(--muted)'}">${hit?'✔':s[2]?'·':'✕'}</b><div style="font-size:13.5px"><b>${s[0]}. ${s[1]}</b><div class="muted" style="font-size:12.5px">${s[3]}</div></div></div>`; }).join('');
+    const unp=!seen; const unplaced=linear&&!f.line; $('#l-ladder').innerHTML=(unplaced?`<div style="padding:8px 10px;border-radius:7px;border:1px solid var(--amber);background:var(--amber-tint);font-size:13px;margin-bottom:6px"><b>Unplaced span.</b> It has no geometry, so its length is 0: the bucket is dropped <em>before</em> any rate is looked up — it appears in neither the priced lines nor Unpriced.</div>`:'')+html+`<div style="padding:8px 10px;border-radius:7px;border:1px solid ${unp?'var(--amber)':'var(--line)'};background:${unp?'var(--amber-tint)':'transparent'};font-size:13.5px;opacity:${unp?1:.5}">${unp?'<b>Unpriced</b> — '+esc(unpricedReason(f.cls,{mat:f.mat})):'<b>'+(steps.length+1)+'. Unpriced</b> — not reached'}</div>`;
+    $('#l-rows').innerHTML=rows.length?rows.map(r=>{ const ign=r.basis!==basis; return `<div style="padding:6px 8px;border:1px solid ${ign?'var(--red)':'var(--line)'};border-radius:6px;margin-bottom:4px;font-size:12.5px;background:${ign?'var(--red-tint)':'var(--surface)'}"><span class="mono">${r.sub==null?'class default':'subtype '+r.sub}</span> · <b>${nf(r.rate,2)}</b> / <span class="mono">${r.basis}</span>${ign?`<div style="color:var(--red)"><b>ignored</b> — ${linear?'a line class reads only per_km rows':'this class reads only each rows'}</div>`:''}</div>`; }).join(''):'<div class="muted" style="font-size:12.5px">No rows for this class.</div>';
+  }
+  sel.onchange=paint; $('#l-reset').onclick=()=>{ S.reset(); }; S.on(paint); onPersona(paint);
+})();
+
+/* ===== rounding sandbox ===== */
+(function(){
+  const L=[[1,10.004],[1,10.004],[1,10.004]];
+  function paint(){ const per=+$('#r-per').value||1; let totalBase=0; let rows=`<tr><th>Line</th><th>qty (raw)</th><th>qty shown</th><th>base rate</th><th>rate shown</th><th>line total shown</th></tr>`; let sum=0;
+    L.forEach((l,i)=>{ const bt=l[0]*l[1]; totalBase+=bt; const lt=round2(bt*per); sum+=lt; rows+=`<tr><td>#${i+1}</td><td><input type="number" data-i="${i}" data-k="0" value="${l[0]}" step="0.001" style="width:90px"></td><td class="mono">${nf(round3(l[0]),3)}</td><td><input type="number" data-i="${i}" data-k="1" value="${l[1]}" step="0.001" style="width:100px"></td><td class="mono">${nf(round2(l[1]*per),2)}</td><td class="mono">${nf(lt,2)}</td></tr>`; });
+    $('#r-t').innerHTML=rows; const gt=round2(totalBase*per); const d=round2(Math.abs(round2(sum)-gt));
+    $('#r-out').innerHTML=`Σ of displayed line totals = <b>${nf(round2(sum),2)}</b> · grand total (rounded once from ${nf(totalBase,4)} base × ${per}) = <b>${nf(gt,2)}</b> → <b style="color:${d>=0.005?'var(--amber)':'var(--green)'}">${d>=0.005?'differ by '+d.toFixed(2):'agree'}</b>`; }
+  $('#r-t').oninput=e=>{ const el=e.target.closest('input'); if(!el) return; L[+el.dataset.i][+el.dataset.k]=+el.value; paint(); };
+  $('#r-per').oninput=paint; paint();
+})();
+
+const clsOK=()=>Object.keys(CLS).filter(c=>CLS[c].compiled);
+/* ===== W6: currencies ===== */
+(function(){
+  let msg='';
+  function paint(){ const mw=can('mw'); $('#cu-gate').innerHTML=mw?gateTip():lockTip(); $('#cu-lock').style.display=mw?'none':'block'; $('#cu-main').style.display=mw?'':'none'; $('#cu-lock').innerHTML=`<b>🔒 metadata:write required.</b> The cost-catalog screens are admin-only to read as well as write. ${PERSONA[1].split(' · ')[0]} can still <i>use</i> every currency in the BoQ panel (Chapter 2). <b>Switch to Ada or Dana</b> with “As” in the top bar to open this screen.`; if(!mw) return;
+    $('#cu-t').innerHTML=`<tr><th>Code</th><th>Name</th><th>Per base unit</th><th></th><th></th></tr>`+S.currencies.map(c=>`<tr><td class="mono"><b>${c.code}</b></td><td>${esc(c.name)}</td><td><input type="number" data-per="${c.code}" value="${c.per}" step="0.01" min="0" style="width:96px" ${c.base?'disabled title="the base factor is pinned to 1"':''}></td><td>${c.base?pill('base','sec'):''}</td><td><button class="btn warn" data-del="${c.code}">Delete</button></td></tr>`).join('');
+    $('#cu-msg').innerHTML=msg;
+    const res=runBoQ({classes:[]},PERSONA[2]); $('#cu-prev').innerHTML=S.currencies.map(c=>`<div>• ${c.code} — ${esc(c.name)}: <span class="mono">${nf(res.totalBase*c.per,2)}</span></div>`).join('')+`<div class="muted" style="margin-top:4px">whole-network total, as you</div>`;
+    const base=S.currencies.find(c=>c.base); const rl=$('#cu-relabel').checked; $('#cu-rel').innerHTML=rl?`<div style="padding:8px 10px;border:1px solid var(--red);border-radius:7px;background:var(--red-tint)">The stored figures are unchanged: the whole network still totals <b>${nf(res.totalBase,2)}</b>, but it now reads <b>${nf(res.totalBase,2)} GHS</b> — while the rates were really typed in USD, and 1 USD = 12 GHS. Every price is understated twelvefold, and nothing anywhere complains. <b>Pick the base once, deliberately, and keep it.</b></div>`:`<span class="muted">Tick the box to see why §4.1 insists on choosing the base early. (A presentation currency is the right tool for reading in cedis.)</span>`; }
+  $('#cu-t').onclick=e=>{ const b=e.target.closest('button[data-del]'); if(!b) return; const c=S.currencies.find(x=>x.code===b.dataset.del); if(c.base){ msg=`<span style="color:var(--red)">The base currency can’t be deleted — there must always be exactly one.</span>`; } else { S.currencies=S.currencies.filter(x=>x!==c); msg=`<b>${c.code}</b> deleted. Base-denominated prices are untouched; schedules can no longer be shown in ${c.code}.`; } S.emit(); };
+  $('#cu-t').onchange=e=>{ const i=e.target.closest('input[data-per]'); if(!i) return; const v=+i.value; const c=S.currencies.find(x=>x.code===i.dataset.per); if(!(v>0)){ msg=`<span style="color:var(--red)">per_base must be greater than 0.</span>`; i.value=c.per; S.emit(); return; } c.per=v; msg=`${c.code} factor updated to ${v} (static — not a live FX feed).`; S.emit(); };
+  $('#cu-add').onclick=()=>{ const code=$('#cu-code').value.trim().toUpperCase(), name=$('#cu-name').value.trim(), per=+$('#cu-per').value; if(!code||!name){ msg='<span style="color:var(--red)">Code and name are required.</span>'; } else if(S.currencies.some(c=>c.code===code)){ msg=`<span style="color:var(--red)">${code} already exists.</span>`; } else if(!(per>0)){ msg='<span style="color:var(--red)">Per base unit must be greater than 0.</span>'; } else { S.currencies.push({code,name,per,base:false}); msg=`<span style="color:var(--green)">${code} added — it now appears in the BoQ Currency dropdown.</span>`; $('#cu-code').value=''; $('#cu-name').value=''; } S.emit(); };
+  $('#cu-relabel').onchange=paint; $('#cu-reset').onclick=()=>{ msg=''; S.reset(); };
+  S.on(paint); onPersona(paint);
+})();
+
+/* ===== W7: price book ===== */
+(function(){
+  let editing=null, msg=''; const view=$('#pb-view');
+  const ignored=r=>(CLS[r.cls].geom==='line'?'per_km':'each')!==r.basis;
+  $('#pb-cls').innerHTML=clsOK().map(c=>`<option value="${c}">${c} — ${CLS[c].name}</option>`).join('');
+  function subs(){ const c=$('#pb-cls').value; const o=CLS[c].subs; $('#pb-sub').innerHTML=`<option value="">Class default (all subtypes)</option>`+Object.keys(o).map(k=>`<option value="${k}">${k}: ${o[k]}</option>`).join(''); }
+  function warn(){ const c=$('#pb-cls').value, b=$('#pb-basis').value; const need=CLS[c].geom==='line'?'per_km':'each'; $('#pb-warn').innerHTML=b!==need?`<span style="color:var(--red)">⚠ ${c} is a ${CLS[c].geom} class: pricing reads only <b>${need}</b> rows. A ${b} row would be saved but ignored.</span>`:`<span class="muted">basis matches the geometry (${need}).</span>`; }
+  function paint(){ const mw=can('mw'); $('#pb-gate').innerHTML=mw?gateTip():lockTip(); $('#pb-lock').style.display=mw?'none':'block'; $('#pb-main').style.display=mw?'':'none'; $('#pb-lock').innerHTML=`<b>🔒 metadata:write required.</b> The price book is admin-only. ${PERSONA[1].split(' · ')[0]} sees its <i>effect</i> in every schedule, not the book itself. <b>Switch to Ada or Dana</b> with “As” in the top bar to open it.`; if(!mw) return;
+    view.innerHTML=S.currencies.map(c=>`<option value="${c.code}" ${view.value===c.code?'selected':''}>${c.code}</option>`).join(''); const cur=S.currencies.find(c=>c.code===view.value)||S.currencies[0];
+    $('#pb-t').innerHTML=`<tr><th>Class</th><th>Subtype</th><th>Basis</th><th style="text-align:right">Rate (${cur.code})</th><th>Notes</th><th></th></tr>`+S.rates.slice().sort((a,b)=>a.cls<b.cls?-1:a.cls>b.cls?1:(a.sub==null?-1:a.sub)-(b.sub==null?-1:b.sub)).map(r=>`<tr style="${ignored(r)?'background:var(--red-tint)':''}"><td class="mono">${r.cls}</td><td>${r.sub==null?'<i>class default</i>':r.sub+': '+SUBNAME(r.cls,r.sub)}</td><td class="mono">${r.basis}${ignored(r)?' <span class="pill stale" title="wrong basis for this geometry">ignored</span>':''}</td><td class="mono" style="text-align:right">${nf(r.rate*cur.per,2)}</td><td class="muted" style="font-size:12px">${esc(r.notes||'')}</td><td style="white-space:nowrap"><button class="btn" data-e="${r.id}">Edit</button> <button class="btn warn" data-d="${r.id}">Delete</button></td></tr>`).join('')+(S.rates.length?'':'<tr><td colspan="6" class="muted">No rates.</td></tr>');
+    $('#pb-msg').innerHTML=msg; $('#pb-ft').textContent=editing?'Edit rate (class and subtype are fixed once created)':'Add rate'; $('#pb-save').textContent=editing?'Save':'Add rate'; $('#pb-cancel').style.display=editing?'':'none'; $('#pb-cls').disabled=!!editing; $('#pb-sub').disabled=!!editing; warn();
+    const res=runBoQ({classes:[]},PERSONA[2]); $('#pb-live').innerHTML=`<div class="kv"><span>Total</span><b>${nf(res.totalBase,2)} ${res.baseCurrency}</b></div><div class="kv"><span>Priced lines</span><b>${res.pricedCount}</b></div><div class="kv"><span>Unpriced</span><b style="color:${res.unpriced.length?'var(--amber)':'var(--green)'}">${res.unpriced.length}</b></div>`+(res.unpriced.length?res.unpriced.map(u=>`<div style="font-size:12.5px;margin-top:6px;padding:5px 8px;border:1px solid var(--amber);background:var(--amber-tint);border-radius:6px"><b>${esc(u.clsName)}</b>${u.subName?' · '+esc(u.subName):''} — ${nf(u.qty,u.unit==='km'?3:0)} ${u.unit}</div>`).join(''):'<div style="margin-top:8px;color:var(--green);font-size:13px">✔ full costing coverage</div>'); }
+  $('#pb-cls').onchange=()=>{ subs(); warn(); }; $('#pb-basis').onchange=warn;
+  $('#pb-t').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; if(b.dataset.e){ editing=+b.dataset.e; const r=S.rates.find(x=>x.id===editing); $('#pb-cls').value=r.cls; subs(); $('#pb-sub').value=r.sub==null?'':r.sub; $('#pb-basis').value=r.basis; $('#pb-rate').value=r.rate; $('#pb-notes').value=r.notes||''; msg=''; paint(); } else if(b.dataset.d){ const r=S.rates.find(x=>x.id===+b.dataset.d); if(!confirm(`Delete the ${r.cls} ${r.sub==null?'class-default':'subtype '+r.sub} rate?\n\nFeatures it priced will revert to Unpriced until another rate covers them.`)) return; S.rates=S.rates.filter(x=>x!==r); msg=`Deleted. <span class="muted">Features it priced have quietly reverted to Unpriced — watch the live panel.</span>`; S.emit(); } };
+  $('#pb-save').onclick=()=>{ const cls=$('#pb-cls').value, sub=$('#pb-sub').value===''?null:+$('#pb-sub').value, basis=$('#pb-basis').value, rate=+$('#pb-rate').value, notes=$('#pb-notes').value; if(!(rate>=0)||$('#pb-rate').value===''){ msg='<span style="color:var(--red)">Unit rate must be a number ≥ 0.</span>'; paint(); return; }
+    if(editing){ const r=S.rates.find(x=>x.id===editing); const flipped=r.basis!==basis; r.basis=basis; r.rate=rate; r.notes=notes; editing=null; msg=`<span style="color:var(--green)">Saved.${flipped?' The unit basis changed — pricing now reads this row.':''}</span>`; }
+    else { if(S.rates.some(r=>r.cls===cls&&(r.sub==null?-1:r.sub)===(sub==null?-1:sub))){ msg=`<span style="color:var(--red)">Duplicate — one rate per (class, subtype) already exists for ${cls} ${sub==null?'(class default)':'subtype '+sub}, <b>whatever its basis</b>. Edit that row instead.</span>`; paint(); return; } S.rates.push({id:S.rid++,cls,sub,basis,rate,notes}); msg=`<span style="color:var(--green)">Added.${(CLS[cls].geom==='line'?'per_km':'each')!==basis?' <b>But this basis is ignored for this class.</b>':''}</span>`; }
+    S.emit(); };
+  $('#pb-cancel').onclick=()=>{ editing=null; msg=''; paint(); };
+  $('#pb-s1').onclick=()=>{ if(!S.rates.some(r=>r.cls==='RMU'&&r.sub==null)) S.rates.push({id:S.rid++,cls:'RMU',sub:null,basis:'each',rate:3500,notes:'Quote RMU-77'}); msg='RMU class default added at 3,500 each — the three RMUs moved into the priced schedule.'; S.emit(); };
+  $('#pb-s2').onclick=()=>{ S.rates=S.rates.filter(r=>!(r.cls==='SWITCH'&&r.sub===4)); S.rates.push({id:S.rid++,cls:'SWITCH',sub:4,basis:'per_km',rate:1900,notes:'(mistake)'}); msg='<span style="color:var(--amber)">A <code>per_km</code> row now exists for SWITCH isolators — yet isolators are still Unpriced in the live panel, and the row is flagged <b>ignored</b>.</span>'; S.emit(); };
+  $('#pb-s3').onclick=()=>{ const r=S.rates.find(x=>x.cls==='SWITCH'&&x.sub===4); if(!r){ msg='Run scenario ② first.'; paint(); return; } r.basis='each'; msg='<span style="color:var(--green)">Edited the row’s basis to <code>each</code>. Isolators now price.</span>'; S.emit(); };
+  view.onchange=paint; subs(); S.on(paint); onPersona(paint);
+})();
+
+/* ===== W8: per-feature override ===== */
+(function(){
+  const sel=$('#ov-f'); let msg='';
+  function fill(){ const cur=sel.value; const vis=FEATS.filter(f=>visible(f)&&CLS[f.cls].compiled); sel.innerHTML=vis.map(f=>`<option ${f.id===cur?'selected':''}>${f.id}</option>`).join(''); }
+  function setOv(ids,rate){ ids.forEach(i=>{ if(feat(i)&&visible(feat(i))) S.overrides[i]=rate; }); S.emit(); }
+  function paint(){ const mw=can('mw'); $('#ov-gate').innerHTML=mw?gateTip():lockTip(); fill(); const f=feat(sel.value); if(!f) return; const c=CLS[f.cls]; const linear=c.geom==='line'; const ov=S.overrides[f.id];
+    $$('#w8 .w-bar .btn').forEach(b=>b.disabled=!mw);
+    $('#ov-panel').innerHTML=`<div style="border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:var(--surface)"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b class="mono">${f.id}</b><span class="muted">${c.name}${f.sub!=null?' · '+SUBNAME(f.cls,f.sub):''}${c.matField&&f.mat?' · '+(MATNAME[f.mat]||f.mat):''}</span><span style="flex:1"></span>${ov!=null?pill('cost overridden','stale'):''}</div><div class="lab" style="margin-top:10px">Materials › Cost override</div>`+(mw?(ov!=null?`<div style="margin:6px 0">Unit cost: <b>${nf(ov,2)}</b> USD / ${linear?'km':'each'}</div><button class="btn" id="ov-chg">Change</button> <button class="btn warn" id="ov-clr">Clear override</button>`:`<div class="muted" style="font-size:13px;margin:6px 0">No override — this feature prices from the catalog.</div><button class="btn pri" id="ov-set">Set override</button>`):`<div class="muted" style="font-size:13px;margin:6px 0">The override section is hidden entirely without ${'metadata:write'}.</div>`)+`<div id="ov-form" style="margin-top:8px"></div><div style="font-size:13px;min-height:18px;margin-top:6px" aria-live="polite">${msg}</div></div>`;
+    const form=(cur)=>{ $('#ov-form').innerHTML=`<label class="lab" for="ov-v">Unit cost (base currency, per ${linear?'km':'each'})</label><div style="display:flex;gap:6px;margin-top:4px"><input type="number" id="ov-v" min="0" step="0.01" value="${cur!=null?cur:''}" style="width:140px"><button class="btn pri" id="ov-save">Save</button></div>`; $('#ov-save').onclick=()=>{ const v=$('#ov-v').value; if(v===''||+v<0){ msg='<span style="color:var(--red)">Enter a unit cost ≥ 0.</span>'; paint(); return; } S.overrides[f.id]=+v; msg=''; S.emit(); }; };
+    const s=$('#ov-set'); if(s) s.onclick=()=>form(null); const ch=$('#ov-chg'); if(ch) ch.onclick=()=>form(ov); const cl=$('#ov-clr'); if(cl) cl.onclick=()=>{ delete S.overrides[f.id]; msg='Override cleared — back to normal catalog pricing.'; S.emit(); };
+    const res=runBoQ({classes:[f.cls]},PERSONA[2]); const bySub=Object.keys(S.overrides).filter(i=>feat(i)&&feat(i).cls===f.cls&&feat(i).sub===f.sub).length;
+    $('#ov-sched').innerHTML=scheduleHTML(res,{hl:l=>l.over})+(bySub>=3?`<div class="caution" style="margin-top:8px"><b>${bySub} overrides in one subtype.</b> That is a sign the catalog rate is wrong — fix it in the price book (§5.1) so the correction is reusable.</div>`:'')+(f.line===null?`<div class="muted" style="font-size:12.5px;margin-top:6px">${f.id} is unplaced: zero length, so even an override leaves it out of the schedule.</div>`:''); }
+  sel.onchange=()=>{ msg=''; paint(); };
+  $('#ov-a').onclick=()=>setOv(['C-001'],20000); $('#ov-b').onclick=()=>setOv(['X-01','X-02'],3900); $('#ov-c').onclick=()=>setOv(['X-03'],3500); $('#ov-d').onclick=()=>{ setOv(['C-009'],20000); sel.value='C-009'; paint(); }; $('#ov-x').onclick=()=>{ S.overrides={}; S.emit(); };
+  S.on(paint); onPersona(paint);
+})();
+
+/* ===== W9: POST /boq request builder ===== */
+(function(){
+  let mode='classes';
+  function extra(){ const k=$('#a-kind').value; let h='';
+    if(mode==='classes') h+=`<label class="lab" for="a-cls">feature_classes</label><input type="text" id="a-cls" value="MV_CONDUCTOR, DIST_XFMR" style="width:230px">`; else h+=`<span class="muted" style="font-size:12.5px">refs: C-001, C-003, X-01, S-01 (a pretend trace result)</span>`;
+    if(k==='territory') h+=`<label class="lab" for="a-terr">territory</label><select class="fld" id="a-terr" style="width:150px">${Object.keys(TERR).map(t=>`<option value="${t}">${TERR[t].name}</option>`).join('')}</select>`;
+    if(k==='radius') h+=`<label class="lab" for="a-ctr">center [lon, lat]</label><input type="text" id="a-ctr" value="-0.193, 5.604" style="width:150px"><label class="lab" for="a-rad">radius_m</label><input type="number" id="a-rad" value="400" style="width:90px">`;
+    if(k==='bbox') h+=`<label class="lab" for="a-bb">bbox</label><input type="text" id="a-bb" value="-0.205, 5.598, -0.190, 5.607" style="width:250px">`;
+    $('#a-extra').innerHTML=h; $$('#a-extra input,#a-extra select').forEach(e=>e.oninput=build); build(); }
+  function body(){ const k=$('#a-kind').value; const b={}; if(mode==='classes') b.feature_classes=($('#a-cls')?$('#a-cls').value:'').split(/[,\s]+/).filter(Boolean); else b.feature_refs=['C-001','C-003','X-01','S-01'].map(i=>({class:feat(i).cls,id:i}));
+    if(k==='territory') b.scope={kind:k,territory_id:'<'+($('#a-terr').value)+'>'}; else if(k==='radius') b.scope={kind:k,center:$('#a-ctr').value.split(/[,\s]+/).filter(Boolean).map(Number),radius_m:+$('#a-rad').value}; else if(k==='bbox') b.scope={kind:k,bbox:$('#a-bb').value.split(/[,\s]+/).filter(Boolean).map(Number)}; else if(k==='polygon') b.scope={kind:k};
+    if($('#a-cur').value.trim()) b.display_currency=$('#a-cur').value.trim(); return b; }
+  function build(){ $('#a-req').textContent='POST /boq\n'+JSON.stringify(body(),null,2); $('#a-who').textContent=PERSONA[1].split(' · ')[0]; }
+  function send(){ const b=body(); const r={classes:b.feature_classes||[],currency:b.display_currency||''}; if(b.feature_refs) r.refs=b.feature_refs.map(x=>({class:x.class,id:x.id})); if(b.scope){ r.scope={kind:b.scope.kind}; if(b.scope.kind==='territory') r.scope.terr=$('#a-terr').value; if(b.scope.kind==='radius'){ r.scope.center=b.scope.center; r.scope.radius=b.scope.radius_m; } if(b.scope.kind==='bbox') r.scope.bbox=b.scope.bbox; }
+    try{ const res=runBoQ(r); const js={currency:res.currency,base_currency:res.baseCurrency,per_base:res.perBase,total:res.total,total_base:res.totalBase,priced_count:res.pricedCount,lines:`[${res.lines.length} rows]`,unpriced:`[${res.unpriced.length} rows]`}; $('#a-res').innerHTML=`<div style="color:var(--green);font-weight:700">200 OK</div><pre class="pre" style="font-size:11.5px;margin:4px 0">${esc(JSON.stringify(js,null,2))}</pre>`+(res.lines.length?`<div class="muted" style="font-size:12px">${res.lines.slice(0,4).map(l=>esc(l.clsName+' · '+itemLabel(l)+' · '+nf(l.qty,l.unit==='km'?3:0)+' '+l.unit+' → '+nf(l.total,2))).join('<br>')}${res.lines.length>4?'<br>…':''}</div>`:'')+(res.skipped.length?`<div class="muted" style="font-size:12px;margin-top:4px">skipped: ${[...new Set(res.skipped.map(s=>esc(s[0]+' ('+s[1]+')')))].join('; ')}</div>`:''); }catch(e){ $('#a-res').innerHTML=`<div style="color:var(--red);font-weight:700">${e.status||500} Bad Request</div><pre class="pre" style="font-size:11.5px;margin:4px 0">${esc(JSON.stringify({error:e.msg||String(e)},null,2))}</pre>`; } }
+  seg('#a-mode',b=>{ mode=b.dataset.v; extra(); }); $('#a-kind').onchange=extra; $('#a-cur').oninput=build; $('#a-go').onclick=send; onPersona(extra);
+})();
+
+/* ===== W10: Unpriced diagnoser ===== */
+(function(){
+  function paint(){ const mw=can('mw'); $('#dg-gate').innerHTML=mw?gateTip():lockTip(); $$('#w10 .w-bar .btn').forEach(b=>b.disabled=!mw);
+    const res=runBoQ({classes:[]},PERSONA[2]); if(!res.unpriced.length){ $('#dg-out').innerHTML='<div style="color:var(--green);font-weight:700">✔ Nothing unpriced for the whole network as you.</div><div class="muted" style="font-size:13px">Use a “Break” button above, then read the diagnosis.</div>'; return; }
+    $('#dg-out').innerHTML=res.unpriced.map((u,i)=>{ const c=CLS[u.cls]; const linear=c.geom==='line'; const need=linear?'per_km':'each'; const rows=S.rates.filter(r=>r.cls===u.cls); const exact=rows.find(r=>(r.sub==null?-1:r.sub)===(u.sub==null?-1:u.sub)); const def=rows.find(r=>r.sub==null); const wrong=rows.filter(r=>r.basis!==need&&(r.sub==null||r.sub===u.sub)); let diag,fix;
+      if(wrong.length){ const w=wrong[0]; diag=`A <b>${w.sub==null?'class-default':'subtype '+w.sub}</b> row exists but its basis is <code>${w.basis}</code>; ${c.name} reads only <code>${need}</code> rows. It is being <b>ignored</b>.`; fix=`<button class="btn pri" data-f="flip" data-i="${w.id}" ${can('mw')?'':'disabled'}>Edit that row’s basis to ${need}</button>`; }
+      else if(linear&&u.mat&&S.specs[u.mat]==null){ diag=`Material <b>${esc(MATNAME[u.mat]||u.mat)}</b> has no <code>cost_per_km</code>, and there is no <code>per_km</code> price-book row for this class.`; fix=`<input type="number" id="dg-v${i}" value="21000" style="width:100px"> <button class="btn pri" data-f="spec" data-m="${u.mat}" data-v="dg-v${i}" ${can('mw')?'':'disabled'}>Set cost_per_km on the material</button> <button class="btn" data-f="add" data-c="${u.cls}" data-s="" data-b="per_km" data-v="dg-v${i}" ${can('mw')?'':'disabled'}>or add a class per_km fallback</button>`; }
+      else if(linear){ diag=`No material is recorded and no <code>per_km</code> row covers ${u.subName?'subtype '+u.sub:'this class'}.`; fix=`<input type="number" id="dg-v${i}" value="15000" style="width:100px"> <button class="btn pri" data-f="add" data-c="${u.cls}" data-s="" data-b="per_km" data-v="dg-v${i}" ${can('mw')?'':'disabled'}>Add a class-default per_km rate</button>`; }
+      else { diag=`No <code>each</code> row covers ${u.cls}${u.sub!=null?' subtype '+u.sub:''}${def?'':' — and there is no class default'}.`; fix=`<input type="number" id="dg-v${i}" value="3000" style="width:100px"> <button class="btn pri" data-f="add" data-c="${u.cls}" data-s="" data-b="each" data-v="dg-v${i}" ${can('mw')?'':'disabled'}>Add a class-default each rate</button>${u.sub!=null?` <button class="btn" data-f="add" data-c="${u.cls}" data-s="${u.sub}" data-b="each" data-v="dg-v${i}" ${can('mw')?'':'disabled'}>or a subtype ${u.sub} rate</button>`:''}`; }
+      return `<div style="padding:10px 12px;border:1px solid var(--amber);border-radius:8px;background:var(--amber-tint);margin-bottom:8px"><div><b>${esc(u.clsName)}</b>${u.subName?' · '+esc(u.subName):''}${u.mat?' · '+esc(MATNAME[u.mat]||u.mat):''} — <span class="mono">${nf(u.qty,u.unit==='km'?3:0)} ${u.unit}</span></div><div class="muted" style="font-size:12.5px;margin:2px 0">engine says: ${esc(u.reason)}</div><div style="font-size:13.5px;margin:4px 0">${diag}</div><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${fix}</div></div>`; }).join(''); }
+  $('#dg-out').onclick=e=>{ const b=e.target.closest('button[data-f]'); if(!b||b.disabled) return; const f=b.dataset.f; if(f==='flip'){ const r=S.rates.find(x=>x.id===+b.dataset.i); r.basis=CLS[r.cls].geom==='line'?'per_km':'each'; } else if(f==='spec'){ S.specs[b.dataset.m]=+document.getElementById(b.dataset.v).value; } else if(f==='add'){ const sub=b.dataset.s===''?null:+b.dataset.s; if(!S.rates.some(r=>r.cls===b.dataset.c&&(r.sub==null?-1:r.sub)===(sub==null?-1:sub))) S.rates.push({id:S.rid++,cls:b.dataset.c,sub,basis:b.dataset.b,rate:+document.getElementById(b.dataset.v).value,notes:'added via diagnoser'}); } S.emit(); };
+  $('#dg-a').onclick=()=>{ S.rates=S.rates.filter(r=>!(r.cls==='DIST_XFMR'&&r.sub==null)); S.emit(); };
+  $('#dg-b').onclick=()=>{ S.specs['AAAC-70']=null; S.rates=S.rates.filter(r=>r.cls!=='MV_CONDUCTOR'); S.emit(); };
+  $('#dg-c').onclick=()=>{ const r=S.rates.find(x=>x.cls==='SITE'); if(r) r.basis='per_km'; S.emit(); };
+  $('#dg-r').onclick=()=>S.reset(); S.on(paint); onPersona(paint);
+})();
+
+/* ===== quiz ===== */
+(function(){
+  const Q=[
+   ['A conductor span has no geometry. In the schedule it appears…','nowhere — a zero-length bucket is dropped',['as Unpriced','as a zero-priced line','nowhere — a zero-length bucket is dropped','as an error'],'Its length is 0, so the bucket is skipped before any rate is looked up.'],
+   ['Which wins for a linear class: material <code>cost_per_km</code> or a class <code>per_km</code> row?','The material’s <code>cost_per_km</code>',['The class <code>per_km</code> row','The material’s <code>cost_per_km</code>','Whichever is higher','They are summed'],'The ladder is override ▸ material cost ▸ subtype per_km ▸ class default per_km ▸ Unpriced.'],
+   ['Ada adds an <code>each</code> “default” rate for <code>MV_CONDUCTOR</code>. What happens to unpriced spans?','Nothing — a line class reads only per_km rows',['They become priced at that rate','Nothing — a line class reads only per_km rows','The form refuses it','They are priced per metre'],'A wrong-basis row is silently ignored.'],
+   ['The price book already has a wrong-basis class default for a class. You add a correct one. Result?','Blocked as a duplicate — edit the existing row’s basis',['Both exist; the right one is used','Blocked as a duplicate — edit the existing row’s basis','The old one is replaced','The new one is ignored'],'One row per (class, subtype) across both bases.'],
+   ['Two overridden transformers share a rate of 3,900. In the schedule they are…','One flagged line of quantity 2',['Two flagged lines','One flagged line of quantity 2','Unflagged in the main bucket','Dropped'],'Overridden features collapse by (subtype, material, rate).'],
+   ['Two users price “Whole network” and get different totals. Likeliest reason?','Territory access / private drafts hide different features from each',['One of them used a different currency base','Territory access / private drafts hide different features from each','The cache is stale','Rates differ per user'],'Visibility filters follow the person, so you cannot price what you cannot list.'],
+   ['Three lines display 10.00 each but the grand total shows 30.01. Why?','The total is rounded once from the unrounded base; lines round individually',['A bug','The total includes tax','The total is rounded once from the unrounded base; lines round individually','Currency conversion is applied twice'],'Display lines are 2-dp roundings; the grand total comes from the unrounded sum.'],
+   ['A Territory-scope BoQ omits the spare-equipment register that Whole network includes. Why?','A spatial scope can’t locate a class with no geometry',['It is not compiled','A spatial scope can’t locate a class with no geometry','Registers are never priced','Territory scope only counts lines'],'Territory, radius and bbox scopes skip geometry-less classes.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach((el,i)=>{ const x=Q[i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===esc(x[1]); const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Answer: <b>${x[1]}</b>. `)+x[3]; }); });
+})();
+
+/* chapter rail */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a])); const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'}); document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+
+</script>
+</body></html>
