@@ -1,0 +1,329 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:cim="http://iec.ch/TC57/2013/CIM-schema-cim16#" xmlns:md="http://iec.ch/TC57/61970-552/ModelDescription/1#">
+  <md:FullModel rdf:about="urn:uuid:8c050932-1884-5017-9ea9-8e3a895e7b66">
+    <md:Model.created>2026-10-10T06:00:00Z</md:Model.created>
+    <md:Model.description>Oakwood Zone</md:Model.description>
+    <md:Model.modelingAuthoritySet>https://voltedge.local/ModelAuthoritySet</md:Model.modelingAuthoritySet>
+    <md:Model.profile>http://iec.ch/TC57/61968-13/CDPSM/2013#</md:Model.profile>
+  </md:FullModel>
+  <cim:GeographicalRegion rdf:ID="_e61e35f7-3138-5114-ba29-086becbec618">
+    <cim:IdentifiedObject.name>VoltEdge</cim:IdentifiedObject.name>
+    <cim:IdentifiedObject.mRID>e61e35f7-3138-5114-ba29-086becbec618</cim:IdentifiedObject.mRID>
+  </cim:GeographicalRegion>
+  <cim:SubGeographicalRegion rdf:ID="_c6f369f6-260e-5723-bc04-5365252cd3d3">
+    <cim:IdentifiedObject.name>VoltEdge</cim:IdentifiedObject.name>
+    <cim:IdentifiedObject.mRID>c6f369f6-260e-5723-bc04-5365252cd3d3</cim:IdentifiedObject.mRID>
+    <cim:SubGeographicalRegion.Region rdf:resource="#_e61e35f7-3138-5114-ba29-086becbec618"/>
+  </cim:SubGeographicalRegion>
+  <cim:CoordinateSystem rdf:ID="_0382134e-be43-586a-984d-0584f775a4af">
+    <cim:IdentifiedObject.name>urn:ogc:def:crs:EPSG::4326</cim:IdentifiedObject.name>
+    <cim:IdentifiedObject.mRID>0382134e-be43-586a-984d-0584f775a4af</cim:IdentifiedObject.mRID>
+    <cim:CoordinateSystem.crsUrn>urn:ogc:def:crs:EPSG::4326</cim:CoordinateSystem.crsUrn>
+  </cim:CoordinateSystem>
+  <cim:Line rdf:ID="_8c11e9ef-cb53-51b8-9110-817746f020b7">
+    <cim:IdentifiedObject.name>Unassigned equipment</cim:IdentifiedObject.name>
+    <cim:IdentifiedObject.mRID>8c11e9ef-cb53-51b8-9110-817746f020b7</cim:IdentifiedObject.mRID>
+    <cim:Line.Region rdf:resource="#_c6f369f6-260e-5723-bc04-5365252cd3d3"/>
+  </cim:Line>
+  <cim:Substation rdf:ID="_a15e7a22-11b7-56f5-bfe4-190610adf0b0">
+    <cim:IdentifiedObject.name>Oakwood Primary</cim:IdentifiedObject.name>
+    <cim:IdentifiedObject.mRID>a15e7a22-11b7-56f5-bfe4-190610adf0b0</cim:IdentifiedObject.mRID>
+    <cim:Substation.Region rdf:resource="#_c6f369f6-260e-5723-bc04-5365252cd3d3"/>
+    <cim:PowerSystemResource.Location rdf:resource="#_1ae1eb39-d087-5638-a12b-6592c1f2617f"/>
+  </cim:Substation>
+  <cim:Location rdf:ID="_1ae1eb39-d087-5638-a12b-6592c1f2617f">
+    <cim:IdentifiedObject.mRID>1ae1eb39-d087-5638-a12b-6592c1f2617f</cim:IdentifiedObject.mRID>
+    <cim:Location.CoordinateSystem rdf:resource="#_0382134e-be43-586a-984d-0584f775a4af"/>
+  </cim:Location>
+  <cim:PositionPoint rdf:ID="_8d77c862-d85e-58ef-a171-137049690835">
+    <cim:PositionPoint.Location rdf:resource="#_1ae1eb39-d087-5638-a12b-6592c1f2617f"/>
+    <cim:PositionPoint.sequenceNumber>1</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.201</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.5995</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:PositionPoint rdf:ID="_9c8559cf-0def-5f37-acf1-eaea052317f0">
+    <cim:PositionPoint.Location rdf:resource="#_1ae1eb39-d087-5638-a12b-6592c1f2617f"/>
+    <cim:PositionPoint.sequenceNumber>2</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.198</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.5995</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:PositionPoint rdf:ID="_1caceb10-a360-559b-a8a1-53abc01e5371">
+    <cim:PositionPoint.Location rdf:resource="#_1ae1eb39-d087-5638-a12b-6592c1f2617f"/>
+    <cim:PositionPoint.sequenceNumber>3</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.198</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.602</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:PositionPoint rdf:ID="_e0338373-4185-5615-ba9b-07abff051291">
+    <cim:PositionPoint.Location rdf:resource="#_1ae1eb39-d087-5638-a12b-6592c1f2617f"/>
+    <cim:PositionPoint.sequenceNumber>4</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.201</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.602</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:PositionPoint rdf:ID="_826464b2-650c-55a4-b13d-2b4206585617">
+    <cim:PositionPoint.Location rdf:resource="#_1ae1eb39-d087-5638-a12b-6592c1f2617f"/>
+    <cim:PositionPoint.sequenceNumber>5</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.201</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.5995</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:BaseVoltage rdf:ID="_a1a477c4-6c96-5796-9312-afc7ef5b20f4">
+    <cim:IdentifiedObject.name>415 V</cim:IdentifiedObject.name>
+    <cim:IdentifiedObject.mRID>a1a477c4-6c96-5796-9312-afc7ef5b20f4</cim:IdentifiedObject.mRID>
+    <cim:BaseVoltage.nominalVoltage>415</cim:BaseVoltage.nominalVoltage>
+  </cim:BaseVoltage>
+  <cim:BaseVoltage rdf:ID="_6890e289-f3f8-5807-9e5b-f077ac483ef1">
+    <cim:IdentifiedObject.name>11000 V</cim:IdentifiedObject.name>
+    <cim:IdentifiedObject.mRID>6890e289-f3f8-5807-9e5b-f077ac483ef1</cim:IdentifiedObject.mRID>
+    <cim:BaseVoltage.nominalVoltage>11000</cim:BaseVoltage.nominalVoltage>
+  </cim:BaseVoltage>
+  <cim:LoadBreakSwitch rdf:ID="_0663338e-a187-537b-ae65-fdac19774c6c">
+    <cim:IdentifiedObject.name>SW-F7-03</cim:IdentifiedObject.name>
+    <cim:IdentifiedObject.mRID>0663338e-a187-537b-ae65-fdac19774c6c</cim:IdentifiedObject.mRID>
+    <cim:Equipment.EquipmentContainer rdf:resource="#_a15e7a22-11b7-56f5-bfe4-190610adf0b0"/>
+    <cim:PowerSystemResource.Location rdf:resource="#_91058252-e603-534f-91e6-28c1165749ca"/>
+    <cim:Switch.normalOpen>false</cim:Switch.normalOpen>
+  </cim:LoadBreakSwitch>
+  <cim:Location rdf:ID="_91058252-e603-534f-91e6-28c1165749ca">
+    <cim:IdentifiedObject.mRID>91058252-e603-534f-91e6-28c1165749ca</cim:IdentifiedObject.mRID>
+    <cim:Location.CoordinateSystem rdf:resource="#_0382134e-be43-586a-984d-0584f775a4af"/>
+  </cim:Location>
+  <cim:PositionPoint rdf:ID="_3b03f73e-4ae7-509c-8d15-a7106e5e6686">
+    <cim:PositionPoint.Location rdf:resource="#_91058252-e603-534f-91e6-28c1165749ca"/>
+    <cim:PositionPoint.sequenceNumber>1</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.199</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.6006</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:ACLineSegment rdf:ID="_9341c867-aae5-52b9-859e-147a13a6b332">
+    <cim:IdentifiedObject.name>C-F7-01</cim:IdentifiedObject.name>
+    <cim:IdentifiedObject.mRID>9341c867-aae5-52b9-859e-147a13a6b332</cim:IdentifiedObject.mRID>
+    <cim:Equipment.EquipmentContainer rdf:resource="#_a15e7a22-11b7-56f5-bfe4-190610adf0b0"/>
+    <cim:ConductingEquipment.BaseVoltage rdf:resource="#_6890e289-f3f8-5807-9e5b-f077ac483ef1"/>
+    <cim:PowerSystemResource.Location rdf:resource="#_ae2d0879-baa8-515f-bf49-8c037b229bf5"/>
+    <cim:Conductor.length>284.603</cim:Conductor.length>
+  </cim:ACLineSegment>
+  <cim:Location rdf:ID="_ae2d0879-baa8-515f-bf49-8c037b229bf5">
+    <cim:IdentifiedObject.mRID>ae2d0879-baa8-515f-bf49-8c037b229bf5</cim:IdentifiedObject.mRID>
+    <cim:Location.CoordinateSystem rdf:resource="#_0382134e-be43-586a-984d-0584f775a4af"/>
+  </cim:Location>
+  <cim:PositionPoint rdf:ID="_7b0788d9-dad4-5a58-8c80-7f2de0c37650">
+    <cim:PositionPoint.Location rdf:resource="#_ae2d0879-baa8-515f-bf49-8c037b229bf5"/>
+    <cim:PositionPoint.sequenceNumber>1</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.199</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.6006</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:PositionPoint rdf:ID="_81307da1-f34a-5a95-bf83-8b02dc16d137">
+    <cim:PositionPoint.Location rdf:resource="#_ae2d0879-baa8-515f-bf49-8c037b229bf5"/>
+    <cim:PositionPoint.sequenceNumber>2</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.1978</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.6009</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:PositionPoint rdf:ID="_988aee05-55df-54cc-82cc-7b468cb18cf9">
+    <cim:PositionPoint.Location rdf:resource="#_ae2d0879-baa8-515f-bf49-8c037b229bf5"/>
+    <cim:PositionPoint.sequenceNumber>3</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.1965</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.6012</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:ACLineSegmentPhase rdf:ID="_8f3310a5-39f2-55ab-b811-e6ab5f060fcc">
+    <cim:IdentifiedObject.mRID>8f3310a5-39f2-55ab-b811-e6ab5f060fcc</cim:IdentifiedObject.mRID>
+    <cim:ACLineSegmentPhase.phase rdf:resource="http://iec.ch/TC57/2013/CIM-schema-cim16#SinglePhaseKind.A"/>
+    <cim:ACLineSegmentPhase.ACLineSegment rdf:resource="#_9341c867-aae5-52b9-859e-147a13a6b332"/>
+  </cim:ACLineSegmentPhase>
+  <cim:ACLineSegmentPhase rdf:ID="_47c4a6ef-68f0-5f98-91fd-bf86e879b6d6">
+    <cim:IdentifiedObject.mRID>47c4a6ef-68f0-5f98-91fd-bf86e879b6d6</cim:IdentifiedObject.mRID>
+    <cim:ACLineSegmentPhase.phase rdf:resource="http://iec.ch/TC57/2013/CIM-schema-cim16#SinglePhaseKind.B"/>
+    <cim:ACLineSegmentPhase.ACLineSegment rdf:resource="#_9341c867-aae5-52b9-859e-147a13a6b332"/>
+  </cim:ACLineSegmentPhase>
+  <cim:ACLineSegmentPhase rdf:ID="_4d7614ae-5a5c-5ddd-825c-103fc28c9c09">
+    <cim:IdentifiedObject.mRID>4d7614ae-5a5c-5ddd-825c-103fc28c9c09</cim:IdentifiedObject.mRID>
+    <cim:ACLineSegmentPhase.phase rdf:resource="http://iec.ch/TC57/2013/CIM-schema-cim16#SinglePhaseKind.C"/>
+    <cim:ACLineSegmentPhase.ACLineSegment rdf:resource="#_9341c867-aae5-52b9-859e-147a13a6b332"/>
+  </cim:ACLineSegmentPhase>
+  <cim:ACLineSegmentPhase rdf:ID="_5f14fff2-1b50-5d68-9fce-28e96db2fb94">
+    <cim:IdentifiedObject.mRID>5f14fff2-1b50-5d68-9fce-28e96db2fb94</cim:IdentifiedObject.mRID>
+    <cim:ACLineSegmentPhase.phase rdf:resource="http://iec.ch/TC57/2013/CIM-schema-cim16#SinglePhaseKind.N"/>
+    <cim:ACLineSegmentPhase.ACLineSegment rdf:resource="#_9341c867-aae5-52b9-859e-147a13a6b332"/>
+  </cim:ACLineSegmentPhase>
+  <cim:PowerTransformer rdf:ID="_93185a15-0963-58e3-b744-28d63c30d899">
+    <cim:IdentifiedObject.name>TX-Feeder7-014</cim:IdentifiedObject.name>
+    <cim:IdentifiedObject.mRID>93185a15-0963-58e3-b744-28d63c30d899</cim:IdentifiedObject.mRID>
+    <cim:Equipment.EquipmentContainer rdf:resource="#_8c11e9ef-cb53-51b8-9110-817746f020b7"/>
+    <cim:PowerSystemResource.Location rdf:resource="#_3ddaa7fa-3fd1-500e-a143-50d6387447b3"/>
+  </cim:PowerTransformer>
+  <cim:Location rdf:ID="_3ddaa7fa-3fd1-500e-a143-50d6387447b3">
+    <cim:IdentifiedObject.mRID>3ddaa7fa-3fd1-500e-a143-50d6387447b3</cim:IdentifiedObject.mRID>
+    <cim:Location.CoordinateSystem rdf:resource="#_0382134e-be43-586a-984d-0584f775a4af"/>
+  </cim:Location>
+  <cim:PositionPoint rdf:ID="_5955d075-7759-51a9-81ba-6dc58f8078c9">
+    <cim:PositionPoint.Location rdf:resource="#_3ddaa7fa-3fd1-500e-a143-50d6387447b3"/>
+    <cim:PositionPoint.sequenceNumber>1</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.1965</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.6012</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:ACLineSegment rdf:ID="_d35d2d90-dbe6-5181-98d8-16345cf64746">
+    <cim:IdentifiedObject.name>LV-014-01</cim:IdentifiedObject.name>
+    <cim:IdentifiedObject.mRID>d35d2d90-dbe6-5181-98d8-16345cf64746</cim:IdentifiedObject.mRID>
+    <cim:Equipment.EquipmentContainer rdf:resource="#_8c11e9ef-cb53-51b8-9110-817746f020b7"/>
+    <cim:PowerSystemResource.Location rdf:resource="#_ab75d365-3710-5682-bb79-57c98166d176"/>
+    <cim:Conductor.length>62.751</cim:Conductor.length>
+    <cim:ACLineSegment.r>0.02</cim:ACLineSegment.r>
+    <cim:ACLineSegment.x>0.005</cim:ACLineSegment.x>
+  </cim:ACLineSegment>
+  <cim:Location rdf:ID="_ab75d365-3710-5682-bb79-57c98166d176">
+    <cim:IdentifiedObject.mRID>ab75d365-3710-5682-bb79-57c98166d176</cim:IdentifiedObject.mRID>
+    <cim:Location.CoordinateSystem rdf:resource="#_0382134e-be43-586a-984d-0584f775a4af"/>
+  </cim:Location>
+  <cim:PositionPoint rdf:ID="_8ab6d68d-fabd-5e85-abd5-8c4805098a1c">
+    <cim:PositionPoint.Location rdf:resource="#_ab75d365-3710-5682-bb79-57c98166d176"/>
+    <cim:PositionPoint.sequenceNumber>1</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.1965</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.6012</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:PositionPoint rdf:ID="_b413fac4-d127-5784-b7c8-e9e09ce4d082">
+    <cim:PositionPoint.Location rdf:resource="#_ab75d365-3710-5682-bb79-57c98166d176"/>
+    <cim:PositionPoint.sequenceNumber>2</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.1961</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.6016</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:ACLineSegmentPhase rdf:ID="_5b25a939-6eb9-562b-a2ca-81e7e0f49218">
+    <cim:IdentifiedObject.mRID>5b25a939-6eb9-562b-a2ca-81e7e0f49218</cim:IdentifiedObject.mRID>
+    <cim:ACLineSegmentPhase.phase rdf:resource="http://iec.ch/TC57/2013/CIM-schema-cim16#SinglePhaseKind.A"/>
+    <cim:ACLineSegmentPhase.ACLineSegment rdf:resource="#_d35d2d90-dbe6-5181-98d8-16345cf64746"/>
+  </cim:ACLineSegmentPhase>
+  <cim:ACLineSegmentPhase rdf:ID="_aaf64737-e4e1-58bf-ad9d-5cef706fcfd2">
+    <cim:IdentifiedObject.mRID>aaf64737-e4e1-58bf-ad9d-5cef706fcfd2</cim:IdentifiedObject.mRID>
+    <cim:ACLineSegmentPhase.phase rdf:resource="http://iec.ch/TC57/2013/CIM-schema-cim16#SinglePhaseKind.B"/>
+    <cim:ACLineSegmentPhase.ACLineSegment rdf:resource="#_d35d2d90-dbe6-5181-98d8-16345cf64746"/>
+  </cim:ACLineSegmentPhase>
+  <cim:ACLineSegmentPhase rdf:ID="_ca341201-31de-57a8-9900-a933894c1089">
+    <cim:IdentifiedObject.mRID>ca341201-31de-57a8-9900-a933894c1089</cim:IdentifiedObject.mRID>
+    <cim:ACLineSegmentPhase.phase rdf:resource="http://iec.ch/TC57/2013/CIM-schema-cim16#SinglePhaseKind.C"/>
+    <cim:ACLineSegmentPhase.ACLineSegment rdf:resource="#_d35d2d90-dbe6-5181-98d8-16345cf64746"/>
+  </cim:ACLineSegmentPhase>
+  <cim:ACLineSegmentPhase rdf:ID="_191f0d9d-5d6c-52e7-ba0b-77c1b88936a9">
+    <cim:IdentifiedObject.mRID>191f0d9d-5d6c-52e7-ba0b-77c1b88936a9</cim:IdentifiedObject.mRID>
+    <cim:ACLineSegmentPhase.phase rdf:resource="http://iec.ch/TC57/2013/CIM-schema-cim16#SinglePhaseKind.N"/>
+    <cim:ACLineSegmentPhase.ACLineSegment rdf:resource="#_d35d2d90-dbe6-5181-98d8-16345cf64746"/>
+  </cim:ACLineSegmentPhase>
+  <cim:EnergyConsumer rdf:ID="_c7e7ab3a-d814-5614-8258-8c197ff29391">
+    <cim:IdentifiedObject.name>SP-0457</cim:IdentifiedObject.name>
+    <cim:IdentifiedObject.mRID>c7e7ab3a-d814-5614-8258-8c197ff29391</cim:IdentifiedObject.mRID>
+    <cim:Equipment.EquipmentContainer rdf:resource="#_8c11e9ef-cb53-51b8-9110-817746f020b7"/>
+    <cim:PowerSystemResource.Location rdf:resource="#_12aa17c1-c167-547e-a114-31d24dfa96c3"/>
+  </cim:EnergyConsumer>
+  <cim:Location rdf:ID="_12aa17c1-c167-547e-a114-31d24dfa96c3">
+    <cim:IdentifiedObject.mRID>12aa17c1-c167-547e-a114-31d24dfa96c3</cim:IdentifiedObject.mRID>
+    <cim:Location.CoordinateSystem rdf:resource="#_0382134e-be43-586a-984d-0584f775a4af"/>
+  </cim:Location>
+  <cim:PositionPoint rdf:ID="_a79364a4-1531-5204-b216-59ec0180da99">
+    <cim:PositionPoint.Location rdf:resource="#_12aa17c1-c167-547e-a114-31d24dfa96c3"/>
+    <cim:PositionPoint.sequenceNumber>1</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.1961</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.6016</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:UsagePoint rdf:ID="_234144a6-ae38-5002-8dff-fa06b73c4d6a">
+    <cim:IdentifiedObject.name>M-0457</cim:IdentifiedObject.name>
+    <cim:IdentifiedObject.mRID>234144a6-ae38-5002-8dff-fa06b73c4d6a</cim:IdentifiedObject.mRID>
+    <cim:PowerSystemResource.Location rdf:resource="#_e0ac9d32-36e8-5128-b124-6b904f69d660"/>
+  </cim:UsagePoint>
+  <cim:Location rdf:ID="_e0ac9d32-36e8-5128-b124-6b904f69d660">
+    <cim:IdentifiedObject.mRID>e0ac9d32-36e8-5128-b124-6b904f69d660</cim:IdentifiedObject.mRID>
+    <cim:Location.CoordinateSystem rdf:resource="#_0382134e-be43-586a-984d-0584f775a4af"/>
+  </cim:Location>
+  <cim:PositionPoint rdf:ID="_9a3813da-a5da-5fa5-a220-59f2fc6bbd42">
+    <cim:PositionPoint.Location rdf:resource="#_e0ac9d32-36e8-5128-b124-6b904f69d660"/>
+    <cim:PositionPoint.sequenceNumber>1</cim:PositionPoint.sequenceNumber>
+    <cim:PositionPoint.xPosition>-0.1961</cim:PositionPoint.xPosition>
+    <cim:PositionPoint.yPosition>5.6016</cim:PositionPoint.yPosition>
+  </cim:PositionPoint>
+  <cim:ConnectivityNode rdf:ID="_dd9b94ac-9a46-589f-8455-d98cba48c075">
+    <cim:IdentifiedObject.mRID>dd9b94ac-9a46-589f-8455-d98cba48c075</cim:IdentifiedObject.mRID>
+    <cim:ConnectivityNode.ConnectivityNodeContainer rdf:resource="#_a15e7a22-11b7-56f5-bfe4-190610adf0b0"/>
+  </cim:ConnectivityNode>
+  <cim:Terminal rdf:ID="_dac4795c-1ab9-5e35-8581-5846fc3979ec">
+    <cim:IdentifiedObject.mRID>dac4795c-1ab9-5e35-8581-5846fc3979ec</cim:IdentifiedObject.mRID>
+    <cim:Terminal.ConductingEquipment rdf:resource="#_9341c867-aae5-52b9-859e-147a13a6b332"/>
+    <cim:Terminal.ConnectivityNode rdf:resource="#_dd9b94ac-9a46-589f-8455-d98cba48c075"/>
+    <cim:Terminal.sequenceNumber>1</cim:Terminal.sequenceNumber>
+  </cim:Terminal>
+  <cim:Terminal rdf:ID="_59755608-ec0b-55aa-b6fb-f7dcf5297548">
+    <cim:IdentifiedObject.mRID>59755608-ec0b-55aa-b6fb-f7dcf5297548</cim:IdentifiedObject.mRID>
+    <cim:Terminal.ConductingEquipment rdf:resource="#_0663338e-a187-537b-ae65-fdac19774c6c"/>
+    <cim:Terminal.ConnectivityNode rdf:resource="#_dd9b94ac-9a46-589f-8455-d98cba48c075"/>
+    <cim:Terminal.sequenceNumber>2</cim:Terminal.sequenceNumber>
+  </cim:Terminal>
+  <cim:ConnectivityNode rdf:ID="_67fbca05-8a2c-51f9-9ad3-cb1539a073f5">
+    <cim:IdentifiedObject.mRID>67fbca05-8a2c-51f9-9ad3-cb1539a073f5</cim:IdentifiedObject.mRID>
+    <cim:ConnectivityNode.ConnectivityNodeContainer rdf:resource="#_8c11e9ef-cb53-51b8-9110-817746f020b7"/>
+  </cim:ConnectivityNode>
+  <cim:Terminal rdf:ID="_3cdb9414-acfc-5e00-b6fb-b9cb756f9bfa">
+    <cim:IdentifiedObject.mRID>3cdb9414-acfc-5e00-b6fb-b9cb756f9bfa</cim:IdentifiedObject.mRID>
+    <cim:Terminal.ConductingEquipment rdf:resource="#_d35d2d90-dbe6-5181-98d8-16345cf64746"/>
+    <cim:Terminal.ConnectivityNode rdf:resource="#_67fbca05-8a2c-51f9-9ad3-cb1539a073f5"/>
+    <cim:Terminal.sequenceNumber>1</cim:Terminal.sequenceNumber>
+  </cim:Terminal>
+  <cim:Terminal rdf:ID="_d6245f27-98f3-5f2c-9cee-3da1028d98f3">
+    <cim:IdentifiedObject.mRID>d6245f27-98f3-5f2c-9cee-3da1028d98f3</cim:IdentifiedObject.mRID>
+    <cim:Terminal.ConductingEquipment rdf:resource="#_93185a15-0963-58e3-b744-28d63c30d899"/>
+    <cim:Terminal.ConnectivityNode rdf:resource="#_67fbca05-8a2c-51f9-9ad3-cb1539a073f5"/>
+    <cim:Terminal.sequenceNumber>2</cim:Terminal.sequenceNumber>
+  </cim:Terminal>
+  <cim:PowerTransformerEnd rdf:ID="_2c7b3b77-c025-5028-86f1-6eebfca5f814">
+    <cim:IdentifiedObject.mRID>2c7b3b77-c025-5028-86f1-6eebfca5f814</cim:IdentifiedObject.mRID>
+    <cim:PowerTransformerEnd.PowerTransformer rdf:resource="#_93185a15-0963-58e3-b744-28d63c30d899"/>
+    <cim:TransformerEnd.endNumber>2</cim:TransformerEnd.endNumber>
+    <cim:TransformerEnd.Terminal rdf:resource="#_d6245f27-98f3-5f2c-9cee-3da1028d98f3"/>
+    <cim:PowerTransformerEnd.ratedS>315000</cim:PowerTransformerEnd.ratedS>
+    <cim:PowerTransformerEnd.ratedU>415</cim:PowerTransformerEnd.ratedU>
+    <cim:TransformerEnd.BaseVoltage rdf:resource="#_a1a477c4-6c96-5796-9312-afc7ef5b20f4"/>
+  </cim:PowerTransformerEnd>
+  <cim:ConnectivityNode rdf:ID="_ae159ac1-a13e-5128-8fb7-3afaec477d00">
+    <cim:IdentifiedObject.mRID>ae159ac1-a13e-5128-8fb7-3afaec477d00</cim:IdentifiedObject.mRID>
+    <cim:ConnectivityNode.ConnectivityNodeContainer rdf:resource="#_a15e7a22-11b7-56f5-bfe4-190610adf0b0"/>
+  </cim:ConnectivityNode>
+  <cim:Terminal rdf:ID="_07239a84-3278-5cf6-a550-932dd90b677c">
+    <cim:IdentifiedObject.mRID>07239a84-3278-5cf6-a550-932dd90b677c</cim:IdentifiedObject.mRID>
+    <cim:Terminal.ConductingEquipment rdf:resource="#_0663338e-a187-537b-ae65-fdac19774c6c"/>
+    <cim:Terminal.ConnectivityNode rdf:resource="#_ae159ac1-a13e-5128-8fb7-3afaec477d00"/>
+    <cim:Terminal.sequenceNumber>1</cim:Terminal.sequenceNumber>
+  </cim:Terminal>
+  <cim:ConnectivityNode rdf:ID="_45a2ecbf-ff58-572e-9983-1002455369e2">
+    <cim:IdentifiedObject.mRID>45a2ecbf-ff58-572e-9983-1002455369e2</cim:IdentifiedObject.mRID>
+    <cim:ConnectivityNode.ConnectivityNodeContainer rdf:resource="#_a15e7a22-11b7-56f5-bfe4-190610adf0b0"/>
+  </cim:ConnectivityNode>
+  <cim:Terminal rdf:ID="_735779b1-5cb0-5c90-9f9d-fcf1df3e5f45">
+    <cim:IdentifiedObject.mRID>735779b1-5cb0-5c90-9f9d-fcf1df3e5f45</cim:IdentifiedObject.mRID>
+    <cim:Terminal.ConductingEquipment rdf:resource="#_9341c867-aae5-52b9-859e-147a13a6b332"/>
+    <cim:Terminal.ConnectivityNode rdf:resource="#_45a2ecbf-ff58-572e-9983-1002455369e2"/>
+    <cim:Terminal.sequenceNumber>2</cim:Terminal.sequenceNumber>
+  </cim:Terminal>
+  <cim:Terminal rdf:ID="_341b525b-a44b-5bf2-bf40-20b37a888c95">
+    <cim:IdentifiedObject.mRID>341b525b-a44b-5bf2-bf40-20b37a888c95</cim:IdentifiedObject.mRID>
+    <cim:Terminal.ConductingEquipment rdf:resource="#_93185a15-0963-58e3-b744-28d63c30d899"/>
+    <cim:Terminal.ConnectivityNode rdf:resource="#_45a2ecbf-ff58-572e-9983-1002455369e2"/>
+    <cim:Terminal.sequenceNumber>1</cim:Terminal.sequenceNumber>
+  </cim:Terminal>
+  <cim:PowerTransformerEnd rdf:ID="_bfd7c027-a32c-5888-839c-af04a6f32d79">
+    <cim:IdentifiedObject.mRID>bfd7c027-a32c-5888-839c-af04a6f32d79</cim:IdentifiedObject.mRID>
+    <cim:PowerTransformerEnd.PowerTransformer rdf:resource="#_93185a15-0963-58e3-b744-28d63c30d899"/>
+    <cim:TransformerEnd.endNumber>1</cim:TransformerEnd.endNumber>
+    <cim:TransformerEnd.Terminal rdf:resource="#_341b525b-a44b-5bf2-bf40-20b37a888c95"/>
+    <cim:PowerTransformerEnd.ratedS>315000</cim:PowerTransformerEnd.ratedS>
+    <cim:PowerTransformerEnd.ratedU>11000</cim:PowerTransformerEnd.ratedU>
+    <cim:TransformerEnd.BaseVoltage rdf:resource="#_6890e289-f3f8-5807-9e5b-f077ac483ef1"/>
+  </cim:PowerTransformerEnd>
+  <cim:ConnectivityNode rdf:ID="_79d6306e-65fa-54a3-86a9-fb96cc997a35">
+    <cim:IdentifiedObject.mRID>79d6306e-65fa-54a3-86a9-fb96cc997a35</cim:IdentifiedObject.mRID>
+    <cim:ConnectivityNode.ConnectivityNodeContainer rdf:resource="#_8c11e9ef-cb53-51b8-9110-817746f020b7"/>
+  </cim:ConnectivityNode>
+  <cim:Terminal rdf:ID="_d5022325-9aad-578e-b09a-f4dda91fc9e4">
+    <cim:IdentifiedObject.mRID>d5022325-9aad-578e-b09a-f4dda91fc9e4</cim:IdentifiedObject.mRID>
+    <cim:Terminal.ConductingEquipment rdf:resource="#_d35d2d90-dbe6-5181-98d8-16345cf64746"/>
+    <cim:Terminal.ConnectivityNode rdf:resource="#_79d6306e-65fa-54a3-86a9-fb96cc997a35"/>
+    <cim:Terminal.sequenceNumber>2</cim:Terminal.sequenceNumber>
+  </cim:Terminal>
+  <cim:Terminal rdf:ID="_04353a97-0aba-521e-8eca-277ed969a714">
+    <cim:IdentifiedObject.mRID>04353a97-0aba-521e-8eca-277ed969a714</cim:IdentifiedObject.mRID>
+    <cim:Terminal.ConductingEquipment rdf:resource="#_c7e7ab3a-d814-5614-8258-8c197ff29391"/>
+    <cim:Terminal.ConnectivityNode rdf:resource="#_79d6306e-65fa-54a3-86a9-fb96cc997a35"/>
+    <cim:Terminal.sequenceNumber>1</cim:Terminal.sequenceNumber>
+  </cim:Terminal>
+</rdf:RDF>

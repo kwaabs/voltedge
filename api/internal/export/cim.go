@@ -21,6 +21,7 @@ import (
 	"io"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/metadata"
@@ -675,6 +676,13 @@ func literalAttributes(f Feature, attrs []metadata.CimAttributeMapping) [][2]str
 			continue
 		}
 		if a.Transform == "material_spec" || a.Transform == "from_geometry" || a.Transform == "phase" {
+			continue
+		}
+		// A winding attribute (PowerTransformerEnd.ratedS, TransformerEnd.*) belongs to
+		// the PowerTransformerEnd objects writeTransformerEnd emits -- not as a literal
+		// on the PowerTransformer element, where CIM does not allow it (a property is
+		// serialized under its declaring class).
+		if strings.HasPrefix(a.CimAttribute, "PowerTransformerEnd.") || strings.HasPrefix(a.CimAttribute, "TransformerEnd.") {
 			continue
 		}
 		raw, ok := f.Attributes[a.FieldName]

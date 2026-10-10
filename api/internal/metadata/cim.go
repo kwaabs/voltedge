@@ -201,3 +201,33 @@ func LoadCIMMapping(ctx context.Context, db bun.IDB, profileCode string) (*CIMMa
 
 	return mapping, nil
 }
+
+// NewCIMMapping assembles a CIMMapping from already-resolved rows, indexed
+// exactly as LoadCIMMapping indexes them. It lets callers that don't have a
+// database -- unit tests of the CIM encoder, documentation sample generators --
+// build a mapping from literals. A class row with a nil SubtypeCode is the class
+// default; one with a SubtypeCode is the subtype override.
+func NewCIMMapping(profile *CimProfile, classes []CimClassMapping, attrs []CimAttributeMapping) *CIMMapping {
+	m := &CIMMapping{
+		Profile:        profile,
+		classDefault:   map[string]CimClassMapping{},
+		classBySubtype: map[string]map[int]CimClassMapping{},
+		attrsByClass:   map[string][]CimAttributeMapping{},
+	}
+	for _, cm := range classes {
+		if cm.SubtypeCode == nil {
+			m.classDefault[cm.FeatureClassCode] = cm
+			continue
+		}
+		bySub := m.classBySubtype[cm.FeatureClassCode]
+		if bySub == nil {
+			bySub = map[int]CimClassMapping{}
+			m.classBySubtype[cm.FeatureClassCode] = bySub
+		}
+		bySub[*cm.SubtypeCode] = cm
+	}
+	for _, am := range attrs {
+		m.attrsByClass[am.FeatureClassCode] = append(m.attrsByClass[am.FeatureClassCode], am)
+	}
+	return m
+}
