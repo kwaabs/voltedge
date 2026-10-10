@@ -182,6 +182,29 @@ crews, many concurrent at shift change):
    build** instead of each triggering their own. Pair it with the review/usage tools
    to see who's holding each build and who's synced.
 
+### 4.2a Worked sizing example (do the arithmetic before shift start)
+
+Build capacity is simple division, so you can predict the shift-start queue before it
+happens. Let *N* = packs requested in the surge, *t* = seconds one build takes (read it
+from the `elapsed_ms` the worker logs — the 40 s below is only an example), *c* =
+`FIELDSYNC_WORKER_CONCURRENCY`, and *r* = number of `cmd/fieldsync` replicas.
+
+```
+   queue drains in  ≈  N × t / (c × r)
+   120 crews × 40 s / (2 × 1)  =  2 400 s  ≈ 40 min   ← the last crew waits 40 minutes
+   120 crews × 40 s / (4 × 3)  =    400 s  ≈  7 min   ← 3 replicas, concurrency 4
+```
+
+Two things cap how far you can push this. **CPU:** tippecanoe is CPU-bound, so
+`c × r` beyond your total core count only makes each build slower. **Database
+connections:** every in-flight build and apply holds a connection, so `c × r` must fit
+inside the PgBouncer pool. And the cheapest lever of all is to **reduce *N***: if 60 of
+those 120 crews cover one depot, a pre-built shared cell (§6) turns 60 builds into 1.
+
+Pack size has its own multiplier: each extra zoom level in `FIELDPACK_MAX_ZOOM` costs
+roughly 4× the build time and pack size, which is why the guide tells you not to
+raise it casually.
+
 ### 4.3 Reading the signals
 
 - Every successful build logs its duration (`elapsed_ms`) and counts. Watch these
@@ -260,6 +283,58 @@ proposed change **against the current live value**, then:
 > off and the system is last-write-wins (the crew's edit silently overwrites) — fine
 > for capture-oriented fields, risky for contended ones.
 
+### 5.4 How held edits queue — one device, one lane
+
+Edits from one device always apply **in the order the device captured them**. The
+worker enforces this with a per-device single-flight rule: it will not hand out an edit
+while an **earlier** edit from the **same device** is still *active*. Active means:
+`received` (waiting), `applying` (a worker holds a live lease), **`pending_review`**
+(waiting for a post) or **`conflict`** (waiting for a resolution).
+
+The consequence catches administrators out: **a held edit blocks every later edit from
+that device — even edits to classes that are set to `auto`.** If a crew's first edit is
+on a `review` class and nobody posts it, their next ten edits (on any class) sit
+`received` behind it, and nothing from that tablet reaches the office. The same is true
+of an unresolved conflict. This is deliberate — it stops a later edit overtaking an
+earlier one and being regressed when the earlier one is finally posted or force-applied.
+
+| Edit status | Meaning | Blocks the device's later edits? |
+|-------------|---------|-----------------------------------|
+| `received` | Captured, waiting for a worker | Yes (it is earlier and not yet applied) |
+| `applying` | A worker holds it; the lease is live | Yes — until the lease lapses (then it is reclaimable) |
+| `pending_review` | Held by a `review` policy; awaits Post/Reject | **Yes** |
+| `conflict` | Held because the office changed the feature; awaits Apply anyway/Keep | **Yes** |
+| `applied` | Done | No |
+| `rejected` | A reviewer (or an apply failure) refused it; the crew sees it in *needs attention* | No — one rejected edit never stalls the device |
+| `superseded` | A newer edit to the same feature stepped in front of it | No |
+
+So the practical rule for a supervisor is: **clear a crew's oldest held edit first** —
+the queue shows oldest first for exactly this reason — and treat "a crew says none of
+their edits arrived" as "find their oldest held edit".
+
+### 5.5 What a conflict check actually compares
+
+Conflict detection is more specific than "the office changed it". When it is turned on
+for a class, the worker checks each **update** or **delete** edit just before applying
+it:
+
+- It compares the feature's **current live version** against the **snapshot of the pack
+  the crew made the edit against** (`base_version`, stamped on every edit by the
+  device). If the live row was modified *after* that snapshot, the edit is held as a
+  `conflict`, with a message naming both times.
+- **Creates are never checked** — a create mints a new row, so there is nothing to
+  conflict with.
+- **An edit that carries no `base_version` is not checked** (older edits made before the
+  stamp existed).
+- If the crew edited the same feature several times offline, only the **newest** edit
+  surfaces as the conflict; the older ones are marked `superseded` and step aside
+  silently, so you resolve one conflict per feature, not one per keystroke.
+- **Apply anyway** re-queues the edit with the check waived (the human has decided);
+  **Keep** discards it and tells the crew why.
+- If the check itself errors (a database hiccup), the worker logs it and **applies the
+  edit anyway** — conflict detection fails open, so do not treat it as a hard guarantee
+  on a contended class.
+
 ---
 
 ## 6. Pre-building shared packs
@@ -337,6 +412,26 @@ faults, tags). A crew that doesn't fully cover a cell never sees it in their lis
 can't pull it — there's no reduced fallback. If a crew has mixed permissions, define a
 leaner cell rather than weakening the rule.
 
+**The gate, check by check.** Pickup runs these in order and reports the *first*
+missing entitlement (so the device can say why a cell is unavailable):
+
+1. `connectivity:read`, if the base includes connectivity
+2. `relationships:read`, if it includes relationships
+3. `faults:read`, if it includes faults
+4. `tags:read`, if it includes tags
+5. **Territory** — checked **only when territory enforcement is switched on *and* the
+   crew member is scoped**. If enforcement is off, or they are *unscoped*
+   (`territories:unscoped`), the territory test is skipped. Otherwise the cell's
+   territory must be inside the crew member's accessible set (which already includes
+   sub-territories), and a cell with **no** territory is refused to every scoped crew
+   (fail closed).
+
+What the crew sees: the browse list shows only **active** cells they cover. A cell that
+has **never produced a succeeded build** still lists, marked *not yet available*, so the
+crew knows it is coming; a direct pickup attempt on a cell they do not cover is refused
+`403`. The device may send a `device_id` with each pickup so one person's two tablets are
+told apart in the usage view.
+
 ### 6.2 Defining a cell
 
 A **cell** is a definition (create with `POST /field-packs/cells`). Its settings:
@@ -360,6 +455,32 @@ let the schedule do it. Crews always pick up the **newest succeeded** version.
 > board — those ride the per-user overlay instead. You don't configure that; it's how
 > a cell build differs from a personal pack.
 
+**A cell, as JSON.** Required: `name`, a four-number `bbox` (`[minX, minY, maxX, maxY]`,
+longitude/latitude order) and at least one entry in `feature_classes`. Everything else
+is optional (`active` defaults to true; `retention` defaults to `manual`):
+
+```json
+POST /field-packs/cells
+{
+  "name": "Oakwood depot",
+  "territory_id": "7b0c…",                 // omit only for a public baseline
+  "bbox": [-0.2410, 5.5520, -0.1880, 5.6010],
+  "feature_classes": ["MV_CONDUCTOR", "DIST_XFMR", "RMU", "SWITCH"],
+  "include_connectivity": true,
+  "include_relationships": false,
+  "include_faults": true,
+  "include_tags": false,
+  "schedule": "daily",                       // hourly | daily | weekly | omit
+  "retention": "keep_n"                       // manual | pinned | keep_n
+}
+```
+
+The reply (`201`) echoes the cell with its `id`. `GET /field-packs/cells` lists every
+cell with its **latest version** (pack id, status, feature count, data and tile bytes,
+snapshot time) — that is where you read how big a build came out. A bad body returns
+`400` with the first problem named (for example *"bbox must be [minX, minY, maxX, maxY]
+(4 numbers)"*).
+
 ### 6.3 Covering a big area — the grid helper
 
 Defining a cell per sub-area of a large territory by hand is tedious. The **grid
@@ -372,6 +493,22 @@ creates them **atomically** (all or none).
 > **Size each sub-cell under the feature cap.** A sub-cell whose base would exceed
 > `FIELDSYNC_MAX_FEATURES` fails its build loudly — that's your signal to regrid
 > finer (smaller `cell_size_deg` / more rows+cols).
+
+**Worked grid example.** Outer bbox `[-0.30, 5.50, -0.10, 5.70]` is 0.20° × 0.20°.
+
+```
+cell_size_deg 0.05  →  cols = ceil(0.20/0.05) = 4,  rows = ceil(0.20/0.05) = 4  →  16 cells
+cell_size_deg 0.01  →  20 × 20 = 400 cells   (allowed)
+cell_size_deg 0.005 →  40 × 40 = 1 600 cells (refused: "grid would be 1600 cells (max 500)")
+```
+
+Cells are named `<name_prefix> r<row>c<col>`, with **row 1 at the bottom** (minimum Y)
+and column 1 at the left. The grid is split into equal slices, and the last row and
+column are snapped to the outer edge so floating-point drift never leaves a sliver
+uncovered. If a territory is supplied it is applied to **every** sub-cell; each
+sub-cell's base then carries only that territory's features inside its own box. Because
+`derived rows/cols = ceil(size ÷ cell_size_deg)`, a cell size that does not divide the
+box evenly still covers it fully (the cells are just slightly smaller than asked).
 
 ### 6.4 Scheduling overnight rebuilds
 
@@ -389,6 +526,25 @@ To keep the heavy builds off peak hours, confine them to a **build window**:
 
 A maintenance loop inside `cmd/fieldsync` does this on a timer; it's self-skipping (a
 cell with a build already in flight isn't re-enqueued), so it's safe across replicas.
+
+**Exactly when does a scheduled rebuild fire?** The maintenance loop ticks every
+`FIELDSYNC_MAINTENANCE_INTERVAL` (and once at start-up). On a tick it considers each
+**active, scheduled** cell and enqueues a build only if **both** hold: no build is
+already `queued` or `running` for it (so a slow build never stacks duplicates), **and**
+its newest **succeeded** version is older than the cadence (or it has never built). Notes:
+
+- The window is **hours `[start, end)` in UTC**: `0-5` allows ticks at 00:xx–04:xx, not
+  05:xx. `22-5` wraps midnight. A malformed value is ignored and treated as *no window*
+  (any hour) — check the log if your builds are not respecting it.
+- Because the loop only wakes every interval, a cell can be up to one interval late;
+  with a 15-minute interval and an `hourly` cadence that is normal.
+- A scheduled build is **attributed to the cell's creator** (the admin who defined it),
+  which is who you will see as the requester on those packs.
+- **Retention runs on every tick, in or out of the window** — only *scheduling* is
+  window-bound.
+- Cadence compares against the last **succeeded** build. A cell whose builds keep
+  failing is therefore *due* on every tick: fix the cause (usually the feature cap)
+  rather than waiting.
 
 ### 6.5 Retention — keeping storage in check
 
@@ -409,6 +565,17 @@ crew's current download. The per-cell policy:
 The maintenance loop runs retention each tick; you can also apply a cell's policy
 on demand with `POST /field-packs/cells/{id}/reap` (it reports how many were reaped).
 
+**Precisely what "held" means.** A version is *held* while it is some crew member's
+**latest pickup** of that cell. When a crew member re-pulls a newer version they stop
+holding the old one; a crew member still on an old version keeps it alive however old it
+is (they may be weeks into a job against it). Retention therefore reaps a version only if
+it is **both** outside the newest *N* **and** held by nobody — the newest *N* are kept
+even with no holders yet, so a just-built version is never reaped before its first
+pickup. Reaping deletes both stored files and the pack row; the ledger rows for that
+version cascade away with it, which is correct because a reaped version has no holder
+left to account for. `manual` and `pinned` cells are never auto-reaped, and the on-demand
+reap endpoint does nothing for them either.
+
 ### 6.6 Who's holding what — the usage dashboard
 
 Because a shared base lives for weeks and crews sync on their own cadence (e.g. every
@@ -427,6 +594,13 @@ with the version it was made against). It returns:
   work).
 
 This is the supervisor's "who's holding / who's synced / who's gone quiet" view.
+
+> **How "quiet" is worked out.** Each synced edit carries the snapshot time of the pack it
+> was made against. The report matches a crew member's edits to the **exact version they
+> currently hold**. So a crew member who just re-pulled a newer version shows as *quiet*
+> until they sync something made against **that** version — even if they synced plenty
+> against the previous one. Read "quiet" as *nothing synced against the version they hold
+> yet*, then look at the pickup date to judge whether that is a problem.
 
 ### 6.7 Staging a pack for a crew — build-on-behalf
 
@@ -463,6 +637,11 @@ crew's existing entitlements.
 | **A crew can't see a shared pack you made** | Pickup is gated on *their* access. Check the crew's **territory** covers the cell's territory **and** they hold the `*:read` for every extra the base carries (connectivity/relationships/faults/tags). A crew that doesn't fully cover a cell never sees it (§6.1). |
 | **A shared cell has no build to pick up** | It's never been built (or every build failed). Trigger `POST /field-packs/cells/{id}/build`, or set a **schedule**; check the build didn't fail on the feature cap (regrid finer). |
 | **Old cell versions aren't being cleaned up** | Retention only reaps `keep_n` cells, and never a version a crew still holds. Set the policy to `keep_n`, and check the usage view for lingering holders (§6.6). |
+| **A crew says none of their edits are arriving, but their classes are all `auto`** | Head-of-line blocking (§5.4): an **earlier** edit from that device is held (`pending_review` or `conflict`). Filter the queue to that user, clear the **oldest** held edit, and the rest flow. |
+| **A conflict keeps coming back for the same feature** | Check whether the office is still editing it (live row newer than the crew's snapshot each time). After **Apply anyway**, the crew should rebuild/re-pull so their next edit is made against a fresh snapshot. |
+| **Conflicts are not being detected on a class** | Detection is a per-class setting and only checks update/delete edits that carry a snapshot stamp (§5.5). It also fails open if the check errors — don't rely on it as a hard lock. |
+| **A cell is listed on the device as "not yet available"** | It is active and covered, but has no succeeded version yet. Build it (`…/build`) or wait for the schedule; see why a build failed on the cell's latest version. |
+| **A crew shows as "quiet" right after re-pulling** | "Quiet" is per exact version (§6.6). They have not yet synced anything made against the version they just picked up. |
 | **A scheduled cell isn't rebuilding** | Its `schedule` must be `hourly`/`daily`/`weekly`, it must be **active**, and if `FIELDSYNC_BUILD_WINDOW` is set the rebuild only fires within that UTC window. |
 
 ---

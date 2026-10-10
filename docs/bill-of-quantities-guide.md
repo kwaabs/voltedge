@@ -67,6 +67,42 @@ Each priced line reads **Item · Qty · Unit · Rate · Total**:
 
 The footer line reports the priced-line count and names the currency; when you are viewing a non-base currency it also shows the base. The **Unpriced** block, if present, lists each gap with its quantity, unit and a plain-language reason — the administrator's to-do list for closing the costing coverage.
 
+### 2.2 What a scope actually counts
+
+The scope you pick is only one of several filters applied to every class. The engine
+counts a feature only when **all** of these hold; a feature that fails one is simply not
+in the schedule — it is **not** reported as Unpriced:
+
+- It is **not soft-deleted**.
+- It is **readable by you**. 🗺️ Territory read-enforcement and the private-drafts rule
+  apply: a never-published feature authored by someone else is invisible to you. This is
+  why two people can both price "the whole network" and get different totals.
+- For a **linear** class, it is **placed**. A conductor with no geometry has a length of
+  zero; a zero-quantity bucket is dropped, so it appears neither priced nor Unpriced.
+- Its class is **compiled**. A class with no physical table yet is skipped silently, as is
+  an unknown class code.
+- For a **spatial** scope (territory, radius, bbox), its class has **geometry**. Classes
+  with no geometry cannot be located, so a Territory BoQ omits them while **Whole network**
+  includes them — a Territory total can therefore be lower than the same area's share of
+  the Whole-network total for a reason that has nothing to do with rates.
+
+When an explicit list of features is supplied (a trace result or the map selection) it
+takes precedence over the class list and *defines* which classes are priced; the other
+filters above still apply to those features.
+
+### 2.3 The two exports, precisely
+
+- **CSV** has the header `Class, Subtype, Material, Basis, Quantity, Unit, Rate (CUR),
+  Total (CUR), Status`. One row per priced line (`Status` = `priced`), then one per
+  unpriced item (`Status` = `unpriced: <reason>`, rate and total blank, the material shown
+  by its *code* rather than its name), then a final `Grand total` row. Values containing
+  commas, quotes or newlines are quoted. **There is no column that marks an overridden
+  line** — a line priced off a per-feature override reads simply `priced`; only the
+  on-screen schedule flags it with a badge.
+- **PDF** is an A4 sheet with a title block (scope, currency, date), the grouped table with
+  class subtotals and the grand total, the Unpriced section, and a page footer, with the
+  column header re-drawn on every page of a long table.
+
 ---
 
 ## Chapter 3 — The cost model (∑ how a price is resolved)
@@ -80,7 +116,7 @@ Every feature class is priced one of two ways, decided by its geometry:
 A class drawn as a **line** (a conductor, a cable) is priced by **length**. The length is computed from the geometry as a true geodesic distance — `ST_Length` over the geometry transformed to a geography — so it is metres-on-the-ground, not degrees, summed and divided into kilometres. The **rate** for that length is resolved in this order:
 
 1. **The feature's material**, via its material coded field. If the feature records a material whose **material spec** (`/admin/materials`) carries a `cost_per_km`, that is the rate. This is the preferred path — it means two spans of the same class but different conductor price differently, correctly.
-2. **A class-level `per_km` rate** from the catalog price book, as a fallback when the material carries no per-km cost.
+2. **A `per_km` rate** from the catalog price book, as a fallback when the material carries no per-km cost. The lookup is subtype-aware exactly like the discrete one (§3.2): a `per_km` row for the span's **subtype** wins, otherwise the class-default `per_km` row — so Overhead and Underground spans can have different fallback prices.
 
 If neither resolves, the length is **unpriced**.
 
@@ -102,6 +138,56 @@ Sometimes a single real asset cost something the book doesn't capture — a one-
 ### 3.4 Precedence, in one line
 
 > **per-feature override** ▸ else **material `cost_per_km`** (linear) / **subtype rate** (discrete) ▸ else **class default** (`per_km` fallback / default `each` rate) ▸ else **Unpriced**.
+
+### 3.5 A rate can sit in the book and be ignored
+
+The unit basis of a rate must match the class's geometry: a **line** class reads **only
+`per_km`** rows; **every other** class (point, polygon, or no geometry) reads **only
+`each`** rows. A row of the wrong basis is not an error and not a warning — the engine
+skips it as though it did not exist, and the feature lands in **Unpriced** with a reason
+that says no rate is set.
+
+This is an easy mistake because the Add-rate form defaults to `each`, so adding a
+"default" rate to a conductor class without changing the basis quietly does nothing. It
+is also awkward to repair: the price book allows **one row per (class, subtype) across
+both bases** (the unique index is on class + subtype only), so you cannot fix it by adding
+a second, correct row — the form blocks that as a duplicate. **Edit the existing row's
+unit basis** instead (the form allows changing it).
+
+The exact reasons the Unpriced block gives, and the usual fix for each:
+
+| Reason shown | Fix |
+| --- | --- |
+| *no 'each' rate is set for this class/subtype* | Add an `each` rate (class default or that subtype) — or check an existing row for the class isn't `per_km`. |
+| *no material is selected and no per_km rate is set for this class* | Set the feature's material, or add a `per_km` rate (class default or that subtype) — or check an existing row isn't `each`. |
+| *the selected material has no cost_per_km, and no per_km rate is set for this class* | Set `cost_per_km` on the material spec, or add a `per_km` fallback. |
+
+### 3.6 Material grouping applies to every class
+
+A schedule line is a (subtype, material) bucket. For a class with a material-backed coded
+field — the first active field whose domain contains at least one material-backed value
+(one per class) — the roll-up splits by that material **even for a discrete class**, where
+the material has no effect on the rate (discrete classes are priced by subtype only). Such
+a class can show several lines at the same unit rate. A class with no material field shows
+*(all)* or just the subtype.
+
+### 3.7 How the numbers are rounded
+
+- **Quantities** are rounded to three decimals for display (a length in km to the nearest
+  metre).
+- Every line is totalled from the **unrounded** quantity × the base-currency rate, and the
+  engine accumulates the base-currency figure (`total_base`).
+- Each displayed **rate** and **line total** is converted (× the currency's per-base factor)
+  and rounded to **two decimals individually**; the **grand total** is converted and rounded
+  **once**, from the unrounded base total.
+- So displayed lines can sum to a cent or two away from the grand total. The grand total is
+  the more accurate figure; the panel footer flags the difference.
+- Lines are ordered by **class code** (not display name), then subtype, then material.
+
+**Worked example.** Three pole-mounted transformers at 4,200 each ⇒ 3 × 4,200 = 12,600; a
+0.358 km span of ACSR 100 mm² at 18,500/km ⇒ 0.358 × 18,500 = 6,623. The length is the
+measured geodesic length of the geometry, not a figure typed by hand — which is also why a
+span's cost never depends on how far from the equator it runs.
 
 ---
 
@@ -150,6 +236,8 @@ The uniqueness rule is **one rate per (class, subtype)** — including one class
 
 💡 **Where to put conductor costs.** For conductors you price by material, don't add a class `per_km` rate — set `cost_per_km` on the **material spec** (`/admin/materials`) instead, so each cable prices correctly. Use a class `per_km` rate only for linear classes you *don't* vary by material.
 
+⚠️ **Match the unit basis to the geometry** (§3.5): a line class is priced only from `per_km` rows, every other class only from `each` rows. The form will happily save a mismatched row; it simply never prices anything. Edit the row's basis to repair it.
+
 ### 5.2 How currency conversion interacts with rates
 
 Every rate you type is in the **base** currency. The estimator's currency dropdown never changes a stored rate — it reconverts the whole already-computed schedule for display. So a rate is entered once, in base, and read in any currency. This is why §4.1 insists the base currency be chosen deliberately: it is the unit of the entire price book.
@@ -173,6 +261,15 @@ When one real asset cost something the book can't express, Dana sets a **per-fea
 **∑ What it does.** The override is stored against that one feature (`metadata.feature_cost_overrides`), in the base currency. At pricing time the feature is excluded from its class's normal roll-up and priced at the override instead — so it contributes its own line, is flagged as overridden, and is **never** unpriced. No other feature in the class is affected.
 
 💡 Use overrides sparingly and for genuine exceptions. If you find yourself overriding every feature of a subtype, that's a signal the *catalog* rate is wrong — fix the rate in the price book (§5.1) so the correction is reusable, rather than repeating it feature by feature.
+**More precisely.** One override per feature (setting it again changes it); the cost must
+be zero or more. After excluding overridden features from the catalog roll-up, the engine
+prices them individually and **collapses them by (subtype, material, rate)**: two features at
+the same hand-set rate share one flagged line, different rates make separate lines. A linear
+override is the rate × *that feature's own length*, so an unplaced conductor (zero length) is
+left out even when overridden. The override ignores the unit-basis rule of §3.5 — it prices
+whatever the feature's natural unit is — and the usual visibility filters (territory, drafts,
+soft-delete) still apply. The on-screen schedule marks these lines *overridden*; the CSV does
+not (§2.3).
 
 ---
 
@@ -183,6 +280,32 @@ A few things worth knowing at the edges:
 - **Pricing from an agent.** The BoQ engine is exposed as the **`run_bill_of_quantities`** MCP tool (gated `features:read`), so an AI assistant can price a scope and read back the same grouped schedule the panel shows. The catalog-administration side (currencies, rates, overrides) is **not** in MCP — it stays a deliberate admin-screen action.
 - **Scopes the panel doesn't surface yet.** The engine also supports **radius** and **bounding-box** spatial scopes. They are reachable through the API but not wired into the panel, because they need a map draw/point gesture that isn't built. The four scopes in Chapter 2 are what the UI offers today.
 - **What's planned, not built.** Server-side CSV/XLSX export and a per-assembly Bill of Materials are the next slice; today's exports are the client-side PDF and CSV in Chapter 2.
+
+### 7.1 The request, field by field
+
+The REST route is one read-only `POST /boq`:
+
+```json
+{
+  "feature_classes": ["MV_CONDUCTOR", "DIST_XFMR"],
+  "scope": { "kind": "radius", "center": [-0.193, 5.604], "radius_m": 400 },
+  "display_currency": "GHS"
+}
+```
+
+- `feature_refs` (`[{"class": "...", "id": "..."}]`) take **precedence** over
+  `feature_classes` and define the classes priced — this is how a trace result or map
+  selection hands over its exact features. `scope` and the visibility filters still apply.
+- `scope.kind` is `none`, `territory` (with `territory_id`), `radius` (`center` as
+  `[lon, lat]` and `radius_m` in metres) or `bbox` (`[min_lon, min_lat, max_lon, max_lat]`,
+  a coarse envelope intersection rather than exact containment). An empty kind means none.
+- `display_currency` is a currency code, matched case-insensitively; empty means the base.
+- **Errors (`400`):** `unknown display currency "XXX"`, `unknown scope kind "xxx"`, and
+  `a bbox scope needs [min_lon, min_lat, max_lon, max_lat]`.
+- The response carries `currency`, `base_currency`, `per_base`, `lines[]` (each with
+  `quantity`, `unit`, `unit_rate`, `line_total` already converted and rounded, and
+  `overridden: true` on a hand-priced line), `unpriced[]` (with the exact `reason`),
+  `total` (shown currency), `total_base`, `priced_count` and the full `currencies[]` list.
 
 ---
 
@@ -195,11 +318,11 @@ A few things worth knowing at the edges:
 | You want to price… | Set it at… |
 | --- | --- |
 | A conductor by its cable type | `cost_per_km` on the **material spec** — `/admin/materials` |
-| A linear class not varied by material | A `per_km` rate — **Cost catalog → price book** |
+| A linear class not varied by material (or a backstop) | A `per_km` rate — **Cost catalog → price book** (class default, or per subtype) |
 | A discrete asset (default for the class) | An `each` class-default rate — **Cost catalog → price book** |
 | A discrete asset of one rating only | An `each` rate for that **subtype** — price book |
 | One specific real asset, one-off | A **per-feature override** — feature's **Materials** tab |
 
-**Why is something Unpriced?** No rate resolved through the precedence chain (§3.4): the conductor's material has no `cost_per_km` and the class has no `per_km` fallback, or the discrete asset's class has neither a matching-subtype rate nor a class default. Add the missing rate (or an override) and re-price.
+**Why is something Unpriced?** No rate resolved through the precedence chain (§3.4) — or a rate exists but has the wrong unit basis for the class geometry (§3.5): the conductor's material has no `cost_per_km` and the class has no `per_km` fallback, or the discrete asset's class has neither a matching-subtype rate nor a class default. Add the missing rate (or an override) and re-price.
 
 **Grounded in the code.** Engine: [api/internal/boq](api/internal/boq/) and [api/internal/crud/boq.go](api/internal/crud/boq.go). Catalog metadata & migrations: `migrations/0127_create_cost_rates_and_currencies.sql`, `migrations/0128_create_feature_cost_overrides.sql`. UI: [web/src/components/map/boq-panel.tsx](web/src/components/map/boq-panel.tsx), [web/src/routes/admin-cost-catalog.tsx](web/src/routes/admin-cost-catalog.tsx), the per-feature override in [web/src/components/map/feature-panel.tsx](web/src/components/map/feature-panel.tsx), and the PDF writer [web/src/lib/boq-print.ts](web/src/lib/boq-print.ts).
