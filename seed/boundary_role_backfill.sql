@@ -39,7 +39,7 @@ UPDATE metadata.feature_classes SET boundary_role = 'protective'
 -- sectioning boundary (it grounds for safety, it doesn't section the network).
 UPDATE metadata.feature_classes SET boundary_role = 'switching'
  WHERE code IN (
-    'MV_SWITCH', 'MV_ISOLATOR',
+    'MV_SWITCH', 'MV_ISOLATOR', 'MV_SECTIONALIZER',
     'LV_SWITCH', 'LV_LINK_BOX'
  );
 

@@ -96,11 +96,11 @@ The classes:
 
 **Where each sits in the hierarchy (∑).** Three orthogonal taxonomies tag these classes; they drive the trace and sectioning behaviour in §3:
 
-- **`trace_tier`** (the grid layer, for the cross-layer walk guard — `seed/trace_tiers.sql`): `GENERATOR` is **0**; `POWER_XFMR` **200**; the MV layer is **300** — `MV_BUSBAR`, `MV_SWITCHGEAR_PANEL`, `MV_CONDUCTOR`, `MV_SWITCH`, `MV_ISOLATOR`, `MV_RECLOSER`, `MV_BREAKER`, `MV_FUSE`, `MV_EARTH_SWITCH`, `MV_LV_SWITCH`, `MV_CT`, `MV_VT`, `MV_METER`, `MV_METERING_POINT`; `DIST_XFMR` and `AUX_TRANSFORMER` **400**; the LV layer is **500** — `LV_BUSBAR`, `LV_PILLAR`, `LV_CONDUCTOR`, `LV_FUSE`, `LV_SWITCH`, `SERVICE_CUTOUT`; `SERVICE_POINT` and `METER` **600**. `MV_SECTIONALIZER`, legacy `DIST_SWITCH`, the `RMU` container, relays and poles are **untiered** (transparent to the guard).
-- **`functional_role`** (`seed/functional_role_backfill.sql`): every state-bearing switch is a **`controller`** — "the only role whose state can stop a trace" (`LV_SWITCH`, `MV_SWITCH`, `MV_ISOLATOR`, `MV_RECLOSER`, `MV_BREAKER`, `MV_FUSE`, `MV_EARTH_SWITCH`, `SERVICE_CUTOUT`). `MV_SECTIONALIZER` is **not** listed — a known gap. Transformers are `transformer`, busbars `node`, conductors `passthrough`, loads `consumer`, and `MV_CT`, `MV_VT`, `PROTECTIVE_RELAY` are `sensor`.
-- **`boundary_role`** (what bounds a section — `seed/boundary_role_backfill.sql`): `protective` = `MV_BREAKER`, `MV_RECLOSER`, `MV_FUSE`, `SERVICE_CUTOUT`, `LV_FUSE`; `switching` = `MV_SWITCH`, `MV_ISOLATOR`, `LV_SWITCH`, `LV_LINK_BOX`; `transformer` = `DIST_XFMR`, `POWER_XFMR`; `source` = `GENERATOR`. (`MV_EARTH_SWITCH` is deliberately **not** a boundary; neither is `MV_SECTIONALIZER`, although the migration's comment lists "sectionaliser" under `switching`.)
+- **`trace_tier`** (the grid layer, for the cross-layer walk guard — `seed/trace_tiers.sql`): `GENERATOR` is **0**; `POWER_XFMR` **200**; the MV layer is **300** — `MV_BUSBAR`, `MV_SWITCHGEAR_PANEL`, `MV_CONDUCTOR`, `MV_SWITCH`, `MV_ISOLATOR`, `MV_RECLOSER`, `MV_BREAKER`, `MV_FUSE`, `MV_SECTIONALIZER`, `MV_EARTH_SWITCH`, `MV_LV_SWITCH`, `MV_CT`, `MV_VT`, `MV_METER`, `MV_METERING_POINT`; `DIST_XFMR` and `AUX_TRANSFORMER` **400**; the LV layer is **500** — `LV_BUSBAR`, `LV_PILLAR`, `LV_CONDUCTOR`, `LV_FUSE`, `LV_SWITCH`, `SERVICE_CUTOUT`; `SERVICE_POINT` and `METER` **600**. Legacy `DIST_SWITCH`, the `RMU` container, relays and poles are **untiered** (transparent to the guard).
+- **`functional_role`** (`seed/functional_role_backfill.sql`): every state-bearing switch is a **`controller`** — "the only role whose state can stop a trace" (`LV_SWITCH`, `MV_SWITCH`, `MV_ISOLATOR`, `MV_RECLOSER`, `MV_BREAKER`, `MV_FUSE`, `MV_SECTIONALIZER`, `MV_EARTH_SWITCH`, `SERVICE_CUTOUT`). Transformers are `transformer`, busbars `node`, conductors `passthrough`, loads `consumer`, and `MV_CT`, `MV_VT`, `PROTECTIVE_RELAY` are `sensor`.
+- **`boundary_role`** (what bounds a section — `seed/boundary_role_backfill.sql`): `protective` = `MV_BREAKER`, `MV_RECLOSER`, `MV_FUSE`, `SERVICE_CUTOUT`, `LV_FUSE`; `switching` = `MV_SWITCH`, `MV_ISOLATOR`, `MV_SECTIONALIZER`, `LV_SWITCH`, `LV_LINK_BOX`; `transformer` = `DIST_XFMR`, `POWER_XFMR`; `source` = `GENERATOR`. (`MV_EARTH_SWITCH` is deliberately **not** a boundary — it grounds for safety, it doesn't section.)
 
-> **Why the gap matters.** A sectionalizer *is* a trace barrier when its `device_state` is `OPEN` (every class with a `device_state` field gets the barrier — `seed/trace_barrier_resync.sql`), but it never *bounds* a section, an isolation boundary or a protection zone, and it is invisible to the layer guard. Model one and your "switching section" runs straight through it.
+> **The sectionalizer is a full switching boundary.** It is a trace barrier when its `device_state` is `OPEN` (every class with a `device_state` field gets the barrier — `seed/trace_barrier_resync.sql`), **and** — as of the taxonomy backfill above — it is tier 300, a `controller`, and a `switching` boundary, so a *switching-section* walk and the *isolate* boundary walk stop at it like any other switch. It is *not* a `protective` boundary: it interrupts no fault current, so it never bounds a *protection zone*. (Earlier editions noted it as an un-classified gap; the taxonomy backfill now closes it — re-apply those seeds and recompile for it to take effect.)
 
 ### 1.1 Field reference — what each switching class carries
 
@@ -144,7 +144,7 @@ Sources: `seed/mv_lv_switch_example.sql:183-215`, `seed/mv_switching_example.sql
 | Type a relay curve (`IEC_VI`) into a recloser's `slow_curve_ref` | the recloser drops out of grading — *"no total_clear points for curve IEC_VI"* | an ampere-quantity curve code (§6.3) |
 | Wire switch → switch directly | the connection is refused (no network rule) | add a conductor between them |
 | Leave `operational_state` `PLANNED` on a device that is in the field | the lifecycle axis says "not built"; `PLANNED → ISOLATED` is an illegal jump | `PLANNED → IN_SERVICE` first |
-| Model a sectionalizer and expect it to bound a section | it does not (no `boundary_role`) | know the gap (§1); use a switch or isolator beside it if you need a boundary |
+| Model a sectionalizer and expect it to bound a *protection zone* | it does not — it's a `switching` boundary, not `protective` (it clears no fault) | it *does* bound a switching section and an isolation boundary (§1); use a breaker/recloser/fuse if you need a protection-zone edge |
 | Draw the relay on the map | `PROTECTIVE_RELAY` has no geometry (`geometry_type = 'none'`) | place it on the substation single-line diagram |
 
 > **How to — place a switch on the map** 🔒 `features:write` + `connectivity:commit`
@@ -255,7 +255,7 @@ Three rules shape how a trace moves through switchgear:
 
 - **Transformer crossing.** A `transformer`-role feature (`DIST_XFMR`, `POWER_XFMR`) is a **downstream boundary** for the **interactive map trace only**: it stops at the transformer unless the result table's *Continue past transformers* toggle is ticked (`trace/graph.go:658-668`). Every other consumer — energisation, isolate, feeder, service and section traces — passes **through** transformers into the LV side, because stopping there "would wrongly strand a transformer's whole LV network as de-energised". So an isolate on FSW-12 lists TX-220 *and* its LV loads.
 - **Junction pass-through.** Any `network_role = 'junction'` feature is expanded *undirected* on directional traces, and everything discovered from it is "unlocked" and expands undirected too (`trace/graph.go:806`). That includes busbars and RMU internal buses — **and every switching device, transformer and service point**, because they are all `junction` in the seeds (only conductors are `edge`). In a plain radial feeder this changes nothing (the way back is already visited). It matters at a bus whose ways are all authored "switch → bus", and at a closed tie — where the walk crosses into the other feeder and, until the layer guard stops it, back up toward that feeder's source. Starting a downstream trace *at* a bus-attached breaker therefore also reaches the sibling feeders on the same bus.
-- **Cross-layer guard** (`trace_tier`). A downstream step may not jump to a strictly-lower tier, nor an upstream step to a strictly-higher one (`trace/graph.go:861-866`) — this stops the undirected junction expansion from leaking back toward the source (the step from an 11 kV conductor to the `POWER_XFMR` at tier 200 is refused). Untiered classes (e.g. `MV_SECTIONALIZER`) always pass. Blocked neighbours are *not* marked visited, so a legitimate deeper edge can still reach them.
+- **Cross-layer guard** (`trace_tier`). A downstream step may not jump to a strictly-lower tier, nor an upstream step to a strictly-higher one (`trace/graph.go:861-866`) — this stops the undirected junction expansion from leaking back toward the source (the step from an 11 kV conductor to the `POWER_XFMR` at tier 200 is refused). Untiered classes (e.g. legacy `DIST_SWITCH`) always pass. Blocked neighbours are *not* marked visited, so a legitimate deeper edge can still reach them.
 
 ### 3.4 "What if I open this?" — the isolate trace
 
@@ -607,7 +607,7 @@ A sectionalizer (`SEC-4`, `count_to_lockout = 3`) has no fault-interrupting abil
 | upstream of SEC-4 (persistent) | 4 trips, SEC-4 sees no through-current and counts nothing | **REC-7 locks out `OPEN`** |
 | transient | 1 trip | nothing changes |
 
-In the model: after the beyond-SEC-4 case record `SEC-4.device_state = OPEN`. The sectionalizer is `untiered` and has no `boundary_role`, so the section tools do not stop at it (§1).
+In the model: after the beyond-SEC-4 case record `SEC-4.device_state = OPEN`. The sectionalizer is tier 300 with `boundary_role = switching`, so the section and isolate tools stop at it like any switch (§1); it still has no TCC, so coordination does not time-grade it.
 
 ### 7.9 Fuse-saving vs. fuse-blowing
 
@@ -700,7 +700,7 @@ The two parts meet in one cause-and-effect chain:
 | "The Live view shows what is unsupplied" | It shows what is downstream of an open device, including the far side of every normally-open tie. |
 | "The upstream boundary of an isolate is always an upstream device" | Not guaranteed; the walk starts undirected and returns the first hit of an unordered set (§3.4). |
 | "A recloser counts its shots" | No. `reclose_attempts`, `reclose_interval_s` and `reset_time_s` are stored, never simulated; lockout is whatever you set `device_state` to. |
-| "A sectionalizer counts and bounds" | No: it has `count_to_lockout` but no counting engine, no `boundary_role`, no `functional_role`, no tier. |
+| "A sectionalizer counts automatically" | No: it has `count_to_lockout` but **no counting engine** — you record the outcome in `device_state`. It *does* carry `boundary_role = switching`, `functional_role = controller` and tier 300, so it bounds sections and isolation like any switch. |
 | "Coordination checks the recloser's fast curve" | No — slow curve only, at one current. |
 | "The fuse is chosen/sized for me" | No. `fuse_rating_a` and `fuse_speed` are labels; only `curve_ref` matters, and only one example fuse curve ships. |
 | "CT ratio / saturation / burden is modelled" | No. `ct_ratio` and `vt_ratio` are recorded; pickup is in primary amps. |
@@ -731,7 +731,7 @@ The two parts meet in one cause-and-effect chain:
 | Isolate returns an odd "upstream boundary" | start is a junction, boundary is the first of an unordered hit set | §3.4 |
 | Live view greys a feeder that is energised | it is downstream of a normally-open tie | §3.2 |
 | After closing the tie the region stays grey | cones do not subtract back-feed | §3.6 |
-| A sectionalizer doesn't stop the section | no `boundary_role` | §1 |
+| A sectionalizer doesn't stop the section | the taxonomy seeds weren't re-applied after the fix | re-run `trace_tiers` / `boundary_role_backfill` / `functional_role_backfill` + recompile (§1) |
 | Tie creation fails | no geometry; same feeder twice; no network rule between the classes | §4 |
 | RMU creation fails for an editor | missing `relationships:commit` | §4 |
 | `PLANNED → ISOLATED` refused | not a legal edge; commission to `IN_SERVICE` first | §2 |
@@ -848,7 +848,7 @@ task seed-protection-network      # a gradeable chain: SUB-SOURCE → BRK-1 (+RL
 - **Bus coupler** = `MV_BREAKER` + `switch_function = BUS_COUPLER`. **Feeder tie / NOP** = `MV_SWITCH` + `normal_state = NORMALLY_OPEN` + `device_state = OPEN`. **RMU way** = `MV_SWITCH` contained by `RMU`.
 - No `CIRCUIT_BREAKER` (→ `MV_BREAKER`), `DISCONNECTOR` (→ `MV_ISOLATOR`), `LOAD_BREAK` (→ `MV_SWITCH`), `RMU_WAY`/`RMU_BUSBAR` (→ `MV_SWITCH`/`MV_BUSBAR`).
 - `DIST_SWITCH` is legacy, superseded by `MV_SWITCH`.
-- `MV_SECTIONALIZER` carries `device_state` (so it *does* bar a trace when open) but is absent from the `functional_role`, `trace_tier` and `boundary_role` taxonomies — it is untiered and role-less in those (a known gap).
+- `MV_SECTIONALIZER` carries `device_state` (so it bars a trace when open) **and** is now tier 300, `functional_role = controller`, `boundary_role = switching` — so it bounds switching sections and isolation like any switch. It is deliberately *not* `protective` (no fault interruption → never bounds a protection zone), and its `count_to_lockout` is stored but not simulated.
 - `MV_CT` / `MV_VT` have **no** `device_state` and are never trace barriers.
 
 ### Related guides

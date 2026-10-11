@@ -324,6 +324,20 @@ var manifest = []Doc{
 		Filename:    "switching-and-protection-guide.md",
 	},
 	{
+		ID:          "faults-guide",
+		Title:       "Faults — Logging & Managing Fault Events",
+		Description: "The fault/outage RECORD module (distinct from the fault-current engine): the fault_events model, the detected → investigating → cleared → closed lifecycle and its audit history, how to log a fault, and the four links that make a fault the hinge between an OMS outage (it explains) and a WAM defect (it books).",
+		Category:    "Manuals",
+		Filename:    "faults-guide.md",
+	},
+	{
+		ID:          "oms-guide",
+		Title:       "OMS — Outage Management",
+		Description: "The outage lifecycle end to end: trouble calls rolled into predicted incidents (blamed on the nearest protective device), affected-customer and critical-facility rollups, the live de-energised cone, switching orders whose open/close steps flip the real device_state, planned outages, restoration and the SAIDI/SAIFI/CAIDI/ENS reliability indices.",
+		Category:    "Manuals",
+		Filename:    "oms-guide.md",
+	},
+	{
 		ID:          "asset-tags-guide",
 		Title:       "Asset Tags Guide",
 		Description: "How to use asset tags and how they work: minting, affixing, scanning to resolve, printing and querying by tag.",
