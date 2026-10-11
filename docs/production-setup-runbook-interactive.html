@@ -1,0 +1,1196 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Production Setup Runbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  /* section palette (categorical, validated for both themes) */
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.role{display:inline-block;font:600 11px/1 var(--f-mono);padding:3px 7px;border-radius:3px;letter-spacing:.03em}
+.role.protective{background:var(--red-tint);color:var(--red)}
+.role.switching{background:var(--blue-tint);color:var(--blue)}
+.role.transformer{background:var(--amber-tint);color:var(--amber)}
+.role.source{background:var(--green-tint);color:var(--green)}
+.role.none{background:var(--line2);color:var(--muted)}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.bgrid{display:grid;grid-template-columns:minmax(0,1fr) 110px 150px auto;gap:5px;align-items:center}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+input[type=number],input[type=text],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--acc-deep);font-weight:700}
+.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+.bar{height:18px;background:var(--line2);border-radius:4px;position:relative;overflow:hidden}
+.bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .15s}
+.big{font:800 28px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums;color:var(--acc-deep)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono)}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.chainrow .arr{color:var(--muted);font:600 12px var(--f-mono)}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+
+/* handbook additions */
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+.matrix{border-collapse:collapse;font-size:12px;width:100%}
+.matrix th,.matrix td{padding:4px 6px;text-align:center;border-bottom:1px solid var(--line2)}
+.matrix td:first-child,.matrix th:first-child{text-align:left;position:sticky;left:0;background:var(--raise)}
+.matrix td.y{background:color-mix(in srgb,var(--green) 22%,transparent);color:var(--green);font-weight:700}
+.matrix tr:hover td{background:var(--surface)} .matrix tr:hover td.y{background:color-mix(in srgb,var(--green) 30%,transparent)}
+.tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:10px}
+.tabs button{font:600 11.5px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:6px 9px;border-radius:5px 5px 0 0;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.tabs button[disabled]{opacity:.4;cursor:not-allowed}
+.tree{font:500 13px var(--f-mono)} .tree .n{padding:3px 6px;border-radius:4px;display:inline-block}
+.tree .n.g{background:var(--tint);color:var(--acc-deep);font-weight:700}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+.ants{animation:march .9s linear infinite} @keyframes march{to{stroke-dashoffset:-16}}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sev{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.sev.low{background:var(--line2);color:var(--muted)} .sev.medium{background:var(--blue-tint);color:var(--blue)} .sev.high{background:var(--amber-tint);color:var(--amber)} .sev.critical{background:var(--red-tint);color:var(--red)} .sev.urgent{background:var(--red-tint);color:var(--red)}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.kpi div{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.kpi b{display:block;font:800 22px/1 var(--f-display);font-stretch:80%}
+.kpi span{font:600 10px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rec{border:1px solid var(--line2);border-radius:6px;padding:6px 8px;margin:5px 0;background:var(--raise);font-size:13px}
+.rec .t{font-weight:600}.rec .m{font-size:11.5px;color:var(--muted)}
+.rec .a{margin-top:4px;display:flex;gap:4px;flex-wrap:wrap}
+.state-chip{display:inline-block;font:700 10.5px var(--f-mono);padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.state-chip.applied,.state-chip.completed,.state-chip.resolved{background:var(--green-tint);color:var(--green);border-color:var(--green)} .state-chip.in_progress,.state-chip.work_ordered,.state-chip.assigned{background:var(--tint);color:var(--acc-deep);border-color:var(--acc)} .state-chip.cancelled,.state-chip.dismissed,.state-chip.rejected{background:var(--line2);color:var(--muted)} .state-chip.open,.state-chip.draft,.state-chip.scheduled{background:var(--amber-tint);color:var(--amber);border-color:var(--amber)}
+@media (max-width:760px){.kpi{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .bgrid{grid-template-columns:1fr 1fr}
+  .bgrid>input:first-child{grid-column:1/-1}
+  li,.rec .t,.rec .m{overflow-wrap:anywhere}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* everyday-operations additions */
+.gm{position:relative;border:1px solid var(--line);border-radius:6px 6px 0 0;overflow:hidden;background:var(--bg)}
+.gm-svg{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none}
+.gm-svg .gm-lab{fill:var(--ink);pointer-events:none}
+.gm-svg .gf{cursor:inherit}
+.gm-zoom{position:absolute;left:8px;top:8px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--raise)}
+.gm-zoom button{width:28px;height:28px;border:0;background:none;color:var(--ink);font:700 16px var(--f-mono);cursor:pointer}
+.gm-zoom button+button{border-top:1px solid var(--line)}
+.gm-north{position:absolute;left:8px;top:74px;width:28px;height:28px;border:1px solid var(--line);border-radius:50%;background:var(--raise);display:grid;place-items:center;cursor:pointer;padding:0}
+.gm-ban{position:absolute;left:50%;top:8px;transform:translateX(-50%);max-width:calc(100% - 100px);background:var(--ink);color:var(--bg);font:600 12px var(--f-mono);padding:6px 11px;border-radius:5px;z-index:3;text-align:center}
+.gm-tip{position:absolute;right:8px;bottom:8px;max-width:60%;background:var(--raise);border:1px solid var(--line);border-radius:5px;padding:6px 9px;font:500 12px var(--f-mono);box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.gm-status{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;background:var(--surface);padding:5px 10px;font:500 11.5px var(--f-mono);color:var(--muted)}
+.gm-status b{color:var(--ink);font-weight:600;margin-right:3px}
+.gm-status .gsr{margin-left:auto}
+.gm-status .attr{margin-left:8px;opacity:.8}
+.gsb{font:600 11px var(--f-mono);border:1px solid var(--line);background:var(--raise);color:var(--ink);border-radius:4px;padding:3px 7px;cursor:pointer}
+.gsb:hover{border-color:var(--muted)}
+.goto{font:500 11px var(--f-mono);width:128px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--raise);color:var(--ink)}
+.apid{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.apid.ok{background:var(--green)} .apid.bad{background:var(--red)}
+.story{border-left:3px solid var(--acc);background:var(--surface);padding:10px 16px;border-radius:0 6px 6px 0;margin:16px 0;max-width:78ch;font-size:15px}
+.story>*:last-child{margin-bottom:0}
+.story .who{font:700 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--acc-deep);display:block;margin-bottom:2px}
+.qs{max-width:78ch;margin:16px 0;border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:6px 16px 10px}
+.qs>b.k{display:block;font:700 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--acc-deep);margin:8px 0 0}
+.qs .steps{margin:4px 0 0}
+.ptabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:8px 0}
+.ptabs button{font:600 11px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:5px 8px;border-radius:5px 5px 0 0;cursor:pointer}
+.ptabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.ptabs button[disabled]{opacity:.35;cursor:not-allowed}
+.panelbox{border:1px solid var(--line);border-radius:6px;background:var(--raise);padding:9px 11px;font-size:13px}
+.panelbox h5{margin:0 0 4px;font:700 14px var(--f-display)}
+.kvt{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px;margin:6px 0}
+.kvt dt{font:600 10.5px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+.kvt dd{margin:0;font-family:var(--f-mono);font-size:12px}
+.fld-row{display:grid;grid-template-columns:130px 1fr;gap:6px;align-items:center;margin:5px 0;font-size:12.5px}
+.fld-row label{font:600 11.5px var(--f-mono)}
+.fld-row .rq{color:var(--red);font-weight:800}
+.fld-row.lock input,.fld-row.lock select{opacity:.6}
+.fld-row.chg input,.fld-row.chg select{border-color:var(--amber);background:var(--amber-tint)}
+.tog{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.tog input{accent-color:var(--acc)}
+.dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:60;padding:16px}
+.dlg>div{background:var(--raise);border:1px solid var(--line);border-radius:8px;max-width:420px;padding:16px 18px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.dlg h4{margin-bottom:6px}
+.dlg .a{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.sugg{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:5px;padding:5px 8px;margin:4px 0;font-size:12.5px;background:var(--raise);flex-wrap:wrap}
+.sugg .tx{flex:1;min-width:140px}
+.chipx{font:600 10.5px var(--f-mono)}
+.cardsel{border:1.5px solid var(--line);border-radius:7px;padding:8px 10px;background:var(--raise);cursor:pointer;font-size:13px;text-align:left}
+.cardsel[aria-pressed="true"]{border-color:var(--acc);background:var(--tint)}
+.pop{position:relative}
+.floatp{position:absolute;background:var(--raise);border:1.5px solid var(--line);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:5}
+.floatp .hd{background:var(--surface);border-bottom:1px solid var(--line);padding:6px 10px;font:700 12px var(--f-mono);cursor:grab;display:flex;justify-content:space-between;align-items:center;user-select:none;touch-action:none}
+.floatp .bd{padding:10px;font-size:12.5px;overflow:auto;flex:1}
+.floatp .grip{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 55%,var(--muted) 55%,var(--muted) 62%,transparent 62%,transparent 72%,var(--muted) 72%,var(--muted) 79%,transparent 79%)}
+@media (max-width:760px){
+  .gm-status{font-size:10.5px}
+  .gm-status .gsr{margin-left:0}
+  .goto{width:100px}
+  .fld-row{grid-template-columns:1fr}
+}
+
+[hidden]{display:none!important}
+
+.w-body{overflow-x:auto}
+pre.code{overflow-x:auto;max-width:100%}
+.w-bar{flex-wrap:wrap}
+.w-bar .seg{flex-wrap:wrap}
+.w-bar>*{max-width:100%}
+.w-split{flex-wrap:wrap}
+.w-split.rev{grid-template-columns:330px minmax(0,1fr)}
+.w-split.rev>.w-side{border-right:1px solid var(--line2);max-width:none!important}
+.w-split.rev>.w-main{border-right:0}
+@media (max-width:760px){.w-split.rev{grid-template-columns:1fr}.w-split.rev>.w-side{border-right:0;border-bottom:1px solid var(--line2)}}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Prod Setup</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · Topology</a><a href="#c2">2 · Host &amp; secrets</a><a href="#c3">3 · Build</a><a href="#c4">4 · Database</a><a href="#c5">5 · First admin</a><a href="#c6">6 · App tier</a><a href="#c7">7 · Edge &amp; TLS</a><a href="#c8">8 · Observe &amp; upgrade</a><a href="#c9">9 · Backup &amp; verify</a><a href="#c10">10 · Troubleshooting</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · Production Setup Runbook · bring the stack up in the right order</div>
+  <h1>Install.<br><span>Verify. Upgrade.</span></h1>
+  <p class="lede">The order of a production install is not a matter of taste: every step leaves the next one something to stand on. This edition lets you reorder the steps and see what breaks, size the PgBouncer pool, check an <code>.env</code> against what <code>docker-compose.prod.yml</code> actually passes to the containers, replay the 135 real migrations, and probe the health check the way Docker does.</p>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Priya</b> (Platform admin) can do everything. <b>Omar</b> (On-call) can scale, back up and read. <b>Dev</b> (Developer) can build and run migrations/seeds. <b>Alma</b> (Auditor) is read-only. These are operator roles, a modelling device: the product&rsquo;s own roles (<code>viewer</code>, <code>analyst</code>, <code>editor</code>, <code>supervisor</code>, <code>admin</code>, <code>break-glass-admin</code>, <code>field-*</code>) appear in chapter 5.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">Who this is for</span>
+<p>The operator deploying VoltEdge with the multi-replica stack (<code>docker-compose.prod.yml</code> + <code>infra/nginx/nginx.conf</code>). It is the <b>how-to-install</b>; its companion <b>Production Deployment &amp; Scaling</b> is the <b>why</b>. Assumed: Docker Engine + Compose v2, the repository checked out on the host, and Node.js to build the SPA. Throughout, <code>PC</code> is shorthand for <code>docker compose -f docker-compose.prod.yml</code>; set it once: <code>PC=&quot;docker compose -f docker-compose.prod.yml&quot;</code>.</p>
+<p><b>Read this before trusting any older copy of the runbook.</b> The code and compose file disagree with it in a few places that matter (the <code>.env</code> variables that never reach the containers, the <code>nginx</code> host port, the <code>/s3/</code> proxy idea, the migrate-verify command). They are fixed in the Markdown and listed in the Corrections table in chapter 10. Statements this edition could not confirm from the repository are marked <i>not verified</i>.</p></div>
+
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>What you are standing up</h2><p>One image, many commands; one front door; one stateful database.</p></div>
+<pre class="code">nginx (:80/:443 in the design; published as WEB_PORT=3710 -> :80 by default)
+  serves the SPA + proxies /api and /tiles
+  -&gt; N api replicas (stateless)
+       -&gt; PgBouncer (transaction pool)
+            -&gt; Postgres (PostGIS)      [+ optional read replicas]
+  workers: exportworker, webhookworker, importworker, fieldsync (scale by replicas),
+           mcpserver
+  rustfs (S3-compatible object storage for attachments/exports)
+  bootstrap (one-shot sidecar: psql + migrations; does nothing until exec&rsquo;d)
+  martin (legacy tile server, still started by <span>up -d</span>)</pre>
+  <p>The API image (<code>api/Dockerfile</code>) bakes every binary you need &mdash; <code>server</code>, <code>exportworker</code>, <code>webhookworker</code>, <code>importworker</code>, <code>mcpserver</code>, and the ad-hoc <code>authadmin</code> / <code>resetdata</code> admin tools &mdash; and the compose service picks which to run via its <code>command</code>. So <code>$PC exec api authadmin &hellip;</code> runs the admin CLI with the API&rsquo;s exact environment. <code>fieldsync</code> is the exception: it has its own image (<code>api/Dockerfile.fieldsync</code>, which bundles tippecanoe). Click a service; flip the view to see which host ports are published and which services <code>--scale</code> can actually fan out.</p>
+  <div class="widget" id="w1">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 1</span><h4>Service explorer &mdash; facts from <code>docker-compose.prod.yml</code></h4></div>
+    <div class="w-bar" id="w1-b"></div>
+    <div class="w-split"><div class="w-main"><svg id="w1-svg" viewBox="0 0 760 385" width="100%" role="img" aria-label="Compose service topology"></svg></div><div class="w-side" id="w1-out"></div></div>
+  </div>
+  <div class="tip"><b>Tip.</b> <code>--scale</code> works where there is no <code>container_name</code> and no fixed host port: <code>api</code>, <code>exportworker</code>, <code>webhookworker</code>, <code>importworker</code>. <code>mcpserver</code> and <code>fieldsync</code> carry both, so they run one instance by choice. Docker refuses duplicate names &mdash; that is the &ldquo;container name already in use&rdquo; error in chapter 10.</div>
+  <h3>Which ports does the host really publish?</h3>
+  <p>The old text implied nginx listens on 80/443. As shipped it publishes <code>${WEB_PORT:-3710}:80</code>, and <b>seven</b> services publish host ports in total. Decide what your firewall does with each.</p>
+  <div class="widget" id="w2">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 2</span><h4>Published-port exposure audit</h4></div>
+    <div class="w-body" style="padding:0;overflow-x:auto"><table class="matrix" style="width:100%;font-size:13px;text-align:left" id="w2-t"></table></div>
+    <div class="w-body" id="w2-sum"></div>
+  </div>
+</section>
+
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>Prerequisites, sizing &amp; secrets</h2><p>Hardware, DNS/TLS, and an <code>.env</code> that actually reaches the containers.</p></div>
+  <h3>2.1 Prerequisites &amp; host sizing</h3>
+  <ul>
+    <li><b>Docker Engine + Compose v2</b>, a host (or VM) with headroom. A sane single-host start for a few hundred users: <b>8 vCPU / 16 GB RAM / SSD</b>. Postgres and the <code>api</code> replicas are the CPU/RAM consumers; give Postgres the bulk. (For ~1,000 users Postgres and the replicas move off one host &mdash; see the scaling guide.)</li>
+    <li><b>The repository on the host</b> (compose files, <code>infra/</code>, <code>migrations/</code>, <code>seed/</code>, <code>web/</code>).</li>
+    <li><b>Node.js</b> on the host (or a CI step) to build the SPA in chapter 3.</li>
+    <li>A <b>DNS name + TLS certificate</b> for the public URL (chapter 7). Secure session cookies require HTTPS &mdash; not optional in production.</li>
+  </ul>
+  <p>Postgres is started with <code>max_connections=200</code>, sized for PgBouncer&rsquo;s server pool plus replication plus headroom &mdash; <em>not</em> raw clients. That number is fixed in the compose file; PgBouncer&rsquo;s knobs are the ones in <code>.env</code>. The app&rsquo;s own pool is unbounded (the server sets no <code>SetMaxOpenConns</code>), so PgBouncer is what stops N replicas from exhausting the database. Try the arithmetic:</p>
+  <div class="widget" id="w3">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 3</span><h4>PgBouncer pool budget &amp; queueing</h4></div>
+    <div class="w-split rev"><div class="w-side" style="order:0;max-width:330px" id="w3-c"></div><div class="w-main" id="w3-o"></div></div>
+  </div>
+  <p class="muted" style="font-size:13px">Assumptions are yours to set: connections per replica and transaction time are not in the repository. The pool limits (<code>DEFAULT_POOL_SIZE</code> 25, <code>RESERVE_POOL_SIZE</code> 5, <code>MIN_POOL_SIZE</code> 5, <code>MAX_CLIENT_CONN</code> 1000) and <code>max_connections=200</code> are read from the compose file. PgBouncer&rsquo;s own semantics (reserve pool, wait queue) are the documented upstream behaviour, <i>not verified</i> against the pinned <code>edoburu/pgbouncer:latest</code> image.</p>
+
+  <h3>2.2 Secrets &amp; environment (<code>.env</code>)</h3>
+  <p>Compose reads <code>.env</code> from the repo root. Copy the template and harden every value &mdash; <b>do not ship the dev defaults</b>:</p>
+  <pre class="code">cp .env.example .env</pre>
+  <div class="caution"><b>Read this twice.</b> <code>.env</code> only feeds <code>${...}</code> substitutions inside the compose file. <code>docker-compose.prod.yml</code> has no <code>env_file:</code>, and the <code>api</code> service passes through only <code>DATABASE_URL</code>, <code>PORT</code> and <code>RUSTFS_*</code>. So <code>AUTH_INSECURE_COOKIES</code>, <code>SESSION_*</code>, <code>OIDC_*</code>, <code>EXTERNAL_SYSTEMS_ENCRYPTION_KEY</code>, <code>LOG_FORMAT</code>/<code>LOG_LEVEL</code>, <code>RUSTFS_PUBLIC_USE_SSL</code> and others written to <code>.env</code> <b>never reach the container</b> until you add them to the service&rsquo;s <code>environment:</code> block. The builder below marks each variable and prints the lines to add.</div>
+  <div class="widget" id="w4">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 4</span><h4><code>.env</code> builder &mdash; checked against the compose file and the Go config</h4></div>
+    <div class="w-split rev"><div class="w-side" style="order:0;max-width:380px" id="w4-f"></div><div class="w-main" id="w4-o"></div></div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>Variable</th><th>Set to</th><th>Why</th></tr>
+    <tr><td><code>POSTGRES_PASSWORD</code></td><td>a long random secret</td><td>DB superuser. <code>openssl rand -base64 24</code></td></tr>
+    <tr><td><code>RUSTFS_ACCESS_KEY</code> / <code>RUSTFS_SECRET_KEY</code></td><td>strong random</td><td>object-storage creds</td></tr>
+    <tr><td><code>RUSTFS_CORS_ORIGINS</code></td><td>your web origin (e.g. <code>https://gis.utility.com</code>)</td><td><b>not</b> <code>*</code> in prod &mdash; browser-direct attachment PUTs</td></tr>
+    <tr><td><code>RUSTFS_PUBLIC_ENDPOINT</code></td><td>the public <b>host[:port]</b> the browser reaches RustFS at (no scheme, no path)</td><td>presigned attachment/export URLs are signed for it (chapter 6). Compose defaults it to <code>localhost:3702</code>.</td></tr>
+    <tr><td><code>RUSTFS_PUBLIC_USE_SSL</code></td><td><code>1</code></td><td>if that endpoint is HTTPS &mdash; <b>needs a compose pass-through</b></td></tr>
+    <tr><td><code>EXTERNAL_SYSTEMS_ENCRYPTION_KEY</code></td><td><code>openssl rand -base64 32</code></td><td>AES key (base64 of 32 bytes) for stored external-system credentials; optional; <b>needs a pass-through</b>. A set but malformed key stops the API booting.</td></tr>
+    <tr><td><code>AUTH_INSECURE_COOKIES</code></td><td><b>unset / <code>0</code></b></td><td>the dev template sets <code>1</code>. The Go default is Secure cookies; with the shipped compose the value never reaches the API anyway.</td></tr>
+    <tr><td><code>SESSION_IDLE_TIMEOUT</code> / <code>SESSION_ABSOLUTE_MAX</code></td><td>your policy (defaults 12h / 720h)</td><td>Go durations (<code>720h</code>, not <code>30d</code>); an unparsable value is silently replaced by the default. <b>Needs a pass-through.</b></td></tr>
+    <tr><td><code>LOG_FORMAT</code> / <code>LOG_LEVEL</code></td><td><code>json</code> / <code>info</code></td><td>structured logs for a shipper (these are already the defaults; pass-through needed to change them)</td></tr>
+    <tr><td><code>LOKI_READ_TOKEN</code></td><td><code>openssl rand -hex 32</code></td><td>only for the observability overlay (chapter 8); the overlay refuses to start without it</td></tr>
+    <tr><td><code>PGBOUNCER_POOL_SIZE</code> / <code>PGBOUNCER_MAX_CLIENT_CONN</code></td><td>per &sect;5 of the scaling guide</td><td>pooler sizing (also <code>PGBOUNCER_MIN_POOL_SIZE</code>, <code>PGBOUNCER_RESERVE_POOL_SIZE</code>)</td></tr>
+    <tr><td><code>API_REPLICAS</code>, <code>EXPORTWORKER_REPLICAS</code>, &hellip;</td><td>your scale</td><td>replica counts (<code>WEBHOOKWORKER_REPLICAS</code>, <code>IMPORTWORKER_REPLICAS</code> too)</td></tr>
+    <tr><td><code>WEB_PORT</code></td><td><code>80</code> if nginx is the edge</td><td>host port that maps to nginx :80 (default <code>3710</code>)</td></tr>
+  </table></div>
+  <p><b>SSO (optional):</b> to enable Azure AD / Google, set the <code>OIDC_*</code> block (and pass it through to <code>api</code>). A provider is enabled only when its variables are set <em>and</em> discovery succeeds at startup; otherwise it is silently absent from the login screen. The redirect URL registered with the provider must be <code>https://&lt;your-host&gt;/api/auth/oidc/&lt;provider&gt;/callback</code> (note the <code>/api</code> prefix &mdash; nginx strips it to the backend&rsquo;s <code>/auth/oidc/...</code>). SSO never creates accounts; pre-provision the user&rsquo;s email first (chapter 5).</p>
+  <div class="tip"><b>Keep secrets off disk.</b> Keep <code>.env</code> out of version control (it already is, via <code>.gitignore</code>) and off shared disks. For <code>AUTHADMIN_PASSWORD</code> / <code>RESETDATA_PASSWORD</code>, pass them just-in-time on the command line (chapter 5), never leave them in <code>.env</code>.</div>
+</section>
+
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>Build the images and the SPA</h2><p>Know which binary lives in which image before you reach for a command.</p></div>
+  <h3>3.1 Build the images</h3>
+  <pre class="code">$PC build</pre>
+  <p>This builds the API image (all binaries), the <code>fieldsync</code> image (bundles tippecanoe) and the <code>bootstrap</code> sidecar image (<code>infra/gitbash</code>). The <code>nginx</code>, <code>postgres</code>, <code>pgbouncer</code>, <code>rustfs</code> and <code>martin</code> images are pulled. Note that <code>pgbouncer</code> and <code>rustfs</code> use <code>:latest</code> tags and <code>postgres</code> is pinned to <code>supabase/postgres:15.8.1.049</code>.</p>
+  <p>Admin tooling lives in only some images. Ask where a command can run:</p>
+  <div class="widget" id="w6">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 5</span><h4>&ldquo;Where does this command live?&rdquo; locator</h4></div>
+    <div class="w-bar"><label class="lab" for="w6-s">Command</label><select id="w6-s"></select><button class="btn pri" id="w6-run">Show how to run it</button></div>
+    <div class="w-body" id="w6-o"></div>
+  </div>
+  <h3>3.2 Build the web SPA</h3>
+  <p>The React app is a static bundle nginx serves; the backend does not serve it. Its API base is hard-wired to <code>/api</code> (<code>web/src/lib/api.ts</code>), so no build-time env is needed &mdash; nginx maps <code>/api</code> and <code>/tiles</code> to the backend.</p>
+  <pre class="code">cd web
+npm ci
+npm run build        # runs "tsc -b &amp;&amp; vite build"; produces web/dist
+cd ..</pre>
+  <p><code>docker-compose.prod.yml</code> mounts <code>./web/dist</code> into the nginx container read-only. Rebuild the SPA whenever the frontend changes; <code>$PC restart nginx</code> is the safe habit (files are served from a bind mount, so a restart should not be strictly needed &mdash; <i>not verified</i>). If you prefer a CDN/separate static host, drop that mount and point the host&rsquo;s <code>/api</code> + <code>/tiles</code> at the API instead.</p>
+  <div class="caution"><b>Build the SPA before the first <code>up</code>.</b> If <code>./web/dist</code> does not exist when nginx starts, Docker creates an empty directory for the bind mount and nginx serves 404 for everything. Chapter 10: &ldquo;SPA loads but every call 404s&rdquo;.</div>
+</section>
+
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>Data tier &amp; database</h2><p>Bring up the data tier first, migrate before any API replica connects, then load schema and seed data.</p></div>
+  <p>The whole install is one ordering problem. Before the individual steps, reorder them yourself: drag nothing, just use the arrows and skip toggles, and read what the dependency rules say would break. Each rule is a fact about this repository (cited in the verdict).</p>
+  <div class="widget" id="w5">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 6</span><h4>Step order &mdash; &ldquo;what breaks if you skip or reorder&rdquo;</h4><span style="flex:1"></span><button class="btn" id="w5-reset">Reset to the runbook order</button></div>
+    <div class="w-split"><div class="w-main" id="w5-l"></div><div class="w-side" id="w5-o"></div></div>
+  </div>
+
+  <h3>4.1 Start the data tier first</h3>
+  <p>Bring up Postgres, the pooler, object storage and the bootstrap sidecar &mdash; but not yet the app &mdash; so you can migrate before any API replica connects:</p>
+  <pre class="code">$PC up -d postgres pgbouncer rustfs bootstrap</pre>
+  <p>Wait for Postgres healthy: <code>$PC ps</code> should show <code>voltedge-postgres</code> healthy (<code>pg_isready -U postgres</code> every 5s, up to 10 retries). The <code>voltedge-exports</code> bucket (<code>RUSTFS_BUCKET</code>) is created on boot by <code>api</code>, <code>exportworker</code>, <code>importworker</code> and <code>fieldsync</code> if missing &mdash; no manual bucket step; if RustFS is not yet reachable at that moment the API only logs a warning and exports fail until it is.</p>
+  <p><code>rustfs</code> has no healthcheck, and <code>api</code> only waits for it to be <i>started</i>, not ready. <code>bootstrap</code> waits for Postgres to be <i>healthy</i> and then just sleeps (<code>restart: &quot;no&quot;</code>).</p>
+
+  <h3>4.2 Apply migrations</h3>
+  <p>The <code>bootstrap</code> sidecar has <code>psql</code> + the repo mounted at <code>/workspace</code> and connects <b>directly</b> to Postgres (not through PgBouncer &mdash; DDL wants a stable session):</p>
+  <pre class="code">$PC exec -T bootstrap bash /workspace/migrations/apply.sh</pre>
+  <p>Verify (the <code>DATABASE_URL</code> must expand <em>inside</em> the container, hence the single quotes):</p>
+  <pre class="code">$PC exec -T bootstrap bash -c 'psql "$DATABASE_URL" -c "SELECT filename, status FROM ops.migration_log ORDER BY id;"'</pre>
+  <p><code>apply.sh</code> walks every <code>*.sql</code> in <code>migrations/</code> in filename order, skips any already in <code>ops.migration_log</code>, runs the rest with <code>psql -v ON_ERROR_STOP=1 -f</code>, then records filename, the <code>-- Purpose:</code> header line and a SHA-256. There are <b>135</b> files (two share the <code>0060</code> prefix; both run, alphabetically). Only 14 of them contain a <code>BEGIN</code>; <code>psql -f</code> is not run with <code>--single-transaction</code>. Replay it:</p>
+  <div class="widget" id="w7">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 7</span><h4>Migration runner &mdash; the real file list, the real <code>apply.sh</code> logic</h4></div>
+    <div class="w-bar"><span class="lab">Already applied</span><input type="range" id="w7-a" min="0" max="135" value="0" style="width:200px"><b id="w7-av">0</b><label class="tog"><input type="checkbox" id="w7-f"> a file fails at #</label><input type="number" id="w7-fn" min="1" max="135" value="60" style="width:70px"><button class="btn pri" id="w7-run">Run apply.sh</button><span id="w7-lock"></span></div>
+    <div class="w-body"><div class="kpi" id="w7-k"></div><pre class="pre" id="w7-log" style="max-height:260px;overflow:auto"></pre><div class="w-bar" style="border:0;padding:8px 0 0"><label class="lab" for="w7-q">Find a migration</label><input type="text" id="w7-q" placeholder="e.g. rbac, field_pack, webhook" style="max-width:260px"><span id="w7-qo" class="muted" style="font-size:12.5px"></span></div></div>
+  </div>
+  <div class="caution"><b>A failed file is not rolled back.</b> Statements before the error stay applied, the file is <i>not</i> logged, and re-running starts that file again from the top. Migrations are written <code>IF NOT EXISTS</code>-style only where the author remembered; read the error, fix the cause, and re-run. <code>apply.sh</code> also never re-checks checksums: editing an applied file is invisible to it.</div>
+
+  <h3>4.3 Load the schema + seed data</h3>
+  <p>Two honest paths &mdash; pick by whether this is your first environment or a promotion:</p>
+  <ul>
+    <li><b>Greenfield (first environment ever):</b> the full metadata + compiled schema is produced by the authoring flow <code>task migrate</code> + <code>task seed-all</code>. <code>seed-all</code> runs <b>114 ordered steps</b>: 100 metadata/config seeds (class metadata, fields, symbology, templates, CIM mappings), then <code>compile-all</code> (materialises every class into its <code>gis.&lt;code&gt;</code> table), then 13 instance/network seeds. It is idempotent (<code>ON CONFLICT</code>-guarded) and is a one-time authoring activity. Run it against a <b>staging</b> stack, verify, then dump it &mdash; do not hand-run them against production. The Taskfile targets use the <i>dev</i> compose&rsquo;s <code>gitbash</code> service and <code>go run</code> (the prod images do not contain <code>compile</code>).</li>
+    <li><b>Production (the normal path):</b> <b>restore a validated dump</b> of the staging/reference database (schema + metadata, plus whatever reference data you want pre-loaded):</li>
+  </ul>
+  <pre class="code"># on staging, after task seed-all + verification:
+pg_dump "&lt;staging-dsn&gt;" -Fc -f voltedge-seeded.dump
+
+# into production (through the bootstrap sidecar or any psql host):
+pg_restore --no-owner -d "&lt;prod-dsn&gt;" voltedge-seeded.dump</pre>
+  <p>Then re-run <b>4.2</b> so any migrations newer than the dump are applied forward. The bootstrap container mounts the repo at <code>/workspace</code>, so a dump written there lands in your checkout &mdash; keep it out of git. Whether <code>pg_restore --no-owner</code> works cleanly with the supabase role/extension layout was <i>not verified</i>; rehearse it on a scratch database.</p>
+  <p>This mirrors how utilities actually provision: build + validate the model once, restore it, then roll migrations forward on every upgrade (chapter 8).</p>
+  <div class="widget" id="w8">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 8</span><h4>Seed phases &amp; dump-restore planner</h4></div>
+    <div class="w-bar"><div class="seg" id="w8-m"><button data-m="green" aria-pressed="true">Greenfield (staging)</button><button data-m="prod" aria-pressed="false">Production restore</button></div><span id="w8-ctl"></span></div>
+    <div class="w-body" id="w8-o"></div>
+  </div>
+</section>
+
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>Create the first break-glass admin</h2><p>One command, one password that never touches disk, one policy switch that defaults to off.</p></div>
+  <p><code>authadmin</code> is baked into the API image; run it with the password passed just-in-time (never stored):</p>
+  <pre class="code">$PC exec -e AUTHADMIN_PASSWORD='&lt;a-strong-password&gt;' api \
+  authadmin create --email admin@utility.com --name "Break-glass Admin"</pre>
+  <p>Defaults from the source: <code>--break-glass</code> is <b>true</b> and <code>--role</code> is <code>admin</code> (pass <code>--role ""</code> to assign none). The password comes from <code>AUTHADMIN_PASSWORD</code> only &mdash; there is no password flag. Grant roles / list accounts the same way: <code>$PC exec api authadmin list</code>, <code>$PC exec api authadmin grant-role --email &lt;e&gt; --role &lt;role&gt;</code> (<code>authadmin roles</code> lists them). SSO users are pre-provisioned by email before their first login. For an AI/MCP integration token: <code>$PC exec api authadmin mint-token --email &lt;e&gt; --name &lt;label&gt;</code> (printed once; optional <code>--ttl 720h</code>, default no expiry).</p>
+  <p>Why break-glass matters on day one: the migration seeds <code>iam.system_settings.local_auth_enabled</code> as <code>false</code>. With it off, only break-glass accounts may sign in with a password; everyone else is refused until an administrator turns local sign-in on (or SSO is configured). Try the gate, the lockout (5 consecutive failures lock the account for 15 minutes), and the command builder:</p>
+  <div class="widget" id="w9">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 9</span><h4>First login &amp; <code>authadmin</code> command builder</h4></div>
+    <div class="w-bar"><div class="tabs" id="w9-t" style="margin:0;border:0"><button data-t="gate" aria-selected="true">Login gate</button><button data-t="cmd" aria-selected="false">Command builder</button><button data-t="roles" aria-selected="false">Roles</button></div></div>
+    <div class="w-body" id="w9-o"></div>
+  </div>
+</section>
+
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>Start the application tier</h2><p>One command, then scale; and the part everyone forgets &mdash; the browser talks to RustFS directly.</p></div>
+  <pre class="code">$PC up -d                      # brings up api (&times;API_REPLICAS), workers, nginx, mcpserver, fieldsync (and martin)</pre>
+  <p>Scale on demand:</p>
+  <pre class="code">$PC up -d --scale api=6 --scale exportworker=3</pre>
+  <p>(<code>fieldsync</code> can scale by replicas too in principle &mdash; its build and sync workers both claim work with <code>SKIP LOCKED</code> and build in isolated temp dirs. Scale it on pack-build backlog, with CPU-heavy pods for tippecanoe. In this compose file it runs one instance <em>by choice</em>: it has a <code>container_name</code> and a fixed published port, so to scale it you drop both and front it with nginx like the api tier. One caveat: its shared-pack maintenance loop runs in every replica, so a scheduled cell rebuild can be harmlessly double-enqueued &mdash; retention reaps the extra, or leader-elect that loop to avoid it.)</p>
+  <p>A <code>depends_on</code> reminder: <code>api</code> waits for pgbouncer and rustfs to be <i>started</i> only. Nothing in the file waits for a service to be <i>healthy</i> except <code>pgbouncer</code>, <code>martin</code> and <code>bootstrap</code> (on Postgres).</p>
+  <h3>RustFS public reachability (don&rsquo;t skip)</h3>
+  <p>Attachments and exports are uploaded and downloaded <b>by the browser directly to RustFS</b> via presigned URLs. The browser must be able to resolve and reach <code>RUSTFS_PUBLIC_ENDPOINT</code>. The API process talks to <code>rustfs:9000</code> internally but <b>signs</b> URLs for the public endpoint, offline, with no network round trip. Either publish RustFS on a public host with TLS (and set <code>RUSTFS_PUBLIC_ENDPOINT</code> + <code>RUSTFS_PUBLIC_USE_SSL=1</code> &mdash; the latter needs the compose pass-through from chapter 2), or terminate TLS in front of RustFS on a <b>dedicated host name</b> and point the public endpoint at that host. If presigned downloads 404 in the browser, this is almost always why.</p>
+  <div class="caution"><b>Correction to the old advice.</b> An nginx <code>location /s3/</code> with a path-prefixed public endpoint cannot work as written: the endpoint setting is <b>host[:port] only</b> (it is handed to the S3 client as an endpoint, which has no path component), and a SigV4 presigned URL is signed for a specific Host. Proxy RustFS from its own <code>server</code> block / host name, forwarding the original <code>Host</code>. Not run end to end here (<i>not verified</i>).</div>
+  <div class="widget" id="w10">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 10</span><h4>Will the browser&rsquo;s presigned upload work?</h4></div>
+    <div class="w-split rev"><div class="w-side" style="order:0;max-width:320px" id="w10-c"></div><div class="w-main" id="w10-o"></div></div>
+  </div>
+</section>
+
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>TLS, the nginx edge &amp; the login brakes</h2><p>Secure cookies need HTTPS; nginx decides where a path goes and who gets throttled.</p></div>
+  <h3>7.1 TLS</h3>
+  <p>Secure cookies (and therefore login) require HTTPS to the browser. Two options:</p>
+  <ul>
+    <li><b>Terminate at an external LB / proxy</b> (cloud L7 LB, Caddy, Cloudflare) in front of nginx:80. Simplest; the LB holds the cert.</li>
+    <li><b>Terminate at this nginx:</b> uncomment the <code>&quot;443:443&quot;</code> port line in the compose file, mount your cert/key, and add a TLS <code>server</code> block (and redirect <code>:80</code> &rarr; <code>:443</code>). Keep the <code>/api</code>, <code>/tiles</code>, and SPA locations identical. The shipped <code>nginx.conf</code> has only a plain <code>listen 80</code> server.</li>
+  </ul>
+  <p>Either way, confirm <code>AUTH_INSECURE_COOKIES</code> is unset/<code>0</code> (chapter 2) and that the browser reaches the app over <code>https://</code>.</p>
+  <div class="widget" id="w13">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 11</span><h4>Will the session cookie stick? (and what the proxy hides)</h4></div>
+    <div class="w-bar" id="w13-b"></div>
+    <div class="w-body" id="w13-o"></div>
+  </div>
+  <h3>7.2 Where does a URL go? (nginx routing)</h3>
+  <p>The routing mirrors the SPA&rsquo;s dev proxy exactly: <code>/api/*</code> strips the prefix, <code>/tiles/*</code> keeps it, everything else is the SPA with a history-API fallback. Locations are matched the nginx way (exact first, then longest prefix); try the awkward URLs.</p>
+  <div class="widget" id="w11">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 12</span><h4>nginx location tester</h4></div>
+    <div class="w-bar"><label class="lab" for="n-p">Request</label><select id="n-m" aria-label="method"><option>GET</option><option>POST</option></select><input type="text" id="n-p" value="/api/auth/login" style="min-width:220px;flex:1" spellcheck="false"><button class="btn pri" id="n-go">Route it</button></div>
+    <div class="w-bar" id="n-ex"></div>
+    <div class="w-body" id="n-o"></div>
+  </div>
+  <h3>7.3 The login brakes</h3>
+  <p>Three independent limits sit in front of a password guess. <b>1)</b> nginx <code>limit_req zone=login</code> on exactly <code>/api/auth/login</code>: <code>rate=5r/s</code>, <code>burst=10 nodelay</code>, keyed on <code>$binary_remote_addr</code>, excess answered 503. <b>2)</b> the app&rsquo;s per-IP limiter: 10 requests burst then 10/minute, <em>per replica</em>, answering 429 with <code>Retry-After: 60</code>, keyed on the TCP peer (it deliberately ignores <code>X-Forwarded-For</code>). <b>3)</b> the account lockout: 5 consecutive failures lock the account 15 minutes. Because the app sees only nginx as its peer, every user shares each replica&rsquo;s bucket; and if an external LB sits in front of nginx, nginx&rsquo;s own key is the LB&rsquo;s address, so the edge bucket is shared by everyone too (no <code>real_ip</code> module is configured &mdash; the config shows none). See it with an attacker and a real user:</p>
+  <div class="widget" id="w12">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 13</span><h4>Login-flood simulator (edge limiter + app limiter + lockout)</h4></div>
+    <div class="w-split rev"><div class="w-side" style="order:0;max-width:320px" id="w12-c"></div><div class="w-main" id="w12-o"></div></div>
+  </div>
+</section>
+
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>Observability &amp; zero-downtime upgrades</h2><p>The optional log overlay, and the rolling upgrade the stateless API tier allows.</p></div>
+  <h3>8.1 Observability (optional but recommended)</h3>
+  <p>Layer the opt-in Loki + Grafana + Vector overlay on top (see the <a href="logging-and-observability-guide.md">Logging &amp; Observability guide</a>):</p>
+  <pre class="code">LOKI_READ_TOKEN=$(openssl rand -hex 32) \
+  $PC -f docker-compose.observability.yml up -d</pre>
+  <p>Grafana comes up on <code>GRAFANA_PORT</code> (default 3708); external log consumers go through the bearer-token proxy (Caddy) on <code>LOKI_PROXY_PORT</code> (default 3709). Loki itself is not published. Vector reads container logs through the Docker socket and labels each stream with the container name (<code>service</code>) and <code>project=voltedge</code>. Set the alerts from &sect;11 of the scaling guide (DB connection saturation, replication lag, tile p95, worker queue depth).</p>
+  <div class="widget" id="w14">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 14</span><h4>Overlay start-up checker</h4></div>
+    <div class="w-split rev"><div class="w-side" style="order:0;max-width:320px" id="w14-c"></div><div class="w-main" id="w14-o"></div></div>
+  </div>
+  <h3>8.2 Upgrades (zero-downtime)</h3>
+  <p>Because the API tier is stateless and the schema changes are additive-first, you can roll forward without downtime:</p>
+  <ol class="steps">
+    <li><b>Build the new image + SPA</b> (chapter 3).</li>
+    <li><b>Apply migrations first</b>, once, via the bootstrap sidecar (4.2). They are backward-compatible with the currently-running image (the compiler&rsquo;s additive-nullable pattern guarantees old replicas keep working).</li>
+    <li><b>Roll the API tier:</b> <code>$PC up -d --no-deps api</code> recreates replicas on the new image. With <code>API_REPLICAS &ge; 3</code>, drop one at a time (or use a rolling strategy) so there is always a healthy replica. nginx.conf defines no health checks of its own: it re-resolves <code>api</code> every 10 s through Docker DNS (<code>valid=10s</code>), so a removed replica can be tried for up to that long. How Compose orders the recreation was <i>not verified</i>.</li>
+    <li><b>Roll the workers:</b> <code>$PC up -d --no-deps exportworker webhookworker importworker mcpserver fieldsync</code>.</li>
+    <li>For a <b>breaking</b> schema change, use expand &rarr; migrate &rarr; deploy &rarr; contract across two releases (never expand and contract while old replicas overlap) &mdash; see &sect;10 of the scaling guide.</li>
+  </ol>
+  <div class="widget" id="w15">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 15</span><h4>Rolling-upgrade capacity &amp; failure model</h4></div>
+    <div class="w-split rev"><div class="w-side" style="order:0;max-width:320px" id="w15-c"></div><div class="w-main" id="w15-o"></div></div>
+  </div>
+</section>
+
+<section class="ch" id="c9">
+  <div class="ch-head"><div class="ch-num">09</div><h2>Backups, DR &amp; verifying the deployment</h2><p>A backup you have never restored is a hope, not a backup.</p></div>
+  <h3>9.1 Backups &amp; DR</h3>
+  <ul>
+    <li><b>Postgres:</b> scheduled <code>pg_dump -Fc</code> at minimum; for real RPO use continuous archiving / PITR (a Postgres operator &mdash; CloudNativePG/Zalando &mdash; gives you this plus replica failover; strongly recommended once you add read replicas). The compose Postgres already runs <code>wal_level=replica</code>, 10 WAL senders and 10 replication slots, so it is replication-ready; nothing here configures archiving.</li>
+    <li><b>RustFS/object storage:</b> back up or replicate the bucket &mdash; attachments and exports live only there, not in Postgres. The data sits in the <code>rustfs_data</code> volume (and Postgres in <code>postgres_data</code>); <code>$PC down</code> keeps both, <code>down -v</code> deletes them.</li>
+    <li><b>Test a restore.</b> A backup you have never restored is a hope, not a backup.</li>
+    <li>The break-glass <b>factory reset</b> (<code>resetdata</code>) is a destructive maintenance tool, not a backup; keep <code>RESETDATA_PASSWORD</code> out of <code>.env</code>.</li>
+  </ul>
+  <div class="widget" id="w17">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 16</span><h4>Backup &amp; restore drill planner</h4></div>
+    <div class="w-split rev"><div class="w-side" style="order:0;max-width:330px" id="w17-c"></div><div class="w-main" id="w17-o"></div></div>
+  </div>
+  <h3>9.2 Verify the deployment</h3>
+  <p><code>/healthz</code> on each replica pings Postgres (through PgBouncer) with a 3-second timeout and answers <code>{&quot;status&quot;:&quot;ok&quot;}</code> or 503 <code>db unreachable</code>. It does <b>not</b> check that migrations ran or that RustFS works, which is why steps 3&ndash;6 below exist. Docker&rsquo;s healthcheck runs it; here is exactly when a replica turns unhealthy:</p>
+  <div class="widget" id="w16">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 17</span><h4>Health-probe timeline (start_period, interval, timeout, retries)</h4></div>
+    <div class="w-split rev"><div class="w-side" style="order:0;max-width:320px" id="w16-c"></div><div class="w-main" id="w16-o"></div></div>
+  </div>
+  <div class="caution"><b>An unhealthy container is not restarted.</b> <code>restart: unless-stopped</code> reacts to a process exit, not to a failing healthcheck, and nothing in the file depends on <code>api</code> being healthy (nginx only waits for it to be started). Alert on health, or use an orchestrator.</div>
+  <p>Work down the list; tick as you go (your ticks stay in this browser):</p>
+  <div class="widget" id="w18">
+    <div class="w-head"><span class="eyebrow">Checklist</span><h4>Post-deploy verification</h4><span style="flex:1"></span><button class="btn" id="v-reset">Clear ticks</button></div>
+    <div class="w-body"><div class="bar" style="margin-bottom:10px"><i id="v-bar" style="width:0;background:var(--green)"></i></div><div id="v-l"></div></div>
+  </div>
+</section>
+
+<section class="ch" id="c10">
+  <div class="ch-head"><div class="ch-num">10</div><h2>Troubleshooting, corrections &amp; quick reference</h2><p>Symptom first; three of them run a live check against the widgets above.</p></div>
+  <h3>10.1 Troubleshooting</h3>
+  <p>Search a symptom or pick one. The first eight are the original table; the rest come from reading the compose file, nginx config and Go sources. Rows marked <span class="pill sec">live check</span> inspect the state of your <code>.env</code> builder, pool budget and presign widgets.</p>
+  <div class="widget" id="w19">
+    <div class="w-head"><span class="eyebrow">Interactive &middot; 18</span><h4>Symptom explorer</h4></div>
+    <div class="w-bar"><label class="lab" for="t-q">Search</label><input type="text" id="t-q" placeholder="e.g. cookie, 404, prepared, locked, healthz&hellip;" style="max-width:320px"><span id="t-n" class="muted" style="font-size:12.5px"></span></div>
+    <div class="w-body" id="t-list" style="padding:0"></div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr>
+    <tr><td>API can&rsquo;t connect / &ldquo;too many clients&rdquo;</td><td>DB pool unbounded &times; many replicas, or PgBouncer pool too small</td><td>confirm app points at <code>pgbouncer</code>; raise <code>PGBOUNCER_POOL_SIZE</code> / Postgres <code>max_connections</code> (&sect;5 scaling guide)</td></tr>
+    <tr><td>&ldquo;prepared statement does not exist&rdquo; under load</td><td>pgdriver prepared statements vs PgBouncer <b>transaction</b> pooling</td><td>set <code>POOL_MODE: session</code> on the pgbouncer service, or disable statement caching in the DSN</td></tr>
+    <tr><td>PgBouncer refuses app logins</td><td>client auth vs supabase SCRAM</td><td>adjust <code>AUTH_TYPE</code> on the pgbouncer service (plain within the private net, or scram + auth_query)</td></tr>
+    <tr><td>Presigned attachment/export URLs 404 in browser</td><td><code>RUSTFS_PUBLIC_ENDPOINT</code> not browser-reachable</td><td>point it at a public host:port (a dedicated TLS host for RustFS) &mdash; chapter 6</td></tr>
+    <tr><td>Login fails silently / cookie not set</td><td>site not HTTPS (Secure cookies), or the insecure flag was meant for dev</td><td>serve over HTTPS &mdash; chapter 7</td></tr>
+    <tr><td><code>--scale</code> errors &ldquo;container name already in use&rdquo;</td><td>a <code>container_name</code> on a scaled service</td><td>only singletons carry <code>container_name</code> here; don&rsquo;t add one to <code>api</code>/workers</td></tr>
+    <tr><td>SPA loads but every call 404s</td><td><code>web/dist</code> not built/mounted, or <code>/api</code> proxy wrong</td><td>rebuild SPA (chapter 3), confirm the nginx <code>/api</code> + <code>/tiles</code> locations</td></tr>
+    <tr><td>Map blank, features missing</td><td>classes not compiled into <code>gis.&lt;code&gt;</code></td><td>restore a seeded dump (4.3) or run <code>seed-all</code> on staging</td></tr>
+  </table></div>
+
+  <h3>10.2 Corrections to the previous manual</h3>
+  <p>Each row is a statement the old runbook made that the repository contradicts; the Markdown has been corrected in place.</p>
+  <div class="tbl"><table>
+    <tr><th>Old claim</th><th>What the code says</th><th>Evidence</th></tr>
+    <tr><td>Setting <code>AUTH_INSECURE_COOKIES</code>, <code>SESSION_*</code>, <code>LOG_*</code>, <code>EXTERNAL_SYSTEMS_ENCRYPTION_KEY</code>, <code>OIDC_*</code>, <code>RUSTFS_PUBLIC_USE_SSL</code> in <code>.env</code> configures the stack</td><td>The api service passes only <code>DATABASE_URL</code>, <code>PORT</code>, <code>RUSTFS_*</code> (no <code>env_file</code>); the others never reach the container</td><td><code>docker-compose.prod.yml:151-159</code></td></tr>
+    <tr><td>nginx listens on :80/:443</td><td>Published as <code>${WEB_PORT:-3710}:80</code>; 443 is a commented line</td><td><code>docker-compose.prod.yml:126-127</code></td></tr>
+    <tr><td>Proxy RustFS under an nginx <code>/s3/</code> path and point the endpoint at it</td><td>The endpoint is host[:port] handed to the S3 client; a path cannot be expressed. Use a dedicated host name</td><td><code>api/internal/export/storage.go:88,99-100,114-127</code></td></tr>
+    <tr><td><code>psql "$DATABASE_URL"</code> via <code>exec -T bootstrap</code> verifies migrations</td><td>The variable expanded on the host (empty); it must expand inside the container</td><td><code>docker-compose.prod.yml:332</code> (bootstrap env)</td></tr>
+    <tr><td>&ldquo;<code>$PC up -d</code> brings up &hellip;&rdquo; (no martin); build lists three images</td><td>martin also starts (published 3701); <code>$PC build</code> also builds <code>bootstrap</code></td><td><code>docker-compose.prod.yml:299-318, 320-336</code></td></tr>
+    <tr><td>nginx health check keeps a healthy replica</td><td>nginx.conf defines no health check; it re-resolves <code>api</code> every 10 s</td><td><code>infra/nginx/nginx.conf:34</code></td></tr>
+    <tr><td>100+ seeds, compile, then network seeds, run as authored</td><td>114 steps (100 + <code>compile-all</code> + 13); Taskfile uses the dev <code>gitbash</code> service and <code>go run</code>; <code>compile</code> is not in the prod image</td><td><code>Taskfile.yml:1359</code>, <code>api/Dockerfile:23-29</code></td></tr>
+    <tr><td>Cross-references: TLS cert &ldquo;(&sect;6)&rdquo;, pre-provision SSO &ldquo;(&sect;8)&rdquo;</td><td>They point at TLS (&sect;8) and first admin (&sect;6c) respectively</td><td>runbook structure</td></tr>
+    <tr><td>(missing) first login may be refused</td><td><code>local_auth_enabled</code> is seeded <code>false</code>; only break-glass accounts may use a password</td><td><code>migrations/0024_create_auth_schema.sql:105</code>, <code>api/internal/auth/login.go:76-90</code></td></tr>
+  </table></div>
+
+  <h3>10.3 Recipes</h3>
+  <p>Copy-ready, all using <code>PC="docker compose -f docker-compose.prod.yml"</code>. A lock means your persona cannot run it.</p>
+  <div class="widget" id="w20">
+    <div class="w-head"><span class="eyebrow">Cheat sheet</span><h4>Command recipes</h4></div>
+    <div class="w-body" id="r-l"></div>
+  </div>
+
+  <h3>10.4 Quick reference</h3>
+  <h4>Appendix &mdash; command quick reference</h4>
+  <pre class="code">PC="docker compose -f docker-compose.prod.yml"
+
+$PC build                                   # build images
+$PC up -d postgres pgbouncer rustfs bootstrap   # data tier
+$PC exec -T bootstrap bash /workspace/migrations/apply.sh   # migrate
+$PC exec -e AUTHADMIN_PASSWORD='…' api authadmin create --email … --name "…"   # first admin
+$PC up -d                                   # app tier + workers + nginx
+$PC up -d --scale api=6 --scale exportworker=3   # scale
+$PC logs -f api                             # tail an api replica
+$PC exec api authadmin list                 # list accounts
+$PC down                                     # stop (keeps volumes)</pre>
+  <div class="callout">Data tier first. Migrate before any replica connects. Secrets that never reach the container are not secrets you configured.</div>
+  <h4 style="margin-top:26px">Check yourself</h4>
+  <div id="qz"></div>
+</section>
+</div>
+
+<footer style="max-width:1040px;margin:0 auto;padding:0 20px 60px"><p class="muted" style="font-size:13px">VoltEdge &middot; Production Setup Runbook &mdash; interactive edition. Every widget runs on numbers and rules lifted from this repository (the compose files, <code>nginx.conf</code>, <code>migrations/</code> and <code>apply.sh</code>, <code>Taskfile.yml</code>, <code>api/internal/auth</code>, <code>ratelimit</code>, <code>export</code>) and runs entirely in your browser; nothing here talks to a server. Where an assumption was unavoidable (connections per replica, throughput) it is labelled. The compose file itself carries an honesty note: it was authored statically and not run in the authoring environment; rehearse it on staging.</p></footer>
+
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+function seg(sel,cb){ const el=$(sel); el.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b||b.disabled) return; el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); cb(b)}); }
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nf=(x,d=0)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const pill=(t,c)=>`<span class="pill ${c||''}">${t}</span>`;
+function store(k,v){ try{ if(v===undefined) return JSON.parse(localStorage.getItem('pr_'+k)); localStorage.setItem('pr_'+k,JSON.stringify(v)); }catch(e){ return null } }
+/* ---------- personas: operator roles (a modelling device, not product RBAC) ---------- */
+const PK={env:'edit secrets / .env',build:'build images and the SPA',mig:'apply migrations / seeds',acct:'create or change accounts',scale:'scale or restart services',bkp:'take backups',rst:'restore data',read:'read logs, status and health'};
+const PERSONAS=[['admin','Priya · Platform admin',{env:1,build:1,mig:1,acct:1,scale:1,bkp:1,rst:1,read:1}],['oncall','Omar · On-call',{scale:1,bkp:1,read:1}],['dev','Dev · Developer',{build:1,mig:1,read:1}],['audit','Alma · Auditor',{read:1}]];
+let PERSONA=PERSONAS[0]; const personaL=[];
+const can=p=>!!PERSONA[2][p];
+const who=()=>PERSONA[1].split(' · ')[0];
+const lockMsg=p=>`${who()} cannot ${PK[p]} \u2014 switch persona with the \u201cAs\u201d selector (needs ${PK[p]}).`;
+const lockTip=p=>`<span class="gate locked" title="${esc(lockMsg(p))}">needs: ${PK[p]}</span>`;
+const gateTip=p=>`<span class="gate" title="needs: ${PK[p]}">\u{1F512} ${PK[p]}</span>`;
+function onPersona(fn){ personaL.push(fn); fn(); }
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=PERSONAS.map(p=>`<option value="${p[0]}">${p[1]}</option>`).join(''); sel.onchange=()=>{ PERSONA=PERSONAS.find(p=>p[0]===sel.value); personaL.forEach(f=>f()); }; })();
+/* gate a button: disables + tooltip when persona lacks the permission */
+function gateBtn(btn,perm){ const on=can(perm); btn.disabled=!on; btn.title=on?'':lockMsg(perm); }
+/* ---------- real data lifted from the repo ---------- */
+const MIG=[["0001_create_ops_schema.sql","create the 'ops' schema -- home for VoltEdge's own operational"],["0002_create_migration_log.sql","manual migration history. Every file under /migrations gets one"],["0003_create_metadata_schema.sql","reserve the 'metadata' schema for Phase 1 -- feature_classes,"],["0004_create_domains.sql","domains and domain_values -- the coded-value and range"],["0005_create_field_groups.sql","field_groups -- the small, reusable set of attribute"],["0006_create_metadata_versions.sql","metadata_versions -- publish history for the schema compiler"],["0007_create_feature_classes.sql","feature_classes -- the root of the metadata core. Every other"],["0008_create_subtypes_and_fields.sql","subtypes, fields, and subtype_field_rules -- the shape of a"],["0009_create_terminals.sql","terminals -- named connection points on a junction feature"],["0010_create_relationship_classes.sql","relationship_classes -- the metadata definition of a"],["0011_create_network_rules.sql","network_rules -- which feature-class/subtype/terminal pairs"],["0012_create_symbology_rules.sql","symbology_rules -- resolves a feature to a style. Martin never"],["0013_create_snapping_rules.sql","snapping_rules -- what a feature class is allowed to snap to"],["0014_create_trace_configurations.sql","trace_configurations and trace_barrier_rules -- named,"],["0015_create_gis_schema.sql","reserve the 'gis' schema -- where the schema compiler creates"],["0016_create_runtime_schema.sql","reserve the 'runtime' schema and create"],["0017_create_feature_relationships.sql","runtime.feature_relationships -- the established-instance"],["0018_add_trace_target_class.sql","add an optional target feature class to trace_configurations,"],["0019_create_diagram_tables.sql","runtime.diagram_instances and runtime.diagram_placements --"],["0020_add_domain_range_bounds.sql","give a range domain (metadata.domains.domain_type = 'range')"],["0021_create_material_specs.sql","material_specs -- a catalog of real physical/electrical"],["0022_add_material_thermal_properties.sql","four new nullable columns on metadata.material_specs"],["0023_create_symbology_icons.sql","symbology_icons -- the actual SVG markup behind a symbology"],["0024_create_auth_schema.sql","create the 'iam' schema and Phase 10 Slice A's identity,"],["0025_create_rbac.sql","Phase 10 Slice C RBAC -- the permission catalog, the roles that"],["0026_add_actor_audit_columns.sql","Phase 10 Slice E -- give every compiled feature table the"],["0027_create_territories.sql","Phase 11 Slice A -- introduce a hierarchical territory model."],["0028_add_feature_territory_column.sql","Phase 11 Slice C -- give every already-compiled feature table"],["0029_seed_territory_enforcement_flag.sql","Phase 11 Slice D -- seed the runtime toggle that gates the"],["0030_seed_territory_boundaries.sql","Phase 11 Slice E -- seed a starter territory tree WITH boundaries"],["0031_seed_territories_write_permission.sql","Phase 11 Slice F -- add the `territories:write` permission that"],["0032_add_diagram_placeable_flag.sql","is_diagram_placeable marks feature classes whose features may be"],["0033_add_diagram_placement_path.sql","a line feature placed on a diagram (Phase 12 map-pick placement,"],["0034_create_cim_mapping.sql","the metadata-driven mapping that drives CIM/XML export"],["0035_add_phase_transform.sql","extend the metadata.cim_attribute_mappings.transform vocabulary with"],["0036_create_export_jobs.sql","create ops.export_jobs -- the async export queue behind Phase 17"],["0037_create_api_tokens.sql","create iam.api_tokens -- opaque, revocable, per-user bearer"],["0038_add_tile_functions.sql","stop soft-deleted features (deleted_at set) from reappearing on the"],["0039_create_field_packs.sql","create ops.field_packs -- the async build queue for the Phase 21"],["0040_field_packs_admin.sql","Phase 21 pack management -- let an administrator delete or disable"],["0041_create_attachments.sql","Phase 22 Slice 1 -- the attachments foundation. A feature of any class"],["0042_field_packs_attachment_count.sql","Phase 22 Slice 6 -- record how many image attachments a field pack"],["0043_create_sync_inbox.sql","create ops.sync_inbox -- the durable landing zone that decouples"],["0044_sync_review.sql","Phase 23 Slice 3 -- turn on the \"system-of-record / QA\" personality of"],["0045_sync_conflict.sql","Phase 23 Slice 4 -- turn today's silent last-writer-wins into explicit,"],["0046_create_diagram_elements.sql","runtime.diagram_elements -- the non-feature-backed sibling of"],["0047_add_symbol_element_kind.sql","extend runtime.diagram_elements.kind (migration 0046) with a new"],["0048_create_diagram_stencils.sql","metadata.diagram_stencils -- the palette catalog behind the Phase"],["0049_create_diagram_templates.sql","runtime.diagram_templates -- a small library of reusable diagram"],["0050_add_bus_tap_element_kinds.sql","extend runtime.diagram_elements.kind (migrations 0046 + 0047) with"],["0051_add_stencil_promote_class.sql","promote_class turns a diagram stencil from pure decoration into a"],["0052_add_geometry_optional_flag.sql","geometry_optional lets a point/line/polygon feature class hold"],["0053_add_diagram_geometry_type.sql","diagram_geometry_type lets a feature class be drawn as a"],["0054_add_diagram_placement_label_hidden.sql","let a single feature's label be hidden on a diagram without"],["0055_add_feature_class_label_def.sql",""],["0056_add_diagram_placement_label_transform.sql",""],["0057_create_feature_external_links.sql","runtime.feature_external_links -- outbound links from a"],["0058_create_external_systems.sql","metadata.external_systems -- the admin-managed catalog of"],["0059_feature_external_links_api.sql","give runtime.feature_external_links the two columns a"],["0060_add_material_cost.sql","two nullable cost columns on metadata.material_specs"],["0060_create_map_annotations.sql","runtime.map_annotations -- the geographic sibling of"],["0061_seed_map_annotation_permissions.sql","Phase 36 Slice 2 -- the annotations:read / annotations:write"],["0062_create_circuits.sql","Phase 37 Slice 1 -- the circuits catalog. A circuit is a named,"],["0063_seed_circuits_write_permission.sql","Phase 37 Slice 1 -- add the `circuits:write` permission that gates"],["0064_add_feature_class_network.sql","Phase 37 Slice 2 -- give a feature class a nominal voltage"],["0065_create_domain_transitions.sql","Phase 38 Slice 2 -- a coded domain's optional state machine. One row"],["0066_seed_map_default_view.sql","Phase 39 -- seed the admin-configurable default map view (the"],["0067_create_feature_history.sql","Phase 41 -- an append-only audit trail of every change to every"],["0068_create_diagram_placement_rules.sql","Phase 9 metering cleanup -- an optional per-(container class \u00d7"],["0069_add_trace_scope_to_circuit.sql","Phase 37 -- give a trace_configurations row an optional"],["0070_add_tertiary_terminal_role.sql","widen metadata.terminals.role to admit 'tertiary'. Until now a"],["0071_add_material_zero_seq.sql","two nullable zero-sequence impedance columns on"],["0072_create_panel_templates.sql","Phase 42 Slice 2 -- the metadata behind \"place one indoor switchgear"],["0073_create_rmu_templates.sql","Phase RMU Slice 2 -- the metadata behind \"place one Ring Main Unit"],["0074_add_feature_class_category.sql","give a feature class an admin-defined **category** -- a free"],["0075_widen_relationship_kind_protection.sql","widen metadata.relationship_classes.kind's CHECK to admit the two"],["0076_create_protection_curves.sql","the tabulated time-current curve (TCC) catalog the coordination"],["0077_create_basemaps.sql","admin-managed map basemaps. Before this, the set of basemaps the"],["0078_add_diagrams_delete_permission.sql","split \"delete an entire diagram\" out of diagrams:write into its own"],["0079_create_feature_gps_captures.sql","Phase gnss-quality Slice 3 -- an append-only record of the GNSS"],["0080_widen_relationship_kind_metering.sql","widen metadata.relationship_classes.kind's CHECK to admit the"],["0081_seed_google_hybrid_basemap.sql","add Google Hybrid (satellite imagery + street/label overlay) to the"],["0082_widen_relationship_kind_cable_routing.sql","widen metadata.relationship_classes.kind's CHECK to admit the"],["0083_widen_relationship_kind_panel_bay.sql","widen metadata.relationship_classes.kind's CHECK to admit the"],["0084_add_control_element_kind.sql","extend runtime.diagram_elements.kind (migrations 0046 + 0047 + 0050)"],["0085_rename_substation_yard_to_substation.sql","Phase 47 Slice 2 (docs/phase-47-substation-site-model.md) -- rename the"],["0086_remove_voltage_level_tier.sql","Phase 47 minimal-model correction (docs/phase-47-substation-site-model.md)"],["0087_create_oms.sql","Phase 49 Slice 1a -- the Outage Management System (OMS) operational"],["0088_seed_oms_permissions.sql","Phase 49 Slice 1c -- the oms:read / oms:write capability pair that"],["0089_oms_planned_switching.sql","Phase 49 Slice 3 -- planned outages + switching orders."],["0090_feature_class_display_zoom.sql","per-feature-class map display-zoom band -- let a class declare a"],["0091_feature_class_functional_role.sql","declare each feature class's ELECTRICAL FUNCTION -- what it does in"],["0092_create_packaged_substation_templates.sql","Phase 56 -- the metadata behind \"place one packaged substation and"],["0093_create_assembly_templates.sql","Phase 57 -- the metadata behind a GENERAL \"place one anchor feature and"],["0094_create_user_territories.sql","Phase 58 Slice 1 -- the two links spatial access control needs that"],["0095_territory_id_indexes.sql","give every already-compiled geometric feature table a btree index on"],["0096_create_wam.sql","Phase 59 Slice 1 -- the Work & Asset Management (WAM) operational"],["0097_seed_wam_permissions.sql","Phase 59 Slice 1 -- the wam:read / wam:write capability pair that"],["0098_create_wam_inspections.sql","Phase 59 Slice 2 -- inspection templates & execution, layered on the"],["0099_seed_field_roles.sql","Phase 59 -- seed three system roles for field staff, so a person"],["0100_work_order_assignee.sql","Phase 59 -- make work-order assignees real people. Until now"],["0101_wam_orphan_defect.sql","Phase 59 -- allow an \"orphan\" defect: one a field worker raises against"],["0102_create_import_engine.sql","the admin ETL / import engine (docs/etl-import-engine.md). Admins"],["0103_import_geopackage.sql","v2 of the ETL import engine (docs/etl-import-engine.md) -- the first"],["0104_import_spatialite.sql","v2-S2 of the ETL import engine (docs/etl-import-engine.md) -- add"],["0105_import_postgis.sql","v2-S3 of the ETL import engine (docs/etl-import-engine.md) -- the"],["0106_create_faults.sql","the Faults module -- a first-class record of an ELECTRICAL FAULT"],["0107_seed_faults_permissions.sql","the faults:read / faults:write capability pair that gates the Faults"],["0108_create_feature_registry.sql","a single cross-class index of every feature row -- one"],["0109_create_fault_event_history.sql","an append-only audit trail for the Faults module -- one immutable row"],["0110_grant_field_technician_faults.sql","extend the field-technician role with the faults:read / faults:write"],["0111_widen_sync_inbox_kind_wam_faults.sql","widen ops.sync_inbox's kind CHECK to admit the WAM and faults offline"],["0112_create_feature_pending_edits.sql","Private drafts, Phase B -- the staging table that holds a scoped"],["0113_create_service_layers.sql","iam.service_layers -- the admin-managed catalog of external/3rd-party"],["0114_create_asset_tags.sql","the asset-tagging module's store. Every feature gets a short,"],["0115_seed_asset_tag_permissions.sql","the tags:read / tags:write capability pair that gates the asset-tag"],["0116_seed_features_wipe_permission.sql","the features:wipe capability that gates the bulk class-wipe API"],["0117_add_material_line_geometry.sql","conductor LINE GEOMETRY columns on metadata.material_specs"],["0118_feature_registry_draft_columns.sql","let the cross-class feature registry (0108) enforce the Phase-61"],["0119_interruptions_feature_class.sql",""],["0120_create_cim_reference_dictionary.sql","a machine-readable REFERENCE dictionary of the CIM vocabulary, so the"],["0121_widen_relationship_kind_metering_accounting.sql","widen metadata.relationship_classes.kind's CHECK to admit the"],["0122_diagram_instance_source_template.sql","let an auto-generated assembly single-line remember the template it"],["0123_rmu_template_cable.sql","let an RMU fan-out template define the EXTERNAL cable conductor each"],["0124_create_webhook_ingestion.sql","inbound webhook ingestion -- external systems push (or VoltEdge pulls) feature/reading/wor"],["0125_create_webhook_entity_refs.sql","extend inbound webhook ingestion (0124) beyond the feature target to"],["0126_feature_class_trace_tier.sql","declare each feature class's NETWORK TIER -- its rank in the vertical"],["0127_create_cost_rates_and_currencies.sql","the catalog backbone for the Bill of Quantities (BoQ) engine -- a"],["0128_create_feature_cost_overrides.sql","the \"(+ overrides)\" half of the BoQ's central-catalog-plus-overrides"],["0129_feature_class_boundary_role.sql","declare each feature class's NETWORK-SECTIONING function -- what kind"],["0130_circuit_members_synced_at.sql","give a circuit (a feeder / subnetwork, migration 0062) a FRESHNESS"],["0131_create_field_pack_cells.sql","shared, pre-built field packs (docs/shared-field-packs-design.md)."],["0132_create_field_pack_downloads.sql","the shared-pack download LEDGER (docs/shared-field-packs-design.md)."],["0133_create_webhook_outbound_events.sql","the OUTBOX for the outbound event emitter (docs/outbound-webhooks-design.md,"],["0134_create_webhook_outbound_deliveries.sql","Slice 2 of the outbound event emitter (docs/outbound-webhooks-design.md)."]];
+const SEEDS=[["seed-pole","seed-tower","seed-tower-relationship","seed-connectivity","psql:trace_configurations_example.sql","seed-loop-check","seed-relationships","seed-substation-yard","seed-structure","seed-bay","seed-bay-containment","seed-substation-panel","seed-substation-panel-containment","seed-substation-panel-symbology","seed-control-building","seed-mv-switchgear-panels","seed-mv-switchgear-panel-templates","seed-circuit-ref","seed-circuit-ref-derived","seed-circuit-membership","seed-operational-state","seed-operational-state-backfill","seed-operational-state-transitions","seed-operational-state-barriers","seed-snapping","seed-phase-model","seed-lv-conductors","seed-service-point","seed-service-point-load-priority","seed-lv-devices","seed-lv-metering","seed-lv-unmetered-ct","seed-load-flow-fields","seed-transformer-fields","seed-power-transformer","seed-earthing-transformer","seed-mv-conductor-specs","seed-material-line-geometry","seed-zero-seq-fields","seed-cim-mapping","seed-cim-mapping-coverage","seed-double-busbar","seed-substation-templates","seed-mv-switching","seed-bus-coupler-fields","seed-switch-normal-state","seed-rmu","seed-rmu-templates","seed-packaged-substation","seed-packaged-substation-templates","seed-overhead-pole-transformer","seed-pad-mount-urd","seed-lv-pillar","seed-lv-pillar-templates","seed-rmu-diagram-placement","seed-feature-class-categories","seed-mv-protection","seed-mv-lv-switch","seed-mv-lv-switch-parity","seed-mv-recloser","seed-pole-mount-recloser","seed-mv-capacitor-bank","seed-pole-mount-capacitor-bank","seed-mv-voltage-regulator","seed-pole-mount-voltage-regulator","seed-mv-bess","seed-pole-mount-bess","seed-trace-barrier-resync","seed-mv-measuring","seed-mv-metering","seed-mv-metering-cubicle","seed-mv-metering-symbology","seed-network-meter","seed-generator","seed-generator-pv-fields","seed-arc-flash-geometry-fields","seed-functional-roles","seed-trace-tiers","seed-display-zoom-13","seed-cable-management","seed-cable-management-symbology","seed-cable-joint","seed-cable-joint-symbology","seed-cable-routing","seed-duct-way","psql:protective_relay_example.sql","psql:diagram_example.sql","seed-mv-relay","seed-protection-curves","seed-pnc-control-devices","seed-ev-charging","seed-mv-busbar","seed-lvac-auxiliary","seed-oltc-tap-changer","seed-mv-symbology","seed-stencils-extra","seed-mv-conductor-diagram-promote","seed-mv-busbar-voltage-symbology","seed-mv-cim-mapping","seed-assembly-diagram-templates"],["compile-all"],["seed-service-point-load-priority-backfill","seed-test-network","seed-generator-network","seed-lv-ring-network","seed-nodal-multi-source","seed-substation-network","seed-oms","seed-oms-planned","seed-protection-network","seed-coupler-network","seed-double-busbar-network","seed-double-busbar-diagram","seed-pnc-devices-network"]];
+const SVC={
+ nginx:{t:'nginx',img:'nginx:1.27-alpine',cn:'voltedge-nginx',ports:['${WEB_PORT:-3710}:80'],dep:['api (service_started)'],hc:null,vols:['./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro','./web/dist:/usr/share/nginx/html:ro'],rep:null,role:'Front door: serves the SPA, proxies /api and /tiles round-robin to every api replica.'},
+ api:{t:'api',img:'build api/Dockerfile (command: server)',cn:null,ports:[],dep:['pgbouncer (service_started)','rustfs (service_started)'],hc:{i:10,to:5,r:3,sp:20,cmd:'wget -qO- http://127.0.0.1:8080/healthz || exit 1'},rep:'API_REPLICAS (default 3)',env:['DATABASE_URL (via pgbouncer)','PORT=8080','RUSTFS_ENDPOINT, RUSTFS_PUBLIC_ENDPOINT, RUSTFS_BUCKET, RUSTFS_ACCESS_KEY, RUSTFS_SECRET_KEY'],role:'Stateless Go API. No host port: reachable only through nginx.'},
+ exportworker:{t:'exportworker',img:'build api/Dockerfile (command: exportworker)',cn:null,ports:[],dep:['pgbouncer (service_started)'],hc:null,rep:'EXPORTWORKER_REPLICAS (default 1)',env:['DATABASE_URL','RUSTFS_* (endpoint, bucket, keys)','EXPORT_WORKER_CONCURRENCY=2','EXPORT_JOB_LEASE=60s'],role:'Drains the export job queue (SKIP LOCKED).'},
+ webhookworker:{t:'webhookworker',img:'build api/Dockerfile (command: webhookworker)',cn:null,ports:[],dep:['pgbouncer (service_started)'],hc:null,rep:'WEBHOOKWORKER_REPLICAS (default 1)',env:['DATABASE_URL'],role:'Applies queued inbound webhooks.'},
+ importworker:{t:'importworker',img:'build api/Dockerfile (command: importworker)',cn:null,ports:[],dep:['pgbouncer (service_started)'],hc:null,rep:'IMPORTWORKER_REPLICAS (default 1)',env:['DATABASE_URL','RUSTFS_* (endpoint, bucket, keys)'],role:'ETL import jobs.'},
+ mcpserver:{t:'mcpserver',img:'build api/Dockerfile (command: mcpserver)',cn:'voltedge-mcpserver',ports:['${MCP_PORT:-3705}:8090'],dep:['pgbouncer (service_started)'],hc:null,rep:null,env:['DATABASE_URL','MCP_PORT=8090'],role:'MCP tool API for AI agents; bearer-token surface (authadmin mint-token).'},
+ fieldsync:{t:'fieldsync',img:'build api/Dockerfile.fieldsync (command: fieldsync)',cn:'voltedge-fieldsync',ports:['${FIELDSYNC_PORT:-3706}:8091'],dep:['pgbouncer (service_started)'],hc:null,rep:null,env:['DATABASE_URL','FIELDSYNC_PORT=8091','RUSTFS_* incl. RUSTFS_PUBLIC_ENDPOINT','FIELDSYNC_WORKER_CONCURRENCY=2','FIELDSYNC_JOB_LEASE=60s','SYNC_WORKER_CONCURRENCY=2','SYNC_JOB_LEASE=60s'],role:'Field-tool engine: pack builder (tippecanoe), sync-apply worker, device HTTP receiver.'},
+ pgbouncer:{t:'pgbouncer',img:'edoburu/pgbouncer:latest',cn:'voltedge-pgbouncer',ports:[],dep:['postgres (service_healthy)'],hc:{i:5,to:5,r:10,sp:0,cmd:'pg_isready -h 127.0.0.1 -p 5432 -U postgres || exit 1'},rep:null,env:['POOL_MODE=transaction','AUTH_TYPE=plain','MAX_CLIENT_CONN=${PGBOUNCER_MAX_CLIENT_CONN:-1000}','DEFAULT_POOL_SIZE=${PGBOUNCER_POOL_SIZE:-25}','MIN_POOL_SIZE=5','RESERVE_POOL_SIZE=5'],role:'Transaction pooler between the app tier and Postgres.'},
+ postgres:{t:'postgres',img:'supabase/postgres:15.8.1.049',cn:'voltedge-postgres',ports:['${POSTGRES_PORT:-3700}:5432'],dep:[],hc:{i:5,to:5,r:10,sp:0,cmd:'pg_isready -U postgres'},vols:['postgres_data:/var/lib/postgresql/data'],rep:null,env:['wal_level=replica','max_wal_senders=10','max_replication_slots=10','max_connections=200'],role:'PostGIS database. The only stateful tier besides rustfs.'},
+ rustfs:{t:'rustfs',img:'rustfs/rustfs:latest',cn:'voltedge-rustfs',ports:['${RUSTFS_S3_PORT:-3702}:9000','${RUSTFS_CONSOLE_PORT:-3703}:9001'],dep:[],hc:null,vols:['rustfs_data:/data'],rep:null,env:['RUSTFS_CONSOLE_ENABLE=true','RUSTFS_CORS_ALLOWED_ORIGINS=${RUSTFS_CORS_ORIGINS:-*}'],role:'S3-compatible object storage: attachments, exports, field packs.'},
+ martin:{t:'martin',img:'ghcr.io/maplibre/martin:latest',cn:'voltedge-martin',ports:['${MARTIN_PORT:-3701}:3000'],dep:['postgres (service_healthy)'],hc:null,rep:null,env:['DATABASE_URL (direct to postgres, not the pooler)'],role:'Legacy tile server; superseded as the map origin by the API MVT path.'},
+ bootstrap:{t:'bootstrap',img:'build infra/gitbash (alpine: bash, git, curl, psql 15 client)',cn:'voltedge-bootstrap',ports:[],dep:['postgres (service_healthy)'],hc:null,vols:['.:/workspace'],rep:null,restart:'no',env:['DATABASE_URL (direct to postgres:5432)','command: sleep infinity'],role:'Maintenance sidecar: migrations and any psql. Does nothing until you exec into it.'}
+};
+/* ===== W1: service explorer (diagram + facts from docker-compose.prod.yml) ===== */
+(function(){
+  const P={browser:[10,172,92,40,'Browser',''],nginx:[140,172,100,40],api:[290,34,120,38],exportworker:[290,84,120,38],webhookworker:[290,134,120,38],importworker:[290,184,120,38],mcpserver:[290,234,120,38],fieldsync:[290,284,120,38],pgbouncer:[470,110,110,40],postgres:[630,110,110,40],rustfs:[630,250,110,40],martin:[470,214,110,36],bootstrap:[470,310,110,36]};
+  const E=[['browser','nginx'],['nginx','api'],['api','pgbouncer'],['exportworker','pgbouncer'],['webhookworker','pgbouncer'],['importworker','pgbouncer'],['mcpserver','pgbouncer'],['fieldsync','pgbouncer'],['pgbouncer','postgres'],['api','rustfs'],['exportworker','rustfs'],['importworker','rustfs'],['fieldsync','rustfs'],['martin','postgres'],['bootstrap','postgres']];
+  const cx=n=>P[n][0]+P[n][2]/2, cy=n=>P[n][1]+P[n][3]/2;
+  let mode='arch', cur='api';
+  const scalable=k=>{ const s=SVC[k]; return !s.cn && !(s.ports&&s.ports.length) && !!s.rep; };
+  $('#w1-b').innerHTML=[['arch','Architecture'],['ports','Published host ports'],['scale','Can I --scale it?']].map((m,i)=>`<button data-m="${m[0]}" aria-pressed="${i===0}">${m[1]}</button>`).join('');
+  function paint(){
+    let s=`<defs><marker id="ar1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--muted)"/></marker></defs>`;
+    s+=`<text x="470" y="96" font-size="11" fill="var(--muted)">data tier</text><rect x="455" y="100" width="300" height="60" rx="8" fill="none" stroke="var(--line)" stroke-dasharray="4 3"/>`;
+    E.forEach(e=>{ const direct=(e[0]==='martin'||e[0]==='bootstrap'); s+=`<line x1="${cx(e[0])}" y1="${cy(e[0])}" x2="${cx(e[1])}" y2="${cy(e[1])}" stroke="${direct?'var(--amber)':'var(--line)'}" stroke-width="1.6" ${direct?'stroke-dasharray="5 3"':''} marker-end="url(#ar1)"/>`; });
+    Object.keys(P).forEach(k=>{ const p=P[k]; const sv=SVC[k]; let stroke='var(--s8)', fill='var(--raise)', sw=1.5, sub='';
+      if(sv){ const pub=sv.ports&&sv.ports.length; stroke=pub?'var(--s1)':'var(--s0)';
+        if(mode==='ports'){ stroke=pub?'var(--red)':'var(--green)'; fill=pub?'var(--red-tint)':'var(--green-tint)'; sub=pub?sv.ports.map(x=>x.replace(/\$\{(\w+):-(\d+)\}/,'$2')).join(' '):'no host port'; }
+        if(mode==='scale'){ const ok=scalable(k); const rep=!!sv.rep; stroke=ok?'var(--green)':'var(--red)'; fill=ok?'var(--green-tint)':(rep?'var(--red-tint)':'var(--raise)'); sub=ok?'scalable':(sv.cn&&sv.ports&&sv.ports.length?'name + port block':sv.cn?'container_name':'singleton'); }
+        if(k===cur) sw=3.2; }
+      s+=`<g class="nd" data-n="${k}" style="cursor:${sv?'pointer':'default'}"><rect x="${p[0]}" y="${p[1]}" width="${p[2]}" height="${p[3]}" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/><text x="${p[0]+p[2]/2}" y="${p[1]+p[3]/2+(sub?-2:4)}" text-anchor="middle" font-size="12.5" font-weight="700" style="fill:var(--ink)">${k==='browser'?'Browser':k}${k==='api'?' ×N':''}</text>${sub?`<text x="${p[0]+p[2]/2}" y="${p[1]+p[3]/2+11}" text-anchor="middle" font-size="9.5" style="fill:var(--muted)">${sub}</text>`:''}</g>`; });
+    s+=`<text x="470" y="372" font-size="10.5" fill="var(--amber)">dashed = straight to Postgres (no pooler)</text>`;
+    $('#w1-svg').innerHTML=s;
+    const sv=SVC[cur]; if(!sv){ $('#w1-out').innerHTML='<p class="muted">Click a service.</p>'; return; }
+    const pubs=(sv.ports||[]).map(x=>`<code>${esc(x)}</code>`).join(' ')||'<i>none</i>';
+    const why=scalable(cur)?pill('--scale works','fresh'):pill('cannot --scale as shipped','stale');
+    const reasons=[]; if(sv.cn) reasons.push('has <code>container_name: '+sv.cn+'</code>'); if(sv.ports&&sv.ports.length) reasons.push('publishes a fixed host port'); 
+    $('#w1-out').innerHTML=`<h4 style="margin-bottom:6px">${sv.t}</h4><p style="font-size:13.5px;margin:4px 0 8px">${sv.role}</p><dl class="kv"><dt>image</dt><dd>${esc(sv.img)}</dd><dt>host ports</dt><dd>${pubs}</dd><dt>container_name</dt><dd>${sv.cn||'<i>none</i>'}</dd><dt>replicas</dt><dd>${sv.rep||'<i>1 (not a scale knob)</i>'}</dd><dt>depends_on</dt><dd>${sv.dep.length?sv.dep.join('<br>'):'<i>none</i>'}</dd><dt>healthcheck</dt><dd>${sv.hc?`every ${sv.hc.i}s, timeout ${sv.hc.to}s, ${sv.hc.r} retries${sv.hc.sp?`, start_period ${sv.hc.sp}s`:''}`:'<i>none defined</i>'}</dd><dt>restart</dt><dd>${sv.restart||'unless-stopped'}</dd>${sv.vols?`<dt>volumes</dt><dd>${sv.vols.map(esc).join('<br>')}</dd>`:''}</dl>${sv.env?`<div class="lab" style="margin-top:8px">environment / settings</div><div style="font:12px var(--f-mono)">${sv.env.map(esc).join('<br>')}</div>`:''}<p style="margin:10px 0 0;font-size:13px">${why}${reasons.length&&!scalable(cur)?' because it '+reasons.join(' and '):''}</p>`;
+  }
+  $('#w1-b').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; mode=b.dataset.m; $$('#w1-b button').forEach(x=>x.setAttribute('aria-pressed',x===b)); paint(); };
+  $('#w1-svg').onclick=e=>{ const g=e.target.closest('.nd'); if(!g||!SVC[g.dataset.n]) return; cur=g.dataset.n; paint(); };
+  paint();
+})();
+
+/* ===== W2: published-port exposure audit ===== */
+(function(){
+  const R=[['nginx','WEB_PORT','3710',80,'The one front door. Put an LB/TLS in front or publish as 80/443.',{blocked:['bad','Nobody can reach the app (unless an external LB runs on this host).'],lan:['ok','Fine behind a corporate network; add TLS before real logins.'],net:['warn','Acceptable only with TLS: the stock config listens on plain :80.']}],
+   ['postgres','POSTGRES_PORT','3700',5432,'The database superuser is reachable here with POSTGRES_PASSWORD.',{blocked:['ok','Correct: nothing outside needs it (use the bootstrap sidecar).'],lan:['warn','Admin tools only; restrict to a bastion/VPN.'],net:['bad','Never: exposes the superuser to the internet.']}],
+   ['rustfs S3','RUSTFS_S3_PORT','3702',9000,'Browsers PUT/GET presigned URLs here (when it is the public endpoint).',{blocked:['bad','Presigned URLs die in the browser unless another route reaches RustFS (see chapter 6).'],lan:['warn','Works for on-premises users only; field devices off-site cannot download packs.'],net:['warn','Required for browsers/devices; put TLS in front and set RUSTFS_PUBLIC_USE_SSL (plus the compose pass-through).']}],
+   ['rustfs console','RUSTFS_CONSOLE_PORT','3703',9001,'Admin console for the object store (RUSTFS_CONSOLE_ENABLE=true).',{blocked:['ok','Correct.'],lan:['warn','Admin only; restrict to a bastion/VPN.'],net:['bad','Never: an admin console in front of all attachments.']}],
+   ['martin','MARTIN_PORT','3701',3000,'Retained, superseded by the API tile path.',{blocked:['ok','Correct: nothing in the SPA needs it.'],lan:['warn','Unneeded surface; block it.'],net:['bad','Unneeded surface and it reads the DB directly.']}],
+   ['mcpserver','MCP_PORT','3705',8090,'Bearer-token AI/MCP endpoint.',{blocked:['ok','Fine if no AI client is used.'],lan:['ok','Reasonable for an internal agent; tokens are per user and RBAC-bound.'],net:['warn','Token-gated, but publish only behind TLS and an allow-list.']}],
+   ['fieldsync','FIELDSYNC_PORT','3706',8091,'Pack API field devices call.',{blocked:['bad','Field devices cannot sync (unless they come in over a VPN/LB).'],lan:['warn','Only on-site devices can sync.'],net:['warn','Required for remote crews; token-gated, put TLS in front.']}]];
+  const st={}; R.forEach(r=>st[r[0]]='lan');
+  function paint(){
+    const worst={bad:0,warn:0,ok:0}; 
+    const rows=R.map(r=>{ const v=r[5][st[r[0]]]; worst[v[0]]++; return `<tr><td><b>${r[0]}</b><br><span class="muted" style="font-size:12px">${r[4]}</span></td><td><code>${r[2]}→${r[3]}</code><br><span class="muted" style="font-size:11.5px">${r[1]}</span></td><td><select data-k="${esc(r[0])}" aria-label="Firewall for ${esc(r[0])}"><option value="blocked"${st[r[0]]==='blocked'?' selected':''}>blocked at the host firewall</option><option value="lan"${st[r[0]]==='lan'?' selected':''}>corporate LAN / VPN only</option><option value="net"${st[r[0]]==='net'?' selected':''}>open to the internet</option></select></td><td>${pill(v[0]==='ok'?'ok':v[0]==='warn'?'review':'fix',v[0]==='ok'?'fresh':v[0]==='warn'?'sec':'stale')} <span style="font-size:13px">${v[1]}</span></td></tr>`; }).join('');
+    $('#w2-t').innerHTML=`<tr><th>Service</th><th>host→container</th><th>Your firewall</th><th>Verdict</th></tr>`+rows;
+    $('#w2-sum').innerHTML=`<b>${worst.bad}</b> to fix · <b>${worst.warn}</b> to review · <b>${worst.ok}</b> ok. ${worst.bad?'Fix the red rows before go-live.':'No blocking exposures.'}`;
+  }
+  $('#w2-t').onchange=e=>{ const s=e.target.closest('select'); if(!s) return; st[s.dataset.k]=s.value; paint(); };
+  paint();
+})();
+
+const slider=(id,label,min,max,val,step,hint)=>`<div class="ctl"><label for="${id}">${label}<span class="v" id="${id}-v">${val}</span></label><input type="range" id="${id}" min="${min}" max="${max}" step="${step||1}" value="${val}" style="width:100%">${hint?`<div class="hint">${hint}</div>`:''}</div>`;
+/* ===== W3: PgBouncer pool budget ===== */
+(function(){
+  const C=[['w3r','API_REPLICAS',1,12,3,1,'default 3'],['w3a','Peak in-flight requests per api replica',1,200,20,1,'ASSUMPTION: each holds one client connection (the app pool is unbounded)'],['w3w','Worker replicas (export + webhook + import)',0,12,3,1,'default 1 each'],['w3c','Connections per worker',1,20,3,1,'ASSUMPTION'],['w3u','% of client connections inside a transaction at peak',5,100,60,5,'ASSUMPTION'],['w3t','Average transaction time (ms)',2,500,20,1,'ASSUMPTION'],['w3p','PGBOUNCER_POOL_SIZE (DEFAULT_POOL_SIZE)',5,120,25,1,'compose default 25'],['w3s','PGBOUNCER_RESERVE_POOL_SIZE',0,30,5,1,'compose default 5'],['w3m','PGBOUNCER_MAX_CLIENT_CONN',100,4000,1000,50,'compose default 1000'],['w3d','Direct Postgres connections (martin, bootstrap, psql)',0,60,10,1,'ASSUMPTION: they bypass the pooler']];
+  $('#w3-c').innerHTML=C.map(c=>slider(c[0],c[1],c[2],c[3],c[4],c[5],c[6])).join('');
+  const g=id=>+$('#'+id).value;
+  function paint(){
+    C.forEach(c=>$('#'+c[0]+'-v').textContent=g(c[0]));
+    const clients=g('w3r')*g('w3a')+g('w3w')*g('w3c')+6;  // +6: mcpserver + fieldsync (assumed)
+    const active=Math.round(clients*g('w3u')/100), pool=g('w3p'), res=g('w3s'), backends=pool+res;
+    const wait=Math.max(0,active-backends), overC=clients>g('w3m');
+    const maxC=200, headroom=maxC-backends-g('w3d')-3;
+    const tps=Math.floor(pool/(g('w3t')/1000)), tpsMax=Math.floor(backends/(g('w3t')/1000));
+    const wantTps=Math.round(active/(g('w3t')/1000));
+    const row=(k,v,cls)=>`<tr><td>${k}</td><td style="text-align:right"><b ${cls?`style="color:var(--${cls})"`:''}>${v}</b></td></tr>`;
+    $('#w3-o').innerHTML=`<div class="tbl"><table>${row('Client connections the app tier opens',nf(clients),overC?'red':'')}${row('PgBouncer accepts up to (MAX_CLIENT_CONN)',nf(g('w3m')))}${row('Clients inside a transaction at peak',nf(active))}${row('Real Postgres backends (pool + reserve)',backends)}${row('Clients waiting for a backend',nf(wait),wait?'amber':'green')}${row('Postgres max_connections (fixed in compose)',maxC)}${row('Headroom after pool, direct conns and 3 reserved*',headroom,headroom<0?'red':'')}${row('Sustained transactions/s at pool size',nf(tps)+' (to '+nf(tpsMax)+' with reserve)')}${row('Transactions/s the clients would like',nf(wantTps),wantTps>tpsMax?'amber':'')}</table></div>`+
+     `<div class="bar" style="margin:8px 0"><i style="width:${Math.min(100,backends/maxC*100)}%;background:var(--acc)"></i></div><div class="muted" style="font-size:12px">bar: pool+reserve as a share of max_connections</div>`+
+     [overC?`<div class="caution" style="margin:8px 0"><b>Over MAX_CLIENT_CONN.</b> PgBouncer refuses new client connections beyond ${nf(g('w3m'))}: raise it or cap in-flight requests (symptom: &ldquo;too many clients&rdquo;).</div>`:'',headroom<0?`<div class="caution" style="margin:8px 0"><b>Backends exceed Postgres.</b> pool+reserve+direct leaves ${headroom}: raise max_connections or lower the pool.</div>`:'',wait>0?`<div class="tip" style="margin:8px 0"><b>Queueing.</b> ${nf(wait)} clients wait at peak; latency grows by roughly wait/backends &times; transaction time (~${nf(Math.round(wait/backends*g('w3t')))} ms). Raise the pool only if Postgres has CPU and headroom.</div>`:`<div class="tip" style="margin:8px 0">No queueing at these numbers.</div>`].join('')+`<div class="muted" style="font-size:12px">* 3 is the stock Postgres <code>superuser_reserved_connections</code>; not set in this compose (not verified for the supabase image).</div>`;
+  }
+  $('#w3-c').oninput=paint; paint();
+})();
+
+/* ===== W4: .env builder ===== */
+(function(){
+  const DEV=['voltedge_dev','voltedge_dev_secret','voltedge','change-me-to-a-long-random-secret'];
+  const F=[['POSTGRES_PASSWORD','voltedge_dev','secret'],['RUSTFS_ACCESS_KEY','voltedge','secret'],['RUSTFS_SECRET_KEY','voltedge_dev_secret','secret'],['RUSTFS_CORS_ORIGINS','*','text'],['RUSTFS_PUBLIC_ENDPOINT','localhost:3702','text'],['RUSTFS_PUBLIC_USE_SSL','','text'],['WEB_PORT','3710','text'],['EXTERNAL_SYSTEMS_ENCRYPTION_KEY','','secret'],['AUTH_INSECURE_COOKIES','1','text'],['SESSION_IDLE_TIMEOUT','12h','text'],['SESSION_ABSOLUTE_MAX','720h','text'],['LOKI_READ_TOKEN','','secret'],['API_REPLICAS','3','text'],['PGBOUNCER_POOL_SIZE','25','text']];
+  /* where each variable lands with the SHIPPED compose: 'ok' services, or null = never passed */
+  const REACH={POSTGRES_PASSWORD:'every service via DATABASE_URL',RUSTFS_ACCESS_KEY:'rustfs, api, exportworker, importworker, fieldsync',RUSTFS_SECRET_KEY:'rustfs, api, exportworker, importworker, fieldsync',RUSTFS_CORS_ORIGINS:'rustfs',RUSTFS_PUBLIC_ENDPOINT:'api, fieldsync (not the export/import workers)',WEB_PORT:'compose port mapping (nginx)',LOKI_READ_TOKEN:'observability overlay only (compose interpolation)',API_REPLICAS:'compose deploy.replicas',PGBOUNCER_POOL_SIZE:'pgbouncer DEFAULT_POOL_SIZE'};
+  const NOPASS={RUSTFS_PUBLIC_USE_SSL:'api,fieldsync',EXTERNAL_SYSTEMS_ENCRYPTION_KEY:'api',AUTH_INSECURE_COOKIES:'api',SESSION_IDLE_TIMEOUT:'api',SESSION_ABSOLUTE_MAX:'api'};
+  const val={}; F.forEach(f=>val[f[0]]=f[1]);
+  $('#w4-f').innerHTML=F.map(f=>`<div class="ctl"><label for="e-${f[0]}" style="font-size:11px">${f[0]}</label><input type="text" id="e-${f[0]}" value="${esc(f[1])}" autocomplete="off" spellcheck="false" style="width:100%;font:12.5px var(--f-mono);padding:5px 7px"></div>`).join('')+`<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn pri" id="e-gen">Generate strong secrets</button><button class="btn" id="e-cp">Copy .env text</button></div><div id="e-lock" class="muted" style="font-size:12.5px;margin-top:6px"></div>`;
+  const rnd=n=>{ const a=new Uint8Array(n); crypto.getRandomValues(a); return a; };
+  const b64=a=>btoa(String.fromCharCode(...a));
+  const hex=a=>[...a].map(x=>x.toString(16).padStart(2,'0')).join('');
+  function bits(s){ if(!s) return 0; let pool=0; if(/[a-z]/.test(s))pool+=26; if(/[A-Z]/.test(s))pool+=26; if(/\d/.test(s))pool+=10; if(/[^A-Za-z0-9]/.test(s))pool+=20; return Math.round(s.length*Math.log2(pool||1)); }
+  const dur=/^(\d+(\.\d+)?(ns|us|µs|ms|s|m|h))+$/;
+  const durH=s=>{ let t=0; for(const m of s.matchAll(/(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)/g)) t+=+m[1]*({ns:1e-9,us:1e-6,'µs':1e-6,ms:1e-3,s:1/3600*(1/1),m:1/60,h:1}[m[2]]==null?0:({ns:1e-9/3600,us:1e-6/3600,'µs':1e-6/3600,ms:1e-3/3600,s:1/3600,m:1/60,h:1}[m[2]])); return t; };
+  let lastCheck={bad:0,warn:0,ok:0,items:[]};
+  function check(){
+    const it=[]; const add=(l,k,t)=>it.push([l,k,t]);
+    ['POSTGRES_PASSWORD','RUSTFS_ACCESS_KEY','RUSTFS_SECRET_KEY'].forEach(k=>{ const v=val[k]; if(DEV.includes(v)) add(k,'bad','is a dev default ('+v+'); it is public in the repository'); else if(!v) add(k,'bad','empty: compose falls back to the dev default'); else { const b=bits(v); add(k,b<80?'bad':b<110?'warn':'ok','~'+b+' bits by character-class estimate'+(b<110?' &mdash; use 24+ random bytes':'')); } });
+    if(val.RUSTFS_CORS_ORIGINS.trim()==='*'||!val.RUSTFS_CORS_ORIGINS.trim()) add('RUSTFS_CORS_ORIGINS','bad','<code>*</code> (the compose default) lets any web origin PUT to RustFS; set your web origin');
+    else if(!val.RUSTFS_CORS_ORIGINS.split(',').every(o=>/^https?:\/\/[^\/\s]+$/.test(o.trim()))) add('RUSTFS_CORS_ORIGINS','warn','origins should look like <code>https://gis.example.com</code> (no path, comma-separated)'); else add('RUSTFS_CORS_ORIGINS','ok','explicit origin list');
+    const pe=val.RUSTFS_PUBLIC_ENDPOINT.trim();
+    if(!pe) add('RUSTFS_PUBLIC_ENDPOINT','bad','empty: compose substitutes <code>localhost:3702</code>');
+    else if(/:\/\/|\//.test(pe)) add('RUSTFS_PUBLIC_ENDPOINT','bad','must be <b>host[:port]</b> &mdash; no scheme and no path (the S3 client takes an endpoint, not a URL)');
+    else if(/^(localhost|127\.|rustfs)/.test(pe)) add('RUSTFS_PUBLIC_ENDPOINT','bad','<code>'+esc(pe)+'</code> is not reachable from a user&rsquo;s browser; presigned URLs will fail');
+    else add('RUSTFS_PUBLIC_ENDPOINT','ok','looks like a public host');
+    if(val.RUSTFS_PUBLIC_USE_SSL.trim()==='1') add('RUSTFS_PUBLIC_USE_SSL','warn','set, but the shipped compose does not pass it to any service &mdash; add the pass-through below'); else add('RUSTFS_PUBLIC_USE_SSL','warn','unset &rarr; presigned URLs are <code>http://</code>; an https page will block them as mixed content');
+    const ek=val.EXTERNAL_SYSTEMS_ENCRYPTION_KEY.trim(); if(ek){ let ok=false,len=0; try{ len=atob(ek).length; ok=len===32; }catch(e){} add('EXTERNAL_SYSTEMS_ENCRYPTION_KEY',ok?'warn':'bad',ok?'valid base64 of 32 bytes, but not passed to the API by the shipped compose':'not valid base64 of exactly 32 bytes ('+(len||'bad base64')+') &mdash; the API fails to boot on a set-but-malformed key'); } else add('EXTERNAL_SYSTEMS_ENCRYPTION_KEY','ok','unset: credential encryption off; external systems needing auth cannot be saved');
+    const ai=val.AUTH_INSECURE_COOKIES.trim(); if(/^(1|true)$/i.test(ai)) add('AUTH_INSECURE_COOKIES','bad','dev value. If it were passed through it would drop the Secure flag. Unset it'); else add('AUTH_INSECURE_COOKIES','ok','unset/0: cookies Secure (the Go default)');
+    ['SESSION_IDLE_TIMEOUT','SESSION_ABSOLUTE_MAX'].forEach(k=>{ const v=val[k].trim(); if(v&&!dur.test(v)) add(k,'bad','<code>'+esc(v)+'</code> is not a Go duration (use <code>12h</code>, <code>720h</code>; there is no <code>d</code>) &mdash; the API silently uses the default'); else add(k,'ok',v?'valid duration':'default'); });
+    if(dur.test(val.SESSION_IDLE_TIMEOUT)&&dur.test(val.SESSION_ABSOLUTE_MAX)&&durH(val.SESSION_IDLE_TIMEOUT)>durH(val.SESSION_ABSOLUTE_MAX)) add('SESSION_*','warn','idle timeout is longer than the absolute maximum, so the absolute ceiling always wins');
+    const lt=val.LOKI_READ_TOKEN.trim(); add('LOKI_READ_TOKEN',lt?(lt.length<32?'warn':'ok'):'ok',lt?(lt.length<32?'short; use <code>openssl rand -hex 32</code> (64 chars)':'ok'):'unset: fine unless you start the observability overlay (it refuses to start)');
+    const ar=+val.API_REPLICAS; if(ar<3) add('API_REPLICAS','warn','fewer than 3 replicas: a rolling upgrade has no spare capacity'); else add('API_REPLICAS','ok',ar+' replicas');
+    if(val.WEB_PORT.trim()==='3710') add('WEB_PORT','warn','default 3710: nginx is not on 80/443 unless an external LB maps it'); else add('WEB_PORT','ok','custom');
+    const c={bad:0,warn:0,ok:0}; it.forEach(x=>c[x[1]]++); lastCheck={...c,items:it}; window.__envCheck=lastCheck; return it;
+  }
+  const mask=s=>s?s.slice(0,2)+'•'.repeat(Math.max(4,s.length-2)):'';
+  function paint(){
+    F.forEach(f=>val[f[0]]=$('#e-'+f[0]).value);
+    const it=check(); const reveal=can('env');
+    $('#e-lock').innerHTML=reveal?'':lockMsg('env')+' Values are masked below.';
+    gateBtn($('#e-gen'),'env'); gateBtn($('#e-cp'),'env');
+    const col=k=>k==='ok'?'fresh':k==='warn'?'sec':'stale';
+    const txt=F.filter(f=>val[f[0]]!=='').map(f=>f[0]+'='+(f[2]==='secret'&&!reveal?mask(val[f[0]]):val[f[0]])).join('\n');
+    const np=F.filter(f=>NOPASS[f[0]]&&val[f[0]]!=='');
+    const snip=np.length?`# docker-compose.prod.yml, under api: -> environment: (and the same ${'LOG_*'} lines for workers)\n`+np.map(f=>`      ${f[0]}: \${${f[0]}:-}`).join('\n'):'';
+    $('#w4-o').innerHTML=`<div class="kpi" style="grid-template-columns:repeat(3,1fr)"><div><b style="color:var(--red)">${lastCheck.bad}</b><span>fix</span></div><div><b style="color:var(--amber)">${lastCheck.warn}</b><span>review</span></div><div><b style="color:var(--green)">${lastCheck.ok}</b><span>ok</span></div></div>`+
+     it.map(x=>`<div style="font-size:13px;margin:4px 0">${pill(x[1]==='ok'?'ok':x[1]==='warn'?'review':'fix',col(x[1]))} <code>${x[0]}</code> ${x[2]}</div>`).join('')+
+     `<div class="lab" style="margin-top:12px">Where each variable lands (shipped compose)</div><div class="tbl"><table>${F.map(f=>`<tr><td><code>${f[0]}</code></td><td style="font-size:12.5px">${REACH[f[0]]?'&check; '+REACH[f[0]]:'<b style="color:var(--red)">&#10005; not passed to any container</b>'}</td></tr>`).join('')}</table></div>`+
+     `<div class="lab" style="margin-top:12px">Resulting .env</div><pre class="pre" style="max-height:220px;overflow:auto">${esc(txt)}</pre>`+(snip?`<div class="lab" style="margin-top:10px">Add these pass-through lines</div><pre class="pre">${esc(snip)}</pre>`:'');
+  }
+  $('#w4-f').oninput=paint;
+  $('#e-gen').onclick=()=>{ if(!can('env')) return; $('#e-POSTGRES_PASSWORD').value=b64(rnd(24)); $('#e-RUSTFS_ACCESS_KEY').value=hex(rnd(10)); $('#e-RUSTFS_SECRET_KEY').value=b64(rnd(24)); $('#e-EXTERNAL_SYSTEMS_ENCRYPTION_KEY').value=b64(rnd(32)); $('#e-LOKI_READ_TOKEN').value=hex(rnd(32)); paint(); };
+  $('#e-cp').onclick=()=>{ if(!can('env')) return; const t=F.filter(f=>val[f[0]]!=='').map(f=>f[0]+'='+val[f[0]]).join('\n'); try{ navigator.clipboard.writeText(t); $('#e-cp').textContent='Copied'; setTimeout(()=>$('#e-cp').textContent='Copy .env text',1200);}catch(e){} };
+  onPersona(paint);
+})();
+
+/* ===== W5: where does this command live? ===== */
+(function(){
+  const API='api image (api/Dockerfile)', FS='fieldsync image (api/Dockerfile.fieldsync)', BS='bootstrap sidecar (infra/gitbash)', NONE='not in any production image';
+  const C=[['server',API,'$PC up -d  (it is the api service default command)','Normally you never run it by hand.'],['exportworker',API,'$PC up -d exportworker','Service command: exportworker.'],['webhookworker',API,'$PC up -d webhookworker',''],['importworker',API,'$PC up -d importworker',''],['mcpserver',API,'$PC up -d mcpserver',''],['authadmin',API,'$PC exec -e AUTHADMIN_PASSWORD=\'…\' api authadmin <create|set-password|grant-role|revoke-role|roles|list|mint-token|list-tokens|revoke-token>','Runs with the api container\'s DATABASE_URL (through PgBouncer).'],['resetdata',API,'$PC exec -e RESETDATA_PASSWORD=\'…\' api resetdata --admin-email <e>   (add --yes to really wipe)','Without --yes it only authenticates and prints the plan. Destructive; not a backup.'],['fieldsync',FS,'$PC up -d fieldsync','Bundles tippecanoe; the api image does not.'],['migrations/apply.sh',BS,'$PC exec -T bootstrap bash /workspace/migrations/apply.sh','Needs psql + sha256sum; the sidecar has both and a direct DATABASE_URL.'],['psql / pg_dump / pg_restore',BS,'$PC exec -T bootstrap bash -c \'psql "$DATABASE_URL" -c "SELECT 1"\'','postgresql15-client matches the server major version (15). Note the single quotes: $DATABASE_URL must expand inside the container.'],['compile / uncompile / rmubackfill / cimdict',NONE,'cd api && DATABASE_URL=… go run ./cmd/compile --all   (from a dev checkout)','The cmd/ directories exist but the api Dockerfile builds only seven binaries. This is why production restores a seeded dump instead of compiling.'],['task migrate / task seed-all',NONE,'Taskfile.yml targets use the DEV compose `gitbash` service and `go run`','They assume docker-compose.yml, not docker-compose.prod.yml. Run them against a staging stack, not production.']];
+  $('#w6-s').innerHTML=C.map((c,i)=>`<option value="${i}">${esc(c[0])}</option>`).join('');
+  function paint(){ const c=C[+$('#w6-s').value]; const ok=c[1]!==NONE; $('#w6-o').innerHTML=`<div style="font-size:14px">${pill(ok?'available in production':'dev checkout only',ok?'fresh':'stale')} <b>${esc(c[1])}</b></div><pre class="pre" style="margin:8px 0">${esc(c[2])}</pre><p style="font-size:13.5px;margin:0">${esc(c[3])}</p>`; }
+  $('#w6-run').onclick=paint; $('#w6-s').onchange=paint; paint();
+})();
+
+/* ===== W6 (id w5): step order ===== */
+(function(){
+  const S=[
+   ['hostprep','Host, DNS, TLS cert ready','prerequisites'],['env','Write a hardened .env','chapter 2'],['build','Build images ($PC build)','chapter 3'],['spa','Build the SPA (web/dist)','chapter 3'],['data','Start the data tier (postgres pgbouncer rustfs bootstrap)','4.1'],['migrate','Apply migrations (apply.sh)','4.2'],['schema','Restore the seeded dump, then re-run migrations','4.3'],['admin','Create the first break-glass admin','chapter 5'],['app','Start the app tier ($PC up -d)','chapter 6'],['tls','TLS in front (LB or nginx 443)','chapter 7'],['verify','Verify (health, login, map, upload)','chapter 9']];
+  /* rules: [step, requires(before), message when violated] */
+  const R=[
+   ['build','env','Build before .env: compose substitutions are read at <code>up</code> time, but your image tags and later steps assume secrets exist; set them before anything starts.'],
+   ['data','env','The data tier would start with the dev passwords (<code>voltedge_dev</code>) baked into <code>postgres_data</code>. Changing <code>POSTGRES_PASSWORD</code> afterwards does <b>not</b> change an already-initialised volume.'],
+   ['data','build','The <code>bootstrap</code> service is <code>build:</code>-based; <code>up</code> will build it on demand, but you lose the chance to catch build errors before touching state.'],
+   ['migrate','data','<code>apply.sh</code> cannot connect: bootstrap/postgres are not running (<code>psql: could not connect</code>).'],
+   ['schema','migrate','Restoring a dump into a database with no <code>ops</code> schema is fine, but you skip the forward-migration check; run migrations first so <code>ops.migration_log</code> tells you where the dump stands.'],
+   ['admin','migrate','<code>authadmin create</code> needs <code>iam.users</code>, <code>iam.roles</code> (migrations 0024/0025). Without them it errors and no account exists.'],
+   ['admin','data','No database to write the account to.'],
+   ['app','migrate','<code>/healthz</code> only pings Postgres, so the replicas look <b>green</b> while every feature endpoint fails on missing tables. This is the worst failure mode: nothing is red.'],
+   ['app','spa','nginx bind-mounts <code>./web/dist</code>; if it is missing Docker creates an empty directory and the site serves 404 for everything.'],
+   ['app','data','<code>api</code> starts with <code>depends_on</code> only <i>started</i> (pgbouncer, rustfs); with Postgres down the replicas boot but report unhealthy.'],
+   ['schema','data','Nothing to restore into.'],
+   ['tls','app','Nothing to put TLS in front of yet (harmless, but the order check fails).'],
+   ['verify','app','Nothing to verify.'],
+   ['verify','admin','Step 3 of verification (login) needs the break-glass admin.'],
+   ['verify','tls','Login over plain HTTP: Secure cookies are dropped by the browser, so sign-in appears to succeed and the next request is anonymous.']];
+  const AFTER=[['app','schema','Restoring a dump <b>after</b> the replicas are up replaces tables under live connections (and sessions, which live in the database). Restore, then start the app.']];
+  let order=S.map(s=>s[0]), skip=new Set();
+  const name=k=>S.find(s=>s[0]===k)[1];
+  function eval_(){ const pos={}; order.forEach((k,i)=>{ if(!skip.has(k)) pos[k]=i; });
+    const out=[]; R.forEach(r=>{ if(skip.has(r[0])) return; const miss=pos[r[1]]===undefined; if(miss) out.push(['bad',r[0],`Skipped <b>${name(r[1])}</b>: ${r[2]}`]); else if(pos[r[1]]>pos[r[0]]) out.push(['bad',r[0],`<b>${name(r[0])}</b> runs before <b>${name(r[1])}</b>: ${r[2]}`]); });
+    AFTER.forEach(a=>{ if(pos[a[0]]!==undefined&&pos[a[1]]!==undefined&&pos[a[1]]>pos[a[0]]) out.push(['bad',a[1],a[2]]); });
+    if(skip.has('schema')) out.push(['warn','schema','Skipping the restore leaves an empty database: login works, but the map has no classes (nothing compiled into <code>gis.&lt;code&gt;</code>).']);
+    if(skip.has('tls')) out.push(['warn','tls','No TLS: Secure cookies cannot be stored, so nobody can stay signed in.']);
+    return out; }
+  function paint(){
+    $('#w5-l').innerHTML=order.map((k,i)=>{ const s=S.find(x=>x[0]===k); const sk=skip.has(k); return `<div class="rec" style="display:flex;gap:8px;align-items:center;${sk?'opacity:.5':''}"><b style="width:22px">${i+1}</b><span style="flex:1;${sk?'text-decoration:line-through':''}">${s[1]} <span class="muted" style="font-size:11.5px">(${s[2]})</span></span><button class="btn" data-up="${i}" aria-label="Move up" ${i===0?'disabled':''}>↑</button><button class="btn" data-dn="${i}" aria-label="Move down" ${i===order.length-1?'disabled':''}>↓</button><label class="tog" style="font-size:12px"><input type="checkbox" data-sk="${k}" ${sk?'checked':''}> skip</label></div>`; }).join('');
+    const o=eval_(); const bad=o.filter(x=>x[0]==='bad').length;
+    $('#w5-o').innerHTML=`<div class="big" style="color:var(--${bad?'red':'green'})">${bad?bad+' problem'+(bad>1?'s':''):'Clean'}</div><div class="muted" style="font-size:12.5px;margin-bottom:6px">${bad?'These would bite you:':'Every dependency is satisfied.'}</div>`+o.map(x=>`<div style="font-size:13px;margin:6px 0">${pill(x[0]==='bad'?'breaks':'caution',x[0]==='bad'?'stale':'sec')} ${x[2]}</div>`).join('');
+  }
+  $('#w5-l').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; if(b.dataset.up!==undefined){ const i=+b.dataset.up; [order[i-1],order[i]]=[order[i],order[i-1]]; } if(b.dataset.dn!==undefined){ const i=+b.dataset.dn; [order[i+1],order[i]]=[order[i],order[i+1]]; } paint(); };
+  $('#w5-l').onchange=e=>{ const c=e.target.closest('input[data-sk]'); if(!c) return; c.checked?skip.add(c.dataset.sk):skip.delete(c.dataset.sk); paint(); };
+  $('#w5-reset').onclick=()=>{ order=S.map(s=>s[0]); skip=new Set(); paint(); };
+  paint();
+})();
+
+/* ===== W7: migration runner ===== */
+(function(){
+  let state={applied:0,fail:false,failAt:60,log:[],done:null};
+  const total=MIG.length;
+  function kpis(applied,pending,msg){ $('#w7-k').innerHTML=`<div><b>${applied}</b><span>logged as applied</span></div><div><b>${pending}</b><span>pending</span></div><div><b>${total}</b><span>files in migrations/</span></div><div><b style="font-size:14px">${msg}</b><span>result</span></div>`; }
+  function idle(){ const a=+$('#w7-a').value; $('#w7-av').textContent=a; kpis(a,total-a,'not run'); $('#w7-log').textContent=state.log.length?state.log.join('\n'):'(press Run apply.sh)'; gateBtn($('#w7-run'),'mig'); }
+  $('#w7-a').oninput=()=>{ state.log=[]; idle(); };
+  $('#w7-run').onclick=()=>{ if(!can('mig')) return; const a=+$('#w7-a').value; const fail=$('#w7-f').checked, fn=+$('#w7-fn').value; const L=[]; let applied=a, res='done.'; 
+    for(let i=0;i<total;i++){ const n=MIG[i][0]; if(i<a){ L.push('skip   '+n+' (already applied)'); continue; } L.push('apply  '+n); if(fail&&i+1===fn){ L.push('psql:/workspace/migrations/'+n+': ERROR: (simulated) statement failed'); L.push('-> set -e / ON_ERROR_STOP: apply.sh exits here. '+n+' is NOT logged; any statements before the error are not rolled back.'); res='stopped at #'+fn; break; } applied++; }
+    if(res==='done.') L.push('done.');
+    const rerun=res!=='done.'; state.log=L; $('#w7-log').textContent=L.join('\n'); $('#w7-log').scrollTop=1e9; kpis(applied,total-applied,res); if(rerun) $('#w7-log').textContent+='\n\nTo recover: fix the cause, run apply.sh again. It skips the '+applied+' logged files and retries '+MIG[applied][0]+' from its first line.'; };
+  $('#w7-f').onchange=idle; 
+  $('#w7-q').oninput=()=>{ const q=$('#w7-q').value.trim().toLowerCase(); if(!q){ $('#w7-qo').textContent=''; return; } const hit=MIG.map((m,i)=>[i+1,m[0],m[1]]).filter(m=>(m[1]+' '+m[2]).toLowerCase().includes(q)); $('#w7-qo').innerHTML=hit.length+' match'+(hit.length===1?'':'es')+': '+hit.slice(0,4).map(h=>`#${h[0]} <code>${esc(h[1])}</code>`).join(', ')+(hit.length>4?' …':''); };
+  onPersona(()=>{ $('#w7-lock').innerHTML=can('mig')?'':lockTip('mig'); idle(); });
+})();
+
+/* ===== W8: seed phases & restore planner ===== */
+(function(){
+  let mode='green', dumpAt=100, cmp=true, p3first=false;
+  const [P1,P2,P3]=SEEDS;
+  function paint(){
+    const bar=$('#w8-ctl');
+    if(mode==='green'){ bar.innerHTML=`<label class="tog"><input type="checkbox" id="w8-c" ${cmp?'checked':''}> run compile-all</label> <label class="tog"><input type="checkbox" id="w8-p" ${p3first?'checked':''}> run phase 3 before phase 2</label>`; }
+    else bar.innerHTML=`<span class="lab">Dump taken after migration #</span><input type="range" id="w8-d" min="1" max="${MIG.length}" value="${dumpAt}" style="width:180px"><b>${dumpAt}</b>`;
+    let h='';
+    if(mode==='green'){
+      let verdict;
+      if(p3first) verdict=['bad',`<b>${P3[0]}</b> fails first: it UPDATEs a column that only exists after <code>compile-all</code>. Phase 3 seeds <code>INSERT/UPDATE gis.&lt;code&gt;</code> rows, so they need the physical tables.`];
+      else if(!cmp) verdict=['bad',`Phase 3 starts at <b>${P3[0]}</b> and fails: no <code>gis.&lt;code&gt;</code> tables exist. The map would also be blank (chapter 10: &ldquo;Map blank, features missing&rdquo;).`];
+      else verdict=['ok','Phase 1 loads metadata, <code>compile-all</code> materialises every registered class, phase 3 loads the network. Idempotent: safe to re-run.'];
+      h=`<div class="chainrow"><div class="fbox ${p3first?'bad':''}">Phase 1 &middot; ${P1.length} metadata seeds</div><span class="arr">&rarr;</span><div class="fbox ${cmp?'good':'bad'}">Phase 2 &middot; compile-all${cmp?'':' (skipped)'}</div><span class="arr">&rarr;</span><div class="fbox">Phase 3 &middot; ${P3.length} network seeds</div></div>`+`<div style="font-size:13.5px;margin:8px 0">${pill(verdict[0]==='ok'?'ok':'breaks',verdict[0]==='ok'?'fresh':'stale')} ${verdict[1]}</div><p class="muted" style="font-size:12.5px">${P1.length+1+P3.length} steps in all. First: <code>${P1[0]}</code>, <code>${P1[1]}</code>, &hellip; Last phase-1 step: <code>${P1[P1.length-1]}</code>. Phase 3: ${P3.map(x=>'<code>'+x+'</code>').join(', ')}. Excluded on purpose: the destructive one-off migrations (<code>collapse-rmu-*</code>, <code>migrate-dist-switch-to-mv-switch</code>).</p>`;
+    } else {
+      const fwd=MIG.length-dumpAt;
+      h=`<div class="chainrow"><div class="fbox good">pg_dump -Fc (staging)</div><span class="arr">&rarr;</span><div class="fbox">pg_restore --no-owner (prod)</div><span class="arr">&rarr;</span><div class="fbox ${fwd?'':'good'}">apply.sh (${fwd} forward)</div></div><div style="font-size:13.5px;margin:8px 0">The dump already contains <b>${dumpAt}</b> of ${MIG.length} migrations in <code>ops.migration_log</code>; <code>apply.sh</code> will skip those and apply <b>${fwd}</b>${fwd?`, starting at <code>${esc(MIG[dumpAt][0])}</code>`:''}. ${fwd?'Those must be additive and backward-compatible with whatever image you run.':'Nothing to roll forward.'}</div>${fwd>0?`<div class="muted" style="font-size:12.5px">Pending: ${MIG.slice(dumpAt,dumpAt+5).map(m=>'<code>'+esc(m[0])+'</code>').join(', ')}${fwd>5?' …':''}</div>`:''}<div class="tip" style="margin-top:10px"><b>Why not seed production by hand?</b> It is 114 sequential steps, mostly needing the Go toolchain (<code>compile-all</code>) that the production images lack. A rehearsed dump gets identical metadata every time.</div>`;
+    }
+    $('#w8-o').innerHTML=h;
+  }
+  seg('#w8-m',b=>{ mode=b.dataset.m; paint(); });
+  $('#w8-ctl').addEventListener('input',e=>{ if(e.target.id==='w8-d') dumpAt=+e.target.value; if(e.target.id==='w8-c') cmp=e.target.checked; if(e.target.id==='w8-p') p3first=e.target.checked; paint(); });
+  paint();
+})();
+
+/* ===== W9: first login ===== */
+(function(){
+  const ROLES=[['viewer','Read-only: features, connectivity, relationships, diagrams, and the metadata catalog.'],['analyst','Everything a viewer can do, plus running traces and network analysis.'],['editor','Everything an analyst can do, plus editing features, connectivity, relationships, and diagrams.'],['supervisor','Everything an editor can do, plus deleting diagrams.'],['admin','Full access, including the metadata catalog, user management, and auth settings.'],['break-glass-admin','Full access; the role given to emergency break-glass accounts.'],['field-surveyor','Read-only field capture: view features and connectivity, take photos and attachments. Cannot edit features.'],['field-enumerator','Field capture with editing: surveyor plus creating and editing features in the field.'],['field-technician','Field works: enumerator plus the work board -- defects, work orders, inspections.']];
+  const st={tab:'gate',bg:true,role:'admin',local:false,sso:false,fails:0,locked:false,log:[],cmd:'create',email:'admin@utility.com',name:'Break-glass Admin',rolearg:'editor',ttl:''};
+  function gateEval(pw){ // mirrors api/internal/auth/login.go order of checks
+    if(st.locked) return ['bad','account locked (5 consecutive failures → 15 minutes), refused regardless of the password'];
+    const allowed=st.bg||st.local;
+    if(!allowed) return ['bad','403 “local password sign-in is currently disabled; use SSO or contact an administrator” — checked BEFORE the password, so the answer never reveals whether the password was right'];
+    if(!pw) { st.fails++; if(st.fails>=5){ st.locked=true; st.fails=0; return ['bad','wrong password — failure #5: the account is now locked for 15 minutes']; } return ['bad','wrong password (failure '+st.fails+' of 5)']; }
+    st.fails=0; return ['ok','signed in'+(st.bg?' via the break-glass bypass (event: break_glass_login)':'')]; }
+  function cmdText(){ const e=st.email,n=st.name; const px='$PC exec ';
+    switch(st.cmd){
+     case 'create': return px+`-e AUTHADMIN_PASSWORD='<a-strong-password>' api authadmin create --email ${e} --name "${n}"`+(st.bg?'':' --break-glass=false')+(st.rolearg?` --role ${st.rolearg}`:' --role ""');
+     case 'set-password': return px+`-e AUTHADMIN_PASSWORD='<new-password>' api authadmin set-password --email ${e}`;
+     case 'grant-role': return px+`api authadmin grant-role --email ${e} --role ${st.rolearg}`;
+     case 'revoke-role': return px+`api authadmin revoke-role --email ${e} --role ${st.rolearg}`;
+     case 'roles': return px+'api authadmin roles';
+     case 'list': return px+'api authadmin list';
+     case 'mint-token': return px+`api authadmin mint-token --email ${e} --name "${n}"`+(st.ttl?` --ttl ${st.ttl}`:'');
+     case 'list-tokens': return px+`api authadmin list-tokens --email ${e}`;
+     default: return px+`api authadmin revoke-token --email ${e} --id <token-id>`; } }
+  const needsPw=['create','set-password'];
+  function paint(){
+    $$('#w9-t button').forEach(b=>b.setAttribute('aria-selected',b.dataset.t===st.tab));
+    let h='';
+    if(st.tab==='gate'){
+      h=`<div class="w-bar" style="padding:0 0 8px;border:0"><label class="tog"><input type="checkbox" id="g-bg" ${st.bg?'checked':''}> account is break-glass (<code>create</code> default)</label><label class="tog"><input type="checkbox" id="g-local" ${st.local?'checked':''}> <code>local_auth_enabled</code> (seeded <b>false</b>)</label></div><div class="w-bar" style="padding:0 0 8px;border:0"><button class="btn pri" id="g-ok">Sign in with the right password</button><button class="btn warn" id="g-bad">Sign in with a wrong password</button><button class="btn" id="g-reset">Reset</button></div><div class="rec">${st.log.slice(-6).map(l=>`<div style="font-size:13px">${pill(l[0]==='ok'?'ok':'refused',l[0]==='ok'?'fresh':'stale')} ${l[1]}</div>`).join('')||'<span class="muted">No attempts yet.</span>'}</div><p class="muted" style="font-size:12.5px;margin-top:8px">Mirrors <code>api/internal/auth/login.go</code>: the gate (break-glass or the switch) is checked before the password; 5 consecutive failures lock the account for 15 minutes. Behind nginx the edge limiter and the per-replica app limiter apply first (Interactive 12).</p>`;
+    } else if(st.tab==='cmd'){
+      const locked=['create','set-password','grant-role','revoke-role','mint-token','revoke-token'].includes(st.cmd)&&!can('acct');
+      h=`<div class="w-bar" style="padding:0 0 8px;border:0"><label class="lab" for="c-s">Subcommand</label><select id="c-s">${['create','set-password','grant-role','revoke-role','roles','list','mint-token','list-tokens','revoke-token'].map(x=>`<option ${x===st.cmd?'selected':''}>${x}</option>`).join('')}</select><input type="text" id="c-e" value="${esc(st.email)}" aria-label="email" style="width:190px"><input type="text" id="c-n" value="${esc(st.name)}" aria-label="name or label" style="width:170px">${['grant-role','revoke-role','create'].includes(st.cmd)?`<select id="c-r" aria-label="role">${ROLES.map(r=>`<option ${r[0]===st.rolearg?'selected':''}>${r[0]}</option>`).join('')}</select>`:''}${st.cmd==='mint-token'?`<input type="text" id="c-t" value="${esc(st.ttl)}" placeholder="--ttl e.g. 720h" style="width:120px">`:''}</div><pre class="pre" style="white-space:pre-wrap;word-break:break-all">${esc(cmdText())}</pre>${needsPw.includes(st.cmd)?'<div class="tip" style="margin:8px 0">The password is read only from <code>AUTHADMIN_PASSWORD</code>; the CLI refuses to run without it. Passing it with <code>-e</code> on the command line keeps it out of <code>.env</code> (it still lands in shell history: prefix the command with a space, or export it from a prompt).</div>':''}${locked?`<div class="caution">${lockMsg('acct')} You can still read the command.</div>`:''}<button class="btn pri" id="c-cp" ${locked?'disabled title="'+esc(lockMsg('acct'))+'"':''}>Copy command</button>`;
+    } else {
+      h=`<div class="tbl"><table><tr><th>Role key</th><th>Meaning (migration seed text)</th></tr>${ROLES.map(r=>`<tr><td><code>${r[0]}</code></td><td>${r[1]}</td></tr>`).join('')}</table></div><p class="muted" style="font-size:12.5px">Seeded by migrations 0025, 0078 and 0099. <code>authadmin create</code> assigns <code>admin</code> by default. A permission added to the catalog later is not retroactively granted to admin roles by the original seed (see migration 0078 for how that is handled).</p>`;
+    }
+    $('#w9-o').innerHTML=h;
+  }
+  $('#w9-t').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; st.tab=b.dataset.t; paint(); };
+  $('#w9-o').addEventListener('click',e=>{ const id=e.target.id; if(id==='g-ok'||id==='g-bad'){ st.log.push(gateEval(id==='g-ok')); paint(); } if(id==='g-reset'){ st.fails=0; st.locked=false; st.log=[]; paint(); } if(id==='c-cp'&&can('acct')){ try{ navigator.clipboard.writeText(cmdText()); }catch(x){} } });
+  $('#w9-o').addEventListener('change',e=>{ const id=e.target.id; if(id==='g-bg') st.bg=e.target.checked; if(id==='g-local') st.local=e.target.checked; if(id==='c-s') st.cmd=e.target.value; if(id==='c-r') st.rolearg=e.target.value; paint(); });
+  $('#w9-o').addEventListener('input',e=>{ const id=e.target.id; if(id==='c-e'){ st.email=e.target.value; $('#w9-o pre').textContent=cmdText(); } if(id==='c-n'){ st.name=e.target.value; $('#w9-o pre').textContent=cmdText(); } if(id==='c-t'){ st.ttl=e.target.value; $('#w9-o pre').textContent=cmdText(); } });
+  onPersona(paint);
+})();
+
+/* ===== W10: presign reachability ===== */
+(function(){
+  const EP=[['localhost:3702','localhost:3702 (compose default)'],['rustfs:9000','rustfs:9000 (internal name)'],['files.example.com:3702','files.example.com:3702 (published S3 port)'],['files.example.com','files.example.com (TLS in front, 443)'],['gis.example.com/s3','gis.example.com/s3 (path via nginx)']];
+  const st={ep:0,page:'https',ssl:false,cors:'match',fw:'open'};
+  $('#w10-c').innerHTML=`<div class="ctl"><label for="p-e">RUSTFS_PUBLIC_ENDPOINT</label><select id="p-e" style="width:100%">${EP.map((e,i)=>`<option value="${i}">${e[1]}</option>`).join('')}</select></div><div class="ctl"><label for="p-g">The app is opened at</label><select id="p-g" style="width:100%"><option value="https">https://gis.example.com</option><option value="http">http://gis.example.com</option></select></div><div class="ctl"><label class="tog"><input type="checkbox" id="p-s"> RUSTFS_PUBLIC_USE_SSL=1 <i>and</i> pass-through added to compose</label></div><div class="ctl"><label for="p-c">RUSTFS_CORS_ORIGINS</label><select id="p-c" style="width:100%"><option value="match">https://gis.example.com</option><option value="star">* (default)</option><option value="wrong">https://other.example.org</option></select></div><div class="ctl"><label for="p-f">Port to RustFS from the browser</label><select id="p-f" style="width:100%"><option value="open">reachable</option><option value="closed">blocked / not published</option></select></div>`;
+  function paint(){
+    const ep=EP[st.ep][0]; const res=[]; let blocked=false;
+    const add=(ok,l,t)=>{ res.push([ok,l,t]); if(ok==='bad') blocked=true; };
+    if(/\//.test(ep)) add('bad','Endpoint accepted?','The S3 client takes <b>host[:port]</b>; a path makes the client constructor fail, and the API treats that as fatal at boot (<code>export object store: &hellip;</code>) &mdash; the replicas exit. <i>(client behaviour not run here)</i>'); else add('ok','Endpoint accepted?','host[:port], no path.');
+    const hostOnly=ep.split(':')[0];
+    if(hostOnly==='localhost') add('bad','Browser can resolve it?','<code>localhost</code> is the user&rsquo;s own machine. Works only when the browser runs on the Docker host.'); else if(hostOnly==='rustfs') add('bad','Browser can resolve it?','<code>rustfs</code> exists only on the Docker network.'); else add('ok','Browser can resolve it?','a public name (assuming DNS).');
+    const url=(st.ssl?'https':'http'); 
+    if(st.page==='https'&&url==='http') add('bad','Scheme',`URLs are signed <code>http://</code> (USE_SSL off) but the page is https: the browser blocks it as mixed content.`); else if(st.page==='http'&&url==='https') add('warn','Scheme','https URLs from an http page work, but you should not be on http (chapter 7).'); else add('ok','Scheme',url+'://');
+    if(st.fw==='closed') add('bad','Network path','Port not reachable from the browser (published port 3702 blocked, no TLS front end).'); else add('ok','Network path','reachable');
+    const page='https://gis.example.com';
+    if(st.cors==='wrong') add('bad','CORS preflight','The PUT is cross-origin and preflighted; RustFS only allows <code>https://other.example.org</code>.'); else if(st.cors==='star') add('warn','CORS preflight','<code>*</code> works (the PUT carries no credentials) but is not what production should run.'); else add('ok','CORS preflight','origin allowed.');
+    add('ok','Signature','Presigned for host <code>'+esc(ep)+'</code> offline; whatever forwards the request must preserve that Host (SigV4 signs it).');
+    const ok=!blocked;
+    $('#w10-o').innerHTML=`<div class="big" style="color:var(--${ok?'green':'red'})">${ok?'Upload works':'Upload fails'}</div><pre class="pre" style="margin:8px 0">${esc(url+'://'+ep+'/voltedge-exports/<key>?X-Amz-Algorithm=AWS4-HMAC-SHA256&...')}</pre>`+res.map(r=>`<div style="font-size:13px;margin:5px 0">${pill(r[0]==='ok'?'ok':r[0]==='warn'?'review':'fails',r[0]==='ok'?'fresh':r[0]==='warn'?'sec':'stale')} <b>${r[1]}</b> ${r[2]}</div>`).join('')+`<p class="muted" style="font-size:12.5px;margin-top:8px">Symptom if broken: attachment and export links 404 or never load in the browser while the API itself looks healthy.</p>`;
+  }
+  $('#w10-c').onchange=()=>{ st.ep=+$('#p-e').value; st.page=$('#p-g').value; st.ssl=$('#p-s').checked; st.cors=$('#p-c').value; st.fw=$('#p-f').value; paint(); };
+  paint();
+})();
+
+/* ===== W11: nginx location tester ===== */
+(function(){
+  const EX=['/','/api/auth/login','/api/auth/login/','/api/features?x=1','/api','/tiles/12/1/1.pbf','/assets/app-abc.js','/assets/missing.js','/healthz','/s3/bucket/file','/api/auth/oidc/google/callback'];
+  $('#n-ex').innerHTML=EX.map(x=>`<button class="btn" data-x="${esc(x)}" style="font-size:12px">${esc(x)}</button>`).join('');
+  function route(m,raw){
+    const path=raw.split('?')[0]||'/'; const out=[];
+    let loc, why;
+    if(path==='/api/auth/login'){ loc='= /api/auth/login'; why='exact-match location wins first (query string ignored)'; }
+    else { const pre=['/api/','/tiles/','/assets/','/']; loc=pre.filter(p=>path.startsWith(p)).sort((a,b)=>b.length-a.length)[0]; why='longest matching prefix'; }
+    const r={loc,why,notes:[],up:null,limited:false};
+    if(loc==='= /api/auth/login'){ r.limited=true; r.rewritten='/'+path.replace(/^\/api\//,''); r.up='http://api:8080'+r.rewritten+(raw.includes('?')?'?'+raw.split('?')[1]:''); r.notes.push('<code>limit_req zone=login burst=10 nodelay</code> applies.'); }
+    else if(loc==='/api/'){ r.rewritten='/'+path.replace(/^\/api\//,''); r.up='http://api:8080'+r.rewritten+(raw.includes('?')?'?'+raw.split('?')[1]:''); r.notes.push('The <code>/api</code> prefix is stripped by <code>rewrite ^/api/(.*)$ /$1 break</code>.'); if(path.replace(/\/$/,'')==='/api/auth/login') r.notes.push('<b>Not</b> rate-limited at the edge: the exact-match location needs <code>/api/auth/login</code> with no trailing slash. Only the app limiter and lockout apply (whether the API routes the trailing-slash form is <i>not verified</i>).'); if(path==='/api/healthz'||false) r.notes.push('ok'); }
+    else if(loc==='/tiles/'){ r.up='http://api:8080'+raw; r.notes.push('Prefix kept: the API mounts its territory-scoped MVT router at <code>/tiles</code>.'); }
+    else if(loc==='/assets/'){ r.up='(static) /usr/share/nginx/html'+path; r.notes.push('<code>expires 1y</code>, <code>Cache-Control: public, immutable</code>, <code>try_files $uri =404</code>: a missing hashed asset is a real 404.'); }
+    else { r.up='(static) try_files $uri /index.html'; r.notes.push('Anything not a file falls back to <code>index.html</code> with <b>200</b> &mdash; the SPA owns the route.'); if(path==='/api') r.notes.push('<b>No trailing slash:</b> <code>/api</code> does not match <code>location /api/</code>, so you get the SPA, not the API.'); if(path==='/healthz') r.notes.push('<code>/healthz</code> is <b>not proxied</b>: through nginx it returns the SPA page with 200. Probe each replica directly (<code>$PC exec api wget -qO- http://127.0.0.1:8080/healthz</code>).'); if(/^\/s3\//.test(path)) r.notes.push('There is no <code>/s3/</code> location in the shipped config; this is the SPA fallback.'); if(path.startsWith('/webhooks')) r.notes.push('Inbound webhooks (<code>/webhooks</code>) are not proxied by this config either; <i>not verified</i> how they are meant to be exposed.'); }
+    return r; }
+  function paint(){ const raw=$('#n-p').value.trim()||'/'; const r=route($('#n-m').value,raw); $('#n-o').innerHTML=`<dl class="kv"><dt>location</dt><dd><b>${esc(r.loc)}</b> <span class="muted">(${r.why})</span></dd><dt>goes to</dt><dd>${esc(r.up)}</dd><dt>edge login limit</dt><dd>${r.limited?pill('applies','sec'):'no'}</dd></dl>`+r.notes.map(n=>`<div style="font-size:13px;margin:6px 0">&bull; ${n}</div>`).join(''); }
+  $('#n-go').onclick=paint; $('#n-p').onkeydown=e=>{ if(e.key==='Enter') paint(); };
+  $('#n-ex').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; $('#n-p').value=b.dataset.x; paint(); };
+  paint();
+})();
+
+/* ===== W12: login flood ===== */
+(function(){
+  const C=[['f-r','Attacker attempts per second',1,100,40,1,'wrong passwords'],['f-n','api replicas (round-robin)',1,8,3,1,'API_REPLICAS'],['f-t','Duration (s)',10,120,30,5,'']];
+  $('#w12-c').innerHTML=C.map(c=>slider(c[0],c[1],c[2],c[3],c[4],c[5],c[6])).join('')+`<div class="ctl"><label for="f-tg">Attacker targets</label><select id="f-tg" style="width:100%"><option value="one">one account: the real user&rsquo;s</option><option value="many">many different accounts</option></select></div><div class="ctl"><label for="f-ip">Client addresses nginx sees</label><select id="f-ip" style="width:100%"><option value="direct">distinct per client (direct)</option><option value="lb">one shared address (external LB in front)</option></select></div><div class="hint">The real user tries to sign in with the right password once every 5 seconds.</div>`;
+  const g=id=>+$('#'+id).value;
+  function sim(){
+    const rate=g('f-r'), R=g('f-n'), T=g('f-t'), one=$('#f-tg').value==='one', shared=$('#f-ip').value==='lb';
+    const ng={ex:{}}; // nginx excess per ip key
+    const edge=(key,t)=>{ const s=ng.ex[key]||(ng.ex[key]={e:0,t:null}); let e=s.t==null?0:Math.max(0,s.e-5*(t-s.t)+1); if(e>10) return false; s.e=e; s.t=t; return true; };
+    const app=Array.from({length:R},()=>({tok:10,t:0})); const takeApp=(i,t)=>{ const b=app[i]; b.tok=Math.min(10,b.tok+(t-b.t)*10/60); b.t=t; if(b.tok>=1){ b.tok--; return true; } return false; };
+    let rr=0, fails=0, lockedUntil=-1, lockedAt=null;
+    const A={sent:0,edge:0,app:0,reached:0}, U={sent:0,ok:0,edge:0,app:0,locked:0};
+    const ev=[]; for(let i=0;i<Math.floor(rate*T);i++) ev.push([i/rate,'a']); for(let t=2.5;t<T;t+=5) ev.push([t,'u']); ev.sort((a,b)=>a[0]-b[0]);
+    ev.forEach(([t,w])=>{ const key=(shared||w==='u'&&false)?'lb':(w==='a'?'A':'B'); const S=A,k=w==='a'?A:U; k.sent++;
+      if(!edge(shared?'lb':key,t)){ k.edge++; return; }
+      const rep=rr++%R; if(!takeApp(rep,t)){ k.app++; return; }
+      if(w==='a'){ A.reached++; if(one){ if(t<lockedUntil) return; fails++; if(fails>=5){ lockedUntil=t+900; lockedAt=lockedAt==null?t:lockedAt; fails=0; } } }
+      else { if(t<lockedUntil){ U.locked++; return; } U.ok++; fails=0; } });
+    return {A,U,lockedAt};
+  }
+  function paint(){ const r=sim(); const bar=(a,b,c)=>`<div class="bar" style="height:14px;margin:2px 0"><i style="width:${a}%;background:var(--green)"></i><i style="left:${a}%;width:${b}%;background:var(--amber)"></i><i style="left:${a+b}%;width:${c}%;background:var(--red)"></i></div>`;
+    const p=(n,t)=>t?n/t*100:0;
+    $('#w12-o').innerHTML=`<h4>Attacker (${r.A.sent} attempts)</h4>${bar(p(r.A.reached,r.A.sent),p(r.A.app,r.A.sent),p(r.A.edge,r.A.sent))}<div style="font-size:13px">reached the app <b>${r.A.reached}</b> &middot; app limiter 429 <b>${r.A.app}</b> &middot; nginx 503 <b>${r.A.edge}</b></div><h4 style="margin-top:12px">Real user (${r.U.sent} sign-ins, right password)</h4>${bar(p(r.U.ok,r.U.sent),p(r.U.app+r.U.locked,r.U.sent),p(r.U.edge,r.U.sent))}<div style="font-size:13px">signed in <b>${r.U.ok}</b> &middot; blocked by app limiter <b>${r.U.app}</b> &middot; account locked <b>${r.U.locked}</b> &middot; nginx 503 <b>${r.U.edge}</b></div>`+
+     `<div style="margin-top:12px;font-size:13.5px">${r.lockedAt!=null?pill('lockout','stale')+` The real user&rsquo;s account was locked at ~${r.lockedAt.toFixed(1)} s by five failed guesses &mdash; a lockout flood. It stays locked 15 minutes.`:pill('no lockout','fresh')+' No account was locked.'} ${r.U.edge+r.U.app>0&&r.U.ok<r.U.sent?'<br>'+pill('collateral','sec')+' Legitimate sign-ins were rejected by a limiter they share with the attacker'+($('#f-ip').value==='lb'?' (one shared address at nginx; one shared peer at the app).':' (the app sees nginx as one peer for everybody).'):''}</div><p class="muted" style="font-size:12px;margin-top:8px">Model: nginx leaky bucket (5/s, burst 10, nodelay); per-replica token bucket (10 burst, 10/min); lockout after 5 consecutive failures. Round-robin is an idealisation of nginx&rsquo;s DNS rotation.</p>`; }
+  $('#w12-c').oninput=()=>{ C.forEach(c=>$('#'+c[0]+'-v').textContent=g(c[0])); paint(); }; paint();
+})();
+
+/* ===== W13: cookie / TLS ===== */
+(function(){
+  const st={scheme:'https',term:'lb',env:'1',pass:false};
+  $('#w13-b').innerHTML=`<label class="lab" for="k-s">Browser URL</label><select id="k-s"><option value="https">https://</option><option value="http">http://</option></select><label class="lab" for="k-t">TLS ends at</label><select id="k-t"><option value="lb">external LB in front of nginx:80</option><option value="nginx">this nginx (443 server block)</option><option value="none">nowhere</option></select><label class="lab" for="k-e">.env AUTH_INSECURE_COOKIES</label><select id="k-e"><option value="1">1 (dev template)</option><option value="">unset</option></select><label class="tog"><input type="checkbox" id="k-p"> compose passes it to api</label>`;
+  function paint(){
+    const insecure=st.pass&&st.env==='1'; const secure=!insecure; const https=st.scheme==='https';
+    const fwd=st.term==='nginx'?'https':'http'; // nginx sets X-Forwarded-Proto $scheme
+    const lines=[];
+    lines.push(['Container sees AUTH_INSECURE_COOKIES', st.pass&&st.env==='1'?'1':'(unset)','The shipped compose does not pass it, so it is unset unless you added the line.']);
+    lines.push(['Cookie flags',secure?'<code>Secure</code> (session + CSRF)':'no Secure flag','Go default is Secure; only <code>1</code>/<code>true</code> in the container drops it.']);
+    const stored=secure?https:true;
+    const res=stored?['ok','The browser stores the cookie and sign-in sticks.']:['bad','The browser discards a Secure cookie received over http: login &ldquo;succeeds&rdquo;, the next request is anonymous (most browsers special-case http://localhost; do not rely on it).'];
+    if(!secure&&https) res.push('warn');
+    const hsts=fwd==='https'||false;
+    $('#w13-o').innerHTML=`<div class="big" style="color:var(--${res[0]==='ok'?'green':'red'})">${res[0]==='ok'?'Sign-in sticks':'Login fails silently'}</div><p style="font-size:14px">${res[1]}</p><dl class="kv">${lines.map(l=>`<dt>${l[0]}</dt><dd>${l[1]}<br><span class="muted" style="font-family:var(--f-body);font-size:11.5px">${l[2]}</span></dd>`).join('')}<dt>X-Forwarded-Proto sent to api</dt><dd>${fwd}<br><span class="muted" style="font-family:var(--f-body);font-size:11.5px">nginx.conf sets it to <code>$scheme</code>, overwriting the LB&rsquo;s value.</span></dd><dt>HSTS header</dt><dd>${hsts?'emitted':'<b>not emitted</b>'}<br><span class="muted" style="font-family:var(--f-body);font-size:11.5px">The API sends HSTS only if the request is TLS or X-Forwarded-Proto is https.${st.term==='lb'?' Behind an external LB, add HSTS at the LB, or forward the LB&rsquo;s protocol in nginx.':''}</span></dd></dl>${!secure&&https?'<div class="caution">Cookies are sent without Secure over HTTPS: fix it before go-live.</div>':''}`;
+  }
+  $('#w13-b').onchange=()=>{ st.scheme=$('#k-s').value; st.term=$('#k-t').value; st.env=$('#k-e').value; st.pass=$('#k-p').checked; if(st.term==='none'&&st.scheme==='https'){ st.scheme='http'; $('#k-s').value='http'; } paint(); };
+  paint();
+})();
+
+/* ===== W14: overlay checker ===== */
+(function(){
+  const st={tok:'',cmd:'both',gpw:'admin'};
+  $('#w14-c').innerHTML=`<div class="ctl"><label for="o-t">LOKI_READ_TOKEN</label><input type="text" id="o-t" style="width:100%;font:12.5px var(--f-mono)" placeholder="(unset)"></div><div class="ctl"><label for="o-c">Command</label><select id="o-c" style="width:100%"><option value="both">$PC -f docker-compose.observability.yml up -d</option><option value="solo">docker compose -f docker-compose.observability.yml up -d</option></select></div><div class="ctl"><label for="o-g">GRAFANA_ADMIN_PASSWORD</label><input type="text" id="o-g" value="admin" style="width:100%;font:12.5px var(--f-mono)"></div>`;
+  function paint(){
+    const tok=$('#o-t').value.trim(), gpw=$('#o-g').value, solo=$('#o-c').value==='solo';
+    let h='';
+    if(!tok) h+=`<div class="fbox bad" style="margin-bottom:8px">compose refuses to start: <br>&ldquo;set LOKI_READ_TOKEN to a strong secret before starting the observability overlay&rdquo;<br><span style="font-weight:400">(the overlay uses <code>\${LOKI_READ_TOKEN:?&hellip;}</code>; an empty variable aborts the whole command, none of the four services start)</span></div>`;
+    else h+=`<div class="fbox good" style="margin-bottom:8px">compose accepts the token${tok.length<32?' &mdash; but it is only '+tok.length+' characters; use <code>openssl rand -hex 32</code>':''}.</div>`;
+    h+=`<div class="tbl"><table><tr><th>Service</th><th>Image</th><th>Published</th></tr><tr><td>loki</td><td>grafana/loki:3.3.2</td><td>none (expose 3100 inside the network)</td></tr><tr><td>logproxy</td><td>caddy:2.8-alpine</td><td>\${LOKI_PROXY_PORT:-3709}:3100 &mdash; requires <code>Authorization: Bearer &lt;token&gt;</code></td></tr><tr><td>vector</td><td>timberio/vector:0.44.0-alpine</td><td>none; mounts <code>/var/run/docker.sock</code> read-only</td></tr><tr><td>grafana</td><td>grafana/grafana:11.4.0</td><td>\${GRAFANA_PORT:-3708}:3000</td></tr></table></div>`;
+    const w=[]; if(gpw==='admin') w.push('Grafana admin password is the default <code>admin/admin</code>.'); w.push('Grafana runs with <b>anonymous access enabled as Viewer</b> (<code>GF_AUTH_ANONYMOUS_ENABLED=true</code>): anyone who can reach port 3708 can read logs. Firewall it.'); if(solo) w.push('Without the base file, the overlay still starts but Vector has no VoltEdge containers to collect (it follows the Docker daemon by container name).'); w.push('Vector can read every container&rsquo;s logs on the host through the Docker socket.');
+    h+=w.map(x=>`<div style="font-size:13px;margin:5px 0">${pill('note','sec')} ${x}</div>`).join('');
+    $('#w14-o').innerHTML=h;
+  }
+  $('#w14-c').oninput=paint; $('#w14-c').onchange=paint; paint();
+})();
+
+/* ===== W15: rolling upgrade ===== */
+(function(){
+  const C=[['u-n','API replicas',1,10,3,1,'API_REPLICAS'],['u-b','Seconds for a new replica to listen',2,60,8,1,'ASSUMPTION'],['u-r','Requests per second',5,500,60,5,''],['u-q','Average request duration (s)',0.1,5,0.5,0.1,'in-flight requests cut when a replica stops']];
+  $('#w15-c').innerHTML=C.map(c=>slider(c[0],c[1],c[2],c[3],c[4],c[5],c[6])).join('')+`<div class="ctl"><label for="u-s">Strategy</label><select id="u-s" style="width:100%"><option value="seq">one replica at a time</option><option value="all">all at once</option></select></div><div class="ctl"><label class="tog"><input type="checkbox" id="u-y" checked> nginx retries the next address when one is dead</label><div class="hint">Default <code>proxy_next_upstream error timeout</code> applies when a name resolves to several addresses; <i>not verified</i> under this variable-proxy_pass setup.</div></div><div class="ctl"><label for="u-m">Migration in this release</label><select id="u-m" style="width:100%"><option value="add">additive (backward compatible)</option><option value="brk">breaking (drops/renames)</option></select></div><button class="btn" id="u-cp">Copy the upgrade commands</button> <span id="u-lock"></span>`;
+  const g=id=>+$('#'+id).value;
+  function paint(){
+    C.forEach(c=>$('#'+c[0]+'-v').textContent=g(c[0]));
+    const N=g('u-n'),b=g('u-b'),rps=g('u-r'),q=g('u-q'),seq=$('#u-s').value==='seq',retry=$('#u-y').checked,brk=$('#u-m').value==='brk';
+    const total=seq?N*b:b, mixed=seq?N*b:0;
+    const cut=seq?N*(rps/N)*q:rps*q;       // in-flight on stopped containers
+    let fail;
+    if(seq) fail=retry&&N>1?cut:cut+N*(rps/N)*10;       // stale DNS up to 10s per swap
+    else fail=retry?cut+rps*b:cut+rps*(b+10);
+    const cols=Math.min(60,Math.ceil(total)+4), step=total/Math.max(1,cols-4);
+    let svg='';
+    for(let i=0;i<cols;i++){ const t=i*step; let cap; if(seq){ const k=Math.floor(t/b); cap=k<N&&t<N*b?N-1:N; } else cap=t<b?0:N; const h=cap/N*70; svg+=`<rect x="${i*(100/cols)}%" y="${80-h}" width="${100/cols-0.4}%" height="${h}" fill="${cap===N?'var(--green)':cap===0?'var(--red)':'var(--amber)'}"/>`; }
+    $('#w15-o').innerHTML=`<svg viewBox="0 0 400 84" width="100%" preserveAspectRatio="none" style="height:90px;border:1px solid var(--line);border-radius:6px;background:var(--surface)" role="img" aria-label="Healthy replicas over time" id="u-svg">${svg.replace(/x="([\d.]+)%"/g,(m,x)=>'x="'+(x*4)+'"').replace(/width="([\d.]+)%"/g,(m,x)=>'width="'+(x*4)+'"')}</svg><div class="muted" style="font-size:12px;margin:3px 0 8px">Serving replicas over ~${nf(total)} s (green = all ${N}, amber = ${N-1}, red = none)</div>`+
+     `<div class="kpi" style="grid-template-columns:repeat(3,1fr)"><div><b>${nf(total)}s</b><span>roll duration</span></div><div><b>${N-(seq?1:N)}</b><span>replicas always serving</span></div><div><b style="color:var(--${fail>rps?'red':fail>0?'amber':'green'})">~${nf(fail)}</b><span>requests failed (worst case)</span></div></div>`+
+     (N<3&&seq?`<div class="caution" style="margin:8px 0">With ${N} replica${N>1?'s':''} a one-at-a-time roll leaves ${N-1} serving; the runbook advises <code>API_REPLICAS &ge; 3</code>.</div>`:'')+
+     (brk?`<div class="caution" style="margin:8px 0"><b>Breaking migration.</b> ${seq?`Old and new replicas overlap for ~${nf(mixed)} s: old code hits the changed schema and errors.`:'Even with no overlap, the migration ran against replicas still running old code.'} Split it: expand &rarr; migrate &rarr; deploy &rarr; contract over two releases.</div>`:`<div class="tip" style="margin:8px 0">Additive migrations keep old replicas working while new ones start.</div>`)+
+     `<p class="muted" style="font-size:12px">Model: failures = in-flight requests cut off when a replica stops${retry?'':' + requests sent to a dead address during nginx&rsquo;s 10 s DNS cache'}${seq?'':' + traffic during the whole boot'}. Idealised; confirm with the access log&rsquo;s <code>upstream=</code> field.</p>`;
+    const ok=can('scale'); $('#u-cp').disabled=!ok; $('#u-cp').title=ok?'':lockMsg('scale'); $('#u-lock').innerHTML=ok?'':lockTip('scale');
+  }
+  $('#w15-c').oninput=paint; $('#w15-c').onchange=paint;
+  $('#u-cp').onclick=()=>{ if(!can('scale')) return; try{ navigator.clipboard.writeText('$PC build\n$PC exec -T bootstrap bash /workspace/migrations/apply.sh\n$PC up -d --no-deps api\n$PC up -d --no-deps exportworker webhookworker importworker mcpserver fieldsync'); }catch(e){} };
+  onPersona(paint);
+})();
+
+/* ===== W17: backup drill ===== */
+(function(){
+  const C=[['b-d','Database size (GB)',1,1000,50,1,''],['b-f','Dump every (hours)',1,168,24,1,'pg_dump -Fc schedule'],['b-p','Dump throughput (MB/s)',5,300,50,5,'ASSUMPTION'],['b-q','Restore throughput (MB/s)',5,300,30,5,'ASSUMPTION; restore is usually slower'],['b-o','Object storage size (GB)',1,5000,200,1,'rustfs_data']];
+  $('#w17-c').innerHTML=C.map(c=>slider(c[0],c[1],c[2],c[3],c[4],c[5],c[6])).join('')+`<div class="ctl"><label class="tog"><input type="checkbox" id="b-w"> continuous WAL archiving / PITR (operator)</label></div><div class="ctl"><label for="b-s">Object-storage protection</label><select id="b-s" style="width:100%"><option value="none">none</option><option value="nightly">nightly copy</option><option value="repl">replicated bucket</option></select></div><div class="w-bar" style="padding:0"><button class="btn" id="b-dump">Take a dump (drill)</button><button class="btn warn" id="b-rest">Restore to scratch (drill)</button></div><div id="b-lock" style="margin-top:6px"></div>`;
+  const g=id=>+$('#'+id).value; let log=[];
+  const mins=(gb,mb)=>gb*1024/mb/60;
+  function paint(){
+    C.forEach(c=>$('#'+c[0]+'-v').textContent=g(c[0]));
+    const pitr=$('#b-w').checked, sto=$('#b-s').value;
+    const dump=mins(g('b-d'),g('b-p')), rest=mins(g('b-d'),g('b-q'));
+    const rpoDb=pitr?'minutes (WAL lag)':nf(g('b-f'))+' h';
+    const rpoObj={none:'unbounded: not backed up',nightly:'up to 24 h',repl:'near zero (replica)'}[sto];
+    const mism=!pitr&&sto==='repl'?'Objects newer than the dump will have no database rows (orphans); rows in the dump always have their objects.':!pitr&&sto==='none'?'Restoring the database leaves attachment rows pointing at objects you no longer have if the volume is lost too.':'';
+    $('#w17-o').innerHTML=`<div class="kpi" style="grid-template-columns:repeat(3,1fr)"><div><b style="font-size:16px">${rpoDb}</b><span>database RPO</span></div><div><b style="font-size:16px">${nf(rest,0)} min</b><span>restore time (data only)</span></div><div><b style="font-size:16px">${nf(dump,0)} min</b><span>dump duration</span></div></div><div class="tbl"><table><tr><th>If you lose&hellip;</th><th>You lose</th><th>Recovery</th></tr><tr><td><code>postgres_data</code></td><td>everything in the database (accounts, sessions, features, metadata)</td><td>${pitr?'PITR to a point in time':'<code>pg_restore</code> the last dump, then <code>apply.sh</code> forward'}</td></tr><tr><td><code>rustfs_data</code></td><td>attachments, exports, field packs (${nf(g('b-o'))} GB)</td><td>${rpoObj}</td></tr><tr><td><code>.env</code></td><td>the secrets compose substitutes</td><td>keep in a secret manager; a new <code>POSTGRES_PASSWORD</code> does not change an initialised volume</td></tr><tr><td><code>web/dist</code></td><td>nothing</td><td>rebuild (chapter 3)</td></tr></table></div>${mism?`<div class="caution" style="margin:8px 0">${mism}</div>`:''}<div class="lab">Drill</div><ol class="steps" style="font-size:13px"><li>Dump: <code>$PC exec -T bootstrap bash -c 'pg_dump "$DATABASE_URL" -Fc -f /workspace/drill.dump'</code></li><li>Restore into a <b>scratch</b> database, never over production: <code>pg_restore --no-owner -d "&lt;scratch-dsn&gt;" drill.dump</code></li><li>Run <code>apply.sh</code> against the scratch DSN and compare <code>ops.migration_log</code> counts.</li><li>Time it. Your measured number replaces the estimate above.</li></ol>${log.length?`<pre class="pre">${esc(log.join('\n'))}</pre>`:''}`;
+    gateBtn($('#b-dump'),'bkp'); gateBtn($('#b-rest'),'rst'); $('#b-lock').innerHTML=(can('bkp')?'':lockTip('bkp'))+' '+(can('rst')?'':lockTip('rst'));
+  }
+  $('#w17-c').oninput=paint; $('#w17-c').onchange=paint;
+  $('#b-dump').onclick=()=>{ if(!can('bkp')) return; log.push(`[drill] pg_dump -Fc of ${g('b-d')} GB: ~${nf(mins(g('b-d'),g('b-p')),1)} min`); paint(); };
+  $('#b-rest').onclick=()=>{ if(!can('rst')) return; log.push(`[drill] pg_restore to scratch: ~${nf(mins(g('b-d'),g('b-q')),1)} min, then apply.sh forward`); paint(); };
+  onPersona(paint);
+})();
+
+/* ===== W16: health probe ===== */
+(function(){
+  const PRE={api:{i:10,to:5,r:3,sp:20,t:'api'},postgres:{i:5,to:5,r:10,sp:0,t:'postgres / pgbouncer'}};
+  const C=[['h-b','Seconds until the server listens',0,60,3,1,'server dials lazily; it listens before the DB is touched'],['h-a','DB outage starts (s)',0,170,50,1,''],['h-z','DB outage lasts (s)',0,120,30,1,'0 = no outage'],['h-l','DB latency while degraded (s)',0,6,0,0.5,'/healthz gives the ping 3 s; 0 = outage means unreachable']];
+  $('#w16-c').innerHTML=`<div class="ctl"><label for="h-p">Healthcheck</label><select id="h-p" style="width:100%"><option value="api">api (10s / 5s / 3 retries / start 20s)</option><option value="postgres">postgres (5s / 5s / 10 retries / start 0)</option></select></div>`+C.map(c=>slider(c[0],c[1],c[2],c[3],c[4],c[5],c[6])).join('')+`<div class="ctl"><label for="h-m">During the outage the database is</label><select id="h-m" style="width:100%"><option value="down">unreachable (503 “db unreachable”)</option><option value="slow">slow (uses the latency above)</option></select></div>`;
+  const g=id=>+$('#'+id).value;
+  function paint(){
+    C.forEach(c=>$('#'+c[0]+'-v').textContent=g(c[0]));
+    const p=PRE[$('#h-p').value], b=g('h-b'), a=g('h-a'), z=g('h-z'), L=g('h-l'), slow=$('#h-m').value==='slow';
+    const T=180; let status='starting', fails=0, firstHealthy=null; const ev=[]; const pr=[];
+    for(let t=p.i;t<=T;t+=p.i){
+      const inOut=z>0&&t>=a&&t<a+z; let ok=t>=b; 
+      if(ok&&inOut){ if(slow){ ok=L<3; } else ok=false; }
+      const inSp=t<p.sp;
+      if(ok){ if(status!=='healthy') { ev.push([t,'healthy']); if(firstHealthy==null) firstHealthy=t; } status='healthy'; fails=0; }
+      else { if(!inSp||status==='healthy'&&false){ fails++; } if(!inSp&&fails>=p.r&&status!=='unhealthy'){ status='unhealthy'; ev.push([t,'unhealthy']); } }
+      pr.push([t,ok,status]);
+    }
+    const col=s=>s==='healthy'?'var(--green)':s==='unhealthy'?'var(--red)':'var(--amber)';
+    const W=100/ (T/ p.i);
+    const strip=pr.map((x,i)=>`<rect x="${i*W}%" y="${x[1]?10:34}" width="${W-0.3}%" height="14" fill="${x[1]?'var(--green)':'var(--red)'}"/>`).join('');
+    const st=pr.map((x,i)=>`<rect x="${i*W}%" y="60" width="${W-0.3}%" height="12" fill="${col(x[2])}"/>`).join('');
+    const sv=(t)=>t.replace(/x="([\d.]+)%"/g,(m,x)=>'x="'+x*4+'"').replace(/width="([\d.]+)%"/g,(m,x)=>'width="'+x*4+'"');
+    const unh=ev.filter(e=>e[1]==='unhealthy'), rec=ev.filter(e=>e[1]==='healthy'&&e[0]>(unh[0]?unh[0][0]:1e9));
+    $('#w16-o').innerHTML=`<svg viewBox="0 0 400 78" width="100%" style="border:1px solid var(--line);border-radius:6px;background:var(--surface)" role="img" aria-label="probe results">${sv(strip)}${sv(st)}<text x="4" y="8" font-size="7" fill="var(--muted)">probe result (green pass, red fail)</text><text x="4" y="58" font-size="7" fill="var(--muted)">container status</text></svg><div class="muted" style="font-size:12px;margin:3px 0 8px">0 → ${T} s, one cell per probe (every ${p.i} s)</div><dl class="kv"><dt>first healthy</dt><dd>${firstHealthy==null?'never':firstHealthy+' s'}</dd><dt>marked unhealthy</dt><dd>${unh.length?unh[0][0]+' s':'never'}</dd><dt>recovered</dt><dd>${rec.length?rec[0][0]+' s':(unh.length?'not within '+T+' s':'n/a')}</dd><dt>rule</dt><dd>${p.r} consecutive failures after the ${p.sp} s start period; a pass resets and marks healthy</dd></dl>${(slow&&L>=3&&z>0)?'<div class="tip" style="margin:8px 0">The ping times out at 3 s, so /healthz answers 503 and the probe fails even though the database is alive.</div>':''}${(slow&&L<3&&L>0&&z>0)?'<div class="tip" style="margin:8px 0">Latency under 3 s keeps the probe green: a slow database is invisible to this healthcheck.</div>':''}`;
+  }
+  $('#w16-c').oninput=paint; $('#w16-c').onchange=paint; paint();
+})();
+
+/* ===== checklist ===== */
+(function(){
+  const I=[['Every service is up','$PC ps','<code>api</code> shows your replica count; <code>fieldsync</code> is 1. Workers have no healthcheck, so “up” is all you see.','A service restarting: <code>$PC logs -f &lt;service&gt;</code>.'],
+   ['Each api replica’s /healthz is green','$PC exec api wget -qO- http://127.0.0.1:8080/healthz','<code>{"status":"ok"}</code>. <code>exec</code> reaches one replica only; repeat per replica with <code>$PC ps</code> names. Do not probe through nginx (it serves the SPA for /healthz).','503 “db unreachable”: DATABASE_URL or PgBouncer.'],
+   ['Migrations are all logged','$PC exec -T bootstrap bash -c \'psql "$DATABASE_URL" -tAc "SELECT count(*) FROM ops.migration_log"\'','Equals the number of files in migrations/ (135 at the time of writing).','Fewer: run apply.sh again (4.2). /healthz does not tell you.'],
+   ['Login as the break-glass admin','open https://<host>/','Sign-in succeeds and survives a page reload.','Silent failure: cookie/HTTPS (chapter 7).'],
+   ['The map renders','open the map','Confirms the /tiles proxy and the territory-scoped MVT path.','Blank: classes not compiled (restore a seeded dump).'],
+   ['A write and a read','create a feature, then run a trace','Confirms the DB write path and the synchronous analysis path.','Errors: schema/migrations.'],
+   ['An attachment uploads','attach a photo to a feature','Confirms RustFS presign and the public endpoint.','404/blocked: Interactive 10.'],
+   ['Scale test','$PC up -d --scale api=4','The access log’s <code>upstream=</code> varies and nobody is asked to sign in again (stateless sessions).','Re-login: not stateless; check cookies.']];
+  let ticks=store('ticks')||[];
+  function paint(){ $('#v-l').innerHTML=I.map((x,i)=>`<div class="rec"><label class="tog" style="display:flex;gap:8px;align-items:flex-start;font-weight:400"><input type="checkbox" data-i="${i}" ${ticks.includes(i)?'checked':''}><span><b>${i+1}. ${x[0]}</b><br><code style="white-space:normal;word-break:break-all">${esc(x[1])}</code><br><span style="font-size:13px">${x[2]}</span><br><span class="muted" style="font-size:12px">If not: ${x[3]}</span></span></label></div>`).join(''); $('#v-bar').style.width=(ticks.length/I.length*100)+'%'; }
+  $('#v-l').onchange=e=>{ const c=e.target.closest('input'); if(!c) return; const i=+c.dataset.i; ticks=ticks.filter(x=>x!==i); if(c.checked) ticks.push(i); store('ticks',ticks); paint(); };
+  $('#v-reset').onclick=()=>{ ticks=[]; store('ticks',ticks); paint(); };
+  paint();
+})();
+
+/* ===== symptom explorer ===== */
+(function(){
+  const R=[
+   ['API can’t connect / “too many clients”','Unbounded app pools × many replicas, or a PgBouncer pool that is too small. Confirm <code>DATABASE_URL</code> points at <code>pgbouncer</code>; raise <code>PGBOUNCER_POOL_SIZE</code> / Postgres <code>max_connections</code>.','pool','Interactive 3'],
+   ['“prepared statement does not exist” under load','pgdriver prepared statements vs PgBouncer <b>transaction</b> pooling. Set <code>POOL_MODE: session</code> on the pgbouncer service, or disable statement caching in the DSN. (Flagged as the thing to test in the compose file itself.)',null,'Chapter 2'],
+   ['PgBouncer refuses app logins','Client auth vs the supabase SCRAM setup. Adjust <code>AUTH_TYPE</code> on the pgbouncer service (plain within the private net, or scram + <code>AUTH_QUERY</code>). Compose calls this “the #1 thing to verify”.',null,'Chapter 2'],
+   ['Presigned attachment/export URLs 404 in the browser','<code>RUSTFS_PUBLIC_ENDPOINT</code> is not browser-reachable (the compose default is <code>localhost:3702</code>). Point it at a public host:port, with TLS and <code>RUSTFS_PUBLIC_USE_SSL=1</code> passed through.','presign','Interactive 10'],
+   ['Login fails silently / cookie not set','The site is not HTTPS (Secure cookies are dropped over http) — or the dev flag was never meant to be set. Serve over HTTPS.',null,'Interactive 11'],
+   ['<code>--scale</code> errors “container name already in use”','A <code>container_name</code> on a scaled service. Only singletons carry one here.',null,'Interactive 1'],
+   ['SPA loads but every call 404s (or the whole site 404s)','<code>web/dist</code> was not built before nginx started (Docker made an empty directory), or the <code>/api</code> proxy is wrong. Rebuild the SPA; check the nginx locations.',null,'Interactive 12'],
+   ['Map blank, features missing','Classes are not compiled into <code>gis.&lt;code&gt;</code>. Restore a seeded dump or run <code>seed-all</code> on staging; <code>compile-all</code> is not in the prod image.',null,'Interactive 8'],
+   ['Every replica is healthy but every feature call fails','<code>/healthz</code> only pings Postgres. Migrations were not applied (or the dump was not restored). Check <code>ops.migration_log</code>.',null,'Interactive 6, 7'],
+   ['<code>apply.sh</code> stopped halfway','A file failed under <code>ON_ERROR_STOP</code>; earlier statements in that file are not rolled back and it is not logged. Fix the cause and re-run — it resumes at that file.',null,'Interactive 7'],
+   ['Sign-in says “local password sign-in is currently disabled”','<code>local_auth_enabled</code> is seeded false and the account is not break-glass. Use SSO, sign in as the break-glass admin and enable it, or create the account with the default <code>--break-glass</code>.',null,'Interactive 9'],
+   ['Account locked after a few wrong passwords','Five consecutive failures lock it for 15 minutes. A flood against one email locks the real user out.',null,'Interactive 13'],
+   ['“AUTHADMIN_PASSWORD is not set” or “DATABASE_URL is not set”','The password is read only from the environment: pass <code>-e AUTHADMIN_PASSWORD=…</code> to <code>exec</code>. <code>DATABASE_URL</code> is present in the api container; it is missing if you ran the binary somewhere else.',null,'Interactive 9'],
+   ['The SSO button is missing on the login screen','Either the <code>OIDC_*</code> variables never reached the container (not passed through) or discovery failed at startup — providers are silently omitted. Check the redirect URL ends with <code>/api/auth/oidc/&lt;provider&gt;/callback</code>.','env','Interactive 4'],
+   ['Your <code>.env</code> change had no effect','Only variables the compose file substitutes take effect. Pass the rest through <code>environment:</code> and recreate the service.','env','Interactive 4'],
+   ['Every login returns 503, or 429 “Retry-After: 60”','503 is nginx’s edge limit (5 r/s, burst 10); 429 is the app’s per-replica limiter (10 burst, 10/min). Behind a shared address one noisy client throttles everyone.',null,'Interactive 13'],
+   ['<code>docker compose … observability.yml up</code> aborts immediately','<code>LOKI_READ_TOKEN</code> is required by the overlay. Set it to a long random value.',null,'Interactive 14'],
+   ['A replica shows “unhealthy” and nothing happens','Nothing in the compose file acts on health: restart policy reacts to exits only. Investigate or restart it yourself.',null,'Interactive 17'],
+   ['502s for a few seconds during an upgrade','nginx re-resolves Docker DNS every 10 s and has no health checks, so it can still try a stopped replica. Roll one replica at a time with ≥ 3 replicas.',null,'Interactive 15'],
+   ['Restoring a dump over a live system broke sessions and data','Sessions live in Postgres. Restore into a scratch database first; restore before starting the app tier.',null,'Interactive 6, 16']];
+  const live={
+   env:()=>{ const c=window.__envCheck; if(!c) return 'Builder not initialised.'; const bad=c.items.filter(x=>x[1]==='bad'); return `${bad.length} blocking finding(s) in your .env draft`+(bad.length?':<br>'+bad.map(x=>'• <code>'+x[0]+'</code> '+x[2]).join('<br>'):'. Remember the unpassed variables still need compose edits.'); },
+   pool:()=>{ const v=id=>+document.getElementById(id).value; const clients=v('w3r')*v('w3a')+v('w3w')*v('w3c')+6, active=Math.round(clients*v('w3u')/100), be=v('w3p')+v('w3s'); return `Your pool budget: ${nf(clients)} client connections vs MAX_CLIENT_CONN ${nf(v('w3m'))} → ${clients>v('w3m')?'<b>refused (too many clients)</b>':'accepted'}; ${nf(active)} in transactions vs ${be} backends → ${active>be?'<b>'+nf(active-be)+' queue</b>':'no queue'}.`; },
+   presign:()=>{ const t=document.getElementById('w10-o').innerText.split('\n')[0]; const e=document.getElementById('p-e'); return `Current presign setup (${e.options[e.selectedIndex].text}): <b>${t}</b>.`; }};
+  function paint(){ const q=$('#t-q').value.trim().toLowerCase(); const rows=R.filter(r=>!q||(r[0]+' '+r[1]).replace(/<[^>]+>/g,' ').toLowerCase().includes(q)); $('#t-n').textContent=rows.length+' of '+R.length;
+    $('#t-list').innerHTML=rows.map(r=>`<details style="border-top:1px solid var(--line2);padding:10px 14px"><summary style="cursor:pointer;font-weight:600">${r[0]} ${r[2]?'<span class="pill sec">live check</span>':''}</summary><div style="margin-top:6px;font-size:14px">${r[1]}</div><div class="muted" style="font-size:12px;margin-top:4px">See ${r[3]}</div>${r[2]?`<div style="margin-top:8px"><button class="btn pri" data-l="${r[2]}">Check the simulation</button><div class="lv" style="font-size:13px;margin-top:8px;padding:8px 10px;border:1px dashed var(--line);border-radius:6px;display:none"></div></div>`:''}</details>`).join('')||'<div style="padding:14px" class="muted">No symptom matches.</div>'; }
+  $('#t-q').oninput=paint;
+  $('#t-list').onclick=e=>{ const b=e.target.closest('button[data-l]'); if(!b) return; const box=b.parentElement.querySelector('.lv'); box.style.display='block'; box.innerHTML=live[b.dataset.l](); };
+  paint();
+})();
+/* ===== recipes ===== */
+(function(){
+  const PC='PC="docker compose -f docker-compose.prod.yml"';
+  const Rr=[['Build everything','$PC build','build'],['Build the SPA','(cd web && npm ci && npm run build)','build'],['Data tier only','$PC up -d postgres pgbouncer rustfs bootstrap','scale'],['Apply migrations','$PC exec -T bootstrap bash /workspace/migrations/apply.sh','mig'],['Verify migrations','$PC exec -T bootstrap bash -c \'psql "$DATABASE_URL" -c "SELECT filename, status FROM ops.migration_log ORDER BY id;"\'','read'],['Dump staging','pg_dump "<staging-dsn>" -Fc -f voltedge-seeded.dump','bkp'],['Restore a dump','pg_restore --no-owner -d "<prod-dsn>" voltedge-seeded.dump','rst'],['First admin','$PC exec -e AUTHADMIN_PASSWORD=\'<pw>\' api authadmin create --email admin@utility.com --name "Break-glass Admin"','acct'],['Grant a role','$PC exec api authadmin grant-role --email <e> --role <role>','acct'],['List accounts','$PC exec api authadmin list','read'],['Mint an MCP token','$PC exec api authadmin mint-token --email <e> --name <label>','acct'],['Start the app','$PC up -d','scale'],['Scale','$PC up -d --scale api=6 --scale exportworker=3','scale'],['Roll the API','$PC up -d --no-deps api','scale'],['Check one replica','$PC exec api wget -qO- http://127.0.0.1:8080/healthz','read'],['Tail logs','$PC logs -f api','read'],['Observability overlay','LOKI_READ_TOKEN=$(openssl rand -hex 32) $PC -f docker-compose.observability.yml up -d','scale'],['Stop (keeps volumes)','$PC down','scale'],['Preview a factory reset (dry run)','$PC exec -e RESETDATA_PASSWORD=\'<pw>\' api resetdata --admin-email <e>','acct']];
+  function paint(){ $('#r-l').innerHTML=`<pre class="pre" style="margin-bottom:8px">${esc(PC)}</pre>`+Rr.map((r,i)=>{ const ok=can(r[2]); return `<div class="rec" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:200px"><div class="t">${r[0]} ${ok?'':lockTip(r[2])}</div><code style="white-space:normal;word-break:break-all;font-size:11.5px">${esc(r[1])}</code></div><button class="btn" data-c="${i}" ${ok?'':'disabled title="'+esc(lockMsg(r[2]))+'"'}>Copy</button></div>`; }).join(''); }
+  $('#r-l').onclick=e=>{ const b=e.target.closest('button[data-c]'); if(!b||b.disabled) return; try{ navigator.clipboard.writeText(Rr[+b.dataset.c][1]); }catch(x){} b.textContent='Copied'; setTimeout(()=>b.textContent='Copy',1000); };
+  onPersona(paint);
+})();
+/* ===== quiz ===== */
+(function(){
+  const Q=[
+   ['You write <code>AUTH_INSECURE_COOKIES=0</code> and <code>OIDC_GOOGLE_CLIENT_ID=…</code> into <code>.env</code> and run <code>$PC up -d</code>. Is Google SSO on?','No — <code>OIDC_*</code> is not passed to the api container',['Yes, compose reads .env into every container','No — <code>OIDC_*</code> is not passed to the api container','Only after a restart of nginx','Yes, but only for admins'],'The api service lists its environment explicitly; .env only feeds ${} substitution.'],
+   ['Which service can you NOT bring up with <code>--scale</code> as shipped?','<code>fieldsync</code>',['<code>api</code>','<code>exportworker</code>','<code>fieldsync</code>','<code>importworker</code>'],'It has a <code>container_name</code> and a fixed host port; so does mcpserver.'],
+   ['You start the app tier before running migrations. What do the replicas report?','Healthy, while feature calls fail',['Unhealthy, they restart','Healthy, while feature calls fail','Nothing, they refuse to start','They apply migrations themselves'],'/healthz only pings Postgres.'],
+   ['<code>apply.sh</code> fails on file 60 of 135 (not in a transaction). You fix the cause and re-run. What happens?','It skips 1–59 and re-runs file 60 from its first line',['It starts over from file 1','It skips 1–59 and re-runs file 60 from its first line','It skips file 60','It rolls back files 1–59 first'],'Logged files are skipped; the failed file was never logged.'],
+   ['Which request is NOT rate-limited by the nginx login zone?','<code>POST /api/auth/login/</code> (trailing slash)',['<code>POST /api/auth/login</code>','<code>POST /api/auth/login?x=1</code>','<code>POST /api/auth/login/</code> (trailing slash)','All of them are limited'],'The location is an exact match for <code>/api/auth/login</code>; the slash form falls to <code>/api/</code>.'],
+   ['Sessions need Secure cookies. TLS ends at an external LB. What does the API see in <code>X-Forwarded-Proto</code>?','<code>http</code> — nginx overwrites it with <code>$scheme</code>',['<code>https</code>, passed through','<code>http</code> — nginx overwrites it with <code>$scheme</code>','Nothing','Whatever the browser sent'],'So the API will not emit HSTS; add it at the LB.'],
+   ['Where does a presigned upload go, and what must be true of the endpoint setting?','Straight from the browser to RustFS; host[:port] only, browser-reachable',['Through the api; any URL','Straight from the browser to RustFS; host[:port] only, browser-reachable','Through nginx <code>/s3/</code>; a path is fine','To Postgres'],'The endpoint is an S3 client host, not a URL; the URL is signed for it.'],
+   ['A replica is “unhealthy”. What restarts it?','Nothing in this compose file',['Docker, per the restart policy','nginx, via its health check','Nothing in this compose file','PgBouncer'],'<code>restart: unless-stopped</code> reacts to exits, not failing healthchecks.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach((el,i)=>{ const x=Q[i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===x[1]; const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Answer: <b>${x[1]}</b>. `)+x[3]; }); });
+})();
+
+/* chapter rail */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a])); const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'}); document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+
+</script>
+</body></html>
