@@ -45,7 +45,7 @@ build doesn't re-litigate them.
   every account (email + role) first. A successful SSO login for an email
   with no matching, active VoltEdge user is **rejected**, not
   auto-provisioned. Azure AD is locked to a single configured tenant,
-  Google to a configured hosted-domain / address allowlist. This is an
+  Google optionally to a configured hosted domain. This is an
   internal utility tool -- access is a deliberate grant, not a
   side-effect of owning a Google account.
 - **Local auth is the break-glass floor, behind a switch.** A global
@@ -92,15 +92,17 @@ uniform.
   in constant time (`crypto/subtle`).
 - Lifetimes: sliding **idle timeout** (default 12h) refreshed on use, plus
   a hard **absolute cap** (default 30d) that a refresh can't extend.
-  Logout, an admin disabling the user, a password change, and a
-  break-glass event all **revoke server-side immediately** -- the whole
+  Logout and an admin disabling the user **revoke server-side immediately**
+  (a password change does not revoke existing sessions) -- the whole
   reason we don't use stateless JWTs.
 - CSRF: because state-changing requests ride a cookie, we defend with
   `SameSite=Strict` **and** a double-submit CSRF token (a non-`httpOnly`
   companion cookie the SPA echoes in an `X-CSRF-Token` header; the server
-  compares in constant time) **and** an `Origin` / `Sec-Fetch-Site`
-  check on every mutating request. Defense in depth, since each control
-  has a known individual gap.
+  compares in constant time) **and** a `Sec-Fetch-Site` check (the `Origin`
+  header is not inspected) on the CSRF-protected mutating routes -- logout, the
+  auth switch, `/auth/admin`, attachments, assistant chat/execute, field-pack
+  admin and sync-review; the core data mounts rely on `SameSite=Strict`. Defense
+  in depth, since each control has a known individual gap.
 
 ### Local login
 
@@ -108,25 +110,26 @@ uniform.
 an **Argon2id** hash (`golang.org/x/crypto/argon2`, OWASP's first-choice
 KDF) with tuned parameters (see library section). Failures are
 constant-time and generic ("invalid email or password" -- never
-disclosing which), rate-limited per-IP and per-account, with escalating
-backoff / temporary lockout on repeated failure. Whether a given local
+disclosing which), rate-limited per-IP (an in-memory token bucket: burst 10, 10 per
+minute) with a per-account fixed lockout (5 consecutive failures, 15 minutes --
+not escalating). Whether a given local
 login is even *allowed* is the break-glass logic below.
 
 ### SSO login (Azure AD + Google, OIDC)
 
 Standard **OpenID Connect Authorization Code flow with PKCE (S256)**:
 
-1. `GET /auth/oidc/{provider}/start` -- the server generates `state`,
+1. `GET /auth/oidc/{provider}/login` -- the server generates `state`,
    `nonce`, and a PKCE verifier (all `crypto/rand`), stashes them in a
-   short-lived signed, `httpOnly` cookie, and 302s to the provider.
+   short-lived `httpOnly` cookie (base64 JSON, not signed), and redirects to the provider.
 2. Provider authenticates the human and redirects back to
    `GET /auth/oidc/{provider}/callback`.
 3. The server exchanges the code (with the PKCE verifier) for tokens via
    `golang.org/x/oauth2`, then **verifies the ID token** against the
    provider's published JWKS using `coreos/go-oidc/v3` -- signature,
-   `iss`, `aud`, `exp`, and the `nonce` we planted. Azure AD's `tid`
-   (tenant) is checked against the configured tenant; Google's `hd` /
-   verified email against the configured allowlist.
+   `iss`, `aud`, `exp`, and the `nonce` we planted. Azure AD is bound to the configured tenant by its
+   tenant-scoped issuer URL; for Google the email must be verified and, when
+   `OIDC_GOOGLE_ALLOWED_DOMAIN` is set, its `hd` claim or the email's domain must match.
 4. We match the verified email / provider subject to an **existing,
    active** user. No match → reject (per the locked provisioning
    decision). Match → link the `user_identities` row on first use and
@@ -134,7 +137,7 @@ Standard **OpenID Connect Authorization Code flow with PKCE (S256)**:
 
 The browser never handles a provider token -- no MSAL.js, no gapi, no
 client-side SDK. The frontend's "Sign in with Microsoft / Google" button
-is a plain link to our own `/auth/oidc/{provider}/start`. Keeping the
+is a plain link to our own `/auth/oidc/{provider}/login`. Keeping the
 whole flow server-side is both simpler and materially more secure
 (nothing sensitive in JS, no token storage in the browser at all).
 
@@ -271,8 +274,8 @@ safely reuse. The Go package stays `auth`; only the physical schema is
   `password_changed_at`, unique on `(provider, provider_subject)` and one
   `local` identity per user. A user may hold both a `local` and an SSO
   identity at once.
-- `iam.sessions` -- `id`, `user_id` FK, `token_sha256` (bytea, unique),
-  `created_at`, `last_used_at`, `absolute_expires_at`,
+- `iam.sessions` -- `id`, `user_id` FK, `token_sha256` (bytea, unique), `csrf_token`,
+  `created_at`, `last_used_at`, `idle_expires_at`, `absolute_expires_at`,
   `revoked_at` (nullable), plus `ip` / `user_agent` for the audit trail.
 - `iam.permissions`, `iam.roles`, `iam.role_permissions`,
   `iam.user_roles` -- the RBAC tables above. These land in migration
@@ -323,12 +326,12 @@ framework we'd have to trust wholesale.
   entropy (256-bit random), so a fast hash is correct here (unlike
   passwords -- those get Argon2id); it exists so a DB leak can't replay
   sessions.
-- **Rate limiting / lockout -- `golang.org/x/time/rate` (stdlib-adjacent,
-  Go team).** Per-IP and per-account throttling on the local-login path,
-  plus DB-tracked failed-attempt lockout.
+- **Rate limiting / lockout -- in-house `api/internal/ratelimit` (no `x/time/rate`).**
+  A dependency-free per-IP token bucket on the login and field-login
+  endpoints, plus DB-tracked failed-attempt lockout.
 - **CSRF & security headers.** We implement double-submit CSRF and the
-  header set (HSTS, `X-Content-Type-Options: nosniff`, a strict CSP,
-  `Referrer-Policy`, `X-Frame-Options: DENY`) as small, reviewable
+  header set (HSTS over TLS, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy`, `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy`; the API sets no CSP) as small, reviewable
   middleware rather than pulling a framework; the primitives
   (`crypto/rand`, `crypto/subtle`) are stdlib.
 - **MFA (deferred) -- `github.com/pquerna/otp` when we add TOTP.** Noted
@@ -346,8 +349,8 @@ used) come from env, never the repo.
 
 - `SESSION_COOKIE_NAME`, `SESSION_IDLE_TIMEOUT`, `SESSION_ABSOLUTE_MAX`.
 - `LOCAL_AUTH_ENABLED` is **not** env -- it's the DB switch, so a
-  break-glass admin can toggle it at runtime without a redeploy. Env only
-  seeds its initial value on an empty DB.
+  break-glass admin can toggle it at runtime without a redeploy. Migration
+  `0024` seeds it `false`; no environment variable seeds it.
 - `OIDC_AZURE_TENANT_ID`, `OIDC_AZURE_CLIENT_ID`,
   `OIDC_AZURE_CLIENT_SECRET`, `OIDC_AZURE_REDIRECT_URL`.
 - `OIDC_GOOGLE_CLIENT_ID`, `OIDC_GOOGLE_CLIENT_SECRET`,
@@ -378,8 +381,8 @@ used) come from env, never the repo.
   `0025`); `auth.RequirePermission` enforcement middleware (method-aware
   read/write, single-permission for the pure-action engines); the effective
   permission set loaded with the session and carried on context; **every**
-  route in `main.go` gated (only `/healthz` and `/auth`'s own
-  login/SSO/self-gated endpoints stay open); the break-glass switch moved to
+  route in `main.go` gated (only `/healthz`, the credential-bearing `/webhooks`
+  receiver, and `/auth`'s own login/SSO/self-gated endpoints stay open); the break-glass switch moved to
   `admin:auth-settings`-or-break-glass; `authadmin` extended to assign the
   bootstrap `admin` role and manage grants (`grant-role` / `revoke-role` /
   `roles`); `/auth/me` + login now return the caller's permission list for
