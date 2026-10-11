@@ -7,9 +7,37 @@ This guide is the companion to the interactive **Switching & Protection** guide 
 - **▶ Operator** — what the device is, what to enter, what happens when you throw it.
 - **∑ Engineer** — the model: the classes, state axes, barrier rules and the grading engine, with their source in the seed and solver code.
 
-**Running example:** **Feeder 7**, an 11 kV distribution feeder — a substation breaker, a mid-feeder recloser, a fused tee-off to a distribution transformer, a ring main unit, and a normally-open tie to the next feeder.
+**Who this is for.** Network modellers capturing switchgear and protection; control engineers who operate the model (open/close, isolate, restore); and protection engineers who set relays and check coordination.
+
+**The cast.** **Dana** (editor/field supervisor) captures the switches, breakers and RMUs and wires the relays; **Priya** (dispatcher) opens and closes devices, isolates for work and watches what goes dark; **Tom** (analyst) runs coordination and fault studies; **Ada** (admin) authors the classes, domains and curves behind it all.
+
+**Legend.** 🔒 an action that needs a permission (named inline). 💡 a tip. ⚠️ a caution or a known limitation stated honestly. **▶** the build/operate lane; **∑** the model/engine lane. A boxed **How to** is a click-by-click procedure; a **Worked example** carries real numbers you can reproduce.
+
+**Running example — Feeder 7.** An 11 kV distribution feeder off a zone substation. We build it up through the guide: a feeder breaker with its relay and instrument transformers, a mid-feeder recloser, a fused tee-off to a distribution transformer, a ring main unit, and a normally-open tie to the next feeder.
+
+```
+  Zone S/S 11 kV bus ═══════════════════ B7
+         │
+      [CB-7]  MV_BREAKER · FEEDER           relay R-7  : 50/51, IEC_SI, pickup 400 A, TD 0.5
+         │                                  sensing    : CT-7 (400/5), VT-7 (11 kV/110)
+      MV_CONDUCTOR  (Feeder 7, 11 kV)
+         │
+      [REC-7] MV_RECLOSER                   fast IEC_SI (TD 0.1) · slow IEC_VI (TD 0.3) · 3 shots
+         ├──[FSW-12] MV_SWITCH is_fused (100 T) ──► DIST_XFMR TX-220 (11 kV/415 V) ──► LV
+         │
+      [RMU-5] RMU 2W_1T ──(fused way)──► DIST_XFMR TX-230
+         │   (ring ways continue…)
+         ┆
+      [T-79] MV_SWITCH  — normal-open tie  ╌╌╌► Feeder 9     (normal_state NORMALLY_OPEN, device_state OPEN)
+```
 
 > **Grounding note.** Everything here is drawn from the shipped seed and engine, not an idealised description. Switching/protection classes and domains live in `seed/*.sql` (`mv_lv_switch_example.sql`, `mv_switching_example.sql`, `mv_recloser_example.sql`, `mv_protection_example.sql`, `protective_relay_example.sql`, `mv_measuring_example.sql`, `protection_curves_example.sql`); the behaviour lives in `api/internal/trace` (barriers, isolate, energization, sectioning), `api/internal/powerflow` (coordination, fault, arc-flash) and `api/internal/oms` (live switching). Where the design intent and the shipped behaviour differ, this guide follows the code and says so.
+
+**What's inside**
+
+- **Part A — Switching:** §1 the devices (+ *how to place a switch*, *split a line*) · §2 the state axes (+ *how to open/close*) · §3 what opening a device does — barriers, the de-energised cone, isolate (+ *how to isolate*), sections vs. zones · §4 ties, couplers, RMUs (+ *how-tos*).
+- **Part B — Protection:** §5 the devices (+ *how to wire a relay to a breaker*) · §6 TCC curves (+ *how to set a curve*) · §7 coordination (+ *how to run a study*, worked margins) · §8 fault & arc-flash (cross-reference).
+- **Part C — Together:** §9 the trip → switch → reconfigure loop (+ *how to see what's de-energised*, a worked restoration) · Appendix — domains, formulas, modelling notes.
 
 ---
 
@@ -49,6 +77,21 @@ The classes:
 - **`functional_role`**: every state-bearing switch is a **`controller`** — "the only role whose state can stop a trace" (`LV_SWITCH`, `MV_SWITCH`, `MV_ISOLATOR`, `MV_RECLOSER`, `MV_BREAKER`, `MV_FUSE`, `MV_EARTH_SWITCH`, `SERVICE_CUTOUT`). `MV_SECTIONALIZER` is **not** listed — a known gap.
 - **`boundary_role`** (what bounds a section): `protective` = `MV_BREAKER`, `MV_RECLOSER`, `MV_FUSE`, `SERVICE_CUTOUT`, `LV_FUSE`; `switching` = `MV_SWITCH`, `MV_ISOLATOR`, `LV_SWITCH`, `LV_LINK_BOX`; `transformer` = `DIST_XFMR`, `POWER_XFMR`. (`MV_EARTH_SWITCH` is deliberately **not** a boundary.)
 
+> **How to — place a switch on the map** 🔒 `features:write` + `connectivity:commit`
+> 1. Map toolbar (top-right) → **➕ New feature** → pick the class (type "MV switch" in the search) → click **MV Switch**.
+> 2. The banner reads *"Click the map to place the new feature."* Click where the switch goes — on or beside the conductor it interrupts.
+> 3. The create form opens. Set the required fields — **`device_state`** (`CLOSED` to start), **`condition_rating`** — then any protection fields (leave `is_fused` off for a plain switch). **Save.**
+> 4. Wire it in: select the switch → **Terminals** tab → **➕ New connection** → click the line-side conductor, pick terminal **T1**; repeat for the load-side conductor on **T2**. (The three switch rules authorise exactly these joins.)
+>
+> 💡 Prefer to drop a device **mid-span** on an existing conductor? Don't try to place it exactly on the line — split the line first:
+>
+> > **How to — split a conductor to insert a device**
+> > 1. Select the conductor → **Edit** (pencil, panel header) → the floating geometry toolbar appears → click **Split** (scissors).
+> > 2. Helper text: *"Click the line where you want to cut it."* Click the point. The far half becomes a new conductor feature (`POST /features/{code}/{id}/split`).
+> > 3. Now place your switch at the cut and connect T1 to one half, T2 to the other.
+> >
+> > ⚠️ Split only cuts the line into two conductors — it does **not** drop a device for you. Placing and wiring the switch is the step above.
+
 ---
 
 ## 2. The two state axes (plus normal state)
@@ -76,6 +119,15 @@ PLANNED ──▶ IN_SERVICE ──▶ ISOLATED ──▶ IN_SERVICE   (restore)
 - **`switch_function`** (on `MV_BREAKER`) — the bay role: `FEEDER`, `INCOMER`, `BUS_COUPLER`, `BUS_SECTION`, `TRANSFORMER`.
 
 **Who sets state.** Both state columns are ordinary attributes edited through the generic write path (REST `PATCH /features/...`, the map's attribute editor, or the `update_feature` MCP tool). The **OMS module** flips `device_state` programmatically as crew execute a switching plan — each step opens or closes a device inside the same transaction that ticks the step, and the change is history-logged (`oms/switching.go`).
+
+> **How to — open or close a device** 🔒 `features:write`
+> 1. Select the switch/breaker on the map → **Edit** (pencil, panel header) → **Attributes** tab.
+> 2. Find **`device_state`** — it's a dropdown — choose **`OPEN`** (or `CLOSED`) → **Save.**
+> 3. Re-run any trace, or open the one-line's **Live** shading, to see the effect immediately.
+>
+> ⚠️ **There is no one-click "operate" toggle.** Changing a switch position is the normal Edit → Attributes → `device_state` → Save path (or, during a managed outage, an OMS switching-step tick). Don't look for a right-click "open switch" — it isn't there.
+>
+> 💡 To take an asset *out of service* (not just switch it open), edit **`operational_state`** to `ISOLATED` instead — it blocks traces the same way but records that the asset itself is unavailable, and it's governed by the state machine above.
 
 ---
 
@@ -122,6 +174,21 @@ Three rules shape how a trace moves through switchgear:
 1. **The de-energised set** — a downstream walk from the device's *downstream neighbours* (i.e. "if this device were open now").
 2. **The upstream isolation boundary** — an upstream walk to the nearest **controller** (`protective` + `switching` roles): the devices you'd actually open to work on it safely.
 3. **Critical facilities** inside the dead set (by `load_priority`), and **possible back-feed paths** — any live connected neighbour of the dead set, flagging a closed tie or mesh that could re-energise your work area.
+4. A **service rollup** — how many customers / kW drop.
+
+> **How to — isolate a device for work** 🔒 `trace:run`
+> 1. Select the device (it must be a network **junction** — a switch/breaker/recloser; the item is greyed out otherwise).
+> 2. Panel header → **Trace** dropdown (Route icon) → **Isolate from here** (⚡).
+> 3. Read the result table: the **de-energised** list, the **upstream boundary** devices to open, the **critical facilities** affected, and any **possible back-feed paths** to verify before you work.
+>
+> **Worked example — isolate FSW-12 to work on TX-220.** Select **FSW-12** → *Isolate from here*:
+> - **De-energised set:** `TX-220` and everything on its LV side — the only load below FSW-12.
+> - **Upstream boundary:** `FSW-12` itself is the nearest controller; opening it isolates the tee. (If FSW-12 didn't exist, the boundary would walk up to `REC-7`.)
+> - **Back-feed paths:** none — TX-220's LV is radial.
+>
+> Now contrast **isolate REC-7** (open the mid-feeder recloser):
+> - **De-energised set:** everything below REC-7 — FSW-12/TX-220, RMU-5/TX-230, and the feeder tail.
+> - **Possible back-feed path:** ⚠️ **T-79** — the tie to Feeder 9. It's open today, but the isolate result flags it: *close it and the "dead" tail is re-energised from Feeder 9.* Earth before you trust it dead.
 
 ### 3.5 Sections vs. zones
 
@@ -136,13 +203,26 @@ See **Feeders, Sections & Subnetworks** for the full sectioning model; the point
 
 ## 4. Ties, bus couplers and RMUs
 
-These are built by dedicated fan-out endpoints that create the device **and** wire it in one transaction, so you never hand-place the switch and its two connections separately.
+These three aren't built by hand — each is a guided composite on the map's **Assemblies** menu (top-right, next to *New feature*) that creates the device **and** wires it in one transaction, so you never place the switch and its two connections separately. All three are 🔒 `features:write` + `connectivity:commit`.
 
-**Feeder tie / normal-open point — `POST /ties`** (`api/internal/tie`). Creates a switch (default `MV_SWITCH`) between two conductors: `feederA → switch.T1` and `switch.T2 → feederB`. It stamps `normal_state = NORMALLY_OPEN` and `device_state = OPEN` (without clobbering explicit values) — a declared, live-open standby path. Only the `OPEN` `device_state` actually blocks flow; `normal_state` is the label that tells an operator it *should* be open.
+> **How to — add a normal-open tie between two feeders** (`POST /ties`)
+> 1. Map toolbar → **Assemblies** → **Feeder tie (NOP)** → pick the switch class (default **MV Switch**).
+> 2. Place the switch point between the two feeders.
+> 3. The create form shows **two feeder pickers** — search and pick the conductor on each side (`feeder_a`, `feeder_b`) → **Save.**
+> 4. The tie is born `normal_state = NORMALLY_OPEN` **and** `device_state = OPEN` — a declared, live-open standby path. Only the `OPEN` state blocks flow; `normal_state` is the label telling an operator it *should* be open. *(This is T-79 in our example.)*
 
-**Bus coupler — `POST /couplers`** (`api/internal/coupler`). Creates an `MV_BREAKER` and wires it **bus-to-bus** (`busbar.T2 → breaker.T1`, `breaker.T2 → busbar.T1`), stamping `switch_function = BUS_COUPLER`. There's no coupler-specific engine code — downstream, a coupler is just a breaker, so trace/isolate/coordination treat it as one.
+> **How to — add a bus coupler** (`POST /couplers`)
+> 1. **Assemblies** → **Bus coupler** → pick the breaker class (**MV Breaker**).
+> 2. Place the breaker point between the two busbars.
+> 3. The form shows **two bus pickers** (`bus_a`, `bus_b`) → **Save.** It's wired bus-to-bus and stamped `switch_function = BUS_COUPLER`.
+> 4. Downstream there's no coupler-specific code — a coupler is just a breaker, so trace/isolate/coordination treat it as one.
 
-**Ring main unit — `POST` under `api/internal/rmu`.** Fans out the `RMU` container plus its internal `MV_BUSBAR` and its `MV_SWITCH` ways from a template keyed on `rmu_config`. Each way's load side (T2) wires to the shared internal bus, so opening one tee way isolates only its transformer while the ring keeps feeding through the others. Fused (transformer) ways are stamped `is_fused = true` by the fan-out.
+> **How to — build a ring main unit** (`POST /rmus`)
+> 1. **Assemblies** → **Ring Main Unit** → pick the config (e.g. *2 ring + 1 transformer*, `2W_1T`).
+> 2. Place the RMU point → confirm name/subtype → **Save.**
+> 3. The fan-out creates the `RMU` container, its internal `MV_BUSBAR`, and its `MV_SWITCH` ways, wiring each way's load side (T2) to the shared internal bus. Opening one tee way isolates only its transformer while the ring keeps feeding through the others. Fused (transformer) ways are stamped `is_fused = true`. *(RMU-5 in our example.)*
+
+> **∑** Under the hood these POST to `api/internal/tie`, `api/internal/coupler` and `api/internal/rmu`; each composes `crud.CreateFeature` + `connectivity.EstablishConnection` calls in one transaction against the same switch/busbar rules you'd use by hand.
 
 ---
 
@@ -172,6 +252,13 @@ A **diagram-only** feature (`geometry_type = 'none'`, `network_role = 'none'`) �
 
 - **`protection_trip`** — "this relay operates that switching device." Targets `MV_BREAKER`, `DIST_SWITCH` and `MV_RECLOSER`. This is the link the coordination engine follows to find a breaker's grading curve.
 - **`protection_sensing`** — "this relay is fed by that instrument transformer." Targets `MV_CT` and `MV_VT`. This is documentation of the measurement chain; the grading math doesn't consume it.
+
+> **How to — wire a relay to the breaker it trips** 🔒 `features:write` + `connectivity:commit`
+> 1. **Create the relay.** A relay has no map geometry, so add `PROTECTIVE_RELAY` on the substation **single-line diagram** (place its stencil, or promote one), then set its fields — `device_number` (e.g. `50_51`), `curve_type` (e.g. `IEC_SI`), `pickup_current_a`, `time_dial`.
+> 2. **Link it to the breaker.** Select the relay → **Relationships** tab → **➕ New relationship** → click the **breaker** (CB-7) → in the confirm panel, pick **Kind = `protection_trip`** → **Confirm.**
+> 3. **Link its sensing** (optional but recommended). New relationship again → click the **CT** (CT-7) → **Kind = `protection_sensing`** → Confirm; repeat for the **VT**.
+>
+> 💡 The **Kind** dropdown only offers the relationship classes that actually link the two classes you picked. If it offers exactly one, it's chosen for you; if it offers none, no relationship class connects them (check you clicked the right pair). The `protection_trip` link is the one coordination follows — without it, the engine can't find the breaker's curve.
 
 ### `MV_CT` / `MV_VT` — the sensing
 
@@ -218,6 +305,17 @@ with per-curve constants — e.g. `IEC_SI`: coeff 0.14, exp 0.02, b 0; `IEC_EI`:
 t_operate = time_dial × interp( I_through / pickup_current_a )
 ```
 
+> **How to — set a relay's curve and settings** 🔒 `features:write`
+> 1. Select the relay → **Edit** → **Attributes.**
+> 2. Set **`curve_type`** to a `TCC_CURVE` code (e.g. `IEC_SI`), **`pickup_current_a`** (the overcurrent threshold in primary amps, e.g. 400), and **`time_dial`** (the TMS, e.g. 0.5). Optionally **`inst_pickup_a`** for an instantaneous element. **Save.**
+> 3. Grade it against downstream devices with a coordination study (§7).
+
+> **How to — protect a tee with a fuse** 🔒 `features:write`
+> - **A dedicated fuse:** place an **MV Fuse**, set `fuse_rating_a`, `fuse_speed` (e.g. `T`), and `curve_ref` to an ampere-quantity curve code. `device_state = OPEN` blows/isolates it.
+> - **A fused switch (one device):** on an existing **MV Switch**, set **`is_fused = true`** and fill `fuse_rating_a` + `curve_ref`. It now grades exactly like a fuse — this is how an RMU transformer way protects its transformer.
+
+> 💡 **Adding a brand-new curve** (not in the seeded catalogue) is an admin job — a `protection_curves` row plus its `protection_curve_points` (the tabulated `(band, current, time_s)`). The eight seeded IEC/IEEE families cover most relays out of the box.
+
 ---
 
 ## 7. Coordination
@@ -235,10 +333,41 @@ The covered classes are `MV_BREAKER`, `MV_FUSE`, `MV_SWITCH`, `LV_SWITCH`, `MV_R
 
 **What it returns (▶).** The fault current and common base; a `Devices[]` list (each with its role `primary`/`backup`, through-current, resolved operate time, curve plot and an `extrapolated` flag); a `Pairs[]` list (each with `margin_s`, `cti_seconds`, `coordinated`); and an **`overall`** boolean — coordinated only if *every* graded pair clears its margin.
 
+> **How to — run a coordination study** 🔒 `analysis:run`
+> 1. Select the **source** device (the upstream end of the path — **CB-7**).
+> 2. Panel header → **Trace** dropdown → **Fault & protection** → **Protection coordination…**
+> 3. The panel opens armed on CB-7. Now click a **downstream feature** on the map (the fault location) → **Set fault.**
+> 4. Set **Nominal (V)** — `11000` for our 11 kV feeder (leave blank to derive a transformer secondary) — and **CTI (s)** — `0.3`.
+> 5. **Run.** Read the **log-log TCC chart** (one trace per device), the **operate time** per device, the **pairwise margins**, and the **Coordinated / Miscoordination** verdict.
+
+> **Worked example — grade the Feeder 7 path.** A 3-phase fault just below **FSW-12** on the 11 kV tee, prospective **I = 4,000 A**. Nothing between source and fault is a transformer, so every device sees the same 4,000 A (if a transformer *were* in the path, the engine would refer the current across it: `I_device = I_fault × V_fault / V_device`).
+>
+> The path, fault-first: **FSW-12 (fuse)** → **REC-7 (recloser)** → **CB-7 (breaker + relay R-7)**.
+>
+> - **FSW-12**, 100 T fuse — off its **total-clear** curve at 4 kA ≈ **0.05 s** *(primary, nearest the fault)*.
+> - **REC-7**, slow curve `IEC_VI` (TD 0.3) — off its slow curve at 4 kA ≈ **0.45 s**.
+> - **CB-7 / R-7**, `IEC_SI`, pickup 400 A, TD 0.5 — computed exactly from the seeded curve form:
+>
+>   ```
+>   M = I / pickup      = 4000 / 400                 = 10
+>   t = TD · 0.14 / (M^0.02 − 1)
+>     = 0.5 · 0.14 / (10^0.02 − 1)
+>     = 0.5 · 0.14 / 0.0471        = 0.5 · 2.97       ≈ 1.49 s   (backup)
+>   ```
+>
+> **The margins:**
+>
+> | Pair (primary → backup) | margin | ≥ CTI 0.3 s? |
+> |---|---|---|
+> | FSW-12 (0.05) → REC-7 (0.45) | 0.40 s | ✓ |
+> | REC-7 (0.45) → CB-7 (1.49) | 1.04 s | ✓ |
+>
+> **Overall: coordinated ✓** — the fuse clears first, the recloser backs it up, the feeder breaker is the last resort. Had the relay's TD been, say, 0.15 (t ≈ 0.45 s), the REC-7 → CB-7 margin would collapse to ~0.00 s and the study would flag a **miscoordination**.
+
 ```
-   source ──[CB: relay 51, SI, TD 0.5]── … ──[REC: slow curve]── … ──[FUSE 100T]──× fault
-             t ≈ 0.59 s  (backup)              t ≈ 0.30 s             t ≈ 0.08 s  (primary)
-             margin 0.59−0.30 = 0.29 s  ✗ (< 0.3 CTI)   │   0.30−0.08 = 0.22 s …
+   source ──[CB-7: R-7, IEC_SI, TD 0.5]── … ──[REC-7: slow IEC_VI]── … ──[FSW-12: 100 T]──× fault
+             t ≈ 1.49 s  (backup)                t ≈ 0.45 s               t ≈ 0.05 s  (primary)
+                      └── margin 1.04 s ✓ ──┘          └── margin 0.40 s ✓ ──┘
 ```
 
 ---
@@ -269,6 +398,16 @@ The two parts meet in one cause-and-effect chain:
 - **Protection chooses the device; switching is the result.** The relay's `protection_trip` link names the breaker it opens; coordination makes sure the *nearest* protective device opens first. When it operates, the only thing that changes in the data is the breaker's `device_state`.
 - **A recloser does both in one feature** — it senses, trips (fast then slow), recloses, and finally locks out as `device_state = OPEN`.
 - **OMS closes the loop for operators.** As a switching plan runs, each step flips a `device_state`; the live energisation model recomputes the dead cone step by step, so the console shows exactly what is out and what each operation restores.
+
+> **How to — see what's de-energised** 🔒 `trace:run`
+> 1. On the map toolbar, click **Schematic** to open the temporary one-line of your selection (or current view).
+> 2. Toggle **Live** (⚡) in the one-line toolbar — it shades every de-energised feature (anything below an open device) in grey and renders open vs. closed switches distinctly, with a *De-energised* swatch in the legend.
+> 3. On the main map, de-energised regions appear automatically when an **OMS incident** is open (drawn red/amber downstream of the fault) — that view is driven by OMS, not a manual toggle.
+
+> **Worked example — a fault and its restoration on Feeder 7.** Follow the loop end to end:
+> 1. **Fault** below FSW-12. Relay **R-7** (50/51) picks up; by the coordination above the **fuse FSW-12** clears first (~0.05 s) — only **TX-220** goes dark. The relay/CB are the backup that never had to operate.
+> 2. **If instead REC-7 locks out** (persistent fault it couldn't clear): `REC-7.device_state → OPEN`. The one-line's **Live** shading greys the whole tail — FSW-12/TX-220, RMU-5/TX-230 and beyond.
+> 3. **Isolate & restore.** *Isolate from here* on the faulted section shows the upstream boundary to open and flags **T-79** as a back-feed path. Close **T-79** (`device_state → OPEN → CLOSED`) and the healthy tail re-energises from **Feeder 9**; the grey cone shrinks to just the faulted bit still isolated. Re-close REC-7 once the fault's cleared and the cone collapses to nothing.
 
 **Two regions, don't conflate them (recap).** A **switching section** (bounded by switches *and* protective devices) is *what you can isolate to work on*. A **protection zone** (bounded by protective devices and transformers only) is *what goes dark when protection trips here*. A plain switch bounds the first, never the second — because a switch doesn't clear a fault.
 
