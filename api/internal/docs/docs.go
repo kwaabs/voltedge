@@ -147,6 +147,22 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "feature-catalog-interactive",
+		Title:       "Feature Catalog explorer (interactive)",
+		Description: "A searchable explorer over the real feature-class model (63 classes, 372 fields, 53 domains, 103 connection rules, 87 relationship classes), built from the metadata seeds and checked against the manual: global search, the full manual reader with its appendices, a class browser and comparison, a 'which class do I use?' wizard, domain lookup, a create-form simulator and CSV header checker that mirror the real validation, a connectivity and relationship explorer, a feeder builder with a trace walker, the map-versus-diagram placement matrix, the axes, a compile preview and a manual-versus-seed drift dashboard. A persona switch uses the real RBAC roles.",
+		Category:    "Interactive guides",
+		Filename:    "feature-catalog-interactive.html",
+		Format:      "html",
+	},
+	{
+		ID:          "data-dictionary-interactive",
+		Title:       "Data Dictionary explorer (interactive)",
+		Description: "The data dictionary as a working explorer over the real model (63 classes, 372 fields, 53 domains, 96 distinct connection rules): global search, the role matrix, a compiled-table preview, where a missing value is caught (API versus database), operational-state transitions with a trace-barrier simulation, a domain browser with reverse lookup, class browser and comparison, a 'which class?' wizard, a connection and terminal explorer, the placement matrix, a create-form simulator with the real validation order and messages, a CSV header and value checker, and a manual-versus-seed drift dashboard. A persona switch uses the real roles.",
+		Category:    "Interactive guides",
+		Filename:    "data-dictionary-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "deployment-and-scaling-guide-interactive",
 		Title:       "Production Deployment & Scaling (interactive)",
 		Description: "Scaling the stateless API tier as a working model: locate where state lives, follow a request through the tiers, and size the login wave, probes, HPA and PDB, PgBouncer and connection budgets (with an Erlang-C queue), read-replica routing and lag, tile capacity, the worker queues and shared-pack builds. Then score the pre-flight checklist, plan a migration, set alerts and ask the scaling playbook what to turn when load rises. Includes a reality check of what is implemented versus recommended. A persona switch gates operator actions.",

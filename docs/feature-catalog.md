@@ -333,8 +333,9 @@ it (HV in → LV out).
 | `1` | `two_winding` | HV, LV, N |
 | `2` | `three_winding` | HV, LV, TV, N |
 
-Fields (group · required?) — every model field is DB-nullable so an un-surveyed unit
-degrades gracefully; requiredness is enforced per subtype:
+Fields (group · required?) — every model field *except* `primary_voltage` and
+`condition_rating` is DB-nullable (those two are `NOT NULL` columns as well as required by
+subtype rule), so an un-surveyed unit degrades gracefully:
 
 | Field | Type | Domain | Req | Role |
 | --- | --- | --- | --- | --- |
@@ -625,7 +626,7 @@ transformer behaviour is driven by **field names, not class identity** — `POWE
 `DIST_XFMR` and `AUX_TRANSFORMER` all become step-down nodes because they carry
 `primary_voltage` + `secondary_voltage`; `EARTHING_XFMR` stays a shunt because it
 carries only the primary; and `TAP_CHANGER` stays off the graph entirely because the
-tap it controls already lives on the transformer. The bus is the one class whose map
+tap it controls already lives on the transformer. The busbar — `MV_BUSBAR`, and `LV_BUSBAR` since the LV pillar seed — is the class whose map
 shape (point) and diagram shape (bar) differ.
 
 Say **next** for Chapter 3 — MV switching & protection.
@@ -1637,7 +1638,9 @@ T1-in / T2-equipotential-fan-out shape as the MV `MV_BUSBAR` and the `LVAC_BOARD
 bar fans out `T2 → METER T1` (one rule, any number of meters). *Containment:* contained by
 `METER_CHAMBER`.
 
-**Where it's drawn.** Map point; a node on the `CHAMBER_SCHEMATIC`.
+**Where it's drawn.** Map point; a node on the `CHAMBER_SCHEMATIC`. Like `MV_BUSBAR` it sets
+`diagram_geometry_type = 'line'` (`seed/lv_pillar_example.sql` lines 205-213), so on a diagram it
+draws as a **bar** while the map keeps it a point; the same seed also made it `geometry_optional`.
 
 ---
 
@@ -2624,9 +2627,11 @@ for what differs:
 - **One `standard` subtype each** — the functional variant is a **coded field**
   (`battery_technology` / `charger_type` / `ied_role`), not subtypes, exactly as the relay's
   ANSI `device_number` does. "The same asset in different roles is one class + a role field."
-- **All fields DB-nullable, requiredness via `subtype_field_rules`** — the additive-compile
-  rule (the compiler emits `NOT NULL` for `nullable=false`, which would fail on a populated
-  table). The identifying coded field is `is_required`; the rest optional.
+- **Only the identifying field is NOT NULL** (and `is_required` by subtype rule —
+  `battery_technology` / `charger_type` / `ied_role`); every other field is DB-nullable and
+  optional (`seed/pnc_control_devices_example.sql` lines 139-146 and 158-162). The compiler emits
+  `NOT NULL` for `nullable=false`, which is why *later-added* fields on a populated class are
+  kept nullable (the additive-compile rule).
 - **Contained by `SUBSTATION_PANEL`** (`containment`, one-to-many) — the enclosure is their
   physical home. That containment edge is their **only** graph.
 - **Diagram symbology only** — a geometry-`none` class has no map rule to fall back to
@@ -2973,9 +2978,15 @@ handful of primitives introduced in Chapter 1:
   (overhead vs underground, fixed vs switched); functional role it cannot is a field (main vs
   service, the panel's type, the IED's role). "A subtype is for differences the network can
   see; everything else is a field."
-- **The additive-compile rule shapes every new field.** Fields added to a populated class stay
-  DB-nullable and enforce requiredness through `subtype_field_rules` — which is why so many
-  "required" fields are nullable in the column and required in the form.
+- **The additive-compile rule shapes every field added later.** Fields added to a populated class
+  stay DB-nullable and enforce requiredness through `subtype_field_rules`. In the seeds that is
+  a minority: of 101 field/subtype-required fields, 93 are *both* a `NOT NULL` column and a
+  subtype rule (the rule gives the clean API message, the column is the backstop), and only 8
+  are nullable columns required per subtype alone (`METER.ct_ratio`, `MV_CAP_BANK.device_state`,
+  `SUBSTATION.primary_voltage`, `TAP_CHANGER`'s three, `EV_CHARGER.charger_type`,
+  `EV_CONNECTOR.connector_standard`). Nine more `NOT NULL` fields sit on classes with no
+  subtypes (the cable duct and trench, `DUCT_WAY`, `EARTHING_XFMR`), where only the database
+  enforces them.
 
 Learn those five ideas and the 63 classes stop being a list to memorise and become what
 they are: **the same small grammar, spoken across ten electrical layers.** That is the whole
@@ -2995,22 +3006,24 @@ Differences found between earlier editions of this catalog and the seeds/migrati
 | --- | --- | --- | --- | --- |
 | 1 | Index, Ch. 1, closing | 60 classes, "roughly sixty" | 63 classes: 62 loaded by `task seed-all` plus legacy `DIST_SWITCH`. `LV_FUSE`, `LV_PILLAR`, `NETWORK_METER` were missing; entries and index rows added (Ch. 4 and 6). | `seed/lv_pillar_example.sql:1-60`, `seed/network_meter_example.sql:1-60` |
 | 2 | Ch. 1 idea 5; Ch. 4-6 | "opt-in-by-absence allow-list rule from Chapter 1" | Chapter 1 never described it. Added: a container + diagram-type pair with any `diagram_placement_rules` rows accepts only the listed classes. | `migrations/0068_create_diagram_placement_rules.sql` |
-| 3 | `POWER_XFMR`, `DIST_XFMR`, `AUX_TRANSFORMER`, `EARTHING_XFMR` | "voltage-matched" connection rules | The `phase_rule` text `from.voltage_class = to.primary_voltage` is descriptive; only `phases_intersect` is ever evaluated, so a conductor of the wrong voltage class can still be connected. Added "How a connection is matched" to Ch. 1. | `api/internal/connectivity/phase.go:9-18`; `api/internal/connectivity/rules.go:46-110` |
-| 4 | Ch. 1 idea 4 | relationship kinds `containment`, `composite`, `spatial_support`, `panel_bay` | Nine kinds are legal: those four plus `protection_trip`, `protection_sensing`, `metering_sensing`, `metering_accounting`, `cable_routing`. | `migrations/0075`, `0080`, `0082`, `0083`, `0121` (widened `relationship_classes.kind` CHECK) |
-| 5 | `POWER_XFMR` | `SUBSTATION contains POWER_XFMR` | No such `relationship_classes` row is seeded. Seeded `SUBSTATION` containment: BAY, CONTROL_BUILDING, SUBSTATION_PANEL, MV_BUSBAR, MV_SWITCHBOARD, AUX_TRANSFORMER, LVAC_BOARD. | `seed/power_transformer_example.sql` (no `relationship_classes` insert); `seed/bay_containment_example.sql:50-60` |
-| 6 | `EARTHING_XFMR` | "contained by `SUBSTATION`" | Same: no containment row seeded. | `seed/earthing_transformer_example.sql` (no `relationship_classes` insert) |
-| 7 | `DIST_XFMR` | Subtypes unnamed; connectivity lists one inbound rule | Subtypes `1 pole_mounted`, `2 pad_mounted`, `3 underground_vault`; a dozen further rules (switch/fuse feed in, arrester tap, LV and DER leaves out). | `seed/connectivity_example.sql`, `seed/overhead_pole_transformer.sql:18-57`, `seed/generator_example.sql:172`, `seed/mv_bess_example.sql:149` |
-| 8 | `MV_RECLOSER` | Subtype not mentioned | Single `standard` subtype, code 1. | `seed/mv_recloser_example.sql` |
-| 9 | `MV_ARRESTER` | "one rule only" (also repeated in Ch. 8) | The class seed ships one rule; the pole-mount/kit seeds add six more onto device terminals: 7 rules in a seeded database. | `seed/pole_mount_recloser.sql`, `seed/pole_mount_voltage_regulator.sql`, `seed/pole_mount_bess.sql`, `seed/overhead_pole_transformer.sql` |
-| 10 | `MV_CAP_BANK` | "one rule only"; "not a trace barrier" | Two rules (kit adds `MV_SWITCH T2 -> T1`); and an OPEN `device_state` barrier row exists for it (harmless for a leaf). | `seed/pole_mount_capacitor_bank.sql:29-66`; `seed/trace_barrier_resync.sql:42-55` |
-| 11 | `MV_BESS` | "the same three PCC rules" | Four: the kit adds `MV_SWITCH T2 -> T1`. | `seed/pole_mount_bess.sql:70-88`; `seed/mv_bess_example.sql:131-133` |
-| 12 | `MV_VREG` | Terminals `T1` source / `T2` load | Seed defect: roles `source`/`load` violate `terminals_role_check` (primary/secondary/tertiary/ground/other), so the terminals, and the three series rules that join to them, are not inserted. A bypassed (OPEN) regulator is also a trace barrier. | `seed/mv_voltage_regulator_example.sql:111-120`; `migrations/0070_add_tertiary_terminal_role.sql:18-20`; `seed/trace_barrier_resync.sql:42-55` |
-| 13 | `MV_EARTH_SWITCH` | "no barrier behaviour" | A barrier row is registered (it has `device_state`), but with no terminals it is never visited, so it is inert. | `seed/trace_barrier_resync.sql:42-55` |
-| 14 | `RMU` | Diagram allow-list not described | `ONE_LINE` allow-list = MV_CONDUCTOR, MV_SWITCH, MV_FUSE, MV_BUSBAR. | `seed/rmu_diagram_placement.sql:1-20` |
-| 15 | `CABLE_CHAMBER`, `MV_CABLE_JOINT`, `LV_CABLE_JOINT` | Subtypes shown by text code | Seed defect: the seeds insert text codes into the integer `subtypes.code` column and are rejected; the three classes therefore have no subtypes on a fresh database, and the joints lose their `branch`-scoped `T3` terminal and its rules. | `seed/cable_management_example.sql:81-91`; `seed/cable_joint_example.sql:94-105,154`; `migrations/0008_create_subtypes_and_fields.sql` |
-| 16 | `EV_CHARGER` / `EV_CONNECTOR` | Colours `#22c55e` / `#4ade80` unassigned | Charger `#22c55e`, connector `#4ade80`. | `seed/ev_charging_example.sql:209-210` |
-| 17 | Master index names | "Cable Trench", "Cable Duct", "Cable Chamber", "Duct Way", "MV/LV Cable Joint" in title case | Seeds use sentence case ("Cable trench"). Cosmetic; the catalog keeps title case. | `seed/cable_management_example.sql:68-77` |
-| 18 | `task seed-all` ordering (not a catalog error) | — | A single pass leaves gaps because some seeds run before the classes they extend exist (e.g. `seed-rmu` before `seed-mv-lv-switch`): in a trial build a first pass produced 57 relationship classes and 308 fields, a second pass 87 and 353. The seeds are idempotent, so re-running the metadata phase fills the gaps. | `Taskfile.yml` `seed-all` (reproduced on PostgreSQL 16 without PostGIS; not verified on the compose stack) |
+| 3 | `POWER_XFMR`, control-room devices, Ch. 10 closing | "every model field is DB-nullable"; "All fields DB-nullable" (`STATION_BATTERY`, `BATTERY_CHARGER`, `CONTROL_IED`); "so many required fields are nullable in the column" | `primary_voltage` / `condition_rating` and each device's identifying field are `NOT NULL`; only 8 of 101 subtype-required fields are nullable columns. | `seed/power_transformer_example.sql:143-170`; `seed/pnc_control_devices_example.sql:139-162` |
+| 4 | `POWER_XFMR`, `DIST_XFMR`, `AUX_TRANSFORMER`, `EARTHING_XFMR` | "voltage-matched" connection rules | The `phase_rule` text `from.voltage_class = to.primary_voltage` is descriptive; only `phases_intersect` is ever evaluated, so a conductor of the wrong voltage class can still be connected. Added "How a connection is matched" to Ch. 1. | `api/internal/connectivity/phase.go:9-18`; `api/internal/connectivity/rules.go:46-110` |
+| 5 | Ch. 1 idea 4 | relationship kinds `containment`, `composite`, `spatial_support`, `panel_bay` | Nine kinds are legal: those four plus `protection_trip`, `protection_sensing`, `metering_sensing`, `metering_accounting`, `cable_routing`. | `migrations/0075_widen_relationship_kind_protection.sql`, `0080_widen_relationship_kind_metering.sql`, `0082_widen_relationship_kind_cable_routing.sql`, `0083_widen_relationship_kind_panel_bay.sql`, `0121_widen_relationship_kind_metering_accounting.sql` |
+| 6 | `POWER_XFMR` | `SUBSTATION contains POWER_XFMR` | No such `relationship_classes` row is seeded. Seeded `SUBSTATION` containment: BAY, CONTROL_BUILDING, SUBSTATION_PANEL, MV_BUSBAR, MV_SWITCHBOARD, AUX_TRANSFORMER, LVAC_BOARD. | `seed/power_transformer_example.sql` (no `relationship_classes` insert); `seed/bay_containment_example.sql:50-60` |
+| 7 | `EARTHING_XFMR` | "contained by `SUBSTATION`" | Same: no containment row seeded. | `seed/earthing_transformer_example.sql` (no `relationship_classes` insert) |
+| 8 | `DIST_XFMR` | Subtypes unnamed; connectivity lists one inbound rule | Subtypes `1 pole_mounted`, `2 pad_mounted`, `3 underground_vault`; a dozen further rules (switch/fuse feed in, arrester tap, LV and DER leaves out). | `seed/connectivity_example.sql`, `seed/overhead_pole_transformer.sql:18-57`, `seed/generator_example.sql:172`, `seed/mv_bess_example.sql:149` |
+| 9 | `MV_RECLOSER` | Subtype not mentioned | Single `standard` subtype, code 1. | `seed/mv_recloser_example.sql` |
+| 10 | `MV_ARRESTER` | "one rule only" (also repeated in Ch. 8) | The class seed ships one rule; the pole-mount/kit seeds add six more onto device terminals: 7 rules in a seeded database. | `seed/pole_mount_recloser.sql`, `seed/pole_mount_voltage_regulator.sql`, `seed/pole_mount_bess.sql`, `seed/overhead_pole_transformer.sql` |
+| 11 | `MV_CAP_BANK` | "one rule only"; "not a trace barrier" | Two rules (kit adds `MV_SWITCH T2 -> T1`); and an OPEN `device_state` barrier row exists for it (harmless for a leaf). | `seed/pole_mount_capacitor_bank.sql:29-66`; `seed/trace_barrier_resync.sql:42-55` |
+| 12 | `MV_BESS` | "the same three PCC rules" | Four: the kit adds `MV_SWITCH T2 -> T1`. | `seed/pole_mount_bess.sql:70-88`; `seed/mv_bess_example.sql:131-133` |
+| 13 | `MV_VREG` | Terminals `T1` source / `T2` load | Seed defect: roles `source`/`load` violate `terminals_role_check` (primary/secondary/tertiary/ground/other), so the terminals, and the three series rules that join to them, are not inserted. A bypassed (OPEN) regulator is also a trace barrier. | `seed/mv_voltage_regulator_example.sql:111-120`; `migrations/0070_add_tertiary_terminal_role.sql:18-20`; `seed/trace_barrier_resync.sql:42-55` |
+| 14 | `MV_EARTH_SWITCH` | "no barrier behaviour" | A barrier row is registered (it has `device_state`), but with no terminals it is never visited, so it is inert. | `seed/trace_barrier_resync.sql:42-55` |
+| 15 | `RMU` | Diagram allow-list not described | `ONE_LINE` allow-list = MV_CONDUCTOR, MV_SWITCH, MV_FUSE, MV_BUSBAR. | `seed/rmu_diagram_placement.sql:1-20` |
+| 16 | `CABLE_CHAMBER`, `MV_CABLE_JOINT`, `LV_CABLE_JOINT` | Subtypes shown by text code | Seed defect: the seeds insert text codes into the integer `subtypes.code` column and are rejected; the three classes therefore have no subtypes on a fresh database, and the joints lose their `branch`-scoped `T3` terminal and its rules. | `seed/cable_management_example.sql:81-91`; `seed/cable_joint_example.sql:94-105,154`; `migrations/0008_create_subtypes_and_fields.sql` |
+| 17 | `LV_BUSBAR`; Ch. 2 recap | "The bus is the one class whose map shape (point) and diagram shape (bar) differ" | `LV_BUSBAR` also has `diagram_geometry_type = 'line'` (and `geometry_optional`) from the LV pillar seed. | `seed/lv_pillar_example.sql:182-213` |
+| 18 | `EV_CHARGER` / `EV_CONNECTOR` | Colours `#22c55e` / `#4ade80` unassigned | Charger `#22c55e`, connector `#4ade80`. | `seed/ev_charging_example.sql:209-210` |
+| 19 | Master index names | "Cable Trench", "Cable Duct", "Cable Chamber", "Duct Way", "MV/LV Cable Joint" in title case | Seeds use sentence case ("Cable trench"). Cosmetic; the catalog keeps title case. | `seed/cable_management_example.sql:68-77` |
+| 20 | `task seed-all` ordering (not a catalog error) | — | A single pass leaves gaps because some seeds run before the classes they extend exist (e.g. `seed-rmu` before `seed-mv-lv-switch`): in a trial build a first pass produced 57 relationship classes and 308 fields, a second pass 87 and 353. The seeds are idempotent, so re-running the metadata phase fills the gaps. | `Taskfile.yml` `seed-all` (reproduced on PostgreSQL 16 without PostGIS; not verified on the compose stack) |
 
 Not verified: live `psql` apply of every seed against PostGIS, and the compiled `gis.*` tables (the audit reads `metadata.*` only).
 
