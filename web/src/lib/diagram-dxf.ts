@@ -116,7 +116,7 @@ function parseHex(color: string | undefined): [number, number, number] | null {
 /** The ACI (1-7) whose standard RGB is nearest a symbology colour, or 0
  * (ByLayer) when the colour isn't a resolvable hex. Keeps a green feeder green
  * and a red isolator red without R12 true colour. */
-function nearestAci(color: string | undefined): number {
+export function nearestAci(color: string | undefined): number {
   const rgb = parseHex(color)
   if (!rgb) return 0 // ByLayer
   let best = 7
@@ -145,7 +145,7 @@ interface TextOpts {
 /** Accumulates DXF entities and the layers they use, then serialises a
  * complete R12 document. Every coordinate is passed in diagram (Y-down) space
  * and flipped to CAD's Y-up exactly once, in `emitXY`. */
-class DxfBuilder {
+export class DxfBuilder {
   private entities: string[] = []
   private blocks: string[] = []
   /** Where pair()/emitXY write -- normally the ENTITIES buffer, temporarily
@@ -423,7 +423,7 @@ function transformPoint(lx: number, ly: number, deg: number, tx: number, ty: num
 
 // Layer names -- one per structural kind, so a CAD user can toggle conductors,
 // devices, furniture and labels independently.
-const LAYER = {
+export const LAYER = {
   conductors: "CONDUCTORS",
   devices: "DEVICES",
   symbols: "SYMBOLS",
@@ -440,7 +440,7 @@ const LAYER = {
 /** An R12 block name for an icon_ref: uppercase, only [A-Z0-9_$], `SYM_`
  * prefixed so it never collides with a reserved name and reads in a CAD
  * layer/block list. Same ref -> same name, so each glyph is defined once. */
-function blockNameFor(iconRef: string): string {
+export function blockNameFor(iconRef: string): string {
   return "SYM_" + iconRef.toUpperCase().replace(/[^A-Z0-9_$]/g, "_")
 }
 

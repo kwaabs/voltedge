@@ -226,3 +226,15 @@
     padding: 0;
   }
 }
+
+/*
+ * The "Select" marquee tool's rubber-band rectangle (ol/interaction/DragBox,
+ * voltedge-map.tsx). It's constructed with a custom className ("ol-dragbox-
+ * select"), which bypasses ol.css's default ".ol-dragbox" border -- so without
+ * this rule the drag box is invisible and you can't see the selection being
+ * made. Sky-blue to match the selection halo the picked features get.
+ */
+.ol-dragbox-select {
+  border: 2px dashed #0284c7;
+  background-color: rgba(2, 132, 199, 0.15);
+}

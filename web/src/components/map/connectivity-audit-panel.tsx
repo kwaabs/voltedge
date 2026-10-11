@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Loader2, ShieldCheck, X } from "lucide-react"
+import { List, Loader2, ShieldCheck, Table2, X } from "lucide-react"
 
 import { inputClass } from "@/components/map/field-utils"
 import {
@@ -43,6 +43,20 @@ type FindingFilter = "all" | "connectivity" | "relationships"
  * graph. Drives the panel's category filter. */
 function findingCategory(kind: string): "connectivity" | "relationships" {
   return kind === "orphaned_relationship" ? "relationships" : "connectivity"
+}
+
+/** A readable label for a finding's kind code, for the table's Issue column. */
+function kindLabel(kind: string): string {
+  switch (kind) {
+    case "orphaned_connectivity":
+      return "Orphaned connectivity"
+    case "coincident_unconnected":
+      return "Coincident, unconnected"
+    case "orphaned_relationship":
+      return "Orphaned relationship"
+    default:
+      return kind.replace(/_/g, " ")
+  }
 }
 
 /** A chip for one referenced feature. A finding can name two features (from/to);
@@ -112,6 +126,10 @@ export function ConnectivityAuditPanel() {
   const { data: featureClasses } = useFeatureClasses()
   const [toleranceInput, setToleranceInput] = useState("")
   const [filter, setFilter] = useState<FindingFilter>("all")
+  const [severityFilter, setSeverityFilter] = useState<"all" | "error" | "warning" | "info">("all")
+  // Findings render as a scannable table by default; the flip toggles back to the
+  // original card/list layout (which gives each finding's message more room).
+  const [layout, setLayout] = useState<"table" | "list">("table")
   const [confirmCleanup, setConfirmCleanup] = useState(false)
   const [cleaning, setCleaning] = useState(false)
   const fp = useFloatingPanel(600, "max-h-80")
@@ -132,10 +150,14 @@ export function ConnectivityAuditPanel() {
     ? result.summary.orphaned_connectivity + result.summary.orphaned_relationships
     : 0
 
-  // The findings list, narrowed to the active category filter.
-  const shownFindings = result
+  // The findings narrowed to the active category filter (the severity chips count
+  // against this set), then further narrowed to the active severity.
+  const categoryFindings = result
     ? result.findings.filter((f) => filter === "all" || findingCategory(f.kind) === filter)
     : []
+  const shownFindings = categoryFindings.filter(
+    (f) => severityFilter === "all" || f.severity === severityFilter,
+  )
 
   async function runAudit() {
     useConnectivityAuditStore.getState().setLoading(true)
@@ -179,7 +201,7 @@ export function ConnectivityAuditPanel() {
         <div className="flex min-w-0 items-center gap-1.5">
           {fp.grip}
           <ShieldCheck className="size-3.5 shrink-0 text-rose-600" />
-          <p className="truncate text-sm font-medium">Connectivity audit</p>
+          <p className="truncate text-sm font-medium">Network audit</p>
         </div>
         <Button
           variant="ghost"
@@ -264,13 +286,120 @@ export function ConnectivityAuditPanel() {
                 </button>
               )
             })}
+            {/* Flip between the table (default) and the original card list. */}
+            <div className="ml-auto flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => setLayout("table")}
+                title="Table view"
+                className={cn(
+                  "cursor-pointer rounded p-1",
+                  layout === "table"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/70",
+                )}
+              >
+                <Table2 className="size-3.5" />
+                <span className="sr-only">Table view</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setLayout("list")}
+                title="Card view"
+                className={cn(
+                  "cursor-pointer rounded p-1",
+                  layout === "list"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/70",
+                )}
+              >
+                <List className="size-3.5" />
+                <span className="sr-only">Card view</span>
+              </button>
+            </div>
           </div>
 
-          <div className="overflow-y-auto">
+          <div className="flex items-center gap-1 border-b px-2 py-1 text-[11px]">
+            <span className="text-muted-foreground mr-0.5">Severity</span>
+            {(["all", "error", "warning", "info"] as const).map((s) => {
+              const count =
+                s === "all" ? categoryFindings.length : categoryFindings.filter((x) => x.severity === s).length
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSeverityFilter(s)}
+                  className={cn(
+                    "cursor-pointer rounded px-1.5 py-0.5 capitalize",
+                    severityFilter === s
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/70",
+                  )}
+                >
+                  {s} ({count})
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="overflow-auto">
             {result.findings.length === 0 ? (
               <p className="p-3 text-sm text-emerald-700 dark:text-emerald-400">No problems found.</p>
             ) : shownFindings.length === 0 ? (
-              <p className="text-muted-foreground p-3 text-sm">No {filter} findings.</p>
+              <p className="text-muted-foreground p-3 text-sm">No findings match these filters.</p>
+            ) : layout === "table" ? (
+              <table className="w-full border-collapse text-xs">
+                <thead className="bg-muted/50 text-muted-foreground sticky top-0">
+                  <tr className="text-left">
+                    <th className="px-2 py-1.5 font-medium">Severity</th>
+                    <th className="px-2 py-1.5 font-medium">Issue</th>
+                    <th className="px-2 py-1.5 font-medium">Details</th>
+                    <th className="px-2 py-1.5 font-medium">From</th>
+                    <th className="px-2 py-1.5 font-medium">To</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shownFindings.map((f, i) => (
+                    <tr key={i} className="border-t align-top">
+                      <td className="px-2 py-1.5">
+                        <span
+                          className={cn(
+                            "inline-block rounded px-1.5 py-0.5 text-[11px] font-medium",
+                            severityClass(f.severity),
+                          )}
+                        >
+                          {f.severity}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">{kindLabel(f.kind)}</td>
+                      <td className="px-2 py-1.5">
+                        {f.message}
+                        {f.distance_meters != null && (
+                          <span className="text-muted-foreground"> ({f.distance_meters.toFixed(2)} m)</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <FeatureChip
+                          code={f.from_class}
+                          id={f.from_id}
+                          status={f.from_status}
+                          diagramOnly={isDiagramOnly(f.from_class)}
+                          classNameFor={classNameFor}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <FeatureChip
+                          code={f.to_class}
+                          id={f.to_id}
+                          status={f.to_status}
+                          diagramOnly={isDiagramOnly(f.to_class)}
+                          classNameFor={classNameFor}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             ) : (
               <ul className="divide-y">
                 {shownFindings.map((f, i) => (

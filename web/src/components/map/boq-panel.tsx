@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ChevronDown, Download, Loader2, Printer } from "lucide-react"
 
 import { inputClass } from "@/components/map/field-utils"
@@ -26,7 +26,8 @@ import { ApiError } from "@/lib/api"
 import { boqPdfFilename, buildBoqPdf } from "@/lib/boq-print"
 import { cn } from "@/lib/utils"
 import { useBoqStore } from "@/stores/boq-store"
-import { useSelectionStore } from "@/stores/selection-store"
+import { useMapSelectStore } from "@/stores/map-select-store"
+import { type FeatureRef, useSelectionStore } from "@/stores/selection-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useTraceStore } from "@/stores/trace-store"
 
@@ -34,7 +35,8 @@ import { useTraceStore } from "@/stores/trace-store"
  * The four BoQ scopes the panel can price. "whole"/"territory" scan whole
  * classes (optionally narrowed to a territory subtree, server-expanded); "trace"
  * and "selection" price an explicit feature set handed over as feature_refs --
- * the trace result's reached features, or the single map-selected feature. The
+ * the trace result's reached features, or the map's current selection (the
+ * Select-tool's multi-pick set, else the single panel selection). The
  * engine also supports radius/bbox scopes, reachable via the API but not wired
  * into this panel yet (they need a map draw/point gesture).
  */
@@ -109,7 +111,29 @@ export function BoqPanel() {
   )
 
   const traceRefs = useTraceStore((s) => s.result?.features)
-  const selected = useSelectionStore((s) => s.selected)
+  // The "Current selection" scope prices the Select-tool's multi-pick set when it
+  // has any members (the marquee/box highlight -- useMapSelectStore), else falls
+  // back to the single panel-opening selection (useSelectionStore). Previously it
+  // was wired only to the single-feature store, so a marquee selection left the
+  // scope disabled even though features were highlighted.
+  const singleSelected = useSelectionStore((s) => s.selected)
+  const multiSelected = useMapSelectStore((s) => s.selected)
+  const selectionRefs: FeatureRef[] =
+    multiSelected.length > 0 ? multiSelected : singleSelected ? [singleSelected] : []
+
+  // The panel is always mounted (it self-gates on `open`), so without this its
+  // priced `result` and PDF preview would survive a close and the next open would
+  // show a stale estimate. Clear them whenever the panel closes, so every open
+  // starts from a clean slate.
+  useEffect(() => {
+    if (!open) {
+      setResult(null)
+      setPreview((prev) => {
+        if (prev) URL.revokeObjectURL(prev.url)
+        return null
+      })
+    }
+  }, [open])
 
   if (!open) return null
 
@@ -131,8 +155,8 @@ export function BoqPanel() {
         base.scope = { kind: "territory", territory_id: territoryId }
         return base
       case "selection":
-        if (!selected) return null
-        base.feature_refs = [{ class: selected.featureClassCode, id: selected.featureId }]
+        if (selectionRefs.length === 0) return null
+        base.feature_refs = selectionRefs.map((r) => ({ class: r.featureClassCode, id: r.featureId }))
         return base
       case "trace":
         if (!traceRefs || traceRefs.length === 0) return null
@@ -175,7 +199,9 @@ export function BoqPanel() {
         return t ? `Territory — ${t.name} and beneath` : "Territory"
       }
       case "selection":
-        return selected ? `Current selection — ${selected.featureClassCode}` : "Current selection"
+        return selectionRefs.length > 0
+          ? `Current selection — ${selectionRefs.length} feature${selectionRefs.length === 1 ? "" : "s"}`
+          : "Current selection"
       case "trace":
         return `Trace result — ${traceRefs?.length ?? 0} features`
     }
@@ -224,8 +250,11 @@ export function BoqPanel() {
               <option value="territory" disabled={territoryRows.length === 0}>
                 Territory {territoryRows.length === 0 ? "— none defined" : "— a territory and beneath"}
               </option>
-              <option value="selection" disabled={!selected}>
-                Current selection {selected ? "" : "— nothing selected"}
+              <option value="selection" disabled={selectionRefs.length === 0}>
+                Current selection{" "}
+                {selectionRefs.length > 0
+                  ? `— ${selectionRefs.length} feature${selectionRefs.length === 1 ? "" : "s"}`
+                  : "— nothing selected"}
               </option>
               <option value="trace" disabled={!traceRefs || traceRefs.length === 0}>
                 Trace result{" "}

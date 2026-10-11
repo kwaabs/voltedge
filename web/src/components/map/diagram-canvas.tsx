@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
 import { useQueries, useQueryClient } from "@tanstack/react-query"
-import { Cable, ChevronsLeft, ChevronsRight, CornerDownRight, Crosshair, Download, Grid3x3, Hand, LayoutTemplate, Link2, List, Loader2, Magnet, Maximize, Maximize2, Minimize, Minus, MousePointer2, PenLine, Plus, Printer, RefreshCw, Replace, Shapes, Spline, Square, Table, Trash2, Type, Waypoints, X, ZoomIn, ZoomOut } from "lucide-react"
+import { Cable, ChevronsLeft, ChevronsRight, CornerDownRight, Crosshair, Download, Grid3x3, Hand, LayoutTemplate, Link2, List, Loader2, Magnet, Maximize, Maximize2, Minimize, Minus, MousePointer2, PenLine, Plus, Printer, RefreshCw, Replace, Shapes, Spline, Square, Table, Trash2, Type, Waypoints, X, Zap, ZoomIn, ZoomOut } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DeleteDiagramDialog } from "@/components/map/delete-diagram-dialog"
@@ -33,6 +33,7 @@ import { type PanelOption, usePanelOptions } from "@/hooks/use-panels"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { ApiError, apiFetch } from "@/lib/api"
 import { downloadDiagramDxf } from "@/lib/diagram-dxf"
+import { refKey, useEnergization } from "@/lib/energization"
 import { DiagramPrintDialog } from "@/components/map/diagram-print-dialog"
 import { offsetGeometry } from "@/lib/geometry"
 import { type HighlightRole, HIGHLIGHT_COLORS } from "@/lib/map-layers"
@@ -375,63 +376,69 @@ function LabelToggleControl({
  * discrete steppers -- reposition is a direct drag, but rotate/size read
  * cleanly as taps on a schematic. stopPropagation so a tap never starts a
  * placement drag. */
-function LabelAdjustControls({
-  x,
-  y,
-  size,
+/** Shortest distance from a point to a line segment (diagram-local units). */
+function pointSegmentDistance(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax
+  const dy = by - ay
+  if (dx === 0 && dy === 0) return Math.hypot(px - ax, py - ay)
+  let t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+}
+
+/** Shortest distance from a point to a polyline (its nearest segment). */
+function distanceToPolyline(px: number, py: number, pts: [number, number][]): number {
+  if (pts.length === 0) return Infinity
+  if (pts.length === 1) return Math.hypot(px - pts[0][0], py - pts[0][1])
+  let min = Infinity
+  for (let i = 0; i < pts.length - 1; i++) {
+    const d = pointSegmentDistance(px, py, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1])
+    if (d < min) min = d
+  }
+  return min
+}
+
+/**
+ * The selected placement's label controls -- nudge (←↑↓→), rotate (↺↻) and
+ * resize (−/+) its name label. Rendered in the diagram HEADER, not floating over
+ * the feature, so it never blocks the view (user feedback 2026-10-10). Mounts
+ * only when a placement with a visible label is selected; operates on whichever
+ * placement that is.
+ */
+function LabelAdjustBar({
   step,
   onNudge,
   onRotate,
   onScale,
 }: {
-  x: number
-  y: number
-  size: number
   /** One nudge-button press in glyph-local units, sized to the label's font. */
   step: number
   onNudge: (dx: number, dy: number) => void
   onRotate: (deltaDeg: number) => void
   onScale: (factor: number) => void
 }) {
-  const gap = size * 2.4
-  const button = (cx: number, cy: number, glyph: string, title: string, onTap: () => void) => (
-    <g
-      transform={`translate(${cx}, ${cy})`}
-      className="cursor-pointer"
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => {
-        e.stopPropagation()
-        onTap()
-      }}
+  const btn = (glyph: string, title: string, onClick: () => void) => (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className="hover:bg-accent hover:text-accent-foreground text-muted-foreground flex size-6 items-center justify-center rounded text-sm leading-none"
     >
-      <title>{title}</title>
-      <circle r={size} style={{ fill: "var(--background)", stroke: "var(--border)" }} strokeWidth={size * 0.14} />
-      <text
-        textAnchor="middle"
-        dominantBaseline="central"
-        style={{ fill: "var(--muted-foreground)", fontSize: size * 1.15, userSelect: "none" }}
-      >
-        {glyph}
-      </text>
-    </g>
+      {glyph}
+    </button>
   )
   return (
-    // Always shown -- this control only mounts for the single *selected*
-    // placement (see its isSelected render sites), so it doesn't need the
-    // hover gate the transient toggle/remove controls use; hiding it until
-    // the cursor sits exactly on the glyph just made it feel absent.
-    <g transform={`translate(${x}, ${y})`}>
-      {/* Top row: move the label (button parity with dragging the text). */}
-      {button(-1.5 * gap, 0, "←", "Nudge label left", () => onNudge(-step, 0))}
-      {button(-0.5 * gap, 0, "↑", "Nudge label up", () => onNudge(0, -step))}
-      {button(0.5 * gap, 0, "↓", "Nudge label down", () => onNudge(0, step))}
-      {button(1.5 * gap, 0, "→", "Nudge label right", () => onNudge(step, 0))}
-      {/* Bottom row: rotate + resize. */}
-      {button(-1.5 * gap, gap, "↺", "Rotate label left 15°", () => onRotate(-15))}
-      {button(-0.5 * gap, gap, "↻", "Rotate label right 15°", () => onRotate(15))}
-      {button(0.5 * gap, gap, "−", "Smaller label", () => onScale(1 / 1.15))}
-      {button(1.5 * gap, gap, "+", "Larger label", () => onScale(1.15))}
-    </g>
+    <div className="bg-popover text-popover-foreground flex items-center gap-0.5 rounded-md border px-1 py-0.5 shadow-sm">
+      <span className="text-muted-foreground px-1 text-[10px] font-medium">Label</span>
+      {btn("←", "Nudge label left", () => onNudge(-step, 0))}
+      {btn("↑", "Nudge label up", () => onNudge(0, -step))}
+      {btn("↓", "Nudge label down", () => onNudge(0, step))}
+      {btn("→", "Nudge label right", () => onNudge(step, 0))}
+      {btn("↺", "Rotate label left 15°", () => onRotate(-15))}
+      {btn("↻", "Rotate label right 15°", () => onRotate(15))}
+      {btn("−", "Smaller label", () => onScale(1 / 1.15))}
+      {btn("+", "Larger label", () => onScale(1.15))}
+    </div>
   )
 }
 
@@ -1401,6 +1408,11 @@ interface DragState {
   basePath?: DiagramPathPoint[]
   path?: DiagramPathPoint[]
   moved: boolean
+  // The click's viewport coordinates, carried so a pointerup that turns out to
+  // be a plain click (not a drag) can open the stacked-feature picker at the
+  // cursor (see selectOrPickTarget).
+  clientX: number
+  clientY: number
 }
 
 /** Live drag of one element (box/text/line). For a line, `basePath` is its
@@ -1605,6 +1617,20 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   const stencils = useDiagramStencils()
   const placements = useMemo(() => placementsData?.placements ?? [], [placementsData])
   const elements = useMemo(() => elementsData?.elements ?? [], [elementsData])
+  // Energisation (S2): a per-diagram toggle that shades de-energised placements
+  // (below an open device). When on, classify this diagram's placements via the
+  // whole-network energisation walk; roleFor reuses the "isolation-deenergized"
+  // grey role so a dead feature reads the same on the diagram as under isolate.
+  const [showEnergisation, setShowEnergisation] = useState(false)
+  const energRefs = useMemo(
+    () => placements.map((p) => ({ feature_class: p.feature_class, feature_id: p.feature_id })),
+    [placements],
+  )
+  const { data: energizationDead } = useEnergization(
+    openDiagramId ?? null,
+    energRefs,
+    showEnergisation && placements.length > 0,
+  )
   const isPickingHere = placePhase === "picking" && placeDiagramId === openDiagramId
   const isPlacingHere = placePhase === "placing" && placeDiagramId === openDiagramId
   // Whether the in-flight pick is a replace (overwrite a stub) rather than an
@@ -1741,6 +1767,12 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
       if (faultCurrentResult.nodes.some(matches)) return "fault-current"
     }
 
+    // Energisation shading (S2) -- lowest precedence, so an armed trace/isolate/
+    // load-flow/fault result still wins the colour when one is active.
+    if (energizationDead && energizationDead.has(refKey(featureClass, featureId))) {
+      return "isolation-deenergized"
+    }
+
     return null
   }
 
@@ -1752,7 +1784,13 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // draw-store.ts), same guard voltedge-map.tsx's own click handler
   // applies -- a click shouldn't silently change what's selected out
   // from under an in-progress, unsaved create form.
-  function selectOrPickTarget(featureClass: string, featureId: string, placementId?: string) {
+  function selectOrPickTarget(
+    featureClass: string,
+    featureId: string,
+    placementId?: string,
+    clientX?: number,
+    clientY?: number,
+  ) {
     if (useDrawStore.getState().draft) return
     const connectState = useConnectStore.getState()
     // Connect/Relate tool armed (Phase 26): this click is the source of a
@@ -1767,46 +1805,62 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
       connectState.pickTarget({ featureClassCode: featureClass, featureId })
       return
     }
-    // Plain selection: if this placement sits in a stack of overlapping point
-    // placements, advance to the next one beneath the currently-selected one
-    // so repeated clicks cycle down through the stack. Because the selected
-    // placement is raised to paint on top (pointItems below), a plain click
-    // always lands on it, so without this an occluded feature could never be
-    // reached -- and reaching it is exactly what makes its label/remove
-    // controls clickable. Connect/relate above deliberately skip cycling: they
-    // target the feature actually clicked.
-    const next = placementId != null ? nextStackedSelection(placementId) : null
-    if (next) useSelectionStore.getState().select(next.feature_class, next.feature_id)
-    else useSelectionStore.getState().select(featureClass, featureId)
+    // Plain selection: if this placement sits in a stack of 2+ overlapping point
+    // placements, open the stacked-feature picker (the same PeerPicker the map
+    // uses) at the cursor so the user chooses which one -- rather than silently
+    // selecting whichever happens to paint on top, leaving an occluded feature
+    // unreachable. A lone feature (or a pick with no cursor position) selects
+    // outright. Connect/relate above deliberately skip this: they target the
+    // feature actually clicked.
+    const stack = clientX != null && clientY != null ? stackAt(clientX, clientY) : []
+    if (stack.length >= 2) {
+      useSelectionStore.getState().showCandidates(
+        stack.map((p) => ({ featureClassCode: p.feature_class, featureId: p.feature_id })),
+        { x: clientX!, y: clientY! },
+      )
+      return
+    }
+    useSelectionStore.getState().select(featureClass, featureId)
   }
 
-  // Given the just-clicked placement, returns the next placement to select when
-  // several point placements are stacked at (near) the same spot -- the one
-  // after the currently-selected member of that stack, wrapping around. Returns
-  // null when nothing's stacked here, or when the selection isn't part of this
-  // stack (so the first click on a stack selects the clicked feature outright,
-  // and only subsequent clicks cycle). "Stacked" = centres within half an icon
-  // of each other, the same proportional sizing everything else on the canvas
-  // uses. The stack is built from effectivePlacements' stable authoring order --
-  // NOT the selection-sorted pointItems, which moves the selected member to the
-  // end each cycle and would trap the walk bouncing between the first two.
-  function nextStackedSelection(placementId: string): DiagramPlacement | null {
-    const clicked = effectivePlacements.find((p) => p.id === placementId)
-    if (!clicked) return null
-    const threshold = iconSize * 0.5
-    const stack = effectivePlacements.filter(
-      (p) =>
-        geometryTypeByClass[p.feature_class] !== "line" &&
-        !hiddenClassSet.has(p.feature_class) &&
-        Math.hypot(p.x - clicked.x, p.y - clicked.y) <= threshold,
-    )
-    if (stack.length < 2) return null
-    const sel = useSelectionStore.getState().selected
-    const curIdx = stack.findIndex(
-      (p) => sel && p.feature_class === sel.featureClassCode && p.feature_id === sel.featureId,
-    )
-    if (curIdx === -1) return null
-    return stack[(curIdx + 1) % stack.length]
+  // Everything under the click point: point symbols whose glyph the click landed
+  // on/near, PLUS conductors whose drawn wire runs under the click -- so a symbol
+  // sitting on a wire, or two overlapping symbols, both surface. Anchored to the
+  // actual cursor (not a feature centre), hidden classes excluded. Returns the
+  // single clicked feature when nothing else is there. iconSize is a full glyph
+  // width (radius = iconSize/2); the hit radii are a little forgiving.
+  function stackAt(clientX: number, clientY: number): DiagramPlacement[] {
+    const svg = clientToSvgPoint(clientX, clientY)
+    if (!svg) return []
+    // Point symbols whose glyph the click landed on.
+    const pointHit = iconSize * 0.7
+    const points: DiagramPlacement[] = []
+    for (const p of effectivePlacements) {
+      if (hiddenClassSet.has(p.feature_class)) continue
+      if (geometryTypeByClass[p.feature_class] === "line") continue
+      if (Math.hypot(p.x - svg.x, p.y - svg.y) <= pointHit) points.push(p)
+    }
+    // If the click landed on a symbol, disambiguate among the SYMBOLS only -- a
+    // wire that just terminates at the clicked symbol isn't a stacked feature to
+    // offer (you'd click the wire's own span to pick it). This keeps a normal
+    // symbol click a plain select, not a picker over the symbol + its own wires.
+    if (points.length > 0) return points
+    // Bare area: offer whatever conductor(s) run under the click (crossing wires,
+    // or a lone wire -- a single hit just selects it).
+    const lineHit = iconSize * 0.45
+    const lines: DiagramPlacement[] = []
+    for (const item of conductorItems) {
+      if (hiddenClassSet.has(item.placement.feature_class)) continue
+      const pts: [number, number][] =
+        item.placement.path && item.placement.path.length >= 2
+          ? item.placement.path
+          : [
+              [item.points[0].x, item.points[0].y],
+              [item.points[1].x, item.points[1].y],
+            ]
+      if (distanceToPolyline(svg.x, svg.y, pts) <= lineHit) lines.push(item.placement)
+    }
+    return lines
   }
 
   // Keyed by the class's DIAGRAM shape, not its map shape: a busbar is
@@ -2446,6 +2500,8 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
       // none, so this stays undefined and the drag is a plain x/y move.
       basePath: placement.path && placement.path.length >= 2 ? placement.path : undefined,
       moved: false,
+      clientX: e.clientX,
+      clientY: e.clientY,
     })
   }
 
@@ -2492,10 +2548,10 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // the server on failure.
   async function handlePlacementPointerUp() {
     if (!dragState || !openDiagramId) return
-    const { placementId, featureClass, featureId, x, y, path, moved } = dragState
+    const { placementId, featureClass, featureId, x, y, path, moved, clientX, clientY } = dragState
     if (!moved) {
       setDragState(null)
-      selectOrPickTarget(featureClass, featureId, placementId)
+      selectOrPickTarget(featureClass, featureId, placementId, clientX, clientY)
       return
     }
     const rotation = placements.find((p) => p.id === placementId)?.rotation ?? 0
@@ -3726,6 +3782,16 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
           <Button
             variant="ghost"
             size="icon"
+            className={cn("size-7", showEnergisation && "bg-accent text-accent-foreground")}
+            title="Energisation — shade de-energised features (below an open device)"
+            onClick={() => setShowEnergisation((v) => !v)}
+          >
+            <Zap className="size-4" />
+            <span className="sr-only">Toggle energisation shading</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             className={cn("size-7", maximized && "bg-accent text-accent-foreground")}
             title={maximized ? "Exit full page — show the map alongside" : "Full page — hide the map"}
             onClick={() =>
@@ -3795,6 +3861,20 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
               orthoEnabled={orthoEnabled}
               onToggleOrtho={() => setOrthoEnabled((o) => !o)}
             />
+            {/* Label controls for the selected placement -- a contextual bar
+                pinned to the bottom-centre of the canvas (out of the way), not
+                floating over the feature where it blocked the view. Shown only
+                when a placement with a visible label is selected. */}
+            {selectedPlacement && !selectedPlacement.label_hidden && (
+              <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2">
+                <LabelAdjustBar
+                  step={fontSize * 0.6}
+                  onNudge={(dx, dy) => nudgeLabel(selectedPlacement, dx, dy)}
+                  onRotate={(d) => rotateLabel(selectedPlacement, d)}
+                  onScale={(f) => scaleLabel(selectedPlacement, f)}
+                />
+              </div>
+            )}
             {(isPickingHere || isPlacingHere) && (
               <div className="bg-popover text-popover-foreground absolute top-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-md border px-3 py-1.5 text-xs shadow-sm">
                 <Crosshair className="text-muted-foreground size-3.5" />
@@ -4835,17 +4915,8 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                       size={removeSize}
                       onRemove={() => setPendingRemoval({ id: item.placement.id, label: feature?.name || item.placement.feature_class })}
                     />
-                    {isSelected && !item.placement.label_hidden && (
-                      <LabelAdjustControls
-                        x={0}
-                        y={removeSize * 3}
-                        size={removeSize * 0.85}
-                        step={fontSize * 0.6}
-                        onNudge={(dx, dy) => nudgeLabel(item.placement, dx, dy)}
-                        onRotate={(d) => rotateLabel(item.placement, d)}
-                        onScale={(f) => scaleLabel(item.placement, f)}
-                      />
-                    )}
+                    {/* Label nudge/rotate/resize controls moved to the header
+                        (LabelAdjustBar) so they no longer float over the feature. */}
                   </g>
                   {/* Per-vertex reshape handles (small dots at each vertex),
                       shown only while a hand-drawn bar is selected -- so the
@@ -5013,17 +5084,8 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                         </g>
                       )
                     })()}
-                  {isSelected && !placement.label_hidden && (
-                    <LabelAdjustControls
-                      x={0}
-                      y={iconSize / 2 + fontSize * 3}
-                      size={removeSize * 0.85}
-                      step={fontSize * 0.6}
-                      onNudge={(dx, dy) => nudgeLabel(placement, dx, dy)}
-                      onRotate={(d) => rotateLabel(placement, d)}
-                      onScale={(f) => scaleLabel(placement, f)}
-                    />
-                  )}
+                  {/* Label nudge/rotate/resize controls moved to the header
+                      (LabelAdjustBar) so they no longer float over the feature. */}
                   {isSelected && (
                     <g>
                       <line

@@ -132,6 +132,23 @@ const OL_DRAW_TYPE: Record<DrawGeometryType, "Point" | "LineString" | "Polygon">
   polygon: "Polygon",
 }
 
+// The cursor shown while the "Select" tool is armed: a sky-blue crosshair ringed
+// by a soft halo, so marquee-select mode reads as distinct from a plain pointer
+// (every other armed tool shows a crosshair; this one adds the halo). An inline
+// SVG data-URI cursor with its hotspot at the centre (16 16), falling back to the
+// native crosshair where custom cursors aren't honoured.
+const SELECT_CURSOR = (() => {
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'>` +
+    `<circle cx='16' cy='16' r='11' fill='#0284c7' fill-opacity='0.12' stroke='#0284c7' stroke-opacity='0.5' stroke-width='1.5'/>` +
+    `<line x1='16' y1='3' x2='16' y2='12' stroke='#0284c7' stroke-width='2'/>` +
+    `<line x1='16' y1='20' x2='16' y2='29' stroke='#0284c7' stroke-width='2'/>` +
+    `<line x1='3' y1='16' x2='12' y2='16' stroke='#0284c7' stroke-width='2'/>` +
+    `<line x1='20' y1='16' x2='29' y2='16' stroke='#0284c7' stroke-width='2'/>` +
+    `<circle cx='16' cy='16' r='1.75' fill='#0284c7'/></svg>`
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 16 16, crosshair`
+})()
+
 // The OL Draw geometry type for each annotation kind (Phase 36 Slice 4) -- the
 // client-side mirror of the server's kind->geom rule (mapannotation/sql.go):
 // a text note is a Point, a box a Polygon, a line/arrow a LineString.
@@ -803,6 +820,12 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
         useRadiusQueryStore.getState().armed
       ) {
         target.style.cursor = "crosshair"
+        return
+      }
+      // The "Select" tool armed: its own halo-crosshair, taking precedence over the
+      // feature/pan cursors so the mode stays legible even hovering a feature.
+      if (useMapSelectStore.getState().active) {
+        target.style.cursor = SELECT_CURSOR
         return
       }
       // Imported overlay features (Phase 15) are clickable too (they open the
@@ -1573,6 +1596,10 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   // above clears mapSelectSource when the set empties).
   const mapSelectActive = useMapSelectStore((s) => s.active)
   useEffect(() => {
+    // Reflect the tool state on the cursor straight away (pointermove keeps it
+    // correct thereafter); clear it back to default when the tool disarms.
+    const target = mapRef.current?.getTargetElement()
+    if (target) target.style.cursor = mapSelectActive ? SELECT_CURSOR : ""
     if (!mapSelectActive) return
     const handleEscape = (evt: KeyboardEvent) => {
       if (evt.key === "Escape") useMapSelectStore.getState().deactivate()

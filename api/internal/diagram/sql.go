@@ -26,9 +26,12 @@ const diagramTypeDomain = "DIAGRAM_TYPE"
 type DiagramInstance struct {
 	bun.BaseModel `bun:"table:runtime.diagram_instances,alias:diagram_instances"`
 
-	ID                      string  `bun:"id,pk,nullzero"`
-	ContainerFeatureClassID string  `bun:"container_feature_class_id"`
-	ContainerFeatureID      string  `bun:"container_feature_id"`
+	ID string `bun:"id,pk,nullzero"`
+	// Container columns are NULL for an unowned "network one-line" (migration
+	// 0135) that spans a viewport/selection; non-nil for an owned diagram rooted
+	// on a single is_diagram_container feature (every diagram before 0135).
+	ContainerFeatureClassID *string `bun:"container_feature_class_id,nullzero"`
+	ContainerFeatureID      *string `bun:"container_feature_id,nullzero"`
 	DiagramTypeValueID      string  `bun:"diagram_type_value_id"`
 	Name                    *string `bun:"name"`
 	// SourceTemplateID is the diagram_templates row this instance was
@@ -155,9 +158,11 @@ func createInstance(ctx context.Context, db bun.IDB, req createInstanceRequest) 
 		return nil, invalid("diagram_type %q is not a valid DIAGRAM_TYPE value: %v", req.DiagramType, err)
 	}
 
+	containerClassID := container.loaded.FeatureClass.ID
+	containerFeatureID := req.Container.FeatureID
 	inst := &DiagramInstance{
-		ContainerFeatureClassID: container.loaded.FeatureClass.ID,
-		ContainerFeatureID:      req.Container.FeatureID,
+		ContainerFeatureClassID: &containerClassID,
+		ContainerFeatureID:      &containerFeatureID,
 		DiagramTypeValueID:      diagramType.ID,
 		Name:                    req.Name,
 		SourceTemplateID:        req.SourceTemplateID,
@@ -290,8 +295,13 @@ func placeFeature(ctx context.Context, db bun.IDB, diagramInstanceID string, req
 	// pairing with no rules is unconstrained, so every existing diagram is
 	// unaffected. This is what makes a meter-chamber schematic accept only
 	// LV_BUSBAR + METER while a one-line stays open to any placeable class.
-	if err := enforcePlacementAllowList(ctx, db, inst.ContainerFeatureClassID, inst.DiagramTypeValueID, feature.loaded.FeatureClass.ID, req.FeatureClass); err != nil {
-		return nil, err
+	// Unowned (network one-line) diagrams have no container, so the per-container
+	// allow-list doesn't apply -- the global is_diagram_placeable gate above is the
+	// only placement rule. Owned diagrams still enforce their pairing's allow-list.
+	if inst.ContainerFeatureClassID != nil {
+		if err := enforcePlacementAllowList(ctx, db, *inst.ContainerFeatureClassID, inst.DiagramTypeValueID, feature.loaded.FeatureClass.ID, req.FeatureClass); err != nil {
+			return nil, err
+		}
 	}
 
 	// Gate the path against the class's DIAGRAM shape, not its map shape:
@@ -916,9 +926,19 @@ func toElementResponse(el *DiagramElement) elementResponse {
 // and diagram-type value id into the human-readable codes
 // instanceResponse exposes.
 func formatInstance(ctx context.Context, db bun.IDB, inst *DiagramInstance) (*instanceResponse, error) {
-	fcCodes, err := loadFeatureClassCodes(ctx, db, []string{inst.ContainerFeatureClassID})
-	if err != nil {
-		return nil, err
+	// An unowned network one-line (migration 0135) has no container -- its Container
+	// stays the zero featureRef, which serializes as empty strings the client reads
+	// as "no container".
+	var container featureRef
+	if inst.ContainerFeatureClassID != nil {
+		fcCodes, err := loadFeatureClassCodes(ctx, db, []string{*inst.ContainerFeatureClassID})
+		if err != nil {
+			return nil, err
+		}
+		container = featureRef{FeatureClass: fcCodes[*inst.ContainerFeatureClassID]}
+		if inst.ContainerFeatureID != nil {
+			container.FeatureID = *inst.ContainerFeatureID
+		}
 	}
 	diagramTypeCode, err := metadata.DomainValueCode(ctx, db, inst.DiagramTypeValueID)
 	if err != nil {
@@ -926,11 +946,8 @@ func formatInstance(ctx context.Context, db bun.IDB, inst *DiagramInstance) (*in
 	}
 
 	return &instanceResponse{
-		ID: inst.ID,
-		Container: featureRef{
-			FeatureClass: fcCodes[inst.ContainerFeatureClassID],
-			FeatureID:    inst.ContainerFeatureID,
-		},
+		ID:          inst.ID,
+		Container:   container,
 		DiagramType: diagramTypeCode,
 		Name:        inst.Name,
 		Regenerable: inst.SourceTemplateID != nil,

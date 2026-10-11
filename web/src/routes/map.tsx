@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Calculator, ChevronRight, Download, LandPlot, ListChecks, Search, ShieldCheck, SlidersHorizontal, Sparkles, Upload, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Calculator, ChevronRight, Download, LandPlot, ListChecks, Search, ShieldCheck, SlidersHorizontal, Sparkles, Upload, Workflow, X } from "lucide-react"
 import { useState } from "react"
 
 import { AmpacityPanel } from "@/components/map/ampacity-panel"
@@ -39,6 +39,7 @@ import { VoltVarPanel } from "@/components/map/volt-var-panel"
 import { NewAnnotationMenu } from "@/components/map/new-annotation-menu"
 import { NewAssemblyMenu } from "@/components/map/new-assembly-menu"
 import { NewFeatureMenu } from "@/components/map/new-feature-menu"
+import { OneLineView } from "@/components/map/one-line-view"
 import { PeerPicker } from "@/components/map/peer-picker"
 import { ServiceIdentifyPanel } from "@/components/map/service-identify-panel"
 import { StatusBar } from "@/components/map/status-bar"
@@ -58,8 +59,12 @@ import { useConnectivityAuditStore } from "@/stores/connectivity-audit-store"
 import { type DiagramPane, useDiagramStore } from "@/stores/diagram-store"
 import { useExportStore } from "@/stores/export-store"
 import { useImportStore } from "@/stores/import-store"
+import { useMapSelectStore } from "@/stores/map-select-store"
+import { useMapViewStore } from "@/stores/map-view-store"
+import { useOneLineStore } from "@/stores/one-line-store"
 import { useQueryStore } from "@/stores/query-store"
 import { useTerritoryExplorerStore } from "@/stores/territory-explorer-store"
+import { useToastStore } from "@/stores/toast-store"
 
 export function MapPage() {
   const topTabs = useDiagramStore((s) => s.panes.top)
@@ -77,6 +82,8 @@ export function MapPage() {
   const activeExports = useActiveExportCount()
   const boqOpen = useBoqStore((s) => s.open)
   const auditOpen = useConnectivityAuditStore((s) => s.open)
+  const mapBbox = useMapViewStore((s) => s.bbox)
+  const selectedRefs = useMapSelectStore((s) => s.selected)
   const chatOpen = useAssistantChatStore((s) => s.open)
   // The chat toolbar entry only appears when the server has a model configured;
   // the deterministic suggestions work regardless, so a model-less deployment
@@ -93,6 +100,20 @@ export function MapPage() {
   // canvas is unobstructed; local state -- it's a per-view toggle, not worth
   // persisting.
   const [controlsCollapsed, setControlsCollapsed] = useState(true)
+
+  // Show a TEMPORARY one-line: from the Select-tool set if any features are
+  // picked, otherwise from the current map view. Nothing is persisted.
+  const handleShowOneLine = () => {
+    if (selectedRefs.length > 0) {
+      useOneLineStore.getState().show({ kind: "selection", refs: selectedRefs })
+      return
+    }
+    if (!mapBbox) {
+      useToastStore.getState().pushError("Select some features, or pan/zoom the map first.")
+      return
+    }
+    useOneLineStore.getState().show({ kind: "view", bbox: mapBbox })
+  }
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -183,9 +204,23 @@ export function MapPage() {
                   size="sm"
                   className="shadow-sm"
                   onClick={() => useConnectivityAuditStore.getState().toggle()}
-                  title="Connectivity audit — find connectivity problems across the network"
+                  title="Network audit — find connectivity & relationship problems across the network"
                 >
                   <ShieldCheck className={cn("size-3.5", !auditOpen && "text-rose-600")} /> Audit
+                </Button>
+                <Button
+                  variant={selectedRefs.length > 0 ? "default" : "secondary"}
+                  size="sm"
+                  className="shadow-sm"
+                  onClick={handleShowOneLine}
+                  title={
+                    selectedRefs.length > 0
+                      ? `Show a temporary one-line of the ${selectedRefs.length} selected feature${selectedRefs.length === 1 ? "" : "s"}`
+                      : "Show a temporary one-line of the current map view (or select features first)"
+                  }
+                >
+                  <Workflow className={cn("size-3.5", selectedRefs.length === 0 && "text-indigo-600")} /> Schematic
+                  {selectedRefs.length > 0 && <span className="tabular-nums">({selectedRefs.length})</span>}
                 </Button>
                 {chatEnabled && (
                   <Button
@@ -232,6 +267,10 @@ export function MapPage() {
                 initialZoom={mapSettings.data?.zoom}
               />
             )}
+            {/* The temporary one-line view -- an abstract single-line built from
+                the current selection or view, computed on the fly (nothing saved),
+                exportable. Covers the map while open; closes to a clean map. */}
+            <OneLineView />
           </div>
           {/* Status bar is geographic-map chrome (coords, zoom, projection,
               basemap), so it lives inside the map column rather than under the

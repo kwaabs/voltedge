@@ -49,7 +49,35 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/section", sectionHandler(db))
 	r.Post("/supply-path", supplyPathHandler(db))
 	r.Post("/service", serviceHandler(db))
+	r.Post("/energization", energizationHandler(db))
 	return r
+}
+
+// energizationHandler classifies a set of features live vs de-energised: it
+// returns the subset of the posted features currently cut off from supply (below
+// an open device). The client greys those on the schematic overlay / one-line.
+func energizationHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req energizationRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+		refs := make([]FeatureRef, 0, len(req.FeatureRefs))
+		for _, f := range req.FeatureRefs {
+			if f.FeatureClass == "" || f.FeatureID == "" {
+				continue
+			}
+			refs = append(refs, FeatureRef{FeatureClass: f.FeatureClass, FeatureID: f.FeatureID})
+		}
+
+		dead, err := NetworkDeEnergized(r.Context(), db, refs)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, energizationResponse{DeEnergized: dead})
+	}
 }
 
 func runHandler(db *bun.DB) http.HandlerFunc {

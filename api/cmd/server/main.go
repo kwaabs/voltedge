@@ -61,6 +61,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/relationship"
 	"github.com/kwaabs/voltedge/api/internal/rmu"
 	"github.com/kwaabs/voltedge/api/internal/rules"
+	"github.com/kwaabs/voltedge/api/internal/schematic"
 	"github.com/kwaabs/voltedge/api/internal/secretbox"
 	"github.com/kwaabs/voltedge/api/internal/servicelayers"
 	"github.com/kwaabs/voltedge/api/internal/territory"
@@ -236,6 +237,12 @@ func main() {
 	// geometry of a feature outside their territories. GET-only, so features:read
 	// covers every method, the same gate the feature-class read layer above uses.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/tiles", tiles.Routes(db))
+	// The map's on-screen "Schematic view" (operations one-line) data: a read-only,
+	// viewport-scoped projection of the same features the map shows -- nodes +
+	// connectivity edges for a bbox, with the S1 overlay attributes. GET-only, and
+	// it applies the SAME territory + private-draft scope the tiles do (see
+	// schematic.resolveScope), so features:read covers every method.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/schematic", schematic.Routes(db))
 	// Territories are fixed reference data read alongside features (the
 	// feature panel resolves a feature's territory_id to a name via this
 	// list), so the read-only endpoint sits under the same features:read

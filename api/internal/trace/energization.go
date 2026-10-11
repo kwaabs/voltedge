@@ -2,10 +2,134 @@ package trace
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 )
+
+// maxOpenDevices caps how many barrier-active (open) devices the network
+// energisation scan will union cones from -- a backstop against a pathological
+// network with thousands of open switches. Real networks hold few genuinely-open
+// devices; this only bounds the work, it doesn't normally bite.
+const maxOpenDevices = 2000
+
+// NetworkDeEnergized returns the subset of refs that are currently de-energised:
+// below some open device with no remaining supply. It is the whole-network
+// counterpart to DeEnergizedCone (one device -> its dead cone) -- it unions the
+// dead cones of EVERY currently barrier-active device (device_state=OPEN /
+// operational_state ISOLATED|RETIRED, the same live barriers the downstream trace
+// honours), then reports which of the caller's features fall in that union. A
+// feature not in the union is energised. The input set (a viewport's features, a
+// diagram's placements) bounds the output, so the result only ever describes
+// features the caller already holds.
+//
+// Limitation (inherited from DeEnergizedCone): a cone actually back-fed through a
+// closed normally-open tie is still reported de-energised -- correct for a radial
+// network, conservative for a meshed one. A source-rooted walk would subtract the
+// back-fed part; that's a later refinement.
+func NetworkDeEnergized(ctx context.Context, db bun.IDB, refs []FeatureRef) ([]FeatureRef, error) {
+	if len(refs) == 0 {
+		return []FeatureRef{}, nil
+	}
+
+	barriers, err := resolveDownstreamBarriers(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	opens, err := openDevices(ctx, db, barriers)
+	if err != nil {
+		return nil, err
+	}
+
+	dead := map[string]bool{}
+	for _, dev := range opens {
+		cone, err := DeEnergizedCone(ctx, db, dev)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range cone {
+			dead[c.FeatureClass+"|"+c.FeatureID] = true
+		}
+	}
+
+	out := make([]FeatureRef, 0)
+	for _, r := range refs {
+		if dead[r.FeatureClass+"|"+r.FeatureID] {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+// openDevices enumerates every feature currently matching a downstream barrier --
+// the roots of the de-energised cones. For each class carrying barrier rules it
+// queries the class's own table for rows whose barrier field holds a halt value
+// (device_state=OPEN, operational_state=ISOLATED/RETIRED, ...). Field names come
+// from trace_barrier_rules (trusted metadata, never request input); halt codes
+// are bound.
+func openDevices(ctx context.Context, db bun.IDB, barriers map[string][]barrierCheck) ([]FeatureRef, error) {
+	if len(barriers) == 0 {
+		return nil, nil
+	}
+	classes, err := metadata.ListFeatureClasses(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]metadata.FeatureClass, len(classes))
+	for _, c := range classes {
+		byID[c.ID] = c
+	}
+
+	var out []FeatureRef
+	for classID, checks := range barriers {
+		fc, ok := byID[classID]
+		if !ok || fc.PhysicalTable == nil {
+			continue
+		}
+		conds := make([]string, 0, len(checks))
+		args := make([]any, 0, len(checks))
+		for _, ck := range checks {
+			if ck.fieldName == "" || ck.haltsOnCode == "" {
+				continue
+			}
+			conds = append(conds, quoteIdent(ck.fieldName)+" = ?")
+			args = append(args, ck.haltsOnCode)
+		}
+		if len(conds) == 0 {
+			continue
+		}
+		query := fmt.Sprintf(
+			"SELECT id::text FROM %s WHERE deleted_at IS NULL AND (%s) LIMIT %d",
+			*fc.PhysicalTable, strings.Join(conds, " OR "), maxOpenDevices+1,
+		)
+		rows, err := db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("trace: scanning open devices for %s: %w", fc.Code, err)
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("trace: reading open devices for %s: %w", fc.Code, err)
+			}
+			out = append(out, FeatureRef{FeatureClass: fc.Code, FeatureID: id})
+		}
+		rowsErr := rows.Err()
+		rows.Close()
+		if rowsErr != nil {
+			return nil, fmt.Errorf("trace: reading open devices for %s: %w", fc.Code, rowsErr)
+		}
+	}
+	return out, nil
+}
+
+// quoteIdent double-quotes a SQL identifier (only the trusted barrier field names
+// pass through here, never request input).
+func quoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
 
 // DeEnergizedCone returns every feature currently cut off from supply below
 // `device`, reading LIVE device_state / operational_state as barriers -- the

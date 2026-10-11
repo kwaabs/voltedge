@@ -61,8 +61,11 @@ export const useConnectivityAuditStore = create<ConnectivityAuditState>()(
       loading: false,
       result: null,
       openPanel: () => set({ open: true }),
-      closePanel: () => set({ open: false }),
-      toggle: () => set((s) => ({ open: !s.open })),
+      // Closing clears the last run so reopening starts fresh rather than showing a
+      // stale report (the result otherwise lingers in the store / its sessionStorage
+      // mirror). A run is cheap to re-trigger; a stale one is misleading.
+      closePanel: () => set({ open: false, result: null, loading: false }),
+      toggle: () => set((s) => (s.open ? { open: false, result: null, loading: false } : { open: true })),
       setLoading: (loading) => set({ loading }),
       setResult: (result) => set({ result, loading: false }),
       clear: () => set({ result: null, loading: false }),

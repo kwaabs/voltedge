@@ -186,6 +186,20 @@ type traceResponse struct {
 	Truncated bool `json:"truncated"`
 }
 
+// energizationRequest is the POST /trace/energization body: a set of features to
+// classify live vs de-energised (a map viewport's features, or a diagram's
+// placements). The response returns the de-energised subset; anything not in it
+// is energised.
+type energizationRequest struct {
+	FeatureRefs []featureRef `json:"feature_refs"`
+}
+
+// energizationResponse lists which of the requested features are currently
+// de-energised (below an open device with no remaining supply).
+type energizationResponse struct {
+	DeEnergized []FeatureRef `json:"de_energized"`
+}
+
 // traceConfigurationSummary is one row of GET /trace/configurations --
 // enough for a client to discover what's available (and which raw
 // direction it drives) instead of a fixed set of hardcoded codes.

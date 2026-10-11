@@ -1,5 +1,5 @@
 import { BookOpen, Loader2, Lock } from "lucide-react"
-import { useMemo } from "react"
+import { useEffect, useMemo } from "react"
 import { NavLink, useParams } from "react-router"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -130,6 +130,35 @@ export function DocsPage() {
 function DocContentPane({ id, docs }: { id: string | null; docs: DocSummary[] }) {
   const docQuery = useDoc(id)
 
+  // Interactive HTML guides render from a blob: URL rather than srcDoc. srcDoc
+  // documents have no base URL (about:srcdoc), so the browser resolves even the
+  // guides' own in-page anchors (e.g. the chapter nav's href="#c1") against the
+  // PARENT app URL -- clicking one would navigate the iframe to the SPA and render
+  // the whole app nested inside the doc pane. A blob URL gives the document a real
+  // base, so fragments resolve in-document (just scroll) and relative links stay
+  // off the app. The blob is same-origin with the app, so allow-same-origin still
+  // lets the guide's localStorage (reading-lane, checklist ticks) persist.
+  const htmlContent = docQuery.data?.format === "html" ? docQuery.data.content : null
+  const htmlUrl = useMemo(() => {
+    if (htmlContent == null) return null
+    // Widen the guides' shared layout template to use the full doc pane: their
+    // column (.wrap/.rail-in) and prose (p,li) are capped narrow, which leaves big
+    // empty margins in the wide iframe. Injected here (last in the cascade, so it
+    // wins) rather than edited into every guide file, so it applies uniformly and
+    // survives a guide being re-authored.
+    const widen =
+      "<style>.wrap,.rail-in{max-width:1280px!important}p,li{max-width:82ch!important}</style>"
+    const html = htmlContent.includes("</head>")
+      ? htmlContent.replace("</head>", `${widen}</head>`)
+      : htmlContent + widen
+    return URL.createObjectURL(new Blob([html], { type: "text/html" }))
+  }, [htmlContent])
+  useEffect(() => {
+    return () => {
+      if (htmlUrl) URL.revokeObjectURL(htmlUrl)
+    }
+  }, [htmlUrl])
+
   if (!id) {
     return (
       <div className="mx-auto max-w-2xl p-10 text-center">
@@ -179,12 +208,14 @@ function DocContentPane({ id, docs }: { id: string | null; docs: DocSummary[] })
   // the whole pane -- allow-scripts for the interactions, allow-same-origin so
   // the guide's own localStorage (reading-lane, checklist ticks) persists. The
   // content is first-party and authored in-repo, the same trust level as the
-  // markdown docs. srcDoc keeps it on the existing /docs/{id} fetch.
+  // markdown docs. Served from a blob: URL (see htmlUrl above) so the guides'
+  // in-page anchor nav doesn't resolve against -- and reload -- the parent app.
   if (doc.format === "html") {
+    if (!htmlUrl) return null
     return (
       <iframe
         title={doc.title}
-        srcDoc={doc.content}
+        src={htmlUrl}
         sandbox="allow-scripts allow-same-origin"
         className="h-full w-full border-0"
       />
