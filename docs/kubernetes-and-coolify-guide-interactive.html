@@ -1,0 +1,1739 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Kubernetes and Coolify Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  /* section palette (categorical, validated for both themes) */
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.role{display:inline-block;font:600 11px/1 var(--f-mono);padding:3px 7px;border-radius:3px;letter-spacing:.03em}
+.role.protective{background:var(--red-tint);color:var(--red)}
+.role.switching{background:var(--blue-tint);color:var(--blue)}
+.role.transformer{background:var(--amber-tint);color:var(--amber)}
+.role.source{background:var(--green-tint);color:var(--green)}
+.role.none{background:var(--line2);color:var(--muted)}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.bgrid{display:grid;grid-template-columns:minmax(0,1fr) 110px 150px auto;gap:5px;align-items:center}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+input[type=number],input[type=text],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--acc-deep);font-weight:700}
+.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+.bar{height:18px;background:var(--line2);border-radius:4px;position:relative;overflow:hidden}
+.bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .15s}
+.big{font:800 28px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums;color:var(--acc-deep)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono)}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.chainrow .arr{color:var(--muted);font:600 12px var(--f-mono)}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+
+/* handbook additions */
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+.matrix{border-collapse:collapse;font-size:12px;width:100%}
+.matrix th,.matrix td{padding:4px 6px;text-align:center;border-bottom:1px solid var(--line2)}
+.matrix td:first-child,.matrix th:first-child{text-align:left;position:sticky;left:0;background:var(--raise)}
+.matrix td.y{background:color-mix(in srgb,var(--green) 22%,transparent);color:var(--green);font-weight:700}
+.matrix tr:hover td{background:var(--surface)} .matrix tr:hover td.y{background:color-mix(in srgb,var(--green) 30%,transparent)}
+.tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:10px}
+.tabs button{font:600 11.5px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:6px 9px;border-radius:5px 5px 0 0;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.tabs button[disabled]{opacity:.4;cursor:not-allowed}
+.tree{font:500 13px var(--f-mono)} .tree .n{padding:3px 6px;border-radius:4px;display:inline-block}
+.tree .n.g{background:var(--tint);color:var(--acc-deep);font-weight:700}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+.ants{animation:march .9s linear infinite} @keyframes march{to{stroke-dashoffset:-16}}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sev{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.sev.low{background:var(--line2);color:var(--muted)} .sev.medium{background:var(--blue-tint);color:var(--blue)} .sev.high{background:var(--amber-tint);color:var(--amber)} .sev.critical{background:var(--red-tint);color:var(--red)} .sev.urgent{background:var(--red-tint);color:var(--red)}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.kpi div{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.kpi b{display:block;font:800 22px/1 var(--f-display);font-stretch:80%}
+.kpi span{font:600 10px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rec{border:1px solid var(--line2);border-radius:6px;padding:6px 8px;margin:5px 0;background:var(--raise);font-size:13px}
+.rec .t{font-weight:600}.rec .m{font-size:11.5px;color:var(--muted)}
+.rec .a{margin-top:4px;display:flex;gap:4px;flex-wrap:wrap}
+.state-chip{display:inline-block;font:700 10.5px var(--f-mono);padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.state-chip.applied,.state-chip.completed,.state-chip.resolved{background:var(--green-tint);color:var(--green);border-color:var(--green)} .state-chip.in_progress,.state-chip.work_ordered,.state-chip.assigned{background:var(--tint);color:var(--acc-deep);border-color:var(--acc)} .state-chip.cancelled,.state-chip.dismissed,.state-chip.rejected{background:var(--line2);color:var(--muted)} .state-chip.open,.state-chip.draft,.state-chip.scheduled{background:var(--amber-tint);color:var(--amber);border-color:var(--amber)}
+@media (max-width:760px){.kpi{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .bgrid{grid-template-columns:1fr 1fr}
+  .bgrid>input:first-child{grid-column:1/-1}
+  li,.rec .t,.rec .m{overflow-wrap:anywhere}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* everyday-operations additions */
+.gm{position:relative;border:1px solid var(--line);border-radius:6px 6px 0 0;overflow:hidden;background:var(--bg)}
+.gm-svg{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none}
+.gm-svg .gm-lab{fill:var(--ink);pointer-events:none}
+.gm-svg .gf{cursor:inherit}
+.gm-zoom{position:absolute;left:8px;top:8px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--raise)}
+.gm-zoom button{width:28px;height:28px;border:0;background:none;color:var(--ink);font:700 16px var(--f-mono);cursor:pointer}
+.gm-zoom button+button{border-top:1px solid var(--line)}
+.gm-north{position:absolute;left:8px;top:74px;width:28px;height:28px;border:1px solid var(--line);border-radius:50%;background:var(--raise);display:grid;place-items:center;cursor:pointer;padding:0}
+.gm-ban{position:absolute;left:50%;top:8px;transform:translateX(-50%);max-width:calc(100% - 100px);background:var(--ink);color:var(--bg);font:600 12px var(--f-mono);padding:6px 11px;border-radius:5px;z-index:3;text-align:center}
+.gm-tip{position:absolute;right:8px;bottom:8px;max-width:60%;background:var(--raise);border:1px solid var(--line);border-radius:5px;padding:6px 9px;font:500 12px var(--f-mono);box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.gm-status{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;background:var(--surface);padding:5px 10px;font:500 11.5px var(--f-mono);color:var(--muted)}
+.gm-status b{color:var(--ink);font-weight:600;margin-right:3px}
+.gm-status .gsr{margin-left:auto}
+.gm-status .attr{margin-left:8px;opacity:.8}
+.gsb{font:600 11px var(--f-mono);border:1px solid var(--line);background:var(--raise);color:var(--ink);border-radius:4px;padding:3px 7px;cursor:pointer}
+.gsb:hover{border-color:var(--muted)}
+.goto{font:500 11px var(--f-mono);width:128px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--raise);color:var(--ink)}
+.apid{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.apid.ok{background:var(--green)} .apid.bad{background:var(--red)}
+.story{border-left:3px solid var(--acc);background:var(--surface);padding:10px 16px;border-radius:0 6px 6px 0;margin:16px 0;max-width:78ch;font-size:15px}
+.story>*:last-child{margin-bottom:0}
+.story .who{font:700 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--acc-deep);display:block;margin-bottom:2px}
+.qs{max-width:78ch;margin:16px 0;border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:6px 16px 10px}
+.qs>b.k{display:block;font:700 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--acc-deep);margin:8px 0 0}
+.qs .steps{margin:4px 0 0}
+.ptabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:8px 0}
+.ptabs button{font:600 11px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:5px 8px;border-radius:5px 5px 0 0;cursor:pointer}
+.ptabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.ptabs button[disabled]{opacity:.35;cursor:not-allowed}
+.panelbox{border:1px solid var(--line);border-radius:6px;background:var(--raise);padding:9px 11px;font-size:13px}
+.panelbox h5{margin:0 0 4px;font:700 14px var(--f-display)}
+.kvt{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px;margin:6px 0}
+.kvt dt{font:600 10.5px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+.kvt dd{margin:0;font-family:var(--f-mono);font-size:12px}
+.fld-row{display:grid;grid-template-columns:130px 1fr;gap:6px;align-items:center;margin:5px 0;font-size:12.5px}
+.fld-row label{font:600 11.5px var(--f-mono)}
+.fld-row .rq{color:var(--red);font-weight:800}
+.fld-row.lock input,.fld-row.lock select{opacity:.6}
+.fld-row.chg input,.fld-row.chg select{border-color:var(--amber);background:var(--amber-tint)}
+.tog{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.tog input{accent-color:var(--acc)}
+.dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:60;padding:16px}
+.dlg>div{background:var(--raise);border:1px solid var(--line);border-radius:8px;max-width:420px;padding:16px 18px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.dlg h4{margin-bottom:6px}
+.dlg .a{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.sugg{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:5px;padding:5px 8px;margin:4px 0;font-size:12.5px;background:var(--raise);flex-wrap:wrap}
+.sugg .tx{flex:1;min-width:140px}
+.chipx{font:600 10.5px var(--f-mono)}
+.cardsel{border:1.5px solid var(--line);border-radius:7px;padding:8px 10px;background:var(--raise);cursor:pointer;font-size:13px;text-align:left}
+.cardsel[aria-pressed="true"]{border-color:var(--acc);background:var(--tint)}
+.pop{position:relative}
+.floatp{position:absolute;background:var(--raise);border:1.5px solid var(--line);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:5}
+.floatp .hd{background:var(--surface);border-bottom:1px solid var(--line);padding:6px 10px;font:700 12px var(--f-mono);cursor:grab;display:flex;justify-content:space-between;align-items:center;user-select:none;touch-action:none}
+.floatp .bd{padding:10px;font-size:12.5px;overflow:auto;flex:1}
+.floatp .grip{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 55%,var(--muted) 55%,var(--muted) 62%,transparent 62%,transparent 72%,var(--muted) 72%,var(--muted) 79%,transparent 79%)}
+@media (max-width:760px){
+  .gm-status{font-size:10.5px}
+  .gm-status .gsr{margin-left:0}
+  .goto{width:100px}
+  .fld-row{grid-template-columns:1fr}
+}
+
+[hidden]{display:none!important}
+
+.w-body{overflow-x:auto}
+pre.code{overflow-x:auto;max-width:100%}
+.w-bar{flex-wrap:wrap}
+.w-bar .seg{flex-wrap:wrap}
+.w-bar>*{max-width:100%}
+.w-split{flex-wrap:wrap}
+
+/* kc additions */
+.hl{background:var(--amber-tint);border-radius:3px;padding:0 3px}
+.node-t{cursor:pointer}
+.chk{display:flex;gap:6px;align-items:flex-start;font-size:13px;margin:3px 0}
+.chk input{margin-top:3px}
+.bad{color:var(--red)} .good{color:var(--green)} .warnc{color:var(--amber)}
+.lint{border-left:3px solid var(--line);padding:5px 9px;margin:5px 0;font-size:13px;background:var(--surface);border-radius:0 5px 5px 0}
+.lint.err{border-left-color:var(--red);background:var(--red-tint)} .lint.wrn{border-left-color:var(--amber);background:var(--amber-tint)} .lint.ok{border-left-color:var(--green);background:var(--green-tint)} .lint.inf{border-left-color:var(--blue)}
+.lint b:first-child{font:700 10px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;margin-right:6px}
+.tag.nv{background:var(--amber-tint);color:var(--amber)}
+.mini{width:100%;display:block}
+select.fld{width:auto;max-width:100%}
+@media (max-width:760px){.tbl table{font-size:13px}.rail-in{gap:8px}}
+.w-split:has(>.w-side[style*="order:0"]){grid-template-columns:310px minmax(0,1fr)}
+.w-split:has(>.w-side[style*="order:0"])>.w-main{border-right:0;border-left:1px solid var(--line2)}
+.w-split:has(>.w-side[style*="order:0"])>.w-side{max-width:none!important}
+@media (max-width:760px){.w-split:has(>.w-side[style*="order:0"]){grid-template-columns:1fr}.w-split:has(>.w-side[style*="order:0"])>.w-main{border-left:0;border-top:1px solid var(--line2)}.kpi{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>K8s &amp; Coolify</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · Images</a><a href="#c2">2 · Coolify</a><a href="#c3">3 · K8s base</a><a href="#c4">4 · K8s app tier</a><a href="#c5">5 · Operate</a><a href="#c6">6 · Choose</a><a href="#c7">7 · Troubleshoot</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · Deploying on Kubernetes &amp; Coolify · beyond single-host Compose</div>
+  <h1>Same images.<br><span>Different orchestra.</span></h1>
+  <p class="lede">Two concrete ways to run the production stack once <code>docker-compose.prod.yml</code> on one host is no longer enough: <b>Coolify</b>, a self-hosted PaaS that <em>wraps</em> Compose, and <b>Kubernetes</b>, the stack <em>decomposed</em> into native objects with autoscaling, self-healing and operator-managed Postgres. This edition lets you run the arithmetic the manifests depend on: connection budgets, HPA and rolling-update timelines, probe timing against the real health endpoints, queue-depth autoscaling, and a bootstrap sequencer that refuses wrong orderings.</p>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Platform admin</b> can build, apply, scale, roll back, exec and touch secrets. <b>On-call</b> can scale, roll back, exec and read, but not apply new manifests or edit secrets. <b>Developer</b> can build and push images and read, but cannot change the cluster. <b>Auditor</b> can only read. These are operator roles for this guide, not VoltEdge RBAC roles: VoltEdge&#8217;s own roles (for example the <code>admin</code> role that <code>authadmin create</code> assigns) live inside the application, while these personas model who holds <em>cluster / Coolify</em> access.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">Who this is for</span>
+<p>Platform and operations engineers taking VoltEdge past a single Docker host. Read the <b>Production Setup Runbook</b> first: the migrate, seed and first-admin <em>logic</em> is identical here, only the mechanics change. The <b>Deployment &amp; Scaling Guide</b> explains <em>why</em> the numbers (pool sizes, replica counts) are what they are.</p>
+<p>Both platforms <b>build images</b> (neither can bind-mount a host-built <code>web/dist</code>), so both use the portable <b>web image</b> (<code>web/Dockerfile</code>, bakes the SPA) and the <b>migrate image</b> (<code>deploy/migrate/Dockerfile</code>, bakes the migrations). The nginx <em>config</em> stays external (a mount on Coolify, a ConfigMap on Kubernetes) because the load-balancing strategy differs between the two.</p></div>
+
+<h3 style="margin-top:26px">What exists in the repo, and what this guide proposes</h3>
+<p>This matters before you copy anything. The guide&#8217;s manifests are <b>authored from the known architecture</b>; they have not been run in CI. This edition checked every claim it could against the repo and marks the rest <span class="tag nv" style="margin:0">not verified</span>.</p>
+<div class="tbl"><table>
+  <tr><th>Artifact</th><th>In the repo?</th><th>Evidence / note</th></tr>
+  <tr><td><code>docker-compose.prod.yml</code></td><td>Yes</td><td>The base for Coolify; its header says it has <b>not been run</b> in the authoring environment</td></tr>
+  <tr><td><code>infra/nginx/nginx.conf</code></td><td>Yes</td><td>Resolver <code>127.0.0.11</code>, <code>set $api http://api:8080</code>, login rate-limit zone</td></tr>
+  <tr><td><code>web/Dockerfile</code>, <code>deploy/migrate/Dockerfile</code></td><td>Yes</td><td>Web image bakes <code>/app/dist</code>; migrate image <code>ENTRYPOINT ["bash","/migrations/apply.sh"]</code></td></tr>
+  <tr><td><code>api/Dockerfile</code>, <code>api/Dockerfile.fieldsync</code></td><td>Yes</td><td>One image carries every long-running binary plus <code>authadmin</code> and <code>resetdata</code></td></tr>
+  <tr><td><code>docker-compose.coolify.yml</code></td><td><b>No</b> (proposed)</td><td>You create it (A4)</td></tr>
+  <tr><td><code>deploy/k8s/*.yaml</code> (00 to 80)</td><td><b>No</b> (proposed)</td><td>Only <code>deploy/migrate/</code> exists under <code>deploy/</code></td></tr>
+</table></div>
+
+<div class="widget" id="w1">
+  <div class="w-head"><span class="eyebrow">Interactive · 1</span><h4>One service, three homes: Compose, Coolify, Kubernetes</h4></div>
+  <div class="w-bar"><span class="lab">Service</span><div class="seg" id="w1-sv"></div></div>
+  <div class="w-body" id="w1-out"></div>
+</div>
+
+<!-- ============ CH1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>The images you build</h2><p>Four images, built once, run on both platforms.</p></div>
+  <div class="tbl"><table>
+    <tr><th>Image</th><th>Dockerfile</th><th>Build context</th><th>Runs</th></tr>
+    <tr><td><code>voltedge-api</code></td><td><code>api/Dockerfile</code></td><td><code>./api</code></td><td><code>server</code> / <code>exportworker</code> / <code>webhookworker</code> / <code>importworker</code> / <code>mcpserver</code> / <code>authadmin</code> (per <code>command</code>); also carries <code>resetdata</code></td></tr>
+    <tr><td><code>voltedge-fieldsync</code></td><td><code>api/Dockerfile.fieldsync</code></td><td><code>./api</code></td><td><code>fieldsync</code> (bundles tippecanoe)</td></tr>
+    <tr><td><code>voltedge-web</code></td><td><code>web/Dockerfile</code></td><td><code>./web</code></td><td>nginx serving the built SPA (config supplied externally)</td></tr>
+    <tr><td><code>voltedge-migrate</code></td><td><code>deploy/migrate/Dockerfile</code></td><td><b>repo root</b></td><td>one-shot <code>apply.sh</code> (plus <code>pg_restore</code> / <code>pg_dump</code> from <code>postgresql15-client</code>)</td></tr>
+  </table></div>
+  <p>The api image&#8217;s default <code>CMD</code> is <code>server</code>; every other binary is selected by the container&#8217;s <code>command</code>, which on Kubernetes replaces the CMD and on Compose is the service&#8217;s <code>command:</code>. The fieldsync binary is <b>not</b> in the api image: it needs tippecanoe at runtime, so it has its own image. Use the builder to produce the exact commands for your registry:</p>
+  <div class="widget" id="w2">
+    <div class="w-head"><span class="eyebrow">Interactive · 2</span><h4>Build &amp; push commands, and which image runs which binary</h4></div>
+    <div class="w-split"><div class="w-side" style="order:0;max-width:290px">
+      <div class="ctl"><label for="w2-reg">Registry path <span class="v" id="w2-regv"></span></label><input type="text" id="w2-reg" value="registry.example.com/voltedge"></div>
+      <div class="ctl"><label for="w2-tag">Tag <span class="v" id="w2-tagv"></span></label><input type="text" id="w2-tag" value="a1b2c3d"><div class="hint">A short git SHA is ideal: <code>git rev-parse --short HEAD</code></div></div>
+      <div class="ctl"><label for="w2-bin">I want to run the binary</label><select class="fld" id="w2-bin"></select></div>
+    </div><div class="w-main"><div id="w2-bininfo" style="margin-bottom:10px"></div><pre class="pre code" id="w2-cmd"></pre><div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn pri" id="w2-push">Run the push loop</button><span id="w2-msg" class="muted" style="font-size:13px"></span></div></div></div>
+  </div>
+  <div class="callout">Neither platform can run <code>npm run build</code> for a bind-mount. That one fact is why the web image exists.</div>
+</section>
+
+<!-- ============ CH2 COOLIFY ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>Part A: Coolify</h2><p>A self-hosted PaaS that wraps Docker Compose.</p></div>
+  <p>Coolify (v4) runs Docker Compose under the hood, so <code>docker-compose.prod.yml</code> is most of the work. This chapter walks the deployment end to end.</p>
+  <h3>A1. How Coolify is organised</h3>
+  <ul>
+    <li><b>Server</b>: a host Coolify manages over SSH (the one it runs on, plus any you add). Docker runs here.</li>
+    <li><b>Project &rarr; Environment</b>: a grouping (project <i>VoltEdge</i>, environment <i>production</i>).</li>
+    <li><b>Resource</b>: the deployable unit. Yours is a <b>Docker Compose</b> resource built from your Git repo. Databases can also be their own managed resources (A3).</li>
+    <li><b>The proxy</b>: a <b>Traefik</b> (or Caddy) proxy per server that terminates TLS, provisions Let&#8217;s Encrypt certs and routes a domain to a service. You never touch cert files.</li>
+  </ul>
+  <p>The flow: install Coolify &rarr; (optionally) create a managed Postgres resource &rarr; create the Compose resource from Git &rarr; set env + domains &rarr; deploy &rarr; bootstrap the DB &rarr; turn on backups and auto-deploy.</p>
+  <h3>A2. Prerequisites &amp; installing Coolify</h3>
+  <ul>
+    <li>A server: <b>8 vCPU / 16 GB / SSD</b> is a sane start for a few hundred users (give Postgres the bulk). Fresh Ubuntu 22.04/24.04 works. Sizing is the guide&#8217;s recommendation; the repo does not benchmark it.</li>
+    <li>Two DNS A-records at the server&#8217;s IP: <code>gis.example.com</code> (app) and <code>storage.example.com</code> (presigned URLs, A8).</li>
+    <li>Install: <code>curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash</code>, then open <code>http://&lt;server-ip&gt;:8000</code>, create the admin account. The server registers itself as <code>localhost</code>; add others via <b>Servers &rarr; Add Server</b>. (Coolify steps are from the guide; not verifiable in this repo.)</li>
+  </ul>
+  <h3>A3. Decide your Postgres topology</h3>
+  <div class="tbl"><table>
+    <tr><th></th><th>Option 1: inside the compose</th><th>Option 2: managed Coolify resource</th></tr>
+    <tr><td>What</td><td>Deploy the file as-is; <code>postgres</code> + <code>pgbouncer</code> come up with the app</td><td><b>New Resource &rarr; Database &rarr; PostgreSQL</b>, image PostGIS (e.g. <code>postgis/postgis:15-3.4</code>)</td></tr>
+    <tr><td>Backups</td><td>Your job, via a Scheduled Task (A10)</td><td>Coolify scheduled backups to local or S3</td></tr>
+    <tr><td>App changes</td><td>None</td><td>Remove the <code>postgres</code> service; keep <code>pgbouncer</code> pointed at the managed DB (or drop it); set <code>DATABASE_URL</code> from the resource</td></tr>
+    <tr><td>Caveat</td><td>Fewest moving parts</td><td>The compose uses <code>supabase/postgres:15.8.1.049</code>. The migrations only <code>CREATE EXTENSION</code> <code>postgis</code> and <code>citext</code>, so a PostGIS image should do; <b>not run here</b></td></tr>
+  </table></div>
+  <p>The rest of Part A assumes Option 1. If you take Option 2 and remove <code>postgres</code>, note that <code>pgbouncer</code>, <code>bootstrap</code> and <code>martin</code> all declare <code>depends_on: postgres</code> in the file, so those entries must go too.</p>
+  <h3>A4. Adapt the compose for Coolify (web image, no host mounts)</h3>
+  <p>Coolify builds images; it will not run <code>npm run build</code> for a bind-mount, so <code>./web/dist</code> would be empty. Create <b><code>docker-compose.coolify.yml</code></b> (it does not exist in the repo yet):</p>
+  <pre class="pre code"># docker-compose.coolify.yml -- overrides for Coolify (web image, Coolify proxy).
+services:
+  nginx:
+    build:
+      context: ./web          # bakes the SPA (web/Dockerfile)
+      dockerfile: Dockerfile
+    volumes: !override        # REPLACE the base list; a plain list MERGES by mount target
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports: !reset []          # Coolify's proxy fronts this service</pre>
+  <div class="caution"><b>Correction to the original manual.</b> The original override listed only the nginx.conf mount under <code>volumes:</code>. In Compose, multiple files <b>merge</b> volume lists by container mount path, so the base file&#8217;s <code>./web/dist:/usr/share/nginx/html:ro</code> would survive and shadow the baked SPA with an empty directory. <code>!override</code> replaces the list; <code>!reset</code>/<code>!override</code> need a recent Compose v2 (2.24+). This follows the Compose merge rules; it was <b>not run</b> here. Try it in Interactive 3.</div>
+  <p>The base file also keeps <code>image: nginx:1.27-alpine</code> on that service; with <code>build:</code> added, Compose will tag the built image with that name on the build host. Add <code>image: voltedge-web:coolify</code> to the override if that bothers you. <span class="tag nv" style="margin:0 4px">not verified</span></p>
+  <p>The <code>infra/nginx/nginx.conf</code> resolver trick uses Docker&#8217;s <code>127.0.0.11</code> DNS, which Coolify honours (it is Docker underneath), so the config works unchanged: the same <code>/api</code> strip, <code>/tiles</code> keep, SPA fallback and replica load-balancing as on raw Compose.</p>
+  <div class="widget" id="w3">
+    <div class="w-head"><span class="eyebrow">Interactive · 3</span><h4>Does my override really drop the host mount? (Compose merge)</h4></div>
+    <div class="w-split"><div class="w-side" style="order:0;max-width:300px">
+      <div class="lab">The override says</div>
+      <label class="chk"><input type="checkbox" id="w3-conf" checked> lists the nginx.conf mount</label>
+      <label class="chk"><input type="checkbox" id="w3-ovr"> tags <code>volumes:</code> with <code>!override</code></label>
+      <label class="chk"><input type="checkbox" id="w3-dist"> also lists the <code>./web/dist</code> mount (the wrong thing to do)</label>
+      <label class="chk"><input type="checkbox" id="w3-reset" checked> sets <code>ports: !reset []</code></label>
+      <label class="chk"><input type="checkbox" id="w3-build" checked> adds <code>build:</code> for <code>./web</code></label>
+      <label class="chk"><input type="checkbox" id="w3-img"> sets its own <code>image:</code> name</label>
+    </div><div class="w-main"><div class="lab">Effective nginx service</div><pre class="pre code" id="w3-out"></pre><div id="w3-v" style="margin-top:8px"></div></div></div>
+  </div>
+
+  <h3>A5. Create the Compose resource</h3>
+  <ol class="steps">
+    <li>Coolify &rarr; <b>Project &rarr; production &rarr; + New &rarr; Docker Compose (Git Based)</b>. Pick your Git source and branch.</li>
+    <li><b>Base directory</b> <code>/</code>, <b>Compose file</b> <code>docker-compose.prod.yml</code>. Add the override (<code>docker-compose.coolify.yml</code>) where the resource settings allow additional files, or maintain one merged file if your Coolify version takes only one. <span class="tag nv" style="margin:0 4px">not verified</span></li>
+    <li>Coolify parses the services and builds those with <code>build:</code> (api, the three workers, mcpserver, fieldsync, nginx after the override, bootstrap) and pulls the rest.</li>
+  </ol>
+  <p class="muted" style="font-size:14px">The <code>bootstrap</code> service bind-mounts <code>.:/workspace</code>. Whether that path resolves to the cloned repo on a Coolify build host is <span class="tag nv" style="margin:0 4px">not verified</span>; if it does not, use the migrate image idea from Part B (run <code>voltedge-migrate</code> against <code>DATABASE_URL</code>) as a fallback.</p>
+
+  <h3>A6. Environment variables &amp; secrets</h3>
+  <p>Coolify &rarr; the resource &rarr; <b>Environment Variables</b>, stored encrypted; do not commit a <code>.env</code>. Paste, with production values:</p>
+  <pre class="pre code"># Postgres (Option 1: in-compose)
+POSTGRES_PASSWORD=&lt;openssl rand -base64 24&gt;
+POSTGRES_DB=postgres
+
+# Object storage (RustFS)
+RUSTFS_ACCESS_KEY=&lt;strong&gt;
+RUSTFS_SECRET_KEY=&lt;strong&gt;
+RUSTFS_BUCKET=voltedge-exports
+RUSTFS_CORS_ORIGINS=https://gis.example.com
+RUSTFS_PUBLIC_ENDPOINT=storage.example.com      # browser-reachable storage host (A8)
+RUSTFS_PUBLIC_USE_SSL=1
+
+# Auth / sessions  --  THESE MATTER
+# Do NOT set AUTH_INSECURE_COOKIES (must be 0/unset in prod; Coolify gives HTTPS).
+SESSION_IDLE_TIMEOUT=12h
+SESSION_ABSOLUTE_MAX=720h
+
+# Encryption for stored external-system credentials (only if you use external links)
+EXTERNAL_SYSTEMS_ENCRYPTION_KEY=&lt;openssl rand -base64 32&gt;
+
+# Logging
+LOG_FORMAT=json
+LOG_LEVEL=info
+
+# PgBouncer sizing (the pgbouncer service in the base compose)
+PGBOUNCER_POOL_SIZE=25
+PGBOUNCER_MAX_CLIENT_CONN=1000
+
+# Replica counts
+API_REPLICAS=3
+EXPORTWORKER_REPLICAS=1
+WEBHOOKWORKER_REPLICAS=1
+IMPORTWORKER_REPLICAS=1
+
+# SSO (optional) -- redirect https://gis.example.com/api/auth/oidc/&lt;provider&gt;/callback
+#OIDC_AZURE_TENANT_ID=
+#OIDC_AZURE_CLIENT_ID=
+#OIDC_AZURE_CLIENT_SECRET=</pre>
+  <div class="caution"><b>Correction to the original manual.</b> A Coolify variable only reaches a container if the compose file references it. <code>docker-compose.prod.yml</code> wires <code>POSTGRES_*</code>, <code>RUSTFS_ACCESS_KEY/SECRET_KEY/BUCKET/PUBLIC_ENDPOINT</code>, <code>RUSTFS_CORS_ORIGINS</code> (into rustfs as <code>RUSTFS_CORS_ALLOWED_ORIGINS</code>), <code>PGBOUNCER_*</code> and the <code>*_REPLICAS</code>, but <b>not</b> <code>RUSTFS_PUBLIC_USE_SSL</code>, <code>SESSION_*</code>, <code>EXTERNAL_SYSTEMS_ENCRYPTION_KEY</code>, <code>LOG_*</code> or <code>OIDC_*</code>. The practical failure: without <code>RUSTFS_PUBLIC_USE_SSL=1</code> inside the container, presigned URLs are signed for <code>http://</code> and the browser blocks them as mixed content (the code reads <code>os.Getenv("RUSTFS_PUBLIC_USE_SSL") == "1"</code> in <code>api/internal/export/storage.go</code>). Add the missing ones to the override&#8217;s <code>environment:</code> blocks. Audit yours in Interactive 4. The OIDC provider key for Azure is <code>azuread</code> and its redirect URL comes from <code>OIDC_AZURE_REDIRECT_URL</code> (also add Google: <code>OIDC_GOOGLE_CLIENT_ID/SECRET/REDIRECT_URL</code>).</div>
+  <div class="widget" id="w4">
+    <div class="w-head"><span class="eyebrow">Interactive · 4</span><h4>Env-var audit: does this variable reach a container?</h4></div>
+    <div class="w-bar"><label class="tog"><input type="checkbox" id="w4-fix"> my override adds the missing <code>environment:</code> entries</label><span class="muted" style="font-size:12.5px">Tick the variables you set in Coolify:</span></div>
+    <div class="w-split"><div class="w-side" style="order:0;max-width:300px" id="w4-set"></div><div class="w-main" id="w4-out"></div></div>
+  </div>
+  <p>Notes: toggle <b>Build Variable</b> only for vars needed at image build time (none of ours are; all runtime). For <b>Option 2</b>, drop <code>POSTGRES_PASSWORD</code>/<code>POSTGRES_DB</code> and set <code>DATABASE_URL</code> to the managed DB&#8217;s string; but in the compose file each service builds its own <code>DATABASE_URL</code> from <code>POSTGRES_PASSWORD</code>, so you must override those entries too. Defaults that make omission safe: <code>SESSION_IDLE_TIMEOUT</code> 12h, <code>SESSION_ABSOLUTE_MAX</code> 720h, cookies Secure unless <code>AUTH_INSECURE_COOKIES=1</code>, logs JSON unless <code>LOG_FORMAT=text</code>, level info.</p>
+
+  <h3>A7. Persistent storage</h3>
+  <p>In Option 1 the <code>postgres_data</code> and <code>rustfs_data</code> named volumes carry your database and object store. Coolify preserves named volumes across redeploys, but confirm them under the resource&#8217;s <b>Storage</b> tab and mark them persistent. If you ever &#8220;Delete + redeploy&#8221; the resource, volumes can be removed: snapshot first.</p>
+  <h3>A8. Domains &amp; TLS</h3>
+  <ol class="steps">
+    <li>On the <b><code>nginx</code></b> service set the domain <code>https://gis.example.com</code>. Coolify writes the Traefik labels, routes to nginx:80 and issues a cert. (Some versions expose <code>SERVICE_FQDN_NGINX</code> instead of a UI field.)</li>
+    <li>On the <b><code>rustfs</code></b> service set <code>https://storage.example.com</code> routing to port 9000: this is what presigned upload/download URLs hit (A6 set <code>RUSTFS_PUBLIC_ENDPOINT</code> to match).</li>
+    <li>Leave every other service <b>without</b> a public domain (api, workers, pgbouncer, postgres, bootstrap are internal; the SPA reaches the API through nginx&#8217;s <code>/api</code>). Note <code>mcpserver</code> and <code>fieldsync</code> publish host ports in the base file (3705, 3706); close those at the firewall unless devices need them.</li>
+  </ol>
+  <p>Result: two proxies by design: Coolify&#8217;s Traefik (TLS + domain) in front of our nginx (SPA + <code>/api</code>/<code>/tiles</code> split + replica balancing). Because Coolify serves HTTPS, secure cookies work.</p>
+  <h3>A9. Deploy, then bootstrap the database</h3>
+  <ol class="steps">
+    <li><b>Deploy</b>. Watch the log; wait until <code>postgres</code> is healthy and the stack is up (the api healthcheck is <code>wget -qO- http://127.0.0.1:8080/healthz</code>).</li>
+    <li><b>Migrate</b>: Coolify <b>Terminal</b> into <code>bootstrap</code>: <code>bash /workspace/migrations/apply.sh</code>. It has psql, the repo and a <b>direct</b> connection to Postgres (DDL wants a stable session, not a pooled one). The script skips anything in <code>ops.migration_log</code>, so re-running is safe.</li>
+    <li><b>Seed</b>: restore a validated dump (runbook &sect;6b), not 100 hand-run seeds: <code>pg_restore --no-owner -d "$DATABASE_URL" /workspace/seeded.dump</code>. The runbook then says to re-run migrations to roll any newer ones forward. The runbook lists migrate before restore in its headings but says &#8220;then re-run 6a&#8221;; the safest order for a fresh install from a dump is restore, then migrate. <span class="tag nv" style="margin:0 4px">not verified</span></li>
+    <li><b>First break-glass admin</b>: Terminal into an <code>api</code> service: <code>AUTHADMIN_PASSWORD='&lt;strong&gt;' authadmin create --email admin@example.com --name "Break-glass Admin"</code>. Then <code>authadmin list</code>, <code>authadmin grant-role --email … --role …</code>. (<code>authadmin roles</code> lists role keys; <code>mint-token</code> is for MCP tokens.)</li>
+  </ol>
+  <h3>A10. Backups</h3>
+  <ul>
+    <li><b>Option 2</b>: enable Coolify <b>Scheduled Backups</b> on the PostgreSQL resource (cadence + S3 destination).</li>
+    <li><b>Option 1</b>: Coolify&#8217;s one-click backup targets managed DB resources, so add a <b>Scheduled Task</b> in the <code>bootstrap</code> container: <code>pg_dump -Fc "$DATABASE_URL" -f /workspace/backups/voltedge-$(date +%F).dump</code>, and ship it off-host. Either way <b>back up <code>rustfs_data</code> separately</b> (attachments/exports live only there) and <b>test a restore</b>.</li>
+  </ul>
+  <h3>A11. Scaling &amp; resource limits</h3>
+  <ul>
+    <li><b>Replicas</b>: <code>*_REPLICAS</code> env (A6); nginx load-balances across them. <code>fieldsync</code> is kept at <b>1 here by choice</b> (fixed device port and a <code>container_name</code>, both of which block <code>--scale</code>); it is not a correctness singleton (see Interactive 1).</li>
+    <li><b>Limits</b>: set per-service CPU/memory limits so one heavy analysis pod cannot starve the host.</li>
+    <li><b>Multi-node reality</b>: one Coolify server scales <i>up</i> but not out with autoscaling. Coolify can deploy to several servers and has Docker Swarm support, but autoscaling + managed replica failover at the ~1,000-user tier is the Kubernetes path.</li>
+  </ul>
+  <h3>A12. Auto-deploy &amp; rollbacks</h3>
+  <ul>
+    <li><b>Auto-deploy</b>: connect the Git source (webhook); gate to a <code>production</code> branch/tag.</li>
+    <li><b>Deploy order on upgrade</b>: run the migration step (A9.2) <b>before</b> new app code serves traffic; additive-first schema keeps old containers working. Breaking change: expand &rarr; migrate &rarr; deploy &rarr; contract across two releases (Scaling Guide &sect;10).</li>
+    <li><b>Rollback</b>: redeploy a prior build from the <b>Deployments</b> history. Roll code back, not schema: migrations are not reversed.</li>
+  </ul>
+  <h3>A13. Verify</h3>
+  <ol class="steps"><li>Every service healthy; <code>api</code> at your replica count; <code>fieldsync</code> at 1.</li><li>Browse <code>https://gis.example.com/</code>, sign in as the break-glass admin.</li><li>Map renders (confirms <code>/tiles</code> proxy + territory-scoped MVT).</li><li>Create a feature, run a trace (write path + synchronous analysis path).</li><li>Upload an attachment (confirms RustFS presign + the storage domain).</li></ol>
+  <h3>A14. Troubleshooting (Coolify-specific)</h3>
+  <div class="tbl"><table>
+    <tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr>
+    <tr><td>SPA 404s / blank after deploy</td><td><code>nginx</code> still using the host <code>dist</code> mount (override list merged instead of replaced)</td><td>Use <code>volumes: !override</code> in <code>docker-compose.coolify.yml</code>; confirm the override is applied</td></tr>
+    <tr><td>TLS/cert not issued</td><td>DNS not pointing at the server, or domain on the wrong service</td><td>A-record &rarr; server IP; domain on <code>nginx</code> only</td></tr>
+    <tr><td>Login fails, cookie missing</td><td><code>AUTH_INSECURE_COOKIES</code> set, or site not HTTPS</td><td>Unset it; confirm you are on <code>https://</code></td></tr>
+    <tr><td>Presigned attachment URLs 404 or blocked</td><td>Storage domain not routed, <code>RUSTFS_PUBLIC_ENDPOINT</code> mismatch, or <code>RUSTFS_PUBLIC_USE_SSL</code> never reached the container</td><td>Give <code>rustfs</code> its domain (A8), match the endpoint, pass the SSL flag through the override</td></tr>
+    <tr><td>Volumes wiped after redeploy</td><td>Storage not marked persistent</td><td>A7; snapshot before destructive redeploys</td></tr>
+    <tr><td>Replica error &#8220;name in use&#8221;</td><td>A <code>container_name</code> on a scaled service</td><td>Only singletons carry one here; do not add to <code>api</code>/workers</td></tr>
+    <tr><td>&#8220;prepared statement does not exist&#8221;</td><td>pgdriver vs PgBouncer transaction pooling (the app code uses no LISTEN/NOTIFY or advisory locks; prepared-statement behaviour is <span class="tag nv" style="margin:0 4px">not verified</span>)</td><td><code>POOL_MODE: session</code> on pgbouncer, or disable statement caching in the DSN</td></tr>
+    <tr><td>Map blank, classes missing</td><td>Schema not seeded</td><td>Restore the seeded dump (A9.3)</td></tr>
+  </table></div>
+  <div class="tip"><b>When Coolify is right</b> One or two servers, a few hundred users, push-to-deploy and automatic TLS without a cluster: roughly 80% of the operational niceties for 5% of the effort of Kubernetes (the guide&#8217;s own estimate).</div>
+</section>
+
+<!-- ============ CH3 K8S BASE ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>Part B (1): Kubernetes foundations</h2><p>Cluster add-ons, config, secrets, Postgres, object storage.</p></div>
+  <p>A complete, applyable deployment. Save each manifest under <code>deploy/k8s/</code> (that directory does not exist yet) and <code>kubectl apply</code> in order, or assemble a kustomization. Start with the shape of the whole thing:</p>
+  <div class="widget" id="w5">
+    <div class="w-head"><span class="eyebrow">Interactive · 5</span><h4>Cluster topology explorer: click a part, then break it</h4></div>
+    <div class="w-split"><div class="w-main"><svg id="w5-svg" viewBox="0 0 740 400" width="100%" role="img" aria-label="Kubernetes topology of VoltEdge"></svg></div><div class="w-side" id="w5-out"></div></div>
+  </div>
+  <h3>B1. Cluster prerequisites</h3>
+  <pre class="pre code"># Ingress controller (TLS + host routing)
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx --create-namespace
+
+# cert-manager (Let's Encrypt)
+helm upgrade --install cert-manager jetstack/cert-manager -n cert-manager --create-namespace --set crds.enabled=true
+
+# CloudNativePG operator (managed Postgres: replicas, failover, PITR, pooler)
+helm upgrade --install cnpg cnpg/cloudnative-pg -n cnpg-system --create-namespace
+
+# KEDA (optional: autoscale workers on queue depth)
+helm upgrade --install keda kedacore/keda -n keda --create-namespace</pre>
+  <p class="muted" style="font-size:14px">These need their Helm repos added first (<code>helm repo add …</code>); chart names and flags are as given in the original guide and are <span class="tag nv" style="margin:0 4px">not verified</span>. The <code>ClusterIssuer</code> (<code>deploy/k8s/00-issuer.yaml</code>):</p>
+  <pre class="pre code">apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata: { name: letsencrypt-prod }
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ops@example.com
+    privateKeySecretRef: { name: letsencrypt-prod }
+    solvers:
+    - http01: { ingress: { class: nginx } }</pre>
+  <h3>B2. Namespace, config, secrets</h3>
+  <p><code>deploy/k8s/10-namespace-config.yaml</code>:</p>
+  <pre class="pre code">apiVersion: v1
+kind: Namespace
+metadata: { name: voltedge }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: voltedge-env, namespace: voltedge }
+data:
+  PORT: "8080"
+  MCP_PORT: "8090"
+  FIELDSYNC_PORT: "8091"
+  LOG_FORMAT: "json"
+  LOG_LEVEL: "info"
+  RUSTFS_ENDPOINT: "rustfs:9000"
+  RUSTFS_BUCKET: "voltedge-exports"
+  RUSTFS_PUBLIC_ENDPOINT: "storage.example.com"
+  RUSTFS_PUBLIC_USE_SSL: "1"
+  # AUTH_INSECURE_COOKIES is deliberately absent -> secure cookies (HTTPS only).</pre>
+  <p>Every key above is read by the code (<code>PORT</code> defaults to 8080, <code>MCP_PORT</code> to 8090, <code>FIELDSYNC_PORT</code> to 8091), so the ConfigMap is verified; the compose file wires <code>RUSTFS_PUBLIC_USE_SSL</code> nowhere, but here <code>envFrom</code> delivers it to every container. <code>deploy/k8s/11-secret.yaml</code> (fill in real values; prefer Sealed Secrets / SOPS to committing it):</p>
+  <pre class="pre code">apiVersion: v1
+kind: Secret
+metadata: { name: voltedge-db-app, namespace: voltedge }
+type: kubernetes.io/basic-auth
+stringData:
+  username: app
+  password: "&lt;CHOOSE-A-STRONG-DB-PASSWORD&gt;"        # CNPG uses this for the app role (B3)
+---
+apiVersion: v1
+kind: Secret
+metadata: { name: voltedge-secret, namespace: voltedge }
+type: Opaque
+stringData:
+  # Routed through the CNPG transaction pooler (B3). Same password as above.
+  DATABASE_URL: "postgres://app:&lt;SAME-STRONG-DB-PASSWORD&gt;@voltedge-db-pooler-rw:5432/voltedge?sslmode=require"
+  RUSTFS_ACCESS_KEY: "&lt;strong&gt;"
+  RUSTFS_SECRET_KEY: "&lt;strong&gt;"
+  EXTERNAL_SYSTEMS_ENCRYPTION_KEY: "&lt;openssl rand -base64 32&gt;"</pre>
+  <p>Add the SSO values here too if you use them (<code>OIDC_AZURE_TENANT_ID</code>, <code>OIDC_AZURE_CLIENT_ID</code>, <code>OIDC_AZURE_CLIENT_SECRET</code>, <code>OIDC_AZURE_REDIRECT_URL</code>; the Azure provider key is <code>azuread</code>). Secrets must be delivered to the right workloads:</p>
+  <div class="widget" id="w6">
+    <div class="w-head"><span class="eyebrow">Interactive · 6</span><h4>Secret &amp; config wiring: who needs which key</h4><span style="flex:1"></span><button class="btn" id="w6-reset">Reset to the manual</button></div>
+    <div class="w-bar"><span class="muted" style="font-size:12.5px">Cells start as written in the original B6/B7 manifests. Click a cell to add or remove the <code>secretKeyRef</code>.</span><span id="w6-lock"></span></div>
+    <div class="w-body" id="w6-out"></div>
+  </div>
+  <h3>B3. Postgres via CloudNativePG (primary + replicas + pooler)</h3>
+  <p><code>deploy/k8s/20-postgres.yaml</code>:</p>
+  <pre class="pre code">apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata: { name: voltedge-db, namespace: voltedge }
+spec:
+  instances: 3                                   # 1 primary + 2 streaming replicas
+  imageName: ghcr.io/cloudnative-pg/postgis:15   # PostGIS-enabled Postgres 15
+  storage: { size: 100Gi }
+  bootstrap:
+    initdb:
+      database: voltedge
+      owner: app
+      secret: { name: voltedge-db-app }          # the app role credentials (B2)
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS postgis;
+        - CREATE EXTENSION IF NOT EXISTS citext;     # migration 0024 needs it
+        - CREATE EXTENSION IF NOT EXISTS pgcrypto;   # optional: gen_random_uuid() is core since PG13
+  # Optional but recommended: continuous backup / PITR to object storage.
+  # backup:
+  #   barmanObjectStore:
+  #     destinationPath: "s3://voltedge-backups/pg"
+  #     s3Credentials: { ... }
+---
+# Transaction-pooling pooler for WRITES + hot reads (the app's DATABASE_URL).
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata: { name: voltedge-db-pooler-rw, namespace: voltedge }
+spec:
+  cluster: { name: voltedge-db }
+  instances: 2
+  type: rw
+  pgbouncer:
+    poolMode: transaction
+    parameters: { max_client_conn: "1000", default_pool_size: "25" }
+---
+# Read-only pooler against the REPLICAS -- route tile/read queries here once the
+# app grows a read-only DB handle (scaling guide §5-6). Not yet wired by default.
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata: { name: voltedge-db-pooler-ro, namespace: voltedge }
+spec:
+  cluster: { name: voltedge-db }
+  instances: 2
+  type: ro
+  pgbouncer: { poolMode: transaction }</pre>
+  <div class="caution"><b>Correction to the original manual.</b> The migrations <code>CREATE EXTENSION</code> exactly two extensions: <code>postgis</code> (0015) and <code>citext</code> (0024). The original listed <code>pgcrypto</code> (not needed: 55 migrations use <code>gen_random_uuid()</code>, which is built in from Postgres 13) and omitted <code>citext</code>. <code>citext</code> is normally a &#8220;trusted&#8221; extension the database owner may create, but pre-creating it as the superuser is the safe move. The CNPG image name, the &#8220;trusted&#8221; status and CNPG defaults are <span class="tag nv" style="margin:0 4px">not verified</span>.</div>
+  <p>CNPG manages the pooler&#8594;Postgres auth for you (an <code>auth_query</code>), so the manual PgBouncer/SCRAM worry from the Compose stack (<code>AUTH_TYPE: plain</code> in the file) does not apply: the app presents the <code>app</code> credentials to the pooler. <code>sslmode=require</code> encrypts to the pooler; if pgdriver rejects the CNPG CA, mount the cluster CA and use <code>verify-full</code>, or keep <code>require</code> (encrypt without CA verification).</p>
+  <p><b>Direct vs pooled.</b> CNPG also creates a read-write Service straight to the primary, named <code>&lt;cluster&gt;-rw</code> (so <code>voltedge-db-rw</code>) <span class="tag nv" style="margin:0 4px">not verified</span>. Compose runs migrations over a <b>direct</b> connection because DDL wants a stable session, not a transaction-pooled one. Chapter 4 applies that to the migrate Job. Now do the sums that make the pooler settings safe:</p>
+  <div class="widget" id="w7">
+    <div class="w-head"><span class="eyebrow">Interactive · 7</span><h4>Connection budget: pods, pools, poolers, max_connections</h4></div>
+    <div class="w-bar"><span class="lab">Preset</span><div class="seg" id="w7-pre"></div></div>
+    <div class="w-split"><div class="w-side" style="order:0;max-width:310px" id="w7-ctl"></div><div class="w-main" id="w7-out"></div></div>
+  </div>
+  <p class="muted" style="font-size:14px">Rules used: clients are spread evenly over pooler instances; each pooler instance holds up to <code>default_pool_size</code> server connections per (user, database); clients above <code>max_client_conn</code> per instance are refused; the primary needs room for the sum of all pools plus reserved slots. The 3 superuser-reserved slots and a replication/operator headroom of about 10 are generic Postgres/CNPG figures, <span class="tag nv" style="margin:0 4px">not verified</span>. The code does <b>not</b> honour <code>DATABASE_MAX_OPEN_CONNS</code> today (no <code>SetMaxOpenConns</code> on the main pool), so an api pod&#8217;s client count follows its concurrency; the preset &#8220;scaling guide ~1000 users&#8221; uses that guide&#8217;s own 20 pods &times; 20 = 400 example.</p>
+  <h3>B4. Object storage (RustFS)</h3>
+  <p><code>deploy/k8s/25-rustfs.yaml</code> (single-instance to mirror the stack; for real durability use an S3 service or the MinIO operator and point <code>RUSTFS_*</code> at it):</p>
+  <pre class="pre code">apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: rustfs, namespace: voltedge }
+spec:
+  serviceName: rustfs
+  replicas: 1
+  selector: { matchLabels: { app: rustfs } }
+  template:
+    metadata: { labels: { app: rustfs } }
+    spec:
+      containers:
+      - name: rustfs
+        image: rustfs/rustfs:latest
+        args: []
+        env:
+        - { name: RUSTFS_VOLUMES, value: /data }
+        - { name: RUSTFS_ADDRESS, value: "0.0.0.0:9000" }
+        - { name: RUSTFS_ACCESS_KEY, valueFrom: { secretKeyRef: { name: voltedge-secret, key: RUSTFS_ACCESS_KEY } } }
+        - { name: RUSTFS_SECRET_KEY, valueFrom: { secretKeyRef: { name: voltedge-secret, key: RUSTFS_SECRET_KEY } } }
+        - { name: RUSTFS_CORS_ALLOWED_ORIGINS, value: "https://gis.example.com" }
+        ports: [{ containerPort: 9000 }]
+        volumeMounts: [{ name: data, mountPath: /data }]
+  volumeClaimTemplates:
+  - metadata: { name: data }
+    spec: { accessModes: ["ReadWriteOnce"], resources: { requests: { storage: 100Gi } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: rustfs, namespace: voltedge }
+spec:
+  selector: { app: rustfs }
+  ports: [{ port: 9000, targetPort: 9000 }]</pre>
+  <p>The env names match the compose service (<code>RUSTFS_VOLUMES</code>, <code>RUSTFS_ADDRESS</code>, <code>RUSTFS_ACCESS_KEY</code>, <code>RUSTFS_SECRET_KEY</code>, <code>RUSTFS_CORS_ALLOWED_ORIGINS</code>). The compose file also enables a console on 9001 (<code>RUSTFS_CONSOLE_*</code>); this StatefulSet does not. <code>rustfs/rustfs:latest</code> is unpinned: pin a tag for production. The bucket is created on boot by the API (<code>EnsureBucket</code> in <code>storage.go</code>).</p>
+</section>
+
+<!-- ============ CH4 K8S APP TIER ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>Part B (2): the application tier</h2><p>Migrations, API, workers, web, ingress.</p></div>
+  <h3>B5. Migrations as a Job (run once, before app rollout)</h3>
+  <p><code>deploy/k8s/30-migrate-job.yaml</code>:</p>
+  <pre class="pre code">apiVersion: batch/v1
+kind: Job
+metadata: { name: voltedge-migrate, namespace: voltedge }
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: migrate
+        image: REG/voltedge-migrate:TAG
+        env:
+        - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: voltedge-secret, key: DATABASE_URL } } }</pre>
+  <p><code>kubectl apply -f 30-migrate-job.yaml &amp;&amp; kubectl -n voltedge wait --for=condition=complete job/voltedge-migrate --timeout=300s</code>. Re-apply on every upgrade (delete the old Job first, or template the name with the image tag). In Helm/Argo make it a <code>pre-upgrade</code> hook / <code>PreSync</code>. <code>apply.sh</code> is idempotent: it skips anything already in <code>ops.migration_log</code>.</p>
+  <div class="caution"><b>Correction to the original manual.</b> The Job above used the pooled <code>DATABASE_URL</code> (<code>voltedge-db-pooler-rw</code>, transaction mode). The Compose stack deliberately runs migrations over a <b>direct</b> connection (<code>bootstrap</code> comment in <code>docker-compose.prod.yml</code>, runbook &sect;6a: &#8220;DDL wants a stable session&#8221;). Give the Job its own secret key, for example <code>DATABASE_URL_DIRECT</code>, pointing at CNPG&#8217;s <code>voltedge-db-rw</code> Service on 5432 (service name per CNPG convention, <span class="tag nv" style="margin:0 4px">not verified</span>), and use it for the Job and for <code>pg_restore</code>. Also note the pooler is created by <code>20-postgres.yaml</code> but the wait in B10 only waits for the Cluster, so wait for the pooler Deployment too.</div>
+  <h3>B6. The API: Deployment, Service, HPA, PDB</h3>
+  <p><code>deploy/k8s/40-api.yaml</code>:</p>
+  <pre class="pre code">apiVersion: apps/v1
+kind: Deployment
+metadata: { name: voltedge-api, namespace: voltedge }
+spec:
+  replicas: 3
+  selector: { matchLabels: { app: voltedge-api } }
+  template:
+    metadata: { labels: { app: voltedge-api } }
+    spec:
+      containers:
+      - name: api
+        image: REG/voltedge-api:TAG
+        command: ["server"]
+        ports: [{ containerPort: 8080 }]
+        envFrom:
+        - configMapRef: { name: voltedge-env }
+        env:
+        - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: voltedge-secret, key: DATABASE_URL } } }
+        - { name: RUSTFS_ACCESS_KEY, valueFrom: { secretKeyRef: { name: voltedge-secret, key: RUSTFS_ACCESS_KEY } } }
+        - { name: RUSTFS_SECRET_KEY, valueFrom: { secretKeyRef: { name: voltedge-secret, key: RUSTFS_SECRET_KEY } } }
+        - { name: EXTERNAL_SYSTEMS_ENCRYPTION_KEY, valueFrom: { secretKeyRef: { name: voltedge-secret, key: EXTERNAL_SYSTEMS_ENCRYPTION_KEY } } }
+        # Once the app honours it (scaling guide pre-flight #1); the CNPG pooler
+        # caps real backends regardless.
+        - { name: DATABASE_MAX_OPEN_CONNS, value: "20" }
+        readinessProbe: { httpGet: { path: /healthz, port: 8080 }, periodSeconds: 5, failureThreshold: 3 }
+        livenessProbe:  { httpGet: { path: /healthz, port: 8080 }, periodSeconds: 10, failureThreshold: 3 }
+        resources:
+          requests: { cpu: 500m, memory: 256Mi }
+          limits:   { cpu: "2",  memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: api, namespace: voltedge }
+spec:
+  selector: { app: voltedge-api }
+  ports: [{ port: 8080, targetPort: 8080 }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: voltedge-api, namespace: voltedge }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: voltedge-api }
+  minReplicas: 3
+  maxReplicas: 30
+  metrics:
+  - type: Resource
+    resource: { name: cpu, target: { type: Utilization, averageUtilization: 60 } }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: voltedge-api, namespace: voltedge }
+spec:
+  minAvailable: 2
+  selector: { matchLabels: { app: voltedge-api } }</pre>
+  <p><b>What the code actually does</b> (verified in <code>api/cmd/server/main.go</code>): <code>/healthz</code> is public and pings Postgres with a <b>3 second</b> context; it returns 200 <code>{"status":"ok"}</code> or 503 <code>{"status":"db unreachable: …"}</code>. There is <b>no <code>/readyz</code></b> (the Scaling Guide mentions one only as an option). The server uses plain <code>http.ListenAndServe</code> with no SIGTERM handling, so a terminating pod exits at once, dropping in-flight requests. <code>DATABASE_MAX_OPEN_CONNS</code> is not read anywhere. Kubernetes default probe <code>timeoutSeconds</code> is 1, shorter than the handler&#8217;s own 3s DB timeout. Use these tools to think through each of those:</p>
+  <div class="widget" id="w8">
+    <div class="w-head"><span class="eyebrow">Interactive · 8</span><h4>Workload builder &amp; linter (checks the facts above)</h4></div>
+    <div class="w-split"><div class="w-side" style="order:0;max-width:310px" id="w8-ctl"></div><div class="w-main"><div id="w8-lint"></div><pre class="pre code" id="w8-yaml" style="margin-top:8px"></pre><div style="margin-top:8px"><button class="btn pri" id="w8-apply">kubectl apply (simulated)</button> <span id="w8-msg" class="muted" style="font-size:13px"></span></div></div></div>
+  </div>
+  <div class="widget" id="w9">
+    <div class="w-head"><span class="eyebrow">Interactive · 9</span><h4>Probe timing calculator against the real health endpoints</h4></div>
+    <div class="w-split"><div class="w-side" style="order:0;max-width:310px" id="w9-ctl"></div><div class="w-main" id="w9-out"></div></div>
+  </div>
+  <div class="widget" id="w10">
+    <div class="w-head"><span class="eyebrow">Interactive · 10</span><h4>HPA simulator: CPU 60%, 3 to 30 pods</h4></div>
+    <div class="w-split"><div class="w-side" style="order:0;max-width:310px" id="w10-ctl"></div><div class="w-main"><div id="w10-chart"></div><div id="w10-out"></div></div></div>
+  </div>
+  <p class="muted" style="font-size:14px">HPA rules used: desired = ceil(current &times; utilisation / target); no change within a 10% tolerance; scale-up at most +4 pods or +100% per 15 s (whichever is larger); scale-down uses the highest recommendation of the last 5 minutes. Those are Kubernetes defaults, not repo facts <span class="tag nv" style="margin:0 4px">not verified</span>. Utilisation is measured against the CPU <b>request</b> (500m), so 60% means an average of 300m per pod, not 60% of the 2-core limit. The load numbers in the simulator are illustrative; the repo has no per-user CPU measurement.</p>
+  <div class="widget" id="w11">
+    <div class="w-head"><span class="eyebrow">Interactive · 11</span><h4>Rolling update simulator (maxSurge / maxUnavailable / readiness)</h4></div>
+    <div class="w-split"><div class="w-side" style="order:0;max-width:310px" id="w11-ctl"></div><div class="w-main"><div id="w11-chart"></div><div id="w11-out"></div></div></div>
+  </div>
+  <div class="caution"><b>Correction to the original manual (B12).</b> It credited &#8220;the rolling update + readiness probe + PDB&#8221; with keeping at least 2 API pods serving. A PodDisruptionBudget limits <b>voluntary evictions</b> (node drains); it does not constrain a Deployment&#8217;s rolling update. Availability during a rollout comes from <code>maxUnavailable</code> and readiness. With 3 replicas and the default 25%/25%, surge rounds up to 1 and unavailable rounds down to 0, so capacity never drops below 3; the simulator shows it. This is Kubernetes behaviour, <span class="tag nv" style="margin:0 4px">not verified</span> in the repo.</div>
+
+  <h3>B7. Workers (export / webhook / import / mcp) and fieldsync</h3>
+  <p><code>deploy/k8s/50-workers.yaml</code>: same shape per worker, differing <code>command</code>.</p>
+  <pre class="pre code">apiVersion: apps/v1
+kind: Deployment
+metadata: { name: voltedge-exportworker, namespace: voltedge }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: voltedge-exportworker } }
+  template:
+    metadata: { labels: { app: voltedge-exportworker } }
+    spec:
+      containers:
+      - name: exportworker
+        image: REG/voltedge-api:TAG
+        command: ["exportworker"]
+        envFrom: [{ configMapRef: { name: voltedge-env } }]
+        env:
+        - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: voltedge-secret, key: DATABASE_URL } } }
+        - { name: RUSTFS_ACCESS_KEY, valueFrom: { secretKeyRef: { name: voltedge-secret, key: RUSTFS_ACCESS_KEY } } }
+        - { name: RUSTFS_SECRET_KEY, valueFrom: { secretKeyRef: { name: voltedge-secret, key: RUSTFS_SECRET_KEY } } }
+        resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: "1", memory: 512Mi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: voltedge-webhookworker, namespace: voltedge }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: voltedge-webhookworker } }
+  template:
+    metadata: { labels: { app: voltedge-webhookworker } }
+    spec:
+      containers:
+      - name: webhookworker
+        image: REG/voltedge-api:TAG
+        command: ["webhookworker"]
+        envFrom: [{ configMapRef: { name: voltedge-env } }]
+        env:
+        - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: voltedge-secret, key: DATABASE_URL } } }
+        - { name: EXTERNAL_SYSTEMS_ENCRYPTION_KEY, valueFrom: { secretKeyRef: { name: voltedge-secret, key: EXTERNAL_SYSTEMS_ENCRYPTION_KEY } } }   # added: see correction
+---
+# importworker: identical to webhookworker with command ["importworker"] + the
+# RUSTFS_* env (it stages uploaded files). mcpserver: command ["mcpserver"] + a
+# Service on 8090 if you expose the MCP tool API.
+---
+# fieldsync -- Recreate so two pack builders never overlap during a rollout.
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: voltedge-fieldsync, namespace: voltedge }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: voltedge-fieldsync } }
+  template:
+    metadata: { labels: { app: voltedge-fieldsync } }
+    spec:
+      containers:
+      - name: fieldsync
+        image: REG/voltedge-fieldsync:TAG
+        command: ["fieldsync"]
+        envFrom: [{ configMapRef: { name: voltedge-env } }]
+        env:
+        - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: voltedge-secret, key: DATABASE_URL } } }
+        - { name: RUSTFS_ACCESS_KEY, valueFrom: { secretKeyRef: { name: voltedge-secret, key: RUSTFS_ACCESS_KEY } } }
+        - { name: RUSTFS_SECRET_KEY, valueFrom: { secretKeyRef: { name: voltedge-secret, key: RUSTFS_SECRET_KEY } } }
+        ports: [{ containerPort: 8091 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: fieldsync, namespace: voltedge }
+spec:
+  selector: { app: voltedge-fieldsync }
+  ports: [{ port: 8091, targetPort: 8091 }]</pre>
+  <div class="caution"><b>Corrections to the original manual.</b> (1) <b>fieldsync is not a singleton.</b> The original said &#8220;SINGLETON. Never scale&#8221; and troubleshooting blamed corrupt packs on scaling above 1. The compose header comment, Scaling Guide &sect;8 and the code (<code>FOR UPDATE SKIP LOCKED</code>, a temp dir per job) say replicas are safe; the only caveat is that the shared-pack maintenance loop runs in every replica, so a scheduled rebuild can be double-enqueued harmlessly. Keeping 1 replica is a fine <i>starting</i> choice; <code>Recreate</code> merely avoids overlap during a rollout and is not required for correctness. For a pack-build backlog, scale replicas <i>and</i> give each pod CPU. (2) <b>webhookworker and importworker need <code>EXTERNAL_SYSTEMS_ENCRYPTION_KEY</code></b> (<code>api/cmd/webhookworker/main.go</code> header; both call <code>secretbox.NewFromEnv</code>); the original gave them only <code>DATABASE_URL</code>, so outbound deliveries would dead-letter. (3) <b>The workers have no HTTP server</b>, so give them no <code>httpGet</code> probe; <code>fieldsync</code> does serve <code>/healthz</code> on 8091 but it returns a bare <code>ok</code> without touching the DB. The workers drain in-flight jobs on SIGTERM (<code>signal.NotifyContext</code>), so a rollout does not lose work.</div>
+  <h3>B8. Web (SPA + proxy) and its k8s nginx config</h3>
+  <p>In k8s the <code>api</code> Service load-balances across pods, so the nginx config drops the resolver/variable trick and uses a <b>literal</b> upstream. <code>deploy/k8s/60-web.yaml</code>:</p>
+  <pre class="pre code">apiVersion: v1
+kind: ConfigMap
+metadata: { name: web-nginx, namespace: voltedge }
+data:
+  nginx.conf: |
+    worker_processes auto;
+    events { worker_connections 4096; }
+    http {
+      include /etc/nginx/mime.types;
+      limit_req_zone $binary_remote_addr zone=login:10m rate=5r/s;
+      client_max_body_size 32m;
+      proxy_read_timeout 60s;
+      gzip on; gzip_types text/css application/javascript application/json image/svg+xml;
+      server {
+        listen 80;
+        root /usr/share/nginx/html;
+        location = /api/auth/login { limit_req zone=login burst=10 nodelay; rewrite ^/api/(.*)$ /$1 break; proxy_pass http://api:8080; }
+        location /api/   { rewrite ^/api/(.*)$ /$1 break; proxy_pass http://api:8080; }
+        location /tiles/ { proxy_pass http://api:8080; }
+        location /assets/ { expires 1y; add_header Cache-Control "public, immutable"; try_files $uri =404; }
+        location /       { try_files $uri /index.html; }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: voltedge-web, namespace: voltedge }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: voltedge-web } }
+  template:
+    metadata: { labels: { app: voltedge-web } }
+    spec:
+      containers:
+      - name: web
+        image: REG/voltedge-web:TAG         # bakes the SPA
+        ports: [{ containerPort: 80 }]
+        volumeMounts: [{ name: conf, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf }]
+        readinessProbe: { httpGet: { path: /, port: 80 }, periodSeconds: 10 }
+      volumes:
+      - name: conf
+        configMap: { name: web-nginx }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: web, namespace: voltedge }
+spec:
+  selector: { app: voltedge-web }
+  ports: [{ port: 80, targetPort: 80 }]</pre>
+  <div class="caution"><b>Corrections to the original manual.</b> (1) <b>The login rate limit would be shared by everyone.</b> Behind the Ingress, <code>$remote_addr</code> in these web pods is the ingress controller&#8217;s pod IP, so <code>limit_req_zone $binary_remote_addr</code> puts every user in one 5 r/s bucket. Restore the real client address with the realip module (<code>set_real_ip_from &lt;ingress pod CIDR&gt;; real_ip_header X-Forwarded-For;</code>; the CIDR is cluster-specific and <span class="tag nv" style="margin:0 4px">not verified</span>) or rate-limit at the Ingress. (2) The compose config also sets <code>Host</code>, <code>X-Real-IP</code>, <code>X-Forwarded-For</code>, <code>X-Forwarded-Proto</code> on each proxied location plus <code>proxy_http_version 1.1</code>, <code>proxy_connect_timeout 5s</code> and <code>proxy_send_timeout 60s</code>; the k8s version dropped them. The API&#8217;s audit code prefers the first <code>X-Forwarded-For</code> hop (<code>api/internal/auth/service.go</code>), so copy those <code>proxy_set_header</code> lines across for parity with <code>infra/nginx/nginx.conf</code>. (3) The app&#8217;s own per-IP limiters (<code>api/internal/ratelimit</code>) key on the TCP peer address and deliberately ignore <code>X-Forwarded-For</code>, so behind any proxy they see the proxy&#8217;s address: the edge limit is the real brake.</div>
+  <h3>B9. Ingress + TLS</h3>
+  <p><code>deploy/k8s/70-ingress.yaml</code>: the app host routes to <code>web</code>; the storage host routes to <code>rustfs</code> (presigned URLs):</p>
+  <pre class="pre code">apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: voltedge
+  namespace: voltedge
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "32m"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts: [gis.example.com, storage.example.com]
+    secretName: voltedge-tls
+  rules:
+  - host: gis.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend: { service: { name: web, port: { number: 80 } } }
+  - host: storage.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend: { service: { name: rustfs, port: { number: 9000 } } }</pre>
+  <p>The 32m matches the API&#8217;s global body cap (<code>httpx.MaxBytes(32 &lt;&lt; 20)</code>) and nginx&#8217;s <code>client_max_body_size 32m</code>. Bulk bytes ride presigned PUTs straight to RustFS, which is why the storage host needs its own route and certificate.</p>
+</section>
+
+<!-- ============ CH5 OPERATE ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>Part B (3): bootstrap &amp; operate</h2><p>Apply order, queue-driven scaling, upgrades, verification, failure walkthroughs.</p></div>
+  <h3>B10. Apply order &amp; bootstrap</h3>
+  <pre class="pre code">kubectl apply -f deploy/k8s/00-issuer.yaml
+kubectl apply -f deploy/k8s/10-namespace-config.yaml
+kubectl apply -f deploy/k8s/11-secret.yaml
+kubectl apply -f deploy/k8s/20-postgres.yaml
+kubectl -n voltedge wait --for=condition=Ready cluster/voltedge-db --timeout=600s
+kubectl apply -f deploy/k8s/25-rustfs.yaml
+
+# migrate once, gate on completion
+kubectl apply -f deploy/k8s/30-migrate-job.yaml
+kubectl -n voltedge wait --for=condition=complete job/voltedge-migrate --timeout=300s
+
+# seed: restore a validated dump with the migrate image (carries pg_restore)
+kubectl -n voltedge run restore --rm -it --restart=Never \
+  --image=REG/voltedge-migrate:TAG --env="DATABASE_URL=$DSN" -- \
+  sh -c 'pg_restore --no-owner -d "$DATABASE_URL" /path/to/seeded.dump'   # mount/stream the dump in
+
+# app tier
+kubectl apply -f deploy/k8s/40-api.yaml
+kubectl apply -f deploy/k8s/50-workers.yaml
+kubectl apply -f deploy/k8s/60-web.yaml
+kubectl apply -f deploy/k8s/70-ingress.yaml
+
+# first break-glass admin (authadmin is baked into the api image)
+kubectl -n voltedge exec deploy/voltedge-api -- \
+  sh -c 'AUTHADMIN_PASSWORD=&lt;strong&gt; authadmin create --email admin@example.com --name "Break-glass Admin"'</pre>
+  <div class="caution"><b>Corrections to the original manual.</b> (1) <b>The restore pod would re-run the migrations instead of restoring.</b> The migrate image has <code>ENTRYPOINT ["bash", "/migrations/apply.sh"]</code>; <code>kubectl run … -- sh -c '…'</code> only replaces CMD, so the arguments are handed to <code>apply.sh</code>. Add <code>--command</code> so the args replace the entrypoint: <code>kubectl -n voltedge run restore --rm -it --restart=Never --image=REG/voltedge-migrate:TAG --env="DATABASE_URL=$DSN" --command -- sh -c '…'</code>. The dump also has to get into the pod (the path in the original does not exist in the image): bake it into a derived image, mount it from a PVC/ConfigMap, or stream it in. (2) Add a wait for the pooler (<code>kubectl -n voltedge wait --for=condition=Available deploy/voltedge-db-pooler-rw --timeout=300s</code>; the Deployment name follows CNPG&#8217;s convention, <span class="tag nv" style="margin:0 4px">not verified</span>) before the migrate Job, and point the Job and restore at the <b>direct</b> Service (Chapter 4). (3) <b>Order:</b> the runbook (&sect;6b) restores the validated dump and then re-runs migrations to roll newer ones forward. A dump carries the schema, so restoring <i>after</i> a full migrate on an empty DB is likely to hit &#8220;already exists&#8221;. Treat dump-then-migrate as the safe order for a fresh install; applying migrations to an empty DB alone does not create the compiled <code>gis.&lt;class&gt;</code> tables. <span class="tag nv" style="margin:0 4px">not verified</span></div>
+  <p>Try the sequence, including the wrong orders. Each step checks what it needs from the earlier ones:</p>
+  <div class="widget" id="w12">
+    <div class="w-head"><span class="eyebrow">Interactive · 12</span><h4>Bootstrap sequencer: do it in the wrong order and see why it fails</h4><span style="flex:1"></span><button class="btn" id="w12-reset">Reset</button><button class="btn pri" id="w12-auto">Run the correct order</button></div>
+    <div class="w-bar"><label class="tog"><input type="checkbox" id="w12-tag"> migrate Job name carries the image tag</label><label class="tog"><input type="checkbox" id="w12-direct" checked> Job uses the direct DB service</label><span id="w12-lock"></span></div>
+    <div class="w-split"><div class="w-main"><div id="w12-steps" style="display:flex;flex-wrap:wrap;gap:6px"></div><div id="w12-log" style="margin-top:10px"></div></div><div class="w-side" id="w12-state"></div></div>
+  </div>
+  <h3>B11. Autoscaling workers on queue depth (KEDA, optional)</h3>
+  <p>CPU isn&#8217;t the right signal for queue workers; scale on pending-job count. <code>deploy/k8s/80-keda-exportworker.yaml</code>:</p>
+  <pre class="pre code">apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: exportworker, namespace: voltedge }
+spec:
+  scaleTargetRef: { name: voltedge-exportworker }
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  triggers:
+  - type: postgresql
+    metadata:
+      connectionFromEnv: DATABASE_URL
+      query: "SELECT count(*) FROM ops.export_jobs WHERE status = 'queued'"
+      targetQueryValue: "5"</pre>
+  <div class="caution"><b>Correction to the original manual.</b> The original query filtered <code>status = 'pending'</code>. Migration 0036 constrains <code>ops.export_jobs.status</code> to <code>('queued','running','succeeded','failed','cancelled')</code> (and 0102 gives <code>ops.import_jobs</code> the same set), so <code>'pending'</code> matches no row, the count is always 0, and the scaler never leaves <code>minReplicaCount</code>. Count <code>'queued'</code>. A job whose worker died stays <code>running</code> until its lease expires and is then re-claimed, so a stricter query may also count expired leases (<code>lease_expires_at &lt; now()</code>, column per migration 0036). The table and column names are verified; KEDA&#8217;s own behaviour is <span class="tag nv" style="margin:0 4px">not verified</span>.</div>
+  <div class="widget" id="w13">
+    <div class="w-head"><span class="eyebrow">Interactive · 13</span><h4>Queue-depth scaler: how many export workers, and how long to drain</h4></div>
+    <div class="w-split"><div class="w-side" style="order:0;max-width:310px" id="w13-ctl"></div><div class="w-main" id="w13-out"></div></div>
+  </div>
+  <h3>B12. Upgrades (zero-downtime)</h3>
+  <ol class="steps">
+    <li>Build + push new <code>:TAG</code> images (Chapter 1).</li>
+    <li><b>Run the migration Job</b> on the new tag first; wait for completion. Additive-first migrations keep the running pods compatible.</li>
+    <li>Roll the Deployments: <code>kubectl -n voltedge set image deploy/voltedge-api api=REG/voltedge-api:TAG</code> (repeat per Deployment; the container names are <code>api</code>, <code>exportworker</code>, <code>webhookworker</code>, <code>fieldsync</code>, <code>web</code>). Rolling update + readiness keep capacity up (Interactive 11); the PDB protects against concurrent node drains.</li>
+    <li>Breaking schema changes: expand &rarr; migrate &rarr; deploy &rarr; contract across two releases (Scaling Guide &sect;10).</li>
+    <li>Roll back code with <code>kubectl -n voltedge rollout undo deploy/voltedge-api</code>. Migrations are not reversed, which is exactly why they must stay backward-compatible with the previous image.</li>
+  </ol>
+  <h3>B13. Verify</h3>
+  <pre class="pre code">kubectl -n voltedge get pods                      # all Running; api &gt;=3
+kubectl -n voltedge get cluster voltedge-db       # 3 instances, 1 primary healthy
+kubectl -n voltedge exec deploy/voltedge-api -- wget -qO- http://127.0.0.1:8080/healthz</pre>
+  <p>The healthz command works because the api image is Alpine (BusyBox <code>wget</code>), the same tool the compose healthcheck uses. A good answer is <code>{"status":"ok"}</code>; a broken database gives HTTP 503 and <code>{"status":"db unreachable: …"}</code>. Then, from a browser over HTTPS: sign in as the admin, confirm the map renders (tiles via <code>/tiles</code>), create a feature, run a trace, upload an attachment (confirms the storage Ingress + presign). <code>kubectl -n voltedge scale deploy/voltedge-api --replicas=6</code> and confirm no re-login (stateless sessions) and load spreads. Note the HPA will move that number back toward its own target.</p>
+  <h3>B14. Troubleshooting (k8s-specific)</h3>
+  <div class="tbl"><table>
+    <tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr>
+    <tr><td>api <code>CrashLoopBackOff</code>, DB errors</td><td>DSN wrong, or pooler not ready</td><td>Check <code>voltedge-secret</code> <code>DATABASE_URL</code> host = <code>voltedge-db-pooler-rw</code>; <code>kubectl get pooler</code> ready. A wrong DSN does not exit the process at open (the pool is lazy); it shows as failing <code>/healthz</code> (503). A missing <code>RUSTFS_ENDPOINT</code> does exit at boot (<code>log.Fatalf</code>)</td></tr>
+    <tr><td><code>pq: SSL required</code> / TLS errors</td><td>CNPG enforces TLS</td><td>Keep <code>sslmode=require</code>; for verify, mount the cluster CA and use <code>verify-full</code></td></tr>
+    <tr><td>migrate Job fails on re-run</td><td>Job object immutable</td><td>Delete the old Job (or tag its name with the image TAG) before re-apply</td></tr>
+    <tr><td>presigned attachment URLs 404</td><td>Storage host not reachable</td><td>Confirm the <code>storage.example.com</code> Ingress &rarr; <code>rustfs</code>, and <code>RUSTFS_PUBLIC_ENDPOINT</code> matches</td></tr>
+    <tr><td>login fails, cookie missing</td><td>Not HTTPS, or insecure-cookies set</td><td>Ensure Ingress TLS works and <code>AUTH_INSECURE_COOKIES</code> is absent</td></tr>
+    <tr><td>&#8220;prepared statement does not exist&#8221;</td><td>pgdriver vs transaction pooling (<span class="tag nv" style="margin:0 4px">not verified</span>)</td><td>Set the CNPG pooler <code>poolMode: session</code>, or disable statement caching in the DSN</td></tr>
+    <tr><td>map blank / classes missing</td><td>Schema not seeded</td><td>Restore the seeded dump (B10)</td></tr>
+    <tr><td>field packs slow / backlog</td><td>One fieldsync replica, CPU-heavy builds</td><td>Raise <code>FIELDSYNC_WORKER_CONCURRENCY</code>, add CPU, then add replicas (<b>corrected</b>: scaling above 1 is safe; the original blamed it for corrupt packs)</td></tr>
+    <tr><td>export jobs never finish; KEDA stuck at 1</td><td>Query counts <code>'pending'</code></td><td>Count <code>'queued'</code> (B11)</td></tr>
+    <tr><td>outbound webhooks dead-letter</td><td>webhookworker lacks <code>EXTERNAL_SYSTEMS_ENCRYPTION_KEY</code></td><td>Add the secretKeyRef (Interactive 6)</td></tr>
+  </table></div>
+  <h3>B15. Getting started fast</h3>
+  <p><code>kompose convert -f docker-compose.prod.yml</code> produces first-draft manifests: a scaffold, <b>not</b> this. You still replace Postgres with CloudNativePG, add the migration Job / Ingress / HPA / PDB, swap in the web image + ConfigMap, and decide on the <code>fieldsync</code> replica count (the original pinned it to a singleton; it is replica-safe). Treat kompose output as a starting point, then apply B2 to B11. (<span class="tag nv" style="margin:0 4px">not verified</span>: kompose is not used anywhere in the repo.)</p>
+
+  <h3>Who may run which command</h3>
+  <p>Cluster access is not VoltEdge RBAC. This table models a sensible split between the four operator personas; switch the persona and see which commands are allowed. The Kubernetes verbs are standard; the split itself is a recommendation, not a repo fact.</p>
+  <div class="widget" id="w14">
+    <div class="w-head"><span class="eyebrow">Interactive · 14</span><h4>Command permissions by persona</h4></div>
+    <div class="w-bar"><span class="lab">Command</span><select class="fld" id="w14-cmd"></select><span id="w14-who"></span></div>
+    <div class="w-body" id="w14-out"></div>
+  </div>
+
+  <h3>Failure walkthroughs</h3>
+  <p>Three incidents you will meet, worked as a diagnosis: run the commands in order, read what they show, then choose the cause.</p>
+  <div class="widget" id="w15">
+    <div class="w-head"><span class="eyebrow">Interactive · 15</span><h4>Walk an incident: CrashLoopBackOff, readiness flap, pool exhaustion</h4></div>
+    <div class="w-bar"><div class="seg" id="w15-sc"></div></div>
+    <div class="w-body" id="w15-out"></div>
+  </div>
+</section>
+
+<!-- ============ CH6 CHOOSE ============ -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>Which should you pick?</h2><p>Lowest burden or highest ceiling.</p></div>
+  <ul>
+    <li><b>Coolify</b> if you want the stack running this week on one or two servers, with push-to-deploy and automatic TLS, and a few-hundred-user ceiling. Lowest burden.</li>
+    <li><b>Kubernetes</b> if you&#8217;re aiming at the ~1,000-user / HA / autoscaling target, have (or will build) the platform skills, and want operator-managed Postgres replicas and failover. Highest ceiling, highest effort.</li>
+  </ul>
+  <p>A common path is Coolify first (prove the app and data model under real load), then Kubernetes when scale or availability demands it: the <b>images and bootstrap steps are identical</b>, only the orchestration changes.</p>
+  <div class="widget" id="w16">
+    <div class="w-head"><span class="eyebrow">Interactive · 16</span><h4>Coolify or Kubernetes? Score your situation</h4></div>
+    <div class="w-split"><div class="w-side" style="order:0;max-width:330px" id="w16-ctl"></div><div class="w-main" id="w16-out"></div></div>
+  </div>
+  <div class="en-b"><span class="tag en">Status</span><p>These manifests and the Coolify flow are authored from the known architecture but have <b>not</b> been run in CI here. Validate against your own cluster/Coolify instance, especially the CNPG pooler TLS/auth and the transaction-pooling prepared-statement caveat (Scaling Guide &sect;5), before production. This edition additionally flags every place where the repo contradicted the original text.</p></div>
+</section>
+
+<!-- ============ CH7 TROUBLESHOOT ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>Troubleshooting, recipes &amp; quiz</h2><p>Find the symptom, copy the command, check yourself.</p></div>
+  <div class="widget" id="wt">
+    <div class="w-head"><span class="eyebrow">Symptom explorer</span><h4>What are you seeing?</h4></div>
+    <div class="w-bar"><label class="lab" for="t-q">Search</label><input type="text" id="t-q" placeholder="e.g. blank, cookie, CrashLoop, presigned, queue…" style="max-width:320px"><span id="t-n" class="muted" style="font-size:12.5px"></span></div>
+    <div class="w-body" id="t-list" style="padding:0"></div>
+  </div>
+  <h3>Recipe cheat sheet</h3>
+  <div class="tbl"><table>
+    <tr><th>To&#8230;</th><th>Do this</th></tr>
+    <tr><td>Build and push all four images</td><td><code>docker build -t $REG/voltedge-api:$TAG ./api</code> and the other three from Chapter 1, then the <code>for i in api fieldsync web migrate</code> push loop</td></tr>
+    <tr><td>Migrate on Coolify</td><td>Terminal into <code>bootstrap</code>: <code>bash /workspace/migrations/apply.sh</code></td></tr>
+    <tr><td>Migrate on Kubernetes</td><td><code>kubectl apply -f deploy/k8s/30-migrate-job.yaml</code> then <code>kubectl -n voltedge wait --for=condition=complete job/voltedge-migrate --timeout=300s</code></td></tr>
+    <tr><td>Restore the seeded dump (k8s)</td><td><code>kubectl -n voltedge run restore --rm -it --restart=Never --image=REG/voltedge-migrate:TAG --env="DATABASE_URL=$DSN" --command -- sh -c '…'</code> (note <code>--command</code>)</td></tr>
+    <tr><td>Create the first admin</td><td><code>AUTHADMIN_PASSWORD='…' authadmin create --email admin@example.com --name "Break-glass Admin"</code> inside an api container</td></tr>
+    <tr><td>List accounts / roles</td><td><code>authadmin list</code>, <code>authadmin roles</code>, <code>authadmin grant-role --email … --role …</code></td></tr>
+    <tr><td>Check the API is healthy</td><td><code>kubectl -n voltedge exec deploy/voltedge-api -- wget -qO- http://127.0.0.1:8080/healthz</code></td></tr>
+    <tr><td>Roll a new version</td><td>migrate Job &rarr; <code>kubectl -n voltedge set image deploy/voltedge-api api=REG/voltedge-api:TAG</code></td></tr>
+    <tr><td>Roll back code</td><td><code>kubectl -n voltedge rollout undo deploy/voltedge-api</code> (Coolify: redeploy a previous build)</td></tr>
+    <tr><td>Scale by hand</td><td><code>kubectl -n voltedge scale deploy/voltedge-api --replicas=6</code> (Coolify: <code>API_REPLICAS</code>)</td></tr>
+    <tr><td>Back up Postgres</td><td>Coolify managed DB: scheduled backups. In-compose: <code>pg_dump -Fc "$DATABASE_URL" -f …</code> as a Scheduled Task. k8s: CNPG <code>backup.barmanObjectStore</code></td></tr>
+    <tr><td>Back up object storage</td><td>Separately: the <code>rustfs_data</code> volume / PVC (attachments and exports live only there)</td></tr>
+    <tr><td>First-draft manifests from Compose</td><td><code>kompose convert -f docker-compose.prod.yml</code> (a scaffold only)</td></tr>
+  </table></div>
+  <div class="callout">Same images. Migrate before you roll. Never trust a green probe to mean a working schema. Everything else here is a consequence of those three.</div>
+  <p><b>See also:</b> the <b>Production Setup Runbook</b> (the compose-based logic this guide ports), the <b>Deployment &amp; Scaling Guide</b> (why the numbers) and the <b>Logging &amp; Observability Guide</b>.</p>
+  <h4 style="margin-top:26px">Check yourself</h4>
+  <div id="qz"></div>
+</section>
+</div>
+
+<footer style="max-width:1040px;margin:0 auto;padding:0 20px 60px"><p class="muted" style="font-size:13px">VoltEdge · Kubernetes &amp; Coolify — interactive edition. Every widget is a simulation held entirely in your browser; nothing here talks to a cluster or Coolify and nothing changes your real deployment. Where this edition could verify a claim against the repo (Dockerfiles, compose, nginx.conf, migrations, <code>api/cmd</code>) it says so; Kubernetes, CNPG, KEDA and Coolify behaviours not present in the repo are marked <i>not verified</i>. The manifests have not been run in CI.</p></footer>
+
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+function seg(sel,cb){ const el=$(sel); el.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b||b.disabled) return; el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); cb(b)}); }
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nf=(x,d=0)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+/* ---------- personas: who holds cluster / Coolify access ---------- */
+const PNAME={bd:'push images',ap:'apply / deploy',sc:'scale',rb:'roll back',ex:'exec / terminal',se:'edit secrets',rd:'read'};
+const PERSONAS=[['plat','Platform admin',{bd:1,ap:1,sc:1,rb:1,ex:1,se:1,rd:1}],['oncall','On-call engineer',{sc:1,rb:1,ex:1,rd:1}],['dev','Developer',{bd:1,rd:1}],['aud','Auditor (read-only)',{rd:1}]];
+let PERSONA=PERSONAS[0]; const personaL=[];
+const can=p=>!!PERSONA[2][p];
+const gateTip=p=>`<span class="gate" title="needs ${PNAME[p]}">needs ${PNAME[p]}</span>`;
+const lockTip=p=>`<span class="gate locked" title="${PERSONA[1]} cannot ${PNAME[p]}">locked: ${PNAME[p]}. Switch persona with the &#8220;As&#8221; selector.</span>`;
+function onPersona(fn){ personaL.push(fn); fn(); }
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=PERSONAS.map(p=>`<option value="${p[0]}">${p[1]}</option>`).join(''); sel.onchange=()=>{ PERSONA=PERSONAS.find(p=>p[0]===sel.value); personaL.forEach(f=>f()); }; })();
+const pill=(t,c)=>`<span class="pill ${c||''}">${t}</span>`;
+const lint=(k,t)=>`<div class="lint ${k}"><b>${{err:'error',wrn:'warn',ok:'ok',inf:'note'}[k]}</b>${t}</div>`;
+const NV='<span class="tag nv" style="margin:0 4px">not verified in repo</span>';
+
+/* ===== W1: service translation explorer ===== */
+(function(){
+  const S=[
+   ['postgres','Postgres',
+     'Service <code>postgres</code>, image <code>supabase/postgres:15.8.1.049</code>, <code>max_connections=200</code>, <code>wal_level=replica</code>, volume <code>postgres_data</code>',
+     'Option 1: stays in the compose. Option 2: a managed Coolify PostgreSQL resource (set a PostGIS image) with scheduled backups',
+     'CloudNativePG <code>Cluster</code> <code>voltedge-db</code>, 3 instances, <code>ghcr.io/cloudnative-pg/postgis:15</code>, 100Gi',
+     'The compose image is Supabase&#8217;s Postgres 15; CNPG ships a different PostGIS image. Migrations need only <code>postgis</code> (0015) and <code>citext</code> (0024). Other Supabase-specific extras were not found in the migrations.'],
+   ['pgbouncer','PgBouncer',
+     'Service <code>pgbouncer</code> (<code>edoburu/pgbouncer</code>), <code>POOL_MODE=transaction</code>, <code>DEFAULT_POOL_SIZE=25</code>, <code>MAX_CLIENT_CONN=1000</code>',
+     'Same service, sized by <code>PGBOUNCER_POOL_SIZE</code> / <code>PGBOUNCER_MAX_CLIENT_CONN</code> in the Environment Variables tab',
+     'CNPG <code>Pooler</code> <code>voltedge-db-pooler-rw</code> (2 instances) plus an optional read-only pooler',
+     'On Compose one PgBouncer; on k8s each Pooler <em>instance</em> is its own PgBouncer with its own pool. Backend connections = instances &times; pool size.'],
+   ['nginx','nginx / web',
+     'Service <code>nginx</code> (<code>nginx:1.27-alpine</code>), mounts <code>infra/nginx/nginx.conf</code> and <code>./web/dist</code>, publishes <code>WEB_PORT</code> (3710)',
+     'Override builds <code>web/Dockerfile</code>, keeps only the config mount, drops the published port; Traefik fronts it',
+     '<code>voltedge-web</code> Deployment (2 replicas) + ConfigMap <code>web-nginx</code> + Service <code>web</code>, behind an Ingress',
+     'Config differs: Compose uses <code>resolver 127.0.0.11</code> and <code>set $api</code>; k8s uses a literal <code>proxy_pass http://api:8080</code> because the Service load-balances.'],
+   ['api','api',
+     'Service <code>api</code>, no <code>container_name</code>, no published port, <code>deploy.replicas: ${API_REPLICAS:-3}</code>, healthcheck <code>wget /healthz</code> (interval 10s, 3 retries, start_period 20s)',
+     'Same service; replica count from <code>API_REPLICAS</code>; env must be wired through the override (see Interactive 5)',
+     'Deployment <code>voltedge-api</code> (3 replicas) + Service <code>api</code> + HPA (3 to 30, CPU 60%) + PDB (<code>minAvailable: 2</code>)',
+     'Stateless: sessions live in Postgres, so scaling does not log anyone out. <code>DATABASE_MAX_OPEN_CONNS</code> is <b>not read</b> by the code today.'],
+   ['exportworker','exportworker',
+     'Service with <code>command: ["exportworker"]</code>, <code>EXPORT_WORKER_CONCURRENCY</code> (2), <code>EXPORT_JOB_LEASE</code> (60s)',
+     'Same, <code>EXPORTWORKER_REPLICAS</code>',
+     'Deployment (1 replica); optional KEDA <code>ScaledObject</code> 1 to 8 on queue depth',
+     'Claims rows from <code>ops.export_jobs</code> with <code>FOR UPDATE SKIP LOCKED</code>, so replicas need no coordination.'],
+   ['webhookworker','webhookworker',
+     'Service with <code>command: ["webhookworker"]</code>; env: <code>DATABASE_URL</code> only',
+     'Same, <code>WEBHOOKWORKER_REPLICAS</code>',
+     'Deployment (1 replica)',
+     'Outbound delivery unseals signing secrets with <code>EXTERNAL_SYSTEMS_ENCRYPTION_KEY</code>; without it deliveries dead-letter (see Interactive 6).'],
+   ['importworker','importworker',
+     'Service with <code>command: ["importworker"]</code>, plus <code>RUSTFS_*</code>',
+     'Same, <code>IMPORTWORKER_REPLICAS</code>',
+     'Deployment (shape of webhookworker + <code>RUSTFS_*</code>); the guide shows it only as a comment',
+     'Also reads <code>EXTERNAL_SYSTEMS_ENCRYPTION_KEY</code> (live-DB import profiles).'],
+   ['mcpserver','mcpserver',
+     'Service <code>mcpserver</code>, <code>container_name</code>, publishes <code>MCP_PORT</code> (3705:8090)',
+     'Internal unless you give it a domain',
+     'Deployment with <code>command: ["mcpserver"]</code> plus a Service on 8090 if exposed (comment only in the guide)',
+     'Own <code>/healthz</code> with a DB ping. Bearer-token surface (<code>authadmin mint-token</code>).'],
+   ['fieldsync','fieldsync',
+     'Service <code>fieldsync</code>, <code>container_name</code>, publishes 3706:8091; ONE instance <b>by choice</b>',
+     'Kept at 1 by default; replica-safe if you give up the fixed port and container_name',
+     'Deployment <code>voltedge-fieldsync</code>, <code>strategy: Recreate</code>, Service on 8091, <code>voltedge-fieldsync</code> image',
+     'The compose header and Scaling Guide &sect;8 say it is <b>replica-safe</b> (SKIP LOCKED, per-job temp dirs). The guide&#8217;s &#8220;singleton&#8221; is conservative, not required.'],
+   ['rustfs','RustFS (object store)',
+     'Service <code>rustfs</code> (<code>rustfs/rustfs:latest</code>), ports 9000/9001, volume <code>rustfs_data</code>',
+     'Same service; give it the domain <code>storage.example.com</code> on port 9000 for presigned URLs',
+     'StatefulSet (1 replica, 100Gi PVC) + Service 9000; Ingress host <code>storage.example.com</code>',
+     'Single instance mirrors the stack. For real durability use an S3 service or an operator and just point <code>RUSTFS_*</code> at it. <code>:latest</code> is unpinned.'],
+   ['bootstrap','bootstrap sidecar',
+     'Service <code>bootstrap</code> (<code>infra/gitbash</code>): psql + repo at <code>/workspace</code>, <b>direct</b> to Postgres, <code>sleep infinity</code>',
+     'Open a Terminal into it and run <code>bash /workspace/migrations/apply.sh</code>',
+     'No sidecar: a <code>voltedge-migrate</code> Job instead, plus a one-off pod for <code>pg_restore</code>',
+     'The sidecar connects directly (DDL wants a stable session). The Job in the guide uses the transaction pooler. See Chapter 4.'],
+   ['martin','martin (tiles)',
+     'Service <code>martin</code>, retained but <b>superseded</b> as the map origin (tiles come from the Go API)',
+     'Deployed only if you keep it in the compose',
+     '<b>Not ported</b> by the guide',
+     'Nothing in the k8s manifests needs it. If you want direct tiles, you add it yourself. '+NV]];
+  $('#w1-sv').innerHTML=S.map((s,i)=>`<button data-i="${i}" aria-pressed="${i===3}">${s[1]}</button>`).join('');
+  function paint(i){ const s=S[i]; $('#w1-out').innerHTML=`<div class="tbl" style="margin:0"><table><tr><th>Docker Compose (<code>docker-compose.prod.yml</code>)</th><th>Coolify</th><th>Kubernetes</th></tr><tr><td>${s[2]}</td><td>${s[3]}</td><td>${s[4]}</td></tr></table></div><div class="tip" style="margin-bottom:0"><b>Watch for</b> ${s[5]}</div>`; }
+  seg('#w1-sv',b=>paint(+b.dataset.i)); paint(3);
+})();
+
+/* ===== W2: image builder ===== */
+(function(){
+  const BIN=[['server','voltedge-api','api'],['exportworker','voltedge-api','api'],['webhookworker','voltedge-api','api'],['importworker','voltedge-api','api'],['mcpserver','voltedge-api','api'],['authadmin','voltedge-api','api'],['resetdata','voltedge-api','api'],['fieldsync','voltedge-fieldsync','fieldsync'],['nginx (SPA)','voltedge-web','web'],['apply.sh (migrations)','voltedge-migrate','migrate']];
+  $('#w2-bin').innerHTML=BIN.map((b,i)=>`<option value="${i}">${b[0]}</option>`).join('');
+  const DF={api:'api/Dockerfile',fieldsync:'api/Dockerfile.fieldsync',web:'web/Dockerfile',migrate:'deploy/migrate/Dockerfile'};
+  const regOK=r=>/^[a-z0-9]+([._-][a-z0-9]+)*(:[0-9]+)?(\/[a-z0-9]+([._-][a-z0-9]+)*)*$/.test(r);
+  const tagOK=t=>/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(t);
+  function paint(){
+    const reg=$('#w2-reg').value.trim(), tag=$('#w2-tag').value.trim(); const rOk=regOK(reg), tOk=tagOK(tag);
+    $('#w2-regv').innerHTML=rOk?pill('valid','fresh'):pill('invalid','stale'); $('#w2-tagv').innerHTML=tOk?pill('valid','fresh'):pill('invalid','stale');
+    const R=reg||'REG', T=tag||'TAG';
+    $('#w2-cmd').textContent=`REG=${R} ; TAG=${T}\n\ndocker build -t $REG/voltedge-api:$TAG        ./api\ndocker build -t $REG/voltedge-fieldsync:$TAG  -f api/Dockerfile.fieldsync ./api\ndocker build -t $REG/voltedge-web:$TAG        ./web\ndocker build -t $REG/voltedge-migrate:$TAG    -f deploy/migrate/Dockerfile .\n\nfor i in api fieldsync web migrate; do docker push $REG/voltedge-$i:$TAG; done`;
+    const b=BIN[+$('#w2-bin').value];
+    const note={api:'Default <code>CMD ["server"]</code>. Set <code>command: ["'+b[0]+'"]</code> to run this binary.',fieldsync:'Own image because it bundles <b>tippecanoe</b> (built from a pinned Felt tag). Never run it from the api image: the binary is not there.',web:'No binary of ours: nginx. The config is <b>not</b> baked in; mount it at <code>/etc/nginx/nginx.conf</code>.',migrate:'Build from the <b>repo root</b> so <code>COPY migrations/</code> works. The ENTRYPOINT is <code>bash /migrations/apply.sh</code>, so extra args do not replace the command (see Chapter 5).'}[b[2]];
+    $('#w2-bininfo').innerHTML=`<div class="kv"><span>Image</span><b class="mono">${esc(R)}/${b[1]}:${esc(T)}</b></div><div class="kv"><span>Dockerfile</span><b class="mono">${DF[b[2]]}</b></div><div style="font-size:13.5px;margin-top:6px">${note}</div>`;
+    const push=$('#w2-push'); push.disabled=!can('bd')||!rOk||!tOk;
+    $('#w2-msg').innerHTML=!can('bd')?lockTip('bd'):(!rOk||!tOk?'Fix the registry path / tag first.':'Simulated: nothing is pushed from this page.');
+  }
+  ['#w2-reg','#w2-tag'].forEach(s=>$(s).oninput=paint); $('#w2-bin').onchange=paint;
+  $('#w2-push').onclick=()=>{ $('#w2-msg').innerHTML=`<span class="good">Simulated push of 4 images tagged ${esc($('#w2-tag').value)}.</span> (Real command above.)`; };
+  onPersona(paint);
+})();
+
+/* ===== W3: compose merge ===== */
+(function(){
+  const CONF='./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro', DIST='./web/dist:/usr/share/nginx/html:ro';
+  const tgt=v=>v.split(':')[1];
+  function paint(){
+    const conf=$('#w3-conf').checked, ovr=$('#w3-ovr').checked, dist=$('#w3-dist').checked, reset=$('#w3-reset').checked, build=$('#w3-build').checked, img=$('#w3-img').checked;
+    const base=[CONF,DIST]; const o=[]; if(conf)o.push(CONF); if(dist)o.push(DIST);
+    let vols; if(!o.length&&!ovr) vols=base.slice(); else if(ovr) vols=o; else { const m=new Map(base.map(v=>[tgt(v),v])); o.forEach(v=>m.set(tgt(v),v)); vols=[...m.values()]; }
+    const ports=reset?[]:['3710:80'];
+    $('#w3-out').textContent=`nginx:\n`+(build?`  build: { context: ./web, dockerfile: Dockerfile }\n`:'')+`  image: ${img?'voltedge-web:coolify':'nginx:1.27-alpine'}\n  volumes:\n`+(vols.length?vols.map(v=>'    - '+v).join('\n'):'    (none)')+`\n  ports: ${ports.length?'['+ports.join(', ')+']':'[]'}`;
+    const m=[];
+    if(vols.includes(DIST)) m.push(lint('err','The <code>./web/dist</code> mount survives and shadows the SPA baked into the image. On a Coolify checkout there is no <code>web/dist</code>, so nginx serves an empty directory: blank page / 404.'));
+    else if(build) m.push(lint('ok','No host mount over <code>/usr/share/nginx/html</code>: the baked SPA is served.'));
+    if(!vols.includes(CONF)) m.push(lint('err','No nginx.conf mount: the stock nginx config runs, so <code>/api</code> and <code>/tiles</code> are not proxied.'));
+    if(!build) m.push(lint('err','No <code>build:</code>: the stock <code>nginx:1.27-alpine</code> image has no SPA in it at all.'));
+    if(!reset) m.push(lint('wrn','Host port 3710 stays published beside Coolify&#8217;s proxy. Harmless but exposes the app unproxied (no TLS).'));
+    if(build&&!img) m.push(lint('inf','<code>build:</code> + the base <code>image: nginx:1.27-alpine</code>: Compose tags the built image with that name on the build host. Harmless but confusing. '+NV));
+    if(!ovr&&conf&&!dist) m.push(lint('inf','Plain lists merge by mount target; only <code>!override</code> drops the base entry.'));
+    $('#w3-v').innerHTML=m.join('');
+  }
+  $$('#w3 input').forEach(i=>i.onchange=paint); paint();
+})();
+
+/* ===== W4: env audit ===== */
+(function(){
+  // [name, secret?, reaches (services per prod compose), fixTargets, default/effect when missing]
+  const V=[
+   ['POSTGRES_PASSWORD',1,'postgres, pgbouncer, every DATABASE_URL, bootstrap',null,'(always wired)'],
+   ['POSTGRES_DB',0,'postgres, pgbouncer, every DATABASE_URL',null,'(always wired)'],
+   ['RUSTFS_ACCESS_KEY',1,'api, exportworker, importworker, fieldsync, rustfs',null,'(always wired)'],
+   ['RUSTFS_SECRET_KEY',1,'api, exportworker, importworker, fieldsync, rustfs',null,'(always wired)'],
+   ['RUSTFS_BUCKET',0,'api, exportworker, importworker, fieldsync',null,'(always wired)'],
+   ['RUSTFS_CORS_ORIGINS',0,'rustfs (as <code>RUSTFS_CORS_ALLOWED_ORIGINS</code>; default <code>*</code>)',null,'(always wired; renamed on the way in)'],
+   ['RUSTFS_PUBLIC_ENDPOINT',0,'api, fieldsync',null,'(wired; default <code>localhost:3702</code> would break presigned URLs)'],
+   ['RUSTFS_PUBLIC_USE_SSL',0,'<b>none</b>','api, fieldsync','Presigned URLs are signed as <code>http://</code>: browsers block them as mixed content on an HTTPS site.'],
+   ['SESSION_IDLE_TIMEOUT',0,'<b>none</b>','api','Code default 12h applies: harmless if 12h is what you want.'],
+   ['SESSION_ABSOLUTE_MAX',0,'<b>none</b>','api','Code default 720h (30d) applies.'],
+   ['EXTERNAL_SYSTEMS_ENCRYPTION_KEY',1,'<b>none</b>','api, webhookworker, importworker','Key is unset: storing external credentials is refused and outbound webhook deliveries dead-letter.'],
+   ['LOG_FORMAT',0,'<b>none</b>','api and every worker','JSON is the default when unset: harmless.'],
+   ['LOG_LEVEL',0,'<b>none</b>','api and every worker','Defaults to info: harmless.'],
+   ['OIDC_AZURE_*',1,'<b>none</b>','api','SSO provider is silently not registered; the login screen shows no Microsoft button.'],
+   ['PGBOUNCER_POOL_SIZE',0,'pgbouncer (<code>DEFAULT_POOL_SIZE</code>, default 25)',null,'(always wired)'],
+   ['PGBOUNCER_MAX_CLIENT_CONN',0,'pgbouncer (default 1000)',null,'(always wired)'],
+   ['API_REPLICAS',0,'api (default 3)',null,'(always wired); same for EXPORTWORKER_/WEBHOOKWORKER_/IMPORTWORKER_REPLICAS'],
+   ['AUTH_INSECURE_COOKIES',0,'<b>none</b> (and you must not set it)',null,'Correctly absent: secure cookies stay on.']];
+  const on=new Set(['POSTGRES_PASSWORD','RUSTFS_ACCESS_KEY','RUSTFS_SECRET_KEY','RUSTFS_PUBLIC_ENDPOINT','RUSTFS_PUBLIC_USE_SSL','SESSION_IDLE_TIMEOUT','EXTERNAL_SYSTEMS_ENCRYPTION_KEY','LOG_FORMAT']);
+  $('#w4-set').innerHTML=V.map((v,i)=>`<label class="chk"><input type="checkbox" data-i="${i}" ${on.has(v[0])?'checked':''}><span class="mono" style="font-size:12px">${v[0]}</span></label>`).join('');
+  function paint(){
+    const fix=$('#w4-fix').checked; let bad=0, rows='';
+    V.forEach((v,i)=>{ if(!$(`#w4-set input[data-i="${i}"]`).checked) return; const dead=v[3]!==null; const reach=!dead||fix; if(!reach&&/mixed|dead|refused|silently/.test(v[4])) bad++;
+      rows+=`<tr><td><code>${v[0]}</code>${v[1]?' '+pill('secret','sec'):''}</td><td>${dead?(fix?'now: '+v[3]:v[2]):v[2]}</td><td>${reach?'<span class="good">reaches the container</span>':'<span class="bad">set in Coolify, never reaches it</span><br><span style="font-size:12.5px">'+v[4]+'</span>'}</td></tr>`; });
+    $('#w4-out').innerHTML=(bad?lint('err',`${bad} variable${bad>1?'s':''} you set will silently do nothing. Add them to the override, or toggle the box above.`):lint('ok','Everything you ticked either reaches a container or has a safe code default.'))+`<div class="tbl" style="margin:8px 0 0"><table><tr><th>Variable</th><th>Wired into</th><th>Result</th></tr>${rows||'<tr><td colspan="3" class="muted">Tick a variable.</td></tr>'}</table></div>`;
+  }
+  $('#w4-set').onchange=paint; $('#w4-fix').onchange=paint; paint();
+})();
+
+/* ===== W5: topology explorer ===== */
+(function(){
+  const N={
+   ing:{x:10,y:150,w:100,h:60,t:'Ingress',s:'nginx class + TLS',c:'--s8',kind:'Ingress <code>voltedge</code> + cert-manager Certificate',file:'70-ingress.yaml',key:'hosts gis.example.com &rarr; web:80, storage.example.com &rarr; rustfs:9000; <code>proxy-body-size: 32m</code>; TLS secret <code>voltedge-tls</code>',scale:'Controller replicas (ingress-nginx chart)',fail:'Nothing is reachable from outside. Inside the cluster everything keeps running.'},
+   web:{x:150,y:60,w:110,h:56,t:'web',s:'nginx + SPA, x2',c:'--s6',kind:'Deployment <code>voltedge-web</code> (2) + ConfigMap <code>web-nginx</code> + Service',file:'60-web.yaml',key:'image <code>voltedge-web</code>; nginx.conf mounted by <code>subPath</code>; readiness <code>GET / :80</code>',scale:'Fixed 2 replicas; no HPA in the manual',fail:'The SPA and every <code>/api</code> and <code>/tiles</code> call fail: users see a gateway error. Workers and storage links are unaffected.'},
+   api:{x:300,y:60,w:110,h:56,t:'api',s:'3 to 30 + PDB',c:'--s0',kind:'Deployment <code>voltedge-api</code> + Service <code>api</code> + HPA + PDB',file:'40-api.yaml',key:'<code>command: ["server"]</code>, port 8080, probes on <code>/healthz</code>, requests 500m/256Mi, limits 2/1Gi',scale:'HPA: CPU 60%, min 3, max 30',fail:'The map, login and all editing stop. Pages already loaded keep their static assets. Queued background jobs still run.'},
+   pool:{x:450,y:60,w:110,h:56,t:'pooler-rw',s:'CNPG Pooler x2',c:'--s2',kind:'CNPG <code>Pooler</code> <code>voltedge-db-pooler-rw</code> (type rw, transaction)',file:'20-postgres.yaml',key:'<code>max_client_conn: 1000</code>, <code>default_pool_size: 25</code>, 2 instances',scale:'<code>instances</code>; each is its own PgBouncer',fail:'Every DSN points here: the api <code>/healthz</code> pings the DB and goes 503, pods leave the Service, workers lose their queue. The primary itself is healthy.'},
+   db:{x:600,y:60,w:130,h:56,t:'voltedge-db',s:'CNPG 1+2 instances',c:'--s3',kind:'CNPG <code>Cluster</code> <code>voltedge-db</code> (3 instances, 100Gi)',file:'20-postgres.yaml',key:'PostGIS 15 image; initdb creates db <code>voltedge</code>, owner <code>app</code>; optional barman backup',scale:'Reads scale via replicas (needs app read-handle code); writes do not',fail:'Total outage for anything that writes or reads data until CNPG promotes a replica. With 3 instances one failure is survivable; the pooler reconnects.'},
+   rus:{x:150,y:270,w:110,h:56,t:'rustfs',s:'StatefulSet x1',c:'--s5',kind:'StatefulSet <code>rustfs</code> + Service 9000 + 100Gi PVC',file:'25-rustfs.yaml',key:'<code>RUSTFS_*</code> from <code>voltedge-secret</code>; CORS origin = the app host',scale:'Single instance (no HA)',fail:'Attachment upload/download, exports and field packs fail. The map and editing keep working. An unreachable RustFS only logs a warning at api boot (the bucket check), so restarting api pods still works.'},
+   wrk:{x:300,y:170,w:110,h:56,t:'workers',s:'export, webhook, import',c:'--s1',kind:'Deployments <code>voltedge-exportworker</code>, <code>-webhookworker</code>, <code>-importworker</code> (api image)',file:'50-workers.yaml',key:'<code>command</code> picks the binary; no HTTP probe exists for them',scale:'Replica count; KEDA for export (optional)',fail:'Queues grow: exports stay queued, inbound webhooks and imports do not apply. Users see the app working but jobs never finish.'},
+   fs:{x:300,y:280,w:110,h:56,t:'fieldsync',s:'pack builder + sync',c:'--s4',kind:'Deployment <code>voltedge-fieldsync</code> (Recreate) + Service 8091',file:'50-workers.yaml',key:'image <code>voltedge-fieldsync</code>; port 8091',scale:'1 replica in the manual (replica-safe per code comments)',fail:'Field tablets cannot build packs or sync edits. Office users are unaffected.'},
+   mig:{x:450,y:170,w:110,h:56,t:'migrate Job',s:'run once per upgrade',c:'--s7',kind:'Job <code>voltedge-migrate</code> (backoffLimit 2)',file:'30-migrate-job.yaml',key:'image <code>voltedge-migrate</code>; ENTRYPOINT <code>apply.sh</code>; <code>DATABASE_URL</code> from the secret',scale:'n/a (one-shot)',fail:'Upgrades cannot proceed; the running app is unaffected.'},
+   keda:{x:450,y:280,w:110,h:56,t:'KEDA',s:'ScaledObject (opt.)',c:'--s5',kind:'ScaledObject <code>exportworker</code> (1 to 8)',file:'80-keda-exportworker.yaml',key:'postgresql trigger on <code>ops.export_jobs</code>; target 5',scale:'Scales the export workers',fail:'Export workers stay at their last replica count. Nothing user-visible at once.'},
+   ro:{x:600,y:170,w:130,h:56,t:'pooler-ro',s:'unused by default',c:'--s8',kind:'CNPG <code>Pooler</code> type ro',file:'20-postgres.yaml',key:'Targets replicas. <b>Nothing connects to it yet</b>: the app has a single DB handle',scale:'<code>instances</code>',fail:'No effect today: no workload uses it.'}};
+  // dependency: a depends on b
+  const D=[['ing','web'],['ing','rus'],['web','api'],['api','pool'],['api','rus'],['pool','db'],['wrk','pool'],['wrk','rus'],['fs','pool'],['fs','rus'],['mig','pool'],['keda','pool'],['keda','wrk'],['ro','db']];
+  let sel='api', broken=null;
+  const cx=k=>N[k].x+N[k].w/2, cy=k=>N[k].y+N[k].h/2;
+  const downOf=b=>{ const s=new Set([b]); let ch=true; while(ch){ch=false; D.forEach(([a,c])=>{ if(s.has(c)&&!s.has(a)){s.add(a);ch=true} })} return s; };
+  function paint(){
+    const dn=broken?downOf(broken):new Set(); let s='<defs><marker id="w5a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0L8,4L0,8z" style="fill:var(--muted)"/></marker></defs>';
+    D.forEach(([a,b])=>{ s+=`<line x1="${cx(a)}" y1="${cy(a)}" x2="${cx(b)}" y2="${cy(b)}" stroke="${dn.has(a)&&dn.has(b)?'var(--red)':'var(--line)'}" stroke-width="1.5" marker-end="url(#w5a)"/>`; });
+    Object.keys(N).forEach(k=>{ const n=N[k]; const bad=dn.has(k); s+=`<g class="nd" data-k="${k}" tabindex="0" role="button" aria-label="${n.t}"><rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="8" fill="${bad?'var(--red-tint)':'var(--raise)'}" stroke="${bad?'var(--red)':`var(${n.c})`}" stroke-width="${k===sel?3.5:1.5}"/><text x="${n.x+n.w/2}" y="${n.y+24}" text-anchor="middle" font-size="12.5" font-weight="700">${n.t}</text><text x="${n.x+n.w/2}" y="${n.y+40}" text-anchor="middle" font-size="10" style="fill:var(--muted)">${n.s}</text><rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" fill="transparent"/></g>`; });
+    s+=`<text x="10" y="390" font-size="10.5" style="fill:var(--muted)">Arrows point at what a part depends on. Red = down because something it needs is down.</text>`;
+    $('#w5-svg').innerHTML=s;
+    const n=N[sel]; const eff=broken?[...dn].filter(k=>k!==broken).map(k=>N[k].t):[];
+    $('#w5-out').innerHTML=`<h4 style="margin-bottom:6px">${n.t}</h4><div class="kv"><span>Object</span><b style="font-weight:500">${n.kind}</b></div><div class="kv"><span>File</span><b class="mono">deploy/k8s/${n.file}</b></div><div class="kv"><span>Key settings</span><span style="font-family:var(--f-body);font-size:12.5px">${n.key}</span></div><div class="kv"><span>Scaling</span><span style="font-family:var(--f-body);font-size:12.5px">${n.scale}</span></div><div style="margin:8px 0"><button class="btn ${broken===sel?'':'warn'}" id="w5-break">${broken===sel?'Restore '+n.t:'Break '+n.t}</button></div>`+(broken?lint('err',`<b>${N[broken].t} is down.</b> ${N[broken].fail}`)+(eff.length?`<div style="font-size:12.5px">Also affected: ${eff.join(', ')}</div>`:''):'<div class="muted" style="font-size:12.5px">Click &#8220;Break&#8221; to see what fails and what stays up.</div>');
+    $('#w5-break').onclick=()=>{ broken=broken===sel?null:sel; paint(); };
+  }
+  $('#w5-svg').addEventListener('click',e=>{ const g=e.target.closest('.nd'); if(g){ sel=g.dataset.k; paint(); }});
+  $('#w5-svg').addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ const g=e.target.closest('.nd'); if(g){ e.preventDefault(); sel=g.dataset.k; paint(); $('#w5-svg .nd[data-k="'+sel+'"]').focus(); }}});
+  paint();
+})();
+
+/* ===== W6: secret / config wiring ===== */
+(function(){
+  const KEYS=['DATABASE_URL','RUSTFS_ACCESS_KEY','RUSTFS_SECRET_KEY','EXTERNAL_SYSTEMS_ENCRYPTION_KEY'];
+  const WL=['api','exportworker','webhookworker','importworker','fieldsync','mcpserver'];
+  // need: 2=required, 1=recommended/optional, 0=unused
+  const NEED={api:[2,2,2,1],exportworker:[2,2,2,0],webhookworker:[2,0,0,1],importworker:[2,2,2,1],fieldsync:[2,2,2,0],mcpserver:[2,0,0,0]};
+  const WHY={api:'The server builds the object store at boot (<code>export.NewObjectStoreFromEnv</code>) and reads the cipher key (optional; without it external credentials cannot be stored).',exportworker:'Streams into RustFS; <code>RUSTFS_ENDPOINT</code> missing is a hard error.',webhookworker:'Outbound delivery unseals each subscription&#8217;s HMAC secret with the key; if missing, deliveries <b>dead-letter</b>.',importworker:'Stages uploads in RustFS and unseals live-DB profile passwords with the key.',fieldsync:'Uploads packs to RustFS.',mcpserver:'Only the DB (and <code>MCP_PORT</code>); no object store.'};
+  const AS={api:[1,1,1,1],exportworker:[1,1,1,0],webhookworker:[1,0,0,0],importworker:[1,1,1,0],fieldsync:[1,1,1,0],mcpserver:[1,0,0,0]};
+  let st; const reset=()=>{ st={}; WL.forEach(w=>st[w]=AS[w].slice()); };
+  reset();
+  function paint(){
+    const ap=can('ap')&&can('se'); $('#w6-lock').innerHTML=ap?'':lockTip(can('ap')?'se':'ap');
+    let h='<div class="tbl" style="margin:0"><table><tr><th>Workload</th>'+KEYS.map(k=>`<th>${k.replace(/_/g,'_<wbr>')}</th>`).join('')+'</tr>';
+    const issues=[];
+    WL.forEach(w=>{ h+=`<tr><td><code>${w}</code></td>`; KEYS.forEach((k,i)=>{ const has=st[w][i], need=NEED[w][i]; let c,lab;
+        if(has&&need)lab='<span class="good">wired</span>'; else if(has&&!need)lab='<span class="muted">wired (unneeded)</span>'; else if(!has&&need===2){lab='<b class="bad">MISSING</b>';issues.push(['err',w,k]);} else if(!has&&need===1){lab='<b class="warnc">missing (optional)</b>';issues.push(['wrn',w,k]);} else lab='<span class="muted">-</span>';
+        h+=`<td><button class="btn" data-w="${w}" data-i="${i}" ${ap?'':'disabled'} style="font-size:11px">${lab}</button></td>`; }); h+='</tr>'; });
+    h+='</table></div>';
+    h+=issues.length?issues.map(([k,w,key])=>lint(k==='err'?'err':'wrn',`<code>${w}</code> lacks <code>${key}</code>. ${WHY[w]}`)).join(''):lint('ok','Every workload has every key the code reads.');
+    h+=`<div class="tip" style="margin-bottom:0"><b>Config vs secret</b> Non-secret settings (<code>PORT</code>, <code>RUSTFS_ENDPOINT</code>, <code>RUSTFS_BUCKET</code>, <code>RUSTFS_PUBLIC_*</code>, <code>LOG_*</code>) go in the ConfigMap via <code>envFrom</code>; <code>DATABASE_URL</code> (carries the password), the RustFS keys and the encryption key go in the Secret via <code>secretKeyRef</code>.</div>`;
+    $('#w6-out').innerHTML=h;
+  }
+  $('#w6-out').onclick=e=>{ const b=e.target.closest('button[data-w]'); if(!b||b.disabled) return; st[b.dataset.w][+b.dataset.i]^=1; paint(); };
+  $('#w6-reset').onclick=()=>{ reset(); paint(); };
+  onPersona(paint);
+})();
+
+/* ===== W7: connection budget ===== */
+(function(){
+  const F=[['pods','API pods',1,60,1],['perPod','Client conns per API pod',1,100,1],['wk','Worker conns in total',0,100,1],['pool','Pooler instances',1,6,1],['dps','default_pool_size',5,100,1],['mcc','max_client_conn (per instance)',100,5000,50],['maxc','Postgres max_connections',50,500,10],['hon','App honours a per-pod cap (0/1)',0,1,1]];
+  const PRE={compose:{n:'Compose prod default',v:{pods:3,perPod:20,wk:6,pool:1,dps:25,mcc:1000,maxc:200,hon:0}},k8s:{n:'K8s manual (3 pods)',v:{pods:3,perPod:20,wk:6,pool:2,dps:25,mcc:1000,maxc:100,hon:0}},big:{n:'Scaling guide ~1000 users',v:{pods:20,perPod:20,wk:24,pool:2,dps:25,mcc:1000,maxc:200,hon:1}},hpa:{n:'HPA at max (30 pods)',v:{pods:30,perPod:40,wk:24,pool:2,dps:25,mcc:1000,maxc:100,hon:0}}};
+  let v=Object.assign({},PRE.k8s.v);
+  $('#w7-pre').innerHTML=Object.keys(PRE).map(k=>`<button data-k="${k}" aria-pressed="${k==='k8s'}">${PRE[k].n}</button>`).join('');
+  $('#w7-ctl').innerHTML=F.map(f=>`<div class="ctl"><label for="w7-${f[0]}">${f[1]} <span class="v" id="w7-${f[0]}v"></span></label><input type="range" id="w7-${f[0]}" min="${f[2]}" max="${f[3]}" step="${f[4]}"></div>`).join('');
+  function paint(){
+    F.forEach(f=>{ $('#w7-'+f[0]).value=v[f[0]]; $('#w7-'+f[0]+'v').textContent=v[f[0]]; });
+    const clients=v.pods*v.perPod+v.wk, perPool=Math.ceil(clients/v.pool), backend=v.pool*v.dps, avail=v.maxc-3-10;
+    const m=[];
+    m.push(perPool>v.mcc?lint('err',`Each pooler instance would receive ~${nf(perPool)} client connections but <code>max_client_conn</code> is ${nf(v.mcc)}: extra clients are refused (&#8220;no more connections allowed&#8221;). Raise it, add pooler instances, or cap the app pool.`):lint('ok',`~${nf(perPool)} clients per pooler instance, under max_client_conn ${nf(v.mcc)}.`));
+    m.push(backend>avail?lint('err',`Poolers may open up to ${nf(backend)} server connections (${v.pool} &times; ${v.dps}) but Postgres has only ~${nf(avail)} usable out of ${v.maxc} (3 reserved + ~10 headroom). Past that you get &#8220;too many clients&#8221; / &#8220;remaining connection slots are reserved&#8221;. Lower <code>default_pool_size</code>, drop an instance, or raise <code>max_connections</code>.`):lint('ok',`Server side: ${nf(backend)} of ~${nf(avail)} usable backends (${nf(100*backend/avail)}%).`));
+    if(!v.hon) m.push(lint('wrn',`The app does not cap its own pool today (<code>DATABASE_MAX_OPEN_CONNS</code> is not read), so the per-pod number above is a guess at peak concurrency. Setting that env var changes nothing until the code calls <code>SetMaxOpenConns</code>.`));
+    const ratio=clients/backend; m.push(lint('inf',`Multiplexing: ${nf(clients)} client connections share ${nf(backend)} server slots (${nf(ratio,1)}:1). Above a few to one, requests queue for a slot under load.`));
+    $('#w7-out').innerHTML=`<div class="kpi"><div><b>${nf(clients)}</b><span>client conns</span></div><div><b>${nf(perPool)}</b><span>per pooler</span></div><div><b>${nf(backend)}</b><span>server slots</span></div><div><b>${nf(avail)}</b><span>usable on PG</span></div></div>`+m.join('');
+  }
+  $('#w7-ctl').oninput=e=>{ const id=e.target.id.slice(3); v[id]=+e.target.value; $$('#w7-pre button').forEach(b=>b.setAttribute('aria-pressed',false)); paint(); };
+  seg('#w7-pre',b=>{ v=Object.assign({},PRE[b.dataset.k].v); paint(); });
+  paint();
+})();
+
+/* ===== W8: workload builder & linter ===== */
+(function(){
+  const API_BINS=['server','exportworker','webhookworker','importworker','mcpserver','authadmin','resetdata'];
+  const KEYS=['DATABASE_URL','RUSTFS_ACCESS_KEY','RUSTFS_SECRET_KEY','EXTERNAL_SYSTEMS_ENCRYPTION_KEY'];
+  const NEED={server:[2,2,2,1],exportworker:[2,2,2,0],webhookworker:[2,0,0,1],importworker:[2,2,2,1],fieldsync:[2,2,2,0],mcpserver:[2,0,0,0]};
+  const PORT={server:8080,mcpserver:8090,fieldsync:8091};
+  const PRE={
+   api:{img:'voltedge-api',cmd:'server',rep:3,strat:'RollingUpdate',cpuR:500,cpuL:2000,memR:256,memL:1024,probe:'/healthz',pt:3,keys:[1,1,1,1],hpa:1,pdb:2},
+   exportworker:{img:'voltedge-api',cmd:'exportworker',rep:1,strat:'RollingUpdate',cpuR:100,cpuL:1000,memR:128,memL:512,probe:'none',pt:1,keys:[1,1,1,0],hpa:0,pdb:0},
+   webhookworker:{img:'voltedge-api',cmd:'webhookworker',rep:1,strat:'RollingUpdate',cpuR:100,cpuL:1000,memR:128,memL:512,probe:'none',pt:1,keys:[1,0,0,0],hpa:0,pdb:0},
+   importworker:{img:'voltedge-api',cmd:'importworker',rep:1,strat:'RollingUpdate',cpuR:100,cpuL:1000,memR:128,memL:512,probe:'none',pt:1,keys:[1,1,1,0],hpa:0,pdb:0},
+   mcpserver:{img:'voltedge-api',cmd:'mcpserver',rep:2,strat:'RollingUpdate',cpuR:100,cpuL:1000,memR:128,memL:512,probe:'/healthz',pt:3,keys:[1,0,0,0],hpa:0,pdb:0},
+   fieldsync:{img:'voltedge-fieldsync',cmd:'fieldsync',rep:1,strat:'Recreate',cpuR:500,cpuL:2000,memR:512,memL:2048,probe:'none',pt:1,keys:[1,1,1,0],hpa:0,pdb:0}};
+  let f; let wl='api'; let tag='TAG';
+  const set=w=>{ wl=w; f=JSON.parse(JSON.stringify(PRE[w])); build(); paint(); };
+  function build(){
+    $('#w8-ctl').innerHTML=`<div class="ctl"><label for="w8-wl">Start from</label><select class="fld" id="w8-wl">${Object.keys(PRE).map(k=>`<option ${k===wl?'selected':''}>${k}</option>`).join('')}</select></div>
+    <div class="ctl"><label for="w8-img">Image</label><select class="fld" id="w8-img">${['voltedge-api','voltedge-fieldsync','voltedge-web'].map(x=>`<option ${x===f.img?'selected':''}>${x}</option>`).join('')}</select></div>
+    <div class="ctl"><label for="w8-tag">Tag</label><input type="text" id="w8-tag" value="${esc(tag)}"></div>
+    <div class="ctl"><label for="w8-cmd">command</label><input type="text" id="w8-cmd" value="${esc(f.cmd)}"></div>
+    <div class="ctl"><label for="w8-rep">replicas</label><input type="number" id="w8-rep" min="0" max="50" value="${f.rep}"></div>
+    <div class="ctl"><label for="w8-strat">strategy</label><select class="fld" id="w8-strat"><option>RollingUpdate</option><option ${f.strat==='Recreate'?'selected':''}>Recreate</option></select></div>
+    <div class="ctl"><label for="w8-cpuR">cpu request (m) / limit (m)</label><div style="display:flex;gap:6px"><input type="number" id="w8-cpuR" value="${f.cpuR}"><input type="number" id="w8-cpuL" value="${f.cpuL}"></div></div>
+    <div class="ctl"><label for="w8-memR">memory request / limit (Mi)</label><div style="display:flex;gap:6px"><input type="number" id="w8-memR" value="${f.memR}"><input type="number" id="w8-memL" value="${f.memL}"></div></div>
+    <div class="ctl"><label for="w8-probe">httpGet probes (readiness + liveness)</label><select class="fld" id="w8-probe">${['none','/healthz','/readyz','/'].map(x=>`<option ${x===f.probe?'selected':''}>${x}</option>`).join('')}</select></div>
+    <div class="ctl"><label for="w8-pt">probe timeoutSeconds</label><input type="number" id="w8-pt" min="1" max="30" value="${f.pt}"></div>
+    <div class="lab">Env from secret</div>${KEYS.map((k,i)=>`<label class="chk"><input type="checkbox" data-k="${i}" ${f.keys[i]?'checked':''}><span class="mono" style="font-size:12px">${k}</span></label>`).join('')}
+    <label class="chk"><input type="checkbox" id="w8-hpa" ${f.hpa?'checked':''}> add an HPA</label>
+    <div class="ctl" style="margin-top:6px"><label for="w8-pdb">PDB minAvailable (0 = none)</label><input type="number" id="w8-pdb" min="0" value="${f.pdb}"></div>`;
+  }
+  function rd(){ f.img=$('#w8-img').value; tag=$('#w8-tag').value; f.cmd=$('#w8-cmd').value.trim(); f.rep=+$('#w8-rep').value; f.strat=$('#w8-strat').value; f.cpuR=+$('#w8-cpuR').value; f.cpuL=+$('#w8-cpuL').value; f.memR=+$('#w8-memR').value; f.memL=+$('#w8-memL').value; f.probe=$('#w8-probe').value; f.pt=+$('#w8-pt').value; f.keys=KEYS.map((k,i)=>$(`#w8-ctl input[data-k="${i}"]`).checked?1:0); f.hpa=$('#w8-hpa').checked?1:0; f.pdb=+$('#w8-pdb').value; }
+  function paint(){
+    const L=[]; const isWeb=f.img==='voltedge-web'; const cmd=f.cmd; const port=PORT[cmd]||(isWeb?80:8080);
+    if(isWeb){ if(cmd) L.push(['wrn','The web image runs nginx with its own entrypoint; leave <code>command</code> empty.']); }
+    else if(f.img==='voltedge-api'){ if(!API_BINS.includes(cmd)) L.push(['err',`<code>${esc(cmd)||'(empty)'}</code> is not a binary in the api image. Valid: ${API_BINS.map(b=>'<code>'+b+'</code>').join(', ')}.`]); if(cmd==='fieldsync') L.push(['err','<code>fieldsync</code> is not in the api image (it needs tippecanoe). Use <code>voltedge-fieldsync</code>.']); }
+    else if(f.img==='voltedge-fieldsync'&&cmd!=='fieldsync') L.push(['err',`The fieldsync image only contains <code>fieldsync</code> (and tippecanoe); <code>${esc(cmd)}</code> will fail with &#8220;not found&#8221;.`]);
+    if(!tag||tag==='latest'||tag==='TAG') L.push(['wrn',`Tag <code>${esc(tag||'(empty)')}</code>: pin a git SHA so rollouts and rollbacks are deterministic. (<code>TAG</code> is the placeholder from the guide.)`]);
+    const need=NEED[cmd];
+    if(need) KEYS.forEach((k,i)=>{ if(!f.keys[i]&&need[i]===2) L.push(['err',`Missing <code>${k}</code>: required by <code>${cmd}</code>. The pod will crash on start.`]); else if(!f.keys[i]&&need[i]===1) L.push(['wrn',`Missing <code>${k}</code>: optional for <code>${cmd}</code>, but without it ${k==='EXTERNAL_SYSTEMS_ENCRYPTION_KEY'?(cmd==='webhookworker'?'outbound webhook deliveries dead-letter':'stored external credentials cannot be read or written'):'features degrade'}.`]); });
+    const hasHttp=['server','mcpserver','fieldsync'].includes(cmd)||isWeb;
+    if(f.probe==='none'){ if(hasHttp) L.push(['wrn',`No probes: a ${cmd||'web'} pod that cannot reach its dependencies stays in the Service. ${cmd==='fieldsync'?'(Its <code>/healthz</code> only says the process is up.)':''}`]); }
+    else { if(!hasHttp) L.push(['err',`<code>${esc(cmd)}</code> runs no HTTP server: an <code>httpGet</code> probe can never succeed, so the pod is never Ready (readiness) or is killed in a loop (liveness).`]);
+      else { if(f.probe==='/readyz') L.push(['err','There is no <code>/readyz</code> in the code. Use <code>/healthz</code>.']); if(f.probe==='/healthz'&&isWeb) L.push(['err','nginx has no <code>/healthz</code>; probe <code>/</code> on port 80.']); if(f.probe==='/'&&!isWeb) L.push(['err','<code>/</code> is not a health route on the Go services; use <code>/healthz</code>.']);
+        if((cmd==='server'||cmd==='mcpserver')&&f.pt<4) L.push(['wrn',`<code>timeoutSeconds: ${f.pt}</code> is shorter than the handler&#8217;s own 3 s DB ping. A slow (not dead) database makes the probe fail while the handler would have answered 200. Use 4 or more.`]); if(cmd==='server') L.push(['inf','This liveness probe depends on the database: a DB outage longer than <code>failureThreshold &times; periodSeconds</code> restarts every api pod at once. Consider a liveness probe that does not touch the DB; see Interactive 9.']); } }
+    if(f.cpuR<=0||f.memR<=0) L.push(['err','No resource requests: the scheduler cannot place the pod sensibly and an HPA cannot compute CPU utilisation.']);
+    if(f.cpuR>f.cpuL||f.memR>f.memL) L.push(['err','A request larger than its limit is rejected by the API server.']);
+    if(f.hpa&&f.cpuR<=0) L.push(['err','HPA on CPU needs a CPU request.']);
+    if(cmd==='server'){ if(f.rep<3) L.push(['wrn','The guide treats 3 as the HA floor (survive a node loss and a rolling deploy).']); if(f.pdb>=f.rep&&f.rep>0) L.push(['err',`PDB <code>minAvailable: ${f.pdb}</code> with ${f.rep} replicas: no voluntary eviction is ever allowed, so node drains hang.`]); if(f.pdb===0) L.push(['inf','No PDB: a node drain can evict every api pod at once.']); L.push(['inf','<code>DATABASE_MAX_OPEN_CONNS</code> is not read by the code; do not rely on it (Interactive 7).']); }
+    if(cmd==='fieldsync'){ if(f.rep>1) L.push(['inf','More than one fieldsync replica is safe (SKIP LOCKED, per-job temp dirs); the maintenance loop may double-enqueue a scheduled rebuild, which retention reaps.']); if(f.strat==='Recreate') L.push(['inf','Recreate = brief gap in pack builds and device sync during each rollout.']); if(f.memR<512) L.push(['wrn','tippecanoe builds are memory- and CPU-heavy. Sizing is not documented in the repo, so treat small values as a guess. '+NV]); }
+    if(['exportworker','importworker','webhookworker'].includes(cmd)&&f.rep>1) L.push(['inf','Safe to scale: workers claim rows with <code>FOR UPDATE SKIP LOCKED</code>. Remember each replica holds pool connections (Interactive 7).']);
+    if(!L.some(x=>x[0]==='err')) L.unshift(['ok','No blocking problems found.']);
+    $('#w8-lint').innerHTML=L.map(x=>lint(x[0],x[1])).join('');
+    const sec=KEYS.map((k,i)=>f.keys[i]?`        - { name: ${k}, valueFrom: { secretKeyRef: { name: voltedge-secret, key: ${k} } } }`:null).filter(Boolean).join('\n');
+    const pr=f.probe!=='none'?`        readinessProbe: { httpGet: { path: ${f.probe}, port: ${port} }, periodSeconds: 5, timeoutSeconds: ${f.pt}, failureThreshold: 3 }\n        livenessProbe:  { httpGet: { path: ${f.probe}, port: ${port} }, periodSeconds: 10, timeoutSeconds: ${f.pt}, failureThreshold: 3 }\n`:'';
+    $('#w8-yaml').textContent=`apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: voltedge-${cmd||'web'}, namespace: voltedge }\nspec:\n  replicas: ${f.rep}\n  strategy: { type: ${f.strat} }\n  selector: { matchLabels: { app: voltedge-${cmd||'web'} } }\n  template:\n    metadata: { labels: { app: voltedge-${cmd||'web'} } }\n    spec:\n      containers:\n      - name: ${cmd||'web'}\n        image: REG/${f.img}:${tag||'TAG'}\n`+(cmd?`        command: ["${cmd}"]\n`:'')+`        envFrom: [{ configMapRef: { name: voltedge-env } }]\n        env:\n${sec||'        []'}\n${pr}        resources:\n          requests: { cpu: ${f.cpuR}m, memory: ${f.memR}Mi }\n          limits:   { cpu: ${f.cpuL}m, memory: ${f.memL}Mi }`;
+    const ok=!L.some(x=>x[0]==='err'); const b=$('#w8-apply'); b.disabled=!can('ap')||!ok; $('#w8-msg').innerHTML=!can('ap')?lockTip('ap'):(!ok?'Fix the errors first.':'');
+  }
+  $('#w8-ctl').addEventListener('change',e=>{ if(e.target.id==='w8-wl'){ set(e.target.value); return; } rd(); paint(); });
+  $('#w8-ctl').addEventListener('input',e=>{ if(e.target.type==='text'||e.target.type==='number'){ rd(); paint(); } });
+  $('#w8-apply').onclick=()=>{ $('#w8-msg').innerHTML=`<span class="good">deployment.apps/voltedge-${esc(f.cmd||'web')} configured</span> (simulated)`; };
+  set('api'); onPersona(paint);
+})();
+
+/* ===== W9: probe timing ===== */
+(function(){
+  const SV={api:{n:'api (server) /healthz :8080',http:1,db:1},mcp:{n:'mcpserver /healthz :8090',http:1,db:1},fs:{n:'fieldsync /healthz :8091',http:1,db:0},web:{n:'web (nginx) / :80',http:1,db:0},wk:{n:'exportworker / webhookworker / importworker',http:0,db:0}};
+  const st={sv:'api',kind:'readiness',per:5,to:1,ft:3,boot:8,init:0,sc:'down',lat:2000,dur:120};
+  $('#w9-ctl').innerHTML=`<div class="ctl"><label for="w9-sv">Service</label><select class="fld" id="w9-sv">${Object.keys(SV).map(k=>`<option value="${k}">${SV[k].n}</option>`).join('')}</select></div>
+  <div class="ctl"><label for="w9-kind">Probe</label><select class="fld" id="w9-kind"><option>readiness</option><option>liveness</option></select></div>`+
+  [['per','periodSeconds',1,30],['to','timeoutSeconds',1,10],['ft','failureThreshold',1,10],['boot','Container boot time (s)',1,60],['init','initialDelaySeconds',0,60]].map(a=>`<div class="ctl"><label for="w9-${a[0]}">${a[1]} <span class="v" id="w9-${a[0]}v"></span></label><input type="range" id="w9-${a[0]}" min="${a[2]}" max="${a[3]}"></div>`).join('')+
+  `<div class="ctl"><label for="w9-sc">Database state</label><select class="fld" id="w9-sc"><option value="ok">healthy (fast)</option><option value="slow">slow</option><option value="down" selected>unreachable</option></select></div>
+  <div class="ctl"><label for="w9-lat">DB latency when slow (ms) <span class="v" id="w9-latv"></span></label><input type="range" id="w9-lat" min="100" max="6000" step="100"></div>
+  <div class="ctl"><label for="w9-dur">Outage length (s) <span class="v" id="w9-durv"></span></label><input type="range" id="w9-dur" min="10" max="600" step="10"></div>`;
+  function rd(){ st.sv=$('#w9-sv').value; st.kind=$('#w9-kind').value; ['per','to','ft','boot','init','lat','dur'].forEach(k=>st[k]=+$('#w9-'+k).value); st.sc=$('#w9-sc').value; }
+  function paint(){
+    ['per','to','ft','boot','init','lat','dur'].forEach(k=>{ $('#w9-'+k).value=st[k]; $('#w9-'+k+'v').textContent=st[k]; });
+    const s=SV[st.sv]; const o=[];
+    if(!s.http){ $('#w9-out').innerHTML=lint('err','These workers start no HTTP listener (their <code>main.go</code> only runs queue loops and handles SIGTERM). An <code>httpGet</code> probe would fail forever. The compose file has no healthcheck for them either. Watch queue depth and <code>kubectl logs</code> instead.'); return; }
+    // does the probe see failure?
+    let fail=false, why='';
+    if(s.db&&st.sc==='down'){ fail=true; why='the handler returns <b>503</b> <code>db unreachable</code>'; }
+    else if(s.db&&st.sc==='slow'){ if(st.lat>=3000){ fail=true; why='the 3 s DB ping times out: <b>503</b>'; } else if(st.lat>st.to*1000){ fail=true; why=`the handler would answer 200 after ${st.lat} ms, but the probe gives up at ${st.to} s: a <b>false failure</b>`; } }
+    const worst=st.ft*st.per, best=(st.ft-1)*st.per;
+    o.push(lint('inf',`Endpoint: ${s.n}. ${s.db?'It <b>pings Postgres with a 3 s timeout</b>.':'It does <b>not</b> touch the database'+(st.sv==='fs'?' (returns a bare <code>ok</code>)':'')+'.'}`));
+    if(st.init+worst<st.boot&&st.kind==='liveness') o.push(lint('err',`Liveness can kill the container before it has booted: initialDelay ${st.init}s + ${st.ft}&times;${st.per}s = ${st.init+worst}s &lt; boot ${st.boot}s. It restarts forever. Add <code>initialDelaySeconds</code> or a <code>startupProbe</code>.`));
+    if(st.init+worst<st.boot&&st.kind==='readiness') o.push(lint('inf',`Readiness failures during boot (${st.boot}s) are normal and harmless: the pod just is not Ready yet.`));
+    if(fail){
+      o.push(lint('wrn',`With this database state ${why}. Failures are noticed after ${best} to ${worst} s (failureThreshold ${st.ft} &times; period ${st.per} s).`));
+      if(st.kind==='readiness'){
+        o.push(lint(st.sv==='api'||st.sv==='mcp'?'err':'inf',`Every api pod shares the same database, so all of them leave the Service together: <code>web</code> returns gateway errors for <code>/api</code> and <code>/tiles</code> until the DB answers. Readiness here is honest (it protects users from a broken backend) but it cannot isolate a single sick pod.`));
+        o.push(lint('ok',`Recovery: ${st.per} s after the DB answers, successThreshold 1 puts pods back.`));
+      } else {
+        const cyc=st.boot+st.init+worst, n=Math.floor(st.dur/cyc);
+        o.push(lint(n>0?'err':'wrn',`A DB-dependent <b>liveness</b> probe restarts the container each ${worst} s of failure. Over a ${st.dur} s outage that is about <b>${n}</b> restart${n===1?'':'s'} per pod, all pods at once, with CrashLoopBackOff delays stacking up afterwards. Restarting cannot fix a database. Prefer a liveness check that does not depend on Postgres (a plain TCP probe, or a dedicated endpoint) and keep <code>/healthz</code> for readiness. ${NV}`));
+      }
+    } else o.push(lint('ok',`With this database state the probe succeeds every ${st.per} s. Nothing flaps.`));
+    if(s.db&&st.sc==='slow'&&st.lat<=st.to*1000) o.push(lint('inf',`Latency ${st.lat} ms is inside the ${st.to} s probe timeout, so slowness is invisible to Kubernetes; watch the request logs instead.`));
+    $('#w9-out').innerHTML=o.join('');
+  }
+  $('#w9-ctl').addEventListener('input',()=>{ rd(); paint(); }); $('#w9-ctl').addEventListener('change',()=>{ rd(); paint(); });
+  paint();
+})();
+
+/* ===== W10: HPA simulator ===== */
+(function(){
+  const st={pre:'spike',peak:12,base:2,start:30,req:500,tgt:60,min:3,max:30};
+  const P={spike:'Shift-start spike',surge:'Sustained surge',sat:'Storm day (saturates)',calm:'Quiet night'};
+  $('#w10-ctl').innerHTML=`<div class="ctl"><label for="w10-pre">Load shape</label><select class="fld" id="w10-pre">${Object.keys(P).map(k=>`<option value="${k}">${P[k]}</option>`).join('')}</select></div>`+
+   [['base','Baseline demand (cores)',0.5,10,0.5],['peak','Peak demand (cores)',1,45,1],['start','Pod start-up (s)',5,90,5],['req','CPU request (m)',100,1000,50],['tgt','Target utilisation (%)',30,90,5],['min','minReplicas',1,10,1],['max','maxReplicas',3,40,1]].map(a=>`<div class="ctl"><label for="w10-${a[0]}">${a[1]} <span class="v" id="w10-${a[0]}v"></span></label><input type="range" id="w10-${a[0]}" min="${a[2]}" max="${a[3]}" step="${a[4]}"></div>`).join('')+`<div class="hint">Demand is total CPU cores all users need. The pod limit is 2 cores; above that a pod is throttled and latency suffers.</div>`;
+  const demand=t=>{ const b=st.base,p=st.peak; switch(st.pre){ case 'spike': return t<120?b:t<180?b+(p-b)*(t-120)/60:t<540?p:t<600?p-(p-b)*(t-540)/60:b; case 'surge': return t<120?b:Math.min(p,b+(p-b)*(t-120)/300); case 'sat': return t<120?b:p*1.6; default: return Math.max(0.5,b*(t<300?1:0.3)); } };
+  function sim(){
+    let rep=st.min; const pend=[]; let ready=st.min; const hist=[], recs=[]; const rows=[];
+    for(let t=0;t<=1200;t+=15){
+      for(let i=pend.length-1;i>=0;i--) if(pend[i]<=t){ ready++; pend.splice(i,1); }
+      const d=demand(t), per=d*1000/Math.max(1,ready), use=Math.min(per,2000), util=use/st.req*100, sat=per>2000;
+      const ratio=util/st.tgt; let want=Math.abs(ratio-1)<=0.1?rep:Math.ceil(ready*ratio); want=clamp(want,st.min,st.max);
+      recs.push([t,want]); const win=recs.filter(r=>r[0]>t-300).map(r=>r[1]); let des=want; if(want<rep) des=Math.max(...win);
+      des=clamp(des,st.min,st.max);
+      if(des>rep){ const lim=rep+Math.max(4,rep); des=Math.min(des,lim); for(let i=0;i<des-rep;i++) pend.push(t+st.start); rep=des; }
+      else if(des<rep){ let rm=rep-des; while(rm>0&&pend.length){pend.pop();rm--;rep--} ready-=rm; rep-=rm; ready=Math.max(ready,st.min>0?1:0); }
+      rows.push({t,d,rep,ready,util,sat});
+    }
+    return rows;
+  }
+  function paint(){
+    ['base','peak','start','req','tgt','min','max'].forEach(k=>{ $('#w10-'+k).value=st[k]; $('#w10-'+k+'v').textContent=st[k]; });
+    $('#w10-pre').value=st.pre; const R=sim(); const W=520,H=190,mx=Math.max(st.max,...R.map(r=>r.rep))+2, uy=Math.max(150,...R.map(r=>r.util));
+    const X=t=>30+t/1200*(W-40), Yr=v=>H-20-v/mx*(H-40), Yu=v=>H-20-v/uy*(H-40);
+    const pl=(f,k)=>R.map(r=>`${X(r.t).toFixed(1)},${f(r[k]).toFixed(1)}`).join(' ');
+    let s=`<line x1="30" y1="${H-20}" x2="${W-10}" y2="${H-20}" stroke="var(--line)"/><line x1="30" y1="${Yu(st.tgt)}" x2="${W-10}" y2="${Yu(st.tgt)}" stroke="var(--amber)" stroke-dasharray="4 3"/><text x="32" y="${Yu(st.tgt)-3}" font-size="9" style="fill:var(--amber)">target ${st.tgt}%</text>`;
+    R.forEach(r=>{ if(r.sat) s+=`<rect x="${X(r.t)-3}" y="${H-18}" width="7" height="5" fill="var(--red)"/>`; });
+    s+=`<polyline points="${pl(Yu,'util')}" fill="none" stroke="var(--blue)" stroke-width="2"/><polyline points="${pl(Yr,'rep')}" fill="none" stroke="var(--acc)" stroke-width="2.5"/><polyline points="${pl(Yr,'ready')}" fill="none" stroke="var(--acc)" stroke-width="1.5" stroke-dasharray="3 3"/>`;
+    s+=`<text x="${W-8}" y="12" text-anchor="end" font-size="10"><tspan style="fill:var(--acc)">pods (dashed = ready)</tspan>  <tspan style="fill:var(--blue)">CPU util %</tspan>  <tspan style="fill:var(--red)">red = throttled</tspan></text><text x="30" y="${H-5}" font-size="9" style="fill:var(--muted)">0</text><text x="${W-10}" y="${H-5}" text-anchor="end" font-size="9" style="fill:var(--muted)">20 min</text>`;
+    $('#w10-chart').innerHTML=`<svg viewBox="0 0 ${W} ${H}" class="mini" role="img" aria-label="HPA simulation chart">${s}</svg>`;
+    const pk=Math.max(...R.map(r=>r.rep)), sat=R.filter(r=>r.sat).length*15, last=R[R.length-1], pu=Math.max(...R.map(r=>r.util));
+    const m=[]; m.push(`<div class="kpi"><div><b>${pk}</b><span>peak pods</span></div><div><b>${nf(pu)}%</b><span>peak util</span></div><div><b>${sat}s</b><span>throttled</span></div><div><b>${last.rep}</b><span>pods at 20 min</span></div></div>`);
+    if(sat>0) m.push(lint('err',`Pods spent ${sat} s above their 2-core limit: users feel latency while new pods boot (${st.start} s) and the 15 s steps catch up. ${pk>=st.max?'You also hit <code>maxReplicas</code>: raise it.':'Raise <code>minReplicas</code> before known peaks (shift start) or lower the target.'}`));
+    else m.push(lint('ok','No throttling in this scenario.'));
+    if(pk>=st.max) m.push(lint('wrn','The HPA hit <code>maxReplicas</code>. More pods also mean more DB connections: re-check Interactive 7 at this pod count.'));
+    if(last.rep>st.min&&st.pre!=='sat') m.push(lint('inf','Scale-down is deliberately slow (5-minute stabilisation window), so pods linger after a spike.'));
+    $('#w10-out').innerHTML=m.join('');
+  }
+  $('#w10-ctl').addEventListener('input',e=>{ const id=e.target.id.slice(4); if(id==='pre') st.pre=e.target.value; else st[id]=+e.target.value; if(st.min>st.max){ st.max=st.min; } paint(); });
+  paint();
+})();
+
+/* ===== W11: rolling update ===== */
+(function(){
+  const st={rep:3,surge:25,unav:25,mode:'pct',start:8,per:5,healthy:1,pre:0,req:10,pdb:2};
+  $('#w11-ctl').innerHTML=[['rep','replicas',1,12,1],['surge','maxSurge',0,100,1],['unav','maxUnavailable',0,100,1],['start','App start-up (s)',1,60,1],['per','readiness periodSeconds',1,30,1],['pre','preStop sleep (s)',0,30,1],['req','Longest in-flight request (s)',1,60,1]].map(a=>`<div class="ctl"><label for="w11-${a[0]}">${a[1]} <span class="v" id="w11-${a[0]}v"></span></label><input type="range" id="w11-${a[0]}" min="${a[2]}" max="${a[3]}" step="${a[4]}"></div>`).join('')+`<div class="ctl"><label for="w11-mode">surge / unavailable are</label><select class="fld" id="w11-mode"><option value="pct">percent</option><option value="abs">absolute pods</option></select></div><label class="chk"><input type="checkbox" id="w11-healthy" checked> new version is healthy</label>`;
+  function sim(){
+    const R=st.rep; const sg=st.mode==='pct'?Math.ceil(R*st.surge/100):st.surge, un=st.mode==='pct'?Math.floor(R*st.unav/100):st.unav;
+    if(sg===0&&un===0) return {err:true,sg,un};
+    let oldR=R; const nw=[]; let term=0; const rows=[]; let minAv=R, done=null; const warm=st.start+Math.ceil(st.per/2);
+    for(let t=0;t<=300;t++){
+      nw.forEach(p=>{ if(!p.r&&st.healthy&&t>=p.c+warm) p.r=true; });
+      let guard=0; while(guard++<50){ const total=oldR+nw.length; let act=false;
+        if(total<R+sg&&nw.length<R){ nw.push({c:t,r:false}); act=true; }
+        const av0=oldR+nw.filter(p=>p.r).length; if(oldR>0&&av0-1>=R-un){ oldR--; term++; act=true; }
+        if(!act) break; }
+      const nr=nw.filter(p=>p.r).length, av=oldR+nr; minAv=Math.min(minAv,av);
+      rows.push({t,old:oldR,nr,nu:nw.length-nr});
+      if(oldR===0&&nr===R&&done===null) done=t;
+    }
+    return {rows,sg,un,minAv,done,term};
+  }
+  function paint(){
+    ['rep','surge','unav','start','per','pre','req'].forEach(k=>{ $('#w11-'+k).value=st[k]; $('#w11-'+k+'v').textContent=st[k]+((k==='surge'||k==='unav')&&st.mode==='pct'?'%':''); });
+    $('#w11-mode').value=st.mode; $('#w11-healthy').checked=!!st.healthy;
+    const r=sim(); if(r.err){ $('#w11-chart').innerHTML=''; $('#w11-out').innerHTML=lint('err','maxSurge and maxUnavailable cannot both be 0: Kubernetes rejects the Deployment.'); return; }
+    const W=520,H=150,T=r.done!==null?Math.min(300,r.done+10):300; const mx=st.rep+r.sg+1; let s='';
+    r.rows.filter(x=>x.t<=T).forEach(x=>{ const bw=(W-40)/T; let y=H-20; [['old','var(--s8)'],['nr','var(--green)'],['nu','var(--amber)']].forEach(([k,c])=>{ const h=x[k]/mx*(H-30); y-=h; s+=`<rect x="${30+x.t*bw}" y="${y}" width="${bw+0.5}" height="${h}" fill="${c}"/>`; }); });
+    s+=`<line x1="30" y1="${H-20-(st.rep-r.un)/mx*(H-30)}" x2="${W-10}" y2="${H-20-(st.rep-r.un)/mx*(H-30)}" stroke="var(--red)" stroke-dasharray="4 3"/><text x="${W-8}" y="10" text-anchor="end" font-size="10"><tspan style="fill:var(--muted)">old ready</tspan>  <tspan style="fill:var(--green)">new ready</tspan>  <tspan style="fill:var(--amber)">new not ready</tspan>  <tspan style="fill:var(--red)">min available</tspan></text><text x="30" y="${H-5}" font-size="9" style="fill:var(--muted)">0 s</text><text x="${W-10}" y="${H-5}" text-anchor="end" font-size="9" style="fill:var(--muted)">${T} s</text>`;
+    $('#w11-chart').innerHTML=`<svg viewBox="0 0 ${W} ${H}" class="mini" role="img" aria-label="Rolling update timeline">${s}</svg>`;
+    const m=[]; m.push(`<div class="kpi"><div><b>+${r.sg}</b><span>surge pods</span></div><div><b>${r.un}</b><span>may be unavailable</span></div><div><b>${r.minAv}</b><span>lowest ready</span></div><div><b>${r.done===null?'stuck':r.done+'s'}</b><span>rollout time</span></div></div>`);
+    if(!st.healthy){ const lost=st.rep-r.minAv; m.push(lint(lost>0?'err':'wrn',`The new version never becomes Ready. ${lost>0?`Because maxUnavailable allows it, <b>${lost}</b> old pod${lost>1?'s were':' was'} already removed and capacity stays at ${r.minAv}/${st.rep}`:'With zero unavailable allowed the old pods stay in service, so users are unaffected'}; the rollout stalls until <code>progressDeadlineSeconds</code> (default 600 s, {{NV}}) marks it failed. Run <code>kubectl -n voltedge rollout undo deploy/voltedge-api</code>.`.replace('{{NV}}','not verified'))); }
+    else { if(r.minAv<st.rep) m.push(lint('wrn',`Capacity dips to ${r.minAv}/${st.rep} during the rollout. Set <code>maxUnavailable</code> to 0 to keep full capacity (needs surge &gt; 0).`)); else m.push(lint('ok',`Full capacity (${st.rep}) is maintained throughout.`)); }
+    const drop=st.req>st.pre; m.push(lint(drop?'wrn':'ok',`<b>${r.term}</b> old pods are terminated. The api server exits immediately on SIGTERM (no graceful shutdown in <code>cmd/server</code>), so in-flight requests on each are dropped. ${drop?`A preStop sleep of ${st.pre} s lets the pod leave the Service first, but requests longer than that (${st.req} s) are still cut. Try raising the sleep.`:`With a ${st.pre} s preStop sleep requests up to ${st.req} s finish before the process dies.`} (Workers drain in-flight jobs on SIGTERM; the api does not.)`));
+    m.push(lint('inf',`The PodDisruptionBudget (<code>minAvailable: ${st.pdb}</code>) does <b>not</b> affect this rollout; it only gates node drains and other voluntary evictions.`));
+    $('#w11-out').innerHTML=m.join('');
+  }
+  $('#w11-ctl').addEventListener('input',e=>{ const id=e.target.id.slice(4); if(id==='healthy') st.healthy=e.target.checked?1:0; else if(id==='mode'){ st.mode=e.target.value; if(st.mode==='abs'){st.surge=1;st.unav=0;} else {st.surge=25;st.unav=25;} } else st[id]=+e.target.value; paint(); });
+  paint();
+})();
+
+/* ===== W12: bootstrap sequencer ===== */
+(function(){
+  const STEPS=[['issuer','apply 00-issuer','ap'],['ns','apply 10-namespace-config','ap'],['secret','apply 11-secret','se'],['pg','apply 20-postgres','ap'],['waitdb','wait Cluster Ready','rd'],['wpool','wait pooler Available','rd'],['rustfs','apply 25-rustfs','ap'],['migrate','apply 30-migrate-job','ap'],['waitmig','wait Job complete','rd'],['restore','pg_restore seeded dump','ex'],['api','apply 40-api','ap'],['workers','apply 50-workers','ap'],['web','apply 60-web','ap'],['ingress','apply 70-ingress','ap'],['admin','authadmin create','ex']];
+  const ORDER=['issuer','ns','secret','pg','waitdb','wpool','rustfs','migrate','waitmig','restore','api','workers','web','ingress','admin'];
+  let S, log;
+  const reset=()=>{ S={}; log=[]; }; reset();
+  const L=(k,t)=>log.unshift([k,t]);
+  function run(id){
+    const direct=$('#w12-direct').checked, tagged=$('#w12-tag').checked, s=STEPS.find(x=>x[0]===id);
+    if(!can(s[2])){ L('err',`Not permitted for ${PERSONA[1]}: needs ${PNAME[s[2]]}.`); return false; }
+    const need=(c,m)=>{ if(!c){ L('err',m); return false; } return true; };
+    switch(id){
+     case 'issuer': S.issuer=1; L('ok','clusterissuer.cert-manager.io/letsencrypt-prod created'); break;
+     case 'ns': S.ns=1; L('ok','namespace/voltedge created, configmap/voltedge-env created'); break;
+     case 'secret': if(!need(S.ns,'Error: namespaces "voltedge" not found. Apply 10-namespace-config.yaml first.')) return false; S.secret=1; L('ok','secret/voltedge-db-app, secret/voltedge-secret created'); break;
+     case 'pg': if(!need(S.ns,'Error: namespaces "voltedge" not found.')) return false; if(!need(S.secret,'cluster.postgresql.cnpg.io created, but the instance pod stays ContainerCreating: secret "voltedge-db-app" not found. Apply 11-secret.yaml, then re-apply.')) return false; S.pg=1; L('ok','cluster.postgresql.cnpg.io/voltedge-db created; pooler.postgresql.cnpg.io/voltedge-db-pooler-rw, -ro created'); break;
+     case 'waitdb': if(!need(S.pg,'Error from server (NotFound): clusters.postgresql.cnpg.io "voltedge-db" not found')) return false; S.dbReady=1; S.poolDeploy=1; L('ok','cluster.postgresql.cnpg.io/voltedge-db condition met'); break;
+     case 'wpool': if(!need(S.dbReady,'Error from server (NotFound): deployments.apps "voltedge-db-pooler-rw" not found, or still starting. Wait for the Cluster first.')) return false; S.poolReady=1; L('ok','deployment.apps/voltedge-db-pooler-rw condition met'); break;
+     case 'rustfs': if(!need(S.ns&&S.secret,'Error: namespace or secret missing; rustfs pod would fail on secretKeyRef.')) return false; S.rustfs=1; L('ok','statefulset.apps/rustfs created, service/rustfs created'); break;
+     case 'migrate':
+       if(!need(S.ns&&S.secret,'Error: namespace or secret missing.')) return false;
+       if(S.migJob&&!tagged){ L('err','The Job "voltedge-migrate" is invalid: spec.template: field is immutable. Delete the old Job or tag its name with the image TAG.'); return false; }
+       S.migJob=1; const up=direct?S.dbReady:S.poolReady;
+       if(!up){ S.migOK=0; S.migFail=1; L('err',`job.batch/voltedge-migrate created, but its pod fails: could not connect (${direct?'database not ready':'pooler not ready'}). After backoffLimit 2 the Job is Failed.`); return true; }
+       S.migFail=0; S.migOK=1; S.migrated=1; L(direct?'ok':'wrn','job.batch/voltedge-migrate created; apply.sh applies migrations in order and records each in ops.migration_log.'+(direct?'':' It ran through the transaction pooler, unlike the Compose bootstrap sidecar, which connects directly. DDL over a pooled connection may behave unexpectedly (not verified).')+(S.restored?' (After a restore it skips everything already in the dump.)':'')); break;
+     case 'waitmig': if(!need(S.migJob,'Error from server (NotFound): jobs.batch "voltedge-migrate" not found')) return false; if(!need(S.migOK,'error: timed out waiting for the condition on jobs/voltedge-migrate (it is Failed; read its pod logs).')) return false; L('ok','job.batch/voltedge-migrate condition met'); break;
+     case 'restore': if(!need(S.dbReady,'Error: database not reachable.')) return false; S.restored=1; L(S.migrated?'wrn':'ok',S.migrated?'pg_restore ran over an already-migrated database: expect &#8220;already exists&#8221; errors for objects the migrations created. Restore first, then run migrate to roll forward (runbook 6b). (not verified)':'pg_restore loaded the schema and seed data. Now run the migrate Job to roll newer migrations forward.'); break;
+     case 'api': if(!need(S.ns&&S.secret,'Error: namespace or secret missing.')) return false; S.api=1; S.apiPoolBad=!S.poolReady; L(S.poolReady?'ok':'wrn',S.poolReady?'deployment.apps/voltedge-api created, service/api, hpa, pdb created.':'deployment.apps/voltedge-api created, but pods will not be Ready: /healthz pings the database through a pooler that is not up.'); break;
+     case 'workers': if(!need(S.ns&&S.secret,'Error: namespace or secret missing.')) return false; S.workers=1; L('ok','deployments voltedge-exportworker, -webhookworker, -fieldsync created'); break;
+     case 'web': if(!need(S.ns,'Error: namespace missing.')) return false; S.web=1; L('ok','configmap/web-nginx, deployment.apps/voltedge-web, service/web created'); break;
+     case 'ingress': if(!need(S.ns,'Error: namespace missing.')) return false; S.ingress=1; L(S.issuer?'ok':'wrn',S.issuer?'ingress.networking.k8s.io/voltedge created; cert-manager requests the certificate.':'ingress created, but the certificate will never be issued: ClusterIssuer "letsencrypt-prod" not found.'); break;
+     case 'admin': if(!need(S.api,'Error from server (NotFound): deployments.apps "voltedge-api" not found')) return false; if(!need(S.migrated||S.restored,'authadmin: ERROR: relation "auth.users" does not exist. The schema is not there yet: restore the dump and/or run the migrations first.')) return false; S.admin=1; L('ok','authadmin: created break-glass admin admin@example.com (role admin)'); break;
+    }
+    return true;
+  }
+  function paint(){
+    const bad=[]; if(S.api&&!S.migrated&&!S.restored) bad.push('api pods are Ready (<code>/healthz</code> only pings the DB) but every data request fails: the schema is missing. Green probes do not mean a working app.');
+    if(S.apiPoolBad&&!S.poolReady) bad.push('api pods are not Ready: the pooler is not up.'); else if(S.apiPoolBad&&S.poolReady) S.apiPoolBad=0;
+    const done=ORDER.every(k=>({issuer:S.issuer,ns:S.ns,secret:S.secret,pg:S.pg,waitdb:S.dbReady,wpool:S.poolReady,rustfs:S.rustfs,migrate:S.migOK,waitmig:S.migOK,restore:S.restored,api:S.api,workers:S.workers,web:S.web,ingress:S.ingress,admin:S.admin})[k])&&!bad.length;
+    const anyPerm=STEPS.some(s=>can(s[2]));
+    $('#w12-steps').innerHTML=STEPS.map(s=>`<button class="btn ${can(s[2])?'':'locked'}" data-s="${s[0]}" title="${can(s[2])?'':'needs '+PNAME[s[2]]}">${s[1]}</button>`).join('');
+    $('#w12-lock').innerHTML=can('ap')?'':lockTip('ap');
+    const flags=[['namespace',S.ns],['secrets',S.secret],['db ready',S.dbReady],['pooler ready',S.poolReady],['rustfs',S.rustfs],['schema',S.migrated||S.restored],['api',S.api],['workers',S.workers],['web',S.web],['ingress',S.ingress],['admin',S.admin]];
+    $('#w12-state').innerHTML=`<div class="lab" style="margin-bottom:6px">Cluster state</div>`+flags.map(f=>pill(f[0],f[1]?'fresh':'stale')).join(' ')+(done?lint('ok','Bootstrap complete: sign in and run the checks in B13.'):'')+bad.map(b=>lint('err',b)).join('');
+    $('#w12-log').innerHTML=log.slice(0,8).map(l=>lint(l[0]==='ok'?'ok':l[0]==='wrn'?'wrn':'err',l[1])).join('')||'<div class="muted" style="font-size:13px">Click a step. The correct order is left to right.</div>';
+  }
+  $('#w12-steps').onclick=e=>{ const b=e.target.closest('button[data-s]'); if(!b) return; run(b.dataset.s); paint(); };
+  $('#w12-reset').onclick=()=>{ reset(); paint(); };
+  $('#w12-auto').onclick=()=>{ reset(); if(!STEPS.every(s=>can(s[2]))){ L('err',`${PERSONA[1]} lacks some permissions needed for the full run. Switch to Platform admin with the &#8220;As&#8221; selector.`); paint(); return; } $('#w12-direct').checked=true; ['issuer','ns','secret','pg','waitdb','wpool','rustfs','restore','migrate','waitmig','api','workers','web','ingress','admin'].forEach(run); paint(); };
+  onPersona(paint);
+})();
+
+/* ===== W13: KEDA ===== */
+(function(){
+  const st={q:12,r:3,x:0,tgt:5,min:1,max:8,dur:60,conc:2,mode:'queued'};
+  $('#w13-ctl').innerHTML=[['q','Jobs queued',0,200,1],['r','Jobs running',0,20,1],['x','Running with expired lease',0,10,1],['tgt','targetQueryValue',1,20,1],['min','minReplicaCount',0,5,1],['max','maxReplicaCount',1,20,1],['dur','Average export duration (s)',5,600,5],['conc','EXPORT_WORKER_CONCURRENCY',1,8,1]].map(a=>`<div class="ctl"><label for="w13-${a[0]}">${a[1]} <span class="v" id="w13-${a[0]}v"></span></label><input type="range" id="w13-${a[0]}" min="${a[2]}" max="${a[3]}" step="${a[4]}"></div>`).join('')+`<div class="ctl"><label for="w13-mode">The query counts</label><select class="fld" id="w13-mode"><option value="pending">status = 'pending' (original manual)</option><option value="queued" selected>status = 'queued' (corrected)</option><option value="qx">queued + expired-lease running</option></select></div>`;
+  function paint(){
+    ['q','r','x','tgt','min','max','dur','conc'].forEach(k=>{ $('#w13-'+k).value=st[k]; $('#w13-'+k+'v').textContent=st[k]; });
+    $('#w13-mode').value=st.mode;
+    const cnt=st.mode==='pending'?0:st.mode==='queued'?st.q:st.q+Math.min(st.x,st.r);
+    const want=clamp(Math.ceil(cnt/st.tgt),st.min,st.max), work=st.q+st.r; const cur=st.min||1;
+    const drain=(n,jobs)=>Math.ceil(jobs/Math.max(1,n*st.conc))*st.dur;
+    const fmt=s=>s>=3600?nf(s/3600,1)+' h':s>=60?nf(s/60,1)+' min':s+' s';
+    const m=[`<div class="kpi"><div><b>${cnt}</b><span>query result</span></div><div><b>${want}</b><span>desired workers</span></div><div><b>${fmt(drain(Math.max(want,1),work))}</b><span>drain at desired</span></div><div><b>${fmt(drain(cur,work))}</b><span>drain at min</span></div></div>`];
+    if(st.mode==='pending') m.push(lint('err',`<code>'pending'</code> is not a status in <code>ops.export_jobs</code> (CHECK allows queued, running, succeeded, failed, cancelled). The count is always 0, so KEDA stays at ${st.min}: ${st.q} queued jobs take ${fmt(drain(cur,work))}.`));
+    else if(want>=st.max&&cnt/st.tgt>st.max) m.push(lint('wrn',`Demand wants ${Math.ceil(cnt/st.tgt)} workers but <code>maxReplicaCount</code> caps it at ${st.max}. Each replica also holds DB connections (Interactive 7).`));
+    else m.push(lint('ok',`${want} worker${want>1?'s':''} each running ${st.conc} jobs in parallel: ${want*st.conc} jobs at once.`));
+    if(st.mode==='queued'&&st.x>0) m.push(lint('inf',`${st.x} running job${st.x>1?'s have':' has'} an expired lease (their worker died). They are re-claimed by any worker, but the plain <code>queued</code> count does not see them. Use the third option to count them.`));
+    if(st.min===0) m.push(lint('wrn','minReplicaCount 0 scales to zero when idle; the first job waits for a cold start. The manual uses 1.'));
+    m.push(lint('inf','Polling interval and cooldown are KEDA defaults and not configured in the manual. '+NV));
+    $('#w13-out').innerHTML=m.join('');
+  }
+  $('#w13-ctl').addEventListener('input',e=>{ const id=e.target.id.slice(4); st[id]=id==='mode'?e.target.value:+e.target.value; paint(); }); paint();
+})();
+
+/* ===== W14: command permissions ===== */
+(function(){
+  const C=[
+   ['docker push $REG/voltedge-api:$TAG','bd','Anyone who can push can ship code: it only runs once someone applies it.'],
+   ['kubectl -n voltedge get pods','rd','Safe, read-only.'],
+   ['kubectl -n voltedge logs deploy/voltedge-api','rd','Logs carry only the opaque user id (not email), per the request logger.'],
+   ['kubectl apply -f deploy/k8s/40-api.yaml','ap','Changes production. Gate behind review (Git) in practice.'],
+   ['kubectl -n voltedge set image deploy/voltedge-api api=REG/voltedge-api:TAG','ap','A rollout. Run the migrate Job first.'],
+   ['kubectl -n voltedge scale deploy/voltedge-api --replicas=6','sc','The HPA will move it back toward its own target.'],
+   ['kubectl -n voltedge rollout undo deploy/voltedge-api','rb','Code only; migrations are not reversed.'],
+   ['kubectl -n voltedge delete job voltedge-migrate','ap','Needed before re-applying an untagged Job.'],
+   ['kubectl -n voltedge exec deploy/voltedge-api -- authadmin list','ex','Exec into a pod also exposes its environment (DATABASE_URL, RUSTFS keys): treat as secret access.'],
+   ['kubectl -n voltedge exec deploy/voltedge-api -- sh -c \'AUTHADMIN_PASSWORD=… authadmin create …\'','ex','Creates a break-glass admin inside VoltEdge; the strongest app-level power. Audit it.'],
+   ['kubectl -n voltedge get secret voltedge-secret -o yaml','se','Reveals every credential (base64 only).'],
+   ['Coolify: Environment Variables edit','se','Stored encrypted; editing changes production on next deploy.'],
+   ['Coolify: Deploy / Redeploy','ap','Builds and replaces containers.'],
+   ['Coolify: redeploy a previous build (Deployments history)','rb','Rolls code back, not schema.'],
+   ['Coolify: Terminal into bootstrap (apply.sh)','ex','Direct DB session with the DB password in its environment.']];
+  $('#w14-cmd').innerHTML=C.map((c,i)=>`<option value="${i}">${esc(c[0].length>62?c[0].slice(0,60)+'…':c[0])}</option>`).join('');
+  function paint(){
+    const c=C[+$('#w14-cmd').value]; const ok=can(c[1]);
+    $('#w14-who').innerHTML=pill(ok?'allowed':'denied',ok?'fresh':'stale')+` <span class="muted" style="font-size:12.5px">${PERSONA[1]} · needs ${PNAME[c[1]]}</span>`;
+    let h=`<pre class="pre code" style="margin-bottom:8px">${esc(c[0])}</pre>${ok?lint('ok','Allowed for this persona.'):lint('err','Denied. '+lockTip(c[1]))}<p style="font-size:13.5px;margin:6px 0">${c[2]}</p>`;
+    h+='<div class="tbl"><table><tr><th>Persona</th>'+Object.keys(PNAME).map(k=>`<th>${PNAME[k]}</th>`).join('')+'</tr>'+PERSONAS.map(p=>`<tr${p===PERSONA?' style="background:var(--tint)"':''}><td>${p[1]}</td>${Object.keys(PNAME).map(k=>`<td>${p[2][k]?'<span class="ok">yes</span>':'<span class="no">-</span>'}</td>`).join('')}</tr>`).join('')+'</table></div>';
+    $('#w14-out').innerHTML=h;
+  }
+  $('#w14-cmd').onchange=paint; onPersona(paint);
+})();
+
+/* ===== W15: incident walkthroughs ===== */
+(function(){
+  const SC={
+   crash:{n:'api CrashLoopBackOff',sym:'After a deploy every new api pod restarts every few seconds. The old pods still serve.',
+     steps:[['kubectl -n voltedge get pods -l app=voltedge-api','voltedge-api-7d9f6c-x2k4p   0/1   CrashLoopBackOff   5 (40s ago)   3m'],['kubectl -n voltedge logs deploy/voltedge-api --previous','export object store: RUSTFS_ENDPOINT is not set (required for export storage)'],['kubectl -n voltedge get deploy voltedge-api -o jsonpath=\'{.spec.template.spec.containers[0].envFrom}\'','(empty)  # the envFrom: configMapRef block was dropped from the manifest']],
+     opts:[['The database password is wrong',0,'A wrong DSN does not make <code>server</code> exit at boot: the pool is opened lazily, and the log would say a database error rather than the RustFS message.'],['The ConfigMap is not wired into the pod',1,'Right. <code>RUSTFS_ENDPOINT</code> lives in the ConfigMap; the server treats it as a hard boot error (<code>log.Fatalf</code>), hence the restart loop. An unreachable RustFS would only warn; a missing variable is fatal.'],['The liveness probe is too aggressive',0,'Liveness restarts show as probe failures in <code>describe pod</code>; here the process itself exits with a message.']],
+     fix:['ap','Restore <code>envFrom: configMapRef: voltedge-env</code> in 40-api.yaml and re-apply (needs apply). Prevent it with the linter in Interactive 8.']},
+   flap:{n:'Readiness flap',sym:'Users see intermittent gateway errors on /api. Pods flip between Ready and NotReady every minute or so.',
+     steps:[['kubectl -n voltedge get pods -w','voltedge-api-…-a   1/1  Running\nvoltedge-api-…-a   0/1  Running   (READY flips)'],['kubectl -n voltedge describe pod voltedge-api-…-a','Readiness probe failed: Get "http://10.2.3.4:8080/healthz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)'],['kubectl -n voltedge exec deploy/voltedge-api -- wget -qO- http://127.0.0.1:8080/healthz','{"status":"ok"}   # took 2.1 s']],
+     opts:[['The app is down',0,'It answers 200: it is merely slow.'],['The probe times out before the handler answers',1,'Right. <code>/healthz</code> pings Postgres (up to 3 s). The default probe <code>timeoutSeconds</code> is 1, so a database taking ~2 s looks like a failure while the handler would return 200. Raise <code>timeoutSeconds</code> to 4 and investigate why the DB or pooler is slow (Interactive 9, 7).'],['nginx rate limit',0,'A rate limit returns 503 from nginx, not a probe timeout inside the pod.']],
+     fix:['ap','Set <code>timeoutSeconds: 4</code> on the probes and check pooler saturation (<code>SHOW POOLS</code> on the pooler) (needs apply).']},
+   pool:{n:'Connection pool exhaustion',sym:'Under load, requests hang then fail; logs show connection errors; the HPA has scaled the api to 30 pods.',
+     steps:[['kubectl -n voltedge get hpa voltedge-api','voltedge-api   Deployment/voltedge-api   78%/60%   3   30   30   2d'],['kubectl -n voltedge logs deploy/voltedge-api --tail=5','db error: no more connections allowed (max_client_conn)'],['kubectl -n voltedge get pooler voltedge-db-pooler-rw -o jsonpath=\'{.spec.pgbouncer.parameters}\'','{"default_pool_size":"25","max_client_conn":"1000"}']],
+     opts:[['The database disk is full',0,'That gives write errors, not max_client_conn refusals.'],['Too many client connections for the pooler',1,'Right. 30 pods &times; ~40 connections (unbounded: <code>DATABASE_MAX_OPEN_CONNS</code> is not read) &divide; 2 poolers is over 1000 per instance. Raise <code>max_client_conn</code>/add pooler instances now, and add the code change to cap the pool per pod (Interactive 7).'],['The migrate Job is holding locks',0,'The Job completed before the rollout; it holds nothing.']],
+     fix:['ap','Edit the Pooler (<code>instances</code> or <code>max_client_conn</code>) and re-apply 20-postgres.yaml (needs apply). Temporary relief: lower <code>maxReplicas</code>.']}};
+  let cur='crash', shown=0, ans=null;
+  $('#w15-sc').innerHTML=Object.keys(SC).map(k=>`<button data-k="${k}" aria-pressed="${k==='crash'}">${SC[k].n}</button>`).join('');
+  function paint(){
+    const s=SC[cur]; let h=`<p style="margin:0 0 8px"><b>Symptom.</b> ${s.sym}</p>`;
+    h+=s.steps.map((st,i)=>i<shown?`<div class="lab">step ${i+1}</div><pre class="pre code" style="margin:3px 0 4px">$ ${esc(st[0])}</pre><pre class="pre code" style="margin:0 0 8px;color:var(--muted)">${esc(st[1])}</pre>`:'').join('');
+    if(!can('rd')) h+=lint('err','Reading cluster state needs read access. '+lockTip('rd'));
+    else if(shown<s.steps.length) h+=`<button class="btn pri" id="w15-next">Run: ${esc(s.steps[shown][0].slice(0,70))}</button>`;
+    else { h+='<div class="lab" style="margin:6px 0 4px">What is the cause?</div><div class="seg">'+s.opts.map((o,i)=>`<button data-o="${i}" aria-pressed="${ans===i}">${o[0]}</button>`).join('')+'</div>'; if(ans!==null){ const o=s.opts[ans]; h+=lint(o[1]?'ok':'err',o[2]); if(o[1]) h+=`<div style="margin-top:6px">${can(s.fix[0])?'':lockTip(s.fix[0])+' '}<span style="font-size:13.5px"><b>Fix.</b> ${s.fix[1]}</span></div>`; } }
+    $('#w15-out').innerHTML=h;
+    const nb=$('#w15-next'); if(nb) nb.onclick=()=>{ shown++; paint(); };
+    $$('#w15-out [data-o]').forEach(b=>b.onclick=()=>{ ans=+b.dataset.o; paint(); });
+  }
+  seg('#w15-sc',b=>{ cur=b.dataset.k; shown=0; ans=null; paint(); });
+  onPersona(paint);
+})();
+
+/* ===== W16: chooser ===== */
+(function(){
+  const Q=[['users','Concurrent users you must serve',50,1500,50,300],['servers','Servers you can dedicate',1,8,1,1],['team','Team Kubernetes skill (0 none to 5 expert)',0,5,1,1],['ops','Hours/week available for platform work',1,40,1,6]];
+  const st={users:300,servers:1,team:1,ops:6,ha:0,auto:0,pgfail:0,gitpush:1};
+  $('#w16-ctl').innerHTML=Q.map(q=>`<div class="ctl"><label for="w16-${q[0]}">${q[1]} <span class="v" id="w16-${q[0]}v"></span></label><input type="range" id="w16-${q[0]}" min="${q[2]}" max="${q[3]}" step="${q[4]}"></div>`).join('')+[['ha','I need high availability across node failures'],['auto','I need autoscaling on load'],['pgfail','I need managed Postgres replicas + automatic failover'],['gitpush','I want push-to-deploy with automatic TLS and little ceremony']].map(c=>`<label class="chk"><input type="checkbox" id="w16-${c[0]}" ${st[c[0]]?'checked':''}> ${c[1]}</label>`).join('');
+  function paint(){
+    Q.forEach(q=>{ $('#w16-'+q[0]).value=st[q[0]]; $('#w16-'+q[0]+'v').textContent=st[q[0]]; });
+    let k=0,c=0; const why=[];
+    if(st.users>600){k+=3;why.push(['k',`${st.users} users is beyond the "few hundred" Coolify is positioned for`]);} else if(st.users>350){k+=1;why.push(['k',`${st.users} users is at the upper edge of one-server Coolify`]);} else {c+=2;why.push(['c',`${st.users} users fits one strong server`]);}
+    if(st.servers>=3){k+=1;why.push(['k',`${st.servers} servers: orchestration pays off`]);} else {c+=1;why.push(['c',`${st.servers} server${st.servers>1?'s':''}: Coolify scales up, not out`]);}
+    if(st.ha){k+=2;why.push(['k','HA across nodes needs multi-node scheduling (Swarm is possible on Coolify, but the guide points to Kubernetes)']);}
+    if(st.auto){k+=3;why.push(['k','Autoscaling is HPA/KEDA territory; Coolify only has fixed replica counts']);}
+    if(st.pgfail){k+=3;why.push(['k','Operator-managed replicas and failover = CloudNativePG']);}
+    if(st.gitpush){c+=3;why.push(['c','Push-to-deploy + automatic TLS is Coolify&#8217;s core strength']);}
+    if(st.team<=1){c+=3;why.push(['c','Little Kubernetes experience: the cluster becomes a project of its own']);} else if(st.team>=4){k+=2;why.push(['k','Strong Kubernetes skills lower the cost of the cluster']);}
+    if(st.ops<=8){c+=2;why.push(['c',`${st.ops} h/week leaves little room to run a cluster`]);} else if(st.ops>=20){k+=1;why.push(['k',`${st.ops} h/week can sustain a platform`]);}
+    const rec=k>=c+3?'Kubernetes':c>=k+3?'Coolify':'Either: start on Coolify, plan the move';
+    const col=rec==='Kubernetes'?'--s0':rec==='Coolify'?'--s3':'--amber';
+    $('#w16-out').innerHTML=`<div class="big" style="color:var(${col})">${rec}</div><div style="margin:8px 0"><div class="lab">Coolify ${c}</div><div class="bar"><i style="width:${clamp(c*5,0,100)}%;background:var(--s3)"></i></div><div class="lab" style="margin-top:6px">Kubernetes ${k}</div><div class="bar"><i style="width:${clamp(k*5,0,100)}%;background:var(--s0)"></i></div></div>`+why.map(w=>lint(w[0]==='k'?'inf':'ok',(w[0]==='k'?'Kubernetes: ':'Coolify: ')+w[1])).join('')+lint('inf','The thresholds here are this guide&#8217;s qualitative advice turned into points; they are a conversation starter, not a benchmark. '+NV);
+  }
+  $('#w16-ctl').addEventListener('input',e=>{ const id=e.target.id.slice(4); st[id]=e.target.type==='checkbox'?(e.target.checked?1:0):+e.target.value; paint(); }); paint();
+})();
+
+/* ===== symptom explorer ===== */
+(function(){
+  const R=[
+   ['Coolify: SPA blank or 404 after deploy','The host <code>./web/dist</code> mount survived the override merge. Use <code>volumes: !override</code> in <code>docker-compose.coolify.yml</code>.','Interactive 3'],
+   ['Coolify: variables set in the UI have no effect','Compose only passes what the file references. <code>RUSTFS_PUBLIC_USE_SSL</code>, <code>SESSION_*</code>, <code>EXTERNAL_SYSTEMS_ENCRYPTION_KEY</code>, <code>LOG_*</code>, <code>OIDC_*</code> must be added to the override&#8217;s <code>environment:</code>.','Interactive 4'],
+   ['Presigned attachment URLs blocked or 404','Storage host not routed, <code>RUSTFS_PUBLIC_ENDPOINT</code> mismatch, or <code>RUSTFS_PUBLIC_USE_SSL=1</code> never reached the container (URLs signed as http on an https site).','Interactive 4, 6'],
+   ['TLS certificate not issued','DNS not pointing at the server (Coolify), or domain on the wrong service. On k8s: ClusterIssuer missing or the HTTP-01 challenge cannot reach the Ingress.','Chapter 2, Interactive 12'],
+   ['Login fails, cookie missing','Not served over HTTPS, or <code>AUTH_INSECURE_COOKIES</code> set. Cookies are Secure by default.','Chapters 2 and 5'],
+   ['api pods CrashLoopBackOff','Read <code>logs --previous</code>. A missing <code>RUSTFS_ENDPOINT</code> (ConfigMap not wired) is a fatal boot error; a wrong DSN is not (it shows as a failing <code>/healthz</code>).','Interactive 15'],
+   ['Pods flip Ready/NotReady','The probe times out (default 1 s) before the DB-pinging <code>/healthz</code> answers (up to 3 s). Raise <code>timeoutSeconds</code> and look at the pooler.','Interactive 9, 15'],
+   ['Whole api tier restarts during a DB outage','A liveness probe on <code>/healthz</code> depends on the database. Use a non-DB liveness check.','Interactive 9'],
+   ['Workers pods never Ready, or restart forever','They have no HTTP server; remove the <code>httpGet</code> probe.','Interactive 8, 9'],
+   ['no more connections allowed / too many clients','Pooler or Postgres limits exceeded: pods &times; connections, poolers &times; pool size vs <code>max_connections</code>. <code>DATABASE_MAX_OPEN_CONNS</code> is not read by the code.','Interactive 7, 15'],
+   ['"prepared statement does not exist"','Transaction pooling vs pgdriver (not verified). Use <code>poolMode: session</code> (CNPG) / <code>POOL_MODE: session</code> (Compose) or disable statement caching.','Chapter 3'],
+   ['migrate Job fails on re-run','Jobs are immutable. Delete it or tag the name.','Interactive 12'],
+   ['migrate Job cannot connect','Pooler not up yet (the Cluster wait does not cover it), or DSN host wrong.','Interactive 12'],
+   ['Restore pod runs migrations instead','The migrate image has an ENTRYPOINT. Use <code>kubectl run … --command -- sh -c …</code>.','Chapter 5'],
+   ['App is up but every page errors','Schema missing: <code>/healthz</code> only checks that the DB answers. Restore the dump / run migrations.','Interactive 12'],
+   ['authadmin: relation does not exist','Run it only after the schema exists.','Interactive 12'],
+   ['Export jobs never finish; KEDA at 1','The query counts <code>\'pending\'</code>; the status is <code>\'queued\'</code>.','Interactive 13'],
+   ['Outbound webhooks dead-letter','The webhookworker lacks <code>EXTERNAL_SYSTEMS_ENCRYPTION_KEY</code>.','Interactive 6'],
+   ['Everyone gets 429 on login','The k8s nginx rate-limit zone keys on the ingress pod IP; restore real client IPs.','Chapter 4 (B8)'],
+   ['Rollout drops requests','The API exits immediately on SIGTERM. Add a <code>preStop</code> sleep and keep maxUnavailable 0.','Interactive 11'],
+   ['Rollout "stuck", capacity lower than expected','New pods never Ready while <code>maxUnavailable</code> let old ones go. <code>rollout undo</code>.','Interactive 11'],
+   ['Field packs backlog','Scale fieldsync (it is replica-safe) and give pods CPU; raise <code>FIELDSYNC_WORKER_CONCURRENCY</code>.','Interactive 1, 8'],
+   ['Volumes wiped after a Coolify redeploy','Storage not marked persistent. Snapshot before destructive redeploys.','Chapter 2 (A7)']];
+  function paint(){ const q=$('#t-q').value.trim().toLowerCase(); const rows=R.filter(r=>!q||(r[0]+' '+r[1]).replace(/<[^>]+>/g,' ').toLowerCase().includes(q)); $('#t-n').textContent=rows.length+' of '+R.length;
+    $('#t-list').innerHTML=rows.map(r=>`<details style="border-top:1px solid var(--line2);padding:10px 14px"><summary style="cursor:pointer;font-weight:600">${r[0]}</summary><div style="margin-top:6px;font-size:14px">${r[1]}</div><div class="muted" style="font-size:12px;margin-top:4px">See ${r[2]}</div></details>`).join('')||'<div style="padding:14px" class="muted">No symptom matches.</div>'; }
+  $('#t-q').oninput=paint; paint();
+})();
+/* ===== quiz ===== */
+(function(){
+  const Q=[
+   ['Your Coolify override lists only the nginx.conf mount under <code>volumes:</code>. What happens to the base file&#8217;s <code>./web/dist</code> mount?','It survives (lists merge by mount target) unless you use <code>!override</code>',['It is dropped automatically','It survives (lists merge by mount target) unless you use <code>!override</code>','Coolify removes it','It becomes read-write'],'Compose merges volume lists by container path; <code>!override</code> replaces the whole list.'],
+   ['You set <code>RUSTFS_PUBLIC_USE_SSL=1</code> in Coolify but presigned URLs are still http. Why?','<code>docker-compose.prod.yml</code> never passes it to the containers',['Traefik strips it','<code>docker-compose.prod.yml</code> never passes it to the containers','It only works with Option 2','It must be a build variable'],'A variable reaches a container only if the compose file references it; add it in the override.'],
+   ['Which is true of fieldsync?','It is replica-safe; the manual\'s singleton was a conservative choice',['It must never run more than once','It is replica-safe; the manual\'s singleton was a conservative choice','It runs from the api image','It has no health endpoint'],'Both workers claim with SKIP LOCKED and each build uses its own temp dir. Only the maintenance loop may double-enqueue a rebuild.'],
+   ['The KEDA query counts <code>status = \'pending\'</code>. What is the effect?','It always returns 0, so replicas stay at the minimum',['It scales up too eagerly','It always returns 0, so replicas stay at the minimum','It errors on every poll','It counts running jobs'],'<code>ops.export_jobs.status</code> allows queued, running, succeeded, failed, cancelled.'],
+   ['The api pods probe <code>/healthz</code> with the default 1 s timeout and the DB takes 2 s. Result?','The probe fails although the handler would return 200',['Nothing, the handler allows 3 s','The probe fails although the handler would return 200','The pod is restarted by readiness','The HPA scales down'],'The handler pings Postgres with a 3 s timeout; the probe gives up at its own timeout.'],
+   ['Does the PodDisruptionBudget (<code>minAvailable: 2</code>) limit a rolling update?','No, it only gates voluntary evictions like node drains',['Yes, it keeps 2 pods during every rollout','No, it only gates voluntary evictions like node drains','Only with maxSurge 0','Only for StatefulSets'],'Rollout safety comes from maxUnavailable and readiness.'],
+   ['Why must the restore pod use <code>--command</code>?','The migrate image\'s ENTRYPOINT is apply.sh, so plain args would be passed to it',['Alpine has no sh','The migrate image\'s ENTRYPOINT is apply.sh, so plain args would be passed to it','kubectl run requires it','To set the DSN'],'CMD/args do not replace an ENTRYPOINT.'],
+   ['Behind the Ingress, the web nginx uses <code>limit_req_zone $binary_remote_addr</code>. Problem?','All users share one bucket because the remote address is the ingress pod',['None','All users share one bucket because the remote address is the ingress pod','The zone is too small','It limits only POST'],'Restore the client IP (realip) or rate-limit at the Ingress; the app\'s own limiters also ignore X-Forwarded-For.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach((el,i)=>{ const x=Q[i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===x[1]; const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'&#10004; Correct. ':`&#10008; Answer: <b>${x[1]}</b>. `)+x[3]; }); });
+})();
+
+/* chapter rail */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a])); const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'}); document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+
+</script>
+</body></html>

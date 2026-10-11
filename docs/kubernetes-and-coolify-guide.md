@@ -21,16 +21,36 @@ use the portable **web image** (`web/Dockerfile`, bakes the SPA) and the
 Read the [Production Setup Runbook](production-setup-runbook.md) first — the
 migrate / seed / first-admin *logic* is identical here; only the mechanics change.
 
+> **Status of the files this guide names.** `docker-compose.prod.yml`,
+> `infra/nginx/nginx.conf`, `web/Dockerfile`, `deploy/migrate/Dockerfile`,
+> `api/Dockerfile` and `api/Dockerfile.fieldsync` exist in the repo.
+> `docker-compose.coolify.yml` and everything under `deploy/k8s/` are **proposed**
+> — they do not exist yet; you create them from the listings below. Claims that
+> could be checked against the repo (compose, Dockerfiles, nginx.conf, migrations,
+> `api/cmd/*`) are checked; Kubernetes / CloudNativePG / KEDA / Coolify behaviour
+> that the repo cannot confirm is marked *not verified*. A sibling
+> [interactive edition](kubernetes-and-coolify-guide-interactive.html) runs the
+> arithmetic (connection budgets, HPA and rolling-update timelines, probe timing,
+> queue-depth scaling, bootstrap order) in the browser. A list of the corrections
+> made to earlier text is at the end (**Appendix — corrections and verification**).
+
 ---
 
 ## 0. The images you build (both platforms)
 
 | Image | Dockerfile | Build context | Runs |
 |---|---|---|---|
-| `voltedge-api` | `api/Dockerfile` | `./api` | `server` / `exportworker` / `webhookworker` / `importworker` / `mcpserver` / `authadmin` (per `command`) |
+| `voltedge-api` | `api/Dockerfile` | `./api` | `server` / `exportworker` / `webhookworker` / `importworker` / `mcpserver` / `authadmin` (per `command`; the image also carries `resetdata`, the break-glass factory reset — never a long-running service) |
 | `voltedge-fieldsync` | `api/Dockerfile.fieldsync` | `./api` | `fieldsync` (bundles tippecanoe) |
 | `voltedge-web` | `web/Dockerfile` | `./web` | nginx serving the built SPA |
 | `voltedge-migrate` | `deploy/migrate/Dockerfile` | **repo root** | one-shot `apply.sh` (+ carries `pg_restore`) |
+
+The api image's default `CMD` is `server`; on Kubernetes a container's `command:`
+replaces it, on Compose the service's `command:` does. `fieldsync` is **not** in the
+api image (it needs tippecanoe, built from a pinned Felt tag), so it must use the
+`voltedge-fieldsync` image. The migrate image's `ENTRYPOINT` is
+`bash /migrations/apply.sh` (it needs `DATABASE_URL` at runtime and skips anything
+already in `ops.migration_log`); build it from the **repo root**.
 
 Build and push all four to your registry (replace `REG` with yours, pick a real
 `TAG` — a git SHA is ideal):
@@ -109,6 +129,15 @@ The rest of Part A assumes **Option 1** (self-contained compose); the deltas for
 Option 2 are only "don't deploy the bundled `postgres`, point `DATABASE_URL` at
 the managed one."
 
+Option 2 details the compose file forces on you: `pgbouncer`, `bootstrap` and
+`martin` all declare `depends_on: postgres`, so those entries must be removed or
+re-pointed when you remove the service; and every service builds its own
+`DATABASE_URL` from `POSTGRES_PASSWORD`, so overriding `DATABASE_URL` in the UI is
+not enough — override those `environment:` entries too. The compose file runs
+`supabase/postgres:15.8.1.049`; the migrations only `CREATE EXTENSION` `postgis`
+(0015) and `citext` (0024), so a PostGIS image should be sufficient, but that has
+not been run here.
+
 ## A4. Adapt the compose for Coolify (web image, no host mounts)
 
 Coolify builds images; it will **not** run `npm run build` for a bind-mount, so
@@ -125,12 +154,23 @@ services:
     build:
       context: ./web          # bakes the SPA (web/Dockerfile)
       dockerfile: Dockerfile
-    volumes:
+    volumes: !override
       # Only the config stays external now; the SPA is inside the image.
+      # !override REPLACES the base list. A plain list MERGES by mount target, so
+      # the base file's ./web/dist:/usr/share/nginx/html mount would survive.
       - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    # Drop the published host port -- Coolify's proxy fronts this service (A7).
+    # Drop the published host port -- Coolify's proxy fronts this service (A8).
     ports: !reset []
 ```
+
+> **Correction.** The earlier version of this override listed only the nginx.conf
+> mount, without `!override`. Compose merges `volumes:` lists across files by
+> container path, so the base `./web/dist` bind mount stayed and shadowed the baked
+> SPA with an empty directory (blank page / 404 on Coolify). `!override` and `!reset`
+> need a recent Compose v2 (2.24+). This follows the Compose merge rules; it has not
+> been run here. Also note the base keeps `image: nginx:1.27-alpine` on this service,
+> so with `build:` added Compose tags the built image with that name on the build
+> host; add `image: voltedge-web:coolify` if that is unwanted. *(not verified in the repo)*
 
 The `infra/nginx/nginx.conf` resolver trick uses Docker's `127.0.0.11` DNS, which
 Coolify honours (it *is* Docker underneath), so that config works unchanged — the
@@ -196,6 +236,24 @@ IMPORTWORKER_REPLICAS=1
 ```
 
 Notes:
+- **A variable only reaches a container if the compose file references it.**
+  `docker-compose.prod.yml` wires `POSTGRES_PASSWORD`/`POSTGRES_DB`,
+  `RUSTFS_ACCESS_KEY`/`RUSTFS_SECRET_KEY`/`RUSTFS_BUCKET`/`RUSTFS_PUBLIC_ENDPOINT`,
+  `RUSTFS_CORS_ORIGINS` (into rustfs as `RUSTFS_CORS_ALLOWED_ORIGINS`),
+  `PGBOUNCER_*`, the `*_REPLICAS`, and the worker/fieldsync tuning knobs. It does
+  **not** wire `RUSTFS_PUBLIC_USE_SSL`, `SESSION_IDLE_TIMEOUT`, `SESSION_ABSOLUTE_MAX`,
+  `EXTERNAL_SYSTEMS_ENCRYPTION_KEY`, `LOG_FORMAT`, `LOG_LEVEL` or `OIDC_*`. Add them to
+  the `environment:` blocks in `docker-compose.coolify.yml` (a map merges by key).
+  The one that bites: without `RUSTFS_PUBLIC_USE_SSL=1` inside the container
+  (`api/internal/export/storage.go` reads `== "1"`), presigned URLs are signed for
+  `http://` and the browser blocks them as mixed content. Safe to omit: the session
+  timeouts (code defaults 12h / 720h), `LOG_*` (JSON, info by default) and
+  `AUTH_INSECURE_COOKIES` (Secure by default). The webhook and import workers also
+  need `EXTERNAL_SYSTEMS_ENCRYPTION_KEY` (see B7).
+- SSO: the Azure provider's key is `azuread` (callback
+  `/api/auth/oidc/azuread/callback`) and its redirect URL comes from
+  `OIDC_AZURE_REDIRECT_URL`; Google uses `OIDC_GOOGLE_CLIENT_ID`,
+  `OIDC_GOOGLE_CLIENT_SECRET`, `OIDC_GOOGLE_REDIRECT_URL`.
 - Toggle **Build Variable** on only the vars needed at *image build* time
   (none of ours are — they're all runtime), leave the rest as runtime secrets.
 - For **Option 2**, drop `POSTGRES_PASSWORD`/`POSTGRES_DB` and instead set
@@ -224,7 +282,9 @@ Coolify assigns domains per **service**. On the resource's service list:
    (A6 set `RUSTFS_PUBLIC_ENDPOINT` to match).
 3. Leave every other service **without** a public domain (api, workers, pgbouncer,
    postgres, bootstrap are internal-only; the SPA reaches the API through nginx's
-   `/api`).
+   `/api`). The base file publishes host ports for `mcpserver` (3705), `fieldsync`
+   (3706), postgres (3700), rustfs (3702/3703) and martin (3701): close those at the
+   firewall unless something outside needs them.
 
 Result: two proxies, by design — Coolify's Traefik (TLS + domain) in front of our
 nginx (SPA + `/api`//`/tiles` split + replica load-balancing). Because Coolify
@@ -247,6 +307,10 @@ serves HTTPS, secure session cookies work (keep `AUTH_INSECURE_COOKIES` unset).
    ```
    pg_restore --no-owner -d "$DATABASE_URL" /workspace/seeded.dump
    ```
+   Ordering caveat: the runbook (§6b) restores the dump and then says to re-run the
+   migrations to roll newer ones forward. A dump carries the schema, so restoring
+   after a full migrate on an empty database is likely to report "already exists";
+   for a fresh install from a dump, restore first, then migrate. *(not verified)*
 4. **First break-glass admin** — Terminal into an **`api`** service (authadmin is
    baked into the image):
    ```
@@ -273,7 +337,13 @@ serves HTTPS, secure session cookies work (keep `AUTH_INSECURE_COOKIES` unset).
 
 - **Replicas:** set `deploy.replicas` on `api`/workers via the `*_REPLICAS` env
   (A6); Coolify honours them and our nginx load-balances across them. Keep
-  **`fieldsync` at 1** — it is the singleton pack builder.
+  **`fieldsync` at 1 by default** — the compose file runs one instance *by choice*
+  (it publishes a fixed device port and carries a `container_name`, both of which
+  block `--scale`). It is **not** a correctness singleton: both of its workers claim
+  jobs with `FOR UPDATE SKIP LOCKED` and each build uses its own temp dir (compose
+  header comment, Scaling Guide §8). To scale it, drop the port and `container_name`
+  and front it with nginx; the shared-pack maintenance loop then runs in every
+  replica and may harmlessly double-enqueue a scheduled rebuild.
 - **Limits:** set per-service CPU/memory limits in the service settings so one
   heavy analysis pod can't starve the host.
 - **Multi-node reality:** a single Coolify server scales *up* (bigger box, more
@@ -292,7 +362,9 @@ serves HTTPS, secure session cookies work (keep `AUTH_INSECURE_COOKIES` unset).
   breaking change, use expand → migrate → deploy → contract across two releases
   (scaling guide §10).
 - **Rollback:** Coolify keeps previous deployments — redeploy a prior build from
-  the **Deployments** history if a release misbehaves.
+  the **Deployments** history if a release misbehaves. This rolls the *code* back,
+  not the schema: migrations are not reversed, which is why they must stay
+  backward-compatible with the previous image.
 
 ## A13. Verify
 
@@ -308,13 +380,13 @@ serves HTTPS, secure session cookies work (keep `AUTH_INSECURE_COOKIES` unset).
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| SPA 404s / blank after deploy | `nginx` still using the host `dist` mount | ensure the `docker-compose.coolify.yml` override is applied (nginx builds `web/Dockerfile`) |
+| SPA 404s / blank after deploy | `nginx` still using the host `dist` mount (override list merged instead of replaced) | ensure the `docker-compose.coolify.yml` override is applied and uses `volumes: !override` (nginx builds `web/Dockerfile`) |
 | TLS/cert not issued | DNS not pointing at the server, or domain set on the wrong service | A-record → server IP; set the domain on the `nginx` service only |
 | Login fails, cookie missing | `AUTH_INSECURE_COOKIES` set, or site not HTTPS | unset it; confirm Coolify issued the cert and you're on `https://` |
-| Presigned attachment URLs 404 | `storage.example.com` not routed, or `RUSTFS_PUBLIC_ENDPOINT` mismatch | give `rustfs` its domain (A8), match `RUSTFS_PUBLIC_ENDPOINT` |
+| Presigned attachment URLs 404 or blocked | `storage.example.com` not routed, `RUSTFS_PUBLIC_ENDPOINT` mismatch, or `RUSTFS_PUBLIC_USE_SSL` never reached the container | give `rustfs` its domain (A8), match `RUSTFS_PUBLIC_ENDPOINT`, pass `RUSTFS_PUBLIC_USE_SSL=1` through the override (A6) |
 | Volumes wiped after redeploy | storage not marked persistent | A7 — mark `postgres_data`/`rustfs_data` persistent; snapshot before destructive redeploys |
 | `--scale`/replica error "name in use" | a `container_name` on a scaled service | only singletons carry one here; don't add to `api`/workers |
-| "prepared statement does not exist" | pgdriver vs PgBouncer transaction pooling | set `POOL_MODE: session` on the pgbouncer service, or disable statement caching in the DSN |
+| "prepared statement does not exist" | pgdriver vs PgBouncer transaction pooling (the app uses no LISTEN/NOTIFY or advisory locks; prepared-statement behaviour is *not verified*) | set `POOL_MODE: session` on the pgbouncer service, or disable statement caching in the DSN |
 | Map blank, classes missing | schema not seeded | restore the seeded dump (A9.3) |
 
 **When Coolify is right:** one or two servers, a few hundred users, you want
@@ -386,6 +458,10 @@ data:
   # AUTH_INSECURE_COOKIES is deliberately absent -> secure cookies (HTTPS only).
 ```
 
+Every key above is read by the code (`PORT` defaults to 8080, `MCP_PORT` to 8090,
+`FIELDSYNC_PORT` to 8091). Unlike Compose, `envFrom` delivers `RUSTFS_PUBLIC_USE_SSL`
+to every container, so the Coolify gap in A6 does not exist here.
+
 `deploy/k8s/11-secret.yaml` (fill in real values; consider Sealed Secrets / SOPS
 rather than committing this):
 
@@ -408,7 +484,13 @@ stringData:
   RUSTFS_ACCESS_KEY: "<strong>"
   RUSTFS_SECRET_KEY: "<strong>"
   EXTERNAL_SYSTEMS_ENCRYPTION_KEY: "<openssl rand -base64 32>"
+  # SSO (optional): OIDC_AZURE_TENANT_ID / _CLIENT_ID / _CLIENT_SECRET / _REDIRECT_URL
 ```
+
+Deliver the keys to the right workloads: `server` builds the object store at boot
+(`RUSTFS_*` required) and reads the encryption key; `exportworker`, `importworker`
+and `fieldsync` need `RUSTFS_*`; `webhookworker` and `importworker` need
+`EXTERNAL_SYSTEMS_ENCRYPTION_KEY`; `mcpserver` needs only `DATABASE_URL`.
 
 ## B3. Postgres via CloudNativePG (primary + replicas + pooler)
 
@@ -429,7 +511,8 @@ spec:
       secret: { name: voltedge-db-app }          # the app role credentials (B2)
       postInitApplicationSQL:
         - CREATE EXTENSION IF NOT EXISTS postgis;
-        - CREATE EXTENSION IF NOT EXISTS pgcrypto;   # gen_random_uuid()
+        - CREATE EXTENSION IF NOT EXISTS citext;     # migration 0024 needs it
+        - CREATE EXTENSION IF NOT EXISTS pgcrypto;   # optional: gen_random_uuid() is core since PG13
   # Optional but recommended: continuous backup / PITR to object storage.
   # backup:
   #   barmanObjectStore:
@@ -460,11 +543,31 @@ spec:
   pgbouncer: { poolMode: transaction }
 ```
 
+> **Correction.** The migrations `CREATE EXTENSION` exactly two extensions:
+> `postgis` (0015) and `citext` (0024). The earlier text listed `pgcrypto`
+> ("`gen_random_uuid()`" — built in since Postgres 13; 55 migrations use it) and
+> omitted `citext`. `citext` is normally a "trusted" extension the owner may create,
+> but pre-creating it as superuser is safest. The CNPG image name and CNPG defaults
+> are *not verified* here.
+
 CNPG manages the pooler↔Postgres auth for you (an `auth_query`), so the manual
 PgBouncer/SCRAM worry from the Compose stack does not apply here — the app just
 presents the `app` credentials to the pooler. `sslmode=require` encrypts to the
 pooler; if pgdriver rejects the CNPG CA, mount the cluster CA and use
 `sslmode=verify-full`, or keep `require` (encrypt without CA verification).
+
+**Direct vs pooled, and sizing.** CNPG also creates a read-write Service straight to
+the primary, `<cluster>-rw` (`voltedge-db-rw`) *(CNPG convention, not verified here)*.
+Compose runs migrations over a **direct** connection because DDL wants a stable
+session (see the `bootstrap` comment in `docker-compose.prod.yml` and runbook §6a);
+use the direct Service for the migrate Job and `pg_restore` (B5, B10). Size the
+pooler so that `instances × default_pool_size` plus ~13 reserved/operator slots fits
+under Postgres `max_connections` (Compose sets 200; the CNPG default is a generic
+figure, not verified), and so that clients per pooler instance stay under
+`max_client_conn`. Today the API does **not** cap its own pool: `DATABASE_MAX_OPEN_CONNS`
+is not read anywhere (no `SetMaxOpenConns` on the main pool), so at the HPA maximum
+(30 pods) the client-side count follows request concurrency. The interactive edition's
+connection-budget widget does the sums.
 
 ## B4. Object storage (RustFS)
 
@@ -506,6 +609,12 @@ spec:
   ports: [{ port: 9000, targetPort: 9000 }]
 ```
 
+The env names match the compose service (`RUSTFS_VOLUMES`, `RUSTFS_ADDRESS`,
+`RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY`, `RUSTFS_CORS_ALLOWED_ORIGINS`). The compose
+file also enables a console on 9001 (`RUSTFS_CONSOLE_*`); this StatefulSet does not.
+`rustfs/rustfs:latest` is unpinned — pin a tag for production. The API creates the
+bucket at boot (`EnsureBucket`); an unreachable RustFS only logs a warning there.
+
 ## B5. Migrations as a Job (run once, before app rollout)
 
 `deploy/k8s/30-migrate-job.yaml`:
@@ -529,6 +638,12 @@ spec:
 `kubectl apply -f 30-migrate-job.yaml && kubectl -n voltedge wait --for=condition=complete job/voltedge-migrate --timeout=300s`.
 Re-apply it on every upgrade (delete the old Job first, or template the name with
 the image tag). In Helm/Argo, make it a `pre-upgrade` hook / `PreSync`.
+
+> **Correction.** The Job used the pooled `DATABASE_URL` (transaction-mode pooler).
+> The Compose stack deliberately migrates over a direct connection. Give the Job a
+> separate secret key (e.g. `DATABASE_URL_DIRECT`, pointing at `voltedge-db-rw:5432`
+> with `sslmode=require`) and use it for the Job and for `pg_restore`. Also wait for
+> the pooler (B10); the Cluster wait does not cover it.
 
 ## B6. The API — Deployment, Service, HPA, PDB
 
@@ -591,7 +706,22 @@ spec:
   selector: { matchLabels: { app: voltedge-api } }
 ```
 
-## B7. Workers (export / webhook / import / mcp) and the fieldsync singleton
+**What the code actually does** (`api/cmd/server/main.go`): `/healthz` is public and
+pings Postgres with a **3-second** context, returning 200 `{"status":"ok"}` or 503
+`{"status":"db unreachable: …"}`. There is **no `/readyz`** (the Scaling Guide only
+suggests one as an option). The server uses plain `http.ListenAndServe` with no
+SIGTERM handling, so a terminating pod exits at once and drops in-flight requests —
+consider a `preStop` sleep and `maxUnavailable: 0`. Kubernetes' default probe
+`timeoutSeconds` is 1, shorter than the handler's own 3 s, so set `timeoutSeconds: 4`.
+Because `/healthz` depends on the database, a liveness probe on it will restart every
+pod during a DB outage longer than `failureThreshold × periodSeconds`; a liveness check
+that does not touch Postgres is safer. *(probe-tuning advice is analysis, not
+verified on a cluster)*. `DATABASE_MAX_OPEN_CONNS` is not read by the code (the env
+line is a placeholder for the future change). The workers have **no HTTP server**:
+never give them an `httpGet` probe. HPA utilisation is measured against the CPU
+*request* (500m), so 60% is ~300m per pod.
+
+## B7. Workers (export / webhook / import / mcp) and fieldsync
 
 `deploy/k8s/50-workers.yaml` — same shape per worker, differing `command`. The
 export/import workers also need the RustFS keys:
@@ -633,12 +763,14 @@ spec:
         envFrom: [{ configMapRef: { name: voltedge-env } }]
         env:
         - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: voltedge-secret, key: DATABASE_URL } } }
+        - { name: EXTERNAL_SYSTEMS_ENCRYPTION_KEY, valueFrom: { secretKeyRef: { name: voltedge-secret, key: EXTERNAL_SYSTEMS_ENCRYPTION_KEY } } }   # outbound HMAC secrets
 ---
 # importworker: identical to webhookworker with command ["importworker"] + the
 # RUSTFS_* env (it stages uploaded files). mcpserver: command ["mcpserver"] + a
 # Service on 8090 if you expose the MCP tool API.
 ---
-# fieldsync -- SINGLETON. Never scale; Recreate so two pack builders never run.
+# fieldsync -- one replica to start; Recreate avoids overlapping builders during a
+# rollout. NOT a correctness singleton: replicas are safe (see the note below).
 apiVersion: apps/v1
 kind: Deployment
 metadata: { name: voltedge-fieldsync, namespace: voltedge }
@@ -667,6 +799,18 @@ spec:
   selector: { app: voltedge-fieldsync }
   ports: [{ port: 8091, targetPort: 8091 }]
 ```
+
+> **Corrections.** (1) *fieldsync is not a singleton.* The earlier text said
+> "SINGLETON. Never scale" and blamed corrupt packs on scaling above 1. The compose
+> header, Scaling Guide §8 and the code (`FOR UPDATE SKIP LOCKED` claims, a temp dir per job, and sync-inbox claims ordered and serialized per device — `api/internal/fieldpack/inbox.go`)
+> say replicas are safe; the only caveat is that the maintenance loop runs in every
+> replica and a scheduled rebuild may be double-enqueued (retention reaps the extra).
+> For a build backlog, add CPU and replicas. (2) *`webhookworker` and `importworker`
+> need `EXTERNAL_SYSTEMS_ENCRYPTION_KEY`* (header of `api/cmd/webhookworker/main.go`;
+> both call `secretbox.NewFromEnv`): without it outbound deliveries dead-letter. The
+> earlier manifest gave them only `DATABASE_URL`. (3) The three queue workers drain
+> in-flight jobs on SIGTERM; `fieldsync` serves `/healthz` on 8091 but returns a bare
+> `ok` without a DB check.
 
 ## B8. Web (SPA + proxy) and its k8s nginx config
 
@@ -725,6 +869,18 @@ spec:
   ports: [{ port: 80, targetPort: 80 }]
 ```
 
+> **Corrections.** (1) Behind the Ingress, `$remote_addr` in these pods is the ingress
+> controller's IP, so `limit_req_zone $binary_remote_addr` puts every user in one
+> 5 r/s login bucket. Restore real client addresses (nginx realip:
+> `set_real_ip_from <ingress CIDR>; real_ip_header X-Forwarded-For;` — the CIDR is
+> cluster-specific, *not verified*) or rate-limit at the Ingress. (2) `infra/nginx/nginx.conf`
+> also sets `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`,
+> `proxy_http_version 1.1`, `proxy_connect_timeout 5s` and `proxy_send_timeout 60s`
+> on each proxied location; the k8s config dropped them. The API's audit code prefers
+> the first `X-Forwarded-For` hop (`api/internal/auth/service.go`), so copy them over.
+> (3) The app's own per-IP limiters (`api/internal/ratelimit`) key on the TCP peer and
+> ignore `X-Forwarded-For`, so behind a proxy the edge limit is the real brake.
+
 ## B9. Ingress + TLS
 
 `deploy/k8s/70-ingress.yaml` — the app host routes to `web`; the storage host
@@ -759,6 +915,10 @@ spec:
         backend: { service: { name: rustfs, port: { number: 9000 } } }
 ```
 
+The 32m matches the API's global body cap (`httpx.MaxBytes(32 << 20)`) and nginx's
+`client_max_body_size 32m`; bulk bytes ride presigned PUTs straight to RustFS, which is
+why the storage host needs its own route and certificate.
+
 ## B10. Apply order & bootstrap
 
 ```
@@ -775,7 +935,7 @@ kubectl -n voltedge wait --for=condition=complete job/voltedge-migrate --timeout
 
 # seed: restore a validated dump with the migrate image (carries pg_restore)
 kubectl -n voltedge run restore --rm -it --restart=Never \
-  --image=REG/voltedge-migrate:TAG --env="DATABASE_URL=$DSN" -- \
+  --image=REG/voltedge-migrate:TAG --env="DATABASE_URL=$DSN" --command -- \
   sh -c 'pg_restore --no-owner -d "$DATABASE_URL" /path/to/seeded.dump'   # mount/stream the dump in
 
 # app tier
@@ -788,6 +948,16 @@ kubectl apply -f deploy/k8s/70-ingress.yaml
 kubectl -n voltedge exec deploy/voltedge-api -- \
   sh -c 'AUTHADMIN_PASSWORD=<strong> authadmin create --email admin@example.com --name "Break-glass Admin"'
 ```
+
+> **Corrections.** (1) The migrate image's `ENTRYPOINT` is `bash /migrations/apply.sh`;
+> `kubectl run … -- sh -c …` only replaces CMD, so without `--command` the args are
+> handed to `apply.sh` and the pod re-runs migrations instead of restoring. The dump
+> path in the example does not exist in the image: bake it into a derived image, mount
+> it, or stream it in. (2) The Cluster wait does not cover the pooler; before the Job add
+> `kubectl -n voltedge wait --for=condition=Available deploy/voltedge-db-pooler-rw --timeout=300s`
+> (Deployment name per CNPG convention, *not verified*) and use the direct DSN for the Job
+> and the restore (B5). (3) Order: see the A9 ordering caveat — dump first, then migrate,
+> for a fresh install. *(not verified)*
 
 ## B11. Autoscaling workers on queue depth (KEDA, optional)
 
@@ -807,9 +977,17 @@ spec:
   - type: postgresql
     metadata:
       connectionFromEnv: DATABASE_URL
-      query: "SELECT count(*) FROM ops.export_jobs WHERE status = 'pending'"
+      query: "SELECT count(*) FROM ops.export_jobs WHERE status = 'queued'"
       targetQueryValue: "5"
 ```
+
+> **Correction.** The query used `status = 'pending'`. Migration 0036 constrains
+> `ops.export_jobs.status` to `('queued','running','succeeded','failed','cancelled')`
+> (migration 0102 gives `ops.import_jobs` the same set), so `'pending'` matched nothing
+> and the scaler never left `minReplicaCount`. A job whose worker died stays `running`
+> until its lease expires; count `lease_expires_at < now()` rows too if you want those
+> re-claimable jobs to drive scale-out. The same pattern works for `ops.import_jobs`
+> (`importworker`). KEDA's own behaviour is *not verified* here.
 
 ## B12. Upgrades (zero-downtime)
 
@@ -817,18 +995,27 @@ spec:
 2. **Run the migration Job** on the new tag first; wait for completion. Additive-
    first migrations keep the running pods compatible.
 3. Roll the Deployments: `kubectl -n voltedge set image deploy/voltedge-api api=REG/voltedge-api:TAG`
-   (repeat per Deployment). The rolling update + readiness probe + PDB keep ≥2 API
-   pods serving throughout.
+   (repeat per Deployment; container names are `api`, `exportworker`, `webhookworker`,
+   `fieldsync`, `web`). The rolling update plus the readiness probe keep capacity up:
+   with 3 replicas and the default 25% / 25%, surge rounds up to 1 and unavailable
+   rounds down to 0. The PDB does **not** govern a rolling update — it only limits
+   voluntary evictions such as node drains (correction to the earlier wording).
 4. Breaking schema changes: expand → migrate → deploy → contract across two
    releases (scaling guide §10).
+5. Roll code back with `kubectl -n voltedge rollout undo deploy/voltedge-api`;
+   migrations are not reversed.
 
 ## B13. Verify
 
 ```
-kubectl -n voltedge get pods                      # all Running; api ≥3; fieldsync =1
+kubectl -n voltedge get pods                      # all Running; api ≥3; fieldsync ≥1
 kubectl -n voltedge get cluster voltedge-db       # 3 instances, 1 primary healthy
 kubectl -n voltedge exec deploy/voltedge-api -- wget -qO- http://127.0.0.1:8080/healthz
 ```
+
+A healthy answer is `{"status":"ok"}`; a broken database gives HTTP 503 and
+`{"status":"db unreachable: …"}` (the api image is Alpine, so BusyBox `wget` is there).
+Green probes do not prove the schema exists — `/healthz` only checks the DB answers.
 
 Then from a browser over HTTPS: sign in as the admin, confirm the map renders
 (tiles via `/tiles`), create a feature, run a trace, upload an attachment
@@ -840,20 +1027,26 @@ and confirm no re-login (stateless sessions) and load spreads.
 | Symptom | Cause | Fix |
 |---|---|---|
 | api `CrashLoopBackOff`, DB errors | DSN wrong, or pooler not ready | check `voltedge-secret` DATABASE_URL host = `voltedge-db-pooler-rw`; `kubectl get pooler` ready |
+| api pods Ready but every page errors | schema missing (`/healthz` only pings the DB) | restore the dump and/or run the migrate Job |
 | `pq: SSL required` / TLS errors | CNPG enforces TLS | keep `sslmode=require`; for verify, mount the cluster CA and use `verify-full` |
 | migrate Job fails on re-run | Job object immutable | delete the old Job (or tag its name with the image TAG) before re-apply |
 | presigned attachment URLs 404 | storage host not reachable | confirm the `storage.example.com` Ingress → `rustfs`, and `RUSTFS_PUBLIC_ENDPOINT` matches |
 | login fails, cookie missing | not HTTPS, or insecure-cookies set | ensure Ingress TLS works and `AUTH_INSECURE_COOKIES` is absent |
 | "prepared statement does not exist" | pgdriver vs transaction pooling | set the CNPG pooler `poolMode: session`, or disable statement caching in the DSN |
 | map blank / classes missing | schema not seeded | restore the seeded dump (B10) |
-| two field packs built / corrupt | fieldsync scaled >1 | it must be `replicas: 1`, `strategy: Recreate` |
+| field-pack build backlog | one fieldsync replica; builds are CPU-heavy | raise `FIELDSYNC_WORKER_CONCURRENCY`, add CPU, then add replicas (**corrected**: scaling above 1 is safe — the earlier row blamed it for corrupt packs) |
+| export jobs never finish; KEDA stuck at min | scaler query counts `'pending'` | count `'queued'` (B11) |
+| outbound webhooks dead-letter | `webhookworker` lacks `EXTERNAL_SYSTEMS_ENCRYPTION_KEY` | add the secretKeyRef (B7) |
+| api `CrashLoopBackOff` with "RUSTFS_ENDPOINT is not set" | ConfigMap not wired (`envFrom`) | restore `envFrom: configMapRef: voltedge-env` — a missing endpoint is a fatal boot error, an unreachable RustFS only warns |
+| pods flip Ready/NotReady | probe `timeoutSeconds` (default 1) shorter than the 3 s DB ping in `/healthz` | `timeoutSeconds: 4`; look at pooler saturation |
+| login rate-limits everyone at once | `$binary_remote_addr` is the ingress pod IP | restore client IPs (B8 correction) |
 
 ## B15. Getting started fast
 
 `kompose convert -f docker-compose.prod.yml` produces first-draft manifests — a
 scaffold, **not** this. You still replace Postgres with CloudNativePG, add the
-migration Job / Ingress / HPA / PDB, swap in the web image + ConfigMap, and pin
-`fieldsync` to a singleton. Treat kompose output as a starting point, then apply
+migration Job / Ingress / HPA / PDB, swap in the web image + ConfigMap, and decide the
+`fieldsync` replica count (the earlier text pinned it to a singleton; it is replica-safe). Treat kompose output as a starting point, then apply
 B2–B11.
 
 ---
@@ -874,3 +1067,31 @@ steps are identical**, only the orchestration changes.
 > but have **not** been run in CI here. Validate against your own cluster/Coolify
 > instance — especially the CNPG pooler TLS/auth and the transaction-pooling
 > prepared-statement caveat (scaling guide §5) — before production.
+
+---
+
+## Appendix — corrections and verification
+
+**Corrections made to earlier text** (each checked against the repo):
+
+| # | Where | Was | Now | Evidence |
+|---|---|---|---|---|
+| 1 | A4 override | listed only the nginx.conf mount | `volumes: !override` (base `./web/dist` mount otherwise survives the merge) | `docker-compose.prod.yml` nginx `volumes:`; Compose merge rules |
+| 2 | A6 env | all listed vars assumed to reach containers | only vars the compose references do; `RUSTFS_PUBLIC_USE_SSL`, `SESSION_*`, `EXTERNAL_SYSTEMS_ENCRYPTION_KEY`, `LOG_*`, `OIDC_*` need override wiring | `docker-compose.prod.yml` api/worker `environment:`; `api/internal/export/storage.go` |
+| 3 | A6 SSO | `<provider>` | Azure key is `azuread`; `OIDC_AZURE_REDIRECT_URL`; Google vars | `api/internal/auth/oidc_handlers.go` |
+| 4 | A11, B7, B14 | fieldsync is a singleton, never scale | replica-safe; 1 is a starting choice | compose fieldsync comment; Scaling Guide §8; SKIP LOCKED |
+| 5 | B3 extensions | `postgis`, `pgcrypto` | `postgis`, `citext` (pgcrypto optional) | `migrations/0015`, `0024`; no other `CREATE EXTENSION` |
+| 6 | B5 migrate Job | pooled DSN | direct DSN | compose `bootstrap` comment; runbook §6a |
+| 7 | B7 webhook/import workers | `DATABASE_URL` only | add `EXTERNAL_SYSTEMS_ENCRYPTION_KEY` | `api/cmd/webhookworker/main.go` header; `importworker` calls `secretbox.NewFromEnv` |
+| 8 | B8 web nginx | login limit and proxy headers as given | realip / ingress limit; restore proxy_set_header | `infra/nginx/nginx.conf`; `api/internal/auth/service.go`; `api/internal/ratelimit` |
+| 9 | B10 restore | `kubectl run … -- sh -c` | add `--command` | `deploy/migrate/Dockerfile` ENTRYPOINT |
+| 10 | B11 KEDA | `status = 'pending'` | `status = 'queued'` | `migrations/0036` (and 0102) CHECK |
+| 11 | B12 | "rolling update + readiness + PDB keep ≥2 serving" | PDB governs evictions, not rollouts | Kubernetes semantics *(not verified in repo)* |
+| 12 | B6 notes | (absent) | `/healthz` = 3 s DB ping, no `/readyz`, no SIGTERM handling, `DATABASE_MAX_OPEN_CONNS` unread | `api/cmd/server/main.go` |
+
+**Not verified in the repo** (needs a real Coolify / cluster): Coolify UI steps and
+the additional-compose-files field; whether `.:/workspace` resolves on a Coolify build
+host; the CNPG image name, `-rw` Service and pooler Deployment names, CNPG defaults;
+the realip CIDR; KEDA/HPA defaults used in the simulations; pgdriver prepared-statement
+behaviour under transaction pooling; Helm chart names/flags; the dump-then-migrate
+ordering on a fresh install.

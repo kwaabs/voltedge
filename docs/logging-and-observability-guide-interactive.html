@@ -1,0 +1,1063 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Logging &amp; Observability Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  /* section palette (categorical, validated for both themes) */
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.role{display:inline-block;font:600 11px/1 var(--f-mono);padding:3px 7px;border-radius:3px;letter-spacing:.03em}
+.role.protective{background:var(--red-tint);color:var(--red)}
+.role.switching{background:var(--blue-tint);color:var(--blue)}
+.role.transformer{background:var(--amber-tint);color:var(--amber)}
+.role.source{background:var(--green-tint);color:var(--green)}
+.role.none{background:var(--line2);color:var(--muted)}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.bgrid{display:grid;grid-template-columns:minmax(0,1fr) 110px 150px auto;gap:5px;align-items:center}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+input[type=number],input[type=text],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--acc-deep);font-weight:700}
+.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+.bar{height:18px;background:var(--line2);border-radius:4px;position:relative;overflow:hidden}
+.bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .15s}
+.big{font:800 28px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums;color:var(--acc-deep)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono)}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.chainrow .arr{color:var(--muted);font:600 12px var(--f-mono)}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+
+/* handbook additions */
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+.matrix{border-collapse:collapse;font-size:12px;width:100%}
+.matrix th,.matrix td{padding:4px 6px;text-align:center;border-bottom:1px solid var(--line2)}
+.matrix td:first-child,.matrix th:first-child{text-align:left;position:sticky;left:0;background:var(--raise)}
+.matrix td.y{background:color-mix(in srgb,var(--green) 22%,transparent);color:var(--green);font-weight:700}
+.matrix tr:hover td{background:var(--surface)} .matrix tr:hover td.y{background:color-mix(in srgb,var(--green) 30%,transparent)}
+.tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:10px}
+.tabs button{font:600 11.5px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:6px 9px;border-radius:5px 5px 0 0;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.tabs button[disabled]{opacity:.4;cursor:not-allowed}
+.tree{font:500 13px var(--f-mono)} .tree .n{padding:3px 6px;border-radius:4px;display:inline-block}
+.tree .n.g{background:var(--tint);color:var(--acc-deep);font-weight:700}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+.ants{animation:march .9s linear infinite} @keyframes march{to{stroke-dashoffset:-16}}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sev{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.sev.low{background:var(--line2);color:var(--muted)} .sev.medium{background:var(--blue-tint);color:var(--blue)} .sev.high{background:var(--amber-tint);color:var(--amber)} .sev.critical{background:var(--red-tint);color:var(--red)} .sev.urgent{background:var(--red-tint);color:var(--red)}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.kpi div{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.kpi b{display:block;font:800 22px/1 var(--f-display);font-stretch:80%}
+.kpi span{font:600 10px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rec{border:1px solid var(--line2);border-radius:6px;padding:6px 8px;margin:5px 0;background:var(--raise);font-size:13px}
+.rec .t{font-weight:600}.rec .m{font-size:11.5px;color:var(--muted)}
+.rec .a{margin-top:4px;display:flex;gap:4px;flex-wrap:wrap}
+.state-chip{display:inline-block;font:700 10.5px var(--f-mono);padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.state-chip.applied,.state-chip.completed,.state-chip.resolved{background:var(--green-tint);color:var(--green);border-color:var(--green)} .state-chip.in_progress,.state-chip.work_ordered,.state-chip.assigned{background:var(--tint);color:var(--acc-deep);border-color:var(--acc)} .state-chip.cancelled,.state-chip.dismissed,.state-chip.rejected{background:var(--line2);color:var(--muted)} .state-chip.open,.state-chip.draft,.state-chip.scheduled{background:var(--amber-tint);color:var(--amber);border-color:var(--amber)}
+@media (max-width:760px){.kpi{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .bgrid{grid-template-columns:1fr 1fr}
+  .bgrid>input:first-child{grid-column:1/-1}
+  li,.rec .t,.rec .m{overflow-wrap:anywhere}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* everyday-operations additions */
+.gm{position:relative;border:1px solid var(--line);border-radius:6px 6px 0 0;overflow:hidden;background:var(--bg)}
+.gm-svg{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none}
+.gm-svg .gm-lab{fill:var(--ink);pointer-events:none}
+.gm-svg .gf{cursor:inherit}
+.gm-zoom{position:absolute;left:8px;top:8px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--raise)}
+.gm-zoom button{width:28px;height:28px;border:0;background:none;color:var(--ink);font:700 16px var(--f-mono);cursor:pointer}
+.gm-zoom button+button{border-top:1px solid var(--line)}
+.gm-north{position:absolute;left:8px;top:74px;width:28px;height:28px;border:1px solid var(--line);border-radius:50%;background:var(--raise);display:grid;place-items:center;cursor:pointer;padding:0}
+.gm-ban{position:absolute;left:50%;top:8px;transform:translateX(-50%);max-width:calc(100% - 100px);background:var(--ink);color:var(--bg);font:600 12px var(--f-mono);padding:6px 11px;border-radius:5px;z-index:3;text-align:center}
+.gm-tip{position:absolute;right:8px;bottom:8px;max-width:60%;background:var(--raise);border:1px solid var(--line);border-radius:5px;padding:6px 9px;font:500 12px var(--f-mono);box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.gm-status{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;background:var(--surface);padding:5px 10px;font:500 11.5px var(--f-mono);color:var(--muted)}
+.gm-status b{color:var(--ink);font-weight:600;margin-right:3px}
+.gm-status .gsr{margin-left:auto}
+.gm-status .attr{margin-left:8px;opacity:.8}
+.gsb{font:600 11px var(--f-mono);border:1px solid var(--line);background:var(--raise);color:var(--ink);border-radius:4px;padding:3px 7px;cursor:pointer}
+.gsb:hover{border-color:var(--muted)}
+.goto{font:500 11px var(--f-mono);width:128px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--raise);color:var(--ink)}
+.apid{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.apid.ok{background:var(--green)} .apid.bad{background:var(--red)}
+.story{border-left:3px solid var(--acc);background:var(--surface);padding:10px 16px;border-radius:0 6px 6px 0;margin:16px 0;max-width:78ch;font-size:15px}
+.story>*:last-child{margin-bottom:0}
+.story .who{font:700 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--acc-deep);display:block;margin-bottom:2px}
+.qs{max-width:78ch;margin:16px 0;border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:6px 16px 10px}
+.qs>b.k{display:block;font:700 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--acc-deep);margin:8px 0 0}
+.qs .steps{margin:4px 0 0}
+.ptabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:8px 0}
+.ptabs button{font:600 11px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:5px 8px;border-radius:5px 5px 0 0;cursor:pointer}
+.ptabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.ptabs button[disabled]{opacity:.35;cursor:not-allowed}
+.panelbox{border:1px solid var(--line);border-radius:6px;background:var(--raise);padding:9px 11px;font-size:13px}
+.panelbox h5{margin:0 0 4px;font:700 14px var(--f-display)}
+.kvt{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px;margin:6px 0}
+.kvt dt{font:600 10.5px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+.kvt dd{margin:0;font-family:var(--f-mono);font-size:12px}
+.fld-row{display:grid;grid-template-columns:130px 1fr;gap:6px;align-items:center;margin:5px 0;font-size:12.5px}
+.fld-row label{font:600 11.5px var(--f-mono)}
+.fld-row .rq{color:var(--red);font-weight:800}
+.fld-row.lock input,.fld-row.lock select{opacity:.6}
+.fld-row.chg input,.fld-row.chg select{border-color:var(--amber);background:var(--amber-tint)}
+.tog{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.tog input{accent-color:var(--acc)}
+.dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:60;padding:16px}
+.dlg>div{background:var(--raise);border:1px solid var(--line);border-radius:8px;max-width:420px;padding:16px 18px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.dlg h4{margin-bottom:6px}
+.dlg .a{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.sugg{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:5px;padding:5px 8px;margin:4px 0;font-size:12.5px;background:var(--raise);flex-wrap:wrap}
+.sugg .tx{flex:1;min-width:140px}
+.chipx{font:600 10.5px var(--f-mono)}
+.cardsel{border:1.5px solid var(--line);border-radius:7px;padding:8px 10px;background:var(--raise);cursor:pointer;font-size:13px;text-align:left}
+.cardsel[aria-pressed="true"]{border-color:var(--acc);background:var(--tint)}
+.pop{position:relative}
+.floatp{position:absolute;background:var(--raise);border:1.5px solid var(--line);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:5}
+.floatp .hd{background:var(--surface);border-bottom:1px solid var(--line);padding:6px 10px;font:700 12px var(--f-mono);cursor:grab;display:flex;justify-content:space-between;align-items:center;user-select:none;touch-action:none}
+.floatp .bd{padding:10px;font-size:12.5px;overflow:auto;flex:1}
+.floatp .grip{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 55%,var(--muted) 55%,var(--muted) 62%,transparent 62%,transparent 72%,var(--muted) 72%,var(--muted) 79%,transparent 79%)}
+@media (max-width:760px){
+  .gm-status{font-size:10.5px}
+  .gm-status .gsr{margin-left:0}
+  .goto{width:100px}
+  .fld-row{grid-template-columns:1fr}
+}
+
+[hidden]{display:none!important}
+
+.w-body{overflow-x:auto}
+pre.code{overflow-x:auto;max-width:100%}
+.w-bar{flex-wrap:wrap}
+.w-bar .seg{flex-wrap:wrap}
+.w-bar>*{max-width:100%}
+.w-split{flex-wrap:wrap}
+
+/* logging guide additions */
+.logl{font:12px/1.5 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:6px 0;overflow-x:auto;white-space:pre;max-width:100%}
+.logs{border:1px solid var(--line);border-radius:6px;background:var(--surface);max-height:300px;overflow:auto}
+.logs .r{font:11.5px/1.45 var(--f-mono);padding:3px 8px;border-bottom:1px solid var(--line2);white-space:pre-wrap;overflow-wrap:anywhere}
+.logs .r:last-child{border-bottom:0}
+.logs .r .tm{color:var(--muted)} .logs .r .sv{color:var(--s0);font-weight:600}
+.logs .r.ERROR{background:var(--red-tint)} .logs .r.WARN{background:var(--amber-tint)} .logs .r.raw{opacity:.85}
+.lv{display:inline-block;font:700 10px var(--f-mono);padding:1px 6px;border-radius:9px;border:1px solid var(--line);margin-right:4px}
+.lv.DEBUG{color:var(--muted)} .lv.INFO{color:var(--blue);border-color:var(--blue)} .lv.WARN{color:var(--amber);border-color:var(--amber)} .lv.ERROR{color:var(--red);border-color:var(--red)}
+.q-in{font:500 13px var(--f-mono);width:100%;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:8px 10px}
+.hl{background:var(--tint);border-radius:3px;padding:0 2px}
+.sparkc{display:flex;align-items:flex-end;gap:2px;height:80px;border-bottom:1px solid var(--line)}
+.sparkc i{flex:1;background:var(--s0);min-width:3px;border-radius:2px 2px 0 0}
+.sparkc i.f{background:var(--red)} .sparkc i.p{background:var(--amber)}
+.mx td.me,.mx th.me{background:var(--tint)}
+.good-t{color:var(--green);font-weight:700} .bad-t{color:var(--red);font-weight:700}
+.stepbox{border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:6px 0;background:var(--raise);font-size:13.5px}
+.stepbox.done{border-color:var(--green);background:var(--green-tint)}
+textarea.q-in{min-height:96px;resize:vertical;white-space:pre-wrap}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Logging</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · Model</a><a href="#c2">2 · Configure</a><a href="#c3">3 · Request line</a><a href="#c4">4 · Not logged</a><a href="#c5">5 · Where logs go</a><a href="#c6">6 · Workers</a><a href="#c7">7 · Incident</a><a href="#c8">8 · Reference</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · Logging &amp; Observability · what the system tells you while it works</div>
+  <h1>Stream it.<br><span>Ship it. Find it.</span></h1>
+  <p class="lede">Every VoltEdge binary writes structured lines to stdout and stops caring. This guide is a working log desk: a pipeline you can trace, a request line you can build, a small log estate you can query with LogQL, a retention calculator driven by the real Loki settings, and an incident drill where a user's failed export has to be found from a symptom.</p>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Ada</b> (system administrator) holds <span class="perm">admin:users</span>, host access and the Grafana login. <b>Owen</b> (break-glass admin) holds every app permission, so <span class="perm">admin:users</span> too, but no shell. <b>On-call SRE</b> has the host and Grafana but no app admin. <b>Auditor</b> only reads logs. <b>Priya</b> (dispatcher) is an ordinary user: she can only quote a request id.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">Who this is for</span>
+<p>Operators and administrators running the stack (Docker/Kubernetes/systemd) and anyone diagnosing a production incident. You do not need to read Go, but every claim is grounded in the code, and the places where this edition corrects the older manual are marked <span class="pill stale">corrected</span>. A companion to the <b>Administration &amp; Break-Glass Guide</b>: that covers <i>who can do what</i>, this covers <i>what the system tells you while it does it</i>.</p></div>
+
+<p>The recurring cast: <b>Ada</b> configures logging and stands up the shipper; <b>Owen</b> appears when an incident needs the trail. The running example is one user request that misbehaves, and how its <b>correlation id</b> ties the story together. 🔒 marks an action gated by a permission or environment access, 💡 a tip, ⚠️ a caution. Everything below runs on a simulated estate inside your browser; nothing talks to a server.</p>
+
+<div class="widget" id="w0">
+  <div class="w-head"><span class="eyebrow">Interactive · 1</span><h4>Who may do what</h4></div>
+  <div class="w-body"><div class="tbl" style="margin:0"><table class="matrix mx" id="w0-t"></table></div>
+  <p class="muted" style="font-size:13px;margin:8px 0 0">The highlighted column is the persona chosen in <b>As</b>. Note that the application has exactly one logging permission (<code>admin:users</code>, for the live level screen). Reading logs is governed by the <i>aggregator's</i> access (Chapter 5.3), never by VoltEdge RBAC.</p></div>
+</div>
+
+<!-- ============ CH1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>The model: one seam, structured output</h2><p>Format, level and destination are decided once.</p></div>
+  <p>Every VoltEdge binary logs through a single seam, the <b><code>logx</code></b> package (<code>api/internal/logx</code>). A binary calls <code>logx.Init()</code> as the first thing in <code>main()</code>; that builds the one logger, installs it as the process default, and every line from then on, whether written through <code>logx</code> or a stray standard-library <code>slog</code> call, lands in the same stream in the same shape. Binaries that call it: the API server (<code>cmd/server</code>), <code>webhookworker</code>, <code>importworker</code>, <code>exportworker</code>, <code>fieldsync</code> and <code>mcpserver</code>.</p>
+  <ol class="steps">
+    <li><b>Structured, not prose.</b> Lines are key-value records (JSON in production). <code>"http request" method=GET status=200 duration_ms=14</code> is a set of fields you can filter and aggregate, not a string you grep and hope. "Find every request slower than 500 ms" becomes a query instead of a prayer.</li>
+    <li><b>The app streams; it does not store.</b> VoltEdge writes to <b>stdout</b> and stops caring. It never opens a log file, rotates one, or offers an endpoint to read logs back. Where logs reside is the platform's job (twelve-factor). Chapter 5 is the whole of "so where do they go?".</li>
+    <li><b>OpenTelemetry-compatible names.</b> Fields follow OTel semantic conventions where one exists (<code>http.request.method</code>, <code>url.path</code>, <code>http.response.status_code</code>, <code>user.id</code>). Today it is plain JSON with no OTel SDK; because the names already match, a future OTLP exporter is a one-file change in <code>logx.Init()</code>.</li>
+  </ol>
+  <h3>1.1 Follow a line through the pipeline</h3>
+  <p>Pick a journey. The numbered path is drawn from the real overlay: <code>docker-compose.observability.yml</code>, <code>infra/vector/vector.yaml</code>, <code>infra/loki/config.yaml</code> and <code>infra/logproxy/Caddyfile</code>.</p>
+  <div class="widget" id="w1">
+    <div class="w-head"><span class="eyebrow">Interactive · 2</span><h4>Log pipeline explorer</h4></div>
+    <div class="w-bar" id="w1-b"></div>
+    <div class="w-split"><div class="w-main"><svg id="w1-svg" viewBox="0 0 760 340" width="100%" role="img" aria-label="Log pipeline"></svg></div><div class="w-side" id="w1-out"></div></div>
+  </div>
+  <div class="tip"><b>Tip</b> The base stack has no logging driver configured, so Docker uses <code>json-file</code>. Vector reads the Docker socket, so it does <i>not</i> change the driver, and <code>docker logs</code> keeps working alongside Loki.</div>
+  <h3>1.2 Honest limits of the model</h3>
+  <ul>
+    <li>Not every container speaks JSON. Only the VoltEdge Go binaries do. Postgres, Martin, RustFS and (in the production-shaped stack) nginx write plain text, and the Go panic stack printed by chi's <code>Recoverer</code> goes to <b>stderr</b> as text. Vector ships all of them, so a <code>| json</code> query shows them with a parse error (Chapter 5, Interactive 8).</li>
+    <li>A summary line says <i>that</i> a request failed, not <i>why</i>: handlers answer errors with <code>writeErr</code> and the message travels in the response body, which is deliberately never logged (Chapter 4).</li>
+  </ul>
+</section>
+
+<!-- ============ CH2 ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>Configuring it 🔒</h2><p>Two environment variables, and one live control.</p></div>
+  <p>🔒 These are process environment variables, set wherever you define each service's environment (compose file, k8s manifest, systemd unit) — the same place <code>DATABASE_URL</code> lives. There are exactly <b>two</b> knobs, read once by <code>logx.Init()</code> at startup:</p>
+  <div class="tbl"><table>
+    <tr><th>Variable</th><th>Values</th><th>Default</th><th>Effect</th></tr>
+    <tr><td><code>LOG_FORMAT</code></td><td><code>json</code>, <code>text</code></td><td><code>json</code></td><td><code>json</code> = one JSON object per line (for a shipper). <code>text</code> = human-readable (for a developer at a terminal). Anything that is not <code>text</code> (case-insensitive, trimmed) selects JSON.</td></tr>
+    <tr><td><code>LOG_LEVEL</code></td><td><code>debug</code>, <code>info</code>, <code>warn</code>, <code>error</code></td><td><code>info</code></td><td>Minimum severity emitted; lower is dropped. <code>warning</code> is accepted as <code>warn</code>. An unknown or blank value silently falls back to <code>info</code> — no warning is logged.</td></tr>
+  </table></div>
+  <div class="caution"><b>Corrected</b> The shipped <code>docker-compose.yml</code> lists no <code>LOG_*</code> variables under any service and uses no <code>env_file</code>, so putting <code>LOG_LEVEL</code> in <code>.env</code> alone does <i>not</i> reach the containers. Add it under the service's <code>environment:</code> (example in Chapter 8). <code>.env.example</code> documents the two variables but leaves them commented out.</div>
+  <div class="widget" id="w2">
+    <div class="w-head"><span class="eyebrow">Interactive · 3</span><h4>What does Init() make of my environment?</h4></div>
+    <div class="w-split"><div class="w-side" style="max-width:300px">
+      <div class="ctl"><label for="w2-f">LOG_FORMAT <span class="v" id="w2-fv"></span></label><input type="text" id="w2-f" value="" placeholder="(unset)"><div class="seg" style="margin-top:4px" id="w2-fp"><button data-v="">unset</button><button data-v="text">text</button><button data-v="JSON">JSON</button><button data-v="yaml">yaml</button></div></div>
+      <div class="ctl"><label for="w2-l">LOG_LEVEL <span class="v" id="w2-lv"></span></label><input type="text" id="w2-l" value="" placeholder="(unset)"><div class="seg" style="margin-top:4px" id="w2-lp"><button data-v="">unset</button><button data-v="debug">debug</button><button data-v=" WARNING ">" WARNING "</button><button data-v="verbose">verbose</button></div></div>
+    </div><div class="w-main" id="w2-out"></div></div>
+  </div>
+  <ul>
+    <li><b>Production:</b> leave <code>LOG_FORMAT</code> at <code>json</code> and keep <code>LOG_LEVEL=info</code>. <code>info</code> carries the request summaries and worker lifecycle; <code>warn</code>/<code>error</code> carry the problems.</li>
+    <li><b>Local development:</b> <code>LOG_FORMAT=text</code> for readable output.</li>
+    <li>⚠️ <b>Corrected: <code>debug</code> adds nothing today.</b> A search of <code>api/</code> finds no <code>Debug</code> log call anywhere (only the level plumbing in <code>logx</code>), so <code>LOG_LEVEL=debug</code> currently emits the same lines as <code>info</code>. The older manual promised "everything"; that becomes true only when someone adds debug statements. If you raise it anyway, do it briefly and put it back, because debug output added later may be sensitive.</li>
+    <li>💡 There is no per-package level; the threshold is process-wide. "Just this subsystem" is a filter in the backend (Chapter 5).</li>
+    <li>💡 There is no "off". The quietest level is <code>error</code>.</li>
+  </ul>
+  <h3>2.1 What a level keeps</h3>
+  <p>The request summary line's severity follows its status (5xx error, 4xx warn, else info) so the level setting is also a <i>traffic</i> setting: at <code>warn</code> every successful request line disappears. Slide the threshold over a sample minute.</p>
+  <div class="widget" id="w3">
+    <div class="w-head"><span class="eyebrow">Interactive · 4</span><h4>Level threshold on a sample minute</h4></div>
+    <div class="w-bar"><span class="lab">LOG_LEVEL</span><div class="seg" id="w3-s"><button data-v="DEBUG">debug</button><button data-v="INFO" aria-pressed="true">info</button><button data-v="WARN">warn</button><button data-v="ERROR">error</button></div><span id="w3-n" class="muted" style="font-size:13px"></span></div>
+    <div class="w-body"><div class="logs" id="w3-l"></div><p class="muted" style="font-size:12.5px;margin:8px 0 0">Dropped lines are struck through. Notice that at <b>warn</b> you can no longer see that <code>worker started</code>, or that a 2xx request happened at all, so you cannot compute an error <i>rate</i> from logs alone.</p></div>
+  </div>
+  <h3>2.2 Changing the level live, from the UI 🔒</h3>
+  <p><code>LOG_FORMAT</code> and <code>LOG_LEVEL</code> are read once at boot, so changing the format means editing the environment and restarting. The <b>level</b> can also change at runtime, with no restart, at <b>Admin → Logging</b> (<code>/admin/logging</code>; the API is <code>GET/PUT /log-settings</code>).</p>
+  <p>🔒 Gated on <code>admin:users</code> for <i>both</i> read and write (unlike map-settings): a platform-operations control. Pick a level, press <b>Apply</b>, and it takes effect immediately for the running API server. The choice is validated, <b>persisted first</b> (<code>iam.system_settings</code>, key <code>log_level</code>) and then applied, and it is re-applied at boot <i>over</i> the env default. The handler reads an atomic level variable (<code>logx.SetLevel</code>).</p>
+  <div class="caution"><b>Scope</b> This governs the <b>API server process only</b>. The workers (<code>exportworker</code>, <code>importworker</code>, <code>fieldsync</code>, <code>webhookworker</code>) and <code>mcpserver</code> honour their own <code>LOG_LEVEL</code> and are not changed by this screen.</div>
+  <div class="widget" id="w4">
+    <div class="w-head"><span class="eyebrow">Interactive · 5</span><h4>Admin → Logging, with restarts</h4><span style="flex:1"></span><button class="btn" id="w4-reset">Reset</button></div>
+    <div class="w-bar"><span class="lab">Env LOG_LEVEL</span><div class="seg" id="w4-env"><button data-v="debug">debug</button><button data-v="info" aria-pressed="true">info</button><button data-v="warn">warn</button><button data-v="error">error</button></div>
+      <label class="tog"><input type="checkbox" id="w4-dbfail"> database write fails</label></div>
+    <div class="w-bar"><span class="lab">Choose</span><div class="seg" id="w4-pick"><button data-v="debug">debug</button><button data-v="info">info</button><button data-v="warn">warn</button><button data-v="error">error</button><button data-v="verbose">“verbose”</button></div>
+      <button class="btn pri" id="w4-apply">Apply (PUT /log-settings)</button><button class="btn" id="w4-get">GET</button><button class="btn warn" id="w4-rs-api">Restart API</button><button class="btn warn" id="w4-rs-wk">Restart workers</button></div>
+    <div class="w-split"><div class="w-main"><div class="lab">Last request</div><pre class="code readout" id="w4-req" style="min-height:90px;margin:4px 0 0"></pre></div>
+    <div class="w-side"><dl class="kv"><dt>Env default</dt><dd id="w4-e"></dd><dt>Stored row</dt><dd id="w4-s"></dd><dt>API live level</dt><dd id="w4-a"></dd><dt>Worker level</dt><dd id="w4-w"></dd></dl><div id="w4-m" style="font-size:13px;margin-top:8px"></div></div></div>
+  </div>
+</section>
+
+<!-- ============ CH3 ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>The request log line</h2><p>One summary line per HTTP request, written when it finishes.</p></div>
+  <p>The heart of the API's observability is <b>one summary line per request</b>, written by the middleware in <code>api/internal/httpx/logger.go</code> (it replaces chi's plain-text logger). It is the <i>outermost</i> middleware (<code>r.Use(httpx.Logger(rootLogger))</code> is first in <code>cmd/server/main.go</code>), so even requests rejected later with 401 or 413 get a line and an id. It is emitted at the <b>end</b>, because only then can it see the user the session middleware attached downstream.</p>
+  <div class="tbl"><table>
+    <tr><th>Field</th><th>Meaning</th></tr>
+    <tr><td><code>request_id</code></td><td>Correlation id: 16 hex characters from 8 random bytes (fallback: a timestamp-based id prefixed <code>t</code>). Also the <code>X-Request-Id</code> response header.</td></tr>
+    <tr><td><code>http.request.method</code></td><td>GET, POST, …</td></tr>
+    <tr><td><code>url.path</code></td><td>The path <b>only</b>, never the query string (Chapter 4). Behind the production-shaped nginx the <code>/api</code> prefix has already been stripped (<code>rewrite ^/api/(.*)$ /$1</code>), so you see <code>/export/</code>, not <code>/api/export/</code>.</td></tr>
+    <tr><td><code>http.response.status_code</code></td><td>The status actually written (200 if the handler never called WriteHeader).</td></tr>
+    <tr><td><code>http.response.body.size</code></td><td>Response bytes</td></tr>
+    <tr><td><code>duration_ms</code></td><td>Wall-clock milliseconds to serve (int64)</td></tr>
+    <tr><td><code>client.address</code></td><td>The transport peer IP, port stripped (§3.2)</td></tr>
+    <tr><td><code>user.id</code></td><td>Opaque id of the authenticated user, when there was one (§3.3)</td></tr>
+  </table></div>
+  <p>Severity tracks the status: <b>5xx → error</b>, <b>4xx → warn</b>, else <b>info</b>. Your backend can alert on error lines without comparing the status field. The message is always <code>http request</code>; slog prefixes <code>time</code>, <code>level</code> and <code>msg</code>, and <code>request_id</code> comes right after because it is attached to the request-scoped logger.</p>
+  <div class="widget" id="w5">
+    <div class="w-head"><span class="eyebrow">Interactive · 6</span><h4>Build a request, read its line</h4><span style="flex:1"></span><button class="btn" id="w5-id">New request id</button></div>
+    <div class="w-split"><div class="w-side" style="max-width:310px">
+      <div class="ctl"><label for="w5-m">Method</label><select id="w5-m" class="fld"><option>GET</option><option>POST</option><option>PUT</option></select></div>
+      <div class="ctl"><label for="w5-p">Path + query string</label><input type="text" id="w5-p" value="/export/jobs?token=s3cr3t&amp;q=Feeder%207"></div>
+      <div class="ctl"><label for="w5-st">Status the handler writes</label><select id="w5-st" class="fld"><option>200</option><option>202</option><option>401</option><option>403</option><option>404</option><option>413</option><option>500</option><option value="0">(none: handler returned without WriteHeader)</option></select></div>
+      <div class="ctl"><label for="w5-d">duration_ms <span class="v" id="w5-dv">38</span></label><input type="range" id="w5-d" min="1" max="3000" value="38"></div>
+      <div class="ctl"><label class="tog"><input type="checkbox" id="w5-auth" checked> signed-in user (u_7f3a21)</label></div>
+      <div class="ctl"><label class="tog"><input type="checkbox" id="w5-pan"> handler panics</label></div>
+      <div class="ctl"><label for="w5-lv">LOG_LEVEL</label><select id="w5-lv" class="fld"><option>debug</option><option selected>info</option><option>warn</option><option>error</option></select></div>
+    </div><div class="w-main" id="w5-out"></div></div>
+  </div>
+  <h3>3.1 The correlation id — the single most useful field</h3>
+  <p>Every request is minted a random id that travels two ways: into the logs as <code>request_id</code> (on the summary line <i>and</i> every handler or engine line written while serving that request, because the request-scoped logger carries it down the call stack), and back to the client in the <b><code>X-Request-Id</code></b> response header. When Owen is handed a screenshot of an error, that header is the thread that pulls the whole server-side story out of the logs. 💡 Surface <code>X-Request-Id</code> in client error messages or frontend error reports so the link is always available.</p>
+  <div class="caution"><b>Limits</b> The id is generated per request in the API; it is not read from an incoming <code>X-Request-Id</code>, so an id minted by a proxy will not match. Worker and background lines do not carry a <code>request_id</code>: they use their own job id (Chapter 6). The job id of an export is returned to the client in the 202 response <i>body</i> (<code>{"job_id": …}</code>), which is not logged.</div>
+  <h3>3.2 <code>client.address</code> behind a proxy</h3>
+  <p><code>client.address</code> is the transport peer (<code>r.RemoteAddr</code>) with the port stripped, deliberately <b>not</b> <code>X-Forwarded-For</code>, which any client can forge. ⚠️ Behind a reverse proxy it is the <b>proxy's</b> IP. The production-shaped stack puts nginx in front, sets <code>X-Real-IP</code> and <code>X-Forwarded-For</code> on every upstream request, and the API does <b>not</b> mount <code>middleware.RealIP</code> today, so every line shows nginx's container address. Mounting chi's <code>RealIP</code> ahead of the logger fixes that, but read the rules before you do.</p>
+  <div class="widget" id="w6">
+    <div class="w-head"><span class="eyebrow">Interactive · 7</span><h4>Which address gets logged?</h4></div>
+    <div class="w-split"><div class="w-side" style="max-width:320px">
+      <div class="ctl"><label for="w6-peer">Transport peer (RemoteAddr)</label><input type="text" id="w6-peer" value="172.18.0.7:44210"></div>
+      <div class="ctl"><label for="w6-xff">X-Forwarded-For</label><input type="text" id="w6-xff" value="203.0.113.9"></div>
+      <div class="ctl"><label for="w6-xri">X-Real-IP</label><input type="text" id="w6-xri" value="203.0.113.9"></div>
+      <div class="ctl"><label for="w6-tci">True-Client-IP (sent by the caller)</label><input type="text" id="w6-tci" value=""></div>
+      <div class="ctl"><label class="tog"><input type="checkbox" id="w6-rip"> chi middleware.RealIP mounted ahead of the logger</label></div>
+    </div><div class="w-main"><div class="seg" id="w6-pre"><button data-k="direct">Direct (dev compose)</button><button data-k="nginx" aria-pressed="true">Via nginx, RealIP off</button><button data-k="nginxrip">Via nginx, RealIP on</button><button data-k="forge">RealIP on, caller forges True-Client-IP</button></div><div id="w6-out" style="margin-top:10px"></div></div></div>
+  </div>
+  <h3>3.3 <code>user.id</code> and nothing more</h3>
+  <p>When a request is authenticated, a small middleware placed right after <code>auth.SessionLoader</code> adds <b>only the user's opaque id</b> to a pointer-carried attribute bag that the outer logger reads at the end. Email and display name are kept out. The id answers "who did this?" against <code>iam.users</code> without spilling personal data. An anonymous request simply has no <code>user.id</code>.</p>
+</section>
+
+<!-- ============ CH4 ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>What is deliberately <i>not</i> logged</h2><p>Audit-grade, but privacy-aware.</p></div>
+  <p>The following never appear in a log line, by design:</p>
+  <ul>
+    <li><b>The query string.</b> Only <code>url.path</code> is logged; query parameters can carry tokens, search terms or other sensitive values.</li>
+    <li><b>Request and response bodies.</b> This includes error messages: <code>writeErr</code> puts the reason in the response body, so a 500 summary has no cause on it. Get the text from the user's screenshot, or from the job's stored <code>error</code> column for background work.</li>
+    <li><b>Authorization headers, cookies, CSRF tokens, API tokens.</b></li>
+    <li><b>User PII.</b> Email and display name stay out; only the opaque <code>user.id</code> identifies the actor.</li>
+  </ul>
+  <p>⚠️ This is a contract to <b>preserve</b> when you add logging: log the user <i>id</i>, the <i>path</i>, never a body "just to debug". The value of "audit-grade" collapses the first time a credential lands in an aggregator a wider audience can read. Paste a candidate line or log statement below.</p>
+  <div class="widget" id="w7">
+    <div class="w-head"><span class="eyebrow">Interactive · 8</span><h4>PII / redaction checker</h4></div>
+    <div class="w-bar"><span class="lab">Try</span><div class="seg" id="w7-p"><button data-k="0">Good line</button><button data-k="1">Query string in path</button><button data-k="2">Email and name</button><button data-k="3">Credentials</button><button data-k="4">Body dump (Go)</button></div></div>
+    <div class="w-body"><textarea class="q-in" id="w7-t" aria-label="Log line or statement to check"></textarea><div id="w7-o" style="margin-top:10px"></div><button class="btn pri" id="w7-fix" style="margin-top:8px">Apply safe fixes (JSON lines)</button></div>
+  </div>
+</section>
+
+<!-- ============ CH5 ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>Where the logs go, and how to read them 🔒</h2><p>The app streams; the platform decides the rest.</p></div>
+  <h3>5.1 Out of the box: Docker's json-file driver</h3>
+  <p>No logging driver is configured in <code>docker-compose.yml</code>, so Docker uses <code>json-file</code>. Read with <code>docker logs voltedge-api</code> (add <code>-f</code> to follow) or <code>docker compose logs -f api</code>. <span class="pill stale">corrected</span> Container names carry the <code>voltedge-</code> prefix (<code>container_name: voltedge-api</code>), so the older manual's <code>docker logs api</code> fails; the Compose service name works with <code>docker compose logs api</code>. In the production-shaped file, scaled services (api, workers) have <i>no</i> fixed name, so use <code>docker compose -f docker-compose.prod.yml logs api</code>.</p>
+  <div class="caution"><b>Ephemeral and local</b> Tied to the container, lost when it is removed, not centralised, not searchable across services, and growing on the host disk until something rotates it (no <code>max-size</code> is set). Fine for development; not an observability solution.</div>
+  <p>Because the output is JSON you can pipe it through <code>jq</code>. <span class="pill stale">corrected</span> Keys contain dots, so each must be quoted; the old <code>{url.path, …}</code> object shorthand is a jq syntax error.</p>
+<pre class="code">docker logs voltedge-api | jq 'select(.level=="ERROR")'
+docker logs voltedge-api | jq 'select(.request_id=="a1b2c3d4e5f6a7b8")'
+docker logs voltedge-api | jq -c 'select(.duration_ms &gt; 500) | {path: ."url.path", duration_ms, status: ."http.response.status_code"}'</pre>
+  <p>Non-JSON lines (Postgres, a panic stack) make plain <code>jq</code> stop with a parse error; use <code>jq -R 'fromjson? | select(.level=="ERROR")'</code> to skip them.</p>
+
+  <h3>5.2 For real: ship to an aggregator</h3>
+  <p>For anything beyond one box, run a shipper that tails each service's stdout into a store you can search, dashboard and alert on: <b>Vector</b> (collector) → <b>Loki</b> (store) → <b>Grafana</b> (UI). The lines are already JSON with stable names, so Vector forwards the body untouched with two labels, and everything else is parsed at query time with <code>| json</code>.</p>
+  <p><b>Opt in with one overlay</b> (<code>docker-compose.observability.yml</code>; configs in <code>infra/</code>). Set a read token first, because the proxy refuses to start without one:</p>
+<pre class="code">LOKI_READ_TOKEN=$(openssl rand -hex 32) \
+  docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d</pre>
+  <p>Production-shaped stack: <code>docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml up -d</code>. Grafana is at <code>http://localhost:3708</code> (<code>GRAFANA_PORT</code>), the Loki data source pre-wired. Images are pinned: Loki 3.3.2, Grafana 11.4.0, Vector 0.44.0-alpine, Caddy 2.8-alpine.</p>
+  <h4>Which containers does Vector take, and what are they called?</h4>
+  <p>The rule is two lines of <code>vector.yaml</code>: include containers whose label <code>com.docker.compose.project=voltedge</code>, exclude <code>voltedge-loki</code>, <code>voltedge-vector</code>, <code>voltedge-grafana</code>; the <code>service</code> label is the container name. Everything follows from that.</p>
+  <div class="widget" id="w8">
+    <div class="w-head"><span class="eyebrow">Interactive · 9</span><h4>Collector scope and your selector</h4></div>
+    <div class="w-bar"><span class="lab">Stack</span><div class="seg" id="w8-s"><button data-v="dev" aria-pressed="true">docker-compose.yml</button><button data-v="prod">docker-compose.prod.yml</button></div><span class="lab">Project (-p)</span><input type="text" id="w8-pj" value="voltedge" style="max-width:130px"><span class="lab">API replicas</span><input type="number" id="w8-n" value="3" min="1" max="6" style="max-width:70px"></div>
+    <div class="w-bar"><span class="lab">Selector</span><input type="text" class="q-in" id="w8-q" value="{service=&quot;voltedge-api&quot;}" aria-label="Loki stream selector"></div>
+    <div class="w-body" id="w8-o"></div>
+  </div>
+  <h4>Authenticating external consumers</h4>
+  <p>Loki has <b>no authentication of its own</b> (<code>auth_enabled</code> toggles multi-tenancy, not a login), so the overlay does not publish its port. Other systems read through the bearer-token proxy (<code>infra/logproxy/Caddyfile</code>) on <code>LOKI_PROXY_PORT</code> (default 3709):</p>
+<pre class="code">curl -H "Authorization: Bearer $LOKI_READ_TOKEN" \
+  "http://localhost:3709/loki/api/v1/query_range?query={service=\"voltedge-api\"}"</pre>
+  <div class="widget" id="w9">
+    <div class="w-head"><span class="eyebrow">Interactive · 10</span><h4>Token gate tester</h4></div>
+    <div class="w-bar"><span class="lab">Header sent</span><div class="seg" id="w9-s"><button data-k="none">none</button><button data-k="wrong">Bearer wrong</button><button data-k="ok" aria-pressed="true">Bearer &lt;token&gt;</button><button data-k="bare">&lt;token&gt; (no Bearer)</button><button data-k="space">Bearer &lt;token&gt;␠</button><button data-k="query">token in ?query</button></div></div>
+    <div class="w-bar"><span class="lab">Path</span><div class="seg" id="w9-m"><button data-k="q" aria-pressed="true">GET /loki/api/v1/query_range</button><button data-k="push">POST /loki/api/v1/push</button></div><label class="tog"><input type="checkbox" id="w9-env" checked> LOKI_READ_TOKEN set when starting the overlay</label></div>
+    <div class="w-body" id="w9-o"></div>
+  </div>
+  <div class="caution"><b>Know the limits of the token</b> It is one shared secret with no per-consumer revocation. Because the Caddyfile forwards <i>every</i> path and method once the header matches, the "read" token also lets its holder push to Loki. For several consumers add one matcher per token or front Loki with a real auth service. Grafana's anonymous viewer is a <i>second</i> unauthenticated path on :3708; turn it off with <code>GF_AUTH_ANONYMOUS_ENABLED=false</code> for anything shared. For production move Loki's chunks to object storage; the collector, proxy and Grafana wiring is unchanged.</div>
+
+  <h4>Querying: a small estate to practise on</h4>
+  <p>In Explore the useful queries are:</p>
+<pre class="code">{service="voltedge-api"} | json | http_response_status_code &gt;= 500
+{service="voltedge-api"} | json | request_id="a1b2c3d4e5f6a7b8"
+{project="voltedge"}     | json | level="ERROR"</pre>
+  <p><span class="pill sec">note</span> The repo documents the first query as <code>| json | ."http.response.status_code" &gt;= 500</code>. Loki's JSON parser exposes keys as labels with illegal characters turned into underscores (<code>http_response_status_code</code>, <code>user_id</code>, <code>url_path</code>). The quoted-dot form was <b>not verified</b> against a running Loki here; the underscore form is what the simulator below teaches, and it also accepts the dotted form with a warning.</p>
+  <div class="widget" id="w10">
+    <div class="w-head"><span class="eyebrow">Interactive · 11</span><h4>LogQL query lab on a simulated estate</h4><span style="flex:1"></span><span class="muted" id="w10-c" style="font-size:12.5px"></span></div>
+    <div class="w-bar"><span class="lab">Presets</span><div class="seg" id="w10-p"></div></div>
+    <div class="w-bar"><input type="text" class="q-in" id="w10-q" aria-label="LogQL query" spellcheck="false"></div>
+    <div class="w-body"><div id="w10-m" style="margin-bottom:8px;font-size:13px"></div><div class="logs" id="w10-l" style="max-height:340px"></div><div id="w10-jq" class="muted" style="font-size:12.5px;margin-top:8px"></div></div>
+  </div>
+  <p class="muted" style="font-size:13px">Supported: stream selector (<code>=</code> <code>!=</code> <code>=~</code> <code>!~</code> on <code>service</code>, <code>project</code>), line filters (<code>|=</code> <code>!=</code> <code>|~</code> <code>!~</code>), <code>| json</code>, and label filters (<code>=</code> <code>!=</code> <code>&gt;</code> <code>&gt;=</code> <code>&lt;</code> <code>&lt;=</code> <code>=~</code> <code>!~</code>). A line that is not JSON gets <code>__error__="JSONParserErr"</code> after <code>| json</code> (the Go panic stack and Postgres lines in the estate), and a label filter then drops it. The estate is synthetic; field names, levels and messages mirror the code.</p>
+
+  <h3>5.3 The one rule: don't build a log endpoint 🔒</h3>
+  <p>⚠️ External access to logs is the aggregator's job, governed by <i>its</i> access control, never an application API. A <code>GET /admin/logs</code> route would mean re-implementing a log store, retention and RBAC inside VoltEdge, badly, and widening the blast radius of any auth bug. The boundary is: the app streams, the platform ships, and Loki/Grafana (or equivalent) enforces who may read, with its own authentication. (The one log-related app route, <code>/log-settings</code>, changes verbosity; it returns no log lines.)</p>
+  <h3>5.4 Retention, volume and cost 🔒</h3>
+  <p>The shipped Loki is a single binary on the filesystem: <code>retention_period: 168h</code> (7 days, to match the export/attachment defaults), compactor <code>retention_enabled: true</code>, TSDB schema v13 with a 24 h index period, <code>ingestion_rate_mb: 16</code>, <code>ingestion_burst_size_mb: 32</code>, <code>reject_old_samples: false</code>. Estimate what your traffic costs.</p>
+  <div class="widget" id="w11">
+    <div class="w-head"><span class="eyebrow">Interactive · 12</span><h4>Retention and volume calculator</h4></div>
+    <div class="w-split"><div class="w-side" id="w11-c" style="max-width:320px"></div><div class="w-main" id="w11-o"></div></div>
+  </div>
+  <div class="caution"><b>Assumptions, not repo facts</b> The compression ratio and Docker's per-line wrapper overhead are inputs you should measure on your own data; the retention, rate limits and period come from <code>infra/loki/config.yaml</code>. Label cardinality is why Vector ships only <code>service</code> and <code>project</code>: every distinct label combination is a stream with its own index entries, so putting <code>request_id</code> or <code>user.id</code> in a label would create a stream per request.</div>
+
+</section>
+
+<!-- ============ CH6 ============ -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>Worker and background-job logs</h2><p>Same structure, a job id instead of a request id.</p></div>
+  <p>The HTTP request line is the API's story; the workers (the out-of-band <code>cmd/</code> processes) tell theirs the same structured way. Each long-running worker builds a logger tagged with its identity and threads it through the job, so a line can always be traced to <i>which worker</i> and <i>which job</i>:</p>
+  <ul>
+    <li><code>worker</code> — the family. <span class="pill stale">corrected</span> Seven values exist: <code>webhook</code>, <code>webhook-outbound</code>, <code>import</code>, <code>export</code>, <code>fieldsync</code>, <code>sync</code>, <code>attachment-sweep</code> (the older manual omitted <code>webhook-outbound</code>).</li>
+    <li><code>worker_id</code> — the process: <code>hostname-pid</code>. In a container the hostname is the container id, so two replicas are distinguishable. (The attachment sweep carries <code>worker</code> but no <code>worker_id</code>, and so do the "ignoring invalid env var" warnings printed while reading configuration.)</li>
+    <li>A <b>per-job id</b> — <code>delivery_id</code> (webhook and webhook-outbound; the latter also adds <code>event_type</code>), <code>job_id</code> (import, export), <code>pack_id</code> (fieldsync build), <code>op_id</code> (sync apply). Every line a job emits carries it, so one job's trail filters out exactly like a <code>request_id</code>.</li>
+  </ul>
+  <p>Which binary hosts which family: <code>webhookworker</code> runs <code>webhook</code> and <code>webhook-outbound</code>; <code>exportworker</code> runs <code>export</code> plus the <code>attachment-sweep</code>; <code>fieldsync</code> runs <code>fieldsync</code> (pack builds) and <code>sync</code> (applying device edits) plus its maintenance loop; <code>importworker</code> runs <code>import</code>. The dev <code>docker-compose.yml</code> has services for <code>exportworker</code>, <code>fieldsync</code> and <code>mcpserver</code> only; <code>webhookworker</code> and <code>importworker</code> appear in <code>docker-compose.prod.yml</code> (and <code>task webhookworker-dev</code> for the former).</p>
+  <div class="widget" id="w12">
+    <div class="w-head"><span class="eyebrow">Interactive · 13</span><h4>Worker log anatomy</h4></div>
+    <div class="w-bar"><span class="lab">Family</span><div class="seg" id="w12-f"></div></div>
+    <div class="w-bar"><span class="lab">Event</span><div class="seg" id="w12-e"></div></div>
+    <div class="w-body" id="w12-o"></div>
+  </div>
+  <h3>6.1 What a worker does and does not log</h3>
+  <p>A worker logs <code>worker started</code> at boot (with its concurrency and lease), an <code>error</code> on a failed claim, <code>heartbeat failed</code>, a <code>warn</code> on a <b>lost lease</b>, a panic with its stack, and the exceptional "recording … failed" cases. <span class="pill stale">corrected</span> The ordinary <b>outcome</b> of a job is <i>not</i> a log line: an export or import that fails normally records its reason in the job row (<code>ops.export_jobs.error</code>, shown in the app) and is silent in the logs. The exceptions are fieldsync's <code>pack built</code> (info, with counts and <code>elapsed_ms</code>) and the maintenance/retention lines (<code>scheduler: enqueued rebuild</code>, <code>maintenance: reaped versions</code>, <code>sweep reaped deleted attachments</code>). So to learn why a job failed, read the job's <code>error</code> field first, then use the logs to see panics, lease loss and infrastructure errors.</p>
+  <p>The binaries that install the structured logger are the API server, <code>webhookworker</code>, <code>importworker</code>, <code>exportworker</code>, <code>fieldsync</code> and <code>mcpserver</code>. <span class="pill stale">corrected</span> Boot-time fatals such as a missing <code>DATABASE_URL</code> run <i>after</i> <code>logx.Init()</code>; Go's <code>slog.SetDefault</code> routes the standard <code>log</code> package through the handler at <b>info</b> level, so the final line is an info-level JSON object and — with <code>LOG_LEVEL=warn</code> or <code>error</code> — the process exits with <b>no message at all</b>. (Verified with a Go test program using the same pattern.)</p>
+  <div class="tip"><b>Tip</b> To watch one webhook delivery end to end, filter on its <code>delivery_id</code>; to audit a field-sync apply, filter on <code>op_id</code>. Pick the id, get the whole trail.</div>
+</section>
+
+<!-- ============ CH7 ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>Diagnosing an incident, end to end</h2><p>Two ids and a time window.</p></div>
+  <p>Owen gets: "the export failed for user X at about 14:05 with a strange error." The method:</p>
+  <ol class="steps">
+    <li><b>Client error with <code>X-Request-Id</code>?</b> Filter the API logs on that <code>request_id</code>. Every line the request wrote appears, in order, with <code>user.id</code>, <code>url.path</code> and the final status. Remember the line shows <i>that</i> it failed; the reason text was in the response body, so ask for the screenshot text too.</li>
+    <li><b>Background job (export, webhook)?</b> Move to that worker's logs and filter on the job id. The enqueue response returns it (<code>{"job_id": …}</code>) but the API does not log it, so lacking the id, use the <code>user.id</code> and the time window on the API side, then look for worker lines in the same minutes. Also read the job's stored <code>error</code> (the Exports list in the app).</li>
+    <li><b>Correlate across services.</b> The API line that enqueued the job and the worker line that ran it are close in time; the aggregator lines them up. Workers do not carry <code>user.id</code>, so the bridge is time and the job id.</li>
+    <li><b>Trail too thin?</b> <span class="pill stale">corrected</span> Raising <code>LOG_LEVEL</code> to <code>debug</code> adds nothing today (no debug statements exist). Widen the time window, search the other services, read the job row, and only then consider adding targeted logging in code.</li>
+  </ol>
+  <p>The whole method rests on <code>request_id</code> for the synchronous path and the per-job id for the asynchronous one, plus structured fields that make "this, within that window" a query rather than a scroll.</p>
+  <div class="widget" id="w13">
+    <div class="w-head"><span class="eyebrow">Interactive · 14</span><h4>Incident drill</h4><span class="muted" id="w13-pr" style="font-size:12.5px"></span></div>
+    <div class="w-bar"><span class="lab">Report</span><div class="seg" id="w13-s"><button data-k="0" aria-pressed="true">“Export failed ~14:05”</button><button data-k="1">“Everything is slow”</button><button data-k="2">“Someone keeps hitting a forbidden page”</button></div></div>
+    <div class="w-bar"><input type="text" class="q-in" id="w13-q" aria-label="LogQL for the drill" spellcheck="false"><button class="btn pri" id="w13-run">Run</button></div>
+    <div class="w-split"><div class="w-main"><div id="w13-m" style="font-size:13px;margin-bottom:6px"></div><div class="logs" id="w13-l"></div></div><div class="w-side" id="w13-st"></div></div>
+  </div>
+  <h3>7.1 Alerting on the signal</h3>
+  <p>Severity tracks status exactly so you can alert without parsing it: count error-level API lines, the share of 5xx, slow requests, worker errors, or silence. The repo provisions only the Grafana <b>data source</b> (<code>infra/grafana/provisioning/datasources/loki.yaml</code>); no dashboards or alert rules ship, so you author them in Grafana. Loki's ruler directory is configured but no Alertmanager URL is, so use Grafana-managed alerts (not verified end to end here). Design a rule and replay it over the estate's twenty minutes.</p>
+  <div class="widget" id="w14">
+    <div class="w-head"><span class="eyebrow">Interactive · 15</span><h4>Alert-rule designer</h4></div>
+    <div class="w-split"><div class="w-side" style="max-width:330px">
+      <div class="ctl"><label for="w14-sig">Signal</label><select id="w14-sig" class="fld"></select></div>
+      <div class="ctl"><label for="w14-w">Window, minutes <span class="v" id="w14-wv">3</span></label><input type="range" id="w14-w" min="1" max="10" value="3"></div>
+      <div class="ctl"><label for="w14-t">Threshold <span class="v" id="w14-tv">0</span></label><input type="range" id="w14-t" min="0" max="10" value="0"></div>
+      <div class="ctl"><label for="w14-f">Pending for, minutes <span class="v" id="w14-fv">0</span></label><input type="range" id="w14-f" min="0" max="5" value="0"></div>
+      <button class="btn pri" id="w14-save">Save rule in Grafana</button><div id="w14-lock" style="margin-top:6px"></div>
+    </div><div class="w-main" id="w14-o"></div></div>
+  </div>
+</section>
+
+<!-- ============ CH8 ============ -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>Troubleshooting &amp; quick reference</h2><p>Symptom first, then the live check against the simulations above.</p></div>
+  <p>Search a symptom or open one. The four marked <span class="pill sec">live check</span> read the state of the widgets you configured above (collector scope, persona, token gate, volume calculator), so you can break something on purpose and diagnose it.</p>
+  <div class="widget" id="w16">
+    <div class="w-head"><span class="eyebrow">Interactive · 16</span><h4>Symptom explorer</h4></div>
+    <div class="w-bar"><label class="lab" for="t-q">Search</label><input type="text" id="t-q" placeholder="e.g. 401, debug, empty, json…" style="max-width:320px"><span id="t-n" class="muted" style="font-size:12.5px"></span></div>
+    <div class="w-body" id="t-list" style="padding:0"></div>
+  </div>
+
+  <h3>8.1 Recipe cheat sheet</h3>
+  <div class="widget" id="w17">
+    <div class="w-head"><span class="eyebrow">Interactive · 17</span><h4>Copy-ready recipes</h4></div>
+    <div class="w-bar"><label class="lab" for="rc-q">Filter</label><input type="text" id="rc-q" placeholder="e.g. loki, level, jq" style="max-width:260px"></div>
+    <div class="w-body" id="rc-l"></div>
+  </div>
+
+  <h3>8.2 Quick reference</h3>
+  <p><b>Configuration.</b> <code>LOG_FORMAT</code> = <code>json</code> (default) | <code>text</code>. <code>LOG_LEVEL</code> = <code>info</code> (default) | <code>debug</code> | <code>warn</code> | <code>error</code>. Set them in each service's environment. The API server's level can also be changed live at <b>Admin → Logging</b> (<code>admin:users</code>), which persists and survives a restart; format and the workers' levels stay env-only.</p>
+  <p><b>Key fields.</b> <code>request_id</code> (also the <code>X-Request-Id</code> response header) · <code>http.request.method</code> · <code>url.path</code> · <code>http.response.status_code</code> · <code>http.response.body.size</code> · <code>duration_ms</code> · <code>client.address</code> · <code>user.id</code>. Workers add <code>worker</code> · <code>worker_id</code> · <code>job_id</code>/<code>delivery_id</code>/<code>op_id</code>/<code>pack_id</code>.</p>
+  <p><b>Severity by HTTP status.</b> 5xx → error · 4xx → warn · else info. <b>Never logged.</b> Query strings · request/response bodies · auth headers, cookies, tokens · user email/display name.</p>
+  <p><b>Reading logs.</b> Dev/single box: <code>docker logs voltedge-api</code> (JSON; pipe through <code>jq</code>). Production: ship stdout through Vector → Loki → Grafana (the repo ships Vector; Promtail is mentioned in the older manual but is not provided). Never expose logs through an application endpoint.</p>
+  <p><b>Behind a proxy.</b> <code>client.address</code> is the connection peer, not <code>X-Forwarded-For</code>. Mount chi <code>middleware.RealIP</code> ahead of the logger only behind a proxy that overwrites every forwarded header it reads (<code>True-Client-IP</code>, <code>X-Real-IP</code>, <code>X-Forwarded-For</code>).</p>
+  <div class="tbl"><table><tr><th>Setting</th><th>Value</th><th>Where</th></tr>
+    <tr><td>Grafana</td><td><code>GRAFANA_PORT</code> 3708; admin/admin by default; anonymous Viewer on</td><td>docker-compose.observability.yml</td></tr>
+    <tr><td>Log proxy</td><td><code>LOKI_PROXY_PORT</code> 3709 → Caddy :3100; <code>LOKI_READ_TOKEN</code> required</td><td>same; infra/logproxy/Caddyfile</td></tr>
+    <tr><td>Loki</td><td>3.3.2; expose 3100 only; <code>retention_period</code> 168h; ingestion 16 MB/s, burst 32 MB; TSDB v13</td><td>infra/loki/config.yaml</td></tr>
+    <tr><td>Vector</td><td>0.44.0-alpine; labels <code>service</code> (container name) + <code>project</code>=voltedge; codec text</td><td>infra/vector/vector.yaml</td></tr>
+    <tr><td>Grafana provisioning</td><td>data source only (<code>http://loki:3100</code>)</td><td>infra/grafana/provisioning</td></tr></table></div>
+
+  <h3>8.3 What this edition corrected in the older manual</h3>
+  <ul>
+    <li><code>docker logs api</code> → <code>docker logs voltedge-api</code> or <code>docker compose logs api</code> (container names are prefixed).</li>
+    <li>The jq example <code>{url.path, …}</code> is a syntax error; keys with dots must be quoted (<code>."url.path"</code>).</li>
+    <li><code>LOG_LEVEL=debug</code> currently emits nothing extra: the code has no debug-level log calls.</li>
+    <li>The worker families list was missing <code>webhook-outbound</code>.</li>
+    <li>Boot fatals run after <code>Init()</code> and are bridged at info level (silent under <code>warn</code>/<code>error</code>).</li>
+    <li>Compose does not forward <code>LOG_*</code> from <code>.env</code>; add them to each service's <code>environment:</code>.</li>
+    <li>Job outcomes are stored on the job row, not logged; Loki field names are underscore-normalised (dotted LogQL form not verified).</li>
+  </ul>
+  <p><b>See also:</b> the Administration &amp; Break-Glass Guide, the Commands Cheatsheet, and the Production Deployment &amp; Scaling guide.</p>
+  <div class="callout">The app streams. The platform ships. The aggregator decides who reads. Two ids — the request's and the job's — tie any incident together.</div>
+  <h4 style="margin-top:26px">Check yourself</h4>
+  <div id="qz"></div>
+  <footer><p class="muted" style="font-size:13px">VoltEdge · Logging &amp; Observability — interactive edition. Every widget runs on a synthetic estate held in your browser; nothing here talks to a server, and no real logs, tokens or settings are touched. Levels, field names, config values and middleware order mirror the source in <code>api/internal/logx</code>, <code>api/internal/httpx</code>, <code>api/internal/logsettings</code> and <code>infra/</code>.</p></footer>
+</section>
+
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+function seg(sel,cb){ const el=$(sel); el.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b||b.disabled) return; el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); cb(b)}); }
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nf=(x,d=0)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+/* personas: au=admin:users in the app; env=host/compose env access; gv=can reach Grafana; ge=Grafana admin login; tok=holds LOKI_READ_TOKEN */
+const PERSONAS=[['ada','Ada · System admin',{au:1,env:1,gv:1,ge:1,tok:1}],['owen','Owen · Break-glass admin',{au:1,gv:1}],['oncall','On-call SRE',{env:1,gv:1,ge:1,tok:1}],['aud','Auditor (read-only)',{gv:1,tok:1}],['priya','Priya · Dispatcher',{}]];
+let PERSONA=PERSONAS[0]; const personaL=[];
+const PNAME={au:'admin:users',env:'host / compose environment access',gv:'a route to Grafana',ge:'the Grafana admin login',tok:'the LOKI_READ_TOKEN'};
+const can=p=>!!PERSONA[2][p];
+const lockTip=p=>`<span class="gate locked" title="${esc(PERSONA[1])} lacks ${PNAME[p]}">needs ${PNAME[p]} — switch persona with the “As” selector</span>`;
+function onPersona(fn){ personaL.push(fn); fn(); }
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=PERSONAS.map(p=>`<option value="${p[0]}">${p[1]}</option>`).join(''); sel.onchange=()=>{ PERSONA=PERSONAS.find(p=>p[0]===sel.value); personaL.forEach(f=>f()); }; })();
+const pill=(t,c)=>`<span class="pill ${c||''}">${t}</span>`;
+const lvOf=st=>st>=500?'ERROR':st>=400?'WARN':'INFO';
+const RANK={DEBUG:0,INFO:1,WARN:2,ERROR:3};
+
+/* ===== W0: who may do what ===== */
+onPersona(function(){
+  const A=[['Open Admin → Logging and change the API level','au'],['Set LOG_FORMAT / LOG_LEVEL in the environment and restart','env'],['docker logs / docker compose logs','env'],['Open Grafana → Explore (anonymous Viewer is on by default)','gv'],['Edit dashboards, Grafana alert rules, data sources','ge'],['Query Loki through the bearer-token proxy (:3709)','tok'],['Generate / rotate LOKI_READ_TOKEN (set it, restart the proxy)','env']];
+  $('#w0-t').innerHTML='<tr><th>Action</th>'+PERSONAS.map(p=>`<th class="${p[0]===PERSONA[0]?'me':''}">${p[1].split(' · ')[0]}</th>`).join('')+'</tr>'+A.map(a=>`<tr><td>${a[0]}</td>`+PERSONAS.map(p=>`<td class="${p[2][a[1]]?'y':''} ${p[0]===PERSONA[0]?'me':''}">${p[2][a[1]]?'✔':'·'}</td>`).join('')+'</tr>').join('')+'<tr><td>Quote an <code>X-Request-Id</code> from an error</td>'+PERSONAS.map(p=>`<td class="y ${p[0]===PERSONA[0]?'me':''}">✔</td>`).join('')+'</tr>';
+});
+
+/* ===== W1: pipeline explorer ===== */
+(function(){
+  const N={app:{x:14,y:120,w:130,h:76,t:'VoltEdge',s:'api · workers · stdout',c:'--s0'},
+   docker:{x:200,y:34,w:140,h:58,t:'Docker json-file',s:'default driver',c:'--s8'},
+   vector:{x:200,y:224,w:140,h:58,t:'Vector',s:'docker.sock (ro)',c:'--s1'},
+   loki:{x:398,y:120,w:130,h:76,t:'Loki',s:':3100 expose only',c:'--s2'},
+   grafana:{x:590,y:34,w:150,h:58,t:'Grafana',s:':3708',c:'--s3'},
+   proxy:{x:590,y:224,w:150,h:58,t:'logproxy (Caddy)',s:':3709 → :3100',c:'--s4'},
+   you:{x:14,y:290,w:130,h:40,t:'Operator',s:'shell',c:'--s6'},
+   ext:{x:398,y:290,w:130,h:40,t:'Consumer',s:'curl / SIEM',c:'--s6'}};
+  const A={
+   dl:{t:'docker logs',need:'env',path:[['app','docker','stdout captured by json-file'],['docker','you','docker logs voltedge-api | jq …']],note:'Local to the host and the container: gone when the container is removed, not searchable across services, and unrotated unless you configure rotation (the compose files set no max-size). Fine for dev and one box.'},
+   ship:{t:'Ship a line to Grafana',need:'gv',path:[['app','docker','stdout → json-file'],['docker','vector','Vector tails via /var/run/docker.sock'],['vector','loki','POST to http://loki:3100, labels service + project, body = raw JSON line'],['loki','grafana','Grafana data source http://loki:3100 (provisioned)']],note:'Vector includes containers labelled com.docker.compose.project=voltedge and excludes voltedge-loki, voltedge-vector and voltedge-grafana. The codec is text so the original JSON is the body; fields are unpacked at query time with | json.'},
+   ok:{t:'External query, valid token',need:'tok',path:[['ext','proxy','Authorization: Bearer $LOKI_READ_TOKEN'],['proxy','loki','forwarded unchanged (all paths, all methods)'],['loki','ext','200 + JSON result']],note:'Caddy matches the Authorization header exactly against "Bearer <LOKI_READ_TOKEN>". Anything that matches is reverse-proxied to loki:3100, with no path or method restriction.'},
+   no:{t:'External query, no token',need:'tok',path:[['ext','proxy','no / wrong Authorization header']],stop:'401 text/plain: unauthorized: send \'Authorization: Bearer <token>\'. Nothing is forwarded to Loki; no log body leaks.',note:'The proxy is the only network way to Loki: the overlay uses expose, not ports, for Loki.'},
+   direct:{t:'Straight to Loki :3100',need:'tok',path:[['ext','loki','connect to host:3100']],stop:'Refused. Loki is not published to the host (expose only), because it has no authentication of its own (auth_enabled toggles multi-tenancy, not a login).',note:'Inside the compose network Grafana and Vector reach it as loki:3100.'},
+   anon:{t:'Grafana anonymous viewer',need:'gv',path:[['you','grafana','open :3708, no login (GF_AUTH_ANONYMOUS_ENABLED=true, role Viewer)'],['grafana','loki','Explore → Loki data source']],note:'A second unauthenticated read path, fine for local dev. Set GF_AUTH_ANONYMOUS_ENABLED=false for anything shared; editing already needs the admin login (default admin/admin, change it).'}};
+  const cx=n=>N[n].x+N[n].w/2, cy=n=>N[n].y+N[n].h/2;
+  $('#w1-b').innerHTML=Object.keys(A).map((k,i)=>`<button class="btn" data-k="${k}" aria-pressed="${i===1}">${A[k].t}</button>`).join('');
+  let cur='ship';
+  const edges=[['app','docker'],['docker','vector'],['vector','loki'],['loki','grafana'],['ext','proxy'],['proxy','loki'],['docker','you'],['ext','loki'],['you','grafana']];
+  function paint(){
+    const a=A[cur]; let s=`<defs><marker id="ar" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--acc)"/></marker></defs>`;
+    edges.forEach(e=>{ s+=`<line x1="${cx(e[0])}" y1="${cy(e[0])}" x2="${cx(e[1])}" y2="${cy(e[1])}" stroke="var(--line)" stroke-width="1.5"/>`; });
+    a.path.forEach((p,i)=>{ const x1=cx(p[0]),y1=cy(p[0]),x2=cx(p[1]),y2=cy(p[1]); const mx=x1+(x2-x1)*.5,my=y1+(y2-y1)*.5; s+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${a.stop&&i===a.path.length-1?'var(--red)':'var(--acc)'}" stroke-width="3" stroke-linecap="round" marker-end="url(#ar)"/><circle cx="${mx}" cy="${my}" r="10" fill="var(--acc)"/><text x="${mx}" y="${my+4}" text-anchor="middle" font-size="11" font-weight="700" style="fill:#fff">${i+1}</text>`; });
+    Object.keys(N).forEach(k=>{ const n=N[k]; const on=a.path.some(p=>p[0]===k||p[1]===k); s+=`<g><rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="8" fill="var(--raise)" stroke="var(${n.c})" stroke-width="${on?3:1.5}"/><text x="${n.x+n.w/2}" y="${n.y+n.h/2-1}" text-anchor="middle" font-size="12" font-weight="700">${n.t}</text><text x="${n.x+n.w/2}" y="${n.y+n.h/2+13}" text-anchor="middle" font-size="9.5" style="fill:var(--muted)">${n.s}</text></g>`; });
+    $('#w1-svg').innerHTML=s;
+    const ok=can(a.need);
+    $('#w1-out').innerHTML=`<div>${ok?pill('your persona can do this','fresh'):lockTip(a.need)}</div><ol class="steps" style="margin:10px 0 6px;font-size:13px">${a.path.map(p=>`<li>${N[p[0]].t} → ${N[p[1]].t}: <i>${esc(p[2])}</i></li>`).join('')}</ol>${a.stop?`<div class="caution" style="margin:6px 0"><b>Stops here</b> ${esc(a.stop)}</div>`:''}<p style="font-size:13.5px;margin:6px 0 0">${esc(a.note)}</p>`;
+    $$('#w1-b button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur));
+  }
+  $('#w1-b').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); };
+  onPersona(paint);
+})();
+
+/* ===== W2: Init lab ===== */
+(function(){
+  const LV={debug:'debug',info:'info',warn:'warn',warning:'warn',error:'error'};
+  const sample={time:'2026-10-10T14:05:11.250Z',msg:'http request',request_id:'a1b2c3d4e5f6a7b8','http.request.method':'GET','url.path':'/healthz','http.response.status_code':200,duration_ms:3};
+  function paint(){
+    const f=$('#w2-f').value, l=$('#w2-l').value;
+    const fmt=f.toLowerCase().trim()==='text'?'text':'json';
+    const lk=LV[l.toLowerCase().trim()]; const lvl=lk||'info';
+    $('#w2-fv').textContent='→ '+fmt; $('#w2-lv').textContent='→ '+lvl;
+    const notes=[];
+    if(f.trim()&&fmt==='json'&&f.toLowerCase().trim()!=='json') notes.push(`“${esc(f)}” is not <code>text</code>, so Init falls back to <b>JSON</b> silently.`);
+    if(l.trim()&&!lk) notes.push(`“${esc(l)}” is not a level name, so the lenient env parse falls back to <b>info</b> with no warning. (The Admin screen is strict: the same word gets a 400.)`);
+    if(l.trim()&&l.trim().toLowerCase()==='warning') notes.push('<code>warning</code> is accepted as an alias of <code>warn</code>.');
+    if(l!==l.trim()) notes.push('Surrounding whitespace is trimmed.');
+    if(lvl==='debug') notes.push('No <code>Debug</code> call exists in <code>api/</code> today, so this prints the same lines as info.');
+    const line=fmt==='json'?JSON.stringify({time:sample.time,level:'INFO',msg:sample.msg,request_id:sample.request_id,'http.request.method':'GET','url.path':'/healthz','http.response.status_code':200,duration_ms:3}):`time=${sample.time} level=INFO msg="http request" request_id=${sample.request_id} http.request.method=GET url.path=/healthz http.response.status_code=200 duration_ms=3`;
+    const shown=RANK[lvl.toUpperCase()]<=RANK.INFO;
+    $('#w2-out').innerHTML=`<dl class="kv"><dt>Handler</dt><dd>${fmt==='json'?'slog.JSONHandler':'slog.TextHandler'} → os.Stdout</dd><dt>Minimum</dt><dd>${lvl}</dd></dl><div class="lab" style="margin-top:8px">A 200 request summary would print</div><div class="logl">${shown?esc(line):'(dropped: info is below '+lvl+')'}</div>${notes.map(n=>`<div class="tip" style="margin:6px 0">${n}</div>`).join('')}`;
+  }
+  $('#w2-f').oninput=$('#w2-l').oninput=paint;
+  $('#w2-fp').onclick=e=>{const b=e.target.closest('button');if(b){$('#w2-f').value=b.dataset.v;paint();}};
+  $('#w2-lp').onclick=e=>{const b=e.target.closest('button');if(b){$('#w2-l').value=b.dataset.v;paint();}};
+  paint();
+})();
+/* ===== W3: level threshold ===== */
+(function(){
+  const L=[['DEBUG','(no debug call exists in the code today)',1],['INFO','worker started concurrency=2 lease=1m0s',0],['INFO','http request GET /healthz 200 3 ms',0],['INFO','http request POST /export/ 202 38 ms',0],['WARN','http request GET /export/jobs 401 2 ms',0],['INFO','http request GET /map-settings/ 200 9 ms',0],['WARN','http request PUT /log-settings/ 403 4 ms',0],['WARN','lost lease, aborting job job_id=3f6c…',0],['ERROR','http request POST /export/ 500 812 ms',0],['ERROR','claim failed err="connection refused"',0],['INFO','http request GET /export/jobs 200 21 ms',0],['INFO','pack built features=18204 elapsed_ms=41230',0]];
+  let cur='INFO';
+  function paint(){ let k=0; $('#w3-l').innerHTML=L.map(r=>{ if(r[2]&&cur!=='DEBUG') return ''; const on=RANK[r[0]]>=RANK[cur]; if(on)k++; return `<div class="r ${r[0]}" style="${on?'':'text-decoration:line-through;opacity:.45'}"><span class="lv ${r[0]}">${r[0]}</span>${esc(r[1])}</div>`; }).join(''); $('#w3-n').textContent=k+' of '+L.filter(r=>!r[2]||cur==='DEBUG').length+' lines emitted'; }
+  seg('#w3-s',b=>{cur=b.dataset.v;paint();}); paint();
+})();
+/* ===== W4: Admin → Logging ===== */
+(function(){
+  let env='info', stored=null, api='info', wk='info', pick='info', last='';
+  const OPT=['debug','info','warn','error'];
+  function sync(){ $('#w4-e').textContent=env; $('#w4-s').textContent=stored||'(no row)'; $('#w4-a').textContent=api; $('#w4-w').textContent=wk; $('#w4-req').textContent=last||'(press GET or Apply)';
+    $('#w4-m').innerHTML=can('au')?pill('you hold admin:users','fresh'):lockTip('au'); $$('#w4-pick button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===pick)); $$('#w4-env button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===env)); }
+  function gate(m){ if(PERSONA[0]==='priya'||can('au')){ return PERSONA[0]==='priya'?'403 {"error":"you do not have the required permission (admin:users)"}':null; } return '403 {"error":"you do not have the required permission (admin:users)"}'; }
+  function call(m){ const g=gate(m); const hdr=m==='GET'?'GET /log-settings/':`PUT /log-settings/  {"level":"${pick}"}`;
+    if(g){ last=hdr+'\n→ '+g+'\n(RequirePermission(admin:users, admin:users): even the GET needs it)'; return sync(); }
+    if(m==='GET'){ last=hdr+`\n→ 200 {"level":"${api}","options":["debug","info","warn","error"]}`; return sync(); }
+    if(!OPT.includes(pick)){ last=hdr+'\n→ 400 {"error":"level must be one of: debug, info, warn, error"}\n(nothing persisted, nothing applied)'; return sync(); }
+    if($('#w4-dbfail').checked){ last=hdr+'\n→ 500 {"error":"could not save the log level"}\n(persist-before-apply: the running level is unchanged)'; return sync(); }
+    stored=pick; api=pick; last=hdr+`\n→ 200 {"level":"${pick}","options":[…]}\n(row upserted in iam.system_settings, then logx.SetLevel)`; sync(); }
+  seg('#w4-env',b=>{env=b.dataset.v;sync();}); seg('#w4-pick',b=>{pick=b.dataset.v;sync();});
+  $('#w4-apply').onclick=()=>call('PUT'); $('#w4-get').onclick=()=>call('GET');
+  $('#w4-rs-api').onclick=()=>{ if(!can('env')){last='Restart API → needs host / compose access. Switch persona with the “As” selector.';return sync();} api=stored||env; last=`API restarted: Init() read LOG_LEVEL=${env}; LoadPersistedLevel ${stored?'found "'+stored+'" and re-applied it over the env default':'found no row, so the env default stays'}.\nlive level = ${api}`; sync(); };
+  $('#w4-rs-wk').onclick=()=>{ if(!can('env')){last='Restart workers → needs host / compose access. Switch persona with the “As” selector.';return sync();} wk=env; last=`Workers restarted: they read only LOG_LEVEL=${env}. The stored row is never consulted by a worker.\nworker level = ${wk}`; sync(); };
+  $('#w4-reset').onclick=()=>{env='info';stored=null;api='info';wk='info';pick='info';last='';$('#w4-dbfail').checked=false;sync();};
+  onPersona(sync);
+})();
+
+/* ===== W5: request line ===== */
+const RIDS=['a1b2c3d4e5f6a7b8','9c1e4b7a2d5f8036','0f3d8a6b1c7e4952','e57b02c9a4d16f38'];
+let ridI=0;
+(function(){
+  const levelThreshold=()=>$('#w5-lv').value.toUpperCase();
+  function paint(){
+    let m=$('#w5-m').value, raw=$('#w5-p').value, st=+$('#w5-st').value, d=+$('#w5-d').value, auth=$('#w5-auth').checked, pan=$('#w5-pan').checked;
+    $('#w5-dv').textContent=d;
+    const path=raw.split('?')[0], q=raw.includes('?')?raw.slice(raw.indexOf('?')+1):'';
+    let status=st; if(pan) status=500; if(status===0) status=200;
+    const lvl=lvOf(status), rid=RIDS[ridI%RIDS.length];
+    const o={time:'2026-10-10T14:05:11.250Z',level:lvl,msg:'http request',request_id:rid,'http.request.method':m,'url.path':path,'http.response.status_code':status,'http.response.body.size':status>=400?64:1280,duration_ms:d,'client.address':'172.18.0.1'}; if(auth&&status!==401) o['user.id']='u_7f3a21';
+    const shown=RANK[lvl]>=RANK[levelThreshold()];
+    $('#w5-out').innerHTML=`<div class="kv"><span>Response header</span><b>X-Request-Id: ${rid}</b></div><div class="lab" style="margin-top:8px">Summary line <span class="lv ${lvl}">${lvl}</span> ${shown?'':'<span class="pill stale">dropped by LOG_LEVEL</span>'}</div><div class="logl" style="${shown?'':'opacity:.4;text-decoration:line-through'}">${esc(JSON.stringify(o,null,1).replace(/\n\s*/g,' '))}</div>`+
+    `<div class="lab" style="margin-top:8px">What you sent that is <u>not</u> in the line</div><ul style="font-size:13.5px;margin:4px 0">${q?`<li>query string <code>${esc(q)}</code> (only <code>url.path</code> is kept)</li>`:'<li>(no query string)</li>'}<li>request and response bodies, <code>Authorization</code>, cookies, CSRF and API tokens</li><li>email and display name</li></ul>`+
+    (pan?`<div class="caution"><b>Panic</b> chi's <code>Recoverer</code> sits after the logger. It prints the stack to <b>stderr</b> as plain text (not JSON, not via logx) and writes a 500, so the summary is still logged at error level.</div>`:'')+
+    (st===0?`<div class="tip"><b>Tip</b> A handler that never calls WriteHeader is logged as 200, matching what the client received.</div>`:'')+
+    (st===401&&auth?`<div class="tip"><b>Tip</b> A 401 means the session never resolved, so there is no <code>user.id</code> on the line even if you ticked signed-in.</div>`:'');
+  }
+  ['#w5-m','#w5-p','#w5-st','#w5-d','#w5-auth','#w5-pan','#w5-lv'].forEach(s=>$(s).addEventListener('input',paint)); $('#w5-id').onclick=()=>{ridI++;paint();}; paint();
+})();
+/* ===== W6: client.address ===== */
+(function(){
+  const P={direct:['172.18.0.1:51322','','','',false],nginx:['172.18.0.7:44210','203.0.113.9','203.0.113.9','',false],nginxrip:['172.18.0.7:44210','203.0.113.9','203.0.113.9','',true],forge:['172.18.0.7:44210','203.0.113.9','203.0.113.9','198.51.100.66',true]};
+  const bare=a=>{ const i=a.lastIndexOf(':'); return a.includes(']')||(a.split(':').length>2)?a:(i>0?a.slice(0,i):a); };
+  const isIP=s=>/^(\d{1,3}\.){3}\d{1,3}$/.test(s)||/^[0-9a-f:]+:[0-9a-f:]*$/i.test(s);
+  function paint(){
+    let peer=$('#w6-peer').value.trim(), xff=$('#w6-xff').value.trim(), xri=$('#w6-xri').value.trim(), tci=$('#w6-tci').value.trim(), rip=$('#w6-rip').checked;
+    let addr=peer, why='RealIP is not mounted: RemoteAddr is used as-is.';
+    if(rip){ let ip='',src=''; if(tci){ip=tci;src='True-Client-IP';} else if(xri){ip=xri;src='X-Real-IP';} else if(xff){ip=xff.split(',')[0].trim();src='first X-Forwarded-For entry';} if(ip&&isIP(ip)){ addr=ip; why=`RealIP replaces RemoteAddr with <b>${src}</b> (checked in the order True-Client-IP, X-Real-IP, X-Forwarded-For).`; } else why=ip?`RealIP found “${esc(ip)}” (${src}) but it is not a valid IP, so it is ignored.`:'RealIP found no forwarded header; RemoteAddr is kept.'; }
+    const logged=bare(addr);
+    const spoof=rip&&tci&&logged===tci;
+    $('#w6-out').innerHTML=`<div class="kv"><span>client.address</span><b style="font-size:16px">${esc(logged)}</b></div><p style="font-size:13.5px">${why}</p>`+
+     (!rip&&peer.startsWith('172.18.0.7')?'<div class="caution"><b>As deployed today</b> Behind nginx every request is attributed to the proxy container, so per-client forensics from logs is impossible until RealIP (or proxy protocol) is added. nginx’s own access log does record <code>$remote_addr</code>, but as plain text.</div>':'')+
+     (spoof?'<div class="caution"><b>Spoofed</b> The caller chose their logged address. This nginx config sets X-Real-IP and X-Forwarded-For but does not clear a client-sent <code>True-Client-IP</code>, and RealIP trusts that header first. Mount RealIP only behind a proxy that overwrites or strips every one of these headers.</div>':'')+
+     (rip&&!spoof&&xff.includes(',')?'<div class="tip"><b>Tip</b> A leftmost X-Forwarded-For entry is whatever the first client claimed; nginx’s <code>$proxy_add_x_forwarded_for</code> appends to a client-supplied chain rather than replacing it.</div>':'');
+  }
+  ['#w6-peer','#w6-xff','#w6-xri','#w6-tci','#w6-rip'].forEach(s=>$(s).addEventListener('input',paint));
+  $('#w6-pre').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; const p=P[b.dataset.k]; $('#w6-peer').value=p[0];$('#w6-xff').value=p[1];$('#w6-xri').value=p[2];$('#w6-tci').value=p[3];$('#w6-rip').checked=p[4]; $$('#w6-pre button').forEach(x=>x.setAttribute('aria-pressed',x===b)); paint(); };
+  paint();
+})();
+
+/* ===== W7: redaction checker ===== */
+(function(){
+  const PRE=['{"time":"2026-10-10T14:05:11Z","level":"INFO","msg":"http request","request_id":"a1b2c3d4e5f6a7b8","http.request.method":"GET","url.path":"/export/jobs","http.response.status_code":200,"duration_ms":21,"user.id":"u_7f3a21"}',
+   '{"level":"INFO","msg":"http request","url.path":"/export/jobs?token=s3cr3t&q=Feeder%207","http.response.status_code":200}',
+   '{"level":"INFO","msg":"export requested","email":"priya@example.com","display_name":"Priya Mensah","user.id":"u_7f3a21"}',
+   '{"level":"DEBUG","msg":"upstream call","Authorization":"Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig","cookie":"session=abc123","x-csrf-token":"9f8e"}',
+   'logx.From(ctx).Info("create feature", "body", string(b), "email", u.Email, "user.id", u.ID)'];
+  const KEYS=[[/^(authorization|cookie|set-cookie|x-csrf-token|csrf|x-api-key|api_?key|token|secret|password|passwd|access_?token)$/i,'critical','credential field'],[/^(email|e-mail|display_?name|full_?name|name|phone)$/i,'high','personal data field'],[/^(body|payload|request_?body|response_?body|req\.body)$/i,'high','body dump'],[/^(url\.query|query|raw_?query|url\.full)$/i,'high','query string / full URL']];
+  function analyse(t){ const f=[]; let j=null; try{ j=JSON.parse(t); }catch(e){}
+    const add=(sev,what,fix)=>f.push({sev,what,fix});
+    if(j){ Object.keys(j).forEach(k=>{ const v=String(j[k]); KEYS.forEach(r=>{ if(r[0].test(k)) add(r[1],`key <code>${esc(k)}</code>: ${r[2]}`,'remove it; identify the actor with user.id'); }); if(/^url\./.test(k)&&v.includes('?')) add('high',`<code>${esc(k)}</code> contains a query string`,'log the path only'); if(/@/.test(v)&&/[\w.+-]+@[\w-]+\.[\w.-]+/.test(v)&&!/^email$/i.test(k)) add('high',`an email address is in <code>${esc(k)}</code>`,'log user.id'); if(/^Bearer\s|eyJ[\w-]{6,}\.[\w-]+\./.test(v)) add('critical',`a bearer/JWT value is in <code>${esc(k)}</code>`,'never log it'); });
+    } else {
+      [[/"(body|payload)"\s*,\s*string\(|\.Body\b|string\(b\)/,'high','a request/response body is being logged','drop it'],[/\bEmail\b|"email"|DisplayName|"display_?name"/i,'high','email / display name is logged','log u.ID as "user.id"'],[/Authorization|Cookie|"token"|Secret|Password/i,'critical','a credential-like value is logged','never log it'],[/r\.URL\.(RawQuery|String\(\))|"url\.full"/,'high','query string / full URL is logged','log r.URL.Path']].forEach(r=>{ if(r[0].test(t)) add(r[1],r[2],r[3]); });
+    }
+    if(/[\w.+-]+@[\w-]+\.[\w.-]+/.test(t)&&!f.some(x=>/email/.test(x.what))) add('high','an email address appears in the text','log user.id');
+    return {f,j};
+  }
+  function paint(){ const t=$('#w7-t').value; const {f,j}=analyse(t); $('#w7-fix').style.display=j&&f.length?'':'none';
+    $('#w7-o').innerHTML=!t.trim()?'':f.length?f.map(x=>`<div class="stepbox"><span class="sev ${x.sev==='critical'?'critical':'high'}">${x.sev}</span> ${x.what} — <i>${x.fix}</i></div>`).join(''):`<div class="stepbox done"><b>✔ Clean.</b> Only paths, ids, status, durations and an opaque <code>user.id</code>.</div>`; }
+  $('#w7-p').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; $('#w7-t').value=PRE[+b.dataset.k]; $$('#w7-p button').forEach(x=>x.setAttribute('aria-pressed',x===b)); paint(); };
+  $('#w7-t').oninput=paint;
+  $('#w7-fix').onclick=()=>{ try{ const j=JSON.parse($('#w7-t').value); Object.keys(j).forEach(k=>{ if(KEYS.some(r=>r[0].test(k))) delete j[k]; else if(typeof j[k]==='string'){ if(/^url\./.test(k)) j[k]=j[k].split('?')[0]; if(/^Bearer\s|eyJ/.test(j[k])||/[\w.+-]+@[\w-]+\.[\w.-]+/.test(j[k])) delete j[k]; } }); $('#w7-t').value=JSON.stringify(j); paint(); }catch(e){} };
+  $('#w7-t').value=PRE[2]; paint();
+})();
+/* ===== W8: collector scope ===== */
+(function(){
+  const EXC=['voltedge-loki','voltedge-vector','voltedge-grafana'];
+  function names(stack,n,proj){
+    const ov=['voltedge-loki','voltedge-logproxy','voltedge-vector','voltedge-grafana'].map(x=>[x,'overlay']);
+    if(stack==='dev') return [['voltedge-postgres','infra'],['voltedge-martin','infra'],['voltedge-rustfs','infra'],['voltedge-api','app'],['voltedge-exportworker','app'],['voltedge-mcpserver','app'],['voltedge-fieldsync','app'],['voltedge-gitbash','tool'],...ov];
+    const sc=(s,k)=>[...Array(k)].map((_,i)=>[`${proj}-${s}-${i+1}`,'app (scaled, name assumed)']);
+    return [['voltedge-nginx','infra'],['voltedge-pgbouncer','infra'],['voltedge-postgres','infra'],...sc('api',n),...sc('exportworker',2),...sc('webhookworker',1),...sc('importworker',1),['voltedge-mcpserver','app'],['voltedge-fieldsync','app'],['voltedge-rustfs','infra'],['voltedge-martin','infra'],...ov];
+  }
+  let stack='dev';
+  function matcher(q){ const ms=[...q.matchAll(/([a-z_]+)\s*(=~|!~|!=|=)\s*"([^"]*)"/g)]; return nm=>ms.length&&ms.every(m=>{ if(m[1]==='project') return test(m[2],m[3],'voltedge'); if(m[1]==='service') return test(m[2],m[3],nm); return false; }); }
+  function test(op,v,x){ if(op==='=') return x===v; if(op==='!=') return x!==v; const r=new RegExp('^(?:'+v+')$'); return op==='=~'?r.test(x):!r.test(x); }
+  function paint(){ const proj=$('#w8-pj').value.trim()||'voltedge', n=Math.max(1,+$('#w8-n').value||1), q=$('#w8-q').value; const nm=names(stack,n,proj); const mt=matcher(q);
+    let rows=nm.map(c=>{ const proj_ok=proj==='voltedge'; const ing=proj_ok&&!EXC.includes(c[0]); const hit=ing&&mt(c[0]); return `<tr><td><code>${esc(c[0])}</code></td><td>${esc(c[1])}</td><td>${ing?'<span class="ok">shipped</span>':`<span class="no">${proj_ok?'excluded by exclude_containers':'project label ≠ voltedge'}</span>`}</td><td>${hit?'<span class="ok">✔ matches</span>':'·'}</td></tr>`; }).join('');
+    const hits=nm.filter(c=>proj==='voltedge'&&!EXC.includes(c[0])&&mt(c[0])).length;
+    $('#w8-o').innerHTML=`<div class="tbl" style="margin:0 0 8px"><table><tr><th>Container</th><th>Kind</th><th>Vector</th><th>Selector</th></tr>${rows}</table></div>`+
+     (proj!=='voltedge'?'<div class="caution"><b>Nothing is ingested.</b> <code>include_labels</code> pins <code>com.docker.compose.project=voltedge</code>. Run with <code>-p voltedge</code> or edit <code>infra/vector/vector.yaml</code>.</div>':'')+
+     (hits===0&&proj==='voltedge'?'<div class="caution"><b>Selector matches no stream.</b> '+(stack==='prod'?'The production-shaped file gives scaled services no <code>container_name</code>, so the <code>service</code> label is the generated name (Compose v2 style <code>project-service-N</code>; the exact form is not verified in the repo). Use a regex: <code>{service=~"voltedge-api.*"}</code>.':'Check the container name; labels are the full container_name.')+'</div>':'')+
+     `<div class="tip"><b>Also shipped</b> <code>voltedge-logproxy</code> is not in the exclude list, so Caddy's own output goes to Loki. Postgres, Martin, RustFS and nginx lines are plain text.</div>`; }
+  seg('#w8-s',b=>{stack=b.dataset.v;$('#w8-q').value=stack==='dev'?'{service="voltedge-api"}':'{service="voltedge-api"}';paint();});
+  ['#w8-pj','#w8-n','#w8-q'].forEach(s=>$(s).addEventListener('input',paint)); paint();
+})();
+/* ===== W9: token gate ===== */
+(function(){
+  let h='ok', m='q';
+  function paint(){ const envOk=$('#w9-env').checked; let st,body,go;
+    const hdr={none:'(no Authorization header)',wrong:'Authorization: Bearer 0000…',ok:'Authorization: Bearer $LOKI_READ_TOKEN',bare:'Authorization: $LOKI_READ_TOKEN',space:'Authorization: Bearer $LOKI_READ_TOKEN␠',query:'(token as ?token=… in the URL)'}[h];
+    if(!envOk){ $('#w9-o').innerHTML='<div class="fbox bad">docker compose refuses to start the overlay: <code>set LOKI_READ_TOKEN to a strong secret before starting the observability overlay</code> (the <code>:?</code> guard). The proxy can never run with an empty token.</div>'; return; }
+    const okh=h==='ok';
+    if(okh){ st=200; go=true; body=m==='q'?'Loki query JSON (status "success", streams…)':'Loki accepts the push (a 204 in practice; Caddy applies no method or path restriction)'; }
+    else { st=401; go=false; body="unauthorized: send 'Authorization: Bearer <token>'"; }
+    const why=okh?'The header equals "Bearer " + the token exactly.':h==='space'?'The match is an exact comparison of the whole header; a trailing space does not equal it (Caddyfile: "Exact-match"). Exact case handling of the scheme word is not verified here.':h==='query'?'Only the Authorization header is consulted.':'The header does not equal "Bearer <token>".';
+    $('#w9-o').innerHTML=`<div class="kv"><span>Sent</span><b>${m==='q'?'GET':'POST'} ${esc(hdr)}</b></div><div class="${st===200?'good-t':'bad-t'}" style="font-size:18px;margin:6px 0">${st}${st===401?' Unauthorized':' OK'}</div><div class="logl">${esc(body)}</div><p style="font-size:13.5px">${why} ${go?'Forwarded to <code>loki:3100</code>.':'Not forwarded; Content-Type is text/plain and no log data leaks.'}</p>`+(can('tok')||!okh?'':'<div>'+lockTip('tok')+' (you would not have a valid token)</div>'); }
+  seg('#w9-s',b=>{h=b.dataset.k;paint();}); seg('#w9-m',b=>{m=b.dataset.k;paint();}); $('#w9-env').onchange=paint; onPersona(paint);
+})();
+/* ===== W11: volume calculator ===== */
+(function(){
+  const C=[['rpm','HTTP requests per minute (all API replicas)',1,3000,300],['lb','Bytes per request line (a typical JSON summary is ~330)',150,900,330],['wl','Worker + other app lines per minute',0,600,20],['tb','Bytes per other line',100,2000,260],['ex','Plain-text infra lines per minute (postgres, nginx…)',0,3000,60],['cr','Loki compression ratio (assumption)',2,20,8],['ret','retention_period, hours (shipped: 168)',24,2160,168],['fr','Free disk for logs on the host, GB',1,500,20],['dock','Docker json-file per-line overhead, bytes (assumption)',0,120,50]];
+  $('#w11-c').innerHTML=C.map(c=>`<div class="ctl"><label for="v-${c[0]}">${c[1]} <span class="v" id="vv-${c[0]}">${c[4]}</span></label><input type="range" id="v-${c[0]}" min="${c[2]}" max="${c[3]}" value="${c[4]}"></div>`).join('');
+  function paint(){ const v={}; C.forEach(c=>{v[c[0]]=+$('#v-'+c[0]).value; $('#vv-'+c[0]).textContent=nf(v[c[0]]);});
+    const lines=v.rpm+v.wl+v.ex, bytesMin=v.rpm*v.lb+v.wl*v.tb+v.ex*160; const perDay=bytesMin*1440; const gbDay=perDay/1e9; const stored=gbDay/v.cr*(v.ret/24);
+    const mbs=bytesMin/60/1e6; const dockGB=(bytesMin+lines*v.dock)*1440/1e9;
+    const headroom=16/Math.max(mbs,1e-9);
+    $('#w11-o').innerHTML=`<div class="kpi"><div><b>${nf(lines*1440/1e6,2)}M</b><span>lines / day</span></div><div><b>${nf(gbDay,2)} GB</b><span>raw / day</span></div><div><b>${nf(stored,2)} GB</b><span>Loki disk at steady state</span></div><div><b>${nf(mbs*1000,1)} KB/s</b><span>avg ingest</span></div></div>`+
+    `<dl class="kv"><dt>Rate limit</dt><dd>${nf(mbs,4)} MB/s of 16 MB/s (ingestion_rate_mb): ${nf(headroom,0)}× headroom; burst limit 32 MB</dd><dt>Retention</dt><dd>${v.ret} h = ${nf(v.ret/24,1)} days${v.ret!==168?' (shipped value is 168 h; edit infra/loki/config.yaml)':''}</dd><dt>Streams</dt><dd>~one per shipped container (labels: service, project)</dd><dt>docker logs</dt><dd>${nf(dockGB,2)} GB/day on the host, unrotated: ${dockGB>0?nf(v.fr/dockGB,1):'∞'} days until ${v.fr} GB is full</dd></dl>`+
+    `<div class="lab" style="margin-top:10px">If this were a label, how many streams?</div><div class="tbl" style="margin:4px 0"><table><tr><th>Label set</th><th>Active streams (est.)</th></tr><tr><td><code>service, project</code> (shipped)</td><td>${nf(12)}</td></tr><tr><td>+ <code>level</code></td><td>${nf(12*3)}</td></tr><tr><td>+ <code>user.id</code> (say 400 users)</td><td>${nf(12*400)}</td></tr><tr><td>+ <code>request_id</code></td><td>${nf(v.rpm*60*24*(v.ret/24))} over the retention window</td></tr></table></div>`; }
+  $('#w11-c').addEventListener('input',paint); paint();
+})();
+
+/* ===== synthetic estate (13:50-14:10) ===== */
+const EST=(function(){
+  let s=20261010; const rnd=()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+  const hex=n=>[...Array(n)].map(()=>'0123456789abcdef'[Math.floor(rnd()*16)]).join('');
+  const T0=Date.UTC(2026,9,10,13,50,0), L=[];
+  const iso=ms=>new Date(ms).toISOString().replace('Z',String(Math.floor(rnd()*900)+100)+'Z');
+  const push=(ms,svc,o,raw)=>L.push({ms,svc,obj:o||null,raw:raw||JSON.stringify(o)});
+  const USERS=['u_7f3a21','u_1c44d0','u_b208e9','u_3a9f17','u_5e6d02','u_9d04be'];
+  function req(ms,user,m,p,st,sz,d,rid){ const o={time:iso(ms),level:lvOf(st),msg:'http request',request_id:rid||hex(16),'http.request.method':m,'url.path':p,'http.response.status_code':st,'http.response.body.size':sz,duration_ms:d,'client.address':'172.18.0.1'}; if(user) o['user.id']=user; push(ms,'voltedge-api',o); }
+  const W='c0ffee12ab34-1';
+  push(T0+1000,'voltedge-exportworker',{time:iso(T0+1000),level:'INFO',msg:'worker started',worker:'export',worker_id:W,concurrency:2,lease:'1m0s'});
+  push(T0+1200,'voltedge-exportworker',{time:iso(T0+1200),level:'INFO',msg:'retention sweep enabled',worker:'export',worker_id:W,interval:'1h0m0s',retention:'168h0m0s'});
+  push(T0+2000,'voltedge-fieldsync',{time:iso(T0+2000),level:'INFO',msg:'worker started',worker:'fieldsync',worker_id:'b7d90a11ff02-1',concurrency:2,lease:'1m0s'});
+  push(T0+310000,'voltedge-fieldsync',{time:iso(T0+310000),level:'INFO',msg:'pack built',worker:'fieldsync',worker_id:'b7d90a11ff02-1',pack_id:'p_41d2',features:18204,elapsed_ms:41230});
+  const P=[['/healthz',200,3,2],['/export/jobs',200,22,3],['/map-settings/',200,9,2],['/export/jobs',401,2,1],['/features/x',404,4,1]];
+  for(let m=0;m<20;m++){ const n=5+Math.floor(rnd()*4); for(let i=0;i<n;i++){ const p=P[Math.floor(rnd()*P.length)]; const u=p[1]===401||p[0]==='/healthz'?null:USERS[Math.floor(rnd()*5)]; req(T0+m*60000+Math.floor(rnd()*58000),u,'GET',p[0],p[1],p[1]>=400?64:900,p[2]+Math.floor(rnd()*30)); } }
+  /* story 1: export failure */
+  const JOB='3f6c2a1e-9b84-4c0d-a1d7-52c8e0b6f4a9';
+  req(T0+13*60000+12000,'u_7f3a21','POST','/export/',202,46,38,'9c1e4b7a2d5f8036');
+  push(T0+13*60000+15200,'voltedge-exportworker',{time:iso(T0+13*60000+15200),level:'ERROR',msg:'export encoder panicked',worker:'export',worker_id:W,job_id:JOB,panic:'runtime error: index out of range [3] with length 3',stack:'goroutine 41 [running]:\nruntime/debug.Stack() …'});
+  req(T0+15*60000+11000,'u_7f3a21','POST','/export/',500,71,812,'a1b2c3d4e5f6a7b8');
+  /* story 2: slow */
+  [[16,0,'u_1c44d0',1180],[16,30,'u_b208e9',930],[17,5,'u_3a9f17',1422],[17,40,'u_1c44d0',760],[18,10,'u_5e6d02',1301],[18,50,'u_b208e9',655]].forEach(a=>req(T0+a[0]*60000+a[1]*1000,a[2],'GET','/export/jobs',200,4200,a[3]));
+  /* story 3: probing */
+  [0,9,21,38].forEach(sec=>req(T0+17*60000+20000+sec*1000,'u_9d04be','PUT','/log-settings/',403,78,3+sec%3));
+  /* plain text lines */
+  [[2,'2026-10-10 13:52:03.121 UTC [58] LOG:  checkpoint starting: time'],[7,'2026-10-10 13:57:03.402 UTC [58] LOG:  checkpoint complete: wrote 12 buffers (0.1%)']].forEach(a=>push(T0+a[0]*60000,'voltedge-postgres',null,a[1]));
+  push(T0+13*60000+15300,'voltedge-exportworker',null,'panic: stack frame noise (stderr text line)');
+  push(T0+4*60000,'voltedge-martin',null,'[INFO] martin: serving tiles on 0.0.0.0:3000');
+  L.sort((a,b)=>a.ms-b.ms); return {lines:L,T0,JOB};
+})();
+/* ===== minimal LogQL engine ===== */
+const san=k=>k.replace(/[^a-zA-Z0-9_]/g,'_');
+function runQ(q,lines){
+  q=q.trim(); const sm=q.match(/^\{([^}]*)\}/); if(!sm) return {err:'parse error: a query must start with a stream selector like {service="voltedge-api"}'};
+  const ms=[...sm[1].matchAll(/([a-zA-Z_][a-zA-Z0-9_]*)\s*(=~|!~|!=|=)\s*"((?:[^"\\]|\\.)*)"/g)];
+  if(!ms.length) return {err:'queries require at least one regexp or equality matcher that does not have an empty-compatible value'};
+  const un=s=>s.replace(/\\(["\\])/g,'$1');
+  const cmp=(op,a,b)=>{ if(op==='='||op==='==') return a===b; if(op==='!=') return a!==b; if(op==='=~') return new RegExp('^(?:'+b+')$').test(a); if(op==='!~') return !new RegExp('^(?:'+b+')$').test(a); return false; };
+  let rest=q.slice(sm[0].length); const st=[]; let dotted=false, m;
+  const S='"((?:[^"\\\\]|\\\\.)*)"';
+  while(rest.trim()){ rest=rest.replace(/^\s+/,'');
+    if(m=rest.match(new RegExp('^\\|=\\s*'+S))) st.push({k:'has',v:un(m[1])});
+    else if(m=rest.match(new RegExp('^!=\\s*'+S))) st.push({k:'nhas',v:un(m[1])});
+    else if(m=rest.match(new RegExp('^\\|~\\s*'+S))) st.push({k:'re',v:un(m[1])});
+    else if(m=rest.match(new RegExp('^!~\\s*'+S))) st.push({k:'nre',v:un(m[1])});
+    else if(m=rest.match(/^\|\s*json\b/)) st.push({k:'json'});
+    else if(m=rest.match(new RegExp('^\\|\\s*(\\.?"[^"]+"|[A-Za-z_][A-Za-z0-9_]*)\\s*(==|=~|!~|!=|>=|<=|=|>|<)\\s*('+S.slice(0)+'|[0-9.]+)'))){ let f=m[1]; if(f.startsWith('.')||f.startsWith('"')){ dotted=true; f=f.replace(/^\./,'').replace(/"/g,''); } st.push({k:'lab',f:san(f),op:m[2],v:m[3].startsWith('"')?un(m[3].slice(1,-1)):m[3],num:!m[3].startsWith('"')}); }
+    else return {err:'parse error at: '+rest.slice(0,30)+' (this simulator supports |= != |~ !~ | json | label filters)'};
+    rest=rest.slice(m[0].length); }
+  const out=[];
+  lines.forEach(l=>{ const lab={service:l.svc,project:'voltedge'}; if(!ms.every(x=>lab[x[1]]!==undefined&&cmp(x[2],lab[x[1]],un(x[3])))) return;
+    let ok=true, labs=Object.assign({},lab), err=null;
+    for(const s of st){ if(!ok) break;
+      if(s.k==='has') ok=l.raw.includes(s.v); else if(s.k==='nhas') ok=!l.raw.includes(s.v);
+      else if(s.k==='re') ok=new RegExp(s.v).test(l.raw); else if(s.k==='nre') ok=!new RegExp(s.v).test(l.raw);
+      else if(s.k==='json'){ if(l.obj){ Object.keys(l.obj).forEach(k=>labs[san(k)]=String(l.obj[k])); } else { err='JSONParserErr'; labs.__error__=err; } }
+      else { const a=labs[s.f]; if(a===undefined){ ok=false; } else if(s.num||['>','>=','<','<='].includes(s.op)){ const x=parseFloat(a), y=parseFloat(s.v); ok=!isNaN(x)&&({'=':x===y,'==':x===y,'!=':x!==y,'>':x>y,'>=':x>=y,'<':x<y,'<=':x<=y}[s.op]); } else ok=cmp(s.op,a,s.v); } }
+    if(ok) out.push({l,labs,err}); });
+  return {rows:out,dotted,hasJson:st.some(s=>s.k==='json')};
+}
+function fmtRow(r){ const l=r.l, t=new Date(l.ms).toISOString().slice(11,19), lvl=l.obj?l.obj.level:''; return `<div class="r ${lvl} ${l.obj?'':'raw'}"><span class="tm">${t}</span> <span class="sv">${esc(l.svc.replace('voltedge-',''))}</span> ${r.err?'<span class="lv WARN">__error__=JSONParserErr</span>':''}${esc(l.raw).replace(/\\n/g,'⏎')}</div>`; }
+/* ===== W10 ===== */
+(function(){
+  const PS=[['5xx requests','{service="voltedge-api"} | json | http_response_status_code >= 500','docker logs voltedge-api | jq \'select(."http.response.status_code" >= 500)\''],['One request id','{service="voltedge-api"} | json | request_id="a1b2c3d4e5f6a7b8"','docker logs voltedge-api | jq \'select(.request_id=="a1b2c3d4e5f6a7b8")\''],['Slow (>500 ms)','{service="voltedge-api"} | json | duration_ms > 500','docker logs voltedge-api | jq \'select(.duration_ms > 500)\''],['All errors','{project="voltedge"} | json | level="ERROR"','docker logs … | jq \'select(.level=="ERROR")\''],['One user','{service="voltedge-api"} |= "u_7f3a21"','jq \'select(."user.id"=="u_7f3a21")\''],['Not JSON?','{project="voltedge"} | json | __error__="JSONParserErr"','(plain jq stops at the first non-JSON line)'],['Workers only','{service=~"voltedge-(export|field).*"} | json | worker!=""','jq \'select(.worker)\'']];
+  $('#w10-p').innerHTML=PS.map((p,i)=>`<button data-i="${i}">${p[0]}</button>`).join('');
+  function paint(){ const q=$('#w10-q').value; const r=runQ(q,EST.lines); const p=PS.find(x=>x[1]===q.trim());
+    $('#w10-jq').innerHTML=p?'Same question with jq: <code>'+esc(p[2])+'</code>':'';
+    if(r.err){ $('#w10-m').innerHTML='<span class="bad-t">'+esc(r.err)+'</span>'; $('#w10-l').innerHTML=''; $('#w10-c').textContent=''; return; }
+    $('#w10-m').innerHTML=r.dotted?'<span class="pill stale">hint</span> Quoted-dot field names are accepted here, but Loki normally exposes <code>http_response_status_code</code> (not verified on this stack).':'';
+    $('#w10-c').textContent=r.rows.length+' of '+EST.lines.length+' lines';
+    $('#w10-l').innerHTML=r.rows.slice(0,200).map(fmtRow).join('')||'<div class="r">No lines.</div>'; }
+  $('#w10-p').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; $('#w10-q').value=PS[+b.dataset.i][1]; paint(); };
+  $('#w10-q').oninput=paint; $('#w10-q').value=PS[0][1]; paint();
+})();
+
+/* ===== W12: worker anatomy ===== */
+(function(){
+  const F={
+   webhook:{bin:'webhookworker',id:'delivery_id',env:'WEBHOOK_WORKER_CONCURRENCY, WEBHOOK_DELIVERY_LEASE, WEBHOOK_MAX_ATTEMPTS',lease:'delivery',panic:'delivery apply panicked',extra:''},
+   'webhook-outbound':{bin:'webhookworker',id:'delivery_id',env:'WEBHOOK_OUT_CONCURRENCY, WEBHOOK_OUT_LEASE, WEBHOOK_OUT_MAX_ATTEMPTS',lease:'delivery',panic:'delivery send panicked',extra:'event_type'},
+   import:{bin:'importworker',id:'job_id',env:'IMPORT_WORKER_CONCURRENCY, IMPORT_JOB_LEASE',lease:'job',panic:null,extra:''},
+   export:{bin:'exportworker',id:'job_id',env:'EXPORT_WORKER_CONCURRENCY, EXPORT_JOB_LEASE, EXPORT_RETENTION, EXPORT_SWEEP_INTERVAL',lease:'job',panic:'export job panicked',extra:''},
+   fieldsync:{bin:'fieldsync',id:'pack_id',env:'FIELDSYNC_WORKER_CONCURRENCY, FIELDSYNC_JOB_LEASE',lease:'build',panic:null,extra:''},
+   sync:{bin:'fieldsync',id:'op_id',env:'SYNC_WORKER_CONCURRENCY, SYNC_JOB_LEASE',lease:'op',panic:'sync op apply panicked',extra:''},
+   'attachment-sweep':{bin:'exportworker',id:null,env:'ATTACHMENT_RETENTION, ATTACHMENT_SWEEP_INTERVAL',lease:null,panic:null,extra:''}};
+  const EV=[['started','worker started',1],['claim','claim failed',1],['lease','lost lease',1],['hb','heartbeat failed',1],['panic','panic',1],['sweep','sweep',0],['badenv','bad env var',0]];
+  let f='export', e='lease';
+  $('#w12-f').innerHTML=Object.keys(F).map(k=>`<button data-k="${k}" aria-pressed="${k===f}">${k}</button>`).join('');
+  $('#w12-e').innerHTML=EV.map(x=>`<button data-k="${x[0]}" aria-pressed="${x[0]===e}">${x[1]}</button>`).join('');
+  function line(o){ return JSON.stringify(o); }
+  function paint(){ const w=F[f]; const base={time:'2026-10-10T14:03:15.200Z'}; const wid={worker:f,worker_id:'c0ffee12ab34-1'}; let o=null,note='';
+    const jid=w.id?{[w.id]:w.id==='op_id'?'op_01H…':'3f6c2a1e-…'}:{};
+    if(e==='started') o={...base,level:'INFO',msg:'worker started',...wid,concurrency:2,lease:'1m0s'};
+    else if(e==='claim') o={...base,level:'ERROR',msg:'claim failed',...wid,err:'connection refused'};
+    else if(e==='lease'){ if(w.lease) o={...base,level:'WARN',msg:`lost lease, aborting ${w.lease}`,...wid,...jid,...(w.extra?{event_type:'feature.updated'}:{})}; else note='The attachment sweep has no leases.'; }
+    else if(e==='hb'){ if(w.lease) o={...base,level:'ERROR',msg:'heartbeat failed',...wid,...jid,err:'context deadline exceeded'}; else note='No heartbeat in the sweep.'; }
+    else if(e==='panic'){ if(w.panic) o={...base,level:'ERROR',msg:w.panic,...wid,...jid,panic:'…',stack:'goroutine 41 [running]…'}; else note='No panic log line for this family was found in the code (verified by search); failures are recorded on the job row instead.'; }
+    else if(e==='sweep'){ if(f==='attachment-sweep') o={...base,level:'INFO',msg:'sweep reaped deleted attachments',worker:f,count:3}; else if(f==='export') o={...base,level:'INFO',msg:'retention sweep reaped expired exports',worker:f,worker_id:'c0ffee12ab34-1',count:2}; else if(f==='fieldsync') o={...base,level:'INFO',msg:'maintenance: reaped versions',worker:f,worker_id:'c0ffee12ab34-1',count:1}; else note='No sweep line for this family.'; }
+    else { const v={webhook:'WEBHOOK_MAX_ATTEMPTS',import:'IMPORT_JOB_LEASE',export:'EXPORT_JOB_LEASE',fieldsync:'FIELDSYNC_JOB_LEASE',sync:'SYNC_JOB_LEASE','webhook-outbound':'WEBHOOK_OUT_LEASE','attachment-sweep':'ATTACHMENT_RETENTION'}[f]; o={...base,level:'WARN',msg:'ignoring invalid env var',worker:f,var:v,value:'soon'}; note='Printed with the default logger while reading configuration: it carries <code>worker</code> but no <code>worker_id</code>.'; }
+    $('#w12-o').innerHTML=`<dl class="kv"><dt>Binary</dt><dd>${w.bin}</dd><dt>Job id field</dt><dd>${w.id||'(none)'}</dd><dt>Env knobs</dt><dd>${w.env}</dd><dt>Level</dt><dd>that binary’s own LOG_LEVEL (not Admin → Logging)</dd></dl>`+(o?`<div class="lab" style="margin-top:8px">Emitted line</div><div class="logl">${esc(line(o))}</div>`:'')+(note?`<div class="tip">${note}</div>`:'')+(w.id?`<div class="lab" style="margin-top:8px">Follow one job</div><div class="logl">{service=~"voltedge-.*"} | json | ${w.id}="…"</div>`:''); }
+  $('#w12-f').onclick=ev=>{const b=ev.target.closest('button'); if(b){f=b.dataset.k; $$('#w12-f button').forEach(x=>x.setAttribute('aria-pressed',x===b)); paint();}};
+  $('#w12-e').onclick=ev=>{const b=ev.target.closest('button'); if(b){e=b.dataset.k; $$('#w12-e button').forEach(x=>x.setAttribute('aria-pressed',x===b)); paint();}};
+  paint();
+})();
+
+/* ===== W13: incident drill ===== */
+(function(){
+  const SC=[
+   {q:'{service="voltedge-api"} | json | user_id="u_7f3a21"',steps:[['Which <code>request_id</code> did the failing (5xx) request carry?',/a1b2c3d4e5f6a7b8/i,'{service="voltedge-api"} | json | user_id="u_7f3a21" | http_response_status_code >= 500'],['Which export <code>job_id</code> panicked in the worker?',/3f6c2a1e/i,'{service="voltedge-exportworker"} | json | level="ERROR"'],['What was the panic message? (a few words)',/index out of range/i,'{service="voltedge-exportworker"} | json | job_id="3f6c2a1e-9b84-4c0d-a1d7-52c8e0b6f4a9"']],end:'Root cause: the export worker panicked encoding job 3f6c2a1e… about two minutes before the user retried. The 500 summary alone could never have told you that, and the job row carries the same error text for the user. Correlation here was user.id + time (API side) and job_id (worker side).'},
+   {q:'{service="voltedge-api"} | json | duration_ms > 500',steps:[['Which path is slow?',/\/export\/jobs/i,'{service="voltedge-api"} | json | duration_ms > 500'],['How many requests took over 500 ms?',/^\s*6\s*$/,'{service="voltedge-api"} | json | duration_ms > 500'],['Were any of them errors? (yes / no)',/^\s*no\s*$/i,'{service="voltedge-api"} | json | duration_ms > 500 | http_response_status_code >= 400']],end:'Slow but successful: all info-level 200s on one endpoint. A level-based alert would never see this; a duration_ms threshold would.'},
+   {q:'{service="voltedge-api"} | json | http_response_status_code = 403',steps:[['Which <code>user.id</code> is being refused?',/u_9d04be/i,'{service="voltedge-api"} | json | http_response_status_code = 403'],['Which path do they keep calling?',/\/log-settings/i,'{service="voltedge-api"} | json | user_id="u_9d04be"'],['Which HTTP method?',/^\s*put\s*$/i,'{service="voltedge-api"} | json | url_path="/log-settings/"']],end:'A signed-in user without admin:users repeatedly PUT /log-settings/. Warn-level lines, no body logged, but the opaque user.id lets you look the person up in iam.users.'}];
+  let sc=0, done=[];
+  function runq(){ const r=runQ($('#w13-q').value,EST.lines); if(r.err){ $('#w13-m').innerHTML='<span class="bad-t">'+esc(r.err)+'</span>'; $('#w13-l').innerHTML=''; return; } $('#w13-m').textContent=r.rows.length+' lines'; $('#w13-l').innerHTML=r.rows.slice(0,150).map(fmtRow).join('')||'<div class="r">No lines.</div>'; }
+  function steps(){ const S=SC[sc]; $('#w13-st').innerHTML=S.steps.map((s,i)=>`<div class="stepbox ${done[i]?'done':''}"><div>${i+1}. ${s[0]}</div>${done[i]?'<b>✔ correct</b>':`<input type="text" id="w13-a${i}" placeholder="answer" style="margin:6px 0"><button class="btn" data-a="${i}">Check</button> <button class="btn" data-h="${i}">Load a query</button>`}</div>`).join('')+(done.filter(Boolean).length===S.steps.length?`<div class="tip"><b>Resolved</b> ${S.end}</div>`:''); $('#w13-pr').textContent=done.filter(Boolean).length+'/'+S.steps.length+' found'; }
+  function load(){ done=[]; $('#w13-q').value=SC[sc].q; steps(); runq(); }
+  seg('#w13-s',b=>{sc=+b.dataset.k;load();});
+  $('#w13-run').onclick=runq; $('#w13-q').onkeydown=e=>{if(e.key==='Enter')runq();};
+  $('#w13-st').onclick=e=>{ const c=e.target.closest('button'); if(!c) return; if(c.dataset.h!==undefined){ $('#w13-q').value=SC[sc].steps[+c.dataset.h][2]; runq(); } else { const i=+c.dataset.a, v=$('#w13-a'+i).value; if(SC[sc].steps[i][1].test(v)){ done[i]=true; steps(); } else { c.insertAdjacentHTML('afterend',' <span class="bad-t">not yet</span>'); } } };
+  load();
+})();
+/* ===== W14: alert designer ===== */
+(function(){
+  const SG=[['API 5xx responses','{service="voltedge-api"} | json | http_response_status_code >= 500','>',0,1],['API error-level lines','{service="voltedge-api"} | json | level="ERROR"','>',0,1],['Slow requests (>500 ms)','{service="voltedge-api"} | json | duration_ms > 500','>',2,3],['Worker error lines','{service=~"voltedge-(export|field).*"} | json | level="ERROR"','>',0,1],['No API logs at all (silence)','{service="voltedge-api"}','<',1,1]];
+  $('#w14-sig').innerHTML=SG.map((s,i)=>`<option value="${i}">${s[0]}</option>`).join('');
+  const B=20, ser=SG.map(s=>{ const r=runQ(s[1],EST.lines).rows, a=Array(B).fill(0); r.forEach(x=>{ const m=Math.floor((x.l.ms-EST.T0)/60000); if(m>=0&&m<B) a[m]++; }); return a; });
+  function paint(){ const i=+$('#w14-sig').value, w=+$('#w14-w').value, t=+$('#w14-t').value, f=+$('#w14-f').value; const S=SG[i];
+    $('#w14-wv').textContent=w; $('#w14-tv').textContent=t; $('#w14-fv').textContent=f;
+    const v=ser[i].map((_,m)=>{ let s=0; for(let k=Math.max(0,m-w+1);k<=m;k++) s+=ser[i][k]; return s; });
+    let run=0, state=v.map(x=>{ const c=S[2]==='>'?x>t:x<t; run=c?run+1:0; return !c?'ok':run>f?'firing':'pending'; });
+    const mx=Math.max(1,...v); const first=state.indexOf('firing');
+    const hh=m=>'13:'+(50+m);
+    const lab=m=>{ const x=50+m; return x>=60?'14:'+String(x-60).padStart(2,'0'):'13:'+x; };
+    $('#w14-o').innerHTML=`<div class="lab">Query</div><div class="logl">sum(count_over_time(${esc(S[1])} [${w}m])) ${S[2]} ${t}</div><div class="lab" style="margin-top:8px">Value at each evaluation (1 per minute, 13:50 → 14:09)</div><div class="sparkc">${v.map((x,m)=>`<i class="${state[m]==='firing'?'f':state[m]==='pending'?'p':''}" style="height:${Math.max(3,x/mx*100)}%" title="${lab(m)} = ${x} (${state[m]})"></i>`).join('')}</div><p style="font-size:13.5px;margin-top:8px">${first<0?'<b>Never fires</b> on this estate.':`<b class="bad-t">Fires at ${lab(first)}</b> after ${f} pending minute${f===1?'':'s'}. State counts: ${['ok','pending','firing'].map(k=>k+' '+state.filter(x=>x===k).length).join(', ')}.`} ${S[2]==='<'?'The "silence" rule is the only one that notices a dead service, because a dead service logs nothing.':''}</p><p class="muted" style="font-size:12.5px">The export panic at 14:03 and the 500 at 14:05 show up in rules 1 to 4; the slow requests at 14:06 to 14:08 show up only in rule 3. A bigger window smooths noise but delays firing.</p>`;
+    $('#w14-lock').innerHTML=can('ge')?'':lockTip('ge'); $('#w14-save').disabled=!can('ge'); }
+  ['#w14-sig','#w14-w','#w14-t','#w14-f'].forEach(s=>$(s).addEventListener('input',paint));
+  $('#w14-sig').addEventListener('change',()=>{ const i=+$('#w14-sig').value; $('#w14-t').value=SG[i][3]; $('#w14-f').value=0; $('#w14-w').value=SG[i][4]; paint(); });
+  $('#w14-save').onclick=()=>{ $('#w14-lock').innerHTML='<span class="good-t">Saved (simulated). In real life: Grafana → Alerting → New alert rule → data source Loki.</span>'; };
+  $('#w14-sig').value=0; $('#w14-t').value=SG[0][3]; $('#w14-w').value=SG[0][4]; onPersona(paint);
+})();
+
+/* ===== symptom explorer ===== */
+(function(){
+  const R=[
+   ['Grafana Explore shows no logs at all','Vector only ships containers labelled <code>com.docker.compose.project=voltedge</code>. If you started the stack with another project name (<code>-p</code>, or a different directory name), nothing matches. Also confirm the overlay is up: <code>docker compose … ps</code>.','vec','Interactive 9'],
+   ['<code>{service="voltedge-api"}</code> returns nothing on the production-shaped stack','Scaled services have no fixed <code>container_name</code>, so <code>service</code> is the generated name. Use <code>{service=~"voltedge-api.*"}</code>.','vec','Interactive 9'],
+   ['I set <code>LOG_LEVEL</code> in <code>.env</code> and nothing changed','Compose does not forward it: no <code>env_file</code>, and the services list no <code>LOG_*</code>. Add it under the service\'s <code>environment:</code> and recreate the container.',null,'Chapter 2'],
+   ['I set <code>LOG_LEVEL=debug</code> and see no extra lines','The code has no debug-level log calls today, so debug equals info.',null,'Interactive 3'],
+   ['Admin → Logging is missing, or returns 403','The mount needs <code>admin:users</code> for both GET and PUT. Ask a holder (Ada, Owen).','persona','Interactive 5'],
+   ['The API level reverted or differs from the env after a restart','A stored level (<code>iam.system_settings</code> key <code>log_level</code>) is re-applied at boot over the env default. Change it in Admin → Logging, not just the env.',null,'Interactive 5'],
+   ['I changed the level in the UI but a worker is still noisy','The screen governs the API server only. Workers and mcpserver read their own <code>LOG_LEVEL</code>; set it and restart them.',null,'Interactive 5'],
+   ['Every request shows the same <code>client.address</code>','It is the transport peer, i.e. nginx. RealIP is not mounted; see the spoofing rules before adding it.',null,'Interactive 7'],
+   ['A 500 line has no explanation','Messages go in the response body, which is never logged. Use the user\'s screenshot, or for jobs the stored <code>error</code>. Panics add an error line (and stderr stack).',null,'Chapter 4'],
+   ['<code>| json</code> shows <code>__error__="JSONParserErr"</code>','Those lines are not JSON: Postgres, Martin, RustFS, nginx, the Recoverer\'s stack on stderr. Filter them out with <code>| __error__=""</code> or select only the Go services.',null,'Interactive 11'],
+   ['A query with <code>."http.response.status_code"</code> errors','Use the underscore-normalised name <code>http_response_status_code</code>.',null,'Interactive 11'],
+   ['curl to :3709 returns 401','Missing or wrong <code>Authorization: Bearer $LOKI_READ_TOKEN</code>; the match is exact.','tok','Interactive 10'],
+   ['Connection refused on :3100','Loki is not published; go through :3709 with the token, or Grafana.',null,'Interactive 2'],
+   ['The overlay will not start: “set LOKI_READ_TOKEN”','The proxy requires the variable (<code>:?</code> guard). Export it before <code>docker compose up</code>.',null,'Interactive 10'],
+   ['Grafana opens without a login','Anonymous Viewer is on (<code>GF_AUTH_ANONYMOUS_ENABLED=true</code>). Turn off for shared hosts and change admin/admin.',null,'Interactive 2'],
+   ['<code>docker logs api</code> says no such container','The container is <code>voltedge-api</code>; or use <code>docker compose logs api</code>.',null,'Chapter 5'],
+   ['jq prints a syntax error on <code>{url.path, …}</code>','Quote dotted keys: <code>{path: ."url.path"}</code>.',null,'Chapter 5'],
+   ['I cannot find the export job in the API logs','The API logs the request, not the job id (it is in the 202 body). Match on <code>user.id</code> and time, then filter the worker on <code>job_id</code>.',null,'Interactive 14'],
+   ['The server exits at boot and prints nothing','With <code>LOG_LEVEL=warn</code>/<code>error</code> a boot <code>log.Fatal</code> is bridged at info and swallowed. Run once with the level unset or at info.',null,'Chapter 6'],
+   ['Host disk is filling up','Docker json-file has no max-size here. Set rotation on the logging driver, or rely on Loki and prune.','vol','Interactive 12'],
+   ['Old logs have disappeared from Loki','<code>retention_period</code> is 168 h; the compactor deletes older chunks. Raise it in <code>infra/loki/config.yaml</code>.','vol','Interactive 12'],
+   ['Logs from Loki, Vector or Grafana are not in Loki','Excluded on purpose (<code>exclude_containers</code>). Use <code>docker logs</code> for those.',null,'Interactive 9']];
+  const live={
+   vec:()=>{ const t=$('#w8-o'); const hits=(t.textContent.match(/✔ matches/g)||[]).length; return `Collector scope now: project <b>${esc($('#w8-pj').value)}</b>, selector <code>${esc($('#w8-q').value)}</code> → <b>${hits}</b> matching container${hits===1?'':'s'}.${hits?'':' That is your empty result.'}`; },
+   persona:()=>`You are <b>${esc(PERSONA[1])}</b>: admin:users is ${can('au')?'<b>held</b>, so the screen works':'<b>missing</b>, so GET and PUT return 403'}.`,
+   tok:()=>`Token gate tester currently reports: ${esc($('#w9-o').textContent.replace(/\s+/g,' ').slice(0,160))}`,
+   vol:()=>`Calculator now: ${esc($('#w11-o .kpi').textContent.replace(/\s+/g,' '))}; ${esc($('#w11-o dl').textContent.replace(/\s+/g,' ').slice(0,260))}`};
+  function paint(){ const q=$('#t-q').value.trim().toLowerCase(); const rows=R.filter(r=>!q||(r[0]+' '+r[1]).replace(/<[^>]+>/g,' ').toLowerCase().includes(q)); $('#t-n').textContent=rows.length+' of '+R.length;
+    $('#t-list').innerHTML=rows.map(r=>`<details style="border-top:1px solid var(--line2);padding:10px 14px"><summary style="cursor:pointer;font-weight:600">${r[0]} ${r[2]?'<span class="pill sec">live check</span>':''}</summary><div style="margin-top:6px;font-size:14px">${r[1]}</div><div class="muted" style="font-size:12px;margin-top:4px">See ${r[3]}</div>${r[2]?`<div style="margin-top:8px"><button class="btn pri" data-l="${r[2]}">Check the simulation</button><div class="lv2" style="font-size:13px;margin-top:8px;padding:8px 10px;border:1px dashed var(--line);border-radius:6px;display:none"></div></div>`:''}</details>`).join('')||'<div style="padding:14px" class="muted">No symptom matches.</div>'; }
+  $('#t-q').oninput=paint;
+  $('#t-list').onclick=e=>{ const b=e.target.closest('button[data-l]'); if(!b) return; const box=b.parentElement.querySelector('.lv2'); box.style.display='block'; box.innerHTML=live[b.dataset.l](); };
+  paint();
+})();
+/* ===== recipes ===== */
+(function(){
+  const R=[['Follow one container live','docker compose logs -f api'],['Raw container log (dev)','docker logs -f voltedge-api'],['Errors only','docker logs voltedge-api | jq \'select(.level=="ERROR")\''],['One request id','docker logs voltedge-api | jq \'select(.request_id=="a1b2c3d4e5f6a7b8")\''],['Slow requests','docker logs voltedge-api | jq -c \'select(.duration_ms > 500) | {path: ."url.path", duration_ms, status: ."http.response.status_code"}\''],['Skip non-JSON lines','docker logs voltedge-api 2>&1 | jq -R \'fromjson? | select(.level=="ERROR")\''],['Start the overlay (dev)','LOKI_READ_TOKEN=$(openssl rand -hex 32) \\\n  docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d'],['Start the overlay (prod-shaped)','LOKI_READ_TOKEN=$(openssl rand -hex 32) \\\n  docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml up -d'],['Query Loki externally','curl -H "Authorization: Bearer $LOKI_READ_TOKEN" \\\n  "http://localhost:3709/loki/api/v1/query_range?query={service=\\"voltedge-api\\"}"'],['5xx in Grafana','{service="voltedge-api"} | json | http_response_status_code >= 500'],['A request in Grafana','{service="voltedge-api"} | json | request_id="a1b2c3d4e5f6a7b8"'],['Errors across the project (LogQL level)','{project="voltedge"} | json | level="ERROR"'],['Prod-shaped API streams','{service=~"voltedge-api.*"} | json | level="ERROR"'],['Set the level for one service','services:\n  exportworker:\n    environment:\n      LOG_LEVEL: warn   # add under the service in the compose file, then recreate it'],['Human-readable dev output','LOG_FORMAT=text  # in the service environment, then restart'],['Turn off Grafana anonymous access','GF_AUTH_ANONYMOUS_ENABLED=false  # grafana service environment']];
+  function paint(){ const q=$('#rc-q').value.toLowerCase(); $('#rc-l').innerHTML=R.filter(r=>!q||(r[0]+r[1]).toLowerCase().includes(q)).map((r,i)=>`<div style="margin-bottom:10px"><div class="lab">${esc(r[0])} <button class="btn" data-c="${R.indexOf(r)}" style="margin-left:6px">Copy</button></div><pre class="code readout" style="margin-top:4px">${esc(r[1])}</pre></div>`).join('')||'<span class="muted">No recipe matches.</span>'; }
+  $('#rc-q').oninput=paint;
+  $('#rc-l').onclick=e=>{ const b=e.target.closest('button[data-c]'); if(!b) return; const t=R[+b.dataset.c][1]; try{ navigator.clipboard.writeText(t); }catch(x){} b.textContent='Copied'; setTimeout(()=>b.textContent='Copy',1200); };
+  paint();
+})();
+/* ===== quiz ===== */
+(function(){
+  const Q=[
+   ['A user reports a failed request. What is the single best thing to ask for?','The <code>X-Request-Id</code> response header',['Their email address','The <code>X-Request-Id</code> response header','Their IP address','A screenshot of the URL with query string'],'Filtering the logs on that id returns every line the request wrote.'],
+   ['At <code>LOG_LEVEL=warn</code>, what happens to a successful (200) request?','Its summary line is dropped',['Nothing, it is still logged','Its summary line is dropped','It is logged at warn','The request fails'],'Summaries are info for 2xx/3xx; warn keeps 4xx and 5xx lines only.'],
+   ['You set the level to error in Admin → Logging. Which processes change?','Only the API server',['All services','Only the API server','Only workers','Nothing until restart'],'The screen governs the API process; workers read their own LOG_LEVEL.'],
+   ['Behind nginx, every line shows the same <code>client.address</code>. Why?','It is the transport peer, which is the proxy',['Logging is broken','It is the transport peer, which is the proxy','nginx rewrites it','Docker NAT hides it'],'RealIP is not mounted; X-Forwarded-For is deliberately not trusted.'],
+   ['Why doesn\'t Vector make <code>request_id</code> a Loki label?','High-cardinality labels explode the index',['Loki forbids it','High-cardinality labels explode the index','JSON has no such field','Grafana cannot show it'],'Only service and project are labels; the rest is parsed at query time with | json.'],
+   ['A curl to <code>:3709</code> with no header returns?','401 from the Caddy proxy',['Loki results','401 from the Caddy proxy','Connection refused','403 from Loki'],'The proxy exact-matches "Bearer <token>" and refuses otherwise.'],
+   ['An export job failed. Where is the ordinary failure reason stored?','On the job row (<code>error</code>), not in the logs',['In a worker error log line','On the job row (<code>error</code>), not in the logs','In the request log line','In Grafana'],'Workers log panics, lease loss and infrastructure errors; normal failure text is stored on the row.'],
+   ['Which is true of <code>LOG_LEVEL=debug</code> today?','It emits the same as info, since no debug calls exist',['It logs request bodies','It emits the same as info, since no debug calls exist','It enables tracing','It is rejected'],'A search of api/ finds no Debug log call.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach((el,i)=>{ const x=Q[i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===x[1]; const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Answer: <b>${x[1]}</b>. `)+x[3]; }); });
+})();
+
+/* chapter rail */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a])); const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'}); document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+
+</script>
+</body></html>
