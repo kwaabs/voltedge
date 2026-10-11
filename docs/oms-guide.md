@@ -52,7 +52,7 @@ Two permissions (`migrations/0088_seed_oms_permissions.sql`; constants `auth.Per
 | See the board, calls, affected area, energisation, switching orders, reliability | `oms:read` | ✓ | ✓ | ✓ | ✓ |
 | Log/associate calls, predict, confirm, plan, restore, cancel, generate order, **execute step** | `oms:write` | — | — | ✓ | ✓ |
 
-A viewer gets a **read-only board** (the write controls self-gate). Two honest cautions:
+`break-glass-admin` holds both permissions too, exactly like `admin` (`0088:25-33`). A viewer gets a **read-only board** (the write controls self-gate). A request without the needed permission is a `403`; without a session, `401` (`auth/rbac.go:66-85`). Two honest cautions:
 
 > ⚠️ **OMS is not territory-scoped.** No `oms` table has a `territory_id`, and no incident/board query filters by territory (Phase 58 scoping lives *inside* the `trace` primitives OMS calls, e.g. back-feed paths, not in the OMS queries). The outage board shows **every** territory's incidents to any `oms:read` holder.
 
@@ -62,17 +62,18 @@ A viewer gets a **read-only board** (the write controls self-gate). Two honest c
 
 ## 3. From trouble calls to incidents — prediction
 
-**A trouble call** (`oms.trouble_calls`) is one customer report: a `call_type` (`no_supply` / `partial` / `flicker`), a locator (a service-point id, an address, or a map pin — at least one required), and a `status` (`open` → `associated` → `cleared` / `cancelled`).
+**A trouble call** (`oms.trouble_calls`) is one customer report: a `call_type` (`no_supply` / `partial` / `flicker`), a locator (a service-point id, an address, or a map pin — at least one required), and a `status` (`open` → `associated` → `cleared` / `cancelled`; ⚠️ nothing in the code ever sets `cleared`, and only *Predict* sets `associated` — see below).
 
 > **How to — take and place a call** 🔒 `oms:write`
 > 1. **Outages** page → **Log call** → type + locator → save (`POST /oms/trouble-calls`, status `open`).
-> 2. **Associate** it to a service point: give the SP id, or pass `snap = true` to resolve the nearest SP from the call's pin (`POST /oms/trouble-calls/{id}/associate`). An associated call now has a feature to walk upstream from.
+> 2. **Associate** it to a service point: give the SP id, or pass `snap = true` to resolve the nearest SP from the call's pin (`POST /oms/trouble-calls/{id}/associate`). An associated call now has a feature to walk upstream from. ⚠️ Associating only fills in `service_point_id`; the call's `status` **stays `open`** until *Predict* links it to an incident (`store.go:144-195`, `store.go:366`).
 
 **Prediction** rolls the open, SP-resolved calls into incidents (`predict.go`):
 
 - For each call's service point it walks **upstream** to the nearest **protective device** — `ProtectiveDeviceClasses = {MV_FUSE, MV_RECLOSER, MV_BREAKER}` (a plain `MV_SWITCH`/sectionaliser is *not* protective, so prediction walks past it to the real fault-clearer).
-- Calls under the **same** device cluster into **one** incident; calls under different devices become separate incidents; calls with **no** upstream device form a "no-device" cluster a human must attribute.
+- Calls under the **same** device cluster into **one** incident; calls under different devices become separate incidents; calls with **no** upstream device form a "no-device" cluster. ⚠️ Nothing can attribute a device to an existing incident afterwards — no endpoint, no console action (`oms/http.go` route table; no `UPDATE … predicted_device_*` in `oms/store.go`). The generator's error text says "attribute it first", but the only ways forward are to fix the connectivity so the walk finds a device, then cancel the no-device incident (its calls return to `open`) and Predict again, or to plan an outage around the right device.
 - It's a **single-fault hypothesis**: it blames the *nearest* protective device, one fault per cluster.
+- ⚠️ **The upstream walk is strictly directed.** It follows connectivity rows from-to-the-source only (`trace/class_walk.go:175-200`, `neighborsOf` at `trace/graph.go:575-609`): no junction pass-through, no tier guard, no live-state barriers. A service point fed through an RMU bus (the tee way points *into* the bus, so the walk runs out of arrows) returns **no** protective device and lands in the "no-device" cluster, whose incident has a null `confidence`. An `is_fused` `MV_SWITCH` (e.g. FSW-12) is never blamed — only the class codes `MV_FUSE`/`MV_RECLOSER`/`MV_BREAKER` count (`predict.go:38`).
 - **Confidence** = distinct calling SPs ÷ affected SPs (capped at 1.0) — one call on a big feeder is low-confidence; half the street calling is high.
 
 > **How to — predict incidents** 🔒 `oms:write`
@@ -91,16 +92,16 @@ An **incident** (`oms.incidents`) is the outage record: the `predicted_device_cl
   planned:    scheduled ──► confirmed ──► restored         (confirmed = executed)
 ```
 
-(`dispatched` is a defined status value but nothing transitions to it — stored, not wired.)
+(`dispatched` is a defined status value but nothing transitions to it — stored, not wired. The API also lets you **restore** a `predicted` or `scheduled` incident directly — only `restored`/`cancelled` are refused (`store.go:545-551`); with no frozen interruptions it simply contributes nothing to the indices.)
 
 - **`predicted`** — just rolled up from calls; affected counts are **live** estimates.
-- **`confirmed`** — the operator confirms the outage; this **freezes** the affected set into `customer_interruptions` rows (the reliability facts that won't move even as the network changes).
+- **`confirmed`** — the operator confirms the outage; this **freezes** the affected set into `customer_interruptions` rows (the reliability facts that won't move even as the network changes). For an unplanned incident each row's clock starts at the incident's `started_at` (the moment prediction created it), **not** at the confirm click (`store.go:424-429`); a planned outage's clock starts at confirm. An incident with no blamed device freezes nothing.
 - **`restored`** — supply's back; `restored_at` stamped, interruption windows closed.
 - **`cancelled`** — a false alarm; linked calls are released back to `open`.
 
 **Who's affected (∑).** The affected rollup walks **downstream of the blamed device** and sums supplies — `trace.DownstreamLoadLeaves` → service points + customers, with a `Service` rollup splitting load (kW) and customers by **restoration tier** / `load_priority`, flagging **critical** facilities (rank ≤ P2). Two supply classes count: unmetered `SERVICE_POINT`s and `PRIMARY` `METER`s (a null customer count reads as 1). `GET /oms/incidents/{id}/affected` returns the **frozen** rows once confirmed, falling back to a **live** trace while still predicted.
 
-> **∑ Affected is deliberately conservative.** The affected/frozen rollup is **barrier-free and topological** — it counts *everything electrically below* the device regardless of live switch state. That's correct for reliability (SAIDI/SAIFI shouldn't shrink because a tie happens to be closed), but it means the "affected customers" count can be larger than what's actually dark right now. For *what's dark right now*, use the live energisation cone (§5) — and expect the two to differ.
+> **∑ Affected is deliberately conservative — and directed.** The affected/frozen rollup is **barrier-free and topological** — it counts the supplies *reached by a strictly directed downstream walk* from the device regardless of live switch state (`trace.DownstreamLoadLeaves` → `reachableWithDepth`, `trace/service.go:432-445`, `trace/class_walk.go:175`). That is *not* the same as "everything electrically below": the walk has no junction pass-through, so supplies behind an RMU's one-way bus (and the ring tail beyond Way B) are **missed**, and the switching order's *verify N* count inherits the same miss. That's correct for reliability (SAIDI/SAIFI shouldn't shrink because a tie happens to be closed), but it means the "affected customers" count can be larger than what's actually dark right now. For *what's dark right now*, use the live energisation cone (§5) — and expect the two to differ.
 
 ---
 
@@ -111,7 +112,7 @@ An **incident** (`oms.incidents`) is the outage record: the `predicted_device_cl
 - If the device is **not** `OPEN` → the set is **empty** (supply is on).
 - If it's `OPEN` → `trace.DeEnergizedCone(device)` — a **barrier-respecting**, directed-downstream walk — returns the dead service-point geometry plus a `Service` rollup.
 
-The cone is **live**: open the device and it grows; close it and it collapses to empty; open a further device below it (a sectionalising or back-feed step) and it **shrinks** to just the still-isolated part. This is exactly what drives the red shading on the outage map (§6).
+The cone is **live**: open the device and it grows; close it and it collapses to empty; open a further device below it (a sectionalising or back-feed step) and it **shrinks** to just the still-isolated part (the customers beyond that further open device are not in *this* device's cone — they belong to the further-open device's own cone, even though they are still without supply). This is exactly what drives the red shading on the outage map (§6).
 
 > **∑ Two "dead" numbers, on purpose.** §4 "affected" (frozen, barrier-free) and §5 "energised" (live, barrier-respecting) are **different engines** and will report different sets. Neither subtracts a **closed back-feed tie** — a region fed from a neighbouring feeder through a closed normal-open tie is still *inside* the open device's directed cone, so it can read as dead when it isn't. Read "affected" for reliability and "energised" for the live picture, and know they're not meant to match.
 
@@ -132,12 +133,12 @@ A **switching order** (`oms.switching_orders`) is the ordered program a crew exe
 >             5. Close   the blamed device
 > ```
 >
-> The upstream isolation boundary is searched among `SwitchingDeviceClasses = {MV_SWITCH, MV_ISOLATOR, MV_SECTIONALIZER, MV_RECLOSER, MV_BREAKER}` — note the **sectionaliser is now included** as a valid isolation point. Requires an attributed device (not a no-device incident) and no existing live order.
+> The upstream isolation boundary is searched among `SwitchingDeviceClasses = {MV_SWITCH, MV_ISOLATOR, MV_SECTIONALIZER, MV_RECLOSER, MV_BREAKER}` — note the **sectionaliser is now included** as a valid isolation point. Requires an attributed device (not a no-device incident), an incident that is not `restored`/`cancelled` (`switching.go:67`), and no existing live order. The *Earth* step's boundary is the nearest upstream hit of the same directed walk, never the blamed device itself.
 
 > **How to — execute a step** 🔒 `oms:write`
 > Tick a step (`POST /oms/switching-steps/{id}/execute`, body `{executed?}` defaults true). The order's status rolls up automatically: all steps executed → `completed`, some → `in_progress`, none → `issued`.
 
-> **⚠️ Executing an open/close step changes the real network.** This is the one thing people miss. Ticking an **`open`** or **`close`** step **flips the target device's live `device_state`** — through `crud.UpdateFeature`, so it's validated and logged to `gis.feature_history` — which means **every trace, the power-flow engine and the map immediately reflect it**. Un-ticking a step reverts the state (a clean round-trip). `verify` / `earth` / `note` steps only record `executed_at`; they touch nothing. (A device with no `device_state`, or one that's been deleted, is silently skipped — the step never fails.)
+> **⚠️ Executing an open/close step changes the real network.** This is the one thing people miss. Ticking an **`open`** or **`close`** step **flips the target device's live `device_state`** — through `crud.UpdateFeature`, so it's validated and logged to `gis.feature_history` — which means **every trace, the power-flow engine and the map immediately reflect it**. Un-ticking a step reverts the state (a *position* round-trip: un-ticking `open` writes `CLOSED` and un-ticking `close` writes `OPEN` — the opposite position, **not** the device's previous one, `switching.go:322-334`). ⚠️ So if a device was already `OPEN` (REC-7 after lock-out) ticking its `open` step is a no-op, but **un-ticking it closes the device in the model**. `verify` / `earth` / `note` steps only record `executed_at`; they touch nothing. (A device with no `device_state`, or one that's been deleted, is silently skipped — the step never fails.)
 
 So as Dana ticks the isolate/restore steps, Priya watches the **red de-energised cone on the outage map shrink** in real time (§5) — because the steps are *actually operating the model*, not just checking boxes.
 
@@ -148,7 +149,7 @@ So as Dana ticks the isolate/restore steps, Priya watches the **red de-energised
 Not every outage is a fault. A **planned outage** is scheduled around a device for maintenance.
 
 > **How to — schedule a planned outage** 🔒 `oms:write`
-> **Outages** → **Plan outage** (`POST /oms/incidents/planned`): pick the device, set `planned_start` / `planned_end`. It creates a `scheduled`, `outage_type = planned` incident with its affected set computed the same way. When the work starts, **confirm** it (`scheduled → confirmed` resets the clock to now and freezes interruptions); **restore** it when supply's back. Planned incidents feed the reliability indices and the board exactly like unplanned ones, flagged by `outage_type`.
+> **Outages** → **Plan outage** (`POST /oms/incidents/planned`): pick the device, set `planned_start` / `planned_end`. It creates a `scheduled`, `outage_type = planned` incident with its affected set computed the same way. When the work starts, **confirm** it (`scheduled → confirmed` resets the clock to now and freezes interruptions); **restore** it when supply's back. Planned incidents appear on the board exactly like unplanned ones, flagged by `outage_type` — but ⚠️ they are **excluded from SAIDI/SAIFI/CAIDI** (`indices.go:213`, IEEE 1366 convention); their interruptions are recorded and nothing more. ENS is derived from the same customer-minutes, so it excludes them too.
 
 ---
 
@@ -156,7 +157,10 @@ Not every outage is a fault. A **planned outage** is scheduled around a device f
 
 **Restore** (`POST /oms/incidents/{id}/restore`) stamps `restored_at` and closes the interruption windows. **Cancel** (`POST …/cancel`) voids a false incident and releases its calls.
 
-**Reliability indices** (`GET /oms/indices?from=&to=&avg_load_kw=&circuit_id=`, `indices.go`) compute the standard outage metrics over a window from the frozen `customer_interruptions` — **SAIDI**, **SAIFI**, **CAIDI**, **ENS** (energy not supplied, from `avg_load_kw`) — optionally scoped to one circuit.
+**Reliability indices** (`GET /oms/indices?from=&to=&avg_load_kw=&circuit_id=`, `indices.go`) compute the standard outage metrics over a window (default: the trailing 12 months) from the frozen `customer_interruptions` of **unplanned, non-cancelled** incidents — optionally scoped to one circuit:
+
+- **SAIFI** = customers interrupted ÷ N · **SAIDI** = customer-minutes ÷ N (minutes) · **CAIDI** = customer-minutes ÷ customers interrupted (= SAIDI/SAIFI; 0 when none) · **ENS** = customer-minutes ÷ 60 × `avg_load_kw` (kWh, flagged *estimated*; default 1 kW).
+- N = customers served on the live system: Σ `customers_served` (null = 1) over service points **plus PRIMARY meters** (a per-circuit report stays service-point-only on both sides). An interruption is clipped to the window; a still-open one counts to `to`; it counts toward SAIFI only if it *began* in the window. `from` must be before `to`, `avg_load_kw` must not be negative (`400`). MAIFI is not computed. (`indices.go:12-45,133-290`)
 
 > **∑ The one place OMS reads Faults.** The indices response carries a `by_fault_cause` breakdown — decomposing outages by the cause recorded on the **faults** that explain them. OMS reads `faults.fault_events` for this via an existence check (`to_regclass`), so it **degrades gracefully** (`fault_breakdown_available = false`) if the faults module isn't present. This is a *data* read, not a package import — the modules stay decoupled (see **Faults** for the other direction of the hinge).
 
@@ -175,12 +179,12 @@ Not every outage is a fault. A **planned outage** is scheduled around a device f
 A persistent fault on the Feeder 7 main; **REC-7** does its reclose sequence and **locks out `OPEN`**. Everything below it — the FSW-12/TX-220 tee, RMU-5/TX-230, the tail — goes dark.
 
 1. **Calls arrive.** Several customers below REC-7 report `no_supply`. Priya logs each (or they arrive via IVR) and **associates** them to their service points (`snap = true` resolves them from the pins).
-2. **Predict.** Priya runs **Predict**. Each dead SP walks upstream to the nearest protective device — past the un-protective fused switch and sectionaliser — to **REC-7**. All the calls cluster under REC-7 → **one incident**, blamed on REC-7, `confidence` climbing as more calls land.
-3. **Review who's out.** The **affected** panel (barrier-free) lists every supply below REC-7 and flags a **critical** facility on the tail (load_priority P1). The **map** shows REC-7 `OPEN` and the whole tail shaded red (the live cone — §5).
+2. **Predict.** Priya runs **Predict**. A call from SP-220 walks upstream (TX-220, C-3, then FSW-12 — a fused `MV_SWITCH`, skipped as not protective — C-2) to **REC-7**: an incident blamed on REC-7. ⚠️ A call from the clinic SP-230, fed through RMU-5's tee way, runs out of arrows at the RMU bus (strictly directed walk) and finds **no** device: it forms a separate *no-device* incident (null confidence) that cannot be attributed from the console (§3). `confidence` for the REC-7 incident = calling SPs ÷ affected SPs, and the affected count here is 1 service point (SP-220, 85 customers), so even one call reads 1.0.
+3. **Review who's out.** The **affected** panel (barrier-free, directed) lists **SP-220 only — 1 service point, 85 customers**; it misses the clinic SP-230 (`load_priority` P2, critical) behind the RMU bus. The **map** shows REC-7 `OPEN` and the whole tail shaded red (the live cone — §5, which walks through junctions and *does* include SP-230: 2 service points, 155 customers, 570 kW). The two numbers disagree by design, and by this limitation.
 4. **Confirm.** Priya **confirms** the incident — the affected set **freezes** into `customer_interruptions` (the reliability facts), and the SAIDI clock is running.
-5. **Switching order.** She **generates** one: *isolate* [open REC-7 — already open; verify the supplies dead; earth at the upstream boundary] → *restore* [remove earths; close REC-7]. Dana executes the isolate steps on the ground and ticks them — each `open`/`close` tick **flips the live state**, and the red cone on Priya's map updates. To restore the **healthy** tail early, Priya closes the normal-open tie **T-79** and back-feeds it from Feeder 9 (a manual operation beyond the auto order — the Switching & Protection guide's restoration case).
+5. **Switching order.** She **generates** one: *isolate* [open REC-7 — already open; verify 1 supply dead; earth at the upstream boundary, CB-7] → *restore* [remove earths; close REC-7]. Dana executes the isolate steps on the ground and ticks them — each `open`/`close` tick **flips the live state**, and the red cone on Priya's map updates. To restore the **healthy** tail early, Priya closes the normal-open tie **T-79** and back-feeds it from Feeder 9 (a manual operation beyond the auto order — the Switching & Protection guide's restoration case).
 6. **Repair.** From the incident Priya **raises a fault** (it inherits REC-7 as the device), the crew finds the cause, and **books a defect** off that fault → a WAM work order for the repair (see **Faults** / **WAM**).
-7. **Restore & close.** Repair done, Dana closes REC-7 (ticking the restore step flips it `CLOSED`); the cone **collapses to empty**. Priya **restores** the incident — `restored_at` stamped, interruption windows closed.
+7. **Restore & close.** Repair done, Dana closes REC-7 (ticking the restore step flips it `CLOSED`; do not un-tick the isolate *open* step afterwards — that would write `CLOSED` as well, see §6); the cone **collapses to empty**. Priya **restores** the incident — `restored_at` stamped, interruption windows closed.
 8. **Reliability.** Tom pulls `GET /oms/indices` for the month: this outage's frozen interruptions contribute to **SAIDI/SAIFI**, and the `by_fault_cause` breakdown attributes it to the `dig_in` recorded on the fault.
 
 ---
@@ -211,13 +215,19 @@ A persistent fault on the Feeder 7 main; **REC-7** does its reclose sequence and
 | `GET`/`POST /oms/incidents/{id}/switching-orders` | list · generate the 5-step order |
 | `POST /oms/switching-orders/{id}/cancel` | cancel an order (keeps steps) |
 | `POST /oms/switching-steps/{id}/execute` | tick a step (**open/close flips live `device_state`**) |
-| `GET /oms/indices` | SAIDI / SAIFI / CAIDI / ENS + `by_fault_cause` |
+| `GET /oms/indices` | SAIDI / SAIFI / CAIDI / ENS + `by_fault_cause` (unplanned only) |
+
+**Status codes** (`http.go`, `errors.go`): `201` on log-call, planned-outage and generate-order; `200` otherwise. Every client-fixable problem — **including an unknown id** — is `400` `{"error":…}` (there is no `404`); anything unexpected is `500`. `401`/`403` come from the permission gate before the handler.
 
 ### Honest notes (what the module does *not* do)
 
+- **A no-device incident cannot be attributed** — there is no way to set its device after the fact; it can be confirmed (freezing nothing), restored or cancelled (§3).
+- **Affected counts, *verify N* and prediction use a strictly directed class walk** — supplies behind an RMU's one-way bus are not counted and a call from one can come back with no device (§3–4, §10). Read by code only; not run against a live database.
 - **Not territory-scoped** — the board is organisation-wide for any `oms:read` holder (§2).
 - **No actor column** on an incident — "who" is only in `gis.feature_history` for the switching-step state flips (§2).
 - **"Affected" (frozen, barrier-free) and "energised" (live, barrier-respecting) are different engines** and can differ; neither subtracts a closed back-feed tie (§4–5).
+- **SAIDI/SAIFI/CAIDI/ENS are unplanned-only**; planned outages never enter them (§7–8).
+- `cleared` (call status) is defined but never set; un-ticking an `open`/`close` step writes the *opposite* position, not the prior one (§6).
 - `cause_code` is **free text**, not a coded catalogue.
 - `dispatched` status and the `oms.incident.updated` webhook are **defined but never fired**.
 - An incident has **no WAM link** — the defect/work-order hinge is only through a fault.
@@ -231,4 +241,18 @@ A persistent fault on the Feeder 7 main; **REC-7** does its reclose sequence and
 - **Works, Inspections & Maintenance** — the defect/work-order the fault books.
 - **Engineering Studies** — the load/energisation model the affected-customer and cone rollups are built on.
 
+### Corrections made to the first edition (with evidence)
+
+| # | The guide said | The code says | Evidence |
+|---|---|---|---|
+| 1 | Planned incidents feed the reliability indices exactly like unplanned ones | SAIDI/SAIFI/CAIDI (and ENS) are unplanned-only | `api/internal/oms/indices.go:213,360` |
+| 2 | Un-ticking a step is a clean round-trip | it writes the *opposite* position (open→`CLOSED`, close→`OPEN`), not the prior one | `oms/switching.go:322-334` |
+| 3 | Associating a call makes it `associated` | associate only sets the service point; `associated` is set by Predict; `cleared` is never set | `oms/store.go:144-195,366`; `oms/models.go:31` |
+| 4 | Affected = everything electrically below the device; Feeder 7 tail has a P1 facility and all calls cluster on REC-7 | strictly directed class walk: the clinic SP-230 (P2) behind the RMU bus is missed (1 SP / 85 customers), its call has no device | `trace/service.go:432-445`; `trace/class_walk.go:175-200`; `trace/graph.go:575-609`; `docs/switching-and-protection-guide.md` Appendix D #26 |
+| 5 | Confirm starts the SAIDI clock | an unplanned incident's clock starts at `started_at` (prediction time) | `oms/store.go:424-429` |
+| 6 | Restore follows confirm | restore is allowed from `predicted`/`scheduled` too | `oms/store.go:545-551` |
+| 7 | Generate needs only a device and no live order | also refuses a `restored`/`cancelled` incident | `oms/switching.go:67` |
+| 8 | Roles: viewer / analyst / editor / admin | `break-glass-admin` holds both permissions too | `migrations/0088_seed_oms_permissions.sql:25-33` |
+| 9 | A no-device cluster is one "a human must attribute" | no endpoint or UI mutation sets `predicted_device_*` after creation | `oms/http.go:Routes`; `oms/store.go` (INSERTs only); `web/src/hooks/use-oms.ts` |
+| 10 | (omitted) indices window, formulas, denominator; error codes | default 12 months; N includes PRIMARY meters; unknown id is `400`, no `404` | `oms/indices.go:133-290`; `oms/http.go`; `oms/errors.go` |
 
