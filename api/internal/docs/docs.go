@@ -147,6 +147,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "switching-and-protection-guide-interactive",
+		Title:       "Switching & Protection (interactive)",
+		Description: "Open, close and tag out devices on one Feeder 7 graph and watch the real trace rules: barriers, the de-energised cone, isolate, switching sections vs protection zones, the layer guard. Plot every TCC family and grade the feeder with CTI margins, step a recloser, fuse and sectionalizer sequence, cross-check fault duty and arc-flash, and run trip, lockout, switching order and restoration through a tie. The interactive companion to the Switching & Protection manual.",
+		Category:    "Interactive guides",
+		Filename:    "switching-and-protection-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "access-control-guide-interactive",
 		Title:       "Access Control (interactive)",
 		Description: "Run the access rules in your browser: a role designer, a request tester that follows the real middleware order, territory resolution and point-in-polygon assignment, a lockout and rate-limit lab, an SSO decision simulator, a break-glass drill, an audit query builder and a 'why can't Priya do X' diagnoser, with a persona switch over the real seeded roles.",
