@@ -1488,6 +1488,9 @@ function FLr(s){document.querySelectorAll('#fl-chips button').forEach(b=>b.setAt
  $('fl-body').innerHTML=FL.filter(x=>s==='all'||x[1].includes(s)).map(x=>'<tr><td><code>'+x[0]+'</code><div class="sm muted">'+x[1].join(', ')+'</div></td><td>'+x[2]+'</td></tr>').join('')}
 document.querySelectorAll('#fl-chips button').forEach(b=>b.addEventListener('click',()=>FLr(b.dataset.s)));FLr('all');
 })();
+
+/* in-page anchors: a srcdoc iframe resolves href="#id" against the parent app URL, so handle chapter-rail links ourselves */
+document.addEventListener('click',function(e){ var a=e.target.closest&&e.target.closest('a[href^="#"]'); if(!a) return; var id=decodeURIComponent(a.getAttribute('href').slice(1)); e.preventDefault(); if(!id){ window.scrollTo({top:0,behavior:'instant'}); return; } var t=document.getElementById(id); if(t){ var nav=document.querySelector('.rail'); var off=(nav?nav.getBoundingClientRect().height:0)+12; window.scrollTo({top:t.getBoundingClientRect().top+window.pageYOffset-off,behavior:'instant'}); } });
 </script>
 
 </body></html>
