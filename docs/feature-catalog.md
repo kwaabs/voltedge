@@ -84,6 +84,18 @@ has one terminal per winding; a busbar has an incoming `T1` and a fan-out `T2` t
 many feeders share. Terminals are how `network_rules` (below) know *which side* of a
 device a connection is allowed on.
 
+**How a connection is matched.** Establishing a connection looks up the `network_rules` for the
+two feature classes (`api/internal/connectivity/rules.go`, `matchRule`): a rule's subtype and
+terminal pins are *wildcards when null* and exact matches when set; among the applicable valid
+rules the most specific wins; a rule that matches but has `is_valid = false` is reported as
+"exists but is disabled"; no rule at all is the zero-trust default "absence of a rule means the
+connection is invalid". A rule matches in **either** direction — one `T2 → bus` rule authorizes
+the leg whichever end the caller names first. The `phase_rule` column is enforced **only** when
+it is exactly `phases_intersect` (both features must carry a `phase` and share an L1/L2/L3
+line); any other text — including the `from.voltage_class = to.primary_voltage` that several
+rules carry, which this catalog calls "voltage-matched" — is **descriptive and enforces
+nothing** (`api/internal/connectivity/phase.go`, lines 9-18).
+
 #### 4. Connectivity vs. containment — two independent graphs
 
 A feature participates in **two graphs that never touch each other**:
@@ -92,9 +104,12 @@ A feature participates in **two graphs that never touch each other**:
   (directed allow-list of which class-terminal may connect to which), stored in
   `runtime.feature_connectivity`, walked by every electrical analysis.
 - **Containment / composite** — "what is inside / part of what." Built from
-  `relationship_classes` (kinds `containment`, `composite`, `spatial_support`,
-  `panel_bay`), stored in `runtime.feature_relationships`, read almost exclusively by
-  **CIM export** for nesting. Single-parent for containment since Phase 47.
+  `relationship_classes` (nine kinds: the structural `containment`, `composite`,
+  `spatial_support`, `panel_bay`, and the association kinds `protection_trip`,
+  `protection_sensing`, `metering_sensing`, `metering_accounting`, `cable_routing` — widened
+  one migration at a time, 0075 / 0080 / 0082 / 0083 / 0121), stored in
+  `runtime.feature_relationships`, read almost exclusively by **CIM export** for nesting and
+  by the relationship UI. Single-parent for containment since Phase 47.
 
 A transformer is *connected* to a busbar (connectivity) and *contained by* a substation
 (containment). The two facts are stored, edited and traversed independently. Each entry's
@@ -108,6 +123,13 @@ A class can carry a `map` symbology rule (how it draws on the geographic map) an
 rule to fall back to**, so it *must* carry a `diagram` rule or it renders as nothing.
 Some classes also set a `diagram_geometry_type` that differs from their map geometry —
 the busbar is a **point** on the map but draws as a **bar** (`line`) on the one-line.
+
+A diagram can also carry a **placement allow-list** (`metadata.diagram_placement_rules`,
+migration 0068): a container class + diagram type pair (e.g. `MV_METERING_CUBICLE` +
+`METERING_SCHEMATIC`) that has *any* rows accepts **only** the listed classes; a pairing
+with *no* rows is open to every `is_diagram_placeable` class. This "opt-in-by-absence" rule
+is what Chapters 4, 5 and 6 refer to. A rule can restrict but never widen — a class must
+still be `is_diagram_placeable` to be placed at all.
 
 ### The diagram legend
 
@@ -172,6 +194,7 @@ covers it. This is the spine — jump from here.
 | `MV_METERING_POINT` | MV Metering Point | point | junction | 4 |
 | `MV_METER` | MV Meter | point | none | 4 |
 | `MV_METERING_CUBICLE` | MV Metering Cubicle | point | container | 4 |
+| `NETWORK_METER` | Network Meter | point | none | 4 |
 | `MV_SWITCHBOARD` | MV Switchboard | none | container | 5 |
 | `MV_SWITCHGEAR_PANEL` | MV Switchgear Panel | none | container | 5 |
 | `BAY` | Bay | none | container | 5 |
@@ -186,6 +209,8 @@ covers it. This is the spine — jump from here.
 | `SERVICE_POINT` | Service Point | point | junction | 6 |
 | `METER` | Meter | point | junction | 6 |
 | `METER_CHAMBER` | Meter Chamber | point | container | 6 |
+| `LV_PILLAR` | LV Feeder Pillar | point | container | 6 |
+| `LV_FUSE` | LV Fuse Way | none | junction | 6 |
 | `MV_CONDUCTOR` | MV Conductor | line | edge | 7 |
 | `LV_CONDUCTOR` | LV Conductor | line | edge | 7 |
 | `MV_CABLE_JOINT` | MV Cable Joint | point | junction | 7 |
@@ -212,6 +237,12 @@ covers it. This is the spine — jump from here.
 | `CABLE_CHAMBER` | Cable Chamber | polygon | none | 10 |
 | `DUCT_WAY` | Duct Way | none | none | 10 |
 
+**63 classes.** A freshly seeded database (`task seed-all`, the metadata phase) holds **62**
+feature classes; the 63rd is the legacy `DIST_SWITCH`, which is catalogued here because it
+still appears in older data and in `seed/switching_device_example.sql` but is not loaded by
+`seed-all`. (Earlier editions of this catalog listed 60 — `LV_FUSE`, `LV_PILLAR` and
+`NETWORK_METER` were missing; see [Appendix A](#appendix-a--corrections).)
+
 ### What this catalog covers
 
 - **Chapter 1 — the shared model** (this chapter): how to read the catalog; the five
@@ -221,11 +252,12 @@ covers it. This is the spine — jump from here.
 - **Chapter 3 — MV switching & protection** — the breakers, isolators, reclosers,
   switches, fuses, arrester, earth switch and the relay.
 - **Chapter 4 — MV measurement & metering** — instrument transformers, metering point,
-  meter, metering cubicle.
+  meter, metering cubicle, and the accounting-only network meter.
 - **Chapter 5 — MV assemblies & switchgear containers** — switchboard, switchgear
   panel, bay, RMU, packaged substation.
 - **Chapter 6 — LV distribution & service** — LV busbar and switching, cutout, link
-  box, LVAC board, street light, service point, meter, meter chamber.
+  box, feeder pillar and its fuse ways, LVAC board, street light, service point, meter,
+  meter chamber.
 - **Chapter 7 — conductors, joints & the edge model** — the two conductor classes and
   the cable joints, and how edges work.
 - **Chapter 8 — DER, storage & EV** — generator, BESS, capacitor bank, voltage
@@ -234,6 +266,10 @@ covers it. This is the spine — jump from here.
   annunciator.
 - **Chapter 10 — civil, structures & cable containment** — substation, control
   building, structure, pole, tower, trench, duct, chamber, duct way.
+- **Appendices** — A: corrections to earlier editions; B: which class do I use?; C:
+  fields the entries do not cover; D: the complete connectivity-rule table; E: the
+  complete relationship-class table; F: classification axes, cross-cutting fields and
+  system columns.
 
 Say **next** for Chapter 2 — the MV yard.
 
@@ -297,8 +333,9 @@ it (HV in → LV out).
 | `1` | `two_winding` | HV, LV, N |
 | `2` | `three_winding` | HV, LV, TV, N |
 
-Fields (group · required?) — every model field is DB-nullable so an un-surveyed unit
-degrades gracefully; requiredness is enforced per subtype:
+Fields (group · required?) — every model field *except* `primary_voltage` and
+`condition_rating` is DB-nullable (those two are `NOT NULL` columns as well as required by
+subtype rule), so an un-surveyed unit degrades gracefully:
 
 | Field | Type | Domain | Req | Role |
 | --- | --- | --- | --- | --- |
@@ -331,12 +368,18 @@ subtype — `metadata.terminals.subtype_id`, most-specific-wins):
 ```
 
 **Relates to.**
-- *Connectivity:* `MV_CONDUCTOR → POWER_XFMR HV` (voltage-matched feeder into the HV
-  winding); `POWER_XFMR LV → MV_CONDUCTOR` and `POWER_XFMR TV → MV_CONDUCTOR` (windings
+- *Connectivity:* `MV_CONDUCTOR → POWER_XFMR HV` (feeder into the HV
+  winding; the `phase_rule` text names a voltage match but is not enforced); `POWER_XFMR LV → MV_CONDUCTOR` and `POWER_XFMR TV → MV_CONDUCTOR` (windings
   out — transformer as the *from* side, so a downstream trace descends through it). The
   TV rule generates rows only for `three_winding` (the join finds no TV terminal on
   `two_winding`).
-- *Containment:* `SUBSTATION contains POWER_XFMR` (one-to-many).
+- *Containment:* **not seeded** — no `relationship_classes` row ties `POWER_XFMR` to
+  `SUBSTATION` (or to a `BAY`); the seeded `SUBSTATION` containment set is `BAY`,
+  `CONTROL_BUILDING`, `SUBSTATION_PANEL`, `MV_BUSBAR`, `MV_SWITCHBOARD`, `AUX_TRANSFORMER`
+  and `LVAC_BOARD`. A power transformer's place in the station is its **connectivity** and
+  its map position; add a containment row in `metadata.relationship_classes` if CIM export
+  should nest it. (Earlier editions stated `SUBSTATION contains POWER_XFMR`.)
+- *Metering:* `NETWORK_METER meters POWER_XFMR` (`metering_accounting`, many-to-many).
 - *Composite:* `POWER_XFMR has TAP_CHANGER` (one-to-one) — see `TAP_CHANGER` below.
 
 **Where it's drawn.** A **teal square** on the map (`#0f766e`, distinct from
@@ -362,7 +405,9 @@ field names — `resolveTransformerModel` reads `primary_voltage` / `secondary_v
 one solver handles every transformer class because they all speak the same field
 vocabulary.
 
-**How it's specified.** Subtypes distinguish the mounting/phase construction. Core
+**How it's specified.** Three subtypes distinguish the mounting construction —
+`1` `pole_mounted`, `2` `pad_mounted`, `3` `underground_vault` (the `PAD_MOUNT_URD` and
+`POLE_MOUNT_STD` assembly kits anchor on `pad_mounted` / `pole_mounted`). Core
 fields: `primary_voltage` (coded `VOLTAGE_CLASS`, required), `condition_rating`
 (required); plus the load-flow trio added by seed as **nullable** fields —
 `secondary_voltage`, `impedance_pct`, `x_r_ratio` — and `rated_kva` (from
@@ -376,9 +421,16 @@ fields: `primary_voltage` (coded `VOLTAGE_CLASS`, required), `condition_rating`
 `T3` inbound rule is retired (`is_valid false`), leaving the ground terminal recorded
 but not walked.
 
-**Relates to.** *Connectivity:* `MV_CONDUCTOR → DIST_XFMR T1` (voltage-matched); the LV
-side wires on to `LV_CONDUCTOR` / `LV_BUSBAR` (Chapter 6). *Containment:* contained by
-its structure/pole and, in URD kits, by a pad assembly.
+**Relates to.** *Connectivity:* `MV_CONDUCTOR → DIST_XFMR T1` (the rule's `phase_rule` text names a voltage match, which is descriptive and not enforced — see Chapter 1), and —
+added by the switching, fuse and kit seeds — `MV_SWITCH T2 → DIST_XFMR T1`,
+`MV_FUSE T2 → DIST_XFMR T1` and `DIST_XFMR T1 → MV_ARRESTER T1`. The secondary (`T2`)
+wires on to `LV_CONDUCTOR`, `LV_BUSBAR`, `LV_LINK_BOX`, and the source/load leaves
+`GENERATOR`, `MV_BESS`, `EV_CHARGING_STATION` (Chapters 6 and 8); `DIST_XFMR T2 →
+MV_CONDUCTOR` is the older "this instance is really a substation transformer feeding a feeder
+onward" rule (`seed/service_point_example.sql:121-131`, from before `POWER_XFMR`). The older `DIST_XFMR T2 → SERVICE_POINT` rule is
+retired (`is_valid false`) in favour of the metered path. *Containment:* contained by
+its structure/pole and, in URD kits, by a pad assembly (`PACKAGED_SUBSTATION contains
+DIST_XFMR`; `POLE supports DIST_XFMR`). *Metering:* `NETWORK_METER meters DIST_XFMR`.
 
 **Where it's drawn.** A **blue square** on the map.
 
@@ -409,7 +461,7 @@ the terminals). Fields: `primary_voltage` (coded `VOLTAGE_CLASS`, required),
 **Terminals.** `T1` (primary / MV in), `T2` (secondary / LV out).
 
 **Relates to.** *Connectivity:* `MV_BUSBAR T2 → AUX_TRANSFORMER T1` (the station-service
-tap, `phase_rule` NULL) and `MV_CONDUCTOR → AUX_TRANSFORMER T1` (voltage-matched);
+tap, `phase_rule` NULL) and `MV_CONDUCTOR → AUX_TRANSFORMER T1` (voltage match in the rule text only — not enforced);
 `AUX_TRANSFORMER T2 → LVAC_BOARD T1` on the LV side (Chapter 6). *Containment:*
 `SUBSTATION contains AUX_TRANSFORMER`.
 
@@ -461,10 +513,11 @@ engine treating this as a shunt rather than a voltage-transforming node.
 phase-capable). The `N` connects to the earth grid, not a traceable element.
 
 **Relates to.** *Connectivity:* exactly **one** rule, inbound only —
-`MV_CONDUCTOR → EARTHING_XFMR LINE` (voltage-matched). With no outbound rule it is a
+`MV_CONDUCTOR → EARTHING_XFMR LINE` (voltage match in the rule text only — not enforced). With no outbound rule it is a
 **dead-end shunt**: a trace or load flow reaching it descends into it as a leaf that
-contributes nothing, which is its true electrical behaviour. *Containment:* contained by
-`SUBSTATION`.
+contributes nothing, which is its true electrical behaviour. *Containment:* **none
+seeded** — there is no `SUBSTATION contains EARTHING_XFMR` relationship class (earlier
+editions said it was contained by `SUBSTATION`).
 
 **Where it's drawn.** An **amber square** on the map (`#b45309`).
 
@@ -573,7 +626,7 @@ transformer behaviour is driven by **field names, not class identity** — `POWE
 `DIST_XFMR` and `AUX_TRANSFORMER` all become step-down nodes because they carry
 `primary_voltage` + `secondary_voltage`; `EARTHING_XFMR` stays a shunt because it
 carries only the primary; and `TAP_CHANGER` stays off the graph entirely because the
-tap it controls already lives on the transformer. The bus is the one class whose map
+tap it controls already lives on the transformer. The busbar — `MV_BUSBAR`, and `LV_BUSBAR` since the LV pillar seed — is the class whose map
 shape (point) and diagram shape (bar) differ.
 
 Say **next** for Chapter 3 — MV switching & protection.
@@ -699,7 +752,8 @@ It **grades in the coordination engine** off its *slow* curve
 (`api/internal/powerflow/coordination.go`, `evalRecloser`) — the one class in this
 chapter the protection-coordination study reasons about as an active device. Reuses the
 `ansi-load-break` diagram glyph and the CIM `Recloser` class inherited from the old
-subtype.
+subtype. A single `standard` subtype (code `1`); `device_state` and `condition_rating` are
+required (the series-switch pattern), and the five protection fields above are optional.
 
 ---
 
@@ -768,10 +822,15 @@ false`) — the same shape as a transformer's ground terminal.
           ▽  T2 (ground — no feature to connect to, a documented dead-end)
 ```
 
-**Relates to.** *Connectivity:* **one rule only** — `MV_CONDUCTOR → MV_ARRESTER T1`.
-`T2` (ground) has no feature class to connect to (there is no "earth" class), so it
-carries no rule: it is a shunt dead-end, not a hop a trace continues through. A trace
-reaching an arrester descends into it as a contributing-nothing leaf.
+**Relates to.** *Connectivity:* the class seed ships **one rule** — `MV_CONDUCTOR →
+MV_ARRESTER T1`. The pole-mount and kit seeds add six more *onto device terminals* so a
+kit can hang an arrester off a device: `MV_RECLOSER T1 → T1`, `MV_RECLOSER T2 → T1`,
+`MV_SWITCH T2 → T1`, `DIST_XFMR T1 → T1`, `MV_VREG T1 → T1` and `MV_VREG T2 → T1` — seven
+rules in a fully seeded database. `T2` (ground) has no feature class to connect to (there
+is no "earth" class), so it carries no rule: it is a shunt dead-end, not a hop a trace
+continues through. A trace reaching an arrester descends into it as a contributing-nothing
+leaf. *Containment:* `BAY` / `MV_SWITCHGEAR_PANEL contains MV_ARRESTER`; `POLE supports
+MV_ARRESTER` (kits).
 
 **Where it's drawn.** Map point; diagram via its stencil.
 
@@ -800,7 +859,11 @@ switch grounds to earth rather than passing load between two sides, so there is 
 for a trace to continue *to*.
 
 **Relates to.** *Containment:* legal pairings under the switchgear panel /
-switchboard (Chapter 5). No connectivity.
+switchboard (Chapter 5). No connectivity. **Barrier note:** because `MV_EARTH_SWITCH`
+carries a `device_state` field with an `OPEN` value, `seed/trace_barrier_resync.sql`
+(lines 42-55 — every class with such a field gets an OPEN barrier on every
+barrier-respecting trace configuration) registers a barrier row for it; with no terminals
+and `network_role none` a trace never visits it, so the row is inert.
 
 **Where it's drawn.** Map point and one-line diagram; no barrier behaviour.
 
@@ -865,7 +928,8 @@ Measurement is where the model draws its sharpest line between **the power path*
 flows *through* a meter — the meter reads the **secondaries** of instrument
 transformers (a CT's 5 A, a VT's 110 V). So none of the measurement plant should inflate
 the connectivity graph with pass-through nodes the current never actually stops at. Five
-classes, and each one is a study in *how* to attach something to the network without
+classes (plus a sixth, `NETWORK_METER`, the accounting meter at the end of the chapter),
+and each one is a study in *how* to attach something to the network without
 putting it *on* the network.
 
 Three shapes recur:
@@ -1077,6 +1141,63 @@ restricted; one with no rows is open.)
 
 ---
 
+### `NETWORK_METER` — Network Meter
+
+> Seed: [`seed/network_meter_example.sql`](../seed/network_meter_example.sql)
+
+**What it is.** A network energy meter placed for **energy accounting**, not customer
+service — the non-commercial sibling of the `MV_METERING_POINT` + `MV_METER` pair. Where
+that pair is bound to a customer's delivery point (tariff, account), a `NETWORK_METER`
+meters a point of the **network itself**: a substation incomer, a feeder head, the output
+of a distribution transformer, a bus section, an interchange tie between territories.
+
+**What it does.** It is an **asset registry entry only** — VoltEdge stores the meter's
+identity, accuracy class and instrument-transformer ratios, **never readings**. Energy and
+demand values live in an external MDM / head-end and are fetched temporarily at view time,
+keyed by `external_ref`. It is off the power path (`network_role 'none'`, no terminals,
+no rules, no barrier): "what is downstream of this meter?" is answered by tracing the
+element it meters, not by walking through the meter.
+
+**How it's specified.** Seven subtypes name the **point of the network** being metered:
+
+| Subtype (`code`) | Name |
+| --- | --- |
+| `1` | `substation_incomer` |
+| `2` | `feeder_head` |
+| `3` | `transformer_metering` |
+| `4` | `bus_section` |
+| `5` | `boundary_exchange` |
+| `6` | `interchange_tie` |
+| `7` | `generation_export` |
+
+| Field | Type | Domain | Req | Role |
+| --- | --- | --- | --- | --- |
+| `meter_serial` | text | — | ✓ (every subtype) | device identity |
+| `metering_class` | text | `METERING_CLASS` (0.2S / 0.5S / 1.0) | ✓ (every subtype) | IEC 62053 accuracy class |
+| `external_ref` | text | — | | MDM / head-end key for the temporary reading fetch |
+| `ct_ratio` | text | `CT_RATIO` (100_5 … 1600_5) | | CT ratio of the metering transformers |
+| `vt_ratio` | text | `VT_RATIO` (11KV_110 / 33KV_110) | | VT ratio |
+
+**Voltage is deliberately not stored** — it is read from the element the meter is attached
+to, so there is no second source of truth (the same reason `MV_METER` reads ratios from
+its linked `MV_CT` / `MV_VT`).
+
+**Network role.** `none`. Geometry `point`, `geometry_optional`, `is_diagram_placeable`;
+map display from zoom 13.
+
+**Terminals.** None.
+
+**Relates to.** *Accounting (`metering_accounting`, many-to-many):* `NETWORK_METER meters
+{POWER_XFMR, DIST_XFMR, MV_CONDUCTOR, LV_CONDUCTOR, MV_BUSBAR}`. Many-to-many on purpose: an
+element can carry a main and a check meter, and a boundary meter accounts across a tie.
+The relationship is neither containment nor composite — the element is not "owned" by its
+meter.
+
+**Where it's drawn.** A map point (or diagram-only, since geometry is optional). No
+symbology rule is seeded for it — assign one in the symbology editor.
+
+---
+
 **Chapter 4 recap.** The chapter's one idea: **measurement attaches to the network
 without joining it.** The CT is a single-terminal *tap*; the VT is a *shunt* to ground;
 neither is walked through and neither is a barrier. The meter goes further — it is fully
@@ -1085,7 +1206,9 @@ neither is walked through and neither is a barrier. The meter goes further — i
 place. The metering *point* is the sole true connectivity leaf (the commercial boundary a
 trace ends at), and the cubicle is a `container` that owns a restricted schematic. Point
 vs. device, box vs. connection — the same LV `SERVICE_POINT`/`METER`/`METER_CHAMBER`
-split, lifted to MV where the physics forced the meter off the path.
+split, lifted to MV where the physics forced the meter off the path. `NETWORK_METER` is the
+fifth variation on the theme: off-path by relationship (`metering_accounting`), but pointed
+at the *network* rather than at a customer.
 
 Say **next** for Chapter 5 — MV assemblies & switchgear containers.
 
@@ -1296,6 +1419,8 @@ diagram the way the geometry-less switchboard must).
 **Terminals.** None (the *ways* carry the terminals).
 
 **Relates to.** *Containment:* `RMU contains MV_BUSBAR` and `RMU contains MV_SWITCH`.
+*Diagram:* owns a `ONE_LINE` with a placement allow-list of exactly `{MV_CONDUCTOR,
+MV_SWITCH, MV_FUSE, MV_BUSBAR}` (the cable side, the ways, the tee fuse and the bus).
 *Connectivity (added by this seed):* the one internal leg `MV_SWITCH T2 → MV_BUSBAR`; each
 way's external `MV_CONDUCTOR ↔ T1` leg and its OPEN barrier already ship with `MV_SWITCH`.
 A downstream trace walks *cable → way → bus → other ways → their cables*, and an OPEN way
@@ -1513,7 +1638,9 @@ T1-in / T2-equipotential-fan-out shape as the MV `MV_BUSBAR` and the `LVAC_BOARD
 bar fans out `T2 → METER T1` (one rule, any number of meters). *Containment:* contained by
 `METER_CHAMBER`.
 
-**Where it's drawn.** Map point; a node on the `CHAMBER_SCHEMATIC`.
+**Where it's drawn.** Map point; a node on the `CHAMBER_SCHEMATIC`. Like `MV_BUSBAR` it sets
+`diagram_geometry_type = 'line'` (`seed/lv_pillar_example.sql` lines 205-213), so on a diagram it
+draws as a **bar** while the map keeps it a point; the same seed also made it `geometry_optional`.
 
 ---
 
@@ -1676,6 +1803,74 @@ allow-list the MV cubicle uses.
 
 ---
 
+### `LV_PILLAR` — LV Feeder Pillar
+
+> Seed: [`seed/lv_pillar_example.sql`](../seed/lv_pillar_example.sql) · templates
+> [`seed/lv_pillar_templates.sql`](../seed/lv_pillar_templates.sql)
+
+**What it is.** The ground-mounted LV feeder pillar — a cabinet in which the incoming LV
+main lands on a bus and fans out to a set of **fused outgoing ways**, one per feeder. The
+LV sibling of the MV `RMU`.
+
+**What it does.** It **owns** its internals and carries no topology itself. Inside are one
+plain `LV_BUSBAR` (T1 incoming, T2 the equipotential bar) and N `LV_FUSE` ways; opening ONE
+fuse isolates ONE feeder — the per-way isolation the flat `LV_LINK_BOX` junction cannot
+express (its OPEN barrier is feature-level and halts the whole box). `LV_LINK_BOX` is left
+exactly as it was; the pillar is purely additive.
+
+**How it's specified.** One `standard` subtype (code `1`). Fields: `condition_rating`
+(`CONDITION_RATING`, nullable), `circuit_id` (uuid, nullable), `ownership` (`OWNERSHIP`
+utility / private, nullable). Built by the **assembly fan-out** (`metadata.assembly_templates`,
+migration 0093): `WAYS_4` places 1 bus + 4 fuse ways, `WAYS_6` places 1 bus + 6; each fuse is
+contained in the pillar, wired to the bus (`LV_BUSBAR T2` to `LV_FUSE T1`), and born `OPEN` so feeders are
+commissioned way by way.
+
+**Network role.** `container`, `is_diagram_container = true`, network `LV`, trace tier
+`500`, shown from map zoom 13. Geometry `point` (a real footprint, like the RMU).
+
+**Terminals.** None (the ways carry them).
+
+**Relates to.** *Containment:* `LV_PILLAR contains LV_BUSBAR` and `LV_PILLAR contains
+LV_FUSE` (one-to-many each). *Connectivity (inside the kit):* `LV_BUSBAR T2 → LV_FUSE T1`,
+`LV_FUSE T2 → LV_CONDUCTOR`; the incoming `LV_CONDUCTOR → LV_BUSBAR T1` already ships with
+`LV_BUSBAR`.
+
+**Where it's drawn.** A map point; its interior is the bus-and-ways schematic. No symbology
+rule is seeded for the pillar itself.
+
+---
+
+### `LV_FUSE` — LV Fuse Way
+
+> Seed: [`seed/lv_pillar_example.sql`](../seed/lv_pillar_example.sql)
+
+**What it is.** One **fused outgoing way** of an LV feeder pillar — a BS 88 fuse-link
+position that protects one feeder.
+
+**What it does.** A real, sized protective device and an OPEN-halts-the-walk series node.
+Because a way lives *inside* the pillar's footprint it never gets its own map point:
+`geometry_type 'none'`, drawn only as a diagram placement — exactly like `PROTECTIVE_RELAY`.
+`boundary_role = 'protective'`, trace tier `500`.
+
+**How it's specified.** One `standard` subtype (code `1`). Fields, all **required**:
+`device_state` (`DEVICE_STATE` CLOSED / OPEN), `fuse_rating` (`FUSE_RATING`: 100A / 160A /
+200A / 250A / 315A / 400A), `condition_rating`; plus the optional cross-cutting `ownership`.
+
+**Network role.** `junction`, geometry `none`, `is_diagram_placeable`.
+
+**Terminals.** `T1` (`primary`, the bus side) and `T2` (`secondary`, the feeder side).
+
+**Relates to.** *Connectivity:* `LV_BUSBAR T2 → LV_FUSE T1` and `LV_FUSE T2 → LV_CONDUCTOR`
+(two rules; there is deliberately no conductor-into-`T2` rule, so a way is fed only from its
+pillar's bus). *Barrier:* `device_state = OPEN` halts DOWNSTREAM, UPSTREAM and LOOP_CHECK
+traces. *Containment:* `LV_PILLAR contains LV_FUSE`.
+
+**Where it's drawn.** Diagram only. Unlike `PROTECTIVE_RELAY`, **no symbology rule is
+seeded for `LV_FUSE`** — a geometry-`none` class with no `diagram` rule renders as nothing
+(Chapter 1, idea 5), so add one before expecting the way to appear on a schematic.
+
+---
+
 **Chapter 6 recap.** The LV last mile turns on two ideas the MV layers didn't need.
 **Phase becomes load-bearing**: rules gate on it (`phases_intersect`), and `phase` is
 required almost everywhere. And **the meter goes inline**: the LV `METER` is a
@@ -1687,7 +1882,9 @@ the device. The spine is the familiar two-terminal series pattern (`SERVICE_CUTO
 `LVAC_BOARD` (one bar, one rule scaling to any N meters — the apartment case). Two leaves
 end the network — the metered `SERVICE_POINT` (owns its meters, counts its customers) and
 the unmetered `STREET_LIGHT` — and `METER_CHAMBER` is the container that draws it all, the
-LV mirror of the MV cubicle, right down to its restricted schematic.
+LV mirror of the MV cubicle, right down to its restricted schematic. The feeder pillar
+(`LV_PILLAR` + its `LV_FUSE` ways) is the LV mirror of the RMU: a container of fused ways
+on one bus, where opening one way isolates one feeder.
 
 Say **next** for Chapter 7 — conductors, joints & the edge model.
 
@@ -1825,7 +2022,9 @@ between them. And because the trace / section / isolation / powerflow engines **
 treat any junction as a zero-Z pass-through, **nothing in any engine changes** — the joint
 simply appears as another node on the walk. It is pure metadata reuse.
 
-**How it's specified.** Subtypes are the **splice typology** — `straight` / `branch` (a
+**How it's specified.** Subtypes are the **splice typology** (**seed defect:** `seed/cable_joint_example.sql` lines
+94-105 use text codes against the integer `subtypes.code` column and are rejected, which also
+drops the `branch`-scoped `T3` terminal (line 154) and its two rules on a fresh database) — `straight` / `branch` (a
 tee) / `transition` / `termination`. Fields: `insulation_type` (`INSULATION_TYPE`: XLPE /
 EPR / PILC / Heat-shrink, req), `condition_rating` (req), plus optional `install_date` /
 `last_inspected_at`.
@@ -2023,7 +2222,8 @@ single-terminal leaf that the connectivity graph walks to and stops.
 **Terminals.** One — `T1`. A signed leaf.
 
 **Relates to.** *Connectivity:* the **same three PCC rules** as `GENERATOR` — `LV_CONDUCTOR
-→ T1`, `DIST_XFMR T2 → T1`, `MV_CONDUCTOR → T1`. *Containment:* none required; a `hybrid`
+→ T1`, `DIST_XFMR T2 → T1`, `MV_CONDUCTOR → T1` — plus a fourth added by the pole-mount
+battery kit, `MV_SWITCH T2 → T1` (the battery sits behind its own disconnect). *Containment:* none required; a `hybrid`
 site's generator and battery are two nodes at the same PCC, not a parent/child.
 
 **Where it's drawn.** A map point, a green square (`#16a34a`); the diagram glyph is the
@@ -2075,17 +2275,21 @@ This is a clean example of **per-subtype requiredness**: the same `device_state`
 required for `switched` and irrelevant for `fixed`, done as two subtype-specific rules
 rather than one class-wide rule.
 
-**Network role.** `junction`, geometry `point`. Note it is **not** a trace barrier — an OPEN
-cap bank simply stops injecting; it does not block the walk (it was never in series to
-begin with, so there is nothing downstream of it to cut off).
+**Network role.** `junction`, geometry `point`. Electrically it is **not** a series barrier —
+an OPEN cap bank simply stops injecting (it was never in series, so there is nothing
+downstream of it to cut off). Note, though, that the data *does* register an OPEN barrier
+row for it: `seed/trace_barrier_resync.sql` (lines 42-55) attaches an OPEN barrier to every
+class that has a `device_state` field with an `OPEN` value, so `MV_CAP_BANK` halts
+DOWNSTREAM / UPSTREAM / LOOP_CHECK traces at an open bank. Harmless for a leaf — the walk
+had nowhere further to go — but the trace *stops* there rather than "not blocking".
 
 **Terminals.** Two, shunt-style — `T1` (`primary`, phase-capable) taps the line; `T2`
 (`ground`, **`phase_capable = false`**) is the earth/neutral return, a dead-end. Identical
 to `MV_ARRESTER` and `DIST_XFMR`'s neutral leg.
 
-**Relates to.** *Connectivity:* **one** rule only — `MV_CONDUCTOR → T1` (the line taps into
-the bank). `T2` (earth) has no rule; it is a dead-end. A `switched` bank in an assembly kit
-sits behind an `MV_SWITCH T2 → MV_CAP_BANK T1` leg so the cap switch controls it.
+**Relates to.** *Connectivity:* the class seed ships **one** rule — `MV_CONDUCTOR → T1`
+(the line taps into the bank); the pole-mount kit adds a second, `MV_SWITCH T2 → T1`. `T2` (earth) has no rule; it is a dead-end. A `switched` bank in an assembly kit
+sits behind that `MV_SWITCH T2 → MV_CAP_BANK T1` leg so the cap switch controls it.
 *Containment:* none required standalone; in a kit it is a member of the assembly.
 
 **Where it's drawn.** A map point — a cyan diamond (`#0891b2`), with a grey override
@@ -2137,10 +2341,20 @@ it, so a downstream trace walks straight through (`T1 → device → T2 → on`)
 
 **Terminals.** Two, series-style — `T1` (`source`) and `T2` (`load`), **both
 phase-capable** (current passes through). Identical to `MV_RECLOSER` / `MV_SWITCH`.
+**Seed defect:** `terminals.role` is constrained to `primary / secondary / tertiary / ground /
+other` (migrations 0009 + 0070), so the seed's `source` / `load` roles are rejected by
+`terminals_role_check` (`seed/mv_voltage_regulator_example.sql` lines 111-120) — applied
+unmodified, `MV_VREG` ends up with **no terminals and no network rules** until the roles are
+changed to `primary` / `secondary` (what `MV_RECLOSER` and `MV_SWITCH` use). The role names
+are nominal either way.
 
 **Relates to.** *Connectivity:* the **inline three-rule series shape** — `MV_CONDUCTOR →
 T1` (feeder in), `MV_CONDUCTOR → T2` (feeder on the load side), and `T2 → MV_CONDUCTOR` (so
 a downstream trace walks through). The same shape every series device in Chapter 3 uses.
+Because `device_state` has an `OPEN` value, the same `trace_barrier_resync.sql` barrier
+applies: a **bypassed (`OPEN`) regulator halts barrier-respecting traces** even though the
+load flow passes voltage straight through it. (`MV_ARRESTER T1 → T1` and `T2 → T1` rules from
+the pole-mount kit also exist.)
 *Containment:* none standalone; a single-phase bank of three is wired via the assembly kit.
 
 **Where it's drawn.** A map point — a violet square (`#7c3aed`), grey (`#94a3b8`) when
@@ -2158,8 +2372,8 @@ closest single conducting-equipment class is `PowerTransformer` with a `RatioTap
 ```
 
 The §8.3 / §8.4 contrast is the electrical heart of the chapter: **shunt vs series.** The
-cap bank taps off to earth (`T2` `phase_capable=false`, one rule, injects VArs, not a
-barrier); the regulator sits in the line (`T2` phase-capable, three rules, reshapes
+cap bank taps off to earth (`T2` `phase_capable=false`, one class-seed rule, injects VArs,
+not a series barrier); the regulator sits in the line (`T2` phase-capable, three rules, reshapes
 voltage, walked through). Same `junction` primitive, opposite topology — and the terminal
 flags (`phase_capable` on `T2`) plus the rule count are exactly what encode the difference.
 
@@ -2253,8 +2467,8 @@ required, the rest optional (the P&C-device idiom). `EV_CHARGER`: `charger_type`
 `MV_METERING_CUBICLE → meter`.
 
 **Where they're drawn.** Nowhere on the map — geometry-`none` classes have **no map rule to
-fall back to**, so each carries an explicit **diagram** rule (green circles, `#22c55e` /
-`#4ade80`) for inventory / schematic views. Their real "location" is wherever the station
+fall back to**, so each carries an explicit **diagram** rule (green circles — `EV_CHARGER` `#22c55e`,
+`EV_CONNECTOR` `#4ade80`) for inventory / schematic views. Their real "location" is wherever the station
 point sits.
 
 ```
@@ -2272,8 +2486,9 @@ met, plus **one load-bearing field** that the field-name-driven engines read. `G
 is the `SERVICE_POINT` leaf turned **source** by `dispatch_kw` (a magnitude, negative
 load); `MV_BESS` is the same leaf turned **signed** injector by `storage_dispatch_kw` (+
 discharge / − charge / 0 idle) — the one field that justifies a separate class. `MV_CAP_BANK`
-is the `MV_ARRESTER` **shunt** (T1 line / T2 earth, one rule, injects `rated_kvar`, never a
-barrier); `MV_VREG` is the `MV_RECLOSER` **series** device (T1 → T2, three rules, reshapes
+is the `MV_ARRESTER` **shunt** (T1 line / T2 earth, injects `rated_kvar`, never a
+barrier row exists in the data for an OPEN bank, but it is a leaf, so it cuts nothing off);
+`MV_VREG` is the `MV_RECLOSER` **series** device (T1 → T2, three rules, reshapes
 voltage by `regulator_step_pct` on the same base, walked through) — shunt vs series, the two
 encoded purely by `T2`'s `phase_capable` flag and the rule count. `EV_CHARGING_STATION` is a
 `SERVICE_POINT`-shaped **managed load** with an inert demand-clamp waiting for its resolver,
@@ -2412,9 +2627,11 @@ for what differs:
 - **One `standard` subtype each** — the functional variant is a **coded field**
   (`battery_technology` / `charger_type` / `ied_role`), not subtypes, exactly as the relay's
   ANSI `device_number` does. "The same asset in different roles is one class + a role field."
-- **All fields DB-nullable, requiredness via `subtype_field_rules`** — the additive-compile
-  rule (the compiler emits `NOT NULL` for `nullable=false`, which would fail on a populated
-  table). The identifying coded field is `is_required`; the rest optional.
+- **Only the identifying field is NOT NULL** (and `is_required` by subtype rule —
+  `battery_technology` / `charger_type` / `ied_role`); every other field is DB-nullable and
+  optional (`seed/pnc_control_devices_example.sql` lines 139-146 and 158-162). The compiler emits
+  `NOT NULL` for `nullable=false`, which is why *later-added* fields on a populated class are
+  kept nullable (the additive-compile rule).
 - **Contained by `SUBSTATION_PANEL`** (`containment`, one-to-many) — the enclosure is their
   physical home. That containment edge is their **only** graph.
 - **Diagram symbology only** — a geometry-`none` class has no map rule to fall back to
@@ -2688,7 +2905,10 @@ fan-out to per-bore modelling.
 
 **`CABLE_CHAMBER`** (`polygon`, geometry-optional) — the manhole / jointing pit a joint sits
 in. Subtypes are the **housing typology** — `manhole` / `footway_box` / `joint_bay` /
-`jointing_pit`. Identity field `access_cover_type` (`CHAMBER_COVER`: `LIGHT` / `MEDIUM` /
+`jointing_pit` (**seed defect:** `seed/cable_management_example.sql` lines 81-91 inserts these
+as text into the integer `subtypes.code` column and is rejected, so on a fresh database the
+class has *no* subtypes until the codes are changed to integers — the Go compiler and
+`subtype integer CHECK` require numeric codes). Identity field `access_cover_type` (`CHAMBER_COVER`: `LIGHT` / `MEDIUM` /
 `HEAVY`, req). *Relates to:* `contains {MV_CABLE_JOINT, LV_CABLE_JOINT}` (`containment`) —
 the Chapter-7 cable joints live inside it. It **contains the node that joins two edges** — the
 civil box around the electrical splice.
@@ -2734,7 +2954,7 @@ electrical one, touching it everywhere and joining it nowhere.
 
 ## The catalog, complete
 
-Ten chapters, roughly sixty feature classes, and — this is the point — a **very small
+Ten chapters, **63 feature classes** (62 seeded + the legacy `DIST_SWITCH`), and — this is the point — a **very small
 number of ideas** repeated with discipline. Every class in VoltEdge is built from the same
 handful of primitives introduced in Chapter 1:
 
@@ -2758,10 +2978,452 @@ handful of primitives introduced in Chapter 1:
   (overhead vs underground, fixed vs switched); functional role it cannot is a field (main vs
   service, the panel's type, the IED's role). "A subtype is for differences the network can
   see; everything else is a field."
-- **The additive-compile rule shapes every new field.** Fields added to a populated class stay
-  DB-nullable and enforce requiredness through `subtype_field_rules` — which is why so many
-  "required" fields are nullable in the column and required in the form.
+- **The additive-compile rule shapes every field added later.** Fields added to a populated class
+  stay DB-nullable and enforce requiredness through `subtype_field_rules`. In the seeds that is
+  a minority: of 101 field/subtype-required fields, 93 are *both* a `NOT NULL` column and a
+  subtype rule (the rule gives the clean API message, the column is the backstop), and only 8
+  are nullable columns required per subtype alone (`METER.ct_ratio`, `MV_CAP_BANK.device_state`,
+  `SUBSTATION.primary_voltage`, `TAP_CHANGER`'s three, `EV_CHARGER.charger_type`,
+  `EV_CONNECTOR.connector_standard`). Nine more `NOT NULL` fields sit on classes with no
+  subtypes (the cable duct and trench, `DUCT_WAY`, `EARTHING_XFMR`), where only the database
+  enforces them.
 
-Learn those five ideas and the sixty classes stop being a list to memorise and become what
+Learn those five ideas and the 63 classes stop being a list to memorise and become what
 they are: **the same small grammar, spoken across ten electrical layers.** That is the whole
 catalog.
+
+---
+
+## Appendices
+
+Everything in these appendices is generated from the metadata the seeds load (`seed/*.sql` applied in `task seed-all` order, plus the symbology/ownership/boundary/trace-tier seeds that `seed-all` does not run) and the migrations. It exists so a reader never has to open a SQL file to answer "what exactly is in the model?".
+
+### Appendix A — Corrections
+
+Differences found between earlier editions of this catalog and the seeds/migrations, each fixed in place above. "Seed defect" means the *seed or migration* is wrong or incomplete and the catalog now says so.
+
+| # | Where | Earlier text | What the seeds/migrations say | Evidence |
+| --- | --- | --- | --- | --- |
+| 1 | Index, Ch. 1, closing | 60 classes, "roughly sixty" | 63 classes: 62 loaded by `task seed-all` plus legacy `DIST_SWITCH`. `LV_FUSE`, `LV_PILLAR`, `NETWORK_METER` were missing; entries and index rows added (Ch. 4 and 6). | `seed/lv_pillar_example.sql:1-60`, `seed/network_meter_example.sql:1-60` |
+| 2 | Ch. 1 idea 5; Ch. 4-6 | "opt-in-by-absence allow-list rule from Chapter 1" | Chapter 1 never described it. Added: a container + diagram-type pair with any `diagram_placement_rules` rows accepts only the listed classes. | `migrations/0068_create_diagram_placement_rules.sql` |
+| 3 | `POWER_XFMR`, control-room devices, Ch. 10 closing | "every model field is DB-nullable"; "All fields DB-nullable" (`STATION_BATTERY`, `BATTERY_CHARGER`, `CONTROL_IED`); "so many required fields are nullable in the column" | `primary_voltage` / `condition_rating` and each device's identifying field are `NOT NULL`; only 8 of 101 subtype-required fields are nullable columns. | `seed/power_transformer_example.sql:143-170`; `seed/pnc_control_devices_example.sql:139-162` |
+| 4 | `POWER_XFMR`, `DIST_XFMR`, `AUX_TRANSFORMER`, `EARTHING_XFMR` | "voltage-matched" connection rules | The `phase_rule` text `from.voltage_class = to.primary_voltage` is descriptive; only `phases_intersect` is ever evaluated, so a conductor of the wrong voltage class can still be connected. Added "How a connection is matched" to Ch. 1. | `api/internal/connectivity/phase.go:9-18`; `api/internal/connectivity/rules.go:46-110` |
+| 5 | Ch. 1 idea 4 | relationship kinds `containment`, `composite`, `spatial_support`, `panel_bay` | Nine kinds are legal: those four plus `protection_trip`, `protection_sensing`, `metering_sensing`, `metering_accounting`, `cable_routing`. | `migrations/0075_widen_relationship_kind_protection.sql`, `0080_widen_relationship_kind_metering.sql`, `0082_widen_relationship_kind_cable_routing.sql`, `0083_widen_relationship_kind_panel_bay.sql`, `0121_widen_relationship_kind_metering_accounting.sql` |
+| 6 | `POWER_XFMR` | `SUBSTATION contains POWER_XFMR` | No such `relationship_classes` row is seeded. Seeded `SUBSTATION` containment: BAY, CONTROL_BUILDING, SUBSTATION_PANEL, MV_BUSBAR, MV_SWITCHBOARD, AUX_TRANSFORMER, LVAC_BOARD. | `seed/power_transformer_example.sql` (no `relationship_classes` insert); `seed/bay_containment_example.sql:50-60` |
+| 7 | `EARTHING_XFMR` | "contained by `SUBSTATION`" | Same: no containment row seeded. | `seed/earthing_transformer_example.sql` (no `relationship_classes` insert) |
+| 8 | `DIST_XFMR` | Subtypes unnamed; connectivity lists one inbound rule | Subtypes `1 pole_mounted`, `2 pad_mounted`, `3 underground_vault`; a dozen further rules (switch/fuse feed in, arrester tap, LV and DER leaves out). | `seed/connectivity_example.sql`, `seed/overhead_pole_transformer.sql:18-57`, `seed/generator_example.sql:172`, `seed/mv_bess_example.sql:149` |
+| 9 | `MV_RECLOSER` | Subtype not mentioned | Single `standard` subtype, code 1. | `seed/mv_recloser_example.sql` |
+| 10 | `MV_ARRESTER` | "one rule only" (also repeated in Ch. 8) | The class seed ships one rule; the pole-mount/kit seeds add six more onto device terminals: 7 rules in a seeded database. | `seed/pole_mount_recloser.sql`, `seed/pole_mount_voltage_regulator.sql`, `seed/pole_mount_bess.sql`, `seed/overhead_pole_transformer.sql` |
+| 11 | `MV_CAP_BANK` | "one rule only"; "not a trace barrier" | Two rules (kit adds `MV_SWITCH T2 -> T1`); and an OPEN `device_state` barrier row exists for it (harmless for a leaf). | `seed/pole_mount_capacitor_bank.sql:29-66`; `seed/trace_barrier_resync.sql:42-55` |
+| 12 | `MV_BESS` | "the same three PCC rules" | Four: the kit adds `MV_SWITCH T2 -> T1`. | `seed/pole_mount_bess.sql:70-88`; `seed/mv_bess_example.sql:131-133` |
+| 13 | `MV_VREG` | Terminals `T1` source / `T2` load | Seed defect: roles `source`/`load` violate `terminals_role_check` (primary/secondary/tertiary/ground/other), so the terminals, and the three series rules that join to them, are not inserted. A bypassed (OPEN) regulator is also a trace barrier. | `seed/mv_voltage_regulator_example.sql:111-120`; `migrations/0070_add_tertiary_terminal_role.sql:18-20`; `seed/trace_barrier_resync.sql:42-55` |
+| 14 | `MV_EARTH_SWITCH` | "no barrier behaviour" | A barrier row is registered (it has `device_state`), but with no terminals it is never visited, so it is inert. | `seed/trace_barrier_resync.sql:42-55` |
+| 15 | `RMU` | Diagram allow-list not described | `ONE_LINE` allow-list = MV_CONDUCTOR, MV_SWITCH, MV_FUSE, MV_BUSBAR. | `seed/rmu_diagram_placement.sql:1-20` |
+| 16 | `CABLE_CHAMBER`, `MV_CABLE_JOINT`, `LV_CABLE_JOINT` | Subtypes shown by text code | Seed defect: the seeds insert text codes into the integer `subtypes.code` column and are rejected; the three classes therefore have no subtypes on a fresh database, and the joints lose their `branch`-scoped `T3` terminal and its rules. | `seed/cable_management_example.sql:81-91`; `seed/cable_joint_example.sql:94-105,154`; `migrations/0008_create_subtypes_and_fields.sql` |
+| 17 | `LV_BUSBAR`; Ch. 2 recap | "The bus is the one class whose map shape (point) and diagram shape (bar) differ" | `LV_BUSBAR` also has `diagram_geometry_type = 'line'` (and `geometry_optional`) from the LV pillar seed. | `seed/lv_pillar_example.sql:182-213` |
+| 18 | `EV_CHARGER` / `EV_CONNECTOR` | Colours `#22c55e` / `#4ade80` unassigned | Charger `#22c55e`, connector `#4ade80`. | `seed/ev_charging_example.sql:209-210` |
+| 19 | Master index names | "Cable Trench", "Cable Duct", "Cable Chamber", "Duct Way", "MV/LV Cable Joint" in title case | Seeds use sentence case ("Cable trench"). Cosmetic; the catalog keeps title case. | `seed/cable_management_example.sql:68-77` |
+| 20 | `task seed-all` ordering (not a catalog error) | — | A single pass leaves gaps because some seeds run before the classes they extend exist (e.g. `seed-rmu` before `seed-mv-lv-switch`): in a trial build a first pass produced 57 relationship classes and 308 fields, a second pass 87 and 353. The seeds are idempotent, so re-running the metadata phase fills the gaps. | `Taskfile.yml` `seed-all` (reproduced on PostgreSQL 16 without PostGIS; not verified on the compose stack) |
+
+Not verified: live `psql` apply of every seed against PostGIS, and the compiled `gis.*` tables (the audit reads `metadata.*` only).
+
+### Appendix B — Which class do I use?
+
+| You are recording… | Use | Why (and what not to use) |
+| --- | --- | --- |
+| a bulk 33/11 kV or 132/33 kV substation transformer | `POWER_XFMR` | MVA rating, optional tertiary; not `DIST_XFMR` (kVA, MV to LV). |
+| the 11 kV / 400 V pole or pad transformer | `DIST_XFMR` | Subtype `pole_mounted` / `pad_mounted` / `underground_vault`. |
+| the transformer that powers the substation itself | `AUX_TRANSFORMER` | Feeds `LVAC_BOARD`; not `DIST_XFMR`. |
+| the AVR / OLTC on a transformer | `TAP_CHANGER` | Controller + asset record; the live tap stays on `POWER_XFMR`. |
+| a station busbar (or an RMU internal bus) | `MV_BUSBAR` | One `T2` for N bays; LV equivalent is `LV_BUSBAR`. |
+| a breaker, isolator, switch, recloser, sectionalizer, fuse on the MV network | `MV_BREAKER`, `MV_ISOLATOR`, `MV_SWITCH`, `MV_RECLOSER`, `MV_SECTIONALIZER`, `MV_FUSE` | Series devices; `DIST_SWITCH` is legacy — never use it for new data. |
+| a surge arrester, a VT, a CT | `MV_ARRESTER`, `MV_VT`, `MV_CT` | Taps/shunts, not series devices; they are never trace barriers. |
+| an earthing switch | `MV_EARTH_SWITCH` | Recorded only (`network_role none`); not `MV_ISOLATOR`. |
+| a protection relay | `PROTECTIVE_RELAY` | Geometry none; diagram only. |
+| an MV customer intake and its meter | `MV_METERING_POINT` + `MV_METER` (+ `MV_METERING_CUBICLE`) | Point = connection, meter = device, cubicle = box. |
+| a meter for energy accounting at a feeder head / tie | `NETWORK_METER` | No customer, no readings; relate it to the metered element. |
+| a ring main unit | `RMU` (then fan out `MV_SWITCH` ways) | Never model ways as separate hand-drawn classes. |
+| a factory-built secondary substation | `PACKAGED_SUBSTATION` | A point-placed container; not a `SUBSTATION` subtype. |
+| the fenced site and its control building | `SUBSTATION`, `CONTROL_BUILDING` | Polygon containers; `SUBSTATION` is the containment root. |
+| a control-room cubicle | `SUBSTATION_PANEL` (+ `PROTECTIVE_RELAY`, `STATION_BATTERY`, `BATTERY_CHARGER`, `CONTROL_IED`, `ANNUNCIATOR`) | Panel is the enclosure; contents are contained, not connected. |
+| an LV feeder pillar with fused ways | `LV_PILLAR` + `LV_FUSE` | Per-way isolation; `LV_LINK_BOX` is the flat 4-way junction. |
+| an apartment block with many meters off one bar | `LV_BUSBAR` + `METER` in a `METER_CHAMBER` | One rule scales to N meters. |
+| a customer connection with a meter | `SERVICE_POINT` (leaf) and `METER` (inline) | Metered path: cutout -> meter -> service point; unmetered: `STREET_LIGHT`. |
+| an embedded generator / battery | `GENERATOR` / `MV_BESS` | `dispatch_kw` makes a source; signed `storage_dispatch_kw` makes a sink. |
+| a capacitor bank / line voltage regulator | `MV_CAP_BANK` / `MV_VREG` | Shunt vs series. |
+| a charging station and its chargers | `EV_CHARGING_STATION` (leaf) -> `EV_CHARGER` -> `EV_CONNECTOR` | Only the station is on the network. |
+| a cable run underground | `MV_CONDUCTOR` / `LV_CONDUCTOR` + `CABLE_TRENCH`, `CABLE_DUCT`, `DUCT_WAY` | Conductors are the only edges; containment classes never carry current. |
+| a splice or termination | `MV_CABLE_JOINT` / `LV_CABLE_JOINT` | A zero-impedance junction between two sections. |
+| a pole or tower | `POLE` / `TOWER` | Supports (`spatial_support`) conductors and kit devices; not network. |
+
+### Appendix C — Fields the entries do not cover
+
+Seeded fields that the class's entry never names (the three cross-cutting fields `circuit_id`, `operational_state`, `ownership` are in Appendix F). "Req" = non-nullable or required by a subtype rule.
+
+| Class | Field | Type | Domain | Req | Group |
+| --- | --- | --- | --- | --- | --- |
+| `POWER_XFMR` | `source_r0_ohm` | numeric | — |  | electrical |
+| `POWER_XFMR` | `source_r_ohm` | numeric | — |  | electrical |
+| `POWER_XFMR` | `source_x0_ohm` | numeric | — |  | electrical |
+| `POWER_XFMR` | `source_x_ohm` | numeric | — |  | electrical |
+| `POWER_XFMR` | `z0_pct` | numeric | — |  | electrical |
+| `POWER_XFMR` | `arc_electrode_configuration` | text | `ARC_ELECTRODE_CONFIG` |  | arc_flash |
+| `POWER_XFMR` | `arc_conductor_gap_mm` | numeric | — |  | arc_flash |
+| `POWER_XFMR` | `arc_system_grounded` | boolean | — |  | arc_flash |
+| `POWER_XFMR` | `arc_working_distance_mm` | numeric | — |  | arc_flash |
+| `DIST_XFMR` | `source_r_ohm` | numeric | — |  | electrical |
+| `DIST_XFMR` | `source_x_ohm` | numeric | — |  | electrical |
+| `DIST_XFMR` | `z0_pct` | numeric | — |  | electrical |
+| `DIST_XFMR` | `source_r0_ohm` | numeric | — |  | electrical |
+| `DIST_XFMR` | `source_x0_ohm` | numeric | — |  | electrical |
+| `DIST_XFMR` | `arc_electrode_configuration` | text | `ARC_ELECTRODE_CONFIG` |  | arc_flash |
+| `DIST_XFMR` | `arc_conductor_gap_mm` | numeric | — |  | arc_flash |
+| `DIST_XFMR` | `arc_system_grounded` | boolean | — |  | arc_flash |
+| `DIST_XFMR` | `arc_working_distance_mm` | numeric | — |  | arc_flash |
+| `MV_BUSBAR` | `arc_electrode_configuration` | text | `ARC_ELECTRODE_CONFIG` |  | arc_flash |
+| `MV_BUSBAR` | `arc_conductor_gap_mm` | numeric | — |  | arc_flash |
+| `MV_BUSBAR` | `arc_system_grounded` | boolean | — |  | arc_flash |
+| `MV_BUSBAR` | `arc_working_distance_mm` | numeric | — |  | arc_flash |
+| `MV_BREAKER` | `condition_rating` | text | `CONDITION_RATING` | ✓ | maintenance |
+| `MV_BREAKER` | `device_state` | text | `DEVICE_STATE` | ✓ | electrical |
+| `MV_BREAKER` | `normal_state` | text | `NORMAL_STATE` |  | electrical |
+| `MV_BREAKER` | `switch_function` | text | `SWITCH_FUNCTION` |  | electrical |
+| `MV_ISOLATOR` | `condition_rating` | text | `CONDITION_RATING` | ✓ | maintenance |
+| `MV_ISOLATOR` | `device_state` | text | `DEVICE_STATE` | ✓ | electrical |
+| `MV_ISOLATOR` | `normal_state` | text | `NORMAL_STATE` |  | electrical |
+| `MV_SECTIONALIZER` | `condition_rating` | text | `CONDITION_RATING` | ✓ | maintenance |
+| `MV_SECTIONALIZER` | `device_state` | text | `DEVICE_STATE` | ✓ | electrical |
+| `MV_SECTIONALIZER` | `normal_state` | text | `NORMAL_STATE` |  | electrical |
+| `MV_SECTIONALIZER` | `count_to_lockout` | integer | — |  | protection |
+| `MV_RECLOSER` | `normal_state` | text | `NORMAL_STATE` |  | electrical |
+| `MV_SWITCH` | `normal_state` | text | `NORMAL_STATE` |  | electrical |
+| `DIST_SWITCH` | `condition_rating` | text | `CONDITION_RATING` | ✓ | maintenance |
+| `MV_FUSE` | `condition_rating` | text | `CONDITION_RATING` | ✓ | maintenance |
+| `MV_FUSE` | `curve_ref` | text | — |  | protection |
+| `MV_FUSE` | `fuse_rating_a` | numeric | — |  | protection |
+| `MV_FUSE` | `fuse_speed` | text | `FUSE_SPEED` |  | protection |
+| `PROTECTIVE_RELAY` | `condition_rating` | text | `CONDITION_RATING` |  | maintenance |
+| `PROTECTIVE_RELAY` | `curve_type` | text | `TCC_CURVE` |  | protection |
+| `PROTECTIVE_RELAY` | `definite_time_s` | numeric | — |  | protection |
+| `PROTECTIVE_RELAY` | `inst_pickup_a` | numeric | — |  | protection |
+| `PROTECTIVE_RELAY` | `pickup_current_a` | numeric | — |  | protection |
+| `PROTECTIVE_RELAY` | `time_dial` | numeric | — |  | protection |
+| `MV_SWITCHGEAR_PANEL` | `arc_electrode_configuration` | text | `ARC_ELECTRODE_CONFIG` |  | arc_flash |
+| `MV_SWITCHGEAR_PANEL` | `arc_conductor_gap_mm` | numeric | — |  | arc_flash |
+| `MV_SWITCHGEAR_PANEL` | `arc_system_grounded` | boolean | — |  | arc_flash |
+| `MV_SWITCHGEAR_PANEL` | `arc_working_distance_mm` | numeric | — |  | arc_flash |
+| `SERVICE_POINT` | `demand_kw` | numeric | — |  | electrical |
+| `SERVICE_POINT` | `power_factor` | numeric | — |  | electrical |
+| `SERVICE_POINT` | `is_critical` | boolean | — |  | service |
+| `METER` | `customers_served` | integer | — |  | service |
+| `METER` | `demand_kw` | numeric | — |  | electrical |
+| `METER` | `load_priority` | text | `LOAD_PRIORITY` |  | service |
+| `METER` | `meter_role` | text | `METER_ROLE` |  | service |
+| `METER` | `power_factor` | numeric | — |  | electrical |
+| `MV_CONDUCTOR` | `circuit_ref` | text | — |  | electrical |
+| `MV_CONDUCTOR` | `phase` | text | `PHASE` |  | electrical |
+| `LV_CONDUCTOR` | `circuit_ref` | text | — |  | electrical |
+| `GENERATOR` | `reactive_limit_kvar` | numeric | — |  | electrical |
+| `GENERATOR` | `voltage_setpoint_pu` | numeric | — |  | electrical |
+
+(63 fields.)
+
+### Appendix D — The complete connectivity-rule table
+
+Every seeded `network_rules` row (directed: *from* may connect to *to*). `—` = any terminal. `invalid` = `is_valid false`, retained but not enforced.
+
+| From | Terminal | To | Terminal | Phase rule | |
+| --- | --- | --- | --- | --- | --- |
+| `POWER_XFMR` | `LV` | `MV_CONDUCTOR` | — | — |  |
+| `POWER_XFMR` | `TV` | `MV_CONDUCTOR` | — | — |  |
+| `DIST_XFMR` | `T1` | `MV_ARRESTER` | `T1` | — |  |
+| `DIST_XFMR` | `T2` | `LV_BUSBAR` | `T1` | — |  |
+| `DIST_XFMR` | `T2` | `LV_LINK_BOX` | `T1` | — |  |
+| `DIST_XFMR` | `T2` | `SERVICE_POINT` | `T1` | — | invalid |
+| `DIST_XFMR` | `T2` | `SERVICE_POINT` | `T1` | — |  |
+| `DIST_XFMR` | `T2` | `MV_CONDUCTOR` | — | — |  |
+| `DIST_XFMR` | `T2` | `LV_CONDUCTOR` | — | — |  |
+| `DIST_XFMR` | `T2` | `GENERATOR` | `T1` | — |  |
+| `DIST_XFMR` | `T2` | `MV_BESS` | `T1` | — |  |
+| `DIST_XFMR` | `T2` | `EV_CHARGING_STATION` | `T1` | — |  |
+| `AUX_TRANSFORMER` | `T2` | `LVAC_BOARD` | `T1` | — |  |
+| `MV_BUSBAR` | `T2` | `AUX_TRANSFORMER` | `T1` | — |  |
+| `MV_BUSBAR` | `T2` | `MV_BREAKER` | `T1` | — |  |
+| `MV_BUSBAR` | `T2` | `MV_ISOLATOR` | `T1` | — |  |
+| `MV_BUSBAR` | `T2` | `MV_SECTIONALIZER` | `T1` | — |  |
+| `MV_BUSBAR` | `T2` | `MV_CONDUCTOR` | — | — |  |
+| `MV_BREAKER` | `T2` | `MV_BUSBAR` | `T1` | — |  |
+| `MV_BREAKER` | `T2` | `MV_CONDUCTOR` | — | — |  |
+| `MV_ISOLATOR` | `T2` | `MV_BUSBAR` | `T1` | — |  |
+| `MV_ISOLATOR` | `T2` | `MV_CONDUCTOR` | — | — |  |
+| `MV_SECTIONALIZER` | `T2` | `MV_BUSBAR` | `T1` | — |  |
+| `MV_SECTIONALIZER` | `T2` | `MV_CONDUCTOR` | — | — |  |
+| `MV_RECLOSER` | `T1` | `MV_ARRESTER` | `T1` | — |  |
+| `MV_RECLOSER` | `T2` | `MV_ARRESTER` | `T1` | — |  |
+| `MV_RECLOSER` | `T2` | `MV_CONDUCTOR` | — | — |  |
+| `MV_SWITCH` | `T2` | `DIST_XFMR` | `T1` | — |  |
+| `MV_SWITCH` | `T2` | `MV_BUSBAR` | — | — |  |
+| `MV_SWITCH` | `T2` | `MV_ARRESTER` | `T1` | — |  |
+| `MV_SWITCH` | `T2` | `MV_METERING_POINT` | `T1` | — |  |
+| `MV_SWITCH` | `T2` | `MV_CONDUCTOR` | — | — |  |
+| `MV_SWITCH` | `T2` | `MV_BESS` | `T1` | — |  |
+| `MV_SWITCH` | `T2` | `MV_CAP_BANK` | `T1` | — |  |
+| `DIST_SWITCH` | `T2` | `MV_CONDUCTOR` | — | — |  |
+| `MV_FUSE` | `T2` | `DIST_XFMR` | `T1` | — |  |
+| `MV_FUSE` | `T2` | `MV_CONDUCTOR` | — | — |  |
+| `LV_BUSBAR` | `T2` | `METER` | `T1` | — |  |
+| `LV_BUSBAR` | `T2` | `LV_FUSE` | `T1` | — |  |
+| `LV_SWITCH` | `T2` | `LV_CONDUCTOR` | — | — |  |
+| `SERVICE_CUTOUT` | `T2` | `LV_BUSBAR` | `T1` | — |  |
+| `SERVICE_CUTOUT` | `T2` | `SERVICE_POINT` | `T1` | — |  |
+| `SERVICE_CUTOUT` | `T2` | `METER` | `T1` | — |  |
+| `SERVICE_CUTOUT` | `T2` | `LV_CONDUCTOR` | — | — |  |
+| `LV_LINK_BOX` | `T2` | `LV_CONDUCTOR` | — | — |  |
+| `LV_LINK_BOX` | `T3` | `LV_CONDUCTOR` | — | — |  |
+| `LV_LINK_BOX` | `T4` | `LV_CONDUCTOR` | — | — |  |
+| `LVAC_BOARD` | `T2` | `LV_CONDUCTOR` | — | — |  |
+| `METER` | `T2` | `SERVICE_POINT` | `T1` | — |  |
+| `LV_FUSE` | `T2` | `LV_CONDUCTOR` | — | — |  |
+| `MV_CONDUCTOR` | — | `POWER_XFMR` | `HV` | `from.voltage_class = to.primary_voltage` |  |
+| `MV_CONDUCTOR` | — | `DIST_XFMR` | `T1` | `from.voltage_class = to.primary_voltage` |  |
+| `MV_CONDUCTOR` | — | `DIST_XFMR` | `T3` | `from.voltage_class = to.primary_voltage` | invalid |
+| `MV_CONDUCTOR` | — | `AUX_TRANSFORMER` | `T1` | `from.voltage_class = to.primary_voltage` |  |
+| `MV_CONDUCTOR` | — | `EARTHING_XFMR` | `LINE` | `from.voltage_class = to.primary_voltage` |  |
+| `MV_CONDUCTOR` | — | `MV_BUSBAR` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_BREAKER` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_BREAKER` | `T2` | — |  |
+| `MV_CONDUCTOR` | — | `MV_ISOLATOR` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_ISOLATOR` | `T2` | — |  |
+| `MV_CONDUCTOR` | — | `MV_SECTIONALIZER` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_SECTIONALIZER` | `T2` | — |  |
+| `MV_CONDUCTOR` | — | `MV_RECLOSER` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_RECLOSER` | `T2` | — |  |
+| `MV_CONDUCTOR` | — | `MV_SWITCH` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_SWITCH` | `T2` | — |  |
+| `MV_CONDUCTOR` | — | `DIST_SWITCH` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `DIST_SWITCH` | `T2` | — |  |
+| `MV_CONDUCTOR` | — | `MV_FUSE` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_FUSE` | `T2` | — |  |
+| `MV_CONDUCTOR` | — | `MV_ARRESTER` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_CT` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_VT` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_METERING_POINT` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_CABLE_JOINT` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_CABLE_JOINT` | `T2` | — |  |
+| `MV_CONDUCTOR` | — | `MV_CABLE_JOINT` | `T3` | — |  |
+| `MV_CONDUCTOR` | — | `GENERATOR` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_BESS` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_CAP_BANK` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_VREG` | `T1` | — |  |
+| `MV_CONDUCTOR` | — | `MV_VREG` | `T2` | — |  |
+| `LV_CONDUCTOR` | — | `LV_BUSBAR` | `T1` | — |  |
+| `LV_CONDUCTOR` | — | `LV_SWITCH` | `T1` | — |  |
+| `LV_CONDUCTOR` | — | `LV_SWITCH` | `T2` | — |  |
+| `LV_CONDUCTOR` | — | `SERVICE_CUTOUT` | `T1` | — |  |
+| `LV_CONDUCTOR` | — | `LV_LINK_BOX` | `T1` | — |  |
+| `LV_CONDUCTOR` | — | `STREET_LIGHT` | `T1` | `phases_intersect` |  |
+| `LV_CONDUCTOR` | — | `SERVICE_POINT` | `T1` | — |  |
+| `LV_CONDUCTOR` | — | `METER` | `T1` | — |  |
+| `LV_CONDUCTOR` | — | `LV_CONDUCTOR` | — | `phases_intersect` |  |
+| `LV_CONDUCTOR` | — | `LV_CABLE_JOINT` | `T1` | — |  |
+| `LV_CONDUCTOR` | — | `LV_CABLE_JOINT` | `T2` | — |  |
+| `LV_CONDUCTOR` | — | `LV_CABLE_JOINT` | `T3` | — |  |
+| `LV_CONDUCTOR` | — | `GENERATOR` | `T1` | — |  |
+| `LV_CONDUCTOR` | — | `MV_BESS` | `T1` | — |  |
+| `MV_CABLE_JOINT` | `T2` | `MV_CONDUCTOR` | — | — |  |
+| `MV_CABLE_JOINT` | `T3` | `MV_CONDUCTOR` | — | — |  |
+| `LV_CABLE_JOINT` | `T2` | `LV_CONDUCTOR` | — | — |  |
+| `LV_CABLE_JOINT` | `T3` | `LV_CONDUCTOR` | — | — |  |
+| `MV_VREG` | `T1` | `MV_ARRESTER` | `T1` | — |  |
+| `MV_VREG` | `T2` | `MV_ARRESTER` | `T1` | — |  |
+| `MV_VREG` | `T2` | `MV_CONDUCTOR` | — | — |  |
+
+(103 rules.)
+
+### Appendix E — The complete relationship-class table
+
+| Origin | Kind | Destination | Cardinality | Name |
+| --- | --- | --- | --- | --- |
+| `CABLE_TRENCH` | cable_routing | `MV_CONDUCTOR` | many_to_many | CABLE_TRENCH carries MV_CONDUCTOR |
+| `CABLE_TRENCH` | cable_routing | `LV_CONDUCTOR` | many_to_many | CABLE_TRENCH carries LV_CONDUCTOR |
+| `CABLE_TRENCH` | cable_routing | `CABLE_DUCT` | many_to_many | CABLE_TRENCH carries CABLE_DUCT |
+| `CABLE_DUCT` | cable_routing | `MV_CONDUCTOR` | many_to_many | CABLE_DUCT carries MV_CONDUCTOR |
+| `CABLE_DUCT` | cable_routing | `LV_CONDUCTOR` | many_to_many | CABLE_DUCT carries LV_CONDUCTOR |
+| `DUCT_WAY` | cable_routing | `MV_CONDUCTOR` | many_to_many | DUCT_WAY carries MV_CONDUCTOR |
+| `DUCT_WAY` | cable_routing | `LV_CONDUCTOR` | many_to_many | DUCT_WAY carries LV_CONDUCTOR |
+| `POWER_XFMR` | composite | `TAP_CHANGER` | one_to_one | POWER_XFMR has TAP_CHANGER |
+| `MV_METERING_POINT` | composite | `MV_METER` | one_to_many | MV_METERING_POINT owns MV_METER |
+| `SERVICE_POINT` | composite | `METER` | one_to_many | SERVICE_POINT owns METER (composite) |
+| `POLE` | composite | `MV_CONDUCTOR` | one_to_many | POLE test-fixture composite (cardinality demo, one_to_many) |
+| `MV_METERING_CUBICLE` | containment | `MV_CT` | one_to_many | MV_METERING_CUBICLE contains MV_CT |
+| `MV_METERING_CUBICLE` | containment | `MV_VT` | one_to_many | MV_METERING_CUBICLE contains MV_VT |
+| `MV_METERING_CUBICLE` | containment | `MV_METER` | one_to_many | MV_METERING_CUBICLE contains MV_METER |
+| `MV_SWITCHBOARD` | containment | `MV_SWITCHGEAR_PANEL` | one_to_many | MV_SWITCHBOARD contains MV_SWITCHGEAR_PANEL |
+| `MV_SWITCHGEAR_PANEL` | containment | `MV_BREAKER` | one_to_many | MV_SWITCHGEAR_PANEL contains MV_BREAKER |
+| `MV_SWITCHGEAR_PANEL` | containment | `MV_ISOLATOR` | one_to_many | MV_SWITCHGEAR_PANEL contains MV_ISOLATOR |
+| `MV_SWITCHGEAR_PANEL` | containment | `MV_SECTIONALIZER` | one_to_many | MV_SWITCHGEAR_PANEL contains MV_SECTIONALIZER |
+| `MV_SWITCHGEAR_PANEL` | containment | `MV_FUSE` | one_to_many | MV_SWITCHGEAR_PANEL contains MV_FUSE |
+| `MV_SWITCHGEAR_PANEL` | containment | `MV_ARRESTER` | one_to_many | MV_SWITCHGEAR_PANEL contains MV_ARRESTER |
+| `MV_SWITCHGEAR_PANEL` | containment | `MV_EARTH_SWITCH` | one_to_many | MV_SWITCHGEAR_PANEL contains MV_EARTH_SWITCH |
+| `MV_SWITCHGEAR_PANEL` | containment | `PROTECTIVE_RELAY` | one_to_many | MV_SWITCHGEAR_PANEL contains PROTECTIVE_RELAY |
+| `MV_SWITCHGEAR_PANEL` | containment | `MV_CT` | one_to_many | MV_SWITCHGEAR_PANEL contains MV_CT |
+| `MV_SWITCHGEAR_PANEL` | containment | `MV_VT` | one_to_many | MV_SWITCHGEAR_PANEL contains MV_VT |
+| `BAY` | containment | `MV_BREAKER` | one_to_many | BAY contains MV_BREAKER |
+| `BAY` | containment | `MV_ISOLATOR` | one_to_many | BAY contains MV_ISOLATOR |
+| `BAY` | containment | `MV_SECTIONALIZER` | one_to_many | BAY contains MV_SECTIONALIZER |
+| `BAY` | containment | `MV_FUSE` | one_to_many | BAY contains MV_FUSE |
+| `BAY` | containment | `MV_ARRESTER` | one_to_many | BAY contains MV_ARRESTER |
+| `BAY` | containment | `PROTECTIVE_RELAY` | one_to_many | BAY contains PROTECTIVE_RELAY |
+| `BAY` | containment | `MV_CT` | one_to_many | BAY contains MV_CT |
+| `BAY` | containment | `MV_VT` | one_to_many | BAY contains MV_VT |
+| `RMU` | containment | `MV_BUSBAR` | one_to_many | RMU contains MV_BUSBAR |
+| `RMU` | containment | `MV_SWITCH` | one_to_many | RMU contains MV_SWITCH |
+| `PACKAGED_SUBSTATION` | containment | `DIST_XFMR` | one_to_many | PACKAGED_SUBSTATION contains DIST_XFMR |
+| `PACKAGED_SUBSTATION` | containment | `MV_SWITCH` | one_to_many | PACKAGED_SUBSTATION contains MV_SWITCH |
+| `PACKAGED_SUBSTATION` | containment | `LV_BUSBAR` | one_to_many | PACKAGED_SUBSTATION contains LV_BUSBAR |
+| `METER_CHAMBER` | containment | `LV_BUSBAR` | one_to_many | METER_CHAMBER contains LV_BUSBAR |
+| `METER_CHAMBER` | containment | `METER` | one_to_many | METER_CHAMBER contains METER |
+| `LV_PILLAR` | containment | `LV_BUSBAR` | one_to_many | LV_PILLAR contains LV_BUSBAR |
+| `LV_PILLAR` | containment | `LV_FUSE` | one_to_many | LV_PILLAR contains LV_FUSE |
+| `EV_CHARGING_STATION` | containment | `EV_CHARGER` | one_to_many | EV_CHARGING_STATION contains EV_CHARGER |
+| `EV_CHARGER` | containment | `EV_CONNECTOR` | one_to_many | EV_CHARGER contains EV_CONNECTOR |
+| `SUBSTATION_PANEL` | containment | `PROTECTIVE_RELAY` | one_to_many | SUBSTATION_PANEL contains PROTECTIVE_RELAY |
+| `SUBSTATION_PANEL` | containment | `METER` | one_to_many | SUBSTATION_PANEL contains METER |
+| `SUBSTATION_PANEL` | containment | `STATION_BATTERY` | one_to_many | SUBSTATION_PANEL contains STATION_BATTERY |
+| `SUBSTATION_PANEL` | containment | `BATTERY_CHARGER` | one_to_many | SUBSTATION_PANEL contains BATTERY_CHARGER |
+| `SUBSTATION_PANEL` | containment | `CONTROL_IED` | one_to_many | SUBSTATION_PANEL contains CONTROL_IED |
+| `SUBSTATION_PANEL` | containment | `ANNUNCIATOR` | one_to_many | SUBSTATION_PANEL contains ANNUNCIATOR |
+| `SUBSTATION` | containment | `AUX_TRANSFORMER` | one_to_many | SUBSTATION contains AUX_TRANSFORMER |
+| `SUBSTATION` | containment | `MV_BUSBAR` | one_to_many | SUBSTATION contains MV_BUSBAR |
+| `SUBSTATION` | containment | `MV_SWITCHBOARD` | one_to_many | SUBSTATION contains MV_SWITCHBOARD |
+| `SUBSTATION` | containment | `BAY` | one_to_many | SUBSTATION contains BAY |
+| `SUBSTATION` | containment | `LVAC_BOARD` | one_to_many | SUBSTATION contains LVAC_BOARD |
+| `SUBSTATION` | containment | `SUBSTATION_PANEL` | one_to_many | SUBSTATION contains SUBSTATION_PANEL |
+| `SUBSTATION` | containment | `CONTROL_BUILDING` | one_to_many | SUBSTATION contains CONTROL_BUILDING |
+| `STRUCTURE` | containment | `SERVICE_POINT` | one_to_many | STRUCTURE contains SERVICE_POINT |
+| `STRUCTURE` | containment | `METER` | one_to_many | STRUCTURE contains METER |
+| `STRUCTURE` | containment | `METER_CHAMBER` | one_to_many | STRUCTURE contains METER_CHAMBER |
+| `CABLE_DUCT` | containment | `DUCT_WAY` | one_to_many | CABLE_DUCT contains DUCT_WAY |
+| `CABLE_CHAMBER` | containment | `MV_CABLE_JOINT` | one_to_many | CABLE_CHAMBER contains MV_CABLE_JOINT |
+| `CABLE_CHAMBER` | containment | `LV_CABLE_JOINT` | one_to_many | CABLE_CHAMBER contains LV_CABLE_JOINT |
+| `NETWORK_METER` | metering_accounting | `POWER_XFMR` | many_to_many | NETWORK_METER meters POWER_XFMR |
+| `NETWORK_METER` | metering_accounting | `DIST_XFMR` | many_to_many | NETWORK_METER meters DIST_XFMR |
+| `NETWORK_METER` | metering_accounting | `MV_BUSBAR` | many_to_many | NETWORK_METER meters MV_BUSBAR |
+| `NETWORK_METER` | metering_accounting | `MV_CONDUCTOR` | many_to_many | NETWORK_METER meters MV_CONDUCTOR |
+| `NETWORK_METER` | metering_accounting | `LV_CONDUCTOR` | many_to_many | NETWORK_METER meters LV_CONDUCTOR |
+| `MV_METER` | metering_sensing | `MV_CT` | many_to_many | MV_METER measures via MV_CT |
+| `MV_METER` | metering_sensing | `MV_VT` | many_to_many | MV_METER measures via MV_VT |
+| `SUBSTATION_PANEL` | panel_bay | `BAY` | many_to_many | SUBSTATION_PANEL serves BAY |
+| `PROTECTIVE_RELAY` | protection_sensing | `MV_CT` | many_to_many | PROTECTIVE_RELAY senses MV_CT |
+| `PROTECTIVE_RELAY` | protection_sensing | `MV_VT` | many_to_many | PROTECTIVE_RELAY senses MV_VT |
+| `PROTECTIVE_RELAY` | protection_trip | `MV_BREAKER` | many_to_many | PROTECTIVE_RELAY trips MV_BREAKER |
+| `PROTECTIVE_RELAY` | protection_trip | `MV_RECLOSER` | many_to_many | PROTECTIVE_RELAY trips MV_RECLOSER |
+| `PROTECTIVE_RELAY` | protection_trip | `MV_SWITCH` | many_to_many | PROTECTIVE_RELAY trips MV_SWITCH |
+| `PROTECTIVE_RELAY` | protection_trip | `DIST_SWITCH` | many_to_many | PROTECTIVE_RELAY trips DIST_SWITCH |
+| `POLE` | spatial_support | `DIST_XFMR` | one_to_many | POLE supports DIST_XFMR |
+| `POLE` | spatial_support | `MV_RECLOSER` | one_to_many | POLE supports MV_RECLOSER |
+| `POLE` | spatial_support | `MV_SWITCH` | one_to_many | POLE supports MV_SWITCH |
+| `POLE` | spatial_support | `MV_FUSE` | one_to_many | POLE supports MV_FUSE |
+| `POLE` | spatial_support | `MV_ARRESTER` | one_to_many | POLE supports MV_ARRESTER |
+| `POLE` | spatial_support | `LV_BUSBAR` | one_to_many | POLE supports LV_BUSBAR |
+| `POLE` | spatial_support | `MV_CONDUCTOR` | many_to_many | POLE supports MV_CONDUCTOR |
+| `POLE` | spatial_support | `MV_BESS` | one_to_many | POLE supports MV_BESS |
+| `POLE` | spatial_support | `MV_CAP_BANK` | one_to_many | POLE supports MV_CAP_BANK |
+| `POLE` | spatial_support | `MV_VREG` | one_to_many | POLE supports MV_VREG |
+| `TOWER` | spatial_support | `MV_CONDUCTOR` | many_to_many | TOWER supports MV_CONDUCTOR |
+
+(87 relationship classes; kinds: containment 51, spatial_support 11, cable_routing 7, metering_accounting 5, composite 4, protection_trip 4, metering_sensing 2, protection_sensing 2, panel_bay 1.)
+
+### Appendix F — Classification axes, cross-cutting fields and system columns
+
+**Class-level axes** (columns on `metadata.feature_classes`, all nullable except where noted; none changes the compiled table):
+
+| Axis | Values | Meaning | Migration / seed |
+| --- | --- | --- | --- |
+| `network_role` (not null) | edge / junction / container / none | Role in the connectivity graph | `0007` |
+| `network` | MV / LV | Nominal-voltage network; scopes the `circuit_id` picker | `0064`, `circuit_membership_example.sql` |
+| `functional_role` | source / consumer / passthrough / transformer / controller / node / sensor / ground | Electrical function; only `controller` state stops a trace | `0091`, `functional_role_backfill.sql` |
+| `boundary_role` | source / protective / switching / transformer | Network-sectioning boundary kind | `0129`, `boundary_role_backfill.sql` |
+| `trace_tier` | 0 grid infeed, 200 sub-transmission/`POWER_XFMR`, 300 MV, 400 `DIST_XFMR`, 500 LV, 600 service point/meter | Vertical rank; a downstream walk never steps to a strictly lower tier | `0126`, `trace_tiers.sql` |
+| `category` | free text | Menu grouping for "New feature" | `0074` |
+| `min_display_zoom` / `max_display_zoom` | 0-24 | Map zoom band | `0090` |
+| `is_diagram_container` / `is_diagram_placeable` / `geometry_optional` / `diagram_geometry_type` | flags / point, line | Diagram and geometry behaviour | `0032`, `0052`, `0053` |
+
+Per-class values:
+
+| Class | Net | Functional role | Boundary role | Tier | Category | Zoom | Flags |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `POWER_XFMR` |  | transformer | transformer | 200 |  | 13- | placeable, geom-optional |
+| `DIST_XFMR` | MV | transformer | transformer | 400 | MV | 13- | container, placeable |
+| `AUX_TRANSFORMER` |  |  |  | 400 |  | 13- | placeable, geom-optional |
+| `EARTHING_XFMR` |  | ground |  |  |  | 13- | placeable, geom-optional |
+| `MV_BUSBAR` | MV | node |  | 300 | MV | 13- | placeable, geom-optional, diagram=line |
+| `TAP_CHANGER` |  |  |  |  |  |  | placeable |
+| `MV_BREAKER` | MV | controller | protective | 300 | MV | 13- | placeable, geom-optional |
+| `MV_ISOLATOR` | MV | controller | switching | 300 | MV | 13- | placeable, geom-optional |
+| `MV_SECTIONALIZER` | MV |  |  |  | MV | 13- | placeable, geom-optional |
+| `MV_RECLOSER` | MV | controller | protective | 300 | MV | 13- | placeable, geom-optional |
+| `MV_SWITCH` | MV | controller | switching | 300 | MV | 13- | placeable, geom-optional |
+| `DIST_SWITCH` | MV |  |  |  | MV | 13- |  |
+| `MV_FUSE` | MV | controller | protective | 300 | MV | 13- | placeable, geom-optional |
+| `MV_ARRESTER` | MV |  |  |  | MV | 13- | placeable, geom-optional |
+| `MV_EARTH_SWITCH` | MV | controller |  | 300 | MV | 13- | placeable, geom-optional |
+| `PROTECTIVE_RELAY` | MV | sensor |  |  | MV |  | placeable |
+| `MV_CT` | MV | sensor |  | 300 | MV | 13- | placeable, geom-optional |
+| `MV_VT` | MV | sensor |  | 300 | MV | 13- | placeable, geom-optional |
+| `MV_METERING_POINT` |  | consumer |  | 300 |  | 13- | placeable, geom-optional |
+| `MV_METER` |  | consumer |  | 300 |  | 13- | placeable, geom-optional |
+| `MV_METERING_CUBICLE` |  |  |  |  |  | 13- | container |
+| `NETWORK_METER` |  |  |  |  |  | 13- | placeable, geom-optional |
+| `MV_SWITCHBOARD` | MV |  |  |  | MV |  | container, placeable |
+| `MV_SWITCHGEAR_PANEL` | MV |  |  | 300 | MV |  | container, placeable |
+| `BAY` |  |  |  |  |  |  |  |
+| `RMU` | MV |  |  |  | MV | 13- | container |
+| `PACKAGED_SUBSTATION` | MV |  |  |  | MV | 13- | container |
+| `LV_BUSBAR` | LV | node |  | 500 | LV | 13- | placeable, geom-optional, diagram=line |
+| `LV_SWITCH` | LV | controller | switching | 500 | LV | 13- | placeable, geom-optional |
+| `SERVICE_CUTOUT` | LV | controller | protective | 500 | LV | 13- |  |
+| `LV_LINK_BOX` | LV |  | switching |  | LV | 13- | placeable |
+| `LVAC_BOARD` |  |  |  |  |  | 13- | placeable, geom-optional |
+| `STREET_LIGHT` | LV |  |  |  | LV | 13- |  |
+| `SERVICE_POINT` | LV | consumer |  | 600 | LV | 13- |  |
+| `METER` | LV | consumer |  | 600 | LV | 13- | placeable |
+| `METER_CHAMBER` |  |  |  |  |  | 13- | container |
+| `LV_PILLAR` | LV |  |  | 500 | LV | 13- | container |
+| `LV_FUSE` |  |  | protective | 500 |  |  | placeable |
+| `MV_CONDUCTOR` | MV | passthrough |  | 300 | MV | 13- | placeable, geom-optional |
+| `LV_CONDUCTOR` | LV | passthrough |  | 500 | LV | 13- |  |
+| `MV_CABLE_JOINT` |  |  |  |  |  | 13- |  |
+| `LV_CABLE_JOINT` |  |  |  |  |  | 13- |  |
+| `GENERATOR` |  | source | source | 0 |  | 13- |  |
+| `MV_BESS` | MV |  |  |  | MV | 13- | placeable, geom-optional |
+| `MV_CAP_BANK` | MV |  |  |  | MV | 13- | placeable, geom-optional |
+| `MV_VREG` | MV |  |  |  | MV | 13- | placeable, geom-optional |
+| `EV_CHARGING_STATION` |  |  |  |  |  | 13- |  |
+| `EV_CHARGER` |  |  |  |  |  |  | placeable |
+| `EV_CONNECTOR` |  |  |  |  |  |  | placeable |
+| `SUBSTATION_PANEL` |  |  |  |  |  |  | placeable |
+| `STATION_BATTERY` |  |  |  |  |  |  | placeable |
+| `BATTERY_CHARGER` |  |  |  |  |  |  | placeable |
+| `CONTROL_IED` |  | sensor |  |  |  |  | placeable |
+| `ANNUNCIATOR` |  | sensor |  |  |  |  | placeable |
+| `SUBSTATION` |  |  |  |  |  | 13- | container |
+| `CONTROL_BUILDING` |  |  |  |  |  | 13- | geom-optional |
+| `STRUCTURE` |  |  |  |  |  | 13- |  |
+| `POLE` |  |  |  |  |  | 13- | container |
+| `TOWER` |  |  |  |  |  | 13- |  |
+| `CABLE_TRENCH` |  |  |  |  |  | 13- |  |
+| `CABLE_DUCT` |  |  |  |  |  | 13- |  |
+| `CABLE_CHAMBER` |  |  |  |  |  | 13- | geom-optional |
+| `DUCT_WAY` |  |  |  |  |  |  |  |
+
+**Cross-cutting fields** (the same field on many classes; all nullable):
+
+| Field | Domain | Meaning | Carried by |
+| --- | --- | --- | --- |
+| `operational_state` | `OPERATIONAL_STATE` PLANNED / IN_SERVICE / ISOLATED / RETIRED | Lifecycle; legal transitions PLANNED->IN_SERVICE/RETIRED, IN_SERVICE->ISOLATED/RETIRED, ISOLATED->IN_SERVICE/RETIRED; ISOLATED and RETIRED are trace barriers | `DIST_XFMR`, `MV_BUSBAR`, `MV_BREAKER`, `MV_ISOLATOR`, `MV_SECTIONALIZER`, `MV_RECLOSER`, `MV_SWITCH`, `DIST_SWITCH`, `MV_FUSE`, `MV_ARRESTER`, `PROTECTIVE_RELAY`, `MV_CT`, `MV_VT`, `BAY`, `LV_BUSBAR`, `LV_SWITCH`, `SERVICE_CUTOUT`, `LV_LINK_BOX`, `STREET_LIGHT`, `SERVICE_POINT`, `METER`, `METER_CHAMBER`, `MV_CONDUCTOR`, `LV_CONDUCTOR`, `MV_BESS`, `MV_CAP_BANK`, `MV_VREG`, `SUBSTATION`, `POLE` (29) |
+| `circuit_id` | uuid -> `gis.circuits` | Soft reference to the feeder/circuit the feature belongs to (picker scoped by `network`) | `DIST_XFMR`, `MV_BUSBAR`, `MV_BREAKER`, `MV_ISOLATOR`, `MV_SECTIONALIZER`, `MV_RECLOSER`, `MV_SWITCH`, `DIST_SWITCH`, `MV_FUSE`, `MV_ARRESTER`, `MV_EARTH_SWITCH`, `PROTECTIVE_RELAY`, `MV_CT`, `MV_VT`, `MV_SWITCHBOARD`, `MV_SWITCHGEAR_PANEL`, `RMU`, `PACKAGED_SUBSTATION`, `LV_BUSBAR`, `LV_SWITCH`, `SERVICE_CUTOUT`, `LV_LINK_BOX`, `STREET_LIGHT`, `SERVICE_POINT`, `METER`, `LV_PILLAR`, `MV_CONDUCTOR`, `LV_CONDUCTOR`, `MV_BESS`, `MV_CAP_BANK`, `MV_VREG` (31) |
+| `ownership` | `OWNERSHIP` utility / private | Asset ownership; NULL reads as `utility` | `POWER_XFMR`, `DIST_XFMR`, `LV_BUSBAR`, `LV_SWITCH`, `SERVICE_CUTOUT`, `LV_LINK_BOX`, `STREET_LIGHT`, `SERVICE_POINT`, `METER`, `METER_CHAMBER`, `LV_PILLAR`, `LV_FUSE`, `LV_CONDUCTOR` (13) |
+
+**System columns** every compiled `gis.<table>` gets (from `api/internal/compiler/ddl.go`, `buildCreateTable`): `id` (uuid pk), `name` (text, optional human label), `subtype` (integer NOT NULL with a CHECK on the seeded codes — only when the class has subtypes), `status` (`draft`/`published`, default `draft`), `deleted_at` (soft delete), `geom` (PostGIS, typed from `geometry_type`; nullable when `geometry_optional`; absent for `none`), then one column per active field, then `created_at`, `updated_at`, `created_by`, `updated_by`, `published_at`, `published_by` (sticky first-publish marker for private drafts) and — for classes with geometry — `territory_id`.
+
