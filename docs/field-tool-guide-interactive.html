@@ -1285,5 +1285,8 @@ function render(){ renderMap(); renderSheet(); renderTop(); renderMissions(); re
   document.querySelectorAll('section.ch').forEach(s=>io.observe(s));
 })();
 
+
+/* in-page anchors: a srcdoc iframe resolves href="#id" against the parent app URL, so handle chapter-rail links ourselves */
+document.addEventListener('click',function(e){ var a=e.target.closest&&e.target.closest('a[href^="#"]'); if(!a) return; var id=decodeURIComponent(a.getAttribute('href').slice(1)); e.preventDefault(); if(!id){ window.scrollTo({top:0,behavior:'instant'}); return; } var t=document.getElementById(id); if(t){ var nav=document.querySelector('.rail'); var off=(nav?nav.getBoundingClientRect().height:0)+12; window.scrollTo({top:t.getBoundingClientRect().top+window.pageYOffset-off,behavior:'instant'}); } });
 </script>
 </body></html>
