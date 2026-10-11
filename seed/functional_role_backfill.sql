@@ -51,7 +51,7 @@ UPDATE metadata.feature_classes SET functional_role = 'controller'
  WHERE code IN (
     'LV_SWITCH', 'SERVICE_CUTOUT',
     'MV_SWITCH', 'MV_ISOLATOR', 'MV_RECLOSER', 'MV_BREAKER', 'MV_FUSE',
-    'MV_EARTH_SWITCH'
+    'MV_SECTIONALIZER', 'MV_EARTH_SWITCH'
  );
 
 -- node -- a many-way meeting point (busbars).

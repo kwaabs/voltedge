@@ -38,7 +38,7 @@ const (
 // device to place the source-side safety boundary. A package var (like
 // ProtectiveDeviceClasses) so a deployment modelling switching differently can
 // override it.
-var SwitchingDeviceClasses = []string{"MV_SWITCH", "MV_ISOLATOR", "MV_RECLOSER", "MV_BREAKER"}
+var SwitchingDeviceClasses = []string{"MV_SWITCH", "MV_ISOLATOR", "MV_SECTIONALIZER", "MV_RECLOSER", "MV_BREAKER"}
 
 // deviceRefLabel is the short human tag for a device in a step instruction --
 // class code plus the first 8 of its id, matching the web incident row's
