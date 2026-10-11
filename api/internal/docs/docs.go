@@ -301,6 +301,13 @@ var manifest = []Doc{
 		Filename:    "network-sectioning-guide.md",
 	},
 	{
+		ID:          "switching-and-protection-guide",
+		Title:       "Switching & Protection",
+		Description: "The switching and protection devices end to end: switch/breaker/isolator/recloser/sectionalizer/fuse and the RMU, the device_state vs operational_state axes, how opening a device re-routes traces and de-energises a cone, ties/couplers, and the relay → curve → coordination chain with CTI grading.",
+		Category:    "Manuals",
+		Filename:    "switching-and-protection-guide.md",
+	},
+	{
 		ID:          "asset-tags-guide",
 		Title:       "Asset Tags Guide",
 		Description: "How to use asset tags and how they work: minting, affixing, scanning to resolve, printing and querying by tag.",
