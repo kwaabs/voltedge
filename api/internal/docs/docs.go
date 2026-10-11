@@ -147,6 +147,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "access-control-guide-interactive",
+		Title:       "Access Control (interactive)",
+		Description: "Run the access rules in your browser: a role designer, a request tester that follows the real middleware order, territory resolution and point-in-polygon assignment, a lockout and rate-limit lab, an SSO decision simulator, a break-glass drill, an audit query builder and a 'why can't Priya do X' diagnoser, with a persona switch over the real seeded roles.",
+		Category:    "Interactive guides",
+		Filename:    "access-control-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "feature-catalog-interactive",
 		Title:       "Feature Catalog explorer (interactive)",
 		Description: "A searchable explorer over the real feature-class model (63 classes, 372 fields, 53 domains, 103 connection rules, 87 relationship classes), built from the metadata seeds and checked against the manual: global search, the full manual reader with its appendices, a class browser and comparison, a 'which class do I use?' wizard, domain lookup, a create-form simulator and CSV header checker that mirror the real validation, a connectivity and relationship explorer, a feeder builder with a trace walker, the map-versus-diagram placement matrix, the axes, a compile preview and a manual-versus-seed drift dashboard. A persona switch uses the real RBAC roles.",
@@ -353,6 +361,14 @@ var manifest = []Doc{
 		Category:     "Administration",
 		Filename:     "symbology-guide.md",
 		RequiredPerm: auth.PermMetadataRead,
+	},
+	{
+		ID:           "access-control-guide",
+		Title:        "Access Control Guide",
+		Description:  "Users, roles, permissions, territories and the audit trail for administrators and auditors: the nine seeded roles, all 34 permissions, a route-to-permission map, sessions, SSO, tokens, break-glass, spatial scoping, private drafts, runbooks and an auditor's checklist.",
+		Category:     "Administration",
+		Filename:     "access-control-guide.md",
+		RequiredPerm: auth.PermUsersManage,
 	},
 	{
 		// Administrative: break-glass and access administration. Gated on the

@@ -515,7 +515,7 @@ editing a boundary re-checks it against the parent but never re-assigns placed
 features or re-validates existing children (Slice F's `UpdateTerritory`).
 
 **Verify (owed):** `cd web && npm run typecheck && npm run lint`. As an
-editor: from **Admin → Territories**, click a district's map icon → the map
+admin (holds `territories:write`; editors do not): from **Admin → Territories**, click a district's map icon → the map
 opens with its name in a top toolbar. **Draw** a polygon inside its parent →
 it appears cyan; **Save** → toast-free success, and turning on the overlay
 shows the new boundary. Re-open, **Edit vertices**, drag a vertex, Save.

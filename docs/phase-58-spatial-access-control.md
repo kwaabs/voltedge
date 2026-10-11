@@ -33,11 +33,11 @@ the people who report to them).
    (Route A).** Tiles today are served by **Martin directly from Postgres**,
    bypassing the Go API, and Postgres RLS is deliberately unused (superuser
    connection). So feature tiles move behind a session-authenticated Go endpoint
-   that runs `ST_AsMVT(… WHERE territory_id = ANY($set))`. Martin keeps serving
-   the public territory-boundary overlay.
-6. **Revocation is instant** — the per-user effective set is cached, and every
-   grant/manager write busts the affected user's cache (and every manager above
-   them).
+   that runs `ST_AsMVT(… WHERE territory_id::text IN (<set>))`. The territory-boundary
+   overlay is not a tile layer: it is fed by `GET /territories/boundaries` (phase 11, Slice H).
+6. **Revocation is instant** — the per-user effective set is cached (60 s TTL), and every
+   grant/manager write calls `access.InvalidateAll()`, flushing every user's cached set
+   (a full flush, not per-user invalidation).
 
 ## Effective-territory set
 
@@ -81,19 +81,17 @@ assigned, and features backfilled.
 
 ## Go: the `access` package
 
-New `api/internal/access`, dependency-clean (imports `territory`, never `auth`,
-so `auth` can call it without a cycle):
+New `api/internal/access`, dependency-clean (imports neither `territory` nor `auth` --
+it queries `gis.territories` directly -- so `auth` can call it without a cycle):
 
 - `models.go` — `UserTerritory` bun model.
 - `grants.go` — `Grant`, `Revoke`, `ListForUser`, `SetManager` (+ cycle guard),
-  and `EffectiveIDs(ctx, db, userID) ([]string, bool, error)` (ids, unscoped,
-  err). The pure DB resolver.
-- `cache.go` (S2) — process-local per-user cache of the effective set +
-  unscoped flag, with `Invalidate(userIDs…)`; grant/manager writes call it for
-  the touched user and all managers above them.
+  and `EffectiveIDs(ctx, db, userID) ([]string, error)`. The pure DB resolver; the
+  unscoped bypass is decided in `auth.loadScopeFields`, not here.
+- `cache.go` (S2) — process-local per-user cache of the effective set (and of the
+  subordinate set), with `InvalidateAll()`; grant/manager writes call it after the write.
 
-`auth.SessionUser` gains `AllowedTerritories map[string]struct{}` and
-`Unscoped bool`, loaded in `loadSession` beside `Permissions`. A helper
+`auth.SessionUser` gains `AllowedTerritories []string`, `Unscoped bool` (and later `Subordinates []string`), loaded in `loadSession` beside `Permissions`. A helper
 `(*SessionUser) TerritoryFilter()` returns `(ids []string, unscoped bool)` for
 query builders.
 

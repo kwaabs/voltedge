@@ -79,7 +79,7 @@ func (u *SessionUser) Has(perm string) bool {
 2. Pick the required permission by method: `readPerm` for `GET`/`HEAD`/`OPTIONS`, otherwise `writePerm`.
 3. `user.Has(required)` is false → **403 Forbidden**.
 
-So a single mount like `RequirePermission(PermMetadataRead, PermMetadataWrite)` makes reads need `metadata:read` and writes need `metadata:write` in one line. Write routes additionally require CSRF (`RequireCSRF`, a double-submit token plus `Sec-Fetch-Site`/`Origin` check) on the browser path.
+So a single mount like `RequirePermission(PermMetadataRead, PermMetadataWrite)` makes reads need `metadata:read` and writes need `metadata:write` in one line. Write routes additionally require CSRF (`RequireCSRF`, a double-submit token plus a `Sec-Fetch-Site` check) on the browser path -- applied on the administrative, attachment and assistant surfaces listed in §3.6, not on every mount.
 
 **The permission strings** are Go constants in [rbac.go](api/internal/auth/rbac.go), mirroring the `iam.permissions` catalog — `PermFeaturesRead = "features:read"`, `PermFeaturesWrite`, `PermMetadataRead/Write`, `PermUsersManage = "admin:users"`, `PermAuthSettings = "admin:auth-settings"`, `PermTerritoriesWrite`, `PermCircuitsWrite`, `PermOMS*`, `PermWAM*`, `PermFaults*`, and so on. The `:read`/`:write` convention pairs with the middleware's method split.
 
@@ -120,20 +120,20 @@ That's the entire difference: **same authority to act, different authority to au
 
 ### 1.6 The roles, as seeded ∑
 
-Roles map to permissions as **data**, seeded in [migrations/0025_create_rbac.sql](migrations/0025_create_rbac.sql). Five roles ship:
+Roles map to permissions as **data**, seeded in [migrations/0025_create_rbac.sql](migrations/0025_create_rbac.sql). Five roles ship in 0025 (migration 0078 later adds `supervisor` and 0099 the three field roles `field-surveyor`, `field-enumerator`, `field-technician` -- nine in all; see the Access Control Guide, chapter 3):
 
 | Role | Grants | Persona |
 |---|---|---|
 | `viewer` | read permissions (features, connectivity, diagrams, …) | Priya |
 | `analyst` | viewer + trace + `analysis:run` | Tom |
 | `editor` | analyst + data writes/commits — **but not** metadata or admin | Dana |
-| `admin` | **every** permission (via `CROSS JOIN` over the catalog) | Ada |
+| `admin` | **every** permission (via `CROSS JOIN` over the catalog as of 0025, then explicit grants in each later migration) | Ada |
 | `break-glass-admin` | **every** permission (via `CROSS JOIN`) | Owen |
 
 Two things to internalise:
 
 - **`editor` deliberately stops short of metadata and admin.** Dana can create and commit *features* all day, but she cannot author a feature *class*, manage users, or change auth settings. Authoring the schema is an `admin` act, separated from editing the data that lives in it.
-- **`admin` and `break-glass-admin` grant the identical permission set** — both `CROSS JOIN` every permission in the catalog, so later migrations that *add* a permission (e.g. 0094's `territories:unscoped`, 0088/0097/0107's OMS/WAM/faults perms) automatically flow to both. The role tables are re-`CROSS JOIN`ed as permissions grow. Again: the roles are identical; the `break_glass` column is the only real difference.
+- **`admin` and `break-glass-admin` grant the identical permission set** — both `CROSS JOIN` every permission that existed when 0025 ran; permissions added later (e.g. 0094's `territories:unscoped`, 0088/0097/0107's OMS/WAM/faults perms) reach both only because each of those migrations grants them explicitly to `admin` and `break-glass-admin`. Again: the roles are identical; the `break_glass` column is the only real difference.
 
 **No `user_roles` are seeded.** A fresh database has the roles and permissions defined but *no one assigned to them* — the first account is created out-of-band by the `authadmin` tool (Chapter 2), which bootstraps a break-glass admin and assigns it the `admin` role. That first account is how Owen (and then Ada) come to exist at all.
 
@@ -427,7 +427,7 @@ Everything lives in the `iam` schema (Chapter 1: named `iam`, not `auth`, becaus
 | Table | Holds | Key relationships |
 |---|---|---|
 | `iam.users` | one row per **account** — email, display name, `status` (`active`/`disabled`), `break_glass` bool, `manager_id` (Chapter 4) | the identity everything hangs off |
-| `iam.identities` | one row per **way to prove you are that user** — `provider` ∈ `local`/`azuread`/`google`, and for `local`, the Argon2id `password_hash` | many-to-one → `users` |
+| `iam.user_identities` | one row per **way to prove you are that user** — `provider` ∈ `local`/`azuread`/`google`, and for `local`, the Argon2id `password_hash` | many-to-one → `users` |
 | `iam.roles` | the **role catalog** — `key` (`viewer`…`break-glass-admin`), name, description | seeded by migration 0025 |
 | `iam.permissions` | the **permission catalog** — every capability string (`features:read`, `metadata:write`, `admin:users`, …) | seeded by 0025 + appended by later migrations |
 | `iam.role_permissions` | which permissions a role **grants** | many-to-many: roles ⋈ permissions |
@@ -442,14 +442,14 @@ Two corollaries an administrator lives with:
 
 ### 3.2 The five roles in practice
 
-Migration 0025 seeds exactly five roles, and later migrations only ever *append* permissions to them (as new modules — OMS, WAM, faults — arrive). Here is what each role means in terms of the people who hold it, from least to most:
+Migration 0025 seeds five roles (0078 and 0099 later add `supervisor` and three field roles), and later migrations append permissions to them (as new modules — OMS, WAM, faults — arrive). Here is what each role means in terms of the people who hold it, from least to most:
 
 | Role | Grants, in words | Who holds it | Stops short of |
 |---|---|---|---|
 | **`viewer`** | Read the map, features, diagrams, connectivity, annotations — everything, but changes nothing | **Priya** the dispatcher | any write, trace, analysis |
 | **`analyst`** | Everything a viewer can, **plus** `trace:run` and `analysis:run` | **Tom** the planner | any data write or commit |
 | **`editor`** | Everything an analyst can, **plus** the data-writing permissions — create/edit/split features, commit connectivity and relationships, write diagrams and annotations, attachments | **Dana** the field supervisor | `metadata:*` and `admin:*` — cannot author feature classes or manage users |
-| **`admin`** | **Every permission**, granted by a `CROSS JOIN` of every role against every permission in migration 0025 | **Ada** the system administrator | nothing, within RBAC |
+| **`admin`** | **Every permission**, granted by a `CROSS JOIN` against the 0025 catalog, then by explicit grants in each later permission migration | **Ada** the system administrator | nothing, within RBAC |
 | **`break-glass-admin`** | **Every permission** — an identical permission set to `admin` | **Owen** the emergency account | nothing, within RBAC |
 
 Three things this table is quietly telling you, each of which matters:
@@ -617,7 +617,7 @@ The browser session machinery is small, opaque, and defensive by construction:
 - **Opaque, server-side sessions.** A login mints 256 bits of random token, stores only its SHA-256, and hands the raw token to the browser in a cookie once. There is no JWT, nothing self-describing — validity is a database lookup, so **revocation is instant** (logout, or disabling the account, marks the row revoked and the next request is anonymous).
 - **Two expiry windows.** A **sliding idle window** (`SESSION_IDLE_TIMEOUT`, default 12h) that every valid use pushes forward, and a **hard absolute cap** (`SESSION_ABSOLUTE_MAX`, default 720h/30d) that no activity can extend. A session dies at whichever comes first.
 - **Cookie hardening.** The session cookie is `HttpOnly` (JavaScript can never read it), `SameSite=Strict`, host-scoped, and `Secure` — *unless* `AUTH_INSECURE_COOKIES=1` drops the Secure flag for local http dev (Chapter 2's warning: never on a networked host). A companion CSRF cookie is intentionally *not* `HttpOnly` — the SPA reads it to echo in a header — but it is useless without the session cookie.
-- **Defense-in-depth CSRF.** `RequireCSRF` guards state-changing methods with two independent checks on top of `SameSite=Strict`: the request's `Sec-Fetch-Site`/`Origin` must be same-origin (or a direct navigation), **and** the `X-CSRF-Token` header must equal the session's CSRF token, compared in *constant time*. Safe methods pass through. This is why every mutating admin route in §3.3 additionally carries `RequireCSRF`.
+- **Defense-in-depth CSRF.** `RequireCSRF` guards state-changing methods with two independent checks on top of `SameSite=Strict`: the request's `Sec-Fetch-Site` header, when present, must be `same-origin` or `none` (the `Origin` header is not inspected), **and** the `X-CSRF-Token` header must equal the session's CSRF token, compared in *constant time*. Safe methods pass through. This is why every mutating admin route in §3.3 additionally carries `RequireCSRF`; the middleware is applied to a specific set of surfaces (logout and the auth switch, `/auth/admin`, attachments, assistant chat/execute, field-pack admin, sync-review) and **not** to the core data mounts such as `/features`, which rely on `SameSite=Strict` alone.
 - **A baseline of security headers on every response.** `SecurityHeaders` sets `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`, and — only over TLS — HSTS. Small, reviewable middleware rather than a framework, in keeping with the "minimal audited surface" posture.
 
 ### 3.7 The `authadmin` CLI: the out-of-band twin
@@ -649,7 +649,7 @@ Now vary the actor and watch the model do its work, with *no other code changing
 
 - **Priya** (`viewer`) makes the same request → step 3's `Has("analysis:run")` is false → **403**. She authenticated fine; she is simply not authorized.
 - **A logged-out browser** → step 1 attaches no user → `RequirePermission` finds none → **401**.
-- **An AI agent** with Tom's `ve_mcp_` token → step 1 is `ResolveAPIToken` instead of `loadSession`, yielding the *same* `SessionUser` with the *same* permissions; CSRF is skipped (no cookie, no CSRF surface); step 3 is byte-for-byte identical → it runs, exactly as Tom, never more than Tom.
+- **An AI agent** with Tom's `ve_mcp_` token → the API server itself reads only the session cookie, so a bearer token sent straight to `POST /analysis/...` is anonymous (**401**). The agent talks to the MCP server instead, whose step 1 is `ResolveAPIToken` rather than `loadSession`, yielding the *same* `SessionUser` with the *same* permissions; CSRF is skipped (no cookie, no CSRF surface); the tool for that action is gated on `analysis:run` exactly as the route would be → it runs, exactly as Tom, never more than Tom.
 - **Owen** (break-glass, `admin` role) → `Has("analysis:run")` is true because his role put it in the map — *not* because he is break-glass. His break-glass column would matter if local auth were switched off at step 1's front door, or if he were performing a factory reset — never here.
 
 That invariance — one snapshot, one `Has`, one gate, regardless of who you are or how you got in — is the entire security model, and it is why the rest of this guide can describe *capabilities* without re-explaining *enforcement* each time.
@@ -701,7 +701,7 @@ Before scoping can filter by territory, every feature needs a `territory_id` —
 - **Explicit override.** A caller may name a territory directly. An override is validated to exist and to be at least the minimum feature level, **always — independent of the enforcement flag** (a too-shallow assignment is a user error worth rejecting regardless of rollout). Notably, an override is **not** required to spatially contain the feature — that is the whole point: it exists for when the boundary is missing or imperfect and a human asserts membership.
 - **The minimum-level rule.** A feature must belong to at least a configured minimum level (e.g. "at least a District," never merely a whole Region). `MinFeatureLevel` sets that floor.
 
-The enforcement flag governs only the *failure case* of the automatic path. With enforcement **off**, "no territory covers this location" or "only a too-shallow one does" simply leaves the feature **unassigned** (`territory_id = NULL`) — the write still saves. With enforcement **on**, the same situation **rejects the write with a 400** (`"this location isn't within any \"District\" — no territory covers it"`). This asymmetry is what lets an install accumulate correct territory stamps quietly during normal editing, then have Ada turn the invariant into a hard requirement once coverage is complete.
+The enforcement flag governs only the *failure case* of the automatic path. With enforcement **off**, "no territory covers this location" or "only a too-shallow one does" simply leaves the feature **unassigned** (`territory_id = NULL`) — the write still saves. With enforcement **on**, the same situation **rejects the write with a 400** (`"this location isn't within any \"district\" — no territory covers it"`, quoting the level *code*). This asymmetry is what lets an install accumulate correct territory stamps quietly during normal editing, then have Ada turn the invariant into a hard requirement once coverage is complete.
 
 ### 4.3 Granting access: the operator's view
 
@@ -799,7 +799,7 @@ When it *does* apply, the effective ids become a SQL predicate, and the exact sh
 
 - **List / query reads** append `scopeWhere`'s fragment: `territory_id::text IN (?, ?, …)` for a non-empty set, or — critically — **`1 = 0`** for an empty set. An empty effective set matches *no rows*: fail-closed, in SQL.
 - **GET-by-id** uses `enforceReadScope`: a feature outside the user's set — **including a feature with no `territory_id` at all** — returns **`notFound`**, not `forbidden`. Hiding an out-of-scope feature as "not found" rather than "forbidden" avoids leaking that the id even exists. Under fail-closed, an unassigned feature is invisible to a scoped user.
-- **Writes** (create/update/delete) use `enforceWriteScope`: the feature's resolved territory (from `Assign` on a geometry change, or the row's existing `territory_id`) must be in the user's set, else **`forbidden` (403)** — `"you don't have access to the territory this feature belongs to"`. Here a 403 is right (unlike the read side) because a write names a specific feature the user is acting on deliberately.
+- **Writes** are two checks. First, an update, delete, publish or unpublish of an *existing* feature outside the user's set (or with no territory) is refused by `enforceReadScope` as **`notFound` (404)** — the same answer a GET gives. Second, `enforceWriteScope` guards the *destination*: a **create**, or an update that supplies new geometry or a `territory_id`, must resolve to a territory in the user's set, else **`forbidden` (403)** — `"you don't have access to the territory this feature belongs to"`. A 403 is right here because the user is deliberately placing a feature somewhere they hold no grant.
 
 And enforcement is not only in CRUD — the same effective set drives the predicate in **trace**, **export**, and **map tiles**, so a scoped user cannot route around the filter by tracing a network, exporting a region, or reading vector tiles. Every path that surfaces feature geometry consults the same scope.
 
@@ -807,7 +807,7 @@ And enforcement is not only in CRUD — the same effective set drives the predic
 
 Because scoping ships **OFF**, turning it on is a deliberate, ordered rollout — and getting the order right is what keeps it from rejecting legitimate writes before the data is ready.
 
-**The flag.** `EnforcementEnabled` reads `territory_enforcement_enabled` from `iam.system_settings` and treats **missing or unparseable as OFF** — only an explicit `"true"` turns it on. It reuses the runtime key/value settings table, so the invariant flips **at runtime with no redeploy**, the same pattern as the local-auth break-glass switch. A fresh install has no such row, so it is off.
+**The flag.** `EnforcementEnabled` reads `territory_enforcement_enabled` from `iam.system_settings` and treats **missing or unparseable as OFF** — only an explicit `"true"` turns it on. It reuses the runtime key/value settings table, so the invariant flips **at runtime with no redeploy**, the same pattern as the local-auth break-glass switch. Migration 0029 seeds the row as `'false'`, so a fresh install is off.
 
 **The ordered rollout** (the admin surface lives on the `/territories` routes and the admin Territories page's rollout card):
 
@@ -837,7 +837,7 @@ Return to Dana editing Feeder 7 in Oakwood, with enforcement **on**, and watch b
 
 Now vary the case, changing nothing else:
 
-- Dana edits a feeder in **Riverside** (not her patch) → RBAC still passes (she *may* write features), but `enforceWriteScope` finds Riverside outside her set → **403**. The action axis said yes; the place axis said no.
+- Dana edits an existing feeder in **Riverside** (not her patch) → RBAC still passes (she *may* write features), but the read-scope check on the existing row finds Riverside outside her set → **404**; drawing a *new* feeder in Riverside (or dragging hers into it) reaches `enforceWriteScope` and gets **403**. The action axis said yes; the place axis said no.
 - Dana *reads* the Riverside feeder by id → `enforceReadScope` → **404 not found** (existence hidden, not "forbidden").
 - **Ada** (unscoped `admin`) does either → `loadScopeFields` returned `Unscoped=true`, `readScope` short-circuits, no predicate → she edits and sees everything.
 - **Owen** (break-glass, unscoped) in an emergency → identical to Ada spatially: every territory, every private draft, by virtue of the bypass, no special-casing.
@@ -1535,16 +1535,16 @@ Every permission is a string constant in [rbac.go:21](api/internal/auth/rbac.go#
 | `features:write` | Create/edit/publish/unpublish/delete/restore features | editor |
 | `connectivity:commit` | Establish or revoke electrical connectivity | editor |
 | `relationships:commit` | Establish or revoke structural/spatial relationships | editor |
-| `diagrams:write` | Create/rename/delete diagrams, place/remove features | editor |
-| `diagrams:delete` | Delete diagrams¹ | editor¹ |
+| `diagrams:write` | Create/rename diagrams, place/remove features (deleting a diagram needs `diagrams:delete`) | editor |
+| `diagrams:delete` | Delete diagrams¹ | supervisor¹ (not editor) |
 | `annotations:write` | Create/edit map annotations¹ | editor¹ |
-| `attachments:read` / `attachments:write` | View / manage feature attachments¹ | editor¹ |
-| `oms:read` / `oms:write` | View / manage outages & switching¹ | editor¹ |
-| `wam:read` / `wam:write` | View / manage defects, works, inspections¹ | editor¹ |
-| `faults:read` / `faults:write` | View / manage fault events¹ | editor¹ |
+| `attachments:read` / `attachments:write` | View / manage feature attachments¹ | viewer¹ (read) · editor¹ (write) |
+| `oms:read` / `oms:write` | View / manage outages & switching¹ | viewer¹ (read) · editor¹ (write) |
+| `wam:read` / `wam:write` | View / manage defects, works, inspections¹ | viewer¹ (read) · editor¹ (write) |
+| `faults:read` / `faults:write` | View / manage fault events¹ | viewer¹ (read) · editor¹ (write) |
 | `tags:read` / `tags:write` | Resolve/scan asset tags & view a feature's tags / register-void-reissue-set-primary¹ | viewer¹ (read, +field-technician) · editor¹ (write) |
 | `metadata:write` | **Edit and compile the metadata catalog** | **admin** |
-| `territories:write` | Create/edit the territory tree & grant scope | **admin** |
+| `territories:write` | Create/edit the territory tree, boundaries, backfill and the enforcement flip (granting a territory to a user is `admin:users`) | **admin** |
 | `circuits:write` | Assign/edit circuits¹ | **admin** |
 | `sync:review` / `sync:post` | Review / post the field-sync inbox | **admin** |
 | `admin:field-packs` | Manage field-tool region packs | **admin** |
@@ -1556,9 +1556,9 @@ Every permission is a string constant in [rbac.go:21](api/internal/auth/rbac.go#
 
 **The two boundaries that matter most:**
 - **editor stops before `metadata:write` and every `admin:*`.** An editor edits *data*; they never touch the *schema*, *users*, or *auth settings*. That line is the difference between Dana (editor) and Ada (admin) throughout this guide.
-- **`admin` and `break-glass-admin` have identical permission sets** — every permission, seeded by `CROSS JOIN` ([0025:130](migrations/0025_create_rbac.sql#L130)). The difference between them is **not** a permission; it is the `break_glass` *column* (Chapter 5).
+- **`admin` and `break-glass-admin` have identical permission sets** — every permission (`CROSS JOIN` in [0025:130](migrations/0025_create_rbac.sql#L130) for the original 14; explicit grants in each later permission migration). The difference between them is **not** a permission; it is the `break_glass` *column* (Chapter 5).
 
-### 9.2 The five roles at a glance
+### 9.2 The five baseline roles at a glance (plus `supervisor` and three field roles added by 0078/0099)
 
 | Role | Permissions (cumulative) | Who |
 | --- | --- | --- |
@@ -1636,10 +1636,10 @@ Every mount and its gate, from [main.go](api/cmd/server/main.go). Gates are `Req
 
 | Mount | Read gate | Write gate | Chapter |
 | --- | --- | --- | --- |
-| `/admin` (metadata catalog: classes, fields, domains, symbology, CIM, import-profiles) | `metadata:read` | `metadata:write` | 7 |
+| `/admin` (metadata catalog: classes, fields, domains, symbology, CIM, import-profiles) | `metadata:write` | `metadata:write` | 7 |
 | `/map-settings`, `/basemaps`, `/service-layers` | `features:read` | `metadata:write` | 7 |
 | `/private-drafts` (rollout switch) | `features:read` | `metadata:write` | 8 |
-| `/external-systems` | `metadata:read` | `metadata:write` | 7 |
+| `/external-systems` | `metadata:write` | `metadata:write` | 7 |
 | `/imports` (run an import) | `features:read` | `features:write` | 8 |
 | `/export` | `features:read` | `features:read` | 8 |
 | `/field-packs` (admin) | `admin:field-packs` | `admin:field-packs` | 8 |
@@ -1647,7 +1647,7 @@ Every mount and its gate, from [main.go](api/cmd/server/main.go). Gates are `Req
 | `/auth/admin` (users, roles, territories, manager) | `admin:users` | `admin:users` (+ CSRF) | 3–4 |
 | `/auth/settings/local-auth` | — | `admin:auth-settings` **or** `break_glass` | 3, 5 |
 | `/territories` (`/enforcement` toggle) | `features:read` | `territories:write` | 4 |
-| `/circuits` | — | `circuits:write` | — |
+| `/circuits` | `features:read` | `circuits:write` (assign also `features:write`) | — |
 
 ### 9.5 Out-of-band CLI reference
 
