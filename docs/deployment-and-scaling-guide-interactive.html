@@ -1,0 +1,934 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Deployment &amp; Scaling Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  /* section palette (categorical, validated for both themes) */
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.role{display:inline-block;font:600 11px/1 var(--f-mono);padding:3px 7px;border-radius:3px;letter-spacing:.03em}
+.role.protective{background:var(--red-tint);color:var(--red)}
+.role.switching{background:var(--blue-tint);color:var(--blue)}
+.role.transformer{background:var(--amber-tint);color:var(--amber)}
+.role.source{background:var(--green-tint);color:var(--green)}
+.role.none{background:var(--line2);color:var(--muted)}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.bgrid{display:grid;grid-template-columns:minmax(0,1fr) 110px 150px auto;gap:5px;align-items:center}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+input[type=number],input[type=text],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--acc-deep);font-weight:700}
+.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+.bar{height:18px;background:var(--line2);border-radius:4px;position:relative;overflow:hidden}
+.bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .15s}
+.big{font:800 28px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums;color:var(--acc-deep)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono)}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.chainrow .arr{color:var(--muted);font:600 12px var(--f-mono)}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+
+/* handbook additions */
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+.matrix{border-collapse:collapse;font-size:12px;width:100%}
+.matrix th,.matrix td{padding:4px 6px;text-align:center;border-bottom:1px solid var(--line2)}
+.matrix td:first-child,.matrix th:first-child{text-align:left;position:sticky;left:0;background:var(--raise)}
+.matrix td.y{background:color-mix(in srgb,var(--green) 22%,transparent);color:var(--green);font-weight:700}
+.matrix tr:hover td{background:var(--surface)} .matrix tr:hover td.y{background:color-mix(in srgb,var(--green) 30%,transparent)}
+.tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:10px}
+.tabs button{font:600 11.5px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:6px 9px;border-radius:5px 5px 0 0;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.tabs button[disabled]{opacity:.4;cursor:not-allowed}
+.tree{font:500 13px var(--f-mono)} .tree .n{padding:3px 6px;border-radius:4px;display:inline-block}
+.tree .n.g{background:var(--tint);color:var(--acc-deep);font-weight:700}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+.ants{animation:march .9s linear infinite} @keyframes march{to{stroke-dashoffset:-16}}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sev{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.sev.low{background:var(--line2);color:var(--muted)} .sev.medium{background:var(--blue-tint);color:var(--blue)} .sev.high{background:var(--amber-tint);color:var(--amber)} .sev.critical{background:var(--red-tint);color:var(--red)} .sev.urgent{background:var(--red-tint);color:var(--red)}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.kpi div{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.kpi b{display:block;font:800 22px/1 var(--f-display);font-stretch:80%}
+.kpi span{font:600 10px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rec{border:1px solid var(--line2);border-radius:6px;padding:6px 8px;margin:5px 0;background:var(--raise);font-size:13px}
+.rec .t{font-weight:600}.rec .m{font-size:11.5px;color:var(--muted)}
+.rec .a{margin-top:4px;display:flex;gap:4px;flex-wrap:wrap}
+.state-chip{display:inline-block;font:700 10.5px var(--f-mono);padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.state-chip.applied,.state-chip.completed,.state-chip.resolved{background:var(--green-tint);color:var(--green);border-color:var(--green)} .state-chip.in_progress,.state-chip.work_ordered,.state-chip.assigned{background:var(--tint);color:var(--acc-deep);border-color:var(--acc)} .state-chip.cancelled,.state-chip.dismissed,.state-chip.rejected{background:var(--line2);color:var(--muted)} .state-chip.open,.state-chip.draft,.state-chip.scheduled{background:var(--amber-tint);color:var(--amber);border-color:var(--amber)}
+@media (max-width:760px){.kpi{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .bgrid{grid-template-columns:1fr 1fr}
+  .bgrid>input:first-child{grid-column:1/-1}
+  li,.rec .t,.rec .m{overflow-wrap:anywhere}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* everyday-operations additions */
+.gm{position:relative;border:1px solid var(--line);border-radius:6px 6px 0 0;overflow:hidden;background:var(--bg)}
+.gm-svg{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none}
+.gm-svg .gm-lab{fill:var(--ink);pointer-events:none}
+.gm-svg .gf{cursor:inherit}
+.gm-zoom{position:absolute;left:8px;top:8px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--raise)}
+.gm-zoom button{width:28px;height:28px;border:0;background:none;color:var(--ink);font:700 16px var(--f-mono);cursor:pointer}
+.gm-zoom button+button{border-top:1px solid var(--line)}
+.gm-north{position:absolute;left:8px;top:74px;width:28px;height:28px;border:1px solid var(--line);border-radius:50%;background:var(--raise);display:grid;place-items:center;cursor:pointer;padding:0}
+.gm-ban{position:absolute;left:50%;top:8px;transform:translateX(-50%);max-width:calc(100% - 100px);background:var(--ink);color:var(--bg);font:600 12px var(--f-mono);padding:6px 11px;border-radius:5px;z-index:3;text-align:center}
+.gm-tip{position:absolute;right:8px;bottom:8px;max-width:60%;background:var(--raise);border:1px solid var(--line);border-radius:5px;padding:6px 9px;font:500 12px var(--f-mono);box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.gm-status{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;background:var(--surface);padding:5px 10px;font:500 11.5px var(--f-mono);color:var(--muted)}
+.gm-status b{color:var(--ink);font-weight:600;margin-right:3px}
+.gm-status .gsr{margin-left:auto}
+.gm-status .attr{margin-left:8px;opacity:.8}
+.gsb{font:600 11px var(--f-mono);border:1px solid var(--line);background:var(--raise);color:var(--ink);border-radius:4px;padding:3px 7px;cursor:pointer}
+.gsb:hover{border-color:var(--muted)}
+.goto{font:500 11px var(--f-mono);width:128px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--raise);color:var(--ink)}
+.apid{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.apid.ok{background:var(--green)} .apid.bad{background:var(--red)}
+.story{border-left:3px solid var(--acc);background:var(--surface);padding:10px 16px;border-radius:0 6px 6px 0;margin:16px 0;max-width:78ch;font-size:15px}
+.story>*:last-child{margin-bottom:0}
+.story .who{font:700 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--acc-deep);display:block;margin-bottom:2px}
+.qs{max-width:78ch;margin:16px 0;border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:6px 16px 10px}
+.qs>b.k{display:block;font:700 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--acc-deep);margin:8px 0 0}
+.qs .steps{margin:4px 0 0}
+.ptabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:8px 0}
+.ptabs button{font:600 11px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:5px 8px;border-radius:5px 5px 0 0;cursor:pointer}
+.ptabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.ptabs button[disabled]{opacity:.35;cursor:not-allowed}
+.panelbox{border:1px solid var(--line);border-radius:6px;background:var(--raise);padding:9px 11px;font-size:13px}
+.panelbox h5{margin:0 0 4px;font:700 14px var(--f-display)}
+.kvt{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px;margin:6px 0}
+.kvt dt{font:600 10.5px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+.kvt dd{margin:0;font-family:var(--f-mono);font-size:12px}
+.fld-row{display:grid;grid-template-columns:130px 1fr;gap:6px;align-items:center;margin:5px 0;font-size:12.5px}
+.fld-row label{font:600 11.5px var(--f-mono)}
+.fld-row .rq{color:var(--red);font-weight:800}
+.fld-row.lock input,.fld-row.lock select{opacity:.6}
+.fld-row.chg input,.fld-row.chg select{border-color:var(--amber);background:var(--amber-tint)}
+.tog{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.tog input{accent-color:var(--acc)}
+.dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:60;padding:16px}
+.dlg>div{background:var(--raise);border:1px solid var(--line);border-radius:8px;max-width:420px;padding:16px 18px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.dlg h4{margin-bottom:6px}
+.dlg .a{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.sugg{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:5px;padding:5px 8px;margin:4px 0;font-size:12.5px;background:var(--raise);flex-wrap:wrap}
+.sugg .tx{flex:1;min-width:140px}
+.chipx{font:600 10.5px var(--f-mono)}
+.cardsel{border:1.5px solid var(--line);border-radius:7px;padding:8px 10px;background:var(--raise);cursor:pointer;font-size:13px;text-align:left}
+.cardsel[aria-pressed="true"]{border-color:var(--acc);background:var(--tint)}
+.pop{position:relative}
+.floatp{position:absolute;background:var(--raise);border:1.5px solid var(--line);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:5}
+.floatp .hd{background:var(--surface);border-bottom:1px solid var(--line);padding:6px 10px;font:700 12px var(--f-mono);cursor:grab;display:flex;justify-content:space-between;align-items:center;user-select:none;touch-action:none}
+.floatp .bd{padding:10px;font-size:12.5px;overflow:auto;flex:1}
+.floatp .grip{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 55%,var(--muted) 55%,var(--muted) 62%,transparent 62%,transparent 72%,var(--muted) 72%,var(--muted) 79%,transparent 79%)}
+@media (max-width:760px){
+  .gm-status{font-size:10.5px}
+  .gm-status .gsr{margin-left:0}
+  .goto{width:100px}
+  .fld-row{grid-template-columns:1fr}
+}
+
+[hidden]{display:none!important}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Deploy &amp; Scale</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · Stateless</a><a href="#c2">2 · Topology</a><a href="#c3">3 · Edge</a><a href="#c4">4 · API</a><a href="#c5">5 · Database</a><a href="#c6">6 · Tiles</a><a href="#c7">7 · Responsiveness</a><a href="#c8">8 · Workers</a><a href="#c9">9 · Pre-flight</a><a href="#c10">10 · Migrations</a><a href="#c11">11 · Watch</a><a href="#c12">12 · Ladder</a><a href="#c13">13 · Playbook</a><a href="#c14">14 · Failures &amp; fixes</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · Production Deployment &amp; Scaling · the why and how far</div>
+  <h1>Scale out.<br><span>Without breaking the database.</span></h1>
+  <p class="lede">Sized for ~1,000 concurrent users, with every smaller deployment comfortable. The Go tier is already stateless; the ceilings are Postgres and the tile path. This edition lets you do the arithmetic: connection pools, queueing, HPA, tile load, worker drain times, rate limits, migrations — and see which parts of the manual are <em>already in the code</em> and which are still work to do.</p>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Olu</b> (on-call) can scale workloads and operate workers. <b>Priya</b> (platform admin) can also change infrastructure config and run migrations. <b>Dev</b> ships code (read routing, the concurrency gate) but cannot scale or migrate. <b>Ada</b> (auditor) only reads. Buttons you may not press are marked with what you need.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">Who this is for</span>
+<p>Whoever deploys and runs VoltEdge: Docker, a container orchestrator, Postgres replication and load balancing are assumed. This guide is the <b>why and how far</b>; the step-by-step companions are the <b>Production Setup Runbook</b> (single-host Compose) and <b>Deploying on Kubernetes &amp; Coolify</b>. This guide tells you <em>which knob to turn when load rises</em>; chapter 13 is that table.</p>
+<p><b>Read the pre-flight checklist (chapter 9) before scaling out.</b> A current default — an <b>unbounded</b> DB connection pool, verified in <code>api/cmd/server/main.go:93</code> — makes scaling out actively worse until fixed.</p></div>
+
+<div class="callout"><b>Reality check.</b> Verified in the repo: stateless API; <code>/healthz</code>; PgBouncer and nginx in <code>docker-compose.prod.yml</code>; <code>SKIP LOCKED</code> queues; a per-pod 60 s access cache. <b>Not</b> in the code: a bounded pool (and the <code>DATABASE_MAX_OPEN_CONNS</code> env var), <code>/readyz</code>, read/write split, tile caching headers, an analysis concurrency gate, a metadata cache. Each chapter says which is which.</div>
+
+<h3 style="margin-top:28px">The cast &amp; the running example</h3>
+<div class="tbl"><table>
+  <tr><th>Who</th><th>Role</th><th>Can</th></tr>
+  <tr><td><b>Olu</b></td><td>On-call engineer</td><td>scale workloads, operate workers, read dashboards</td></tr>
+  <tr><td><b>Priya</b></td><td>Platform admin</td><td>everything operational: scale, config, migrations</td></tr>
+  <tr><td><b>Dev</b></td><td>Developer</td><td>ship code (pool bound, read routing, gate, caches)</td></tr>
+  <tr><td><b>Ada</b></td><td>Auditor</td><td>read-only</td></tr>
+</table></div>
+<p>The running example is a utility with 1,000 concurrent users: 20 API pods, ~8 workers, PgBouncer, a primary and two replicas. 🔒 marks something a persona may not do · 💡 a tip · ⚠️ a caution. The manual’s persona names are operator roles, not VoltEdge RBAC permissions — this guide has none.</p>
+
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>The API tier is stateless</h2><p>The one fact that makes scaling easy.</p></div>
+  <p>VoltEdge’s API holds no <em>authoritative</em> in-memory state. <b>Sessions are database-backed</b>: a login mints an opaque token and only its SHA-256 is stored in Postgres; every request re-loads the session (<code>auth/session.go</code>, <code>middleware.go</code>). <b>Attachments and exports go to object storage</b> (RustFS via presigned URLs), so no pod needs a shared volume. <b>Heavy background jobs run as separate worker processes</b> draining Postgres queues with <code>SKIP LOCKED</code>.</p>
+  <p>Consequence: run <em>N</em> identical API copies behind a <b>plain, non-sticky load balancer</b>. No session affinity, no shared filesystem. The ceilings are therefore <b>Postgres</b> and the <b>tile path</b>; the rest of the guide is mostly about those two. Pick an action and see where its state lives:</p>
+  <div data-widget="w1" data-n="1" data-t="Where does the state live?"></div>
+  <h3>Three footnotes to “stateless”</h3>
+  <div class="tbl"><table><tr><th>In-process state</th><th>What it is</th><th>What changes with N pods</th></tr>
+   <tr><td>Rate-limiter buckets</td><td>token buckets per client IP (<code>ratelimit.go</code>)</td><td>each pod limits only the traffic it sees — no global limit</td></tr>
+   <tr><td>Territory scope cache</td><td>60 s TTL per user (<code>access/cache.go</code>)</td><td>a grant/revoke is instant only on the pod that handled it</td></tr>
+   <tr><td>Nothing else authoritative</td><td>sessions reload from Postgres every request</td><td>session revocation is instant everywhere</td></tr></table></div>
+  <h4>Prove it on your deployment</h4>
+  <pre class="pre">docker compose -f docker-compose.prod.yml up -d --build --scale api=4
+for i in $(seq 1 20); do curl -s -o /dev/null -b cookies.txt http://localhost:3710/api/auth/me; done
+docker compose -f docker-compose.prod.yml logs nginx | grep 'auth/me' | grep -o 'upstream=[^ ]*' | sort | uniq -c</pre>
+  <p>Requests spread over several <code>upstream=</code> addresses, all succeeding with one cookie, is statelessness in practice (nginx’s <code>log_format</code> prints <code>upstream=$upstream_addr</code>).</p>
+</section>
+
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>Target production topology</h2><p>Seven tiers, each scaled independently.</p></div>
+  <pre class="pre">CDN / edge  →  Ingress / L7 LB (TLS · non-sticky · WAF · edge rate-limit · health checks)
+   →  API pods (Go, HPA 3→30)  →  PgBouncer (txn pool)  →  Postgres PRIMARY (+PostGIS)
+                              ↘  PgBouncer (read pool) →  Replica 1, Replica 2   (streaming replication)
+   workers (export · import · webhook · fieldsync build+sync · mcpserver) claim from Postgres queues (SKIP LOCKED)
+   Object storage (RustFS/S3)      Observability: Vector → Loki → Grafana</pre>
+  <p>Seven moving tiers: <b>edge/LB</b>, <b>API replicas</b>, <b>worker fleet</b>, <b>PgBouncer</b>, <b>Postgres primary + replicas</b>, <b>object storage</b>, <b>observability</b>. Each scales independently; chapters 3–8 cover them. Follow one request through the tiers — and flip the switch to see where its DB work lands once reads are routed:</p>
+  <div data-widget="w2" data-n="2" data-t="Follow a request through the tiers"></div>
+  <div class="tip">💡 Today there is one pool and one DSN for everything, so every arrow into the database ends at the primary. The replica in this diagram is the <b>target</b>, not current behaviour; in <code>docker-compose.prod.yml</code> the replica service is a commented-out opt-in.</div>
+</section>
+
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>Edge / load balancer</h2><p>TLS, non-sticky, health, and where the real rate limit lives.</p></div>
+  <ul>
+   <li><b>TLS termination</b> at the ingress (nginx-ingress, Traefik, HAProxy or a cloud L7 LB).</li>
+   <li><b>Non-sticky, round-robin.</b> The API needs no affinity — enabling it defeats even load distribution.</li>
+   <li><b>Health checks.</b> <code>GET /healthz</code> checks Postgres reachability, so it doubles as readiness: a replica that can’t reach the DB leaves rotation. A separate <code>/readyz</code> (liveness vs readiness split) is a proposal; it does not exist.</li>
+   <li><b>Edge rate-limiting.</b> The built-in limiter is per-instance (process-local token buckets). Across N replicas it enforces no global limit — put the real limit at the LB/WAF (per-IP, per-route for <code>/auth/login</code> and webhook ingress) and keep the in-app limiter as a second line.</li>
+   <li><b>Timeouts and body size.</b> The API caps bodies at 32 MB (<code>httpx.MaxBytes(32&lt;&lt;20)</code>); nginx mirrors it with <code>client_max_body_size 32m</code>, <code>proxy_read_timeout 60s</code>, <code>proxy_connect_timeout 5s</code>.</li>
+   <li><b>CDN</b> for static SPA assets now (nginx serves <code>/assets/</code> with a one-year immutable cache), and for cacheable tiles later (chapter 6).</li></ul>
+  <h3>3.1 The in-app limiter, with its real numbers</h3>
+  <div class="tbl"><table><tr><th>Limiter</th><th>Rate / burst</th><th>Evidence</th></tr>
+   <tr><td>Login</td><td>10/min, burst 10, per client IP, per pod</td><td><code>auth/handler.go:48</code></td></tr>
+   <tr><td>Field-app login</td><td>10/min, burst 10</td><td><code>fieldpack/routes.go:74</code></td></tr>
+   <tr><td>Webhook receiver</td><td>300/min, burst 100</td><td><code>cmd/server/main.go:198</code></td></tr>
+   <tr><td>nginx edge (Compose)</td><td>5 r/s, burst 10, nodelay, <code>/api/auth/login</code> only</td><td><code>infra/nginx/nginx.conf</code></td></tr></table></div>
+  <div class="caution"><b>Watch out.</b> The in-app key is the TCP peer (<code>RemoteAddr</code>), deliberately ignoring <code>X-Forwarded-For</code>, and the server mounts no <code>RealIP</code> middleware. Behind nginx or a cloud LB, <b>every user shares one bucket per pod</b> — the LB’s address. A shift-start login wave is throttled by your own limiter. Try it:</div>
+  <div data-widget="w3" data-n="3" data-t="Login wave vs per-pod buckets vs edge limit"></div>
+  <h3>3.2 Health-check timing</h3>
+  <p><code>/healthz</code> pings Postgres with a 3-second context timeout and returns <code>200 {"status":"ok"}</code> or <code>503 {"status":"db unreachable: …"}</code>. The Compose <code>api</code> check runs every 10 s (timeout 5 s, 3 retries, 20 s start period); the Kubernetes guide’s probes use <code>periodSeconds</code> 5 (readiness) and 10 (liveness) with <code>failureThreshold: 3</code>.</p>
+  <div data-widget="w4" data-n="4" data-t="How long until a failing replica is pulled?"></div>
+  <p>Both probe kinds pull <em>every</em> replica when the database is what is down — correct, but a DB outage reads as a total API outage. Serve a friendly 503 at the LB, and alert on the DB, not on pod health.</p>
+</section>
+
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>API tier</h2><p>Stateless Go replicas — the tier an autoscaler grows and shrinks.</p></div>
+  <p><b>Resources per pod</b> (starting point; tune against load tests): CPU request 500m, limit 2 cores — analysis and trace are CPU-bound and run in-process, so headroom matters. Memory request 256Mi, limit 1Gi — the engines aren’t memory-hungry, but large traces and exports spike.</p>
+  <p><b>Probes:</b> liveness <em>and</em> readiness both point at <code>/healthz</code> today (the earlier skeleton’s <code>/readyz</code> does not exist). <b>Autoscaling:</b> CPU target ~60 % and, better, a custom metric (p95 latency, or in-flight heavy analyses — which needs the gate from chapter 7). Band <code>minReplicas 3</code>, <code>maxReplicas 30</code>; three is the HA floor (survive a node loss and a rolling deploy). <b>PodDisruptionBudget</b> <code>minAvailable: 2</code>. <b>Config:</b> DSN, object-storage creds and OIDC via Secret/ConfigMap; every replica identical.</p>
+  <p>The HPA computes <code>desired = ceil(current × observed ÷ target)</code> inside its 10 % tolerance and clamps to <code>[min, max]</code>. Utilisation is measured against the <b>request</b>, not the limit.</p>
+  <div data-widget="w5" data-n="5" data-t="HPA and replica math"></div>
+  <pre class="pre">apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: voltedge-api }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: voltedge-api }
+  minReplicas: 3
+  maxReplicas: 30
+  metrics:
+  - type: Resource
+    resource: { name: cpu, target: { type: Utilization, averageUtilization: 60 } }</pre>
+  <p>The full Deployment skeleton (image, <code>DATABASE_URL</code> from a Secret, <code>DOCS_DIR</code>, probes, resources) is in the manual; note <code>DATABASE_MAX_OPEN_CONNS</code> there is a <b>proposed</b> variable — no code reads it.</p>
+</section>
+
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>Database tier — the real ceiling</h2><p>Reads scale out; writes do not.</p></div>
+  <p>A single Postgres primary is your ultimate <b>write</b> ceiling. The whole game: keep writes on the primary, push the read flood to replicas, and never exhaust connections.</p>
+  <h3>5.1 Connection pooling — do this first</h3>
+  <p>The server opens an <b>unbounded</b> <code>database/sql</code> pool (<code>sql.OpenDB(pgdriver.NewConnector(…))</code>, no <code>SetMaxOpenConns</code>). Go’s defaults then mean unlimited open connections and only 2 kept idle: a burst opens as many as there are in-flight queries. Two mandatory fixes: <b>bound the pool per pod</b> (10–25; expose via an env var and call <code>SetMaxOpenConns</code>/<code>SetConnMaxIdleTime</code>/<code>SetConnMaxLifetime</code> — not implemented today) and put <b>PgBouncer in transaction mode</b> in front.</p>
+  <div class="tbl"><table><tr><th>Layer</th><th>Count</th><th>Conns each</th><th>Total</th></tr><tr><td>API pods</td><td>20</td><td>20 (bounded)</td><td>400</td></tr><tr><td>Worker pods</td><td>~8</td><td>2–4</td><td>~24</td></tr><tr><td><b>Into PgBouncer</b></td><td></td><td></td><td><b>~424</b></td></tr><tr><td>PgBouncer → Postgres</td><td></td><td></td><td><b>~50–100</b></td></tr></table></div>
+  <p>Size <code>max_connections</code> for PgBouncer’s pool + replication slots + admin headroom (e.g. 200), not the raw client count. The shipped Compose file uses <code>DEFAULT_POOL_SIZE 25</code>, <code>RESERVE_POOL_SIZE 5</code>, <code>MIN_POOL_SIZE 5</code>, <code>MAX_CLIENT_CONN 1000</code> and Postgres <code>max_connections=200</code>. Play with the numbers — start with the “code today” preset:</p>
+  <div data-widget="w6" data-n="6" data-t="Connection math and PgBouncer sizing"></div>
+  <p>How big should the server pool be? By Little’s law busy backends ≈ queries/s × mean query time: 600 q/s at 8 ms is ~5 busy; at 80 ms (a tile storm) it is ~48. Past a few connections per core, extra backends only add contention. The queue that forms when the pool is too small is an M/M/c queue:</p>
+  <div data-widget="w7" data-n="7" data-t="When does the pool become the queue?"></div>
+  <div class="caution"><b>Transaction-pooling caveat.</b> No session-level state across transactions: prepared statements held across transactions, persistent <code>SET</code>, <code>LISTEN/NOTIFY</code>, cross-statement advisory locks. Code review: <code>pgdriver</code> v1.2.18 formats arguments client-side, and the API contains no <code>LISTEN</code>/<code>NOTIFY</code> or advisory locks. Migrations bypass the pooler on purpose. <b>Test under load before trusting it</b> — the Compose file has not been run in CI and its header lists the SCRAM auth check as the first thing to verify.</div>
+  <h3>5.2 Read replicas and the read/write split</h3>
+  <p>Run 2–3 streaming replicas via an operator (CloudNativePG or Zalando) — don’t hand-roll replication. Routing reads to them is <b>code work</b>: the app has one pool today. The highest-value single step is a read-only handle for the <b>tiles</b> package. Mind lag (usually &lt;1 s): read-your-own-write paths (re-reading a feature you just edited) stay on the primary.</p>
+  <div data-widget="w8" data-n="8" data-t="Read-replica routing and lag"></div>
+  <div class="tbl"><table><tr><th>Workload</th><th>Route to</th></tr><tr><td>Tiles, trace reads, metadata</td><td>replica (tiles: mind the private-draft overlay)</td></tr><tr><td>Feature get/list</td><td>replica, except right after the user’s own write</td></tr><tr><td>Sessions, enforcement flag, writes, queue claims, migrations</td><td>primary</td></tr></table></div>
+  <h3>5.3 PostGIS specifics</h3>
+  <ul><li>GiST indexes on every <code>geom</code>: the compiler emits <code>CREATE INDEX … USING GIST (geom)</code> (<code>compiler.go:65</code>) and a btree on <code>territory_id</code>. Confirm with <code>EXPLAIN (ANALYZE, BUFFERS)</code> on a real tile query.</li><li>Replicas inherit indexes.</li><li>Tune <code>shared_buffers</code>, <code>work_mem</code>, <code>effective_cache_size</code>; <code>ST_AsMVT</code> is memory-sensitive under concurrency.</li></ul>
+</section>
+
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>The tile path</h2><p>The hardest, highest-volume problem.</p></div>
+  <p>Every map tile is a <b>live <code>ST_AsMVT</code> query</b>, rendered per user, scoped to their territory and private-draft overlay, with <b>no caching</b> (<code>api/internal/tiles/tiles.go</code>; only <code>Content-Type</code> is set — no <code>Cache-Control</code>, no <code>ETag</code>). Reading <code>tileHandler</code>, one tile costs ~7 round trips — session + user, class lookup, the territory-enforcement flag, an <code>information_schema</code> column introspection (per tile!), the draft-overlay check, and finally the MVT query. Martin is still in the Compose file (started with <code>--cache-size 0</code>) but is superseded as the map origin.</p>
+  <p>Order of magnitude: 150–200 users panning is ~300–600 <code>ST_AsMVT</code>/s at 10–40 ms of Postgres CPU each — multiple cores. The fix is layered: <b>1)</b> route tile queries to replicas; <b>2)</b> make tiles cacheable by <i>scope class</i>, not per user — key <code>(scope_group, has_drafts, z, x, y)</code> when access is coarse; <b>3)</b> split base vs overlay (shared published network from cache or pmtiles; thin per-user draft layer composited client-side); <b>4)</b> add cache headers so browsers revalidate. Try the layers:</p>
+  <div data-widget="w9" data-n="9" data-t="Tile-path capacity calculator"></div>
+  <p>The deciding question is <b>how many distinct territory scopes your users have</b>. Group users the way the tile path would — an allowed set, “unscoped” (<code>territories:unscoped</code>), or enforcement off (no predicate):</p>
+  <div data-widget="w10" data-n="10" data-t="Coarse or bespoke? Count your scope classes"></div>
+  <div class="tip">💡 Decide this early — it reshapes the whole read tier. The cheap wins first: in-process TTL caches for the class lookup, columns introspection and the enforcement flag.</div>
+</section>
+
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>Keeping responsiveness under load</h2><p>Three code-level changes; none is large.</p></div>
+  <h3>7.1 Concurrency gate on analysis/trace <span class="pill stale">not implemented</span></h3>
+  <p>Load-flow, fault, contingency, nodal, arc-flash and trace run <b>synchronously in the HTTP handler with no limit</b>. A few concurrent heavy solves can pin every core on a pod and starve viewers. A weighted semaphore (at most <i>k</i> heavy solves per pod, <code>429</code> or queue beyond) turns silent collapse into back-pressure; for sustained analyst load, later move studies to a worker pool with the same <code>SKIP LOCKED</code> pattern.</p>
+  <div data-widget="w11" data-n="11" data-t="What a gate does to viewer latency"></div>
+  <h3>7.2 TTL cache for metadata <span class="pill stale">not implemented</span></h3>
+  <p><code>metadata.Load</code> runs five queries per call (class, fields, subtypes, terminals, plus subtype rules and domain lookups) and is called from ~66 sites. A 30–60 s per-pod cache removes a large slice of baseline DB load; accept ≤60 s staleness after a metadata edit.</p>
+  <h3>7.3 The per-instance access cache <span class="pill fresh">exists</span></h3>
+  <p>Territory/subordinate scope is cached per pod for 60 s (<code>effectiveCacheTTL</code>). A grant or revoke is instant only on the pod that handled it. If instant revocation is a security requirement, drop the TTL or add cross-instance invalidation (Redis pub/sub or NOTIFY). Otherwise accept and document the bound.</p>
+  <div data-widget="w12" data-n="12" data-t="Metadata cache savings and revocation staleness"></div>
+  <pre class="pre">// illustrative, NOT in the repo: k heavy solves per pod, shed the rest
+var heavy = semaphore.NewWeighted(k)
+func gate(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if !heavy.TryAcquire(1) { http.Error(w, "busy, retry shortly", 429); return }
+        defer heavy.Release(1)
+        next.ServeHTTP(w, r)
+    })
+}</pre>
+</section>
+
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>Worker fleet</h2><p>Compute-heavy work is already off the request path.</p></div>
+  <p>Separate processes drain Postgres queues with <code>FOR UPDATE SKIP LOCKED</code>, so they scale horizontally by replica count with no coordination. Scale export/import/webhook workers on <b>queue depth</b> (rows pending), not CPU.</p>
+  <div class="tbl"><table><tr><th>Worker</th><th>Scales how</th><th>Concurrency / lease env (defaults 2 / 60 s)</th></tr>
+   <tr><td><code>exportworker</code></td><td>N replicas</td><td><code>EXPORT_WORKER_CONCURRENCY</code>, <code>EXPORT_JOB_LEASE</code></td></tr>
+   <tr><td><code>importworker</code></td><td>N replicas; bursty</td><td><code>IMPORT_WORKER_CONCURRENCY</code>, <code>IMPORT_JOB_LEASE</code></td></tr>
+   <tr><td><code>webhookworker</code></td><td>N replicas; runs inbound <em>and</em> outbound loops</td><td><code>WEBHOOK_WORKER_CONCURRENCY</code>, <code>WEBHOOK_DELIVERY_LEASE</code>, <code>WEBHOOK_OUT_*</code></td></tr>
+   <tr><td><code>mcpserver</code></td><td>N replicas (stateless); Compose pins a container name + port</td><td>—</td></tr>
+   <tr><td><code>fieldsync</code></td><td>N replicas; both halves use SKIP LOCKED, builds use their own temp dir</td><td><code>FIELDSYNC_WORKER_CONCURRENCY</code>, <code>FIELDSYNC_JOB_LEASE</code>, <code>SYNC_WORKER_CONCURRENCY</code>, <code>SYNC_JOB_LEASE</code></td></tr></table></div>
+  <p>The claim is one statement: an <code>UPDATE … WHERE id = (SELECT … WHERE status='queued' OR (status='running' AND lease_expires_at &lt; now() AND attempts &lt; N) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)</code>. Two workers get different rows; a dead worker’s job returns after its lease; attempts cap the loop. Watch it happen — crash worker 1:</p>
+  <div data-widget="w13" data-n="13" data-t="Worker queues: claim, drain, crash, reclaim"></div>
+  <div class="caution"><b>fieldsync caveat.</b> The maintenance loop (shared-pack scheduling + retention) runs in every replica, so a scheduled rebuild can be double-enqueued on a tick race — harmless, retention reaps the extra. The Kubernetes guide currently shows fieldsync as a <code>replicas: 1</code> singleton; this guide and the code say replicas are safe.</div>
+  <h3>Build less: shared packs</h3>
+  <p>The field-pack builder is the most expensive thing to scale (CPU-heavy tippecanoe). The highest-leverage move for a large fleet is to <b>build less</b>: 60 crews on one depot is 60 identical builds. <b>Shared packs</b> pre-build a common area once as a reusable cell, overnight, and every crew whose access covers it downloads that build. It is the pack-side analogue of the scope-class tile cache. The knobs (<code>FIELDSYNC_BUILD_WINDOW</code>, <code>FIELDSYNC_MAINTENANCE_INTERVAL</code>, <code>FIELDSYNC_KEEP_VERSIONS</code>) live on <code>fieldsync</code>; see the Field Tool Admin Guide §6.</p>
+  <div data-widget="w13b" data-n="13b" data-t="Shift-start build load: one build per crew vs shared cells"></div>
+</section>
+
+<section class="ch" id="c9">
+  <div class="ch-head"><div class="ch-num">09</div><h2>Pre-flight checklist</h2><p>Before you scale out. The first two are not optional.</p></div>
+  <ol class="steps">
+   <li><b>Bound the DB pool</b> per pod (10–25) — <i>mandatory</i>. Unbounded + N replicas = instant <code>max_connections</code> exhaustion.</li>
+   <li><b>PgBouncer</b> (transaction mode) — <i>mandatory at N &gt; ~10 pods</i>.</li>
+   <li><b>Health checks wired</b> to <code>/healthz</code>.</li>
+   <li><b>Concurrency gate</b> on analysis/trace.</li>
+   <li><b>Read replicas + route read-only queries</b> to them — the capacity multiplier.</li>
+   <li><b>Decide the tile caching story</b> (coarse scope → shared cache; bespoke → replicas + horsepower).</li>
+   <li><b>Metadata TTL cache.</b></li>
+   <li><b>Edge rate-limiting</b> at the LB (the in-app limiter is per-pod).</li>
+   <li><b>Object storage</b> (RustFS/S3) provisioned, replicated, backed up.</li>
+   <li><b>Observability</b> (Vector → Loki → Grafana) with the chapter 11 alerts.</li>
+   <li><b>Postgres operator</b> (CloudNativePG/Zalando) for replicas, failover, PITR.</li>
+   <li><b>Load test</b> at target concurrency on a production-shaped dataset before go-live.</li></ol>
+  <p>The scorer starts on “Repo today” — what is actually true in the code and compose files right now. Tick items as you complete them and watch the verdict change with your planned pod count.</p>
+  <div data-widget="w15" data-n="14" data-t="Pre-flight scorer"></div>
+  <div class="tbl"><table><tr><th>#</th><th>Today</th></tr><tr><td>1</td><td>Not done (<code>main.go:93</code>); the env var is proposed</td></tr><tr><td>2</td><td>Done in <code>docker-compose.prod.yml</code>; auth and prepared-statement behaviour unverified</td></tr><tr><td>3</td><td>Done for <code>/healthz</code></td></tr><tr><td>4, 5, 7</td><td>Not done — code work</td></tr><tr><td>6</td><td>Open decision</td></tr><tr><td>8</td><td>Login only, in <code>nginx.conf</code></td></tr><tr><td>9</td><td>Single-node RustFS in Compose — a SPOF</td></tr><tr><td>10</td><td>Loki/Vector/Grafana shipped; alerts are yours</td></tr><tr><td>11</td><td>In the Kubernetes guide only</td></tr><tr><td>12</td><td>No load-test harness in the repo (not verified)</td></tr></table></div>
+</section>
+
+<section class="ch" id="c10">
+  <div class="ch-head"><div class="ch-num">10</div><h2>Schema migrations &amp; the compiler</h2><p>Zero-downtime changes with live replicas.</p></div>
+  <p>VoltEdge compiles metadata into physical <code>gis.&lt;class&gt;</code> tables (<code>task compile</code>, <code>task compile-all</code>) and runs SQL migrations. With N live replicas, changes must be <b>backward-compatible</b>.</p>
+  <ul>
+   <li><b>Additive, nullable first.</b> The compiler only creates tables and <code>ADD COLUMN</code>s and never drops or alters an existing column; “disabling” a field is a status flip. <b>But</b> a non-nullable field is added as <code>ADD COLUMN … NOT NULL</code> in one step, which Postgres rejects on a populated table — so the nullable-first discipline is the metadata author’s, not automatic.</li>
+   <li><b>Run migrations once</b>, as a pre-deploy Job or the Compose <code>bootstrap</code> sidecar. <code>migrations/apply.sh</code> takes no lock (it checks <code>ops.migration_log</code>, then applies), so concurrent runs race. Gate readiness on the schema version.</li>
+   <li><b>Breaking change order:</b> expand → deploy code writing both → backfill → deploy code reading new → contract in a later release. Never expand and contract in one release.</li>
+   <li><b>A compile that rewrites a table takes a lock</b> — schedule it off-peak and verify it is additive. Each compile also refreshes the Martin tile function and rebuilds <code>CHECK</code> constraints.</li></ul>
+  <div data-widget="w14" data-n="15" data-t="Migration planner: what survives a rolling deploy"></div>
+</section>
+
+<section class="ch" id="c11">
+  <div class="ch-head"><div class="ch-num">11</div><h2>What to watch (SLOs &amp; alerts)</h2><p>Encode “didn’t lose its effect”, then alert on the leading indicators.</p></div>
+  <p><b>SLOs (starting targets):</b> tile p95 &lt; 150 ms; feature-read p95 &lt; 200 ms; map interactive; analysis p95 &lt; 2 s for typical feeders (heavy studies queue, not block); 99.9 % availability on the read path.</p>
+  <div class="tbl"><table><tr><th>Alert</th><th>Means</th></tr>
+   <tr><td>DB connections in use / <code>max_connections</code> &gt; 80 %</td><td>pool/PgBouncer sizing wrong — the classic scale-out failure</td></tr>
+   <tr><td>Replication lag &gt; a few seconds</td><td>reads going stale; replica under-provisioned</td></tr>
+   <tr><td>Tile query rate &amp; p95</td><td>leading indicator of read-tier saturation → add replicas / caching</td></tr>
+   <tr><td>In-flight heavy analyses per pod near the cap</td><td>analyst load rising → scale API or stand up the analysis pool</td></tr>
+   <tr><td>Worker queue depth</td><td>backlog → scale that worker</td></tr>
+   <tr><td>5xx rate, pod restarts, readiness flaps, object-storage errors</td><td>general health</td></tr></table></div>
+  <p>Where to read each signal <em>today</em>: <code>SHOW max_connections</code> and <code>pg_stat_activity</code>; <code>pg_stat_replication.replay_lag</code>; the structured JSON request log and nginx’s <code>rt=</code>/<code>urt=</code> fields via Vector → Loki; <code>SELECT status, count(*) FROM ops.export_jobs GROUP BY status</code> for queues. A metrics exporter is not in the repo (not verified) and the in-flight gauge needs the gate. Set the readings and see what fires:</p>
+  <div data-widget="w16" data-n="16" data-t="Alert board"></div>
+</section>
+
+<section class="ch" id="c12">
+  <div class="ch-head"><div class="ch-num">12</div><h2>The Compose → Kubernetes path</h2><p>You can stage this.</p></div>
+  <ol class="steps">
+   <li><b>Compose, scaled</b> — <code>docker-compose.prod.yml</code> + <code>infra/nginx/nginx.conf</code>: nginx (non-sticky) → N API replicas → PgBouncer → Postgres, workers scaled by replica count, replication-ready primary (streaming replica a commented opt-in). Good to a few hundred users. <b>Authored but not run in CI</b> — verify PgBouncer SCRAM auth and prepared-statement tolerance first.<pre class="pre">docker compose -f docker-compose.prod.yml up -d --build --scale api=4</pre></li>
+   <li><b>Managed Postgres + Kubernetes</b> — operator or managed service for replicas/failover/PITR; API and workers as Deployments + HPA. The ~1,000-user shape of chapter 2.</li>
+   <li><b>Add the tile caching tier and the analysis worker pool</b> when chapter 11’s metrics say so — not before.</li></ol>
+  <p>Default replica counts come from <code>API_REPLICAS</code> (3) and the <code>*WORKER_REPLICAS</code> variables (1). <code>fieldsync</code> and <code>mcpserver</code> run as single instances there by choice (fixed name + published port). Don’t skip to full Kubernetes on day one, but do the chapter 9 fixes regardless of rung — they are about the application, not the orchestrator.</p>
+</section>
+
+<section class="ch" id="c13">
+  <div class="ch-head"><div class="ch-num">13</div><h2>Scaling playbook</h2><p>What to scale, when, and how far.</p></div>
+  <p>Every component, the signal that tells you to scale it, the action and the ceiling past which scaling <em>that</em> component stops helping. In an incident: the alert (chapter 11) points at a row; the row tells you the action and whether scaling helps. The one row where “scale it out” is wrong is the <b>Postgres primary</b>. Everything else — fieldsync included — is “add replicas”, gated on pre-flight. Pick what is happening:</p>
+  <div data-widget="w17" data-n="17" data-t="What do I turn when…?"></div>
+</section>
+
+<section class="ch" id="c14">
+  <div class="ch-head"><div class="ch-num">14</div><h2>Failure walkthroughs &amp; quick reference</h2><p>Symptom first, then the numbers behind it.</p></div>
+  <h3>Three incidents, in order</h3>
+  <div class="tbl"><table><tr><th>Incident</th><th>What you would see</th><th>Fix</th></tr>
+   <tr><td><b>A. Scale-out without a bounded pool</b></td><td>HPA 3→12; each pod opens a connection per in-flight query; <code>max_connections</code> fills; “too many clients”; <code>/healthz</code> fails on starved pods; readiness removes them; the rest take more load — a cascade</td><td>PgBouncer; Σ(pods × pool) under the limit; bound the pool (Interactive 6)</td></tr>
+   <tr><td><b>B. Shift-start login wave</b></td><td>Peer-address key = nginx, so each pod allows 10 logins/min for everybody; 429s; retries amplify</td><td>Raise or re-key the in-app limiter; size the edge limit (Interactive 3)</td></tr>
+   <tr><td><b>C. Tile storm</b></td><td>300 users hit the map; ~7 round trips per tile; primary CPU saturates; tile p95 &gt; 150 ms; edits slow too; adding API pods makes it worse</td><td>Tiles to replicas → TTL-cache lookups → scope-class cache (Interactive 8–10)</td></tr></table></div>
+  <div data-widget="w18" data-n="18" data-t="Symptom explorer"></div>
+  <h3>Recipe cheat sheet</h3>
+  <div id="recipes"></div>
+  <h3>Bottom line</h3>
+  <p>VoltEdge is <b>architecturally ready</b> to scale: stateless API, separated workers, externalised storage. Reaching 1,000 concurrent users is a tuning pass plus one design decision. The must-fixes are small: bound the pool, add PgBouncer, gate analysis concurrency, cache metadata. The capacity multipliers are infrastructure: read replicas, a non-sticky LB, autoscaled API replicas, edge rate-limiting. The one genuine design decision is tile caching, and its answer depends on how coarse your territory-access model is.</p>
+  <div class="callout">Bound the pool. Pool before pods. Reads to replicas, writes stay home. Everything else in this guide is a consequence.</div>
+  <h4 style="margin-top:26px">Check yourself</h4>
+  <div id="qz"></div>
+</section>
+</div>
+
+<footer style="max-width:1040px;margin:0 auto;padding:0 20px 60px"><p class="muted" style="font-size:13px">VoltEdge · Deployment &amp; Scaling — interactive edition. Every widget is a simulation in your browser; nothing here talks to a server or changes a real deployment. Numbers come from the manual and the repo (<code>docker-compose.prod.yml</code>, <code>infra/nginx/nginx.conf</code>, <code>api/cmd/server/main.go</code> and the worker packages); models (Erlang C, processor sharing, cache-hit estimate) are simplifications and are labelled as such.</p></footer>
+
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+function seg(sel,cb){ const el=$(sel); el.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b||b.disabled) return; el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); cb(b)}); }
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nf=(x,d=0)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+/* personas: operator roles. caps: scale, config, code, migrate, operate, observe */
+const PERSONAS=[['oncall','Olu · On-call engineer',{scale:1,operate:1,observe:1}],['plat','Priya · Platform admin',{scale:1,config:1,migrate:1,operate:1,observe:1}],['dev','Dev · Developer',{code:1,observe:1}],['aud','Ada · Auditor (read-only)',{observe:1}]];
+let PERSONA=PERSONAS[0]; const personaL=[];
+const CAPN={scale:'scale workloads',config:'change infra config',code:'ship code',migrate:'run migrations',operate:'operate workers',observe:'view dashboards'};
+const can=p=>!!PERSONA[2][p];
+const lockTip=p=>`<span class="gate locked" title="${PERSONA[1].split(' · ')[0]} cannot ${CAPN[p]}">needs: ${CAPN[p]} — switch persona with the “As” selector</span>`;
+function onPersona(fn){ personaL.push(fn); fn(); }
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=PERSONAS.map(p=>`<option value="${p[0]}">${p[1]}</option>`).join(''); sel.onchange=()=>{ PERSONA=PERSONAS.find(p=>p[0]===sel.value); personaL.forEach(f=>f()); }; })();
+const pill=(t,c)=>`<span class="pill ${c||''}">${t}</span>`;
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+/* widget scaffold */
+$$('[data-widget]').forEach(d=>{ const id=d.dataset.widget; const w=document.createElement('div'); w.className='widget'; w.id=id;
+  w.innerHTML=`<div class="w-head"><span class="eyebrow">Interactive · ${d.dataset.n}</span><h4>${d.dataset.t}</h4></div><div class="w-bar" id="${id}-c"></div><div class="w-split"><div class="w-main" id="${id}-m"></div><div class="w-side" id="${id}-s"></div></div>`;
+  d.replaceWith(w); });
+/* controls: defs [{k,l,t:'r'|'s'|'c',min,max,step,v,o:[[val,label]],f}] */
+function ctrls(id,defs,cb){ const box=$('#'+id+'-c'); const v={}; const ui={};
+  box.innerHTML=defs.map(d=>{ v[d.k]=d.v; const lab=`<label class="lab" for="${id}-${d.k}">${d.l}</label>`;
+    if(d.t==='s') return `${lab}<select class="fld" id="${id}-${d.k}" style="width:auto;max-width:210px">${d.o.map(o=>`<option value="${o[0]}" ${o[0]==d.v?'selected':''}>${o[1]}</option>`).join('')}</select>`;
+    if(d.t==='c') return `<label class="tog"><input type="checkbox" id="${id}-${d.k}" ${d.v?'checked':''}> ${d.l}</label>`;
+    return `${lab}<input type="range" id="${id}-${d.k}" min="${d.min}" max="${d.max}" step="${d.step||1}" value="${d.v}" style="width:120px"><b id="${id}-${d.k}-v"></b>`; }).join('');
+  const read=()=>{ defs.forEach(d=>{ const e=$('#'+id+'-'+d.k); if(d.t==='c') v[d.k]=e.checked; else if(d.t==='s'){ const x=e.value; v[d.k]=isNaN(+x)?x:+x; } else { v[d.k]=+e.value; const o=$('#'+id+'-'+d.k+'-v'); if(o) o.textContent=d.f?d.f(v[d.k]):nf(v[d.k]); } }); };
+  const set=(k,val)=>{ const e=$('#'+id+'-'+k); if(e.type==='checkbox') e.checked=!!val; else e.value=val; read(); cb(v); };
+  box.addEventListener('input',()=>{ read(); cb(v); }); box.addEventListener('change',()=>{ read(); cb(v); });
+  read(); return {v,set,run:()=>{read();cb(v);}}; }
+const bar=(frac,col)=>`<div class="bar"><i style="width:${clamp(frac,0,1)*100}%;background:${col||'var(--acc)'}"></i></div>`;
+const box=(ok,html)=>`<div style="padding:8px 10px;border:1px solid var(--${ok===true?'green':ok===false?'red':'amber'});border-radius:7px;background:var(--${ok===true?'green':ok===false?'red':'amber'}-tint);font-size:13.5px;margin:8px 0">${html}</div>`;
+const kv=(a,b)=>`<div class="kv"><span>${a}</span><b>${b}</b></div>`;
+/* seeded rng */
+function rng(seed){ let s=seed>>>0; return ()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
+
+/* ===== W1: where does the state live? ===== */
+(function(){
+  const A=[
+   ['Log in','Postgres','A session row; only the SHA-256 of the opaque token is stored (<code>auth/session.go</code>).','ok'],
+   ['Make the next request','Postgres','Every request re-loads session + user from the DB (<code>SessionLoader</code>). No server-side session map, so any pod can serve it.','ok'],
+   ['Upload an attachment','Object storage','Bytes ride a presigned PUT straight to RustFS/S3; the API only records metadata.','ok'],
+   ['Request an export','Postgres queue + object storage','A row in <code>ops.export_jobs</code>; a worker claims it; you download via a presigned URL (15 min default TTL).','ok'],
+   ['Run a trace / load-flow','Pod CPU only','Computed in the handler, nothing stored. It consumes cores on whichever pod got the request.','ok'],
+   ['Edit a feature','Postgres','Written to the <code>gis.*</code> table on the primary.','ok'],
+   ['Hit the login rate limit','Pod memory','Token buckets are process-local (<code>ratelimit.go</code>): each pod counts only what it sees.','rl'],
+   ['Change a user’s territories','Postgres + 60 s pod cache','The DB is updated at once; each pod caches the effective scope for 60 s (<code>access/cache.go:18</code>).','ac']];
+  const C=ctrls('w1',[{k:'n',l:'API pods',t:'r',min:1,max:30,v:4},{k:'sticky',l:'sticky sessions (don’t)',t:'c',v:false},{k:'a',l:'Action',t:'s',v:0,o:A.map((a,i)=>[i,a[0]])}],paint);
+  function paint(v){ const a=A[v.a]; let pods=''; for(let i=0;i<Math.min(v.n,30);i++) pods+=`<span style="display:inline-block;width:22px;height:22px;margin:2px;border-radius:5px;border:1.5px solid var(--s${(a[3]==='ok'?6:1)});background:${(a[3]!=='ok')?'var(--amber-tint)':'var(--tint)'};text-align:center;font:600 10px/20px var(--f-mono)">${i+1}</span>`;
+    $('#w1-m').innerHTML=`<div class="lab">${v.n} identical API pod${v.n>1?'s':''} behind a ${v.sticky?'<b style="color:var(--red)">sticky</b>':'non-sticky'} load balancer</div><div>${pods}</div><div style="margin:12px 0 4px" class="lab">State for “${a[0]}” lives in</div><div style="font:700 20px var(--f-display)">${a[1]}</div><p style="font-size:14px">${a[2]}</p>`;
+    let s='';
+    if(a[3]==='ok') s+=box(true,'<b>Works on any pod.</b> Nothing about this action is tied to a particular replica.');
+    if(a[3]==='rl') s+=box(null,`<b>Not global.</b> Login allows 10/min (burst 10) <i>per pod</i>: with ${v.n} pods an attacker on one IP gets up to <b>${v.n*10}</b>/min after a burst of <b>${v.n*10}</b>. Put the real limit at the LB (§3.1).`);
+    if(a[3]==='ac') s+=box(null,`<b>Up to 60 s stale.</b> Only the pod that handled the change is fresh; the other ${Math.max(v.n-1,0)} may serve the old scope for up to 60 s (avg ~30 s). Session revocation, by contrast, is instant on every pod.`);
+    s+=v.sticky?box(false,'Sticky sessions are never needed here and defeat even load distribution. Turn them off.'):box(true,'Non-sticky round-robin is correct for VoltEdge.');
+    $('#w1-s').innerHTML=s; }
+  paint(C.v);
+})();
+
+/* ===== W2: request path & DB handle ===== */
+(function(){
+  const N={br:[8,128,92,44,'Browser','--s8'],lb:[128,128,92,44,'nginx / LB','--s0'],api:[258,128,92,44,'API pods','--s6'],pgb:[388,128,92,44,'PgBouncer','--s2'],pri:[540,70,110,44,'Primary','--s7'],rep:[540,190,110,44,'Replica','--s3'],rs:[258,250,92,40,'RustFS / S3','--s3'],wk:[388,250,92,40,'workers','--s1']};
+  const R={
+   tile:{t:'Map tile',e:[['br','lb'],['lb','api'],['api','pgb'],['pgb','T']],d:'~7 short round trips, one of them the ST_AsMVT query. The dominant read load.',route:'replica'},
+   edit:{t:'Edit a feature',e:[['br','lb'],['lb','api'],['api','pgb'],['pgb','pri']],d:'A write: primary only. Writes do not scale out.',route:'primary'},
+   login:{t:'Log in',e:[['br','lb'],['lb','api'],['api','pgb'],['pgb','pri']],d:'Session insert; edge rate-limited at nginx, then by the pod’s own bucket.',route:'primary'},
+   trace:{t:'Run a trace',e:[['br','lb'],['lb','api'],['api','pgb'],['pgb','T']],d:'Reads the network from the DB, then burns CPU in the pod. No concurrency gate today.',route:'replica'},
+   exp:{t:'Export',e:[['br','lb'],['lb','api'],['api','pgb'],['pgb','pri'],['wk','pgb'],['wk','rs'],['br','rs']],d:'The API enqueues; a worker claims (SKIP LOCKED), writes to object storage; the browser downloads via presigned URL.',route:'primary'},
+   up:{t:'Upload attachment',e:[['br','lb'],['lb','api'],['api','pgb'],['pgb','pri'],['br','rs']],d:'Metadata through the API, bytes straight to object storage.',route:'primary'}};
+  const C=ctrls('w2',[{k:'r',l:'Request',t:'s',v:'tile',o:Object.keys(R).map(k=>[k,R[k].t])},{k:'tgt',l:'read routing: target (replicas) instead of today',t:'c',v:false}],paint);
+  function paint(v){ const r=R[v.r]; const T=(v.tgt&&r.route==='replica')?'rep':'pri'; const pt=k=>k==='T'?T:k; const cx=k=>N[k][0]+N[k][2]/2, cy=k=>N[k][1]+N[k][3]/2;
+    let s='<defs><marker id="ar2" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--acc)"/></marker></defs>';
+    const on=new Set(); r.e.forEach(e=>{on.add(pt(e[0]));on.add(pt(e[1]));});
+    s+=`<line x1="${cx('pgb')}" y1="${cy('pgb')}" x2="${cx('rep')}" y2="${cy('rep')}" stroke="var(--line)"/><line x1="${cx('pgb')}" y1="${cy('pgb')}" x2="${cx('pri')}" y2="${cy('pri')}" stroke="var(--line)"/><line x1="${cx('pri')}" y1="${cy('pri')}" x2="${cx('rep')}" y2="${cy('rep')}" stroke="var(--line)" stroke-dasharray="4 3"/><text x="660" y="160" font-size="10" style="fill:var(--muted)">streaming</text>`;
+    r.e.forEach((e,i)=>{ const a=pt(e[0]),b=pt(e[1]); s+=`<line x1="${cx(a)}" y1="${cy(a)+i%2*6}" x2="${cx(b)}" y2="${cy(b)+i%2*6}" stroke="var(--acc)" stroke-width="3" marker-end="url(#ar2)"/>`; });
+    Object.keys(N).forEach(k=>{ const n=N[k]; s+=`<rect x="${n[0]}" y="${n[1]}" width="${n[2]}" height="${n[3]}" rx="8" fill="var(--raise)" stroke="var(${n[5]})" stroke-width="${on.has(k)?3:1.2}"/><text x="${n[0]+n[2]/2}" y="${n[1]+n[3]/2+4}" text-anchor="middle" font-size="12" font-weight="700" style="fill:var(--ink)">${n[4]}</text>`; });
+    $('#w2-m').innerHTML=`<svg viewBox="0 0 700 300" width="100%" role="img" aria-label="Request path through the tiers">${s}</svg>`;
+    const today=r.route==='replica'?'<b>primary</b> (one pool/DSN for everything)':'<b>primary</b>';
+    $('#w2-s').innerHTML=`<div class="kv"><span>Request</span><b>${r.t}</b></div>${kv('DB handle today',today)}${kv('Target handle',r.route==='replica'?'<b>read-only → replica</b>':'primary')}<p style="font-size:13.5px">${r.d}</p>`+(r.route==='replica'&&!v.tgt?box(null,'Every read still lands on the primary until the read-only handle is built (code work, §5.2).'):'')+(r.route==='replica'&&v.tgt?box(true,'With a read-only handle, this load moves to replicas; lag (usually &lt;1 s) is tolerable here.'):''); }
+  paint(C.v);
+})();
+
+/* ===== W3: edge vs in-app rate limits ===== */
+(function(){
+  const C=ctrls('w3',[{k:'n',l:'API pods',t:'r',min:1,max:30,v:4},{k:'u',l:'Users logging in this minute',t:'r',min:10,max:1000,step:10,v:400},{k:'atk',l:'One attacker IP, req/min',t:'r',min:10,max:3000,step:10,v:600},{k:'px',l:'behind LB (app sees LB address)',t:'c',v:true}],paint);
+  function paint(v){
+    // in-app: each pod: burst 10 + 10/min refill within one minute
+    const perPod=20; // 10 burst + 10 refill over a minute
+    const wave=v.px?Math.min(v.u,v.n*perPod):v.u; // shared key per pod vs each user own bucket
+    const atkApp=Math.min(v.atk,v.n*perPod);
+    const atkNgx=Math.min(v.atk,10+5*60); // limit_req 5r/s burst 10 nodelay, keyed on real IP at nginx
+    const waveNgx=v.u; // different IPs each below 5 r/s
+    $('#w3-m').innerHTML=`<div class="tbl"><table><tr><th></th><th>In-app limiter (10/min, burst 10, per pod)</th><th>nginx edge (5 r/s, burst 10)</th></tr>
+     <tr><td><b>Login wave</b> — ${v.u} users, many IPs</td><td>${v.px?`<b style="color:${wave<v.u?'var(--red)':'var(--green)'}">${nf(wave)} accepted</b>, ${nf(v.u-wave)} rejected (429) — all share the LB’s bucket`:`${nf(wave)} accepted (each client IP has its own bucket)`}</td><td>${nf(waveNgx)} accepted — each real IP is far under 5 r/s</td></tr>
+     <tr><td><b>One attacker IP</b> — ${nf(v.atk)}/min</td><td>${nf(atkApp)} accepted — <b>${v.n} × 20</b>: no global limit across pods</td><td>${nf(atkNgx)} accepted per minute (burst 10 + 300)</td></tr></table></div>
+     ${bar(wave/v.u,wave<v.u?'var(--red)':'var(--green)')}<div class="muted" style="font-size:12.5px">Share of the legitimate login wave that gets through the in-app limiter</div>`;
+    $('#w3-s').innerHTML=(v.px&&wave<v.u?box(false,`<b>Self-inflicted throttle.</b> Behind a proxy the app keys on <code>RemoteAddr</code> — the proxy itself — so ${v.n} pods allow only ${v.n*20} logins a minute for everybody. Raise the numbers, trust a proxy header via a trusted-proxy middleware, or rely on the edge.`):box(true,'The legitimate wave fits.'))+box(null,'The in-app limiter is a <b>second line</b>. The real, global per-IP limit belongs at the LB/WAF (§3).')+'<p class="muted" style="font-size:12.5px">Numbers: <code>auth/handler.go:48</code>, <code>ratelimit.go:115</code>, <code>nginx.conf</code> (login zone). Whole-minute arithmetic, not a packet simulation.</p>'; }
+  paint(C.v);
+})();
+
+/* ===== W4: health-probe timing ===== */
+(function(){
+  const P={compose:['Compose api healthcheck',10,5,3,20],kr:['k8s readiness (guide B6)',5,1,3,0],kl:['k8s liveness (guide B6)',10,1,3,0]};
+  const C=ctrls('w4',[{k:'p',l:'Probe',t:'s',v:'compose',o:Object.keys(P).map(k=>[k,P[k][0]])},{k:'iv',l:'interval s',t:'r',min:2,max:30,v:10},{k:'fl',l:'failures',t:'r',min:1,max:6,v:3},{k:'lag',l:'DB down at t (s into cycle)',t:'r',min:0,max:30,v:0}],paint);
+  $('#w4-c').addEventListener('change',e=>{ if(e.target.id==='w4-p'){ const d=P[e.target.value]; C.set('iv',d[1]); C.set('fl',d[3]); } });
+  function paint(v){ const pd=P[v.p]; const fail=Math.min(v.lag,v.iv); const first=v.iv-(v.lag%v.iv||v.iv)+0; // time to next probe
+    const nextProbe=(v.lag%v.iv===0)?0:v.iv-(v.lag%v.iv); const detect=nextProbe+(v.fl-1)*v.iv; const worst=v.fl*v.iv; const killed=v.p==='kl';
+    const tot=Math.max(worst,detect)+v.iv; const W=620; const sx=t=>10+t/tot*(W-20); let s=`<line x1="10" x2="${W}" y1="70" y2="70" stroke="var(--line)"/>`;
+    for(let t=nextProbe,i=0;t<=tot&&i<20;t+=v.iv,i++){ const bad=i<v.fl; s+=`<circle cx="${sx(t)}" cy="70" r="7" fill="${bad?'var(--red)':'var(--dead)'}"/><text x="${sx(t)}" y="54" text-anchor="middle" font-size="10" style="fill:var(--muted)">${bad?'fail '+(i+1):''}</text>`; }
+    s+=`<line x1="${sx(0)}" x2="${sx(0)}" y1="30" y2="100" stroke="var(--amber)" stroke-width="2"/><text x="${sx(0)+4}" y="28" font-size="11" style="fill:var(--amber)">DB goes down</text><line x1="${sx(detect)}" x2="${sx(detect)}" y1="30" y2="100" stroke="var(--red)" stroke-width="2"/><text x="${Math.min(sx(detect)+4,W-130)}" y="112" font-size="11" style="fill:var(--red)">${killed?'container restarted':'pulled from rotation'} ~${detect}s</text>`;
+    $('#w4-m').innerHTML=`<svg viewBox="0 0 ${W} 124" width="100%" role="img" aria-label="Probe timeline">${s}</svg>`;
+    $('#w4-s').innerHTML=kv('Detected after',detect+' s (worst case '+worst+' s)')+kv('Each check waits up to','3 s (the /healthz ping timeout)')+(pd[4]?kv('Start grace',pd[4]+' s (Compose <code>start_period</code>)'):'')+box(killed?null:true,killed?'<b>Liveness restarts the pod.</b> A DB outage restarts every API pod, because <code>/healthz</code> is both probe. Keep thresholds slow; a DB-free liveness endpoint is proposed, not implemented.':'<b>Readiness only removes the pod from rotation.</b> When the DB is down, every replica is pulled — correct, but it reads as a total outage; alert on the DB, not on pod health.'); }
+  paint(C.v);
+})();
+
+/* ===== W5: HPA & replica math ===== */
+(function(){
+  const C=ctrls('w5',[{k:'cur',l:'Current pods',t:'r',min:1,max:30,v:6},{k:'cpu',l:'Avg CPU (% of request)',t:'r',min:5,max:250,v:90},{k:'tgt',l:'Target %',t:'r',min:30,max:90,step:5,v:60},{k:'min',l:'min',t:'r',min:1,max:6,v:3},{k:'max',l:'max',t:'r',min:6,max:60,v:30},{k:'pool',l:'Pool per pod',t:'r',min:5,max:40,v:20},{k:'drain',l:'Nodes drained at once (pods lost)',t:'r',min:0,max:6,v:1}],paint);
+  let applied=null;
+  function paint(v){ const ratio=v.cpu/v.tgt; let want=Math.ceil(v.cur*ratio); let note='';
+    if(Math.abs(ratio-1)<=0.1){ want=v.cur; note='Within the HPA’s 10 % tolerance — no change.'; }
+    const des=clamp(want,v.min,v.max); const lim=want>v.max?'clamped to maxReplicas':want<v.min?'clamped up to the HA floor':'';
+    const avail=v.cur-v.drain; const pdb=avail>=2;
+    $('#w5-m').innerHTML=`<div style="font:700 13px var(--f-mono)">desired = ceil(${v.cur} × ${v.cpu} / ${v.tgt}) = ${Math.ceil(v.cur*ratio)}${note?' → '+v.cur:''}${lim?' → '+des+' ('+lim+')':''}</div><div style="font:800 44px var(--f-display);margin:6px 0">${des} <span style="font-size:16px;color:var(--muted)">pods</span></div>${bar(des/v.max,des>=v.max?'var(--red)':'var(--acc)')}
+     <div class="muted" style="font-size:12.5px;margin-top:4px">${note||'Ratio '+ratio.toFixed(2)+' (observed ÷ target).'} CPU is measured against the <b>request</b> (500m), not the 2-core limit.</div>`;
+    const conns=des*v.pool;
+    $('#w5-s').innerHTML=kv('Client conns into PgBouncer',nf(conns)+' ('+des+' × '+v.pool+')')+kv('PDB minAvailable 2',pdb?'<span style="color:var(--green)">holds</span> ('+avail+' available)':'<span style="color:var(--red)">violated</span> — drain refused')+(des>=v.max?box(false,'At <b>maxReplicas</b>: the next ceiling is the database, not the pod count.'):'')+`<div style="margin-top:8px">${can('scale')?'<button class="btn pri" id="w5-ap">Apply '+des+' replicas</button>':lockTip('scale')}</div><div id="w5-st" style="font-size:13px;margin-top:6px">${applied?applied:''}</div>`;
+    const b=$('#w5-ap'); if(b) b.onclick=()=>{ applied=`<span class="pill fresh">Simulated: scaled to ${des} by ${esc(PERSONA[1].split(' · ')[0])}</span>`; $('#w5-st').innerHTML=applied; }; }
+  onPersona(()=>paint(C.v));
+})();
+
+/* ===== W6: connection math ===== */
+(function(){
+  const PRE={today:{n:20,bnd:false,mo:20,infl:60,wk:8,wc:3,pgb:false,pool:25,res:5,mcc:1000,mx:200,head:20},
+   compose:{n:3,bnd:false,mo:20,infl:20,wk:5,wc:3,pgb:true,pool:25,res:5,mcc:1000,mx:200,head:20},
+   big:{n:20,bnd:true,mo:20,infl:20,wk:8,wc:3,pgb:true,pool:75,res:10,mcc:1000,mx:200,head:30}};
+  const C=ctrls('w6',[{k:'pre',l:'Preset',t:'s',v:'today',o:[['today','20 pods, no PgBouncer, unbounded (code today)'],['compose','Compose prod default'],['big','~1,000-user shape']]},
+   {k:'n',l:'API pods',t:'r',min:1,max:30,v:20},{k:'bnd',l:'pool bounded in code (MaxOpenConns)',t:'c',v:false},{k:'mo',l:'MaxOpenConns',t:'r',min:5,max:50,v:20},{k:'infl',l:'peak in-flight queries / pod',t:'r',min:5,max:150,step:5,v:60},
+   {k:'wk',l:'Worker pods',t:'r',min:0,max:20,v:8},{k:'wc',l:'conns / worker pod',t:'r',min:1,max:8,v:3},
+   {k:'pgb',l:'PgBouncer (txn mode)',t:'c',v:false},{k:'pool',l:'DEFAULT_POOL_SIZE',t:'r',min:5,max:150,step:5,v:25},{k:'res',l:'RESERVE_POOL_SIZE',t:'r',min:0,max:20,v:5},{k:'mcc',l:'MAX_CLIENT_CONN',t:'r',min:100,max:3000,step:100,v:1000},{k:'mx',l:'Postgres max_connections',t:'r',min:50,max:500,step:10,v:200},{k:'head',l:'replication + admin headroom',t:'r',min:0,max:60,v:20}],paint);
+  $('#w6-c').addEventListener('change',e=>{ if(e.target.id==='w6-pre'){ const p=PRE[e.target.value]; Object.keys(p).forEach(k=>C.set(k,p[k])); C.set('pre',e.target.value); } });
+  let applied='';
+  function paint(v){
+    const perApi=v.bnd?v.mo:v.infl; const api=v.n*perApi, wk=v.wk*v.wc, cli=api+wk;
+    const poolSrv=v.pool+v.res;
+    let srv, need, ok=[], msgs=[];
+    if(v.pgb){ srv=Math.min(cli,poolSrv); need=poolSrv+v.head; if(cli>v.mcc) msgs.push(['bad',`Client conns ${nf(cli)} exceed MAX_CLIENT_CONN ${nf(v.mcc)}: new clients are refused.`]);
+      if(cli>poolSrv*4) msgs.push(['warn',`${nf(cli)} clients share ${poolSrv} backends (${(cli/poolSrv).toFixed(1)}:1) — fine for short transactions; watch <code>cl_waiting</code>.`]);
+    } else { srv=cli; need=cli+v.head; }
+    const over=need>v.mx;
+    if(over) msgs.push(['bad',`Postgres needs ${nf(need)} connection slots (${v.pgb?'pool '+poolSrv:'clients '+nf(cli)} + headroom ${v.head}) but max_connections is ${v.mx}: “too many clients”.`]);
+    if(!v.bnd&&!v.pgb) msgs.push(['bad','Unbounded pool with no PgBouncer: every extra pod multiplies the exposure. Pre-flight #1 and #2.']);
+    else if(!v.bnd) msgs.push(['warn','Pool is unbounded (as in the code today). PgBouncer protects Postgres, but pods can still open hundreds of client conns; bound it (<code>SetMaxOpenConns</code>, proposed).']);
+    if(!msgs.length||!over&&!msgs.some(m=>m[0]==='bad')) msgs.push(['ok','Within limits.']);
+    const worst=msgs.some(m=>m[0]==='bad')?'bad':msgs.some(m=>m[0]==='warn')?'warn':'ok';
+    $('#w6-m').innerHTML=`<table class="tbl" style="width:100%"><tr><th>Layer</th><th>Count</th><th>Connections</th></tr><tr><td>API pods ${v.bnd?'(bounded)':'(unbounded — peak in-flight)'}</td><td>${v.n} × ${perApi}</td><td>${nf(api)}</td></tr><tr><td>Worker pods</td><td>${v.wk} × ${v.wc}</td><td>${nf(wk)}</td></tr><tr><td><b>Into ${v.pgb?'PgBouncer':'Postgres'}</b></td><td></td><td><b>${nf(cli)}</b></td></tr>${v.pgb?`<tr><td>PgBouncer → Postgres (pool + reserve)</td><td>${v.pool} + ${v.res}</td><td><b>${nf(srv)}</b></td></tr>`:''}<tr><td>Postgres slots needed (+${v.head} headroom)</td><td>limit ${v.mx}</td><td><b style="color:${over?'var(--red)':'var(--green)'}">${nf(need)}</b></td></tr></table>${bar(need/v.mx,over?'var(--red)':need/v.mx>.8?'var(--amber)':'var(--green)')}<div class="muted" style="font-size:12.5px">Postgres slots used / max_connections — alert at 80 %.</div>`;
+    $('#w6-s').innerHTML=msgs.map(m=>box(m[0]==='ok'?true:m[0]==='bad'?false:null,m[1])).join('')+`<div style="margin-top:6px">${can('config')?'<button class="btn pri" id="w6-ap">Apply this sizing</button>':lockTip('config')}</div><div id="w6-st" style="font-size:13px;margin-top:6px">${applied}</div>`;
+    const b=$('#w6-ap'); if(b) b.onclick=()=>{ applied=worst==='bad'?'<span class="pill stale">Refused in review: would exhaust connections</span>':'<span class="pill fresh">Simulated: sizing recorded</span>'; $('#w6-st').innerHTML=applied; };
+  }
+  onPersona(()=>paint(C.v));
+})();
+
+/* ===== W7: pool saturation (Erlang C) ===== */
+(function(){
+  const C=ctrls('w7',[{k:'q',l:'Queries / s into the pool',t:'r',min:50,max:3000,step:50,v:1200},{k:'ms',l:'Mean query ms',t:'r',min:1,max:150,v:15},{k:'pc',l:'Server pool size',t:'r',min:2,max:60,v:25}],paint);
+  function erlC(c,a){ if(a>=c) return 1; let b=1; for(let k=1;k<=c;k++) b=a*b/(k+a*b); return b/(1-(a/c)*(1-b)); }
+  function paint(v){ const a=v.q*v.ms/1000; const s=v.ms; const cw=erlC(v.pc,a); const rate=v.pc-a; // c*mu - lambda in units of 1/s: (c-a)/s
+    const stable=a<v.pc; const wq=stable?cw*(s/ (v.pc-a)):Infinity; const p95=stable&&cw>0.05?Math.log(cw/0.05)*s/(v.pc-a):0;
+    let pts=''; const W=560,H=120; for(let c=Math.max(2,Math.ceil(a)-0);c<=60;c+=1){ const x=10+(c-2)/58*(W-20); const w=c>a?erlC(c,a)*s/(c-a):null; if(w===null) continue; const y=H-10-Math.min(1,w/(s*3))*(H-20); pts+=(pts?' ':'')+x.toFixed(1)+','+y.toFixed(1); }
+    const mx=10+(v.pc-2)/58*(W-20);
+    $('#w7-m').innerHTML=`<svg viewBox="0 0 ${W} ${H+16}" width="100%" role="img" aria-label="Mean wait versus pool size"><polyline points="${pts}" fill="none" stroke="var(--s2)" stroke-width="2.5"/><line x1="${mx}" x2="${mx}" y1="4" y2="${H-8}" stroke="var(--acc)" stroke-width="2"/><text x="${Math.min(mx+4,W-80)}" y="28" font-size="11" style="fill:var(--acc)">pool = ${v.pc}</text><text x="10" y="${H+12}" font-size="10" style="fill:var(--muted)">2</text><text x="${W-30}" y="${H+12}" font-size="10" style="fill:var(--muted)">60 conns</text><text x="12" y="${H+12}" dx="40" font-size="10" style="fill:var(--muted)">mean wait (capped at 3× query time)</text></svg>`;
+    $('#w7-s').innerHTML=kv('Offered load',a.toFixed(1)+' busy backends')+kv('Utilisation',stable?(a/v.pc*100).toFixed(0)+' %':'≥ 100 % (unstable)')+kv('P(query waits)',stable?(cw*100).toFixed(1)+' %':'~100 %')+kv('Mean wait',stable?(wq<1?wq.toFixed(2):wq.toFixed(1))+' ms':'unbounded')+kv('p95 wait',stable?p95.toFixed(1)+' ms':'unbounded')+(!stable?box(false,'Pool smaller than offered load: queue grows without bound. Raise the pool or cut query time.'):cw>0.2?box(null,'Clients are queuing often — <code>cl_waiting</code> &gt; 0 in PgBouncer. Raise <code>DEFAULT_POOL_SIZE</code> only if Postgres has cores to spare.'):box(true,'Pool has headroom.'))+'<p class="muted" style="font-size:12.5px">Model: M/M/c (Erlang C). Real query times are bursty, so keep utilisation under ~70 %.</p>'; }
+  paint(C.v);
+})();
+
+/* ===== W8: read-replica routing ===== */
+(function(){
+  const C=ctrls('w8',[{k:'tile',l:'Tiles %',t:'r',min:0,max:80,v:55},{k:'ana',l:'Analysis reads %',t:'r',min:0,max:60,v:10},{k:'feat',l:'Feature reads %',t:'r',min:0,max:60,v:15},{k:'meta',l:'Metadata %',t:'r',min:0,max:40,v:8},{k:'wr',l:'Writes + sessions %',t:'r',min:1,max:60,v:12},{k:'rep',l:'Replicas',t:'r',min:0,max:4,v:2},
+   {k:'rt',l:'route tiles',t:'c',v:true},{k:'ra',l:'route analysis',t:'c',v:true},{k:'rf',l:'route features',t:'c',v:false},{k:'rm',l:'route metadata',t:'c',v:false},{k:'lag',l:'Lag ms',t:'r',min:50,max:5000,step:50,v:400},{k:'dly',l:'User re-reads after ms',t:'r',min:100,max:3000,step:100,v:800}],paint);
+  let st='';
+  function paint(v){ const tot=v.tile+v.ana+v.feat+v.meta+v.wr; const f=x=>x/tot; const route={tile:v.rt,ana:v.ra,feat:v.rf,meta:v.rm}; let prim=f(v.wr), rep=0;
+    ['tile','ana','feat','meta'].forEach(k=>{ if(v.rep>0&&route[k]) rep+=f(v[k]); else prim+=f(v[k]); });
+    const perRep=v.rep?rep/v.rep:0; const stale=v.rep>0&&v.rf&&v.lag>v.dly;
+    $('#w8-m').innerHTML=`<div class="lab">Share of DB work</div><div class="lab" style="margin-top:8px">Primary</div>${bar(prim,prim>.5?'var(--red)':'var(--acc)')}<b>${(prim*100).toFixed(0)} %</b> of today’s total load<div class="lab" style="margin-top:8px">Each replica (${v.rep})</div>${bar(perRep,'var(--s3)')}<b>${(perRep*100).toFixed(0)} %</b> each<div class="muted" style="font-size:12.5px;margin-top:8px">Today (no read-only handle): primary = 100 %. Writes are fixed at ${(f(v.wr)*100).toFixed(0)} % and never leave the primary.</div>`;
+    $('#w8-s').innerHTML=(v.rep===0?box(false,'No replicas: nothing to route to.'):prim<1?box(true,`Primary drops to <b>${(prim*100).toFixed(0)} %</b> of its current load.`):box(null,'Nothing routed.'))+(v.rf?(stale?box(false,`<b>Read-your-own-write broken.</b> Lag ${v.lag} ms &gt; the ${v.dly} ms before the user re-reads an edited feature: they see their old value. Keep feature reads after a write on the primary.`):box(true,`Lag ${v.lag} ms &lt; ${v.dly} ms: the reload sees the edit (this time).`)):'')+`<p style="font-size:13px">Never route: session lookup, the territory-enforcement flag, queue claims, migrations.</p><div>${can('code')?'<button class="btn pri" id="w8-ap">Ship read-only DB handle</button>':lockTip('code')}</div><div id="w8-st" style="font-size:13px;margin-top:6px">${st}</div>`;
+    const b=$('#w8-ap'); if(b) b.onclick=()=>{ st='<span class="pill fresh">Simulated: PR opened — needs a replica service first</span>'; $('#w8-st').innerHTML=st; }; }
+  onPersona(()=>paint(C.v));
+})();
+
+/* ===== W9: tile-path capacity ===== */
+(function(){
+  const C=ctrls('w9',[{k:'u',l:'Users panning',t:'r',min:20,max:1000,step:10,v:175},{k:'tps',l:'Tiles/s each',t:'r',min:1,max:6,step:.5,v:2.5},{k:'ms',l:'ms per ST_AsMVT',t:'r',min:5,max:80,v:25},{k:'cores',l:'Cores per DB node',t:'r',min:2,max:32,v:8},{k:'rep',l:'Replicas',t:'r',min:0,max:4,v:0},
+   {k:'sc',l:'scope-class cache',t:'c',v:false},{k:'k',l:'Scope classes',t:'r',min:1,max:200,v:8},{k:'dr',l:'×2 for has_drafts',t:'c',v:true},{k:'sp',l:'base/overlay split',t:'c',v:false},{k:'ov',l:'Overlay %',t:'r',min:1,max:30,v:5},{k:'hdr',l:'Browser revalidation saves %',t:'r',min:0,max:60,v:0}],paint);
+  function paint(v){ let r=v.u*v.tps*(1-v.hdr/100); let db=r, how='every tile is rendered live';
+    if(v.sp){ const hit=1-1/v.u; db=r*(v.ov/100+(1-v.ov/100)*(1-hit)); how=`base from a shared cache (hit ${(100*hit).toFixed(0)} %), overlay ${v.ov} % rendered per user`; }
+    else if(v.sc){ const keys=v.k*(v.dr?2:1); const hit=Math.max(0,1-keys/v.u); db=r*(1-hit); how=`${keys} cache keys across ${v.u} users → hit ${(100*hit).toFixed(0)} %`; }
+    const cores=db*v.ms/1000; const nodes=v.rep>0?v.rep:1; const per=cores/nodes; const cap=v.cores*0.7;
+    const ok=per<=cap;
+    $('#w9-m').innerHTML=`<div class="lab">Tile requests</div>${kv('Arriving',nf(r)+' /s')}${kv('Reaching Postgres',nf(db)+' /s')}<div style="font-size:13px;color:var(--muted);margin:4px 0 10px">${how}</div><div class="lab">DB CPU on tile queries alone</div><div style="font:800 40px var(--f-display)">${cores.toFixed(1)} <span style="font-size:15px;color:var(--muted)">cores</span></div>${bar(per/v.cores,ok?'var(--green)':'var(--red)')}<div class="muted" style="font-size:12.5px">${per.toFixed(1)} cores on each of ${v.rep>0?v.rep+' replica'+(v.rep>1?'s':''):'the primary'} (${v.cores}-core boxes; plan ≤ ${cap.toFixed(1)} = 70 %).</div>`;
+    $('#w9-s').innerHTML=(ok?box(true,'Fits with headroom.'):box(false,`Over budget by ${(per-cap).toFixed(1)} cores per node. ${v.rep===0?'Step 1: route tiles to replicas.':!v.sc&&!v.sp?'Step 2: scope-class cache or base/overlay split.':'Add replicas or cut query time.'}`))+(v.rep===0?box(null,'With no replicas, tile load shares the primary with <b>writes</b> — edits slow down too.'):'')+'<p class="muted" style="font-size:12.5px">Each tile also costs ~6 short lookups (session, class, flag, columns, overlay) — cacheable in-process (§6). The cache-hit model is simplified: no cold start, no invalidation.</p>'; }
+  paint(C.v);
+})();
+
+/* ===== W10: scope-class grouping ===== */
+(function(){
+  const T=['North','South','East','West']; let users=[]; const r=rng(7);
+  function seed(kind){ users=[]; for(let i=0;i<12;i++){ let set=[]; if(kind==='coarse'){ set=i<9?[0,1,2,3]:(i<11?[0,1]:[2,3]); } else if(kind==='bespoke'){ set=T.map((_,j)=>j).filter(()=>r()<.5); } else set=[]; users.push({n:'U'+(i+1),set,uns:kind==='coarse'?false:false,dr:i%4===0}); } if(kind==='coarse'){ users[0].uns=true; users[1].uns=true; } }
+  seed('coarse');
+  const C=ctrls('w10',[{k:'enf',l:'territory enforcement on',t:'c',v:true},{k:'dr',l:'distinguish has_drafts',t:'c',v:true}],paint);
+  $('#w10-c').insertAdjacentHTML('beforeend','<button class="btn" id="w10-a">Coarse</button><button class="btn" id="w10-b">Bespoke</button>');
+  $('#w10-a').onclick=()=>{seed('coarse');paint(C.v)}; $('#w10-b').onclick=()=>{seed('bespoke');paint(C.v)};
+  function key(u,v){ if(!v.enf) return 'all'; const b=u.uns?'unscoped':(u.set.length?u.set.map(i=>T[i]).join('+'):'∅'); return b+(v.dr&&u.dr?' ·drafts':''); }
+  function paint(v){ const g={}; users.forEach(u=>{ const k=key(u,v); (g[k]=g[k]||[]).push(u.n); }); const keys=Object.keys(g); const ratio=keys.length/users.length; const hit=1-ratio;
+    $('#w10-m').innerHTML=`<div style="overflow-x:auto"><table class="tbl" style="width:100%"><tr><th>User</th>${T.map(t=>`<th>${t}</th>`).join('')}<th>unscoped</th><th>drafts</th></tr>`+users.map((u,i)=>`<tr><td>${u.n}</td>${T.map((t,j)=>`<td><input type="checkbox" data-u="${i}" data-t="${j}" ${u.set.includes(j)?'checked':''} aria-label="${u.n} ${t}"></td>`).join('')}<td><input type="checkbox" data-u="${i}" data-x="uns" ${u.uns?'checked':''} aria-label="${u.n} unscoped"></td><td><input type="checkbox" data-u="${i}" data-x="dr" ${u.dr?'checked':''} aria-label="${u.n} has drafts"></td></tr>`).join('')+'</table></div>';
+    $('#w10-s').innerHTML=kv('Distinct cache keys',keys.length)+kv('Users',users.length)+kv('Estimated hit rate',(hit*100).toFixed(0)+' %')+(ratio<=.35?box(true,'<b>Coarse access.</b> A shared cache on <code>(scope_group, has_drafts, z, x, y)</code> pays off.'):ratio>=.7?box(false,'<b>Bespoke.</b> Nearly every user is their own key: shared caching is dead — replicas and horsepower.'):box(null,'<b>Mixed.</b> Cache the big groups; the rest render live.'))+'<div style="font-size:12.5px;margin-top:6px">'+keys.map(k=>`<div><b>${esc(k)}</b>: ${g[k].join(', ')}</div>`).join('')+'</div>'; }
+  $('#w10-m').addEventListener('change',e=>{ const c=e.target; if(c.dataset.u===undefined) return; const u=users[+c.dataset.u]; if(c.dataset.t!==undefined){ const t=+c.dataset.t; u.set=c.checked?[...new Set([...u.set,t])].sort():u.set.filter(x=>x!==t); } else u[c.dataset.x]=c.checked; paint(C.v); });
+  paint(C.v);
+})();
+
+/* ===== W11: concurrency gate simulation ===== */
+(function(){
+  const C=ctrls('w11',[{k:'cores',l:'Pod CPU cores',t:'r',min:1,max:4,v:2},{k:'sol',l:'Solve CPU-seconds',t:'r',min:1,max:10,v:4},{k:'arr',l:'Heavy solves / min',t:'r',min:1,max:60,v:20},{k:'k',l:'Gate k (0 = none today)',t:'r',min:0,max:6,v:0},{k:'mode',l:'Beyond k',t:'s',v:'rej',o:[['rej','429 immediately'],['q','queue']]}],paint);
+  let st='';
+  function sim(v){ const rand=rng(42); const dt=.1, T=300; const view=4; let jobs=[],queue=[],done=0,rej=0,sl=[],waits=[];
+    const pArr=v.arr/60*dt;
+    for(let t=0;t<T;t+=dt){ if(rand()<pArr){ if(v.k===0||jobs.length<v.k) jobs.push({rem:v.sol,t0:t}); else if(v.mode==='rej') rej++; else queue.push({t0:t}); }
+      const n=jobs.length; const share=Math.min(1,v.cores/(view+n)); sl.push(Math.max(1,(view+n)/v.cores));
+      jobs.forEach(j=>j.rem-=share*dt); const fin=jobs.filter(j=>j.rem<=0); fin.forEach(j=>{done++;waits.push(t-j.t0)}); jobs=jobs.filter(j=>j.rem>0);
+      while(queue.length&&(v.k===0||jobs.length<v.k)){ const q=queue.shift(); jobs.push({rem:v.sol,t0:q.t0}); } }
+    sl.sort((a,b)=>a-b); const p95=sl[Math.floor(sl.length*.95)], med=sl[Math.floor(sl.length*.5)]; const mw=waits.length?waits.reduce((a,b)=>a+b,0)/waits.length:0;
+    return {p95,med,done,rej,mw,left:jobs.length+queue.length}; }
+  function paint(v){ const a=sim(v); const b=sim({...v,k:0}); const row=(l,x)=>`<tr><td>${l}</td><td>×${x.med.toFixed(1)}</td><td><b>×${x.p95.toFixed(1)}</b></td><td>${x.done}</td><td>${x.rej}</td><td>${x.mw.toFixed(1)} s</td></tr>`;
+    $('#w11-m').innerHTML=`<div style="overflow-x:auto"><table class="tbl" style="width:100%"><tr><th>5 min of load</th><th>Viewer slowdown median</th><th>p95</th><th>Solves done</th><th>Rejected</th><th>Mean solve time</th></tr>${row('No gate (today)',b)}${v.k?row('Gate k='+v.k+' ('+(v.mode==='rej'?'429':'queue')+')',a):''}</table></div><p class="muted" style="font-size:12.5px">Viewer slowdown = how much longer a tile or feature read takes when ${'4'} viewer requests share the pod with the running solves (processor sharing). Deterministic seeded arrivals.</p>`;
+    $('#w11-s').innerHTML=(b.p95>3?box(false,`Without a gate the viewers on this pod see <b>×${b.p95.toFixed(1)}</b> latency at p95: a few solves starve everyone.`):box(true,'Load is light enough that no gate is needed.'))+(v.k?(a.p95<b.p95?box(true,`With k=${v.k}: viewer p95 ×${a.p95.toFixed(1)}; ${v.mode==='rej'?a.rej+' solves get a fast 429':'solves wait longer (mean '+a.mw.toFixed(1)+' s)'} — back-pressure instead of collapse.`):box(null,'k is too high to help — set it near the core count.')):'')+`<div style="margin-top:6px">${can('code')?'<button class="btn pri" id="w11-ap">Add semaphore to handlers</button>':lockTip('code')}</div><div id="w11-st" style="font-size:13px;margin-top:6px">${st}</div><p class="muted" style="font-size:12.5px">The gate does <b>not exist</b> in the code today (§7.1).</p>`;
+    const bt=$('#w11-ap'); if(bt) bt.onclick=()=>{ st='<span class="pill fresh">Simulated: change drafted</span>'; $('#w11-st').innerHTML=st; }; }
+  onPersona(()=>paint(C.v));
+})();
+
+/* ===== W12: metadata TTL cache & access-cache staleness ===== */
+(function(){
+  const C=ctrls('w12',[{k:'rps',l:'Requests/s per pod',t:'r',min:5,max:300,step:5,v:60},{k:'sh',l:'% that call metadata.Load',t:'r',min:5,max:100,step:5,v:50},{k:'q',l:'Queries per Load',t:'r',min:5,max:15,v:6},{k:'ttl',l:'Metadata TTL s (0 = none)',t:'r',min:0,max:120,step:5,v:30},{k:'cls',l:'Hot classes',t:'r',min:5,max:200,v:40},{k:'n',l:'Pods',t:'r',min:1,max:30,v:6}],paint);
+  let seed=1;
+  $('#w12-c').insertAdjacentHTML('beforeend','<button class="btn pri" id="w12-r">Revoke a grant now</button>');
+  $('#w12-r').onclick=()=>{seed++;paint(C.v)};
+  function paint(v){ const base=v.rps*v.sh/100*v.q; const cached=v.ttl>0?Math.min(base,v.cls/v.ttl*v.q):base; const rand=rng(seed*977+v.n); const ages=[]; for(let i=0;i<v.n;i++) ages.push(rand()*60);
+    const rem=ages.map(a=>60-a); const oth=rem.slice(1); const mx=oth.length?Math.max(...oth):0, av=oth.length?oth.reduce((a,b)=>a+b,0)/oth.length:0;
+    $('#w12-m').innerHTML=`<div class="lab">A. Metadata queries per pod per second</div>${kv('No cache (today)',nf(base,1)+' q/s')}${kv('TTL '+(v.ttl||'—')+' s cache',nf(cached,1)+' q/s')}${bar(cached/base,'var(--green)')}<div class="muted" style="font-size:12.5px">Saves ${(100*(1-cached/base)).toFixed(0)} % — at the price of ≤ ${v.ttl} s staleness after a metadata edit.</div>
+     <div class="lab" style="margin-top:14px">B. After a scope revoke on one pod, the others keep serving the old scope for…</div>`+rem.slice(0,30).map((r,i)=>`<div style="display:flex;align-items:center;gap:8px;font-size:12px"><span class="mono" style="width:44px">pod ${i+1}</span><div class="bar" style="flex:1"><i style="width:${r/60*100}%;background:${i===0?'var(--green)':'var(--amber)'}"></i></div><span class="mono" style="width:48px">${i===0?'0 s':r.toFixed(0)+' s'}</span></div>`).join('');
+    $('#w12-s').innerHTML=kv('Worst case','60 s')+kv('This revoke: slowest pod',mx.toFixed(0)+' s')+kv('Average stale pod',av.toFixed(0)+' s')+box(null,'Pod 1 handled the change and is fresh at once. If instant revocation is a requirement: drop the 60 s TTL or add cross-instance invalidation (Redis pub/sub or NOTIFY). <b>Sessions</b> are reloaded per request, so a session kill is immediate everywhere.'); }
+  paint(C.v);
+})();
+
+/* ===== W13: worker queues (SKIP LOCKED) ===== */
+(function(){
+  const Q={exp:['exportworker',40,2,60,3],imp:['importworker',90,2,60,3],wh:['webhookworker (inbound)',2,2,60,5],fs:['fieldsync builds',40,2,60,3]};
+  const C=ctrls('w13',[{k:'q',l:'Queue',t:'s',v:'fs',o:Object.keys(Q).map(k=>[k,Q[k][0]])},{k:'B',l:'Backlog (jobs)',t:'r',min:4,max:200,step:2,v:60},{k:'dur',l:'Job seconds',t:'r',min:1,max:300,v:40},{k:'rep',l:'Replicas',t:'r',min:1,max:12,v:2},{k:'con',l:'Concurrency each',t:'r',min:1,max:8,v:2},{k:'lease',l:'Lease s',t:'r',min:10,max:180,step:10,v:60}],reset);
+  $('#w13-c').addEventListener('change',e=>{ if(e.target.id==='w13-q'){ const d=Q[e.target.value]; C.set('dur',d[1]); C.set('con',d[2]); C.set('lease',d[3]); } });
+  let S=null;
+  function reset(v){ const N=Math.min(v.B,40); S={t:0,crashed:new Set(),jobs:Array.from({length:N},(_,i)=>({id:i+1,st:'queued',at:0,w:-1,end:0,hb:0})),log:[]}; paint(v); }
+  function slots(v){ const a=[]; for(let w=0;w<v.rep;w++) for(let c=0;c<v.con;c++) a.push(w); return a; }
+  function step(v,secs){ for(let i=0;i<secs;i++){ S.t++;
+      S.jobs.forEach(j=>{ if(j.st==='running'){ if(S.crashed.has(j.w)){ if(S.t-j.hb>=v.lease){ if(j.at>=Q[v.q][4]){ j.st='dead'; S.log.push(`t=${S.t}s job ${j.id} dead after ${j.at} attempts`);} else { j.st='queued'; S.log.push(`t=${S.t}s job ${j.id} lease expired → requeued (attempt ${j.at+1} next)`);} } } else { j.hb=S.t; if(S.t>=j.end){ j.st='done'; } } } });
+      for(let w=0;w<v.rep;w++){ if(S.crashed.has(w)) continue; let run=S.jobs.filter(j=>j.st==='running'&&j.w===w).length; while(run<v.con){ const j=S.jobs.find(x=>x.st==='queued'); if(!j) break; j.st='running'; j.w=w; j.at++; j.end=S.t+v.dur; j.hb=S.t; run++; } } } paint(v); }
+  $('#w13-c').insertAdjacentHTML('beforeend','<button class="btn" id="w13-s10">+10 s</button><button class="btn" id="w13-s60">+60 s</button><button class="btn" id="w13-x">Crash worker 1</button><button class="btn" id="w13-r">Reset</button>');
+  $('#w13-s10').onclick=()=>step(C.v,10); $('#w13-s60').onclick=()=>step(C.v,60); $('#w13-r').onclick=()=>reset(C.v);
+  $('#w13-x').onclick=()=>{ if(!can('operate')) return; S.crashed.add(0); S.log.push(`t=${S.t}s worker 1 crashed (its jobs stop heartbeating)`); paint(C.v); };
+  const col={queued:'var(--dead)',running:'var(--s1)',done:'var(--green)',dead:'var(--red)'};
+  function paint(v){ if(!S) return; const sl=v.rep*v.con; const thr=sl/v.dur*60; const drain=v.B*v.dur/sl; const cnt={}; S.jobs.forEach(j=>cnt[j.st]=(cnt[j.st]||0)+1);
+    $('#w13-m').innerHTML=`<div class="lab">t = ${S.t} s · first ${S.jobs.length} jobs shown</div><div style="display:flex;flex-wrap:wrap;gap:3px;margin:6px 0">${S.jobs.map(j=>`<span title="job ${j.id}: ${j.st}${j.w>=0?' on worker '+(j.w+1):''}" style="width:26px;height:26px;border-radius:5px;background:${col[j.st]};color:#fff;font:600 10px/26px var(--f-mono);text-align:center">${j.st==='running'?'w'+(j.w+1):j.id}</span>`).join('')}</div><div class="legend" style="font-size:12px">${Object.keys(col).map(k=>`<span><span class="sw" style="background:${col[k]}"></span> ${k} ${cnt[k]||0}</span>`).join(' ')}</div><div style="font:12px var(--f-mono);margin-top:8px;max-height:90px;overflow:auto">${S.log.slice(-6).map(esc).join('<br>')||'Press +10 s to let workers claim jobs (<code>FOR UPDATE SKIP LOCKED</code>: each claims a different row).'}</div>`;
+    $('#w13-s').innerHTML=kv('Slots',v.rep+' × '+v.con+' = '+sl)+kv('Throughput',nf(thr,1)+' jobs/min')+kv('Drain '+v.B+' jobs',(drain>=120?nf(drain/60,1)+' min':nf(drain)+' s'))+kv('DB conns held (est.)','≈ '+sl+' running + claim polls every 2 s')+(S.crashed.size?box(null,'Worker 1 is dead. Its jobs are <b>not lost</b>: after the '+v.lease+' s lease they return to <code>queued</code> and a survivor claims them; after the attempt cap they go dead.'):'')+`<div style="margin-top:6px">${can('operate')?'':lockTip('operate')}</div>`;
+    $('#w13-x').disabled=!can('operate'); }
+  onPersona(()=>paint(C.v)); reset(C.v);
+})();
+
+/* ===== W13b: shared packs dedupe ===== */
+(function(){
+  const C=ctrls('w13b',[{k:'crews',l:'Crews at shift change',t:'r',min:10,max:300,step:10,v:120},{k:'dep',l:'Distinct areas (depots)',t:'r',min:1,max:60,v:3},{k:'dur',l:'Build s',t:'r',min:10,max:200,step:10,v:40},{k:'con',l:'Concurrency',t:'r',min:1,max:8,v:2},{k:'rep',l:'Replicas',t:'r',min:1,max:8,v:1}],paint);
+  function paint(v){ const slots=v.con*v.rep; const a=v.crews*v.dur/slots, b=v.dep*v.dur/slots; const f=x=>x>=120?nf(x/60,1)+' min':nf(x)+' s';
+    $('#w13b-m').innerHTML=`<table class="tbl" style="width:100%"><tr><th></th><th>Builds</th><th>Last pack ready after</th></tr><tr><td>Every crew builds its own</td><td>${v.crews}</td><td><b>${f(a)}</b></td></tr><tr><td>Shared cells (built overnight)</td><td>${v.dep} once</td><td><b>${f(b)}</b> — off-peak, crews just download</td></tr></table>${bar(b/a,'var(--green)')}`;
+    $('#w13b-s').innerHTML=box(true,`${((1-v.dep/v.crews)*100).toFixed(0)} % fewer builds. Formula: <code>N × t ÷ (concurrency × replicas)</code>.`)+'<p class="muted" style="font-size:12.5px">Knobs live on <code>fieldsync</code>: <code>FIELDSYNC_BUILD_WINDOW</code>, <code>FIELDSYNC_MAINTENANCE_INTERVAL</code> (15m), <code>FIELDSYNC_KEEP_VERSIONS</code> (3). Multiple replicas may double-enqueue one scheduled rebuild — harmless.</p>'; }
+  paint(C.v);
+})();
+
+/* ===== W14: migration planner ===== */
+(function(){
+  const M={
+   addnull:{t:'Add a nullable column',safe:true,phases:[['Run migration','Column added (nullable)','OK','OK']],note:'Old code ignores the column.'},
+   addnn:{t:'Add a NOT NULL column (populated table)',safe:false,naive:[['ADD COLUMN … NOT NULL','Fails: rows exist with no value','—','—']],phases:[['Release 1: add nullable','nullable col','OK','OK'],['Backfill','all rows have a value','OK','OK'],['Release 2: SET NOT NULL','constraint on','OK (writes value)','OK']],note:'The compiler adds a non-nullable field as NOT NULL in one step; Postgres rejects it on a populated table. Add nullable first.'},
+   rename:{t:'Rename a column',safe:false,naive:[['RENAME COLUMN','new name only','<b style="color:var(--red)">BREAKS</b> (old name gone)','OK']],phases:[['R1: add new col; code writes both','both columns','OK','OK'],['Backfill old→new','both filled','OK','OK'],['R2: code reads new only','both columns','OK (ignored)','OK'],['R3: drop old','new only','n/a — none left','OK']],note:'Expand → backfill → switch → contract. Never expand and contract in the same release.'},
+   drop:{t:'Drop a column',safe:false,naive:[['DROP COLUMN','column gone','<b style="color:var(--red)">BREAKS</b> if still read','OK']],phases:[['R1: stop reading/writing it','column still present','OK','OK'],['R2 (later): drop','column gone','n/a','OK']],note:'The compiler never drops columns for you — contract is manual.'},
+   idx:{t:'Add an index',safe:true,phases:[['CREATE INDEX CONCURRENTLY','index built, writes continue','OK','OK']],note:'Plain CREATE INDEX blocks writes for the build.'},
+   type:{t:'Change a column type',safe:false,naive:[['ALTER … TYPE','table rewrite + lock','<b style="color:var(--red)">BREAKS</b> / blocks','OK']],phases:[['R1: add new-typed column, dual-write','both','OK','OK'],['Backfill + verify','both','OK','OK'],['R2: read new','both','OK','OK'],['R3: drop old','new','n/a','OK']],note:'Same shape as a rename.'}};
+  const C=ctrls('w14',[{k:'ch',l:'Change',t:'s',v:'rename',o:Object.keys(M).map(k=>[k,M[k].t])},{k:'naive',l:'do it naively in one release',t:'c',v:false}],paint);
+  let st='';
+  function paint(v){ const m=M[v.ch]; const rows=(v.naive&&m.naive)?m.naive:m.phases;
+    $('#w14-m').innerHTML=`<div style="overflow-x:auto"><table class="tbl" style="width:100%"><tr><th>Step</th><th>Schema after</th><th>Old pods</th><th>New pods</th></tr>${rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td></tr>`).join('')}</table></div>`;
+    $('#w14-s').innerHTML=(v.naive&&m.naive?box(false,'Rolling deploys overlap old and new pods for minutes. This breaks one side the instant it runs.'):box(true,m.safe?'Safe with overlapping replicas.':'Safe — each step is compatible with the running image.'))+`<p style="font-size:13.5px">${m.note}</p><p style="font-size:13px">Run migrations <b>once</b>: <code>apply.sh</code> takes no lock, so two concurrent runs can race.</p><div>${can('migrate')?'<button class="btn pri" id="w14-ap">Run as a one-off Job</button>':lockTip('migrate')}</div><div id="w14-st" style="font-size:13px;margin-top:6px">${st}</div>`;
+    const b=$('#w14-ap'); if(b) b.onclick=()=>{ st=(v.naive&&m.naive)?'<span class="pill stale">Simulated: ran, and broke the overlapping pods</span>':'<span class="pill fresh">Simulated: applied once, idempotent</span>'; $('#w14-st').innerHTML=st; }; }
+  onPersona(()=>paint(C.v));
+})();
+
+/* ===== W15: pre-flight scorer ===== */
+(function(){
+  const I=[['Bound the DB pool per pod',1,'hard'],['PgBouncer (txn mode)',2,'hard'],['Health checks wired to /healthz',3,'rec'],['Concurrency gate on analysis/trace',4,'rec'],['Read replicas + read routing',5,'rec'],['Tile caching decision made',6,'stage'],['Metadata TTL cache',7,'stage'],['Edge rate-limiting at the LB',8,'stage'],['Object storage replicated + backed up',9,'stage'],['Observability + alerts wired',10,'stage'],['Postgres operator (failover, PITR)',11,'stage'],['Load test at target concurrency',12,'stage']];
+  const TODAY=[0,0,1,0,0,0,0,1,0,1,0,0];
+  const C=ctrls('w15',[{k:'n',l:'Planned API pods',t:'r',min:2,max:30,v:12},{k:'mx',l:'Σ(pods × pool) under max_connections without PgBouncer',t:'c',v:false}],paint);
+  let ck=TODAY.slice();
+  $('#w15-c').insertAdjacentHTML('beforeend','<button class="btn" id="w15-t">Repo today</button><button class="btn" id="w15-a">All done</button><button class="btn" id="w15-n">Clear</button>');
+  $('#w15-t').onclick=()=>{ck=TODAY.slice();paint(C.v)}; $('#w15-a').onclick=()=>{ck=I.map(()=>1);paint(C.v)}; $('#w15-n').onclick=()=>{ck=I.map(()=>0);paint(C.v)};
+  $('#w15-m').addEventListener('change',e=>{ const c=e.target.closest('input[data-i]'); if(!c) return; ck[+c.dataset.i]=c.checked?1:0; paint(C.v); });
+  function paint(v){ $('#w15-m').innerHTML=I.map((x,i)=>`<label class="tog" style="display:flex;gap:8px;margin:5px 0;font-size:14px"><input type="checkbox" data-i="${i}" ${ck[i]?'checked':''}><span><b>${x[1]}.</b> ${x[0]} ${x[2]==='hard'?pill('gate','stale'):x[2]==='rec'?pill('before ~10 pods','sec'):''}</span></label>`).join('');
+    const p1=ck[0], p2=ck[1]||(v.mx&&v.n<=10); const blocked=!p1||(!p2&&v.n>10); const recMiss=[2,3,4].filter(i=>!ck[i]).length; const done=ck.reduce((a,b)=>a+b,0);
+    const verdict=blocked?['false','BLOCKED — do not scale out']:(recMiss&&v.n>10?['null','RISKY — gates pass, recommended items missing']:['true','READY to scale to '+v.n+' pods']);
+    const next=[]; if(!p1) next.push('Bound the pool (hard gate #1)'); if(!p2&&v.n>10) next.push('Put PgBouncer in front (hard gate #2)'); [2,3,4].forEach(i=>{ if(!ck[i]) next.push(I[i][0]); }); [5,6,7,8,9,10,11].forEach(i=>{ if(!ck[i]) next.push(I[i][0]+' (staged)'); });
+    $('#w15-s').innerHTML=box(verdict[0]==='true'?true:verdict[0]==='false'?false:null,'<b>'+verdict[1]+'</b>')+kv('Done',done+' / 12')+bar(done/12)+'<div class="lab" style="margin-top:8px">Fix next</div><ol class="steps" style="font-size:13px">'+next.slice(0,4).map(n=>'<li>'+n+'</li>').join('')+'</ol>'; }
+  paint(C.v);
+})();
+
+/* playbook data (§13) */
+const PB=[
+ ['lb','Edge LB / Ingress','LB CPU or active connections high','Bigger LB, or more ingress-controller replicas','Rarely the bottleneck; mostly pass-through','scale'],
+ ['web','Web (SPA nginx)','Web pod CPU; slow static serves','More <code>web</code> replicas (stateless)','Trivial; a CDN offloads it','scale'],
+ ['api','API','CPU &gt; ~60 %, request p95 rising, in-flight heavy analysis near cap','HPA 3 → 30 (or <code>--scale api=N</code>)','<b>DB connections</b> — only safe once the pool is bounded and PgBouncer is in front','scale'],
+ ['pgb','PgBouncer / CNPG pooler','<code>cl_waiting</code> &gt; 0, clients queueing for a server conn','Raise <code>DEFAULT_POOL_SIZE</code>; add pooler instances','Postgres <code>max_connections</code> — size for the pool, not raw clients','config'],
+ ['pri','Postgres PRIMARY','<b>Write</b> CPU/IO saturated, commit latency up','<b>Vertical only</b> — bigger box, faster disk, tune <code>shared_buffers</code>/<code>work_mem</code>','Writes do <b>not</b> scale out; sharding is a project, not a knob','config'],
+ ['rep','Postgres READ replicas','Tile/feature-read p95 up, or replica CPU high','Add replicas; <b>route read-only queries to them</b> (code)','Replication lag; keep read-your-own-write on the primary','code'],
+ ['tile','Tiles','Tile p95 or ST_AsMVT/sec climbing','1) tiles → replicas · 2) scope-class cache + CDN · 3) base/overlay split','Per-user territory scoping blocks naive caching — decide §6 #2 early','code'],
+ ['ana','Analysis / trace','Analysis p95 up, or heavy solves pinning a pod','Add API replicas + the concurrency gate; later an analysis worker pool','CPU-bound; the gate converts collapse into back-pressure','code'],
+ ['wrk','export / import / webhook workers','<b>Queue depth</b> rising','More replicas (KEDA on queue depth); SKIP LOCKED makes it safe','DB write throughput on the primary','scale'],
+ ['fs','fieldsync','Pack-build backlog','More replicas <b>and</b> more CPU per pod (tippecanoe)','CPU-heavy; maintenance loop may double-enqueue a scheduled rebuild (benign)','scale'],
+ ['mcp','mcpserver','MCP request CPU','More replicas (stateless like the API)','Same DB-connection ceiling as the API','scale'],
+ ['obj','Object storage','Storage IO/capacity; upload/download latency','Real S3 or a MinIO cluster','Single-node RustFS is a SPOF — externalise for HA','config'],
+ ['obs','Observability (Loki)','Log-ingest volume','Scale Loki ingesters / retention','Separate plane; never share Postgres','config']];
+const SIG=[['api_cpu','API CPU high / request p95 up',['api']],['conn','DB connections near max_connections',['pgb','api']],['clw','PgBouncer clients waiting',['pgb']],['write','Writes slow / commit latency',['pri']],['tile','Tile p95 / rate climbing',['tile','rep']],['lag','Replication lag growing',['rep']],['ana','Analysis p95 / pod pinned',['ana','api']],['q','Export/import/webhook queue growing',['wrk']],['pack','Field-pack build backlog',['fs']],['store','Uploads/downloads slow',['obj']],['logs','Log volume',['obs']]];
+/* ===== W16: alert board ===== */
+(function(){
+  const C=ctrls('w16',[{k:'conn',l:'DB conns in use %',t:'r',min:0,max:100,v:55},{k:'lag',l:'Replica lag s',t:'r',min:0,max:30,v:1},{k:'tp',l:'Tile p95 ms',t:'r',min:20,max:600,step:10,v:90},{k:'fp',l:'Feature-read p95 ms',t:'r',min:20,max:800,step:10,v:120},{k:'ap',l:'Analysis p95 ms',t:'r',min:200,max:8000,step:100,v:1200},{k:'inf',l:'In-flight heavy / cap %',t:'r',min:0,max:100,v:40},{k:'qd',l:'Queue depth',t:'r',min:0,max:500,step:10,v:20},{k:'qa',l:'alert at depth',t:'r',min:10,max:200,step:10,v:50},{k:'e5',l:'5xx %',t:'r',min:0,max:10,step:.1,v:.2},{k:'cpu',l:'API CPU %',t:'r',min:5,max:200,v:45}],paint);
+  const R=[['conn',v=>v.conn>80,'DB connections &gt; 80 % of max_connections','Pool / PgBouncer sizing wrong — the classic scale-out failure'],['lag',v=>v.lag>5,'Replication lag &gt; a few seconds','Reads going stale; replica under-provisioned'],['tile',v=>v.tp>150,'Tile p95 &gt; 150 ms','Read tier saturating → add replicas / turn on caching'],['feat',v=>v.fp>200,'Feature-read p95 &gt; 200 ms','Read tier or metadata load'],['ana',v=>v.ap>2000,'Analysis p95 &gt; 2 s','Heavy solves pinning pods → gate + replicas'],['inf',v=>v.inf>=80,'In-flight heavy analysis near the cap','Analyst load rising → scale API or analysis worker pool'],['q',v=>v.qd>=v.qa,'Worker queue depth over your threshold','Backlog → scale that worker'],['e5',v=>v.e5>1,'5xx rate &gt; 1 % (your threshold; not set by the manual)','Look at pods, DB, storage'],['cpu',v=>v.cpu>60,'API CPU above the 60 % HPA target','HPA will add pods — if the DB can take them']];
+  const MAP={conn:['pgb','conn'],lag:['rep','lag'],tile:['tile','tile'],feat:['rep','tile'],ana:['ana','ana'],inf:['ana','ana'],q:['wrk','q'],e5:['api','api_cpu'],cpu:['api','api_cpu']};
+  function paint(v){ const f=R.filter(r=>r[1](v)); $('#w16-m').innerHTML=f.length?f.map(r=>`<div style="border-left:4px solid var(--red);padding:8px 12px;margin:8px 0;background:var(--red-tint);border-radius:0 6px 6px 0"><b>${r[2]}</b><br><span style="font-size:13.5px">${r[3]}</span><br><button class="btn" data-sig="${MAP[r[0]][1]}" style="margin-top:6px">Open playbook row →</button></div>`).join(''):box(true,'<b>All quiet.</b> No §11 alert fires at these readings.');
+    $('#w16-s').innerHTML=kv('Alerts firing',f.length+' of '+R.length)+`<p class="muted" style="font-size:12.5px">Thresholds: 80 % connections, a few seconds lag, tile 150 ms, features 200 ms, analysis 2 s (manual §11). Queue and 5xx thresholds are yours — the manual names no number.</p>`; }
+  $('#w16-m').addEventListener('click',e=>{ const b=e.target.closest('button[data-sig]'); if(!b) return; const s=$('#w17-sig'); s.value=b.dataset.sig; s.dispatchEvent(new Event('change',{bubbles:true})); $('#w17').scrollIntoView(); });
+  paint(C.v);
+})();
+/* ===== W17: scaling playbook ===== */
+(function(){
+  const C=ctrls('w17',[{k:'sig',l:'What’s happening?',t:'s',v:'api_cpu',o:SIG.map(s=>[s[0],s[1]])},{k:'pf',l:'pre-flight #1–2 done',t:'c',v:false}],paint);
+  const WHO={scale:'scale',config:'config',code:'code'};
+  function paint(v){ const sg=SIG.find(s=>s[0]===v.sig); const hit=new Set(sg[2]);
+    $('#w17-m').innerHTML=`<div style="overflow-x:auto"><table class="tbl" style="width:100%;font-size:13px"><tr><th>Component</th><th>Scale when</th><th>How</th><th>Ceiling / caveat</th><th>Needs</th></tr>${PB.map(r=>`<tr style="${hit.has(r[0])?'background:var(--tint)':'opacity:.55'}"><td><b>${r[1]}</b></td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td><td>${can(r[5])?pill('you can','fresh'):pill(CAPN[r[5]],'stale')}</td></tr>`).join('')}</table></div>`;
+    const first=PB.find(r=>r[0]===sg[2][0]);
+    $('#w17-s').innerHTML=`<div class="lab">Turn this first</div><div style="font:700 17px var(--f-display);margin:4px 0">${first[1]}</div><p style="font-size:13.5px">${first[3]}</p>`+(first[0]==='pri'?box(false,'<b>Do not “scale out” the primary.</b> Writes do not scale horizontally.'):'')+(first[0]==='api'&&!v.pf?box(false,'Pre-flight #1–2 not done: adding API pods multiplies unbounded connections. Fix the pool and PgBouncer first.'):'')+(first[0]==='api'&&v.pf?box(true,'Safe to add pods; the DB-connection ceiling is now your next limit.'):'')+(!can(first[5])?box(null,'You can’t make this change as '+esc(PERSONA[1].split(' · ')[0])+' — hand off to someone who can '+CAPN[first[5]]+' (switch persona with the “As” selector to see).'):''); }
+  onPersona(()=>paint(C.v));
+})();
+/* ===== symptom explorer ===== */
+(function(){
+  const R=[
+   ['Postgres says “too many clients already” after a scale-out','Σ(pods × pool) exceeded <code>max_connections</code>. The pool is unbounded in code today. Add PgBouncer, bound the pool, check Interactive 6.','Interactive 6'],
+   ['Everyone gets 429 on login at shift start','The in-app limiter keys on the peer address; behind a proxy that is the LB, so all users share one bucket per pod (10/min, burst 10). See §3.1; Interactive 3.','Interactive 3'],
+   ['Pod keeps restarting when the DB blips','<code>/healthz</code> is both liveness and readiness and pings Postgres; a DB outage fails liveness everywhere. Slow the thresholds; a DB-free liveness endpoint is proposed.','Interactive 4'],
+   ['<code>/readyz</code> returns 404','It does not exist. Use <code>/healthz</code> for both probes.','§4'],
+   ['Map is slow and edits are slow at the same time','Tile load shares the primary with writes. Route tiles to replicas, then cache by scope class.','Interactive 8, 9'],
+   ['A revoked territory still shows features on some pods','Per-pod 60 s access cache. Wait ≤60 s or add cross-instance invalidation.','Interactive 12'],
+   ['One analyst’s big solve slows the whole map on that pod','No concurrency gate today. Add a semaphore (k ≈ cores) or an analysis worker pool.','Interactive 11'],
+   ['Exports pile up','Queue depth rising: add <code>exportworker</code> replicas or raise <code>EXPORT_WORKER_CONCURRENCY</code>. Check job rows: <code>SELECT status,count(*) FROM ops.export_jobs GROUP BY status</code>.','Interactive 13'],
+   ['A job sits “running” forever','Its worker died; the lease (60 s default) must expire before another worker reclaims it. After the attempt cap it goes dead.','Interactive 13'],
+   ['Field packs take an hour to build at shift start','Many crews building the same area. Pre-build shared cells overnight; add fieldsync replicas with CPU.','Interactive 13'],
+   ['Migration errors with “column contains null values”','A NOT NULL field was added to a populated table. Add it nullable, backfill, tighten later.','Interactive 15'],
+   ['Old pods error mid-deploy after a rename/drop','Expand and contract in one release. Use the multi-release sequence.','Interactive 15'],
+   ['Replica reads show an old value right after an edit','Replication lag vs read-your-own-write. Keep the post-edit read on the primary.','Interactive 8'],
+   ['PgBouncer clients waiting','Pool too small for the load; raise <code>DEFAULT_POOL_SIZE</code> only if Postgres has spare cores.','Interactive 7'],
+   ['Scaling the API made things worse','You hit a DB ceiling (connections or primary CPU). Check the playbook row for the primary; don’t add pods.','Interactive 17'],
+   ['PgBouncer rejects logins (“password authentication failed”)','The Compose file uses <code>AUTH_TYPE: plain</code>; against SCRAM it may need <code>AUTH_TYPE=scram</code> with an <code>AUTH_QUERY</code>. Its header lists this as the first thing to verify.','§12']];
+  const C=ctrls('w18',[],()=>{}); 
+  $('#w18-c').innerHTML='<label class="lab" for="t-q">Search</label><input type="text" id="t-q" placeholder="e.g. 429, connections, restart…" style="max-width:320px"><span id="t-n" class="muted" style="font-size:12.5px"></span>';
+  $('#w18-s').style.display='none'; $('#w18-m').style.gridColumn='1/-1';
+  function paint(){ const q=$('#t-q').value.trim().toLowerCase(); const rows=R.filter(r=>!q||(r[0]+' '+r[1]).replace(/<[^>]+>/g,' ').toLowerCase().includes(q)); $('#t-n').textContent=rows.length+' of '+R.length;
+    $('#w18-m').innerHTML=rows.map(r=>`<details style="border-top:1px solid var(--line2);padding:10px 4px"><summary style="cursor:pointer;font-weight:600">${r[0]}</summary><div style="margin-top:6px;font-size:14px">${r[1]}</div><div class="muted" style="font-size:12px;margin-top:4px">See ${r[2]}</div></details>`).join('')||'<div class="muted">No symptom matches.</div>'; }
+  $('#t-q').oninput=paint; paint();
+})();
+/* ===== quiz ===== */
+(function(){
+  const Q=[
+   ['Why can VoltEdge run N API replicas behind a non-sticky load balancer?','Sessions are re-loaded from Postgres on every request',['Sessions live in each pod’s memory','Sessions are re-loaded from Postgres on every request','Pods share a filesystem','The LB stores the session'],'Only a SHA-256 of the token is stored, in Postgres; no pod holds authoritative state.'],
+   ['The server’s DB pool today is…','Unbounded (no SetMaxOpenConns)',['Capped at 20','Unbounded (no SetMaxOpenConns)','Capped by DATABASE_MAX_OPEN_CONNS','Per-request'],'<code>DATABASE_MAX_OPEN_CONNS</code> is proposed; no code reads it.'],
+   ['20 API pods × 20 conns + 24 worker conns, PgBouncer pool 25 + reserve 5. How many real Postgres backends?','About 30',['424','About 30','200','20'],'PgBouncer maps ~424 client conns onto pool + reserve backends.'],
+   ['Which health endpoint exists today?','/healthz only',['/readyz only','/healthz only','Both','Neither'],'<code>/readyz</code> is not implemented; /healthz checks Postgres with a 3 s timeout.'],
+   ['A user’s territory grant is revoked on pod B. How stale can pod A be?','Up to 60 s',['Never stale','Up to 60 s','Until restart','Up to 1 hour'],'Per-pod access cache TTL is 60 s; sessions are instant.'],
+   ['Which workload must stay on the primary?','Writes and queue claims',['Tiles','Writes and queue claims','Metadata reads','Trace reads'],'FOR UPDATE SKIP LOCKED claims and all writes need the primary.'],
+   ['175 users × 2.5 tiles/s at 25 ms each cost roughly how many DB cores?','About 11',['About 1','About 4','About 11','About 40'],'437 × 0.025 ≈ 11 cores.'],
+   ['The compiler adds a new required (non-nullable) field to a table with rows. What happens?','Postgres rejects the ADD COLUMN … NOT NULL',['It is added nullable and backfilled','Postgres rejects the ADD COLUMN … NOT NULL','The table is rebuilt silently','Existing rows are deleted'],'The compiler does one-step ADD COLUMN; make the field nullable first.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach((el,i)=>{ const x=Q[i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===esc(x[1]); const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Answer: <b>${x[1]}</b>. `)+x[3]; }); });
+})();
+/* ===== recipes ===== */
+(function(){
+  const R=[['Scale the API and a worker (Compose)','docker compose -f docker-compose.prod.yml up -d --scale api=4 --scale exportworker=3'],['Start the production-shaped stack','docker compose -f docker-compose.prod.yml up -d --build'],['Layer observability on top','docker compose -f docker-compose.prod.yml -f docker-compose.observability.yml up -d'],['Run migrations once (Compose)','docker compose -f docker-compose.prod.yml exec bootstrap bash /workspace/migrations/apply.sh'],['Compile every feature class','task compile-all'],['Max connections','SHOW max_connections;'],['Connections in use','SELECT count(*) FROM pg_stat_activity;'],['Replication lag','SELECT application_name, state, replay_lag FROM pg_stat_replication;'],['Export queue depth','SELECT status, count(*) FROM ops.export_jobs GROUP BY status;'],['Scale API on k8s','kubectl -n voltedge scale deploy/voltedge-api --replicas=6'],['Probe a replica','kubectl -n voltedge exec deploy/voltedge-api -- wget -qO- http://127.0.0.1:8080/healthz']];
+  $('#recipes').innerHTML=R.map(r=>`<div style="margin:10px 0"><div class="lab">${r[0]}</div><pre class="pre" style="margin:4px 0">${esc(r[1])}</pre></div>`).join('');
+})();
+
+/* chapter rail */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a])); const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'}); document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+
+</script>
+</body></html>
