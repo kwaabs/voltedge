@@ -888,7 +888,7 @@ footer{margin-top:70px;padding-top:20px;border-top:2px solid var(--ink);color:va
         <div class="presets"><button class="btn" data-preset="H-guide">Guide · feeder relay only</button><button class="btn" data-preset="H-fix">+ LV main at 0.05 s</button></div>
         <div class="grp">From the fault engine</div>
         <div class="fld"><label for="h-v">system voltage kV</label><input id="h-v" type="number" value="0.415" step="0.001"></div>
-        <div class="fld"><label for="h-i">bolted fault kA</label><input id="h-i" type="number" value="16.4" step="0.1"><input type="range" id="h-ir" min="1" max="60" step="0.1" value="16.4" aria-label="bolted fault"></div>
+        <div class="fld"><label for="h-i">bolted fault kA</label><input id="h-i" type="number" value="9.47" step="0.01"><input type="range" id="h-ir" min="1" max="60" step="0.01" value="9.47" aria-label="bolted fault"></div>
         <div class="grp">Geometry · switchgear defaults</div>
         <label class="chk"><input type="checkbox" id="h-enc" checked> Enclosed (box)</label>
         <label class="chk"><input type="checkbox" id="h-gnd"> Grounded</label>
@@ -1146,10 +1146,10 @@ const FI={
  head:['Ch 5 · Protection','Feeder 7 head: MV_BREAKER driven by a PROTECTIVE_RELAY, IEC standard-inverse, pickup 200 A, time dial 0.2. Also the only upstream protection for the LV board in Ch 7.','200 A · TD 0.2','#c5'],
  ohl:['Ch 6 · Ampacity','Overhead run through open country in ACSR “Dog”: D 14.15 mm, R₂₀ 0.27 Ω/km, T_c 75 °C, catalog static ampacity 300 A.','339 A / 258 A','#c6'],
  fuse:['Ch 5 · Coordination','Oakwood lateral protected by an MV_FUSE (63 A curve). A fault at its end draws about 2 000 A at 11 kV; the fuse clears in ~0.08 s.','margin 0.51 s','#c5'],
- tx14:['Ch 1 · Ch 4','TX-Feeder7-014: 315 kVA, 11 kV/415 V, 4.5 % impedance. Its own %Z supplies ~97 % of the limiting impedance for an LV fault.','16.4 kA','#c4'],
- board:['Ch 4 · Ch 7 · Ch 8','The 415 V LV board. Fault level 16.4 kA; arc-flash 45.6 cal/cm² with only the feeder relay upstream; base voltage 0.969 pu for hosting studies.','45.6 cal/cm²','#c7'],
+ tx14:['Ch 1 · Ch 4','TX-Feeder7-014: 315 kVA, 11 kV/415 V, 4.5 % impedance. Its own %Z supplies ~97 % of the limiting impedance for an LV fault.','9.47 kA','#c4'],
+ board:['Ch 4 · Ch 7 · Ch 8','The 415 V LV board. Fault level 9.47 kA; arc-flash 28.4 cal/cm² (Category 4) with only the feeder relay upstream; base voltage 0.969 pu for hosting studies.','28.4 cal/cm²','#c7'],
  spur:['Ch 2 · Voltage profile','Three new houses: 221 (100 kW), 222 (40 kW), 223 (40 kW), all pf 0.95, on cables A 60 m, B 45 m, C 40 m. Far end ≈ 402 V.','0.969 pu','#c2'],
- gen:['Ch 4 · What-if','A 500 kVA standby diesel set, X″d = 15 %, added to the LV board. It contributes about 8.0 kA, lifting the board’s duty to ~24.4 kA.','+8.0 kA','#c4'],
+ gen:['Ch 4 · What-if','A 500 kVA standby diesel set, X″d = 15 %, added to the LV board. It contributes about 4.6 kA, lifting the board’s duty to ~14.1 kA.','+4.6 kA','#c4'],
  lb:['Ch 3 · Meshed','LB-Oakwood-3, a normally-closed link box tying two 185 mm² legs of 80 m each to a 60 kW load. Identical legs split exactly 50/50.','30 / 30 kW','#c3'],
  tx19:['Ch 3 · Nodal','TX-Feeder7-019, the second infeed to Oakwood’s meshed secondary grid. The 200 kW block splits roughly 2 : 1 between the two transformers.','≈ 67 kW','#c3'],
  ties:['Ch 8 · Contingency','Feeder 9 (3.2 MW) is the donor. TIE-79-A (NORMALLY_OPEN) restores 0.8 MW at 0.958 pu; TIE-79-B restores 1.4 MW but sags to 0.941 pu and overloads a cable.','close A','#c8']};
@@ -1269,8 +1269,8 @@ function RT(){
 function E(){
  const vm=num('e-vm'),sr=num('e-sr'),sx=num('e-sx'),kva=num('e-kva'),vl=num('e-vl'),z=num('e-z'),xr=num('e-xr')||2;
  const n=vl/vm,rs=sr*n*n,xs=sx*n*n,zb=vl*vl/(kva*1000),zx=z/100*zb,rx=zx/Math.sqrt(1+xr*xr),xx=rx*xr;
- const R=rs+rx,X=xs+xx,Z=Math.hypot(R,X),I=Z>0?vl/Z:NaN;
- const gOn=$('e-g').checked,gk=num('e-gk'),gx=num('e-gx');const zg=gx/100*vl*vl/(gk*1000),Ig=gOn&&zg>0?vl/zg:0;
+ const R=rs+rx,X=xs+xx,Z=Math.hypot(R,X),I=Z>0?vl/(Math.sqrt(3)*Z):NaN;
+ const gOn=$('e-g').checked,gk=num('e-gk'),gx=num('e-gx');const zg=gx/100*vl*vl/(gk*1000),Ig=gOn&&zg>0?vl/(Math.sqrt(3)*zg):0;
  const tot=I+Ig,kap=X>0&&R>0?1.02+.98*Math.exp(-3*R/X):NaN,ip=kap*Math.SQRT2*tot;
  $('e-o-i').innerHTML=f(tot/1000,1)+'<span class="u">kA</span>';
  $('e-o-s').innerHTML=gOn?f(I/1000,1)+' + '+f(Ig/1000,1)+'<span class="u">kA</span>':f(I/1000,1)+'<span class="u">kA grid only</span>';
@@ -1278,9 +1278,9 @@ function E(){
  const zs=Math.hypot(rs,xs),zt=Math.hypot(rx,xx),sum=zs+zt;
  $('e-bar').innerHTML='<div style="width:'+(zt/sum*100)+'%;background:var(--teal)"></div><div style="width:'+(zs/sum*100)+'%;background:var(--amber)"></div>';
  $('e-leg').innerHTML='<span><i style="display:inline-block;width:10px;height:10px;background:var(--teal);margin-right:6px"></i>transformer %Z · '+f(zt/sum*100,1)+' %</span><span><i style="display:inline-block;width:10px;height:10px;background:var(--amber);margin-right:6px"></i>11 kV source, referred · '+f(zs/sum*100,1)+' %</span>';
- rows('e-rows',[['ratio²',f(n*n,5),'(V_sec / V_pri)²'],['source referred',f(rs,5)+' + j'+f(xs,5)+' Ω'],['transformer Z',f(rx,4)+' + j'+f(xx,4)+' Ω','|'+f(zt,4)+'|'],['|Z_total|',f(Z,4)+' Ω'],['I = V_base / |Z|',f(I,0)+' A'],['xr_ratio',f(X/R,2)]].concat(gOn?[['generator Z = X″d·V²/S',f(zg,4)+' Ω'],['generator_contribution',f(Ig,0)+' A']]:[]));
+ rows('e-rows',[['ratio²',f(n*n,5),'(V_sec / V_pri)²'],['source referred',f(rs,5)+' + j'+f(xs,5)+' Ω'],['transformer Z',f(rx,4)+' + j'+f(xx,4)+' Ω','|'+f(zt,4)+'|'],['|Z_total|',f(Z,4)+' Ω'],['I = V_LL / (√3·|Z|)',f(I,0)+' A'],['xr_ratio',f(X/R,2)]].concat(gOn?[['generator Z = X″d·V²/S',f(zg,4)+' Ω'],['generator_contribution',f(Ig,0)+' A']]:[]));
  const g=vm===11000&&sr===.05&&sx===.48&&kva===315&&vl===415&&z===4.5&&xr===2;
- $('e-chk').innerHTML=g?(gOn&&gk===500&&gx===15?'Guide §4.8: grid ≈ 16.4 kA + generator ≈ 8.0 kA = <b>≈ 24.4 kA</b>. Matches.':'Guide §4.8: |Z| ≈ 0.0253 Ω → <b>≈ 16.4 kA</b>, transformer ≈ 97 % of the limiting impedance. Matches.')+' The κ and peak figures apply the guide’s formula; the guide doesn’t quote them for this board.':'Edited from the guide’s example.';
+ $('e-chk').innerHTML=g?(gOn&&gk===500&&gx===15?'Guide §4.8: grid ≈ 9.5 kA + generator ≈ 4.6 kA = <b>≈ 14.1 kA</b>. Matches.':'Guide §4.8: |Z| ≈ 0.0253 Ω → <b>≈ 9.47 kA</b> (V_LL / √3·|Z|), transformer ≈ 97 % of the limiting impedance. Matches.')+' The κ and peak figures apply the guide’s formula; the guide doesn’t quote them for this board.':'Edited from the guide’s example.';
 }
 bind(['e-vm','e-sr','e-sx','e-kva','e-vl','e-z','e-xr','e-gk','e-gx'],E);$('e-g').addEventListener('change',E);$('e-zr').addEventListener('input',()=>{$('e-z').value=$('e-zr').value;E()});
 
@@ -1410,8 +1410,8 @@ function H(){
  s+='<line x1="'+X(cap)+'" y1="'+mt+'" x2="'+X(cap)+'" y2="'+(Hh-mb)+'" stroke="var(--muted)" stroke-dasharray="4 4"/><text class="ax" x="'+(X(cap)-4)+'" y="'+(mt+10)+'" text-anchor="end">cap '+cap+' s</text>';
  s+='<circle cx="'+X(t.t)+'" cy="'+Y(E)+'" r="6" fill="var(--red)" stroke="var(--raise)" stroke-width="2"/><text class="lbl" x="'+(X(t.t)+(t.t>tmax*.7?-10:10))+'" y="'+(Y(E)+(E>ymax*.8?16:-8))+'" text-anchor="'+(t.t>tmax*.7?'end':'start')+'">'+f(E,1)+' cal/cm² at '+f(t.t,2)+' s</text></svg>';
  $('h-chart').innerHTML=s;
- const g=V===.415&&Ibf===16.4&&enc&&!gnd&&G===32&&D===610&&x===1.473;
- $('h-chk').innerHTML=g&&mode==='relay'&&pu===200&&td===.2&&vd===11000&&cap===2?'Guide §7.6: I_a ≈ 8.47 kA, through ≈ 319 A (1.6× pickup), relay ~3 s → capped 2.0 s, <b>≈ 45.6 cal/cm², boundary ≈ 7.2 m, PPE −1</b>; 0.85·I_a gives ~38. Matches.':g&&mode==='fixed'&&tf===.05?'Guide §7.6 fix: 45.6 × 0.05/2.0 ≈ <b>1.14 cal/cm² → Category 0</b>. Matches.':'Edited from the guide’s example.';
+ const g=V===.415&&Ibf===9.47&&enc&&!gnd&&G===32&&D===610&&x===1.473;
+ $('h-chk').innerHTML=g&&mode==='relay'&&pu===200&&td===.2&&vd===11000&&cap===2?'Guide §7.6: I_a ≈ 5.47 kA, through ≈ 206 A (1.03× pickup), relay ≫ 2 s → capped 2.0 s, <b>≈ 28.4 cal/cm², boundary ≈ 5.2 m, PPE Category 4</b>; 0.85·I_a (175 A, below pickup) gives ~24. Matches.':g&&mode==='fixed'&&tf===.05?'Guide §7.6 fix: 28.4 × 0.05/2.0 ≈ <b>0.71 cal/cm² → Category 0</b>. Matches.':'Edited from the guide’s example.';
 }
 bind(['h-v','h-i','h-g','h-d','h-x','h-vd','h-pu','h-td','h-t','h-cap'],H);['h-enc','h-gnd','h-mode'].forEach(i=>$(i).addEventListener('change',H));
 [['h-ir','h-i'],['h-dr','h-d']].forEach(([r,i])=>{$(r).addEventListener('input',()=>{$(i).value=$(r).value;H()});$(i).addEventListener('input',()=>{$(r).value=$(i).value})});
@@ -1429,8 +1429,8 @@ const PR={
  'G-guide':{'g-ta':35,'g-w':.6,'g-a':90,'g-s':1000,'g-d':14.15,'g-r':.27,'g-al':.004,'g-e':.5,'g-g':.5,'g-tc':75,'g-st':300,'g-ld':320,_:G},
  'G-still':{'g-ta':35,'g-w':.2,'g-a':90,'g-s':1000,'g-d':14.15,'g-r':.27,'g-al':.004,'g-e':.5,'g-g':.5,'g-tc':75,'g-st':300,'g-ld':320,_:G},
  'G-night':{'g-s':0,_:G},
- 'H-guide':{'h-v':.415,'h-i':16.4,'h-g':32,'h-d':610,'h-x':1.473,'h-vd':11000,'h-pu':200,'h-td':.2,'h-cap':2,_:()=>{$('h-enc').checked=true;$('h-gnd').checked=false;$('h-mode').value='relay';H()}},
- 'H-fix':{'h-v':.415,'h-i':16.4,'h-g':32,'h-d':610,'h-x':1.473,'h-t':.05,'h-cap':2,_:()=>{$('h-enc').checked=true;$('h-gnd').checked=false;$('h-mode').value='fixed';H()}}};
+ 'H-guide':{'h-v':.415,'h-i':9.47,'h-g':32,'h-d':610,'h-x':1.473,'h-vd':11000,'h-pu':200,'h-td':.2,'h-cap':2,_:()=>{$('h-enc').checked=true;$('h-gnd').checked=false;$('h-mode').value='relay';H()}},
+ 'H-fix':{'h-v':.415,'h-i':9.47,'h-g':32,'h-d':610,'h-x':1.473,'h-t':.05,'h-cap':2,_:()=>{$('h-enc').checked=true;$('h-gnd').checked=false;$('h-mode').value='fixed';H()}}};
 document.querySelectorAll('[data-preset]').forEach(b=>b.addEventListener('click',()=>{const p=PR[b.dataset.preset];Object.keys(p).forEach(k=>{if(k!=='_')setv(k,p[k])});
  [['a-zr','a-z'],['a-pr','a-p'],['e-zr','e-z'],['f-ir','f-i'],['f-tdr','f-td'],['g-tar','g-ta'],['g-wr','g-w'],['g-ar','g-a'],['g-sr','g-s'],['h-ir','h-i'],['h-dr','h-d'],['c-lr','c-l'],['c-nvr','c-nv'],['d-rr','d-r']].forEach(([r,i])=>{if($(r))$(r).value=$(i).value});p._()}));
 
