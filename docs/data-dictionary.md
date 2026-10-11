@@ -565,14 +565,14 @@ Common domains referenced across many classes. A field pointing at one of these 
 |---|---|---|---|
 | `way_number` | integer | — | Bore position 1..N. **req** |
 
-**CABLE_CHAMBER — Cable chamber** *(polygon, optional · none)* · intended subtypes: `manhole`, `footway_box`, `joint_bay`, `jointing_pit` — **but `seed/cable_management_example.sql` inserts them with text codes into the integer `subtypes.code`, so as seeded they do not load**; the class then has no `subtype` column and no subtype rules (see Appendix C, item 20)
+**CABLE_CHAMBER — Cable chamber** *(polygon, optional · none)* · subtypes `1` manhole, `2` footway box, `3` joint bay, `4` jointing pit (the seed used text codes against the integer `subtypes.code` and silently produced none until it was fixed to integers — Appendix C, item 20)
 | Field | Type | Domain | Meaning |
 |---|---|---|---|
 | `access_cover_type` | text | `CHAMBER_COVER` | Light / medium / heavy duty. **req** |
 | `condition_rating` | text | `CONDITION_RATING` | Condition. **req** |
 | `install_date` / `last_inspected_at` | date | — | Install / last inspection. |
 
-**MV_CABLE_JOINT / LV_CABLE_JOINT — Cable joint** *(point · junction)* · intended subtypes: `straight`, `branch` (tee), `transition`, `termination` — **same seed defect as `CABLE_CHAMBER` (text codes into an integer column): as seeded they do not load**, so the `branch` T3 terminal is not created either (Appendix C, item 20) · a zero-impedance splice node; the `branch` subtype adds a 3rd terminal
+**MV_CABLE_JOINT / LV_CABLE_JOINT — Cable joint** *(point · junction)* · subtypes `1` straight, `2` branch (tee), `3` transition, `4` termination (same seed fix as `CABLE_CHAMBER`; the `branch` subtype carries the `T3` terminal — Appendix C, item 20) · a zero-impedance splice node; the `branch` subtype adds a 3rd terminal
 | Field | Type | Domain | Meaning |
 |---|---|---|---|
 | `insulation_type` | text | `INSULATION_TYPE` | XLPE / EPR / PILC / heat-shrink. **req** |
@@ -829,5 +829,5 @@ Found by loading migrations 0001–0134 and the full `seed-all` seed set into a 
 17. **`METER.ct_ratio`** — is required for subtype `2 ct_metered` (a subtype-specific rule); likewise `MV_CAP_BANK.device_state` is required for `switched` only.
 18. **Stale appendix note** ("field detail lands in the next revision") removed; the class count **63** was already correct.
 19. **Subtype-less classes enforce "req" only through `NOT NULL`** — `validateRequired` returns immediately when the class has no subtype (`validate.go:260`); affects `CABLE_TRENCH`, `CABLE_DUCT`, `DUCT_WAY`, `EARTHING_XFMR`.
-20. *Seed defect* — `seed/cable_management_example.sql:91` (`CABLE_CHAMBER`) and `seed/cable_joint_example.sql:104,154` (`MV_CABLE_JOINT`/`LV_CABLE_JOINT`) insert text subtype codes (`'manhole'`, `'branch'` …) into the integer `metadata.subtypes.code`; the statement fails (`column "code" is of type integer but expression is of type text`), so those classes get no subtypes, no required-field rules and no `branch` T3 terminal. The old manual described the intended subtypes as if they existed; it now says so.
-21. *Seed defect* — `seed/mv_voltage_regulator_example.sql:119` inserts `MV_VREG` terminals with roles `source`/`load`, which violates the `terminals_role_check` constraint (mig 0070 allows `primary/secondary/tertiary/ground/other`); `MV_VREG` therefore has no terminals and no network rules.
+20. *Seed defect — fixed.* `seed/cable_management_example.sql` (`CABLE_CHAMBER`) and `seed/cable_joint_example.sql` (`MV_CABLE_JOINT`/`LV_CABLE_JOINT`) inserted text subtype codes (`'manhole'`, `'branch'` …) into the integer `metadata.subtypes.code`, so those classes got no subtypes, no required-field rules and no `branch` T3 terminal. The seeds now use integer codes (chamber 1–4; joints 1 straight, 2 branch, 3 transition, 4 termination); verified on a scratch database (before: 0 subtypes; after: 4 subtypes, 8 required-field rules, the `T3` branch terminal and 8 network rules per joint class). Existing installs that already ran the old seed need to re-run it.
+21. *Seed defect — fixed.* `seed/mv_voltage_regulator_example.sql` inserted the `MV_VREG` terminals with roles `source`/`load`, which violate `terminals_role_check` (migration 0070 allows `primary/secondary/tertiary/ground/other`), so the class had no terminals and no network rules. The seed now uses `primary`/`secondary` like `MV_RECLOSER`; verified on a scratch database (before: no terminals, 0 rules; after: T1/T2 and 14 rules).

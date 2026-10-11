@@ -90,15 +90,16 @@ VALUES
     ('LV_CABLE_JOINT', 'LV cable joint', 'point', 4326, 'junction', 'draft', false)
 ON CONFLICT (code) DO NOTHING;
 
--- Splice-typology subtypes, both classes.
+-- Splice-typology subtypes, both classes. The subtype code is an INTEGER key
+-- (metadata.subtypes.code): 1 straight, 2 branch (tee), 3 transition, 4 termination.
 INSERT INTO metadata.subtypes (feature_class_id, code, name)
 SELECT fc.id, v.code, v.name
 FROM metadata.feature_classes fc
 JOIN (VALUES
-    ('straight',    'Straight'),
-    ('branch',      'Branch (tee)'),
-    ('transition',  'Transition'),
-    ('termination', 'Termination')
+    (1, 'Straight'),
+    (2, 'Branch (tee)'),
+    (3, 'Transition'),
+    (4, 'Termination')
 ) AS v(code, name) ON true
 WHERE fc.code IN ('MV_CABLE_JOINT', 'LV_CABLE_JOINT')
 ON CONFLICT (feature_class_id, code) DO NOTHING;
@@ -150,7 +151,7 @@ INSERT INTO metadata.terminals (feature_class_id, subtype_id, code, role, phase_
 SELECT s.feature_class_id, s.id, 'T3', 'other', true
 FROM metadata.subtypes s
 JOIN metadata.feature_classes fc ON fc.id = s.feature_class_id
-WHERE fc.code IN ('MV_CABLE_JOINT', 'LV_CABLE_JOINT') AND s.code = 'branch'
+WHERE fc.code IN ('MV_CABLE_JOINT', 'LV_CABLE_JOINT') AND s.code = 2  -- branch (tee)
 ON CONFLICT (feature_class_id, subtype_id, code) DO NOTHING;
 
 -- ===========================================================================

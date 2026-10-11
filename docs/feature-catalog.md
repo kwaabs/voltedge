@@ -2022,9 +2022,8 @@ between them. And because the trace / section / isolation / powerflow engines **
 treat any junction as a zero-Z pass-through, **nothing in any engine changes** — the joint
 simply appears as another node on the walk. It is pure metadata reuse.
 
-**How it's specified.** Subtypes are the **splice typology** (**seed defect:** `seed/cable_joint_example.sql` lines
-94-105 use text codes against the integer `subtypes.code` column and are rejected, which also
-drops the `branch`-scoped `T3` terminal (line 154) and its two rules on a fresh database) — `straight` / `branch` (a
+**How it's specified.** Subtypes are the **splice typology** (codes `1` straight, `2` branch (a
+tee), `3` transition, `4` termination; the seed originally used text codes against the integer `subtypes.code` column, which dropped the subtypes and the `branch`-scoped `T3` terminal and its two rules — fixed) — `straight` / `branch` (a
 tee) / `transition` / `termination`. Fields: `insulation_type` (`INSULATION_TYPE`: XLPE /
 EPR / PILC / Heat-shrink, req), `condition_rating` (req), plus optional `install_date` /
 `last_inspected_at`.
@@ -2341,12 +2340,10 @@ it, so a downstream trace walks straight through (`T1 → device → T2 → on`)
 
 **Terminals.** Two, series-style — `T1` (`source`) and `T2` (`load`), **both
 phase-capable** (current passes through). Identical to `MV_RECLOSER` / `MV_SWITCH`.
-**Seed defect:** `terminals.role` is constrained to `primary / secondary / tertiary / ground /
-other` (migrations 0009 + 0070), so the seed's `source` / `load` roles are rejected by
-`terminals_role_check` (`seed/mv_voltage_regulator_example.sql` lines 111-120) — applied
-unmodified, `MV_VREG` ends up with **no terminals and no network rules** until the roles are
-changed to `primary` / `secondary` (what `MV_RECLOSER` and `MV_SWITCH` use). The role names
-are nominal either way.
+The seed originally used roles `source` / `load`, which `terminals_role_check` (`primary / secondary /
+tertiary / ground / other`, migrations 0009 + 0070) rejects — leaving `MV_VREG` with **no terminals and no
+network rules**. It now uses `primary` / `secondary`, what `MV_RECLOSER` and `MV_SWITCH` use (fixed; the role
+names are nominal either way).
 
 **Relates to.** *Connectivity:* the **inline three-rule series shape** — `MV_CONDUCTOR →
 T1` (feeder in), `MV_CONDUCTOR → T2` (feeder on the load side), and `T2 → MV_CONDUCTOR` (so
@@ -2905,10 +2902,8 @@ fan-out to per-bore modelling.
 
 **`CABLE_CHAMBER`** (`polygon`, geometry-optional) — the manhole / jointing pit a joint sits
 in. Subtypes are the **housing typology** — `manhole` / `footway_box` / `joint_bay` /
-`jointing_pit` (**seed defect:** `seed/cable_management_example.sql` lines 81-91 inserts these
-as text into the integer `subtypes.code` column and is rejected, so on a fresh database the
-class has *no* subtypes until the codes are changed to integers — the Go compiler and
-`subtype integer CHECK` require numeric codes). Identity field `access_cover_type` (`CHAMBER_COVER`: `LIGHT` / `MEDIUM` /
+`jointing_pit` (integer codes `1`–`4` in that order; the seed originally inserted text codes into the
+integer `subtypes.code` column, which produced no subtypes on a fresh database — fixed). Identity field `access_cover_type` (`CHAMBER_COVER`: `LIGHT` / `MEDIUM` /
 `HEAVY`, req). *Relates to:* `contains {MV_CABLE_JOINT, LV_CABLE_JOINT}` (`containment`) —
 the Chapter-7 cable joints live inside it. It **contains the node that joins two edges** — the
 civil box around the electrical splice.
@@ -3016,10 +3011,10 @@ Differences found between earlier editions of this catalog and the seeds/migrati
 | 10 | `MV_ARRESTER` | "one rule only" (also repeated in Ch. 8) | The class seed ships one rule; the pole-mount/kit seeds add six more onto device terminals: 7 rules in a seeded database. | `seed/pole_mount_recloser.sql`, `seed/pole_mount_voltage_regulator.sql`, `seed/pole_mount_bess.sql`, `seed/overhead_pole_transformer.sql` |
 | 11 | `MV_CAP_BANK` | "one rule only"; "not a trace barrier" | Two rules (kit adds `MV_SWITCH T2 -> T1`); and an OPEN `device_state` barrier row exists for it (harmless for a leaf). | `seed/pole_mount_capacitor_bank.sql:29-66`; `seed/trace_barrier_resync.sql:42-55` |
 | 12 | `MV_BESS` | "the same three PCC rules" | Four: the kit adds `MV_SWITCH T2 -> T1`. | `seed/pole_mount_bess.sql:70-88`; `seed/mv_bess_example.sql:131-133` |
-| 13 | `MV_VREG` | Terminals `T1` source / `T2` load | Seed defect: roles `source`/`load` violate `terminals_role_check` (primary/secondary/tertiary/ground/other), so the terminals, and the three series rules that join to them, are not inserted. A bypassed (OPEN) regulator is also a trace barrier. | `seed/mv_voltage_regulator_example.sql:111-120`; `migrations/0070_add_tertiary_terminal_role.sql:18-20`; `seed/trace_barrier_resync.sql:42-55` |
+| 13 | `MV_VREG` | Terminals `T1` source / `T2` load | Seed defect (fixed): roles `source`/`load` violated `terminals_role_check`, so the terminals and the three series rules were never inserted; the seed now uses `primary`/`secondary`. A bypassed (OPEN) regulator is also a trace barrier. | `seed/mv_voltage_regulator_example.sql`; `migrations/0070_add_tertiary_terminal_role.sql:18` |
 | 14 | `MV_EARTH_SWITCH` | "no barrier behaviour" | A barrier row is registered (it has `device_state`), but with no terminals it is never visited, so it is inert. | `seed/trace_barrier_resync.sql:42-55` |
 | 15 | `RMU` | Diagram allow-list not described | `ONE_LINE` allow-list = MV_CONDUCTOR, MV_SWITCH, MV_FUSE, MV_BUSBAR. | `seed/rmu_diagram_placement.sql:1-20` |
-| 16 | `CABLE_CHAMBER`, `MV_CABLE_JOINT`, `LV_CABLE_JOINT` | Subtypes shown by text code | Seed defect: the seeds insert text codes into the integer `subtypes.code` column and are rejected; the three classes therefore have no subtypes on a fresh database, and the joints lose their `branch`-scoped `T3` terminal and its rules. | `seed/cable_management_example.sql:81-91`; `seed/cable_joint_example.sql:94-105,154`; `migrations/0008_create_subtypes_and_fields.sql` |
+| 16 | `CABLE_CHAMBER`, `MV_CABLE_JOINT`, `LV_CABLE_JOINT` | Subtypes shown by text code | Seed defect (fixed): the seeds inserted text codes into the integer `subtypes.code` column, so the three classes had no subtypes and the joints lost their `branch`-scoped `T3` terminal and its rules; the seeds now use integer codes. | `seed/cable_management_example.sql`; `seed/cable_joint_example.sql` |
 | 17 | `LV_BUSBAR`; Ch. 2 recap | "The bus is the one class whose map shape (point) and diagram shape (bar) differ" | `LV_BUSBAR` also has `diagram_geometry_type = 'line'` (and `geometry_optional`) from the LV pillar seed. | `seed/lv_pillar_example.sql:182-213` |
 | 18 | `EV_CHARGER` / `EV_CONNECTOR` | Colours `#22c55e` / `#4ade80` unassigned | Charger `#22c55e`, connector `#4ade80`. | `seed/ev_charging_example.sql:209-210` |
 | 19 | Master index names | "Cable Trench", "Cable Duct", "Cable Chamber", "Duct Way", "MV/LV Cable Joint" in title case | Seeds use sentence case ("Cable trench"). Cosmetic; the catalog keeps title case. | `seed/cable_management_example.sql:68-77` |
