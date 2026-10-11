@@ -466,6 +466,19 @@ Define the SLOs that encode "didn't lose its effect," then alert on their leadin
 - **Worker queue depth** (export/import/webhook) → backlog; scale that worker.
 - **5xx rate, pod restarts, readiness flaps**, object-storage error rate.
 
+**Where to read each signal today** (the repo ships logs, not a metrics exporter — Prometheus/exporter wiring is **not verified** and is yours to add):
+
+| Signal | Source you can use now |
+|---|---|
+| Connections in use vs `max_connections` | `SHOW max_connections;` and `SELECT count(*) FROM pg_stat_activity;` |
+| Replication lag | `SELECT application_name, state, replay_lag FROM pg_stat_replication;` on the primary |
+| Tile / request latency, 5xx | structured JSON request log (`httpx.Logger`) shipped by Vector to Loki; nginx's `rt=` / `urt=` fields (`infra/nginx/nginx.conf` `log_format main`) |
+| Queue depth | `SELECT status, count(*) FROM ops.export_jobs GROUP BY status;` (also `ops.import_jobs`, `ops.webhook_deliveries`, `ops.field_packs`) |
+| In-flight heavy analyses | does not exist until the §7.1 gate does |
+| Probe flaps | `docker compose ps` / `kubectl get pods` restarts column |
+
+The interactive edition's alert board applies the §11 thresholds to numbers you type in and points at the §13 playbook row.
+
 ---
 
 ## 12. The compose → Kubernetes path (if you're not on k8s yet)
@@ -476,6 +489,8 @@ A pragmatic ladder:
 1. **Compose, scaled:** this ships as **`docker-compose.prod.yml`** + **`infra/nginx/nginx.conf`** — nginx (non-sticky) in front of N `api` replicas, PgBouncer between the app tier and Postgres, workers (including `fieldsync`) scaled by replica count, and a replication-ready primary (with the streaming read replica left as a documented, commented opt-in). Run it with `docker compose -f docker-compose.prod.yml up -d --build --scale api=4`. Good to a few hundred users and it *proves* the multi-replica architecture on one host. **Note:** this file is authored but not yet run in CI — see its header "verify" steps (PgBouncer auth against SCRAM, and whether pgdriver's prepared statements tolerate transaction pooling) before relying on it.
 2. **Managed Postgres + Kubernetes:** move Postgres to a managed service or an operator (replicas, failover, PITR handled for you), move the API/worker tiers to Deployments + HPA. This is the ~1,000-user shape in §2.
 3. **Add the tile caching tier and the analysis worker pool** when the metrics in §11 say you need them — not before.
+
+Useful Compose commands (all from `docker-compose.prod.yml`): scale API and a worker `docker compose -f docker-compose.prod.yml up -d --scale api=4 --scale exportworker=3`; the default replica counts come from `API_REPLICAS` (3) and `EXPORTWORKER_REPLICAS`, `IMPORTWORKER_REPLICAS`, `WEBHOOKWORKER_REPLICAS` (1 each); layer observability with `-f docker-compose.observability.yml`. `fieldsync` and `mcpserver` are single instances there *by choice* (fixed container name and published port), not because they are unsafe to replicate.
 
 Don't skip to full k8s on day one if you're pre-production; prove the tiers under load on the cheaper rung first. But **do** the §9 pre-flight fixes regardless of which rung you're on — they're about the application, not the orchestrator.
 
@@ -502,6 +517,18 @@ Every component, the signal that tells you to scale it, the action, and the ceil
 | **Observability (Loki)** | logging guide | log-ingest volume | scale Loki ingesters / retention | separate plane; never let it share Postgres |
 
 **How to read it in an incident:** the alert that fired (§11) points at a row; the row tells you the action and whether scaling that component even helps. The one row where "scale it out" is the *wrong* answer is **Postgres primary** (vertical/architectural, not horizontal — writes don't scale out). Everything else — `fieldsync` included — is "add replicas" (CPU-heavy ones for `fieldsync`), gated on the §9 pre-flight being done.
+
+---
+
+## 14. Failure walkthroughs
+
+Three incidents that follow directly from the facts above — read them as "what you would see, in order".
+
+**A. Scale-out without a bounded pool.** Traffic rises; the HPA goes 3 → 12 pods. Each pod's unbounded pool opens a connection per in-flight query. Postgres `max_connections` (200) fills; new queries fail with "too many clients"; `/healthz` pings fail on the starved pods and readiness removes them, which concentrates load on the rest — a cascade. *Fix:* PgBouncer in transaction mode, `Σ(pods × pool)` under the limit, pool bounded in code (§5.1). *Signal:* connections in use > 80 % of `max_connections` (§11).
+
+**B. Shift-start login wave.** 600 users log in within a minute. The in-app limiter keys on the peer address, which behind nginx is nginx itself, so each pod allows 10 logins a minute (burst 10) for everyone; the rest receive `429`. nginx's own `limit_req` (5 r/s, burst 10) also throttles `/api/auth/login`. Users retry, making it worse. *Fix:* raise or re-key the in-app limiter and size the edge limit for the real wave (§3.1).
+
+**C. Tile storm.** A storm event sends 300 users to the map at once. Each pan costs ~7 round trips and one `ST_AsMVT`; primary CPU saturates, tile p95 passes 150 ms, and edits (writes) slow because they share the primary. Scaling the API makes it worse (more concurrent tile queries). *Fix order:* route tiles to replicas, TTL-cache the cheap lookups, then the scope-class cache (§6). *Signal:* tile query rate and p95 (§11).
 
 ---
 
