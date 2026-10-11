@@ -1555,6 +1555,15 @@ const AU={v:'sum',cat:'all',
 /* chapter rail */
 (function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a])); const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'}); document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
 
+/* ===== render ```mermaid blocks (lazy, from CDN; falls back to the source text) ===== */
+(function(){
+  const SRC='https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js'; let loading=null, n=0;
+  function load(){ if(window.mermaid) return Promise.resolve(window.mermaid); if(loading) return loading; loading=new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=SRC; s.onload=()=>{ try{ const dark=matchMedia('(prefers-color-scheme: dark)').matches||document.documentElement.dataset.theme==='dark'; window.mermaid.initialize({startOnLoad:false,theme:dark?'dark':'default',securityLevel:'strict',fontFamily:'inherit'}); res(window.mermaid); }catch(e){ rej(e); } }; s.onerror=()=>rej(new Error('mermaid unavailable')); document.head.appendChild(s); }); return loading; }
+  function process(){ const pres=[...document.querySelectorAll('pre.mer:not([data-mm])')]; if(!pres.length) return; pres.forEach(p=>p.dataset.mm='1');
+    load().then(m=>Promise.all(pres.map(p=>{ const src=p.textContent; return m.render('mm'+(++n),src).then(r=>{ const d=document.createElement('div'); d.className='mm-fig'; d.style.cssText='margin:10px 0;overflow-x:auto;text-align:center;border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--surface)'; d.innerHTML=r.svg; d.querySelector('svg').style.maxWidth='100%'; d.querySelector('svg').style.height='auto'; const cap=document.createElement('details'); cap.style.cssText='margin-top:6px;font-size:12px;text-align:left'; cap.innerHTML='<summary class="muted" style="cursor:pointer">diagram source</summary>'; const pr=document.createElement('pre'); pr.textContent=src; pr.style.cssText='margin:4px 0 0;font-size:12px;overflow:auto'; cap.appendChild(pr); d.appendChild(cap); p.replaceWith(d); }).catch(()=>{ const t=document.createElement('div'); t.className='muted'; t.style.cssText='font-size:12px;margin-top:2px'; t.textContent='(diagram could not be rendered — source shown)'; p.before(t); }); }))).catch(()=>{ pres.forEach(p=>{ const t=document.createElement('div'); t.className='muted'; t.style.cssText='font-size:12px;margin-top:2px'; t.textContent='Diagram source (offline: the renderer could not be loaded).'; p.before(t); }); }); }
+  let q=null; new MutationObserver(()=>{ clearTimeout(q); q=setTimeout(process,60); }).observe(document.body,{childList:true,subtree:true}); process();
+})();
+
 
 </script>
 </body></html>
