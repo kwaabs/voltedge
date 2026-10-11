@@ -802,7 +802,7 @@ spec:
 
 > **Corrections.** (1) *fieldsync is not a singleton.* The earlier text said
 > "SINGLETON. Never scale" and blamed corrupt packs on scaling above 1. The compose
-> header, Scaling Guide §8 and the code (`FOR UPDATE SKIP LOCKED`, a temp dir per job)
+> header, Scaling Guide §8 and the code (`FOR UPDATE SKIP LOCKED` claims, a temp dir per job, and sync-inbox claims ordered and serialized per device — `api/internal/fieldpack/inbox.go`)
 > say replicas are safe; the only caveat is that the maintenance loop runs in every
 > replica and a scheduled rebuild may be double-enqueued (retention reaps the extra).
 > For a build backlog, add CPU and replicas. (2) *`webhookworker` and `importworker`
