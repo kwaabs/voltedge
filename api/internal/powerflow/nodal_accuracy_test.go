@@ -41,7 +41,20 @@ func buildTwoBusModel(r, x, p, q float64) *nodalModel {
 	}
 }
 
-// TestNodalMatchesExactAC drives solveGaussSeidel on a 2-bus per-unit system and
+// nodalSolvers are the two interchangeable nodal kernels the engine ships, both
+// with signature func(*nodalModel) nodalSolution: the default Gauss-Seidel and the
+// Newton-Raphson alternative (newton.go). Every validation below runs against BOTH,
+// so the independent references (exact 2-bus AC, manufactured mesh solution) certify
+// each solver, not just the default.
+var nodalSolvers = []struct {
+	name  string
+	solve func(*nodalModel) nodalSolution
+}{
+	{"gauss-seidel", solveGaussSeidel},
+	{"newton", solveNewton},
+}
+
+// TestNodalMatchesExactAC drives each nodal solver on a 2-bus per-unit system and
 // asserts the solved PQ-bus voltage magnitude matches the exact closed-form AC
 // solution. It sweeps a light and a heavy load so the check covers a small drop
 // and a deep one (where the linearised sweep would visibly diverge but the full
@@ -62,30 +75,33 @@ func TestNodalMatchesExactAC(t *testing.T) {
 			if !ok {
 				t.Fatalf("exact AC solution does not exist for %+v (voltage collapse)", c)
 			}
+			for _, s := range nodalSolvers {
+				t.Run(s.name, func(t *testing.T) {
+					sol := s.solve(buildTwoBusModel(c.r, c.x, c.p, c.q))
+					if !sol.converged {
+						t.Fatalf("%s did not converge in %d iters (maxMismatch %g)", s.name, sol.iterations, sol.maxMismatch)
+					}
+					if len(sol.vPU) != 2 {
+						t.Fatalf("expected 2 bus voltages, got %d", len(sol.vPU))
+					}
 
-			sol := solveGaussSeidel(buildTwoBusModel(c.r, c.x, c.p, c.q))
-			if !sol.converged {
-				t.Fatalf("Gauss-Seidel did not converge in %d iters (maxMismatch %g)", sol.iterations, sol.maxMismatch)
-			}
-			if len(sol.vPU) != 2 {
-				t.Fatalf("expected 2 bus voltages, got %d", len(sol.vPU))
-			}
+					// Slack stays pinned at 1∠0.
+					if d := cmplx.Abs(sol.vPU[0] - complex(1, 0)); d > 1e-12 {
+						t.Errorf("slack voltage moved: %v (|Δ| = %g)", sol.vPU[0], d)
+					}
 
-			// Slack stays pinned at 1∠0.
-			if d := cmplx.Abs(sol.vPU[0] - complex(1, 0)); d > 1e-12 {
-				t.Errorf("slack voltage moved: %v (|Δ| = %g)", sol.vPU[0], d)
+					got := cmplx.Abs(sol.vPU[1])
+					if d := math.Abs(got - want); d > c.tol {
+						t.Errorf("PQ-bus |V| = %.9f pu, exact AC = %.9f pu (|Δ| = %g > %g)", got, want, d, c.tol)
+					}
+					// The PQ bus must sag below the slack -- a positive load cannot raise it.
+					if got >= 1 {
+						t.Errorf("PQ-bus |V| = %.9f pu did not drop below the 1.0 slack under load", got)
+					}
+					t.Logf("%s / %s: nodal |V| = %.9f pu, exact AC = %.9f pu, |Δ| = %g (%d iters)",
+						c.name, s.name, got, want, math.Abs(got-want), sol.iterations)
+				})
 			}
-
-			got := cmplx.Abs(sol.vPU[1])
-			if d := math.Abs(got - want); d > c.tol {
-				t.Errorf("PQ-bus |V| = %.9f pu, exact AC = %.9f pu (|Δ| = %g > %g)", got, want, d, c.tol)
-			}
-			// The PQ bus must sag below the slack -- a positive load cannot raise it.
-			if got >= 1 {
-				t.Errorf("PQ-bus |V| = %.9f pu did not drop below the 1.0 slack under load", got)
-			}
-			t.Logf("%s: nodal |V| = %.9f pu, exact AC = %.9f pu, |Δ| = %g (%d iters)",
-				c.name, got, want, math.Abs(got-want), sol.iterations)
 		})
 	}
 }
@@ -101,7 +117,7 @@ func addBranch(y [][]complex128, a, b int, adm complex128) {
 	y[b][a] -= adm
 }
 
-// TestNodalMeshedManufacturedSolution validates solveGaussSeidel on a genuinely
+// TestNodalMeshedManufacturedSolution validates each nodal solver on a genuinely
 // MESHED network -- a 3-bus triangle (branches 0-1, 1-2, 0-2) where buses 1 and 2
 // are joined by TWO paths, so a loop current flows and the radial sweep could not
 // represent it. The reference is the method of MANUFACTURED SOLUTIONS: choose the
@@ -141,38 +157,42 @@ func TestNodalMeshedManufacturedSolution(t *testing.T) {
 		return target[i] * cmplx.Conj(yv)
 	}
 
-	model := &nodalModel{
-		buses: []busInfo{
-			{vBase: 1, kind: busSlack, vSetPU: 1},
-			{vBase: 1, kind: busPQ, sInjPU: inj(1)},
-			{vBase: 1, kind: busPQ, sInjPU: inj(2)},
-		},
-		yBus:   y,
-		slacks: map[int]bool{0: true},
-	}
-
-	sol := solveGaussSeidel(model)
-	if !sol.converged {
-		t.Fatalf("Gauss-Seidel did not converge on the mesh in %d iters (maxMismatch %g)", sol.iterations, sol.maxMismatch)
-	}
-	if len(sol.vPU) != 3 {
-		t.Fatalf("expected 3 bus voltages, got %d", len(sol.vPU))
-	}
-
-	// The solver must recover the manufactured voltages -- magnitude AND angle --
-	// at every bus, confirming it solved the loop, not merely a radial reduction.
-	for i := range target {
-		if d := cmplx.Abs(sol.vPU[i] - target[i]); d > 1e-7 {
-			t.Errorf("bus %d: solved V = %v, manufactured V = %v (|Δ| = %g > 1e-7)", i, sol.vPU[i], target[i], d)
-		}
-	}
-
 	// Guard that the network is actually meshed: bus 1↔2 and 0↔2 must both be live
 	// branches (non-zero off-diagonals), so bus 2 genuinely has two paths to source.
 	if y[1][2] == 0 || y[0][2] == 0 {
 		t.Fatalf("test network is not meshed (missing a loop branch): Y12=%v Y02=%v", y[1][2], y[0][2])
 	}
 
-	t.Logf("meshed 3-bus (triangle): recovered V1=%v V2=%v in %d iters; S1=%v S2=%v",
-		sol.vPU[1], sol.vPU[2], sol.iterations, inj(1), inj(2))
+	for _, s := range nodalSolvers {
+		t.Run(s.name, func(t *testing.T) {
+			model := &nodalModel{
+				buses: []busInfo{
+					{vBase: 1, kind: busSlack, vSetPU: 1},
+					{vBase: 1, kind: busPQ, sInjPU: inj(1)},
+					{vBase: 1, kind: busPQ, sInjPU: inj(2)},
+				},
+				yBus:   y,
+				slacks: map[int]bool{0: true},
+			}
+
+			sol := s.solve(model)
+			if !sol.converged {
+				t.Fatalf("%s did not converge on the mesh in %d iters (maxMismatch %g)", s.name, sol.iterations, sol.maxMismatch)
+			}
+			if len(sol.vPU) != 3 {
+				t.Fatalf("expected 3 bus voltages, got %d", len(sol.vPU))
+			}
+
+			// The solver must recover the manufactured voltages -- magnitude AND angle
+			// -- at every bus, confirming it solved the loop, not a radial reduction.
+			for i := range target {
+				if d := cmplx.Abs(sol.vPU[i] - target[i]); d > 1e-7 {
+					t.Errorf("bus %d: solved V = %v, manufactured V = %v (|Δ| = %g > 1e-7)", i, sol.vPU[i], target[i], d)
+				}
+			}
+
+			t.Logf("%s meshed 3-bus (triangle): recovered V1=%v V2=%v in %d iters; S1=%v S2=%v",
+				s.name, sol.vPU[1], sol.vPU[2], sol.iterations, inj(1), inj(2))
+		})
+	}
 }

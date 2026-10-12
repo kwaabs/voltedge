@@ -155,3 +155,133 @@ func TestEndToEndFaultCurrent(t *testing.T) {
 		t.Errorf("MV-3 fault = %.1f A, want ~32806 A (c_max)", *mv3.FaultCurrentAmps)
 	}
 }
+
+// TestEndToEndLoadFlow drives the real runLoadFlow (balanced backward/forward
+// sweep) from BRK-1, exercising the whole DB-coupled assembly -- buildTree,
+// resolveNodeStates, the accumulation passes -- that the in-memory kernel tests
+// (sweep_accuracy_test.go) deliberately stub. No external reference number is
+// asserted (none is live-verified for this feeder); instead it pins the invariants
+// a correct solve must satisfy, so a broken assembly (a bad query, a NaN, a node
+// that won't resolve) fails CI rather than returning quiet garbage.
+func TestEndToEndLoadFlow(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+
+	resp, err := runLoadFlow(ctx, db, loadFlowRequest{
+		Start:           featureRef{FeatureClass: "MV_BREAKER", FeatureID: seedBRK1},
+		NominalVoltageV: 11000,
+	})
+	if err != nil {
+		t.Fatalf("load flow: %v", err)
+	}
+	if len(resp.Nodes) < 2 {
+		t.Fatalf("expected the walk to reach multiple nodes, got %d", len(resp.Nodes))
+	}
+	if resp.NominalVoltageV <= 0 {
+		t.Errorf("nominal base = %v, want > 0", resp.NominalVoltageV)
+	}
+
+	var sawStart, sawMV3 bool
+	for _, n := range resp.Nodes {
+		if math.IsNaN(n.VoltageV) || math.IsInf(n.VoltageV, 0) || n.VoltageV <= 0 {
+			t.Errorf("%s %s: voltage = %v, want a finite positive value", n.FeatureClass, n.FeatureID, n.VoltageV)
+		}
+		// A sane feeder solve: every node's drop is finite and physically bounded.
+		// (Left deliberately loose -- no assumption about the seeded loading -- so it
+		// catches NaN/Inf/garbage from a broken assembly without a spurious failure.)
+		if math.IsNaN(n.VoltageDropPct) || math.IsInf(n.VoltageDropPct, 0) || n.VoltageDropPct < -5 || n.VoltageDropPct > 100 {
+			t.Errorf("%s %s: drop%% = %v, outside the physical [-5,100] band", n.FeatureClass, n.FeatureID, n.VoltageDropPct)
+		}
+		switch n.FeatureID {
+		case seedBRK1:
+			sawStart = true
+		case seedMV3:
+			sawMV3 = true
+		}
+	}
+	if !sawStart || !sawMV3 {
+		t.Errorf("expected both the start and MV-3 in the result (start=%v MV-3=%v)", sawStart, sawMV3)
+	}
+	t.Logf("end-to-end load flow BRK-1@11kV: %d nodes, base %.0f V", len(resp.Nodes), resp.NominalVoltageV)
+}
+
+// TestEndToEndNodalLoadFlow drives the real runNodalLoadFlow against the seeded
+// network with BOTH solvers (Gauss-Seidel and Newton). Beyond the per-solver
+// invariants (converged, bounded mismatch, finite positive voltages), the load-
+// bearing check is that the two solvers -- which assemble the IDENTICAL Y-bus from
+// the live database and solve it by different numerical methods -- converge to the
+// same voltages. That agreement is an independent cross-check on the whole DB
+// assembly (buildBuses -> solve), needing no external reference, and complements the
+// in-memory kernel tests that pin each solver against the exact/manufactured AC.
+func TestEndToEndNodalLoadFlow(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+
+	run := func(solver string) *nodalLoadFlowResponse {
+		resp, err := runNodalLoadFlow(ctx, db, nodalLoadFlowRequest{
+			Start:           featureRef{FeatureClass: "MV_BREAKER", FeatureID: seedBRK1},
+			NominalVoltageV: 11000,
+			Solver:          solver,
+		})
+		if err != nil {
+			t.Fatalf("nodal load flow (solver %q): %v", solver, err)
+		}
+		return resp
+	}
+
+	gs := run(solverGaussSeidel)
+	nr := run(solverNewton)
+
+	for _, tc := range []struct {
+		name string
+		resp *nodalLoadFlowResponse
+	}{{solverGaussSeidel, gs}, {solverNewton, nr}} {
+		r := tc.resp
+		if !r.Converged {
+			t.Errorf("%s did not converge (mismatch %g pu, %d iters)", tc.name, r.MaxMismatch, r.Iterations)
+		}
+		if r.MaxMismatch > 1e-3 {
+			t.Errorf("%s max mismatch = %g pu, want < 1e-3", tc.name, r.MaxMismatch)
+		}
+		if r.Solver != tc.name {
+			t.Errorf("response solver = %q, want %q", r.Solver, tc.name)
+		}
+		if r.BusCount < 1 || r.SlackCount < 1 {
+			t.Errorf("%s: buses=%d slacks=%d, want >= 1 each", tc.name, r.BusCount, r.SlackCount)
+		}
+		if len(r.Nodes) == 0 {
+			t.Errorf("%s: no nodes returned", tc.name)
+		}
+		for _, n := range r.Nodes {
+			if math.IsNaN(n.VoltageV) || math.IsInf(n.VoltageV, 0) || n.VoltageV <= 0 {
+				t.Errorf("%s: %s %s voltage = %v, want finite positive", tc.name, n.FeatureClass, n.FeatureID, n.VoltageV)
+			}
+		}
+	}
+
+	// Cross-check: the two solvers solve one and the same assembled model, so their
+	// per-node voltages must match to solver tolerance. ~0.5 V on an 11 kV base is
+	// ~5e-5 pu -- far above convergence noise, far below any real divergence.
+	nrV := make(map[string]float64, len(nr.Nodes))
+	for _, n := range nr.Nodes {
+		nrV[n.FeatureID] = n.VoltageV
+	}
+	var compared int
+	var maxDelta float64
+	for _, n := range gs.Nodes {
+		if v, ok := nrV[n.FeatureID]; ok {
+			compared++
+			if d := math.Abs(n.VoltageV - v); d > maxDelta {
+				maxDelta = d
+			}
+		}
+	}
+	if compared == 0 {
+		t.Fatalf("gauss-seidel and newton share no feature nodes to compare")
+	}
+	if maxDelta > 0.5 {
+		t.Errorf("gauss-seidel vs newton disagree by up to %.4f V over %d nodes -- same model, different solver, must match", maxDelta, compared)
+	}
+	t.Logf("end-to-end nodal BRK-1@11kV: GS %d buses conv=%v (%d it), NR conv=%v (%d it); GS↔NR max ΔV %.6f V over %d nodes",
+		gs.BusCount, gs.Converged, gs.Iterations, nr.Converged, nr.Iterations, maxDelta, compared)
+}
