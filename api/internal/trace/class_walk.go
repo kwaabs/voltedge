@@ -321,10 +321,51 @@ func walkWithJunctions(start node, direction string, maxHops int, neighbors func
 	return out, truncated, nil
 }
 
+// reachForOMS is the walk behind the OMS class walks (prediction, affected counts,
+// the isolation boundary) and the faults impact walk. When the start's component
+// has a usable root it answers from the SUPPLY TREE (supply_tree.go): "below" is
+// the start's subtree and "above" its parent chain, which needs no guess about how
+// the connectivity rows were authored. Otherwise (no tiers seeded, or no
+// transformer/source at the top of the component) it falls back to the
+// junction-aware walk (reachableJunctionAware). The start is included at depth 0,
+// like reachableWithDepth.
+func reachForOMS(ctx context.Context, db bun.IDB, start node, direction string) ([]nodeDepth, error) {
+	if direction == "DOWNSTREAM" || direction == "UPSTREAM" {
+		t, err := supplyTreeFor(ctx, db, start)
+		if err != nil {
+			return nil, err
+		}
+		if t != nil && t.contains(start) {
+			var rest []nodeDepth
+			if direction == "DOWNSTREAM" {
+				rest = t.below(start)
+			} else {
+				rest = t.above(start)
+			}
+			return append([]nodeDepth{{n: start, depth: 0}}, rest...), nil
+		}
+	}
+	reached, _, err := reachableJunctionAware(ctx, db, start, direction)
+	return reached, err
+}
+
 // featuresOfClass walks in one direction from start and returns every reached
 // feature whose class is in classIDs, ordered nearest-first (by hop distance,
 // then by id for a stable tiebreak). The start node is never included.
 func featuresOfClass(ctx context.Context, db bun.IDB, start FeatureRef, direction string, classCodes []string) ([]FeatureRef, error) {
+	return featuresOfClassWhere(ctx, db, start, direction, classCodes, nil)
+}
+
+// ClassAttrFilter makes a class count as a hit only when a boolean attribute is
+// true -- e.g. an MV_SWITCH counts as protective only when is_fused is set.
+type ClassAttrFilter struct {
+	Class string // feature class code
+	Field string // boolean attribute that must be true
+}
+
+// featuresOfClassWhere is featuresOfClass plus attribute-qualified classes: the
+// classes named in extra are hits only for features whose Field is true.
+func featuresOfClassWhere(ctx context.Context, db bun.IDB, start FeatureRef, direction string, classCodes []string, extra []ClassAttrFilter) ([]FeatureRef, error) {
 	s, err := resolveNode(ctx, db, featureRef{FeatureClass: start.FeatureClass, FeatureID: start.FeatureID})
 	if err != nil {
 		return nil, err
@@ -333,11 +374,33 @@ func featuresOfClass(ctx context.Context, db bun.IDB, start FeatureRef, directio
 	if err != nil {
 		return nil, err
 	}
+	extraIDs := map[string]string{} // class id -> required boolean field
+	if len(extra) > 0 {
+		codes := make([]string, len(extra))
+		for i, e := range extra {
+			codes[i] = e.Class
+		}
+		ids, err := classIDsForCodes(ctx, db, codes)
+		if err != nil {
+			return nil, err
+		}
+		byCode := map[string]string{}
+		for _, e := range extra {
+			byCode[e.Class] = e.Field
+		}
+		fcs, err := classCodesForIDs(ctx, db, ids)
+		if err != nil {
+			return nil, err
+		}
+		for id, code := range fcs {
+			extraIDs[id] = byCode[code]
+		}
+	}
 
 	// OMS class walks (UpstreamFeaturesOfClass/DownstreamFeaturesOfClass) return a
 	// bare []FeatureRef with no result struct, so there is nowhere to surface a
 	// truncation flag -- discard it (they truncate at maxTraceHops as before).
-	reached, _, err := reachableJunctionAware(ctx, db, s, direction)
+	reached, err := reachForOMS(ctx, db, s, direction)
 	if err != nil {
 		return nil, err
 	}
@@ -349,6 +412,14 @@ func featuresOfClass(ctx context.Context, db bun.IDB, start FeatureRef, directio
 		}
 		if classIDs[nd.n.classID] {
 			hits = append(hits, nd)
+		} else if field, ok := extraIDs[nd.n.classID]; ok {
+			on, err := boolAttr(ctx, db, nd.n, field)
+			if err != nil {
+				return nil, err
+			}
+			if on {
+				hits = append(hits, nd)
+			}
 		}
 	}
 	sort.Slice(hits, func(i, j int) bool {
@@ -384,4 +455,58 @@ func UpstreamFeaturesOfClass(ctx context.Context, db bun.IDB, start FeatureRef, 
 // protective device de-energizes.
 func DownstreamFeaturesOfClass(ctx context.Context, db bun.IDB, start FeatureRef, classCodes []string) ([]FeatureRef, error) {
 	return featuresOfClass(ctx, db, start, "DOWNSTREAM", classCodes)
+}
+
+// UpstreamFeaturesWhere is UpstreamFeaturesOfClass with attribute-qualified
+// classes: besides every feature of classCodes, a feature of one of the extra
+// classes counts when its boolean Field is true. The OMS prediction engine uses
+// it to treat an is_fused MV_SWITCH as a protective device.
+func UpstreamFeaturesWhere(ctx context.Context, db bun.IDB, start FeatureRef, classCodes []string, extra []ClassAttrFilter) ([]FeatureRef, error) {
+	return featuresOfClassWhere(ctx, db, start, "UPSTREAM", classCodes, extra)
+}
+
+// classCodesForIDs resolves feature_class ids (as returned by classIDsForCodes)
+// back to their codes.
+func classCodesForIDs(ctx context.Context, db bun.IDB, ids map[string]bool) (map[string]string, error) {
+	out := make(map[string]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	list := make([]string, 0, len(ids))
+	for id := range ids {
+		list = append(list, id)
+	}
+	var fcs []metadata.FeatureClass
+	if err := db.NewSelect().Model(&fcs).Where("id IN (?)", bun.In(list)).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("trace: resolving class codes: %w", err)
+	}
+	for _, fc := range fcs {
+		out[fc.ID] = fc.Code
+	}
+	return out, nil
+}
+
+// boolAttr reports whether the feature's boolean attribute is true; a class
+// without the field, a missing feature or an unset value is false.
+func boolAttr(ctx context.Context, db bun.IDB, n node, field string) (bool, error) {
+	loader := newFeatureClassLoader()
+	loaded, err := loader.loadedFor(ctx, db, n.classID)
+	if err != nil {
+		return false, err
+	}
+	row, err := crud.GetFeature(ctx, db, loaded, n.featureID)
+	if err != nil {
+		if crud.IsNotFoundError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	attrs, _ := row["attributes"].(map[string]any)
+	switch v := attrs[field].(type) {
+	case bool:
+		return v, nil
+	case string:
+		return v == "true", nil
+	}
+	return false, nil
 }

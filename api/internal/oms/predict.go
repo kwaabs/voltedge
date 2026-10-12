@@ -33,9 +33,18 @@ const (
 // the outage. Kept a package var (not a const set) so it can be overridden in a
 // deployment whose network models protection differently -- the same "domain
 // signal hardcoded in one obvious place" precedent as trace/isolate.go's
-// criticalFacilityClass. MV_SWITCH is deliberately excluded: a plain switch is a
-// sectionaliser, not a protective device, so it does not clear a fault.
+// criticalFacilityClass. A plain MV_SWITCH is deliberately excluded: it is a
+// sectionaliser, not a protective device, so it does not clear a fault (an
+// is_fused MV_SWITCH is the exception, see FusedSwitchFilters).
 var ProtectiveDeviceClasses = []string{"MV_FUSE", "MV_RECLOSER", "MV_BREAKER"}
+
+// FusedSwitchFilters qualifies MV_SWITCH as a protective device when -- and only
+// when -- its is_fused flag is set: a fused switch (a fused RMU tee way, a
+// fuse-link disconnector like FSW-12) clears the fault the way an MV_FUSE does,
+// whereas a plain switch is only a sectionaliser. Prediction treats the nearest
+// device of ProtectiveDeviceClasses OR a fused MV_SWITCH on the call's supply
+// path as the one that operated.
+var FusedSwitchFilters = []trace.ClassAttrFilter{{Class: "MV_SWITCH", Field: "is_fused"}}
 
 // CallLocation is one open trouble call that has a resolved service point --
 // the only calls that feed the rollup (SP-optional intake means address-only
@@ -79,49 +88,22 @@ type PredictedIncident struct {
 // Incidents are returned in first-call order (deterministic); the no-device
 // cluster, if any, sorts by where its first call fell in the batch.
 func PredictIncidents(ctx context.Context, db bun.IDB, calls []CallLocation) ([]PredictedIncident, error) {
-	const noDevice = "" // group key for calls with no upstream protective device
+	// One supply tree per feeder for the whole batch, not one per call.
+	ctx = trace.WithSupplyCache(ctx)
 
-	type cluster struct {
-		device  *trace.FeatureRef
-		callIDs []string
-		spSet   map[string]bool
-		spOrder []string
-	}
-
-	order := make([]string, 0, len(calls)) // group keys, first-seen order
-	groups := make(map[string]*cluster, len(calls))
-
+	items := make([]callPath, 0, len(calls))
 	for _, call := range calls {
 		spRef := trace.FeatureRef{FeatureClass: ServicePointClass, FeatureID: call.ServicePointID}
-		path, err := trace.UpstreamFeaturesOfClass(ctx, db, spRef, ProtectiveDeviceClasses)
+		path, err := trace.UpstreamFeaturesWhere(ctx, db, spRef, ProtectiveDeviceClasses, FusedSwitchFilters)
 		if err != nil {
 			return nil, mapTraceError("service point "+call.ServicePointID, err)
 		}
-
-		var device *trace.FeatureRef
-		key := noDevice
-		if len(path) > 0 {
-			d := path[0] // nearest protective device
-			device = &d
-			key = d.FeatureClass + "|" + d.FeatureID
-		}
-
-		g, ok := groups[key]
-		if !ok {
-			g = &cluster{device: device, spSet: map[string]bool{}}
-			groups[key] = g
-			order = append(order, key)
-		}
-		g.callIDs = append(g.callIDs, call.CallID)
-		if !g.spSet[call.ServicePointID] {
-			g.spSet[call.ServicePointID] = true
-			g.spOrder = append(g.spOrder, call.ServicePointID)
-		}
+		items = append(items, callPath{call: call, path: path})
 	}
+	groups := clusterCalls(items)
 
-	out := make([]PredictedIncident, 0, len(order))
-	for _, key := range order {
-		g := groups[key]
+	out := make([]PredictedIncident, 0, len(groups))
+	for _, g := range groups {
 		inc := PredictedIncident{
 			Device:          g.device,
 			CallIDs:         g.callIDs,
@@ -256,4 +238,142 @@ func mapTraceError(what string, err error) error {
 		return invalidf("%s: %v", what, err)
 	}
 	return err
+}
+
+// callPath is one open call with its service point's protective path: every
+// protective device on the way to the source, nearest first (path[0] is the
+// device that would operate for a fault at or below the service point).
+type callPath struct {
+	call CallLocation
+	path []trace.FeatureRef
+}
+
+// cluster is a group of calls blamed on one device (device == nil: no protective
+// device upstream, the "no-device" cluster).
+type cluster struct {
+	device  *trace.FeatureRef
+	callIDs []string
+	spSet   map[string]bool
+	spOrder []string
+}
+
+func (c *cluster) add(call CallLocation) {
+	c.callIDs = append(c.callIDs, call.CallID)
+	if !c.spSet[call.ServicePointID] {
+		c.spSet[call.ServicePointID] = true
+		c.spOrder = append(c.spOrder, call.ServicePointID)
+	}
+}
+
+func deviceKey(d *trace.FeatureRef) string {
+	if d == nil {
+		return "" // the no-device cluster
+	}
+	return d.FeatureClass + "|" + d.FeatureID
+}
+
+// fusedClass is the class of a fused switch in a protective path (the path only
+// holds MV_SWITCH hits whose is_fused flag is set; see FusedSwitchFilters).
+const fusedClass = "MV_SWITCH"
+
+// clusterCalls groups calls by the nearest protective device on their path (first
+// seen first), then ESCALATES fuses: a fused switch is the lowest-level
+// protective device, so when calls arrive from SEVERAL fused devices -- or from a
+// fused device and from the non-fused device directly above it -- that shared
+// upstream device (the first non-fused protective device above them) is the one
+// that operated, and the groups are merged into it. A single fused device with
+// calls and nothing else above it keeps the blame (one blown fuse). Calls with no
+// protective device stay in the no-device cluster. Pure of the database.
+func clusterCalls(items []callPath) []*cluster {
+	var order []string
+	byKey := map[string]*cluster{}
+	firstPath := map[string][]trace.FeatureRef{} // group key -> first member's path
+	for _, it := range items {
+		var device *trace.FeatureRef
+		if len(it.path) > 0 {
+			d := it.path[0]
+			device = &d
+		}
+		k := deviceKey(device)
+		g, ok := byKey[k]
+		if !ok {
+			g = &cluster{device: device, spSet: map[string]bool{}}
+			byKey[k] = g
+			order = append(order, k)
+			firstPath[k] = it.path
+		}
+		g.add(it.call)
+	}
+
+	// the non-fused ancestor of a fused group's device: the first path hit after
+	// it that is not itself a fused switch
+	ancestorOf := func(k string) *trace.FeatureRef {
+		p := firstPath[k]
+		for i := 1; i < len(p); i++ {
+			if p[i].FeatureClass != fusedClass {
+				a := p[i]
+				return &a
+			}
+		}
+		return nil
+	}
+	fusedUnder := map[string][]string{} // ancestor key -> fused group keys
+	var ancOrder []string
+	for _, k := range order {
+		g := byKey[k]
+		if g.device == nil || g.device.FeatureClass != fusedClass {
+			continue
+		}
+		if a := ancestorOf(k); a != nil {
+			ak := deviceKey(a)
+			if _, seen := fusedUnder[ak]; !seen {
+				ancOrder = append(ancOrder, ak)
+			}
+			fusedUnder[ak] = append(fusedUnder[ak], k)
+		}
+	}
+	merged := map[string]bool{}
+	for _, ak := range ancOrder {
+		ks := fusedUnder[ak]
+		_, direct := byKey[ak]
+		if len(ks) < 2 && !direct {
+			continue // one blown fuse: keep it
+		}
+		target, ok := byKey[ak]
+		if !ok {
+			a := ancestorOf(ks[0])
+			target = &cluster{device: a, spSet: map[string]bool{}}
+			byKey[ak] = target
+			// the merged incident takes the position of its first member
+			for i, k := range order {
+				if k == ks[0] {
+					order[i] = ak
+					break
+				}
+			}
+		}
+		for _, k := range ks {
+			g := byKey[k]
+			target.callIDs = append(target.callIDs, g.callIDs...)
+			for _, sp := range g.spOrder {
+				if !target.spSet[sp] {
+					target.spSet[sp] = true
+					target.spOrder = append(target.spOrder, sp)
+				}
+			}
+			if k != ak {
+				merged[k] = true
+			}
+		}
+	}
+	out := make([]*cluster, 0, len(order))
+	seen := map[string]bool{}
+	for _, k := range order {
+		if merged[k] || seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, byKey[k])
+	}
+	return out
 }
