@@ -56,6 +56,21 @@ tasks:
     cmds:
       - task: infra-down
 
+  wait-postgres:
+    desc: Block until postgres accepts connections (~up to 2 min), probing via the gitbash sidecar's psql -- used by `task bootstrap` so migrate/seed never race a cold database
+    cmds:
+      - >-
+        docker compose exec -T gitbash bash -c
+        'for i in $(seq 1 60); do psql "{{.CONTAINER_DATABASE_URL}}" -c "select 1" >/dev/null 2>&1 && { echo "postgres ready"; exit 0; }; echo "waiting for postgres ($i/60)"; sleep 2; done; echo "postgres did not become ready in time" >&2; exit 1'
+
+  bootstrap:
+    desc: "Zero to a working dev DB in ONE command: start infra, wait for postgres, apply migrations, then load every metadata/config seed, compile every class, and load the instance/network seeds (migrate + seed-all). Idempotent -- safe to re-run. The single bootstrap path a new dev AND CI use, so they never drift. For a truly clean rebuild, run `task infra-clean` first."
+    cmds:
+      - task: infra-up
+      - task: wait-postgres
+      - task: migrate
+      - task: seed-all
+
   # ------------------------------------------------------------------ api --
 
   api-dev:

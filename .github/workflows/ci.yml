@@ -51,8 +51,31 @@ jobs:
             exit 1
           fi
 
-      - name: Test
-        run: go test ./...
+      - name: Test (with coverage)
+        run: go test ./... -coverprofile=coverage.out -covermode=atomic
+
+      # Advisory baseline only -- prints the total to the job summary and keeps
+      # the full profile as an artifact. Not yet gated (P0-3): today's tests are
+      # concentrated in the powerflow kernels, so a floor would protect little
+      # until trace/auth/oms/faults/wam/crud-scope get their first tests. Measure
+      # first, ratchet later.
+      - name: Coverage summary
+        run: |
+          go tool cover -func=coverage.out > coverage.txt
+          total="$(tail -n 1 coverage.txt | awk '{print $3}')"
+          {
+            echo "### Go test coverage: ${total}"
+            echo ""
+            echo "Advisory baseline — not gated yet. Per-function detail is in the \`go-coverage\` artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: |
+            api/coverage.out
+            api/coverage.txt
 
   web:
     name: Web (typecheck / build)
@@ -79,4 +102,83 @@ jobs:
       # baseline. Promote to required (drop continue-on-error) once clean.
       - name: Lint (oxlint)
         run: npm run lint
+        continue-on-error: true
+
+  # The gap the other two jobs can't catch: the feature-class metadata lives in
+  # seed/*.sql (NOT migrations/), so migrations/apply.sh never touches it and a
+  # broken seed -- a bad field, a class that no longer compiles -- compiles fine
+  # in Go yet breaks the DATABASE bootstrap. This job runs the SAME `task
+  # bootstrap` path a developer uses (migrate -> seed-all -> compile-all), against
+  # a throwaway Postgres, so a seed that can't build its gis.<code> table fails CI
+  # instead of being discovered at deploy time. compile-all fails loudly, naming
+  # any class it can't compile.
+  bootstrap:
+    name: DB bootstrap (migrate / seed / compile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Host Go: `task compile`/`compile-all` run `go run ./cmd/compile` on the
+      # runner against the published Postgres port, not inside a container.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Task (dotenv) and docker compose both read .env; the example carries the
+      # dev defaults (ports 3700+, password) they already agree on.
+      - name: Seed .env from the example
+        run: cp .env.example .env
+
+      # Only the two services bootstrap needs: the database and the psql sidecar
+      # (which mounts the repo at /workspace to run apply.sh + seed/*.sql). Skips
+      # martin/rustfs/api -- irrelevant to the seed+compile gate.
+      - name: Start postgres + gitbash
+        run: docker compose up -d postgres gitbash
+
+      - name: Wait for postgres
+        run: task wait-postgres
+
+      - name: Apply migrations
+        run: task migrate
+
+      - name: Seed every class + compile (fails loudly on any class that can't compile)
+        run: task seed-all
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  # The field app is Dart/Flutter -- the third language, with no CI until now.
+  # Advisory to start (continue-on-error): it surfaces analyzer findings and runs
+  # whatever tests exist without blocking the first green baseline. Promote to
+  # required once the analyze/test baseline is clean (same path the web lint took).
+  mobile:
+    name: Mobile (Flutter analyze / test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+        continue-on-error: true
+
+      - name: Test
+        run: flutter test
         continue-on-error: true
