@@ -189,6 +189,32 @@ A persistent fault on the Feeder 7 main; **REC-7** does its reclose sequence and
 
 ---
 
+## 11. At scale, and troubleshooting
+
+### A storm — many incidents at once
+
+There is **no special "storm mode"** — the loop just runs *N* times in parallel:
+
+- **One Predict run makes many incidents.** Prediction clusters the open calls **per protective device**, so a storm's worth of calls becomes a *set* of incidents in a single run — each with its own blamed device, affected set, switching order and reliability contribution. You drive each the same way.
+- **The uncategorised pile.** Calls with no upstream device all land in **one no-device incident** (§3). In a storm that can be large and can't be attributed from the console — triage it by fixing connectivity and re-predicting, or working those calls off the map directly.
+- ⚠️ **Storm days are *not* excluded from reliability.** VoltEdge implements **no IEEE 1366 major-event-day exclusion** — every confirmed unplanned interruption counts in full. If your regulator wants MED-normalised figures, apply that downstream of the raw indices (see **Reliability & Indices §8**).
+- **Keep the board usable** with `?status=` / `?open=true`, and work highest-`confidence`, most-customers incidents first.
+
+### Troubleshooting
+
+| Symptom | Why | Fix |
+|---|---|---|
+| **Predict made a `no-device` incident** | the strictly-directed upstream walk found no `MV_FUSE`/`MV_RECLOSER`/`MV_BREAKER` — a one-way RMU bus, or only an `is_fused` `MV_SWITCH` upstream (§3) | fix connectivity so the walk reaches a protective device, **cancel** the no-device incident (its calls return to `open`), and **Predict** again |
+| **Can't set/change an incident's device** | no endpoint or console action mutates `predicted_device_*` after creation (§3) | cancel + re-predict, or **Plan outage** around the right device |
+| **Affected count < the red map cone** | affected is the directed, barrier-free walk (misses RMU-bus supplies); the cone walks through junctions (§4–5) | expected — read "affected" for reliability, the cone for the live picture |
+| **Generate switching order refused** | the incident is `restored`/`cancelled`, has no device, or already has a live order (§6) | restore the state, attribute a device, or cancel the existing order |
+| **Un-ticking an `open` step closed the device** | un-tick writes the *opposite* position, not the prior one (§6) | re-tick the step, or set `device_state` directly |
+| **Planned outage missing from SAIDI/SAIFI** | the indices are **unplanned-only** (§7–8) | by design — planned interruptions are recorded, never summed |
+| **A call stays `open` after I associated it** | associate only fills `service_point_id`; **Predict** sets `associated` (§3) | run Predict |
+| **`"… does not exist"` is a `400`, not `404`** | every client-fixable error is a 400 `{"error":…}` | check the id |
+
+---
+
 ## Appendix — reference
 
 ### Tables & key enums
@@ -236,7 +262,9 @@ A persistent fault on the Feeder 7 main; **REC-7** does its reclose sequence and
 
 ### Related guides
 
+- **Outage Operations** — the whole call → fault → incident → switch → restore → repair → reliability loop in one place, with this module's legs in context.
 - **Faults** — a fault *explains* an incident (raise a fault from the incident) and *books* the repair; the source of the `by_fault_cause` reliability breakdown.
+- **Reliability & Indices** — the exact SAIDI/SAIFI/CAIDI/ENS maths behind §8, the customer base, and the honest limits.
 - **Switching & Protection** — the `device_state` a switching step flips, the protective devices prediction blames, the isolation-boundary classes (`SwitchingDeviceClasses`), and the de-energised cone.
 - **Works, Inspections & Maintenance** — the defect/work-order the fault books.
 - **Engineering Studies** — the load/energisation model the affected-customer and cone rollups are built on.

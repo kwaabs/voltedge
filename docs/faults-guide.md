@@ -200,6 +200,31 @@ Every step is on `GET /faults/{id}/history` with who and when — a complete, au
 
 ---
 
+## 10. At scale, and troubleshooting
+
+### Many faults at once — storm operations
+
+There is **no "storm mode"** — faults scale by staying simple and independent:
+
+- **Clustering is OMS's job, not Faults'.** You log each fault event; rolling scattered customer calls into *incidents* happens in OMS (see **OMS §3**). One **incident can carry several faults** (multiple assets failing in one outage) — filter the board by `?incident_id=` to see them all, or by `?asset_class=&asset_id=` for one asset's history.
+- **For reliability, record the cause on the *first* fault of an incident.** The `by_fault_cause` breakdown (see **Reliability & Indices**) picks the **earliest-detected** fault per incident as representative, so the primary cause should sit on the fault you raise first.
+- **Many crews, offline, at once** replay safely — each `fault_create` sync op is idempotent on its device-minted `id` (§5). The REST `POST /faults` is **not** idempotent, so a retried POST makes a second fault; prefer the sync op for field capture under load.
+
+### Troubleshooting
+
+| Symptom | Why | Fix |
+|---|---|---|
+| **Book defect → `400` "no asset or location"** | the fault was raised from an incident only (§6 ③) — no asset or pin | log a fresh fault anchored to the **asset** (a `PATCH` can't add an asset or pin afterwards), then book from that |
+| **Book defect → `500`** | a bad `severity` reaches WAM, whose error type `writeError` doesn't map to 400 | send a valid `severity` on `POST /faults/{id}/defect` |
+| **Book defect refused "already has a defect"** | `defect_id` is already set | the repair is already booked — open it in WAM |
+| **Fault not on the map** | the overlay is **off by default**; or the fault is incident-only; or its asset is uncompiled / geometry-less with no pin | tick the layer in the legend; give the fault a **location pin** or anchor it to an asset that has geometry |
+| **Can't edit findings from the board** | no web screen calls `PATCH /faults/{id}` (§5) | use the API, the `faults_update` agent tool, or an inbound webhook |
+| **Duplicate fault after a retry** | `POST /faults` has no `id` and isn't idempotent (§5) | use the offline `fault_create` sync op (device-minted `id`) for replay-safe capture |
+| **`"fault … does not exist"` is a `400`, not `404`** | every client-fixable error is a 400 with `{"error":…}` | check the id |
+| **A cleared fault vanished from the board** | the board defaults to **Open only** | untick *Open only* to see `cleared` / `closed` |
+
+---
+
 ## Appendix — reference
 
 ### Status & type enums
@@ -240,9 +265,11 @@ Every step is on `GET /faults/{id}/history` with who and when — a complete, au
 
 ### Related guides
 
+- **Outage Operations** — the whole call → fault → incident → switch → restore → repair → reliability loop in one place; where this guide's fault sits in the bigger picture.
 - **OMS — Outage Management** — the incident side: predicting the outage, the device-state console, switching orders and restoration. A fault *explains* an incident.
 - **Works, Inspections & Maintenance** — the defect/work-order side. A fault *books* a defect.
 - **Switching & Protection** — the protective devices that clear a fault and the de-energised cone one leaves.
+- **Reliability & Indices** — how a fault's `cause` feeds the `by_fault_cause` breakdown of SAIDI/SAIFI.
 - **Engineering Studies** — the *fault-current* calculation (`/analysis/fault-current`), the model a recorded `fault_current_a` can be checked against.
 
 ---

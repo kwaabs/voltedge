@@ -354,6 +354,20 @@ var manifest = []Doc{
 		Filename:    "oms-guide.md",
 	},
 	{
+		ID:          "outage-operations-guide",
+		Title:       "Outage Operations — end to end",
+		Description: "The connective overview: one Feeder 7 outage run all the way through trouble call → fault → incident → switching → restore → defect → work order → reliability, showing how the Faults, OMS and WAM modules link, who owns each leg, the variations (minor fault, planned, storm, inspection-found), and what's automated vs. driven by hand.",
+		Category:    "Manuals",
+		Filename:    "outage-operations-guide.md",
+	},
+	{
+		ID:          "reliability-indices-guide",
+		Title:       "Reliability & Indices",
+		Description: "The deep-dive behind SAIDI/SAIFI/CAIDI/ENS: the exact formulas as coded, the per-system-customer denominator derived from live service points, how interruptions are clipped to the window, the unplanned-only filter, the by-fault-cause breakdown, and the honest limits — no IEEE 1366 major-event exclusion, no MAIFI, ENS a flat-kW estimate.",
+		Category:    "Manuals",
+		Filename:    "reliability-indices-guide.md",
+	},
+	{
 		ID:          "asset-tags-guide",
 		Title:       "Asset Tags Guide",
 		Description: "How to use asset tags and how they work: minting, affixing, scanning to resolve, printing and querying by tag.",

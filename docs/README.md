@@ -49,6 +49,8 @@ Find your task on the left; open the document on the right.
 | Model switchgear and protection — switches, breakers, reclosers, fuses, RMUs, relays and coordination | **[Switching & Protection](switching-and-protection-guide.md)** |
 | Log and manage electrical fault events — lifecycle, impact, and links to outages and repairs | **[Faults](faults-guide.md)** |
 | Manage outages — trouble calls, prediction, affected customers, switching orders, restoration, reliability | **[OMS — Outage Management](oms-guide.md)** |
+| See the whole outage loop end to end — how Faults, OMS and WAM fit together | **[Outage Operations](outage-operations-guide.md)** |
+| Understand SAIDI/SAIFI/CAIDI/ENS exactly — formulas, customer base, and honest limits | **[Reliability & Indices](reliability-indices-guide.md)** |
 | Draw an SVG icon, attach it to a class, and style features by their field values | **[Symbology & Map Styling Guide](symbology-guide.md)** |
 | Price a slice of the network as a Bill of Quantities, or maintain the cost catalog | **[Bill of Quantities & Cost Catalog](bill-of-quantities-guide.md)** |
 | Configure logging, correlate a request by its id, or ship logs off the box | **[Logging & Observability Guide](logging-and-observability-guide.md)** |
