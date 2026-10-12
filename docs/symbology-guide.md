@@ -230,8 +230,7 @@ That score-0 "neither" rule is special: it matches *every* feature of the class,
 so it is the guaranteed fallback when nothing more specific applies. **Every class
 must have exactly one of these** — the mandatory **default rule**. It is what
 guarantees a feature is never left unstyled. (Chapter 3 covers authoring it; the
-compiler enforces the "exactly one default" invariant when the class is
-published.)
+nothing in the code enforces the "exactly one default" invariant after creation; see Chapter 3.)
 
 > 💡 Think of it as a cascade of increasingly specific overrides on a base coat.
 > The default is the base coat everything gets; each narrower rule repaints just
@@ -583,12 +582,15 @@ so it matches **every** feature of the class. That is the **default rule** — t
 base coat from Chapter 1, and every class must have **exactly one**.
 
 - It is what guarantees a feature is never unstyled.
-- The **compiler enforces the "exactly one default" invariant at publish time**,
-  not the rule editor. So you can freely add, edit, and delete rules; but if you
-  leave a class with **no** default, its **next compile fails loudly** with a clear
-  message. (Two defaults is likewise rejected.)
+- **Nothing enforces the "exactly one default" invariant after a class is created.**
+  The rule editor does not, and neither does the compiler (`cmd/compile` and
+  `internal/compiler` contain no symbology check; the migration and code comments
+  that say otherwise are out of date). So you can freely add, edit, and delete rules;
+  if you leave a class with **no** default, nothing fails — features with no more-specific
+  match simply fall back to the map's plain geometry-type styling. Two defaults are
+  likewise accepted (the matcher picks one).
 - Deleting rules has **no guard** — deletion can only ever remove specificity, and
-  the compiler re-checks the whole set. The safety is at publish, not at the click.
+  nothing re-checks the set afterwards, so keep your own default rule in place.
 
 > 💡 So the practical rule of thumb: **always keep one any/any rule per class.**
 > Build specificity *on top* of it (Chapter 4), never by removing it.
@@ -623,8 +625,8 @@ icon to `voltedge-rmu`. One default, edited, not duplicated.
 - The **Add rule** dialog is **targeting** (render context / subtype / field / value
   / zoom) over **style** (colour + geometry-specific knobs + icon).
 - A **default rule** (any/any) matches every feature; **keep exactly one per
-  class** — the compiler enforces it at publish, and a missing default fails the
-  next compile.
+  class** — nothing enforces it (not the editor, not the compiler), and a missing default means plain
+  geometry styling.
 - Attaching `voltedge-rmu` to `RMU` is one `map` default rule with that icon; a
   **hard refresh** makes it appear.
 
@@ -960,9 +962,8 @@ Walk these in order; the top three catch almost everything:
 6. **Does the targeting actually match?** If the rule pins a field value, the
    feature's stored value must equal the rule's **value code** exactly (Chapter 4).
    A default (any/any) rule is immune to this — add or check one.
-7. **Does the class have its mandatory default?** No default → the class fails its
-   next compile, and features with no more-specific match fall back to plain
-   styling.
+7. **Does the class have its mandatory default?** No default → nothing fails (the compiler does not check), but features with no
+   more-specific match fall back to plain geometry styling.
 
 ### 8.2 ▶ "It shows, but it's the wrong size"
 

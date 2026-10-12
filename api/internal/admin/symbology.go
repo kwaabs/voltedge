@@ -244,9 +244,10 @@ func ruleLookups(ctx context.Context, db bun.IDB, featureClassID string) (map[st
 // code-shaped targeting to the real ids symbology_rules stores. A rule's
 // targeting axes are how it wins (or loses) the most-specific match
 // (migrations/0012); this endpoint never enforces the "exactly one
-// mandatory default rule" invariant, deliberately -- the compiler does
-// that at publish time (docs/phase-3-symbology.md), the same reason
-// deleteSymbologyRule below has no guard.
+// mandatory default rule" invariant, deliberately -- and note that
+// nothing else enforces it either (the compiler has no symbology check; a
+// class without a default just falls back to plain geometry styling in the
+// web matcher), the same reason deleteSymbologyRule below has no guard.
 func createSymbologyRule(ctx context.Context, db *bun.DB, code string, req symbologyRuleRequest) (*symbologyRuleResponse, error) {
 	if err := validateSymbologyRule(req); err != nil {
 		return nil, err
@@ -357,10 +358,9 @@ func updateSymbologyRule(ctx context.Context, db *bun.DB, id string, req symbolo
 // deliberately, matching deleteDomainValue's philosophy. Deleting a rule
 // can only ever remove specificity; the one invariant that matters (a
 // class keeps exactly one mandatory feature-class-only default rule) is
-// enforced by the compiler at publish time, which re-validates the whole
-// rule set loudly, not by blocking a delete here. A class left with no
-// default simply fails its next compile with a clear message, the same way
-// a narrowed domain fails its next recompile.
+// not enforced here or by the compiler (it has no symbology check). A class
+// left with no default falls back to plain geometry styling in the web
+// matcher.
 func deleteSymbologyRule(ctx context.Context, db *bun.DB, id string) error {
 	return db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		res, err := tx.NewDelete().Model((*metadata.SymbologyRule)(nil)).Where("id = ?", id).Exec(ctx)

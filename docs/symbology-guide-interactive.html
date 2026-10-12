@@ -495,8 +495,8 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
   <h3>3.3 ∑ The default rule — the one every class must have</h3>
   <p>A rule with <b>Subtype = any</b> and <b>Field = any</b> targets <em>nothing in particular</em>, so it matches <b>every</b> feature of the class. That is the <b>default rule</b>, and every class must have <b>exactly one</b> (per render context). It is what guarantees a feature is never unstyled.</p>
   <ul>
-    <li>The <b>compiler enforces “exactly one default” at publish time</b>, not the rule editor. You can freely add, edit and delete rules; but leave a class with <b>no</b> default and its <b>next compile fails loudly</b>. (Two defaults is likewise rejected.)</li>
-    <li>Deleting rules has <b>no guard</b> — deletion can only ever remove specificity, and the compiler re-checks the whole set. The safety is at publish, not at the click.</li>
+    <li><b>Nothing enforces “exactly one default” after a class is created</b> — not the rule editor, and not the compiler (<code>cmd/compile</code> and <code>internal/compiler</code> contain no symbology check; older comments saying otherwise are out of date). You can freely add, edit and delete rules; leave a class with <b>no</b> default and nothing fails — unmatched features just fall back to the map’s plain geometry styling. Two defaults are accepted too.</li>
+    <li>Deleting rules has <b>no guard</b> — deletion can only ever remove specificity, and nothing re-checks the set afterwards, so keep your own default rule in place.</li>
   </ul>
   <div class="tip">Rule of thumb: <b>always keep one any/any rule per class</b>. Build specificity <em>on top</em> of it (Chapter 4), never by removing it.</div>
 
@@ -520,7 +520,7 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
   <ul>
     <li>Rules are authored per class at <b>Admin → Feature classes → {class} → Symbology</b> (🔒 <code>metadata:write</code>), each shown with a live swatch.</li>
     <li>The <b>Add rule</b> dialog is <b>targeting</b> (render context / subtype / field / value / zoom) over <b>style</b> (colour + geometry-specific knobs + icon).</li>
-    <li>A <b>default rule</b> (any/any) matches every feature; <b>keep exactly one per class</b> — the compiler enforces it at publish, and a missing default fails the next compile.</li>
+    <li>A <b>default rule</b> (any/any) matches every feature; <b>keep exactly one per class</b> — nothing enforces it (not the editor, not the compiler), and a missing default means plain geometry styling.</li>
     <li>Attaching <code>voltedge-rmu</code> to <code>RMU</code> is one <code>map</code> default rule with that icon; a <b>hard refresh</b> makes it appear.</li>
   </ul>
 </section>
@@ -717,7 +717,7 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
     <li><b>Did you <em>hard</em>-refresh?</b> The map caches each class’s schema for a few minutes; a soft refresh may keep the old one. <b>Restarting Martin and recompiling do <em>not</em> help</b> — symbology is resolved client-side from the live schema (Chapter 1).</li>
     <li><b>Is the class hidden by Display zoom</b> at your current zoom (Chapter 6)?</li>
     <li><b>Does the targeting actually match?</b> If the rule pins a field value, the feature’s stored value must equal the rule’s <b>value code</b> exactly (Chapter 4). A default (any/any) rule is immune — add or check one.</li>
-    <li><b>Does the class have its mandatory default?</b> No default → the class fails its next compile, and features with no more-specific match fall back to plain styling.</li>
+    <li><b>Does the class have its mandatory default?</b> No default → nothing fails (the compiler does not check), but features with no more-specific match fall back to plain geometry styling.</li>
   </ol>
 
   <div class="widget" id="w8">
