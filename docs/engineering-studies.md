@@ -686,17 +686,17 @@ Two honest scope notes: the superposition is **exact** when grid and generator f
 
 - **Source (11 kV):** a stiff grid, source impedance ≈ `0.05 + j0.48 Ω` on the 11 kV base.
 - **Across the transformer:** the secondary base is `Z_base = 415² / 315 000 = 0.547 Ω`, so the transformer's `4.5 %` impedance is `0.045 × 0.547 = 0.0246 Ω` referred to 415 V. The 11 kV source impedance, referred onto the 415 V base by `ratio² = (415/11 000)² = 0.00142`, becomes `≈ 0.0007 Ω` — **negligible**.
-- **At the LV board:** `|Z| ≈ 0.0246 + 0.0007 = 0.0253 Ω`, so `I = 415 / 0.0253 ≈ 16.4 kA`.
+- **At the LV board:** `|Z| ≈ 0.0246 + 0.0007 = 0.0253 Ω` per phase, so the three-phase bolted current is `I = V_LL / (√3 · Z) = 415 / (1.732 × 0.0253) ≈ 9.47 kA`. (The engine divides the line-to-line voltage by `√3 · |Z|`, `resolve.go:590`; an earlier revision of this guide divided by `|Z|` alone and printed 16.4 kA. That is what you get only if the 415 V were a line-to-*neutral* voltage: set `voltage_basis: "line_to_neutral"` on the request and the engine does exactly that, `fault.go:25-41`. The default is line-to-line.)
 
-The transformer's own 4.5 % impedance supplies **~97 %** of the limiting impedance — the textbook result that an LV fault level is set by the transformer, not the grid behind it. Dana specifies a board with breaking capacity comfortably above 16.4 kA.
+The transformer's own 4.5 % impedance supplies **~97 %** of the limiting impedance — the textbook result that an LV fault level is set by the transformer, not the grid behind it. Dana specifies a board with breaking capacity comfortably above 9.5 kA.
 
-**▶ Now add a generator.** Suppose a 500 kVA diesel set (`X″d = 15 %`) is connected to that same LV board for standby. Its internal fault impedance is `0.15 × 415² / 500 000 = 0.0517 Ω`; feeding a fault on its own bus, it contributes `415 / 0.0517 ≈ 8.0 kA`. The study now reports:
+**▶ Now add a generator.** Suppose a 500 kVA diesel set (`X″d = 15 %`) is connected to that same LV board for standby. Its internal fault impedance is `0.15 × 415² / 500 000 = 0.0517 Ω`; feeding a fault on its own bus, it contributes `415 / (√3 × 0.0517) ≈ 4.6 kA`. The study now reports:
 
-- `grid_contribution_amps ≈ 16.4 kA`,
-- `generator_contribution_amps ≈ 8.0 kA`,
-- `fault_current_amps ≈ 24.4 kA` (the total).
+- `grid_contribution_amps ≈ 9.5 kA`,
+- `generator_contribution_amps ≈ 4.6 kA`,
+- `fault_current_amps ≈ 14.1 kA` (the total).
 
-That 24 kA — not 16 — is the duty the board must interrupt. This is exactly the check that catches a standby generator quietly pushing existing switchgear past its rating.
+That 14 kA — not 9.5 — is the duty the board must interrupt. This is exactly the check that catches a standby generator quietly pushing existing switchgear past its rating.
 
 **▶ The earth-fault view.** Tom re-runs as **SLG**. TX-Feeder7-014 is a **Dyn** transformer, so its LV neutral grounds the board and blocks the 11 kV network: `Z0` restarts at the transformer's own zero-sequence impedance. With `Z0 ≈ Z1` (unsurveyed, so `zero_seq_estimated = true`) and `Z2 = Z1`, the denominator is `≈ 3·Z1` and the SLG current lands near the three-phase figure — but `grounded = true` confirms the board *has* an earth path, which an ungrounded delta section downstream would not. Tom notes the `estimated` flag as a prompt to get the transformer's real `z0_pct` before finalising earth-fault settings.
 
@@ -1044,25 +1044,25 @@ where C_f = 1.5 at ≤ 1 kV else 1.0, t is clearing time, D the working distance
 
 ### 7.6 Worked example — the arc-flash hazard on the TX-Feeder7-014 LV board ▶∑
 
-**▶** This is the same 415 V LV board from Chapter 4, where a three-phase bolted fault came to **16.4 kA**. Dana's crew needs to work on it live, so Tom runs an arc-flash study to size their PPE. The board is enclosed LV **switchgear** (default geometry: box, gap 32 mm, x = 1.473, working distance 610 mm, ungrounded). Critically, its **only upstream protection is the Feeder 7 head relay** (IEC standard-inverse, pickup 200 A, TD 0.2) on the 11 kV side — there's no fast LV main device.
+**▶** This is the same 415 V LV board from Chapter 4, where a three-phase bolted fault came to **9.47 kA**. Dana's crew needs to work on it live, so Tom runs an arc-flash study to size their PPE. The board is enclosed LV **switchgear** (default geometry: box, gap 32 mm, x = 1.473, working distance 610 mm, ungrounded). Critically, its **only upstream protection is the Feeder 7 head relay** (IEC standard-inverse, pickup 200 A, TD 0.2) on the 11 kV side — there's no fast LV main device.
 
 **∑** The study works through it:
 
-- **Arcing current** (eq 1, enclosed, 415 V, 16.4 kA bolted): I_a ≈ **8.47 kA** — about 52 % of bolted, as expected at LV.
-- **Clearing time.** Referred to the 11 kV relay: `through = 8 470 · 415 / 11 000 ≈ 319 A`, only **1.6×** the relay's 200 A pickup. Out on the shallow tail of the standard-inverse curve, the relay would take ~3 s — past the **2.0 s cap**, so `clearing_time_s = 2.0 s`, `clearing_device =` the feeder breaker's relay.
-- **Incident energy** (eqs 3–4): E_n = 10^(−0.555 + 1.081·lg 8.47 + 0.0011·32) ≈ 3.04; E = 1.5 · 3.04 · (2.0/0.2) · (610/610)^1.473 ≈ **45.6 cal/cm²**.
-- **Arc-flash boundary** (eq 5): ≈ **7.2 m**.
-- **Sensitivity:** the 0.85·I_a case (7.2 kA) also clears at the 2.0 s cap and yields ~38 cal/cm² — *less* than the full-current case, so the full arcing current governs (`reduced_current_governs = false`).
+- **Arcing current** (eq 1, enclosed, 415 V, 9.47 kA bolted): I_a ≈ **5.47 kA** — about 58 % of bolted, as expected at LV.
+- **Clearing time.** Referred to the 11 kV relay: `through = 5 470 · 415 / 11 000 ≈ 206 A`, only **1.03×** the relay's 200 A pickup. That is the very bottom of the standard-inverse curve, where the operate time runs to tens of seconds (the IEC formula gives ≈ 45 s at TD 0.2) — far past the **2.0 s cap**, so `clearing_time_s = 2.0 s`, `clearing_device =` the feeder breaker's relay.
+- **Incident energy** (eqs 3–4): E_n = 10^(−0.555 + 1.081·lg 5.47 + 0.0011·32) ≈ 1.90; E = 1.5 · 1.90 · (2.0/0.2) · (610/610)^1.473 ≈ **28.4 cal/cm²**.
+- **Arc-flash boundary** (eq 5): ≈ **5.2 m**.
+- **Sensitivity:** the 0.85·I_a case (4.65 kA) refers to only `≈ 175 A` at 11 kV — *below* the relay's 200 A pickup, so the relay never operates and the study falls back to the 2.0 s cap (`clearing_time_assumed = true` for that case). It yields ~24 cal/cm² — *less* than the full-current case, so the full arcing current governs (`reduced_current_governs = false`).
 
-**PPE category: −1 — "Dangerous — no live work."**
+**PPE category: 4** (28.4 cal/cm² is above 25 and at most 40) — the top of the working range, and only 12 cal/cm² short of the −1 "dangerous — no live work" line.
 
-**▶** Tom's read: this board is **lethal to work on live**, and the culprit isn't the current — it's the **2-second clearing time**. The LV arc looks like a mere 1.6× overload to the distant feeder relay, which crawls. The 7.2 m arc-flash boundary means even bystanders well back are at risk. His recommendation writes itself.
+**▶** Tom's read: this board is **extremely hazardous to work on live**, and the culprit isn't the current — it's the **2-second clearing time**. The LV arc looks like a mere 1.03× overload to the distant feeder relay, which barely notices it. The 5.2 m arc-flash boundary means even bystanders well back are at risk — and a slightly weaker arc (the 0.85 case) is *below the relay's pickup altogether*. His recommendation writes itself.
 
-**The fix, quantified.** Tom proposes an **LV main breaker** on the board that clears an 8.5 kA arc in **~0.05 s**. Because incident energy is *linear* in clearing time, re-running with `clearing_time_s = 0.05` instead of 2.0 scales the energy by 0.05/2.0:
+**The fix, quantified.** Tom proposes an **LV main breaker** on the board that clears a 5.5 kA arc in **~0.05 s**. Because incident energy is *linear* in clearing time, re-running with `clearing_time_s = 0.05` instead of 2.0 scales the energy by 0.05/2.0:
 
-$$E = 45.6 \times \dfrac{0.05}{2.0} \approx \textbf{1.14 cal/cm}^2 \;\Rightarrow\; \text{PPE Category 0 (minimal)}.$$
+$$E = 28.4 \times \dfrac{0.05}{2.0} \approx \textbf{0.71 cal/cm}^2 \;\Rightarrow\; \text{PPE Category 0 (minimal)}.$$
 
-Same fault, same board — **45.6 cal/cm² becomes 1.14 cal/cm²** purely by clearing 40× faster. The study turns "the board is dangerous" into a costed, defensible safety case: one fast local device moves the crew from *no live work permitted* to *minimal PPE*. This is the arc-flash study's whole point — **incident energy is a protection-speed problem far more than a fault-current problem.**
+Same fault, same board — **28.4 cal/cm² becomes 0.71 cal/cm²** purely by clearing 40× faster. The study turns "the board is dangerous" into a costed, defensible safety case: one fast local device moves the crew from *no live work permitted* to *minimal PPE*. This is the arc-flash study's whole point — **incident energy is a protection-speed problem far more than a fault-current problem.**
 
 ### 7.7 Tips & gotchas ▶
 

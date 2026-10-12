@@ -76,16 +76,18 @@ VALUES
     ('CABLE_CHAMBER', 'Cable chamber', 'polygon', 4326, 'none', 'draft', false, true)
 ON CONFLICT (code) DO NOTHING;
 
--- Chamber subtypes -- the housing typology. Trench/duct have no subtypes (their
+-- Chamber subtypes -- the housing typology (metadata.subtypes.code is an INTEGER
+-- key stored on the feature row: 1 manhole, 2 footway box, 3 joint bay, 4 jointing
+-- pit). Trench/duct have no subtypes (their
 -- variability is carried by the surface_type / duct_material coded fields).
 INSERT INTO metadata.subtypes (feature_class_id, code, name)
 SELECT fc.id, v.code, v.name
 FROM metadata.feature_classes fc
 JOIN (VALUES
-    ('manhole',      'Manhole'),
-    ('footway_box',  'Footway box'),
-    ('joint_bay',    'Joint bay'),
-    ('jointing_pit', 'Jointing pit')
+    (1, 'Manhole'),
+    (2, 'Footway box'),
+    (3, 'Joint bay'),
+    (4, 'Jointing pit')
 ) AS v(code, name) ON true
 WHERE fc.code = 'CABLE_CHAMBER'
 ON CONFLICT (feature_class_id, code) DO NOTHING;

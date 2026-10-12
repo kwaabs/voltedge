@@ -106,14 +106,16 @@ WHERE s.feature_class_id = (SELECT id FROM metadata.feature_classes WHERE code =
   AND f.name IN ('regulator_step_pct', 'regulator_tap_position', 'device_state', 'condition_rating')
 ON CONFLICT (subtype_id, field_id) DO NOTHING;
 
--- Series terminals: T1 source side, T2 load side, both phase_capable (current
+-- Series terminals: T1 source side, T2 load side (roles primary/secondary --
+-- terminals_role_check allows only primary/secondary/tertiary/ground/other, and
+-- the series switches use primary/secondary too), both phase_capable (current
 -- passes through) -- identical to MV_RECLOSER / MV_SWITCH.
 INSERT INTO metadata.terminals (feature_class_id, subtype_id, code, role, phase_capable)
 SELECT fc.id, NULL, v.code, v.role, v.phase_capable
 FROM metadata.feature_classes fc
 JOIN (VALUES
-    ('T1', 'source', true),
-    ('T2', 'load', true)
+    ('T1', 'primary', true),    -- source side
+    ('T2', 'secondary', true)   -- load side
 ) AS v(code, role, phase_capable) ON true
 WHERE fc.code = 'MV_VREG'
 ON CONFLICT (feature_class_id, subtype_id, code) DO NOTHING;

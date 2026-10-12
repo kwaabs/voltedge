@@ -60,7 +60,7 @@ Two permissions gate the whole module (`migrations/0107_seed_faults_permissions.
 One table, `faults.fault_events` (`migrations/0106_create_faults.sql`; Go mirror `faults/models.go`). The fields, grouped:
 
 **Identity & description**
-- `id` (uuid) — the fault's key. A device can **mint its own** for offline capture (§5).
+- `id` (uuid) — the fault's key. A device can **mint its own** for offline capture through the sync `fault_create` op (§5) — not through `POST /faults`, whose body has no `id` field.
 - `reference` — an optional human control-room fault number (your own scheme).
 - `title` *(required)* — a one-line summary.
 - `description`, `notes` — free text.
@@ -115,18 +115,18 @@ A fault moves through four statuses (`store.go` constants; DB CHECK on the colum
 ## 5. How to log a fault
 
 > **How to — log a fault from the board** 🔒 `faults:write`
-> 1. Sidebar → **Faults** (the ⚡-off icon) → the board lists every fault, newest first.
+> 1. Sidebar → **Faults** (the ⚡-off icon) → the board lists faults newest first (the **Open only** box is ticked by default, so cleared/closed faults are hidden until you untick it — `routes/faults.tsx`).
 > 2. Click **Log fault**.
-> 3. Give it a **title**, and anchor it: either pick the **faulted asset** (class + feature — the picker resolves names through the feature registry) **or** drop a **location** pin. (At least one of asset / location / incident is required.)
-> 4. Optionally record `fault_type`, `cause`, `detected_by`, the protective device that operated, `fault_current_a`, `clearing_time_ms`. **Save** → it starts at `detected` (`POST /faults`, returns the new row).
+> 3. Give it a **title**, and anchor it: either pick the **faulted asset** (class + feature — the picker resolves names through the feature registry) **or** enter a **location** (longitude + latitude). (The API accepts asset / location / incident as the anchor, but this dialog only enables **Log fault** for an asset or a location; an incident-anchored fault comes from the Outages page, below.)
+> 4. Optionally record `fault_type` (the dialog pre-selects `unknown` and always sends it), `cause`, `detected_by`, `fault_current_a`, `clearing_time_ms` and a description. **Save** → it starts at `detected` (`POST /faults`, returns the new row 201). The dialog has **no** field for the protective device, `reference`, `notes` or `detected_at`; set those through the API (`POST /faults` / `PATCH /faults/{id}`), by raising from an incident (which inherits the device), or via an offline/webhook capture.
 
 > **How to — log a fault against an asset from the map** 🔒 `faults:write`
 > Select the faulted feature → in the attribute panel open the **Faults** tab (`feature-faults-tab.tsx`) → it shows that asset's fault history and lets you **log / clear / book** without leaving the map (the asset anchor is filled in for you).
 
-> **∑ Offline-safe logging.** A field device can mint the fault's `id` itself and `POST /faults` when it reconnects; the create is `ON CONFLICT (id) DO NOTHING`, so replaying a queued capture never double-logs. This is the same offline-idempotency pattern the field tool uses elsewhere.
+> **∑ Offline-safe logging.** A field device mints the fault's `id` itself and pushes a `fault_create` sync op (the id rides in the op's `feature_id`) when it reconnects; the create is `ON CONFLICT (id) DO NOTHING`, so replaying a queued capture never double-logs (and records no second history row or event). This is the same offline-idempotency pattern the field tool uses elsewhere. ⚠️ The REST `POST /faults` body has **no `id` field** (`faults/http.go` `createFaultRequest`) — an `id` sent there is silently ignored, so it is *not* replay-safe; a second POST makes a second fault.
 
 **Updating findings vs. changing status — two different writes.**
-- `PATCH /faults/{id}` is a **sparse patch of investigation findings** (cause, fault_type, device, currents, notes) — it does **not** touch status.
+- `PATCH /faults/{id}` is a **sparse patch of investigation findings** (cause, fault_type, device, currents, notes) — it does **not** touch status. ⚠️ The web app has a hook for it (`useUpdateFault`) but **no screen calls it**: today findings are patched through the API, the agent tool `faults_update`, or an inbound webhook, not from the board. It cannot change the asset, the location pin or `detected_at`.
 - `POST /faults/{id}/status` is the **only** way to move the lifecycle. Keeping them separate means "I learned the cause" and "I'm marking it cleared" are distinct, separately-audited actions.
 
 ---
@@ -151,7 +151,7 @@ A fault sits at the centre of four links. Three are **loose references** (a bare
 **③ The OMS incident — `incident_id`.** The direction is **fault attaches to an existing incident**: the outage is already on the OMS board, and the fault *explains* it.
 
 > **How to — raise a fault from an outage** 🔒 `faults:write`
-> On the **Outages** page, open the incident → **Raise fault**. This calls `POST /faults/from-incident/{id}`: the new fault **inherits the incident's predicted device** (as the operating protective device) and its cause, anchored by `incident_id`. *(Grounded: `RaiseFaultFromIncident` reads `oms.incidents` cross-schema — the only coupling is at the DB level, no Go import.)* See the **OMS guide** for the incident side.
+> On the **Outages** page, open the incident → the **⚡ Raise fault** icon button (icon only, tooltip "Raise a fault event for this outage"; hidden for cancelled incidents). This calls `POST /faults/from-incident/{id}`: the new fault **inherits the incident's predicted device** (as the operating protective device) and its cause (`cause_code`), anchored by `incident_id`. The button sends an empty body, so the fault is titled **"Fault behind incident"** until renamed (`PATCH` `title`); the API also accepts `title`, `fault_type`, `cause`, `detected_by`, `notes` overrides. *(Grounded: `RaiseFaultFromIncident` reads `oms.incidents` cross-schema — the only coupling is at the DB level, no Go import.)* See the **OMS guide** for the incident side.
 
 **④ The WAM defect — `defect_id`.** The direction is **a fault books a defect**: handling a fault creates the repair record that flows into WAM's work-order loop.
 
@@ -164,9 +164,9 @@ A fault sits at the centre of four links. Three are **loose references** (a bare
 
 ## 7. Impact & the map
 
-**The map overlay.** `GET /faults/map` returns every fault that has a resolvable point (its own pin, or its asset's geometry) for a map layer (`fault-overlay-store.ts`), filterable the same way as the board. Markers + impact cones draw over the network; the legend filters client-side.
+**The map overlay.** `GET /faults/map` returns every fault that has a resolvable point (its own pin, or its asset's geometry) for a map layer (`fault-overlay-store.ts`), filterable the same way as the board. An asset-anchored fault is drawn on its asset (an on-geometry marker plus the asset's shape); the asset geometry is preferred over a pin when both exist. Incident-only faults, and faults whose asset class is uncompiled/deleted/geometry-less with no pin, are omitted. The layer is **off by default** (`visible:false`), shows only `detected` + `investigating` until you tick `cleared`/`closed` in the legend, and live faults pulse unless the OS asks for reduced motion. Clicking a marker draws its impact area.
 
-**The impact area.** `GET /faults/{id}/impact` answers *"what did this fault take out?"* — it walks **downstream of the fault's protective device** and returns the **de-energised service points** below it (`FaultImpactArea`, `geometry.go`). This is the same energisation idea the Switching & Protection guide covers (a cone below an open/operated device), scoped to one fault's protective device.
+**The impact area.** `GET /faults/{id}/impact` answers *"what did this fault take out?"* — it walks **downstream of the fault's protective device** and returns the **de-energised service points** below it (`FaultImpactArea`, `geometry.go`). This is the same energisation idea the Switching & Protection guide covers (a cone below an open/operated device), scoped to one fault's protective device. It counts only `SERVICE_POINT` features, uses the barrier-free topological trace (conservative: it does not model open switches), and a fault with no protective device returns an empty list.
 
 **Filters (board & map).** `?status=`, `?open=true` (anything not yet `closed`/`cleared`), `?fault_type=`, `?asset_class=&asset_id=` (one asset's history), `?incident_id=` (all faults on one outage).
 
@@ -174,9 +174,10 @@ A fault sits at the centre of four links. Three are **loose references** (a bare
 
 ## 8. Automation & integration
 
-- **Outbound webhooks.** `CreateFault` emits `fault.raised`; a status change emits `fault.cleared` (on a terminal status) or `fault.updated`. Wire these to a downstream CIS/WMS to mirror fault state. *(See the outbound-webhooks design.)*
+- **Outbound webhooks.** `CreateFault` emits `faults.event.raised`; a status change emits `faults.event.cleared` (on `cleared`/`closed`) or `faults.event.updated` (`webhookout/outbox.go`). A findings `PATCH` and a defect booking emit **no** event. Wire these to a downstream CIS/WMS to mirror fault state. *(See the outbound-webhooks design.)*
+- **Inbound webhooks.** An ingestion endpoint with target `fault` (`webhook/adapter_ops.go`, `faultAdapter`) creates or updates faults from a sender's own `external_id`: the first sight creates (same validation and anchor rule as a hand edit), a repeat patches findings and/or sets `status`. `op` must be `upsert` (a fault is never webhook-deleted), and the endpoint's identity needs `faults:write`.
 - **Agent / MCP tools** (`api/internal/agenttools/tools_faults.go`) — the whole module is agent-callable, each tool carrying its route's permission: reads `faults_list`, `faults_get`, `faults_list_history`, `faults_list_map`, `faults_impact_area`; writes `faults_create`, `faults_set_status`, `faults_update`, `faults_raise_from_incident`, `faults_book_defect` (writes are annotated "confirm with a human").
-- **Offline sync** — the device-minted-`id` idempotency (§5) lets the field tool queue fault captures and replay them safely.
+- **Offline sync** — the device-minted-`id` idempotency (§5) lets the field tool queue fault captures and replay them safely. The sync ops are `fault_create`, `fault_status` and `fault_book_defect` (`fieldpack/sync.go`); there is **no** offline findings-update op. The Flutter field app has a Faults screen (raise fault, update status, book defect — `mobile/lib/src/ui/faults_screen.dart`).
 
 ---
 
@@ -185,9 +186,9 @@ A fault sits at the centre of four links. Three are **loose references** (a bare
 A contractor's excavator strikes the 11 kV cable on the tee below **FSW-12** (the fused switch feeding transformer **TX-220**). Here's the whole record lifecycle:
 
 1. **It happens.** The 100 T fuse in FSW-12 clears the fault; **TX-220 and its LV go dark**. SCADA flags loss of supply and an outage is already on the OMS board as an incident.
-2. **Priya logs it** (`detected`). On the Outages page she opens the incident → **Raise fault**. The fault is born anchored to `incident_id`, inheriting the predicted device. She fills in what she knows: `title = "Cable fault, Feeder 7 tee to TX-220"`, `fault_type = earth`, `detected_by = scada`, `protective_device = FSW-12`.
+2. **Priya logs it** (`detected`). Because step 5 needs an asset or a location to book the defect, the fault is logged **anchored to the cable asset *and* the incident** — `POST /faults` with `asset_class`/`asset_id` = the cable tee, `incident_id`, `protective_device` = FSW-12, `title = "Cable fault, Feeder 7 tee to TX-220"`, `fault_type = earth`, `detected_by = scada`. (The Outages-page **Raise fault** button alone would anchor it by `incident_id` only, inheriting the incident's predicted device and cause; such a fault **cannot book a defect** — `POST /faults/{id}/defect` answers 400 *"fault … has no asset or location to book a defect against"* — and a PATCH cannot add an asset or pin afterwards. Raise it from the incident only when there is no asset to name yet.) The Log-fault dialog has no device or incident field, so this combination is an API/agent call.
    - *History row:* `created`, actor = Priya.
-3. **Investigation** (`investigating`). A patrol is dispatched; Priya moves it to *Investigating*. The crew finds the dig-in; she `PATCH`es the findings: `cause = "dig_in"`, `fault_current_a = 3900`, `clearing_time_ms = 55`.
+3. **Investigation** (`investigating`). A patrol is dispatched; Priya moves it to *Investigating*. The crew finds the dig-in; the findings are `PATCH`ed in (API/agent tool — see §5): `cause = "dig_in"`, `fault_current_a = 3900`, `clearing_time_ms = 55`.
    - Tom opens the fault and compares `fault_current_a = 3900` against the coordination study's prospective 3,913 A — a good match, confirming the model. *(Two different "fault" worlds meeting at one number — §1.)*
    - *History rows:* `status_changed`, `updated`.
 4. **Cleared** (`cleared`). The cable is isolated and TX-220 back-fed via the tie; Dana marks it **Mark cleared** → `cleared_at` is stamped automatically. The outage restoration is driven on the OMS side (see the OMS guide).
@@ -231,6 +232,7 @@ Every step is on `GET /faults/{id}/history` with who and when — a complete, au
 - **Not territory-scoped** (§2) — organisation-wide visibility for any `faults:read` holder.
 - **No fault-level severity/priority** — severity lives on the booked WAM defect.
 - `cause` and `detected_by` are **free text**, not coded catalogues.
+- An unknown fault id is a **400** (`fault "…" does not exist`), not a 404; every client-fixable validation error is a 400 with `{"error": …}`.
 - Asset / device / incident / defect links are **loose refs, not FKs** — a fault outlives its asset being re-modelled.
 - A fault books a **defect**, not a work order directly (the work order is created inside WAM).
 - A fault is **not a GIS feature** — it's a record in `faults.fault_events`, never a compiled `gis.*` class.
@@ -243,4 +245,8 @@ Every step is on `GET /faults/{id}/history` with who and when — a complete, au
 - **Switching & Protection** — the protective devices that clear a fault and the de-energised cone one leaves.
 - **Engineering Studies** — the *fault-current* calculation (`/analysis/fault-current`), the model a recorded `fault_current_a` can be checked against.
 
+---
 
+## Appendix — Corrections (verified against the code)
+
+This edition corrected the following against the shipped code: outbound webhook event names are `faults.event.raised|cleared|updated` (not `fault.*`) and only create and status change emit them; the Log-fault dialog has no protective-device, reference, notes or incident field, and the board defaults to *Open only*; no web screen edits findings (the `PATCH` is API/agent/webhook only); the Outages button sends an empty body (default title "Fault behind incident"); and the inbound-webhook (`fault` target), offline-sync ops, mobile Faults screen, map-overlay defaults and impact-area limits were added. The §9 worked example was also corrected: a fault raised only from an incident has no asset or location, so `BookDefectFromFault` refuses it (`faults/store.go` `has no asset or location to book a defect against`) — the example now logs the fault against the cable asset *and* the incident. Also corrected: the idempotent device-minted `id` applies to the sync `fault_create` op, not to `POST /faults` (`faults/http.go:92-110` has no `id`; `fieldpack/sync.go` `applyFaultsOp` passes `ID: op.FeatureID`). Note (code reading, not run): a bad `severity` on `POST /faults/{id}/defect` surfaces as HTTP 500, because `wam`'s validation error type is not the `faults` one that `writeError` maps to 400.

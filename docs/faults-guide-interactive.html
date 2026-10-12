@@ -1,0 +1,1181 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Faults Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  /* section palette (categorical, validated for both themes) */
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f;
+  --s0:#3cb7cc; --s1:#f08c3a; --s2:#a592f0; --s3:#5fd085; --s4:#ef7aa6; --s5:#d2c24a; --s6:#7aa4ea; --s7:#f08a6e; --s8:#8fb0c0; --dead:#4a5a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+figure{margin:24px 0;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:18px;min-width:0}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:82ch}
+figcaption b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.role{display:inline-block;font:600 11px/1 var(--f-mono);padding:3px 7px;border-radius:3px;letter-spacing:.03em}
+.role.protective{background:var(--red-tint);color:var(--red)}
+.role.switching{background:var(--blue-tint);color:var(--blue)}
+.role.transformer{background:var(--amber-tint);color:var(--amber)}
+.role.source{background:var(--green-tint);color:var(--green)}
+.role.none{background:var(--line2);color:var(--muted)}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px}
+.bgrid{display:grid;grid-template-columns:minmax(0,1fr) 110px 150px auto;gap:5px;align-items:center}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+input[type=number],input[type=text],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--acc-deep);font-weight:700}
+.ctl .hint{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.3}
+.bar{height:18px;background:var(--line2);border-radius:4px;position:relative;overflow:hidden}
+.bar>i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .15s}
+.big{font:800 28px/1 var(--f-display);font-stretch:80%;font-variant-numeric:tabular-nums;color:var(--acc-deep)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono)}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.chainrow .arr{color:var(--muted);font:600 12px var(--f-mono)}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+
+/* handbook additions */
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+.matrix{border-collapse:collapse;font-size:12px;width:100%}
+.matrix th,.matrix td{padding:4px 6px;text-align:center;border-bottom:1px solid var(--line2)}
+.matrix td:first-child,.matrix th:first-child{text-align:left;position:sticky;left:0;background:var(--raise)}
+.matrix td.y{background:color-mix(in srgb,var(--green) 22%,transparent);color:var(--green);font-weight:700}
+.matrix tr:hover td{background:var(--surface)} .matrix tr:hover td.y{background:color-mix(in srgb,var(--green) 30%,transparent)}
+.tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:10px}
+.tabs button{font:600 11.5px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:6px 9px;border-radius:5px 5px 0 0;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.tabs button[disabled]{opacity:.4;cursor:not-allowed}
+.tree{font:500 13px var(--f-mono)} .tree .n{padding:3px 6px;border-radius:4px;display:inline-block}
+.tree .n.g{background:var(--tint);color:var(--acc-deep);font-weight:700}
+svg .nd{cursor:pointer}
+svg .nd:focus-visible{outline:2px solid var(--acc)}
+.ants{animation:march .9s linear infinite} @keyframes march{to{stroke-dashoffset:-16}}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sev{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.sev.low{background:var(--line2);color:var(--muted)} .sev.medium{background:var(--blue-tint);color:var(--blue)} .sev.high{background:var(--amber-tint);color:var(--amber)} .sev.critical{background:var(--red-tint);color:var(--red)} .sev.urgent{background:var(--red-tint);color:var(--red)}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.kpi div{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.kpi b{display:block;font:800 22px/1 var(--f-display);font-stretch:80%}
+.kpi span{font:600 10px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rec{border:1px solid var(--line2);border-radius:6px;padding:6px 8px;margin:5px 0;background:var(--raise);font-size:13px}
+.rec .t{font-weight:600}.rec .m{font-size:11.5px;color:var(--muted)}
+.rec .a{margin-top:4px;display:flex;gap:4px;flex-wrap:wrap}
+.state-chip{display:inline-block;font:700 10.5px var(--f-mono);padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.state-chip.applied,.state-chip.completed,.state-chip.resolved{background:var(--green-tint);color:var(--green);border-color:var(--green)} .state-chip.in_progress,.state-chip.work_ordered,.state-chip.assigned{background:var(--tint);color:var(--acc-deep);border-color:var(--acc)} .state-chip.cancelled,.state-chip.dismissed,.state-chip.rejected{background:var(--line2);color:var(--muted)} .state-chip.open,.state-chip.draft,.state-chip.scheduled{background:var(--amber-tint);color:var(--amber);border-color:var(--amber)}
+@media (max-width:760px){.kpi{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .bgrid{grid-template-columns:1fr 1fr}
+  .bgrid>input:first-child{grid-column:1/-1}
+  li,.rec .t,.rec .m{overflow-wrap:anywhere}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* everyday-operations additions */
+.gm{position:relative;border:1px solid var(--line);border-radius:6px 6px 0 0;overflow:hidden;background:var(--bg)}
+.gm-svg{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none}
+.gm-svg .gm-lab{fill:var(--ink);pointer-events:none}
+.gm-svg .gf{cursor:inherit}
+.gm-zoom{position:absolute;left:8px;top:8px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--raise)}
+.gm-zoom button{width:28px;height:28px;border:0;background:none;color:var(--ink);font:700 16px var(--f-mono);cursor:pointer}
+.gm-zoom button+button{border-top:1px solid var(--line)}
+.gm-north{position:absolute;left:8px;top:74px;width:28px;height:28px;border:1px solid var(--line);border-radius:50%;background:var(--raise);display:grid;place-items:center;cursor:pointer;padding:0}
+.gm-ban{position:absolute;left:50%;top:8px;transform:translateX(-50%);max-width:calc(100% - 100px);background:var(--ink);color:var(--bg);font:600 12px var(--f-mono);padding:6px 11px;border-radius:5px;z-index:3;text-align:center}
+.gm-tip{position:absolute;right:8px;bottom:8px;max-width:60%;background:var(--raise);border:1px solid var(--line);border-radius:5px;padding:6px 9px;font:500 12px var(--f-mono);box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.gm-status{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;background:var(--surface);padding:5px 10px;font:500 11.5px var(--f-mono);color:var(--muted)}
+.gm-status b{color:var(--ink);font-weight:600;margin-right:3px}
+.gm-status .gsr{margin-left:auto}
+.gm-status .attr{margin-left:8px;opacity:.8}
+.gsb{font:600 11px var(--f-mono);border:1px solid var(--line);background:var(--raise);color:var(--ink);border-radius:4px;padding:3px 7px;cursor:pointer}
+.gsb:hover{border-color:var(--muted)}
+.goto{font:500 11px var(--f-mono);width:128px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--raise);color:var(--ink)}
+.apid{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.apid.ok{background:var(--green)} .apid.bad{background:var(--red)}
+.story{border-left:3px solid var(--acc);background:var(--surface);padding:10px 16px;border-radius:0 6px 6px 0;margin:16px 0;max-width:78ch;font-size:15px}
+.story>*:last-child{margin-bottom:0}
+.story .who{font:700 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--acc-deep);display:block;margin-bottom:2px}
+.qs{max-width:78ch;margin:16px 0;border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:6px 16px 10px}
+.qs>b.k{display:block;font:700 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--acc-deep);margin:8px 0 0}
+.qs .steps{margin:4px 0 0}
+.ptabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:8px 0}
+.ptabs button{font:600 11px var(--f-mono);border:1px solid transparent;border-bottom:0;background:none;color:var(--muted);padding:5px 8px;border-radius:5px 5px 0 0;cursor:pointer}
+.ptabs button[aria-selected="true"]{background:var(--raise);border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.ptabs button[disabled]{opacity:.35;cursor:not-allowed}
+.panelbox{border:1px solid var(--line);border-radius:6px;background:var(--raise);padding:9px 11px;font-size:13px}
+.panelbox h5{margin:0 0 4px;font:700 14px var(--f-display)}
+.kvt{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px;margin:6px 0}
+.kvt dt{font:600 10.5px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+.kvt dd{margin:0;font-family:var(--f-mono);font-size:12px}
+.fld-row{display:grid;grid-template-columns:130px 1fr;gap:6px;align-items:center;margin:5px 0;font-size:12.5px}
+.fld-row label{font:600 11.5px var(--f-mono)}
+.fld-row .rq{color:var(--red);font-weight:800}
+.fld-row.lock input,.fld-row.lock select{opacity:.6}
+.fld-row.chg input,.fld-row.chg select{border-color:var(--amber);background:var(--amber-tint)}
+.tog{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.tog input{accent-color:var(--acc)}
+.dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:60;padding:16px}
+.dlg>div{background:var(--raise);border:1px solid var(--line);border-radius:8px;max-width:420px;padding:16px 18px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.dlg h4{margin-bottom:6px}
+.dlg .a{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.sugg{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:5px;padding:5px 8px;margin:4px 0;font-size:12.5px;background:var(--raise);flex-wrap:wrap}
+.sugg .tx{flex:1;min-width:140px}
+.chipx{font:600 10.5px var(--f-mono)}
+.cardsel{border:1.5px solid var(--line);border-radius:7px;padding:8px 10px;background:var(--raise);cursor:pointer;font-size:13px;text-align:left}
+.cardsel[aria-pressed="true"]{border-color:var(--acc);background:var(--tint)}
+.pop{position:relative}
+.floatp{position:absolute;background:var(--raise);border:1.5px solid var(--line);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;z-index:5}
+.floatp .hd{background:var(--surface);border-bottom:1px solid var(--line);padding:6px 10px;font:700 12px var(--f-mono);cursor:grab;display:flex;justify-content:space-between;align-items:center;user-select:none;touch-action:none}
+.floatp .bd{padding:10px;font-size:12.5px;overflow:auto;flex:1}
+.floatp .grip{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 55%,var(--muted) 55%,var(--muted) 62%,transparent 62%,transparent 72%,var(--muted) 72%,var(--muted) 79%,transparent 79%)}
+@media (max-width:760px){
+  .gm-status{font-size:10.5px}
+  .gm-status .gsr{margin-left:0}
+  .goto{width:100px}
+  .fld-row{grid-template-columns:1fr}
+}
+
+[hidden]{display:none!important}
+
+.w-body{overflow-x:auto}
+pre.code{overflow-x:auto;max-width:100%}
+.w-bar{flex-wrap:wrap}
+.w-bar .seg{flex-wrap:wrap}
+.w-bar>*{max-width:100%}
+.w-split{flex-wrap:wrap}
+
+textarea.fld,input.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%;box-sizing:border-box}
+textarea.fld{min-height:130px;resize:vertical}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px 10px}
+.fgrid label{display:block}
+.fgrid .lab{display:block;margin-bottom:3px}
+.res{border:1px solid var(--line);border-radius:6px;background:var(--surface);padding:10px 12px;margin-top:10px}
+.res .code{font:800 20px var(--f-display);font-stretch:85%}
+.res.ok .code{color:var(--green)} .res.e4 .code{color:var(--amber)} .res.e5 .code{color:var(--red)}
+.st{display:inline-block;font:700 10.5px var(--f-mono);padding:2px 8px;border-radius:10px;border:1px solid var(--line)}
+.st.detected{background:var(--red-tint);color:var(--red);border-color:var(--red)}
+.st.investigating{background:var(--amber-tint);color:var(--amber);border-color:var(--amber)}
+.st.cleared{background:var(--blue-tint);color:var(--blue);border-color:var(--blue)}
+.st.closed{background:var(--green-tint);color:var(--green);border-color:var(--green)}
+.tl{list-style:none;margin:6px 0;padding:0;font-size:12.5px}
+.tl li{padding:4px 0;border-top:1px solid var(--line2);font-family:var(--f-mono)}
+.mini{font-size:12px;color:var(--muted)}
+details.tr{border-top:1px solid var(--line2);padding:10px 14px}
+details.tr summary{cursor:pointer;font-weight:600}
+.ok-t{color:var(--green);font-weight:600}.bad-t{color:var(--red);font-weight:600}.warn-t{color:var(--amber);font-weight:600}
+svg text{font-family:var(--f-mono)}
+.hit{cursor:pointer}
+
+.w-side code,.w-body code{white-space:normal;word-break:break-word}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Faults</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · What</a><a href="#c2">2 · Who</a><a href="#c3">3 · Record</a><a href="#c4">4 · Lifecycle</a><a href="#c5">5 · Logging</a><a href="#c6">6 · Links</a><a href="#c7">7 · Map</a><a href="#c8">8 · Automation</a><a href="#c9">9 · Feeder 7</a><a href="#c10">10 · Reference</a><a href="#c11">11 · Help</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · Faults · log the event, link the outage, book the repair</div>
+  <h1>A fault is a record.<br><span>Not a feature.</span></h1>
+  <p class="lede">The Faults module keeps one durable row for each electrical fault event on the network — the earth fault, the short, the protection operation — and hangs it between the <b>outage</b> it explains and the <b>repair</b> it triggers. This guide is a <em>working</em> copy of the real engine: a JavaScript port of <code>api/internal/faults</code> with the same validation order, the same error strings and the same HTTP status mapping. Log a fault, PATCH it, push it through the lifecycle, replay an offline capture, book a defect — and watch the record, its history and the webhook events change.</p>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Vic</b> (viewer) and <b>Tom</b> (analyst) hold <span class="perm">faults:read</span> only. <b>Priya</b> (editor, the same role as Dana) and <b>Ada</b> (admin) add <span class="perm">faults:write</span>. Widgets that call the API are gated exactly as the server gates them, so switch persona to see a real <code>403</code>.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">Who this is for</span>
+<p><b>Control-room operators</b> logging and tracking faults, <b>network engineers</b> investigating them, and <b>field crew</b> who clear a fault and book the repair. The manual (<code>faults-guide.md</code>) holds every table and appendix; this edition keeps all nine sections and both appendices and makes each rule something you can poke. Where I checked the manual against the code and found it wrong, the fix is in the manual and listed in the Corrections box in chapter 10.</p></div>
+
+<h3 style="margin-top:28px">The cast &amp; the running example</h3>
+<div class="tbl"><table>
+  <tr><th>Who</th><th>Real role</th><th>Shows up when…</th></tr>
+  <tr><td><b>Priya</b></td><td>editor (<code>faults:read</code> + <code>faults:write</code>)</td><td>Logging faults off SCADA and customer calls, driving status</td></tr>
+  <tr><td><b>Dana</b></td><td>editor</td><td>Clearing a fault on the ground and booking the repair (same role as Priya — there is no “operator” role)</td></tr>
+  <tr><td><b>Tom</b></td><td>analyst (<code>faults:read</code>)</td><td>Comparing a recorded fault current with what the model predicted</td></tr>
+  <tr><td><b>Ada</b></td><td>admin (read + write; <code>break-glass-admin</code> also holds both)</td><td>Holds the permissions</td></tr>
+  <tr><td><b>Vic</b></td><td>viewer (<code>faults:read</code>)</td><td>Looks at the board; cannot change anything</td></tr>
+</table></div>
+<p>The running example is an <b>earth fault on Feeder 7</b>: a contractor’s excavator strikes the 11 kV cable on the tee below the fused switch <b>FSW-12</b>, which feeds transformer <b>TX-220</b>. The asset names and ids in the sandbox are illustrative; the class codes (<code>MV_SWITCH</code>, <code>MV_CONDUCTOR</code>, <code>TRANSFORMER</code>, <code>SERVICE_POINT</code>) are real. 🔒 marks an action that needs a permission · 💡 a tip · ⚠️ a caution.</p>
+<div class="tip"><b>The sandbox is shared.</b> Every widget below drives one in-browser store, seeded with five faults. Something you log in chapter 5 appears on the board in chapter 7 and in the history in chapter 9. <button class="btn warn" id="sb-reset">Reset the sandbox</button> <span class="mini" id="sb-count"></span></div>
+
+<!-- ============ CH1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>What a fault record is — and is not</h2><p>Two things named “fault”, and a hinge between an outage and a repair.</p></div>
+  <p>A <b>fault</b> here is an <b>operational record of an electrical fault event</b> that <em>happened</em> — about the assets on the map, not drawn on it. It is the causal hinge between an <b>outage</b> (the OMS incident the fault explains) and a <b>defect</b> (the WAM repair the fault triggers):</p>
+<pre class="code">   OMS incident  ──explains──►  FAULT EVENT  ──triggers──►  WAM defect ──► work order
+   (the outage)                 (this guide)                (the repair)</pre>
+  <p>VoltEdge has <b>two completely separate</b> things with “fault” in the name. Confusing them is the first trap. Pick a job and see which one does it:</p>
+  <div class="widget" id="w1">
+    <div class="w-head"><span class="eyebrow">Interactive · 1</span><h4>Which “fault” do you mean?</h4></div>
+    <div class="w-bar"><div class="seg" id="w1-s"></div></div>
+    <div class="w-body" id="w1-out"></div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th></th><th>Faults module (this guide)</th><th>Fault-current engine (Engineering Studies)</th></tr>
+    <tr><td>What</td><td>a persistent <b>record</b> of a fault that <em>happened</em></td><td>a live <b>calculation</b> of the bolted fault current that <em>would</em> flow</td></tr>
+    <tr><td>Lives in</td><td>schema <code>faults</code>, package <code>api/internal/faults</code></td><td>stateless, <code>api/internal/powerflow</code></td></tr>
+    <tr><td>You call</td><td><code>POST /faults</code></td><td><code>POST /analysis/fault-current</code></td></tr>
+    <tr><td>Permission</td><td><span class="perm">faults:read</span> / <span class="perm">faults:write</span></td><td><span class="perm">analysis:run</span></td></tr>
+    <tr><td>Produces</td><td>a row with cause, device, clearing time, a status lifecycle, links to the outage and the repair</td><td>a number per node — symmetrical / SLG fault current</td></tr></table></div>
+  <p>They share only vocabulary: a fault record carries a <code>fault_type</code> and a <code>fault_current_a</code> from the same classification the engine speaks, so you can compare <em>measured</em> against <em>predicted</em> — but there is <b>no code dependency</b>; neither reads the other. And a fault is <b>not a map feature</b>: it is a row in <code>faults.fault_events</code>, not a compiled <code>gis.&lt;class&gt;</code> table. It <em>points at</em> the faulted asset by a loose reference and may carry a location pin, but you never draw or trace through it.</p>
+</section>
+
+<!-- ============ CH2 ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>Who may do what</h2><p>Two permissions, one method-aware gate — and no territory filter.</p></div>
+  <p>Two permissions gate the whole module (seeded by migration <code>0107</code>, constants in <code>auth/rbac.go</code>), enforced on the <code>/faults</code> mount at <code>main.go:279</code> with <code>RequirePermission(faults:read, faults:write)</code>: <b>GET/HEAD/OPTIONS need read; every other method needs write.</b> The grants mirror OMS and WAM: everyone who can see the map reads; whoever can edit features writes.</p>
+  <div class="widget" id="w2">
+    <div class="w-head"><span class="eyebrow">Interactive · 2</span><h4>The role matrix and the method gate</h4></div>
+    <div class="w-body"><div class="tbl" id="w2-m" style="margin-top:0"></div></div>
+    <div class="w-bar"><label class="lab" for="w2-me">Method</label><select class="fld" id="w2-me" style="width:auto"><option>GET</option><option>POST</option><option>PATCH</option><option>PUT</option><option>DELETE</option></select><label class="lab" for="w2-pa">Path</label><select class="fld" id="w2-pa" style="width:auto;max-width:100%"></select></div>
+    <div class="w-body" id="w2-out"></div>
+  </div>
+  <div class="caution"><b>Faults are not territory-scoped.</b> Unlike map features (Phase 58 spatial access control), <code>faults.fault_events</code> has no <code>territory_id</code> and no route narrows by territory. Every <code>faults:read</code> holder sees <b>every</b> fault on the system, whatever districts they are scoped to on the map. If you rely on territory scoping to partition what a user sees, the fault board is organisation-wide.</div>
+  <p class="mini">Note the personas are <em>people</em>, not roles — there is no “operator” role; Priya and Dana are both <b>editors</b>. In the web app the sidebar entry needs <code>faults:read</code> and the <b>Log fault</b> button and row actions appear only with <code>faults:write</code>.</p>
+</section>
+
+<!-- ============ CH3 ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>The fault record</h2><p>One table, <code>faults.fault_events</code> — grouped fields, closed enums, four CHECKs.</p></div>
+  <p>One table, <code>faults.fault_events</code> (migration <code>0106</code>; Go mirror <code>faults/models.go</code>). Browse the fields below: filter by group, search, and click a row for its constraint and — importantly — <em>how you can actually write it</em> (the REST create, the findings PATCH, the web dialog). Not every column is reachable from every door.</p>
+  <div class="widget" id="w3">
+    <div class="w-head"><span class="eyebrow">Interactive · 3</span><h4>Field browser &amp; the anchor rule</h4></div>
+    <div class="w-bar"><div class="seg" id="w3-g"></div><input type="text" id="w3-q" placeholder="search fields…" aria-label="Search fields" style="max-width:200px"></div>
+    <div class="w-split"><div class="w-main"><div class="tbl" id="w3-t" style="margin-top:0"></div></div>
+    <div class="w-side"><b>Anchor check</b><p class="mini" style="margin:4px 0 8px">Tick what a fault carries; the DB CHECKs decide.</p>
+      <label><input type="checkbox" id="w3-a"> asset class + id</label><br><label><input type="checkbox" id="w3-ac"> asset_class only (no id)</label><br><label><input type="checkbox" id="w3-l"> location (lng + lat)</label><br><label><input type="checkbox" id="w3-i"> incident_id</label><br><label><input type="checkbox" id="w3-d"> protective device class + id</label><br><label><input type="checkbox" id="w3-dc"> device class only</label><br>
+      <label><span class="lab">status</span> <select class="fld" id="w3-s" style="width:auto"></select></label> <label><input type="checkbox" id="w3-c"> cleared_at set</label>
+      <div id="w3-o" style="margin-top:8px"></div></div></div>
+  </div>
+  <div class="tip"><b>No severity or priority on a fault.</b> Severity lives on the <em>defect</em> it books. <code>cause</code> and <code>detected_by</code> are free text, not coded catalogues — the same “don’t block field teams on a taxonomy” stance as <code>wam.defects.defect_type</code>. There is also no <code>created_by</code>: who-did-it lives only in the history table (chapter 4).</div>
+</section>
+
+<!-- ============ CH4 ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>The lifecycle</h2><p>Four statuses, one write path — and an API more flexible than the UI.</p></div>
+  <p>A fault moves through four statuses: <b>detected</b> (just logged, still on the network) → <b>investigating</b> (patrol dispatched, cause being established) → <b>cleared</b> (<em>off the network</em>: isolated or repaired enough to restore) → <b>closed</b> (the outage and the booked defect are wrapped up). Reaching <code>cleared</code> or <code>closed</code> stamps <code>cleared_at</code> automatically (<code>SetFaultStatus</code> COALESCEs it to now); dropping back to a non-terminal status clears it again, so the DB invariant <code>(status ∈ cleared,closed) = (cleared_at is set)</code> always holds.</p>
+  <p><code>SetFaultStatus</code> does <b>not</b> enforce a forward-only path — <em>any valid value can be set</em> (even the current one), which is how a <b>reopen</b> works. The <b>UI</b> offers only the sane transitions. Pick a fault, then try every target status and compare what the <b>API permits</b> with what the <b>web board offers</b>.</p>
+  <div class="widget" id="w4">
+    <div class="w-head"><span class="eyebrow">Interactive · 4</span><h4>State machine — API vs UI</h4></div>
+    <div class="w-bar"><label class="lab" for="w4-f">Fault</label><select class="fld" id="w4-f" style="width:auto;max-width:100%"></select><span id="w4-lock"></span></div>
+    <div class="w-split"><div class="w-main"><svg id="w4-svg" viewBox="0 0 760 150" width="100%" role="img" aria-label="Fault lifecycle"></svg>
+      <div class="seg" id="w4-t" style="margin-top:8px"></div><div id="w4-res"></div></div>
+    <div class="w-side" id="w4-side"></div></div>
+  </div>
+  <div class="callout">Every change is audited. <code>faults.fault_event_history</code> (migration <code>0109</code>) is an <b>append-only</b> trail: one immutable row per change with an <code>action</code>, the <code>actor_id</code> from the session (null for a system write), the time and a full <code>snapshot</code> of the fault after the change.</div>
+  <p>The fault record has no <code>created_by</code>; “who” lives only in the history. Read it at <code>GET /faults/{id}/history</code> (newest first, with the actor’s display name or email joined in) or the expandable <b>History</b> panel on each board row. History rows survive the fault: <code>fault_id</code> and <code>actor_id</code> are deliberately not foreign keys.</p>
+</section>
+
+<!-- ============ CH5 ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>How to log a fault</h2><p>Board, map tab, Outages button, API — each door shows different fields.</p></div>
+  <ol class="steps">
+    <li><b>Sidebar → Faults</b> (the ⚡-off icon). The board lists faults newest first; <b>Open only</b> is ticked by default, so cleared/closed faults are hidden until you untick it.</li>
+    <li>Click <b>Log fault</b> (🔒 <code>faults:write</code>).</li>
+    <li>Give it a <b>title</b> and anchor it: the <b>faulted asset</b> (class + feature; the picker resolves names through the feature registry) <b>or</b> a <b>location</b> (longitude + latitude). The API also accepts an <code>incident_id</code> anchor, but this dialog only enables <b>Log fault</b> for an asset or a location.</li>
+    <li>Optionally add fault type (pre-selected <code>unknown</code> and always sent), cause, detected by, fault current, clearing time, description. <b>Log fault</b> → <code>POST /faults</code>, <code>201</code>, status <code>detected</code>.</li></ol>
+  <p><b>From the map:</b> select the faulted feature → the attribute panel’s <b>Faults</b> tab (needs <code>faults:write</code>) shows that asset’s fault history and lets you log (title, type, cause — the asset anchor is filled in), investigate, clear, close, reopen and book a defect without leaving the map. <b>From an outage:</b> the Outages page has an icon-only ⚡ button per incident — chapter 6.</p>
+  <h3>5.1 The log-a-fault simulator</h3>
+  <p>Switch between the <b>web dialog</b> (which hides the protective device, reference, notes and incident, and only enables Save with a title plus an asset or location) and the <b>raw API</b> (everything the server accepts). Errors come back in the same order and wording as <code>CreateFault</code>; database-level problems (a negative current, a non-UUID id) are plain errors and so <b>500</b>, not 400.</p>
+  <div class="widget" id="w5">
+    <div class="w-head"><span class="eyebrow">Interactive · 5</span><h4>Log a fault — validation as the server runs it</h4></div>
+    <div class="w-bar"><div class="seg" id="w5-m"><button data-m="dlg" aria-pressed="true">Web dialog</button><button data-m="api">Raw API</button></div><span id="w5-lock"></span></div>
+    <div class="w-body"><div class="fgrid" id="w5-f"></div>
+      <div class="w-bar" style="padding:10px 0 0;border:0"><button class="btn pri" id="w5-go">Log fault</button><button class="btn" id="w5-ex1">Example: the Feeder 7 dig-in</button><button class="btn" id="w5-ex2">Example: no anchor</button><button class="btn" id="w5-ex3">Example: half an asset</button><button class="btn" id="w5-ex4">Example: negative current</button></div>
+      <div id="w5-hint" class="mini" style="margin-top:8px"></div><div id="w5-out"></div></div>
+  </div>
+  <h3>5.2 Findings vs. status — two different writes</h3>
+  <p><code>PATCH /faults/{id}</code> is a <b>sparse patch of investigation findings</b> (reference, fault type, cause, device pair, current, clearing time, detected-by, incident link, title, description, notes). It does <b>not</b> touch status. <code>POST /faults/{id}/status</code> is the <b>only</b> way to move the lifecycle. Keeping them apart makes “I learned the cause” and “I’m marking it cleared” distinct, separately-audited actions. Only non-null fields are written; a pair travels together; an empty <code>fault_type</code> clears it.</p>
+  <div class="caution">The web app defines a <code>useUpdateFault</code> hook, but <b>no screen calls it</b>. Today findings are patched through the API, the agent tool <code>faults_update</code>, or an inbound webhook — not from the board. A PATCH cannot change the asset, the location pin or <code>detected_at</code>.</div>
+  <div class="widget" id="w6">
+    <div class="w-head"><span class="eyebrow">Interactive · 6</span><h4>PATCH a fault’s findings</h4></div>
+    <div class="w-bar"><label class="lab" for="w6-f">Fault</label><select class="fld" id="w6-f" style="width:auto;max-width:100%"></select><span id="w6-lock"></span></div>
+    <div class="w-bar"><div class="seg" id="w6-p"></div></div>
+    <div class="w-body"><textarea class="fld" id="w6-b" aria-label="PATCH body" spellcheck="false"></textarea><div class="w-bar" style="padding:8px 0 0;border:0"><button class="btn pri" id="w6-go">Send PATCH</button></div><div id="w6-out"></div></div>
+  </div>
+  <h3>5.3 Offline-safe logging</h3>
+  <p>A field device mints the fault’s <code>id</code> itself and pushes a <code>fault_create</code> <b>sync op</b> (the id rides in the op’s <code>feature_id</code>) when it reconnects. The insert is <code>ON CONFLICT (id) DO NOTHING</code>, so replaying a queued capture never double-logs and writes no second history row or webhook event. The REST <code>POST /faults</code> body has <b>no <code>id</code> field</b> (<code>createFaultRequest</code>) — an <code>id</code> sent there is silently ignored, so it is <em>not</em> replay-safe.</p>
+  <div class="widget" id="w7">
+    <div class="w-head"><span class="eyebrow">Interactive · 7</span><h4>Replay a queued capture</h4></div>
+    <div class="w-bar"><button class="btn pri" id="w7-mint">1 · Device mints an id &amp; queues fault_create</button><button class="btn" id="w7-sync">2 · Sync the op</button><button class="btn" id="w7-post">POST /faults with the same id</button><button class="btn" id="w7-new">New capture</button></div>
+    <div class="w-body" id="w7-out"></div>
+  </div>
+</section>
+
+<!-- ============ CH6 ============ -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">06</div><h2>The connections — asset, device, incident, defect</h2><p>Three loose references and one real cross-module call.</p></div>
+  <p>A fault sits at the centre of four links. Three are <b>loose references</b> — a bare <code>class</code>/<code>id</code> pair or a bare uuid, deliberately <em>not</em> a foreign key, so a fault survives its asset being re-modelled. One (the defect) is a real call into WAM. Click a link:</p>
+  <div class="widget" id="w8">
+    <div class="w-head"><span class="eyebrow">Interactive · 8</span><h4>The four links and how each is validated</h4></div>
+    <div class="w-split"><div class="w-main"><svg id="w8-svg" viewBox="0 0 560 300" width="100%" role="img" aria-label="Fault connections"></svg></div><div class="w-side" id="w8-out"></div></div>
+  </div>
+  <div class="caution"><b>None of the loose links is checked for existence.</b> <code>CreateFault</code> validates that class and id come as a pair (and that ids are well-formed uuids at the database), but never looks the asset, device or incident up. A random uuid logs happily; the map simply cannot place it. Only <b>raise-from-incident</b> reads <code>oms.incidents</code>, and only <b>book-defect</b> calls <code>wam.CreateDefect</code>.</div>
+  <h3>6.1 Raise a fault from an outage (③)</h3>
+  <p>🔒 <code>faults:write</code>. On the <b>Outages</b> page, the ⚡ icon on an incident (hidden for cancelled incidents) calls <code>POST /faults/from-incident/{id}</code>. The direction is <b>fault attaches to an existing incident</b>: the fault inherits the incident’s <b>predicted device</b> (as the device that operated) and its <b>cause</b>, anchored by <code>incident_id</code>. The button sends an empty body, so the title is <b>“Fault behind incident”</b> until renamed; the API accepts <code>title</code>, <code>fault_type</code>, <code>cause</code>, <code>detected_by</code> and <code>notes</code> overrides. The incident is read by raw cross-schema SQL — <code>faults</code> does not import <code>oms</code>.</p>
+  <div class="widget" id="w9">
+    <div class="w-head"><span class="eyebrow">Interactive · 9</span><h4>Raise from an incident</h4></div>
+    <div class="w-bar"><label class="lab" for="w9-i">Incident</label><select class="fld" id="w9-i" style="width:auto;max-width:100%"></select><span id="w9-lock"></span></div>
+    <div class="w-body"><div id="w9-inc"></div><div class="fgrid" style="margin-top:8px"><label><span class="lab">title override</span><input class="fld" id="w9-t" type="text" placeholder="(empty → Fault behind incident)"></label><label><span class="lab">cause override</span><input class="fld" id="w9-c" type="text" placeholder="(empty → incident cause)"></label><label><span class="lab">fault_type</span><select class="fld" id="w9-ft"><option value=""></option></select></label></div>
+    <div class="w-bar" style="padding:10px 0 0;border:0"><button class="btn pri" id="w9-go">Raise fault</button><button class="btn" id="w9-bad">Try an unknown incident id</button></div><div id="w9-out"></div></div>
+  </div>
+  <h3>6.2 Book the repair from a fault (④)</h3>
+  <p>🔒 <code>faults:write</code>. <b>Book defect</b> on the board row (or the map tab, or the mobile app) calls <code>POST /faults/{id}/defect</code> → <code>wam.CreateDefect</code> (source = <b>outage</b>, carrying the fault’s <code>incident_id</code>; title defaults to “Fault damage: &lt;title&gt;”; severity defaults to <b>medium</b>), then writes <code>defect_id</code> back onto the fault, in one transaction. It needs an asset or a location and no existing defect. The defect then becomes a <b>work order</b> inside WAM — the fault does <em>not</em> create the work order directly. The web board and map tab hide the button once a fault is <code>closed</code>; the API does not.</p>
+  <div class="widget" id="w10">
+    <div class="w-head"><span class="eyebrow">Interactive · 10</span><h4>Book a defect — preconditions and result</h4></div>
+    <div class="w-bar"><label class="lab" for="w10-f">Fault</label><select class="fld" id="w10-f" style="width:auto;max-width:100%"></select><span id="w10-lock"></span></div>
+    <div class="w-body"><div id="w10-pre"></div><div class="fgrid" style="margin-top:8px"><label><span class="lab">severity (optional)</span><select class="fld" id="w10-s"><option value=""></option><option>low</option><option>medium</option><option>high</option><option>critical</option><option>urgent</option></select></label><label><span class="lab">title (optional)</span><input class="fld" id="w10-t" type="text"></label></div>
+    <div class="w-bar" style="padding:10px 0 0;border:0"><button class="btn pri" id="w10-go">Book defect</button></div><div id="w10-out"></div></div>
+  </div>
+  <div class="tip"><b>One-directional dependency.</b> <code>faults</code> imports <code>wam</code> (to book a defect) but <b>not</b> <code>oms</code> (the incident link is raw cross-schema SQL). The graph is <code>faults → wam</code>; <code>faults ↔ oms</code> is DB-only — no import cycle. The impact trace likewise reuses the shared <code>trace</code> engine rather than importing OMS.</div>
+</section>
+
+<!-- ============ CH7 ============ -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">07</div><h2>Impact &amp; the map</h2><p>Where a fault’s marker goes, what “impact” counts, and how the board filters.</p></div>
+  <h3>7.1 The map overlay</h3>
+  <p><code>GET /faults/map</code> returns every fault with a <b>resolvable point</b>, filterable like the board. An asset-anchored fault is drawn <b>on its asset</b>: a marker guaranteed to lie on the geometry (<code>ST_ClosestPoint(geom, centroid)</code>) plus the asset’s full GeoJSON for the highlight. Asset geometry is preferred over a pin when both exist. A location-only fault keeps its pin. <b>Omitted</b>: incident-only faults, and faults whose asset class is uncompiled, deleted or geometry-less with no pin. The layer is <b>off by default</b>; its legend shows only <code>detected</code> and <code>investigating</code> until you tick <code>cleared</code>/<code>closed</code>; live faults pulse (unless the OS asks for reduced motion). Clicking a marker draws its impact area.</p>
+  <div class="widget" id="w11">
+    <div class="w-head"><span class="eyebrow">Interactive · 11</span><h4>Where does each fault’s marker go?</h4></div>
+    <div class="w-bar"><label><input type="checkbox" id="w11-v"> Faults layer visible</label><span class="lab">legend</span><span id="w11-l"></span></div>
+    <div class="w-split"><div class="w-main"><svg id="w11-svg" viewBox="0 0 520 260" width="100%" role="img" aria-label="Fault map overlay"></svg></div><div class="w-side" id="w11-side"></div></div>
+  </div>
+  <h3>7.2 The impact area</h3>
+  <p><code>GET /faults/{id}/impact</code> answers <i>“what did this fault take out?”</i>: it walks <b>downstream of the fault’s protective device</b> and returns the de-energised <b>service points</b> below it (<code>FaultImpact</code>, <code>geometry.go</code>). It counts only <code>SERVICE_POINT</code> features and is <b>barrier-free / topological</b> — the same conservative basis the OMS impact trace uses, per the code comment. A fault with no protective device returns an empty, non-null list. Try it:</p>
+  <div class="widget" id="w12">
+    <div class="w-head"><span class="eyebrow">Interactive · 12</span><h4>Downstream of the protective device</h4></div>
+    <div class="w-bar"><label class="lab">Device that operated</label><div class="seg" id="w12-d"></div><label><input type="checkbox" id="w12-b"> treat open switches as barriers <span class="mini">(a what-if — the engine does not)</span></label></div>
+    <div class="w-split"><div class="w-main"><svg id="w12-svg" viewBox="0 0 760 200" width="100%" role="img" aria-label="Feeder 7 downstream trace"></svg></div><div class="w-side" id="w12-side"></div></div>
+  </div>
+  <h3>7.3 Filters (board and map)</h3>
+  <p><code>?status=</code>, <code>?open=true</code> (anything not <code>cleared</code>/<code>closed</code> — and it <b>overrides</b> <code>status</code> when both are sent), <code>?fault_type=</code>, <code>?asset_class=&amp;asset_id=</code> (one asset’s history), <code>?incident_id=</code> (all faults on one outage). Results are newest-detected first.</p>
+  <div class="widget" id="w13">
+    <div class="w-head"><span class="eyebrow">Interactive · 13</span><h4>Board query builder</h4></div>
+    <div class="w-bar"><div class="fgrid" style="width:100%"><label><span class="lab">status</span><select class="fld" id="w13-s"><option value=""></option></select></label><label><span class="lab">fault_type</span><select class="fld" id="w13-t"><option value=""></option></select></label><label><span class="lab">asset</span><select class="fld" id="w13-a"><option value=""></option></select></label><label><span class="lab">incident</span><select class="fld" id="w13-i"><option value=""></option></select></label><label><span class="lab">open only</span><input type="checkbox" id="w13-o"></label></div></div>
+    <div class="w-body" id="w13-out"></div>
+  </div>
+</section>
+
+<!-- ============ CH8 ============ -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">08</div><h2>Automation &amp; integration</h2><p>Outbound events, inbound ingestion, agent tools, offline sync.</p></div>
+  <ul>
+    <li><b>Outbound webhooks.</b> <code>CreateFault</code> emits <code>faults.event.raised</code>; a status change emits <code>faults.event.cleared</code> (on <code>cleared</code>/<code>closed</code>) or <code>faults.event.updated</code> (<code>webhookout/outbox.go</code>). A findings PATCH and a defect booking emit <b>no</b> event. Wire these to a downstream CIS/WMS.</li>
+    <li><b>Inbound webhooks.</b> An ingestion endpoint with target <code>fault</code> (<code>webhook/adapter_ops.go</code>) creates or updates faults from the sender’s own <code>external_id</code>: first sight creates (same validation and anchor rule as a hand edit); a repeat patches findings and/or sets <code>status</code>. <code>op</code> must be <code>upsert</code> — a fault is never webhook-deleted — and the acting identity needs <code>faults:write</code>.</li>
+    <li><b>Agent / MCP tools</b> (<code>agenttools/tools_faults.go</code>) — each carries its route’s permission. Reads: <code>faults_list</code>, <code>faults_get</code>, <code>faults_list_history</code>, <code>faults_list_map</code>, <code>faults_impact_area</code>. Writes: <code>faults_create</code>, <code>faults_set_status</code>, <code>faults_update</code>, <code>faults_raise_from_incident</code>, <code>faults_book_defect</code> (annotated “confirm with a human”).</li>
+    <li><b>Offline sync.</b> Sync ops <code>fault_create</code>, <code>fault_status</code>, <code>fault_book_defect</code> (<code>fieldpack/sync.go</code>); there is <b>no</b> offline findings-update op. The Flutter field app has a Faults screen (raise fault, update status, book defect). Book-defect replay is idempotent on the fault’s own <code>defect_id</code>. The submitting user is stamped as <code>detected_by</code>/<code>reported_by</code>. The sync endpoint’s own permission gate is outside this guide (not verified here).</li></ul>
+  <div class="widget" id="w14">
+    <div class="w-head"><span class="eyebrow">Interactive · 14</span><h4>Which write leaves which trace?</h4></div>
+    <div class="w-bar"><div class="seg" id="w14-m"><button data-m="out" aria-pressed="true">Run an operation</button><button data-m="in">Inbound webhook payload</button></div><span id="w14-lock"></span></div>
+    <div id="w14-a"><div class="w-bar"><label class="lab" for="w14-f">Target fault</label><select class="fld" id="w14-f" style="width:auto;max-width:100%"></select></div>
+      <div class="w-bar" id="w14-ops"></div><div class="w-body" id="w14-out"></div></div>
+    <div id="w14-b" style="display:none"><div class="w-body"><textarea class="fld" id="w14-p" spellcheck="false" aria-label="Inbound payload"></textarea><div class="w-bar" style="padding:8px 0 0;border:0"><button class="btn pri" id="w14-go">POST to a target=fault endpoint</button><button class="btn" id="w14-ex1">First sight</button><button class="btn" id="w14-ex2">Repeat: findings + clear</button><button class="btn" id="w14-ex3">op: delete</button><button class="btn" id="w14-ex4">No external_id</button></div><div id="w14-bo"></div></div></div>
+  </div>
+</section>
+
+<!-- ============ CH9 ============ -->
+<section class="ch" id="c9">
+  <div class="ch-head"><div class="ch-num">09</div><h2>Worked example — an earth fault on Feeder 7, end to end</h2><p>A cable dig-in below FSW-12, from detection to closed repair.</p></div>
+  <p>A contractor’s excavator strikes the 11 kV cable on the tee below <b>FSW-12</b> (the fused switch feeding <b>TX-220</b>). The 100 T fuse clears it; <b>TX-220 and its LV go dark</b>. SCADA flags loss of supply and an outage is already on the OMS board. Step through it — every step runs the <b>real engine functions</b> against the shared sandbox (acting as the named person, regardless of the “As” selector).</p>
+  <div class="widget" id="w15">
+    <div class="w-head"><span class="eyebrow">Interactive · 15</span><h4>Feeder 7, step by step</h4></div>
+    <div class="w-bar"><div class="seg" id="w15-s"></div><button class="btn" id="w15-r">Restart story</button></div>
+    <div class="w-split"><div class="w-main" id="w15-m"></div><div class="w-side" id="w15-side"></div></div>
+  </div>
+  <p class="mini">Two honest notes: Priya’s findings (steps 3–4) are API calls today — the board has no edit screen — and the ⚡ button on the Outages page sends no body, so the title and device come from the incident unless she patches them. Tom’s comparison of 3,900 A against the study’s prospective 3,913 A is a human act across two separate calls (chapter 1).</p>
+</section>
+
+<!-- ============ CH10 ============ -->
+<section class="ch" id="c10">
+  <div class="ch-head"><div class="ch-num">10</div><h2>Reference, limits and corrections</h2><p>Enums, endpoints with real status codes, honest limits, what the manual got wrong.</p></div>
+  <h3>10.1 Enums</h3>
+  <div class="tbl"><table>
+    <tr><th>Field</th><th>Values</th></tr>
+    <tr><td><code>status</code></td><td><code>detected</code>, <code>investigating</code>, <code>cleared</code>, <code>closed</code></td></tr>
+    <tr><td><code>fault_type</code></td><td><code>SLG</code> single line-to-ground · <code>LL</code> line-to-line · <code>LLG</code> double line-to-ground · <code>LLL</code> three-phase · <code>LLLG</code> three-phase-to-ground · <code>earth</code> generic earth fault · <code>unknown</code> — or null</td></tr>
+    <tr><td><code>cause</code></td><td><b>free text</b> — e.g. dig_in, vegetation, lightning, animal, third_party, equipment_failure</td></tr>
+    <tr><td><code>detected_by</code></td><td><b>free text</b> — e.g. scada, protection_relay, field_crew, customer_call, model</td></tr>
+    <tr><td>history <code>action</code></td><td><code>created</code>, <code>status_changed</code>, <code>updated</code>, <code>defect_booked</code></td></tr>
+    <tr><td>outbound event</td><td><code>faults.event.raised</code>, <code>faults.event.cleared</code>, <code>faults.event.updated</code></td></tr></table></div>
+  <h3>10.2 Endpoints — try them</h3>
+  <p>Mounted at <code>/faults</code> (the web app reaches it under <code>/api</code>), method-aware <code>faults:read</code>/<code>faults:write</code>. Errors are always <code>{"error": "…"}</code>. Client-fixable validation is <b>400</b>; <b>an unknown fault id is also a 400</b> (not 404); database-level violations are <b>500</b>.</p>
+  <div class="widget" id="w16">
+    <div class="w-head"><span class="eyebrow">Interactive · 16</span><h4>Endpoint tester</h4></div>
+    <div class="w-bar"><label class="lab" for="w16-e">Endpoint</label><select class="fld" id="w16-e" style="width:auto;max-width:100%"></select><label class="lab" for="w16-i">Id</label><select class="fld" id="w16-i" style="width:auto;max-width:100%"></select><span id="w16-lock"></span></div>
+    <div class="w-body"><div class="mini" id="w16-d"></div><textarea class="fld" id="w16-b" spellcheck="false" aria-label="Request body" style="min-height:90px;margin-top:6px"></textarea><div class="w-bar" style="padding:8px 0 0;border:0"><button class="btn pri" id="w16-go">Send</button></div><div id="w16-out"></div></div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>Method · Path</th><th>Perm</th><th>Does</th><th>Success</th></tr>
+    <tr><td><code>GET /faults</code></td><td>read</td><td>Board list, newest first; filters</td><td>200 <code>{"faults":[…]}</code></td></tr>
+    <tr><td><code>GET /faults/map</code></td><td>read</td><td>Faults with a placeable point</td><td>200</td></tr>
+    <tr><td><code>GET /faults/{id}</code></td><td>read</td><td>One fault</td><td>200</td></tr>
+    <tr><td><code>GET /faults/{id}/history</code></td><td>read</td><td>Audit timeline, newest first</td><td>200 <code>{"history":[…]}</code></td></tr>
+    <tr><td><code>GET /faults/{id}/impact</code></td><td>read</td><td>De-energised service points below the device</td><td>200</td></tr>
+    <tr><td><code>POST /faults</code></td><td>write</td><td>Log a fault (title + anchor); starts detected</td><td><b>201</b></td></tr>
+    <tr><td><code>PATCH /faults/{id}</code></td><td>write</td><td>Sparse patch of findings (not status)</td><td>200</td></tr>
+    <tr><td><code>POST /faults/{id}/status</code></td><td>write</td><td>Transition the lifecycle</td><td>200</td></tr>
+    <tr><td><code>POST /faults/{id}/defect</code></td><td>write</td><td>Book a WAM defect, link defect_id</td><td><b>201</b></td></tr>
+    <tr><td><code>POST /faults/from-incident/{id}</code></td><td>write</td><td>Raise a fault from an OMS incident</td><td><b>201</b></td></tr></table></div>
+  <div class="tip">Calling from outside the web app? The API authenticates with the session cookie and, for any mutating request, a double-submit CSRF header (<code>X-CSRF-Token</code> echoing the <code>ve_csrf</code> cookie) — see the recipes in chapter 11.</div>
+  <h3>10.3 Honest limits — can the module do this?</h3>
+  <div class="widget" id="w17">
+    <div class="w-head"><span class="eyebrow">Interactive · 17</span><h4>“Can I…?” — the honest-limits checker</h4></div>
+    <div class="w-bar"><input type="text" id="w17-q" placeholder="filter, e.g. territory, work order, severity…" aria-label="Filter limits" style="max-width:320px"><span class="mini" id="w17-n"></span></div>
+    <div id="w17-l"></div>
+  </div>
+  <h3>10.4 Related guides</h3>
+  <ul><li><b>OMS — Outage Management</b> — the incident side; a fault <em>explains</em> an incident.</li><li><b>Works, Inspections &amp; Maintenance</b> — the defect/work-order side; a fault <em>books</em> a defect.</li><li><b>Switching &amp; Protection</b> — the protective devices that clear a fault and the de-energised cone one leaves.</li><li><b>Engineering Studies</b> — the <em>fault-current</em> calculation (<code>/analysis/fault-current</code>) a recorded <code>fault_current_a</code> can be checked against.</li></ul>
+  <h3>10.5 Corrections made to the manual</h3>
+  <div class="caution"><ul style="margin:0;padding-left:18px">
+    <li><b>Webhook names.</b> Manual said <code>fault.raised/cleared/updated</code>; the code emits <code>faults.event.raised/cleared/updated</code> (<code>webhookout/outbox.go:51-53</code>), and only create and status change emit — not PATCH or book-defect.</li>
+    <li><b>Offline idempotency.</b> Manual said a device can mint an id and <code>POST /faults</code>; the REST body has no <code>id</code> field (<code>faults/http.go:92-110</code>). The idempotent path is the sync <code>fault_create</code> op (<code>fieldpack/sync.go</code> <code>applyFaultsOp</code>).</li>
+    <li><b>Log-fault dialog.</b> Manual listed the protective device and an incident anchor; the dialog (<code>routes/faults.tsx</code> <code>LogFaultDialog</code>) has no device, reference, notes or incident field, and Save needs an asset or location. The board also defaults to <b>Open only</b>, not “every fault”.</li>
+    <li><b>Findings edit.</b> Manual implied operators patch findings from the board; <code>useUpdateFault</code> (<code>hooks/use-faults.ts</code>) is unused by any screen — API/agent/webhook only.</li>
+    <li><b>Raise-fault button.</b> Icon-only, hidden for cancelled incidents, sends an empty body (<code>routes/outages.tsx</code>), so the title is “Fault behind incident”.</li>
+    <li><b>Added, not wrong:</b> inbound-webhook <code>fault</code> target, offline ops, mobile Faults screen, map-overlay defaults, impact-area limits, unknown-id → 400.</li></ul></div>
+</section>
+
+<!-- ============ CH11 ============ -->
+<section class="ch" id="c11">
+  <div class="ch-head"><div class="ch-num">11</div><h2>When it goes wrong, recipes and a quiz</h2><p>Symptoms to causes, copy-pasteable calls, eight questions.</p></div>
+  <div class="widget" id="w18">
+    <div class="w-head"><span class="eyebrow">Interactive · 18</span><h4>Troubleshooting explorer</h4></div>
+    <div class="w-bar"><input type="text" id="t-q" placeholder="search symptoms…" aria-label="Search symptoms" style="max-width:320px"><span class="mini" id="t-n"></span></div>
+    <div id="t-list"></div>
+  </div>
+  <h3>Recipe sheet</h3>
+  <p class="mini">Paths are relative to the API root (the web app uses <code>/api</code>). Authentication is the session cookie; mutating calls also need <code>X-CSRF-Token</code> (the value of the <code>ve_csrf</code> cookie). <code>$B</code> is your base URL, <code>$FID</code> a fault id.</p>
+  <div class="widget" id="rc"><div class="w-bar"><div class="seg" id="rc-s"></div></div><div class="w-body" id="rc-o"></div></div>
+  <h3>Quiz</h3>
+  <div id="qz"></div>
+</section>
+<footer style="max-width:1040px;margin:0 auto;padding:0 20px 60px"><p class="muted" style="font-size:13px">VoltEdge · Faults — interactive edition. Every widget runs on a simulated store held entirely in your browser; nothing here talks to a server and nothing here changes real faults. The validation order, error strings, status codes, lifecycle, history and event rules mirror <code>api/internal/faults</code>, <code>webhook/adapter_ops.go</code>, <code>fieldpack/sync.go</code> and the web screens; asset names and ids are illustrative. Items marked “by code reading” were not run against a live server.</p></footer>
+
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+function seg(sel,cb){ const el=$(sel); el.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b||b.disabled) return; el.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); cb(b)}); }
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nf=(x,d=0)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+/* ---------- personas: real roles from migration 0025 / 0107 ---------- */
+const ROLEPERMS={viewer:['faults:read'],analyst:['faults:read'],editor:['faults:read','faults:write'],admin:['faults:read','faults:write'],'break-glass-admin':['faults:read','faults:write']};
+const PERSONAS=[['vic','Vic · viewer',{role:'viewer',fr:1}],['tom','Tom · analyst',{role:'analyst',fr:1}],['priya','Priya · editor',{role:'editor',fr:1,fw:1}],['ada','Ada · admin',{role:'admin',fr:1,fw:1}]];
+let PERSONA=PERSONAS[2]; const personaL=[]; const PNAME={fr:'faults:read',fw:'faults:write'};
+const can=p=>!!PERSONA[2][p];
+const pname=()=>PERSONA[1].split(' · ')[0];
+const lockTip=p=>`<span class="gate locked" title="${pname()} lacks ${PNAME[p]}">needs ${PNAME[p]} — switch “As” to a persona that has it</span>`;
+function onPersona(fn){ personaL.push(fn); fn(); }
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=PERSONAS.map(p=>`<option value="${p[0]}"${p===PERSONA?' selected':''}>${p[1]}</option>`).join(''); sel.onchange=()=>{ PERSONA=PERSONAS.find(p=>p[0]===sel.value); personaL.forEach(f=>f()); }; })();
+const pill=(t,c)=>`<span class="pill ${c||''}">${t}</span>`;
+const stc=s=>`<span class="st ${s}">${s}</span>`;
+
+/* ======================================================================
+   THE SANDBOX: a JS port of api/internal/faults (store.go, http.go,
+   geometry.go, history.go) over an in-memory store.  Same validation order,
+   same error strings, same status mapping (InvalidError -> 400, anything
+   else -> 500).  Nothing here talks to a server.
+   ====================================================================== */
+const FT=['SLG','LL','LLG','LLL','LLLG','earth','unknown'];
+const STS=['detected','investigating','cleared','closed'];
+const UU=n=>'7e57ed00-0000-4000-8000-'+String(n).padStart(12,'0');
+const UUIDRE=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const sid=id=>String(id||'').slice(0,8);
+/* network assets (class codes are real: MV_SWITCH, MV_CONDUCTOR, TRANSFORMER, MV_BREAKER, SERVICE_POINT; names are the guide's running example) */
+const AS={};
+[[1,'MV_SWITCH','FSW-12',-0.1834,5.6012,1],[2,'MV_CONDUCTOR','Cable tee below FSW-12',-0.1830,5.6004,1],[3,'TRANSFORMER','TX-220',-0.1826,5.5997,1],
+ [4,'OLD_RECLOSER','Legacy recloser (class not compiled)',0,0,0],[5,'MV_BREAKER','CB-F7',-0.1850,5.6050,1],[6,'MV_SWITCH','FSW-9',-0.1790,5.6030,1],[7,'TRANSFORMER','TX-114',-0.1780,5.6021,1],[8,'MV_SWITCH','TIE-3 (normally open)',-0.1822,5.5990,1],[9,'TRANSFORMER','TX-301',-0.1818,5.5984,1]]
+ .forEach(a=>{ AS[UU(a[0])]={id:UU(a[0]),cls:a[1],name:a[2],lon:a[3],lat:a[4],geom:!!a[5]}; });
+const A_FSW=UU(1),A_TEE=UU(2),A_TX=UU(3),A_OLD=UU(4),A_CB=UU(5),A_F9=UU(6),A_TX114=UU(7),A_TIE=UU(8),A_TX301=UU(9);
+const INC={}; [[901,'Loss of supply on TX-220 (Feeder 7)','confirmed',['MV_SWITCH',A_FSW],'cable_fault'],[902,'LV fuse operations, Mill Road','predicted',null,null],[903,'Cancelled: false alarm','cancelled',['MV_SWITCH',A_FSW],'unknown']]
+ .forEach(i=>{ INC[UU(i[0])]={id:UU(i[0]),name:i[1],status:i[2],pred:i[3],cause:i[4]}; });
+/* downstream topology (parent -> children) used by the impact trace */
+const NET={ [A_CB]:[A_FSW,A_F9], [A_FSW]:[A_TEE], [A_TEE]:[A_TX,A_TIE], [A_TX]:['sp:SP-220-1','sp:SP-220-2','sp:SP-220-3','sp:SP-220-4'], [A_TIE]:[A_TX301], [A_TX301]:['sp:SP-301-1','sp:SP-301-2'], [A_F9]:[A_TX114], [A_TX114]:['sp:SP-114-1','sp:SP-114-2','sp:SP-114-3'] };
+const OPEN_SW={[A_TIE]:1};
+function downstreamSPs(devId,barriers){ const out=[]; const seen={}; (function walk(n){ if(seen[n]) return; seen[n]=1; (NET[n]||[]).forEach(c=>{ if(String(c).startsWith('sp:')) out.push(c.slice(3)); else if(!(barriers&&OPEN_SW[c])) walk(c); }); })(devId); return out.sort(); }
+
+const SB={f:[],h:[],hooks:[],defects:[],clock:0,hid:0,uid:0};
+function sbReset(seed){ SB.f=[];SB.h=[];SB.hooks=[];SB.defects=[];SB.hid=0;SB.uid=100;SB.clock=Date.UTC(2026,9,11,9,0); if(seed!==false) seedDemo(); }
+const tick=(m)=>{ SB.clock+=60000*(m||7); return new Date(SB.clock).toISOString(); };
+const newId=()=>UU(++SB.uid+5000);
+const trim=v=>v==null?'':String(v).trim();
+const E4=m=>({status:400,body:{error:m}}); const E5=m=>({status:500,body:{error:m}});
+const oneOf=(f,v,al)=>al.includes(v)?null:`invalid ${f} ${JSON.stringify(v)}: want one of ${al.join(', ')}`;
+const clone=o=>JSON.parse(JSON.stringify(o));
+/* JSON decode type check (Go's encoding/json) */
+function decodeCheck(body,schema,typeName){ for(const k in schema){ const v=body[k]; if(v===undefined||v===null) continue; const want=schema[k]; const got=typeof v; const ok=(want==='string'&&got==='string')||(want==='float64'&&got==='number'); if(!ok){ const gn=Array.isArray(v)?'array':got==='object'?'object':got==='boolean'?'bool':got; return `invalid request body: json: cannot unmarshal ${gn} into Go struct field ${typeName}.${k} of type ${want}`; } } return null; }
+const CREATE_SCHEMA={reference:'string',asset_class:'string',asset_id:'string',longitude:'float64',latitude:'float64',fault_type:'string',cause:'string',fault_current_a:'float64',protective_device_class:'string',protective_device_id:'string',clearing_time_ms:'float64',detected_by:'string',detected_at:'string',incident_id:'string',defect_id:'string',title:'string',description:'string',notes:'string'};
+const UPDATE_SCHEMA={reference:'string',fault_type:'string',cause:'string',fault_current_a:'float64',protective_device_class:'string',protective_device_id:'string',clearing_time_ms:'float64',detected_by:'string',incident_id:'string',title:'string',description:'string',notes:'string'};
+const has=(p,k)=>p[k]!==undefined&&p[k]!==null;
+function hist(action,f,actor){ SB.h.push({id:++SB.hid,fault_id:f.id,action,actor:actor||null,at:tick(0.2),snapshot:clone(f)}); }
+function hook(ev,f){ SB.hooks.push({event:ev,fault_id:f.id,status:f.status,at:SB.clock}); }
+const fget=id=>SB.f.find(x=>x.id===id);
+const NOEXIST=id=>`fault ${JSON.stringify(id)} does not exist`;
+function uuidErr(v){ return UUIDRE.test(v)?null:`ERROR: invalid input syntax for type uuid: "${v}" (SQLSTATE 22P02)`; }
+
+function createFault(p,o){ o=o||{};
+  if(trim(p.title)==='') return E4('a fault needs a title');
+  const ac=trim(p.asset_class), ai=trim(p.asset_id);
+  if((ac==='')!==(ai==='')) return E4('a fault asset needs both asset_class and asset_id');
+  const dc=trim(p.protective_device_class), di=trim(p.protective_device_id);
+  if((dc==='')!==(di==='')) return E4('a protective device needs both protective_device_class and protective_device_id');
+  const hLng=p.longitude!=null, hLat=p.latitude!=null;
+  if(hLng!==hLat) return E4('a fault location needs both longitude and latitude, or neither');
+  const inc=trim(p.incident_id);
+  const hasAsset=ac!==''&&ai!=='', hasLoc=hLng&&hLat, hasInc=inc!=='';
+  if(!hasAsset&&!hasLoc&&!hasInc) return E4('a fault needs an anchor: an asset (asset_class and asset_id), a location, or an incident_id');
+  if(p.fault_type!=null&&trim(p.fault_type)!==''){ const e=oneOf('fault_type',trim(p.fault_type),FT); if(e) return E4(e); }
+  /* ---- database layer: anything below is a plain error -> HTTP 500 ---- */
+  const idempotent=o.id!=null&&trim(o.id)!=='';
+  for(const [k,v] of [['asset_id',ai],['protective_device_id',di],['incident_id',inc],['defect_id',trim(p.defect_id)]]) if(v!==''){ const e=uuidErr(v); if(e) return E5('faults: inserting fault event: '+e); }
+  if(idempotent){ const e=uuidErr(trim(o.id)); if(e) return E5('faults: inserting fault event: '+e); const ex=fget(trim(o.id)); if(ex) return {status:200,body:clone(ex),replay:true}; }
+  if(p.fault_current_a!=null&&p.fault_current_a<0) return E5('faults: inserting fault event: ERROR: new row for relation "fault_events" violates check constraint "fault_events_fault_current_a_check" (SQLSTATE 23514)');
+  if(p.clearing_time_ms!=null&&p.clearing_time_ms<0) return E5('faults: inserting fault event: ERROR: new row for relation "fault_events" violates check constraint "fault_events_clearing_time_ms_check" (SQLSTATE 23514)');
+  const f={id:idempotent?trim(o.id):newId(),reference:p.reference!=null?trim(p.reference):null,asset_class:hasAsset?ac:null,asset_id:hasAsset?ai:null,longitude:hasLoc?p.longitude:null,latitude:hasLoc?p.latitude:null,fault_type:trim(p.fault_type)!==''&&p.fault_type!=null?trim(p.fault_type):null,cause:p.cause!=null?trim(p.cause):null,fault_current_a:p.fault_current_a!=null?p.fault_current_a:null,protective_device_class:dc!==''?dc:null,protective_device_id:dc!==''?di:null,clearing_time_ms:p.clearing_time_ms!=null?p.clearing_time_ms:null,status:'detected',detected_by:p.detected_by!=null?trim(p.detected_by):null,detected_at:p.detected_at||tick(),cleared_at:null,incident_id:hasInc?inc:null,defect_id:trim(p.defect_id)!==''?trim(p.defect_id):null,title:trim(p.title),description:p.description!=null?p.description:null,notes:p.notes!=null?p.notes:null,created_at:'',updated_at:''};
+  f.created_at=f.updated_at=new Date(SB.clock).toISOString();
+  SB.f.push(f); hist('created',f,o.actor); hook('faults.event.raised',f);
+  return {status:201,body:clone(f)};
+}
+function updateFault(id,p,o){ o=o||{};
+  if(has(p,'protective_device_class')!==has(p,'protective_device_id')) return E4('patch both protective_device_class and protective_device_id together, or neither');
+  const sets={}; let n=0;
+  if(has(p,'reference')){ sets.reference=trim(p.reference); n++; }
+  if(has(p,'fault_type')){ const ft=trim(p.fault_type); if(ft===''){ sets.fault_type=null; } else { const e=oneOf('fault_type',ft,FT); if(e) return E4(e); sets.fault_type=ft; } n++; }
+  if(has(p,'cause')){ sets.cause=trim(p.cause); n++; }
+  if(has(p,'fault_current_a')){ sets.fault_current_a=p.fault_current_a; n++; }
+  if(has(p,'protective_device_class')&&has(p,'protective_device_id')){ const dc=trim(p.protective_device_class), di=trim(p.protective_device_id); if((dc==='')!==(di==='')) return E4('a protective device needs both class and id, or clear both'); sets.protective_device_class=dc||null; sets.protective_device_id=di||null; n+=2; }
+  if(has(p,'clearing_time_ms')){ sets.clearing_time_ms=p.clearing_time_ms; n++; }
+  if(has(p,'detected_by')){ sets.detected_by=trim(p.detected_by); n++; }
+  if(has(p,'incident_id')){ const i=trim(p.incident_id); sets.incident_id=i||null; n++; }
+  if(has(p,'title')){ if(trim(p.title)==='') return E4('a fault needs a title'); sets.title=trim(p.title); n++; }
+  if(has(p,'description')){ sets.description=p.description; n++; }
+  if(has(p,'notes')){ sets.notes=p.notes; n++; }
+  if(n===0) return E4('no fields to update');
+  const f=fget(id); if(!f) return E4(NOEXIST(id));
+  if(sets.protective_device_id){ const e=uuidErr(sets.protective_device_id); if(e) return E5(`faults: updating fault ${id}: `+e); }
+  if(sets.incident_id){ const e=uuidErr(sets.incident_id); if(e) return E5(`faults: updating fault ${id}: `+e); }
+  if(sets.fault_current_a!=null&&sets.fault_current_a<0) return E5(`faults: updating fault ${id}: ERROR: new row for relation "fault_events" violates check constraint "fault_events_fault_current_a_check" (SQLSTATE 23514)`);
+  if(sets.clearing_time_ms!=null&&sets.clearing_time_ms<0) return E5(`faults: updating fault ${id}: ERROR: new row for relation "fault_events" violates check constraint "fault_events_clearing_time_ms_check" (SQLSTATE 23514)`);
+  const after=Object.assign({},f,sets);
+  if(!(after.asset_id||(after.longitude!=null&&after.latitude!=null)||after.incident_id)) return E5(`faults: updating fault ${id}: ERROR: new row for relation "fault_events" violates check constraint "fault_events_anchor_ck" (SQLSTATE 23514)`);
+  Object.assign(f,sets); f.updated_at=new Date(SB.clock).toISOString();
+  hist('updated',f,o.actor);       /* NOTE: no webhook event on a findings patch */
+  return {status:200,body:clone(f)};
+}
+function setStatus(id,status,o){ o=o||{};
+  const e=oneOf('status',status==null?'':status,STS); if(e) return E4(e);
+  const f=fget(id); if(!f) return E4(NOEXIST(id));
+  const terminal=status==='cleared'||status==='closed';
+  f.status=status; f.cleared_at=terminal?(f.cleared_at||new Date(tick()).toISOString()):null; f.updated_at=new Date(SB.clock).toISOString();
+  hist('status_changed',f,o.actor); hook(terminal?'faults.event.cleared':'faults.event.updated',f);
+  return {status:200,body:clone(f)};
+}
+function raiseFromIncident(incId,p,o){ o=o||{}; p=p||{};
+  const inc=INC[incId]; if(!inc) return E4(`incident ${JSON.stringify(incId)} does not exist`);
+  const cp={title:(p.title!=null&&trim(p.title)!=='')?trim(p.title):'Fault behind incident',incident_id:incId,fault_type:p.fault_type,detected_by:p.detected_by,notes:p.notes};
+  if(p.cause!=null&&trim(p.cause)!=='') cp.cause=p.cause; else if(inc.cause) cp.cause=inc.cause;
+  if(inc.pred){ cp.protective_device_class=inc.pred[0]; cp.protective_device_id=inc.pred[1]; }
+  return createFault(cp,o);
+}
+function bookDefect(id,p,o){ o=o||{}; p=p||{};
+  const f=fget(id); if(!f) return E4(NOEXIST(id));
+  if(f.defect_id) return E4(`fault ${JSON.stringify(id)} already has a booked defect`);
+  const hasAsset=!!(f.asset_class&&f.asset_id), hasLoc=f.longitude!=null&&f.latitude!=null;
+  if(!hasAsset&&!hasLoc) return E4(`fault ${JSON.stringify(id)} has no asset or location to book a defect against`);
+  const sev=(p.severity!=null&&trim(p.severity)!=='')?trim(p.severity):'medium';
+  const e=oneOf('severity',sev,['low','medium','high','critical']);
+  if(e) return E5(e);  /* wam's InvalidError is not faults' InvalidError -> writeError maps it to 500 */
+  const d={id:newId(),source:'outage',incident_id:f.incident_id,title:(p.title!=null&&trim(p.title)!=='')?trim(p.title):'Fault damage: '+f.title,severity:sev,asset_class:hasAsset?f.asset_class:null,asset_id:hasAsset?f.asset_id:null,defect_type:p.defect_type!=null?trim(p.defect_type):null};
+  SB.defects.push(d); f.defect_id=d.id; f.updated_at=new Date(SB.clock).toISOString();
+  hist('defect_booked',f,o.actor);  /* no webhook event on booking */
+  return {status:201,body:clone(f),defect:d};
+}
+function listFaults(q){ q=q||{}; let r=SB.f.slice();
+  if(q.open==='true') r=r.filter(f=>f.status!=='cleared'&&f.status!=='closed'); else if(q.status) r=r.filter(f=>f.status===q.status);
+  if(q.fault_type) r=r.filter(f=>f.fault_type===q.fault_type);
+  if(q.asset_class) r=r.filter(f=>f.asset_class===q.asset_class);
+  if(q.asset_id) r=r.filter(f=>f.asset_id===q.asset_id);
+  if(q.incident_id) r=r.filter(f=>f.incident_id===q.incident_id);
+  return r.sort((a,b)=>b.detected_at.localeCompare(a.detected_at)); }
+function mapMarkers(q){ return listFaults(q).map(f=>{ const a=f.asset_id&&AS[f.asset_id]; if(a&&a.geom) return {fault:f,via:'asset geometry',lon:a.lon,lat:a.lat,geometry:true}; if(f.longitude!=null&&f.latitude!=null) return {fault:f,via:'location pin',lon:f.longitude,lat:f.latitude,geometry:false}; return {fault:f,via:null}; }); }
+function impactOf(id){ const f=fget(id); if(!f) return E4(NOEXIST(id)); const body={fault_id:f.id,device_class:f.protective_device_class,device_id:f.protective_device_id,service_points:[]}; if(f.protective_device_id) body.service_points=downstreamSPs(f.protective_device_id,false).map(n=>({name:n})); return {status:200,body}; }
+
+/* ---------- the router: method-aware gate + chi routes (http.go, main.go:279) ---------- */
+function call(method,fullPath,body,opt){ opt=opt||{};
+  const [path,qs]=fullPath.split('?'); const q={}; (qs||'').split('&').filter(Boolean).forEach(kv=>{ const [k,v]=kv.split('='); q[decodeURIComponent(k)]=decodeURIComponent(v||''); });
+  const needW=!['GET','HEAD','OPTIONS'].includes(method);
+  if(!opt.bypass){ const ok=needW?can('fw'):can('fr'); if(!ok) return {status:403,body:{error:`you do not have the required permission (${needW?'faults:write':'faults:read'})`}}; }
+  const actor=opt.actor||pname();
+  const seg=path.replace(/^\/faults/,'').split('/').filter(Boolean);
+  const schemaErr=(s,n)=>body&&typeof body==='object'?decodeCheck(body,s,n):null;
+  const bodyObj=body&&typeof body==='object'&&!Array.isArray(body)?body:{};
+  if(seg.length===0){ if(method==='GET') return {status:200,body:{faults:listFaults(q).map(clone)}}; if(method==='POST'){ const se=schemaErr(CREATE_SCHEMA,'createFaultRequest'); if(se) return E4(se); return createFault(bodyObj,{actor}); } return {status:405,body:''}; }
+  if(seg[0]==='map'&&seg.length===1){ if(method!=='GET') return {status:405,body:''}; return {status:200,body:{faults:mapMarkers(q).filter(m=>m.via).map(m=>Object.assign(clone(m.fault),{longitude:m.lon,latitude:m.lat}))}}; }
+  if(seg[0]==='from-incident'&&seg.length===2){ if(method!=='POST') return {status:405,body:''}; return raiseFromIncident(seg[1],bodyObj,{actor}); }
+  const id=seg[0];
+  if(seg.length===1){ if(method==='GET'){ const f=fget(id); return f?{status:200,body:clone(f)}:E4(NOEXIST(id)); } if(method==='PATCH'){ const se=schemaErr(UPDATE_SCHEMA,'updateFaultRequest'); if(se) return E4(se); return updateFault(id,bodyObj,{actor}); } return {status:405,body:''}; }
+  if(seg.length===2){ const act=seg[1];
+    if(act==='history'&&method==='GET'){ return {status:200,body:{history:SB.h.filter(h=>h.fault_id===id).sort((a,b)=>b.id-a.id).map(h=>({id:h.id,action:h.action,actor_name:h.actor,at:h.at,snapshot:clone(h.snapshot)}))}}; }
+    if(act==='impact'&&method==='GET') return impactOf(id);
+    if(act==='status'&&method==='POST'){ const bad=body&&typeof body==='object'&&body.status!=null&&typeof body.status!=='string'; if(bad) return E4('invalid request body: json: cannot unmarshal '+typeof body.status+' into Go struct field setFaultStatusRequest.status of type string'); return setStatus(id,bodyObj.status,{actor}); }
+    if(act==='defect'&&method==='POST') return bookDefect(id,bodyObj,{actor});
+    return {status:405,body:''}; }
+  return {status:404,body:'404 page not found'};
+}
+function seedDemo(){
+  const A='Seed';
+  let r=createFault({title:'Earth fault, Feeder 3 lateral',asset_class:'MV_CONDUCTOR',asset_id:A_TEE,fault_type:'earth',cause:'vegetation',detected_by:'scada'},{actor:A}); setStatus(r.body.id,'investigating',{actor:A});
+  r=createFault({title:'LV short at pole P-118',longitude:-0.1905,latitude:5.5985,fault_type:'LL',cause:'animal',detected_by:'customer_call'},{actor:A}); setStatus(r.body.id,'cleared',{actor:A});
+  r=createFault({title:'Lightning strike, TX-114',asset_class:'TRANSFORMER',asset_id:A_TX114,fault_type:'SLG',cause:'lightning',fault_current_a:2100,clearing_time_ms:80,detected_by:'protection_relay'},{actor:A}); setStatus(r.body.id,'cleared',{actor:A}); bookDefect(r.body.id,{severity:'high'},{actor:A}); setStatus(r.body.id,'closed',{actor:A});
+  createFault({title:'Mill Road fuse operations',incident_id:UU(902),cause:'equipment_failure',detected_by:'field_crew'},{actor:A});
+  createFault({title:'Legacy recloser trip',asset_class:'OLD_RECLOSER',asset_id:A_OLD,fault_type:'unknown',detected_by:'scada'},{actor:A});
+}
+sbReset();
+const J=o=>JSON.stringify(o,null,2);
+function resHTML(r,extra){ const k=r.status<300?'ok':r.status<500?'e4':'e5'; const reason={200:'OK',201:'Created',400:'Bad Request',403:'Forbidden',404:'Not Found',405:'Method Not Allowed',500:'Internal Server Error'}[r.status]||''; const b=typeof r.body==='string'?r.body:J(r.body); return `<div class="res ${k}"><span class="code">${r.status}</span> <span class="mini">${reason}</span>${extra||''}<pre class="code" style="margin:8px 0 0;max-height:300px;overflow:auto;font-size:12px">${esc(b)}</pre></div>`; }
+
+/* sandbox reset + a tiny pub/sub so widgets repaint on store change */
+const _SBL=[]; const onStore=f=>{ _SBL.push(f); }; const emitStore=()=>{ _SBL.forEach(f=>f()); const c=$('#sb-count'); if(c) c.textContent=`${SB.f.length} faults · ${SB.h.length} history rows · ${SB.hooks.length} webhook events · ${SB.defects.length} defects`; };
+$('#sb-reset').onclick=()=>{ sbReset(); emitStore(); };
+
+/* ===== W1: which fault ===== */
+(function(){
+  const J1=[
+   ['Record that a dig-in tripped FSW-12 at 14:05','rec','POST /faults','faults:write','A persistent row: cause, device that operated, clearing time, status, links.'],
+   ['What SLG current would flow at a node?','eng','POST /analysis/fault-current','analysis:run','A stateless calculation; nothing is stored and no fault row is touched.'],
+   ['Compare the 3,900 A we measured with the model','both','GET /faults/{id} + POST /analysis/fault-current','faults:read + analysis:run','Two separate calls and a human comparison. The record stores <code>fault_current_a</code>; the engine returns its own number. Neither reads the other.'],
+   ['Which customers went dark?','rec','GET /faults/{id}/impact','faults:read','A downstream trace from the fault’s protective device, counting <code>SERVICE_POINT</code> features. (The OMS incident has its own affected-area query.)'],
+   ['Who moved this fault to cleared, and when?','rec','GET /faults/{id}/history','faults:read','The append-only history: action, actor, timestamp and a full snapshot per change.'],
+   ['Draw the fault as a line or polygon on the map','none','—','—','Not possible. A fault is not a <code>gis.*</code> feature. The map <em>overlay</em> shows a marker (and highlights the faulted asset), but there is nothing to draw, edit or trace.']];
+  $('#w1-s').innerHTML=J1.map((j,i)=>`<button data-i="${i}" aria-pressed="${i===0}">${esc(j[0])}</button>`).join('');
+  function paint(i){ const j=J1[i]; const who={rec:'Faults module',eng:'Fault-current engine',both:'Both — separately',none:'Neither'}[j[1]]; $('#w1-out').innerHTML=`<dl class="kv"><dt>Use</dt><dd><b>${who}</b></dd><dt>Call</dt><dd>${esc(j[2])}</dd><dt>Permission</dt><dd>${esc(j[3])}</dd></dl><p style="margin-top:8px">${j[4]}</p>`; }
+  seg('#w1-s',b=>paint(+b.dataset.i)); paint(0);
+})();
+
+/* ===== W2: role matrix + method gate ===== */
+(function(){
+  const ACT=[['See the board, a fault, its history, its impact, the map overlay','faults:read'],['Log a fault, change its status, patch findings, book a defect, raise from an incident','faults:write']];
+  const ROLES=['viewer','analyst','editor','admin','break-glass-admin'];
+  function mat(){ const me=PERSONA[2].role; $('#w2-m').innerHTML=`<table><tr><th>Action</th><th>Perm</th>${ROLES.map(r=>`<th${r===me?' style="background:var(--tint)"':''}>${r}${r===me?' ◄':''}</th>`).join('')}</tr>`+ACT.map(a=>`<tr><td>${a[0]}</td><td><span class="perm">${a[1]}</span></td>${ROLES.map(r=>`<td${r===me?' style="background:var(--tint)"':''}>${ROLEPERMS[r].includes(a[1])?'<span class="ok-t">✓</span>':'—'}</td>`).join('')}</tr>`).join('')+`</table><p class="mini" style="margin:6px 0 0">Seeded by migration 0107: read → viewer, analyst, editor, admin, break-glass-admin; write → editor, admin, break-glass-admin. Roles themselves come from migration 0025.</p>`; }
+  const PATHS=['/faults','/faults/map','/faults/{id}','/faults/{id}/history','/faults/{id}/impact','/faults/{id}/status','/faults/{id}/defect','/faults/from-incident/{id}'];
+  $('#w2-pa').innerHTML=PATHS.map(p=>`<option>${p}</option>`).join('');
+  function gate(){ const m=$('#w2-me').value; const needW=!['GET','HEAD','OPTIONS'].includes(m); const req=needW?'faults:write':'faults:read'; const ok=needW?can('fw'):can('fr'); $('#w2-out').innerHTML=`<p><span class="perm">${m}</span> needs <span class="perm">${req}</span>. <b>${pname()}</b> (${PERSONA[2].role}) ${ok?'<span class="ok-t">passes the gate</span> — the request reaches the handler (which may still reject the body or the route).':'<span class="bad-t">is refused: 403</span> <code>{"error":"you do not have the required permission ('+req+')"}</code>'}</p><p class="mini">The gate runs <em>before</em> routing, so ${needW?'even a method the router would answer 405 to (PUT, DELETE) is a 403 for a read-only user':'a read-only user gets through on any GET'}.</p>`; }
+  $('#w2-me').onchange=gate; $('#w2-pa').onchange=gate;
+  onPersona(()=>{ mat(); gate(); });
+})();
+
+/* helper: a <select> of store faults that survives repaints */
+function faultSel(sel,onchange,opts){ opts=opts||{}; const el=$(sel); function fill(){ const cur=el.value; el.innerHTML=SB.f.map(f=>`<option value="${f.id}">${f.status} · ${esc(f.title)} (${sid(f.id)})</option>`).join('')||'<option value="">(no faults — log one)</option>'; if(SB.f.find(f=>f.id===cur)) el.value=cur; else if(opts.last&&SB.f.length) el.value=SB.f[SB.f.length-1].id; } fill(); el.onchange=onchange; onStore(()=>{ fill(); onchange&&onchange(); }); return el; }
+const fmtT=s=>s?s.replace('T',' ').slice(0,16)+'Z':'null';
+
+/* ===== W3: field browser ===== */
+(function(){
+  const F=[
+   ['id','Identity','uuid','default gen_random_uuid()','—','—','—','Key. Only the sync <code>fault_create</code> op can mint it (idempotent replay); <code>POST /faults</code> ignores an <code>id</code> in the body.'],
+   ['reference','Identity','text','optional','yes','yes','—','Your own control-room fault number.'],
+   ['title','Identity','text','NOT NULL; never blank','required','yes (not blank)','yes','One-line summary. Error: <code>a fault needs a title</code>.'],
+   ['description','Identity','text','optional','yes','yes','yes','Free text.'],
+   ['notes','Identity','text','optional','yes','yes','—','Free text.'],
+   ['asset_class + asset_id','What & where','text + uuid','all-or-nothing (<code>fault_events_asset_ck</code>)','pair','—','yes','Loose reference to the faulted asset; not an FK. A PATCH cannot change it.'],
+   ['location (longitude, latitude)','What & where','geometry Point 4326','API wants both or neither','pair','—','yes','The only geometry on the record. Stored as <code>ST_MakePoint(lng,lat)</code>.'],
+   ['fault_type','What & where','text enum','CHECK: SLG, LL, LLG, LLL, LLLG, earth, unknown (or null)','yes','yes (“” clears)','yes (default unknown)','Closed enum, validated in <code>store.go</code>. Error: <code>invalid fault_type "x": want one of …</code>.'],
+   ['cause','What & where','text','free text','yes','yes','yes','Not a catalogue: vegetation, dig_in, lightning, third_party, animal, equipment_failure…'],
+   ['protective_device_class + _id','Protection','text + uuid','all-or-nothing (<code>fault_events_device_ck</code>)','pair','pair','—','The device that operated. Drives the impact trace. Not in the web dialog.'],
+   ['fault_current_a','Protection','numeric','CHECK ≥ 0','yes','yes','yes','Amperes, measured or estimated. Negative → DB CHECK → 500.'],
+   ['clearing_time_ms','Protection','numeric','CHECK ≥ 0','yes','yes','yes','Milliseconds to clear. Negative → DB CHECK → 500.'],
+   ['detected_by','Detection','text','free text','yes','yes','yes','scada, protection_relay, field_crew, customer_call, model…'],
+   ['detected_at','Detection','timestamptz','NOT NULL default now()','yes','—','—','When it happened. Cannot be patched.'],
+   ['cleared_at','Detection','timestamptz','null = still on; tied to status (<code>fault_events_cleared_ck</code>)','—','—','—','Set only by the status endpoint (COALESCE to now on cleared/closed; null on reopen).'],
+   ['incident_id','Links & status','uuid (no FK)','optional; one of three anchors','yes','yes (“” unlinks)','— (Outages button)','The OMS incident it explains. Unlinking the only anchor → CHECK → 500.'],
+   ['defect_id','Links & status','uuid (no FK)','optional','accepted','—','—','Normally set by <b>Book defect</b>, which also adds a history row.'],
+   ['status','Links & status','text enum','CHECK: detected, investigating, cleared, closed; default detected','—','—','—','Only <code>POST /faults/{id}/status</code> moves it. Create always starts at detected.'],
+   ['created_at / updated_at','Links & status','timestamptz','NOT NULL default now()','—','—','—','No <code>created_by</code>: see history.']];
+  const G=['All','Identity','What & where','Protection','Detection','Links & status']; let g='All';
+  $('#w3-g').innerHTML=G.map((x,i)=>`<button data-g="${esc(x)}" aria-pressed="${i===0}">${esc(x)}</button>`).join('');
+  function paint(){ const q=$('#w3-q').value.trim().toLowerCase(); const rows=F.filter(r=>(g==='All'||r[1]===g)&&(!q||r.join(' ').toLowerCase().includes(q)));
+    $('#w3-t').innerHTML=`<table><tr><th>Field</th><th>Type</th><th>Constraint</th><th>POST</th><th>PATCH</th><th>Web dialog</th></tr>`+rows.map((r,i)=>`<tr class="hit" data-i="${F.indexOf(r)}"><td><code>${r[0]}</code></td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td><td>${r[5]}</td><td>${r[6]}</td></tr>`).join('')+`</table><div class="mini" id="w3-d" style="margin-top:6px">Click a row for its note. ${rows.length} of ${F.length} fields.</div>`; }
+  seg('#w3-g',b=>{ g=b.dataset.g; paint(); }); $('#w3-q').oninput=paint;
+  $('#w3-t').onclick=e=>{ const tr=e.target.closest('tr[data-i]'); if(!tr) return; $('#w3-d').innerHTML=`<b><code>${F[+tr.dataset.i][0]}</code></b> — ${F[+tr.dataset.i][7]}`; };
+  paint();
+  $('#w3-s').innerHTML=STS.map(s=>`<option>${s}</option>`).join('');
+  function anchor(){ const a=$('#w3-a').checked, ac=$('#w3-ac').checked&&!a, l=$('#w3-l').checked, i=$('#w3-i').checked, d=$('#w3-d').checked, dc=$('#w3-dc').checked&&!d, s=$('#w3-s').value, c=$('#w3-c').checked;
+    const R=[['fault_events_asset_ck','asset class and id together',!ac],['fault_events_device_ck','device class and id together',!dc],['fault_events_anchor_ck','asset_id OR location OR incident_id',a||l||i],['fault_events_cleared_ck','cleared/closed ⇔ cleared_at set',(s==='cleared'||s==='closed')===c]];
+    $('#w3-o').innerHTML=R.map(r=>`<div>${r[2]?'<span class="ok-t">✓</span>':'<span class="bad-t">✕</span>'} <code>${r[0]}</code><div class="mini">${r[1]}</div></div>`).join('')+`<p class="mini" style="margin:6px 0 0">${R.every(r=>r[2])?'The INSERT would succeed.':'The database rejects the row. Via the API you usually meet the friendlier 400 first (chapter 5).'}</p>`; }
+  ['#w3-a','#w3-ac','#w3-l','#w3-i','#w3-d','#w3-dc','#w3-s','#w3-c'].forEach(s=>$(s).onchange=anchor); anchor();
+})();
+
+/* ===== W4: lifecycle ===== */
+(function(){
+  const UI={detected:[['investigating','Investigate'],['cleared','Mark cleared']],investigating:[['cleared','Mark cleared']],cleared:[['closed','Close'],['investigating','Reopen']],closed:[['investigating','Reopen']]};
+  const X={detected:70,investigating:250,cleared:430,closed:610};
+  function svg(cur){ const nodes=STS.map(s=>`<g><rect x="${X[s]-60}" y="30" width="120" height="44" rx="8" fill="${s===cur?'var(--tint)':'var(--raise)'}" stroke="${s===cur?'var(--acc)':'var(--line)'}" stroke-width="${s===cur?3:1.5}"/><text x="${X[s]}" y="57" text-anchor="middle" font-size="13" font-weight="700" fill="var(--ink)">${s}</text><text x="${X[s]}" y="95" text-anchor="middle" font-size="10.5" fill="var(--muted)">${s==='cleared'||s==='closed'?'cleared_at SET':'cleared_at null'}</text></g>`).join('');
+    const arr=[['detected','investigating'],['investigating','cleared'],['cleared','closed']].map(p=>`<path d="M${X[p[0]]+60} 52 H${X[p[1]]-60}" stroke="var(--acc)" stroke-width="2" marker-end="url(#ah)"/>`).join('');
+    return `<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8z" fill="var(--acc)"/></marker></defs>${arr}<path d="M610 74 V122 H250 V80" fill="none" stroke="var(--amber)" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ah2)"/><defs><marker id="ah2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8z" fill="var(--amber)"/></marker></defs><text x="430" y="140" text-anchor="middle" font-size="11" fill="var(--amber)">reopen → investigating (clears cleared_at)</text>${nodes}`; }
+  let last=null;
+  function paint(){ const f=fget($('#w4-f').value); const w=can('fw'); $('#w4-lock').innerHTML=w?'':lockTip('fw');
+    if(!f){ $('#w4-svg').innerHTML=svg(''); $('#w4-t').innerHTML=''; $('#w4-side').innerHTML='<p class="mini">No faults in the sandbox.</p>'; return; }
+    $('#w4-svg').innerHTML=svg(f.status);
+    const ui=UI[f.status].map(x=>x[0]);
+    $('#w4-t').innerHTML=STS.map(s=>`<button class="btn${w?'':' locked'}" data-s="${s}" title="${ui.includes(s)?'offered by the web board':'API only — the web board does not offer this'}">→ ${s} ${ui.includes(s)?'<span class="pill sec">UI</span>':'<span class="pill stale">API only</span>'}</button>`).join('');
+    $('#w4-side').innerHTML=`<b>${esc(f.title)}</b><dl class="kv" style="margin-top:6px"><dt>status</dt><dd>${stc(f.status)}</dd><dt>cleared_at</dt><dd>${fmtT(f.cleared_at)}</dd><dt>defect</dt><dd>${f.defect_id?sid(f.defect_id):'none'}</dd></dl><p class="mini" style="margin-top:8px"><b>Web board offers</b> from ${f.status}: ${UI[f.status].map(x=>'“'+x[1]+'”').join(', ')}${f.status==='closed'?'':' · and <b>Book defect</b> if there is no defect yet'}. <b>The API permits all four</b>, including the current status.</p>`;
+    if(last&&last.id===f.id) $('#w4-res').innerHTML=last.html; else $('#w4-res').innerHTML=''; }
+  $('#w4-t').onclick=e=>{ const b=e.target.closest('button[data-s]'); if(!b) return; const f=fget($('#w4-f').value); if(!f) return; const before={status:f.status,cleared_at:f.cleared_at}; const h0=SB.h.length,k0=SB.hooks.length;
+    const r=call('POST',`/faults/${f.id}/status`,{status:b.dataset.s}); if(r.status!==200){ last={id:f.id,html:resHTML(r)}; $('#w4-res').innerHTML=last.html; return; }
+    const hr=SB.h[SB.h.length-1], hk=SB.hooks[SB.hooks.length-1];
+    last={id:f.id,html:`<div class="res ok"><span class="code">200</span> <span class="mini">${before.status} → ${r.body.status}</span><dl class="kv" style="margin-top:6px"><dt>cleared_at</dt><dd>${fmtT(before.cleared_at)} → ${fmtT(r.body.cleared_at)}${before.cleared_at&&r.body.cleared_at&&before.cleared_at===r.body.cleared_at?' (kept — COALESCE)':''}</dd><dt>history</dt><dd>+1 row: <code>status_changed</code> by ${esc(hr.actor)}</dd><dt>webhook</dt><dd><code>${hk.event}</code></dd></dl></div>`}; emitStore(); };
+  faultSel('#w4-f',paint); onStore(()=>{}); onPersona(paint);
+})();
+
+/* ===== W5: log a fault ===== */
+(function(){
+  const API=[['title','Title','text'],['asset_class','Asset class','text'],['asset_id','Asset id (uuid)','text'],['longitude','Longitude','text'],['latitude','Latitude','text'],['fault_type','Fault type','ft'],['cause','Cause','text'],['fault_current_a','Fault current (A)','text'],['clearing_time_ms','Clearing time (ms)','text'],['detected_by','Detected by','text'],['protective_device_class','Device class','text'],['protective_device_id','Device id (uuid)','text'],['incident_id','Incident id','inc'],['reference','Reference','text'],['notes','Notes','text'],['description','Description','text']];
+  const DLG=['title','asset_class','asset_id','longitude','latitude','fault_type','cause','fault_current_a','clearing_time_ms','detected_by','description'];
+  let mode='dlg';
+  function build(){ const cur={}; $$('#w5-f [data-k]').forEach(e=>cur[e.dataset.k]=e.value); $('#w5-f').innerHTML=API.filter(a=>mode==='api'||DLG.includes(a[0])).map(a=>{ const v=cur[a[0]]!=null?cur[a[0]]:(a[0]==='fault_type'&&mode==='dlg'?'unknown':''); let inp; if(a[2]==='ft') inp=`<select class="fld" data-k="${a[0]}">${(mode==='dlg'?[]:['']).concat(FT).concat(mode==='api'?['bogus']:[]).map(x=>`<option${x===v?' selected':''}>${x}</option>`).join('')}</select>`; else if(a[2]==='inc') inp=`<select class="fld" data-k="${a[0]}"><option value=""></option>${Object.values(INC).map(i=>`<option value="${i.id}"${i.id===v?' selected':''}>${esc(i.name)} (${sid(i.id)})</option>`).join('')}</select>`; else inp=`<input class="fld" type="text" data-k="${a[0]}" value="${esc(v)}">`; return `<label><span class="lab">${a[1]}</span>${inp}</label>`; }).join('')+(mode==='dlg'?`<label><span class="lab">Asset picker</span><select class="fld" id="w5-pick"><option value="">— pick an asset —</option>${Object.values(AS).map(a=>`<option value="${a.id}">${esc(a.name)} · ${a.cls}</option>`).join('')}</select></label>`:`<label><span class="lab">Asset picker</span><select class="fld" id="w5-pick"><option value="">— fill class + id —</option>${Object.values(AS).map(a=>`<option value="${a.id}">${esc(a.name)} · ${a.cls}</option>`).join('')}</select></label>`);
+    $('#w5-pick').onchange=e=>{ const a=AS[e.target.value]; if(!a) return; $('#w5-f [data-k=asset_class]').value=a.cls; $('#w5-f [data-k=asset_id]').value=a.id; upd(); }; $$('#w5-f [data-k]').forEach(e=>e.oninput=upd); upd(); }
+  const val=k=>{ const e=$(`#w5-f [data-k=${k}]`); return e?e.value:''; };
+  function num(v){ const n=Number(v); return v.trim()===''||isNaN(n)?undefined:n; }
+  function body(){ const b={}; const put=(k,v)=>{ if(v!==''&&v!==undefined) b[k]=v; };
+    if(mode==='dlg'){ b.title=val('title').trim(); b.fault_type=val('fault_type'); put('cause',val('cause').trim()); put('asset_class',val('asset_class').trim()); put('asset_id',val('asset_id').trim()); put('longitude',num(val('longitude'))); put('latitude',num(val('latitude'))); put('fault_current_a',num(val('fault_current_a'))); put('clearing_time_ms',num(val('clearing_time_ms'))); put('detected_by',val('detected_by').trim()); put('description',val('description').trim()); return b; }
+    API.forEach(a=>{ const v=val(a[0]); if(v==='') return; if(['longitude','latitude','fault_current_a','clearing_time_ms'].includes(a[0])) put(a[0],num(v)); else put(a[0],v); }); return b; }
+  function upd(){ const w=can('fw'); const b=body(); let can_=true, why=''; if(mode==='dlg'){ const hasA=(b.asset_class||'')!==''&&(b.asset_id||'')!=='', hasL=b.longitude!==undefined&&b.latitude!==undefined; can_=(b.title||'')!==''&&(hasA||hasL); if(!can_) why='The dialog keeps <b>Log fault</b> disabled until there is a title and an asset or a location. It would also hint “Give an asset (class + id) or a location pin to anchor the fault.”'; }
+    $('#w5-go').disabled=!w||!can_; $('#w5-lock').innerHTML=w?'':lockTip('fw'); $('#w5-hint').innerHTML=why; }
+  function send(){ const b=body(); const r=call('POST','/faults',b); $('#w5-out').innerHTML=`<p class="mini" style="margin-top:10px">Request body (${mode==='dlg'?'what the dialog sends':'raw'}):</p><pre class="code" style="font-size:12px;margin:4px 0">${esc(J(b))}</pre>`+resHTML(r,r.status===201?` <span class="mini">· status ${r.body.status} · history +1 (<code>created</code>) · webhook <code>faults.event.raised</code></span>`:''); emitStore(); }
+  seg('#w5-m',b=>{ mode=b.dataset.m; $('#w5-out').innerHTML=''; build(); });
+  $('#w5-go').onclick=send;
+  const set=o=>{ if(mode!=='api'){ mode='api'; $$('#w5-m button').forEach(x=>x.setAttribute('aria-pressed',x.dataset.m==='api')); } build(); $$('#w5-f [data-k]').forEach(e=>e.value=o[e.dataset.k]!=null?o[e.dataset.k]:''); upd(); };
+  $('#w5-ex1').onclick=()=>set({title:'Cable fault, Feeder 7 tee to TX-220',asset_class:'MV_CONDUCTOR',asset_id:A_TEE,fault_type:'earth',detected_by:'scada',protective_device_class:'MV_SWITCH',protective_device_id:A_FSW,incident_id:UU(901)});
+  $('#w5-ex2').onclick=()=>set({title:'Floating fault',fault_type:'SLG'});
+  $('#w5-ex3').onclick=()=>set({title:'Half an asset',asset_class:'MV_CONDUCTOR'});
+  $('#w5-ex4').onclick=()=>set({title:'Bad current',longitude:'-0.18',latitude:'5.60',fault_current_a:'-5'});
+  onPersona(upd); build();
+})();
+
+/* ===== W6: patch ===== */
+(function(){
+  const P=[['set cause','{"cause":"dig_in","fault_current_a":3900,"clearing_time_ms":55}'],['device pair','{"protective_device_class":"MV_SWITCH","protective_device_id":"'+A_FSW+'"}'],['clear device','{"protective_device_class":"","protective_device_id":""}'],['clear fault_type','{"fault_type":""}'],['class only','{"protective_device_class":"MV_SWITCH"}'],['blank title','{"title":"   "}'],['empty body','{}'],['bad type','{"fault_type":"triple"}'],['status (ignored)','{"status":"cleared","cause":"x"}'],['negative','{"fault_current_a":-1}'],['unlink incident','{"incident_id":""}'],['number as string','{"fault_current_a":"3900"}']];
+  $('#w6-p').innerHTML=P.map((p,i)=>`<button data-i="${i}">${p[0]}</button>`).join('');
+  $('#w6-p').onclick=e=>{ const b=e.target.closest('button'); if(b) $('#w6-b').value=P[+b.dataset.i][1]; };
+  $('#w6-b').value=P[0][1];
+  function lock(){ const w=can('fw'); $('#w6-lock').innerHTML=w?'':lockTip('fw'); $('#w6-go').disabled=!w; }
+  $('#w6-go').onclick=()=>{ const id=$('#w6-f').value; let b; try{ b=JSON.parse($('#w6-b').value); }catch(e){ $('#w6-out').innerHTML=resHTML(E4('invalid request body: '+e.message)); return; }
+    const h0=SB.h.length; const r=call('PATCH','/faults/'+id,b); $('#w6-out').innerHTML=resHTML(r,r.status===200?` <span class="mini">· history +1 (<code>updated</code>) · <b>no</b> webhook event · status stays ${r.body.status}</span>`:''); emitStore(); };
+  faultSel('#w6-f',()=>{}); onPersona(lock);
+})();
+
+/* ===== W7: offline replay ===== */
+(function(){
+  let cap=null; let log=[];
+  const draw=()=>{ const n=cap?SB.f.filter(f=>f.id===cap.id).length:0; const hh=cap?SB.h.filter(h=>h.fault_id===cap.id).length:0; const hk=cap?SB.hooks.filter(h=>h.fault_id===cap.id).length:0;
+    $('#w7-out').innerHTML=(cap?`<p><b>Queued on the device</b> (fault_create, <code>feature_id</code> = <code>${cap.id}</code>):</p><pre class="code" style="font-size:12px">${esc(J(cap.payload))}</pre><dl class="kv"><dt>rows for this id</dt><dd>${n}</dd><dt>history rows</dt><dd>${hh}</dd><dt>webhook events</dt><dd>${hk}</dd></dl>`:'<p class="mini">Press “Device mints an id…” to start a capture.</p>')+log.slice(-4).reverse().map(l=>`<div class="res ${l.k}">${l.t}</div>`).join(''); };
+  $('#w7-mint').onclick=()=>{ cap={id:UU(7000+(++SB.uid)),payload:{title:'Dig-in at Ridge Rd tee',asset_class:'MV_CONDUCTOR',asset_id:A_TEE,fault_type:'earth',cause:'dig_in'}}; log=[]; draw(); };
+  $('#w7-sync').onclick=()=>{ if(!cap) return; const r=createFault(cap.payload,{id:cap.id,actor:'device user'}); log.push({k:r.status<300?'ok':'e5',t:r.replay?'<b>fault_create</b> replayed → <b>applied</b>, no-op: row exists, <b>no</b> second history row, <b>no</b> second event.':r.status===201?'<b>fault_create</b> → <b>applied</b>: row inserted, history <code>created</code>, event <code>faults.event.raised</code>.':'error: '+esc(r.body.error)}); emitStore(); draw(); };
+  $('#w7-post').onclick=()=>{ if(!cap) return; if(!can('fw')){ log.push({k:'e4',t:'403 — '+pname()+' lacks faults:write.'}); draw(); return; } const r=call('POST','/faults',Object.assign({id:cap.id},cap.payload)); log.push({k:'ok',t:`<b>POST /faults</b> with <code>id</code> in the body → <b>${r.status}</b>: the <code>id</code> field is ignored (no such field in <code>createFaultRequest</code>), so a <b>new fault ${sid(r.body.id)}</b> was minted. Not replay-safe.`}); emitStore(); draw(); };
+  $('#w7-new').onclick=$('#w7-mint').onclick; draw();
+})();
+
+['#w9-ft','#w13-t'].forEach(s=>$(s).insertAdjacentHTML('beforeend',FT.map(x=>`<option>${x}</option>`).join('')));
+$('#w13-s').insertAdjacentHTML('beforeend',STS.map(x=>`<option>${x}</option>`).join(''));
+
+/* ===== W8: connections ===== */
+(function(){
+  const L={
+   asset:['① Faulted asset','class + id','Loose polymorphic reference to any network feature. All-or-nothing (<code>fault_events_asset_ck</code>; API error “a fault asset needs both asset_class and asset_id”).','Set at create only (a PATCH cannot change it). Not looked up: the id may name nothing. At read time the map overlay resolves geometry from the compiled <code>gis.&lt;class&gt;</code> table, so a fault survives the feature being edited or removed. Powers <code>?asset_class=&amp;asset_id=</code> (one asset’s history) and the map Faults tab.'],
+   device:['② Protective device','device class + id','The breaker / recloser / fuse that <b>operated</b> to clear the fault. All-or-nothing (<code>fault_events_device_ck</code>).','Settable at create, by PATCH (as a pair; empty strings clear both), inherited from an incident’s predicted device, or via offline/webhook. <b>Drives the impact trace</b> (7.2). Not in the web dialog.'],
+   incident:['③ OMS incident','incident_id','The outage the fault <b>explains</b>. Direction: the fault attaches to an incident that already exists on the OMS board.','One of the three anchors. A bare uuid, no FK, not checked on create/PATCH; <code>POST /faults/from-incident/{id}</code> is the only call that reads <code>oms.incidents</code> (raw SQL; unknown id → 400 “incident … does not exist”). Filter: <code>?incident_id=</code>.'],
+   defect:['④ WAM defect','defect_id','The repair the fault <b>books</b>. Direction: a fault books a defect; the defect becomes a work order inside WAM.','The only real cross-module call: <code>wam.CreateDefect</code> in one transaction, then <code>defect_id</code> is written back and a <code>defect_booked</code> history row is added. Guarded: “already has a booked defect”.']};
+  const pos={asset:[90,70],device:[470,70],incident:[470,240],defect:[90,240]};
+  function svg(sel){ const lines=Object.keys(pos).map(k=>`<line x1="280" y1="155" x2="${pos[k][0]}" y2="${pos[k][1]}" stroke="${k===sel?'var(--acc)':'var(--line)'}" stroke-width="${k===sel?3:1.5}" ${k==='defect'?'':'stroke-dasharray="6 4"'}/>`).join('');
+    const nodes=Object.keys(pos).map(k=>`<g class="hit" data-k="${k}"><rect x="${pos[k][0]-80}" y="${pos[k][1]-26}" width="160" height="52" rx="8" fill="${k===sel?'var(--tint)':'var(--raise)'}" stroke="${k===sel?'var(--acc)':'var(--line)'}" stroke-width="${k===sel?3:1.5}"/><text x="${pos[k][0]}" y="${pos[k][1]-4}" text-anchor="middle" font-size="12" font-weight="700" fill="var(--ink)">${L[k][0]}</text><text x="${pos[k][0]}" y="${pos[k][1]+13}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${L[k][1]}</text></g>`).join('');
+    return `${lines}<g><circle cx="280" cy="155" r="48" fill="var(--acc-deep)"/><text x="280" y="151" text-anchor="middle" font-size="12" font-weight="800" fill="#fff">FAULT</text><text x="280" y="167" text-anchor="middle" font-size="12" font-weight="800" fill="#fff">EVENT</text></g>${nodes}<text x="280" y="294" text-anchor="middle" font-size="10" fill="var(--muted)">dashed = loose reference (no FK) · solid = real call (WAM)</text>`; }
+  function show(k){ $('#w8-svg').innerHTML=svg(k); const l=L[k]; $('#w8-out').innerHTML=`<b>${l[0]}</b><p style="margin:6px 0">${l[2]}</p><p class="mini" style="margin:0">${l[3]}</p>`; }
+  $('#w8-svg').onclick=e=>{ const g=e.target.closest('g[data-k]'); if(g) show(g.dataset.k); }; show('asset');
+})();
+
+/* ===== W9: raise from incident ===== */
+(function(){
+  const sel=$('#w9-i'); sel.innerHTML=Object.values(INC).map(i=>`<option value="${i.id}">${esc(i.name)} [${i.status}]</option>`).join('');
+  function paint(){ const i=INC[sel.value]; const w=can('fw'); $('#w9-lock').innerHTML=w?'':lockTip('fw'); $('#w9-go').disabled=!w; $('#w9-bad').disabled=!w;
+    $('#w9-inc').innerHTML=`<dl class="kv"><dt>predicted device</dt><dd>${i.pred?`${i.pred[0]} · ${AS[i.pred[1]].name}`:'none'}</dd><dt>cause_code</dt><dd>${i.cause||'none'}</dd><dt>status</dt><dd>${i.status}${i.status==='cancelled'?' — <span class="warn-t">the web ⚡ button is hidden for cancelled incidents, but the API does not check</span>':''}</dd></dl>`; }
+  sel.onchange=paint;
+  function run(id){ const b={}; if($('#w9-t').value) b.title=$('#w9-t').value; if($('#w9-c').value) b.cause=$('#w9-c').value; if($('#w9-ft').value) b.fault_type=$('#w9-ft').value; const r=call('POST','/faults/from-incident/'+id,b);
+    let x=''; if(r.status===201){ const i=INC[id]; x=`<table style="margin-top:8px"><tr><th>field</th><th>value</th><th>came from</th></tr><tr><td>title</td><td>${esc(r.body.title)}</td><td>${b.title?'your override':'default “Fault behind incident”'}</td></tr><tr><td>incident_id</td><td>${sid(r.body.incident_id)}</td><td>the path</td></tr><tr><td>protective device</td><td>${r.body.protective_device_id?AS[r.body.protective_device_id].name:'none'}</td><td>${r.body.protective_device_id?'incident predicted device':'incident had none'}</td></tr><tr><td>cause</td><td>${esc(r.body.cause||'null')}</td><td>${b.cause?'your override':i.cause?'incident cause_code':'—'}</td></tr><tr><td>asset / location</td><td>none</td><td>the anchor is the incident alone</td></tr></table><p class="mini">Calling it again makes a <b>second</b> fault — there is no de-duplication per incident. That fault cannot book a defect (no asset or location).</p>`; }
+    $('#w9-out').innerHTML=resHTML(r)+x; emitStore(); }
+  $('#w9-go').onclick=()=>run(sel.value); $('#w9-bad').onclick=()=>run(UU(999));
+  onPersona(paint);
+})();
+
+/* ===== W10: book defect ===== */
+(function(){
+  function pre(){ const f=fget($('#w10-f').value); const w=can('fw'); $('#w10-lock').innerHTML=w?'':lockTip('fw'); $('#w10-go').disabled=!w||!f; if(!f){ $('#w10-pre').innerHTML='<p class="mini">No faults.</p>'; return; }
+    const hasA=!!f.asset_id, hasL=f.longitude!=null, chk=(ok,t)=>`<div>${ok?'<span class="ok-t">✓</span>':'<span class="bad-t">✕</span>'} ${t}</div>`;
+    $('#w10-pre').innerHTML=chk(!f.defect_id,'no defect booked yet'+(f.defect_id?` (has ${sid(f.defect_id)})`:''))+chk(hasA||hasL,'has an asset or a location'+(hasA?' (asset)':hasL?' (pin)':' — incident-only faults cannot book'))+`<div class="mini">Web board: the button is ${f.status==='closed'?'<b>hidden</b> (closed) — the API would still allow it':'shown'}.</div>`; }
+  faultSel('#w10-f',pre); onPersona(pre);
+  $('#w10-go').onclick=()=>{ const id=$('#w10-f').value; const b={}; if($('#w10-s').value) b.severity=$('#w10-s').value; if($('#w10-t').value) b.title=$('#w10-t').value; const r=call('POST',`/faults/${id}/defect`,b);
+    let x=''; if(r.status===201){ const d=SB.defects[SB.defects.length-1]; x=`<p class="mini" style="margin:8px 0 2px">WAM defect created in the same transaction:</p><pre class="code" style="font-size:12px;margin:0">${esc(J(d))}</pre><p class="mini">History +1 (<code>defect_booked</code>); no webhook event.</p>`; }
+    if(r.status===500&&/severity/.test(r.body.error||'')) x='<p class="mini" style="margin:8px 0 0">By code reading: the severity check lives in <code>wam</code> and its error type is not the one <code>faults.writeError</code> maps to 400, so a bad severity surfaces as <b>500</b>. (Not run against a live server.)</p>';
+    $('#w10-out').innerHTML=resHTML(r)+x; emitStore(); };
+})();
+
+/* ===== W11: map ===== */
+(function(){
+  const vis={detected:true,investigating:true,cleared:false,closed:false}; let layer=true;
+  $('#w11-v').checked=true; $('#w11-v').onchange=e=>{ layer=e.target.checked; paint(); };
+  $('#w11-l').innerHTML=STS.map(s=>`<label style="margin-right:8px"><input type="checkbox" data-s="${s}"${vis[s]?' checked':''}> ${s}</label>`).join('');
+  $('#w11-l').onchange=e=>{ vis[e.target.dataset.s]=e.target.checked; paint(); };
+  const COL={detected:'var(--red)',investigating:'var(--amber)',cleared:'var(--blue)',closed:'var(--green)'};
+  function paint(){ const M=mapMarkers({}); const x0=-0.1930,x1=-0.1760,y0=5.5975,y1=5.6060; const px=lon=>20+(lon-x0)/(x1-x0)*480, py=lat=>240-(lat-y0)/(y1-y0)*220;
+    let s=`<rect x="1" y="1" width="518" height="258" rx="6" fill="var(--surface)" stroke="var(--line)"/>`;
+    s+=Object.values(AS).filter(a=>a.geom).map(a=>`<circle cx="${px(a.lon)}" cy="${py(a.lat)}" r="3" fill="var(--dead)"/><text x="${px(a.lon)+6}" y="${py(a.lat)+3}" font-size="8.5" fill="var(--muted)">${esc(a.name.split(' ')[0])}</text>`).join('');
+    if(layer) s+=M.filter(m=>m.via&&vis[m.fault.status]).map(m=>{ const live=m.fault.status==='detected'||m.fault.status==='investigating'; return `<g><title>${esc(m.fault.title)} — ${m.via}</title>${live?`<circle cx="${px(m.lon)}" cy="${py(m.lat)}" r="13" fill="${COL[m.fault.status]}" opacity=".25"/>`:''}<circle cx="${px(m.lon)}" cy="${py(m.lat)}" r="6" fill="${COL[m.fault.status]}" stroke="var(--bg)" stroke-width="2"/>${m.geometry?`<circle cx="${px(m.lon)}" cy="${py(m.lat)}" r="9" fill="none" stroke="${COL[m.fault.status]}" stroke-dasharray="2 2"/>`:''}</g>`; }).join('');
+    $('#w11-svg').innerHTML=s;
+    $('#w11-side').innerHTML=`<b>${SB.f.length} faults → ${M.filter(m=>m.via).length} placeable</b><ul style="padding-left:16px;margin:6px 0;font-size:12.5px">${M.map(m=>`<li>${stc(m.fault.status)} ${esc(m.fault.title)}<div class="mini">${m.via?'→ '+m.via+(vis[m.fault.status]&&layer?'':' <span class="warn-t">(hidden by legend'+(layer?'':'/layer')+')</span>'):'<span class="bad-t">omitted</span> — '+(m.fault.asset_id&&!AS[m.fault.asset_id].geom?'asset class uncompiled, no pin':'incident-only, nothing to draw')}</div></li>`).join('')}</ul><p class="mini">Dashed ring = asset geometry highlighted; plain dot = location pin. Live faults get the pulse halo.</p>`; }
+  paint(); onStore(paint);
+})();
+
+/* ===== W12: impact ===== */
+(function(){
+  const SHORT={[A_CB]:'CB-F7',[A_FSW]:'FSW-12',[A_F9]:'FSW-9',[A_TEE]:'Tee',[A_TX]:'TX-220',[A_TIE]:'TIE-3',[A_TX301]:'TX-301',[A_TX114]:'TX-114'};
+  const P={[A_CB]:[50,100],[A_FSW]:[150,45],[A_F9]:[150,150],[A_TEE]:[250,45],[A_TX]:[350,25],[A_TIE]:[350,80],[A_TX301]:[450,80],[A_TX114]:[250,150]};
+  const SPS={'SP-220-1':[600,12],'SP-220-2':[600,30],'SP-220-3':[600,48],'SP-220-4':[600,66],'SP-301-1':[600,92],'SP-301-2':[600,110],'SP-114-1':[600,140],'SP-114-2':[600,158],'SP-114-3':[600,176]};
+  const SPP={'SP-220':A_TX,'SP-301':A_TX301,'SP-114':A_TX114};
+  const DEV=[[A_CB,'CB-F7 breaker'],[A_FSW,'FSW-12'],[A_F9,'FSW-9'],[A_TIE,'TIE-3 (open)'],['','none (no device)']]; let dev=A_FSW;
+  $('#w12-d').innerHTML=DEV.map(d=>`<button data-d="${d[0]}" aria-pressed="${d[0]===dev}">${d[1]}</button>`).join('');
+  seg('#w12-d',b=>{ dev=b.dataset.d; paint(); }); $('#w12-b').onchange=paint;
+  function paint(){ const bar=$('#w12-b').checked; const hit=dev?downstreamSPs(dev,bar):[]; const set=new Set(hit); const dn=dev?downstreamNodes(dev,bar):new Set();
+    const edges=[]; Object.keys(NET).forEach(p=>NET[p].forEach(c=>{ if(c.startsWith('sp:')){ const n=c.slice(3); edges.push([P[p],SPS[n],set.has(n)]); } else edges.push([P[p],P[c],!!dev&&(p===dev||dn.has(p))&&!(bar&&OPEN_SW[c])]); }));
+    const nodes=Object.keys(P).map(id=>{ const a=AS[id]; const inI=dev===id||dn.has(id); return `<g><rect x="${P[id][0]-34}" y="${P[id][1]-12}" width="68" height="24" rx="5" fill="${dev===id?'var(--red-tint)':inI?'var(--amber-tint)':'var(--raise)'}" stroke="${dev===id?'var(--red)':OPEN_SW[id]?'var(--blue)':'var(--line)'}" stroke-width="${dev===id?2.5:1.5}"${OPEN_SW[id]?' stroke-dasharray="4 3"':''}/><text x="${P[id][0]}" y="${P[id][1]+4}" text-anchor="middle" font-size="9.5" fill="var(--ink)">${esc(SHORT[id])}</text></g>`; }).join('');
+    const sp=Object.keys(SPS).map(n=>`<g><circle cx="${SPS[n][0]}" cy="${SPS[n][1]}" r="6" fill="${set.has(n)?'var(--red)':'var(--green)'}"/><text x="${SPS[n][0]+10}" y="${SPS[n][1]+3}" font-size="9.5" fill="var(--ink)">${n}</text></g>`).join('');
+    $('#w12-svg').innerHTML=edges.map(e=>`<line x1="${e[0][0]}" y1="${e[0][1]}" x2="${e[1][0]}" y2="${e[1][1]}" stroke="${e[2]?'var(--red)':'var(--line)'}" stroke-width="${e[2]?2.5:1.3}"/>`).join('')+nodes+sp;
+    const names=hit; $('#w12-side').innerHTML=dev?`<b>${names.length} service point${names.length===1?'':'s'}</b> de-energised<div class="mini" style="margin:4px 0">${names.join(', ')||'—'}</div><p class="mini">Response: <code>{"fault_id":…,"device_class":…,"service_points":[${names.length} items]}</code></p>${!bar&&hit.some(n=>n.startsWith('SP-301'))?'<p class="warn-t" style="font-size:12.5px">SP-301-* sit behind the normally-open TIE-3, yet the barrier-free trace counts them — the impact can over-state. Tick the what-if to see the switch-aware answer the engine does <u>not</u> give.</p>':''}`:`<b>0 service points</b><p class="mini">No protective device → an empty but non-null <code>service_points</code> list.</p>`; }
+  function downstreamNodes(d,b){ const out=new Set(); (function w(n){ (NET[n]||[]).forEach(c=>{ if(c.startsWith('sp:')) return; if(b&&OPEN_SW[c]) return; if(!out.has(c)){ out.add(c); w(c); } }); })(d); return out; }
+  paint();
+})();
+
+/* ===== W13: board filters ===== */
+(function(){
+  const sa=$('#w13-a'), si=$('#w13-i');
+  sa.insertAdjacentHTML('beforeend',Object.values(AS).map(a=>`<option value="${a.cls}|${a.id}">${esc(a.name)}</option>`).join(''));
+  si.insertAdjacentHTML('beforeend',Object.values(INC).map(i=>`<option value="${i.id}">${esc(i.name)}</option>`).join(''));
+  function paint(){ const q={}; if($('#w13-s').value) q.status=$('#w13-s').value; if($('#w13-t').value) q.fault_type=$('#w13-t').value; if(sa.value){ const [c,id]=sa.value.split('|'); q.asset_class=c; q.asset_id=id; } if(si.value) q.incident_id=si.value; if($('#w13-o').checked) q.open='true';
+    const url='/faults'+(Object.keys(q).length?'?'+Object.keys(q).map(k=>k+'='+(k.endsWith('_id')?sid(q[k])+'…':q[k])).join('&'):''); const rows=listFaults(q);
+    $('#w13-out').innerHTML=`<p><code>GET ${esc(url)}</code> → <b>${rows.length}</b> of ${SB.f.length}</p>${q.open&&q.status?'<p class="warn-t" style="font-size:13px">Both open=true and status were sent: <code>open</code> wins and <code>status</code> is ignored (store.go ListFaults).</p>':''}`+(rows.length?`<div class="tbl"><table><tr><th>status</th><th>title</th><th>type</th><th>asset / anchor</th><th>detected</th></tr>${rows.map(f=>`<tr><td>${stc(f.status)}</td><td>${esc(f.title)}</td><td>${f.fault_type||'—'}</td><td>${f.asset_id?esc(AS[f.asset_id]?AS[f.asset_id].name:sid(f.asset_id)):f.longitude!=null?'pinned':f.incident_id?'outage '+sid(f.incident_id):'—'}</td><td>${fmtT(f.detected_at)}</td></tr>`).join('')}</table></div>`:'<p class="mini">No faults match.</p>'); }
+  ['#w13-s','#w13-t','#w13-a','#w13-i','#w13-o'].forEach(s=>$(s).onchange=paint); paint(); onStore(paint);
+})();
+
+/* ===== W14: events ===== */
+(function(){
+  const OPS=[['Log (POST /faults)','w',f=>call('POST','/faults',{title:'Dig-in, Ridge Rd',asset_class:'MV_CONDUCTOR',asset_id:A_TEE,fault_type:'earth'})],
+   ['Raise from incident','w',f=>call('POST','/faults/from-incident/'+UU(901),{})],
+   ['PATCH findings','w',f=>call('PATCH','/faults/'+f.id,{cause:'dig_in'}),1],
+   ['Status → investigating','w',f=>call('POST',`/faults/${f.id}/status`,{status:'investigating'}),1],
+   ['Status → cleared','w',f=>call('POST',`/faults/${f.id}/status`,{status:'cleared'}),1],
+   ['Status → closed','w',f=>call('POST',`/faults/${f.id}/status`,{status:'closed'}),1],
+   ['Book defect','w',f=>call('POST',`/faults/${f.id}/defect`,{}),1],
+   ['Offline fault_create (sync)','s',f=>createFault({title:'Offline capture',asset_class:'MV_CONDUCTOR',asset_id:A_TEE},{id:UU(8000+(++SB.uid)),actor:'device user'})]];
+  $('#w14-ops').innerHTML=OPS.map((o,i)=>`<button class="btn" data-i="${i}">${o[0]}</button>`).join('');
+  $('#w14-ops').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; const o=OPS[+b.dataset.i]; const f=fget($('#w14-f').value); if(o[3]&&!f){ $('#w14-out').innerHTML='<p class="mini">Pick a fault first.</p>'; return; }
+    if(o[1]==='w'&&!can('fw')){ $('#w14-out').innerHTML=resHTML({status:403,body:{error:'you do not have the required permission (faults:write)'}}); return; }
+    const h0=SB.h.length,k0=SB.hooks.length; const r=o[2](f); const nh=SB.h.slice(h0), nk=SB.hooks.slice(k0);
+    $('#w14-out').innerHTML=resHTML(r)+`<dl class="kv" style="margin-top:8px"><dt>history added</dt><dd>${nh.length?nh.map(h=>`<code>${h.action}</code> by ${esc(h.actor||'system')}`).join(', '):'<b>none</b>'}</dd><dt>webhook events</dt><dd>${nk.length?nk.map(h=>`<code>${h.event}</code>`).join(', '):'<b>none</b>'}</dd></dl>`; emitStore(); };
+  faultSel('#w14-f',()=>{});
+  seg('#w14-m',b=>{ $('#w14-a').style.display=b.dataset.m==='out'?'':'none'; $('#w14-b').style.display=b.dataset.m==='in'?'':'none'; });
+  /* inbound adapter (adapter_ops.go faultAdapter) */
+  const ENT={};
+  const EX={1:{external_id:'cis-F-1001',title:'Pole-top fault, Dunkwa Rd',longitude:-0.2,latitude:5.59,fault_type:'LL',cause:'third_party'},2:{external_id:'cis-F-1001',cause:'vehicle impact',fault_current_a:1800,status:'cleared'},3:{external_id:'cis-F-1001',op:'delete'},4:{title:'No key',longitude:-0.2,latitude:5.59}};
+  const setP=n=>{ $('#w14-p').value=J(EX[n]); }; setP(1); [1,2,3,4].forEach(n=>$('#w14-ex'+n).onclick=()=>setP(n));
+  $('#w14-go').onclick=()=>{ if(!can('fw')){ $('#w14-bo').innerHTML=resHTML({status:403,body:{error:'you do not have the required permission (faults:write)'}}); return; } let ch; try{ ch=JSON.parse($('#w14-p').value); }catch(e){ $('#w14-bo').innerHTML=resHTML(E4('invalid fault change: '+e.message)); return; }
+    const ex=trim(ch.external_id); if(!ex){ $('#w14-bo').innerHTML=resHTML(E4('every fault change needs an external_id (the correlation key)')); return; }
+    const op=(ch.op||'upsert').toLowerCase(); if(op!=='upsert'){ $('#w14-bo').innerHTML=resHTML(E4(`fault change "${ex}": unsupported op "${ch.op}" (fault supports upsert only -- a fault is cleared/closed via status, never webhook-deleted)`)); return; }
+    const h0=SB.h.length,k0=SB.hooks.length; let res, entity, rop;
+    if(ENT[ex]&&fget(ENT[ex])){ entity=ENT[ex]; rop='update'; const find=['reference','fault_type','cause','fault_current_a','protective_device_class','protective_device_id','clearing_time_ms','detected_by','incident_id','description','notes'].some(k=>ch[k]!=null)||trim(ch.title)!==''; if(find){ const p={}; ['reference','fault_type','cause','fault_current_a','protective_device_class','protective_device_id','clearing_time_ms','detected_by','incident_id','description','notes'].forEach(k=>{ if(ch[k]!=null) p[k]=ch[k]; }); if(trim(ch.title)) p.title=ch.title; res=updateFault(entity,p,{actor:pname()+' (webhook)'}); if(res.status!==200){ $('#w14-bo').innerHTML=resHTML(res); return; } } }
+    else { res=createFault(ch,{actor:pname()+' (webhook)'}); if(res.status!==201){ $('#w14-bo').innerHTML=resHTML(res); return; } entity=res.body.id; ENT[ex]=entity; rop='create'; }
+    if(ch.status!=null){ const r2=setStatus(entity,String(ch.status).trim(),{actor:pname()+' (webhook)'}); if(r2.status!==200){ $('#w14-bo').innerHTML=resHTML(r2); emitStore(); return; } }
+    const nh=SB.h.slice(h0), nk=SB.hooks.slice(k0);
+    $('#w14-bo').innerHTML=resHTML({status:200,body:{results:[{op:rop,external_id:ex,target:'fault',entity_id:entity}]}})+`<dl class="kv" style="margin-top:8px"><dt>history added</dt><dd>${nh.map(h=>`<code>${h.action}</code>`).join(', ')||'<b>none</b>'}</dd><dt>webhook events</dt><dd>${nk.map(h=>`<code>${h.event}</code>`).join(', ')||'<b>none</b>'}</dd></dl><p class="mini">The response shape is simplified; the create/update/status calls are the real engine paths.</p>`; emitStore(); };
+  onPersona(()=>{ $('#w14-lock').innerHTML=can('fw')?'':lockTip('fw'); });
+})();
+emitStore();
+
+/* ===== W15: Feeder 7 story ===== */
+(function(){
+  let mode='asset', step=0, fid=null, fail=null, lastTxt='';
+  const ST_=[
+   ['It happens','Excavator strikes the cable on the tee below FSW-12. The 100 T fuse clears it; TX-220 and its LV go dark. SCADA flags loss of supply; incident 901 is already on the OMS board. <b>No fault record exists yet.</b>',null],
+   ['Priya logs it (detected)',null,()=>{ let r,a; if(mode==='asset'){ r=createFault({title:'Cable fault, Feeder 7 tee to TX-220',asset_class:'MV_CONDUCTOR',asset_id:A_TEE,incident_id:UU(901),protective_device_class:'MV_SWITCH',protective_device_id:A_FSW,fault_type:'earth',detected_by:'scada'},{actor:'Priya'}); lastTxt='<code>POST /faults</code> anchored to the cable asset <b>and</b> the incident, device = FSW-12.'; }
+      else { r=raiseFromIncident(UU(901),{},{actor:'Priya'}); if(r.status===201){ updateFault(r.body.id,{title:'Cable fault, Feeder 7 tee to TX-220',fault_type:'earth',detected_by:'scada'},{actor:'Priya'}); } lastTxt='<code>POST /faults/from-incident/…</code> (what the Outages ⚡ button does): anchored by <code>incident_id</code> only; device and cause inherited; then a PATCH for title/type/detected_by.'; }
+      if(r.status===201) fid=r.body.id; return r; }],
+   ['Investigation',null,()=>{ const a=setStatus(fid,'investigating',{actor:'Priya'}); const b=updateFault(fid,{cause:'dig_in',fault_current_a:3900,clearing_time_ms:55},{actor:'Priya'}); lastTxt='<code>POST …/status</code> investigating, then <code>PATCH</code> cause=dig_in, fault_current_a=3900, clearing_time_ms=55 (API/agent tool — the board has no edit screen). Tom compares 3,900 A with the study’s prospective 3,913 A (a separate engine call, by hand).'; return b; }],
+   ['Dana clears it (cleared)',null,()=>{ const r=setStatus(fid,'cleared',{actor:'Dana'}); lastTxt='<b>Mark cleared</b> → <code>cleared_at</code> stamped automatically; event <code>faults.event.cleared</code>. Restoration itself is driven on the OMS side.'; return r; }],
+   ['Dana books the repair',null,()=>{ const r=bookDefect(fid,{},{actor:'Dana'}); lastTxt='<b>Book defect</b> → WAM defect (source outage, carrying incident_id), <code>defect_id</code> written back. The splice becomes a work order inside WAM.'; return r; }],
+   ['Priya closes it (closed)',null,()=>{ const r=setStatus(fid,'closed',{actor:'Priya'}); lastTxt='<b>Close</b> — <code>cleared_at</code> is kept (COALESCE), not re-stamped.'; return r; }]];
+  function paint(){
+    $('#w15-s').innerHTML=`<button data-m="asset" aria-pressed="${mode==='asset'}">Start: asset + incident (API)</button><button data-m="inc" aria-pressed="${mode==='inc'}">Start: Outages ⚡ button</button>`;
+    const f=fid&&fget(fid); const done=step>=ST_.length;
+    let m=`<p><b>Step ${Math.min(step,ST_.length-1)+1}/6 next:</b> ${done?'Story complete.':ST_[step][0]}</p>`;
+    if(step>0&&step<=ST_.length) m+=`<div class="res ${fail?'e4':'ok'}" style="margin-top:0"><b>${ST_[step-1][0]}</b><p style="margin:4px 0 0;font-size:13.5px">${ST_[step-1][1]||lastTxt}</p>${fail?`<div class="bad-t" style="margin-top:6px">${fail.status}: ${esc(fail.body.error)}</div>`:''}</div>`;
+    m+=`<div class="w-bar" style="padding:10px 0 0;border:0"><button class="btn pri" id="w15-n"${done||fail?' disabled':''}>${done?'Done':'Run step '+(step+1)+': '+ST_[step][0]}</button></div>`;
+    if(fail&&mode==='inc') m+=`<div class="callout" style="font-size:16px;margin:12px 0">An incident-only fault has nothing to book a defect against, and a PATCH cannot add an asset or pin. Restart with the asset + incident start.</div>`;
+    $('#w15-m').innerHTML=m;
+    $('#w15-side').innerHTML=f?`<b>Record</b><dl class="kv" style="margin:4px 0"><dt>status</dt><dd>${stc(f.status)}</dd><dt>anchor</dt><dd>${f.asset_id?AS[f.asset_id].name:''}${f.incident_id?' · incident '+sid(f.incident_id):''}</dd><dt>device</dt><dd>${f.protective_device_id?AS[f.protective_device_id].name:'—'}</dd><dt>cause</dt><dd>${esc(f.cause||'—')}</dd><dt>current</dt><dd>${f.fault_current_a!=null?f.fault_current_a+' A':'—'}</dd><dt>clearing</dt><dd>${f.clearing_time_ms!=null?f.clearing_time_ms+' ms':'—'}</dd><dt>cleared_at</dt><dd>${fmtT(f.cleared_at)}</dd><dt>defect</dt><dd>${f.defect_id?sid(f.defect_id):'—'}</dd></dl><b>History (newest first)</b><ul class="tl">${SB.h.filter(h=>h.fault_id===fid).reverse().map(h=>`<li>${h.action} · ${esc(h.actor)}${h.action==='status_changed'?' → '+h.snapshot.status:''}</li>`).join('')}</ul><b>Events</b><ul class="tl">${SB.hooks.filter(h=>h.fault_id===fid).map(h=>`<li>${h.event}</li>`).join('')}</ul>`:'<p class="mini">The record appears at step 2.</p>'; }
+  $('#w15-m').onclick=e=>{ if(!e.target.closest('#w15-n')) return; const s=ST_[step]; if(!s[2]){ step++; paint(); return; } const r=s[2](); fail=r.status>=300?r:null; step++; emitStore(); paint(); };
+  $('#w15-s').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; mode=b.dataset.m; step=0; fid=null; fail=null; paint(); };
+  $('#w15-r').onclick=()=>{ step=0; fid=null; fail=null; paint(); };
+  paint();
+})();
+
+/* ===== W16: endpoint tester ===== */
+(function(){
+  const EP=[['GET /faults','GET','/faults',null,0],['GET /faults/map','GET','/faults/map',null,0],['GET /faults/{id}','GET','/faults/{id}',null,1],['GET /faults/{id}/history','GET','/faults/{id}/history',null,1],['GET /faults/{id}/impact','GET','/faults/{id}/impact',null,1],
+   ['POST /faults','POST','/faults','{"title":"Test fault","longitude":-0.19,"latitude":5.6,"fault_type":"SLG"}',0],['PATCH /faults/{id}','PATCH','/faults/{id}','{"cause":"vegetation"}',1],['POST /faults/{id}/status','POST','/faults/{id}/status','{"status":"cleared"}',1],['POST /faults/{id}/defect','POST','/faults/{id}/defect','{}',1],['POST /faults/from-incident/{id}','POST','/faults/from-incident/{id}','{}',2],['DELETE /faults/{id} (does not exist)','DELETE','/faults/{id}',null,1]];
+  $('#w16-e').innerHTML=EP.map((e,i)=>`<option value="${i}">${e[0]}</option>`).join('');
+  function ids(){ const e=EP[+$('#w16-e').value]; let h=''; if(e[4]===1) h=SB.f.map(f=>`<option value="${f.id}">${f.status} · ${esc(f.title)} (${sid(f.id)})</option>`).join('')+`<option value="${UU(404)}">(unknown fault id)</option>`; else if(e[4]===2) h=Object.values(INC).map(i=>`<option value="${i.id}">${esc(i.name)}</option>`).join('')+`<option value="${UU(404)}">(unknown incident id)</option>`; else h='<option value="">—</option>'; const cur=$('#w16-i').value; $('#w16-i').innerHTML=h; if([...$('#w16-i').options].some(o=>o.value===cur)) $('#w16-i').value=cur; $('#w16-i').disabled=!e[4]; }
+  function sel(){ const e=EP[+$('#w16-e').value]; ids(); $('#w16-b').value=e[3]||''; $('#w16-b').disabled=!e[3]; $('#w16-d').innerHTML=`<code>${e[1]} ${e[2]}</code> needs <span class="perm">${e[1]==='GET'?'faults:read':'faults:write'}</span>`; lock(); }
+  function lock(){ const e=EP[+$('#w16-e').value]; const need=e[1]==='GET'?'fr':'fw'; $('#w16-lock').innerHTML=can(need)?'':lockTip(need)+' (a 403 is still what you would see — send it)'; }
+  $('#w16-e').onchange=sel; onStore(ids);
+  $('#w16-go').onclick=()=>{ const e=EP[+$('#w16-e').value]; let path=e[2].replace('{id}',$('#w16-i').value); let b=null; const t=$('#w16-b').value.trim(); if(t&&!$('#w16-b').disabled){ try{ b=JSON.parse(t); }catch(x){ $('#w16-out').innerHTML=resHTML(E4('invalid request body: '+x.message)); return; } }
+    const r=call(e[1],path,b); let extra=''; if(r.status===200&&r.body.faults) extra=` <span class="mini">· ${r.body.faults.length} fault(s)</span>`; $('#w16-out').innerHTML=resHTML(r,extra); emitStore(); };
+  onPersona(lock); sel();
+})();
+
+/* ===== W17: honest limits ===== */
+(function(){
+  const L=[
+   ['Hide faults from users outside their territory?','no','Not territory-scoped: no <code>territory_id</code> column, no route filter. Every <code>faults:read</code> holder sees every fault.','migration 0106; manual §2'],
+   ['Give a fault a severity or priority?','no','There is no such column. Severity belongs to the <b>defect</b> a fault books (default <code>medium</code>).','0106; store.go BookDefectFromFault'],
+   ['Pick the cause from a coded list?','no','<code>cause</code> and <code>detected_by</code> are free text, on purpose.','0106 comments'],
+   ['Delete a fault?','no','There is no DELETE route. Faults end as <code>cleared</code>/<code>closed</code>; history rows are append-only and outlive the fault.','http.go Routes'],
+   ['Draw, edit or trace a fault as a map feature?','no','It is a row in <code>faults.fault_events</code>, never a compiled <code>gis.*</code> class. The overlay only shows a marker.','0106; geometry.go'],
+   ['Have a fault create a work order directly?','no','A fault books a <b>defect</b>; the work order is created inside WAM from that defect.','store.go BookDefectFromFault'],
+   ['Rely on the asset/device/incident being checked for existence?','no','Loose refs, not FKs. Only well-formedness (uuid) and pairing are checked; raise-from-incident reads the incident, book-defect calls WAM.','store.go CreateFault'],
+   ['Edit findings from the web board?','no','<code>useUpdateFault</code> is defined but no screen uses it. Use the API, the <code>faults_update</code> agent tool or an inbound webhook.','hooks/use-faults.ts:241'],
+   ['Change a fault’s asset, pin or detected_at after logging?','no','<code>UpdateFaultParams</code> has no such fields. Log a new fault (or fix before booking).','store.go UpdateFaultParams'],
+   ['Compare a recorded current with the model automatically?','no','No code dependency between the record and <code>/analysis/fault-current</code>; the comparison is a human one.','manual §1'],
+   ['Make REST creates replay-safe with my own id?','no','<code>POST /faults</code> ignores <code>id</code>. Only the sync <code>fault_create</code> op is idempotent.','http.go createFaultRequest; sync.go'],
+   ['Get a webhook when findings change or a defect is booked?','no','Only create (<code>raised</code>) and status change (<code>cleared</code>/<code>updated</code>) emit.','store.go'],
+   ['Delete a fault through the inbound webhook?','no','<code>op</code> must be <code>upsert</code>.','adapter_ops.go faultAdapter'],
+   ['Have the impact trace honour open switches?','no','It is barrier-free/topological and counts only <code>SERVICE_POINT</code>; it can over-state behind a normally-open point.','geometry.go FaultImpactArea'],
+   ['See an incident-only fault on the map?','no','No resolvable point → omitted from <code>/faults/map</code>.','geometry.go ListFaultsForMap'],
+   ['Reopen a cleared or closed fault?','yes','Set status back to <code>investigating</code> (UI: Reopen); <code>cleared_at</code> is cleared.','store.go SetFaultStatus'],
+   ['Jump detected → closed, or closed → cleared?','partly','The API allows any transition (even to the same status); the web board only offers the sane ones.','store.go SetFaultStatus; routes/faults.tsx'],
+   ['Raise more than one fault for the same incident?','yes','No de-duplication; list them with <code>?incident_id=</code>.','store.go RaiseFaultFromIncident'],
+   ['Find out who logged a fault?','partly','Not on the record (no <code>created_by</code>); the first <code>created</code> history row carries the actor.','0109; history.go']];
+  function paint(){ const q=$('#w17-q').value.toLowerCase(); const rows=L.filter(r=>!q||(r[0]+r[2]).toLowerCase().includes(q)); $('#w17-n').textContent=rows.length+' of '+L.length;
+    $('#w17-l').innerHTML=rows.map(r=>`<details class="tr"><summary>${esc(r[0])} <span class="pill ${r[1]==='yes'?'fresh':r[1]==='no'?'stale':'sec'}">${r[1].toUpperCase()}</span></summary><div style="margin-top:6px;font-size:14px">${r[2]}</div><div class="mini" style="margin-top:4px">Evidence: ${r[3]}</div></details>`).join(''); }
+  $('#w17-q').oninput=paint; paint();
+})();
+
+/* ===== W18: troubleshooting ===== */
+(function(){
+  const R=[
+   ['The Log fault button is greyed out in the dialog','The dialog enables it only with a <b>title</b> and an <b>asset (class + id) or a location (lng + lat)</b>. An incident anchor is not offered here — use the Outages ⚡ button or the API.',null],
+   ['400 “a fault needs an anchor: an asset (asset_class and asset_id), a location, or an incident_id”','You sent none of the three anchors. Add the asset pair, longitude+latitude, or an incident_id.',null],
+   ['400 “a fault asset needs both asset_class and asset_id” (or the device / location equivalents)','Pairs are all-or-nothing: asset class+id, device class+id, longitude+latitude. Blank strings count as absent.',null],
+   ['403 “you do not have the required permission (faults:write)”','You hold viewer or analyst. Reads need <code>faults:read</code>; every other method needs <code>faults:write</code> (editor, admin, break-glass-admin).','perm'],
+   ['500 when logging a fault with a negative current, or an asset id that is not a uuid','Those are caught by the database (<code>fault_current_a ≥ 0</code>, <code>clearing_time_ms ≥ 0</code>, uuid type), not by the friendly validation, so they surface as 500. Fix the value.',null],
+   ['The board looks empty but faults exist','<b>Open only</b> is ticked by default; cleared and closed faults are hidden. Untick it (or use the API without <code>open=true</code>).','open'],
+   ['A fault is missing from the map','Check in order: the Faults layer is off by default; the legend shows only detected + investigating; an <b>incident-only</b> fault has no point; an asset in an uncompiled/deleted/geometry-less class with no pin has no point.','map'],
+   ['The impact area is empty','The fault has no protective device (set it by PATCH as a pair), or nothing of class <code>SERVICE_POINT</code> lies downstream of it. A device that is not in the network trace yields nothing.',null],
+   ['Impact shows customers who are actually on supply','The trace is barrier-free: it ignores open switches. Treat the list as the conservative upper bound.',null],
+   ['400 “fault … has no asset or location to book a defect against”','The fault is incident-only (typical after the Outages ⚡ button). A PATCH cannot add an asset or pin; log a new fault anchored to the asset.',null],
+   ['400 “fault … already has a booked defect”','<code>defect_id</code> is already set — including one supplied on create. One fault, one defect.',null],
+   ['500 when booking a defect with a custom severity','Valid severities are low, medium, high, critical. By code reading, WAM’s validation error is not the type <code>faults</code> maps to 400, so an invalid value shows as 500 with the message.',null],
+   ['The Book defect button is missing','It is hidden when the fault is <code>closed</code>, already has a defect, or you lack <code>faults:write</code> (the board also hides it with no asset/pin). The API itself only checks for an existing defect and an asset/pin.',null],
+   ['400 “no fields to update” on a PATCH','The body had no patchable key. <code>status</code> is not patchable (use <code>/status</code>), and asset, location and detected_at cannot be changed at all.',null],
+   ['400 “invalid fault_type … want one of SLG, LL, LLG, LLL, LLLG, earth, unknown”','Closed enum; the check is case-sensitive. An empty string on PATCH clears it.',null],
+   ['404 expected, got 400 “fault … does not exist”','By design: a missing fault is an InvalidError, so it is a 400 on every route that takes a fault id.',null],
+   ['A replayed offline capture created two faults','It was sent through <code>POST /faults</code>, which ignores <code>id</code>. Only the sync <code>fault_create</code> op uses the device-minted id with <code>ON CONFLICT DO NOTHING</code>.',null],
+   ['My integration got no webhook after I edited a fault','PATCH and Book defect emit no event. Only create (<code>faults.event.raised</code>) and status change (<code>…cleared</code> / <code>…updated</code>) do.',null],
+   ['Inbound webhook: “unsupported op” or “needs an external_id”','Fault changes must carry <code>external_id</code> and an <code>op</code> of <code>upsert</code> (or none). Delete is not supported; send a <code>status</code> instead.',null],
+   ['The ⚡ Raise fault button is missing on an outage','It needs <code>faults:write</code> and is hidden for cancelled incidents.','perm'],
+   ['Every fault on the system is visible to a district-scoped user','Correct: faults are not territory-scoped (chapter 2).',null],
+   ['A fault from the Outages button has the title “Fault behind incident”','The button sends no body. Rename it with PATCH <code>title</code>, or raise via the API with a title.',null]];
+  const live={perm:()=>`<b>${pname()}</b> (${PERSONA[2].role}): read ${can('fr')?'✓':'✕'} · write ${can('fw')?'✓':'✕'}`,
+    open:()=>{ const all=SB.f.length, op=listFaults({open:'true'}).length; return `Sandbox: ${all} faults, <b>${op}</b> open, <b>${all-op}</b> hidden by “Open only”.`; },
+    map:()=>{ const M=mapMarkers({}); const un=M.filter(m=>!m.via); return `Sandbox: ${M.length-un.length} placeable, ${un.length} omitted${un.length?': '+un.map(m=>esc(m.fault.title)).join('; '):''}.`; }};
+  function paint(){ const q=$('#t-q').value.trim().toLowerCase(); const rows=R.filter(r=>!q||(r[0]+' '+r[1]).replace(/<[^>]+>/g,' ').toLowerCase().includes(q)); $('#t-n').textContent=rows.length+' of '+R.length;
+    $('#t-list').innerHTML=rows.map(r=>`<details class="tr"><summary>${r[0]} ${r[2]?'<span class="pill sec">live check</span>':''}</summary><div style="margin-top:6px;font-size:14px">${r[1]}</div>${r[2]?`<div style="margin-top:8px"><button class="btn" data-l="${r[2]}">Check now</button><div class="lv" style="display:none;margin-top:6px;font-size:13px"></div></div>`:''}</details>`).join(''); }
+  $('#t-q').oninput=paint; $('#t-list').onclick=e=>{ const b=e.target.closest('button[data-l]'); if(!b) return; const box=b.parentElement.querySelector('.lv'); box.style.display='block'; box.innerHTML=live[b.dataset.l](); }; paint();
+})();
+
+/* ===== recipes ===== */
+(function(){
+  const H='curl -sS -b cookies.txt';
+  const W=`${H} -H "X-CSRF-Token: $CSRF" -H "Content-Type: application/json"`;
+  const R=[['Open faults',`${H} "$B/api/faults?open=true"`,'Newest first. Add <code>fault_type=</code>, <code>incident_id=</code>, or <code>asset_class=…&amp;asset_id=…</code>.'],
+   ['Log a fault',`${W} -X POST "$B/api/faults" -d '{"title":"Cable fault, Feeder 7 tee to TX-220","asset_class":"MV_CONDUCTOR","asset_id":"$TEE","incident_id":"$INC","protective_device_class":"MV_SWITCH","protective_device_id":"$FSW12","fault_type":"earth","detected_by":"scada"}'`,'201 with the new row, status detected.'],
+   ['Patch findings',`${W} -X PATCH "$B/api/faults/$FID" -d '{"cause":"dig_in","fault_current_a":3900,"clearing_time_ms":55}'`,'Device pair travels together; status is not patchable.'],
+   ['Move the lifecycle',`${W} -X POST "$B/api/faults/$FID/status" -d '{"status":"cleared"}'`,'detected, investigating, cleared or closed. Any order; cleared/closed stamp cleared_at.'],
+   ['Book the repair',`${W} -X POST "$B/api/faults/$FID/defect" -d '{"severity":"high"}'`,'201. Needs an asset or location and no existing defect.'],
+   ['Raise from an outage',`${W} -X POST "$B/api/faults/from-incident/$INC" -d '{"title":"Cable fault, Feeder 7"}'`,'Inherits the incident’s predicted device and cause_code.'],
+   ['Who did what',`${H} "$B/api/faults/$FID/history"`,'Newest first; each row has action, actor_name/email, at, snapshot.'],
+   ['What went dark',`${H} "$B/api/faults/$FID/impact"`,'service_points below the protective device.'],
+   ['Map overlay data',`${H} "$B/api/faults/map?open=true"`,'Only faults with a placeable point; geometry included for asset-anchored ones.']];
+  $('#rc-s').innerHTML=R.map((r,i)=>`<button data-i="${i}" aria-pressed="${i===0}">${r[0]}</button>`).join('');
+  function paint(i){ $('#rc-o').innerHTML=`<pre class="code" style="white-space:pre-wrap;word-break:break-all;font-size:12.5px">${esc(R[i][1])}</pre><p class="mini">${R[i][2]}</p><button class="btn" id="rc-cp">Copy</button>`; $('#rc-cp').onclick=()=>{ try{ navigator.clipboard.writeText(R[i][1]); $('#rc-cp').textContent='Copied'; }catch(e){} }; }
+  seg('#rc-s',b=>paint(+b.dataset.i)); paint(0);
+})();
+
+/* ===== quiz ===== */
+(function(){
+  const Q=[
+   ['Vic (viewer) opens the Faults page and tries PUT /faults/{id}. What does he get?','403 — the gate runs before routing and non-GET needs faults:write',['404','405','403 — the gate runs before routing and non-GET needs faults:write','200'],'RequirePermission picks the permission from the method alone: GET/HEAD/OPTIONS read, everything else write.'],
+   ['Which combination is accepted by POST /faults?','A title and only an incident_id',['A title only','A title and asset_class only','A title and only an incident_id','An asset and a latitude only'],'The anchor is asset (class + id), a location (both coordinates) or an incident_id. Half-pairs are 400s.'],
+   ['A fault is closed. Priya sets it to “investigating”. What happens to cleared_at?','It is set back to null',['It stays','It is set back to null','It is re-stamped to now','The API refuses'],'SetFaultStatus writes NULL for any non-terminal status; the DB CHECK ties cleared_at to cleared/closed.'],
+   ['Priya raises a fault from the Outages ⚡ button, then clicks Book defect. Result?','400 — no asset or location to book a defect against',['A defect and a work order','A defect only','400 — no asset or location to book a defect against','It silently does nothing'],'The fault is anchored only by incident_id; BookDefectFromFault needs an asset or a location, and PATCH cannot add one.'],
+   ['Which operation emits NO outbound webhook event?','PATCH /faults/{id}',['POST /faults','POST /faults/{id}/status → cleared','PATCH /faults/{id}','POST /faults/from-incident/{id}'],'Only create (raised) and status changes (cleared/updated) emit; a findings patch and a defect booking do not.'],
+   ['A device-minted id is replayed three times. To avoid duplicates it must use…','the sync fault_create op',['POST /faults with an id field','the sync fault_create op','PATCH /faults/{id}','a retry header'],'createFaultRequest has no id field; only applyFaultsOp passes the id into an ON CONFLICT DO NOTHING insert.'],
+   ['FSW-12 operates; TIE-3 (normally open) feeds two more service points below it. How does the impact trace treat them?','It counts them — the trace is barrier-free',['It skips them because the switch is open','It counts them — the trace is barrier-free','It errors','It only counts transformers'],'FaultImpactArea reuses the topological downstream trace, counting SERVICE_POINT features without modelling open switches.'],
+   ['You GET /faults/{unknown-uuid}. Status?','400',['404','400','500','200 with null'],'A missing fault is an InvalidError, which writeError maps to 400.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach((el,i)=>{ const x=Q[i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===esc(x[1]); const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Answer: <b>${esc(x[1])}</b>. `)+x[3]; }); });
+})();
+
+/* chapter rail */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a])); const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'}); document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+/* in-page anchors: a srcdoc iframe resolves href="#id" against the parent app URL, so handle chapter-rail links ourselves */
+document.addEventListener('click',function(e){ var a=e.target.closest&&e.target.closest('a[href^="#"]'); if(!a) return; var id=decodeURIComponent(a.getAttribute('href').slice(1)); e.preventDefault(); if(!id){ window.scrollTo({top:0,behavior:'instant'}); return; } var t=document.getElementById(id); if(t){ var nav=document.querySelector('.rail'); var off=(nav?nav.getBoundingClientRect().height:0)+12; window.scrollTo({top:t.getBoundingClientRect().top+window.pageYOffset-off,behavior:'instant'}); } });
+
+
+</script>
+</body></html>
