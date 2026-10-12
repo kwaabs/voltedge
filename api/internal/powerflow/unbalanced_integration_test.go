@@ -51,15 +51,16 @@ var z601Published = [3][3]complex128{
 }
 
 // TestCarsonConfig601 reproduces the published Z601 from Config 601's geometry
-// via the real Carson build. Phase: 336,400 26/7 ACSR (GMR 0.0244 ft, 0.306
-// Ω/mile). Neutral: 4/0 6/1 ACSR (GMR 0.00814 ft, 0.592 Ω/mile). Config 601 is
+// via the real Carson build. Phase: 556,500 26/7 ACSR (GMR 0.0313 ft, 0.1859
+// Ω/mile) -- the ACSR "Dove" conductor the IEEE 13-node Config 601 main actually
+// uses. Neutral: 4/0 6/1 ACSR (GMR 0.00814 ft, 0.592 Ω/mile). Config 601 is
 // phased B-A-C-N on the crossarm, so by position (ft): B(0,29) A(2.5,29) C(7,29)
 // N(4,25) -- i.e. phase A sits at x=2.5, phase B at x=0. Built at 60 Hz / 100 Ω·m
 // over one mile, so the result is directly in Ω/mile.
 func TestCarsonConfig601(t *testing.T) {
 	spec := &metadata.MaterialSpec{
-		ResistanceOhmPerKm:        ptrF(0.306 / ohmMile),
-		GmrPhaseMm:                ptrF(0.0244 * feetToM * 1000),
+		ResistanceOhmPerKm:        ptrF(0.1859 / ohmMile),
+		GmrPhaseMm:                ptrF(0.0313 * feetToM * 1000),
 		ResistanceNeutralOhmPerKm: ptrF(0.592 / ohmMile),
 		GmrNeutralMm:              ptrF(0.00814 * feetToM * 1000),
 		PosAX:                     ptrF(2.5 * feetToM),
@@ -77,25 +78,23 @@ func TestCarsonConfig601(t *testing.T) {
 		t.Fatalf("Config 601 build did not resolve with a neutral: %+v", m)
 	}
 
-	// What this test asserts vs. what it only logs:
+	// This asserts the WHOLE matrix -- self (diagonal) AND mutual (off-diagonal) --
+	// against the published Z601 to 4 decimals (0.01 Ω/mile tol). It exercises the
+	// entire coupled build: earth return (De, rEarth), the ln coefficient, the self
+	// GMR term, the mutual spacing, and the neutral Kron reduction.
 	//
-	// OFF-DIAGONAL (mutual) terms are hard-asserted against the published Z601 --
-	// they match to 4 decimals, validating the whole coupled build: earth return,
-	// De, the ln coefficient, the mutual spacing, AND the neutral Kron reduction.
-	// This is the genuinely novel Tier-2 capability (the mutual coupling the
-	// decoupled Tier-1 sweep cannot see), and it is correct against IEEE data.
-	//
-	// DIAGONAL (self) terms are LOGGED, NOT asserted. buildCarsonMatrix reproduces
-	// the standard modified-Carson + Kron self-impedance (hand-verified: ~0.466+
-	// j1.048 Ω/mile for the 336.4 ACSR phase), but the widely-quoted published 601
-	// diagonal is ~0.3465+j1.0179. Those two CANNOT both be a single Kron reduction
-	// of the same primitive: the self correction z_in²/z_nn is provably negative
-	// (z_in is strongly inductive), so Kron raises the diagonal ABOVE the ~0.40
-	// Ω/mile primitive -- 0.3465 < 0.40 is unreachable while the off-diagonals hold.
-	// So the engine computes textbook modified-Carson+Kron correctly; reconciling
-	// the published self-term needs an authoritative cross-check (OpenDSS / a
-	// reference Carson implementation) out of reach here. Until then we don't assert
-	// a self-term reference we cannot certify. See bet2-accuracy-validation memory.
+	// The self-term is asserted now because the test finally feeds Config 601's
+	// ACTUAL phase conductor, 556,500 26/7 ACSR (r = 0.1859 Ω/mile, GMR 0.0313 ft).
+	// An earlier revision mistakenly used 336,400 ACSR (r = 0.306, GMR 0.0244): the
+	// mutual terms depend only on spacing + the neutral, so they matched regardless
+	// and MASKED the wrong phase conductor, while the self terms came out ~0.467+
+	// j1.048 instead of the published 0.3465+j1.0179 -- and that mismatch was wrongly
+	// read as an unreconcilable Kron discrepancy needing an OpenDSS cross-check. With
+	// the right conductor there is nothing to reconcile: the modified-Carson + Kron
+	// self-impedance reproduces the published value directly. For Z_aa, the primitive
+	// self is r + rEarth = 0.1859 + 0.0953 = 0.2812 (real) and the Kron correction
+	// ẑ_an²/ẑ_nn = −0.0654 + j0.3653 (geometry + neutral only), giving
+	// 0.2812 − (−0.0654) = 0.3466 + j1.0178 -- the published 0.3465 + j1.0179 to 4 dp.
 	const tol = 0.01
 	for i := 0; i < phaseCount; i++ {
 		for j := 0; j < phaseCount; j++ {
@@ -104,12 +103,13 @@ func TestCarsonConfig601(t *testing.T) {
 			dX := imag(got) - imag(want)
 			t.Logf("Z[%d][%d] got %.4f%+.4fi  want %.4f%+.4fi  (ΔR %+.4f ΔX %+.4f)",
 				i, j, real(got), imag(got), real(want), imag(want), dR, dX)
+			kind := "mutual"
 			if i == j {
-				continue // self term: logged only (see note above)
+				kind = "self"
 			}
 			if math.Abs(dR) > tol || math.Abs(dX) > tol {
-				t.Errorf("mutual Z[%d][%d] = %.4f%+.4fi, want %.4f%+.4fi (Δ exceeds %.3f Ω/mile)",
-					i, j, real(got), imag(got), real(want), imag(want), tol)
+				t.Errorf("%s Z[%d][%d] = %.4f%+.4fi, want %.4f%+.4fi (Δ exceeds %.3f Ω/mile)",
+					kind, i, j, real(got), imag(got), real(want), imag(want), tol)
 			}
 		}
 	}
