@@ -122,9 +122,13 @@ via SQL (or a future admin editor) without a frontend deploy, and the
 render path already supports full-color artwork alongside tintable
 shapes. What's still open:
 
-- **Real utility artwork.** The seeded set is still the same five
-  generic shapes; authoring an actual IEC/ANSI symbol library is a
-  large, ongoing *content* task, now unblocked but not done.
+- **Real utility artwork.** *(Updated.)* `seed/symbology_icons.sql` still
+  seeds only the same five generic shapes, but later seeds add more icon
+  rows to the same table (`seed/ansi_stencils.sql`,
+  `seed/one_line_stencils_extra.sql`, `seed/diagram_symbology.sql`,
+  `seed/substation_panel_symbology.sql`: ANSI-style diagram stencils and
+  panel symbols). A complete IEC/ANSI library for every class remains a
+  large, ongoing *content* task.
 - ~~**An admin UI to author/edit icons.** Rows are added via SQL today;
   no in-app editor exists yet.~~ **Done** -- a **Symbology icons** admin
   page (full CRUD with a live preview) plus a rule editor now exist; see
@@ -134,6 +138,8 @@ shapes. What's still open:
   might want atlasing or a CDN, deliberately not answered here.
 
 ## Verification owed
+
+> **Update:** the static gates have since been run on this tree and pass: `npx tsc --noEmit` (frontend), `go build ./...`, `go vet` on `cmd` and `internal/metadata`, and `gofmt -l` on those packages. Still not done: applying `migrations/0023` and the seed to a real Postgres, the visual diff, and the full-colour (no `{{COLOR}}`) row check below. The original note follows.
 
 `bash.exe` `EPERM`s on every call in this sandbox, so none of the
 usual gates ran. Before this can be called clean:
