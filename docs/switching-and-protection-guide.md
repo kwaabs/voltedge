@@ -523,6 +523,8 @@ R = 0.048 + 0.32 × 2.8 = 0.944 Ω        X = 0.48 + 0.30 × 2.8 = 1.320 Ω
 I = (11 000 / √3) / 1.623 = 6 351 / 1.623 = 3 913 A        (κ = 1.02 + 0.98·e^(−3·0.944/1.32) = 1.135 → i_p = 6.28 kA)
 ```
 
+> ⚠️ **These figures use the IEC voltage factor `c = 1.0`** — the bolted fault at nominal, `I = Un/(√3·Z)`. Since the `c`-factor was added, `/analysis/fault-current` **and** `/analysis/coordination` **default to `c_max`** (1.10 at MV, 1.05 at LV), so a live run of this feeder returns **I ≈ 1.10 × 3,913 ≈ 4,304 A**, and every operate time and margin below scales with it. Pass **`voltage_factor_c: 1.0`** on the request to reproduce the exact numbers in this section; leave it off for the IEC-maximum (the conservative switchgear-duty figure). The grading *method and ordering* are unchanged — but the magnitudes move, so re-run at the default `c` to confirm a tight margin still clears.
+
 Nothing between source and fault is a transformer, so every device sees the same 3,913 A (if a transformer *were* in the path, the engine would refer the current across it: `I_device = I_fault × V_fault / V_device`).
 
 The path, fault-first: **FSW-12 (fuse)** → **REC-7 (recloser)** → **CB-7 (breaker + relay R-7)**.
@@ -622,7 +624,7 @@ With the shipped `FUSE_100T_EXAMPLE` and the **illustrative** recloser curves (f
 
 Protection isn't only about *timing* — the gear must **withstand and interrupt** the fault it sees. Two studies cover that; this guide points at them rather than repeating **Engineering Studies**:
 
-- **Fault current — `POST /analysis/fault-current`** (`powerflow/fault.go`). The IEC 60909 three-phase (and SLG) fault level a device must make and break, including the **peak asymmetrical** current for breaker making-duty: `κ = 1.02 + 0.98·e^(−3R/X)`, `i_p = κ·√2·I_sym` (`fault.go:243-250`). Validation tier: **Validated**. At the Feeder 7 tee (R = 0.944, X = 1.320 Ω): κ = 1.135, I_sym = 3.91 kA, **i_p = 6.28 kA**.
+- **Fault current — `POST /analysis/fault-current`** (`powerflow/fault.go`). The IEC 60909 three-phase (and SLG) fault level a device must make and break, including the **peak asymmetrical** current for breaker making-duty: `κ = 1.02 + 0.98·e^(−3R/X)`, `i_p = κ·√2·I_sym` (`fault.go:243-250`). Validation tier: **Validated** (against a worked IEC 60909 example — `fault_iec60909_test.go`). At the Feeder 7 tee (R = 0.944, X = 1.320 Ω): κ = 1.135, I_sym = 3.91 kA, **i_p = 6.28 kA** — at `c = 1.0`. The endpoint now **defaults to the IEC voltage factor `c_max`** (1.10 MV, 1.05 LV), which scales I_sym to ≈ **4.30 kA** and i_p to ≈ **6.9 kA** here; pass `voltage_factor_c: 1.0` for the bolted-at-nominal figures above. The `voltage_factor_c` used is reported per node.
 - **Arc-flash — `POST /analysis/arc-flash`** (`powerflow/arcflash.go`, IEEE 1584-2002). Incident energy and PPE category — which **derive from the clearing time** the coordination evaluators above produce: the first resolving protective device from the fault toward the source, evaluated at the *arcing* current and at 85 % of it, the worse energy governing; the clearing time is capped at **2.0 s**; a slower-tripping device means more incident energy (`E ∝ t`). Tier: **Experimental** — *indicative only, never a basis for PPE selection or energized-work permits*.
 
 On Feeder 7 (11 kV switchgear defaults: gap 153 mm, enclosed, working distance 910 mm, ungrounded; arcing current from the ≥1 kV equation = 3.86 kA):
