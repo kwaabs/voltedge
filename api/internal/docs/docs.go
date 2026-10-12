@@ -368,6 +368,13 @@ var manifest = []Doc{
 		Filename:    "reliability-indices-guide.md",
 	},
 	{
+		ID:          "analysis-validation-report",
+		Title:       "Analysis Validation Report",
+		Description: "The test-backed evidence behind the analysis numbers: what is validated against an external reference (load-flow vs exact AC, fault vs IEC 60909, the voltage factor c, coordination verdict) to what tolerance and by which Go test, and an honest list of what is NOT yet validated (unbalanced vs IEEE feeders, end-to-end-from-DB paths, meshed/nodal, scale, arc-flash).",
+		Category:    "Manuals",
+		Filename:    "analysis-validation-report.md",
+	},
+	{
 		ID:          "asset-tags-guide",
 		Title:       "Asset Tags Guide",
 		Description: "How to use asset tags and how they work: minting, affixing, scanning to resolve, printing and querying by tag.",
