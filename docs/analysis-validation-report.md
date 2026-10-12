@@ -17,6 +17,7 @@ This is the test-backed companion to the validation *tiers* in **Engineering Stu
 | **Fault current — voltage factor c** | IEC 60909 `c` applied (1.10 MV / 1.05 LV) + override | **IEC 60909** definition of `I"k_max` | exact | default + override both pinned | `fault_iec60909_test.go` |
 | **Peak asymmetry κ** | `κ = 1.02 + 0.98·e^(−3R/X)`, `i_p = κ√2·I` | **IEC 60909** formula, hand values | 1e-4 | matches at X/R = 1, 10, →∞ | `fault_integration_test.go` |
 | **Coordination verdict** | `margin = t_backup − t_primary`, coordinated ⟺ `margin ≥ CTI` | hand calculation (Feeder 7) | exact | coordinated / miscoordinated / exact-margin / ordering / nil-vs-false all pinned | `coordination_test.go` |
+| **Unbalanced load-flow (Tier 2)** | Carson phase-impedance **mutual** (off-diagonal) terms; coupled per-phase `ΔV = Z·I` drop, single section and 2-section composition | **IEEE 13-node / Kersting** published Config 601 matrix (`Z601`) | 0.01 Ω/mile (mutual); exact (drop) | mutual terms match to 4 dp; coupled drop + 2-section composition exact; coupling provably applied (differs from diagonal-only) | `unbalanced_integration_test.go`, `unbalanced_composition_test.go` |
 
 ## 2. What is validated against a hand calculation (composition, not an external standard)
 
@@ -26,7 +27,7 @@ These pin that the *assembled* passes compose correctly — a pile of correct fo
 |---|---|---|
 | Load-flow sweep | Backward demand accumulation, forward voltage, source impedance, transformer rebasing, branching | `sweep_integration_test.go` |
 | Fault current | Series-impedance accumulation + transformer referral, √3 basis, SLG zero-sequence, generator infeed round-trip, transformer-as-source | `fault_integration_test.go` |
-| Unbalanced load-flow | (Phase-55 engine kernels) | `unbalanced_integration_test.go` |
+| Unbalanced load-flow | Carson build + coupled sweep — validated against IEEE Config 601, see §1 | `unbalanced_integration_test.go`, `unbalanced_composition_test.go` |
 | Load forecast | Scenario projection kernels | `forecast_test.go` |
 | Connectivity | Phase intersection, audit | `connectivity/phase_test.go`, `audit_test.go` |
 | Export | Shapefile/CIM shaping | `export/export_test.go`, `cim_test.go` |
@@ -34,7 +35,7 @@ These pin that the *assembled* passes compose correctly — a pile of correct fo
 ## 3. Conformance notes
 
 - **IEC 60909 voltage factor `c`.** The fault-current endpoint, SLG, arc-flash (via `runFaultCurrent`) and coordination all apply `c` — default `c_max` (1.10 above 1 kV, 1.05 at/below), per-request overridable, reported per node/response. Figures quoted in guides predating this change are the `c = 1.0` case; pass `voltage_factor_c: 1.0` to reproduce them.
-- **Balanced sweep is planning-grade.** Single-phase, linearised (nominal-voltage drop denominator), so it is validated against a **balanced** reference — *not* the IEEE unbalanced feeders, which belong to the Phase-55 unbalanced engine (§4).
+- **Balanced sweep is planning-grade.** Single-phase, linearised (nominal-voltage drop denominator), so it is validated against a **balanced** reference — *not* the IEEE unbalanced feeders, which belong to the Phase-55 unbalanced engine (validated separately, §1).
 
 ---
 
@@ -42,7 +43,7 @@ These pin that the *assembled* passes compose correctly — a pile of correct fo
 
 Trust these only to the stated extent, and treat the following as open:
 
-- ⚠️ **Unbalanced load-flow vs IEEE 13/34/123.** The unbalanced engine has kernel tests but **no validation against the published IEEE per-phase solutions** — the industry reference for an unbalanced distribution solver. Until it exists, unbalanced results are "composes correctly", not "matches the standard."
+- ⚠️ **Full IEEE-13 node-voltage solution.** The line-impedance build (Carson **mutual** terms vs the published `Z601`) and the coupled per-phase drop **are** validated (§1). What is **not** attempted is a full published-node-voltage match for the whole IEEE 13 feeder — it includes a voltage regulator, an in-line transformer, shunt capacitors and line charging that this planning engine documents it does **not** model (`unbalanced_coupled.go` HONEST LIMITS). Separately, the diagonal **self**-impedance term is logged-not-asserted pending an authoritative Carson cross-check (e.g. OpenDSS): the published 601 self-term and the engine's textbook modified-Carson + Kron self-term cannot both be a single Kron reduction of the same primitive.
 - ⚠️ **End-to-end from the database.** Every test above drives the **in-memory kernels**; the full `runFaultCurrent` / `runCoordination` / `runSweep` path (resolving a real network, loading TCC curves from `metadata.protection_curves`, applying barriers) is **not** covered by an automated test — it needs the DB-backed CI harness.
 - ⚠️ **Coordination above `gradePairs`.** The grading *verdict* is tested; the *device evaluation* (reading each operate time off a loaded TCC curve, the through-current referral across transformers) is DB-coupled and untested.
 - ⚠️ **Meshed / nodal (Y-bus Newton) load-flow.** No validation against an independent reference solution.
