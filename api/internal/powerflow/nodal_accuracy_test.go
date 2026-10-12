@@ -89,3 +89,90 @@ func TestNodalMatchesExactAC(t *testing.T) {
 		})
 	}
 }
+
+// addBranch stamps one series admittance y between buses a and b into a Y-bus
+// (the textbook off-diagonal −y, diagonal +y contribution of a shunt-less series
+// branch). Accumulating is what lets a bus pair be joined by more than one path --
+// i.e. form a loop.
+func addBranch(y [][]complex128, a, b int, adm complex128) {
+	y[a][a] += adm
+	y[b][b] += adm
+	y[a][b] -= adm
+	y[b][a] -= adm
+}
+
+// TestNodalMeshedManufacturedSolution validates solveGaussSeidel on a genuinely
+// MESHED network -- a 3-bus triangle (branches 0-1, 1-2, 0-2) where buses 1 and 2
+// are joined by TWO paths, so a loop current flows and the radial sweep could not
+// represent it. The reference is the method of MANUFACTURED SOLUTIONS: choose the
+// bus voltages first, then derive the exact injections S_i = V_i·conj((Y·V)_i) that
+// must produce them. Feeding those injections back, a correct solver must recover
+// the chosen voltages. The target is built WITHOUT running the solver, so it is a
+// true independent reference -- and because it is derived from the full Y·V product
+// it pins the loop (off-diagonal, two-path) coupling, not just radial drop.
+func TestNodalMeshedManufacturedSolution(t *testing.T) {
+	// Three series branches forming a triangle (a loop): 0-1, 1-2 and the closing
+	// 0-2. The 0-2 + 1-2 pair gives bus 2 a second path to the slack, meshing it.
+	y := [][]complex128{
+		{0, 0, 0},
+		{0, 0, 0},
+		{0, 0, 0},
+	}
+	addBranch(y, 0, 1, 1/complex(0.02, 0.06))
+	addBranch(y, 1, 2, 1/complex(0.03, 0.08))
+	addBranch(y, 0, 2, 1/complex(0.04, 0.10)) // the closing branch that forms the loop
+
+	// Chosen target voltages (the manufactured solution): slack at 1∠0, the two PQ
+	// buses sagged in magnitude and angle, as a loaded mesh would be.
+	target := []complex128{
+		complex(1, 0),
+		cmplx.Rect(0.970, -0.020),
+		cmplx.Rect(0.955, -0.035),
+	}
+
+	// Derive the injection each PQ bus must draw to hold its target voltage:
+	// S_i = V_i · conj( Σ_j Y_ij V_j ). This is the ONLY place the reference and the
+	// solver meet -- and it is the exact nodal balance, including the loop terms.
+	inj := func(i int) complex128 {
+		var yv complex128
+		for j := range target {
+			yv += y[i][j] * target[j]
+		}
+		return target[i] * cmplx.Conj(yv)
+	}
+
+	model := &nodalModel{
+		buses: []busInfo{
+			{vBase: 1, kind: busSlack, vSetPU: 1},
+			{vBase: 1, kind: busPQ, sInjPU: inj(1)},
+			{vBase: 1, kind: busPQ, sInjPU: inj(2)},
+		},
+		yBus:   y,
+		slacks: map[int]bool{0: true},
+	}
+
+	sol := solveGaussSeidel(model)
+	if !sol.converged {
+		t.Fatalf("Gauss-Seidel did not converge on the mesh in %d iters (maxMismatch %g)", sol.iterations, sol.maxMismatch)
+	}
+	if len(sol.vPU) != 3 {
+		t.Fatalf("expected 3 bus voltages, got %d", len(sol.vPU))
+	}
+
+	// The solver must recover the manufactured voltages -- magnitude AND angle --
+	// at every bus, confirming it solved the loop, not merely a radial reduction.
+	for i := range target {
+		if d := cmplx.Abs(sol.vPU[i] - target[i]); d > 1e-7 {
+			t.Errorf("bus %d: solved V = %v, manufactured V = %v (|Δ| = %g > 1e-7)", i, sol.vPU[i], target[i], d)
+		}
+	}
+
+	// Guard that the network is actually meshed: bus 1↔2 and 0↔2 must both be live
+	// branches (non-zero off-diagonals), so bus 2 genuinely has two paths to source.
+	if y[1][2] == 0 || y[0][2] == 0 {
+		t.Fatalf("test network is not meshed (missing a loop branch): Y12=%v Y02=%v", y[1][2], y[0][2])
+	}
+
+	t.Logf("meshed 3-bus (triangle): recovered V1=%v V2=%v in %d iters; S1=%v S2=%v",
+		sol.vPU[1], sol.vPU[2], sol.iterations, inj(1), inj(2))
+}
