@@ -409,3 +409,11 @@ export function useIncidentAction() {
     apiFetch(`/oms/incidents/${id}/${action}`, { method: "POST" }),
   )
 }
+
+/** Name (or correct) the blamed device of a predicted/scheduled incident; the
+ * server recomputes the affected counts and clears the confidence. */
+export function useAttributeIncident() {
+  return useOmsMutation<{ id: string; device_class: string; device_id: string }>(({ id, ...body }) =>
+    apiFetch(`/oms/incidents/${id}/attribute`, { method: "POST", body: JSON.stringify(body) }),
+  )
+}

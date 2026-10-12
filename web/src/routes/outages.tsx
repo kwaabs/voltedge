@@ -11,6 +11,7 @@ import {
   Loader2,
   MapPin,
   MapPinned,
+  Pencil,
   PhoneCall,
   Plus,
   PowerOff,
@@ -40,6 +41,7 @@ import {
   type SwitchingStep,
   type TroubleCall,
   useAssociateTroubleCall,
+  useAttributeIncident,
   useCancelSwitchingOrder,
   useCreatePlannedOutage,
   useCreateTroubleCall,
@@ -287,6 +289,45 @@ function AssociateDialog({ call, onClose }: { call: TroubleCall; onClose: () => 
           </Button>
         </div>
       )}
+    </FormDialog>
+  )
+}
+
+/** Name or correct the blamed device of a predicted/scheduled incident. The
+ * server recomputes the affected counts from the device and clears the engine
+ * confidence (POST /oms/incidents/{id}/attribute). */
+function AttributeDialog({ inc, onClose }: { inc: Incident; onClose: () => void }) {
+  const [deviceClass, setDeviceClass] = useState(inc.predicted_device_class ?? "")
+  const [deviceId, setDeviceId] = useState(inc.predicted_device_id ?? "")
+  const attribute = useAttributeIncident()
+  const canSave = deviceClass.trim() !== "" && deviceId.trim() !== "" && !attribute.isPending
+
+  return (
+    <FormDialog
+      open
+      onOpenChange={(next) => next || onClose()}
+      title="Attribute incident to a device"
+      description="Set the device this outage is blamed on. Affected customers are recomputed from it and the prediction confidence is cleared."
+      onSubmit={() =>
+        attribute.mutate(
+          { id: inc.id, device_class: deviceClass.trim(), device_id: deviceId.trim() },
+          { onSuccess: onClose, onError: (err) => toastError(err, "Could not attribute the incident.") },
+        )
+      }
+      submitLabel="Attribute"
+      canSubmit={canSave}
+      saving={attribute.isPending}
+    >
+      <div className="flex gap-2">
+        <div className="flex flex-1 flex-col gap-1">
+          <label className={labelClass}>Device class</label>
+          <input className={inputClass} value={deviceClass} onChange={(e) => setDeviceClass(e.target.value)} placeholder="e.g. MV_RECLOSER" autoFocus />
+        </div>
+        <div className="flex flex-[2] flex-col gap-1">
+          <label className={labelClass}>Device ID</label>
+          <input className={inputClass} value={deviceId} onChange={(e) => setDeviceId(e.target.value)} placeholder="UUID of the device" />
+        </div>
+      </div>
     </FormDialog>
   )
 }
@@ -636,6 +677,7 @@ function IncidentRow({
   const canRaiseFault = usePermission()("faults:write")
   const navigate = useNavigate()
   const pending = action.isPending
+  const [attributing, setAttributing] = useState(false)
 
   function run(kind: IncidentAction) {
     action.mutate({ id: inc.id, action: kind }, { onError: (err) => toastError(err, `Could not ${kind} the incident.`) })
@@ -742,6 +784,17 @@ function IncidentRow({
           {canWrite && !isTerminal && (
             <>
               {canConfirm && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => setAttributing(true)}
+                  title={hasDevice ? "Change the blamed device" : "Attribute to a device"}
+                >
+                  <Pencil className="size-4" />
+                </Button>
+              )}
+              {canConfirm && (
                 <Button variant="outline" size="sm" disabled={pending} onClick={() => run("confirm")}>
                   <CheckCircle2 className="size-4" />
                   {isPlanned ? "Begin" : "Confirm"}
@@ -767,6 +820,11 @@ function IncidentRow({
           )}
         </div>
       </div>
+      {attributing && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <AttributeDialog inc={inc} onClose={() => setAttributing(false)} />
+        </div>
+      )}
     </div>
   )
 }
