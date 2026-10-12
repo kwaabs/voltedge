@@ -40,6 +40,26 @@ func phaseDivisor(basis string) float64 {
 	return math.Sqrt(3) // line_to_line (and the empty default)
 }
 
+// iecVoltageFactorC is the IEC 60909 MAXIMUM voltage factor c_max for a fault on
+// the given voltage base: 1.05 at low voltage (Un ≤ 1 kV), 1.10 above. c scales
+// the equivalent source voltage, so the maximum initial symmetrical short-circuit
+// current is I"k = c·Un/(√3·|Z|). An unknown/zero base takes the MV value.
+func iecVoltageFactorC(baseV float64) float64 {
+	if baseV > 0 && baseV <= 1000 {
+		return 1.05
+	}
+	return 1.10
+}
+
+// effectiveFaultC resolves the voltage factor c for a node: the request's explicit
+// override when set (> 0), otherwise the IEC 60909 default for the node's base.
+func effectiveFaultC(override, baseV float64) float64 {
+	if override > 0 {
+		return override
+	}
+	return iecVoltageFactorC(baseV)
+}
+
 // runFaultCurrent is POST /analysis/fault-current's single entry point:
 // the symmetrical (3-phase bolted) fault-current counterpart of
 // runLoadFlow, sharing the same radial-tree substrate. Where the load
@@ -71,6 +91,9 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 	}
 	if req.FaultImpedanceOhm < 0 {
 		return nil, invalid("fault_impedance_ohm must not be negative")
+	}
+	if req.VoltageFactorC < 0 {
+		return nil, invalid("voltage_factor_c must not be negative")
 	}
 	if req.VoltageBasis != "" && req.VoltageBasis != basisLineToLine && req.VoltageBasis != basisLineToNeutral {
 		return nil, invalid("voltage_basis must be %q or %q", basisLineToLine, basisLineToNeutral)
@@ -145,7 +168,7 @@ func runFaultCurrent(ctx context.Context, db bun.IDB, req faultCurrentRequest) (
 		return nil, err
 	}
 
-	nodes := formatFaultResults(tr, states, paths, genContribs, z0, req.FaultImpedanceOhm, phaseDiv, classCodes)
+	nodes := formatFaultResults(tr, states, paths, genContribs, z0, req.FaultImpedanceOhm, phaseDiv, req.VoltageFactorC, classCodes)
 
 	return &faultCurrentResponse{
 		Start:           req.Start,
@@ -264,7 +287,7 @@ func peakFaultCurrentAmps(iSymAmps, kappa float64) float64 {
 // z0 is nil on a three-phase run (no SLG fields emitted) and the per-node
 // zero-sequence path on an SLG run; faultImpedanceOhm is the fault's own Zf,
 // entering the SLG denominator as the standard 3·Zf term.
-func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pathImpedance, genContribs map[node]float64, z0 map[node]zeroSeqPath, faultImpedanceOhm, phaseDiv float64, classCodes map[string]string) []faultNodeResult {
+func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pathImpedance, genContribs map[node]float64, z0 map[node]zeroSeqPath, faultImpedanceOhm, phaseDiv, cOverride float64, classCodes map[string]string) []faultNodeResult {
 	nodes := make([]faultNodeResult, 0, len(tr.order))
 	for _, n := range tr.order {
 		if _, ok := states[n]; !ok {
@@ -272,6 +295,7 @@ func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pat
 		}
 		p := paths[n]
 		impedanceOhm := math.Hypot(p.rOhm, p.xOhm)
+		c := effectiveFaultC(cOverride, p.baseV)
 
 		circuitID, circuitRef := circuitIdentity(states[n])
 		res := faultNodeResult{
@@ -284,6 +308,7 @@ func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pat
 			ImpedanceOhm:     impedanceOhm,
 			NominalBaseV:     p.baseV,
 			MaterialResolved: p.resolved,
+			VoltageFactorC:   c,
 		}
 		if impedanceOhm > 0 {
 			// Grid infeed (the figure this endpoint has always reported), plus any
@@ -292,10 +317,12 @@ func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pat
 			// switchgear here must interrupt. The split is surfaced only when a
 			// generator actually contributes, so a network with no generation reads
 			// exactly as before.
-			// Driving voltage is line-to-neutral (baseV / phaseDiv), so this is the
-			// STANDARD per-phase symmetrical fault current, directly comparable to a
-			// device's kA interrupting rating.
-			gridAmps := (p.baseV / phaseDiv) / impedanceOhm
+			// Driving voltage is c·(baseV / phaseDiv): the IEC 60909 maximum initial
+			// symmetrical short-circuit current I"k = c·Un/(√3·|Z|), directly
+			// comparable to a device's kA interrupting rating. c defaults to the IEC
+			// c_max for the node's base (1.05 at ≤ 1 kV, 1.10 above) unless the request
+			// overrode it (e.g. 1.0 for the bolted-at-nominal figure).
+			gridAmps := (c * p.baseV / phaseDiv) / impedanceOhm
 			genAmps := genContribs[n]
 			totalAmps := gridAmps + genAmps
 			res.FaultCurrentAmps = &totalAmps
@@ -322,7 +349,7 @@ func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pat
 		}
 
 		if z0 != nil {
-			addGroundFaultFields(&res, p, z0[n], faultImpedanceOhm, phaseDiv)
+			addGroundFaultFields(&res, p, z0[n], faultImpedanceOhm, phaseDiv, cOverride)
 		}
 		nodes = append(nodes, res)
 	}
@@ -337,7 +364,7 @@ func formatFaultResults(tr *tree, states map[node]*nodeState, paths map[node]pat
 // current -- an SLG fault there draws essentially nothing. A zero denominator
 // (an ideal source with no impedance yet to the fault) reports no current, the
 // same honest read as the three-phase case.
-func addGroundFaultFields(res *faultNodeResult, p pathImpedance, zp zeroSeqPath, faultImpedanceOhm, phaseDiv float64) {
+func addGroundFaultFields(res *faultNodeResult, p pathImpedance, zp zeroSeqPath, faultImpedanceOhm, phaseDiv, cOverride float64) {
 	grounded := zp.grounded
 	res.Grounded = &grounded
 	if !grounded {
@@ -356,9 +383,10 @@ func addGroundFaultFields(res *faultNodeResult, p pathImpedance, zp zeroSeqPath,
 	totalX := 2*p.xOhm + x0
 	totalZ := math.Hypot(totalR, totalX)
 	if totalZ > 0 {
-		// 3·V_LN / |Z1+Z2+Z0+3Zf|: the driving voltage is line-to-neutral
-		// (baseV / phaseDiv), matching the three-phase figure's basis.
-		slgAmps := 3 * (p.baseV / phaseDiv) / totalZ
+		// 3·c·V_LN / |Z1+Z2+Z0+3Zf|: the driving voltage is c·(baseV / phaseDiv),
+		// matching the three-phase figure's basis and IEC 60909 voltage factor.
+		c := effectiveFaultC(cOverride, p.baseV)
+		slgAmps := 3 * (c * p.baseV / phaseDiv) / totalZ
 		res.GroundFaultCurrentAmps = &slgAmps
 	}
 }

@@ -182,6 +182,15 @@ type faultCurrentRequest struct {
 	// together (they share one V²/S convention), so a result is never a mix of
 	// bases. Empty = line_to_line.
 	VoltageBasis string `json:"voltage_basis"`
+
+	// VoltageFactorC is the IEC 60909 voltage factor c -- the ratio of the
+	// equivalent source voltage to the nominal, which sets the MAXIMUM initial
+	// symmetrical short-circuit current I"k = c·Un/(√3·|Z|). Omitted (0) picks the
+	// standard c_max per node from its own voltage base: 1.05 at low voltage
+	// (Un ≤ 1 kV), 1.10 above. Set it to override -- 1.0 for the bolted-at-nominal
+	// figure, or a c_min for a minimum-fault study. Applied to the 3φ and SLG
+	// grid-infeed figures (the generator superposition is not yet scaled by c).
+	VoltageFactorC float64 `json:"voltage_factor_c,omitempty"`
 }
 
 // faultNodeResult is one node's symmetrical (3-phase bolted) fault level:
@@ -220,6 +229,12 @@ type faultNodeResult struct {
 	NominalBaseV     float64  `json:"nominal_base_v"`
 	FaultCurrentAmps *float64 `json:"fault_current_amps,omitempty"`
 	MaterialResolved bool     `json:"material_resolved"`
+
+	// VoltageFactorC is the IEC 60909 voltage factor c actually applied to this
+	// node's fault figures -- the request's override, or the per-base default
+	// (1.05 at ≤ 1 kV, 1.10 above). Reported so a client can see whether a figure
+	// is the IEC maximum (c ≈ 1.05/1.10) or a bolted-at-nominal one (c = 1.0).
+	VoltageFactorC float64 `json:"voltage_factor_c"`
 
 	// GridContributionAmps / GeneratorContributionAmps split FaultCurrentAmps
 	// into its grid-infeed and embedded-generation parts. Both are populated only

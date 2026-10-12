@@ -144,6 +144,14 @@ type coordinationRequest struct {
 	// device on the path is graded against, so a mis-declared basis would shift
 	// every device's operate time by √3. Empty = line_to_line.
 	VoltageBasis string `json:"voltage_basis"`
+
+	// VoltageFactorC is the IEC 60909 voltage factor c, exactly as
+	// faultCurrentRequest.VoltageFactorC: it scales the prospective fault current
+	// every device is graded against, so coordination checks hold at the same
+	// MAXIMUM fault the fault-current endpoint and arc-flash report. Omitted (0)
+	// takes the IEC default for the fault's base (1.05 at ≤ 1 kV, 1.10 above); set
+	// 1.0 to grade on the bolted-at-nominal current instead.
+	VoltageFactorC float64 `json:"voltage_factor_c,omitempty"`
 }
 
 // coordinationDevice is one time-graded protective device on the source->fault
@@ -232,6 +240,7 @@ type coordinationResponse struct {
 	CommonBaseV      float64              `json:"common_base_v"`
 	CTISeconds       float64              `json:"cti_seconds"`
 	FaultCurrentAmps *float64             `json:"fault_current_amps,omitempty"`
+	VoltageFactorC   float64              `json:"voltage_factor_c"`
 	Devices          []coordinationDevice `json:"devices"`
 	Pairs            []coordinationPair   `json:"pairs"`
 	Coordinated      *bool                `json:"coordinated,omitempty"`
@@ -252,6 +261,9 @@ func runCoordination(ctx context.Context, db bun.IDB, req coordinationRequest) (
 	}
 	if req.VoltageBasis != "" && req.VoltageBasis != basisLineToLine && req.VoltageBasis != basisLineToNeutral {
 		return nil, invalid("voltage_basis must be %q or %q", basisLineToLine, basisLineToNeutral)
+	}
+	if req.VoltageFactorC < 0 {
+		return nil, invalid("voltage_factor_c must not be negative")
 	}
 	phaseDiv := phaseDivisor(req.VoltageBasis)
 	cti := req.CTISeconds
@@ -312,11 +324,15 @@ func runCoordination(ctx context.Context, db bun.IDB, req coordinationRequest) (
 	// Prospective fault current at the fault node, on its own base.
 	fp := paths[fault]
 	faultZ := math.Hypot(fp.rOhm, fp.xOhm)
+	// IEC 60909 voltage factor c at the fault's base, so coordination grades on the
+	// SAME maximum fault current the fault-current endpoint and arc-flash report
+	// (c defaults to 1.10 above 1 kV / 1.05 at or below; override via the request).
+	faultC := effectiveFaultC(req.VoltageFactorC, fp.baseV)
 	var faultCurrent *float64
 	if faultZ > 0 {
-		// Standard per-phase symmetrical fault current: line-to-neutral driving
-		// voltage (fp.baseV / phaseDiv) over the accumulated per-phase impedance.
-		i := (fp.baseV / phaseDiv) / faultZ
+		// Maximum per-phase symmetrical fault current I"k = c·Un/(√3·|Z|): the
+		// c-scaled line-to-neutral driving voltage over the accumulated impedance.
+		i := (faultC * fp.baseV / phaseDiv) / faultZ
 		faultCurrent = &i
 	}
 
@@ -402,6 +418,7 @@ func runCoordination(ctx context.Context, db bun.IDB, req coordinationRequest) (
 		CommonBaseV:      fp.baseV,
 		CTISeconds:       cti,
 		FaultCurrentAmps: faultCurrent,
+		VoltageFactorC:   faultC,
 		Devices:          devices,
 		Pairs:            pairs,
 		Coordinated:      overall,

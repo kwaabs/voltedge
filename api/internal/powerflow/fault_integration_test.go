@@ -92,8 +92,9 @@ func TestFaultSeriesImpedanceAccumulation(t *testing.T) {
 }
 
 // TestFaultCurrentThreePhaseBasis drives the real formatFaultResults for a node at
-// |Z| = 1 Ω on an 11 kV base, and checks the standard per-phase fault current on
-// each basis: line-to-line → 11000/√3 A, line-to-neutral → 11000 A.
+// |Z| = 1 Ω on an 11 kV base, and checks the IEC 60909 maximum per-phase fault
+// current on each basis. c = 1.10 at 11 kV (> 1 kV), so line-to-line →
+// 1.10·11000/√3 A, line-to-neutral → 1.10·11000 A.
 func TestFaultCurrentThreePhaseBasis(t *testing.T) {
 	f := node{classID: "bus", featureID: "f"}
 	tr := &tree{order: []node{f}}
@@ -106,10 +107,10 @@ func TestFaultCurrentThreePhaseBasis(t *testing.T) {
 		basis string
 		want  float64
 	}{
-		{basisLineToLine, 11000 / math.Sqrt(3)},
-		{basisLineToNeutral, 11000},
+		{basisLineToLine, 1.10 * 11000 / math.Sqrt(3)}, // c = 1.10 (11 kV)
+		{basisLineToNeutral, 1.10 * 11000},
 	} {
-		got := formatFaultResults(tr, states, paths, nil, nil, 0, phaseDivisor(c.basis), classCodes)
+		got := formatFaultResults(tr, states, paths, nil, nil, 0, phaseDivisor(c.basis), 0, classCodes)
 		if len(got) != 1 || got[0].FaultCurrentAmps == nil {
 			t.Fatalf("basis %q: no fault current returned (%+v)", c.basis, got)
 		}
@@ -124,8 +125,8 @@ func TestFaultCurrentThreePhaseBasis(t *testing.T) {
 
 // TestFaultSLGBasis drives the real addGroundFaultFields. With Z1 = Z2 = Z0 =
 // 0.6+j0.8 and a bolted fault (Zf=0), the denominator is (2·R1+R0) + j(2·X1+X0)
-// = 1.8 + j2.4, |Z| = 3.0. The SLG current is 3·V_LN / 3.0, so line-to-line →
-// 11000/√3 A, line-to-neutral → 11000 A.
+// = 1.8 + j2.4, |Z| = 3.0. The SLG current is 3·c·V_LN / 3.0 with c = 1.10 at
+// 11 kV, so line-to-line → 1.10·11000/√3 A, line-to-neutral → 1.10·11000 A.
 func TestFaultSLGBasis(t *testing.T) {
 	p := pathImpedance{rOhm: 0.6, xOhm: 0.8, baseV: 11000, resolved: true}
 	zp := zeroSeqPath{r0Ohm: 0.6, x0Ohm: 0.8, baseV: 11000, grounded: true, resolved: true}
@@ -134,11 +135,11 @@ func TestFaultSLGBasis(t *testing.T) {
 		basis string
 		want  float64
 	}{
-		{basisLineToLine, 11000 / math.Sqrt(3)},
-		{basisLineToNeutral, 11000},
+		{basisLineToLine, 1.10 * 11000 / math.Sqrt(3)}, // c = 1.10 (11 kV)
+		{basisLineToNeutral, 1.10 * 11000},
 	} {
 		var res faultNodeResult
-		addGroundFaultFields(&res, p, zp, 0, phaseDivisor(c.basis))
+		addGroundFaultFields(&res, p, zp, 0, phaseDivisor(c.basis), 0)
 		if res.GroundFaultCurrentAmps == nil {
 			t.Fatalf("basis %q: no SLG current returned", c.basis)
 		}
@@ -193,11 +194,13 @@ func TestFaultPeakAsymmetryInResult(t *testing.T) {
 	f := node{classID: "bus", featureID: "f"}
 	tr := &tree{order: []node{f}}
 	states := map[node]*nodeState{f: {}}
-	// R=0.6, X=0.8 → |Z|=1.0, X/R = 1.3333; line-to-neutral basis → I_sym = 11000 A.
+	// R=0.6, X=0.8 → |Z|=1.0, X/R = 1.3333; line-to-neutral basis, c = 1.10 (11 kV)
+	// → I_sym = 1.10·11000 A. (κ and i_p are checked from the reported current, so
+	// the exact I_sym value isn't hard-coded below.)
 	paths := map[node]pathImpedance{f: {rOhm: 0.6, xOhm: 0.8, baseV: 11000, resolved: true}}
 	classCodes := map[string]string{"bus": "BUS"}
 
-	got := formatFaultResults(tr, states, paths, nil, nil, 0, phaseDivisor(basisLineToNeutral), classCodes)
+	got := formatFaultResults(tr, states, paths, nil, nil, 0, phaseDivisor(basisLineToNeutral), 0, classCodes)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 node, got %d", len(got))
 	}
@@ -324,7 +327,7 @@ func TestSourceFromStart(t *testing.T) {
 // TestFaultFromTransformerSource is the end-to-end payoff: a fault study STARTED
 // at a boundary distribution transformer (500 kVA, 4.5 % ≈ 0.0144 Ω on the 400 V
 // base) sees the transformer's own stiffness as its source, giving the classic
-// ~16 kA LV fault level -- with no upstream MV network modelled at all.
+// ~16.8 kA IEC 60909 LV fault level (c = 1.05) -- with no upstream MV network at all.
 func TestFaultFromTransformerSource(t *testing.T) {
 	tx := node{classID: "dxf", featureID: "t"}  // the DIST_XFMR boundary (start)
 	bus := node{classID: "lvb", featureID: "b"} // an LV busbar just below it
@@ -344,7 +347,7 @@ func TestFaultFromTransformerSource(t *testing.T) {
 		t.Fatalf("expected transformer source on the 400 V base, got base=%v fromTransformer=%v", base, fromX)
 	}
 	paths := accumulateSeriesImpedance(tr, states, tx, base, sr, sx)
-	nodes := formatFaultResults(tr, states, paths, nil, nil, 0, phaseDivisor(basisLineToLine),
+	nodes := formatFaultResults(tr, states, paths, nil, nil, 0, phaseDivisor(basisLineToLine), 0,
 		map[string]string{"dxf": "DXF", "lvb": "LVB"})
 
 	var busAmps float64
@@ -353,8 +356,8 @@ func TestFaultFromTransformerSource(t *testing.T) {
 			busAmps = *n.FaultCurrentAmps
 		}
 	}
-	want := (400 / math.Sqrt(3)) / 0.0144 // ≈ 16038 A
+	want := 1.05 * (400 / math.Sqrt(3)) / 0.0144 // c = 1.05 (LV) → ≈ 16840 A
 	if !approxEqual(busAmps, want, 1e-3) {
-		t.Fatalf("LV fault at the busbar = %v A, want %v A (~16 kA from the transformer %%Z)", busAmps, want)
+		t.Fatalf("LV fault at the busbar = %v A, want %v A (~16.8 kA from the transformer %%Z, c=1.05)", busAmps, want)
 	}
 }
