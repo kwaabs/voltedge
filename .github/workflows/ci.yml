@@ -151,6 +151,17 @@ jobs:
       - name: Seed every class + compile (fails loudly on any class that can't compile)
         run: task seed-all
 
+      # End-to-end analysis tests that need a real, seeded database (they skip
+      # themselves when DATABASE_URL is unset, so the DB-less `api` job ignores
+      # them). This is the only job with a seeded Postgres, so it is where the
+      # integration layer -- runFaultCurrent / runCoordination resolving the live
+      # network and curves -- actually runs.
+      - name: Analysis integration tests (seeded DB)
+        working-directory: api
+        env:
+          DATABASE_URL: postgres://postgres:voltedge_dev@localhost:3700/postgres?sslmode=disable
+        run: go test ./internal/powerflow/ -run EndToEnd -count=1 -v
+
       - name: Tear down
         if: always()
         run: docker compose down -v

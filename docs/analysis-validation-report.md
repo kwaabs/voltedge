@@ -32,6 +32,8 @@ These pin that the *assembled* passes compose correctly — a pile of correct fo
 | Connectivity | Phase intersection, audit | `connectivity/phase_test.go`, `audit_test.go` |
 | Export | Shapefile/CIM shaping | `export/export_test.go`, `cim_test.go` |
 
+> **End-to-end (live database).** Beyond the in-memory kernels above, `runFaultCurrent` and `runCoordination` have a live integration test (`integration_db_test.go`) that drives the whole path — resolve the seeded network, build the tree, compute the fault, load the TCC curves — asserting the fault level, the `c`-factor applied live, and the coordination verdict. It skips when there is no database and runs in the CI **bootstrap** job against a seeded Postgres (§4).
+
 ## 3. Conformance notes
 
 - **IEC 60909 voltage factor `c`.** The fault-current endpoint, SLG, arc-flash (via `runFaultCurrent`) and coordination all apply `c` — default `c_max` (1.10 above 1 kV, 1.05 at/below), per-request overridable, reported per node/response. Figures quoted in guides predating this change are the `c = 1.0` case; pass `voltage_factor_c: 1.0` to reproduce them.
@@ -44,8 +46,8 @@ These pin that the *assembled* passes compose correctly — a pile of correct fo
 Trust these only to the stated extent, and treat the following as open:
 
 - ⚠️ **Full IEEE-13 node-voltage solution.** The line-impedance build (Carson **mutual** terms vs the published `Z601`) and the coupled per-phase drop **are** validated (§1). What is **not** attempted is a full published-node-voltage match for the whole IEEE 13 feeder — it includes a voltage regulator, an in-line transformer, shunt capacitors and line charging that this planning engine documents it does **not** model (`unbalanced_coupled.go` HONEST LIMITS). Separately, the diagonal **self**-impedance term is logged-not-asserted pending an authoritative Carson cross-check (e.g. OpenDSS): the published 601 self-term and the engine's textbook modified-Carson + Kron self-term cannot both be a single Kron reduction of the same primitive.
-- ⚠️ **End-to-end from the database.** Every test above drives the **in-memory kernels**; the full `runFaultCurrent` / `runCoordination` / `runSweep` path (resolving a real network, loading TCC curves from `metadata.protection_curves`, applying barriers) is **not** covered by an automated test — it needs the DB-backed CI harness.
-- ⚠️ **Coordination above `gradePairs`.** The grading *verdict* is tested; the *device evaluation* (reading each operate time off a loaded TCC curve, the through-current referral across transformers) is DB-coupled and untested.
+- **End-to-end from the database — partly closed.** `runFaultCurrent` and `runCoordination` now have an **end-to-end integration test** (`integration_db_test.go`) that resolves the seeded network, builds the tree, computes the fault and loads the TCC curves — asserting the fault level, the `c`-factor applied live, and the coordination verdict. It skips without a database and runs in the **CI bootstrap job** (seeded Postgres). ⚠️ Still open: `runSweep` (load flow) has no end-to-end DB test yet.
+- **Coordination above `gradePairs` — covered.** The device evaluation (reading each operate time off a loaded TCC curve, the through-current referral) is now exercised by the end-to-end coordination integration test against the seeded network (above), not just the `gradePairs` verdict kernel.
 - ⚠️ **Meshed / nodal (Y-bus Newton) load-flow.** No validation against an independent reference solution.
 - ⚠️ **Scale & concurrency.** Benchmarked only on toy networks; behaviour at real substation/feeder counts and under concurrent load is unproven (see the scale notes).
 - ⚠️ **Arc-flash (IEEE 1584) is Experimental.** Derives from the clearing time; indicative only, **never** a basis for PPE selection or energised-work permits.
