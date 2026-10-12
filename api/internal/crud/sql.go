@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
@@ -522,6 +523,15 @@ func FeatureVersions(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, i
 
 // getFeature reads one feature by id.
 func getFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) (map[string]any, error) {
+	// A malformed id can never match a row -- Postgres would reject it as an
+	// invalid uuid (SQLSTATE 22P02), which would surface as a 500. Treat it as a
+	// clean not-found instead, the same answer a well-formed but unknown id gets,
+	// so every caller (the feature endpoints, trace/powerflow resolveNode, the tag
+	// resolver...) gets a client error rather than a server error.
+	if err := uuid.Validate(id); err != nil {
+		return nil, notFound("feature %s not found", id)
+	}
+
 	table, err := physicalTable(loaded.FeatureClass)
 	if err != nil {
 		return nil, err
