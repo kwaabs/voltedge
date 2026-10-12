@@ -169,7 +169,7 @@ Not every outage is a fault. A **planned outage** is scheduled around a device f
 ## 9. Integration
 
 - **Outbound webhooks.** `oms.incident.raised` fires on predict and planned-create; `oms.incident.restored` on restore. *(An `oms.incident.updated` event constant exists but isn't emitted — confirm/cancel/switching are silent.)* Wire these to a downstream CIS/OMS mirror.
-- **Agent / MCP tools** (`api/internal/agenttools/tools_oms.go`) — the whole console is agent-callable (18 tools, each carrying its route permission; writes annotated "confirm with a human"): reads `oms_list_trouble_calls`, `oms_get_trouble_call`, `oms_list_incidents`, `oms_get_incident`, `oms_incident_affected_area`, `oms_incident_energization`, `oms_list_switching_orders`, `oms_get_switching_order`, `oms_reliability_indices`; writes `oms_create_trouble_call`, `oms_associate_trouble_call`, `oms_run_prediction`, `oms_confirm_incident`, `oms_create_planned_outage`, `oms_restore_incident`, `oms_cancel_incident`, `oms_generate_switching_order`, `oms_set_switching_step_executed`, `oms_cancel_switching_order`.
+- **Agent / MCP tools** (`api/internal/agenttools/tools_oms.go`) — the whole console is agent-callable (19 tools — 9 reads, 10 writes — each carrying its route permission; writes annotated "confirm with a human"): reads `oms_list_trouble_calls`, `oms_get_trouble_call`, `oms_list_incidents`, `oms_get_incident`, `oms_incident_affected_area`, `oms_incident_energization`, `oms_list_switching_orders`, `oms_get_switching_order`, `oms_reliability_indices`; writes `oms_create_trouble_call`, `oms_associate_trouble_call`, `oms_run_prediction`, `oms_confirm_incident`, `oms_create_planned_outage`, `oms_restore_incident`, `oms_cancel_incident`, `oms_generate_switching_order`, `oms_set_switching_step_executed`, `oms_cancel_switching_order`.
 - **The fault & defect hinges** — raise a fault from an incident (→ **Faults**), which in turn books a WAM defect (→ **Works, Inspections & Maintenance**). OMS never touches WAM directly.
 
 ---
@@ -254,5 +254,6 @@ A persistent fault on the Feeder 7 main; **REC-7** does its reclose sequence and
 | 7 | Generate needs only a device and no live order | also refuses a `restored`/`cancelled` incident | `oms/switching.go:67` |
 | 8 | Roles: viewer / analyst / editor / admin | `break-glass-admin` holds both permissions too | `migrations/0088_seed_oms_permissions.sql:25-33` |
 | 9 | A no-device cluster is one "a human must attribute" | no endpoint or UI mutation sets `predicted_device_*` after creation | `oms/http.go:Routes`; `oms/store.go` (INSERTs only); `web/src/hooks/use-oms.ts` |
-| 10 | (omitted) indices window, formulas, denominator; error codes | default 12 months; N includes PRIMARY meters; unknown id is `400`, no `404` | `oms/indices.go:133-290`; `oms/http.go`; `oms/errors.go` |
+| 10 | The console is 18 agent tools | 19: nine reads and ten writes | `api/internal/agenttools/tools_oms.go:36-449` (19 `Name: "oms_…"` entries) |
+| 11 | (omitted) indices window, formulas, denominator; error codes | default 12 months; N includes PRIMARY meters; unknown id is `400`, no `404` | `oms/indices.go:133-290`; `oms/http.go`; `oms/errors.go` |
 
