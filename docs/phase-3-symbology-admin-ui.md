@@ -69,9 +69,10 @@ anywhere is deliberate, per README):
   **`PATCH/DELETE /admin/symbology-rules/{id}`** -- full CRUD on
   `metadata.symbology_rules` for one feature class. Delete has **no**
   guard (matching `deleteDomainValue`): the "exactly one mandatory
-  default rule" invariant is enforced by the schema compiler at publish,
-  not at delete, so deleting the last rule is allowed and simply fails
-  validation later if left that way.
+  default rule" invariant is not enforced at delete, so deleting the last
+  rule is allowed. (Earlier text said the schema compiler catches this at
+  publish; it does not -- the compiler has no symbology check. A class left
+  with no default falls back to plain geometry styling in the web matcher.)
 
 New files/edits:
 
@@ -121,9 +122,9 @@ New files/edits:
   rather than re-entering every field. The backend needs nothing new for
   this: a duplicate is just another POST, and symbology_rules has no
   unique constraint on targeting (two rules may share every axis) -- if a
-  copy of the default rule is left un-narrowed, the compiler's
-  "exactly one default" check catches it at publish, the same place every
-  other rule-set invariant is enforced.
+  copy of the default rule is left un-narrowed, nothing flags it (an earlier
+  revision said the compiler's "exactly one default" check would; the compiler
+  has no such check) and the matcher simply picks one of the two.
 - **`hooks/use-admin.ts`** (edited) -- `useAdminSymbologyIcons()` and
   `useSymbologyRules(code)` plus the `AdminSymbologyIcon` /
   `AdminSymbologyRule` / `AdminStyleDef` types.
