@@ -1,5 +1,5 @@
-import { BookOpen, Loader2, Lock } from "lucide-react"
-import { useEffect, useMemo } from "react"
+import { BookOpen, ChevronRight, Loader2, Lock } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
 import { NavLink, useParams } from "react-router"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -57,7 +57,10 @@ export function DocsPage() {
   const docs = listQuery.data ?? []
 
   // Preserve manifest order within each category (the server sends them in
-  // display order); group only splits them into labelled sections.
+  // display order); group only splits them into labelled sections. The
+  // interactive guides now lead and stay open; the Markdown categories fall
+  // below them in collapsible sections, collapsed by default (groupRank), so the
+  // library reads interactive-first with the plain-text editions tucked away.
   const groups = useMemo(() => {
     const byCategory = new Map<string, DocSummary[]>()
     for (const d of docs) {
@@ -65,7 +68,13 @@ export function DocsPage() {
       arr.push(d)
       byCategory.set(d.category, arr)
     }
-    return Array.from(byCategory, ([label, items]) => ({ label, items }))
+    const groupRank = (label: string) =>
+      label === "Start here" ? 0 : label === "Interactive guides" ? 1 : 2
+    return Array.from(byCategory, ([label, items]) => ({
+      label,
+      items,
+      defaultOpen: groupRank(label) < 2,
+    })).sort((a, b) => groupRank(a.label) - groupRank(b.label))
   }, [docs])
 
   return (
@@ -87,32 +96,15 @@ export function DocsPage() {
           ) : docs.length === 0 ? (
             <p className="text-muted-foreground px-1 text-sm">No documents are available.</p>
           ) : (
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3">
               {groups.map((group) => (
-                <div key={group.label} className="flex flex-col gap-1">
-                  <div className="text-muted-foreground px-1 text-xs font-medium tracking-wide uppercase">
-                    {group.label}
-                  </div>
-                  {group.items.map((d) => (
-                    <NavLink
-                      key={d.id}
-                      to={`/docs/${d.id}`}
-                      className={({ isActive }) =>
-                        cn(
-                          "flex items-start gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-                          isActive
-                            ? "bg-accent text-accent-foreground font-medium"
-                            : "hover:bg-accent/50 text-foreground",
-                        )
-                      }
-                    >
-                      <span className="flex-1">{d.title}</span>
-                      {d.required_permission && (
-                        <Lock className="text-muted-foreground mt-0.5 size-3 shrink-0" aria-label="Restricted" />
-                      )}
-                    </NavLink>
-                  ))}
-                </div>
+                <DocNavGroup
+                  key={group.label}
+                  label={group.label}
+                  items={group.items}
+                  defaultOpen={group.defaultOpen}
+                  activeId={id ?? null}
+                />
               ))}
             </div>
           )}
@@ -123,6 +115,68 @@ export function DocsPage() {
           <DocContentPane id={id ?? null} docs={docs} />
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * One collapsible category section in the docs rail. Interactive guides (and
+ * "Start here") open by default; the Markdown categories are collapsed. A group
+ * auto-expands if the currently-open doc lives inside it, so a deep link never
+ * lands on a hidden entry.
+ */
+function DocNavGroup({
+  label,
+  items,
+  defaultOpen,
+  activeId,
+}: {
+  label: string
+  items: DocSummary[]
+  defaultOpen: boolean
+  activeId: string | null
+}) {
+  const hasActive = items.some((d) => d.id === activeId)
+  const [open, setOpen] = useState(defaultOpen || hasActive)
+  useEffect(() => {
+    if (hasActive) setOpen(true)
+  }, [hasActive])
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1 px-1 py-0.5 text-xs font-medium tracking-wide uppercase"
+      >
+        <ChevronRight className={cn("size-3 shrink-0 transition-transform", open && "rotate-90")} />
+        <span className="flex-1 text-left">{label}</span>
+        <span className="text-muted-foreground/60 tabular-nums lowercase">{items.length}</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1">
+          {items.map((d) => (
+            <NavLink
+              key={d.id}
+              to={`/docs/${d.id}`}
+              className={({ isActive }) =>
+                cn(
+                  "flex items-start gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                  isActive
+                    ? "bg-accent text-accent-foreground font-medium"
+                    : "hover:bg-accent/50 text-foreground",
+                )
+              }
+            >
+              <span className="flex-1">{d.title}</span>
+              {d.required_permission && (
+                <Lock className="text-muted-foreground mt-0.5 size-3 shrink-0" aria-label="Restricted" />
+              )}
+            </NavLink>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
