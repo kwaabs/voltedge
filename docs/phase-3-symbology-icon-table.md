@@ -139,7 +139,7 @@ shapes. What's still open:
 
 ## Verification owed
 
-> **Update:** the static gates have since been run on this tree and pass: `npx tsc --noEmit` (frontend), `go build ./...`, `go vet` on `cmd` and `internal/metadata`, and `gofmt -l` on those packages. Still not done: applying `migrations/0023` and the seed to a real Postgres, the visual diff, and the full-colour (no `{{COLOR}}`) row check below. The original note follows.
+> **Update:** the static gates have since been run on this tree and pass: `npx tsc --noEmit` (frontend), `go build ./...`, `go vet` on `cmd` and `internal/metadata`, and `gofmt -l` on those packages. `migrations/0023` and `seed/symbology_icons.sql` have also been applied to a scratch PostgreSQL 16 (the table is created; the seed is idempotent when applied twice and yields the five rows, each with explicit width/height and a `{{COLOR}}` placeholder; a row without the placeholder inserts fine). That scratch DB had no PostGIS, so only migrations 0001-0014 plus 0023 were applied, not the full chain. Still not done: `GET /symbology/icons` against a running API, the visual diff, and rendering a full-colour icon in the browser. The original note follows.
 
 `bash.exe` `EPERM`s on every call in this sandbox, so none of the
 usual gates ran. Before this can be called clean:
