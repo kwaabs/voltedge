@@ -147,6 +147,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "oms-guide-interactive",
+		Title:       "OMS Outage Management — Interactive Guide",
+		Description: "Run the real OMS rules in your browser on a Feeder 7 estate: trouble calls, prediction, who is affected versus dark, the live cone, switching orders that flip device state, planned outages, SAIDI/SAIFI, webhooks and an endpoints tester, with the manual's code-verified corrections.",
+		Category:    "Interactive guides",
+		Filename:    "oms-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "faults-guide-interactive",
 		Title:       "Faults — Interactive Guide",
 		Description: "Log an electrical fault, drive it through its lifecycle, link it to an outage and a repair, and see exactly what the API accepts, rejects and emits — a working in-browser copy of the Faults module.",
