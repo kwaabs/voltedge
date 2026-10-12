@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/kwaabs/voltedge/api/internal/crud"
 	"sort"
 
 	"github.com/kwaabs/voltedge/api/internal/metadata"
@@ -171,31 +172,152 @@ func singleClassSet(id *string) map[string]bool {
 // reachableWithDepth is a plain barrier-free BFS from start in one direction,
 // returning every reached node (including start, at depth 0) with its hop
 // distance. Bounded by maxTraceHops, the same defensive valve the config-driven
-// bfs uses.
+// bfs uses. Strictly directional: it never crosses a junction against the
+// stored from/to of a connectivity row. The supply-path walk (supply.go) keeps
+// this exact behaviour; the OMS class walks use reachableJunctionAware.
 func reachableWithDepth(ctx context.Context, db bun.IDB, start node, direction string) ([]nodeDepth, bool, error) {
+	return walkWithJunctions(start, direction, maxTraceHops, func(n node, dir string) ([]node, error) {
+		return neighborsOf(ctx, db, n, dir)
+	}, nil, nil, nil)
+}
+
+// reachableJunctionAware is reachableWithDepth with the junction pass-through of
+// bfs (see the note there): a bus / RMU common node (network_role='junction') is
+// entered and left whichever way its ways were authored, so a supply fed through
+// an RMU bus is found, and the cross-layer tier guard still stops a walk
+// climbing back toward its source. It is still insensitive to LIVE switch
+// state -- the affected set must not shrink because a tie happens to be closed --
+// but it stops at a device whose NORMAL state is open (normal_state =
+// NORMALLY_OPEN, e.g. a tie): that device is reached but not crossed, so the walk
+// stays on the supplies normally fed through the start and cannot flood into a
+// neighbouring feeder through a tie. Used by the OMS class walks (prediction,
+// affected counts, isolation boundary) and the faults impact walk.
+func reachableJunctionAware(ctx context.Context, db bun.IDB, start node, direction string) ([]nodeDepth, bool, error) {
+	loader := newFeatureClassLoader()
+	var junctions map[string]bool
+	var tiers map[string]int
+	if direction == "DOWNSTREAM" || direction == "UPSTREAM" {
+		var err error
+		if junctions, err = loader.junctions(ctx, db); err != nil {
+			return nil, false, err
+		}
+		if tiers, err = loader.tiers(ctx, db); err != nil {
+			return nil, false, err
+		}
+	}
+	normalOpen := map[node]bool{}
+	boundary := func(n node) (bool, error) {
+		if v, ok := normalOpen[n]; ok {
+			return v, nil
+		}
+		v, err := isNormallyOpen(ctx, db, n, loader)
+		if err != nil {
+			return false, err
+		}
+		normalOpen[n] = v
+		return v, nil
+	}
+	return walkWithJunctions(start, direction, maxTraceHops, func(n node, dir string) ([]node, error) {
+		return neighborsOf(ctx, db, n, dir)
+	}, junctions, tiers, boundary)
+}
+
+// isNormallyOpen reports whether the feature's normal_state attribute is
+// NORMALLY_OPEN. A class without the field, a missing feature (a dangling
+// connectivity row) or an unset value is not a boundary.
+func isNormallyOpen(ctx context.Context, db bun.IDB, n node, loader *featureClassLoader) (bool, error) {
+	loaded, err := loader.loadedFor(ctx, db, n.classID)
+	if err != nil {
+		return false, err
+	}
+	row, err := crud.GetFeature(ctx, db, loaded, n.featureID)
+	if err != nil {
+		if crud.IsNotFoundError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	attrs, _ := row["attributes"].(map[string]any)
+	v, _ := attrs["normal_state"].(string)
+	return v == "NORMALLY_OPEN", nil
+}
+
+// walkWithJunctions is the pure core: a BFS over the neighbours function with
+// the junction pass-through of bfs (LEAVE half for DOWNSTREAM and UPSTREAM,
+// ARRIVE half for UPSTREAM), the tier guard judged on the original direction,
+// and an optional boundary predicate (a boundary node is included in the result
+// but never expanded). nil junctions/tiers/boundary give the plain directed
+// BFS. Free of the database so it can be unit tested on an in-memory graph.
+func walkWithJunctions(start node, direction string, maxHops int, neighbors func(node, string) ([]node, error), junctions map[string]bool, tiers map[string]int, boundary func(node) (bool, error)) ([]nodeDepth, bool, error) {
+	passThrough := junctions != nil && (direction == "DOWNSTREAM" || direction == "UPSTREAM")
 	visited := map[node]bool{start: true}
+	unlocked := map[node]bool{}
 	queue := []nodeDepth{{n: start, depth: 0}}
 	out := make([]nodeDepth, 0, 16)
 
-	for len(queue) > 0 && len(visited) < maxTraceHops {
+	for len(queue) > 0 && len(visited) < maxHops {
 		cur := queue[0]
 		queue = queue[1:]
 		out = append(out, cur)
 
-		neighbors, err := neighborsOf(ctx, db, cur.n, direction)
+		if boundary != nil && cur.n != start {
+			isB, err := boundary(cur.n)
+			if err != nil {
+				return nil, false, err
+			}
+			if isB {
+				continue
+			}
+		}
+
+		// The start is locked (strictly directional) even when its own class is a
+		// junction (every switch, recloser and transformer is): a downstream walk from
+		// a device must not step back up the feeder that supplies it.
+		expandUndirected := passThrough && cur.n != start && (unlocked[cur.n] || junctions[cur.n.classID])
+		dir := direction
+		if expandUndirected {
+			dir = "CONNECTED"
+		}
+		nbs, err := neighbors(cur.n, dir)
 		if err != nil {
 			return nil, false, err
 		}
-		for _, nb := range neighbors {
+		// ARRIVE half (UPSTREAM only): pull in an incident junction even when the
+		// edge points into it, so an upstream walk can land on a one-way-sink bus.
+		if passThrough && direction == "UPSTREAM" && !expandUndirected {
+			incident, err := neighbors(cur.n, "CONNECTED")
+			if err != nil {
+				return nil, false, err
+			}
+			for _, nb := range incident {
+				if junctions[nb.classID] {
+					nbs = append(nbs, nb)
+				}
+			}
+		}
+		for _, nb := range nbs {
 			if visited[nb] {
 				continue
 			}
+			if ct, ok := tiers[cur.n.classID]; ok {
+				if nt, ok := tiers[nb.classID]; ok {
+					if direction == "DOWNSTREAM" && nt < ct {
+						continue
+					}
+					if direction == "UPSTREAM" && nt > ct {
+						continue
+					}
+				}
+			}
 			visited[nb] = true
+			if expandUndirected {
+				unlocked[nb] = true
+			}
 			queue = append(queue, nodeDepth{n: nb, depth: cur.depth + 1})
 		}
 	}
 	// Cap hit with work still queued -- the walk is incomplete.
-	truncated := len(queue) > 0 && len(visited) >= maxTraceHops
+	truncated := len(queue) > 0 && len(visited) >= maxHops
 	return out, truncated, nil
 }
 
@@ -215,7 +337,7 @@ func featuresOfClass(ctx context.Context, db bun.IDB, start FeatureRef, directio
 	// OMS class walks (UpstreamFeaturesOfClass/DownstreamFeaturesOfClass) return a
 	// bare []FeatureRef with no result struct, so there is nowhere to surface a
 	// truncation flag -- discard it (they truncate at maxTraceHops as before).
-	reached, _, err := reachableWithDepth(ctx, db, s, direction)
+	reached, _, err := reachableJunctionAware(ctx, db, s, direction)
 	if err != nil {
 		return nil, err
 	}

@@ -32,3 +32,11 @@ func isNotFoundError(err error) bool {
 	_, ok := err.(*notFoundError)
 	return ok
 }
+
+// IsClientError reports whether err is a client-fixable trace error (an unknown
+// or soft-deleted feature, an unknown class or configuration). Other packages
+// that call into the trace walks (api/internal/oms) use it to answer a bad id
+// with a 400 instead of letting the error surface as a 500.
+func IsClientError(err error) bool {
+	return isNotFoundError(err) || isValidationError(err)
+}

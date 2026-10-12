@@ -709,7 +709,7 @@ The two parts meet in one cause-and-effect chain:
 | "Switchgear duty is compared with its rating" | No kA rating is stored on the classes. |
 | "Arc-flash includes breaker opening time" | No; and an instantaneous trip yields 0 cal/cm² (§8). |
 | "Earthing is tracked" | The `earth` switching step is a tick with no device; `MV_EARTH_SWITCH` is not on the connectivity graph (`network_role = 'none'`). |
-| "OMS blames a fused switch / counts every customer" | No — `MV_FUSE`, `MV_RECLOSER`, `MV_BREAKER` only; and the directed class walk behind prediction, *affected customers* and the order's *verify* count (`trace/class_walk.go:175`, `service.go:432`) has no junction pass-through, so a customer behind an RMU bus can come back with no device or go uncounted, while the energisation cone includes them. |
+| "OMS blames a fused switch / counts every customer" | An `is_fused` `MV_SWITCH` is never blamed — only `MV_FUSE`, `MV_RECLOSER`, `MV_BREAKER` are. The class walk behind prediction, *affected customers* and the order's *verify* count now passes through junction buses (`trace/class_walk.go`, `walkWithJunctions`), so a customer behind an RMU bus is found; it is still barrier-free, so it can count supplies that a closed tie or an open device further down has already re-fed or cut off, which the live energisation cone accounts for. |
 | "Interlocks / permit-to-work" | Not modelled. |
 | "Several relays on one breaker are combined" | The first (oldest link) is graded, with a note. |
 | "A curve can be added in the UI" | No — SQL only (§6.3). |
@@ -811,7 +811,7 @@ Arc-flash (≥1 kV):    lg Ia = 0.00402 + 0.983·lg Ibf ;  lg En = k1 + k2 + 1.0
 | 23 | the dispatcher is a role | there is no `dispatcher` role; Priya is an `editor` | `migrations/0025_create_rbac.sql:90-95` |
 | 24 | trace-tier list was MV switchgear / LV_SWITCH / transformers only | full list incl. `MV_EARTH_SWITCH`, `MV_LV_SWITCH`, `MV_CT/VT`, `MV_BUSBAR`, `MV_CONDUCTOR`, `AUX_TRANSFORMER`, `GENERATOR` | `seed/trace_tiers.sql:44-72` |
 | 25 | a relay whose `device_number` is `27`/`87` is "stored but not simulated" | `device_number` is never read by any engine; a linked relay is graded from its overcurrent settings whatever its ANSI code | `powerflow/coordination.go:437-516` (no read of `device_number`) |
-| 26 | OMS "affected customers" and the switching order's *verify* count the whole dead cone | they use a strictly directed class walk (no junction pass-through): supplies behind an RMU's one-way bus are missed; `IncidentEnergization` (the cone) includes them | `trace/service.go:432-445`; `oms/predict.go:240`; `trace/class_walk.go:175` |
+| 26 | OMS "affected customers" and the switching order's *verify* count the whole dead cone | **Fixed:** they used a strictly directed class walk (no junction pass-through), missing supplies behind an RMU's one-way bus; the class walks now share `bfs`'s junction pass-through and tier guard, so they agree with `IncidentEnergization` (the cone) on bus-fed supplies | `trace/class_walk.go` (`walkWithJunctions`); `trace/service.go:432-445`; `oms/predict.go:240` |
 | 27 | Isolate menu item is "greyed out" for a non-junction | it is **hidden** (`canIsolate` gates the render) | `web/src/components/map/feature-panel.tsx:2751,2985` |
 
 *Not verified at runtime* (code reading only; the build environment here cannot run the stack): the isolate boundary ordering (#12), the Live-view false positive at a NOP (§3.2), the single-barrier-rule-per-class overwrite (§10), and the OMS no-device case behind an RMU bus (§9).

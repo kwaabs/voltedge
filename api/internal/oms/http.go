@@ -26,6 +26,7 @@ import (
 //	POST /incidents/{id}/confirm     confirm/execute + snapshot interruptions
 //	POST /incidents/{id}/restore     mark restored, close interruption windows
 //	POST /incidents/{id}/cancel      cancel + release the calls
+//	POST /incidents/{id}/attribute   name (or correct) the blamed device of a predicted/scheduled incident
 //	GET  /incidents/{id}/switching-orders   the incident's switching orders
 //	POST /incidents/{id}/switching-orders   generate a switching order from the device
 //	GET  /switching-orders/{id}      one switching order with its steps
@@ -54,6 +55,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/incidents/{id}/confirm", incidentActionHandler(db, ConfirmIncident))
 	r.Post("/incidents/{id}/restore", incidentActionHandler(db, RestoreIncident))
 	r.Post("/incidents/{id}/cancel", incidentActionHandler(db, CancelIncident))
+	r.Post("/incidents/{id}/attribute", attributeIncidentHandler(db))
 
 	r.Get("/incidents/{id}/switching-orders", listSwitchingOrdersHandler(db))
 	r.Post("/incidents/{id}/switching-orders", generateSwitchingOrderHandler(db))
@@ -388,6 +390,28 @@ func reliabilityIndicesHandler(db *bun.DB) http.HandlerFunc {
 func incidentActionHandler(db *bun.DB, action func(context.Context, *bun.DB, string) (*Incident, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		inc, err := action(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, inc)
+	}
+}
+
+// attributeIncidentRequest is the POST /incidents/{id}/attribute body.
+type attributeIncidentRequest struct {
+	DeviceClass string `json:"device_class"`
+	DeviceID    string `json:"device_id"`
+}
+
+func attributeIncidentHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req attributeIncidentRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		inc, err := AttributeIncidentDevice(r.Context(), db, chi.URLParam(r, "id"), req.DeviceClass, req.DeviceID)
 		if err != nil {
 			writeError(w, err)
 			return

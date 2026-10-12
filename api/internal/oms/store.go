@@ -506,7 +506,7 @@ func CreatePlannedOutage(ctx context.Context, db *bun.DB, p PlannedOutageParams)
 	device := trace.FeatureRef{FeatureClass: strings.TrimSpace(p.DeviceClass), FeatureID: strings.TrimSpace(p.DeviceID)}
 	spCount, customers, err := AffectedCustomers(ctx, db, device)
 	if err != nil {
-		return nil, err
+		return nil, mapTraceError("device "+device.FeatureClass+" "+device.FeatureID, err)
 	}
 
 	var id string
@@ -638,4 +638,57 @@ func ensureServicePointExists(ctx context.Context, db bun.IDB, id string) error 
 		return invalidf("service point %q does not exist", id)
 	}
 	return nil
+}
+
+// AttributeIncidentDevice lets a human name the blamed device of a predicted or
+// scheduled incident -- the way out for a "no-device" cluster (calls whose
+// upstream walk met no protective device) and a correction for a wrong
+// prediction. The device is any feature the trace can resolve; the affected
+// service-point and customer counts are recomputed from it and confidence is
+// cleared (a hand-attributed device has no engine confidence, the same as a
+// manually raised incident). It is refused once the incident is confirmed or
+// later, because confirm freezes the interruption rows from the device.
+func AttributeIncidentDevice(ctx context.Context, db *bun.DB, id, deviceClass, deviceID string) (*Incident, error) {
+	deviceClass, deviceID = strings.TrimSpace(deviceClass), strings.TrimSpace(deviceID)
+	if deviceClass == "" || deviceID == "" {
+		return nil, invalidf("attributing an incident needs a device (device_class and device_id)")
+	}
+	var out *Incident
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		inc, err := GetIncident(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if inc.Status != StatusPredicted && inc.Status != StatusScheduled {
+			return invalidf("incident %q is %s; only a predicted or scheduled incident can be re-attributed (its interruptions are frozen on confirm)", id, inc.Status)
+		}
+		device := trace.FeatureRef{FeatureClass: deviceClass, FeatureID: deviceID}
+		spCount, customers, err := AffectedCustomers(ctx, tx, device)
+		if err != nil {
+			return mapTraceError("device "+deviceClass+" "+deviceID, err)
+		}
+		if _, err := tx.NewUpdate().Model((*Incident)(nil)).
+			Set("predicted_device_class = ?", deviceClass).
+			Set("predicted_device_id = ?", deviceID).
+			Set("confidence = NULL").
+			Set("affected_customers = ?", customers).
+			Set("affected_service_points = ?", spCount).
+			Set("updated_at = now()").
+			Where("id = ?", id).Exec(ctx); err != nil {
+			return fmt.Errorf("oms: attributing incident %s: %w", id, err)
+		}
+		updated, err := GetIncident(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if err := webhookout.Emit(ctx, tx, webhookout.EventIncidentUpdated, webhookout.KindIncident, updated.ID, updated); err != nil {
+			return err
+		}
+		out = updated
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }

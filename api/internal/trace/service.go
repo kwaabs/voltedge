@@ -437,7 +437,7 @@ func DownstreamLoadLeaves(ctx context.Context, db bun.IDB, device FeatureRef) ([
 	// OMS consumes a bare ([]ServicePoint, *ServiceRollup) with no result struct,
 	// so there is nowhere to surface truncation -- discard it (truncates at
 	// maxTraceHops as before).
-	reached, _, err := reachableWithDepth(ctx, db, s, "DOWNSTREAM")
+	reached, _, err := reachableJunctionAware(ctx, db, s, "DOWNSTREAM")
 	if err != nil {
 		return nil, nil, err
 	}

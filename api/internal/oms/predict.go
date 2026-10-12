@@ -95,7 +95,7 @@ func PredictIncidents(ctx context.Context, db bun.IDB, calls []CallLocation) ([]
 		spRef := trace.FeatureRef{FeatureClass: ServicePointClass, FeatureID: call.ServicePointID}
 		path, err := trace.UpstreamFeaturesOfClass(ctx, db, spRef, ProtectiveDeviceClasses)
 		if err != nil {
-			return nil, err
+			return nil, mapTraceError("service point "+call.ServicePointID, err)
 		}
 
 		var device *trace.FeatureRef
@@ -246,4 +246,14 @@ func AffectedCustomers(ctx context.Context, db bun.IDB, device trace.FeatureRef)
 		return 0, 0, nil
 	}
 	return rollup.ServicePoints, rollup.Customers, nil
+}
+
+// mapTraceError turns a client-fixable trace error (an unknown or deleted
+// feature) into an InvalidError so the HTTP layer answers 400 rather than 500;
+// anything else is returned unchanged.
+func mapTraceError(what string, err error) error {
+	if trace.IsClientError(err) {
+		return invalidf("%s: %v", what, err)
+	}
+	return err
 }
