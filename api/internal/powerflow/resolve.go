@@ -147,7 +147,7 @@ type conductorImpedance struct {
 // resistance nor reactance recorded all resolve to Resolved = false --
 // a load flow over an incompletely-cataloged network should degrade to
 // "this branch drops nothing" rather than fail outright.
-func resolveConductorImpedance(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, n node, attrs map[string]any) (conductorImpedance, error) {
+func resolveConductorImpedance(ctx context.Context, db bun.IDB, loader *featureClassLoader, loaded *metadata.Loaded, n node, attrs map[string]any) (conductorImpedance, error) {
 	if loaded.FeatureClass.GeometryType == "none" || loaded.FeatureClass.PhysicalTable == nil {
 		return conductorImpedance{}, nil
 	}
@@ -169,7 +169,7 @@ func resolveConductorImpedance(ctx context.Context, db bun.IDB, loaded *metadata
 		if !ok || code == "" {
 			continue
 		}
-		spec, err := resolveMaterialSpecByCode(ctx, db, *f.DomainID, code)
+		spec, err := loader.materialSpec(ctx, db, *f.DomainID, code)
 		if err != nil {
 			return conductorImpedance{}, err
 		}

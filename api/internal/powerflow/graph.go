@@ -215,6 +215,13 @@ type featureClassLoader struct {
 	// expansion from leaking back toward the source. This package's own copy of
 	// api/internal/trace's tierByID, loaded once by tiers().
 	tierByID map[string]int
+	// specByDomainCode maps "<domain_id>\x00<code>" to the material spec that
+	// domain value links (metadata.domain_values.material_spec_id), loaded ONCE for
+	// the whole global catalogue the first time any conductor needs it -- so an
+	// analysis pays two queries for every material spec instead of two PER conductor
+	// (resolveConductorImpedance previously resolved the spec per edge, the dominant
+	// term in the per-node N+1 the concurrency harness measured). nil until loaded.
+	specByDomainCode map[string]*metadata.MaterialSpec
 }
 
 func newFeatureClassLoader() *featureClassLoader {
@@ -294,6 +301,51 @@ func (l *featureClassLoader) loadedFor(ctx context.Context, db bun.IDB, classID 
 	}
 	l.loadedByID[classID] = loaded
 	return loaded, nil
+}
+
+// materialSpec resolves the material spec a (domain_id, code) links, from a
+// run-wide cache loaded once. It returns the SAME result as resolveMaterialSpecByCode
+// -- the spec the domain value's material_spec_id points to, or nil when the code is
+// unknown or carries no spec -- but reading the whole metadata.domain_values ->
+// material_specs catalogue in bulk the first time, so N conductors cost two queries
+// for the global set rather than two queries each. The catalogue is small and
+// immutable for the life of an analysis, so caching it is behaviour-preserving.
+func (l *featureClassLoader) materialSpec(ctx context.Context, db bun.IDB, domainID, code string) (*metadata.MaterialSpec, error) {
+	if l.specByDomainCode == nil {
+		if err := l.loadMaterialSpecs(ctx, db); err != nil {
+			return nil, err
+		}
+	}
+	return l.specByDomainCode[domainID+"\x00"+code], nil
+}
+
+// loadMaterialSpecs populates specByDomainCode: every domain value that links a
+// material spec, joined to the spec in memory. Two queries total (the linked domain
+// values, the spec catalogue), run once.
+func (l *featureClassLoader) loadMaterialSpecs(ctx context.Context, db bun.IDB) error {
+	var dvs []metadata.DomainValue
+	if err := db.NewSelect().Model(&dvs).Where("material_spec_id IS NOT NULL").Scan(ctx); err != nil {
+		return fmt.Errorf("powerflow: loading material-spec domain values: %w", err)
+	}
+	specs, err := metadata.ListMaterialSpecs(ctx, db)
+	if err != nil {
+		return fmt.Errorf("powerflow: loading material specs: %w", err)
+	}
+	byID := make(map[string]*metadata.MaterialSpec, len(specs))
+	for i := range specs {
+		byID[specs[i].ID] = &specs[i]
+	}
+	m := make(map[string]*metadata.MaterialSpec, len(dvs))
+	for _, dv := range dvs {
+		if dv.MaterialSpecID == nil {
+			continue
+		}
+		if spec, ok := byID[*dv.MaterialSpecID]; ok {
+			m[dv.DomainID+"\x00"+dv.Code] = spec
+		}
+	}
+	l.specByDomainCode = m
+	return nil
 }
 
 // downstreamEdge is one downstream step: the reached node plus the terminal on

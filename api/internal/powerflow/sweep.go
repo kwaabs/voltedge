@@ -232,7 +232,7 @@ func resolveNodeState(ctx context.Context, db bun.IDB, loader *featureClassLoade
 
 	var imp conductorImpedance
 	if loaded.FeatureClass.NetworkRole == "edge" {
-		imp, err = resolveConductorImpedance(ctx, db, loaded, n, attrs)
+		imp, err = resolveConductorImpedance(ctx, db, loader, loaded, n, attrs)
 		if err != nil {
 			return nil, err
 		}
