@@ -250,6 +250,7 @@ func toolQueryFeaturesAggregate(ctx context.Context, db bun.IDB, args json.RawMe
 			TerritoryID string    `json:"territory_id"`
 			Center      []float64 `json:"center"`
 			RadiusM     float64   `json:"radius_m"`
+			CircuitID   string    `json:"circuit_id"`
 		} `json:"scope"`
 		Limit int `json:"limit"`
 	}
@@ -276,6 +277,7 @@ func toolQueryFeaturesAggregate(ctx context.Context, db bun.IDB, args json.RawMe
 			TerritoryID: in.Scope.TerritoryID,
 			Center:      in.Scope.Center,
 			RadiusM:     in.Scope.RadiusM,
+			CircuitID:   in.Scope.CircuitID,
 		}
 	}
 

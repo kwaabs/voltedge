@@ -25,6 +25,7 @@ import { ApiError, apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { type QueryResultRow, useQueryStore } from "@/stores/query-store"
 import { RADIUS_PRESETS_M, useRadiusQueryStore } from "@/stores/radius-query-store"
+import { CircuitPicker } from "@/components/map/circuit-picker"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -286,7 +287,7 @@ const AGG_FN_LABELS: Record<AggFn, string> = {
  * crosshair, drawn circle, and click-to-drop live in voltedge-map.tsx, keyed off
  * radius-query-store, and this panel reads the dropped center + radius back from
  * that same store). */
-type ScopeKind = "none" | "territory" | "radius"
+type ScopeKind = "none" | "territory" | "radius" | "circuit"
 
 /** A metre radius as a short label: metres under 1 km, else kilometres. */
 function formatRadius(m: number): string {
@@ -372,6 +373,10 @@ export function FeatureQueryPanel() {
   const [aggField, setAggField] = useState("")
   const [scopeKind, setScopeKind] = useState<ScopeKind>("none")
   const [scopeTerritory, setScopeTerritory] = useState("")
+  // The chosen circuit (a gis.circuits uuid) when scopeKind is "circuit" -- a
+  // non-spatial scope that narrows to one feeder/circuit across classes that carry
+  // the Phase-37 circuit_id membership (others simply contribute nothing).
+  const [scopeCircuit, setScopeCircuit] = useState("")
   const [aggResult, setAggResult] = useState<AggregateResult | null>(null)
   // The All-feature-classes breakdown (per-class counts within the scope).
   const [multiResult, setMultiResult] = useState<ClassCount[] | null>(null)
@@ -584,6 +589,9 @@ export function FeatureQueryPanel() {
     if (scopeKind === "radius" && radiusCenter) {
       body.scope = { kind: "radius", center: radiusCenter, radius_m: radiusM }
     }
+    if (scopeKind === "circuit" && scopeCircuit) {
+      body.scope = { kind: "circuit", circuit_id: scopeCircuit }
+    }
     closeDrill()
     setRunning(true)
     try {
@@ -606,6 +614,7 @@ export function FeatureQueryPanel() {
   function buildScope(): Record<string, unknown> | null {
     if (scopeKind === "territory" && scopeTerritory) return { kind: "territory", territory_id: scopeTerritory }
     if (scopeKind === "radius" && radiusCenter) return { kind: "radius", center: radiusCenter, radius_m: radiusM }
+    if (scopeKind === "circuit" && scopeCircuit) return { kind: "circuit", circuit_id: scopeCircuit }
     return null
   }
 
@@ -731,6 +740,8 @@ export function FeatureQueryPanel() {
                 onScopeKind={setScopeKind}
                 scopeTerritory={scopeTerritory}
                 onScopeTerritory={setScopeTerritory}
+                scopeCircuit={scopeCircuit}
+                onScopeCircuit={setScopeCircuit}
                 radiusCenter={radiusCenter}
                 radiusArmed={radiusArmed}
                 radiusM={radiusM}
@@ -742,7 +753,8 @@ export function FeatureQueryPanel() {
                   disabled={
                     running ||
                     (scopeKind === "radius" && !radiusCenter) ||
-                    (scopeKind === "territory" && !scopeTerritory)
+                    (scopeKind === "territory" && !scopeTerritory) ||
+                    (scopeKind === "circuit" && !scopeCircuit)
                   }
                 >
                   {running ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
@@ -780,6 +792,8 @@ export function FeatureQueryPanel() {
                   onScopeKind={setScopeKind}
                   scopeTerritory={scopeTerritory}
                   onScopeTerritory={setScopeTerritory}
+                  scopeCircuit={scopeCircuit}
+                  onScopeCircuit={setScopeCircuit}
                   radiusCenter={radiusCenter}
                   radiusArmed={radiusArmed}
                   radiusM={radiusM}
@@ -797,7 +811,8 @@ export function FeatureQueryPanel() {
                     (mode === "aggregate" &&
                       ((aggFn !== "count" && !aggField) ||
                         (scopeKind === "radius" && !radiusCenter) ||
-                        (scopeKind === "territory" && !scopeTerritory)))
+                        (scopeKind === "territory" && !scopeTerritory) ||
+                        (scopeKind === "circuit" && !scopeCircuit)))
                   }
                 >
                   {running ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
@@ -980,6 +995,8 @@ function AggregateControls({
   onScopeKind,
   scopeTerritory,
   onScopeTerritory,
+  scopeCircuit,
+  onScopeCircuit,
   radiusCenter,
   radiusArmed,
   radiusM,
@@ -997,6 +1014,8 @@ function AggregateControls({
   onScopeKind: (v: ScopeKind) => void
   scopeTerritory: string
   onScopeTerritory: (v: string) => void
+  scopeCircuit: string
+  onScopeCircuit: (v: string) => void
   radiusCenter: [number, number] | null
   radiusArmed: boolean
   radiusM: number
@@ -1052,6 +1071,8 @@ function AggregateControls({
         onScopeKind={onScopeKind}
         scopeTerritory={scopeTerritory}
         onScopeTerritory={onScopeTerritory}
+        scopeCircuit={scopeCircuit}
+        onScopeCircuit={onScopeCircuit}
         radiusCenter={radiusCenter}
         radiusArmed={radiusArmed}
         radiusM={radiusM}
@@ -1133,6 +1154,8 @@ function ScopeControls({
   onScopeKind,
   scopeTerritory,
   onScopeTerritory,
+  scopeCircuit,
+  onScopeCircuit,
   radiusCenter,
   radiusArmed,
   radiusM,
@@ -1142,22 +1165,28 @@ function ScopeControls({
   onScopeKind: (v: ScopeKind) => void
   scopeTerritory: string
   onScopeTerritory: (v: string) => void
+  scopeCircuit: string
+  onScopeCircuit: (v: string) => void
   radiusCenter: [number, number] | null
   radiusArmed: boolean
   radiusM: number
 }) {
+  // territory and circuit both pair the kind-select with a second picker, so the
+  // kind-select stays narrow for them (radius renders its picker on its own row).
+  const hasSidePicker = scopeKind === "territory" || scopeKind === "circuit"
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-muted-foreground text-xs font-medium">Scope</label>
       <div className="flex gap-1.5">
         <select
-          className={cn(inputClass, scopeKind === "territory" ? "w-28 shrink-0" : "flex-1")}
+          className={cn(inputClass, hasSidePicker ? "w-28 shrink-0" : "flex-1")}
           value={scopeKind}
           onChange={(e) => onScopeKind(e.target.value as ScopeKind)}
         >
           <option value="none">Everywhere</option>
           <option value="territory">Territory</option>
           <option value="radius">Radius of a point</option>
+          <option value="circuit">Circuit / feeder</option>
         </select>
         {scopeKind === "territory" && (
           <select
@@ -1172,6 +1201,11 @@ function ScopeControls({
               </option>
             ))}
           </select>
+        )}
+        {scopeKind === "circuit" && (
+          <div className="flex-1">
+            <CircuitPicker value={scopeCircuit} onChange={(v) => onScopeCircuit(typeof v === "string" ? v : "")} />
+          </div>
         )}
       </div>
       {scopeKind === "radius" && (

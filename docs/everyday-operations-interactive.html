@@ -277,7 +277,7 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
   <div class="rail-in">
     <div class="brand"><span class="dot"></span>Everyday Ops</div>
     <div class="chaps" id="chaps">
-      <a href="#c1">1 · Map &amp; tools</a><a href="#c2">2 · Find &amp; open</a><a href="#c3">3 · Create</a><a href="#c4">4 · Attributes</a><a href="#c5">5 · Geometry</a><a href="#c6">6 · Measure</a><a href="#c7">7 · Snap</a><a href="#c8">8 · Connect</a><a href="#c9">9 · Annotate</a><a href="#c10">10 · Yours &amp; unstuck</a>
+      <a href="#c1">1 · Map &amp; tools</a><a href="#c2">2 · Find &amp; open</a><a href="#c3">3 · Create</a><a href="#c4">4 · Attributes</a><a href="#c5">5 · Geometry</a><a href="#c6">6 · Measure</a><a href="#c7">7 · Snap</a><a href="#c8">8 · Connect</a><a href="#c9">9 · Annotate</a><a href="#c10">10 · Yours &amp; unstuck</a><a href="#c11">11 · Attach &amp; query</a>
     </div>
     <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
   </div>
@@ -1577,13 +1577,79 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
   </table></div>
 </section>
 
+<!-- ============ CH11 ============ -->
+<section class="ch" id="c11">
+  <div class="ch-head"><div class="ch-num">11</div><h2>Attaching files &amp; querying the network</h2><p>Hang photos and documents on a feature, and ask the data questions — filter, count, group, scope, drill, export.</p></div>
+
+  <div class="pl-b"><span class="tag pl">In plain terms</span>
+  <p>Two jobs people hunt for as a pair: <b>attaching</b> a photo or PDF to a feature (you met the Files tab in Chapter 9), and <b>querying</b> — "which features match…?", "how many?", "what's near here?" (the Query builder, Chapter 2). The basics are in those chapters; this one is the whole toolbox in a single, findable place.</p></div>
+
+  <h3>11.1 Which tool? Query vs Select vs Identify 🗺️</h3>
+  <p>People say "query the map" for three different jobs, and reaching for the wrong one is the commonest source of "why can't I…?". Pick what you want to do — the right tool lights up.</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Interactive · which tool?</span><h4>I want to…</h4></div>
+    <div class="w-split">
+      <div class="w-main"><div id="tl-goals" style="display:grid;gap:8px"></div></div>
+      <div class="w-side"><div class="lab" style="margin-bottom:6px">Reach for</div><div id="tl-tool" class="fbox" style="margin-bottom:10px">—</div><div class="readout" id="tl-why">Pick a goal on the left.</div></div>
+    </div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>Tool</th><th>For</th><th>Writes?</th></tr>
+    <tr><td><b>Query builder</b></td><td>Ask the database a structured question about <em>your</em> features — filter, count, scope, drill, export (§2.3–2.4).</td><td>No</td></tr>
+    <tr><td><b>Select</b> marquee</td><td><em>Hand-pick</em> features by boxing them on the map — feeds the Bill of Quantities and the temporary one-line (§1.5).</td><td>No</td></tr>
+    <tr><td><b>Identify</b></td><td>Read the attributes of a <em>third-party</em> service layer (someone else's WMS/WFS) — <em>not</em> your own features.</td><td>No</td></tr>
+  </table></div>
+  <div class="tip"><b>Rule of thumb</b> — <b>Query</b> when you can <em>describe</em> what you want; <b>Select</b> when you can <em>see</em> it and just need to box it; <b>Identify</b> only for someone else's map layer.</div>
+
+  <h3>11.2 Count, group, drill — and export</h3>
+  <p>Chapter 2 covered Filter mode (a <em>list</em>). The other half is <b>Aggregate</b>: a <em>number</em> instead, grouped how you like, then drilled straight back to the rows behind it — and exported. Try it on three feeders' transformers.</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Interactive · aggregate</span><h4>Count, group &amp; drill</h4><span style="flex:1"></span><button class="btn" id="ag-csv">⬇ Download CSV</button></div>
+    <div class="w-bar"><span class="lab">Group by</span><div class="seg"><button aria-pressed="true" disabled>feeder</button></div><span class="lab" style="margin-left:12px">Roll up</span><div class="seg" id="ag-roll"><button data-r="count" aria-pressed="true">Count</button><button data-r="sum">Sum kVA</button></div></div>
+    <div class="w-split">
+      <div class="w-main"><div class="lab" style="margin-bottom:6px">Result — 🖱️ click a row to drill</div><div class="tbl" style="margin:0"><table id="ag-res"></table></div></div>
+      <div class="w-side"><div class="lab" style="margin-bottom:6px" id="ag-dh">Rows behind the count</div><div id="ag-drill" class="readout">Click a result row.</div></div>
+    </div>
+  </div>
+  <div class="story"><span class="who">Worked example · Priya</span>Priya wants installed capacity per feeder. She picks <code>DIST_XFMR</code>, groups by <b>feeder</b>, rolls up <b>Sum kVA</b>, and runs it — a feeder→total table. She clicks Feeder 7 to see the individual transformers behind its total, then <b>Download</b>s the lot as CSV for the planning pack.</div>
+  <ul style="margin-top:8px">
+    <li>💡 Every count is a doorway — click it (or a group bucket, or a class in the all-classes breakdown) to list the actual features and highlight them on the map.</li>
+    <li>💡 The <b>Download</b> builds the CSV in your browser from what's on screen — instant, and exactly what you're looking at.</li>
+  </ul>
+
+  <h3>11.3 Files on a feature 📎</h3>
+  <p>Open a feature → the <b>Files</b> tab. Images show as a thumbnail grid, documents as a list. Browsing is open to anyone who can read the feature; adding or removing needs <span class="perm">attachments:write</span> — so switch personas in the top bar to feel the gate.</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Interactive · files tab</span><h4>Photos &amp; documents on one feature</h4><span style="flex:1"></span><button class="btn" id="fl-manage">Manage files</button><span id="fl-gate"></span></div>
+    <div class="w-body">
+      <div class="lab">Images</div><div id="fl-imgs" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:6px 0 16px"></div>
+      <div class="lab">Documents</div><div id="fl-docs" style="margin:6px 0"></div>
+      <div id="fl-add" style="margin-top:12px" hidden><button class="btn pri" id="fl-up">＋ Upload file</button></div>
+    </div>
+  </div>
+  <div class="tip"><b>Tip</b> — The web app takes <b>images and documents</b>; the field app is <b>images only</b>, captured offline and uploaded on your next Sync. Only images get thumbnails; the file's kind is inferred from its type — you don't choose it.</div>
+
+  <h3>11.4 One-card recap</h3>
+  <div class="tbl"><table>
+    <tr><th>I want to…</th><th>Do this</th></tr>
+    <tr><td>List features matching conditions</td><td><b>Query</b> → Filter → class → conditions → Run (§2.3)</td></tr>
+    <tr><td>Count / total / group features</td><td><b>Query</b> → Aggregate → group-by + Count/Sum/Avg/Min/Max</td></tr>
+    <tr><td>Count what's within N m of a point</td><td><b>Query</b> → Aggregate → scope <b>Radius</b> → click centre (§2.4)</td></tr>
+    <tr><td>See the rows behind a count</td><td>Run an aggregate → 🖱️ click the number</td></tr>
+    <tr><td>Export what I'm looking at</td><td>Any result → <b>Download</b> (CSV)</td></tr>
+    <tr><td>Box-select features to price them</td><td><b>Select</b> tool → rubber-band → Bill of Quantities (§1.5)</td></tr>
+    <tr><td>See a feature's photos/documents</td><td>Open it → <b>Files</b> tab (read-only)</td></tr>
+    <tr><td>Attach or delete files</td><td><b>Files</b> → <b>Manage files</b> → Upload / trash (needs <code>attachments:write</code>)</td></tr>
+  </table></div>
+</section>
+
 <!-- ============ QUIZ & CLOSE ============ -->
-<section class="ch" id="c11" style="padding-top:48px">
+<section class="ch" id="c12" style="padding-top:48px">
   <h3 style="margin-top:0">Check yourself</h3>
   <p>Ten questions, one per recipe family. Nothing is scored or stored.</p>
   <div id="qz"></div>
   <div class="en-b" style="margin-top:28px"><span class="tag en">That’s the cookbook</span>
-  <p>Across ten chapters this book has walked every hands-on thing you do on the VoltEdge map — reading it and its tools, finding and opening features, <b>creating</b> them in every geometry, editing their <b>attributes</b> and their <b>geometry</b>, <b>measuring</b> and drawing, <b>snapping</b> for precision, <b>connecting</b> and <b>relating</b> (and the guided assemblies that do several joins at once), <b>annotating</b> with redlines, labels, files and links, and finally tuning the map to how you work and getting yourself unstuck when it doesn’t behave.</p>
+  <p>Across eleven chapters this book has walked every hands-on thing you do on the VoltEdge map — reading it and its tools, finding and opening features, <b>creating</b> them in every geometry, editing their <b>attributes</b> and their <b>geometry</b>, <b>measuring</b> and drawing, <b>snapping</b> for precision, <b>connecting</b> and <b>relating</b> (and the guided assemblies that do several joins at once), <b>annotating</b> with redlines, labels, files and links, tuning the map to how you work and getting yourself unstuck when it doesn’t behave, and finally <b>attaching files</b> and <b>querying</b> the network — filtering, counting, scoping by area and drilling into the answers.</p>
   <p>Where this book gives you the <b>exact sequence</b>, its companion — the <b>User Handbook</b> — gives you the <em>why</em>: the mental model of feature classes, terminals, territory and permissions that everything here rests on. When a recipe here mentions a permission or a network role and you want to understand it properly, that’s the book to open. For the deeper technical lanes — what a study computes, how a substation is modelled end to end, or the exact fields of one class — the <b>Engineering Studies</b>, <b>Substation Guide</b> and <b>Feature Catalog</b> are waiting on the shelf.</p>
   <p>Keep this one open on a second monitor while you work. That’s what it’s for.</p></div>
 </section>
@@ -2478,6 +2544,61 @@ var FPreset;
 })();
 
 
+
+/* ===== CH11.1 · which tool? ===== */
+(function(){
+  const GOALS=[
+    ['List every 315 kVA transformer','query','You can describe it in words → Query builder, Filter mode.'],
+    ['Count what sits within 150 m of a pole','query','Query builder → Aggregate → Radius scope.'],
+    ['Find all draft underground cables over 240 mm²','query','Describable conditions → Query builder, Filter.'],
+    ['Box-select a work area to price it','select','You can see them → Select marquee → Bill of Quantities.'],
+    ['Grab these three poles I can see','select','Visual hand-pick → Select marquee.'],
+    ['Read the attributes of the council’s WMS layer','identify','A third-party layer → Identify (not your own features).']
+  ];
+  const TOOL={query:'Query builder',select:'Select marquee',identify:'Identify'};
+  const host=$('#tl-goals'); if(host){
+    host.innerHTML=GOALS.map((g,i)=>`<button class="cardsel" data-i="${i}">${esc(g[0])}</button>`).join('');
+    host.onclick=e=>{ const b=e.target.closest('.cardsel'); if(!b) return; const g=GOALS[+b.dataset.i];
+      $$('#tl-goals .cardsel').forEach(x=>x.setAttribute('aria-pressed',x===b));
+      $('#tl-tool').textContent=TOOL[g[1]]; $('#tl-tool').className='fbox good'; $('#tl-why').textContent=g[2]; };
+  }
+})();
+
+/* ===== CH11.2 · aggregate / drill / export ===== */
+(function(){
+  if(!$('#ag-res')) return;
+  const TX=[['TX-014','Feeder 7',315],['TX-022','Feeder 7',500],['TX-031','Feeder 7',315],['TX-105','Feeder 3',200],['TX-108','Feeder 3',315],['TX-110','Feeder 3',100],['TX-204','Feeder 9',500],['TX-209','Feeder 9',315],['TX-211','Feeder 9',200],['TX-215','Feeder 9',315]];
+  const st={roll:'count'}; let openF=null;
+  const buckets=()=>{ const m={}; TX.forEach(t=>{ (m[t[1]]=m[t[1]]||[]).push(t); }); return m; };
+  const val=rows=>st.roll==='count'?rows.length:rows.reduce((a,t)=>a+t[2],0);
+  function drill(f){ openF=f; const m=buckets(); $('#ag-dh').textContent='Rows behind '+f; $('#ag-drill').innerHTML=(m[f]||[]).map(t=>`<div><b>${t[0]}</b> · ${t[2]} kVA</div>`).join(''); $$('#ag-res tr[data-f]').forEach(tr=>tr.style.background=tr.dataset.f===f?'var(--tint)':''); }
+  function paint(){ const m=buckets(); const fs=Object.keys(m).sort();
+    $('#ag-res').innerHTML='<tr><th>feeder</th><th>'+(st.roll==='count'?'count':'Σ kVA')+'</th></tr>'+fs.map(f=>`<tr data-f="${f}" style="cursor:pointer"><td>${f}</td><td><b>${val(m[f])}</b></td></tr>`).join(''); if(openF) drill(openF); }
+  $('#ag-res').onclick=e=>{ const tr=e.target.closest('tr[data-f]'); if(tr) drill(tr.dataset.f); };
+  seg('#ag-roll',b=>{ st.roll=b.dataset.r; paint(); });
+  $('#ag-csv').onclick=()=>{ const m=buckets(); const head='feeder,'+(st.roll==='count'?'count':'sum_kva'); const body=Object.keys(m).sort().map(f=>f+','+val(m[f])).join('\n');
+    try{ const a=document.createElement('a'); a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(head+'\n'+body); a.download='dist_xfmr-aggregate.csv'; a.click(); }catch(e){} };
+  paint();
+})();
+
+/* ===== CH11.3 · files tab ===== */
+(function(){
+  if(!$('#fl-manage')) return;
+  let manage=false, n=0;
+  let imgs=['nameplate.jpg','pole-base.jpg'];
+  let docs=[['test-sheet.pdf','412 KB'],['datasheet.pdf','1.2 MB']];
+  function render(){
+    $('#fl-imgs').innerHTML=imgs.length?imgs.map((nm,i)=>`<div class="fbox" style="text-align:center;font-size:11px;padding:16px 6px;line-height:1.4">🖼<br>${esc(nm)}${manage?`<br><button class="btn" data-ti="${i}" style="padding:1px 6px;margin-top:5px">🗑</button>`:''}</div>`).join(''):'<span class="muted" style="font-size:13px">No images.</span>';
+    $('#fl-docs').innerHTML=docs.length?docs.map((d,i)=>`<div class="chainrow" style="justify-content:space-between;border-bottom:1px solid var(--line2);padding:4px 0"><span>📄 ${esc(d[0])} <span class="muted">${esc(d[1])}</span></span>${manage?`<button class="btn" data-td="${i}" style="padding:1px 6px">🗑</button>`:''}</div>`).join(''):'<span class="muted" style="font-size:13px">No documents.</span>';
+    $('#fl-add').hidden=!manage; $('#fl-manage').textContent=manage?'Done':'Manage files';
+  }
+  function gate(){ const ok=can('atw'); if(!ok) manage=false; $('#fl-manage').disabled=!ok; $('#fl-manage').classList.toggle('locked',!ok); $('#fl-gate').innerHTML=ok?'':gateTip('atw'); render(); }
+  $('#fl-manage').onclick=()=>{ if(!can('atw')) return; manage=!manage; render(); };
+  $('#fl-up').onclick=()=>{ n++; if(n%2) imgs.push(`photo-${n}.jpg`); else docs.push([`doc-${n}.pdf`,'88 KB']); render(); };
+  $('#fl-imgs').onclick=e=>{ const b=e.target.closest('button[data-ti]'); if(b){ imgs.splice(+b.dataset.ti,1); render(); } };
+  $('#fl-docs').onclick=e=>{ const b=e.target.closest('button[data-td]'); if(b){ docs.splice(+b.dataset.td,1); render(); } };
+  onPersona(gate);
+})();
 
 /* in-page anchors: a srcdoc iframe resolves href="#id" against the parent app URL, so handle chapter-rail links ourselves */
 document.addEventListener('click',function(e){ var a=e.target.closest&&e.target.closest('a[href^="#"]'); if(!a) return; var id=decodeURIComponent(a.getAttribute('href').slice(1)); e.preventDefault(); if(!id){ window.scrollTo({top:0,behavior:'instant'}); return; } var t=document.getElementById(id); if(t){ var nav=document.querySelector('.rail'); var off=(nav?nav.getBoundingClientRect().height:0)+12; window.scrollTo({top:t.getBoundingClientRect().top+window.pageYOffset-off,behavior:'instant'}); } });

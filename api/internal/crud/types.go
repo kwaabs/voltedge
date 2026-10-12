@@ -175,23 +175,29 @@ type aggregateSpec struct {
 	Field string `json:"field"`
 }
 
-// querySpatialScope is the optional spatial constraint an aggregate or a query
-// can carry (the query path uses it to drill from an aggregate's count into the
-// very rows behind it, under the same narrowing). Kind selects the shape:
+// querySpatialScope is the optional scope constraint an aggregate or a query can
+// carry (the query path uses it to drill from an aggregate's count into the very
+// rows behind it, under the same narrowing). Kind selects the shape:
 //
-//   - "" / "none": no spatial constraint.
+//   - "" / "none": no constraint.
 //   - "territory": every feature stamped with TerritoryID or any territory
 //     beneath it (territory.DescendantIDs, matching the deepest-wins stamping).
 //   - "radius": every feature whose geometry lies within RadiusM metres of
 //     Center ([longitude, latitude], WGS84).
+//   - "circuit": every feature on circuit CircuitID -- a non-spatial, column-based
+//     scope over the Phase-37 circuit_id membership. A class that carries no
+//     circuit_id column simply matches nothing (so it contributes zero to an
+//     all-classes tally rather than erroring the whole query).
 //
-// Only meaningful for a geometric feature class; a geometry-less class 400s (see
-// spatialScopeWhere).
+// The two spatial shapes (territory/radius) are only meaningful for a geometric
+// feature class; a geometry-less class 400s on them. The circuit shape needs no
+// geometry (see spatialScopeWhere).
 type querySpatialScope struct {
 	Kind        string    `json:"kind"`
 	TerritoryID string    `json:"territory_id"`
 	Center      []float64 `json:"center"`
 	RadiusM     float64   `json:"radius_m"`
+	CircuitID   string    `json:"circuit_id"`
 }
 
 // aggregateResponse is the POST /{code}/aggregate result. Total is the row

@@ -141,12 +141,13 @@ func readTools() []Tool {
 					},
 					"scope":{
 						"type":"object",
-						"description":"An optional spatial narrowing. Requires a class with geometry.",
+						"description":"An optional narrowing. territory/radius require a class with geometry; circuit narrows by the Phase-37 circuit membership (classes without it contribute nothing).",
 						"properties":{
-							"kind":{"type":"string","enum":["none","territory","radius"],"description":"The scope kind."},
+							"kind":{"type":"string","enum":["none","territory","radius","circuit"],"description":"The scope kind."},
 							"territory_id":{"type":"string","description":"For kind=territory: the territory whose subtree to count within."},
 							"center":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"For kind=radius: the [longitude, latitude] center."},
-							"radius_m":{"type":"number","description":"For kind=radius: the radius in metres."}
+							"radius_m":{"type":"number","description":"For kind=radius: the radius in metres."},
+							"circuit_id":{"type":"string","description":"For kind=circuit: the circuit/feeder (gis.circuits uuid) to count within."}
 						},
 						"required":["kind"],
 						"additionalProperties":false

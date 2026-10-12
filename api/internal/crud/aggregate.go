@@ -83,6 +83,23 @@ func spatialScopeWhere(ctx context.Context, db bun.IDB, loaded *metadata.Loaded,
 	if kind == "" || kind == "none" {
 		return "", nil, nil
 	}
+
+	// The circuit scope is NON-spatial -- it narrows by the Phase-37 circuit_id
+	// membership column, not geometry -- so it is handled before the geometry guard
+	// the two spatial shapes require. A class that carries no circuit_id column
+	// (most don't) matches nothing, the same "1 = 0" the unknown-territory case uses:
+	// in an all-classes breakdown a non-circuit class then contributes zero rather
+	// than erroring the whole tally.
+	if kind == "circuit" {
+		if strings.TrimSpace(scope.CircuitID) == "" {
+			return "", nil, invalid("a circuit scope needs a circuit_id")
+		}
+		if _, ok := columnDataType(loaded, "circuit_id"); !ok {
+			return "1 = 0", nil, nil
+		}
+		return "circuit_id::text = ?", []any{strings.TrimSpace(scope.CircuitID)}, nil
+	}
+
 	if loaded.FeatureClass.GeometryType == "none" {
 		return "", nil, invalid("feature class %q has no geometry, so it can't be filtered by %s", loaded.FeatureClass.Code, kind)
 	}
@@ -304,13 +321,14 @@ func aggregateFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded,
 // the same territory/radius narrowing the REST body carries as querySpatialScope,
 // re-declared with exported fields so the agenttools front door can build one
 // without reaching into this package's wire types. Kind is "none"/"territory"/
-// "radius"; TerritoryID applies to territory, Center ([lon, lat]) + RadiusM (true
-// metres) to radius.
+// "radius"/"circuit"; TerritoryID applies to territory, Center ([lon, lat]) +
+// RadiusM (true metres) to radius, CircuitID to circuit.
 type AggregateScope struct {
 	Kind        string
 	TerritoryID string
 	Center      []float64
 	RadiusM     float64
+	CircuitID   string
 }
 
 // AggregateOptions is the exported request for AggregateFeatures, the aggregate
@@ -349,6 +367,7 @@ func AggregateFeatures(ctx context.Context, db bun.IDB, loaded *metadata.Loaded,
 			TerritoryID: opts.Scope.TerritoryID,
 			Center:      opts.Scope.Center,
 			RadiusM:     opts.Scope.RadiusM,
+			CircuitID:   opts.Scope.CircuitID,
 		}
 	}
 	return aggregateFeatures(ctx, db, loaded, req)
