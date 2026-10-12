@@ -58,6 +58,7 @@ transformers, and the primary substation Dana and Tom keep tidy.
 8. **Connecting & relating** — terminals, connections, relationships, and guided assemblies.
 9. **Annotating the map** — map annotations, labels, attachments, and external links.
 10. **Personalising & getting unstuck** — basemaps, dark mode, remembered view, units, and a "why can't I…?" list.
+11. **Attaching files & querying the network** — hang photos/documents on a feature, and ask the data questions: filter, count, group, scope by area, drill down, and export.
 
 ---
 
@@ -2362,14 +2363,160 @@ the large majority of "is it broken?" moments in seconds:
 
 ---
 
+## Chapter 11 — Attaching files & querying the network
+
+Two everyday jobs that both live on the map, and that people often go looking for as a pair: **hanging files on a feature** (a nameplate photo, a test sheet, a scanned drawing) and **asking the data a question** (every 315 kVA transformer; what's within 150 m; how many spans of cable in this feeder). You've met pieces of both already — attaching files sits on a feature's **Files** tab (first seen in §9.6), and the **Query builder** turned up under *finding things* (§2.3–2.4). This chapter is the one place that covers them end to end.
+
+> The quick "find a feature" paths in **Chapter 2** and the file basics in **§9.6–9.7** still stand — this chapter is the deeper reference, not a replacement. If you only need "find features matching X," §2.3 is the short version.
+
+### 11.1 Attachments — the Files tab 📎
+
+Open any feature and switch to the **Files** tab (the paperclip). A feature can hold **images and documents** — photos as a **thumbnail grid**, documents (PDF, drawings) as a **labelled list** with their size. The field app is **images only**; the web app takes both, and the file's *kind* is worked out from its content type — you never pick it.
+
+- **Browsing is always open** — anyone who can read the feature can open and download its files. No special mode.
+- **Adding and removing is opt-in** and gated on **`attachments:write`** (editors and admins). A viewer or analyst never even sees the controls.
+
+### 11.2 Task — attach, view & remove files
+
+**▶ Quick steps**
+
+1. Select the feature on the map → the feature panel opens → **Files** tab.
+2. **View:** click an image thumbnail to open the full picture in a new tab; click a document row to download it.
+3. **Add/remove:** click **Manage files** (only there with `attachments:write`) → **Upload files**, pick one or more (a file picker — multiple files upload one after another). Remove one with its **trash** icon and confirm. Click **Done** to leave manage mode.
+
+**Worked example.** Tom commissions a transformer and photographs its rating plate. He opens the transformer → **Files** → **Manage files** → **Upload files**, and selects three photos plus the test-sheet PDF. They upload in turn; the photos land as thumbnails, the PDF as a row reading *"412.0 KB."* He trashes one blurry photo, confirms, and clicks **Done** — the tab drops back to safe, read-only browsing.
+
+**How it works.** Files don't travel through VoltEdge itself — your browser uploads each one **directly to object storage** over a short-lived signed link (register → upload → confirm, per file, so a failure is clear file-by-file), and downloads the same way. Images are **thumbnailed server-side** on upload (small JPEG previews) so the grid is cheap to load; documents show an icon. The tab **resets to read-only** every time you reopen it, so you never leave it hanging in manage mode.
+
+- 💡 Use documents for anything that isn't a picture — a PDF spec, a CAD drawing, a scanned permit. Only images get thumbnails; documents list by name and size.
+- ⚠️ A delete can't be undone — that's why it always asks first.
+
+### 11.3 Attachments in the field
+
+In the **field app**, the Files tab is a **Photos** section: capture from the camera or gallery **offline**, and the photos queue in a local outbox and upload on your next **Sync**. Offline, you still see the thumbnails baked into your downloaded field pack; the full-resolution image is fetched when you're back online. (Mobile is images-only — documents are a desk job.)
+
+### 11.4 Querying the network — the Query builder at a glance 🗺️
+
+Open the **Query** button on the map toolbar (the magnifying glass). The **Query builder** is a floating panel with two modes plus a whole-network option:
+
+- **Filter** — *list the features that match these conditions.* "Every `DIST_XFMR` with rated capacity = 315."
+- **Aggregate** — *count/total instead of list.* "How many? grouped by what? sum of which field?"
+- **All feature classes (count by class)** — *what's on the map in this scope,* tallied per class.
+
+Three things hold across all of it:
+
+- **One class at a time.** A query targets a single feature class (or the all-classes count) — there are no cross-class joins.
+- **Results respect your access.** You only ever get features your **territory** (and draft) access allows — a query can't leak something you couldn't open by hand.
+- **Results live on the map.** Matches **highlight all at once** (in pink) and each result row has a **zoom-to** button that flies the map to that feature with focus — even if it wasn't loaded. Close the panel and the highlight clears with it.
+
+### 11.5 Task — Filter: find features by their attributes
+
+**▶ Quick steps**
+
+1. Open **Query** → **Filter** mode → pick the **feature class**.
+2. Add **conditions**: a **field**, an **operator**, and a **value**. The operator list is trimmed to what the field's type allows:
+   - `equals` / `not equals` — any field
+   - `<` `≤` `>` `≥` / `between` — numbers and dates
+   - `contains` / `starts with` — text
+   - `in` (a list of values) — any field
+   - `is empty` / `is not empty` — any field
+3. Combine with **AND / OR**, and nest **groups** for `(A AND B) OR C` (up to five deep, fifty conditions total).
+4. *(Optional)* add a **tag filter** — features that *have* a tag, or whose tag matches a code/prefix.
+5. **Run.** Matches list in the panel and highlight on the map.
+
+**Worked example.** Dana needs every underground MV cable over 240 mm² that's still *draft*. She picks `MV_CONDUCTOR`, adds *construction **equals** underground* **AND** *csa **>** 240* **AND** *status **equals** draft*, and runs it. Eleven spans come back and light up pink; she zooms to each from the list to review it.
+
+> This is the same builder §2.3 introduces — here with the full operator set and nesting spelled out.
+
+### 11.6 Task — Aggregate: count, group, and total
+
+When you want *a number,* not a list.
+
+**▶ Quick steps**
+
+1. Open **Query** → switch to **Aggregate** mode → pick the class.
+2. *(Optional)* **Group by** a field — a per-value breakdown instead of one grand total.
+3. Choose the roll-up: **Count**, or **Sum / Average / Minimum / Maximum** of a numeric field.
+4. **Run** — you get the figure(s), computed server-side against the real data.
+
+**Worked example.** A planner wants the installed transformer capacity per feeder. She picks `DIST_XFMR`, **groups by** `circuit`, rolls up **Sum** of `rated_capacity`, and runs it — a table of feeder → total kVA, straight from the database.
+
+- 💡 For "what's out there at all," use **All feature classes (count by class)** — a per-class tally of everything in the current scope, handy after an incident to brief a crew on what plant is involved.
+
+### 11.7 Task — scope a query in space (territory / radius)
+
+Aggregate queries (and the all-classes count) can be **scoped**:
+
+- **Everywhere** — the default.
+- **Territory** — everything under a chosen part of the territory tree.
+- **Radius of a point** — "within N metres of *here*": switch the scope to **Radius**, 🖱️ click a **centre** on the map, pick a **radius** (presets or type metres). VoltEdge draws the geodesic circle and counts what's genuinely inside it.
+
+**Worked example.** After a car hits a pole, Priya needs what sits within 150 m. All-classes count → scope **Radius of a point** → click the pole → 150 m. VoltEdge draws the circle and returns the per-class tally inside it — three spans of conductor, one transformer, two poles. (This is the §2.4 radius scope, in its home.)
+
+- ⚠️ Spatial scope is an **Aggregate**/all-classes feature. Plain **Filter** mode has no draw-an-area filter — if you need "features inside this shape," count them with a radius scope, or use the **Select** marquee (§11.10) to grab them by hand.
+
+### 11.8 Task — drill from a count down to the rows
+
+Every count is a doorway, not a dead end.
+
+**▶ Quick steps**
+
+1. Run any **Aggregate** or **all-classes** query.
+2. **Click a number** — the grand total, a group-by bucket, or a class in the breakdown.
+3. The builder re-runs as a **Filter** with that narrowing applied and lists the **actual features** behind the count — which also highlight on the map.
+4. **Back to counts** returns you to the summary.
+
+**Worked example.** From the "capacity per feeder" table (§11.6), the planner clicks the row for Feeder 7 — the panel lists the individual transformers that make up that total and lights them up, so she can see *which* assets, not just the sum.
+
+### 11.9 Export query results
+
+Any result set exports to **CSV**, generated in your browser (no round trip):
+
+- a **Filter** list → `{class}-query.csv` (id, name, status, and every attribute column),
+- an **Aggregate** result → `{class}-aggregate.csv`,
+- the **all-classes** breakdown → `feature-classes-in-scope.csv`,
+- a **drill-down** list → `{class}-features.csv`.
+
+**How it works.** The download is built from the rows already on screen, so it's instant and matches exactly what you're looking at — no server export job, no waiting.
+
+### 11.10 "Querying on the map" — three tools, three jobs
+
+People say "query the map" for three different things. Keep them straight:
+
+| Tool | What it's for | Writes anything? |
+|---|---|---|
+| **Query builder** (§11.4+) | Ask the database a structured question about **your** features — filter, count, scope, drill, export. | No |
+| **Select** marquee (§1.5) | **Hand-pick** features by rubber-banding a box on the map — a visual multi-select that feeds the **Bill of Quantities** and the temporary one-line. | No |
+| **Identify** | Click to read attributes of a **third-party service layer** (an external WMS/WFS/Esri layer you've added) — *not* your own features. | No |
+
+- 💡 Rule of thumb: **Query builder** when you can *describe* what you want ("all 315 kVA transformers"); **Select** marquee when you can *see* what you want and just need to box it; **Identify** only for someone else's map layer.
+- ⚠️ The Select marquee and the Query builder are separate — a marquee selection doesn't become a query, and a query's results aren't the marquee set. They just happen to both highlight on the map.
+
+### 11.11 One-card recap
+
+| I want to… | Do this |
+| --- | --- |
+| See a feature's photos/documents | Open it → **Files** tab (read-only) |
+| Attach or delete files | **Files** → **Manage files** → Upload / trash (needs `attachments:write`) |
+| Capture a site photo in the field | Field app → **Files** → camera/gallery → uploads on **Sync** |
+| List features matching conditions | **Query** → **Filter** → class → conditions → **Run** |
+| Count / total / group features | **Query** → **Aggregate** → group-by + Count/Sum/Avg/Min/Max |
+| Count what's within N m of a point | **Query** → **Aggregate**/all-classes → scope **Radius** → click centre |
+| See the rows behind a count | Run an aggregate → **click the number** |
+| Export what I'm looking at | Any result → **Download** (CSV) |
+| Box-select features to price them | **Select** tool → rubber-band → feeds Bill of Quantities |
+
+---
+
 ## That's the cookbook
 
-You've reached the end. Across ten chapters this book has walked every hands-on thing you do on
+You've reached the end. Across eleven chapters this book has walked every hands-on thing you do on
 the VoltEdge map — reading it and its tools, finding and opening features, **creating** them in
 every geometry, editing their **attributes** and their **geometry**, **measuring** and drawing,
 **snapping** for precision, **connecting** and **relating** (and the guided assemblies that do
-several joins at once), **annotating** with redlines, labels, files and links, and finally
-tuning the map to how you work and getting yourself unstuck when it doesn't behave.
+several joins at once), **annotating** with redlines, labels, files and links, tuning the map to
+how you work and getting yourself unstuck when it doesn't behave, and finally **attaching files**
+and **querying** the network — filtering, counting, scoping by area and drilling into the answers.
 
 Where this book gives you the **exact sequence**, its companion — the **[User
 Handbook](user-handbook.md)** — gives you the *why*: the mental model of feature classes,

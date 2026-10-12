@@ -11,7 +11,7 @@ This is the deep-dive behind **OMS — Outage Management** §8. OMS turns outage
 
 **Legend.** 💡 a tip. ⚠️ a limitation stated honestly. **▶** the analyst lane; **∑** the maths lane.
 
-> **Grounding note.** Everything here is the shipped `api/internal/oms/indices.go` over `oms.customer_interruptions` (`migrations/0087`, widened by `0119`). Where the code simplifies (ENS, CAIDI population, major-event handling), this guide says so plainly — it does not describe methodology the code doesn't implement.
+> **Grounding note.** Everything here is the shipped `api/internal/oms/indices.go` + `med.go` over `oms.customer_interruptions` (`migrations/0087`, widened by `0119`). Where the code simplifies (ENS, CAIDI population, the major-event-day reference window), this guide says so plainly — it does not describe methodology the code doesn't implement.
 
 ---
 
@@ -124,11 +124,26 @@ The response can decompose the window's interruptions by **what caused them**, r
 
 ---
 
-## 8. What VoltEdge does *not* do (the honest limits)
+## 8. Major-event-day normalisation (IEEE 1366 2.5β)
+
+Raw SAIDI/SAIFI lump a catastrophic day (a major storm) in with ordinary operations, so a single event can dominate a year. **IEEE 1366** defines a statistical threshold above which a day is a *major event day* (MED) and is reported separately, leaving a **normalised** index that reflects day-to-day reliability — the figure most regulators compare year-on-year. VoltEdge computes this (`api/internal/oms/med.go`) and returns it alongside the raw indices:
+
+- `med_threshold_saidi` — **T_MED**, the daily-SAIDI threshold. Over the window's daily SAIDI values (only days with SAIDI > 0): `α = mean(ln SAIDI_d)`, `β = sample std-dev(ln SAIDI_d)`, `T_MED = exp(α + 2.5β)`.
+- `major_event_days` — how many days exceeded T_MED.
+- `saidi_normalized` / `saifi_normalized` — the indices with those major event days **excluded**.
+- `med_applicable` — `false` when the window holds too few outage days to define the threshold (fewer than two positive days); the normalised figures then **equal the raw** ones (nothing excluded), and `med_note` says so.
+
+The daily rows use the **same** clip, circuit-scope and unplanned/non-cancelled filters as the headline aggregate, so they sum back to it — only the per-day split is new.
+
+> ⚠️ **Two documented simplifications** (`med.go` HONEST LIMITS). (1) The strict standard uses a **five-year** reference period; VoltEdge computes T_MED from the daily SAIDI values **in the report window**, so a short window gives a less stable threshold (hence `med_applicable`). (2) A multi-day outage's customer-minutes are attributed to its **start day** rather than split across each calendar day it spans — so MED classification and exclusion operate on whole days keyed by outage start. Both are conservative for storm detection and keep the daily rows summing to the headline, but they are deviations from a strict per-calendar-day clip over a five-year reference. Quote `saidi_normalized` with that caveat.
+
+---
+
+## 9. What VoltEdge does *not* do (the honest limits)
 
 Reliability reporting is a regulated area, so be precise about the boundaries:
 
-- ⚠️ **No IEEE 1366 major-event-day exclusion.** There is **no** T_MED threshold, no 2.5-beta methodology, no storm-day normalisation anywhere. A storm day counts in full. If your regulator requires MED-normalised figures, VoltEdge gives you the **raw** indices — you apply the exclusion downstream.
+- **IEEE 1366 major-event-day exclusion — now implemented** (§8), with two documented simplifications: the threshold uses the **report window** rather than a strict five-year reference, and multi-day outages are attributed to their **start day**. The raw indices are still reported; the normalised ones sit beside them.
 - ⚠️ **No MAIFI** (momentary interruptions). Sustained outages only.
 - **CAIDI population quirk** — its numerator (minutes, includes carried-over) and divisor (customers, began-in-window) use slightly different populations for a window-straddling outage (§3).
 - **ENS is a flat-kW placeholder** (§6), always flagged estimated.
@@ -139,7 +154,7 @@ None of these are bugs — they're documented simplifications. The guide's job i
 
 ---
 
-## 9. How to run a report
+## 10. How to run a report
 
 > **▶ Run the indices** 🔒 `oms:read`
 > `GET /oms/indices?from=2026-09-01T00:00:00Z&to=2026-10-01T00:00:00Z&avg_load_kw=2&circuit_id=…`

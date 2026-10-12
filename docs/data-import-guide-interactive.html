@@ -1,0 +1,618 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Data Import Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.chip{display:inline-block;font:500 12px/1 var(--f-mono);padding:5px 8px;border-radius:4px;border:1px solid var(--line);background:var(--surface);margin:2px}
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px;overflow-x:auto}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono);display:inline-block}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green);color:var(--green)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:8px 0}
+.chainrow .arr{color:var(--muted);font:600 14px var(--f-mono)}
+.node{border:1px solid var(--line);border-radius:6px;background:var(--surface);padding:7px 11px;font:600 12px var(--f-mono);text-align:center;line-height:1.3}
+.node small{display:block;font-weight:500;color:var(--muted);font-size:10.5px;letter-spacing:.03em}
+.rowline{display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:center;border-top:1px solid var(--line2);padding:7px 2px;font-size:13px}
+.rowline:first-child{border-top:0}
+.rowline .vt{font:700 11px var(--f-mono);width:24px;height:24px;border-radius:50%;display:grid;place-items:center}
+.rowline .vt.y{background:var(--green-tint);color:var(--green)} .rowline .vt.n{background:var(--red-tint);color:var(--red)}
+.rowline .src{font:500 12px var(--f-mono);overflow-wrap:anywhere}
+.rowline .rs{font-size:12px;color:var(--muted);text-align:right}
+.rowline .rs b{color:var(--red)}
+input[type=text],input[type=number],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+.ctl{margin-bottom:12px}
+.ctl label{display:block;font:600 12px var(--f-mono);margin-bottom:4px}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.story{border-left:3px solid var(--acc);background:var(--surface);padding:10px 16px;border-radius:0 6px 6px 0;margin:16px 0;max-width:78ch;font-size:15px}
+.story>*:last-child{margin-bottom:0}
+.story .who{font:700 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--acc-deep);display:block;margin-bottom:2px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+.matrix{border-collapse:collapse;font-size:12.5px;width:100%}
+.matrix th,.matrix td{padding:5px 8px;text-align:center;border-bottom:1px solid var(--line2)}
+.matrix td:first-child,.matrix th:first-child{text-align:left;position:sticky;left:0;background:var(--raise)}
+.matrix td.y{background:color-mix(in srgb,var(--green) 22%,transparent);color:var(--green);font-weight:700}
+.matrix td.n{color:var(--muted)}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+[hidden]{display:none!important}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Data Import</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · Overview</a><a href="#c2">2 · Sources</a><a href="#c3">3 · Profile</a><a href="#c4">4 · Mapping</a><a href="#c5">5 · Run</a><a href="#c6">6 · Dry-run</a><a href="#c7">7 · Load</a><a href="#c8">8 · Geometry</a><a href="#c9">9 · Safety</a><a href="#c10">10 · Check</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · data import · bring another system's data in — validated like it was drawn by hand</div>
+  <h1>Someone else's data.<br><span>Your network model.</span></h1>
+  <p class="lede">Import reads from files <em>or</em> live databases, checks every row against the same rules a hand-entered feature obeys, and writes through VoltEdge's normal create/update engine. This edition is a <b>working</b> one — poke a transform, run a dry-run, flip a write mode, and watch what the real engine would do.</p>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Ada</b> holds <span class="perm">metadata:write</span> — she authors import profiles. <b>Omar</b> holds <span class="perm">features:write</span> — he runs them. <b>Val</b> holds <span class="perm">features:read</span> — she watches jobs but can't start one. <b>Dana</b> has neither. Action buttons lock to what the persona may do.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">Who this is for</span>
+<p><b>Administrators</b> who author the reusable mapping once (<span class="perm">metadata:write</span>), and <b>operators</b> who run it against new files or databases (<span class="perm">features:write</span>). You don't need both roles. The full manual (<code>data-import-guide.md</code>) carries every table and the honest-limits list; this edition keeps all ten ideas and makes each one something you can try.</p>
+<p>One promise up front, because it's the whole design: there is <b>no import shortcut</b> that skips validation. Every imported row runs the identical checks a feature you draw on the map runs — and lands through the same engine, so it gets territory, write-scope and history too.</p></div>
+
+<!-- ===== 1 ===== -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">1</div><h2>Three moving parts</h2><p>An admin authors a profile; an operator runs it; a background worker applies every row.</p></div>
+
+  <div class="pl-b"><span class="tag pl">In plain terms</span>
+  <p>Think of a <b>profile</b> as a saved recipe: "a file shaped <em>like this</em> becomes <em>this</em> kind of feature, <em>this</em> way." An admin writes the recipe once. After that, any operator can point it at a new file and press go — the mapping is already decided.</p></div>
+
+  <div class="chainrow" style="margin:20px 0">
+    <div class="node">ADMIN<small>authors a PROFILE<br>metadata:write</small></div>
+    <span class="arr">→</span>
+    <div class="node">OPERATOR<small>picks profile + source<br>dry-run → start · features:write</small></div>
+    <span class="arr">→</span>
+    <div class="node">WORKER<small>streams every row<br>writes via the CRUD engine</small></div>
+  </div>
+
+  <ol class="steps">
+    <li><b>Profile</b> (admin, once) — the reusable mapping: target class, source format, how to match rows, how geometry is built, and one row per <em>source column → target field</em>.</li>
+    <li><b>Run</b> (operator, each time) — choose the profile, point it at a source, <b>dry-run</b> to catch problems, then start the job. You get a job id back immediately.</li>
+    <li><b>Worker</b> (automatic) — a separate background process claims the job and applies every row, one transaction at a time, so you don't keep a page open.</li>
+  </ol>
+
+  <div class="en-b"><span class="tag en">Under the hood</span>
+  <p>Authoring lives under <code>/admin/import-profiles</code> (<span class="perm">metadata:write</span>); running lives under <code>/imports</code> (<span class="perm">features:write</span>); the worker is <code>cmd/importworker</code>. Rows are applied through <code>crud.CreateFeature</code>/<code>UpdateFeature</code> — the same validated path the REST API and field-pack sync use. Nothing about import is a bulk back-door.</p></div>
+</section>
+
+<!-- ===== 2 ===== -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">2</div><h2>What you can import from</h2><p>Nine formats, three families. The family decides what you hand VoltEdge.</p></div>
+
+  <p>Pick a source below to see which family it's in and what you supply.</p>
+
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Source chooser</h4></div>
+    <div class="w-bar"><div class="seg" id="src-seg"></div></div>
+    <div class="w-split">
+      <div class="w-main"><dl class="kv" id="src-kv"></dl></div>
+      <div class="w-side"><div class="readout" id="src-note"></div></div>
+    </div>
+  </div>
+
+  <div class="tbl"><table>
+    <tr><th>Family</th><th>Formats</th><th>You supply</th></tr>
+    <tr><td>Uploaded file (parsed in your browser)</td><td><code>csv</code> <code>geojson</code> <code>shapefile</code> <code>kml</code> <code>dxf</code></td><td>a <b>file</b> (shapefile as <code>.zip</code>, KML may be <code>.kmz</code>)</td></tr>
+    <tr><td>Uploaded database file (read on the server)</td><td><code>geopackage</code> <code>spatialite</code></td><td>a <b>file</b> + optional <b>layer</b></td></tr>
+    <tr><td>Live database (no file)</td><td><code>postgis</code> <code>mssql</code></td><td><b>connection</b> details on the profile</td></tr>
+  </table></div>
+
+  <div class="caution"><b>Not supported</b> — Esri File Geodatabase (FGDB) needs a native GDAL dependency and is deliberately left out. Everything else above is live.</div>
+  <div class="tip"><b>Tip</b> — A <b>CSV</b> arrives attribute-only; its geometry is built on the profile from lon/lat or WKT columns you name (Chapter 8).</div>
+</section>
+
+<!-- ===== 3 ===== -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">3</div><h2>Authoring a profile</h2><p>Admin → Data import. The reusable recipe, keyed by a code, targeting one feature class.</p></div>
+
+  <div class="pl-b"><span class="tag pl">In plain terms</span>
+  <p>A profile answers five questions: <b>what</b> class am I making, <b>how</b> do I decide new-vs-existing, <b>where</b> does geometry come from, and (for a live database) <b>which</b> connection. Set those, then map the columns (Chapter 4).</p></div>
+
+  <p>Build a profile below. It's gated on <span class="perm">metadata:write</span> — switch to <b>Ada</b> in the top bar to save it.</p>
+
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Profile builder</h4></div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="ctl"><label>Source format</label><select class="fld" id="pb-fmt"></select></div>
+        <div class="ctl"><label>Write mode</label><div class="seg" id="pb-wm"><button data-v="insert_only" aria-pressed="true">insert_only</button><button data-v="upsert">upsert</button></div></div>
+        <div class="ctl" id="pb-match-wrap" hidden><label>Match field(s) — comma separated</label><input type="text" id="pb-match" value="external_id"></div>
+        <div class="ctl"><label>Geometry mode</label><div class="seg" id="pb-geo"><button data-v="none">none</button><button data-v="native" aria-pressed="true">native</button><button data-v="lonlat">lonlat</button><button data-v="wkt">wkt</button></div></div>
+        <button class="btn pri" id="pb-save" data-need="metadata:write">Save profile</button>
+      </div>
+      <div class="w-side">
+        <div class="lab" style="margin-bottom:6px">Profile summary</div>
+        <div class="readout" id="pb-out"></div>
+        <div id="pb-saved" class="fbox good" style="margin-top:10px" hidden>✔ Saved — operators can now run it.</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>The five choices</h3>
+  <div class="tbl"><table>
+    <tr><th>Choice</th><th>What it means</th></tr>
+    <tr><td><code>source_format</code></td><td>One of the nine (Chapter 2).</td></tr>
+    <tr><td><code>write_mode</code></td><td><code>insert_only</code> — every row is new. <code>upsert</code> — match on your match fields; update one match, insert when there's none.</td></tr>
+    <tr><td><code>match_fields</code></td><td>(upsert) the field(s) that identify "the same feature." Every one must have a value on each row, or the row errors.</td></tr>
+    <tr><td><code>geometry_mode</code></td><td><code>none</code> / <code>native</code> / <code>lonlat</code> / <code>wkt</code> (Chapter 8).</td></tr>
+    <tr><td>connection</td><td>(live DB) host, port, database, user, a write-only sealed password, SSL mode, and a table or read-only query.</td></tr>
+  </table></div>
+
+  <div class="caution"><b>No class re-targeting</b> — changing a profile's feature class would orphan its mappings, so it's blocked. Point a profile at a different class by deleting it and making a new one.</div>
+</section>
+
+<!-- ===== 4 ===== -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">4</div><h2>Mapping the columns</h2><p>One row per source column → target field, each with a transform.</p></div>
+
+  <p>Four transforms turn a source cell into a field value. Try each one — change the input and watch the output (and the errors).</p>
+
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Transform playground</h4></div>
+    <div class="w-bar"><div class="seg" id="tf-seg"></div></div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="ctl"><label>Source cell value</label><input type="text" id="tf-raw" value="OH"></div>
+        <div class="ctl" id="tf-p-wrap"></div>
+      </div>
+      <div class="w-side">
+        <div class="lab" style="margin-bottom:6px">Result</div>
+        <div id="tf-out"></div>
+        <div class="readout" id="tf-note" style="margin-top:10px"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tbl"><table>
+    <tr><th>Transform</th><th>What it does</th></tr>
+    <tr><td><code>direct</code></td><td>Copy the source cell as-is.</td></tr>
+    <tr><td><code>constant</code></td><td>Write a fixed literal — no source column. Stamp every row the same value.</td></tr>
+    <tr><td><code>scale</code></td><td>Multiply a numeric source value by a factor (metres → millimetres).</td></tr>
+    <tr><td><code>domain_map</code></td><td>Translate via a lookup. <b>A value with no entry in the map is a per-row error</b> — a stray code is caught, not guessed.</td></tr>
+  </table></div>
+
+  <div class="en-b"><span class="tag en">Under the hood</span>
+  <p>There's <b>no auto-map</b> — each mapping is explicit, which is what makes a profile reusable and auditable. A <b>blank</b> source cell leaves the field unset (blank ≠ empty string). A mapping to a field that was later removed is silently dropped. Domain membership, subtype validity, ranges and geometry type aren't checked here — they're checked per row by the validator in Chapter 6.</p></div>
+
+  <div class="tip"><b>Tip</b> — Geometry is <em>not</em> a field mapping. It's the profile's geometry mode + columns (Chapter 8). And subtype is pinned on the profile, not mapped per column.</div>
+</section>
+
+<!-- ===== 5 ===== -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">5</div><h2>Running an import</h2><p>Sidebar → Import data. Pick a profile, point it at a source, dry-run, start.</p></div>
+
+  <p>The run wizard needs <span class="perm">features:write</span> — switch to <b>Omar</b> to walk it; <b>Val</b> can watch a job but the start is locked.</p>
+
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Run wizard</h4></div>
+    <div class="w-body">
+      <div class="chainrow">
+        <div class="node">1 · Profile<small>pick a saved one</small></div><span class="arr">→</span>
+        <div class="node">2 · Source<small>upload / connect</small></div><span class="arr">→</span>
+        <div class="node">3 · Dry-run<small>validate, write nothing</small></div><span class="arr">→</span>
+        <div class="node">4 · Start<small>enqueue the job</small></div><span class="arr">→</span>
+        <div class="node">5 · Watch<small>tallies + errors</small></div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn" id="rw-dry" data-need="features:write">Dry-run</button>
+        <button class="btn pri" id="rw-start" data-need="features:write">Start run</button>
+        <span id="rw-msg" class="muted" style="font-size:13px"></span>
+      </div>
+    </div>
+  </div>
+
+  <ol class="steps">
+    <li><b>Pick a profile</b> — only active profiles you may run appear.</li>
+    <li><b>Point it at the source</b> — choose the file (browser-parsed formats preview; GeoPackage/SpatiaLite upload raw, pick a layer); live-DB needs no upload.</li>
+    <li><b>Dry-run</b> — validate a sample, write nothing (Chapter 6). Fix and repeat until clean.</li>
+    <li><b>Start</b> — enqueue; you get a job id back at once.</li>
+    <li><b>Watch</b> — the job shows live tallies (total / inserted / updated / skipped / errored) and a per-row error report. Terminal states: <b>succeeded</b>, <b>failed</b>, <b>cancelled</b>.</li>
+  </ol>
+
+  <div class="en-b"><span class="tag en">Under the hood</span>
+  <p>Your <b>territory scope is snapshotted when you start the run</b> and applied by the worker — so an import writes only where <em>you</em> are allowed to write, even though a background process does the work.</p></div>
+</section>
+
+<!-- ===== 6 ===== -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">6</div><h2>The dry-run</h2><p>Validation without writes — the same checks a hand-created feature runs.</p></div>
+
+  <div class="pl-b"><span class="tag pl">In plain terms</span>
+  <p>The dry-run runs your sample through the real pipeline — apply the mapping, build the geometry, <b>validate</b> — and tells you, row by row, whether each one <em>would</em> go in. It writes nothing. Fix the profile or the data and run it again.</p></div>
+
+  <p>Below is a tiny profile importing <code>MV_CONDUCTOR</code> (requires <code>voltage_class</code> and <code>condition_rating</code>; optional numeric <code>csa</code>). Edit a cell and re-run the dry-run — watch which rows pass and <em>why</em> the others don't. Gated on <span class="perm">features:write</span> (be <b>Omar</b>).</p>
+
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Dry-run simulator</h4><span style="flex:1"></span><button class="btn pri" id="dr-run" data-need="features:write">Run dry-run</button></div>
+    <div class="w-body">
+      <div class="tbl" style="margin:0 0 12px"><table id="dr-in"></table></div>
+      <div id="dr-out"></div>
+    </div>
+  </div>
+
+  <div class="en-b"><span class="tag en">Under the hood</span>
+  <p>Each sampled row runs <code>BuildAttributes</code> → <code>AssembleGeometry</code> → <code>crud.ValidateFeature</code> — required fields, coded-domain membership, ranges, geometry type. For upsert it also checks every match field has a value. It's deliberately <b>create-shaped</b>: it tells you a row <em>would validate</em>, not whether it matches an existing feature. The sample is capped (a few hundred rows); the committed load validates the <em>whole</em> file the same way.</p></div>
+</section>
+
+<!-- ===== 7 ===== -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">7</div><h2>The load</h2><p>Per-row transactions, the normal CRUD path, upsert, and safe re-runs.</p></div>
+
+  <div class="callout">The load is <em>not</em> all-or-nothing. One transaction per row — a bad row rolls back only itself, and the stream keeps going.</div>
+
+  <p>For <code>upsert</code>, each row matches on your match fields. Set the match count to see the decision.</p>
+
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Write-mode decision</h4></div>
+    <div class="w-bar">
+      <span class="lab">Write mode</span><div class="seg" id="wm-seg"><button data-v="insert_only" aria-pressed="true">insert_only</button><button data-v="upsert">upsert</button></div>
+      <span class="lab" style="margin-left:12px">Existing matches</span><div class="seg" id="wm-match"><button data-v="0" aria-pressed="true">0</button><button data-v="1">1</button><button data-v="2">2+</button></div>
+    </div>
+    <div class="w-body"><div class="readout" id="wm-out"></div></div>
+  </div>
+
+  <div class="tbl"><table>
+    <tr><th>Guarantee</th><th>How</th></tr>
+    <tr><td>Partial success is normal</td><td>One transaction per row; failures are isolated and reported with their row number.</td></tr>
+    <tr><td>Imported features behave like hand-made ones</td><td>Written through <code>CreateFeature</code>/<code>UpdateFeature</code> — territory assignment, Phase-58 write-scope, and full history all apply.</td></tr>
+    <tr><td>Re-running is safe</td><td>Insert ids are <b>deterministic</b> (job id + row number) with <code>ON CONFLICT DO NOTHING</code> — a re-run is a no-op for rows already in, not a duplicate; upsert rows re-match and update.</td></tr>
+    <tr><td>Ambiguous matches are skipped</td><td>Two+ existing matches → the row is skipped and reported, never applied to a guess.</td></tr>
+  </table></div>
+
+  <div class="caution"><b>Connectivity isn't auto-built.</b> An import brings the <em>features</em> in; wiring them (connectivity) is a separate step afterward, on the map or via the connect tools.</div>
+</section>
+
+<!-- ===== 8 ===== -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">8</div><h2>Geometry & reprojection</h2><p>Nominate the mode; VoltEdge lands it in the class's coordinate system.</p></div>
+
+  <div class="cards">
+    <div class="card"><h4><code>none</code></h4><p>Attribute-only — no geometry.</p></div>
+    <div class="card"><h4><code>native</code></h4><p>The source's own geometry (GeoPackage/SpatiaLite/PostGIS/MSSQL blobs, inline GeoJSON), decoded per row.</p></div>
+    <div class="card"><h4><code>lonlat</code></h4><p>A Point built from two numeric columns you name.</p></div>
+    <div class="card"><h4><code>wkt</code></h4><p>Geometry parsed from a WKT text column.</p></div>
+  </div>
+
+  <p>Whatever the source CRS, geometry is <b>reprojected to the target feature class's SRID</b> (usually EPSG:4326) on the way in — so you don't pre-project your data. MSSQL <em>geography</em> columns even get their lat/lon axis order corrected automatically.</p>
+
+  <div class="tip"><b>Tip</b> — Geometry length matters for electrical classes: a conductor's impedance scales by its real length (<code>ST_Length</code>). A zero-length or missing line simply resolves no impedance — it won't error, but it won't carry R/X either.</div>
+</section>
+
+<!-- ===== 9 ===== -->
+<section class="ch" id="c9">
+  <div class="ch-head"><div class="ch-num">9</div><h2>Safety, limits & permissions</h2><p>Hardened live-DB access, honest edges, and who may do what.</p></div>
+
+  <h3>The honest edges</h3>
+  <div class="tbl"><table>
+    <tr><th>Edge</th><th>What to expect</th></tr>
+    <tr><td>Per-row transactions</td><td>Not all-or-nothing — partial success is normal and visible.</td></tr>
+    <tr><td>Live-DB is read-only + SSRF-guarded</td><td>Outbound connections open read-only with timeouts; custom queries must be a single <code>SELECT</code> (no writes/DDL); private/loopback/metadata IPs are blocked unless allow-listed; passwords are sealed, never returned. Use a <b>read-only login</b> for MSSQL.</td></tr>
+    <tr><td>Error reporting</td><td>Per-row errors capped at 500 on the status view; tallies always reflect the whole run. A malformed stream row fails the whole job.</td></tr>
+    <tr><td>No auto-map, no class re-target</td><td>Both deliberate (Chapters 3–4).</td></tr>
+    <tr><td>FGDB unsupported</td><td>The one deferred format.</td></tr>
+  </table></div>
+
+  <h3>Who may do what</h3>
+  <p>The matrix follows your <b>As</b> selection — the highlighted row is the current persona.</p>
+  <div class="tbl"><table class="matrix" id="perm-mx">
+    <tr><th>Action</th><th>Ada</th><th>Omar</th><th>Val</th><th>Dana</th></tr>
+  </table></div>
+</section>
+
+<!-- ===== 10 ===== -->
+<section class="ch" id="c10">
+  <div class="ch-head"><div class="ch-num">10</div><h2>Check yourself</h2><p>Eight asks. Pick an answer; the reason appears either way.</p></div>
+  <div id="qz"></div>
+
+  <footer>
+    <p><b>VoltEdge Data Import</b> — the interactive edition. Every figure and rule here mirrors the shipping engine; the full manual (<code>data-import-guide.md</code>) holds the endpoint and permission tables, and <code>docs/etl-import-engine.md</code> is the engineering reference behind both.</p>
+    <p class="muted">Companion reading: <b>Data Dictionary</b> (the field names your mappings resolve against), <b>Everyday Operations</b> (creating features by hand — the same validation path), and <b>Access Control</b> (territories and write-scope).</p>
+  </footer>
+</section>
+
+</div>
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ===== personas ===== */
+const PERSONAS={
+  ada:{name:'Ada',role:'Admin — authors profiles',perms:['metadata:read','metadata:write','features:read']},
+  omar:{name:'Omar',role:'Operator — runs imports',perms:['features:read','features:write']},
+  val:{name:'Val',role:'Viewer — watches jobs',perms:['features:read']},
+  dana:{name:'Dana',role:'No import access',perms:[]}
+};
+let persona='omar';
+const can=p=>PERSONAS[persona].perms.includes(p);
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=Object.entries(PERSONAS).map(([k,p])=>`<option value="${k}">${p.name}</option>`).join(''); sel.value=persona;
+  sel.onchange=()=>{ persona=sel.value; applyGates(); paintMatrix(); }; })();
+function applyGates(){ $$('[data-need]').forEach(b=>{ const need=b.dataset.need; const ok=can(need); b.classList.toggle('locked',!ok); b.disabled=!ok;
+    let g=b.nextElementSibling; if(g&&g.classList&&g.classList.contains('gate')) g.remove();
+    if(!ok){ const s=document.createElement('span'); s.className='gate'; s.textContent='needs '+need; b.after(s); } }); }
+
+/* ===== 2 · source chooser ===== */
+const SOURCES={
+  csv:{fam:'Uploaded file (browser-parsed)',supply:'a .csv/.tsv file',geo:'none/lonlat/wkt — CSV is attribute-only',note:'Rows are parsed in your browser to a line-per-feature stream; geometry is assembled from lon/lat or WKT columns you name on the profile.'},
+  geojson:{fam:'Uploaded file (browser-parsed)',supply:'a .geojson/.json file',geo:'native',note:'GeoJSON carries its own geometry — use geometry mode "native". Parsed in the browser before upload.'},
+  shapefile:{fam:'Uploaded file (browser-parsed)',supply:'the shapefile set as a .zip',geo:'native',note:'Zip the .shp/.shx/.dbf/.prj together and upload the .zip. The browser normalises it; the server only ever sees the line-delimited stream.'},
+  kml:{fam:'Uploaded file (browser-parsed)',supply:'a .kml or .kmz file',geo:'native',note:'KML/KMZ placemarks become features with native geometry.'},
+  dxf:{fam:'Uploaded file (browser-parsed)',supply:'a .dxf file',geo:'native',note:'CAD entities become features; attribute content is usually sparse, so expect to lean on constant/domain_map transforms.'},
+  geopackage:{fam:'Uploaded database file (server-read)',supply:'a .gpkg file + optional layer',geo:'native',note:'Multi-layer. Pick a layer, or if the file has exactly one feature layer it is used automatically. Read on the server with a pure-Go SQLite reader.'},
+  spatialite:{fam:'Uploaded database file (server-read)',supply:'a .sqlite file + optional layer',geo:'native',note:'Same as GeoPackage — a SQLite-family file read server-side, multi-layer.'},
+  postgis:{fam:'Live database (no file)',supply:'connection + table or read-only SELECT',geo:'native',note:'VoltEdge opens a READ-ONLY outbound connection (default port 5432) and streams a table or your SELECT. SSRF-guarded; password sealed.'},
+  mssql:{fam:'Live database (no file)',supply:'connection + table or read-only SELECT',geo:'native',note:'Same live path (default port 1433). No session read-only switch, so use a read-only login. Geography columns get axis-order correction.'}
+};
+(function(){ const keys=Object.keys(SOURCES); let cur='geopackage';
+  $('#src-seg').innerHTML=keys.map(k=>`<button data-k="${k}" aria-pressed="${k===cur}">${k}</button>`).join('');
+  function paint(){ const s=SOURCES[cur]; $('#src-kv').innerHTML=`<dt>Family</dt><dd>${s.fam}</dd><dt>You supply</dt><dd>${esc(s.supply)}</dd><dt>Geometry</dt><dd>${esc(s.geo)}</dd>`; $('#src-note').textContent=s.note; $$('#src-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur)); }
+  $('#src-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); }; paint();
+})();
+
+/* ===== 3 · profile builder ===== */
+(function(){ const fmtSel=$('#pb-fmt'); fmtSel.innerHTML=Object.keys(SOURCES).map(k=>`<option ${k==='geopackage'?'selected':''}>${k}</option>`).join('');
+  const st={fmt:'geopackage',wm:'insert_only',geo:'native',match:'external_id'};
+  function paint(){
+    $('#pb-match-wrap').hidden = st.wm!=='upsert';
+    const live = st.fmt==='postgis'||st.fmt==='mssql';
+    const needGeoCols = st.geo==='lonlat'||st.geo==='wkt';
+    $('#pb-out').innerHTML = `<b>code</b> MY_PROFILE<br><b>class</b> MV_CONDUCTOR<br><b>source_format</b> ${st.fmt}<br><b>write_mode</b> ${st.wm}`
+      + (st.wm==='upsert'?`<br><b>match_fields</b> [${esc(st.match)}]`:'')
+      + `<br><b>geometry_mode</b> ${st.geo}`
+      + (needGeoCols?`<br><span style="color:var(--amber)">↳ still to set: the geometry column(s)</span>`:'')
+      + (live?`<br><span style="color:var(--amber)">↳ still to set: host / db / user / password / table</span>`:'')
+      + `<br><span style="color:var(--muted)">↳ then add field mappings (Chapter 4)</span>`;
+  }
+  fmtSel.onchange=()=>{ st.fmt=fmtSel.value; paint(); };
+  $('#pb-wm').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; st.wm=b.dataset.v; $$('#pb-wm button').forEach(x=>x.setAttribute('aria-pressed',x===b)); paint(); };
+  $('#pb-geo').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; st.geo=b.dataset.v; $$('#pb-geo button').forEach(x=>x.setAttribute('aria-pressed',x===b)); paint(); };
+  $('#pb-match').oninput=e=>{ st.match=e.target.value; paint(); };
+  $('#pb-save').onclick=()=>{ if(!can('metadata:write')) return; $('#pb-saved').hidden=false; setTimeout(()=>$('#pb-saved').hidden=true,2600); };
+  paint();
+})();
+
+/* ===== 4 · transform playground ===== */
+function applyTransform(tf,raw,p){
+  // mirrors mapping.go: blank source = unset; domain_map miss = error; scale/number needs a number.
+  const blank = (raw==null || String(raw).trim()==='');
+  if(tf==='constant'){ return {v:p.constant, note:'No source column — every row gets the same literal.'}; }
+  if(blank) return {v:null, note:'Blank source cell → the field is left unset (not an empty string).'};
+  if(tf==='direct') return {v:String(raw), note:'Copied as-is. Type/domain/range are checked later by the validator.'};
+  if(tf==='scale'){ const n=Number(raw); if(!isFinite(n)) return {err:`"${raw}" is not a number — scale needs a numeric source.`}; return {v:String(n*p.factor), note:`${n} × ${p.factor} = ${n*p.factor}.`}; }
+  if(tf==='domain_map'){ let m={}; try{ m=JSON.parse(p.map); }catch(e){ return {err:'value_map is not valid JSON.'}; } if(Object.prototype.hasOwnProperty.call(m,String(raw))) return {v:String(m[String(raw)]), note:`Mapped "${raw}" → "${m[String(raw)]}".`}; return {err:`No value_map entry for "${raw}" — this is a per-row error (not silently dropped).`}; }
+  return {v:null};
+}
+(function(){ const TFS=['direct','constant','scale','domain_map']; let cur='domain_map';
+  $('#tf-seg').innerHTML=TFS.map(t=>`<button data-t="${t}" aria-pressed="${t===cur}">${t}</button>`).join('');
+  const P={constant:'overhead',factor:1000,map:'{"OH":"overhead","UG":"underground"}'};
+  function params(){ if(cur==='constant') return `<label>constant_value</label><input type="text" id="tf-c" value="${esc(P.constant)}">`;
+    if(cur==='scale') return `<label>scale_factor</label><input type="number" id="tf-f" value="${P.factor}">`;
+    if(cur==='domain_map') return `<label>value_map (JSON)</label><input type="text" id="tf-m" value='${esc(P.map)}'>`; return '<span class="muted" style="font-size:12px">No parameters.</span>'; }
+  function paint(){ $$('#tf-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.t===cur)); $('#tf-p-wrap').innerHTML=params(); bind(); run(); }
+  function bind(){ const c=$('#tf-c'); if(c) c.oninput=e=>{P.constant=e.target.value;run();}; const f=$('#tf-f'); if(f) f.oninput=e=>{P.factor=Number(e.target.value)||0;run();}; const m=$('#tf-m'); if(m) m.oninput=e=>{P.map=e.target.value;run();}; }
+  function run(){ const raw=$('#tf-raw').value; const r=applyTransform(cur,raw,P);
+    if(r.err){ $('#tf-out').innerHTML=`<span class="fbox bad">error</span>`; $('#tf-note').innerHTML=`<b style="color:var(--red)">✘</b> ${esc(r.err)}`; }
+    else if(r.v===null){ $('#tf-out').innerHTML=`<span class="fbox">unset</span>`; $('#tf-note').textContent=r.note; }
+    else { $('#tf-out').innerHTML=`<span class="fbox good">${esc(r.v)}</span>`; $('#tf-note').textContent=r.note; } }
+  $('#tf-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.t; paint(); };
+  $('#tf-raw').oninput=run; paint();
+})();
+
+/* ===== 5 · run wizard gates ===== */
+$('#rw-dry').onclick=()=>{ if(can('features:write')) $('#rw-msg').textContent='Sample validated — 0 writes. See Chapter 6.'; };
+$('#rw-start').onclick=()=>{ if(can('features:write')) $('#rw-msg').textContent='Job enqueued → job id a1f3… · status: queued → running → succeeded.'; };
+
+/* ===== 6 · dry-run simulator ===== */
+// Toy MV_CONDUCTOR profile:
+//   voltage_class  ← KV   via domain_map {"11KV":"11KV","33KV":"33KV"}   (required, coded)
+//   condition_rating ← COND direct   (required, domain GOOD/FAIR/POOR)
+//   csa            ← SIZE direct   (optional, number >= 0)
+const DR_DOMAIN_KV={"11KV":"11KV","33KV":"33KV"};
+const DR_RATINGS=["GOOD","FAIR","POOR"];
+let DR_ROWS=[
+  {KV:'11KV',COND:'GOOD',SIZE:'95'},
+  {KV:'',COND:'GOOD',SIZE:'120'},
+  {KV:'6.6KV',COND:'FAIR',SIZE:'50'},
+  {KV:'33KV',COND:'excellent',SIZE:'240'},
+  {KV:'11KV',COND:'POOR',SIZE:'abc'}
+];
+function drValidate(row){
+  // 1) voltage_class via domain_map
+  if(String(row.KV).trim()===''){ return {ok:false,why:'<b>voltage_class</b> is required — source cell blank'}; }
+  if(!Object.prototype.hasOwnProperty.call(DR_DOMAIN_KV,row.KV)){ return {ok:false,why:`value_map has no entry for <b>${esc(row.KV)}</b>`}; }
+  // 2) condition_rating direct, must be in domain
+  if(String(row.COND).trim()===''){ return {ok:false,why:'<b>condition_rating</b> is required'}; }
+  if(!DR_RATINGS.includes(row.COND)){ return {ok:false,why:`<b>${esc(row.COND)}</b> is not a valid condition_rating (GOOD/FAIR/POOR)`}; }
+  // 3) csa optional, but if present must be a number
+  if(String(row.SIZE).trim()!==''){ const n=Number(row.SIZE); if(!isFinite(n)){ return {ok:false,why:`<b>csa</b> "${esc(row.SIZE)}" is not a number`}; } if(n<0){ return {ok:false,why:'<b>csa</b> must be ≥ 0'}; } }
+  return {ok:true, val:`voltage_class=${DR_DOMAIN_KV[row.KV]}, condition_rating=${row.COND}`+(String(row.SIZE).trim()!==''?`, csa=${Number(row.SIZE)}`:'')};
+}
+function drRenderIn(){ const cols=['KV','COND','SIZE'];
+  $('#dr-in').innerHTML='<tr><th>row</th>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr>'+
+    DR_ROWS.map((r,i)=>`<tr><td>${i+1}</td>`+cols.map(c=>`<td><input type="text" data-r="${i}" data-c="${c}" value="${esc(r[c])}" style="width:92px"></td>`).join('')+'</tr>').join('');
+  $$('#dr-in input').forEach(inp=>inp.oninput=e=>{ DR_ROWS[+e.target.dataset.r][e.target.dataset.c]=e.target.value; }); }
+$('#dr-run').onclick=()=>{ if(!can('features:write')) return;
+  let ok=0; const rows=DR_ROWS.map((r,i)=>{ const v=drValidate(r); if(v.ok) ok++;
+    return `<div class="rowline"><span class="vt ${v.ok?'y':'n'}">${v.ok?'✓':'✗'}</span><span class="src">row ${i+1}: KV=${esc(r.KV||'∅')} COND=${esc(r.COND||'∅')} SIZE=${esc(r.SIZE||'∅')}</span><span class="rs">${v.ok?esc(v.val):v.why}</span></div>`; }).join('');
+  $('#dr-out').innerHTML=`<div class="readout" style="margin-bottom:10px"><b>${ok}</b> of <b>${DR_ROWS.length}</b> rows would validate · <b>${DR_ROWS.length-ok}</b> errored · <b>0</b> written (dry-run)</div>${rows}`; };
+drRenderIn();
+
+/* ===== 7 · write-mode decision ===== */
+(function(){ const st={wm:'insert_only',m:'0'};
+  function paint(){ let out;
+    if(st.wm==='insert_only'){ out='<b>insert_only</b> → every row becomes a <b style="color:var(--green)">new feature</b>. Match count is ignored.'; }
+    else { if(st.m==='0') out='<b>upsert</b>, 0 matches → <b style="color:var(--green)">INSERT</b> a new feature.';
+      else if(st.m==='1') out='<b>upsert</b>, 1 match → <b style="color:var(--blue)">UPDATE</b> the matched feature.';
+      else out='<b>upsert</b>, 2+ matches → <b style="color:var(--red)">SKIP + report</b> — ambiguous, never applied to a guess.'; }
+    $('#wm-out').innerHTML=out;
+    $$('#wm-match button').forEach(b=>b.disabled=st.wm==='insert_only'); }
+  $('#wm-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; st.wm=b.dataset.v; $$('#wm-seg button').forEach(x=>x.setAttribute('aria-pressed',x===b)); paint(); };
+  $('#wm-match').onclick=e=>{ const b=e.target.closest('button'); if(!b||b.disabled) return; st.m=b.dataset.v; $$('#wm-match button').forEach(x=>x.setAttribute('aria-pressed',x===b)); paint(); };
+  paint();
+})();
+
+/* ===== 9 · permission matrix ===== */
+const MX=[
+  ['See the Data import admin editor','metadata:read'],
+  ['Create / edit import profiles + mappings','metadata:write'],
+  ['Test a live-DB connection / list tables','metadata:write'],
+  ['See the Import data page + job history','features:read'],
+  ['Upload a source, dry-run, start a run','features:write']
+];
+function paintMatrix(){ const order=['ada','omar','val','dana'];
+  $('#perm-mx').innerHTML='<tr><th>Action</th>'+order.map(k=>`<th style="${k===persona?'color:var(--acc-deep)':''}">${PERSONAS[k].name}</th>`).join('')+'</tr>'+
+    MX.map(([a,need])=>`<tr><td>${a} <span class="perm">${need}</span></td>`+order.map(k=>{ const ok=PERSONAS[k].perms.includes(need); return `<td class="${ok?'y':'n'}" style="${k===persona?'outline:2px solid var(--acc);outline-offset:-2px':''}">${ok?'✓':'·'}</td>`; }).join('')+'</tr>').join(''); }
+paintMatrix();
+
+/* ===== 10 · quiz ===== */
+(function(){ const Q=[
+ ['An operator with only <code>features:read</code> opens the Import data page. What can they do?','See job history, but not start a run',['Author a profile','See job history, but not start a run','Nothing at all','Run any import'],'Running needs features:write; viewing the page + jobs needs features:read. Authoring needs metadata:write.'],
+ ['A source value <code>"6.6KV"</code> hits a <code>domain_map</code> with only 11KV/33KV. What happens?','That row errors — no silent drop',['It is written as 6.6KV','That row errors — no silent drop','It is dropped quietly','It becomes the first map value'],'An unmapped value in a domain_map is a per-row error, so a stray code is caught at dry-run.'],
+ ['Half a 10,000-row file is malformed. What lands?','The good rows; each bad row rolls back only itself',['Nothing — all-or-nothing','The good rows; each bad row rolls back only itself','Everything, bad rows blank','The first error aborts the file'],'One transaction per row — partial success is normal and every failure is reported with its row number.'],
+ ['You run the same insert-only job twice by mistake. Result?','No duplicates — deterministic ids + ON CONFLICT DO NOTHING',['Everything doubles','No duplicates — deterministic ids + ON CONFLICT DO NOTHING','The job errors','Only geometry duplicates'],'Insert ids are hashed from job id + row number, so a re-run is a no-op for rows already in.'],
+ ['An upsert row matches two existing features. What does the worker do?','Skip it and report — never guess',['Update the first','Skip it and report — never guess','Insert a third','Update both'],'Ambiguous matches are skipped and surfaced, not applied to a guess.'],
+ ['Your source is in EPSG:27700 (British National Grid). Must you pre-project it?','No — geometry is reprojected to the class SRID on import',['Yes, to 4326 first','No — geometry is reprojected to the class SRID on import','Only for CSV','Only for shapefiles'],'Native geometry is transformed to the target feature class SRID (usually 4326) during the load.'],
+ ['A dry-run reports 180 of 200 valid. Does that write 180 features?','No — a dry-run writes nothing',['Yes, the 180 valid ones','No — a dry-run writes nothing','Yes, all 200','Only the geometry'],'The dry-run validates a sample and writes zero; it tells you a row WOULD validate.'],
+ ['Which source format is NOT supported?','Esri File Geodatabase (FGDB)',['GeoPackage','Esri File Geodatabase (FGDB)','Live MSSQL','DXF'],'FGDB needs a native GDAL dependency and is deliberately deferred; the other eight ship.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach((el,i)=>{ const x=Q[i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===esc(x[1]); const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Answer: <b>${x[1]}</b>. `)+x[3]; }); });
+})();
+
+/* ===== chapter rail scroll-spy ===== */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));
+  const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'});
+  document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+applyGates();
+</script>
+</body></html>

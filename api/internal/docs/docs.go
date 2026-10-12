@@ -283,6 +283,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "data-import-guide-interactive",
+		Title:       "Data Import (interactive)",
+		Description: "The import engine as something you operate: a persona switch gating each action by metadata:write (author) vs features:write (run), a source chooser across all nine formats, a profile builder, a live transform playground (direct/constant/scale/domain_map with the real blank-and-error behaviour), a dry-run simulator that validates editable sample rows row-by-row and writes nothing, a write-mode/upsert decision widget, a permission matrix that follows the persona, and a quiz.",
+		Category:    "Interactive guides",
+		Filename:    "data-import-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "works-inspections-maintenance-guide-interactive",
 		Title:       "Works, Inspections & Maintenance (interactive)",
 		Description: "The WAM manual as something you operate: a persona switch gating every widget by wam:write, a live work board, the defect and work-order state machines with the real auto-status and severity-to-priority rules, a template builder and retire/restore library, an inspection recorder that auto-raises defects and replays idempotently, a maintenance-cycle simulator, Femi's offline field round with outbox sync, the permission and territory gaps, an assistant triage run over the wam_* tools, and a quiz.",
@@ -387,6 +395,17 @@ var manifest = []Doc{
 		Description: "The hands-on companion to the handbook: one recipe per task — create and edit features, measure, snap, connect, annotate.",
 		Category:    "How-to guides",
 		Filename:    "everyday-operations.md",
+	},
+	{
+		// Readable by any signed-in user: the operator half (running an import)
+		// needs features:write, the admin half (authoring profiles + mappings) is
+		// marked metadata:write inside the guide, so one document serves both the
+		// mapping author and the operator who runs the load.
+		ID:          "data-import-guide",
+		Title:       "Data Import Guide",
+		Description: "Bringing data in from other systems: authoring import profiles, the supported sources (CSV, GeoJSON, shapefile, KML, DXF, GeoPackage, SpatiaLite, live PostGIS/MSSQL), field mapping, dry-run and the load.",
+		Category:    "How-to guides",
+		Filename:    "data-import-guide.md",
 	},
 	{
 		// Readable by any signed-in user: running the BoQ tool needs only

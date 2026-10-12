@@ -85,6 +85,21 @@ type ReliabilityIndices struct {
 	// no interruptions in the window. See FaultBreakdownAvailable.
 	ByFaultCause            []FaultCauseContribution `json:"by_fault_cause,omitempty"`
 	FaultBreakdownAvailable bool                     `json:"fault_breakdown_available"`
+
+	// IEEE 1366 major-event-day (MED) normalisation (the 2.5-beta method, med.go).
+	// SAIDI/SAIFI above are RAW -- a single storm can dominate them. These report the
+	// threshold T_MED (in daily-SAIDI units), the count of days above it, and the
+	// SAIDI/SAIFI with those major event days excluded -- the day-to-day reliability
+	// a regulator compares year-on-year. MEDApplicable is false when the window holds
+	// too few outage days to define the threshold; the normalised figures then equal
+	// the raw ones (nothing excluded). See med.go's HONEST LIMITS for the reference-
+	// period and multi-day-attribution simplifications.
+	MEDThresholdSAIDI float64 `json:"med_threshold_saidi"`
+	MajorEventDays    int     `json:"major_event_days"`
+	SAIDINormalized   float64 `json:"saidi_normalized"`
+	SAIFINormalized   float64 `json:"saifi_normalized"`
+	MEDApplicable     bool    `json:"med_applicable"`
+	MEDNote           string  `json:"med_note,omitempty"`
 }
 
 // FaultCauseContribution is one fault-cause bucket's share of the window's
@@ -286,6 +301,21 @@ FROM clipped`, aggCircuitJoin)
 	// ENS = interrupted customer-hours × assumed average demand.
 	out.ENS = (agg.CustomerMinutes / 60.0) * avgLoadKW
 
+	// IEEE 1366 major-event-day normalisation. One grouped read gives the per-day
+	// interruption totals (same clip/scope/unplanned filters as the headline agg, so
+	// the daily rows sum back to it); the 2.5-beta classification is pure Go (med.go).
+	daily, err := dailyReliabilityRows(ctx, db, aggCircuitJoin, aggArgs)
+	if err != nil {
+		return nil, err
+	}
+	med := computeMED(daily, totalCustomers)
+	out.MEDThresholdSAIDI = med.ThresholdSAIDI
+	out.MajorEventDays = med.MajorEventDays
+	out.SAIDINormalized = med.SAIDINorm
+	out.SAIFINormalized = med.SAIFINorm
+	out.MEDApplicable = med.Applicable
+	out.MEDNote = med.Note
+
 	// Fault-cause decomposition. The faults module is a separate schema/migration
 	// (0106); a deployment may run OMS without it, so we probe for the table and
 	// simply skip the breakdown when it is absent rather than 500 the whole
@@ -320,6 +350,48 @@ func meterLoadAvailable(ctx context.Context, db bun.IDB) (bool, error) {
 		return false, fmt.Errorf("oms: checking gis.meter.meter_role column: %w", err)
 	}
 	return ok, nil
+}
+
+// dailyReliabilityRows returns one row per outage day in the window -- the
+// customer-minutes and the customers whose outage began that day -- grouped by the
+// (clipped) start date. It uses the SAME window-clip, circuit-scope and
+// unplanned/non-cancelled filters as the headline aggregate, so the rows sum back
+// to CustomerMinutes / CustomersInterrupted exactly; only the per-day split is new.
+// A multi-day outage's clipped minutes are attributed to its start day (med.go's
+// documented simplification). args is the headline [from, to] (+ circuitID).
+func dailyReliabilityRows(ctx context.Context, db bun.IDB, circuitJoin string, args []any) ([]dailyReliability, error) {
+	query := fmt.Sprintf(`
+WITH params AS (
+    SELECT ?::timestamptz AS win_start, ?::timestamptz AS win_end
+)
+SELECT
+    COALESCE(SUM(ci.customers * GREATEST(0, EXTRACT(EPOCH FROM (
+        LEAST(COALESCE(ci.restored_at, p.win_end), p.win_end) - GREATEST(ci.interrupted_at, p.win_start)
+    )) / 60.0)), 0) AS customer_minutes,
+    COALESCE(SUM(ci.customers) FILTER (WHERE ci.interrupted_at >= p.win_start AND ci.interrupted_at < p.win_end), 0) AS customers_started
+FROM oms.customer_interruptions ci
+JOIN oms.incidents inc ON inc.id = ci.incident_id
+%s
+CROSS JOIN params p
+WHERE inc.status <> 'cancelled'
+  AND inc.outage_type = 'unplanned'
+  AND ci.interrupted_at < p.win_end
+  AND COALESCE(ci.restored_at, p.win_end) > p.win_start
+GROUP BY (GREATEST(ci.interrupted_at, p.win_start))::date`, circuitJoin)
+
+	var rows []struct {
+		CustomerMinutes  float64 `bun:"customer_minutes"`
+		CustomersStarted int     `bun:"customers_started"`
+	}
+	if err := db.NewRaw(query, args...).Scan(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("oms: computing daily reliability rows: %w", err)
+	}
+
+	daily := make([]dailyReliability, len(rows))
+	for i, r := range rows {
+		daily[i] = dailyReliability{customerMinutes: r.CustomerMinutes, customersStarted: r.CustomersStarted}
+	}
+	return daily, nil
 }
 
 // attachFaultCauseBreakdown computes out.ByFaultCause: the same window's

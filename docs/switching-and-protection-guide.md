@@ -554,7 +554,21 @@ The path, fault-first: **FSW-12 (fuse)** → **REC-7 (recloser)** → **CB-7 (br
                       └── margin 1.04 s ✓ ──┘          └── margin 0.44 s ✓ ──┘
 ```
 
+**The same path at the engine default `c_max` (1.10).** This is the run you get without passing `voltage_factor_c`. The fault rises to **4,304 A** (= 1.10 × 3,913), so each device reads further down its curve:
+
+| Device (fault-first) | at c = 1.0 (3,913 A) | at c_max (4,304 A) |
+|---|---|---|
+| FSW-12 — 100 T fuse (primary) | 0.023 s | ≈ 0.02 s (deep in its fast region) |
+| REC-7 — slow curve | 0.462 s | **0.431 s** |
+| CB-7 / R-7 — `IEC_SI`, TD 0.5 | 1.501 s | **1.438 s** |
+| Margin FSW-12 → REC-7 | 0.438 s ✓ | **≈ 0.41 s ✓** |
+| Margin REC-7 → CB-7 | 1.039 s ✓ | **1.007 s ✓** |
+
+**Verdict unchanged: coordinated ✓** — the magnitudes move but the method and ordering do not, exactly as the callout above says. The two c_max operate times are not hand-computed: `powerflow/coordination_cfactor_test.go` reads the REC-7 slow curve through the engine's own `interpLogLog` (0.431 s at 4,304 A) and the relay off the IEC Standard Inverse form `0.5 · 0.14 / ((4304/400)^0.02 − 1)` = 1.438 s, pinning both the c = 1.0 figures already in this table and these c_max figures.
+
 ### 7.2 The complete grading table for Feeder 7 (CTI 0.3 s)
+
+> Fault currents and times below are at **`c = 1.0`** (consistent with §7.1). At the engine default `c_max` each current scales ×1.10 (MV) and the operate times move as the §7.1 c_max table shows; the ordering and verdicts are unchanged.
 
 | Fault at | Fault current | Graded devices (fault-first) | Operate times | Margins | Verdict |
 |---|---|---|---|---|---|
