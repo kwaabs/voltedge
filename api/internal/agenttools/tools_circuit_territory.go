@@ -176,6 +176,52 @@ func circuitTools() []Tool {
 			ExtraPerms:   []string{auth.PermFeaturesWrite}, // the stamp is a bulk feature write
 			Handler:      toolCircuitAssign,
 		},
+		{
+			Name: "circuit_assign_preview",
+			Description: "DRY-RUN a circuit assign -- trace from the source and report the membership " +
+				"churn an assign WOULD apply, WITHOUT writing anything (the same GET /circuits/{id}/" +
+				"assign/preview the admin page's Preview shows). Returns, per class and in total, how " +
+				"many features would join (will_add), how many stale members would be dropped " +
+				"(will_remove), and how many stay (unchanged), plus any reached features whose class " +
+				"can't be stamped. Use this before circuit_assign to see the impact of a full sync. " +
+				"Read-only.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"id":{"type":"string","description":"The circuit's id (uuid) -- must have a source feature set."}
+				},
+				"required":["id"],
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermFeaturesRead,
+			Handler:      toolCircuitAssignPreview,
+		},
+		{
+			Name: "circuit_assign_stale",
+			Description: "Re-sync EVERY stale circuit in one call -- run assign on each circuit whose " +
+				"stamped membership has drifted since it was last assigned (a member was edited), the " +
+				"same write the REST POST /circuits/assign-stale route performs. Up-to-date and " +
+				"never-assigned circuits are left untouched. Each circuit's assign is its own " +
+				"transaction, so one failure (e.g. a circuit whose source was removed) is reported in " +
+				"`failures` and the rest still run. Returns the aggregate stamped/cleared counts and " +
+				"the per-circuit results. This WRITES to the database (potentially many rows across " +
+				"many circuits): confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{},
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Assign all stale circuits",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // it re-syncs membership stamps, it doesn't delete features
+				IdempotentHint:  &falseHint, // membership tracks live topology, so a re-run can change it
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermCircuitsWrite,
+			ExtraPerms:   []string{auth.PermFeaturesWrite}, // the stamps are bulk feature writes
+			Handler:      toolCircuitAssignStale,
+		},
 	}
 }
 
@@ -294,6 +340,33 @@ func toolCircuitAssign(ctx context.Context, db bun.IDB, args json.RawMessage) (a
 	// AssignCircuit owns the clear+stamp transaction; the acting user (stamped as
 	// updated_by on the touched rows) is on ctx via auth.WithUser in Execute.
 	return circuit.AssignCircuit(ctx, sdb, in.ID)
+}
+
+func toolCircuitAssignPreview(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	return circuit.PreviewAssignCircuit(ctx, sdb, in.ID)
+}
+
+func toolCircuitAssignStale(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	// Each circuit's assign is its own transaction (see AssignAllStale); the acting
+	// user is on ctx via auth.WithUser in Execute.
+	return circuit.AssignAllStale(ctx, sdb)
 }
 
 // --- territory tools ---

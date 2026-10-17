@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { Eye, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { FormDialog } from "@/components/admin/form-dialog"
@@ -10,9 +10,11 @@ import {
   type Circuit,
   type CircuitNetwork,
   useAssignCircuit,
+  useAssignStale,
   useCircuits,
   useCreateCircuit,
   useDeleteCircuit,
+  usePreviewCircuit,
   useUpdateCircuit,
 } from "@/hooks/use-circuits"
 import { ApiError } from "@/lib/api"
@@ -194,55 +196,127 @@ function CircuitRow({
   onAssign: (c: Circuit) => void
   isAssigning: boolean
 }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const preview = usePreviewCircuit(circuit.id, previewOpen)
+  const hasSource = Boolean(circuit.source_feature_class)
   return (
-    <div className="hover:bg-muted/50 group flex items-center gap-2 rounded-md px-2 py-1.5">
-      <span className="truncate text-sm font-medium">{circuit.name}</span>
-      {circuit.voltage_kv != null && (
-        <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs">{circuit.voltage_kv} kV</span>
-      )}
-      {circuit.members_synced_at == null ? (
-        <span
-          className="text-muted-foreground rounded px-1.5 py-0.5 text-xs"
-          title="Membership has never been assigned from this circuit's source"
-        >
-          not assigned
-        </span>
-      ) : circuit.stale ? (
-        <span
-          className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-500"
-          title="A member feature changed since this circuit was last assigned — re-assign from its source to refresh membership"
-        >
-          stale — re-assign
-        </span>
-      ) : null}
-      <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          disabled={!circuit.source_feature_class || isAssigning}
-          title={
-            circuit.source_feature_class
-              ? "Assign / re-sync: trace downstream from the source and re-stamp circuit_id across the feeder"
-              : "No source set — on the map, select this circuit's source device and use “Set as circuit source” first"
-          }
-          onClick={() => onAssign(circuit)}
-        >
-          {isAssigning ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-        </Button>
-        <Button variant="ghost" size="icon" className="size-7" title="Edit" onClick={() => onEdit(circuit)}>
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-destructive size-7"
-          title="Delete"
-          onClick={() => onDelete(circuit)}
-        >
-          <Trash2 className="size-4" />
-        </Button>
+    <div className="flex flex-col">
+      <div className="hover:bg-muted/50 group flex items-center gap-2 rounded-md px-2 py-1.5">
+        <span className="truncate text-sm font-medium">{circuit.name}</span>
+        {circuit.voltage_kv != null && (
+          <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs">{circuit.voltage_kv} kV</span>
+        )}
+        {circuit.members_synced_at == null ? (
+          <span
+            className="text-muted-foreground rounded px-1.5 py-0.5 text-xs"
+            title="Membership has never been assigned from this circuit's source"
+          >
+            not assigned
+          </span>
+        ) : circuit.stale ? (
+          <span
+            className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-500"
+            title="A member feature changed since this circuit was last assigned — re-assign from its source to refresh membership"
+          >
+            stale — re-assign
+          </span>
+        ) : null}
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            disabled={!hasSource}
+            aria-pressed={previewOpen}
+            title={
+              hasSource
+                ? "Preview: trace from the source and show what membership an assign would add / drop — writes nothing"
+                : "No source set — nothing to preview"
+            }
+            onClick={() => setPreviewOpen((o) => !o)}
+          >
+            <Eye className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            disabled={!hasSource || isAssigning}
+            title={
+              hasSource
+                ? "Assign / re-sync: trace downstream from the source and re-stamp circuit_id across the feeder"
+                : "No source set — on the map, select this circuit's source device and use “Set as circuit source” first"
+            }
+            onClick={() => onAssign(circuit)}
+          >
+            {isAssigning ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+          </Button>
+          <Button variant="ghost" size="icon" className="size-7" title="Edit" onClick={() => onEdit(circuit)}>
+            <Pencil className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-destructive size-7"
+            title="Delete"
+            onClick={() => onDelete(circuit)}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
       </div>
+      {previewOpen && (
+        <div className="bg-muted/30 mx-2 mb-1 ml-2 rounded-md border px-3 py-2 text-xs">
+          {preview.isPending ? (
+            <span className="text-muted-foreground flex items-center gap-2">
+              <Loader2 className="size-3.5 animate-spin" /> Tracing…
+            </span>
+          ) : preview.isError ? (
+            <span className="text-destructive">{preview.error.message}</span>
+          ) : preview.data ? (
+            <div className="flex flex-col gap-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="font-medium">If you assign now:</span>
+                <span className="text-emerald-700 dark:text-emerald-500">+{preview.data.will_add} join</span>
+                <span className="text-destructive">−{preview.data.will_remove} drop</span>
+                <span className="text-muted-foreground">={preview.data.unchanged} unchanged</span>
+                <span className="text-muted-foreground">· {preview.data.reached} reached</span>
+                {preview.data.will_add === 0 && preview.data.will_remove === 0 && (
+                  <span className="text-muted-foreground italic">already in sync</span>
+                )}
+              </div>
+              {preview.data.per_class.length > 0 && (
+                <div className="text-muted-foreground font-mono">
+                  {preview.data.per_class
+                    .map((p) => `${p.feature_class}: +${p.add}/−${p.remove}/=${p.keep}`)
+                    .join("  ·  ")}
+                </div>
+              )}
+              {preview.data.skipped > 0 && (
+                <div className="text-amber-700 dark:text-amber-500">
+                  {preview.data.skipped} reached feature{preview.data.skipped === 1 ? "" : "s"} can’t be stamped (class
+                  missing an active circuit_id — recompile):{" "}
+                  {(preview.data.skipped_per_class ?? []).map((c) => `${c.feature_class} ×${c.stamped}`).join(", ")}
+                </div>
+              )}
+              <div>
+                <Button
+                  size="sm"
+                  className="h-7"
+                  disabled={isAssigning}
+                  onClick={() => {
+                    onAssign(circuit)
+                    setPreviewOpen(false)
+                  }}
+                >
+                  {isAssigning ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+                  Apply assign
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   )
 }
@@ -254,6 +328,7 @@ export function AdminCircuitsPage() {
   const [deleting, setDeleting] = useState<Circuit | null>(null)
   const del = useDeleteCircuit()
   const assign = useAssignCircuit()
+  const assignStale = useAssignStale()
   const [assigningId, setAssigningId] = useState<string | null>(null)
 
   function handleAssign(c: Circuit) {
@@ -286,6 +361,24 @@ export function AdminCircuitsPage() {
   }
 
   const circuits = useMemo(() => data?.circuits ?? [], [data])
+  const staleCount = useMemo(() => circuits.filter((c) => c.stale).length, [circuits])
+
+  function handleAssignStale() {
+    assignStale.mutate(undefined, {
+      onSuccess: (res) => {
+        const base = `Re-synced ${res.circuits} stale circuit${res.circuits === 1 ? "" : "s"}: stamped ${res.stamped}, cleared ${res.cleared}.`
+        if (res.failures && res.failures.length > 0) {
+          useToastStore
+            .getState()
+            .pushWarning(`${base} ${res.failures.length} could not be assigned: ${res.failures.map((f) => f.circuit_name).join(", ")}.`)
+        } else {
+          useToastStore.getState().pushSuccess(res.circuits === 0 ? "No stale circuits to re-sync." : base)
+        }
+      },
+      onError: (err) => toastError(err, "Could not assign stale circuits."),
+    })
+  }
+
   const byNetwork = useMemo(() => {
     const map = new Map<CircuitNetwork, Circuit[]>()
     for (const n of NETWORKS) map.set(n, [])
@@ -304,10 +397,28 @@ export function AdminCircuitsPage() {
               belong to. MV and LV are separate namespaces.
             </p>
           </div>
-          <Button size="sm" onClick={() => setCreating({ network: "MV" })}>
-            <Plus className="size-4" />
-            New circuit
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            {staleCount > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={assignStale.isPending}
+                onClick={handleAssignStale}
+                title="Re-sync every stale circuit from its source in one run"
+              >
+                {assignStale.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-4" />
+                )}
+                Assign all stale ({staleCount})
+              </Button>
+            )}
+            <Button size="sm" onClick={() => setCreating({ network: "MV" })}>
+              <Plus className="size-4" />
+              New circuit
+            </Button>
+          </div>
         </div>
 
         {isPending ? (

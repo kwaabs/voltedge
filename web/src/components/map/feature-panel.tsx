@@ -2201,10 +2201,6 @@ export function FeaturePanel() {
   const tracePathActive = useTracePathStore((s) => s.active)
   const tracePathSource = useTracePathStore((s) => s.source)
   const tracePathTarget = useTracePathStore((s) => s.target)
-  // Supply-path options, toggled by the checkboxes in the "Supply path" submenu
-  // before the trace is run (harmonizes what used to be separate menu items).
-  const [spRespectSwitchState, setSpRespectSwitchState] = useState(false)
-  const [spToPrimarySource, setSpToPrimarySource] = useState(false)
   const shortestPathConfig = traceConfigurations?.trace_configurations.find(
     (c) => c.direction === "SHORTEST_PATH",
   )
@@ -3118,6 +3114,13 @@ export function FeaturePanel() {
     traceConfigurations?.trace_configurations.filter(
       (c) => c.direction !== "SHORTEST_PATH" && !(isLeaf && c.direction === "DOWNSTREAM"),
     ) ?? []
+  // Split the configs for the cascading trace menu: a circuit-scoped config is a
+  // network SPAN (grouped with feeder/section/zone), everything else is a
+  // DIRECTION trace (connected / downstream / upstream / ownership…). Its
+  // direction is CONNECTED, so scope_to_circuit is the only thing that tells it
+  // apart (surfaced on the /trace/configurations summary for exactly this).
+  const directionConfigs = runnableConfigs.filter((c) => !c.scope_to_circuit)
+  const circuitConfigs = runnableConfigs.filter((c) => c.scope_to_circuit)
   // Is a given analysis study offered for this feature's class? Drives every
   // item in the analysis menu, so a study that doesn't apply to this class (by
   // role) or was pruned by an admin never appears. See api/internal/studies.
@@ -3305,6 +3308,19 @@ export function FeaturePanel() {
     (c) => c.source_feature_class === selected.featureClassCode && c.source_feature_id === selected.featureId,
   )
 
+  // A SOURCE feature has no supply path -- it IS where supply originates, so the
+  // "Supply path" trace (walk UP to your source) is meaningless and hidden on it.
+  // A feature is a (primary) source when it's generation / grid infeed
+  // (functional_role 'source', mirroring boundary_role 'source', migration 0129),
+  // OR it's the designated source of a circuit (the station feeder head -- an
+  // instance fact) AND it is NOT a transformer. A transformer ORIGINATES the
+  // next-voltage network at its secondary but is itself supplied from upstream (its
+  // primary), so it is a SECONDARY source and keeps its supply path: DIST_XFMR
+  // climbs its MV supply, POWER_XFMR its HV. Everything downstream keeps it too.
+  const isSourceFeature =
+    selectedClass?.functional_role === "source" ||
+    (sourceCircuits.length > 0 && selectedClass?.functional_role !== "transformer")
+
   return (
     <div ref={panelRef} style={shellStyle} className={positionClass}>
       <div
@@ -3371,79 +3387,134 @@ export function FeaturePanel() {
                       crossing it only makes sense AFTER you see it stopped there -- so
                       the toggle now lives in the result table (trace-result-table.tsx),
                       where it re-runs the same trace across the boundary. */}
-                  {runnableConfigs.map((config) => (
-                    <DropdownMenuItem key={config.code} onSelect={() => runTrace(config.code)}>
-                      {config.name}
-                    </DropdownMenuItem>
-                  ))}
-                  {isolationConfig && (
-                    <>
-                      {runnableConfigs.length > 0 && <DropdownMenuSeparator />}
-                      {/* Feeder trace walks UP to the feeder, so it's useful even
-                          from a leaf; section/zone/service describe network
-                          structure below/around a node, so they're hidden on a
-                          leaf endpoint where there's nothing to section or serve. */}
-                      <DropdownMenuItem onSelect={() => runFeederTrace()}>Feeder trace</DropdownMenuItem>
-                      {!isLeaf && (
-                        <>
-                          <DropdownMenuItem onSelect={() => runSectionTrace()}>
-                            Switching section
+                  {/* The trace variants are grouped into three cascading submenus so the
+                      list stays short and scannable as configs are added:
+                        Direction  -- the configured topology/direction traces,
+                        Spans      -- the bounded partitions this device sits in/bounds,
+                        Operational-- what it serves and how to kill it. */}
+                  {directionConfigs.length > 0 && (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <Route className="size-4" />
+                        Direction
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-56">
+                        {directionConfigs.map((config) => (
+                          <DropdownMenuItem key={config.code} onSelect={() => runTrace(config.code)}>
+                            {config.name}
                           </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => runSectionTrace(undefined, true)}>
-                            Protection zone
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
+                  {(circuitConfigs.length > 0 || isolationConfig) && (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <Network className="size-4" />
+                        Spans
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-56">
+                        {circuitConfigs.map((config) => (
+                          <DropdownMenuItem key={config.code} onSelect={() => runTrace(config.code)}>
+                            {config.name}
                           </DropdownMenuItem>
+                        ))}
+                        {isolationConfig && (
+                          <>
+                            {/* Feeder trace walks UP to the feeder, so it's useful even
+                                from a leaf; section/zone describe structure around a
+                                node, so they're hidden on a leaf endpoint. */}
+                            <DropdownMenuItem onSelect={() => runFeederTrace()}>Feeder trace</DropdownMenuItem>
+                            {!isLeaf && (
+                              <>
+                                <DropdownMenuItem onSelect={() => runSectionTrace()}>
+                                  Switching section
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => runSectionTrace(undefined, true)}>
+                                  Protection zone
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
+                  {((isolationConfig && !isLeaf) || canIsolate) && (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <Zap className="size-4" />
+                        Operational
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-60">
+                        {isolationConfig && !isLeaf && (
                           <DropdownMenuItem onSelect={() => runServiceTrace()}>
                             <Gauge className="size-4" />
                             Service trace (load served)
                           </DropdownMenuItem>
-                        </>
-                      )}
-                    </>
-                  )}
-                  {canIsolate && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onSelect={runIsolate}>
-                        <Zap className="size-4" />
-                        Isolate from here
-                      </DropdownMenuItem>
-                    </>
+                        )}
+                        {canIsolate && (
+                          <DropdownMenuItem onSelect={runIsolate}>
+                            <Zap className="size-4" />
+                            Isolate from here
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
                   )}
                   <DropdownMenuSeparator />
+                  {/* Supply path options are direct-run submenu items -- pick a
+                      variant and it runs immediately (no check-then-run). The two
+                      axes are the switch view (energized vs full wired) and how far
+                      up to climb (section head vs the primary source). Hidden on a
+                      SOURCE feature (isSourceFeature): a source IS where supply
+                      originates, so "trace up to your source" is meaningless there.
+                      Transformers are secondary sources and keep it. */}
+                  {!isSourceFeature && (
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
                       <Waypoints className="size-4" />
                       Supply path…
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="w-72">
-                      <DropdownMenuCheckboxItem
-                        checked={spRespectSwitchState}
-                        onCheckedChange={(v) => setSpRespectSwitchState(v === true)}
-                        onSelect={(e) => e.preventDefault()}
-                      >
-                        Energized only (respect open switches)
-                      </DropdownMenuCheckboxItem>
-                      <DropdownMenuCheckboxItem
-                        checked={spToPrimarySource}
-                        onCheckedChange={(v) => setSpToPrimarySource(v === true)}
-                        onSelect={(e) => e.preventDefault()}
-                      >
-                        To primary source (substation breaker)
-                      </DropdownMenuCheckboxItem>
-                      <DropdownMenuSeparator />
                       <DropdownMenuItem
                         onSelect={() =>
-                          runSupplyPathTrace(undefined, {
-                            respectSwitchState: spRespectSwitchState,
-                            toPrimarySource: spToPrimarySource,
-                          })
+                          runSupplyPathTrace(undefined, { respectSwitchState: true, toPrimarySource: false })
                         }
                       >
                         <BatteryCharging className="size-4" />
-                        Run supply path
+                        <span className="flex flex-col">
+                          Energized route
+                          <span className="text-muted-foreground text-xs">Live path, stops at open switches</span>
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          runSupplyPathTrace(undefined, { respectSwitchState: false, toPrimarySource: false })
+                        }
+                      >
+                        <Waypoints className="size-4" />
+                        <span className="flex flex-col">
+                          Full wired route
+                          <span className="text-muted-foreground text-xs">Ignores open switches (as-built)</span>
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          runSupplyPathTrace(undefined, { respectSwitchState: true, toPrimarySource: true })
+                        }
+                      >
+                        <Network className="size-4" />
+                        <span className="flex flex-col">
+                          To primary source
+                          <span className="text-muted-foreground text-xs">
+                            Climbs past the section head to the substation breaker
+                          </span>
+                        </span>
                       </DropdownMenuItem>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
+                  )}
                   <DropdownMenuItem
                     onSelect={() => {
                       if (!selected) return

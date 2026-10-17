@@ -299,6 +299,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "integrations-guide-interactive",
+		Title:       "Integrations & External Systems (interactive)",
+		Description: "The external-system surface as something you operate, end to end: a persona switch gating the catalog & webhooks (metadata:write) vs feature links & references (features:write); a system-registration form showing the sealed AES-256-GCM credential; a link-kind validator enforcing the relative-path SSRF rule; a live external_ref editor (scalar & object refs) with its reverse index; a path-template URL builder that fills {id}/{field} and blocks a non-relative result; a real in-browser HMAC-SHA256 signer with auth modes, the 5-minute replay window and idempotency; a faithful mapping-spec playground (items_path + const/path/fields + map/default, strict-decode errors); an adopt-not-duplicate correlation simulator; pull & outbound direction configs; the agent/MCP tool surface; a security chapter with an SSRF path checker; and a ten-question quiz.",
+		Category:    "Interactive guides",
+		Filename:    "integrations-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "validation-and-audit-guide-interactive",
 		Title:       "Data Validation & Audit (interactive)",
 		Description: "The continuous-validation system as something you operate: a scale calculator that shows the batch pile growing while the live queue stays flat, the three lines of defence, the finding kinds and the scope trick, a self-pruning queue you drive (introduce a defect, reconcile, fix it, watch it auto-resolve — idempotent by fingerprint), a feature_history tail with a cursor and the truncation guard, a gated triage queue, and the admin:users activity audit with private-drafts respected. A persona switch gates reconcile/triage (connectivity:commit) and the audit (admin:users).",
@@ -429,6 +437,17 @@ var manifest = []Doc{
 		Description: "Overlaying third-party map services on the map (ArcGIS FeatureServer/MapServer, WMS, WMTS, WFS, XYZ, vector tiles): registering the Service-layers catalogue, auth and the sealed credential, the Discover auto-fill, the SSRF-hardened proxy, toggling layers on the map, and click-to-identify.",
 		Category:    "How-to guides",
 		Filename:    "external-service-layers-guide.md",
+	},
+	{
+		// Dual-audience (like Bill of Quantities): operators link/tag features
+		// (features:write) while administrators register systems and webhooks
+		// (metadata:write); both are covered, admin sections marked inline, so no
+		// single RequiredPerm fits -- readable by any signed-in user.
+		ID:          "integrations-guide",
+		Title:       "Integrations & External Systems",
+		Description: "Connecting VoltEdge to SCADA, AMI, CIS and other systems: registering the external-systems catalog, linking a feature outward, tagging a feature's id in another system (external_ref) and pulling live data, and receiving inbound pushes via webhooks (HMAC, correlation and adopt-not-duplicate).",
+		Category:    "How-to guides",
+		Filename:    "integrations-guide.md",
 	},
 	{
 		// Readable by any signed-in user: the issue queue is a connectivity

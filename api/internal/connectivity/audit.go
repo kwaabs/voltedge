@@ -85,7 +85,7 @@ func featureScopeClause(scope []string, colA, colB string) (string, []any) {
 
 // AuditFinding is one reported divergence.
 type AuditFinding struct {
-	Kind         string `json:"kind"`     // "orphaned_connectivity" | "coincident_unconnected"
+	Kind         string `json:"kind"`     // "orphaned_connectivity" | "coincident_unconnected" | "terminal_oversubscribed"
 	Severity     string `json:"severity"` // "error" | "warning"
 	Message      string `json:"message"`
 	ConnectionID string `json:"connection_id,omitempty"` // set for orphaned_connectivity
@@ -107,6 +107,10 @@ type AuditSummary struct {
 	ConnectionsTotal      int     `json:"connections_total"`
 	OrphanedConnectivity  int     `json:"orphaned_connectivity"`
 	CoincidentUnconnected int     `json:"coincident_unconnected"`
+	// TerminalOversubscribed is how many single_connection terminals (e.g. a cable
+	// joint's T1/T2) carry more than one distinct live connection -- the split
+	// re-wire footgun. 0 until seed/terminal_cardinality.sql flags the joints.
+	TerminalOversubscribed int `json:"terminal_oversubscribed"`
 	RelationshipsTotal    int     `json:"relationships_total"`
 	OrphanedRelationships int     `json:"orphaned_relationships"`
 	ClassPairsScanned     int     `json:"class_pairs_scanned"`
@@ -186,9 +190,74 @@ func AuditConnectivity(ctx context.Context, db bun.IDB, in AuditInput) (*AuditRe
 	if err := auditRelationshipOrphans(ctx, db, byID, report, max, in.FeatureIDs); err != nil {
 		return nil, err
 	}
+	if err := auditOverSubscribedTerminals(ctx, db, byID, report, max, in.FeatureIDs); err != nil {
+		return nil, err
+	}
 
 	sortFindings(report.Findings)
 	return report, nil
+}
+
+// auditOverSubscribedTerminals flags a single_connection terminal (seed/terminal_
+// cardinality.sql) that carries MORE THAN ONE distinct live connection -- e.g. a
+// cable joint whose T2 ended up wired to two cables (the conductor-split re-wire
+// footgun). Reported as an ERROR: it silently breaks directional traces (a
+// supply-path drops the dead-ended leg). Counts only LIVE endpoints on both sides
+// (a soft-deleted cable never squats a terminal). Degrades to a no-op (no findings)
+// when the single_connection column isn't present yet, so a not-yet-seeded database
+// audits exactly as before. Honors the incremental FeatureIDs scope on the
+// terminal's own feature.
+func auditOverSubscribedTerminals(ctx context.Context, db bun.IDB, byID map[string]auditClass, report *AuditReport, max int, scope []string) error {
+	scopeSQL, scopeArgs := featureScopeClause(scope, "e.feat_id", "e.feat_id")
+	query := fmt.Sprintf(`
+		WITH edges AS (
+			SELECT fc.from_feature_id AS feat_id, fc.from_terminal_id AS term_id,
+			       fc.from_feature_class_id AS feat_class_id, fc.to_feature_id AS other_id
+			FROM runtime.feature_connectivity fc WHERE fc.from_terminal_id IS NOT NULL
+			UNION ALL
+			SELECT fc.to_feature_id, fc.to_terminal_id, fc.to_feature_class_id, fc.from_feature_id
+			FROM runtime.feature_connectivity fc WHERE fc.to_terminal_id IS NOT NULL
+		)
+		SELECT e.feat_class_id::text, e.feat_id::text, t.code, COUNT(DISTINCT e.other_id) AS n
+		FROM edges e
+		JOIN metadata.terminals t ON t.id = e.term_id AND t.single_connection = true
+		WHERE EXISTS (SELECT 1 FROM runtime.feature_registry r  WHERE r.feature_id  = e.feat_id  AND r.deleted_at  IS NULL)
+		  AND EXISTS (SELECT 1 FROM runtime.feature_registry r2 WHERE r2.feature_id = e.other_id AND r2.deleted_at IS NULL)%s
+		GROUP BY e.feat_class_id, e.feat_id, t.code
+		HAVING COUNT(DISTINCT e.other_id) > 1`, scopeSQL)
+	rows, err := db.QueryContext(ctx, query, scopeArgs...)
+	if err != nil {
+		// single_connection column may not exist yet (seed owed): skip the check.
+		return nil
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var classID, featID, termCode string
+		var n int
+		if err := rows.Scan(&classID, &featID, &termCode, &n); err != nil {
+			return fmt.Errorf("connectivity: audit: scanning over-subscribed terminal: %w", err)
+		}
+		report.Summary.TerminalOversubscribed++
+		if len(report.Findings) >= max {
+			report.Summary.Truncated = true
+			continue
+		}
+		code := classID
+		if c, ok := byID[classID]; ok {
+			code = c.code
+		}
+		report.Findings = append(report.Findings, AuditFinding{
+			Kind:     "terminal_oversubscribed",
+			Severity: "error",
+			Message: fmt.Sprintf(
+				"terminal %s on %s %s has %d connections but is single-connection (a joint splices one cable per terminal) -- disconnect the extras so each cable sits on its own terminal",
+				termCode, code, featID, n),
+			FromClass: code,
+			FromID:    featID,
+		})
+	}
+	return rows.Err()
 }
 
 // loadAuditClasses returns every compiled feature class keyed by its metadata

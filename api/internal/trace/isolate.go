@@ -12,9 +12,10 @@ import (
 
 // The "is this a critical facility" signal is no longer a hardcoded pair here:
 // it is DERIVED from the graded load_priority tier (rank <= P2) across the load
-// leaves service.go defines (isLoadLeaf / meterCountsAsLoad -- SERVICE_POINTs
-// and PRIMARY METERs), with is_critical still honoured as a fallback inside
-// resolveServicePriority. See the critical-facility check in isolate below.
+// leaves service.go defines (isConsumerLeaf / meterCountsAsLoad -- every
+// consumer-role class, a METER only when PRIMARY), with is_critical still
+// honoured as a fallback inside resolveServicePriority. See the critical-facility
+// check in isolate below.
 
 // isolationRequest is the POST /trace/isolate body. TraceConfiguration
 // must name a DOWNSTREAM-direction row -- its barrier settings (stop at
@@ -231,25 +232,26 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 	}
 
 	// Critical-facility check: which of the de-energized set is a critical load
-	// leaf. A load leaf is a SERVICE_POINT or a PRIMARY METER (Phase 63 --
-	// isLoadLeaf / meterCountsAsLoad, the same set the consumption rollup below
-	// counts), so a critical PRIMARY meter lands in this list too and stays in
-	// step with service.Critical. Critical is DERIVED from the graded
-	// load_priority tier (Phase 62) -- rank <= P2 (life-support or essential) --
-	// superseding the old is_critical boolean, which resolveServicePriority
-	// still honours as a fallback for any row not yet re-graded. A
+	// leaf. A load leaf is any consumer-role class (Phase 63 -- isConsumerLeaf /
+	// meterCountsAsLoad, the same set the consumption rollup below counts), so a
+	// critical PRIMARY meter -- or a critically-graded street light / EV station --
+	// lands in this list too and stays in step with service.Critical. Critical is
+	// DERIVED from the graded load_priority tier (Phase 62) -- rank <= P2
+	// (life-support or essential) -- superseding the old is_critical boolean, which
+	// resolveServicePriority still honours as a fallback for any row not yet
+	// re-graded. A load-only leaf left at the P4 default is never critical. A
 	// missing/unreadable attribute (e.g. a dangling reference to a since-purged
 	// feature) is treated as "not critical" rather than failing the whole
 	// isolation over one row -- same reasoning checkBarrier already uses.
 	var criticalNodes []node
 	for _, n := range deEnergizedNodes {
 		code := classCodes[n.classID]
-		if !isLoadLeaf(code) {
-			continue
-		}
 		classLoaded, lerr := loader.loadedFor(ctx, db, n.classID)
 		if lerr != nil {
 			return nil, lerr
+		}
+		if !isConsumerLeaf(classLoaded.FeatureClass.FunctionalRole) {
+			continue
 		}
 		row, gerr := crud.GetFeature(ctx, db, classLoaded, n.featureID)
 		if gerr != nil {
@@ -264,7 +266,7 @@ func isolate(ctx context.Context, db bun.IDB, req isolationRequest) (*isolationR
 		}
 	}
 
-	service, err := summarizeService(ctx, db, deEnergizedNodes, classCodes, loader)
+	service, err := summarizeService(ctx, db, deEnergizedNodes, classCodes, loader, true)
 	if err != nil {
 		return nil, err
 	}

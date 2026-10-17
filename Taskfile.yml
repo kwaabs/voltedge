@@ -595,6 +595,22 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/service_point_load_priority.sql
 
+  seed-consumer-leaf-load-fields:
+    desc: Make the unmetered consumer leaves count in the service/consumption rollup through the gitbash sidecar (Phase 62/63 follow-up; adds demand_kw+power_factor+load_priority to STREET_LIGHT and load_priority to EV_CHARGING_STATION; metadata-only; recompile CODE=STREET_LIGHT and CODE=EV_CHARGING_STATION after; customer counting stays SERVICE_POINT/METER-only in code, so OMS is untouched)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/consumer_leaf_load_fields.sql
+
+  seed-terminal-cardinality:
+    desc: Add metadata.terminals.single_connection (default false) and stamp the cable-joint terminals single through the gitbash sidecar -- the connect path then refuses a 2nd feature on a joint terminal and the connectivity audit flags over-subscribed ones (busbars stay unflagged = many-to-one). Metadata-only, no recompile; idempotent
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/terminal_cardinality.sql
+
   seed-service-point-load-priority-backfill:
     desc: Map existing SERVICE_POINTs onto load_priority (is_critical=true -> P2, else -> P4) through the gitbash sidecar (Phase 62 Slice 1; run AFTER seed-service-point-load-priority and recompiling SERVICE_POINT)
     cmds:

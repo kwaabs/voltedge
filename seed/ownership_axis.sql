@@ -104,12 +104,18 @@ WHERE domain_value_id IN (
 --    whole galvanic island below the boundary is private regardless of phase.
 --    Depends on the TRACE_DIRECTION domain (seed/trace_configurations_example.sql).
 -- =====================================================================
+-- Named "Ownership domain (connectivity)" -- NOT "... downstream" -- so it reads
+-- as a distinct concept in the trace menu's Direction submenu rather than a near
+-- twin of the electrical "Downstream trace" (it's a connectivity walk: ignores
+-- open switches, crosses transformers, ignores phase -- see the flags below).
+-- DO UPDATE SET name so a re-seed renames an already-installed row (the display
+-- label only; the behaviour flags are left as authored).
 INSERT INTO metadata.trace_configurations (code, name, direction_value_id, stop_at_open_devices, cross_transformers, respect_phase)
-SELECT 'OWNERSHIP_DOWNSTREAM', 'Ownership downstream (connectivity)', dv.id, false, true, false
+SELECT 'OWNERSHIP_DOWNSTREAM', 'Ownership domain (connectivity)', dv.id, false, true, false
 FROM metadata.domain_values dv
 JOIN metadata.domains d ON d.id = dv.domain_id
 WHERE d.code = 'TRACE_DIRECTION' AND dv.code = 'DOWNSTREAM'
-ON CONFLICT (code) DO NOTHING;
+ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name;
 
 DO $$
 BEGIN

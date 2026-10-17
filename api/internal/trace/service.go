@@ -13,7 +13,8 @@ import (
 
 // Phase 62/63 -- the service / consumption dimension of a trace. Every
 // trace-family walk already reaches a set of features; this file rolls up the
-// load leaves among them (SERVICE_POINTs and PRIMARY METERs -- see isLoadLeaf)
+// load leaves among them (every consumer-role class -- see isConsumerLeaf;
+// SERVICE_POINT/PRIMARY-METER count as customers, the rest as load-only)
 // into "how much load, and how many customers, of what restoration priority,
 // sits below here." It is the load-side counterpart to the topology a
 // trace already returns: a downstream/feeder/section/isolation walk answers
@@ -29,13 +30,14 @@ import (
 // result. A client that wants solved load overlays it from a load-flow run.
 
 const (
-	// The two consumer-facing leaf classes this app models load on. Phase 62
-	// started with SERVICE_POINT alone; Phase 63 ("the network ends at the
+	// The two CUSTOMER leaf classes (isCustomerLeaf) -- the load leaves that count
+	// as customers, distinct from the wider consumer-role set that counts as load.
+	// Phase 62 started with SERVICE_POINT alone; Phase 63 ("the network ends at the
 	// meter") made the METER a load-bearing leaf in its own right -- a metered
 	// supply's load records live on its PRIMARY meter, not on a SERVICE_POINT
-	// behind it. SERVICE_POINT now covers the UNMETERED leaf only. isLoadLeaf
-	// tests membership; the per-class rules (a meter only counts when PRIMARY)
-	// live in meterCountsAsLoad below.
+	// behind it. SERVICE_POINT now covers the UNMETERED customer leaf only. The
+	// per-class meter rule (a meter only counts when PRIMARY) lives in
+	// meterCountsAsLoad below; the load-leaf membership test is isConsumerLeaf.
 	servicePointClass = "SERVICE_POINT"
 	meterClass        = "METER"
 
@@ -125,22 +127,42 @@ func (t *ServiceTotals) add(customers int, kw, kva float64) {
 	t.DemandKVA += kva
 }
 
-// isLoadLeaf reports whether a class code is one this app models consumption on
-// at all -- the cheap pre-filter (by class code, before any DB read) that lets
-// collectService skip the poles/cables/switches a walk mostly reaches. Being a
-// load-leaf CLASS is necessary but not sufficient: meterCountsAsLoad then vets
-// the loaded feature (a meter must be PRIMARY).
-func isLoadLeaf(code string) bool {
+// consumerRole is the functional_role (migration 0091, seed/functional_role_
+// backfill.sql) that marks a class as a LOAD LEAF -- a sink where power is
+// delivered out of the network. Phase 62/63 recognised a leaf by code
+// (SERVICE_POINT + METER only); the rollup now recognises one by this metadata
+// signal, so every consumer-role class (STREET_LIGHT, EV_CHARGING_STATION, the
+// MV metering leaves, ...) counts the moment it is tagged a consumer -- no
+// per-class code change. The CUSTOMER subset stays SERVICE_POINT + METER
+// (isCustomerLeaf); the rest are load, not customers.
+const consumerRole = "consumer"
+
+// isConsumerLeaf reports whether a class's functional_role marks it a load leaf
+// -- the metadata-driven replacement for the old hardcoded two-class check.
+// Being a load leaf is necessary but not sufficient: meterCountsAsLoad then vets
+// the loaded feature (a meter counts only when PRIMARY).
+func isConsumerLeaf(role *string) bool {
+	return role != nil && *role == consumerRole
+}
+
+// isCustomerLeaf reports whether a load leaf is an actual CUSTOMER supply -- so
+// it contributes to the customer count -- rather than pure load. Only
+// SERVICE_POINT and the (PRIMARY) METER are customers; STREET_LIGHT,
+// EV_CHARGING_STATION and the MV metering leaves are load-only (0 customers),
+// keeping "customers affected" honest. OMS never passes these other classes to
+// SummarizeService (it pre-filters its cone to SERVICE_POINT/METER), so its
+// customer and SAIDI figures are unaffected by the wider leaf set.
+func isCustomerLeaf(code string) bool {
 	return code == servicePointClass || code == meterClass
 }
 
 // meterCountsAsLoad applies the per-class rule once a load-leaf feature is
-// loaded. A SERVICE_POINT always counts (the unmetered leaf). A METER counts
-// only when meter_role = PRIMARY -- an unset role (legacy/device meters) or a
-// CHECK meter contributes nothing, so the supply's load is counted exactly once
-// and a not-yet-migrated meter->SP chain never double-counts. Any other class
-// reaching here (it shouldn't, isLoadLeaf gates it) counts, matching the old
-// SERVICE_POINT-only behaviour for safety.
+// loaded. A METER counts only when meter_role = PRIMARY -- an unset role
+// (legacy/device meters) or a CHECK meter contributes nothing, so the supply's
+// load is counted exactly once and a not-yet-migrated meter->SP chain never
+// double-counts. Every other consumer leaf (SERVICE_POINT, STREET_LIGHT,
+// EV_CHARGING_STATION, ...) always counts -- the PRIMARY gate is specific to the
+// meter/service-point double-count, not load leaves in general.
 func meterCountsAsLoad(code string, attrs map[string]any) bool {
 	if code != meterClass {
 		return true
@@ -232,15 +254,23 @@ type ServicePoint struct {
 
 // collectService is the single pass behind both the rollup a trace attaches and
 // the dedicated service trace's per-point breakdown: it reads each reached
-// load leaf (a SERVICE_POINT, or a PRIMARY METER -- see isLoadLeaf /
-// meterCountsAsLoad) once and folds it into the totals AND emits its own line.
-// Skips non-load nodes, opted-out meters, and since-purged features (a dangling
+// load leaf once and folds it into the totals AND emits its own line. Skips
+// non-load nodes, opted-out meters, and since-purged features (a dangling
 // connectivity row), the same dead-end treatment enrichNode/checkBarrier give.
 // One live GetFeature per load leaf, through the shared loader cache. Always
 // returns a rollup with all four tiers present (zeroed if nothing hit them).
 // points is nil-safe to ignore for callers that only want the rollup
 // (summarizeService).
-func collectService(ctx context.Context, db bun.IDB, nodes []node, classCodes map[string]string, loader *featureClassLoader) (*ServiceRollup, []ServicePoint, error) {
+//
+// wide selects the LEAF SET. wide=true counts every consumer-role class
+// (isConsumerLeaf) -- street lights, EV stations and the MV metering leaves join
+// SERVICE_POINT/METER -- so the service/consumption trace shows unmetered load.
+// wide=false is the CUSTOMER-only set (isCustomerLeaf: SERVICE_POINT + PRIMARY
+// METER), the historic behaviour OMS relies on -- its DownstreamLoadLeaves
+// (frozen supplies, affected customers) must not pick up non-customer load. In
+// BOTH modes a non-customer leaf would count 0 customers anyway; wide is about
+// whether such a leaf is counted (as load) at all.
+func collectService(ctx context.Context, db bun.IDB, nodes []node, classCodes map[string]string, loader *featureClassLoader, wide bool) (*ServiceRollup, []ServicePoint, error) {
 	byTier := make(map[string]*ServiceTotals, len(orderedPriorities))
 	for _, p := range orderedPriorities {
 		byTier[p] = &ServiceTotals{}
@@ -250,12 +280,21 @@ func collectService(ctx context.Context, db bun.IDB, nodes []node, classCodes ma
 
 	for _, n := range nodes {
 		code := classCodes[n.classID]
-		if !isLoadLeaf(code) {
+		// Narrow (customer-only) mode keeps the cheap code pre-filter: skip a
+		// non-customer class before any DB read, exactly as the old isLoadLeaf did.
+		if !wide && !isCustomerLeaf(code) {
 			continue
 		}
 		loaded, err := loader.loadedFor(ctx, db, n.classID)
 		if err != nil {
 			return nil, nil, err
+		}
+		// Wide mode counts any consumer-role class (migration 0091) -- the metadata
+		// signal, so a newly-tagged consumer class counts with no code change. The
+		// class loader is cached, and the expensive per-feature GetFeature runs only
+		// past this point.
+		if wide && !isConsumerLeaf(loaded.FeatureClass.FunctionalRole) {
+			continue
 		}
 		row, err := crud.GetFeature(ctx, db, loaded, n.featureID)
 		if err != nil {
@@ -273,7 +312,13 @@ func collectService(ctx context.Context, db bun.IDB, nodes []node, classCodes ma
 		}
 
 		priority := resolveServicePriority(attrs)
-		customers := serviceCustomers(attrs)
+		// Only SERVICE_POINT / PRIMARY METER are customer supplies; the other
+		// consumer leaves (street lights, EV stations, MV metering) are load-only,
+		// so they count 0 customers -- their load and restoration tier still roll up.
+		customers := 0
+		if isCustomerLeaf(code) {
+			customers = serviceCustomers(attrs)
+		}
 		kw, _ := readServiceFloat(attrs, demandKWField)
 		kva := serviceApparentKVA(kw, attrs)
 		critical := priorityRank[priority] <= criticalMaxRank
@@ -305,12 +350,14 @@ func collectService(ctx context.Context, db bun.IDB, nodes []node, classCodes ma
 	return rollup, points, nil
 }
 
-// summarizeService rolls the SERVICE_POINTs among a set of already-walked nodes
+// summarizeService rolls the load leaves among a set of already-walked nodes
 // into a ServiceRollup, discarding the per-point breakdown -- the seam every
 // ordinary trace (run/feeder/section/isolation/supply) uses to attach its
-// consumption summary. See collectService.
-func summarizeService(ctx context.Context, db bun.IDB, nodes []node, classCodes map[string]string, loader *featureClassLoader) (*ServiceRollup, error) {
-	rollup, _, err := collectService(ctx, db, nodes, classCodes, loader)
+// consumption summary. Those traces pass wide=true (count every consumer-role
+// leaf, so unmetered load shows); OMS's SummarizeService passes wide=false (the
+// customer-only set). See collectService.
+func summarizeService(ctx context.Context, db bun.IDB, nodes []node, classCodes map[string]string, loader *featureClassLoader, wide bool) (*ServiceRollup, error) {
+	rollup, _, err := collectService(ctx, db, nodes, classCodes, loader, wide)
 	return rollup, err
 }
 
@@ -403,7 +450,7 @@ func serviceTrace(ctx context.Context, db bun.IDB, req serviceRequest) (*service
 		return nil, err
 	}
 
-	rollup, points, err := collectService(ctx, db, visited, classCodes, loader)
+	rollup, points, err := collectService(ctx, db, visited, classCodes, loader, true)
 	if err != nil {
 		return nil, err
 	}
@@ -416,10 +463,14 @@ func serviceTrace(ctx context.Context, db bun.IDB, req serviceRequest) (*service
 	}, nil
 }
 
-// DownstreamLoadLeaves returns each COUNTING load leaf (a SERVICE_POINT, or a
-// PRIMARY METER -- isLoadLeaf/meterCountsAsLoad) topologically downstream of
-// device, as its own consumption line (class+id, customers, tier, load), plus
-// the rollup over them. Barrier-free and topological -- it ignores live switch
+// DownstreamLoadLeaves returns each COUNTING CUSTOMER leaf (a SERVICE_POINT, or a
+// PRIMARY METER -- isCustomerLeaf/meterCountsAsLoad; it passes wide=false)
+// topologically downstream of device, as its own consumption line (class+id,
+// customers, tier, load), plus the rollup over them. OMS consumes this for its
+// frozen supplies and affected-customer counts, so it stays the customer-only
+// set -- street lights / EV / MV-metering load (counted by the service trace's
+// wide rollup) must never inflate an outage's customer count.
+// Barrier-free and topological -- it ignores live switch
 // state, the same basis DownstreamFeaturesOfClass uses -- so it answers "every
 // supply electrically below this device," the conservative set OMS freezes as
 // interruptions and counts as affected. device itself is never included; a
@@ -452,7 +503,7 @@ func DownstreamLoadLeaves(ctx context.Context, db bun.IDB, device FeatureRef) ([
 	if err != nil {
 		return nil, nil, err
 	}
-	rollup, points, err := collectService(ctx, db, nodes, classCodes, newFeatureClassLoader())
+	rollup, points, err := collectService(ctx, db, nodes, classCodes, newFeatureClassLoader(), false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -486,5 +537,5 @@ func SummarizeService(ctx context.Context, db bun.IDB, refs []FeatureRef) (*Serv
 	if err != nil {
 		return nil, err
 	}
-	return summarizeService(ctx, db, nodes, classCodes, loader)
+	return summarizeService(ctx, db, nodes, classCodes, loader, false)
 }

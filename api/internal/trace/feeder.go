@@ -167,7 +167,7 @@ func feederTrace(ctx context.Context, db bun.IDB, req feederRequest) (*feederRes
 		return nil, err
 	}
 
-	service, err := summarizeService(ctx, db, featureNodes, classCodes, loader)
+	service, err := summarizeService(ctx, db, featureNodes, classCodes, loader, true)
 	if err != nil {
 		return nil, err
 	}

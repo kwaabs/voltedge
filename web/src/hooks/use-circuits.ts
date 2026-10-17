@@ -126,6 +126,71 @@ export function useAssignCircuit() {
   })
 }
 
+/** Per-class churn a dry-run reports (api/internal/circuit AssignPreviewClass). */
+export interface AssignPreviewClass {
+  feature_class: string
+  add: number
+  remove: number
+  keep: number
+}
+
+/** What an assign WOULD do, without writing (GET /circuits/{id}/assign/preview):
+ * how many members would join (`will_add`), how many stale ones would be dropped
+ * (`will_remove`), and how many stay (`unchanged`) -- so an operator can see the
+ * churn before committing the bulk write. */
+export interface AssignPreview {
+  circuit_id: string
+  circuit_name: string
+  network: string
+  reached: number
+  will_add: number
+  will_remove: number
+  unchanged: number
+  per_class: AssignPreviewClass[]
+  skipped: number
+  skipped_per_class?: { feature_class: string; stamped: number }[]
+}
+
+/** Fetches the dry-run preview for one circuit on demand (enabled only once the
+ * operator asks), never auto-retrying so a trace failure surfaces at once. Read
+ * (features:read); writes nothing. */
+export function usePreviewCircuit(id: string | null, enabled: boolean) {
+  return useQuery<AssignPreview, ApiError>({
+    queryKey: ["circuit-preview", id],
+    queryFn: () => apiFetch<AssignPreview>(`/circuits/${id}/assign/preview`),
+    enabled: enabled && Boolean(id),
+    staleTime: 0,
+    retry: false,
+  })
+}
+
+/** The aggregate a bulk "assign every stale circuit" returns
+ * (POST /circuits/assign-stale): how many circuits were re-synced, the total
+ * rows stamped/cleared, each per-circuit result, and any circuits that failed. */
+export interface BulkAssignResult {
+  circuits: number
+  stamped: number
+  cleared: number
+  results: AssignCircuitResult[]
+  failures?: { circuit_id: string; circuit_name: string; error: string }[]
+}
+
+/** Re-syncs every stale circuit in one call (POST /circuits/assign-stale). Like a
+ * per-circuit assign it's a bulk feature write, so it invalidates the circuit list
+ * and the feature caches. */
+export function useAssignStale() {
+  const queryClient = useQueryClient()
+  return useMutation<BulkAssignResult, ApiError, void>({
+    mutationFn: () => apiFetch<BulkAssignResult>(`/circuits/assign-stale`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["circuits"] })
+      queryClient.invalidateQueries({ queryKey: ["feature"] })
+      queryClient.invalidateQueries({ queryKey: ["features"] })
+      queryClient.invalidateQueries({ queryKey: ["feature-rows"] })
+    },
+  })
+}
+
 /** Rename (`name`), set/clear voltage (`voltage_kv`, or `clear_voltage`), or
  * set/clear the source reference. Network is immutable (delete + recreate to
  * change it). `clear_voltage`/`clear_source` distinguish "make it unknown"

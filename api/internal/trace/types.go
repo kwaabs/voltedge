@@ -207,6 +207,11 @@ type traceConfigurationSummary struct {
 	Code      string `json:"code"`
 	Name      string `json:"name"`
 	Direction string `json:"direction"`
+	// ScopeToCircuit (migration 0069) marks a config that confines the walk to the
+	// start's circuit -- a "Circuit trace". Surfaced so a client can group it as a
+	// network span rather than a plain direction trace (its direction is CONNECTED,
+	// so this flag is the only way to tell it apart).
+	ScopeToCircuit bool `json:"scope_to_circuit"`
 }
 
 // apiError is the JSON body returned for any 4xx/5xx response.

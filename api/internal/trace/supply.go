@@ -256,7 +256,7 @@ func supplyPathTrace(ctx context.Context, db bun.IDB, req supplyPathRequest) (*s
 		return nil, err
 	}
 
-	service, err := summarizeService(ctx, db, orderedNodes, classCodes, loader)
+	service, err := summarizeService(ctx, db, orderedNodes, classCodes, loader, true)
 	if err != nil {
 		return nil, err
 	}

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { ServiceRollupSummary } from "@/components/map/service-rollup-summary"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { ApiError, apiFetch } from "@/lib/api"
+import { HIGHLIGHT_COLORS } from "@/lib/map-layers"
 import { boundaryRoleMap, nearestBoundary, type SectionNode } from "@/lib/network-section"
 import { cn } from "@/lib/utils"
 import { useDiagramStore } from "@/stores/diagram-store"
@@ -117,6 +118,35 @@ function traceDescription(direction: string, configCode?: string): ReactNode {
     default:
       return null
   }
+}
+
+/** The concrete name for the gold `trace-target` features, per trace -- the
+ * targets mean a DIFFERENT thing in each (a feeder's head, a section's bounding
+ * devices, a supply path's source, a shortest-path's destination, a service
+ * trace's service points), so the legend and the explanation name the actual
+ * thing rather than a vague "milestone". */
+function traceTargetLabel(direction: string): string {
+  switch (direction) {
+    case "FEEDER":
+      return "Feeder head"
+    case "SECTION":
+      return "Boundary"
+    case "SUPPLY_PATH":
+      return "Source"
+    case "SHORTEST_PATH":
+      return "Destination"
+    case "SERVICE":
+      return "Service point"
+    default:
+      return "Target"
+  }
+}
+
+/** Minimal pluralizer for the colour-legend prose (handles the one irregular,
+ * "boundary" -> "boundaries"); n===1 leaves the word unchanged. */
+function plural(word: string, n: number): string {
+  if (n === 1) return word
+  return /[^aeiou]y$/.test(word) ? `${word.slice(0, -1)}ies` : `${word}s`
 }
 
 function shortId(id: string): string {
@@ -818,7 +848,7 @@ export function TraceResultTable() {
   // Default width matches the former fixed w-[46rem]/w-[38rem] classes (px, so
   // a manual resize has a live numeric value to grow from). Once resized the
   // panel takes an explicit height; until then it shrink-wraps under max-h-64.
-  const defaultWidth = hasComputed ? 872 : 744
+  const defaultWidth = hasComputed ? 892 : 764
   const resized = size?.height != null
   const shellStyle: React.CSSProperties = {
     ...(position ? { left: position.x, top: position.y } : {}),
@@ -961,6 +991,40 @@ export function TraceResultTable() {
           no SERVICE_POINTs, so purely-topological traces are unaffected. */}
       <ServiceRollupSummary service={result.service} />
 
+      {/* Colour legend -- the map tints each reached feature by its ROLE
+          (map-layers.ts HIGHLIGHT_COLORS; assigned in voltedge-map.tsx). The
+          swatches here read from the SAME constants, so they always match the
+          map. Shown only when the trace has milestones or barriers -- a
+          single-colour (all-reached) trace needs no legend. */}
+      {((result.targets?.length ?? 0) > 0 || result.barriers.length > 0) && (
+        <div className="border-border/60 bg-muted/20 text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-1.5 text-xs">
+          <span>Highlights:</span>
+          <span className="text-foreground inline-flex items-center gap-1" title="Features the trace reached">
+            <span className="size-2.5 rounded-full" style={{ backgroundColor: HIGHLIGHT_COLORS.trace }} />
+            Reached <span className="text-muted-foreground">({result.features.length})</span>
+          </span>
+          {(result.targets?.length ?? 0) > 0 && (
+            <span
+              className="text-foreground inline-flex items-center gap-1"
+              title="A key feature the trace marks — its source/head, a protective device, a section boundary, or the destination"
+            >
+              <span className="size-2.5 rounded-full" style={{ backgroundColor: HIGHLIGHT_COLORS["trace-target"] }} />
+              {traceTargetLabel(result.direction)}{" "}
+              <span className="text-muted-foreground">({result.targets?.length})</span>
+            </span>
+          )}
+          {result.barriers.length > 0 && (
+            <span
+              className="text-foreground inline-flex items-center gap-1"
+              title="Where the walk stopped — an open device or a boundary it couldn't cross"
+            >
+              <span className="size-2.5 rounded-full" style={{ backgroundColor: HIGHLIGHT_COLORS["trace-barrier"] }} />
+              Barrier <span className="text-muted-foreground">({result.barriers.length})</span>
+            </span>
+          )}
+        </div>
+      )}
+
       <div className={cn("overflow-y-auto", resized ? "min-h-0 flex-1" : "max-h-[13rem]")}>
         {rows === null ? (
           <p className="text-muted-foreground p-3 text-sm">Loading…</p>
@@ -995,7 +1059,30 @@ export function TraceResultTable() {
         )}
       </div>
 
-      {traceDesc && <AnalysisExplanation title="What this trace does">{traceDesc}</AnalysisExplanation>}
+      {traceDesc && (
+        <AnalysisExplanation title="What this trace does">
+          {traceDesc}
+          {/* Trace-specific colour key -- names the gold features concretely for
+              THIS trace (a feeder's head, a section's boundaries, a supply path's
+              source, ...) rather than a vague "milestone"; matches the swatch
+              legend above and the map. */}
+          <p className="text-muted-foreground mt-2">
+            On the map, <b>green</b> is everything reached
+            {(result.targets?.length ?? 0) > 0 && (
+              <>
+                , <b>gold</b> marks the{" "}
+                {plural(traceTargetLabel(result.direction).toLowerCase(), result.targets?.length ?? 0)}
+              </>
+            )}
+            {result.barriers.length > 0 && (
+              <>
+                , <b>red</b> marks where the walk stopped (an open device or a boundary it couldn’t cross)
+              </>
+            )}
+            .
+          </p>
+        </AnalysisExplanation>
+      )}
 
       {/* Bottom-right resize grip -- same affordance and mechanics as
           feature-panel.tsx's. stopPropagation in the handler keeps a resize

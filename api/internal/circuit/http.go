@@ -16,7 +16,9 @@ import (
 //	POST   /       create a circuit
 //	PATCH  /{id}   rename / edit voltage / edit-or-clear the source reference
 //	DELETE /{id}   delete a circuit
+//	GET    /{id}/assign/preview  dry-run: the add/remove churn an assign would apply
 //	POST   /{id}/assign  trace from the source and bulk-stamp membership
+//	POST   /assign-stale  re-sync every stale circuit in one call
 //
 // Catalog reads and writes share one mount but split by capability, exactly
 // like the territory routes: the GET is gated by features:read (every map
@@ -37,8 +39,17 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/", createCircuitHandler(db))
 	r.Patch("/{id}", updateCircuitHandler(db))
 	r.Delete("/{id}", deleteCircuitHandler(db))
-	r.With(auth.RequirePermission(auth.PermFeaturesWrite, auth.PermFeaturesWrite)).
-		Post("/{id}/assign", assignCircuitHandler(db))
+	// Preview is a READ (it traces + diffs, writes nothing), so it rides the
+	// mount's features:read GET gate -- an operator can see what an assign would
+	// churn before anyone commits it.
+	r.Get("/{id}/assign/preview", previewCircuitHandler(db))
+	// The writing verbs carry an extra features:write on top of the mount's
+	// circuits:write (they bulk-write feature rows): per-circuit assign, and the
+	// bulk "assign every stale circuit".
+	r.With(auth.RequirePermission(auth.PermFeaturesWrite, auth.PermFeaturesWrite)).Group(func(r chi.Router) {
+		r.Post("/{id}/assign", assignCircuitHandler(db))
+		r.Post("/assign-stale", assignStaleHandler(db))
+	})
 	return r
 }
 
@@ -140,6 +151,35 @@ func assignCircuitHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		res, err := AssignCircuit(r.Context(), db, id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	}
+}
+
+// previewCircuitHandler is the DRY-RUN of assign (option B): it traces from the
+// source and returns the add/remove/unchanged churn an assign would apply, writing
+// nothing (see PreviewAssignCircuit). Read-only, so it rides features:read.
+func previewCircuitHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		res, err := PreviewAssignCircuit(r.Context(), db, id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	}
+}
+
+// assignStaleHandler re-syncs every stale circuit in one call (option D), isolating
+// per-circuit failures (see AssignAllStale). Returns the aggregate counts plus any
+// circuits it couldn't assign.
+func assignStaleHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		res, err := AssignAllStale(r.Context(), db)
 		if err != nil {
 			writeError(w, err)
 			return

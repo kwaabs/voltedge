@@ -206,6 +206,22 @@ func establishConnection(ctx context.Context, db bun.IDB, req establishRequest) 
 	}
 	from, to = canonicalFrom, canonicalTo
 
+	// Terminal-cardinality guard: a terminal flagged single_connection (e.g. a
+	// cable joint's T1/T2, which splice exactly ONE cable each) may hold only one
+	// connection. A busbar terminal is the opposite -- a common node where many
+	// ways meet -- and is left unflagged, so it's never guarded. Checked for each
+	// endpoint so a second distinct feature on an already-occupied single terminal
+	// is refused up front, rather than surfacing later as a mysterious trace gap (a
+	// split that re-wired both halves onto one joint terminal is the motivating
+	// case). Re-establishing the SAME connection is still a no-op (the occupant is
+	// the same feature).
+	if err := enforceSingleConnectionTerminal(ctx, db, from, to.ref.FeatureID); err != nil {
+		return nil, err
+	}
+	if err := enforceSingleConnectionTerminal(ctx, db, to, from.ref.FeatureID); err != nil {
+		return nil, err
+	}
+
 	// Stamp the acting user (Slice E): established_by is text and now
 	// holds the actor's uuid rather than the old fixed "api" literal.
 	// Empty only on a session-less code path -- leave it NULL then rather
@@ -232,6 +248,57 @@ func establishConnection(ctx context.Context, db bun.IDB, req establishRequest) 
 	}
 
 	return formatConnection(conn, rule.Name, from, to), nil
+}
+
+// enforceSingleConnectionTerminal refuses a new connection that would put a SECOND
+// distinct feature on a terminal flagged metadata.terminals.single_connection -- a
+// one-cable-per-port terminal like a cable joint's T1/T2. Returns nil (no guard)
+// when the endpoint names no terminal, the terminal isn't flagged single, or the
+// single_connection column isn't present yet (the seed that adds it is owed), so a
+// not-yet-seeded deployment connects exactly as before. otherFeatureID is the
+// feature this endpoint is being connected TO, excluded from the occupancy check so
+// re-establishing the SAME connection is never blocked; a soft-deleted occupant
+// (feature_registry.deleted_at set) is ignored, so a deleted cable never squats a
+// terminal.
+func enforceSingleConnectionTerminal(ctx context.Context, db bun.IDB, ep *resolvedEndpoint, otherFeatureID string) error {
+	if ep.terminalID == nil {
+		return nil
+	}
+	var single bool
+	if err := db.NewSelect().
+		ColumnExpr("single_connection").
+		TableExpr("metadata.terminals").
+		Where("id = ?", *ep.terminalID).
+		Scan(ctx, &single); err != nil {
+		// No such terminal row, or the single_connection column doesn't exist yet
+		// (seed not applied): degrade to no guard rather than break connect.
+		return nil
+	}
+	if !single {
+		return nil
+	}
+	occupied, err := db.NewSelect().
+		TableExpr("runtime.feature_connectivity AS fc").
+		Where(
+			`(fc.from_feature_id = ? AND fc.from_terminal_id IS NOT DISTINCT FROM ? AND fc.to_feature_id <> ? `+
+				`AND EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = fc.to_feature_id AND r.deleted_at IS NULL)) `+
+				`OR (fc.to_feature_id = ? AND fc.to_terminal_id IS NOT DISTINCT FROM ? AND fc.from_feature_id <> ? `+
+				`AND EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = fc.from_feature_id AND r.deleted_at IS NULL))`,
+			ep.ref.FeatureID, ep.terminalID, otherFeatureID,
+			ep.ref.FeatureID, ep.terminalID, otherFeatureID,
+		).
+		Exists(ctx)
+	if err != nil {
+		return fmt.Errorf("connectivity: checking single-connection terminal: %w", err)
+	}
+	if occupied {
+		code := ""
+		if ep.terminalCode != nil {
+			code = *ep.terminalCode
+		}
+		return invalid("terminal %s on %s is a single-connection terminal and is already connected to another feature -- a cable joint splices one cable per terminal. Disconnect the existing connection first, or use a different terminal.", code, ep.ref.FeatureClass)
+	}
+	return nil
 }
 
 // listConnections returns every connection involving one feature, on

@@ -48,10 +48,21 @@ interface FloatingPanel {
   resizeHandle: ReactElement
 }
 
-export function useFloatingPanel(defaultWidth: number, defaultMaxHeightClass: string): FloatingPanel {
+export function useFloatingPanel(
+  defaultWidth: number,
+  defaultMaxHeightClass: string,
+  // options.positionClass overrides the default bottom-centre anchor (e.g. the
+  // network-audit panel anchors bottom-LEFT and stretches right with
+  // "bottom-6 left-6 right-6"). options.stretch pairs with a left+right anchor:
+  // the panel takes its width from those anchors (no explicit width) until it's
+  // moved or resized, so it fills the span instead of a fixed 600px.
+  options?: { positionClass?: string; stretch?: boolean },
+): FloatingPanel {
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const [size, setSize] = useState<{ width: number; height: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const positionClass = options?.positionClass ?? DEFAULT_POSITION_CLASS
+  const stretch = options?.stretch ?? false
 
   function onHeaderPointerDown(e: ReactPointerEvent) {
     // Left button only, and never when the press lands on an interactive
@@ -66,6 +77,12 @@ export function useFloatingPanel(defaultWidth: number, defaultMaxHeightClass: st
     // Pin the current on-screen position first so dropping the translate
     // anchor doesn't make the panel jump.
     setPosition({ x: rect.left, y: rect.top })
+    // A stretched panel is left+right anchored with no explicit width; dropping the
+    // right anchor on drag would collapse it to content width, so pin its current
+    // size -- it becomes a fixed, scrollable floating panel at its stretched size.
+    if (stretch && size == null) {
+      setSize({ width: rect.width, height: rect.height })
+    }
     e.currentTarget.setPointerCapture(e.pointerId)
 
     function onMove(ev: PointerEvent) {
@@ -110,8 +127,11 @@ export function useFloatingPanel(defaultWidth: number, defaultMaxHeightClass: st
   }
 
   const resized = size?.height != null
+  // A stretched panel left in its default spot takes its width from the left+right
+  // anchors in positionClass, so it carries no explicit width until moved/resized.
+  const stretchedDefault = stretch && position == null && size == null
   const shellStyle: CSSProperties = {
-    width: size?.width ?? defaultWidth,
+    ...(stretchedDefault ? {} : { width: size?.width ?? defaultWidth }),
     ...(position ? { left: position.x, top: position.y } : {}),
     ...(resized ? { height: size?.height } : {}),
   }
@@ -121,7 +141,7 @@ export function useFloatingPanel(defaultWidth: number, defaultMaxHeightClass: st
     // the panel reads as a distinct floating object rather than a flat grey box.
     "bg-popover text-popover-foreground fixed z-40 flex flex-col max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border/70 border-t-2 border-t-[oklch(0.45_0.10_252)] dark:border-t-primary shadow-xl ring-1 ring-black/5",
     !resized && defaultMaxHeightClass,
-    !position && DEFAULT_POSITION_CLASS,
+    !position && positionClass,
   )
   // Themed header band so the title/close row reads as a header, not another
   // sheet of white/grey. In LIGHT mode it echoes the app's blue chrome bars

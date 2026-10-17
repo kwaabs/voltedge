@@ -1031,7 +1031,7 @@ func listConfigurations(ctx context.Context, db bun.IDB) ([]traceConfigurationSu
 
 	out := make([]traceConfigurationSummary, len(configs))
 	for i, c := range configs {
-		out[i] = traceConfigurationSummary{Code: c.Code, Name: c.Name, Direction: codeByID[c.DirectionValueID]}
+		out[i] = traceConfigurationSummary{Code: c.Code, Name: c.Name, Direction: codeByID[c.DirectionValueID], ScopeToCircuit: c.ScopeToCircuit}
 	}
 	return out, nil
 }
@@ -1222,7 +1222,7 @@ func runTrace(ctx context.Context, db bun.IDB, req traceRequest) (*traceResponse
 	// so every trace carries "what consumption sits below this" alongside the
 	// topology. Reuses the same nodes/classCodes/loader the walk already built,
 	// so it costs one live read per reached SP and nothing per non-load node.
-	service, err := summarizeService(ctx, db, featureNodes, classCodes, loader)
+	service, err := summarizeService(ctx, db, featureNodes, classCodes, loader, true)
 	if err != nil {
 		return nil, err
 	}

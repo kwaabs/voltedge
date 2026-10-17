@@ -300,21 +300,21 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 		}
 
 		// external_ref reverse index (0145): mirror the registry trigger -- attach
-			// runtime.sync_external_feature_refs so each row's external_ref jsonb is
-			// indexed in runtime.external_feature_refs for O(1) inbound correlation.
-			// No backfill: external_ref is added nullable, so existing rows carry NULL
-			// -> nothing to index until set; the trigger fires from the next write on.
-			extTrigger := quoteIdent(tableName + "_external_ref_sync")
-			if _, err := tx.ExecContext(ctx, fmt.Sprintf(
-				`DROP TRIGGER IF EXISTS %s ON %s`, extTrigger, qualifiedTable)); err != nil {
-				return fmt.Errorf("drop external-ref trigger: %w", err)
-			}
-			if _, err := tx.ExecContext(ctx, fmt.Sprintf(
-				`CREATE TRIGGER %s AFTER INSERT OR UPDATE OR DELETE ON %s `+
-					`FOR EACH ROW EXECUTE FUNCTION runtime.sync_external_feature_refs(%s)`,
-				extTrigger, qualifiedTable, quoteLiteral(fc.Code))); err != nil {
-				return fmt.Errorf("create external-ref trigger: %w", err)
-			}
+		// runtime.sync_external_feature_refs so each row's external_ref jsonb is
+		// indexed in runtime.external_feature_refs for O(1) inbound correlation.
+		// No backfill: external_ref is added nullable, so existing rows carry NULL
+		// -> nothing to index until set; the trigger fires from the next write on.
+		extTrigger := quoteIdent(tableName + "_external_ref_sync")
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(
+			`DROP TRIGGER IF EXISTS %s ON %s`, extTrigger, qualifiedTable)); err != nil {
+			return fmt.Errorf("drop external-ref trigger: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(
+			`CREATE TRIGGER %s AFTER INSERT OR UPDATE OR DELETE ON %s `+
+				`FOR EACH ROW EXECUTE FUNCTION runtime.sync_external_feature_refs(%s)`,
+			extTrigger, qualifiedTable, quoteLiteral(fc.Code))); err != nil {
+			return fmt.Errorf("create external-ref trigger: %w", err)
+		}
 
 			// published_by (text) carries the acting user's uuid when compile
 		// was triggered through the admin HTTP route (Slice E); it falls

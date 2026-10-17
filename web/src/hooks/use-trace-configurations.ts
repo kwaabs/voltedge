@@ -6,6 +6,10 @@ export interface TraceConfigurationSummary {
   code: string
   name: string
   direction: string
+  /** True for a "Circuit trace" config (scope_to_circuit, migration 0069): its
+   * direction is CONNECTED, so this flag is the only way to tell it apart and
+   * group it as a network span rather than a plain direction trace. */
+  scope_to_circuit: boolean
 }
 
 interface TraceConfigurationsResponse {

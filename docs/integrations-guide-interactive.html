@@ -1,0 +1,693 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Integrations & External Systems</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px;overflow-x:auto}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto;word-break:break-word}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px;word-break:break-word}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono);display:inline-block}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green);color:var(--green)}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.pill.in{background:var(--blue-tint);color:var(--blue);border:1px solid var(--blue)}
+.pill.out{background:var(--tint);color:var(--acc-deep);border:1px solid var(--acc)}
+.pill.both{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.jsonbox{font:500 12.5px/1.5 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;white-space:pre;overflow-x:auto}
+.jsonbox .k{color:var(--blue)} .jsonbox .s{color:var(--acc-deep)} .jsonbox .p{color:var(--muted)}
+.refrow{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line2);padding:8px 2px;flex-wrap:wrap}
+.refrow:first-child{border-top:0}
+.refrow .nm{flex:1;min-width:120px;font-size:13px}
+.refrow .nm small{color:var(--muted)}
+.rm{border:0;background:none;color:var(--muted);cursor:pointer;font-size:14px;padding:2px 6px}
+.rm:hover{color:var(--red)}
+.ctl{margin-bottom:12px}
+.ctl label{display:block;font:600 12px var(--f-mono);margin-bottom:4px}
+input[type=text],textarea,select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+textarea{resize:vertical;line-height:1.5}
+.switch{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.switch input{accent-color:var(--acc)}
+.flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font:600 12px var(--f-mono);margin:10px 0}
+.flow .node{border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:var(--surface)}
+.flow .arr{color:var(--muted)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+.card .n{font:800 22px var(--f-display);color:var(--acc);font-stretch:80%}
+.twocol{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+[hidden]{display:none!important}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .twocol{grid-template-columns:1fr}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Integrations</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · Overview</a><a href="#c2">2 · Catalog</a><a href="#c3">3 · Links</a><a href="#c4">4 · References</a><a href="#c5">5 · Live fetch</a><a href="#c6">6 · Webhooks</a><a href="#c7">7 · Mapping</a><a href="#c8">8 · Correlate</a><a href="#c9">9 · Pull &amp; out</a><a href="#c10">10 · Agent/MCP</a><a href="#c11">11 · Security</a><a href="#c12">12 · Check</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · integrations · join a feature to SCADA, AMI, CIS &amp; more</div>
+  <h1>One asset.<br><span>Every system.</span></h1>
+  <p class="lede">The same transformer is a tag in SCADA; the same service point is a meter in AMI and an account in CIS. This edition is a working one: register a system, tag a feature, build a live-fetch URL from a template, transform a foreign payload with a mapping spec, sign a webhook with real HMAC, and watch an inbound push <em>adopt</em> the right feature instead of duplicating it.</p>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Ada</b> holds <span class="perm">metadata:write</span> — she registers systems &amp; webhooks. <b>Tom</b> holds <span class="perm">features:write</span> — he links and tags features. <b>Dana</b> holds only <span class="perm">features:read</span> — she can look, not change. Actions lock to what the persona may do.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">The one idea</span>
+<p>Integration is about <b>keeping identities joined up without copying everything into one database</b>. VoltEdge stays the system of record for the network; each feature just carries a small note of what it's called elsewhere — the <b>external reference</b> — and that one note drives both looking <em>out</em> (fetch live data) and taking things <em>in</em> (a webhook push finds the right feature).</p></div>
+
+<!-- 1 -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">1</div><h2>The four building blocks</h2><p>Set them up in this order; two directions run through all of them.</p></div>
+  <div class="pl-b"><span class="tag pl">In plain terms</span>
+  <p>First register a <b>system</b> (once). Then, per feature, add <b>links</b> (pointers out), record <b>references</b> (its id elsewhere), and configure <b>webhooks</b> (so another system can push changes in). References are the hinge: set a feature's id once and it works both ways.</p></div>
+  <div class="cards">
+    <div class="card"><div class="n">1</div><h4>Catalog</h4><p>Register a system once — base URL, auth, a live-fetch path template. <span class="perm">metadata:write</span></p></div>
+    <div class="card"><div class="n">2</div><h4>Links</h4><p>Per-feature pointers out — a hyperlink or a proxied "live data" link. <span class="perm">features:write</span></p></div>
+    <div class="card"><div class="n">3</div><h4>References</h4><p>This feature's id in that system (<code>external_ref</code>) — the correlation source of truth. <span class="perm">features:write</span></p></div>
+    <div class="card"><div class="n">4</div><h4>Webhooks</h4><p>Another system pushes changes in (or we pull / emit out). <span class="perm">metadata:write</span></p></div>
+  </div>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Which way does it flow?</h4></div>
+    <div class="w-bar"><div class="seg" id="fl-seg">
+      <button data-k="link" aria-pressed="true">Live-data link</button><button data-k="ref">External reference</button><button data-k="push">Webhook push</button><button data-k="pull">Pull</button><button data-k="out">Outbound event</button>
+    </div></div>
+    <div class="w-body"><div class="flow" id="fl-flow"></div><p id="fl-note" class="muted" style="font-size:14px;margin:0"></p></div>
+  </div>
+  <div class="callout">The connective tissue between out and in is the external reference: the id a feature carries in another system. Set it once; it serves both directions.</div>
+</section>
+
+<!-- 2 -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">2</div><h2>Register a system</h2><p>The catalog entry every other block points at. Admin → External systems.</p></div>
+  <div class="en-b"><span class="tag en">Ada's job</span><p>🔒 Registering a system needs <span class="perm">metadata:write</span>. A system is a stable <b>code</b> (uppercased — <code>SCADA</code>, <code>AMI</code>, <code>CIS</code>), a <b>base URL</b>, how to <b>authenticate</b>, and an optional <b>live-fetch path template</b>. The secret is sealed and never shown again.</p></div>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Admin → External systems</span><h4>New system</h4></div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="ctl"><label>Code</label><input type="text" id="rg-code" value="AMI"></div>
+        <div class="ctl"><label>Base URL</label><input type="text" id="rg-url" value="https://ami.example.com/api"></div>
+        <div class="ctl"><label>Authentication</label><select class="fld" id="rg-auth"><option value="none">None</option><option value="api_key" selected>API key (header)</option><option value="basic">Basic (username + password)</option><option value="bearer">Bearer token</option></select></div>
+        <div class="ctl" id="rg-hdr-wrap"><label>Header name</label><input type="text" id="rg-hdr" value="X-API-Key"></div>
+        <div class="ctl" id="rg-usr-wrap" hidden><label>Username</label><input type="text" id="rg-usr" value="voltedge"></div>
+        <div class="ctl" id="rg-cred-wrap"><label>Secret</label><input type="text" id="rg-cred" placeholder="the API key / token / password"></div>
+        <div class="ctl"><label>Live-data path template <span class="muted">(optional)</span></label><input type="text" id="rg-tmpl" value="/meters/{id}/consumption"></div>
+        <button class="btn pri" id="rg-save" data-need="metadata:write">Save system</button>
+      </div>
+      <div class="w-side">
+        <div class="lab" style="margin-bottom:6px">What the API stores &amp; returns</div>
+        <dl class="kv" id="rg-kv"></dl>
+        <p id="rg-msg" class="muted" style="font-size:13px;margin-top:10px"></p>
+      </div>
+    </div>
+  </div>
+  <div class="tip"><b>tip</b> You can register a system with <b>no auth and no template</b> just to <em>name an inbound correlation source</em> — a <code>SCADA</code> entry whose only job is to be the system code a webhook matches against (Chapter 6). The catalog is the registry of <em>who</em> a feature can be joined to.</div>
+  <div class="caution"><b>caution</b> The secret is sealed with <b>AES-256-GCM</b> and is <b>write-only</b> — the API returns only <code>has_credential</code>. With no encryption key configured on the server, storing a credential is refused outright, never saved in the clear.</div>
+</section>
+
+<!-- 3 -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">3</div><h2>Link a feature outward</h2><p>The feature panel's Links tab. A hyperlink, or a proxied live-data link.</p></div>
+  <div class="pl-b"><span class="tag pl">In plain terms</span><p>A <b>link</b> is a per-feature pointer. A <b>hyperlink</b> opens a page in a new tab. A <b>live data</b> link fetches a stored address <em>server-side</em> and shows the result — the browser never touches the third party.</p></div>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Links tab → Add link</span><h4>Pick a kind</h4></div>
+    <div class="w-bar"><div class="seg" id="lk-seg"><button data-k="hyperlink" aria-pressed="true">Hyperlink</button><button data-k="api">Live data (api)</button></div></div>
+    <div class="w-split">
+      <div class="w-main">
+        <div id="lk-hyper">
+          <div class="ctl"><label>Label</label><input type="text" value="Asset dashboard" id="lk-label1"></div>
+          <div class="ctl"><label>URL (absolute http/https)</label><input type="text" id="lk-url" value="https://dash.example.com/tx/FDR7-TX1"></div>
+        </div>
+        <div id="lk-api" hidden>
+          <div class="ctl"><label>Label</label><input type="text" value="CIS account" id="lk-label2"></div>
+          <div class="ctl"><label>System</label><select class="fld" id="lk-sys"><option>CIS</option><option>AMI</option><option>SCADA</option></select></div>
+          <div class="ctl"><label>Resource path (must be relative)</label><input type="text" id="lk-path" value="accounts/8842"></div>
+        </div>
+        <button class="btn pri" id="lk-add" data-need="features:write">Add link</button>
+      </div>
+      <div class="w-side"><div class="lab" style="margin-bottom:6px">Validation</div><div class="readout" id="lk-out"></div></div>
+    </div>
+  </div>
+  <div class="tip"><b>tip</b> A link is a pointer <em>you chose</em> ("fetch exactly this path"). A <b>reference</b> (next) records the feature's <em>identity</em> and lets VoltEdge build the path from a template — and it also works inbound. One-off doc → link; "this feature is meter 48213" → reference.</div>
+</section>
+
+<!-- 4 -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">4</div><h2>External references</h2><p>The feature's id in another system — the correlation source of truth.</p></div>
+  <div class="en-b"><span class="tag en">Tom's job</span><p>🔒 Editing references needs <span class="perm">features:write</span> (and 🗺️ territory write access to the feature). Each feature has one <code>external_ref</code> JSONB; a value is a <b>scalar id</b> or an <b>object</b> whose <code>id</code> is the correlation key and whose other fields fill a richer template.</p></div>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">SERVICE_POINT · 12 Oakwood Rise · Feeder 7</span><h4>External references</h4></div>
+    <div class="w-bar">
+      <input type="text" id="er-sys" placeholder="SYSTEM" style="width:110px;text-transform:uppercase">
+      <div class="seg" id="er-kind"><button data-k="scalar" aria-pressed="true">id</button><button data-k="object">object</button></div>
+      <input type="text" id="er-id" placeholder="id, or {&quot;id&quot;:&quot;…&quot;,…}" style="width:220px">
+      <button class="btn pri" id="er-add" data-need="features:write">Add</button>
+    </div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="lab" style="margin-bottom:4px">References on this feature</div>
+        <div id="er-list"></div>
+      </div>
+      <div class="w-side">
+        <div class="lab" style="margin-bottom:6px">external_ref (on the feature)</div>
+        <div class="jsonbox" id="er-json"></div>
+        <div class="lab" style="margin:12px 0 6px">runtime.external_feature_refs (reverse index)</div>
+        <div class="readout" id="er-idx" style="font-size:12px"></div>
+      </div>
+    </div>
+  </div>
+  <div class="caution"><b>caution</b> A <b>soft-deleted</b> feature drops out of the reverse index, so a deleted feature can never be adopted by an inbound push; restoring it re-indexes it. One reference per system per feature.</div>
+</section>
+
+<!-- 5 -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">5</div><h2>Pull live data</h2><p>The template turns an id into a request path — then the proxy fetches it.</p></div>
+  <div class="pl-b"><span class="tag pl">In plain terms</span><p>The system's <b>path template</b> has <code>{placeholders}</code>. <code>{id}</code>/<code>{ref}</code> come from a scalar reference; named fields come from an object reference. VoltEdge fills them, checks the result is still a <em>relative</em> path (so a bad id can't point at another host), and fetches through the proxy.</p></div>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Path-template URL builder</h4></div>
+    <div class="w-bar">
+      <label class="lab" for="pt-kind">Reference value</label>
+      <div class="seg" id="pt-kind"><button data-k="scalar" aria-pressed="true">Scalar id</button><button data-k="object">Object ref</button></div>
+    </div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="ctl"><label>base_url</label><input type="text" id="pt-base" value="https://scada.example.com"></div>
+        <div class="ctl"><label>path_template</label><input type="text" id="pt-tmpl" value="/points/{id}/{point}"></div>
+        <div id="pt-scalar" hidden><div class="ctl"><label>external_ref["SCADA"]  (scalar)</label><input type="text" id="pt-sid" value="FDR7.TX1"></div></div>
+        <div id="pt-object"><div class="ctl"><label>external_ref["SCADA"]  (object JSON)</label><input type="text" id="pt-obj" value='{"id":"FDR7.TX1","point":"MW"}'></div></div>
+      </div>
+      <div class="w-side">
+        <div class="lab" style="margin-bottom:6px">Fetch request</div>
+        <div class="readout" id="pt-out"></div>
+      </div>
+    </div>
+  </div>
+  <div class="tip"><b>tip</b> A referenced placeholder the value doesn't provide is a <b>clear error</b>, never a silently wrong URL. Every substituted value is path-escaped, and the <b>live fetch is features:read</b> — anyone who can open the feature can read its live data.</div>
+</section>
+
+<!-- 6 -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">6</div><h2>Receive a webhook</h2><p>Another system pushes a change; VoltEdge authenticates and applies it.</p></div>
+  <div class="en-b"><span class="tag en">Ada's job</span><p>🔒 Webhook endpoints need <span class="perm">metadata:write</span>. Each endpoint has its own URL <code>POST /webhooks/{id}</code> and its own credential. Ingested writes run as the endpoint's <b>service user</b>, so they inherit that user's RBAC, territory scope and history.</p></div>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it — real HMAC-SHA256 in your browser</span><h4>Sign &amp; verify a delivery</h4></div>
+    <div class="w-bar">
+      <label class="lab">Auth mode</label><div class="seg" id="hm-mode"><button data-k="hmac" aria-pressed="true">hmac</button><button data-k="bearer">bearer</button><button data-k="both">both</button></div>
+      <label class="switch"><input type="checkbox" id="hm-idem"> send Idempotency-Key</label>
+    </div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="ctl"><label>Signing secret</label><input type="text" id="hm-secret" value="s3cr3t-shared-with-CIS"></div>
+        <div class="ctl"><label>Body</label><textarea id="hm-body" rows="3">{"op":"upsert","external_id":"8842","attributes":{"tariff":"D1"}}</textarea></div>
+        <div class="ctl"><label>X-VoltEdge-Timestamp (unix seconds)</label><input type="text" id="hm-ts"></div>
+        <div class="w-bar" style="padding-inline:0;border:0">
+          <button class="btn" id="hm-now">Set to now</button>
+          <button class="btn" id="hm-old">Set 7 min ago</button>
+          <button class="btn pri" id="hm-sign">Sign &amp; send →</button>
+        </div>
+      </div>
+      <div class="w-side">
+        <div class="lab" style="margin-bottom:6px">Request headers</div>
+        <div class="readout" id="hm-sig" style="font-size:11px">—</div>
+        <div class="lab" style="margin:12px 0 6px">Receiver verdict</div>
+        <div id="hm-verdict"></div>
+      </div>
+    </div>
+  </div>
+  <div class="twocol">
+    <div>
+      <h4 style="margin-bottom:4px">Targets</h4>
+      <div class="tbl"><table>
+        <tr><th>Target</th><th>Drives</th></tr>
+        <tr><td><code>feature</code></td><td>Create / Update / Delete feature (the hand-edit path)</td></tr>
+        <tr><td><code>reading</code></td><td>A reading modelled as a feature row</td></tr>
+        <tr><td><code>work</code></td><td>The WAM engine</td></tr>
+        <tr><td><code>fault</code></td><td>The Faults engine</td></tr>
+      </table></div>
+    </div>
+    <div>
+      <h4 style="margin-bottom:4px">The change shape</h4>
+      <div class="jsonbox">{
+  <span class="k">"op"</span>: <span class="s">"upsert"</span>,   <span class="p">// or "delete"</span>
+  <span class="k">"external_id"</span>: <span class="s">"8842"</span>,  <span class="p">// correlation key (required)</span>
+  <span class="k">"feature_class"</span>: <span class="s">"SERVICE_POINT"</span>,
+  <span class="k">"attributes"</span>: { <span class="k">"tariff"</span>: <span class="s">"D1"</span> }
+}</div>
+      <p class="muted" style="font-size:13px">Batch many under <code>{"changes":[ … ]}</code>. <code>feature_class</code> falls back to the endpoint's default.</p>
+    </div>
+  </div>
+  <div class="caution"><b>caution</b> The timestamp must be within <b>5 minutes</b> of now — an out-of-window request is rejected <em>even with a valid signature</em>, defeating replay. An <code>Idempotency-Key</code> de-duplicates a retried delivery (returns the original id at <code>200</code>); a fresh one is <code>202 Accepted</code> and applied by an out-of-process worker.</div>
+  <div class="tip"><b>tip</b> The endpoint's <b>Deliveries</b> log (newest 100) shows every attempt's status; <b>Test</b> pastes-and-applies a payload inline to validate auth + mapping before go-live; <b>Replay</b> re-enqueues a stored delivery. The receiver never stores the <code>Authorization</code> header or the raw signature — only non-secret metadata.</div>
+</section>
+
+<!-- 7 -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">7</div><h2>Senders that don't speak VoltEdge</h2><p>A mapping spec transforms a foreign payload into native changes — before the adapter.</p></div>
+  <div class="pl-b"><span class="tag pl">In plain terms</span><p>Most systems emit their own JSON shape. A <b>field mapping</b> on the endpoint rewrites it into VoltEdge's change shape: point <code>items_path</code> at the array of records, then map each field with a <code>const</code> (literal), a <code>path</code> (dot-path into the sender's JSON), or nested <code>fields</code> — with an optional <code>map</code> (value translation) and <code>default</code>.</p></div>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it — the real transform</span><h4>Mapping playground</h4></div>
+    <div class="w-body">
+      <div class="twocol">
+        <div class="ctl"><label>Sender payload</label><textarea id="mp-payload" rows="11">{
+  "data": { "records": [
+    { "meterNo": "48213", "addr": "12 Oakwood Rise", "rateCode": "R" },
+    { "meterNo": "48977", "addr": "7 Birch Way",      "rateCode": "C" }
+  ] }
+}</textarea></div>
+        <div class="ctl"><label>Mapping spec (on the endpoint)</label><textarea id="mp-spec" rows="11">{
+  "items_path": "data.records",
+  "fields": {
+    "external_id": { "path": "meterNo" },
+    "op":          { "const": "upsert" },
+    "feature_class": { "const": "SERVICE_POINT" },
+    "name":        { "path": "addr" },
+    "attributes":  { "fields": {
+       "tariff": { "path": "rateCode",
+                   "map": { "R": "D1", "C": "C1" },
+                   "default": "D1" } } }
+  }
+}</textarea></div>
+      </div>
+      <button class="btn pri" id="mp-run">Transform →</button>
+      <div class="lab" style="margin:12px 0 6px">Native change objects (what the adapter receives)</div>
+      <div class="jsonbox" id="mp-out"></div>
+    </div>
+  </div>
+  <div class="tip"><b>tip</b> The spec is decoded <b>strictly</b> — an unknown key is rejected when you save the endpoint, so a typo is caught at configure time, not at 2 a.m. during a delivery. (Try renaming <code>path</code> to <code>paht</code> and transforming.)</div>
+</section>
+
+<!-- 8 -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">8</div><h2>Adopt, don't duplicate</h2><p>Where webhooks meet references — the join that stops double records.</p></div>
+  <div class="pl-b"><span class="tag pl">In plain terms</span><p>Set the endpoint's <b>system code</b> and a first-sight push checks the reverse index: if a feature of that class already claims the id, VoltEdge <b>updates it</b> instead of creating a twin. A genuinely new id creates a feature and <b>stamps its reference</b> so next time is a direct hit.</p></div>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>What happens to an inbound CIS push for account <code>8842</code>?</h4></div>
+    <div class="w-bar">
+      <label class="switch"><input type="checkbox" id="ad-syscode" checked> endpoint has <b>system_code = CIS</b></label>
+      <label class="switch"><input type="checkbox" id="ad-claimed" checked> a SERVICE_POINT already references <b>CIS:8842</b></label>
+    </div>
+    <div class="w-body"><div class="flow" id="ad-flow"></div><div class="readout" id="ad-out"></div></div>
+  </div>
+  <div class="tip"><b>tip</b> Leave system code blank and the endpoint falls back to its own per-endpoint correlation only (the historic behaviour) — safe, but it can't adopt a feature an operator tagged by hand. Set it to close the loop between what Tom tags and what CIS pushes.</div>
+  <div class="callout">Tag the service point as CIS 8842 once, and the first CIS push for 8842 updates that same feature — two systems, one asset, no duplicate.</div>
+</section>
+
+<!-- 9 -->
+<section class="ch" id="c9">
+  <div class="ch-head"><div class="ch-num">9</div><h2>Pull &amp; outbound</h2><p>The other two directions on the same endpoint model.</p></div>
+  <div class="en-b"><span class="tag en">Ada's job</span><p>🔒 Both need <span class="perm">metadata:write</span>. A <b>pull</b> endpoint inverts a push — VoltEdge fetches a feed instead of waiting to be called. An <b>outbound</b> endpoint emits a signed event when a matching feature changes, keeping the other system in step.</p></div>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Direction = </span><div class="seg" id="dr-seg"><button data-k="push" aria-pressed="true">push</button><button data-k="pull">pull</button><button data-k="outbound">outbound</button></div></div>
+    <div class="w-split">
+      <div class="w-main"><div class="lab" style="margin-bottom:6px">Config this direction uses</div><dl class="kv" id="dr-kv"></dl></div>
+      <div class="w-side"><div class="lab" style="margin-bottom:6px">What it does</div><p id="dr-note" style="font-size:14px;margin:0"></p></div>
+    </div>
+  </div>
+  <div class="tip"><b>tip</b> Outbound signs each delivery with <code>X-VoltEdge-Signature</code> (and tags it <code>X-VoltEdge-Delivery</code>), mirroring the inbound HMAC scheme so the receiver verifies it the same way. The endpoint view adds <b>Ping</b> (a synthetic event), an outbound delivery log, and per-delivery replay — the same operability as the inbound side.</div>
+  <div class="callout">Inbound keeps VoltEdge in step with the world; outbound keeps the world in step with VoltEdge. A full round-trip integration runs both, joined by each feature's external_ref.</div>
+</section>
+
+<!-- 10 -->
+<section class="ch" id="c10">
+  <div class="ch-head"><div class="ch-num">10</div><h2>Automate it</h2><p>The feature-level actions are agent/MCP tools too.</p></div>
+  <div class="pl-b"><span class="tag pl">In plain terms</span><p>The same functions the panel and REST routes call are exposed as tools, so the in-app assistant or an external MCP client can read and set a feature's links and references — under the caller's own permissions.</p></div>
+  <div class="tbl"><table>
+    <tr><th>Tool</th><th>Does</th><th>Needs</th></tr>
+    <tr><td><code>feature_link_list</code></td><td>List a feature's links</td><td><span class="perm">features:read</span></td></tr>
+    <tr><td><code>feature_link_create / _update / _delete</code></td><td>Manage links</td><td><span class="perm">features:write</span></td></tr>
+    <tr><td><code>feature_external_refs_get</code></td><td>Read a feature's <code>external_ref</code> map</td><td><span class="perm">features:read</span></td></tr>
+    <tr><td><code>feature_external_refs_set</code></td><td>Replace a feature's <code>external_ref</code> map (whole-map replace)</td><td><span class="perm">features:write</span></td></tr>
+  </table></div>
+  <div class="caution"><b>caution</b> The <b>live-data fetch is deliberately not an agent tool</b> — it needs the encryption key and makes an outbound call, neither of which the stateless tool registry supplies. The agent surface stays database-only (read/set the ids; a human or the panel does the live fetch), mirroring the same decision for stored api links.</div>
+</section>
+
+<!-- 11 -->
+<section class="ch" id="c11">
+  <div class="ch-head"><div class="ch-num">11</div><h2>Security &amp; operations</h2><p>What holds the whole surface together.</p></div>
+  <div class="cards">
+    <div class="card"><h4>🛡️ SSRF-hardened proxy</h4><p>Every outbound call (link, ref fetch, pull) is relative to the registered base URL and refuses private/loopback/link-local targets. A filled template is re-checked to be relative.</p></div>
+    <div class="card"><h4>🔑 Sealed credentials</h4><p>System credentials &amp; webhook signing secrets are AES-256-GCM sealed, write-only, surfaced only as a boolean. No key ⇒ refuse to store, never plaintext.</p></div>
+    <div class="card"><h4>⏱️ Replay &amp; idempotency</h4><p>Inbound HMAC carries a 5-minute timestamp window; <code>Idempotency-Key</code> de-duplicates retried deliveries.</p></div>
+    <div class="card"><h4>🗺️ Territory &amp; drafts</h4><p>Reading/writing a feature's links &amp; refs is gated exactly like the feature; inbound writes run as the service user and inherit that scope.</p></div>
+    <div class="card"><h4>🗑️ Deleted leaves the index</h4><p>A soft-deleted feature drops out of the reverse index, so it can never be adopted by an inbound push; restoring re-indexes it.</p></div>
+  </div>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>SSRF: is this fetch target allowed?</h4></div>
+    <div class="w-bar"><input type="text" id="ss-path" value="accounts/8842" style="flex:1;min-width:200px"><span class="muted" style="font-size:12px">resolved against the system's base URL</span></div>
+    <div class="w-body"><div class="readout" id="ss-out"></div></div>
+  </div>
+</section>
+
+<!-- 12 -->
+<section class="ch" id="c12">
+  <div class="ch-head"><div class="ch-num">12</div><h2>Check yourself</h2><p>Ten questions on the integration surface.</p></div>
+  <div id="qz"></div>
+  <footer>
+    <p><b>VoltEdge · Integrations &amp; External Systems</b> — the interactive companion to the Markdown guide. Everything here runs on the real rules: AES-256-GCM sealed credentials, the <code>{id}</code>/<code>{field}</code> template fill with its relative-path guard, the strict mapping spec, HMAC-SHA256 over <code>timestamp + "." + body</code> with a 5-minute replay window, and adopt-not-duplicate correlation against the reverse index.</p>
+    <p class="muted">The HMAC is computed in your browser with the Web Crypto API; the mapping transform runs the same const/path/fields + map/default rules the server does. No network, no data leaves the page.</p>
+  </footer>
+</section>
+
+</div>
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* personas */
+const PERSONAS={
+  ada:{name:'Ada',role:'Admin — catalog & webhooks',perms:['metadata:write','metadata:read','features:read']},
+  tom:{name:'Tom',role:'Operator — links & references',perms:['features:write','features:read','metadata:read']},
+  dana:{name:'Dana',role:'Read-only',perms:['features:read']}
+};
+let persona='tom';
+const can=p=>PERSONAS[persona].perms.includes(p);
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=Object.entries(PERSONAS).map(([k,p])=>`<option value="${k}">${p.name}</option>`).join(''); sel.value=persona; sel.onchange=()=>{ persona=sel.value; applyGates(); }; })();
+function applyGates(){ $$('[data-need]').forEach(b=>{ const ok=can(b.dataset.need); b.classList.toggle('locked',!ok); b.disabled=!ok; let g=b.nextElementSibling; if(g&&g.classList&&g.classList.contains('gate')) g.remove(); if(!ok){ const s=document.createElement('span'); s.className='gate'; s.textContent='needs '+b.dataset.need; b.after(s); } }); }
+
+/* shared helpers */
+function getPath(v,path){ if(!path) return v; const parts=String(path).split('.'); let cur=v;
+  for(const p of parts){ if(cur==null) return undefined; if(Array.isArray(cur)){ const i=parseInt(p,10); cur=isNaN(i)?undefined:cur[i]; } else if(typeof cur==='object'){ cur=cur[p]; } else return undefined; } return cur; }
+function relOK(p){ return !(/^[a-z][a-z0-9+.\-]*:/i.test(p)||p.startsWith('//')); }
+function hljson(j){ return esc(j).replace(/"([^"]+)":/g,'"<span class="k">$1</span>":').replace(/: ?"([^"]*)"/g,': "<span class="s">$1</span>"'); }
+
+/* 1 · flow */
+const FLOWS={
+  link:{nodes:['Feature link','VoltEdge proxy','External system'],dir:'out',note:'Outbound. You stored an address; VoltEdge fetches it server-side and shows the result. Nothing is persisted — a live read.'},
+  ref:{nodes:['external_ref','both ways','SCADA / AMI / CIS'],dir:'both',note:'Both. The id on the feature builds the outbound URL AND lets an inbound push find the feature. The hinge between the two directions.'},
+  push:{nodes:['External system','POST /webhooks/{id}','Feature write'],dir:'in',note:'Inbound. Another system calls us; the delivery is authenticated, correlated, and applied through the ordinary write path.'},
+  pull:{nodes:['VoltEdge','GET pull_url','External system'],dir:'out',note:'Outbound trigger, inbound data. VoltEdge fetches a feed on demand and applies it inline — same payload & correlation as a push.'},
+  out:{nodes:['Feature change','Outbound delivery','External system'],dir:'out',note:'Outbound. VoltEdge emits a signed event when a matching feature changes, keeping the other system in step.'}
+};
+(function(){ let cur='link';
+  function paint(){ const f=FLOWS[cur]; const pill=f.dir==='in'?'<span class="pill in">INBOUND</span>':f.dir==='both'?'<span class="pill both">BOTH</span>':'<span class="pill out">OUTBOUND</span>';
+    const arrs=f.dir==='in'?'←':f.dir==='both'?'↔':'→';
+    $('#fl-flow').innerHTML=pill+'&nbsp;&nbsp;'+f.nodes.map(n=>`<span class="node">${esc(n)}</span>`).join(`<span class="arr">${arrs}</span>`);
+    $('#fl-note').textContent=f.note; $$('#fl-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur)); }
+  $('#fl-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); }; paint();
+})();
+
+/* 2 · registration */
+(function(){ const st={};
+  function read(){ st.code=$('#rg-code').value.trim().toUpperCase(); st.url=$('#rg-url').value.trim(); st.auth=$('#rg-auth').value; st.hdr=$('#rg-hdr').value.trim(); st.usr=$('#rg-usr').value.trim(); st.tmpl=$('#rg-tmpl').value.trim(); st.cred=$('#rg-cred').value.trim(); }
+  function paint(){ $('#rg-hdr-wrap').hidden = st.auth!=='api_key'; $('#rg-usr-wrap').hidden = st.auth!=='basic'; $('#rg-cred-wrap').hidden = st.auth==='none';
+    const urlBad = st.url && !/^https?:\/\/.+/i.test(st.url);
+    $('#rg-kv').innerHTML =
+      `<dt>code</dt><dd>${esc(st.code)||'<span class="p">—</span>'}</dd>`+
+      `<dt>base_url</dt><dd>${esc(st.url)||'<span class="p">—</span>'}${urlBad?' <span style="color:var(--amber)">must be http(s)</span>':''}</dd>`+
+      `<dt>auth_type</dt><dd>${esc(st.auth)}</dd>`+
+      (st.auth==='api_key'?`<dt>auth_header</dt><dd>${esc(st.hdr)||'<span style="color:var(--amber)">required</span>'}</dd>`:'')+
+      (st.auth==='basic'?`<dt>auth_username</dt><dd>${esc(st.usr)||'<span style="color:var(--amber)">required</span>'}</dd>`:'')+
+      (st.auth!=='none'?`<dt>has_credential</dt><dd>${st.saved&&st.cred?'<span style="color:var(--green)">true (sealed)</span>':'<span class="p">false</span>'}</dd>`:'')+
+      `<dt>path_template</dt><dd>${esc(st.tmpl)||'<span class="p">null (push/link-only)</span>'}</dd>`+
+      `<dt>credential</dt><dd><span class="p">never returned</span></dd>`; }
+  ['#rg-code','#rg-url','#rg-hdr','#rg-usr','#rg-tmpl','#rg-cred'].forEach(s=>$(s).oninput=()=>{st.saved=false;read();paint();});
+  $('#rg-auth').onchange=()=>{st.saved=false;read();paint();$('#rg-msg').textContent='';};
+  $('#rg-save').onclick=()=>{ if(!can('metadata:write')) return; read();
+    if(st.url && !/^https?:\/\/.+/i.test(st.url)){ $('#rg-msg').innerHTML='<span style="color:var(--amber)">base_url must be an absolute http(s) URL.</span>'; return; }
+    if(st.auth!=='none'&&!st.cred){ st.saved=true; paint(); $('#rg-msg').innerHTML='<span style="color:var(--amber)">A credential is required for this auth type.</span>'; return; }
+    st.saved=true; paint(); $('#rg-msg').innerHTML='Saved — the secret is sealed with AES-256-GCM and never returned.'; };
+  read(); paint();
+})();
+
+/* 3 · links */
+(function(){ let kind='hyperlink';
+  function paint(){ $('#lk-hyper').hidden=kind!=='hyperlink'; $('#lk-api').hidden=kind!=='api'; $$('#lk-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===kind));
+    if(kind==='hyperlink'){ const u=$('#lk-url').value.trim(); const ok=/^https?:\/\/.+/i.test(u);
+      $('#lk-out').innerHTML=`<b>kind</b> hyperlink<br><b>url</b> must be absolute http/https<br>`+(ok?'<span class="fbox good">valid</span> opens in a new tab':'<span class="fbox bad">invalid</span> needs an absolute http(s) URL'); }
+    else { const p=$('#lk-path').value.trim(); const abs=!relOK(p); const sys=$('#lk-sys').value;
+      $('#lk-out').innerHTML=`<b>kind</b> api<br><b>system</b> ${esc(sys)}<br><b>resource_path</b> must be relative<br>`+
+        (p===''?'<span class="fbox bad">invalid</span> path required':abs?'<span class="fbox bad">rejected</span> absolute — would repoint the host (SSRF guard)':`<span class="fbox good">valid</span> → fetched via proxy against ${esc(sys)}'s base URL`); } }
+  $('#lk-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b)return; kind=b.dataset.k; paint(); };
+  ['#lk-url','#lk-path'].forEach(s=>$(s).oninput=paint); $('#lk-sys').onchange=paint;
+  $('#lk-add').onclick=()=>{ if(!can('features:write'))return; const ok=$('#lk-out').querySelector('.fbox.good'); if(ok&&!ok.dataset.done){ ok.dataset.done='1'; ok.insertAdjacentHTML('afterend',' <span style="color:var(--green)">· added</span>'); } };
+  paint();
+})();
+
+/* 4 · external_ref editor */
+(function(){ let refs={AMI:'48213', CIS:'8842'}; let kind='scalar';
+  function corrId(v){ if(typeof v==='string') return v; if(v&&typeof v==='object'&&typeof v.id==='string') return v.id; return null; }
+  function render(){
+    const keys=Object.keys(refs);
+    $('#er-list').innerHTML = keys.length? keys.map(k=>{ const v=refs[k]; const disp=typeof v==='string'?v:JSON.stringify(v);
+      return `<div class="refrow"><span class="nm"><b>${esc(k)}</b> <small>· ${esc(disp)}</small></span>${can('features:write')?`<button class="rm" data-k="${esc(k)}" title="Remove">✕</button>`:''}</div>`; }).join('') : '<p class="muted" style="font-size:13px">No external references.</p>';
+    const body = keys.length? '{\n'+keys.map(k=>`  "${esc(k)}": ${typeof refs[k]==='string'?'"'+esc(refs[k])+'"':esc(JSON.stringify(refs[k]))}`).join(',\n')+'\n}' : '{}  (null column)';
+    $('#er-json').innerHTML = hljson(body);
+    const idx = keys.map(k=>({k,id:corrId(refs[k])})).filter(r=>r.id);
+    $('#er-idx').innerHTML = idx.length? idx.map(r=>`(<b>${esc(r.k)}</b>, <b>${esc(r.id)}</b>) → this SERVICE_POINT`).join('<br>') : '<span class="muted">(no indexable rows)</span>';
+    $$('#er-list .rm').forEach(b=>b.onclick=()=>{ if(!can('features:write'))return; delete refs[b.dataset.k]; render(); });
+  }
+  $('#er-kind').onclick=e=>{ const b=e.target.closest('button'); if(!b)return; kind=b.dataset.k; $$('#er-kind button').forEach(x=>x.setAttribute('aria-pressed',x.dataset.k===kind)); $('#er-id').placeholder = kind==='scalar'?'id, e.g. 48213':'{"id":"FDR7.TX1","point":"MW"}'; };
+  $('#er-add').onclick=()=>{ if(!can('features:write'))return; const s=$('#er-sys').value.trim().toUpperCase(), raw=$('#er-id').value.trim();
+    if(!s||!raw) return; let val=raw;
+    if(kind==='object'){ try{ val=JSON.parse(raw); }catch(e){ $('#er-id').style.borderColor='var(--red)'; return; } }
+    $('#er-id').style.borderColor=''; refs[s]=val; $('#er-sys').value=''; $('#er-id').value=''; render(); };
+  window.__erRender=render; render();
+})();
+
+/* 5 · path template */
+(function(){ let kind='scalar';
+  function fill(tmpl,fields){ let missing=null; const out=tmpl.replace(/\{([a-zA-Z0-9_]+)\}/g,(m,n)=>{ if(n in fields) return encodeURIComponent(fields[n]); if(!missing) missing=n; return m; }); return {out,missing}; }
+  function paint(){ $('#pt-scalar').hidden=kind!=='scalar'; $('#pt-object').hidden=kind!=='object'; $$('#pt-kind button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===kind));
+    const base=$('#pt-base').value.trim(), tmpl=$('#pt-tmpl').value.trim();
+    let fields={}, err=null;
+    if(kind==='scalar'){ const id=$('#pt-sid').value.trim(); fields={id,ref:id}; }
+    else { try{ const o=JSON.parse($('#pt-obj').value); Object.entries(o).forEach(([k,v])=>{ if(['string','number','boolean'].includes(typeof v)) fields[k]=String(v); }); }catch(e){ err='external_ref value is not valid JSON'; } }
+    if(err){ $('#pt-out').innerHTML=`<span class="fbox bad">error</span> ${esc(err)}`; return; }
+    const {out,missing}=fill(tmpl,fields);
+    if(missing){ $('#pt-out').innerHTML=`<span class="fbox bad">error</span> template needs <b>{${esc(missing)}}</b>, which this reference doesn't provide`; return; }
+    if(!relOK(out)){ $('#pt-out').innerHTML=`<span class="fbox bad">blocked</span> filled path isn't relative — rejected (SSRF guard)`; return; }
+    $('#pt-out').innerHTML=`<b>path</b> ${esc(out)}<br><b>GET</b> ${esc(base.replace(/\/$/,''))}${esc(out)}<br><br><span class="fbox good">allowed</span> fetched through the proxy`; }
+  $('#pt-kind').onclick=e=>{ const b=e.target.closest('button'); if(!b)return; kind=b.dataset.k; paint(); };
+  ['#pt-base','#pt-tmpl','#pt-sid','#pt-obj'].forEach(s=>$(s).oninput=paint); paint();
+})();
+
+/* 6 · HMAC */
+async function hmacHex(secret,msg){ const enc=new TextEncoder(); const key=await crypto.subtle.importKey('raw',enc.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']); const sig=await crypto.subtle.sign('HMAC',key,enc.encode(msg)); return [...new Uint8Array(sig)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
+(function(){ const now=()=>Math.floor(Date.now()/1000); let mode='hmac';
+  $('#hm-ts').value=now();
+  $('#hm-mode').onclick=e=>{ const b=e.target.closest('button'); if(!b)return; mode=b.dataset.k; $$('#hm-mode button').forEach(x=>x.setAttribute('aria-pressed',x.dataset.k===mode)); };
+  $('#hm-now').onclick=()=>{$('#hm-ts').value=now();};
+  $('#hm-old').onclick=()=>{$('#hm-ts').value=now()-7*60;};
+  $('#hm-sign').onclick=async()=>{ const secret=$('#hm-secret').value, body=$('#hm-body').value, ts=$('#hm-ts').value.trim(), idem=$('#hm-idem').checked;
+    const usesHmac = mode==='hmac'||mode==='both';
+    let headersHtml='';
+    if(usesHmac){ const sig=await hmacHex(secret, ts+'.'+body); headersHtml+=`X-VoltEdge-Signature: ${sig}\nX-VoltEdge-Timestamp: ${ts}\n`; }
+    if(mode==='bearer'||mode==='both'){ headersHtml+=`Authorization: Bearer ••• (→ service user)\n`; }
+    if(idem) headersHtml+=`Idempotency-Key: dlv-7f3a\n`;
+    $('#hm-sig').textContent=headersHtml||'—';
+    const drift=Math.abs(now()-Number(ts)); const tsOK = !usesHmac || (Number.isFinite(drift) && drift<=300);
+    let verdict;
+    if(!tsOK){ verdict=`<span class="fbox bad">401 invalid signature</span><br><span class="muted" style="font-size:12.5px">timestamp drift ${isFinite(drift)?drift+'s':'—'} &gt; 300s — rejected to defeat replay (even though the MAC matches)</span>`; }
+    else if(idem){ verdict=`<span class="fbox good">200 deduped</span><br><span class="muted" style="font-size:12.5px">${mode==='bearer'?'bearer token → service user · ':'signature verified · '}Idempotency-Key seen before → returns the original delivery id, applies nothing twice</span>`; }
+    else { verdict=`<span class="fbox good">202 Accepted</span><br><span class="muted" style="font-size:12.5px">${mode==='bearer'?'bearer token → service user':'signature verified'+(usesHmac?' · drift '+drift+'s ≤ 300s':'')} · enqueued for the worker</span>`; }
+    $('#hm-verdict').innerHTML=verdict; };
+})();
+
+/* 7 · mapping playground (faithful const/path/fields + map/default) */
+(function(){
+  function resolveField(fs,item){
+    if(fs&&typeof fs==='object'&&fs.fields){ return {val:resolveFields(fs.fields,item),found:true}; }
+    let val, found=false;
+    if(fs&&'const' in fs){ val=fs.const; found=true; }
+    else if(fs&&fs.path&&String(fs.path).trim()){ const r=getPath(item,String(fs.path).trim()); if(r!==undefined){ val=r; found=true; } }
+    if(found&&fs.map){ const k=String(val); if(k in fs.map){ val=fs.map[k]; } else if('default' in fs){ val=fs.default; } }
+    if(!found&&fs&&'default' in fs){ val=fs.default; found=true; }
+    return {val,found};
+  }
+  function resolveFields(fields,item){ const o={}; for(const k in fields){ const r=resolveField(fields[k],item); if(r.found) o[k]=r.val; } return o; }
+  const KNOWN=new Set(['const','path','map','default','fields']);
+  function checkStrict(fields,where){ for(const k in fields){ const fs=fields[k]; if(fs&&typeof fs==='object'){ for(const key in fs){ if(!KNOWN.has(key)) throw `unknown key "${key}" in field "${where}${k}" — spec is rejected at save time`; } if(fs.fields) checkStrict(fs.fields,where+k+'.'); } } }
+  function run(){
+    let payload, spec;
+    try{ payload=JSON.parse($('#mp-payload').value); }catch(e){ $('#mp-out').innerHTML='<span style="color:var(--red)">sender payload is not valid JSON</span>'; return; }
+    try{ spec=JSON.parse($('#mp-spec').value); }catch(e){ $('#mp-out').innerHTML='<span style="color:var(--red)">mapping spec is not valid JSON</span>'; return; }
+    if(!spec.fields||!Object.keys(spec.fields).length){ $('#mp-out').innerHTML='<span style="color:var(--red)">a mapping needs at least one field</span>'; return; }
+    try{ checkStrict(spec.fields,''); }catch(msg){ $('#mp-out').innerHTML=`<span style="color:var(--red)">✘ ${esc(msg)}</span>`; return; }
+    let items;
+    if(spec.items_path&&String(spec.items_path).trim()){ const v=getPath(payload,String(spec.items_path).trim()); if(v===undefined){ $('#mp-out').innerHTML=`<span style="color:var(--red)">items_path "${esc(spec.items_path)}" not found in the payload</span>`; return; } items=Array.isArray(v)?v:[v]; }
+    else { items=Array.isArray(payload)?payload:[payload]; }
+    const out=items.map(it=>resolveFields(spec.fields,it));
+    $('#mp-out').innerHTML=hljson(JSON.stringify(out,null,2));
+  }
+  $('#mp-run').onclick=run; run();
+})();
+
+/* 8 · adopt vs duplicate */
+(function(){ function paint(){ const sys=$('#ad-syscode').checked, claimed=$('#ad-claimed').checked;
+    let nodes, out;
+    if(sys&&claimed){ nodes=['push 8842','reverse index HIT','UPDATE existing SP']; out=`<span class="fbox good">adopt</span> a SERVICE_POINT already references CIS:8842 → update it in place, record the mapping. <b>No duplicate.</b>`; }
+    else if(sys&&!claimed){ nodes=['push 8842','index miss','CREATE + stamp ref']; out=`<span class="fbox good">create</span> no feature claims CIS:8842 yet → create it and stamp <code>external_ref = {"CIS":"8842"}</code>, so the next push is a direct hit.`; }
+    else { nodes=['push 8842','per-endpoint only','CREATE (own mapping)']; out=`<span class="fbox bad">can't adopt</span> endpoint has no system_code → falls back to its own per-endpoint correlation. If an operator tagged a feature CIS:8842 by hand, this push <b>won't find it</b> and may duplicate.`; }
+    $('#ad-flow').innerHTML=nodes.map(n=>`<span class="node">${esc(n)}</span>`).join('<span class="arr">→</span>');
+    $('#ad-out').innerHTML=out; }
+  $('#ad-syscode').onchange=paint; $('#ad-claimed').onchange=paint; paint();
+})();
+
+/* 9 · pull & outbound */
+const DIRS={
+  push:{note:'Another system calls POST /webhooks/{id}. VoltEdge authenticates and the worker applies each change.',kv:[['target','feature | reading | work | fault'],['auth_mode','hmac | bearer | both'],['config.feature_class','default class'],['config.system_code','catalog system (correlation)']]},
+  pull:{note:'VoltEdge fetches a feed on demand (Pull now) through the SSRF-hardened client and applies it inline. Same payload, mapping, targets and correlation as a push.',kv:[['config.pull_url','the feed URL'],['config.pull_auth','none | bearer | api_key | basic'],['(secret)','sealed, shared column'],['config.system_code','correlation']]},
+  outbound:{note:'VoltEdge emits a signed event when a matching feature changes, so the other system stays in step. Ping sends a synthetic one.',kv:[['config.target_url','where to POST'],['config.event_types[]','which changes'],['config.class_filter[] / territory_id','what to send'],['(signing secret)','X-VoltEdge-Signature']]}
+};
+(function(){ let cur='push';
+  function paint(){ const d=DIRS[cur]; $('#dr-note').textContent=d.note; $('#dr-kv').innerHTML=d.kv.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join(''); $$('#dr-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur)); }
+  $('#dr-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b)return; cur=b.dataset.k; paint(); }; paint();
+})();
+
+/* 11 · SSRF path checker */
+(function(){ function run(){ const p=$('#ss-path').value.trim();
+    let v; if(p===''){ v=`<span class="fbox bad">rejected</span> a path is required`; }
+    else if(!relOK(p)){ v=`<span class="fbox bad">blocked</span> <code>${esc(p)}</code> carries a scheme/host — it could repoint the request at another origin (SSRF). Only a RELATIVE path is allowed; it's joined to the system's registered base URL.`; }
+    else { v=`<span class="fbox good">allowed</span> <code>${esc(p)}</code> is relative → joined to the base URL and fetched through the proxy. A network-level guard still blocks private/loopback/link-local IPs after DNS.`; }
+    $('#ss-out').innerHTML=v; }
+  $('#ss-path').oninput=run; run();
+})();
+
+/* 12 · quiz */
+(function(){ const Q=[
+ ['Tom (<code>features:write</code>) opens a feature and adds its AMI meter number. What did he change?','The feature\'s external_ref — the correlation source of truth',['A row in a separate links table','The feature\'s external_ref — the correlation source of truth','The AMI system itself','A webhook endpoint'],'external_ref is a JSONB system column on the feature; a trigger mirrors it to the reverse index.'],
+ ['A system\'s stored credential — what does the API return for it?','has_credential: true; the secret itself is never returned',['The plaintext secret','has_credential: true; the secret itself is never returned','The AES ciphertext','An empty string'],'Write-only, sealed with AES-256-GCM; only has_credential is exposed.'],
+ ['An api link\'s resource_path is <code>https://evil.test/x</code>. What happens?','Rejected — the path must be relative (an absolute URL could repoint the host)',['Fetched normally','Rejected — the path must be relative (an absolute URL could repoint the host)','Proxied with a warning','Only rejected if authenticated'],'Resource paths and filled templates must stay relative to the registered base URL — an SSRF guard.'],
+ ['Template <code>/points/{id}/{point}</code> with a scalar reference <code>"FDR7.TX1"</code>. Result?','An error — {point} isn\'t provided by a scalar reference',['/points/FDR7.TX1/','An error — {point} isn\'t provided by a scalar reference','/points/FDR7.TX1/{point}','It drops {point} silently'],'A scalar fills {id}/{ref} only; a missing placeholder is a clear error, never a silently wrong URL.'],
+ ['A webhook arrives with a valid HMAC but a timestamp 7 minutes old. Verdict?','Rejected — outside the 5-minute replay window, even though the MAC matches',['Accepted','Rejected — outside the 5-minute replay window, even though the MAC matches','Accepted with a warning','Only rejected without an Idempotency-Key'],'The timestamp must be within ±5 min; the window is what defeats replay.'],
+ ['A sender emits <code>{"data":{"records":[…]}}</code>. How do you ingest it without VoltEdge\'s native shape?','A field-mapping spec with items_path + fields transforms it before the adapter',['Write a custom adapter','A field-mapping spec with items_path + fields transforms it before the adapter','It\'s rejected','Change the sender'],'The mapping (const/path/fields + map/default) rewrites foreign JSON into native change objects.'],
+ ['You rename <code>path</code> to <code>paht</code> in a mapping spec. When is it caught?','At save time — the spec is decoded strictly, so an unknown key is rejected',['At the next delivery','At save time — the spec is decoded strictly, so an unknown key is rejected','Never','Only in the tester'],'Strict decode (DisallowUnknownFields) rejects typos when you configure the endpoint.'],
+ ['Endpoint system_code = CIS; a SERVICE_POINT already references CIS:8842. A push for 8842…','Updates that service point (adopt) — no duplicate',['Creates a second service point','Updates that service point (adopt) — no duplicate','Is rejected as a conflict','Creates a work order'],'With system_code set, a first-sight id adopts a same-class feature already claiming it in external_ref.'],
+ ['What does a webhook endpoint create stamp onto a brand-new feature?','external_ref = {system_code: external_id}, so it becomes correlatable',['Nothing','external_ref = {system_code: external_id}, so it becomes correlatable','A hyperlink','A new catalog entry'],'Created features are stamped so the next push is a direct index hit.'],
+ ['Which action is NOT exposed as an agent/MCP tool?','Fetching a feature\'s live external data',['Reading external_ref','Setting external_ref','Listing links','Fetching a feature\'s live external data'],'The live fetch needs the encryption key + an outbound call, so the agent surface stays DB-only.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach((el,i)=>{ const x=Q[i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===esc(x[1]); const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Answer: <b>${x[1]}</b>. `)+x[3]; }); });
+})();
+
+/* scroll-spy */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));
+  const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'});
+  document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+/* re-render permission-sensitive widgets when persona changes */
+const _applyGates=applyGates;
+applyGates=function(){ _applyGates(); if(window.__erRender) window.__erRender(); };
+applyGates();
+</script>
+</body></html>

@@ -8,7 +8,7 @@ import { resultPersist } from "@/stores/result-persist"
 // connectivity graph and geometry/features, it never writes.
 
 export interface ConnectivityAuditFinding {
-  kind: string // "orphaned_connectivity" | "coincident_unconnected"
+  kind: string // "orphaned_connectivity" | "coincident_unconnected" | "terminal_oversubscribed"
   severity: "error" | "warning" | "info"
   message: string
   connection_id?: string
@@ -27,6 +27,9 @@ export interface ConnectivityAuditSummary {
   connections_total: number
   orphaned_connectivity: number
   coincident_unconnected: number
+  /** Single-connection terminals (e.g. a cable joint's T1/T2) carrying more than
+   * one distinct live connection — the conductor-split re-wire footgun. */
+  terminal_oversubscribed: number
   relationships_total: number
   orphaned_relationships: number
   class_pairs_scanned: number

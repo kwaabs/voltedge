@@ -60,6 +60,8 @@ function kindLabel(kind: string): string {
       return "Orphaned connectivity"
     case "coincident_unconnected":
       return "Coincident, unconnected"
+    case "terminal_oversubscribed":
+      return "Terminal over-subscribed"
     case "orphaned_relationship":
       return "Orphaned relationship"
     default:
@@ -313,12 +315,18 @@ export function ConnectivityAuditPanel() {
   const [toleranceInput, setToleranceInput] = useState("")
   const [filter, setFilter] = useState<FindingFilter>("all")
   const [severityFilter, setSeverityFilter] = useState<"all" | "error" | "warning" | "info">("all")
+  // Feature-type filter: narrow to findings that touch one class, so a big result
+  // doesn't need scrolling. "" = every type.
+  const [typeFilter, setTypeFilter] = useState("")
   // Findings render as a scannable table by default; the flip toggles back to the
   // original card/list layout (which gives each finding's message more room).
   const [layout, setLayout] = useState<"table" | "list">("table")
   const [confirmCleanup, setConfirmCleanup] = useState(false)
   const [cleaning, setCleaning] = useState(false)
-  const fp = useFloatingPanel(600, "max-h-80")
+  // Anchored bottom-LEFT and stretched to the right (unlike the bottom-centre
+  // analysis panels): the audit's findings table is wide, so it reads as a
+  // full-width bottom bar until the user drags/resizes it.
+  const fp = useFloatingPanel(600, "max-h-80", { positionClass: "bottom-[34px] left-6 right-[614px]", stretch: true })
 
   if (!open) return null
 
@@ -342,8 +350,18 @@ export function ConnectivityAuditPanel() {
     ? result.findings.filter((f) => filter === "all" || findingCategory(f.kind) === filter)
     : []
   const shownFindings = categoryFindings.filter(
-    (f) => severityFilter === "all" || f.severity === severityFilter,
+    (f) =>
+      (severityFilter === "all" || f.severity === severityFilter) &&
+      (typeFilter === "" || f.from_class === typeFilter || f.to_class === typeFilter),
   )
+  // The feature classes that actually appear in the findings (either endpoint),
+  // name-sorted -- the type dropdown's options. Built from the whole result so it
+  // stays stable as the category/severity chips change.
+  const findingClasses = result
+    ? [...new Set(result.findings.flatMap((f) => [f.from_class, f.to_class]).filter((c): c is string => !!c))].sort(
+        (a, b) => classNameFor(a).localeCompare(classNameFor(b)),
+      )
+    : []
 
   async function runAudit() {
     useConnectivityAuditStore.getState().setLoading(true)
@@ -400,7 +418,9 @@ export function ConnectivityAuditPanel() {
         </Button>
       </div>
 
-      <div className="flex items-center gap-1 border-b px-2 py-1 text-[11px]">
+      {/* Mode tabs on the left; in audit mode the tolerance + run/cleanup controls
+          sit on the SAME row (right-aligned) rather than their own strip below. */}
+      <div className="flex items-center gap-2 border-b px-2 py-1 text-[11px]">
         {(["queue", "audit"] as const).map((m) => (
           <button
             key={m}
@@ -414,6 +434,26 @@ export function ConnectivityAuditPanel() {
             {m === "queue" ? "Issue queue" : "Run audit"}
           </button>
         ))}
+        {mode === "audit" && (
+          <div className="ml-auto flex items-center gap-2">
+            <label className="text-muted-foreground shrink-0">Tolerance (m)</label>
+            <input
+              type="number"
+              className={cn(inputClass, "h-6 w-16 py-0")}
+              placeholder="1.0"
+              value={toleranceInput}
+              onChange={(e) => setToleranceInput(e.target.value)}
+            />
+            {orphanTotal > 0 && (
+              <Button size="sm" variant="destructive" onClick={() => setConfirmCleanup(true)} disabled={loading}>
+                Clean up {orphanTotal} orphaned
+              </Button>
+            )}
+            <Button size="sm" onClick={runAudit} disabled={loading}>
+              {loading ? "Running…" : result ? "Run again" : "Run audit"}
+            </Button>
+          </div>
+        )}
       </div>
 
       {mode === "queue" && (
@@ -422,33 +462,7 @@ export function ConnectivityAuditPanel() {
 
       {mode === "audit" && (
         <>
-          <div className="flex items-center gap-2 border-b p-2">
-        <label className="text-muted-foreground shrink-0 text-xs">Tolerance (m)</label>
-        <input
-          type="number"
-          className={cn(inputClass, "w-20")}
-          placeholder="1.0"
-          value={toleranceInput}
-          onChange={(e) => setToleranceInput(e.target.value)}
-        />
-        <div className="ml-auto flex items-center gap-2">
-          {orphanTotal > 0 && (
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => setConfirmCleanup(true)}
-              disabled={loading}
-            >
-              Clean up {orphanTotal} orphaned
-            </Button>
-          )}
-          <Button size="sm" onClick={runAudit} disabled={loading}>
-            {loading ? "Running…" : result ? "Run again" : "Run audit"}
-          </Button>
-        </div>
-      </div>
-
-      {!result && !loading && (
+          {!result && !loading && (
         <p className="text-muted-foreground p-3 text-sm">
           A read-only check for connectivity problems across the network: connections pointing at
           deleted features, and features that look connected on the map but aren&rsquo;t connected in
@@ -463,6 +477,9 @@ export function ConnectivityAuditPanel() {
             <span>{result.summary.connections_total} total</span>
             <span>· {result.summary.orphaned_connectivity} orphaned</span>
             <span>· {result.summary.coincident_unconnected} coincident</span>
+            {result.summary.terminal_oversubscribed > 0 && (
+              <span className="text-destructive">· {result.summary.terminal_oversubscribed} over-subscribed</span>
+            )}
             <span className="text-foreground ml-2 font-medium">Relationships</span>
             <span>{result.summary.relationships_total} total</span>
             <span>· {result.summary.orphaned_relationships} orphaned</span>
@@ -472,7 +489,10 @@ export function ConnectivityAuditPanel() {
             {result.summary.truncated && <span className="text-destructive">· list truncated</span>}
           </div>
 
-          <div className="flex items-center gap-1 border-b px-2 py-1 text-[11px]">
+          {/* Category + severity filters share ONE row (separated by a divider) with
+              the view toggle pinned right -- keeps the control strip to a single row;
+              flex-wrap lets it break gracefully on a narrow panel. */}
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-b px-2 py-1 text-[11px]">
             {(["all", "connectivity", "relationships"] as const).map((f) => {
               const count =
                 f === "all"
@@ -494,6 +514,45 @@ export function ConnectivityAuditPanel() {
                 </button>
               )
             })}
+            <span className="border-border/70 mx-0.5 h-4 border-l" aria-hidden />
+            <span className="text-muted-foreground">Severity</span>
+            {(["all", "error", "warning", "info"] as const).map((s) => {
+              const count =
+                s === "all" ? categoryFindings.length : categoryFindings.filter((x) => x.severity === s).length
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSeverityFilter(s)}
+                  className={cn(
+                    "cursor-pointer rounded px-1.5 py-0.5 capitalize",
+                    severityFilter === s
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/70",
+                  )}
+                >
+                  {s} ({count})
+                </button>
+              )
+            })}
+            {findingClasses.length > 0 && (
+              <>
+                <span className="border-border/70 mx-0.5 h-4 border-l" aria-hidden />
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className={cn(inputClass, "h-6 w-auto max-w-[11rem] py-0")}
+                  title="Filter findings by feature type"
+                >
+                  <option value="">All types</option>
+                  {findingClasses.map((c) => (
+                    <option key={c} value={c}>
+                      {classNameFor(c)}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
             {/* Flip between the table (default) and the original card list. */}
             <div className="ml-auto flex items-center gap-0.5">
               <button
@@ -525,29 +584,6 @@ export function ConnectivityAuditPanel() {
                 <span className="sr-only">Card view</span>
               </button>
             </div>
-          </div>
-
-          <div className="flex items-center gap-1 border-b px-2 py-1 text-[11px]">
-            <span className="text-muted-foreground mr-0.5">Severity</span>
-            {(["all", "error", "warning", "info"] as const).map((s) => {
-              const count =
-                s === "all" ? categoryFindings.length : categoryFindings.filter((x) => x.severity === s).length
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setSeverityFilter(s)}
-                  className={cn(
-                    "cursor-pointer rounded px-1.5 py-0.5 capitalize",
-                    severityFilter === s
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/70",
-                  )}
-                >
-                  {s} ({count})
-                </button>
-              )
-            })}
           </div>
 
           <div className="overflow-auto">
