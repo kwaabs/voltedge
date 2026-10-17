@@ -101,3 +101,77 @@ export function useDeleteExternalLink(featureClass: string, featureId: string) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: linksKey(featureClass, featureId) }),
   })
 }
+
+/**
+ * The external_ref map on a feature (migration 0145): the ids this feature carries
+ * in OTHER systems (SCADA / AMI / CIS), keyed by system code. Distinct from the
+ * links above -- a link is a stored pointer; external_ref is the correlation source
+ * of truth the reverse index and the live-fetch below both derive from. One entry
+ * per system, each with the correlation `id` (the scalar, or the object's "id")
+ * and the raw `value` so an object ref round-trips edits.
+ */
+export interface ExternalRefEntry {
+  system: string
+  id: string
+  has_id: boolean
+  value: unknown
+}
+
+interface FeatureRefsResponse {
+  refs: ExternalRefEntry[]
+}
+
+function refsKey(featureClass: string | undefined, featureId: string | undefined) {
+  return ["external-refs", featureClass, featureId] as const
+}
+
+/** A feature's whole external_ref map, one entry per system (code order). */
+export function useFeatureExternalRefs(featureClass: string | undefined, featureId: string | undefined) {
+  return useQuery<FeatureRefsResponse, ApiError>({
+    queryKey: refsKey(featureClass, featureId),
+    queryFn: () =>
+      apiFetch<FeatureRefsResponse>(
+        `/feature-links/external-refs?feature_class=${encodeURIComponent(featureClass ?? "")}&feature_id=${encodeURIComponent(featureId ?? "")}`,
+      ),
+    enabled: Boolean(featureClass && featureId),
+    retry: false,
+  })
+}
+
+/** Replaces a feature's whole external_ref map (PUT), then refreshes it. The body
+ * carries the full next map keyed by system code -- the caller merges/removes and
+ * sends the result, same contract as the attributes edit. */
+export function useSetFeatureExternalRefs(featureClass: string, featureId: string) {
+  const queryClient = useQueryClient()
+  return useMutation<FeatureRefsResponse, ApiError, Record<string, unknown>>({
+    mutationFn: (externalRef) =>
+      apiFetch<FeatureRefsResponse>(`/feature-links/external-refs`, {
+        method: "PUT",
+        body: JSON.stringify({ feature_class: featureClass, feature_id: featureId, external_ref: externalRef }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: refsKey(featureClass, featureId) }),
+  })
+}
+
+/** Live data for one of a feature's external_ref systems, fetched server-side via
+ * GET /feature-links/external (fills the system's path_template from the ref value
+ * and proxies the request). Kept off until `enabled` flips (loaded on demand), and
+ * never auto-retries so an upstream failure surfaces at once. Reuses the same
+ * normalized shape as a stored api link's data. */
+export function useFeatureExternalData(
+  featureClass: string,
+  featureId: string,
+  system: string,
+  enabled: boolean,
+) {
+  return useQuery<ExternalLinkData, ApiError>({
+    queryKey: ["feature-external-data", featureClass, featureId, system],
+    queryFn: () =>
+      apiFetch<ExternalLinkData>(
+        `/feature-links/external?feature_class=${encodeURIComponent(featureClass)}&feature_id=${encodeURIComponent(featureId)}&system=${encodeURIComponent(system)}`,
+      ),
+    enabled,
+    staleTime: 60_000,
+    retry: false,
+  })
+}

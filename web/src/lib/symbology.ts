@@ -51,11 +51,13 @@ export interface LabelDef {
   halo_color?: string
   halo_width?: number
   min_zoom?: number
-  /** Class-wide label placement (point/polygon labels only -- a line label
-   * rides the line and ignores these). offset_x/offset_y shift the label from
-   * its natural anchor in screen pixels (x right-positive, y down-positive);
-   * offset_y overrides the default 14px drop below the glyph. rotation spins
-   * the text, in degrees clockwise. */
+  /** Class-wide label placement. For a point/polygon label offset_x/offset_y shift
+   * it from its natural anchor in screen pixels (x right-positive, y down-positive);
+   * offset_y overrides the default 14px drop below the glyph, and rotation spins the
+   * text in degrees clockwise. A line label rides the stroke by default and ignores
+   * offset_x/rotation, but now honours offset_y to LIFT it off the line: a negative
+   * offset_y sits it above the line, a positive one below (see map-layers.ts
+   * labelStyleFor). */
   offset_x?: number
   offset_y?: number
   rotation?: number

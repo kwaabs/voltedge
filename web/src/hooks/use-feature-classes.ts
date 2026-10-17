@@ -7,6 +7,10 @@ export interface FeatureClassSummary {
   name: string
   geometry_type: string
   network_role: string
+  /** The class's electrical function (migration 0091): source / consumer /
+   * passthrough / transformer / controller / node / sensor / ground, or absent
+   * for a non-electrical class. consumer/sensor are leaf endpoints. */
+  functional_role?: string
   /** Migration 0129: the class's network-sectioning function --
    * source/protective/switching/transformer, or absent for a non-boundary class.
    * The result panels derive each feature's "section" by climbing its trace /

@@ -44,6 +44,16 @@ const (
 	// save and readView degrades a missing row to nil.
 	keyAnnMinZoom = "map_annotation_min_zoom"
 	keyAnnMaxZoom = "map_annotation_max_zoom"
+	// The optional OPERATING-AREA bounds (the utility's service territory): a lon/lat
+	// bbox the map's view is constrained to, outside which nothing is shown and no
+	// tiles are fetched. All four are set together or all unset -- nil = "no bound",
+	// so the map roams the whole world exactly as before. No migration seeds them;
+	// the PUT upsert creates them on first save and readView degrades a missing row
+	// to nil.
+	keyBoundsMinLng = "map_bounds_min_lng"
+	keyBoundsMinLat = "map_bounds_min_lat"
+	keyBoundsMaxLng = "map_bounds_max_lng"
+	keyBoundsMaxLat = "map_bounds_max_lat"
 
 	defaultCenterLng = -0.127
 	defaultCenterLat = 51.507
@@ -63,6 +73,12 @@ type mapView struct {
 	// Optional global annotation visible-zoom band (see keyAnnMinZoom).
 	AnnotationMinZoom *float64 `json:"annotation_min_zoom"`
 	AnnotationMaxZoom *float64 `json:"annotation_max_zoom"`
+	// Optional operating-area bounds (see keyBoundsMinLng). All four together or all
+	// nil; when set the client constrains the OL view to this lon/lat bbox.
+	BoundsMinLng *float64 `json:"bounds_min_lng"`
+	BoundsMinLat *float64 `json:"bounds_min_lat"`
+	BoundsMaxLng *float64 `json:"bounds_max_lng"`
+	BoundsMaxLat *float64 `json:"bounds_max_lat"`
 }
 
 // Routes returns the /map-settings router.
@@ -130,6 +146,32 @@ func validate(v mapView) string {
 	if v.AnnotationMinZoom != nil && v.AnnotationMaxZoom != nil && *v.AnnotationMinZoom > *v.AnnotationMaxZoom {
 		return "annotation_min_zoom must not exceed annotation_max_zoom"
 	}
+	// Operating bounds: all four together or none (a partial bbox can't constrain a
+	// view). When set, within the geographic domain and min strictly below max (a
+	// zero-area or inverted bbox would hide the whole map).
+	boundsSet := 0
+	for _, b := range []*float64{v.BoundsMinLng, v.BoundsMinLat, v.BoundsMaxLng, v.BoundsMaxLat} {
+		if b != nil {
+			boundsSet++
+		}
+	}
+	if boundsSet != 0 && boundsSet != 4 {
+		return "operating bounds require all four of bounds_min_lng/min_lat/max_lng/max_lat, or none"
+	}
+	if boundsSet == 4 {
+		if *v.BoundsMinLng < -180 || *v.BoundsMaxLng > 180 {
+			return "bounds longitude must be between -180 and 180"
+		}
+		if *v.BoundsMinLat < -90 || *v.BoundsMaxLat > 90 {
+			return "bounds latitude must be between -90 and 90"
+		}
+		if *v.BoundsMinLng >= *v.BoundsMaxLng {
+			return "bounds_min_lng must be less than bounds_max_lng"
+		}
+		if *v.BoundsMinLat >= *v.BoundsMaxLat {
+			return "bounds_min_lat must be less than bounds_max_lat"
+		}
+	}
 	return ""
 }
 
@@ -147,13 +189,20 @@ func readView(ctx context.Context, db *bun.DB) (mapView, error) {
 		Zoom:              floatOr(settings[keyZoom], defaultZoom),
 		AnnotationMinZoom: floatPtrOrNil(settings[keyAnnMinZoom]),
 		AnnotationMaxZoom: floatPtrOrNil(settings[keyAnnMaxZoom]),
+		BoundsMinLng:      floatPtrOrNil(settings[keyBoundsMinLng]),
+		BoundsMinLat:      floatPtrOrNil(settings[keyBoundsMinLat]),
+		BoundsMaxLng:      floatPtrOrNil(settings[keyBoundsMaxLng]),
+		BoundsMaxLat:      floatPtrOrNil(settings[keyBoundsMaxLat]),
 	}, nil
 }
 
 func loadSettings(ctx context.Context, db *bun.DB) (map[string]string, error) {
 	var rows []auth.SystemSetting
 	err := db.NewSelect().Model(&rows).
-		Where("key IN (?)", bun.In([]string{keyCenterLng, keyCenterLat, keyZoom, keyAnnMinZoom, keyAnnMaxZoom})).
+		Where("key IN (?)", bun.In([]string{
+			keyCenterLng, keyCenterLat, keyZoom, keyAnnMinZoom, keyAnnMaxZoom,
+			keyBoundsMinLng, keyBoundsMinLat, keyBoundsMaxLng, keyBoundsMaxLat,
+		})).
 		Scan(ctx)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
@@ -182,6 +231,10 @@ func writeView(ctx context.Context, db *bun.DB, v mapView, byUserID string) erro
 		// back to nil, so clearing a bound in the UI persists as "no bound".
 		{Key: keyAnnMinZoom, Value: floatPtrToStr(v.AnnotationMinZoom), UpdatedAt: now, UpdatedBy: actor},
 		{Key: keyAnnMaxZoom, Value: floatPtrToStr(v.AnnotationMaxZoom), UpdatedAt: now, UpdatedBy: actor},
+		{Key: keyBoundsMinLng, Value: floatPtrToStr(v.BoundsMinLng), UpdatedAt: now, UpdatedBy: actor},
+		{Key: keyBoundsMinLat, Value: floatPtrToStr(v.BoundsMinLat), UpdatedAt: now, UpdatedBy: actor},
+		{Key: keyBoundsMaxLng, Value: floatPtrToStr(v.BoundsMaxLng), UpdatedAt: now, UpdatedBy: actor},
+		{Key: keyBoundsMaxLat, Value: floatPtrToStr(v.BoundsMaxLat), UpdatedAt: now, UpdatedBy: actor},
 	}
 	_, err := db.NewInsert().Model(&rows).
 		On("CONFLICT (key) DO UPDATE").

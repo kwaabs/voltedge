@@ -185,10 +185,17 @@ func enforceSubResourceReadScope(ctx context.Context, db bun.IDB, loaded *metada
 // read checks to a feature identified by (loaded class, id), for callers OUTSIDE
 // this package -- notably the attachments surface -- that hang off a feature id
 // and must not expose a feature the CRUD read side would hide. It returns a
-// not-found error (matched by IsNotFoundError) when the feature is missing OR out
-// of the caller's scope, so an out-of-scope id is indistinguishable from a
-// missing one. A purged feature (row gone) is reported as not-found too: unlike
-// the timeline endpoints, an attachment operation always needs a live feature.
+// not-found error (matched by IsNotFoundError) when the feature is missing, out
+// of the caller's scope, PURGED (row gone), or SOFT-DELETED: unlike the timeline
+// endpoints, an attachment operation always needs a LIVE feature -- a soft-deleted
+// feature's files must not be listable or presignable, so a deleted id is 404 too,
+// indistinguishable from a missing one.
+//
+// The soft-delete check lives here, not in the shared enforceSubResourceReadScope
+// gate, because getFeature returns soft-deleted rows deliberately (for restore)
+// and the append-only timeline sub-resources that share that gate MUST keep seeing
+// a soft-deleted feature's history. Only this attachment-facing entry point adds
+// the liveness requirement.
 func EnforceFeatureReadScope(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) error {
 	purged, err := enforceSubResourceReadScope(ctx, db, loaded, id)
 	if err != nil {
@@ -197,7 +204,44 @@ func EnforceFeatureReadScope(ctx context.Context, db bun.IDB, loaded *metadata.L
 	if purged {
 		return notFound("feature %s not found", id)
 	}
+	feature, err := getFeature(ctx, db, loaded, id)
+	if err != nil {
+		if isNotFoundError(err) {
+			return notFound("feature %s not found", id)
+		}
+		return err
+	}
+	if feature["deleted_at"] != nil {
+		return notFound("feature %s not found", id)
+	}
 	return nil
+}
+
+// EnforceFeatureWriteScope is the write counterpart of EnforceFeatureReadScope,
+// for callers OUTSIDE this package that MUTATE a feature-scoped side column
+// (the external_ref editor in api/internal/externallink) without going through
+// UpdateFeature. It first applies the full read gate -- so a missing, purged,
+// soft-deleted, out-of-territory, or peer-private-draft feature answers not-found
+// exactly as a read would (an edit reveals no more than a read) -- then adds the
+// Phase 58 WRITE guard: a scoped actor may only write a feature that sits in a
+// territory they hold (forbidden/403 otherwise). The caller must still hold its
+// own capability (features:write on the mount); this is only the spatial guard.
+func EnforceFeatureWriteScope(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, id string) error {
+	if err := EnforceFeatureReadScope(ctx, db, loaded, id); err != nil {
+		return err
+	}
+	feature, err := getFeature(ctx, db, loaded, id)
+	if err != nil {
+		if isNotFoundError(err) {
+			return notFound("feature %s not found", id)
+		}
+		return err
+	}
+	var territoryID *string
+	if tid, ok := feature["territory_id"].(string); ok && tid != "" {
+		territoryID = &tid
+	}
+	return enforceWriteScope(ctx, db, loaded, territoryID)
 }
 
 // scopeWhere turns readScope's (ids, apply) into a WHERE fragment plus its bind

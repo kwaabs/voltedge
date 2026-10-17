@@ -3,6 +3,7 @@ import {
   Coins,
   FileInput,
   Gauge,
+  History,
   Inbox,
   LandPlot,
   Layers,
@@ -166,6 +167,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         label: "Logging",
         description: "The API server's log verbosity — raise it to debug an incident, lower it after.",
         icon: Gauge,
+        perm: "admin:users",
+      },
+      {
+        to: "/admin/activity",
+        label: "Activity audit",
+        description: "Who changed what, and when — the feature change log sliced by person and time.",
+        icon: History,
         perm: "admin:users",
       },
       {

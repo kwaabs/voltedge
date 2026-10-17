@@ -710,6 +710,15 @@ Tom (analyst) has been asked "do we have any 11 kV switches that were never give
 
 For a handful of rows, eyeballing the list is fine. For a precise answer across thousands of features — "*count* the unnamed 11 kV switches," or "list every switch missing a name *in this district*" — the Query Builder in Chapter 5 is the right tool, and it can drill straight from that count to the very rows on the map.
 
+#### 4.3.5 Bulk actions on selected rows
+
+Each row has a checkbox, with a **Select all** toggle at the top. Once you've selected one or more features, a small toolbar offers bulk actions, gated by your permissions:
+
+- **Print tags** (needs `tags:read`) — prints the asset tags for the selected features (Chapter on asset tags).
+- **Delete** (needs `features:write`) — **soft-deletes** the selected features after a confirmation. Like any single delete, they disappear from the map and lists immediately but are **restorable** (they're not purged). If some rows are outside your write scope, the rest still delete and the toolbar reports how many couldn't.
+
+Separately, an administrator (with `features:wipe`) sees a **Wipe class** control in the header — a two-step, class-scale soft-delete/purge of *every* feature in the class. That's the admin "nuke," distinct from the per-row Delete above.
+
 ### 4.4 Selecting versus highlighting
 
 Two different "select" behaviours exist, and knowing which is which saves confusion:

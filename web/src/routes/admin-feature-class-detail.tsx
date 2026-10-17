@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { AlertTriangle, ArrowLeft, Copy, ListPlus, Loader2, Pencil, Plus, Trash2, Wrench } from "lucide-react"
-import { Link, useParams } from "react-router"
+import { AlertTriangle, ArrowLeft, Copy, FlaskConical, LandPlot, ListPlus, Loader2, Pencil, Plus, Power, PowerOff, Trash2, Wrench } from "lucide-react"
+import { Link, useNavigate, useParams } from "react-router"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { FormDialog } from "@/components/admin/form-dialog"
@@ -20,7 +20,16 @@ import {
   useSymbologyRules,
 } from "@/hooks/use-admin"
 import { usePermission } from "@/hooks/use-auth"
+import {
+  useClassAnalysisStudies,
+  useSetClassAnalysisStudies,
+} from "@/hooks/use-class-analysis-studies"
+import {
+  useClassTerritoryAvailability,
+  useSetClassTerritoryAvailability,
+} from "@/hooks/use-class-territory-availability"
 import { useFeatureClassRules } from "@/hooks/use-feature-class-rules"
+import { useTerritories } from "@/hooks/use-territories"
 import { type FeatureClassSchema, type FieldSchema, useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { ApiError, apiFetch } from "@/lib/api"
@@ -480,6 +489,41 @@ const SNAP_TARGET_TYPES = ["point_feature", "endpoint", "edge", "vertex"] as con
 
 type RuleKind = "network" | "relationship" | "snapping"
 
+// A RuleSeed pre-fills the matching add form with an existing rule's values so an
+// admin can save a COPY under a new name. The rule APIs are create-only (no edit),
+// so a copy is authored as a new row, then tweaked. Named kinds (network,
+// relationship) seed the name as "<name> copy"; snapping rules have no name column,
+// so a copy is the same pairing to then adjust (tolerance/priority/class/terminal) --
+// an unchanged copy would just be a duplicate the dup-detector flags.
+type NetworkRuleSeed = {
+  name: string
+  fromClass: string
+  fromTerminal: string
+  toClass: string
+  toTerminal: string
+  phaseRule: string
+  isValid: boolean
+}
+type RelationshipRuleSeed = {
+  name: string
+  originClass: string
+  destinationClass: string
+  kind: string
+  cardinality: string
+}
+type SnappingRuleSeed = {
+  fromClass: string
+  toClass: string
+  targetType: string
+  toleranceM: string
+  priority: string
+  isRequired: boolean
+}
+type RuleSeed =
+  | ({ section: "network" } & NetworkRuleSeed)
+  | ({ section: "relationship" } & RelationshipRuleSeed)
+  | ({ section: "snapping" } & SnappingRuleSeed)
+
 /**
  * The three kinds of rule metadata for a class -- network (legal
  * electrical connectivity), relationship (structural/spatial pairings),
@@ -505,6 +549,26 @@ function RulesSection({ code }: { code: string }) {
   // their own badge, button, and confirm.
   const [confirmCleanKind, setConfirmCleanKind] = useState<RuleKind | null>(null)
   const [cleaningKind, setCleaningKind] = useState<RuleKind | null>(null)
+  // "Duplicate" opens the add form pre-filled from an existing rule (seed); "Add"
+  // opens it blank. formNonce bumps on every open so the form REMOUNTS and re-reads
+  // the seed even when it was already open (its field state is initialized once, at
+  // mount, from the seed).
+  const [seed, setSeed] = useState<RuleSeed | null>(null)
+  const [formNonce, setFormNonce] = useState(0)
+  const openAdd = (kind: RuleKind) => {
+    setSeed(null)
+    setFormNonce((n) => n + 1)
+    setAdding(kind)
+  }
+  const openDuplicate = (s: RuleSeed) => {
+    setSeed(s)
+    setFormNonce((n) => n + 1)
+    setAdding(s.section)
+  }
+  const closeForm = () => {
+    setAdding(null)
+    setSeed(null)
+  }
 
   const classes = classesData?.feature_classes ?? []
 
@@ -661,7 +725,7 @@ function RulesSection({ code }: { code: string }) {
           <div className="flex items-center gap-2">
             {dupRemoveButton("network")}
             {canWrite && (
-              <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAdding("network")}>
+              <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => openAdd("network")}>
                 <Plus className="size-3.5" />
                 Add network rule
               </Button>
@@ -712,15 +776,37 @@ function RulesSection({ code }: { code: string }) {
                     <td className="px-3 py-2">{r.is_valid ? "yes" : "no"}</td>
                     {canWrite && (
                       <td className="px-3 py-2 text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive size-7"
-                          title="Delete"
-                          onClick={() => setDeleteTarget({ kind: "network", id: r.id, name: r.name })}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            title="Duplicate"
+                            onClick={() =>
+                              openDuplicate({
+                                section: "network",
+                                name: `${r.name} copy`,
+                                fromClass: r.from_class,
+                                fromTerminal: r.from_terminal ?? "",
+                                toClass: r.to_class,
+                                toTerminal: r.to_terminal ?? "",
+                                phaseRule: r.phase_rule ?? "",
+                                isValid: r.is_valid,
+                              })
+                            }
+                          >
+                            <Copy className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive size-7"
+                            title="Delete"
+                            onClick={() => setDeleteTarget({ kind: "network", id: r.id, name: r.name })}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -746,7 +832,7 @@ function RulesSection({ code }: { code: string }) {
                 variant="outline"
                 size="sm"
                 className="h-7 gap-1 text-xs"
-                onClick={() => setAdding("relationship")}
+                onClick={() => openAdd("relationship")}
               >
                 <Plus className="size-3.5" />
                 Add relationship
@@ -789,15 +875,35 @@ function RulesSection({ code }: { code: string }) {
                     <td className="px-3 py-2 text-xs">{r.cardinality}</td>
                     {canWrite && (
                       <td className="px-3 py-2 text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive size-7"
-                          title="Delete"
-                          onClick={() => setDeleteTarget({ kind: "relationship", id: r.id, name: r.name })}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            title="Duplicate"
+                            onClick={() =>
+                              openDuplicate({
+                                section: "relationship",
+                                name: `${r.name} copy`,
+                                originClass: r.origin_class,
+                                destinationClass: r.destination_class,
+                                kind: r.kind,
+                                cardinality: r.cardinality,
+                              })
+                            }
+                          >
+                            <Copy className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive size-7"
+                            title="Delete"
+                            onClick={() => setDeleteTarget({ kind: "relationship", id: r.id, name: r.name })}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -819,7 +925,7 @@ function RulesSection({ code }: { code: string }) {
           <div className="flex items-center gap-2">
             {dupRemoveButton("snapping")}
             {canWrite && (
-              <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAdding("snapping")}>
+              <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => openAdd("snapping")}>
                 <Plus className="size-3.5" />
                 Add snapping rule
               </Button>
@@ -856,27 +962,45 @@ function RulesSection({ code }: { code: string }) {
                       </span>
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">{r.from_class}</td>
-                    <td className="px-3 py-2 font-mono text-xs">
-                      {r.to_class}
-                      {r.to_terminal ? ` (${r.to_terminal})` : ""}
-                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">{r.to_class}</td>
                     <td className="px-3 py-2 text-xs">{r.target_type}</td>
                     <td className="px-3 py-2 text-xs">{r.tolerance_m}m</td>
                     <td className="px-3 py-2 text-xs">{r.priority}</td>
                     <td className="px-3 py-2">{r.is_required ? "yes" : "no"}</td>
                     {canWrite && (
                       <td className="px-3 py-2 text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive size-7"
-                          title="Delete"
-                          onClick={() =>
-                            setDeleteTarget({ kind: "snapping", id: r.id, name: `${r.from_class} → ${r.to_class}` })
-                          }
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            title="Duplicate (snapping rules have no name — adjust before saving)"
+                            onClick={() =>
+                              openDuplicate({
+                                section: "snapping",
+                                fromClass: r.from_class,
+                                toClass: r.to_class,
+                                targetType: r.target_type,
+                                toleranceM: String(r.tolerance_m),
+                                priority: String(r.priority),
+                                isRequired: r.is_required,
+                              })
+                            }
+                          >
+                            <Copy className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive size-7"
+                            title="Delete"
+                            onClick={() =>
+                              setDeleteTarget({ kind: "snapping", id: r.id, name: `${r.from_class} → ${r.to_class}` })
+                            }
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -889,11 +1013,33 @@ function RulesSection({ code }: { code: string }) {
         )}
       </div>
 
-      {adding === "network" && <AddNetworkRuleForm code={code} classes={classes} onDone={() => setAdding(null)} />}
-      {adding === "relationship" && (
-        <AddRelationshipForm code={code} classes={classes} onDone={() => setAdding(null)} />
+      {adding === "network" && (
+        <AddNetworkRuleForm
+          key={formNonce}
+          code={code}
+          classes={classes}
+          seed={seed?.section === "network" ? seed : undefined}
+          onDone={closeForm}
+        />
       )}
-      {adding === "snapping" && <AddSnappingRuleForm code={code} classes={classes} onDone={() => setAdding(null)} />}
+      {adding === "relationship" && (
+        <AddRelationshipForm
+          key={formNonce}
+          code={code}
+          classes={classes}
+          seed={seed?.section === "relationship" ? seed : undefined}
+          onDone={closeForm}
+        />
+      )}
+      {adding === "snapping" && (
+        <AddSnappingRuleForm
+          key={formNonce}
+          code={code}
+          classes={classes}
+          seed={seed?.section === "snapping" ? seed : undefined}
+          onDone={closeForm}
+        />
+      )}
 
       <ConfirmDeleteDialog
         open={deleteTarget !== null}
@@ -968,19 +1114,21 @@ function terminalCodeOptions(schema: FeatureClassSchema | undefined): string[] {
 function AddNetworkRuleForm({
   code,
   classes,
+  seed,
   onDone,
 }: {
   code: string
   classes: AdminFeatureClassSummary[]
+  seed?: NetworkRuleSeed
   onDone: () => void
 }) {
-  const [name, setName] = useState("")
-  const [fromClass, setFromClass] = useState(code)
-  const [fromTerminal, setFromTerminal] = useState("")
-  const [toClass, setToClass] = useState("")
-  const [toTerminal, setToTerminal] = useState("")
-  const [phaseRule, setPhaseRule] = useState("")
-  const [isValid, setIsValid] = useState(true)
+  const [name, setName] = useState(seed?.name ?? "")
+  const [fromClass, setFromClass] = useState(seed?.fromClass ?? code)
+  const [fromTerminal, setFromTerminal] = useState(seed?.fromTerminal ?? "")
+  const [toClass, setToClass] = useState(seed?.toClass ?? "")
+  const [toTerminal, setToTerminal] = useState(seed?.toTerminal ?? "")
+  const [phaseRule, setPhaseRule] = useState(seed?.phaseRule ?? "")
+  const [isValid, setIsValid] = useState(seed?.isValid ?? true)
   const [saving, setSaving] = useState(false)
   const queryClient = useQueryClient()
 
@@ -1140,17 +1288,23 @@ function AddNetworkRuleForm({
 function AddRelationshipForm({
   code,
   classes,
+  seed,
   onDone,
 }: {
   code: string
   classes: AdminFeatureClassSummary[]
+  seed?: RelationshipRuleSeed
   onDone: () => void
 }) {
-  const [name, setName] = useState("")
-  const [originClass, setOriginClass] = useState(code)
-  const [destinationClass, setDestinationClass] = useState("")
-  const [kind, setKind] = useState<(typeof RELATIONSHIP_KINDS)[number]>("containment")
-  const [cardinality, setCardinality] = useState<(typeof CARDINALITIES)[number]>("one_to_many")
+  const [name, setName] = useState(seed?.name ?? "")
+  const [originClass, setOriginClass] = useState(seed?.originClass ?? code)
+  const [destinationClass, setDestinationClass] = useState(seed?.destinationClass ?? "")
+  const [kind, setKind] = useState<(typeof RELATIONSHIP_KINDS)[number]>(
+    (seed?.kind as (typeof RELATIONSHIP_KINDS)[number]) ?? "containment",
+  )
+  const [cardinality, setCardinality] = useState<(typeof CARDINALITIES)[number]>(
+    (seed?.cardinality as (typeof CARDINALITIES)[number]) ?? "one_to_many",
+  )
   const [saving, setSaving] = useState(false)
   const queryClient = useQueryClient()
 
@@ -1277,24 +1431,24 @@ function AddRelationshipForm({
 function AddSnappingRuleForm({
   code,
   classes,
+  seed,
   onDone,
 }: {
   code: string
   classes: AdminFeatureClassSummary[]
+  seed?: SnappingRuleSeed
   onDone: () => void
 }) {
-  const [fromClass, setFromClass] = useState(code)
-  const [toClass, setToClass] = useState("")
-  const [toTerminal, setToTerminal] = useState("")
-  const [targetType, setTargetType] = useState<(typeof SNAP_TARGET_TYPES)[number]>("point_feature")
-  const [toleranceM, setToleranceM] = useState("0.5")
-  const [priority, setPriority] = useState("1")
-  const [isRequired, setIsRequired] = useState(false)
+  const [fromClass, setFromClass] = useState(seed?.fromClass ?? code)
+  const [toClass, setToClass] = useState(seed?.toClass ?? "")
+  const [targetType, setTargetType] = useState<(typeof SNAP_TARGET_TYPES)[number]>(
+    (seed?.targetType as (typeof SNAP_TARGET_TYPES)[number]) ?? "point_feature",
+  )
+  const [toleranceM, setToleranceM] = useState(seed?.toleranceM ?? "0.5")
+  const [priority, setPriority] = useState(seed?.priority ?? "1")
+  const [isRequired, setIsRequired] = useState(seed?.isRequired ?? false)
   const [saving, setSaving] = useState(false)
   const queryClient = useQueryClient()
-
-  const { data: toSchema } = useFeatureClassSchema(toClass || undefined)
-  const toTerminals = terminalCodeOptions(toSchema)
 
   const tolNum = Number(toleranceM)
   const canSave = fromClass !== "" && toClass !== "" && Number.isFinite(tolNum) && tolNum > 0
@@ -1307,7 +1461,6 @@ function AddSnappingRuleForm({
         body: JSON.stringify({
           from_class: fromClass,
           to_class: toClass,
-          to_terminal: toTerminal || undefined,
           target_type: targetType,
           tolerance_m: tolNum,
           priority: priority.trim() === "" ? undefined : Number(priority),
@@ -1357,34 +1510,11 @@ function AddSnappingRuleForm({
             <label className={labelClass}>
               To class <span className="text-destructive">*</span>
             </label>
-            <select
-              className={inputClass}
-              value={toClass}
-              onChange={(e) => {
-                setToClass(e.target.value)
-                setToTerminal("")
-              }}
-            >
+            <select className={inputClass} value={toClass} onChange={(e) => setToClass(e.target.value)}>
               <option value="">Select a class…</option>
               {classes.map((c) => (
                 <option key={c.code} value={c.code}>
                   {c.code}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className={labelClass}>To terminal</label>
-            <select
-              className={inputClass}
-              value={toTerminal}
-              onChange={(e) => setToTerminal(e.target.value)}
-              disabled={toTerminals.length === 0}
-            >
-              <option value="">{toTerminals.length === 0 ? "(no terminals)" : "(none)"}</option>
-              {toTerminals.map((t) => (
-                <option key={t} value={t}>
-                  {t}
                 </option>
               ))}
             </select>
@@ -2233,9 +2363,11 @@ function LabelForm({ code, schema, onDone }: { code: string; schema: FeatureClas
         )}
       </div>
 
-      {/* Placement -- shifts/spins the label for every feature of the class.
-          Point/polygon labels only; a line label rides the line and ignores
-          these. Offset Y blank = the default 14px drop below the glyph. */}
+      {/* Placement -- shifts/spins the label for every feature of the class. Offset X
+          and rotation apply to point/polygon labels only; a line label rides the
+          stroke but now honours Offset Y to lift off it (negative = above the line,
+          positive = below). Offset Y blank = the point default (14px drop below the
+          glyph). */}
       <div className="flex flex-wrap items-end gap-3 border-t pt-3">
         <div className="flex flex-col gap-1">
           <label className={labelClass}>Offset X</label>
@@ -2270,7 +2402,10 @@ function LabelForm({ code, schema, onDone }: { code: string; schema: FeatureClas
             placeholder="0"
           />
         </div>
-        <span className="text-muted-foreground text-xs">Point/polygon labels only — lines ride the line.</span>
+        <span className="text-muted-foreground text-xs">
+          Offset X &amp; rotation apply to point/polygon labels. Offset Y also lifts a line label off the stroke —
+          negative sits it above the line, positive below.
+        </span>
       </div>
     </FormDialog>
   )
@@ -2706,8 +2841,238 @@ function DiagramSettingsSection({ summary, canWrite }: { summary: AdminFeatureCl
  * subtype/field *count*; this is the page that answers "what does this
  * class actually have."
  */
+/**
+ * Per-territory availability (Slice 2 of class deactivation): tick a territory to
+ * turn this class OFF for new features there and everywhere beneath it (the
+ * disable cascades down the tree server-side -- crud.classDisabledForTerritory).
+ * Untick = available; an empty set means available in every territory. Enforced
+ * at create time (crud.enforceClassAvailability); existing features are grandfathered.
+ */
+function TerritoryAvailabilitySection({ code, canWrite }: { code: string; canWrite: boolean }) {
+  const [open, setOpen] = useState(false)
+  const { data: territoriesData } = useTerritories()
+  const { data } = useClassTerritoryAvailability(code)
+  const setAvail = useSetClassTerritoryAvailability(code)
+  const [disabled, setDisabled] = useState<Set<string> | null>(null)
+  // Re-seed each time the dialog opens (or the saved set changes) so it always
+  // starts from the stored state and a Cancel discards cleanly.
+  useEffect(() => {
+    if (open && data) setDisabled(new Set(data.disabled_territory_ids))
+  }, [open, data])
+
+  const territories = useMemo(
+    () =>
+      [...(territoriesData?.territories ?? [])].sort(
+        (a, b) => a.level_rank - b.level_rank || a.name.localeCompare(b.name),
+      ),
+    [territoriesData],
+  )
+  const current = disabled ?? new Set<string>()
+  const serverSet = useMemo(() => new Set(data?.disabled_territory_ids ?? []), [data])
+  const dirty =
+    disabled != null && (disabled.size !== serverSet.size || [...disabled].some((id) => !serverSet.has(id)))
+  const offCount = serverSet.size
+
+  function toggle(id: string, checked: boolean) {
+    setDisabled((prev) => {
+      const next = new Set(prev ?? [])
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+  function save() {
+    setAvail.mutate([...current], {
+      onSuccess: () => {
+        useToastStore.getState().pushSuccess("Territory availability updated.")
+        setOpen(false)
+      },
+      onError: (err) =>
+        useToastStore
+          .getState()
+          .pushError(err instanceof ApiError ? err.message : "Could not save territory availability."),
+    })
+  }
+
+  return (
+    <>
+      <Button variant="outline" className="w-full justify-between" onClick={() => setOpen(true)}>
+        <span className="flex items-center gap-2">
+          <LandPlot className="size-4" />
+          Territory availability
+        </span>
+        {offCount > 0 ? (
+          <Badge variant="secondary">{offCount} off</Badge>
+        ) : (
+          <span className="text-muted-foreground text-xs font-normal">available everywhere</span>
+        )}
+      </Button>
+
+      <FormDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Territory availability"
+        description={
+          <>
+            Tick a territory to turn <span className="font-mono">{code}</span> <b>off</b> there — new features
+            can't be created in it (or any territory beneath it). Unticked = available; none ticked = available
+            everywhere. Existing features are kept.
+          </>
+        }
+        onSubmit={save}
+        submitLabel="Save"
+        canSubmit={canWrite && dirty}
+        saving={setAvail.isPending}
+      >
+        {territories.length === 0 ? (
+          <p className="text-muted-foreground text-sm">No territories defined.</p>
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            {territories.map((t) => (
+              <label
+                key={t.id}
+                className="hover:bg-muted/50 flex items-center gap-2 rounded px-1.5 py-1 text-sm"
+                style={{ paddingLeft: `${0.375 + t.level_rank}rem` }}
+              >
+                <input
+                  type="checkbox"
+                  checked={current.has(t.id)}
+                  disabled={!canWrite}
+                  onChange={(e) => toggle(t.id, e.target.checked)}
+                />
+                <span>{t.name}</span>
+                <span className="text-muted-foreground text-xs">{t.level_name}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </FormDialog>
+    </>
+  )
+}
+
+/**
+ * Which engineering / network analysis studies a class offers. Applicability is
+ * code-defined by role (api/internal/studies) -- only studies the role makes
+ * applicable can be toggled; the rest never appear. Unticking one prunes it from
+ * the feature panel's analysis menu for every feature of this class.
+ */
+const STUDY_CATEGORIES: { key: string; label: string }[] = [
+  { key: "loadflow", label: "Load flow" },
+  { key: "fault", label: "Fault & protection" },
+  { key: "capacity", label: "Capacity & planning" },
+]
+
+function AnalysisStudiesSection({ code, canWrite }: { code: string; canWrite: boolean }) {
+  const [open, setOpen] = useState(false)
+  const { data } = useClassAnalysisStudies(code)
+  const setStudies = useSetClassAnalysisStudies(code)
+  const [disabled, setDisabled] = useState<Set<string> | null>(null)
+  useEffect(() => {
+    if (open && data) setDisabled(new Set(data.studies.filter((s) => s.disabled).map((s) => s.id)))
+  }, [open, data])
+
+  const applicable = useMemo(() => (data?.studies ?? []).filter((s) => s.applicable), [data])
+  const current = disabled ?? new Set<string>()
+  const serverDisabled = useMemo(
+    () => new Set((data?.studies ?? []).filter((s) => s.disabled).map((s) => s.id)),
+    [data],
+  )
+  const dirty =
+    disabled != null && (disabled.size !== serverDisabled.size || [...disabled].some((id) => !serverDisabled.has(id)))
+  const serverOn = applicable.filter((s) => !s.disabled).length
+
+  function toggle(id: string, enabled: boolean) {
+    setDisabled((prev) => {
+      const next = new Set(prev ?? [])
+      if (enabled) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  function save() {
+    setStudies.mutate([...current], {
+      onSuccess: () => {
+        useToastStore.getState().pushSuccess("Analysis studies updated.")
+        setOpen(false)
+      },
+      onError: (err) =>
+        useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save analysis studies."),
+    })
+  }
+
+  return (
+    <>
+      <Button variant="outline" className="w-full justify-between" onClick={() => setOpen(true)}>
+        <span className="flex items-center gap-2">
+          <FlaskConical className="size-4" />
+          Analysis studies
+        </span>
+        {applicable.length === 0 ? (
+          <span className="text-muted-foreground text-xs font-normal">none apply to this role</span>
+        ) : (
+          <Badge variant="secondary">
+            {serverOn} of {applicable.length} on
+          </Badge>
+        )}
+      </Button>
+
+      <FormDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Analysis studies"
+        description={
+          <>
+            Which engineering / network studies this class offers. Only studies its <b>role</b> makes applicable
+            can be enabled; untick one to hide it from the analysis menu on every feature of this class.
+          </>
+        }
+        onSubmit={save}
+        submitLabel="Save"
+        canSubmit={canWrite && dirty}
+        saving={setStudies.isPending}
+      >
+        {applicable.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            No analysis studies apply to this class — its role carries no electrical model to analyse.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {STUDY_CATEGORIES.map((cat) => {
+              const rows = applicable.filter((s) => s.category === cat.key)
+              if (rows.length === 0) return null
+              return (
+                <div key={cat.key}>
+                  <div className="text-muted-foreground mb-1 text-xs font-semibold uppercase">{cat.label}</div>
+                  <div className="flex flex-col gap-0.5">
+                    {rows.map((s) => (
+                      <label
+                        key={s.id}
+                        className="hover:bg-muted/50 flex items-center gap-2 rounded px-1.5 py-1 text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!current.has(s.id)}
+                          disabled={!canWrite}
+                          onChange={(e) => toggle(s.id, e.target.checked)}
+                        />
+                        {s.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </FormDialog>
+    </>
+  )
+}
+
 export function AdminFeatureClassDetailPage() {
   const { code } = useParams<{ code: string }>()
+  const navigate = useNavigate()
   const { data: classesData } = useAdminFeatureClasses()
   const { data: schema, isPending, isError } = useFeatureClassSchema(code)
   const queryClient = useQueryClient()
@@ -2716,6 +3081,8 @@ export function AdminFeatureClassDetailPage() {
   const canWrite = usePermission()("metadata:write")
   const [compiling, setCompiling] = useState(false)
   const [uncompileOpen, setUncompileOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [activeConfirm, setActiveConfirm] = useState<null | "deactivate" | "reactivate">(null)
   const [addingSubtype, setAddingSubtype] = useState(false)
   const [addingField, setAddingField] = useState(false)
   const [editingFieldName, setEditingFieldName] = useState<string | null>(null)
@@ -2762,6 +3129,34 @@ export function AdminFeatureClassDetailPage() {
       )
   }
 
+  // Delete permanently removes the whole class definition (subtypes, fields,
+  // terminals, rules -- all ON DELETE CASCADE, see api/internal/admin/delete.go).
+  // The server allows it only while the class is still draft: a compiled class
+  // has a real gis.<code> table that must be dropped first (Uncompile), so the
+  // button only renders for a draft. On success there's nothing left to view,
+  // so we return to the catalog.
+  async function handleDelete() {
+    if (!code) return
+    await apiFetch(`/admin/feature-classes/${code}`, { method: "DELETE" })
+    queryClient.invalidateQueries({ queryKey: ["admin", "feature-classes"] })
+    queryClient.invalidateQueries({ queryKey: ["feature-classes"] })
+    useToastStore.getState().pushSuccess(`Deleted ${code}.`)
+    navigate("/admin/feature-classes")
+  }
+
+  // Global activation toggle: deactivate takes a live class out of use
+  // everywhere (map, New-Feature menu, forms) while KEEPING its table + data,
+  // reactivate puts it back -- the non-destructive opposite of Uncompile. Flips
+  // status active <-> deprecated server-side (no recompile). Invalidate both the
+  // admin catalog and the map's active-only list so the class appears/vanishes.
+  async function handleSetActive(active: boolean) {
+    if (!code) return
+    await apiFetch(`/admin/feature-classes/${code}/${active ? "reactivate" : "deactivate"}`, { method: "POST" })
+    queryClient.invalidateQueries({ queryKey: ["admin", "feature-classes"] })
+    queryClient.invalidateQueries({ queryKey: ["feature-classes"] })
+    useToastStore.getState().pushSuccess(active ? `Reactivated ${code}.` : `Deactivated ${code} — hidden from use, data kept.`)
+  }
+
   if (!code) return null
 
   return (
@@ -2793,7 +3188,7 @@ export function AdminFeatureClassDetailPage() {
                     <>
                       {" · "}
                       <Badge variant={summary.status === "active" ? "success" : summary.status === "draft" ? "secondary" : "outline"}>
-                        {summary.status}
+                        {summary.status === "deprecated" ? "inactive" : summary.status}
                       </Badge>
                     </>
                   )}
@@ -2801,6 +3196,35 @@ export function AdminFeatureClassDetailPage() {
               </div>
               {canWrite && (
                 <div className="flex items-center gap-2">
+                  {/* Delete removes the whole draft class. Only a draft can be
+                      deleted (a compiled class has a real table -- Uncompile it
+                      first), so this and Uncompile are mutually exclusive. */}
+                  {summary && summary.status === "draft" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-destructive"
+                      onClick={() => setDeleteOpen(true)}
+                      disabled={compiling}
+                    >
+                      <Trash2 className="size-4" />
+                      Delete
+                    </Button>
+                  )}
+                  {/* Deactivate (non-destructive): take a live class out of use
+                      everywhere but keep its table + data. Reactivate restores it. */}
+                  {summary && summary.status === "active" && (
+                    <Button size="sm" variant="outline" onClick={() => setActiveConfirm("deactivate")} disabled={compiling}>
+                      <PowerOff className="size-4" />
+                      Deactivate
+                    </Button>
+                  )}
+                  {summary && summary.status === "deprecated" && (
+                    <Button size="sm" variant="outline" onClick={() => setActiveConfirm("reactivate")} disabled={compiling}>
+                      <Power className="size-4" />
+                      Reactivate
+                    </Button>
+                  )}
                   {/* Uncompile only makes sense once there's a physical table
                       to drop -- a draft class has none, so hide it there. */}
                   {summary && summary.status !== "draft" && (
@@ -2831,7 +3255,41 @@ export function AdminFeatureClassDetailPage() {
               onConfirm={handleUncompile}
             />
 
+            <ConfirmDeleteDialog
+              open={deleteOpen}
+              title={`Delete ${code}?`}
+              description="Permanently removes this draft class and everything defined on it so far (subtypes, fields, terminals, symbology and connectivity rules) — nothing physical exists yet, so there's nothing else to undo. This can't be undone."
+              onOpenChange={setDeleteOpen}
+              onConfirm={handleDelete}
+            />
+
+            <ConfirmDeleteDialog
+              open={activeConfirm !== null}
+              title={activeConfirm === "reactivate" ? `Reactivate ${code}?` : `Deactivate ${code}?`}
+              description={
+                activeConfirm === "reactivate"
+                  ? "Makes this class available again everywhere — the map, the New-Feature menu and every form."
+                  : "Hides this class from use everywhere (the map, the New-Feature menu, the Features browser and every form) and stops it accepting new features. Its table and all data are kept, and you can reactivate it anytime. Any per-territory settings are paused while it's off (global off wins)."
+              }
+              confirmLabel={activeConfirm === "reactivate" ? "Reactivate" : "Deactivate"}
+              onOpenChange={(open) => !open && setActiveConfirm(null)}
+              onConfirm={() => handleSetActive(activeConfirm === "reactivate")}
+            />
+
             {summary && <DiagramSettingsSection summary={summary} canWrite={canWrite} />}
+
+            {/* Per-territory availability -- only while the class is globally
+                active. A globally-deactivated class is off everywhere, so the
+                per-territory overlay is moot and the control is hidden. */}
+            {summary && summary.status === "active" && (
+              <TerritoryAvailabilitySection code={code} canWrite={canWrite} />
+            )}
+
+            {/* Which analysis studies this class offers (applicable by role,
+                admin-prunable). Only meaningful once compiled. */}
+            {summary && summary.status === "active" && (
+              <AnalysisStudiesSection code={code} canWrite={canWrite} />
+            )}
 
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Subtypes</h2>

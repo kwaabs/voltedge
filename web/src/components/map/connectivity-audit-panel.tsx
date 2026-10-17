@@ -1,7 +1,15 @@
 import { useState } from "react"
-import { List, Loader2, ShieldCheck, Table2, X } from "lucide-react"
+import { Check, CheckCheck, EyeOff, List, Loader2, RefreshCw, ShieldCheck, Table2, Undo2, X } from "lucide-react"
 
 import { inputClass } from "@/components/map/field-utils"
+import {
+  type IssueSeverityFilter,
+  type IssueStatusFilter,
+  type ValidationIssue,
+  useReconcileIssues,
+  useTriageIssue,
+  useValidationIssues,
+} from "@/hooks/use-validation-issues"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -113,6 +121,181 @@ function FeatureChip({
   )
 }
 
+/** One triage button -- a small icon action on an issue row. */
+function TriageBtn({
+  title,
+  icon,
+  onClick,
+  disabled,
+}: {
+  title: string
+  icon: React.ReactNode
+  onClick: () => void
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className="text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer rounded p-1 disabled:opacity-50"
+    >
+      {icon}
+      <span className="sr-only">{title}</span>
+    </button>
+  )
+}
+
+/** One issue row: severity, message, the two features (locatable chips), and the
+ * triage actions. A live issue can be acknowledged / resolved / suppressed; a
+ * resolved or suppressed one can be re-opened. */
+function IssueRow({
+  issue,
+  classNameFor,
+  isDiagramOnly,
+  onTriage,
+  busy,
+}: {
+  issue: ValidationIssue
+  classNameFor: (code: string) => string
+  isDiagramOnly: (code?: string) => boolean
+  onTriage: (status: ValidationIssue["status"]) => void
+  busy: boolean
+}) {
+  const closed = issue.status === "resolved" || issue.status === "suppressed"
+  return (
+    <li className="flex flex-col gap-1 p-2">
+      <div className="flex items-start gap-2">
+        <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium", severityClass(issue.severity))}>
+          {issue.severity}
+        </span>
+        <span className="text-sm">
+          {issue.message}
+          {issue.distance_meters != null && (
+            <span className="text-muted-foreground"> ({issue.distance_meters.toFixed(2)} m)</span>
+          )}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-1 pl-1">
+        <FeatureChip code={issue.from_class} id={issue.from_id} diagramOnly={isDiagramOnly(issue.from_class)} classNameFor={classNameFor} />
+        <FeatureChip code={issue.to_class} id={issue.to_id} diagramOnly={isDiagramOnly(issue.to_class)} classNameFor={classNameFor} />
+        {issue.status === "acknowledged" && <span className="text-muted-foreground text-[11px]">· acknowledged</span>}
+        {issue.status === "suppressed" && <span className="text-muted-foreground text-[11px]">· suppressed</span>}
+        <div className="ml-auto flex items-center gap-0.5">
+          {closed ? (
+            <TriageBtn title="Re-open" icon={<Undo2 className="size-3.5" />} onClick={() => onTriage("open")} disabled={busy} />
+          ) : (
+            <>
+              {issue.status === "open" && (
+                <TriageBtn title="Acknowledge" icon={<Check className="size-3.5" />} onClick={() => onTriage("acknowledged")} disabled={busy} />
+              )}
+              <TriageBtn title="Mark resolved" icon={<CheckCheck className="size-3.5" />} onClick={() => onTriage("resolved")} disabled={busy} />
+              <TriageBtn title="Suppress (won't re-surface)" icon={<EyeOff className="size-3.5" />} onClick={() => onTriage("suppressed")} disabled={busy} />
+            </>
+          )}
+        </div>
+      </div>
+    </li>
+  )
+}
+
+/** The triage view of the persistent, self-pruning issue queue
+ * (ops.validation_issues). The worker keeps it current; here an operator reads the
+ * live queue and acknowledges / resolves / suppresses an issue -- rather than
+ * re-running a whole-database audit. "Reconcile now" kicks an immediate audit +
+ * reconcile (the worker does this continuously). */
+function IssueQueue({
+  classNameFor,
+  isDiagramOnly,
+  grow,
+}: {
+  classNameFor: (code: string) => string
+  isDiagramOnly: (code?: string) => boolean
+  grow: boolean
+}) {
+  const [status, setStatus] = useState<IssueStatusFilter>("")
+  const [severity, setSeverity] = useState<IssueSeverityFilter>("")
+  const { data, isLoading, isError } = useValidationIssues({ status, severity })
+  const triage = useTriageIssue()
+  const reconcile = useReconcileIssues()
+  const issues = data?.issues ?? []
+  const live = status === ""
+
+  return (
+    <div className={cn("flex flex-col overflow-hidden", grow ? "min-h-0 flex-1" : "max-h-[24rem]")}>
+      <div className="flex flex-wrap items-center gap-1 border-b px-2 py-1.5 text-[11px]">
+        <span className="text-muted-foreground mr-0.5">Show</span>
+        {(["", "open", "acknowledged", "resolved", "suppressed"] as const).map((s) => (
+          <button
+            key={s || "live"}
+            type="button"
+            onClick={() => setStatus(s)}
+            className={cn(
+              "cursor-pointer rounded px-1.5 py-0.5 capitalize",
+              status === s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70",
+            )}
+          >
+            {s === "" ? "Live" : s}
+          </button>
+        ))}
+        <span className="text-muted-foreground mr-0.5 ml-2">Severity</span>
+        {(["", "error", "warning"] as const).map((s) => (
+          <button
+            key={s || "any"}
+            type="button"
+            onClick={() => setSeverity(s)}
+            className={cn(
+              "cursor-pointer rounded px-1.5 py-0.5 capitalize",
+              severity === s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70",
+            )}
+          >
+            {s === "" ? "Any" : s}
+          </button>
+        ))}
+        <Button
+          size="sm"
+          variant="outline"
+          className="ml-auto h-6 gap-1 px-2 text-[11px]"
+          onClick={() => reconcile.mutate(undefined)}
+          disabled={reconcile.isPending}
+          title="Run the audit now and reconcile it into the queue (the worker does this automatically)"
+        >
+          {reconcile.isPending ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+          Reconcile now
+        </Button>
+      </div>
+
+      <div className="overflow-auto">
+        {isLoading ? (
+          <p className="text-muted-foreground flex items-center gap-2 p-3 text-sm">
+            <Loader2 className="size-4 animate-spin" /> Loading…
+          </p>
+        ) : isError ? (
+          <p className="text-destructive p-3 text-sm">Could not load the issue queue.</p>
+        ) : issues.length === 0 ? (
+          <p className="p-3 text-sm text-emerald-700 dark:text-emerald-400">
+            {live ? "The live queue is clear — no open issues." : "Nothing here."}
+          </p>
+        ) : (
+          <ul className="divide-y">
+            {issues.map((it) => (
+              <IssueRow
+                key={it.id}
+                issue={it}
+                classNameFor={classNameFor}
+                isDiagramOnly={isDiagramOnly}
+                onTriage={(s) => triage.mutate({ id: it.id, status: s })}
+                busy={triage.isPending}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /**
  * The read-only connectivity consistency audit panel (Bet 1, Component A).
  * Runs GET /connectivity/audit on demand and lists the findings -- connections
@@ -124,6 +307,9 @@ export function ConnectivityAuditPanel() {
   const loading = useConnectivityAuditStore((s) => s.loading)
   const result = useConnectivityAuditStore((s) => s.result)
   const { data: featureClasses } = useFeatureClasses()
+  // The persistent issue queue is the primary, ongoing view (the worker keeps it
+  // current); the on-demand whole-network audit is the secondary tab.
+  const [mode, setMode] = useState<"queue" | "audit">("queue")
   const [toleranceInput, setToleranceInput] = useState("")
   const [filter, setFilter] = useState<FindingFilter>("all")
   const [severityFilter, setSeverityFilter] = useState<"all" | "error" | "warning" | "info">("all")
@@ -214,7 +400,29 @@ export function ConnectivityAuditPanel() {
         </Button>
       </div>
 
-      <div className="flex items-center gap-2 border-b p-2">
+      <div className="flex items-center gap-1 border-b px-2 py-1 text-[11px]">
+        {(["queue", "audit"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={cn(
+              "cursor-pointer rounded px-2 py-0.5 font-medium",
+              mode === m ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70",
+            )}
+          >
+            {m === "queue" ? "Issue queue" : "Run audit"}
+          </button>
+        ))}
+      </div>
+
+      {mode === "queue" && (
+        <IssueQueue classNameFor={classNameFor} isDiagramOnly={isDiagramOnly} grow={fp.resized} />
+      )}
+
+      {mode === "audit" && (
+        <>
+          <div className="flex items-center gap-2 border-b p-2">
         <label className="text-muted-foreground shrink-0 text-xs">Tolerance (m)</label>
         <input
           type="number"
@@ -448,6 +656,8 @@ export function ConnectivityAuditPanel() {
             </details>
           )}
         </div>
+      )}
+        </>
       )}
       {fp.resizeHandle}
 

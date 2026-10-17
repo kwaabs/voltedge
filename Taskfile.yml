@@ -366,6 +366,14 @@ tasks:
       - powershell -NoProfile -Command "$answer = Read-Host 'This ERASES all features, outages, works, attachments, and every account except the break-glass admin. Type YES to continue'; if ($answer -ne 'YES') { Write-Host 'Aborted.'; exit 1 }"
       - go run ./cmd/resetdata --admin-email {{.EMAIL}} --yes
 
+  dedupe-terminals:
+    desc: Remove duplicate terminal rows for every class (re-points references, keeps one per class/subtype/code). Idempotent -- no-op on a clean DB. Needed only on a database predating migration 0142, which already prevents new duplicates.
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/dedupe_terminals.sql
+
   seed-pole:
     desc: Load the POLE example metadata through the gitbash sidecar
     cmds:
@@ -1251,6 +1259,22 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/cable_joint_symbology.sql
 
+  seed-joint-overhead:
+    desc: Generalise the cable joint into a unified conductor JOINT covering OVERHEAD as well as underground (Shape A -- medium implied by subtype). Data-preserving + additive -- KEEPS the class codes MV_CABLE_JOINT/LV_CABLE_JOINT (renames display name to MV/LV Joint), keeps subtype codes 1-4, adds OH subtypes 5 OH splice / 6 OH tap[+T3 tee] / 7 OH dead-end, adds CONNECTOR_TYPE domain + connector_type field (insulation_type made nullable; each required per-subtype so no published row is invalidated). Requires seed-cable-joint first; RECOMPILE CODE=MV_CABLE_JOINT + LV_CABLE_JOINT after (new column + drop NOT NULL). Symbology/CIM/trace_tiers unchanged (code unchanged)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/joint_overhead_extension.sql
+
+  seed-joint-rename:
+    desc: "ONE-TIME manual rename of the joint classes to a generic code: MV_CABLE_JOINT -> MV_JOINT, LV_CABLE_JOINT -> LV_JOINT (the classes now cover OH + UG). Hand surgery -- the class code is a permanent id the admin layer won't rename, so this rewrites every bare-text code reference across ~20 tables (only attachments FK-cascades), renames the physical tables, and drops the stale tile functions, in one transaction. Edits PUBLISHED data + UNTESTED here -- >>> BACK UP FIRST <<<. Idempotent + guarded. After: task compile CODE=MV_JOINT + LV_JOINT"
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/joint_rename_to_generic.sql
+
   seed-cable-routing:
     desc: Load the Phase 44 Slice 3 cable_routing relationship classes coupling the civil axis to the cables (CABLE_DUCT carries MV/LV_CONDUCTOR [way-consuming], CABLE_TRENCH carries CABLE_DUCT + MV/LV_CONDUCTOR direct-buried; all many_to_many) through the gitbash sidecar (requires migration 0082 [task migrate] + seed-cable-management + seed-connectivity + seed-lv-conductors first; no compile -- relationship_classes has no physical footprint)
     cmds:
@@ -1468,6 +1492,7 @@ tasks:
       - task: seed-cable-management-symbology
       - task: seed-cable-joint
       - task: seed-cable-joint-symbology
+      - task: seed-joint-overhead
       - task: seed-cable-routing
       - task: seed-duct-way
       # base classes/metadata with no dedicated task, needed before the seeds

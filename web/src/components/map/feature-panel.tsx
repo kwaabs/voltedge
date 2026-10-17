@@ -21,7 +21,6 @@ import {
   Link2,
   Loader2,
   Lock,
-  MapPinOff,
   MoreHorizontal,
   Network,
   Paperclip,
@@ -62,13 +61,14 @@ import { FaultsTab } from "@/components/map/feature-faults-tab"
 import { TagsTab } from "@/components/map/feature-tags-tab"
 import { WorksTab } from "@/components/map/feature-works-tab"
 import { formatFieldLabel, formatValue, inputClass } from "@/components/map/field-utils"
-import { RemoveGeometryDialog } from "@/components/map/remove-geometry-dialog"
+import { SetCircuitSourceDialog } from "@/components/map/set-circuit-source-dialog"
 import { RevokeConnectionDialog } from "@/components/map/revoke-connection-dialog"
 import { RevokeRelationshipDialog } from "@/components/map/revoke-relationship-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -95,10 +95,14 @@ import { usePermission } from "@/hooks/use-auth"
 import { useMarkDownstreamPrivate, useResyncOwnership } from "@/hooks/use-ownership"
 import {
   type ExternalLink,
+  type ExternalRefEntry,
   useCreateExternalLink,
   useDeleteExternalLink,
   useExternalLinkData,
   useExternalLinks,
+  useFeatureExternalData,
+  useFeatureExternalRefs,
+  useSetFeatureExternalRefs,
 } from "@/hooks/use-external-links"
 import { useExternalSystems } from "@/hooks/use-external-systems"
 import { useApplyPendingEdit, useDiscardPendingEdit } from "@/hooks/use-pending-edits"
@@ -115,10 +119,12 @@ import { useCoordinationStore } from "@/stores/coordination-store"
 import { useDiagramStore } from "@/stores/diagram-store"
 import { useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
+import { useOneLineStore } from "@/stores/one-line-store"
 import { useFaultCurrentStore } from "@/stores/fault-current-store"
 import { type IsolationResult, useIsolateStore } from "@/stores/isolate-store"
 import { useLoadFlowStore } from "@/stores/load-flow-store"
 import { useSelectionStore } from "@/stores/selection-store"
+import { useTracePathStore } from "@/stores/trace-path-store"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
 import {
   type ServiceTraceResult,
@@ -309,6 +315,15 @@ function AttributesTab() {
       ? subtypeSchema?.subtypes.find((s) => s.code === feature.subtype)?.name
       : undefined
 
+  // Resolve a coded field's stored code to its human domain label (e.g.
+  // height_class "CLASS_1" -> "Class 1 (9 m)"), so the read-only panel shows
+  // the admin-set label rather than the raw code. Returns undefined for a
+  // non-coded field or an unknown code, so the caller falls back to formatValue.
+  const domainLabel = (fieldName: string, value: unknown): string | undefined =>
+    typeof value === "string"
+      ? subtypeSchema?.fields.find((f) => f.name === fieldName)?.domain_value_labels?.[value]
+      : undefined
+
   // Move the feature between draft and published -- the review/sign-off axis.
   // status is the publish system column, not a metadata attribute, so it's
   // deliberately absent from the edit form; this inline control is its home.
@@ -451,7 +466,7 @@ function AttributesTab() {
                 by its own value. */}
             {key === "circuit_id" && typeof value === "string"
               ? (circuitNames[value] ?? formatValue(value))
-              : formatValue(value)}
+              : (domainLabel(key, value) ?? formatValue(value))}
           </dd>
         </Fragment>
       ))}
@@ -1100,6 +1115,255 @@ function LinksTab({ featureClassCode, featureId }: { featureClassCode: string; f
           )}
         </div>
       )}
+
+      <ExternalRefsSection featureClassCode={featureClassCode} featureId={featureId} />
+    </div>
+  )
+}
+
+/**
+ * The feature's external_ref map (migration 0145): the ids it carries in other
+ * systems (SCADA / AMI / CIS), keyed by system code. Distinct from the links
+ * above -- a link is a stored pointer the panel opens/fetches, while external_ref
+ * is the correlation SOURCE OF TRUTH (what the reverse index resolves inbound
+ * pushes against, and what the live-fetch builds its URL from). Shown as a small
+ * list with an inline add (pick a catalogued system + type the id) and a per-row
+ * remove; a row whose system has a fetch template also offers inline Live data.
+ * Editing rides features:write -- a read-only viewer sees the refs but no controls.
+ */
+function ExternalRefsSection({ featureClassCode, featureId }: { featureClassCode: string; featureId: string }) {
+  const { data, isPending, isError } = useFeatureExternalRefs(featureClassCode, featureId)
+  const setRefs = useSetFeatureExternalRefs(featureClassCode, featureId)
+  const canWrite = usePermission()("features:write")
+
+  // The system catalog gives the add-picker its options and tells each ref row
+  // whether its system can be fetched (has a path_template). Behind metadata:read
+  // like the links picker; a feature editor who lacks it can still add a ref by
+  // typing the code, and existing rows still render (their code is enough).
+  const canReadSystems = usePermission()("metadata:read")
+  const systemsQuery = useExternalSystems(canReadSystems)
+  const systems = systemsQuery.data?.external_systems ?? []
+  const templateByCode = new Map(systems.map((s) => [s.code, s.path_template ?? ""]))
+  const nameByCode = new Map(systems.map((s) => [s.code, s.name]))
+
+  const [adding, setAdding] = useState(false)
+  const [sysCode, setSysCode] = useState("")
+  const [extId, setExtId] = useState("")
+
+  const refs = data?.refs ?? []
+
+  const reset = () => {
+    setAdding(false)
+    setSysCode("")
+    setExtId("")
+  }
+
+  // Write the next map = current entries (raw values, preserved) + the edit.
+  const buildMap = (mutate: (m: Record<string, unknown>) => void) => {
+    const next: Record<string, unknown> = {}
+    for (const r of refs) next[r.system] = r.value
+    mutate(next)
+    return next
+  }
+
+  const handleAdd = () => {
+    const code = sysCode.trim()
+    const id = extId.trim()
+    if (code === "" || id === "") return
+    const next = buildMap((m) => {
+      m[code] = id
+    })
+    setRefs.mutate(next, {
+      onSuccess: reset,
+      onError: (err) =>
+        useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save this reference."),
+    })
+  }
+
+  const removeRef = (system: string) => {
+    const next = buildMap((m) => {
+      delete m[system]
+    })
+    setRefs.mutate(next, {
+      onError: (err) =>
+        useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not remove this reference."),
+    })
+  }
+
+  const inputClass = "border-input bg-background w-full rounded-sm border px-2 py-1 text-sm"
+
+  // Systems not already referenced -- the picker only offers unused ones (one ref
+  // per system). Typing a brand-new code is still allowed via the free-text option.
+  const available = systems.filter((s) => !refs.some((r) => r.system === s.code))
+
+  return (
+    <div className="mt-2 w-full border-t pt-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">External references</span>
+        {canWrite && !adding && (
+          <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => setAdding(true)}>
+            <Plus className="size-3.5" />
+            Add
+          </Button>
+        )}
+      </div>
+
+      {adding && (
+        <div className="mb-2 flex w-full flex-col gap-2 rounded-md border p-2">
+          {available.length > 0 && (
+            <select value={sysCode} onChange={(e) => setSysCode(e.target.value)} className={inputClass}>
+              <option value="">Select a system...</option>
+              {available.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name} ({s.code})
+                </option>
+              ))}
+            </select>
+          )}
+          {available.length === 0 && (
+            <input
+              value={sysCode}
+              onChange={(e) => setSysCode(e.target.value.toUpperCase())}
+              placeholder="System code (e.g. SCADA)"
+              className={cn(inputClass, "font-mono text-xs")}
+            />
+          )}
+          <input
+            autoFocus
+            value={extId}
+            onChange={(e) => setExtId(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+            placeholder="This system's id (e.g. 48213)"
+            className={cn(inputClass, "font-mono text-xs")}
+          />
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={handleAdd} disabled={setRefs.isPending || sysCode.trim() === "" || extId.trim() === ""}>
+              {setRefs.isPending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+              Save
+            </Button>
+            <Button variant="ghost" size="sm" onClick={reset}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {isPending ? (
+        <div className="text-muted-foreground flex items-center gap-2 text-sm">
+          <Loader2 className="size-4 animate-spin" />
+          Loading references...
+        </div>
+      ) : isError ? null : refs.length === 0 ? (
+        <p className="text-muted-foreground text-sm">No external references.</p>
+      ) : (
+        <div className="flex w-full flex-col gap-2">
+          {refs.map((ref) => (
+            <ExternalRefRow
+              key={ref.system}
+              featureClassCode={featureClassCode}
+              featureId={featureId}
+              entry={ref}
+              systemName={nameByCode.get(ref.system)}
+              canFetch={(templateByCode.get(ref.system) ?? "") !== ""}
+              canRemove={canWrite}
+              onRemove={() => removeRef(ref.system)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * One external_ref entry: the system + the id this feature has there. When the
+ * system carries a fetch template, a Live data toggle pulls that id's data through
+ * the server proxy (GET /feature-links/external) and shows it as an expandable
+ * card, exactly like a stored api link's data row. An object ref (no single id)
+ * shows its raw JSON instead of a scalar id.
+ */
+function ExternalRefRow({
+  featureClassCode,
+  featureId,
+  entry,
+  systemName,
+  canFetch,
+  canRemove,
+  onRemove,
+}: {
+  featureClassCode: string
+  featureId: string
+  entry: ExternalRefEntry
+  systemName?: string
+  canFetch: boolean
+  canRemove: boolean
+  onRemove: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const query = useFeatureExternalData(featureClassCode, featureId, entry.system, open && canFetch)
+
+  const label = systemName ?? entry.system
+  const value =
+    entry.has_id && entry.id !== "" ? entry.id : typeof entry.value === "string" ? entry.value : JSON.stringify(entry.value)
+
+  return (
+    <div className="rounded-md border">
+      <div className="group hover:bg-accent/50 flex w-full items-center gap-2 rounded-t-md p-2 text-sm transition-colors">
+        <Cloud className="text-muted-foreground size-4 shrink-0" />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate font-medium">{label}</span>
+          <span className="text-muted-foreground truncate font-mono text-xs" title={value}>
+            {entry.system} · {value}
+          </span>
+        </div>
+        {canFetch && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2"
+            disabled={query.isFetching}
+            onClick={() => (open ? query.refetch() : setOpen(true))}
+          >
+            {query.isFetching ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+            {open ? "Refresh" : "Live data"}
+          </Button>
+        )}
+        {canRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            title="Remove reference"
+            className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
+          >
+            <Trash2 className="size-3.5" />
+            <span className="sr-only">Remove reference</span>
+          </button>
+        )}
+      </div>
+      {open && canFetch && (
+        <div className="border-t p-2">
+          {query.isPending ? (
+            <div className="text-muted-foreground flex items-center gap-2 text-xs">
+              <Loader2 className="size-3.5 animate-spin" />
+              Fetching...
+            </div>
+          ) : query.isError ? (
+            <p className="text-destructive text-xs">{query.error.message}</p>
+          ) : query.data ? (
+            <>
+              <div className="text-muted-foreground mb-1 flex items-center justify-between text-xs">
+                <span>
+                  {query.data.system.name} · {query.data.format.toUpperCase()}
+                </span>
+                <span>fetched {new Date(query.data.fetched_at).toLocaleTimeString()}</span>
+              </div>
+              <pre className="bg-muted max-h-64 overflow-auto rounded-sm p-2 font-mono text-xs">
+                {JSON.stringify(query.data.data, null, 2)}
+              </pre>
+            </>
+          ) : null}
+        </div>
+      )}
     </div>
   )
 }
@@ -1700,9 +1964,12 @@ export function FeaturePanel() {
   const editing = useEditStore((s) => s.editing)
   const { data: featureClasses } = useFeatureClasses()
   const { data: feature } = useFeature(selected?.featureClassCode, selected?.featureId)
+  // The selected class's schema carries its effective analysis-study set
+  // (applicable by role, minus the admin prune) -- the analysis menu gates each
+  // study on it. Same query key AttributesTab fetches, so react-query dedups it.
+  const { data: selectedSchema } = useFeatureClassSchema(selected?.featureClassCode)
   const [activeTab, setActiveTab] = useState<TabId>("attributes")
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [removeGeometryOpen, setRemoveGeometryOpen] = useState(false)
   const [creatingDiagram, setCreatingDiagram] = useState(false)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const [size, setSize] = useState<{ width: number; height: number } | null>(null)
@@ -1776,7 +2043,6 @@ export function FeaturePanel() {
   useEffect(() => {
     setActiveTab("attributes")
     setDeleteDialogOpen(false)
-    setRemoveGeometryOpen(false)
     setCreatingDiagram(false)
     setMinimized(false)
     useEditStore.getState().stop()
@@ -1866,7 +2132,7 @@ export function FeaturePanel() {
   // simultaneous. The result lands in trace-store.ts, which
   // voltedge-map.tsx and trace-result-table.tsx both read -- this
   // function's only job is the request itself.
-  async function runTrace(configCode: string, startOverride?: TraceFeatureRef) {
+  async function runTrace(configCode: string, startOverride?: TraceFeatureRef, target?: TraceFeatureRef) {
     if (!startOverride && !selected) return
     const start =
       startOverride ?? { feature_class: selected!.featureClassCode, feature_id: selected!.featureId }
@@ -1904,14 +2170,73 @@ export function FeaturePanel() {
           // across the boundary. The engine ignores this on non-downstream
           // configs, so sending the default here is always safe.
           cross_transformers: false,
+          // target is only read by a SHORTEST_PATH config (the "Trace path to…"
+          // gesture); the engine ignores it on every other config, so it's safe to
+          // send only when present.
+          ...(target ? { target } : {}),
         }),
       })
-      useTraceStore.getState().setResult(result, computed, () => runTrace(configCode, start))
+      // A SHORTEST_PATH trace that found no connected route comes back with
+      // path_found=false (undefined for every other config). Clear the panel and
+      // warn rather than leaving an empty "Shortest path" result that reads like a
+      // failure.
+      if (target && result.path_found === false) {
+        useTraceStore.getState().clear()
+        useToastStore
+          .getState()
+          .pushWarning("No connected path between these two features (they may be on separate networks).")
+        return
+      }
+      useTraceStore.getState().setResult(result, computed, () => runTrace(configCode, start, target))
     } catch (err) {
       useTraceStore.getState().setLoading(false)
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not run this trace.")
     }
   }
+
+  // "Trace path to…" gesture (trace-path-store.ts): once the user picks a
+  // destination feature on the map, fire the SHORTEST_PATH trace from source to
+  // target and end the gesture. SHORTEST_PATH is the one config the dropdown hides
+  // (it needs a second feature, which this two-click flow supplies).
+  const tracePathActive = useTracePathStore((s) => s.active)
+  const tracePathSource = useTracePathStore((s) => s.source)
+  const tracePathTarget = useTracePathStore((s) => s.target)
+  // Supply-path options, toggled by the checkboxes in the "Supply path" submenu
+  // before the trace is run (harmonizes what used to be separate menu items).
+  const [spRespectSwitchState, setSpRespectSwitchState] = useState(false)
+  const [spToPrimarySource, setSpToPrimarySource] = useState(false)
+  const shortestPathConfig = traceConfigurations?.trace_configurations.find(
+    (c) => c.direction === "SHORTEST_PATH",
+  )
+  useEffect(() => {
+    if (!tracePathActive || !tracePathSource || !tracePathTarget) return
+    if (!shortestPathConfig) {
+      useToastStore.getState().pushError("Shortest-path trace is not configured on this deployment.")
+      useTracePathStore.getState().cancel()
+      return
+    }
+    runTrace(
+      shortestPathConfig.code,
+      { feature_class: tracePathSource.featureClassCode, feature_id: tracePathSource.featureId },
+      { feature_class: tracePathTarget.featureClassCode, feature_id: tracePathTarget.featureId },
+    )
+    useTracePathStore.getState().cancel()
+    // Keyed only on the gesture reaching a complete source+target state; runTrace is
+    // a hoisted closure over component state and intentionally not a dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracePathActive, tracePathSource, tracePathTarget, shortestPathConfig])
+
+  // Safety net: end an in-progress "Trace path to…" gesture if the user moves to a
+  // different feature by any other means (peer picker, Show-on-map, etc.). The
+  // gesture is bound to the feature it started from -- a map click during picking
+  // doesn't change `selected` (it's intercepted as the target), so this only fires
+  // on a genuine navigation away, never mid-pick.
+  useEffect(() => {
+    if (!tracePathActive) return
+    if (!selected || selected.featureId !== tracePathSource?.featureId) {
+      useTracePathStore.getState().cancel()
+    }
+  }, [selected, tracePathActive, tracePathSource])
 
   // Isolation (api/internal/trace/isolate.go) needs a DOWNSTREAM
   // config for its barrier settings -- resolved by direction, same
@@ -2166,10 +2491,15 @@ export function FeaturePanel() {
   // nearest-first so the table reads consumption-point -> ... -> source,
   // and the milestones (transformer/switches/source) become `targets` so
   // they get the same visually-distinct highlight a target_class hit does.
-  async function runSupplyPathTrace(startOverride?: TraceFeatureRef) {
+  async function runSupplyPathTrace(
+    startOverride?: TraceFeatureRef,
+    opts?: { respectSwitchState?: boolean; toPrimarySource?: boolean },
+  ) {
     if (!startOverride && !selected) return
     const start =
       startOverride ?? { feature_class: selected!.featureClassCode, feature_id: selected!.featureId }
+    const respectSwitchState = opts?.respectSwitchState ?? false
+    const toPrimarySource = opts?.toPrimarySource ?? false
     const computed = snapshotComputedVoltages(start)
     useIsolateStore.getState().clear()
     useLoadFlowStore.getState().clear()
@@ -2202,11 +2532,27 @@ export function FeaturePanel() {
         milestones: (TraceFeatureRef & { role: string })[]
         serving_transformer?: TraceFeatureRef
         source?: TraceFeatureRef
+        // What the reported source IS (api/internal/trace/supply.go): an LV
+        // feature stops at its distribution transformer ("serving_transformer");
+        // an MV feature stops at the breaker a circuit designates as its source
+        // ("feeder_head"), or, when no circuit source is designated, the nearest
+        // upstream protective device ("section_head"); "none" when nothing
+        // upstream was reachable.
+        source_kind?: string
         reached_transformer: boolean
+        // Echoes the request: true = energized view (walk halted at open switches).
+        respect_switch_state?: boolean
         truncated?: boolean
       }>("/trace/supply-path", {
         method: "POST",
-        body: JSON.stringify({ start }),
+        // respect_switch_state true = energized view (stop at open switches, so a
+        // ring's normally-open point bounds the trace to the live supply direction);
+        // false (default) = the full barrier-free wired view.
+        body: JSON.stringify({
+          start,
+          respect_switch_state: respectSwitchState,
+          to_primary_source: toPrimarySource,
+        }),
       })
       useTraceStore.getState().setResult(
         {
@@ -2220,12 +2566,27 @@ export function FeaturePanel() {
           truncated: result.truncated,
         },
         computed,
-        () => runSupplyPathTrace(start),
+        () => runSupplyPathTrace(start, { respectSwitchState, toPrimarySource }),
       )
-      if (!result.reached_transformer) {
+      // The supply path stops at the head of the feature's own section, which is
+      // level-dependent -- an LV feature's transformer, an MV feature's feeder
+      // breaker -- so "no transformer upstream" is only noteworthy when NOTHING
+      // upstream was reachable. A section_head terminus means the circuit has no
+      // designated source yet, so we stopped at the nearest protective device.
+      if (!result.source) {
         useToastStore
           .getState()
-          .pushWarning("No distribution transformer found upstream of this feature.")
+          .pushWarning(
+            respectSwitchState
+              ? "No live source — every supply route to this feature passes through an open switch, so it may be de-energized."
+              : "No upstream source found for this feature — upstream connectivity may be incomplete.",
+          )
+      } else if (result.source_kind === "section_head") {
+        useToastStore
+          .getState()
+          .pushWarning(
+            "Stopped at the nearest protective device: this circuit has no designated source feature, so the true feeder breaker couldn't be resolved. Assign the circuit a source to complete the feeder head.",
+          )
       }
     } catch (err) {
       useTraceStore.getState().setLoading(false)
@@ -2737,9 +3098,6 @@ export function FeaturePanel() {
     useVvoStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
   }
 
-  // Runnable trace_configurations for the dropdown -- SHORTEST_PATH
-  // excluded (needs a target, no single one-click starting point).
-  const runnableConfigs = traceConfigurations?.trace_configurations.filter((c) => c.direction !== "SHORTEST_PATH") ?? []
   // Isolation only makes sense from a junction -- an edge or a
   // non-network feature has nothing to "open."
   const selectedClass = featureClasses?.feature_classes.find((fc) => fc.code === selected?.featureClassCode)
@@ -2748,15 +3106,28 @@ export function FeaturePanel() {
   // secondary network -- offer a one-click LV-network study that derives the
   // run voltage from the transformer's secondary (no voltage input needed).
   const selectedIsTransformerBoundary = selectedClass?.boundary_role === "transformer"
-  const canIsolate = selectedNetworkRole === "junction" && Boolean(isolationConfig)
-
-  // Demote-to-diagram-only (Phase 26 Slice 3): only a geometry_optional
-  // class can hold a geom-null feature, and there's only something to
-  // remove when the feature actually has map geometry right now. A
-  // soft-deleted feature is left alone, same guard Duplicate/Delete use.
-  const canRemoveGeometry = Boolean(
-    selectedClass?.geometry_optional && feature?.geometry && !feature?.deleted_at,
-  )
+  // A leaf endpoint (functional_role consumer/sensor -- SERVICE_POINT, METER):
+  // it sits at the end of the network with nothing below it, so downstream-
+  // direction traces, sectioning (section/zone), isolate and the load-served
+  // trace are pointless from here and are hidden. Upstream / connected /
+  // supply-path / feeder still apply (they walk UP toward the source).
+  const isLeaf = selectedClass?.functional_role === "consumer" || selectedClass?.functional_role === "sensor"
+  // Runnable trace_configurations for the dropdown -- SHORTEST_PATH excluded
+  // (needs a target), and DOWNSTREAM-direction configs dropped on a leaf.
+  const runnableConfigs =
+    traceConfigurations?.trace_configurations.filter(
+      (c) => c.direction !== "SHORTEST_PATH" && !(isLeaf && c.direction === "DOWNSTREAM"),
+    ) ?? []
+  // Is a given analysis study offered for this feature's class? Drives every
+  // item in the analysis menu, so a study that doesn't apply to this class (by
+  // role) or was pruned by an admin never appears. See api/internal/studies.
+  const studyOK = (id: string) => selectedSchema?.analysis_studies?.includes(id) ?? false
+  // Whether a whole analysis submenu has any applicable study -- hide the
+  // submenu entirely (not just its items) when none apply to this class.
+  const anyLoadFlow = ["load_flow_auto", "load_flow", "voltage_profile", "meshed_load_flow", "nodal_load_flow", "unbalanced_load_flow"].some(studyOK)
+  const anyFaultProtection = ["fault_current", "coordination", "ampacity"].some(studyOK)
+  const anyCapacity = ["contingency", "hosting", "ev_hosting", "load_growth", "volt_var", "tap_optimization", "storage_dispatch", "vvo"].some(studyOK)
+  const canIsolate = selectedNetworkRole === "junction" && Boolean(isolationConfig) && !isLeaf
 
   // Terminal connections only exist for features inside the network model:
   // an `edge` connects to junctions and a `junction` carries the terminals
@@ -2773,6 +3144,12 @@ export function FeaturePanel() {
   const canReadWorks = usePermission()("wam:read")
   const canReadFaults = usePermission()("faults:read")
   const canReadTags = usePermission()("tags:read")
+  const canWriteCircuits = usePermission()("circuits:write")
+  const [circuitSourceOpen, setCircuitSourceOpen] = useState(false)
+  // Circuit catalog (small, cached) — used below to badge the feature when it's a
+  // circuit's designated source. A separate useCircuits() lives in the attribute
+  // field renderer above; this one is scoped to the FeaturePanel component itself.
+  const { data: circuitsData } = useCircuits()
   const visibleTabs = TABS.filter(
     (tab) =>
       (tab.id !== "terminals" || isConnectable) &&
@@ -2858,6 +3235,11 @@ export function FeaturePanel() {
   const showCloseButton = !isEditingSelected && !creatingDiagram
   const hasDiagramActions =
     (isDiagramContainer && diagrams.length === 0) || diagrams.length >= 1
+  // While the ephemeral one-line is open, the panel is opened from clicking a
+  // schematic symbol/conductor purely to READ what it is before printing -- so the
+  // mutating header controls (Edit, Duplicate, Delete) are hidden. They never affect
+  // the print and would clutter a view-only context.
+  const oneLineOpen = useOneLineStore((s) => s.open)
 
   // An unsaved draft (see draw-store.ts) takes over the whole panel,
   // no tabs -- a feature with no id yet has no terminals or
@@ -2917,6 +3299,12 @@ export function FeaturePanel() {
       ? `${className} · ${shortId(selected.featureId)}`
       : shortId(selected.featureId)
 
+  // Circuits this feature is the designated SOURCE of (gis.circuits.source_feature_*).
+  // Stored on the circuit, not the feature, so the attribute panel surfaces it here.
+  const sourceCircuits = (circuitsData?.circuits ?? []).filter(
+    (c) => c.source_feature_class === selected.featureClassCode && c.source_feature_id === selected.featureId,
+  )
+
   return (
     <div ref={panelRef} style={shellStyle} className={positionClass}>
       <div
@@ -2926,7 +3314,20 @@ export function FeaturePanel() {
         <div className="flex min-w-0 items-center gap-1.5">
           <GripHorizontal className="text-primary/70 size-3.5 shrink-0" />
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{primaryLabel}</p>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <p className="truncate text-sm font-medium">{primaryLabel}</p>
+              {sourceCircuits.length > 0 && (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400"
+                  title={`Designated source of circuit${sourceCircuits.length === 1 ? "" : "s"}: ${sourceCircuits.map((c) => c.name).join(", ")}`}
+                >
+                  <Network className="size-3 shrink-0" />
+                  {sourceCircuits.length === 1
+                    ? `Source of ${sourceCircuits[0].name}`
+                    : `Source of ${sourceCircuits.length} circuits`}
+                </span>
+              )}
+            </div>
             <p className="text-muted-foreground truncate font-mono text-xs">{secondaryLabel}</p>
           </div>
         </div>
@@ -2944,8 +3345,17 @@ export function FeaturePanel() {
                     // hover fill stops short of the icons. h-7 keeps it level with
                     // the sibling icon buttons; tight gap + slim px keep it compact.
                     className="h-7 w-auto gap-0.5 px-1.5"
-                    disabled={tracing || isolating || loadFlowLoading || faultCurrentLoading || ampacityLoading}
-                    title="Run trace"
+                    // Disabled mid-"Trace path to…" pick so a second trace/analysis
+                    // can't be launched while the map is waiting on a destination.
+                    disabled={
+                      tracing ||
+                      isolating ||
+                      loadFlowLoading ||
+                      faultCurrentLoading ||
+                      ampacityLoading ||
+                      tracePathActive
+                    }
+                    title={tracePathActive ? "Click a destination feature on the map (Esc to cancel)" : "Run trace"}
                   >
                     <Route className="size-4" />
                     <ChevronDown className="size-3 opacity-70" />
@@ -2969,17 +3379,25 @@ export function FeaturePanel() {
                   {isolationConfig && (
                     <>
                       {runnableConfigs.length > 0 && <DropdownMenuSeparator />}
+                      {/* Feeder trace walks UP to the feeder, so it's useful even
+                          from a leaf; section/zone/service describe network
+                          structure below/around a node, so they're hidden on a
+                          leaf endpoint where there's nothing to section or serve. */}
                       <DropdownMenuItem onSelect={() => runFeederTrace()}>Feeder trace</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => runSectionTrace()}>
-                        Switching section
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => runSectionTrace(undefined, true)}>
-                        Protection zone
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => runServiceTrace()}>
-                        <Gauge className="size-4" />
-                        Service trace (load served)
-                      </DropdownMenuItem>
+                      {!isLeaf && (
+                        <>
+                          <DropdownMenuItem onSelect={() => runSectionTrace()}>
+                            Switching section
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => runSectionTrace(undefined, true)}>
+                            Protection zone
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => runServiceTrace()}>
+                            <Gauge className="size-4" />
+                            Service trace (load served)
+                          </DropdownMenuItem>
+                        </>
+                      )}
                     </>
                   )}
                   {canIsolate && (
@@ -2992,12 +3410,62 @@ export function FeaturePanel() {
                     </>
                   )}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => runSupplyPathTrace()}>
-                    <Waypoints className="size-4" />
-                    Supply path (to source)
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Waypoints className="size-4" />
+                      Supply path…
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-72">
+                      <DropdownMenuCheckboxItem
+                        checked={spRespectSwitchState}
+                        onCheckedChange={(v) => setSpRespectSwitchState(v === true)}
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        Energized only (respect open switches)
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem
+                        checked={spToPrimarySource}
+                        onCheckedChange={(v) => setSpToPrimarySource(v === true)}
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        To primary source (substation breaker)
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          runSupplyPathTrace(undefined, {
+                            respectSwitchState: spRespectSwitchState,
+                            toPrimarySource: spToPrimarySource,
+                          })
+                        }
+                      >
+                        <BatteryCharging className="size-4" />
+                        Run supply path
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      if (!selected) return
+                      useTracePathStore
+                        .getState()
+                        .begin({ featureClassCode: selected.featureClassCode, featureId: selected.featureId })
+                      useToastStore
+                        .getState()
+                        .pushWarning("Trace path: click the destination feature on the map (Esc to cancel).")
+                    }}
+                  >
+                    <Route className="size-4" />
+                    Trace path to…
                   </DropdownMenuItem>
+                  {canWriteCircuits && (
+                    <DropdownMenuItem onSelect={() => setCircuitSourceOpen(true)}>
+                      <Network className="size-4" />
+                      Set as circuit source…
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
-                  {selectedIsTransformerBoundary && (
+                  {studyOK("lv_network") && (
                     <>
                       <DropdownMenuItem onSelect={armLoadFlow}>
                         <Activity className="size-4" />
@@ -3006,103 +3474,141 @@ export function FeaturePanel() {
                       <DropdownMenuSeparator />
                     </>
                   )}
-                  {/* The numeric analyses are grouped into cascading submenus so the
-                      menu stays scannable as the analysis suite grows -- each arm
-                      handler is unchanged, only the layout differs. */}
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <Activity className="size-4" />
-                      Load flow
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuItem onSelect={armAutoLoadFlow}>
-                        <Workflow className="size-4" />
-                        Load flow (auto)…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={armLoadFlow}>
+                  {/* Each study is gated on the class's effective set (studyOK) so a
+                      study that doesn't apply to this feature's class, or was pruned
+                      by an admin, never appears; an empty submenu is hidden whole. */}
+                  {anyLoadFlow && (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
                         <Activity className="size-4" />
-                        Run load flow…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={armVoltageProfile}>
-                        <TrendingDown className="size-4" />
-                        Voltage profile &amp; losses…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={armMeshedLoadFlow}>
-                        <Spline className="size-4" />
-                        Meshed load flow…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={armNodalLoadFlow}>
-                        <Network className="size-4" />
-                        Nodal load flow (Y-bus)…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={armUnbalancedLoadFlow}>
-                        <Waves className="size-4" />
-                        Unbalanced load flow (3-phase)…
-                      </DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <TriangleAlert className="size-4" />
-                      Fault &amp; protection
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuItem onSelect={armFaultCurrent}>
+                        Load flow
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        {studyOK("load_flow_auto") && (
+                          <DropdownMenuItem onSelect={armAutoLoadFlow}>
+                            <Workflow className="size-4" />
+                            Load flow (auto)…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("load_flow") && (
+                          <DropdownMenuItem onSelect={armLoadFlow}>
+                            <Activity className="size-4" />
+                            Run load flow…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("voltage_profile") && (
+                          <DropdownMenuItem onSelect={armVoltageProfile}>
+                            <TrendingDown className="size-4" />
+                            Voltage profile &amp; losses…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("meshed_load_flow") && (
+                          <DropdownMenuItem onSelect={armMeshedLoadFlow}>
+                            <Spline className="size-4" />
+                            Meshed load flow…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("nodal_load_flow") && (
+                          <DropdownMenuItem onSelect={armNodalLoadFlow}>
+                            <Network className="size-4" />
+                            Nodal load flow (Y-bus)…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("unbalanced_load_flow") && (
+                          <DropdownMenuItem onSelect={armUnbalancedLoadFlow}>
+                            <Waves className="size-4" />
+                            Unbalanced load flow (3-phase)…
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
+                  {anyFaultProtection && (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
                         <TriangleAlert className="size-4" />
-                        Fault current…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={armCoordination}>
-                        <ChartSpline className="size-4" />
-                        Protection coordination…
-                      </DropdownMenuItem>
-                      {selectedNetworkRole === "edge" && (
-                        <DropdownMenuItem onSelect={armAmpacity}>
-                          <Thermometer className="size-4" />
-                          Run ampacity…
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <Sun className="size-4" />
-                      Capacity &amp; planning
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuItem onSelect={armContingency}>
-                        <Shuffle className="size-4" />
-                        Contingency &amp; backfeed…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={armHosting}>
+                        Fault &amp; protection
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        {studyOK("fault_current") && (
+                          <DropdownMenuItem onSelect={armFaultCurrent}>
+                            <TriangleAlert className="size-4" />
+                            Fault current…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("coordination") && (
+                          <DropdownMenuItem onSelect={armCoordination}>
+                            <ChartSpline className="size-4" />
+                            Protection coordination…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("ampacity") && (
+                          <DropdownMenuItem onSelect={armAmpacity}>
+                            <Thermometer className="size-4" />
+                            Run ampacity…
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
+                  {anyCapacity && (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
                         <Sun className="size-4" />
-                        DER hosting capacity…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={armEvHosting}>
-                        <BatteryCharging className="size-4" />
-                        EV feeder headroom…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={armLoadGrowth}>
-                        <TrendingUp className="size-4" />
-                        Load-growth forecast…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={armVoltVar}>
-                        <Gauge className="size-4" />
-                        Volt-VAR (capacitor switching)…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={armTapOptimization}>
-                        <SlidersHorizontal className="size-4" />
-                        Tap optimization (voltage regulators)…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={armStorageDispatch}>
-                        <BatteryFull className="size-4" />
-                        Storage dispatch (batteries)…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={armVvo}>
-                        <Wand2 className="size-4" />
-                        Volt-VAR Optimization (all controls)…
-                      </DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
+                        Capacity &amp; planning
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        {studyOK("contingency") && (
+                          <DropdownMenuItem onSelect={armContingency}>
+                            <Shuffle className="size-4" />
+                            Contingency &amp; backfeed…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("hosting") && (
+                          <DropdownMenuItem onSelect={armHosting}>
+                            <Sun className="size-4" />
+                            DER hosting capacity…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("ev_hosting") && (
+                          <DropdownMenuItem onSelect={armEvHosting}>
+                            <BatteryCharging className="size-4" />
+                            EV feeder headroom…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("load_growth") && (
+                          <DropdownMenuItem onSelect={armLoadGrowth}>
+                            <TrendingUp className="size-4" />
+                            Load-growth forecast…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("volt_var") && (
+                          <DropdownMenuItem onSelect={armVoltVar}>
+                            <Gauge className="size-4" />
+                            Volt-VAR (capacitor switching)…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("tap_optimization") && (
+                          <DropdownMenuItem onSelect={armTapOptimization}>
+                            <SlidersHorizontal className="size-4" />
+                            Tap optimization (voltage regulators)…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("storage_dispatch") && (
+                          <DropdownMenuItem onSelect={armStorageDispatch}>
+                            <BatteryFull className="size-4" />
+                            Storage dispatch (batteries)…
+                          </DropdownMenuItem>
+                        )}
+                        {studyOK("vvo") && (
+                          <DropdownMenuItem onSelect={armVvo}>
+                            <Wand2 className="size-4" />
+                            Volt-VAR Optimization (all controls)…
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
                   {/* Asset ownership (migration 0129/ownership axis): only on a
                       transformer, the boundary where a private network is declared.
                       Utility is the default, so a utility transformer still shows
@@ -3126,69 +3632,77 @@ export function FeaturePanel() {
                 </DropdownMenuContent>
               </DropdownMenu>
               )}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                title="Edit"
-                disabled={Boolean(feature?.deleted_at)}
-                onClick={() => useEditStore.getState().start(selected.featureClassCode, selected.featureId)}
-              >
-                <Pencil className="size-4" />
-                <span className="sr-only">Edit</span>
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="size-7" title="More actions">
-                    <MoreHorizontal className="size-4" />
-                    <span className="sr-only">More actions</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
-                  <DropdownMenuItem
-                    disabled={!feature?.geometry || Boolean(feature?.deleted_at)}
-                    onSelect={handleDuplicate}
-                  >
-                    <Copy className="size-4" />
-                    Duplicate
-                  </DropdownMenuItem>
-                  {canRemoveGeometry && (
-                    <DropdownMenuItem onSelect={() => setRemoveGeometryOpen(true)}>
-                      <MapPinOff className="size-4" />
-                      Remove map geometry
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuSeparator />
-                  {isDiagramContainer && diagrams.length === 0 && (
-                    <DropdownMenuItem onSelect={() => setCreatingDiagram(true)}>
-                      <Workflow className="size-4" />
-                      Create diagram
-                    </DropdownMenuItem>
-                  )}
-                  {diagrams.length === 1 && (
-                    <DropdownMenuItem onSelect={() => useDiagramStore.getState().open(diagrams[0].id)}>
-                      <Workflow className="size-4" />
-                      View diagram
-                    </DropdownMenuItem>
-                  )}
-                  {diagrams.length > 1 &&
-                    diagrams.map((d) => (
-                      <DropdownMenuItem key={d.id} onSelect={() => useDiagramStore.getState().open(d.id)}>
+              {!oneLineOpen && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  title="Edit"
+                  disabled={Boolean(feature?.deleted_at)}
+                  onClick={() => useEditStore.getState().start(selected.featureClassCode, selected.featureId)}
+                >
+                  <Pencil className="size-4" />
+                  <span className="sr-only">Edit</span>
+                </Button>
+              )}
+              {/* Hidden entirely in the schematic-view context unless it still has a
+                  non-mutating item (a diagram action) to show. */}
+              {(!oneLineOpen || hasDiagramActions) && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="size-7" title="More actions">
+                      <MoreHorizontal className="size-4" />
+                      <span className="sr-only">More actions</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    {!oneLineOpen && (
+                      <>
+                        <DropdownMenuItem
+                          disabled={!feature?.geometry || Boolean(feature?.deleted_at)}
+                          onSelect={handleDuplicate}
+                        >
+                          <Copy className="size-4" />
+                          Duplicate
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
+                    {isDiagramContainer && diagrams.length === 0 && (
+                      <DropdownMenuItem onSelect={() => setCreatingDiagram(true)}>
                         <Workflow className="size-4" />
-                        View {d.name || d.diagram_type}
+                        Create diagram
                       </DropdownMenuItem>
-                    ))}
-                  {hasDiagramActions && <DropdownMenuSeparator />}
-                  <DropdownMenuItem
-                    disabled={Boolean(feature?.deleted_at)}
-                    onSelect={() => setDeleteDialogOpen(true)}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <Trash2 className="size-4" />
-                    Delete feature
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    )}
+                    {diagrams.length === 1 && (
+                      <DropdownMenuItem onSelect={() => useDiagramStore.getState().open(diagrams[0].id)}>
+                        <Workflow className="size-4" />
+                        View diagram
+                      </DropdownMenuItem>
+                    )}
+                    {diagrams.length > 1 &&
+                      diagrams.map((d) => (
+                        <DropdownMenuItem key={d.id} onSelect={() => useDiagramStore.getState().open(d.id)}>
+                          <Workflow className="size-4" />
+                          View {d.name || d.diagram_type}
+                        </DropdownMenuItem>
+                      ))}
+                    {!oneLineOpen && (
+                      <>
+                        {hasDiagramActions && <DropdownMenuSeparator />}
+                        <DropdownMenuItem
+                          disabled={Boolean(feature?.deleted_at)}
+                          onSelect={() => setDeleteDialogOpen(true)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="size-4" />
+                          Delete feature
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
               <div className="bg-border mx-0.5 h-4 w-px" />
             </>
           )}
@@ -3210,13 +3724,13 @@ export function FeaturePanel() {
         onOpenChange={setDeleteDialogOpen}
       />
 
-      <RemoveGeometryDialog
-        featureClassCode={selected.featureClassCode}
-        featureId={selected.featureId}
-        className={className}
-        open={removeGeometryOpen}
-        onOpenChange={setRemoveGeometryOpen}
-      />
+
+      {circuitSourceOpen && (
+        <SetCircuitSourceDialog
+          feature={{ featureClassCode: selected.featureClassCode, featureId: selected.featureId }}
+          onClose={() => setCircuitSourceOpen(false)}
+        />
+      )}
 
       {!minimized && (
       <div className="flex min-h-0 flex-1">

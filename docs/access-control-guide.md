@@ -974,6 +974,15 @@ WHERE r.key = 'auditor' AND p.key IN
 - **A disabled report still counts.** `reports` does not filter on status, so a disabled user's grants keep flowing up to their manager until the user's `manager_id` is changed or the grant is revoked.
 - **Revocation is instant on the serving process** (flush after write), within 60 seconds elsewhere.
 
+### 11.9 Per-territory feature-class availability (distinct from user scope)
+
+Orthogonal to *who* may work *where* (above) is *which feature classes exist where*. A feature class can be turned off for specific territories, so a utility that doesn't use a class in one region can make it unavailable there — independently of any user's grants.
+
+- **Global off** — a class's `feature_classes.status` set to `deprecated` (the admin **Deactivate** action) removes it from the map, the New-Feature menu, the Features browser and every form, *everywhere*. The table and all rows are kept; **Reactivate** restores it. This is enforced at write time (a deactivated class accepts no new features), not just hidden in the UI.
+- **Per-territory off** — a `metadata.feature_class_territory_disabled` row turns a still-active class off for one territory and, by cascade, **every territory beneath it**. On create, the feature's territory (resolved by the same point-in-polygon as §11.3) is checked, and a feature landing in a disabled territory is **refused**. Existing features are **grandfathered** (never removed). Global off always wins over any per-territory setting.
+
+This is a *class*-level availability gate, authored on the feature class (Admin → Feature classes → the class → **Territory availability**), and it composes with — but is independent of — the user-level territory scope this chapter otherwise describes.
+
 ---
 
 ## 12. Private drafts and the pending-edit overlay

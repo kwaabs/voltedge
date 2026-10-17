@@ -291,6 +291,22 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "external-service-layers-guide-interactive",
+		Title:       "External Service Layers (interactive)",
+		Description: "Overlaying third-party map services as something you operate: a persona switch gating registration by metadata:write, a service-type chooser across all seven protocols (WMS/WMTS/XYZ/vector-tile/Esri MapServer/Esri FeatureServer/WFS), a registration form showing the write-only sealed credential and the forced-proxy rule, a mock Layers-panel with toggles and opacity, a per-type identify demo (server GetFeatureInfo/identify vs client hit-test), a live SSRF-gate checker that blocks private/loopback/CGNAT/NAT64, and a quiz.",
+		Category:    "Interactive guides",
+		Filename:    "external-service-layers-guide-interactive.html",
+		Format:      "html",
+	},
+	{
+		ID:          "validation-and-audit-guide-interactive",
+		Title:       "Data Validation & Audit (interactive)",
+		Description: "The continuous-validation system as something you operate: a scale calculator that shows the batch pile growing while the live queue stays flat, the three lines of defence, the finding kinds and the scope trick, a self-pruning queue you drive (introduce a defect, reconcile, fix it, watch it auto-resolve — idempotent by fingerprint), a feature_history tail with a cursor and the truncation guard, a gated triage queue, and the admin:users activity audit with private-drafts respected. A persona switch gates reconcile/triage (connectivity:commit) and the audit (admin:users).",
+		Category:    "Interactive guides",
+		Filename:    "validation-and-audit-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "works-inspections-maintenance-guide-interactive",
 		Title:       "Works, Inspections & Maintenance (interactive)",
 		Description: "The WAM manual as something you operate: a persona switch gating every widget by wam:write, a live work board, the defect and work-order state machines with the real auto-status and severity-to-priority rules, a template builder and retire/restore library, an inspection recorder that auto-raises defects and replays idempotently, a maintenance-cycle simulator, Femi's offline field round with outbox sync, the permission and territory gaps, an assistant triage run over the wam_* tools, and a quiz.",
@@ -406,6 +422,25 @@ var manifest = []Doc{
 		Description: "Bringing data in from other systems: authoring import profiles, the supported sources (CSV, GeoJSON, shapefile, KML, DXF, GeoPackage, SpatiaLite, live PostGIS/MSSQL), field mapping, dry-run and the load.",
 		Category:    "How-to guides",
 		Filename:    "data-import-guide.md",
+	},
+	{
+		ID:          "external-service-layers-guide",
+		Title:       "External Service Layers",
+		Description: "Overlaying third-party map services on the map (ArcGIS FeatureServer/MapServer, WMS, WMTS, WFS, XYZ, vector tiles): registering the Service-layers catalogue, auth and the sealed credential, the Discover auto-fill, the SSRF-hardened proxy, toggling layers on the map, and click-to-identify.",
+		Category:    "How-to guides",
+		Filename:    "external-service-layers-guide.md",
+	},
+	{
+		// Readable by any signed-in user: the issue queue is a connectivity
+		// capability (connectivity:read to view, connectivity:commit to triage) and
+		// the activity audit is admin:users -- both gates are marked inside the
+		// guide, so one document serves the data steward, the reviewer and the
+		// auditor.
+		ID:          "validation-and-audit-guide",
+		Title:       "Data Validation & Audit",
+		Description: "Keeping a high-change network trustworthy: continuous incremental validation (the worker that tails feature_history), the self-pruning issue queue (fingerprints, auto-resolve, the truncation guard), triaging the queue, and the activity audit — who changed what, when.",
+		Category:    "How-to guides",
+		Filename:    "validation-and-audit-guide.md",
 	},
 	{
 		// Readable by any signed-in user: running the BoQ tool needs only

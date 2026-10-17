@@ -22,6 +22,7 @@ interface FormState {
   authUsername: string
   credential: string
   responseFormat: string
+  pathTemplate: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -32,6 +33,7 @@ const EMPTY_FORM: FormState = {
   authUsername: "",
   credential: "",
   responseFormat: "json",
+  pathTemplate: "",
 }
 
 function formFrom(sys: ExternalSystem): FormState {
@@ -43,6 +45,7 @@ function formFrom(sys: ExternalSystem): FormState {
     authUsername: sys.auth_username ?? "",
     credential: "",
     responseFormat: sys.response_format,
+    pathTemplate: sys.path_template ?? "",
   }
 }
 
@@ -103,6 +106,21 @@ function SystemFormFields({
         </div>
       </div>
 
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>Live-data path template</label>
+        <input
+          className={inputClass}
+          value={value.pathTemplate}
+          onChange={(e) => onChange({ ...value, pathTemplate: e.target.value })}
+          placeholder="e.g. /meters/{id}/consumption"
+        />
+        <p className="text-muted-foreground text-xs">
+          Optional. Appended to the base URL to fetch a feature's live data; <code>{"{id}"}</code> (and any{" "}
+          <code>{"{field}"}</code>) are filled from the feature's reference for this system. Leave blank for a
+          push-only or link-only system.
+        </p>
+      </div>
+
       {needsHeader && (
         <div className="flex flex-col gap-1">
           <label className={labelClass}>
@@ -159,6 +177,7 @@ function toBody(form: FormState, { isEdit }: { isEdit: boolean }): Record<string
     auth_header: form.authType === "api_key" ? form.authHeader.trim() : "",
     auth_username: form.authType === "basic" ? form.authUsername.trim() : "",
     response_format: form.responseFormat,
+    path_template: form.pathTemplate.trim(),
   }
   // Credential: always send on create; on edit only when the admin typed a
   // new one (blank => keep the stored secret).

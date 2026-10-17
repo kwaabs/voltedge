@@ -56,7 +56,11 @@ ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO metadata.domains (code, name, domain_type) VALUES
     ('DEVICE_STATE', 'Device state', 'coded'),
-    ('CONDITION_RATING', 'Condition rating', 'coded')
+    ('CONDITION_RATING', 'Condition rating', 'coded'),
+    -- Shared with PROTECTIVE_RELAY (seed/protective_relay_example.sql). Asserted
+    -- here too so a self-contained recloser apply binds device_number to a
+    -- populated domain regardless of seed order.
+    ('ANSI_DEVICE_NUMBER', 'ANSI/IEEE device function number', 'coded')
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO metadata.domain_values (domain_id, code, label, sort_order)
@@ -67,7 +71,25 @@ JOIN (VALUES
     ('DEVICE_STATE', 'OPEN', 'Open', 2),
     ('CONDITION_RATING', 'GOOD', 'Good', 1),
     ('CONDITION_RATING', 'FAIR', 'Fair', 2),
-    ('CONDITION_RATING', 'POOR', 'Poor', 3)
+    ('CONDITION_RATING', 'POOR', 'Poor', 3),
+    -- ANSI/IEEE device function numbers (mirror of the PROTECTIVE_RELAY seed;
+    -- ON CONFLICT DO NOTHING keeps the two in sync without clobbering).
+    ('ANSI_DEVICE_NUMBER', '27', '27 - Undervoltage', 1),
+    ('ANSI_DEVICE_NUMBER', '59', '59 - Overvoltage', 2),
+    ('ANSI_DEVICE_NUMBER', '50_51', '50/51 - Phase overcurrent', 3),
+    ('ANSI_DEVICE_NUMBER', '50_51N', '50/51N - Ground overcurrent', 4),
+    ('ANSI_DEVICE_NUMBER', '86', '86 - Lockout', 5),
+    ('ANSI_DEVICE_NUMBER', '87', '87 - Differential', 6),
+    ('ANSI_DEVICE_NUMBER', '25', '25 - Synchronism check', 7),
+    ('ANSI_DEVICE_NUMBER', '32', '32 - Directional power', 8),
+    ('ANSI_DEVICE_NUMBER', '37', '37 - Undercurrent / underpower', 9),
+    ('ANSI_DEVICE_NUMBER', '46', '46 - Negative-sequence / phase unbalance', 10),
+    ('ANSI_DEVICE_NUMBER', '49', '49 - Thermal overload', 11),
+    ('ANSI_DEVICE_NUMBER', '64', '64 - Earth-fault / restricted earth-fault', 12),
+    ('ANSI_DEVICE_NUMBER', '67', '67 - Directional phase overcurrent', 13),
+    ('ANSI_DEVICE_NUMBER', '67N', '67N - Directional ground overcurrent', 14),
+    ('ANSI_DEVICE_NUMBER', '79', '79 - Auto-reclose', 15),
+    ('ANSI_DEVICE_NUMBER', '81', '81 - Over/under frequency', 16)
 ) AS v(domain_code, code, label, sort_order) ON v.domain_code = d.code
 ON CONFLICT (domain_id, code) DO NOTHING;
 
@@ -89,9 +111,13 @@ INSERT INTO metadata.fields (feature_class_id, name, data_type, domain_id, group
 SELECT fc.id, v.name, v.data_type, d.id, fg.id, v.nullable
 FROM metadata.feature_classes fc
 JOIN (VALUES
-    ('device_state',       'text',    'DEVICE_STATE',     'electrical',  false),
-    ('condition_rating',   'text',    'CONDITION_RATING', 'maintenance', false),
-    ('reclose_attempts',   'integer', NULL,               'protection',  true),
+    ('device_state',       'text',    'DEVICE_STATE',       'electrical',  false),
+    ('condition_rating',   'text',    'CONDITION_RATING',   'maintenance', false),
+    -- The recloser's PRIMARY ANSI function (coded, like PROTECTIVE_RELAY's). A
+    -- self-contained recloser is typically 50/51 + 79; optional (nullable) so a
+    -- recloser can be modelled before its settings are known.
+    ('device_number',      'text',    'ANSI_DEVICE_NUMBER', 'protection',  true),
+    ('reclose_attempts',   'integer', NULL,                 'protection',  true),
     ('fast_curve_ref',     'text',    NULL,               'protection',  true),
     ('slow_curve_ref',     'text',    NULL,               'protection',  true),
     ('reclose_interval_s', 'numeric', NULL,               'protection',  true),

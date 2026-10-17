@@ -56,6 +56,8 @@ The compiler gives every feature class these base columns; you never author them
 
 Common domains referenced across many classes. A field pointing at one of these only accepts its codes.
 
+> **Code vs. label.** Each coded value has a stable **code** (what's stored, validated and sent — e.g. `CLASS_1`) and a human **label** (what the UI shows — e.g. `Class 1 (9 m)`). The attribute panel and the create/edit dropdowns display the **label**; this document lists codes. Admins set labels in Admin → Domains without changing stored data.
+
 ### Electrical / connectivity
 - **`PHASE`** — `L1`, `L2`, `L3`, `N` (Neutral), `L1N`, `L2N`, `L3N` (single-phase + neutral), `L1L2L3N` (three-phase + neutral). Which phases a conductor/device carries.
 - **`VOLTAGE_CLASS`** — coded nominal voltage: `400V`, `11KV`, `33KV`, `66KV`, `132KV`, `161KV`, `330KV`. The class of voltage, not an exact number.
@@ -112,7 +114,7 @@ Common domains referenced across many classes. A field pointing at one of these 
 - **`CHARGER_TYPE`** — `smps` / `thyristor` / `ferroresonant`.
 
 ### Structural / civil
-- **`POLE_MATERIAL`** — `WOOD` / `CONCRETE` / `STEEL`. **`POLE_USE`** — `DISTRIBUTION` / `TRANSMISSION` / `SERVICE`. **`POLE_HEIGHT_CLASS`** — `CLASS_1/2/3`.
+- **`POLE_MATERIAL`** — `WOOD` / `CONCRETE` / `STEEL`. **`POLE_USE`** — `DISTRIBUTION` / `TRANSMISSION` / `SERVICE`. **`POLE_HEIGHT_CLASS`** — `CLASS_1/2/3`, labelled with the nominal height: Class 1 (9 m) / Class 2 (12 m) / Class 3 (15 m). Admin-adjustable via Admin → Domains; shared with TOWER.
 - **`TOWER_MATERIAL`** — `STEEL_LATTICE` / `TUBULAR_STEEL` / `CONCRETE`.
 - **`STRUCTURE_USE`** — `RESIDENCE` / `COMMERCIAL` / `INDUSTRIAL` / `KIOSK` / `HOSPITAL` / `INSTITUTIONAL` / `EDUCATIONAL` / `RELIGIOUS` / `MIXED_USE` / `OTHER`.
 - **`TRENCH_SURFACE`** — `ROAD` / `FOOTWAY` / `VERGE` / `UNMADE`. **`DUCT_MATERIAL`** — `PVC` / `HDPE` / `STEEL` / `EARTHENWARE`. **`CHAMBER_COVER`** — `LIGHT` / `MEDIUM` / `HEAVY`.
@@ -273,7 +275,7 @@ Common domains referenced across many classes. A field pointing at one of these 
 | **MV_BREAKER** | MV Breaker *(controller · protective)* | `1 vacuum_breaker`, `2 sf6_breaker` | `normal_state` (`NORMAL_STATE`) · `switch_function` (`SWITCH_FUNCTION`, for coupler/incomer use) |
 | **MV_ISOLATOR** | MV Isolator *(controller · switching)* | `1 single_break`, `2 double_break` | `normal_state` (`NORMAL_STATE`) |
 | **MV_SECTIONALIZER** | MV Sectionalizer *(no functional role, no boundary role)* | `1 hydraulic`, `2 electronic` | `normal_state` (`NORMAL_STATE`) · `count_to_lockout` (int, fault counts before lockout) |
-| **MV_RECLOSER** | MV Recloser *(controller · protective)* | `1 standard` | `reclose_attempts` (int) · `fast_curve_ref` / `slow_curve_ref` (curve code) · `reclose_interval_s` · `reset_time_s` · `normal_state` |
+| **MV_RECLOSER** | MV Recloser *(controller · protective)* | `1 standard` | `device_number` (`ANSI_DEVICE_NUMBER` — primary ANSI function, e.g. 50/51 + 79) · `reclose_attempts` (int) · `fast_curve_ref` / `slow_curve_ref` (curve code) · `reclose_interval_s` · `reset_time_s` · `normal_state` |
 | **MV_SWITCH** | MV Switch *(controller · switching)* | `1 standard` | `is_fused` (bool) · `fuse_rating_a` (num) · `curve_ref` (code) · `normal_state` — *RMU ways are MV_SWITCH instances; `is_fused`=fused tee way* |
 | **MV_FUSE** | MV Fuse *(controller · protective)* | `1 expulsion_fuse`, `2 current_limiting_fuse` | `fuse_rating_a` (num) · `curve_ref` (curve code) · `fuse_speed` (`FUSE_SPEED`) |
 | **LV_SWITCH** | LV Switch *(controller · switching, tier 500)* | `1 standard` | `is_fused` · `fuse_rating_a` · `curve_ref` · `ownership` |
@@ -520,7 +522,7 @@ Common domains referenced across many classes. A field pointing at one of these 
 |---|---|---|---|
 | `pole_material` | text | `POLE_MATERIAL` | Wood / concrete / steel. **req** |
 | `pole_use` | text | `POLE_USE` | Distribution / transmission / service. **req** |
-| `height_class` | text | `POLE_HEIGHT_CLASS` | Class 1/2/3. **req** |
+| `height_class` | text | `POLE_HEIGHT_CLASS` | Class 1 (9 m) / 2 (12 m) / 3 (15 m). **req** |
 | `install_date` | date | — | Installation date. |
 | `condition_rating` | text | `CONDITION_RATING` | Condition. **req** |
 | `last_inspected_at` | date | — | Last inspection date. |
@@ -529,7 +531,7 @@ Common domains referenced across many classes. A field pointing at one of these 
 | Field | Type | Domain | Meaning |
 |---|---|---|---|
 | `tower_material` | text | `TOWER_MATERIAL` | Steel-lattice / tubular / concrete. **req** |
-| `height_class` | text | `POLE_HEIGHT_CLASS` | Class 1/2/3. **req** |
+| `height_class` | text | `POLE_HEIGHT_CLASS` | Class 1 (9 m) / 2 (12 m) / 3 (15 m). **req** |
 | `install_date` | date | — | Installation date. |
 | `condition_rating` | text | `CONDITION_RATING` | Condition. **req** |
 | `last_inspected_at` | date | — | Last inspection date. |

@@ -17,7 +17,9 @@ package externallink
 
 import (
 	"context"
+	"encoding/json"
 
+	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/uptrace/bun"
 )
 
@@ -52,4 +54,43 @@ func UpdateLink(ctx context.Context, db bun.IDB, id string, req UpdateLinkInput)
 // an error; the caller reports the deleted id it already holds.
 func DeleteLink(ctx context.Context, db bun.IDB, id string) error {
 	return deleteLink(ctx, db, id)
+}
+
+// ListFeatureExternalRefs returns a feature's whole external_ref map (the
+// migration-0145 jsonb of this feature's ids in other systems), one entry per
+// system. Scoped to a feature the caller can read (same not-found answer a read
+// gives), so a hidden feature's foreign ids don't leak. The live-data FETCH of a
+// ref is deliberately NOT exported here, for the same reason as fetchLinkData
+// above: it needs a *secretbox.Cipher and an outbound HTTP call the stateless
+// tool registry can't supply -- the MCP surface stays DB-only.
+func ListFeatureExternalRefs(ctx context.Context, db bun.IDB, featureClass, featureID string) (any, error) {
+	loaded, err := loadFeatureClass(ctx, db, featureClass)
+	if err != nil {
+		return nil, err
+	}
+	if err := crud.EnforceFeatureReadScope(ctx, db, loaded, featureID); err != nil {
+		if crud.IsNotFoundError(err) {
+			return nil, notFound("feature %s (%s) not found", featureID, featureClass)
+		}
+		return nil, err
+	}
+	return listFeatureExternalRefs(ctx, db, loaded, featureID)
+}
+
+// SetFeatureExternalRefs replaces a feature's whole external_ref map (whole-map
+// replace, not a merge; an empty map clears it). Write-scoped (features:write
+// plus the Phase 58 territory guard). The reverse-index trigger re-derives
+// runtime.external_feature_refs from the new value on the write.
+func SetFeatureExternalRefs(ctx context.Context, db bun.IDB, featureClass, featureID string, refs map[string]json.RawMessage) (any, error) {
+	loaded, err := loadFeatureClass(ctx, db, featureClass)
+	if err != nil {
+		return nil, err
+	}
+	if err := crud.EnforceFeatureWriteScope(ctx, db, loaded, featureID); err != nil {
+		if crud.IsNotFoundError(err) {
+			return nil, notFound("feature %s (%s) not found", featureID, featureClass)
+		}
+		return nil, err
+	}
+	return setFeatureExternalRef(ctx, db, loaded, featureID, refs)
 }

@@ -89,7 +89,7 @@ ON CONFLICT (code) DO NOTHING;
 -- identifies one MV *or* LV circuit) -- an LV variant would be an identical row
 -- under a different code/name.
 INSERT INTO metadata.trace_configurations (code, name, direction_value_id, stop_at_open_devices, cross_transformers, respect_phase, scope_to_circuit)
-SELECT 'MV_CIRCUIT_TRACE', 'MV Circuit trace', dv.id, false, false, true, true
+SELECT 'MV_CIRCUIT_TRACE', 'Circuit trace', dv.id, false, false, true, true
 FROM metadata.domain_values dv
 JOIN metadata.domains d ON d.id = dv.domain_id
 WHERE d.code = 'TRACE_DIRECTION' AND dv.code = 'CONNECTED'

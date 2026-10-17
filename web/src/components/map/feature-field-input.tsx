@@ -58,7 +58,7 @@ export function FieldInput({ field, value, onChange, network }: FieldInputProps)
         <option value="">—</option>
         {field.domain_values.map((v) => (
           <option key={v} value={v}>
-            {v}
+            {field.domain_value_labels?.[v] ?? v}
           </option>
         ))}
       </select>

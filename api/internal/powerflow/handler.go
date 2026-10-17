@@ -1,12 +1,60 @@
 package powerflow
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/kwaabs/voltedge/api/internal/studies"
 	"github.com/uptrace/bun"
 )
+
+// enforceStudy wraps an analysis handler so a study that is not available for the
+// start feature's class -- either inapplicable by role or admin-disabled
+// (api/internal/studies) -- is refused BEFORE the engine runs. It buffers the
+// request body (the handler still reads it fully), peeks at the start feature's
+// class (top-level feature_class or a nested "start"), and checks studies.Allowed.
+// A request whose class can't be determined or loaded falls through -- the engine
+// then produces its own clear error -- so this never blocks on a lookup miss.
+func enforceStudy(db *bun.DB, studyID string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+		if err != nil {
+			writeError(w, invalid("reading request body: %v", err))
+			return
+		}
+		_ = r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(body))
+
+		var peek struct {
+			FeatureClass string      `json:"feature_class"`
+			Start        *featureRef `json:"start"`
+		}
+		_ = json.Unmarshal(body, &peek)
+		class := peek.FeatureClass
+		if class == "" && peek.Start != nil {
+			class = peek.Start.FeatureClass
+		}
+		if class != "" {
+			fc := new(metadata.FeatureClass)
+			if err := db.NewSelect().Model(fc).Where("code = ?", class).Scan(r.Context()); err == nil {
+				allowed, err := studies.Allowed(r.Context(), db, fc, studyID)
+				if err != nil {
+					writeError(w, err)
+					return
+				}
+				if !allowed {
+					writeError(w, invalid("the %q analysis is not available for %s features", studyID, class))
+					return
+				}
+			}
+		}
+		next(w, r)
+	}
+}
 
 // Routes returns a router for the power-flow analysis engine, meant to be
 // mounted at /analysis:
@@ -87,24 +135,28 @@ import (
 // the materials catalog have already committed.
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
-	r.Post("/load-flow", loadFlowHandler(db))
-	r.Post("/fault-current", faultCurrentHandler(db))
-	r.Post("/ampacity", ampacityHandler(db))
-	r.Post("/coordination", coordinationHandler(db))
-	r.Post("/voltage-profile", voltageProfileHandler(db))
-	r.Post("/contingency", contingencyHandler(db))
-	r.Post("/hosting-capacity", hostingHandler(db))
-	r.Post("/meshed-load-flow", meshedLoadFlowHandler(db))
-	r.Post("/nodal-load-flow", nodalLoadFlowHandler(db))
-	r.Post("/load-flow-auto", dispatchLoadFlowHandler(db))
+	// Each route is wrapped so a study that isn't available for the start
+	// feature's class is refused before the engine runs (api/internal/studies).
+	// /arc-flash has no menu study of its own (it's derived from the fault engine),
+	// so it isn't gated here.
+	r.Post("/load-flow", enforceStudy(db, "load_flow", loadFlowHandler(db)))
+	r.Post("/fault-current", enforceStudy(db, "fault_current", faultCurrentHandler(db)))
+	r.Post("/ampacity", enforceStudy(db, "ampacity", ampacityHandler(db)))
+	r.Post("/coordination", enforceStudy(db, "coordination", coordinationHandler(db)))
+	r.Post("/voltage-profile", enforceStudy(db, "voltage_profile", voltageProfileHandler(db)))
+	r.Post("/contingency", enforceStudy(db, "contingency", contingencyHandler(db)))
+	r.Post("/hosting-capacity", enforceStudy(db, "hosting", hostingHandler(db)))
+	r.Post("/meshed-load-flow", enforceStudy(db, "meshed_load_flow", meshedLoadFlowHandler(db)))
+	r.Post("/nodal-load-flow", enforceStudy(db, "nodal_load_flow", nodalLoadFlowHandler(db)))
+	r.Post("/load-flow-auto", enforceStudy(db, "load_flow_auto", dispatchLoadFlowHandler(db)))
 	r.Post("/arc-flash", arcFlashHandler(db))
-	r.Post("/ev-hosting", evHostingHandler(db))
-	r.Post("/unbalanced-load-flow", unbalancedLoadFlowHandler(db))
-	r.Post("/volt-var", voltVarHandler(db))
-	r.Post("/tap-optimization", tapOptimizationHandler(db))
-	r.Post("/storage-dispatch", storageDispatchHandler(db))
-	r.Post("/vvo", vvoHandler(db))
-	r.Post("/load-growth", loadGrowthHandler(db))
+	r.Post("/ev-hosting", enforceStudy(db, "ev_hosting", evHostingHandler(db)))
+	r.Post("/unbalanced-load-flow", enforceStudy(db, "unbalanced_load_flow", unbalancedLoadFlowHandler(db)))
+	r.Post("/volt-var", enforceStudy(db, "volt_var", voltVarHandler(db)))
+	r.Post("/tap-optimization", enforceStudy(db, "tap_optimization", tapOptimizationHandler(db)))
+	r.Post("/storage-dispatch", enforceStudy(db, "storage_dispatch", storageDispatchHandler(db)))
+	r.Post("/vvo", enforceStudy(db, "vvo", vvoHandler(db)))
+	r.Post("/load-growth", enforceStudy(db, "load_growth", loadGrowthHandler(db)))
 	return r
 }
 

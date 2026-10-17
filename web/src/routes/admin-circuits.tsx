@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react"
+import { Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { FormDialog } from "@/components/admin/form-dialog"
@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import {
   type Circuit,
   type CircuitNetwork,
+  useAssignCircuit,
   useCircuits,
   useCreateCircuit,
   useDeleteCircuit,
@@ -184,10 +185,14 @@ function CircuitRow({
   circuit,
   onEdit,
   onDelete,
+  onAssign,
+  isAssigning,
 }: {
   circuit: Circuit
   onEdit: (c: Circuit) => void
   onDelete: (c: Circuit) => void
+  onAssign: (c: Circuit) => void
+  isAssigning: boolean
 }) {
   return (
     <div className="hover:bg-muted/50 group flex items-center gap-2 rounded-md px-2 py-1.5">
@@ -211,6 +216,20 @@ function CircuitRow({
         </span>
       ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          disabled={!circuit.source_feature_class || isAssigning}
+          title={
+            circuit.source_feature_class
+              ? "Assign / re-sync: trace downstream from the source and re-stamp circuit_id across the feeder"
+              : "No source set — on the map, select this circuit's source device and use “Set as circuit source” first"
+          }
+          onClick={() => onAssign(circuit)}
+        >
+          {isAssigning ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+        </Button>
         <Button variant="ghost" size="icon" className="size-7" title="Edit" onClick={() => onEdit(circuit)}>
           <Pencil className="size-4" />
         </Button>
@@ -234,6 +253,37 @@ export function AdminCircuitsPage() {
   const [editing, setEditing] = useState<Circuit | null>(null)
   const [deleting, setDeleting] = useState<Circuit | null>(null)
   const del = useDeleteCircuit()
+  const assign = useAssignCircuit()
+  const [assigningId, setAssigningId] = useState<string | null>(null)
+
+  function handleAssign(c: Circuit) {
+    setAssigningId(c.id)
+    assign.mutate(
+      { id: c.id },
+      {
+        onSuccess: (res) => {
+          setAssigningId(null)
+          const base = `Assigned "${res.circuit_name}": stamped ${res.stamped} feature${res.stamped === 1 ? "" : "s"} (${res.reached} reached).`
+          if (res.skipped > 0) {
+            const classes = (res.skipped_per_class ?? [])
+              .map((c) => `${c.feature_class} ×${c.stamped}`)
+              .join(", ")
+            useToastStore
+              .getState()
+              .pushWarning(
+                `${base} Skipped ${res.skipped} reached feature${res.skipped === 1 ? "" : "s"} whose class has no active circuit_id — recompile then re-assign: ${classes}.`,
+              )
+          } else {
+            useToastStore.getState().pushSuccess(base)
+          }
+        },
+        onError: (err) => {
+          setAssigningId(null)
+          toastError(err, "Could not assign the circuit.")
+        },
+      },
+    )
+  }
 
   const circuits = useMemo(() => data?.circuits ?? [], [data])
   const byNetwork = useMemo(() => {
@@ -288,7 +338,14 @@ export function AdminCircuitsPage() {
                   <CardContent className="pt-0">
                     <div className="flex flex-col">
                       {rows.map((c) => (
-                        <CircuitRow key={c.id} circuit={c} onEdit={setEditing} onDelete={setDeleting} />
+                        <CircuitRow
+                          key={c.id}
+                          circuit={c}
+                          onEdit={setEditing}
+                          onDelete={setDeleting}
+                          onAssign={handleAssign}
+                          isAssigning={assigningId === c.id}
+                        />
                       ))}
                     </div>
                   </CardContent>

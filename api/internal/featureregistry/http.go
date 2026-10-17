@@ -15,8 +15,11 @@ import (
 
 // Routes returns the feature-registry read endpoint:
 //
-//	GET /feature-registry?id=<uuid>                 resolve one id -> {feature_id, feature_class_code, class_name, ...} (404 if unknown)
-//	GET /feature-registry?q=<prefix>&class=&live=   typeahead over the registry (id prefix, optional class, live-only)
+//	GET /feature-registry?id=<uuid>           resolve one id -> {feature_id, feature_class_code, class_name, ...} (404 if unknown/deleted)
+//	GET /feature-registry?q=<prefix>&class=   typeahead over the registry (id prefix, optional class)
+//
+// Soft-deleted features never appear on either path (applyScope filters
+// deleted_at): the resolver 404s a deleted id and the typeahead omits it.
 //
 // Read-only, gated features:read on the mount in api/cmd/server/main.go (the
 // same capability the feature CRUD read side uses -- the registry is just an
@@ -68,10 +71,12 @@ func listHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 
+		// Soft-deleted features are always excluded now (Search/applyScope filter
+		// deleted_at unconditionally), so the old &live= param is ignored -- a
+		// deleted feature can never be surfaced in the picker regardless.
 		entries, err := Search(r.Context(), db, SearchFilter{
 			Q:     q.Get("q"),
 			Class: q.Get("class"),
-			Live:  q.Get("live") == "true",
 			Scope: scope,
 		})
 		if err != nil {

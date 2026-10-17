@@ -62,6 +62,13 @@ func Resolve(ctx context.Context, db *bun.DB, code string) (*Resolution, error) 
 		}
 		return nil, err
 	}
+	// A soft-deleted asset must not resolve: scanning a tag whose feature was
+	// deleted answers "no such tag", same as a void code or an out-of-scope
+	// feature -- never a tombstone. GetFeatureScoped mirrors the HTTP GET, which
+	// returns a deleted row for the restore view, so the liveness check lives here.
+	if feature["deleted_at"] != nil {
+		return nil, notFoundf("asset tag %q has been retired", code)
+	}
 
 	tags, err := ListForFeature(ctx, db, tag.FeatureClassCode, tag.FeatureID)
 	if err != nil {

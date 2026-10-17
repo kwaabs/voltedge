@@ -32,8 +32,13 @@ UPDATE metadata.feature_classes SET functional_role = 'source'
  WHERE code IN ('GENERATOR');
 
 -- consumer -- loads / sinks: where power is delivered out of the network.
+-- STREET_LIGHT (unmetered LV leaf, Phase 9 Slice 5) and EV_CHARGING_STATION (a leaf
+-- load node modelled exactly like SERVICE_POINT, Phase 54) are both consumers: the
+-- point power is delivered out of the network. They post-date the original list and
+-- were missed; classifying them here makes supply-path treat them as LV leaves and
+-- the trace menu scope them like any other dead-end delivery point.
 UPDATE metadata.feature_classes SET functional_role = 'consumer'
- WHERE code IN ('SERVICE_POINT', 'METER', 'MV_METERING_POINT', 'MV_METER');
+ WHERE code IN ('SERVICE_POINT', 'METER', 'MV_METERING_POINT', 'MV_METER', 'STREET_LIGHT', 'EV_CHARGING_STATION');
 
 -- passthrough -- carries flow with no state (conductors / cables).
 UPDATE metadata.feature_classes SET functional_role = 'passthrough'
@@ -54,9 +59,10 @@ UPDATE metadata.feature_classes SET functional_role = 'controller'
     'MV_SECTIONALIZER', 'MV_EARTH_SWITCH'
  );
 
--- node -- a many-way meeting point (busbars).
+-- node -- a many-way meeting point (busbars, and cable joints: a splice/tee that
+-- joins two or more cables at a point, electrically a node like a busbar).
 UPDATE metadata.feature_classes SET functional_role = 'node'
- WHERE code IN ('MV_BUSBAR', 'LV_BUSBAR');
+ WHERE code IN ('MV_BUSBAR', 'LV_BUSBAR', 'MV_CABLE_JOINT', 'LV_CABLE_JOINT');
 
 -- sensor -- observes but never carries or gates through-flow, off-path
 -- (instrument transformers, relays, and secondary-side control/indication IEDs).

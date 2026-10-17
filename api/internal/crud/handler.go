@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kwaabs/voltedge/api/internal/auth"
@@ -67,6 +68,9 @@ const defaultListLimit = 50
 // resolved against metadata.feature_classes at request time.
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
+	// Cross-feature activity log (who changed what, in a window). A static segment,
+	// so chi matches it ahead of the /{code} class routes below.
+	r.Get("/activity", activityHandler(db))
 	r.Get("/{code}", listHandler(db))
 	r.Post("/{code}", createHandler(db))
 	r.Post("/{code}/query", queryHandler(db))
@@ -348,6 +352,56 @@ func getHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+// activityHandler serves the cross-feature activity log (activity.go): who changed
+// what, filterable by actor_id / feature_class / action and a from/to time window
+// (RFC3339 timestamps), newest first -- the "what did this user do in this window"
+// accountability view, as opposed to a single feature's timeline.
+func activityHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Escalate above the features:read the /features mount already requires:
+		// an accountability view ("what did user X do") is a monitoring capability,
+		// not something every viewer should aggregate across people. Gate it on
+		// admin:users -- the same permission behind the user-management tree.
+		if user, ok := auth.UserFrom(r.Context()); !ok || !user.Has(auth.PermUsersManage) {
+			writeError(w, forbidden("the activity log requires the %s permission", auth.PermUsersManage))
+			return
+		}
+		f := ActivityFilter{
+			ActorID:      r.URL.Query().Get("actor_id"),
+			FeatureClass: r.URL.Query().Get("feature_class"),
+			Action:       r.URL.Query().Get("action"),
+		}
+		if v := r.URL.Query().Get("from"); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				writeError(w, invalid("from must be an RFC3339 timestamp: %v", err))
+				return
+			}
+			f.From = &t
+		}
+		if v := r.URL.Query().Get("to"); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				writeError(w, invalid("to must be an RFC3339 timestamp: %v", err))
+				return
+			}
+			f.To = &t
+		}
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				f.Limit = n
+			}
+		}
+
+		entries, err := listActivity(r.Context(), db, f)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"activity": entries})
 	}
 }
 

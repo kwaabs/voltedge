@@ -142,6 +142,64 @@ func externalLinkTools() []Tool {
 			RequiredPerm: auth.PermFeaturesWrite,
 			Handler:      toolFeatureLinkDelete,
 		},
+		{
+			Name: "feature_external_refs_get",
+			Description: "Read a feature's external_ref map -- the ids this feature carries in OTHER " +
+				"systems (SCADA / AMI / CIS), keyed by system code (the same data the feature " +
+				"panel's External references section shows). Distinct from feature_link_list: a " +
+				"link is a stored pointer, while external_ref is the correlation source of truth " +
+				"an inbound push resolves against and the live-data fetch builds its URL from. " +
+				"Returns one entry per system, each with the correlation id (a scalar, or an " +
+				"object ref's 'id' field) and the raw value. Scoped to a feature you can read.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code the feature belongs to."},
+					"feature_id":{"type":"string","description":"The feature's id (uuid)."}
+				},
+				"required":["feature_class","feature_id"],
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermFeaturesRead,
+			Handler:      toolFeatureExternalRefsGet,
+		},
+		{
+			Name: "feature_external_refs_set",
+			Description: "Replace a feature's WHOLE external_ref map -- the ids it carries in other " +
+				"systems, keyed by system code (the same write the panel's External references " +
+				"add/remove performs). This is a whole-map REPLACE, not a merge: send the full " +
+				"next map, so to add or remove one reference first read the current map with " +
+				"feature_external_refs_get, change it, and send the result (an empty map clears " +
+				"every reference). Each value is either a scalar string id (e.g. \"48213\") or an " +
+				"object whose 'id' field is the correlation id and whose other fields fill the " +
+				"system's fetch template. Setting a reference makes the feature resolvable from " +
+				"that system's id and, if the system has a fetch path, live-data-fetchable. " +
+				"Returns the resulting map. This WRITES to the database: confirm with a human " +
+				"before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code the feature belongs to."},
+					"feature_id":{"type":"string","description":"The feature's id (uuid)."},
+					"external_ref":{
+						"type":"object",
+						"description":"The full replacement map, keyed by external system code; each value is a string id or an object with an 'id' field. An empty object clears all references.",
+						"additionalProperties":{"type":["string","object"]}
+					}
+				},
+				"required":["feature_class","feature_id","external_ref"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Set feature external references",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &trueHint,  // a whole-map replace can drop existing references
+				IdempotentHint:  &trueHint,  // sending the same map yields the same state
+				OpenWorldHint:   &falseHint, // writes only this system's own database (no outbound call)
+			},
+			RequiredPerm: auth.PermFeaturesWrite,
+			Handler:      toolFeatureExternalRefsSet,
+		},
 	}
 }
 
@@ -206,4 +264,41 @@ func toolFeatureLinkDelete(ctx context.Context, db bun.IDB, args json.RawMessage
 		return nil, err
 	}
 	return map[string]any{"deleted": true, "id": in.ID}, nil
+}
+
+func toolFeatureExternalRefsGet(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		FeatureClass string `json:"feature_class"`
+		FeatureID    string `json:"feature_id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.FeatureClass == "" || in.FeatureID == "" {
+		return nil, fmt.Errorf("feature_class and feature_id are required")
+	}
+	return externallink.ListFeatureExternalRefs(ctx, db, in.FeatureClass, in.FeatureID)
+}
+
+func toolFeatureExternalRefsSet(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		FeatureClass string                     `json:"feature_class"`
+		FeatureID    string                     `json:"feature_id"`
+		ExternalRef  map[string]json.RawMessage `json:"external_ref"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.FeatureClass == "" || in.FeatureID == "" {
+		return nil, fmt.Errorf("feature_class and feature_id are required")
+	}
+	// A nil external_ref (key omitted) is rejected by the required-field schema;
+	// an explicit empty object reaches here as a non-nil empty map and clears the
+	// references, which the engine handles (whole-map replace).
+	if in.ExternalRef == nil {
+		in.ExternalRef = map[string]json.RawMessage{}
+	}
+	// The engine validates each value's shape and enforces write scope; its 400s/
+	// 403s surface in-band as the tool error.
+	return externallink.SetFeatureExternalRefs(ctx, db, in.FeatureClass, in.FeatureID, in.ExternalRef)
 }

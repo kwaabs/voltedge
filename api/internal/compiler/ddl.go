@@ -213,6 +213,11 @@ func buildCreateTable(qualifiedTable string, fc *metadata.FeatureClass, fields [
 	cols = append(cols, `published_at timestamptz`)
 	cols = append(cols, `published_by uuid`)
 
+	// external_ref (0145): this feature's ids in external systems (SCADA/AMI/CIS),
+	// a jsonb {system_code: id} map. All classes, nullable. A per-class trigger
+	// (compiler.go) mirrors it into runtime.external_feature_refs for inbound lookup.
+	cols = append(cols, `external_ref jsonb`)
+
 	// The territory this feature belongs to (Phase 11) -- only for classes
 	// that actually carry a geometry to place; a geometry-less class has
 	// nothing to contain in a territory, so it never gets the column.

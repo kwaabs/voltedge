@@ -49,7 +49,17 @@ func selectFaults(db bun.IDB, dst any) *bun.SelectQuery {
 	return db.NewSelect().Model(dst).
 		ColumnExpr(faultColumns).
 		ColumnExpr("ST_X(location) AS longitude").
-		ColumnExpr("ST_Y(location) AS latitude")
+		ColumnExpr("ST_Y(location) AS latitude").
+		// Hide a fault whose asset has been SOFT-DELETED: a deleted feature must not
+		// surface anywhere, including as the subject of a fault record. A fault with
+		// no asset (anchored by a location or an incident) is kept, as is one whose
+		// asset is still live or was purged (no registry row -> orphaned history, a
+		// separate concern, not a soft-deleted feature). "Soft-deleted" == a
+		// feature_registry row (the cross-class liveness index) with deleted_at set;
+		// correlated NOT EXISTS so it's an index probe on the asset_id, not a scan.
+		// WHERE sees the base uuid asset_id column (the faultColumns ::text alias is
+		// output-only), so it compares uuid = uuid against r.feature_id.
+		Where("NOT EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = asset_id AND r.deleted_at IS NOT NULL)")
 }
 
 // CreateFaultParams is the input to CreateFault. Title is required; status

@@ -249,6 +249,15 @@ func listConnections(ctx context.Context, db bun.IDB, featureClassCode, featureI
 	if err := db.NewSelect().Model(&rows).
 		Where("(from_feature_id = ? AND from_feature_class_id = ?) OR (to_feature_id = ? AND to_feature_class_id = ?)",
 			featureID, fcID, featureID, fcID).
+		// A soft-deleted feature must not exist anywhere in the system: an edge to
+		// a deleted peer is hidden from this list the moment either endpoint is
+		// deleted, so a deleted feature stops showing on its former neighbours'
+		// Terminals tab (the edge row survives for lossless restore -- see
+		// crud.softDeleteFeature -- but it's invisible until purge/cleanup removes
+		// it). "Live" == a feature_registry row with deleted_at IS NULL, the same
+		// cross-class liveness definition the connectivity audit/cleanup use.
+		Where("from_feature_id IN (SELECT feature_id FROM runtime.feature_registry WHERE deleted_at IS NULL)").
+		Where("to_feature_id IN (SELECT feature_id FROM runtime.feature_registry WHERE deleted_at IS NULL)").
 		Order("established_at").
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("connectivity: list: %w", err)

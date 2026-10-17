@@ -67,3 +67,63 @@ export function tileUrlTemplate(sourceId: string, version = 0): string {
   const versionSuffix = version > 0 ? `?v=${version}` : ""
   return `${TILES_BASE}/${sourceId}/{z}/{x}/{y}${versionSuffix}`
 }
+
+/**
+ * The feature-attribute name ol/format/MVT stores each feature's source-layer under
+ * (its `layerName` option). In a COMPOSITE tile (/{a,b,c}/{z}/{x}/{y}) each source is
+ * a named sub-layer, so this is how the style function and hit-detection recover which
+ * feature class a feature belongs to -- `feature.get(MVT_LAYER_PROP)` is the source id
+ * (the lowercased class code), the same string codeBySourceId is keyed by. A
+ * non-default name avoids colliding with any real feature column called "layer".
+ */
+export const MVT_LAYER_PROP = "mvtLayer"
+
+/**
+ * A composite tile URL. The /tiles origin (the Go API's Phase 58 tile router, which
+ * replaced Martin -- see api/internal/tiles/tiles.go) serves `/{a,b,c}/{z}/{x}/{y}` as
+ * ONE tile: each listed source is rendered and the single-layer MVTs are concatenated
+ * into one tile carrying each as its own named sub-layer, collapsing N per-class
+ * requests into one.
+ */
+export function compositeUrlTemplate(sourceIds: string[], version = 0): string {
+  const versionSuffix = version > 0 ? `?v=${version}` : ""
+  return `${TILES_BASE}/${sourceIds.join(",")}/{z}/{x}/{y}${versionSuffix}`
+}
+
+/** One zoom band: the feature-class sources fetched together as a single composite
+ * tile, gated to a minimum view zoom. */
+export interface TileBand {
+  key: "overview" | "feeder" | "street"
+  sourceIds: string[]
+  /** OL layer minZoom (exclusive) -- the earliest-showing member's display-zoom min,
+   * nudged a hair below so the layer fetches exactly where its first class appears. */
+  minZoom: number
+}
+
+/**
+ * Buckets feature-class sources into 3 zoom bands by their display-zoom MIN (migration
+ * 0090), so each band is one composite tile fetched only from the zoom its classes
+ * appear at (keeps the per-class zoom-gating while collapsing ~60 requests to ~3). A
+ * class with no configured min is treated as 0 (shows from the start -> overview band).
+ * minZoomByClass is keyed by UPPERCASE class code. Thresholds 13 / 16 split
+ * overview / feeder / street; empty bands are omitted.
+ */
+export function bandSources(sourceIds: string[], minZoomByClass: Record<string, number | undefined>): TileBand[] {
+  const MID = 13
+  const STREET = 16
+  const buckets: Record<TileBand["key"], string[]> = { overview: [], feeder: [], street: [] }
+  for (const id of sourceIds) {
+    const min = minZoomByClass[id.toUpperCase()] ?? 0
+    if (min < MID) buckets.overview.push(id)
+    else if (min < STREET) buckets.feeder.push(id)
+    else buckets.street.push(id)
+  }
+  const bands: TileBand[] = []
+  for (const key of ["overview", "feeder", "street"] as const) {
+    const ids = buckets[key]
+    if (ids.length === 0) continue
+    const mins = ids.map((id) => minZoomByClass[id.toUpperCase()] ?? 0)
+    bands.push({ key, sourceIds: ids, minZoom: Math.min(...mins) - 0.001 })
+  }
+  return bands
+}

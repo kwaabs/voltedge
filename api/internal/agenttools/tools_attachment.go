@@ -28,6 +28,8 @@ import (
 
 	"github.com/kwaabs/voltedge/api/internal/attachment"
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
 )
 
@@ -100,6 +102,19 @@ func toolAttachmentList(ctx context.Context, db bun.IDB, args json.RawMessage) (
 	// listReady takes the concrete *bun.DB, so narrow the incoming handle first.
 	db2, err := asDB(db)
 	if err != nil {
+		return nil, err
+	}
+	// Apply the SAME read gate the REST attachment route does (crud.
+	// EnforceFeatureReadScope): don't list the attachments of a feature the caller
+	// couldn't open -- soft-deleted, out-of-territory, peer-private-draft, or
+	// missing all answer not-found. This tool calls the attachment store DIRECTLY
+	// (not via the HTTP handler), so it must apply the gate itself; without it the
+	// tool would surface a soft-deleted feature's files.
+	loaded, err := metadata.Load(ctx, db2, in.FeatureClass)
+	if err != nil {
+		return nil, fmt.Errorf("no such feature class %q: %w", in.FeatureClass, err)
+	}
+	if err := crud.EnforceFeatureReadScope(ctx, db2, loaded, in.FeatureID); err != nil {
 		return nil, err
 	}
 	return attachment.ListForFeature(ctx, db2, in.FeatureClass, in.FeatureID)

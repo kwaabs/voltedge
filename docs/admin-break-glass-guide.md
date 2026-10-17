@@ -1281,7 +1281,7 @@ The catalog is a small set of object types that reference each other. Before the
 
 | Object | What it is | Key endpoints (under `/admin`) |
 | --- | --- | --- |
-| **Feature class** | the definition of an asset type (`MV_CONDUCTOR`, `DIST_XFMR`) — geometry, network role, status | `GET/POST /feature-classes`, `PATCH/DELETE /feature-classes/{code}`, `.../compile`, `.../uncompile` |
+| **Feature class** | the definition of an asset type (`MV_CONDUCTOR`, `DIST_XFMR`) — geometry, network role, status | `GET/POST /feature-classes`, `PATCH/DELETE /feature-classes/{code}`, `.../compile`, `.../uncompile`, `.../deactivate`, `.../reactivate`, `.../territory-availability` |
 | **Subtype** | a variant of a class (e.g. overhead vs. underground conductor) | `POST /feature-classes/{code}/subtypes` |
 | **Field** | one attribute column on a class | `POST /feature-classes/{code}/fields`, `PATCH .../fields/{name}` |
 | **Domain** | a coded-value list or numeric range that constrains a field | `GET/POST /domains`, `PATCH/DELETE /domains/{code}`, `.../values` |
@@ -1391,6 +1391,7 @@ Three habits close the chapter:
 - **Remember the seam: add, then compile.** An added field/subtype/domain-value is authored the instant you save it, but not *enforced* until you recompile the affected class. If a new field isn't showing up on features, you almost certainly haven't recompiled. (Live-consumed edits — field flags, `required_for_subtypes`, material-spec numbers, rules — are the exceptions that need no recompile.)
 - **Let the guards and the loud failures work for you.** Deletes are guarded against references; a narrowing recompile fails loudly rather than dropping data; a mistaken symbology-rule delete surfaces at publish. Don't fight these — they are the catalog telling you there is data to deal with first.
 - **When additive isn't enough, reach for `uncompile` deliberately.** Renaming or retyping a field, or removing a subtype, means the `uncompile` → re-author → `compile` cycle from Chapter 6 — which discards the class's rows. Export first. That is the boundary between everyday catalog admin (this chapter) and the destructive tools (Chapter 6).
+- **To take a class *out of use* without losing data, Deactivate — don't uncompile.** **Deactivate** (`POST /feature-classes/{code}/deactivate`) flips `status: active → deprecated`, which removes the class from the map, the New-Feature menu, the Features browser and every form *while keeping its table and every row*. **Reactivate** restores it instantly. Use this when a utility simply doesn't use a class; reserve `uncompile` for the schema-rebuild case (it drops the table). A still-active class can also be turned off **per territory** (the class's **Territory availability** control → `metadata.feature_class_territory_disabled`), cascading down the territory tree; new features in a disabled territory are refused, existing ones grandfathered. See the Access Control guide §11.9.
 
 ---
 

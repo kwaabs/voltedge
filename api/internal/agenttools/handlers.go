@@ -227,12 +227,22 @@ func toolGetFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any,
 		return nil, fmt.Errorf("no such feature class %q: %w", in.FeatureClass, err)
 	}
 
-	feature, err := crud.GetFeature(ctx, db, loaded, in.ID)
+	// GetFeatureScoped (not GetFeature) so the agent/assistant surface applies the
+	// same Phase-58 territory + Phase-61 draft gates a scoped user's GET would --
+	// the tool must not read a feature its caller couldn't open.
+	feature, err := crud.GetFeatureScoped(ctx, db, loaded, in.ID)
 	if err != nil {
 		if crud.IsNotFoundError(err) {
 			return nil, fmt.Errorf("feature %s not found in %q", in.ID, in.FeatureClass)
 		}
 		return nil, err
+	}
+	// A soft-deleted feature must not be surfaced here. GetFeatureScoped mirrors the
+	// HTTP GET, which still returns a deleted row so the panel can offer Restore --
+	// but this read-only tool has no such need, so a deleted feature answers
+	// not-found like any other hidden row.
+	if feature["deleted_at"] != nil {
+		return nil, fmt.Errorf("feature %s not found in %q", in.ID, in.FeatureClass)
 	}
 	return feature, nil
 }

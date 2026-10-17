@@ -52,7 +52,8 @@ UPDATE metadata.feature_classes SET trace_tier = 300
     'MV_BUSBAR', 'MV_SWITCHGEAR_PANEL', 'MV_CONDUCTOR',
     'MV_SWITCH', 'MV_ISOLATOR', 'MV_RECLOSER', 'MV_BREAKER', 'MV_FUSE',
     'MV_SECTIONALIZER', 'MV_EARTH_SWITCH', 'MV_LV_SWITCH',
-    'MV_CT', 'MV_VT', 'MV_METER', 'MV_METERING_POINT'
+    'MV_CT', 'MV_VT', 'MV_METER', 'MV_METERING_POINT',
+    'MV_CABLE_JOINT'
  );
 
 -- 400  MV->LV boundary -- the distribution transformer (and station-service
@@ -66,12 +67,16 @@ UPDATE metadata.feature_classes SET trace_tier = 400
 UPDATE metadata.feature_classes SET trace_tier = 500
  WHERE code IN (
     'LV_BUSBAR', 'LV_PILLAR', 'LV_CONDUCTOR', 'LV_FUSE',
-    'LV_SWITCH', 'SERVICE_CUTOUT'
+    'LV_SWITCH', 'SERVICE_CUTOUT', 'LV_CABLE_JOINT'
  );
 
 -- 600  service / metering -- where power is delivered out of the network to the
 -- customer. The bottom of the hierarchy (an endpoint for an upstream walk).
+-- STREET_LIGHT (unmetered LV leaf, Phase 9 Slice 5) and EV_CHARGING_STATION (leaf
+-- load node like SERVICE_POINT, Phase 54) sit at this same bottom tier, so an
+-- UPSTREAM/supply-path walk from either climbs to its distribution transformer and
+-- the LV-branch terminus fires by design, not fallback.
 UPDATE metadata.feature_classes SET trace_tier = 600
- WHERE code IN ('SERVICE_POINT', 'METER');
+ WHERE code IN ('SERVICE_POINT', 'METER', 'STREET_LIGHT', 'EV_CHARGING_STATION');
 
 COMMIT;

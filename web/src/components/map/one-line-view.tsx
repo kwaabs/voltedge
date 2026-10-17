@@ -1,10 +1,10 @@
-import { Download, Grid3x3, List, Loader2, Printer, RotateCcw, Ruler, X, Zap } from "lucide-react"
+import { Download, Grid3x3, List, Loader2, Printer, RotateCcw, Ruler, Waypoints, X, Zap } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { DiagramPrintDialog } from "@/components/map/diagram-print-dialog"
 import { useAllSymbology } from "@/hooks/use-all-symbology"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
-import { printDiagramSheet } from "@/lib/diagram-print"
 import { type EnergizationRef, refKey, useEnergization } from "@/lib/energization"
 import { downloadOneLineDxf } from "@/lib/one-line-dxf"
 import { circuitColor, type OneLineConnector, type OneLineNode, type OneLinePayload, useOneLine } from "@/lib/one-line"
@@ -13,6 +13,8 @@ import { resolveSymbology } from "@/lib/symbology"
 import { iconDataUri } from "@/lib/symbology-icons"
 import { cn } from "@/lib/utils"
 import { useOneLineStore } from "@/stores/one-line-store"
+import { useSelectionStore } from "@/stores/selection-store"
+import { useTraceStore } from "@/stores/trace-store"
 
 const ICON = 30 // symbol size in abstract one-line units
 const PAD = 60 // padding around the content bounds
@@ -21,11 +23,14 @@ const CONNECTOR_COLOR = "#64748b"
 const OPEN_RING_COLOR = "#d97706"
 const CLOSED_RING_COLOR = "#16a34a"
 const DEAD_COLOR = "#94a3b8"
+const TRACE_COLOR = "#2563eb" // traced feature highlight (blue) -- matches the wire-handle blue
+const BARRIER_COLOR = "#dc2626" // a trace barrier (where the walk stopped) -- red
 const PIN_EPS = 0.5 // a wire vertex this close to a node is "pinned" to it
 const ORTHO_SNAP = 12 // align-to-neighbour distance (abstract units) when Ortho is on
 const GRID = 20 // grid spacing (abstract units) for snap-to-grid
 const INSET = 22 // endpoint handle offset from its symbol, along the wire
 const ATTACH_R = 20 // drop a wire end this close to a symbol to (re)attach it
+const CLICK_SLOP = 4 // pointer movement (CSS px) under which a symbol press counts as a click, not a drag
 
 function connectorWidth(network: string | undefined): number {
   if (network === "MV") return 3
@@ -78,6 +83,28 @@ export function OneLineView() {
   const snapRef = useRef(snap)
   useEffect(() => void (snapRef.current = snap), [snap])
   const [showLegend, setShowLegend] = useState(true)
+  const [showTrace, setShowTrace] = useState(true)
+  const [printOpen, setPrintOpen] = useState(false)
+  // The print fit box, measured from the SVG's ACTUAL rendered bounds (getBBox) at
+  // the moment Print is clicked -- not the hand-computed scene.fitBox, which was
+  // under-counting (far-flung disconnected nodes/the legend fell outside it, so the
+  // PDF clipped them even on A0). getBBox is the true union of everything drawn.
+  const [printFitBox, setPrintFitBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+
+  // The active trace result (session-persisted), projected onto whatever the
+  // one-line happens to be drawing: reached features get a blue halo, the nodes the
+  // walk stopped at get a red one, traced conductors a blue glow -- so running a
+  // trace while the schematic covers the map is still visible here. Features the
+  // trace reached that aren't on this sheet simply aren't highlighted.
+  const traceResult = useTraceStore((s) => s.result)
+  const traceOverlay = useMemo(() => {
+    if (!traceResult) return undefined
+    return {
+      traced: new Set(traceResult.features.map((f) => refKey(f.feature_class, f.feature_id))),
+      barriers: new Set(traceResult.barriers.map((b) => refKey(b.feature_class, b.feature_id))),
+      startKey: refKey(traceResult.start.feature_class, traceResult.start.feature_id),
+    }
+  }, [traceResult])
 
   const { data, isPending, isError } = useOneLine(source, open)
 
@@ -136,12 +163,36 @@ export function OneLineView() {
   const wirePinsRef = useRef(wirePins)
   const nodesRef = useRef<OneLineNode[]>([])
   const effWiresRef = useRef<EffWire[]>([])
+  // Click-vs-drag on a symbol OR a wire: a press that never moves past CLICK_SLOP is
+  // a selection (open the feature panel), not a reposition/reshape. downPt is the
+  // pointer's client position at press; movedPastSlop flips once it travels far
+  // enough. Both are set by beginDrag so every grab is tracked uniformly.
+  const downPtRef = useRef<{ x: number; y: number } | null>(null)
+  const movedPastSlopRef = useRef(false)
+  // Set by onWireDown (and ONLY there): records that the current vertex drag began
+  // as a wire GRAB, so endDrag can tell a wire reshape (moved) from a wire click
+  // (didn't) -- a click reverts the bend onWireDown speculatively inserted and
+  // selects the conductor instead. insertedAt is that bend's index; wasFresh means
+  // the wire had no editable polyline before, so reverting deletes the whole entry.
+  const wireGrabRef = useRef<{ key: string; insertedAt: number; wasFresh: boolean } | null>(null)
+  // key -> the conductor feature behind a wire (only wires that ARE features; plain
+  // links have none), so a wire click can resolve what to select. Kept in sync below.
+  const wireFeatureRef = useRef<Record<string, { featureClass: string; featureId: string }>>({})
   useEffect(() => void (movedRef.current = moved), [moved])
   useEffect(() => void (origPosRef.current = origPos), [origPos])
   useEffect(() => void (wirePathRef.current = wirePath), [wirePath])
   useEffect(() => void (wirePinsRef.current = wirePins), [wirePins])
   useEffect(() => void (nodesRef.current = effective?.nodes ?? []), [effective])
   useEffect(() => void (effWiresRef.current = effWires), [effWires])
+  useEffect(() => {
+    const map: Record<string, { featureClass: string; featureId: string }> = {}
+    if (data) {
+      data.connectors.forEach((c, i) => {
+        if (c.feature_class && c.feature_id) map[wireKeyOf(c, i)] = { featureClass: c.feature_class, featureId: c.feature_id }
+      })
+    }
+    wireFeatureRef.current = map
+  }, [data])
 
   const dragRef = useRef<DragState | null>(null)
   const rafRef = useRef<number | null>(null)
@@ -242,6 +293,12 @@ export function OneLineView() {
   const beginDrag = useCallback(
     (state: DragState, e: React.PointerEvent) => {
       dragRef.current = state
+      // Arm click-vs-drag tracking for every grab (node, wire, vertex, endpoint,
+      // legend). onWireDown re-sets wireGrabRef right after; everyone else leaves it
+      // null, so only a wire grab is a candidate wire-select.
+      downPtRef.current = { x: e.clientX, y: e.clientY }
+      movedPastSlopRef.current = false
+      wireGrabRef.current = null
       setDragging(true)
       svgRef.current?.setPointerCapture?.(e.pointerId)
     },
@@ -279,6 +336,9 @@ export function OneLineView() {
       const wire = effWiresRef.current.find((w) => w.key === key)
       if (!p || !wire) return
       const seg = nearestSegment(wire.path, p)
+      // Whether this wire already had an editable polyline decides how a no-move
+      // click is reverted later (delete the whole entry vs splice out this one bend).
+      const wasFresh = !wirePathRef.current[key]
       let pts: Pt[]
       let pins: (string | null)[]
       if (wirePathRef.current[key]) {
@@ -294,6 +354,9 @@ export function OneLineView() {
       setWirePath((w) => ({ ...w, [key]: pts }))
       setWirePins((w) => ({ ...w, [key]: pins }))
       beginDrag({ kind: "vertex", key, index: at, offsetX: seg.point.x - p.x, offsetY: seg.point.y - p.y }, e)
+      // Mark this as a WIRE grab (beginDrag cleared it): if the pointer never moves,
+      // endDrag reverts the speculative bend above and selects the conductor instead.
+      wireGrabRef.current = { key, insertedAt: at, wasFresh }
     },
     [clientToSvg, beginDrag, nodeIdAt],
   )
@@ -352,6 +415,12 @@ export function OneLineView() {
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
       if (!dragRef.current) return
+      // Once the pointer travels past the slop, this press is a real drag, not a
+      // click -- so endDrag won't treat its release as a selection.
+      const down = downPtRef.current
+      if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_SLOP) {
+        movedPastSlopRef.current = true
+      }
       const p = clientToSvg(e)
       if (!p) return
       lastPtRef.current = p
@@ -362,9 +431,41 @@ export function OneLineView() {
 
   const endDrag = useCallback(() => {
     const t = dragRef.current
-    // Snap a dropped wire vertex onto a symbol it lands on -> (re)attach: the end
-    // pins to that node and tracks it thereafter.
-    if (t && t.kind === "vertex") {
+    // A symbol pressed without dragging is a SELECTION: open that feature in the
+    // map's feature panel (which floats above this overlay) so the user can read
+    // its attributes while arranging the sheet. The panel is transient and never
+    // part of the print. Resolve the class off the node id (the drag state carries
+    // only the id).
+    if (t && t.kind === "node" && !movedPastSlopRef.current) {
+      const n = nodesRef.current.find((node) => node.feature_id === t.id)
+      if (n) useSelectionStore.getState().select(n.feature_class, n.feature_id)
+    }
+    // A conductor pressed without dragging is also a SELECTION: onWireDown
+    // speculatively inserted a bend to start a reshape -- undo it (delete the whole
+    // editable polyline if the wire was previously un-edited, else splice out just
+    // this bend) and open the conductor in the feature panel instead.
+    const grab = wireGrabRef.current
+    if (t && t.kind === "vertex" && !movedPastSlopRef.current && grab) {
+      if (grab.wasFresh) {
+        setWirePath((w) => {
+          const { [grab.key]: _drop, ...rest } = w
+          return rest
+        })
+        setWirePins((w) => {
+          const { [grab.key]: _drop, ...rest } = w
+          return rest
+        })
+      } else {
+        const splice = (arr: Pt[] | (string | null)[] | undefined) =>
+          arr ? [...arr.slice(0, grab.insertedAt), ...arr.slice(grab.insertedAt + 1)] : arr
+        setWirePath((w) => (w[grab.key] ? { ...w, [grab.key]: splice(w[grab.key]) as Pt[] } : w))
+        setWirePins((w) => (w[grab.key] ? { ...w, [grab.key]: splice(w[grab.key]) as (string | null)[] } : w))
+      }
+      const ref = wireFeatureRef.current[grab.key]
+      if (ref) useSelectionStore.getState().select(ref.featureClass, ref.featureId)
+    } else if (t && t.kind === "vertex" && movedPastSlopRef.current) {
+      // A real reshape drop: snap the dragged vertex onto a symbol it lands on ->
+      // (re)attach, so the end pins to that node and tracks it thereafter.
       const pos = wirePathRef.current[t.key]?.[t.index]
       if (pos) {
         const hit = nodeIdNear(pos.x, pos.y, ATTACH_R)
@@ -377,6 +478,8 @@ export function OneLineView() {
         }
       }
     }
+    downPtRef.current = null
+    wireGrabRef.current = null
     dragRef.current = null
     if (rafRef.current != null) {
       cancelAnimationFrame(rafRef.current)
@@ -406,8 +509,18 @@ export function OneLineView() {
 
   const scene = useMemo(() => {
     if (!effective || effective.truncated || effective.nodes.length === 0) return null
-    return buildScene(effective.nodes, effective.connectors, rules, icons, showEnergisation ? deadSet : undefined, interaction, showLegend, legendPos)
-  }, [effective, rules, icons, deadSet, showEnergisation, interaction, showLegend, legendPos])
+    return buildScene(
+      effective.nodes,
+      effective.connectors,
+      rules,
+      icons,
+      showEnergisation ? deadSet : undefined,
+      interaction,
+      showLegend,
+      legendPos,
+      showTrace ? traceOverlay : undefined,
+    )
+  }, [effective, rules, icons, deadSet, showEnergisation, interaction, showLegend, legendPos, showTrace, traceOverlay])
 
   if (!open) return null
 
@@ -475,22 +588,57 @@ export function OneLineView() {
           >
             <Zap className="size-3.5" /> Live
           </Button>
+          {traceOverlay && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn("h-7 px-2", showTrace && "bg-accent text-accent-foreground")}
+              onClick={() => setShowTrace((v) => !v)}
+              title="Highlight the active trace result on the schematic"
+            >
+              <Waypoints className="size-3.5" /> Trace
+            </Button>
+          )}
           <Button
             variant="secondary"
             size="sm"
             className="h-7 shadow-sm"
             disabled={!scene}
             onClick={() => {
-              if (svgRef.current && scene) {
-                printDiagramSheet({
-                  diagramName: "One-line",
-                  svg: svgRef.current,
-                  fitBox: scene.fitBox,
-                  orientation: "landscape",
-                })
+              const el = svgRef.current
+              // Union each direct child's bbox rather than el.getBBox() on the root
+              // <svg> (which is unreliable/empty in some engines). This is the true
+              // extent of everything drawn -- every symbol, wire, label, and the
+              // legend -- so the print fits (and can't clip) all of it.
+              if (el) {
+                let x0 = Infinity
+                let y0 = Infinity
+                let x1 = -Infinity
+                let y1 = -Infinity
+                for (const child of Array.from(el.children)) {
+                  const g = child as SVGGraphicsElement
+                  if (typeof g.getBBox !== "function") continue
+                  try {
+                    const b = g.getBBox()
+                    if (!b || (b.width === 0 && b.height === 0)) continue
+                    x0 = Math.min(x0, b.x)
+                    y0 = Math.min(y0, b.y)
+                    x1 = Math.max(x1, b.x + b.width)
+                    y1 = Math.max(y1, b.y + b.height)
+                  } catch {
+                    /* skip an un-measurable child */
+                  }
+                }
+                const PRINT_PAD = 24
+                setPrintFitBox(
+                  Number.isFinite(x0)
+                    ? { x: x0 - PRINT_PAD, y: y0 - PRINT_PAD, w: x1 - x0 + 2 * PRINT_PAD, h: y1 - y0 + 2 * PRINT_PAD }
+                    : null,
+                )
               }
+              setPrintOpen(true)
             }}
-            title="Export to PDF"
+            title="Preview and export to PDF"
           >
             <Printer className="size-3.5" /> PDF
           </Button>
@@ -562,6 +710,17 @@ export function OneLineView() {
           </svg>
         ) : null}
       </div>
+      {/* Print preview -- the SAME framed-sheet dialog diagrams use (paper size +
+          orientation, live preview, download on confirm). buildSheetSvg clones the
+          live svg and strips data-print-hidden, so the trace overlay never shows in
+          the preview OR the PDF. */}
+      <DiagramPrintDialog
+        open={printOpen}
+        onOpenChange={setPrintOpen}
+        diagramName="One-line"
+        svg={svgRef.current}
+        fitBox={printFitBox ?? scene?.fitBox ?? { x: 0, y: 0, w: 0, h: 0 }}
+      />
     </div>
   )
 }
@@ -594,6 +753,15 @@ interface Scene {
   fitBox: { x: number; y: number; w: number; h: number }
 }
 
+/** The active trace result projected onto the one-line: which drawn features the
+ * trace reached (traced), which it stopped at (barriers), and the start, all by
+ * refKey. Undefined when no trace is shown. */
+interface TraceOverlay {
+  traced: Set<string>
+  barriers: Set<string>
+  startKey?: string
+}
+
 function buildScene(
   nodes: OneLineNode[],
   connectors: OneLineConnector[],
@@ -603,6 +771,7 @@ function buildScene(
   interaction: Interaction,
   withLegend: boolean,
   legendPos: Pt | null,
+  trace: TraceOverlay | undefined,
 ): Scene {
   // Content bounds over every drawn point.
   let minX = Infinity
@@ -634,8 +803,25 @@ function buildScene(
   connectors.forEach((c, i) => {
     const key = wireKeyOf(c, i)
     const dead = c.feature_class && c.feature_id && deadSet?.has(refKey(c.feature_class, c.feature_id))
+    const traced = c.feature_class && c.feature_id && trace?.traced.has(refKey(c.feature_class, c.feature_id))
     const color = dead ? DEAD_COLOR : (circuitColor(c.circuit_ref) ?? CONNECTOR_COLOR)
     const d = c.path.map(([x, y], j) => `${j === 0 ? "M" : "L"} ${x} ${y}`).join(" ")
+    // A fat translucent glow UNDER a traced conductor so the trace reads at a glance
+    // while the wire keeps its own circuit colour on top.
+    if (traced) {
+      connectorNodes.push(
+        <path
+          key={`t${i}`}
+          data-print-hidden
+          d={d}
+          fill="none"
+          stroke={TRACE_COLOR}
+          strokeOpacity={0.45}
+          strokeWidth={connectorWidth(c.network) + 6}
+          strokeLinecap="round"
+        />,
+      )
+    }
     connectorNodes.push(
       <path
         key={`c${i}`}
@@ -723,6 +909,10 @@ function buildScene(
     const color = dead ? DEAD_COLOR : (def?.color ?? DEFAULT_SYMBOL_COLOR)
     const icon = iconDataUri(def?.icon_ref, color, icons)
     const label = ratingLabel(n)
+    const tk = refKey(n.feature_class, n.feature_id)
+    const isBarrier = trace?.barriers.has(tk) ?? false
+    const isTraced = trace?.traced.has(tk) ?? false
+    const isStart = trace?.startKey === tk
     symbols.push(
       <g
         key={`n${n.feature_id}`}
@@ -730,6 +920,20 @@ function buildScene(
         style={{ cursor: "grab" }}
         onPointerDown={(e) => interaction.onNodeDown(n.feature_id, e)}
       >
+        {(isTraced || isBarrier) && (
+          // Outer halo ring: blue for a reached feature (red where the trace
+          // stopped), a hair larger than the open/closed device rings so both read.
+          // data-print-hidden: the trace is an on-screen GUIDE, stripped from the PDF.
+          <circle
+            data-print-hidden
+            cx={n.x}
+            cy={n.y}
+            r={ICON / 2 + 8}
+            fill="none"
+            stroke={isBarrier ? BARRIER_COLOR : TRACE_COLOR}
+            strokeWidth={isBarrier || isStart ? 3.5 : 2.5}
+          />
+        )}
         {n.device_state === "OPEN" && (
           <circle cx={n.x} cy={n.y} r={ICON / 2 + 4} fill="none" stroke={OPEN_RING_COLOR} strokeWidth={3} />
         )}

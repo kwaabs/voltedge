@@ -742,6 +742,7 @@ set, and it participates in the coordination engine:**
 
 | Field | Type | Role |
 | --- | --- | --- |
+| `device_number` | text (`ANSI_DEVICE_NUMBER`) | the recloser's **primary ANSI function** (coded, like `PROTECTIVE_RELAY`) — typically 50/51 + 79; optional, for a self-contained recloser with no separate relay |
 | `reclose_attempts` | integer | operations to lockout (e.g. 4) |
 | `fast_curve_ref` | text | `protection_curves.code` — fast/instantaneous curve |
 | `slow_curve_ref` | text | `protection_curves.code` — delayed/coordinating curve |

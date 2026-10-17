@@ -61,7 +61,7 @@ import { splitCoordinates } from "@/lib/geometry"
 import {
   type AnnotationKind,
   annotationStyleForFeature,
-  createSymbologyStyle,
+  createCompositeStyle,
   draftStyleForFeature,
   editStyleForFeature,
   FAULT_MARKER_DISPLACEMENT,
@@ -78,7 +78,7 @@ import {
   pinStyleForFeature,
   territoryStyleForFeature,
 } from "@/lib/map-layers"
-import { featureClassSourceIds, tileUrlTemplate } from "@/lib/martin"
+import { bandSources, compositeUrlTemplate, featureClassSourceIds, MVT_LAYER_PROP } from "@/lib/martin"
 import { formatArea, formatLength } from "@/lib/measure"
 import { useAnnotationEditStore } from "@/stores/annotation-edit-store"
 import { BLANK_BASEMAP, useBasemapStore } from "@/stores/basemap-store"
@@ -119,6 +119,7 @@ import { type TerritoryGeometry, useTerritoryEditStore } from "@/stores/territor
 import { useTerritoryExplorerStore } from "@/stores/territory-explorer-store"
 import { useTerritoryOverlayStore } from "@/stores/territory-overlay-store"
 import { useToastStore } from "@/stores/toast-store"
+import { useTracePathStore } from "@/stores/trace-path-store"
 import { useTraceStore, type TracedFeature } from "@/stores/trace-store"
 import { useUnitsStore } from "@/stores/units-store"
 
@@ -404,9 +405,13 @@ interface VoltEdgeMapProps {
   /** [lon, lat] in EPSG:4326 -- the same order fromLonLat takes. */
   initialCenter?: [number, number]
   initialZoom?: number
+  /** [minLng, minLat, maxLng, maxLat] in EPSG:4326 -- the operating-area bbox the
+   * view is constrained to (map settings). Undefined = unbounded (roams the whole
+   * world, the historic default), so no tiles are fetched outside the service area. */
+  operatingBounds?: [number, number, number, number]
 }
 
-export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {}) {
+export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: VoltEdgeMapProps = {}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<Map | null>(null)
   // The initial View, resolved once at mount. Precedence: the last viewport
@@ -424,6 +429,13 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
         : DEFAULT_CENTER,
   )
   const initialZoomRef = useRef(savedView.zoom ?? initialZoom ?? DEFAULT_ZOOM)
+  // Operating-area extent (EPSG:3857), resolved once at mount. The View is
+  // constrained to it (nothing outside is shown and OL fetches no tiles there), so
+  // the map stays within the utility's service territory instead of roaming the whole
+  // world. Undefined leaves the view unbounded, the historic behaviour.
+  const operatingExtentRef = useRef(
+    operatingBounds ? transformExtent(operatingBounds, "EPSG:4326", "EPSG:3857") : undefined,
+  )
   // The single base tile layer -- kept in a ref so the basemap-change
   // effect below can swap its source in place (see lib/basemaps.ts's
   // applyBasemap) without rebuilding the map or disturbing the z-order.
@@ -783,7 +795,17 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     const map = new Map({
       target: containerRef.current,
       layers: [baseLayer],
-      view: new View({ center: initialCenterRef.current, zoom: initialZoomRef.current, maxZoom: 22 }),
+      view: new View({
+        center: initialCenterRef.current,
+        zoom: initialZoomRef.current,
+        maxZoom: 22,
+        // Constrain to the operating area when configured: OL keeps the viewport
+        // within this extent (no panning/zooming to show -- or fetch tiles for --
+        // areas outside it). showFullExtent lets the whole area still fit on screen.
+        ...(operatingExtentRef.current
+          ? { extent: operatingExtentRef.current, showFullExtent: true }
+          : {}),
+      }),
       // rotate: false -- we render our own reset-north button under the zoom
       // control (top-left) instead of OL's top-right one, so there's no duplicate.
       controls: defaultControls({ attribution: false, rotate: false }),
@@ -1577,6 +1599,18 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     return () => document.removeEventListener("keydown", handleEscape)
   }, [connectMode])
 
+  // Escape likewise cancels an in-progress "Trace path to…" gesture
+  // (trace-path-store.ts) while it's waiting on a destination feature.
+  const tracePathActive = useTracePathStore((s) => s.active)
+  useEffect(() => {
+    if (!tracePathActive) return
+    const handleEscape = (evt: KeyboardEvent) => {
+      if (evt.key === "Escape") useTracePathStore.getState().cancel()
+    }
+    document.addEventListener("keydown", handleEscape)
+    return () => document.removeEventListener("keydown", handleEscape)
+  }, [tracePathActive])
+
   // Escape also cancels an armed diagram-place pick (Phase 12) at either
   // step -- while picking on the map, or once a feature is armed and
   // waiting on a place-click in the diagram canvas -- same affordance the
@@ -1641,13 +1675,14 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       const picked: FeatureRef[] = []
       for (const layer of vectorLayersRef.current) {
         if (!layer.getVisible()) continue
-        const sourceId = layer.get("sourceId") as string | undefined
-        const code = sourceId ? codeBySourceId.get(sourceId) : undefined
-        if (!code) continue
-        // On the LAYER, not the source: returns features from currently-cached
-        // tiles at the rendered zoom (exactly our in-viewport marquee case),
-        // possibly clipped/duplicated across tiles -- deduped by key below.
+        // On the LAYER, not the source: returns the band's features from
+        // currently-cached tiles at the rendered zoom (our in-viewport marquee case),
+        // possibly clipped/duplicated across tiles -- deduped by key below. Each
+        // feature's class comes from MVT_LAYER_PROP (the composite tile holds many).
         for (const feature of layer.getFeaturesInExtent(extent)) {
+          const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
+          const code = sourceId ? codeBySourceId.get(sourceId) : undefined
+          if (!code) continue
           const id = feature.get("id") as string | undefined
           if (!id) continue
           const key = `${code}:${id}`
@@ -2657,9 +2692,9 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
   useEffect(() => {
     if (refreshVersion === 0) return
     for (const layer of vectorLayersRef.current) {
-      const sourceId = layer.get("sourceId") as string
+      const sourceIds = layer.get("sourceIds") as string[]
       const source = layer.getSource()
-      source?.setUrl(tileUrlTemplate(sourceId, refreshVersion))
+      source?.setUrl(compositeUrlTemplate(sourceIds, refreshVersion))
     }
   }, [refreshVersion])
 
@@ -3127,7 +3162,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
         map.forEachFeatureAtPixel(
           evt.pixel,
           (feature, layer) => {
-            const sourceId = layer?.get("sourceId") as string | undefined
+            const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
             const id = feature.get("id") as string | undefined
             const code = sourceId ? codeBySourceId.get(sourceId) : undefined
             if (code && id) {
@@ -3191,7 +3226,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
         map.forEachFeatureAtPixel(
           evt.pixel,
           (feature, layer) => {
-            const sourceId = layer?.get("sourceId") as string | undefined
+            const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
             const id = feature.get("id") as string | undefined
             const code = sourceId ? codeBySourceId.get(sourceId) : undefined
             if (code && id) {
@@ -3227,7 +3262,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
         map.forEachFeatureAtPixel(
           evt.pixel,
           (feature, layer) => {
-            const sourceId = layer?.get("sourceId") as string | undefined
+            const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
             const id = feature.get("id") as string | undefined
             const code = sourceId ? codeBySourceId.get(sourceId) : undefined
             if (code && id) {
@@ -3255,6 +3290,47 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
         return
       }
 
+      // A click while the "Trace path to…" gesture is waiting on a destination
+      // (trace-path-store.ts, feature-panel.tsx's dropdown item) picks that target;
+      // feature-panel.tsx's effect then fires the SHORTEST_PATH trace. Same stacked-
+      // feature peer-picker disambiguation as connect; an empty-space click is
+      // ignored (Escape cancels) so an imprecise click never abandons the gesture.
+      const tracePathState = useTracePathStore.getState()
+      if (tracePathState.active && !tracePathState.target) {
+        const pathHits: { code: string; id: string }[] = []
+        const seenPath = new Set<string>()
+
+        map.forEachFeatureAtPixel(
+          evt.pixel,
+          (feature, layer) => {
+            const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
+            const id = feature.get("id") as string | undefined
+            const code = sourceId ? codeBySourceId.get(sourceId) : undefined
+            if (code && id) {
+              const key = `${code}:${id}`
+              if (!seenPath.has(key)) {
+                seenPath.add(key)
+                pathHits.push({ code, id })
+              }
+            }
+            return undefined
+          },
+          { layerFilter: isVectorLayer, hitTolerance: 5 },
+        )
+
+        if (pathHits.length === 1) {
+          tracePathState.pickTarget({ featureClassCode: pathHits[0].code, featureId: pathHits[0].id })
+        } else if (pathHits.length > 1) {
+          const { clientX, clientY } = evt.originalEvent as PointerEvent
+          useSelectionStore.getState().showCandidates(
+            pathHits.map((hit) => ({ featureClassCode: hit.code, featureId: hit.id })),
+            { x: clientX, y: clientY },
+            { clearSelected: false },
+          )
+        }
+        return
+      }
+
       // A map annotation (Phase 36 Slice 4) sits at the top of the stack
       // (zIndex 7) and, for a caller who can author them, can be clicked to
       // edit it (annotation-edit-panel.tsx). But a redline -- especially a
@@ -3273,7 +3349,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
         map.forEachFeatureAtPixel(
           evt.pixel,
           (feature, layer) => {
-            const sourceId = layer?.get("sourceId") as string | undefined
+            const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
             const code = sourceId ? codeBySourceId.get(sourceId) : undefined
             if (code && feature.get("id")) {
               featureUnderCursor = true
@@ -3417,7 +3493,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       map.forEachFeatureAtPixel(
         evt.pixel,
         (feature, layer) => {
-          const sourceId = layer?.get("sourceId") as string | undefined
+          const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
           const id = feature.get("id") as string | undefined
           const code = sourceId ? codeBySourceId.get(sourceId) : undefined
           if (code && id) {
@@ -3501,41 +3577,71 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
     for (const layer of vectorLayersRef.current) map.removeLayer(layer)
     vectorLayersRef.current = []
 
-    for (const sourceId of featureClassSourceIds(catalog)) {
-      const classCode = sourceId.toUpperCase()
+    // Bucket the compiled feature-class sources into 3 zoom bands and serve each as a
+    // single Martin COMPOSITE tile (`/a,b,c/{z}/{x}/{y}`) -- ONE request per band
+    // instead of one per class (was ~60). One VectorTileLayer per band; the shared
+    // composite style dispatches each feature to its own class's symbology via
+    // MVT_LAYER_PROP (the source-layer name). Per-class visibility and labels are
+    // folded into that style (a hidden class draws nothing); the band's minZoom gates
+    // fetching to the zoom its earliest class appears at (migration 0090).
+    const sourceIds = featureClassSourceIds(catalog)
+    const minZoomByClass: Record<string, number | undefined> = {}
+    for (const id of sourceIds) minZoomByClass[id.toUpperCase()] = displayZoomByClassCode[id.toUpperCase()]?.min
+
+    for (const band of bandSources(sourceIds, minZoomByClass)) {
       const layer = new VectorTileLayer({
         source: new VectorTileSource({
-          format: new MVT(),
-          url: tileUrlTemplate(sourceId),
+          format: new MVT({ layerName: MVT_LAYER_PROP }),
+          url: compositeUrlTemplate(band.sourceIds),
         }),
-        style: createSymbologyStyle(
-          symbologyByClassCode[classCode],
-          map.getView(),
-          symbologyIcons,
-          // Omit the label def when this layer's labels are toggled off, so
-          // it's created label-less rather than flashing labels on first
-          // paint before the label effect below can strip them.
-          labelsHiddenRef.current[sourceId] ? undefined : labelDefsByClassCode[classCode],
-          displayZoomByClassCode[classCode],
-        ),
-        visible: !hiddenLayersRef.current[sourceId],
-        properties: { sourceId },
+        style: createCompositeStyle({
+          view: map.getView(),
+          icons: symbologyIcons,
+          symbologyByClassCode,
+          labelDefsByClassCode,
+          displayZoomByClassCode,
+          labelsHiddenBySourceId: labelsHiddenRef.current,
+          hiddenBySourceId: hiddenLayersRef.current,
+        }),
+        minZoom: band.minZoom,
+        // The whole band goes invisible (and OL stops fetching it) only when EVERY
+        // class in it is hidden; otherwise it's visible and the style hides the
+        // individual hidden classes.
+        visible: band.sourceIds.some((id) => !hiddenLayersRef.current[id]),
+        properties: { band: band.key, sourceIds: band.sourceIds },
       })
       map.addLayer(layer)
       vectorLayersRef.current.push(layer)
     }
   }, [catalog, symbologyByClassCode, labelDefsByClassCode, displayZoomByClassCode, symbologyIcons])
 
-  // Reacts to the layers store -- src/components/map/layers-panel.tsx
-  // -- toggling an existing layer's visibility in place, independent of
-  // the catalog-driven effect above that only runs when the set of
-  // layers itself changes.
+  // A per-class visibility OR label toggle is now a STYLE change -- one composite
+  // band layer holds many classes, so there's no per-class layer to setVisible. Rebuild
+  // each band's composite style with the current hidden / labels-off sets: a hidden
+  // class draws nothing, a labels-off class drops its label. Cheap -- setStyle
+  // re-renders already-loaded tiles, no refetch. The layer-build effect (shared
+  // symbology/label/displayZoom/icon deps, declared first) rebuilds the layers on
+  // those; this one handles the two live toggles from layers-panel.tsx.
   useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
     for (const layer of vectorLayersRef.current) {
-      const sourceId = layer.get("sourceId") as string
-      layer.setVisible(!hiddenLayers[sourceId])
+      const sourceIds = (layer.get("sourceIds") as string[] | undefined) ?? []
+      // Hide (and stop fetching) a band only when all its classes are hidden.
+      layer.setVisible(sourceIds.some((id) => !hiddenLayers[id]))
+      layer.setStyle(
+        createCompositeStyle({
+          view: map.getView(),
+          icons: symbologyIcons,
+          symbologyByClassCode,
+          labelDefsByClassCode,
+          displayZoomByClassCode,
+          labelsHiddenBySourceId: labelsHidden,
+          hiddenBySourceId: hiddenLayers,
+        }),
+      )
     }
-  }, [hiddenLayers])
+  }, [hiddenLayers, labelsHidden, symbologyByClassCode, labelDefsByClassCode, displayZoomByClassCode, symbologyIcons])
 
   // The external service-layer overlays (Slice 2): reconcile the managed
   // TileLayer set against the enabled catalog. Rebuilds only when the record set
@@ -3585,33 +3691,6 @@ export function VoltEdgeMap({ initialCenter, initialZoom }: VoltEdgeMapProps = {
       layer.setOpacity(serviceLayerOpacity[id] ?? defaults.get(id) ?? 1)
     }
   }, [serviceLayerOpacity, serviceLayerRecords])
-
-  // Reacts to the per-layer label toggle (layers-panel.tsx) by rebuilding
-  // each layer's style in place -- passing the label def through only when
-  // that layer's labels are on, so createSymbologyStyle renders (or omits)
-  // the label second style accordingly. Kept separate from visibility so a
-  // label toggle is a cheap setStyle, not a tile re-request. Re-runs on the
-  // same symbology/label/icon data the creation effect depends on so a
-  // toggle done before that data resolved still lands the right style; the
-  // creation effect (declared above, so it runs first on those shared deps)
-  // has already rebuilt the layers by then, this just re-styles them.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    for (const layer of vectorLayersRef.current) {
-      const sourceId = layer.get("sourceId") as string
-      const classCode = sourceId.toUpperCase()
-      layer.setStyle(
-        createSymbologyStyle(
-          symbologyByClassCode[classCode],
-          map.getView(),
-          symbologyIcons,
-          labelsHidden[sourceId] ? undefined : labelDefsByClassCode[classCode],
-          displayZoomByClassCode[classCode],
-        ),
-      )
-    }
-  }, [labelsHidden, symbologyByClassCode, labelDefsByClassCode, displayZoomByClassCode, symbologyIcons])
 
   // Populates (or clears) the territory boundary overlay and toggles its
   // visibility (Phase 11 Slice H). ol/format/GeoJSON is used directly

@@ -341,6 +341,19 @@ another row in `domains`, not a new lookup table.
 | assign / unassign a domain | `fields.domain_id` changed | publish gate runs an existing-data validation pass first — a domain swap can invalidate rows already stored |
 | control the form | `visible_on_create`, `visible_on_update`, `editable_after_publish` | separate from `subtype_field_rules.is_required` — visibility, editability, and requiredness are three different questions |
 
+## Class lifecycle & availability
+
+A feature class carries its own `feature_classes.status`, and only `active` classes are compiled and offered to the map / New-Feature menu / forms (`metadata.ListFeatureClasses` filters `status = 'active'`).
+
+| Change | Mechanism | Note |
+|---|---|---|
+| compile | `status: draft → active` (`task compile` / Compile) | builds the physical `gis.<code>` table + tile function |
+| uncompile | `status: active → draft` (Uncompile) | **DROPS** the table and all its rows — the recovery for the additive compiler's "can't add a required column to existing data" blind spot |
+| **deactivate** | `status: active → deprecated` (Deactivate) | **non-destructive** — the table and every row are kept; the class simply drops out of use everywhere. Reactivate (`deprecated → active`) restores it instantly, lossless. Enforced at write time too (a deactivated class accepts no new features), not just hidden in the UI |
+| **per-territory off** | a `metadata.feature_class_territory_disabled` row | a globally-active class can still be turned off for specific territories (and, by cascade, every territory beneath them). New features landing in a disabled territory are refused; existing features are grandfathered. Global off always wins |
+
+The `terminals` unique is `UNIQUE NULLS NOT DISTINCT (feature_class_id, subtype_id, code)` (migration 0142) — so a generic (subtype-less) terminal can't be duplicated, and re-applying a class seed is idempotent.
+
 ## Attribute groups
 
 Every field belongs to one `field_groups` row — a small, reusable set

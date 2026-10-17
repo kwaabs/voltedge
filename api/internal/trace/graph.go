@@ -166,6 +166,12 @@ type featureClassLoader struct {
 	// memoized shape as junctionByID: loaded once, only for a directional
 	// (DOWNSTREAM/UPSTREAM) walk that actually consults the cross-layer guard.
 	tierByID map[string]int
+	// boundaryRoleByID maps a feature_class id to its boundary_role (migration
+	// 0129) -- the network-SECTIONING function (source/protective/switching/
+	// transformer), refining functional_role for "what kind of device heads a
+	// section". Only the supply-path terminus walk consults it; nil until
+	// boundaryRoles() is first called, same lazy/memoized shape as the others.
+	boundaryRoleByID map[string]string
 }
 
 func newFeatureClassLoader() *featureClassLoader {
@@ -242,6 +248,31 @@ func (l *featureClassLoader) tiers(ctx context.Context, db bun.IDB) (map[string]
 		}
 	}
 	l.tierByID = out
+	return out, nil
+}
+
+// boundaryRoles returns feature_class id -> boundary_role (migration 0129) for
+// every class carrying one; a NULL-boundary_role class is simply absent. The
+// supply-path trace uses it to find the head of a feature's section -- a
+// 'protective' breaker/recloser is the MV feeder/section head when no circuit
+// designates its source -- and to tag the 'protective'/'switching' section
+// boundaries the path passes below the terminus. Loaded once and memoized on
+// the shared loader, exactly like transformerRoles().
+func (l *featureClassLoader) boundaryRoles(ctx context.Context, db bun.IDB) (map[string]string, error) {
+	if l.boundaryRoleByID != nil {
+		return l.boundaryRoleByID, nil
+	}
+	var fcs []metadata.FeatureClass
+	if err := db.NewSelect().Model(&fcs).Column("id", "boundary_role").Where("boundary_role IS NOT NULL").Scan(ctx); err != nil {
+		return nil, fmt.Errorf("trace: loading boundary roles: %w", err)
+	}
+	out := make(map[string]string, len(fcs))
+	for _, fc := range fcs {
+		if fc.BoundaryRole != nil {
+			out[fc.ID] = *fc.BoundaryRole
+		}
+	}
+	l.boundaryRoleByID = out
 	return out, nil
 }
 
@@ -584,6 +615,15 @@ func neighborsOf(ctx context.Context, db bun.IDB, n node, direction string) ([]n
 		q = q.Where("(from_feature_id = ? AND from_feature_class_id = ?) OR (to_feature_id = ? AND to_feature_class_id = ?)",
 			n.featureID, n.classID, n.featureID, n.classID)
 	}
+	// A soft-deleted feature must not conduct: drop any edge whose endpoint is a
+	// deleted feature so a trace never walks THROUGH or INTO one (the start node is
+	// already deleted-checked in resolveNode; this closes the mid-traversal gap, so
+	// a deleted feature is gone from analysis too, matching its removal from peers'
+	// Terminals/Relationships lists and the map). "Live" == a feature_registry row
+	// with deleted_at IS NULL, the cross-class liveness the connectivity audit/
+	// cleanup use; correlated EXISTS keeps it an index probe in this per-node BFS.
+	q = q.Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.from_feature_id AND r.deleted_at IS NULL)").
+		Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.to_feature_id AND r.deleted_at IS NULL)")
 	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("trace: loading neighbors: %w", err)
 	}
@@ -961,37 +1001,6 @@ func nodeClassCodes(ctx context.Context, db bun.IDB, nodes []node) (map[string]s
 	out := make(map[string]string, len(fcs))
 	for _, fc := range fcs {
 		out[fc.ID] = fc.Code
-	}
-	return out, nil
-}
-
-// nodeClassRoles batch-resolves every distinct feature_class_id across a set of
-// nodes into its functional_role (migration 0091), for role-driven traces like
-// supply-path. Same one-query-per-set shape as nodeClassCodes; a class with no
-// declared role (NULL functional_role) is simply absent from the map, so a
-// lookup returns "" and the caller treats it as unclassified.
-func nodeClassRoles(ctx context.Context, db bun.IDB, nodes []node) (map[string]string, error) {
-	idSet := map[string]struct{}{}
-	for _, n := range nodes {
-		idSet[n.classID] = struct{}{}
-	}
-	if len(idSet) == 0 {
-		return map[string]string{}, nil
-	}
-	ids := make([]string, 0, len(idSet))
-	for id := range idSet {
-		ids = append(ids, id)
-	}
-
-	var fcs []metadata.FeatureClass
-	if err := db.NewSelect().Model(&fcs).Where("id IN (?)", bun.In(ids)).Scan(ctx); err != nil {
-		return nil, fmt.Errorf("trace: loading feature class roles: %w", err)
-	}
-	out := make(map[string]string, len(fcs))
-	for _, fc := range fcs {
-		if fc.FunctionalRole != nil {
-			out[fc.ID] = *fc.FunctionalRole
-		}
 	}
 	return out, nil
 }

@@ -62,6 +62,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/rmu"
 	"github.com/kwaabs/voltedge/api/internal/rules"
 	"github.com/kwaabs/voltedge/api/internal/schematic"
+	"github.com/kwaabs/voltedge/api/internal/studies"
 	"github.com/kwaabs/voltedge/api/internal/secretbox"
 	"github.com/kwaabs/voltedge/api/internal/servicelayers"
 	"github.com/kwaabs/voltedge/api/internal/territory"
@@ -676,6 +677,12 @@ type fieldSchema struct {
 	EditableAfterPublish bool     `json:"editable_after_publish"`
 	DomainCode           *string  `json:"domain_code,omitempty"`
 	DomainValues         []string `json:"domain_values,omitempty"`
+	// DomainValueLabels maps each coded value to its human label (e.g.
+	// "CLASS_1" -> "Class 1 (9 m)"), so a read-only panel and the edit
+	// dropdown can show the admin-set label instead of the bare stored code.
+	// Keyed by code; the code stays the source of truth (what's stored and
+	// validated), this is display sugar only.
+	DomainValueLabels    map[string]string `json:"domain_value_labels,omitempty"`
 	RangeMin             *float64 `json:"range_min,omitempty"`
 	RangeMax             *float64 `json:"range_max,omitempty"`
 	RequiredForSubtypes  []int    `json:"required_for_subtypes,omitempty"`
@@ -778,6 +785,10 @@ type featureClassSchemaResponse struct {
 	// reads these; unrelated to a symbology rule's own min_zoom/max_zoom.
 	MinDisplayZoom *int `json:"min_display_zoom,omitempty"`
 	MaxDisplayZoom *int `json:"max_display_zoom,omitempty"`
+	// AnalysisStudies is the effective set of analysis-study ids this class
+	// offers (api/internal/studies): applicable by role, minus the admin prune.
+	// The feature panel's analysis menu shows only studies whose id is here.
+	AnalysisStudies []string `json:"analysis_studies,omitempty"`
 }
 
 // resolveSymbologySchema loads every one of a feature class's symbology
@@ -882,6 +893,25 @@ func resolveMaterialSpecs(ctx context.Context, db *bun.DB, domainID string) (map
 	return out, nil
 }
 
+// resolveDomainLabels returns each coded value's human label keyed by its own
+// code (e.g. "CLASS_1" -> "Class 1 (9 m)"), so a client can show the admin-set
+// label instead of the raw stored code. Returns nil when the domain has no
+// values, so fieldSchema.DomainValueLabels' omitempty drops it from the response.
+func resolveDomainLabels(ctx context.Context, db *bun.DB, domainID string) (map[string]string, error) {
+	var values []metadata.DomainValue
+	if err := db.NewSelect().Model(&values).Column("code", "label").Where("domain_id = ?", domainID).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("loading domain value labels: %w", err)
+	}
+	if len(values) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(values))
+	for _, v := range values {
+		out[v.Code] = v.Label
+	}
+	return out, nil
+}
+
 func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		code := chi.URLParam(r, "code")
@@ -916,6 +946,14 @@ func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 					fs.DomainCode = &code
 					if d.DomainType == "coded" {
 						fs.DomainValues = loaded.DomainValues[d.ID]
+						labels, err := resolveDomainLabels(r.Context(), db, d.ID)
+						if err != nil {
+							w.Header().Set("Content-Type", "application/json")
+							w.WriteHeader(http.StatusInternalServerError)
+							json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+							return
+						}
+						fs.DomainValueLabels = labels
 						materialSpecs, err := resolveMaterialSpecs(r.Context(), db, d.ID)
 						if err != nil {
 							w.Header().Set("Content-Type", "application/json")
@@ -966,19 +1004,30 @@ func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 
+		// Effective analysis studies for this class (applicable by role, minus
+		// the admin prune) -- the feature panel reads this to scope its menu.
+		disabledStudies, err := studies.LoadDisabled(r.Context(), db, loaded.FeatureClass.ID)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(featureClassSchemaResponse{
-			Code:           loaded.FeatureClass.Code,
-			Name:           loaded.FeatureClass.Name,
-			GeometryType:   loaded.FeatureClass.GeometryType,
-			Subtypes:       subtypes,
-			Fields:         fields,
-			Terminals:      terminals,
-			Symbology:      symbology,
-			LabelDef:       loaded.FeatureClass.LabelDef,
-			Network:        loaded.FeatureClass.Network,
-			MinDisplayZoom: loaded.FeatureClass.MinDisplayZoom,
-			MaxDisplayZoom: loaded.FeatureClass.MaxDisplayZoom,
+			Code:            loaded.FeatureClass.Code,
+			Name:            loaded.FeatureClass.Name,
+			GeometryType:    loaded.FeatureClass.GeometryType,
+			Subtypes:        subtypes,
+			Fields:          fields,
+			Terminals:       terminals,
+			Symbology:       symbology,
+			LabelDef:        loaded.FeatureClass.LabelDef,
+			Network:         loaded.FeatureClass.Network,
+			MinDisplayZoom:  loaded.FeatureClass.MinDisplayZoom,
+			MaxDisplayZoom:  loaded.FeatureClass.MaxDisplayZoom,
+			AnalysisStudies: studies.Effective(loaded.FeatureClass, disabledStudies),
 		})
 	}
 }

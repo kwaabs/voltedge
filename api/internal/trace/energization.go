@@ -242,3 +242,40 @@ func resolveDownstreamBarriers(ctx context.Context, db bun.IDB) (map[string][]ba
 	}
 	return out, nil
 }
+
+// resolveOpenDeviceBarriers is resolveDownstreamBarriers without the DOWNSTREAM
+// filter: it unions the "stop at an open device" barrier rules across EVERY trace
+// configuration that stops at open devices, regardless of the config's direction --
+// an open switch is open no matter which way a walk crosses it. For an UPSTREAM walk
+// that wants the live/energized view (the supply-path RespectSwitchState mode), so a
+// ring's normally-open point halts the trace to the one energized direction. Empty
+// (a barrier-free walk) when no configuration stops at open devices.
+func resolveOpenDeviceBarriers(ctx context.Context, db bun.IDB) (map[string][]barrierCheck, error) {
+	configs, err := metadata.ListTraceConfigurations(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+
+	out := map[string][]barrierCheck{}
+	seen := map[string]bool{}
+	for _, c := range configs {
+		if !c.StopAtOpenDevices {
+			continue
+		}
+		byClass, err := resolveBarriers(ctx, db, c.ID, true)
+		if err != nil {
+			return nil, err
+		}
+		for classID, checks := range byClass {
+			for _, ck := range checks {
+				key := classID + "|" + ck.fieldName + "|" + ck.haltsOnCode
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				out[classID] = append(out[classID], ck)
+			}
+		}
+	}
+	return out, nil
+}

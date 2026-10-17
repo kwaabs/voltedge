@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Eye, Loader2, Pencil, Plus, Search, Trash2, X } from "lucide-react"
+import { Eye, Loader2, Pencil, Plus, Power, PowerOff, Search, Trash2, X } from "lucide-react"
 import { Link } from "react-router"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
@@ -174,6 +174,7 @@ export function AdminFeatureClassesPage() {
   const [compiling, setCompiling] = useState<string | null>(null)
   const [editingCode, setEditingCode] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminFeatureClassSummary | null>(null)
+  const [activeTarget, setActiveTarget] = useState<{ code: string; action: "deactivate" | "reactivate" } | null>(null)
 
   // Client-side filtering -- the whole catalog is already loaded (one
   // query, ~60 rows), so there's nothing to fetch; narrowing is pure
@@ -220,6 +221,25 @@ export function AdminFeatureClassesPage() {
       useToastStore.getState().pushSuccess(`Compiled ${code}.`)
     } catch (err) {
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not compile this class.")
+    } finally {
+      setCompiling(null)
+    }
+  }
+
+  // Non-destructive global toggle: deactivate hides a live class from use
+  // everywhere but keeps its table + data; reactivate restores it. Flips status
+  // active <-> deprecated server-side (no recompile, unlike compile/uncompile).
+  async function handleSetActive(code: string, active: boolean) {
+    setCompiling(code)
+    try {
+      await apiFetch(`/admin/feature-classes/${code}/${active ? "reactivate" : "deactivate"}`, { method: "POST" })
+      queryClient.invalidateQueries({ queryKey: ["admin", "feature-classes"] })
+      queryClient.invalidateQueries({ queryKey: ["feature-classes"] })
+      useToastStore
+        .getState()
+        .pushSuccess(active ? `Reactivated ${code}.` : `Deactivated ${code} — hidden from use, data kept.`)
+    } catch (err) {
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not change this class.")
     } finally {
       setCompiling(null)
     }
@@ -369,7 +389,7 @@ export function AdminFeatureClassesPage() {
                     <td className="px-3 py-2">{fc.network_role}</td>
                     <td className="px-3 py-2">
                       <Badge variant={fc.status === "active" ? "success" : fc.status === "draft" ? "secondary" : "outline"}>
-                        {fc.status}
+                        {fc.status === "deprecated" ? "inactive" : fc.status}
                       </Badge>
                     </td>
                     <td className="px-3 py-2">{fc.subtype_count}</td>
@@ -395,6 +415,30 @@ export function AdminFeatureClassesPage() {
                               <Trash2 className="size-4" />
                             </Button>
                           </>
+                        )}
+                        {canWrite && fc.status === "active" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            title="Deactivate — hide from use everywhere (keeps the table + data)"
+                            onClick={() => setActiveTarget({ code: fc.code, action: "deactivate" })}
+                            disabled={compiling === fc.code}
+                          >
+                            <PowerOff className="size-4" />
+                          </Button>
+                        )}
+                        {canWrite && fc.status === "deprecated" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            title="Reactivate — make this class available again"
+                            onClick={() => setActiveTarget({ code: fc.code, action: "reactivate" })}
+                            disabled={compiling === fc.code}
+                          >
+                            <Power className="size-4" />
+                          </Button>
                         )}
                         {canWrite && (
                           <Button
@@ -428,6 +472,26 @@ export function AdminFeatureClassesPage() {
           if (!deleteTarget) return
           await apiFetch(`/admin/feature-classes/${deleteTarget.code}`, { method: "DELETE" })
           queryClient.invalidateQueries({ queryKey: ["admin", "feature-classes"] })
+        }}
+      />
+
+      <ConfirmDeleteDialog
+        open={activeTarget !== null}
+        title={
+          activeTarget?.action === "reactivate"
+            ? `Reactivate ${activeTarget?.code}?`
+            : `Deactivate ${activeTarget?.code ?? "this class"}?`
+        }
+        description={
+          activeTarget?.action === "reactivate"
+            ? "Makes this class available again everywhere — the map, the New-Feature menu and every form."
+            : "Hides this class from use everywhere (the map, the New-Feature menu, the Features browser and every form) and stops it accepting new features. Its table and all data are kept, and you can reactivate it anytime."
+        }
+        confirmLabel={activeTarget?.action === "reactivate" ? "Reactivate" : "Deactivate"}
+        onOpenChange={(open) => !open && setActiveTarget(null)}
+        onConfirm={async () => {
+          if (!activeTarget) return
+          await handleSetActive(activeTarget.code, activeTarget.action === "reactivate")
         }}
       />
     </div>

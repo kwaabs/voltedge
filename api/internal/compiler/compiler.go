@@ -141,7 +141,19 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 				result.ColumnsAdded = append(result.ColumnsAdded, "published_by")
 			}
 
-			// territory_id (Phase 11) -- only geometric classes get it; a
+			// external_ref (0145) -- the jsonb system column holding this feature's ids in
+				// external systems (SCADA/AMI/CIS). All classes get it; nullable, no
+				// default, so an existing row starts with no refs. The per-class sync
+				// trigger (below) mirrors it into runtime.external_feature_refs.
+				if !existingCols["external_ref"] {
+					stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN external_ref jsonb", qualifiedTable)
+					if _, err := tx.ExecContext(ctx, stmt); err != nil {
+						return fmt.Errorf("add column external_ref: %w", err)
+					}
+					result.ColumnsAdded = append(result.ColumnsAdded, "external_ref")
+				}
+
+				// territory_id (Phase 11) -- only geometric classes get it; a
 			// geometry-less class has nothing to place in a territory.
 			// Mirrors the created_by backfill so a recompile also covers a
 			// table compiled before the column existed, alongside migration
@@ -287,7 +299,24 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 			return fmt.Errorf("backfill feature_registry: %w", err)
 		}
 
-		// published_by (text) carries the acting user's uuid when compile
+		// external_ref reverse index (0145): mirror the registry trigger -- attach
+			// runtime.sync_external_feature_refs so each row's external_ref jsonb is
+			// indexed in runtime.external_feature_refs for O(1) inbound correlation.
+			// No backfill: external_ref is added nullable, so existing rows carry NULL
+			// -> nothing to index until set; the trigger fires from the next write on.
+			extTrigger := quoteIdent(tableName + "_external_ref_sync")
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(
+				`DROP TRIGGER IF EXISTS %s ON %s`, extTrigger, qualifiedTable)); err != nil {
+				return fmt.Errorf("drop external-ref trigger: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TRIGGER %s AFTER INSERT OR UPDATE OR DELETE ON %s `+
+					`FOR EACH ROW EXECUTE FUNCTION runtime.sync_external_feature_refs(%s)`,
+				extTrigger, qualifiedTable, quoteLiteral(fc.Code))); err != nil {
+				return fmt.Errorf("create external-ref trigger: %w", err)
+			}
+
+			// published_by (text) carries the acting user's uuid when compile
 		// was triggered through the admin HTTP route (Slice E); it falls
 		// back to the "compiler-cli" system literal on the session-less
 		// cmd/compile path, which has no request context to read an actor

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ChevronRight, GripHorizontal, List, ListTree, RefreshCw, X } from "lucide-react"
 
+import { AnalysisExplanation } from "@/components/map/analysis-explanation"
 import { Button } from "@/components/ui/button"
 import { ServiceRollupSummary } from "@/components/map/service-rollup-summary"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -39,6 +40,83 @@ const DIRECTION_LABEL: Record<string, string> = {
   // display, with the consumption rollup surfaced by ServiceRollupSummary and
   // the reached service points listed as `features`/`targets`.
   SERVICE: "Service",
+}
+
+/** A one-paragraph description of what the current trace does, keyed by its
+ * direction (and config code for the circuit trace, which is a CONNECTED config).
+ * Shown in the collapsible "What this trace does" strip pinned to the bottom of the
+ * result panel (the same affordance the analysis panels use), so an operator can
+ * confirm exactly what they ran without cluttering the trace menu. Returns null for
+ * a direction with no description (a custom admin config). */
+function traceDescription(direction: string, configCode?: string): ReactNode {
+  if (configCode === "MV_CIRCUIT_TRACE") {
+    return (
+      <p>
+        Everything sharing this feature’s <b>circuit</b> (the same <code>circuit_id</code>), across every class — the
+        feeder membership stamped by assign-by-trace, regardless of direction.
+      </p>
+    )
+  }
+  switch (direction) {
+    case "CONNECTED":
+      return (
+        <p>
+          Everything <b>galvanically connected</b> to the start — ignores flow direction and live switch state. “What is
+          physically wired together.”
+        </p>
+      )
+    case "DOWNSTREAM":
+      return (
+        <p>
+          Everything fed <b>from here toward the loads</b>. Stops at open switches, and at transformers — the “continue
+          past transformers” toggle crosses that boundary.
+        </p>
+      )
+    case "UPSTREAM":
+      return (
+        <p>
+          Everything between here and the source, following the <b>supply direction</b>. Stops at open switches.
+        </p>
+      )
+    case "SHORTEST_PATH":
+      return (
+        <p>
+          The <b>shortest connected path</b> from the start to the feature you picked — the fewest-hop route between the
+          two, undirected.
+        </p>
+      )
+    case "FEEDER":
+      return (
+        <p>
+          The whole <b>feeder</b> — up to the feeder head, then everything downstream of it. The electrical feeder this
+          feature belongs to.
+        </p>
+      )
+    case "SECTION":
+      return (
+        <p>
+          The <b>section</b> bounded by the nearest switching / protective devices — what you would isolate (or what a
+          fault de-energizes) around this feature.
+        </p>
+      )
+    case "SERVICE":
+      return (
+        <p>
+          Downstream to the <b>service points</b> it feeds, rolled up by load and restoration priority. “What this
+          serves.”
+        </p>
+      )
+    case "SUPPLY_PATH":
+      return (
+        <p>
+          The single route to this feature’s <b>source</b> — its distribution transformer (LV) or its feeder breaker
+          (MV). Options can follow only the live (energized) path and chain across transformers to the primary substation
+          source.
+        </p>
+      )
+    default:
+      return null
+  }
 }
 
 function shortId(id: string): string {
@@ -491,6 +569,7 @@ export function TraceResultTable() {
   if (!result) return null
 
   const directionLabel = DIRECTION_LABEL[result.direction] ?? result.direction
+  const traceDesc = traceDescription(result.direction, result.trace_configuration)
   const classNameFor = (code: string) => featureClasses?.feature_classes.find((fc) => fc.code === code)?.name ?? code
 
   // Network sectioning (migration 0129): each row's section = its nearest
@@ -915,6 +994,8 @@ export function TraceResultTable() {
           </table>
         )}
       </div>
+
+      {traceDesc && <AnalysisExplanation title="What this trace does">{traceDesc}</AnalysisExplanation>}
 
       {/* Bottom-right resize grip -- same affordance and mechanics as
           feature-panel.tsx's. stopPropagation in the handler keeps a resize

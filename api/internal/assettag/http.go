@@ -11,7 +11,9 @@ import (
 	"github.com/uptrace/bun"
 
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/featureregistry"
+	"github.com/kwaabs/voltedge/api/internal/metadata"
 )
 
 // Routes returns the asset-tag endpoints:
@@ -95,6 +97,24 @@ func rootGetHandler(db *bun.DB) http.HandlerFunc {
 		id := strings.TrimSpace(q.Get("feature_id"))
 		if class == "" || id == "" {
 			writeError(w, invalidf("provide either ?code= to resolve, ?feature_class_code=&feature_id= to list a feature's tags, or ?feature_class_code=&feature_ids=a,b,c for a bulk primary lookup"))
+			return
+		}
+		// ListForFeature does no scope check itself (it trusts the caller to have
+		// resolved the feature through a scoped read); this HTTP front door hasn't,
+		// so gate here -- don't list tags for a soft-deleted / out-of-territory /
+		// peer-private-draft / missing feature. EnforceFeatureReadScope answers
+		// not-found for all of them, the same answer a feature read gives.
+		loaded, err := metadata.Load(r.Context(), db, class)
+		if err != nil {
+			writeError(w, invalidf("unknown feature class %q", class))
+			return
+		}
+		if err := crud.EnforceFeatureReadScope(r.Context(), db, loaded, id); err != nil {
+			if crud.IsNotFoundError(err) {
+				writeError(w, notFoundf("no feature %s in %q", id, class))
+				return
+			}
+			writeError(w, err)
 			return
 		}
 		tags, err := ListForFeature(r.Context(), db, class, id)

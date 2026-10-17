@@ -116,6 +116,21 @@ func Routes(db *bun.DB, cipher *secretbox.Cipher) chi.Router {
 	r.Patch("/feature-classes/{code}/fields/{name}", updateFieldHandler(db))
 	r.Post("/feature-classes/{code}/compile", compileFeatureClassHandler(db))
 	r.Post("/feature-classes/{code}/uncompile", uncompileFeatureClassHandler(db))
+	// Global activation toggle (non-destructive, keeps the table + data) --
+	// deactivate takes a live class out of use everywhere, reactivate puts it
+	// back. Distinct from uncompile (which DROPS the table).
+	r.Post("/feature-classes/{code}/deactivate", setClassActiveHandler(db, false))
+	r.Post("/feature-classes/{code}/reactivate", setClassActiveHandler(db, true))
+	// Per-territory availability: which territories a class is turned off for
+	// (opt-out; empty = available everywhere). GET the authored set, PUT to
+	// replace it. Enforced at feature-create time (crud.enforceClassAvailability).
+	r.Get("/feature-classes/{code}/territory-availability", territoryAvailabilityHandler(db))
+	r.Put("/feature-classes/{code}/territory-availability", setTerritoryAvailabilityHandler(db))
+	// Analysis-study applicability: which engineering/network studies a class
+	// offers. GET returns the whole suite with applicable/disabled flags; PUT
+	// prunes (admins can only turn OFF a study the role makes applicable).
+	r.Get("/feature-classes/{code}/analysis-studies", analysisStudiesHandler(db))
+	r.Put("/feature-classes/{code}/analysis-studies", setAnalysisStudiesHandler(db))
 	r.Get("/domains", listDomainsHandler(db))
 	r.Post("/domains", createDomainHandler(db))
 	r.Patch("/domains/{code}", updateDomainHandler(db))
@@ -654,6 +669,55 @@ func uncompileFeatureClassHandler(db *bun.DB) http.HandlerFunc {
 			TableExisted:     result.TableExisted,
 			RowsDropped:      result.RowsDropped,
 		})
+	}
+}
+
+// setClassActiveHandler flips a class between active and deactivated
+// (deprecated) without touching its table -- see setFeatureClassActive. active
+// true = reactivate, false = deactivate. 204 on success; a 400 (wrong current
+// status) or 404 (unknown class) is surfaced verbatim.
+func setClassActiveHandler(db *bun.DB, active bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		if err := setFeatureClassActive(r.Context(), db, code, active); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// territoryAvailabilityHandler returns the territory ids a class is disabled for
+// (the authored set, not the cascade-expanded descendants).
+func territoryAvailabilityHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		ids, err := listDisabledTerritories(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"disabled_territory_ids": ids})
+	}
+}
+
+// setTerritoryAvailabilityHandler replaces the whole disabled-territory set for a
+// class with the ids in the body ({"disabled_territory_ids": [...]}); an empty or
+// absent list re-enables it everywhere. 204 on success.
+func setTerritoryAvailabilityHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		var body struct {
+			DisabledTerritoryIDs []string `json:"disabled_territory_ids"`
+		}
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+		if err := setDisabledTerritories(r.Context(), db, code, body.DisabledTerritoryIDs); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

@@ -1,0 +1,529 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Data Validation & Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px;overflow-x:auto}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono);display:inline-block}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green);color:var(--green)}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.pill.err{background:var(--red-tint);color:var(--red);border:1px solid var(--red)}
+.pill.warn{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.open{background:var(--blue-tint);color:var(--blue);border:1px solid var(--blue)}
+.pill.ack{background:var(--surface);color:var(--muted);border:1px solid var(--muted)}
+.pill.resolved{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.suppressed{background:var(--line2);color:var(--muted);border:1px solid var(--line)}
+.iss{display:flex;align-items:flex-start;gap:8px;border-top:1px solid var(--line2);padding:9px 2px;flex-wrap:wrap}
+.iss:first-child{border-top:0}
+.iss .msg{flex:1;min-width:160px;font-size:13px}
+.iss .msg small{color:var(--muted);font-family:var(--f-mono);font-size:11px}
+.iss .acts{display:flex;gap:4px;flex-wrap:wrap}
+.chip{font:600 11px var(--f-mono);background:var(--line2);color:var(--ink);padding:2px 6px;border-radius:9px;cursor:pointer;border:1px solid transparent}
+.chip:hover{border-color:var(--muted)}
+.ctl{margin-bottom:12px}
+.ctl label{display:block;font:600 12px var(--f-mono);margin-bottom:4px}
+input[type=text],input[type=range],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+input[type=range]{padding:0;accent-color:var(--acc)}
+.switch{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.switch input{accent-color:var(--acc)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+.big{font:800 34px/1 var(--f-display);font-stretch:80%;color:var(--acc)}
+.locknote{border:1px dashed var(--amber);background:var(--amber-tint);color:var(--amber);border-radius:6px;padding:10px 12px;font:600 12.5px var(--f-mono)}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+[hidden]{display:none!important}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Validation &amp; Audit</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · Overview</a><a href="#c2">2 · The scale wall</a><a href="#c3">3 · Three lines</a><a href="#c4">4 · What's checked</a><a href="#c5">5 · The self-pruning queue</a><a href="#c6">6 · The worker</a><a href="#c7">7 · Triage</a><a href="#c8">8 · Activity audit</a><a href="#c9">9 · Check</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · data validation &amp; audit · keep a 200,000-change network trustworthy</div>
+  <h1>Don't audit it all.<br><span>Let it prune itself.</span></h1>
+  <p class="lede">Two hundred users, ten edits a day — a whole-database audit hands back a pile nobody can read. VoltEdge instead validates each change as it lands, keeps a small queue of issues that <em>resolves itself</em> when you fix things, and keeps a separate on-demand ledger of who changed what. This edition is a working one: run reconcile, fix a defect and watch it leave, drain the worker's backlog, and query the activity log.</p>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Sam</b> is a data steward (<span class="perm">connectivity:commit</span>) — reconciles and triages. <b>Remi</b> (<span class="perm">connectivity:read</span>) reads the queue but can't act. <b>Ada</b> is an admin (<span class="perm">admin:users</span>) — hers is the activity audit. <b>Dana</b> has neither. Controls lock to what the persona may do.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">Two capabilities, one idea</span>
+<p>This guide covers <b>two</b> things that sit side by side. The <b>issue queue</b> answers <em>"what is wrong with the data right now?"</em> (correctness). The <b>activity audit</b> answers <em>"who changed what, when?"</em> (accountability). They are deliberately separate — don't conflate them.</p>
+<p>The one idea to carry: <b>flow beats batch.</b> You never re-read the whole database. The worker validates each change as it happens and the queue shrinks itself, so what a human looks at is always small and always current.</p></div>
+
+<!-- 1 -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">1</div><h2>What it is</h2><p>Continuous validation plus an on-demand change ledger — correctness and accountability, kept apart.</p></div>
+  <div class="pl-b"><span class="tag pl">In plain terms</span>
+  <p>Instead of auditing the whole network on a schedule and drowning in findings, a background worker re-checks each feature as it changes and keeps a short list of the problems that are <b>currently open</b>. Fix a problem and it drops off the list by itself. Separately, when you need to know who did something, you ask the change log directly.</p></div>
+  <div class="callout">The queue is bounded by the number of <em>unfixed problems</em>, not by the number of <em>changes</em>. That's what makes it something a person can actually work.</div>
+  <div class="tbl"><table>
+    <tr><th>Role</th><th>Does</th><th>Needs</th></tr>
+    <tr><td>Data steward</td><td>Works the issue queue — reconcile, acknowledge, resolve, suppress</td><td><span class="perm">connectivity:commit</span></td></tr>
+    <tr><td>Reviewer</td><td>Reads the issue queue (can't act on it)</td><td><span class="perm">connectivity:read</span></td></tr>
+    <tr><td>Administrator / auditor</td><td>Queries the activity log — who changed what, when</td><td><span class="perm">admin:users</span></td></tr>
+    <tr><td>Operations</td><td>Runs the <code>validationworker</code> alongside the API</td><td>deployment</td></tr>
+  </table></div>
+</section>
+
+<!-- 2 -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">2</div><h2>The scale wall</h2><p>Why "audit everything and review it" stops working — and what replaces it.</p></div>
+  <p>Set a realistic deployment below. Watch the batch pile grow with every user and day — while the queue a steward actually works stays flat, because it tracks <em>open problems</em>, not <em>changes</em>.</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Changes vs. the queue</h4></div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="ctl"><label>Users — <span id="sc-u-v">200</span></label><input type="range" id="sc-u" min="1" max="500" value="200"></div>
+        <div class="ctl"><label>Edits per user per day — <span id="sc-a-v">10</span></label><input type="range" id="sc-a" min="1" max="40" value="10"></div>
+        <div class="ctl"><label>Working days — <span id="sc-d-v">10</span></label><input type="range" id="sc-d" min="1" max="30" value="10"></div>
+        <div class="ctl"><label>Currently-open problems — <span id="sc-o-v">14</span></label><input type="range" id="sc-o" min="0" max="120" value="14"></div>
+      </div>
+      <div class="w-side">
+        <div class="lab">Batch audit hands you</div>
+        <div class="big" id="sc-pile">—</div>
+        <div class="muted" style="font-size:12.5px;margin-bottom:12px">findings to read — unreviewable.</div>
+        <div class="lab">The live queue shows</div>
+        <div class="big" id="sc-queue" style="color:var(--green)">—</div>
+        <div class="muted" style="font-size:12.5px">open + acknowledged issues.</div>
+        <div class="readout" id="sc-note" style="margin-top:12px"></div>
+      </div>
+    </div>
+  </div>
+  <div class="caution"><b>Stale on arrival.</b> A batch report is a snapshot: by the time it's read, some findings are already fixed and new ones exist. The queue is live — the worker keeps it current, so you never triage a problem that's already gone.</div>
+</section>
+
+<!-- 3 -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">3</div><h2>Three lines of defence</h2><p>Most bad data never reaches the queue. Pick a line to see what it catches.</p></div>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Where a problem is caught</h4></div>
+    <div class="w-bar"><div class="seg" id="ln-seg"></div></div>
+    <div class="w-split">
+      <div class="w-main"><dl class="kv" id="ln-kv"></dl></div>
+      <div class="w-side"><div class="readout" id="ln-note"></div></div>
+    </div>
+  </div>
+  <div class="tip"><b>Prevention does the heavy lifting</b> — a write that breaks a network rule, violates cardinality, fails a domain, or lands outside your territory is <b>refused before it is saved</b>, so it never becomes an issue. The queue only ever fills with the <em>relational</em> slips a single-row write can't see on its own.</div>
+</section>
+
+<!-- 4 -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">4</div><h2>What's checked — and the scope trick</h2><p>Three finding kinds, and the one change that makes per-edit validation cheap.</p></div>
+  <p>The worker runs the <b>same connectivity audit</b> as the whole-DB sweep — just <b>scoped to the features that changed</b>. Pick a finding kind:</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>The finding kinds</h4></div>
+    <div class="w-bar"><div class="seg" id="fk-seg"></div></div>
+    <div class="w-split">
+      <div class="w-main"><dl class="kv" id="fk-kv"></dl></div>
+      <div class="w-side"><div class="readout" id="fk-note"></div></div>
+    </div>
+  </div>
+  <div class="en-b"><span class="tag en">Why scope to the neighbourhood, not just the one feature</span>
+  <p>These problems are <b>relational</b> — a coincident pair or an orphaned link always involves <em>two</em> features. So a scoped run limits itself to connections, relationships and coincident pairs where <b>either endpoint</b> is a changed feature (<code>feature_ids=…</code>). That sees the whole of each problem it owns, while staying tiny. Empty <code>feature_ids</code> = the old whole-database behaviour; the summary reports <code>scoped_to_features</code>.</p></div>
+</section>
+
+<!-- 5 -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">5</div><h2>The self-pruning queue</h2><p>The heart of it: find a problem, fix the feature, and watch the issue leave on its own.</p></div>
+  <p>Each finding gets a stable <b>fingerprint</b> (a coincident pair sorts its two ids, so A|B and B|A are the same issue). Reconcile <b>upserts</b> on it — found again? the same row updates, never a duplicate. Gone? it <b>auto-resolves</b>. Drive it:</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it · reconcile</span><h4>A tiny estate with two latent defects</h4></div>
+    <div class="w-bar">
+      <label class="switch"><input type="checkbox" id="q-def-cu" checked> coincident C↔D (un-wired)</label>
+      <label class="switch"><input type="checkbox" id="q-def-orph" checked> orphaned link (feature deleted)</label>
+      <span style="flex:1"></span>
+      <button class="btn pri" id="q-reconcile" data-need="connectivity:commit">Run reconcile</button>
+    </div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="lab" style="margin-bottom:6px">Live queue <span class="muted">(open + acknowledged, errors first)</span></div>
+        <div id="q-list"><span class="muted">Run reconcile to populate the queue.</span></div>
+      </div>
+      <div class="w-side">
+        <div class="lab" style="margin-bottom:6px">Last reconcile</div>
+        <div class="readout" id="q-out"><span class="muted">—</span></div>
+        <div class="lab" style="margin-top:12px;margin-bottom:6px">Event log</div>
+        <div class="readout" id="q-log" style="font-size:11.5px;max-height:150px;overflow:auto"></div>
+      </div>
+    </div>
+  </div>
+  <ul>
+    <li>💡 Turn a defect <b>off</b> (you "fixed" the feature) and <b>reconcile</b> — its issue flips to <span class="pill resolved">resolved</span> with no click on the issue itself. That's the self-pruning.</li>
+    <li>💡 <b>Reconcile twice</b> with nothing changed — <code>upserted</code> counts the same rows but the queue doesn't grow. Idempotent by fingerprint.</li>
+    <li>💡 Turn a <span class="pill resolved">resolved</span> defect back <b>on</b> and reconcile — the <em>same</em> row re-opens (it remembers <code>first_seen</code>).</li>
+  </ul>
+</section>
+
+<!-- 6 -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">6</div><h2>The worker — making it automatic</h2><p>No write-path change: the worker tails the change log the app already keeps.</p></div>
+  <div class="pl-b"><span class="tag pl">In plain terms</span>
+  <p>Every feature write already appends one row to <code>gis.feature_history</code> (an auto-numbered ledger). The worker just remembers how far it's read (a <b>cursor</b>), grabs the new rows in batches, validates those features, and moves the cursor on. Nothing new had to be bolted onto the write path.</p></div>
+  <p>Make a few edits, then sweep. Each sweep takes rows past the cursor (up to the batch), validates their features, and advances the cursor.</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it · the tail</span><h4>feature_history → cursor → sweep</h4><span style="flex:1"></span><label class="switch">batch <input type="range" id="wk-batch" min="1" max="8" value="3" style="width:90px"> <span id="wk-batch-v">3</span></label></div>
+    <div class="w-bar">
+      <button class="btn" id="wk-edit">+ make an edit</button>
+      <button class="btn" id="wk-sweep">run one sweep</button>
+      <button class="btn pri" id="wk-drain">drain backlog</button>
+      <button class="btn" id="wk-reset">reset</button>
+    </div>
+    <div class="w-split">
+      <div class="w-main"><div class="lab" style="margin-bottom:6px">gis.feature_history</div><div class="readout" id="wk-hist" style="max-height:200px;overflow:auto">—</div></div>
+      <div class="w-side">
+        <dl class="kv" id="wk-kv"></dl>
+        <div class="readout" id="wk-note" style="margin-top:10px"></div>
+      </div>
+    </div>
+  </div>
+  <div class="caution"><b>The truncation guard.</b> Auto-resolve trusts "I checked the whole scope." If a whole-DB run hits the findings <b>cap</b> and truncates, a missing fingerprint could mean <em>fixed</em> — or <em>never reached</em>. So on a <code>Truncated</code> run, reconcile <b>skips auto-resolve</b> (it still records what it found). Scoped per-edit runs are tiny and never truncate, so the automatic path always prunes correctly.</div>
+  <div class="en-b"><span class="tag en">The one honest gap</span>
+  <p><code>feature_history</code> ids can commit slightly <b>out of order</b> under load, so a burst edit can rarely be <b>tail-skipped</b> by the cursor. Two backstops make it a non-issue: the feature's <b>next edit</b> re-validates it, and a nightly <b>whole-DB reconcile</b> (<code>POST /connectivity/audit/reconcile</code>, no body) catches anything missed. The sweep is idempotent, so run <b>exactly one</b> worker — no lease needed, and two instances would just race the cursor.</p></div>
+</section>
+
+<!-- 7 -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">7</div><h2>Triage — working the queue</h2><p>The Network-audit panel opens on the queue. Acknowledge, resolve, suppress — gated on connectivity:commit.</p></div>
+  <p>Switch persona to feel the gate: <b>Remi</b> can read the queue; only <b>Sam</b> (or <b>Ada</b>) can act. Filter by status, then triage a row.</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it · Issue queue</span><h4>Network audit → Issue queue</h4><span style="flex:1"></span><button class="btn pri" id="tr-reconcile" data-need="connectivity:commit">Reconcile now</button></div>
+    <div class="w-bar"><span class="lab">Status</span><div class="seg" id="tr-seg"></div></div>
+    <div class="w-body"><div id="tr-list"></div></div>
+  </div>
+  <div class="tip"><b>Fix, don't clear.</b> The usual way an issue leaves the queue is that you <b>fix the feature</b> and the next sweep auto-resolves it. The manual <b>Resolve</b> is for a finding you've dispositioned another way; <b>Suppress</b> is "this is genuinely fine" — it survives being re-found; <b>Acknowledge</b> is "seen, parked" and stays live.</div>
+</section>
+
+<!-- 8 -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">8</div><h2>The activity audit</h2><p>Who changed what, when — the change log sliced by person and time. Gated on admin:users.</p></div>
+  <p>A separate, read-only view over the <em>same</em> <code>gis.feature_history</code>, but sliced by <b>actor + time</b>, not by feature. It's for accountability, so it escalates to <span class="perm">admin:users</span> — switch to <b>Ada</b> to use it.</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it · Admin → Activity audit</span><h4>GET /features/activity</h4></div>
+    <div id="av-gate"></div>
+    <div id="av-body" hidden>
+      <div class="w-bar">
+        <span class="lab">Person</span><select class="fld" id="av-who" style="width:auto"></select>
+        <span class="lab">Action</span><select class="fld" id="av-act" style="width:auto"></select>
+      </div>
+      <div class="w-body"><div class="tbl"><table id="av-tbl"><thead><tr><th>When</th><th>Person</th><th>Action</th><th>Class</th><th>Feature</th></tr></thead><tbody id="av-rows"></tbody></table></div></div>
+    </div>
+  </div>
+  <div class="en-b"><span class="tag en">Two deliberate choices</span>
+  <p><b>The snapshot is omitted.</b> An activity log is who/what/when; to see the <em>state</em> a change produced, drill into that feature's own history. Keeping the before/after out keeps this a fast, scannable ledger.</p>
+  <p><b>Private drafts are respected.</b> The same visibility gate the per-feature timeline uses applies here — a peer's <b>staging</b> rows stay inside their own draft chain and never surface in your cross-feature slice. (Try filtering to <b>Kemi</b> below: her <code>stage</code> row is hidden from everyone but her.)</p></div>
+</section>
+
+<!-- 9 -->
+<section class="ch" id="c9">
+  <div class="ch-head"><div class="ch-num">9</div><h2>Check yourself</h2><p>Eight asks. Pick an answer; the reason appears either way.</p></div>
+  <div id="qz"></div>
+  <footer>
+    <p><b>VoltEdge Data Validation &amp; Audit</b> — the interactive edition. Every rule here mirrors the shipping feature; the full manual (<code>validation-and-audit-guide.md</code>) holds the endpoint, migration and permission tables.</p>
+    <p class="muted">Companion reading: <b>Connectivity &amp; the Network Audit</b>, <b>Access Control</b> (the permission model and audit trail), and <b>Production Deployment &amp; Scaling</b> (wiring the worker in).</p>
+  </footer>
+</section>
+
+</div>
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=n=>n.toLocaleString();
+
+/* personas */
+const PERSONAS={
+  sam:{name:'Sam',role:'Data steward',perms:['connectivity:read','connectivity:commit','features:read']},
+  remi:{name:'Remi',role:'Reviewer',perms:['connectivity:read','features:read']},
+  ada:{name:'Ada',role:'Admin / auditor',perms:['admin:users','connectivity:read','connectivity:commit','features:read']},
+  dana:{name:'Dana',role:'No access',perms:[]}
+};
+let persona='sam';
+const can=p=>PERSONAS[persona].perms.includes(p);
+const onPersona=[];
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=Object.entries(PERSONAS).map(([k,p])=>`<option value="${k}">${p.name}</option>`).join(''); sel.value=persona; sel.onchange=()=>{ persona=sel.value; applyGates(); onPersona.forEach(f=>f()); }; })();
+function applyGates(){ $$('[data-need]').forEach(b=>{ const ok=can(b.dataset.need); b.classList.toggle('locked',!ok); b.disabled=!ok; let g=b.nextElementSibling; if(g&&g.classList&&g.classList.contains('gate')) g.remove(); if(!ok){ const s=document.createElement('span'); s.className='gate'; s.textContent='needs '+b.dataset.need; b.after(s); } }); }
+
+/* 2 · scale */
+(function(){ const u=$('#sc-u'),a=$('#sc-a'),d=$('#sc-d'),o=$('#sc-o');
+  function run(){ $('#sc-u-v').textContent=u.value; $('#sc-a-v').textContent=a.value; $('#sc-d-v').textContent=d.value; $('#sc-o-v').textContent=o.value;
+    const pile=(+u.value)*(+a.value)*(+d.value); const q=+o.value;
+    $('#sc-pile').textContent=fmt(pile); $('#sc-queue').textContent=fmt(q);
+    const ratio = q>0 ? Math.round(pile/q) : pile;
+    $('#sc-note').innerHTML = `A batch audit = <b>${fmt(pile)}</b> findings.<br>The live queue = <b style="color:var(--green)">${fmt(q)}</b>.<br><br>The steward reads <b>1</b> item for every <b>${fmt(ratio)}</b> the batch would throw at them — and the queue doesn't grow as edits pile up, because it counts <b>unfixed problems</b>, not changes.`; }
+  [u,a,d,o].forEach(x=>x.oninput=run); run();
+})();
+
+/* 3 · lines of defence */
+const LINES={
+  prevent:{label:'1 · Prevent',when:'At write time',catches:'Network-rule breaks, cardinality, bad domains, out-of-territory writes',where:'CRUD write path',auto:'Always on',note:'The write is simply refused before it is saved — the bad data never exists, so it never becomes an issue. This is where most would-be problems die.'},
+  validate:{label:'2 · Validate',when:'Just after a write',catches:'Relational slips: orphaned links, coincident-but-unconnected features',where:'validationworker → ReconcileIssues',auto:'Automatic',note:'A single-row write can be perfectly valid on its own yet leave a relational problem (an orphan, a near-miss pair). The scoped audit catches exactly those and files them in the queue.'},
+  triage:{label:'3 · Triage',when:'When a human is ready',catches:'Whatever is genuinely open',where:'Issue queue tab',auto:'Human',note:'A person spends scarce attention on the small open queue: acknowledge, fix (→ auto-resolve), or suppress a known-OK finding. Never on bookkeeping.'},
+  audit:{label:'Audit (separate)',when:'On demand',catches:'Not correctness — accountability: who changed what, when',where:'Admin → Activity audit',auto:'On demand',note:'A different axis entirely. The activity audit answers "who did this", over the same change log, sliced by person and time. It is not part of the quality pipeline.'}
+};
+(function(){ const ks=Object.keys(LINES); let cur='validate';
+  $('#ln-seg').innerHTML=ks.map(k=>`<button data-k="${k}" aria-pressed="${k===cur}">${LINES[k].label}</button>`).join('');
+  function paint(){ const t=LINES[cur]; $('#ln-kv').innerHTML=`<dt>When</dt><dd>${esc(t.when)}</dd><dt>Catches</dt><dd>${esc(t.catches)}</dd><dt>Where</dt><dd>${esc(t.where)}</dd><dt>Driven by</dt><dd>${esc(t.auto)}</dd>`; $('#ln-note').textContent=t.note; $$('#ln-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur)); }
+  $('#ln-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); }; paint();
+})();
+
+/* 4 · finding kinds */
+const KINDS={
+  orphaned_connection:{label:'orphaned_connection',sev:'err',sevl:'error',cause:'A connectivity row whose from/to feature was deleted or purged out from under it.',fp:'orphaned_connection:<connection_id>',note:'The link points at a feature that no longer exists — dangling topology. An error: it corrupts traces and analysis.'},
+  orphaned_relationship:{label:'orphaned_relationship',sev:'err',sevl:'error',cause:'A relationship row whose origin/destination feature is gone.',fp:'orphaned_relationship:<relationship_id>',note:'Same as an orphaned connection, for the non-electrical relationship graph (containment, references).'},
+  coincident_unconnected:{label:'coincident_unconnected',sev:'warn',sevl:'warning',cause:'Two features sit within a small tolerance of each other but are NOT connected.',fp:'cu:<idA>|<idB>  (ids sorted)',note:'Almost always a capture slip: the second feature was drawn near the first but never wired. A warning — it might be intentional, so a human judges it. The sorted ids mean the pair is one issue, found from either end.'}
+};
+(function(){ const ks=Object.keys(KINDS); let cur='coincident_unconnected';
+  $('#fk-seg').innerHTML=ks.map(k=>`<button data-k="${k}" aria-pressed="${k===cur}">${KINDS[k].label}</button>`).join('');
+  function paint(){ const t=KINDS[cur]; $('#fk-kv').innerHTML=`<dt>Severity</dt><dd><span class="pill ${t.sev}">${t.sevl}</span></dd><dt>Cause</dt><dd>${esc(t.cause)}</dd><dt>Fingerprint</dt><dd>${esc(t.fp)}</dd>`; $('#fk-note').textContent=t.note; $$('#fk-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur)); }
+  $('#fk-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); }; paint();
+})();
+
+/* 5 · self-pruning queue */
+(function(){
+  // issues keyed by fingerprint
+  const issues=new Map(); let runN=0; const log=[];
+  const DEFS={ cu:{fp:'cu:C|D', kind:'coincident_unconnected', sev:'warn', sevl:'warning', msg:'C and D coincide (0.4 m) but are not connected' },
+               orph:{fp:'orphaned_connection:conn-9', kind:'orphaned_connection', sev:'err', sevl:'error', msg:'connection conn-9 references deleted feature B' } };
+  function currentFindings(){ const out=[]; if($('#q-def-cu').checked) out.push(DEFS.cu); if($('#q-def-orph').checked) out.push(DEFS.orph); return out; }
+  function addLog(s){ log.unshift(`#${runN} · ${s}`); $('#q-log').innerHTML=log.slice(0,12).map(esc).join('<br>'); }
+  function reconcile(){ if(!can('connectivity:commit')) return; runN++;
+    const found=currentFindings(); const fps=new Set(found.map(f=>f.fp)); let up=0,res=0;
+    found.forEach(f=>{ const ex=issues.get(f.fp); if(ex){ if(ex.status==='resolved'){ ex.status='open'; addLog(`re-opened ${f.fp} (same row, first_seen kept)`);} ex.lastSeen=runN; } else { issues.set(f.fp,{...f,status:'open',firstSeen:runN,lastSeen:runN}); addLog(`opened ${f.fp}`);} up++; });
+    issues.forEach((v,k)=>{ if((v.status==='open'||v.status==='acknowledged')&&!fps.has(k)){ v.status='resolved'; res++; addLog(`auto-resolved ${k} (gone from scope)`);} });
+    $('#q-out').innerHTML=`<b>upserted</b> ${up}<br><b>auto_resolved</b> ${res}<br><span class="muted">Truncated: false (scoped)</span>`;
+    render(); }
+  function render(){ const live=[...issues.values()].filter(v=>v.status==='open'||v.status==='acknowledged')
+      .sort((a,b)=> (a.sev==='err'?0:1)-(b.sev==='err'?0:1) || b.lastSeen-a.lastSeen);
+    if(!live.length){ $('#q-list').innerHTML='<span class="muted">Queue empty — every known problem is resolved or suppressed. ✔</span>'; return; }
+    $('#q-list').innerHTML=live.map(v=>`<div class="iss"><span class="pill ${v.sev}">${v.sevl}</span><span class="pill ${v.status}">${v.status}</span><span class="msg">${esc(v.msg)}<br><small>${esc(v.fp)} · first_seen #${v.firstSeen} · last_seen #${v.lastSeen}</small></span></div>`).join(''); }
+  $('#q-reconcile').onclick=reconcile;
+  render();
+})();
+
+/* 6 · worker / cursor */
+(function(){
+  const FEATS=['pole-12','cable-7','xfmr-3','pillar-2','service-88'];
+  let hist=[], cursor=0, lastSweep=null;
+  function reset(){ hist=[]; cursor=0; lastSweep=null; seed(); paint(); }
+  function seed(){ for(let i=0;i<4;i++) edit(true); }
+  function edit(quiet){ const id=hist.length+1; hist.push({id, feature:FEATS[Math.floor(Math.random()*FEATS.length)], action:['update','create','delete','publish'][Math.floor(Math.random()*4)]}); if(!quiet) paint(); }
+  function batch(){ return +$('#wk-batch').value; }
+  function sweep(){ const pending=hist.filter(r=>r.id>cursor); if(!pending.length){ lastSweep={n:0}; paint(); return 0; }
+    const take=pending.slice(0,batch()); const feats=[...new Set(take.map(r=>r.feature))]; const maxId=take[take.length-1].id;
+    cursor=maxId; lastSweep={n:take.length, feats, maxId}; paint(); return take.length; }
+  function drain(){ let guard=0; while(sweep()>0 && guard++<50){} }
+  function paint(){ const backlog=hist.filter(r=>r.id>cursor).length;
+    $('#wk-batch-v').textContent=batch();
+    $('#wk-hist').innerHTML = hist.length ? hist.map(r=>`<span style="color:${r.id>cursor?'var(--amber)':'var(--muted)'}">#${r.id}</span> ${esc(r.feature)} <span class="muted">${esc(r.action)}</span>${r.id>cursor?' <b style="color:var(--amber)">·pending</b>':''}`).join('<br>') : '<span class="muted">empty — make an edit</span>';
+    $('#wk-kv').innerHTML=`<dt>cursor</dt><dd>last_history_id = ${cursor}</dd><dt>backlog</dt><dd>${backlog} row(s) &gt; cursor</dd><dt>batch</dt><dd>${batch()} / sweep</dd>`;
+    $('#wk-note').innerHTML = lastSweep ? (lastSweep.n===0 ? 'Last sweep: <b>nothing new</b> — backlog drained, worker sleeps.' : `Last sweep took <b>${lastSweep.n}</b> row(s) → validated <b>${lastSweep.feats.length}</b> feature(s): <span class="muted">${esc(lastSweep.feats.join(', '))}</span> → cursor → ${lastSweep.maxId}.`) : 'Make edits, then sweep. Pending rows are amber.'; }
+  $('#wk-batch').oninput=paint; $('#wk-edit').onclick=()=>edit(false); $('#wk-sweep').onclick=sweep; $('#wk-drain').onclick=drain; $('#wk-reset').onclick=reset;
+  reset();
+})();
+
+/* 7 · triage queue */
+(function(){
+  let issues=[
+    {fp:'orphaned_connection:conn-9',sev:'err',sevl:'error',msg:'connection conn-9 references deleted feature B',status:'open'},
+    {fp:'orphaned_relationship:rel-4',sev:'err',sevl:'error',msg:'relationship rel-4 origin feature is gone',status:'open'},
+    {fp:'cu:C|D',sev:'warn',sevl:'warning',msg:'C and D coincide (0.4 m) but are not connected',status:'acknowledged'},
+    {fp:'cu:K|M',sev:'warn',sevl:'warning',msg:'K and M coincide (0.2 m) — intentional tap',status:'suppressed'},
+    {fp:'cu:P|Q',sev:'warn',sevl:'warning',msg:'P and Q coincide (0.6 m)',status:'resolved'}
+  ];
+  let filter='live';
+  const FILTERS=[['live','Live'],['open','open'],['acknowledged','acknowledged'],['resolved','resolved'],['suppressed','suppressed']];
+  $('#tr-seg').innerHTML=FILTERS.map(([k,l])=>`<button data-k="${k}" aria-pressed="${k===filter}">${l}</button>`).join('');
+  const nextActs=st=> st==='open'?[['acknowledged','Acknowledge'],['resolved','Resolve'],['suppressed','Suppress']]
+    : st==='acknowledged'?[['resolved','Resolve'],['suppressed','Suppress']]
+    : [['open','Re-open']];
+  function visible(){ return issues.filter(v=> filter==='live' ? (v.status==='open'||v.status==='acknowledged') : v.status===filter)
+    .sort((a,b)=> (a.sev==='err'?0:1)-(b.sev==='err'?0:1)); }
+  function render(){ $$('#tr-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===filter));
+    const list=visible(); const act=can('connectivity:commit');
+    if(!list.length){ $('#tr-list').innerHTML='<span class="muted">No issues in this view.</span>'; return; }
+    $('#tr-list').innerHTML=list.map((v,i)=>`<div class="iss"><span class="pill ${v.sev}">${v.sevl}</span><span class="pill ${v.status}">${v.status}</span><span class="msg">${esc(v.msg)}<br><small>${esc(v.fp)}</small></span><span class="acts">${act? nextActs(v.status).map(([s,l])=>`<span class="chip" data-fp="${esc(v.fp)}" data-to="${s}">${l}</span>`).join('') : '<span class="gate">needs connectivity:commit</span>'}</span></div>`).join('');
+    $$('#tr-list .chip').forEach(c=>c.onclick=()=>{ if(!can('connectivity:commit')) return; const it=issues.find(x=>x.fp===c.dataset.fp); if(it){ it.status=c.dataset.to; render(); } }); }
+  $('#tr-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; filter=b.dataset.k; render(); };
+  $('#tr-reconcile').onclick=()=>{ if(!can('connectivity:commit')) return; const it=issues.find(x=>x.fp==='cu:P|Q'); if(it&&it.status==='resolved'){ it.status='open'; filter='live'; } render(); };
+  onPersona.push(render); render();
+})();
+
+/* 8 · activity audit */
+(function(){
+  const LOG=[
+    {at:'14:52',who:'Dana',act:'delete',cls:'LV_SERVICE',feat:'service-88'},
+    {at:'14:40',who:'Dana',act:'update',cls:'MV_CONDUCTOR',feat:'cable-7'},
+    {at:'13:31',who:'Sam',act:'publish',cls:'DIST_XFMR',feat:'xfmr-3'},
+    {at:'12:08',who:'Sam',act:'create',cls:'LV_PILLAR',feat:'pillar-2'},
+    {at:'11:55',who:'Kemi',act:'stage',cls:'MV_CONDUCTOR',feat:'cable-7',staging:true},
+    {at:'10:12',who:'Dana',act:'update',cls:'POLE',feat:'pole-12'},
+    {at:'09:47',who:'Sam',act:'restore',cls:'LV_SERVICE',feat:'service-14'},
+    {at:'09:03',who:'Kemi',act:'update',cls:'POLE',feat:'pole-30'}
+  ];
+  let who='', act='';
+  function gate(){ const ok=can('admin:users');
+    $('#av-gate').hidden=ok; $('#av-body').hidden=!ok;
+    if(!ok){ $('#av-gate').innerHTML=`<div class="w-body"><div class="locknote">🔒 The activity audit needs <b>admin:users</b>. It escalates above the <code>features:read</code> its route would give — aggregating "what did a named person do" is a monitoring capability. Switch to <b>Ada</b>.</div></div>`; }
+    else render(); }
+  function fillSelects(){ const whos=[...new Set(LOG.map(r=>r.who))];
+    $('#av-who').innerHTML='<option value="">Anyone</option>'+whos.map(w=>`<option>${w}</option>`).join('');
+    const acts=[...new Set(LOG.map(r=>r.act))];
+    $('#av-act').innerHTML='<option value="">Any action</option>'+acts.map(a=>`<option>${a}</option>`).join(''); }
+  function render(){ // private-drafts: a staging row shows only to its own author (persona name)
+    const me=PERSONAS[persona].name;
+    const rows=LOG.filter(r=> (!r.staging || r.who===me))
+      .filter(r=> (!who||r.who===who) && (!act||r.act===act));
+    $('#av-rows').innerHTML = rows.length? rows.map(r=>`<tr><td class="mono">${esc(r.at)}</td><td>${esc(r.who)}</td><td><span class="pill ${r.act==='delete'?'err':r.act==='create'||r.act==='restore'?'resolved':'open'}">${esc(r.act)}</span></td><td>${esc(r.cls)}</td><td class="mono muted">${esc(r.feat)}</td></tr>`).join('')
+      : '<tr><td colspan="5" class="muted" style="text-align:center;padding:16px">No changes match.</td></tr>'; }
+  $('#av-who').onchange=e=>{ who=e.target.value; render(); };
+  $('#av-act').onchange=e=>{ act=e.target.value; render(); };
+  fillSelects(); onPersona.push(gate); gate();
+})();
+
+/* 9 · quiz */
+(function(){ const Q=[
+ ['At 200 users × 10 edits × 10 days, why is a whole-database audit the wrong tool?','It returns ~20,000 findings — unreviewable, and stale the moment it is made',['It is too slow to run','It returns ~20,000 findings — unreviewable, and stale the moment it is made','It needs admin:users','It deletes bad data automatically'],'Batch auditing does not scale with change volume; the fix is continuous validation + a small live queue.'],
+ ['A feature is fixed. How does its issue leave the queue?','The next scoped reconcile does not find it, so it is auto-resolved — no human action',['A steward must click Resolve','It is deleted from the database','It stays forever','An admin purges it'],'Auto-resolve: any open/acknowledged issue whose fingerprint is no longer found gets resolved automatically. That is the self-pruning.'],
+ ['You run reconcile three times with nothing changed. What happens to the queue?','Nothing grows — upsert is keyed by fingerprint, so the same rows just refresh last_seen',['It triples','Three duplicates per issue','It empties','An error'],'Idempotent by fingerprint: ON CONFLICT(fingerprint) DO UPDATE never inserts a duplicate.'],
+ ['A whole-DB reconcile hits the findings cap and truncates. Why does it skip auto-resolve?','A missing fingerprint could mean fixed OR never-reached — resolving could falsely close a real issue',['To save time','Because truncated runs are read-only','admin:users is required','It never truncates'],'The truncation guard: auto-resolve trusts a complete scan. Scoped per-edit runs never truncate, so the automatic path still prunes.'],
+ ['How does the worker know which features to validate, without any write-path change?','It tails gis.feature_history past a saved cursor — the log the app already appends on every write',['It polls every feature','It subscribes to a message bus','A trigger calls it','It re-audits the whole DB each tick'],'feature_history already records one auto-numbered row per write; the worker reads rows id > cursor in batches and advances the cursor.'],
+ ['Why run exactly one validationworker instance?','The sweep is idempotent (no lease needed) and two instances would just race the single cursor',['It holds an exclusive DB lock','It is not thread-safe','Licensing','It would corrupt data'],'Idempotent re-processing means no SKIP LOCKED/lease; one instance is correct and sufficient.'],
+ ['Remi holds only connectivity:read. In the Issue queue, Remi can…','Read the queue, but not reconcile or triage',['Triage any issue','Reconcile the whole DB','Nothing at all','Edit the activity log'],'Viewing is connectivity:read; reconcile and every triage action are connectivity:commit.'],
+ ['Why is the activity audit gated on admin:users, not features:read?','Aggregating "what did a named person do" is a monitoring capability, so it escalates above the mount',['Aggregating "what did a named person do" is a monitoring capability, so it escalates above the mount','It reads a different table','It writes data','It is slower'],'The endpoint sits under /features (features:read) but escalates in-handler to admin:users — a per-person accountability view is for whoever runs user accounts.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach((el,i)=>{ const x=Q[i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===esc(x[1]); const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Answer: <b>${x[1]}</b>. `)+x[3]; }); });
+})();
+
+/* scroll-spy */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));
+  const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'});
+  document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+applyGates();
+</script>
+</body></html>

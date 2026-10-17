@@ -61,6 +61,26 @@ type AuditInput struct {
 	ToleranceMeters float64
 	// MaxFindings caps the findings list (not the summary counts).
 	MaxFindings int
+	// FeatureIDs, when non-empty, SCOPES the run to connections/relationships/
+	// coincident pairs that touch one of these feature ids -- the incremental
+	// "validate what just changed (plus its neighbourhood)" path, as opposed to the
+	// whole-database sweep an empty set gives. A finding is in scope when EITHER
+	// endpoint is in the set, so a change to one feature surfaces a problem with its
+	// partner too. Empty = whole database (the original behaviour).
+	FeatureIDs []string
+}
+
+// featureScopeClause builds the AND predicate that limits a scan to rows touching
+// one of the scoped feature ids, plus the args to bind. colA/colB are the two
+// feature-id columns (either endpoint in scope qualifies). Empty scope returns
+// ("", nil) -- no limit, the whole-database sweep. The columns are cast to text to
+// compare uuid columns against the uuid-string scope set, matching the ::text IN
+// pattern the aggregate engine's territory scope uses.
+func featureScopeClause(scope []string, colA, colB string) (string, []any) {
+	if len(scope) == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf(" AND (%s::text IN (?) OR %s::text IN (?))", colA, colB), []any{bun.In(scope), bun.In(scope)}
 }
 
 // AuditFinding is one reported divergence.
@@ -92,6 +112,11 @@ type AuditSummary struct {
 	ClassPairsScanned     int     `json:"class_pairs_scanned"`
 	ToleranceMeters       float64 `json:"tolerance_meters"`
 	Truncated             bool    `json:"truncated"`
+	// ScopedToFeatures is the number of features the run was limited to (0 = the
+	// whole-database sweep). When non-zero the findings cover only those features'
+	// own connectivity/relationships/coincidences, but the *_total counts above
+	// remain the system-wide totals, for context.
+	ScopedToFeatures int `json:"scoped_to_features"`
 }
 
 // AuditReport is the whole read-only result.
@@ -133,6 +158,7 @@ func AuditConnectivity(ctx context.Context, db bun.IDB, in AuditInput) (*AuditRe
 		},
 	}
 	report.Summary.ToleranceMeters = tol
+	report.Summary.ScopedToFeatures = len(in.FeatureIDs)
 
 	total, err := db.NewSelect().Model((*Connectivity)(nil)).Count(ctx)
 	if err != nil {
@@ -151,13 +177,13 @@ func AuditConnectivity(ctx context.Context, db bun.IDB, in AuditInput) (*AuditRe
 		return nil, err
 	}
 
-	if err := auditOrphans(ctx, db, byID, report, max); err != nil {
+	if err := auditOrphans(ctx, db, byID, report, max, in.FeatureIDs); err != nil {
 		return nil, err
 	}
-	if err := auditCoincidence(ctx, db, byID, tol, report, max); err != nil {
+	if err := auditCoincidence(ctx, db, byID, tol, report, max, in.FeatureIDs); err != nil {
 		return nil, err
 	}
-	if err := auditRelationshipOrphans(ctx, db, byID, report, max); err != nil {
+	if err := auditRelationshipOrphans(ctx, db, byID, report, max, in.FeatureIDs); err != nil {
 		return nil, err
 	}
 
@@ -196,8 +222,9 @@ func loadAuditClasses(ctx context.Context, db bun.IDB) (map[string]auditClass, e
 // auditOrphans flags connectivity rows whose from- or to-feature is missing or
 // soft-deleted, resolved via the cross-class runtime.feature_registry so we
 // never have to know each polymorphic target table.
-func auditOrphans(ctx context.Context, db bun.IDB, byID map[string]auditClass, report *AuditReport, max int) error {
-	rows, err := db.QueryContext(ctx, `
+func auditOrphans(ctx context.Context, db bun.IDB, byID map[string]auditClass, report *AuditReport, max int, scope []string) error {
+	scopeSQL, scopeArgs := featureScopeClause(scope, "c.from_feature_id", "c.to_feature_id")
+	query := fmt.Sprintf(`
 		SELECT c.id::text,
 		       c.from_feature_class_id::text, c.from_feature_id::text,
 		       c.to_feature_class_id::text,   c.to_feature_id::text,
@@ -208,8 +235,9 @@ func auditOrphans(ctx context.Context, db bun.IDB, byID map[string]auditClass, r
 		FROM runtime.feature_connectivity c
 		LEFT JOIN runtime.feature_registry rf ON rf.feature_id = c.from_feature_id
 		LEFT JOIN runtime.feature_registry rt ON rt.feature_id = c.to_feature_id
-		WHERE rf.feature_id IS NULL OR rf.deleted_at IS NOT NULL
-		   OR rt.feature_id IS NULL OR rt.deleted_at IS NOT NULL`)
+		WHERE (rf.feature_id IS NULL OR rf.deleted_at IS NOT NULL
+		   OR rt.feature_id IS NULL OR rt.deleted_at IS NOT NULL)%s`, scopeSQL)
+	rows, err := db.QueryContext(ctx, query, scopeArgs...)
 	if err != nil {
 		return fmt.Errorf("connectivity: audit: orphan scan: %w", err)
 	}
@@ -303,8 +331,9 @@ func orphanMessage(subject, fromCode, fromID string, fromMissing, fromDeleted bo
 // severity rule: a missing endpoint is an error, a soft-deleted one a
 // recoverable warning. Relationships have no geometry, so there is no
 // coincidence counterpart.
-func auditRelationshipOrphans(ctx context.Context, db bun.IDB, byID map[string]auditClass, report *AuditReport, max int) error {
-	rows, err := db.QueryContext(ctx, `
+func auditRelationshipOrphans(ctx context.Context, db bun.IDB, byID map[string]auditClass, report *AuditReport, max int, scope []string) error {
+	scopeSQL, scopeArgs := featureScopeClause(scope, "r.origin_feature_id", "r.destination_feature_id")
+	query := fmt.Sprintf(`
 		SELECT r.id::text,
 		       r.origin_feature_class_id::text,      r.origin_feature_id::text,
 		       r.destination_feature_class_id::text, r.destination_feature_id::text,
@@ -315,8 +344,9 @@ func auditRelationshipOrphans(ctx context.Context, db bun.IDB, byID map[string]a
 		FROM runtime.feature_relationships r
 		LEFT JOIN runtime.feature_registry ro ON ro.feature_id = r.origin_feature_id
 		LEFT JOIN runtime.feature_registry rd ON rd.feature_id = r.destination_feature_id
-		WHERE ro.feature_id IS NULL OR ro.deleted_at IS NOT NULL
-		   OR rd.feature_id IS NULL OR rd.deleted_at IS NOT NULL`)
+		WHERE (ro.feature_id IS NULL OR ro.deleted_at IS NOT NULL
+		   OR rd.feature_id IS NULL OR rd.deleted_at IS NOT NULL)%s`, scopeSQL)
+	rows, err := db.QueryContext(ctx, query, scopeArgs...)
 	if err != nil {
 		return fmt.Errorf("connectivity: audit: relationship orphan scan: %w", err)
 	}
@@ -363,7 +393,7 @@ func auditRelationshipOrphans(ctx context.Context, db bun.IDB, byID map[string]a
 // have no connectivity row. Only connectable, compiled, geometric class pairs
 // are scanned -- so a mid-span near-miss between unrelated classes is never
 // considered.
-func auditCoincidence(ctx context.Context, db bun.IDB, byID map[string]auditClass, defaultTol float64, report *AuditReport, max int) error {
+func auditCoincidence(ctx context.Context, db bun.IDB, byID map[string]auditClass, defaultTol float64, report *AuditReport, max int, scope []string) error {
 	pairs, err := loadConnectableClassPairs(ctx, db)
 	if err != nil {
 		return err
@@ -401,7 +431,7 @@ func auditCoincidence(ctx context.Context, db bun.IDB, byID map[string]auditClas
 		if t, ok := tolByPair[key]; ok && t > 0 {
 			tol = t
 		}
-		if err := scanCoincidentPair(ctx, db, a, b, tol, report, max); err != nil {
+		if err := scanCoincidentPair(ctx, db, a, b, tol, report, max, scope); err != nil {
 			return err
 		}
 	}
@@ -475,13 +505,14 @@ func loadConnectableClassPairs(ctx context.Context, db bun.IDB) ([][2]string, er
 // scanCoincidentPair runs the geometric-coincidence query for one class pair.
 // Table names come from trusted metadata (physical_table), interpolated the
 // same way suggest.go does; the tolerance and limit are bound parameters.
-func scanCoincidentPair(ctx context.Context, db bun.IDB, a, b auditClass, tol float64, report *AuditReport, max int) error {
+func scanCoincidentPair(ctx context.Context, db bun.IDB, a, b auditClass, tol float64, report *AuditReport, max int, scope []string) error {
 	// Distinct-pair guard: a different id for a cross-class pair, a.id < b.id
 	// for a self-pair so a pair isn't reported twice (A-B and B-A).
 	distinct := "a.id <> b.id"
 	if a.id == b.id {
 		distinct = "a.id < b.id"
 	}
+	scopeSQL, scopeArgs := featureScopeClause(scope, "a.id", "b.id")
 	query := fmt.Sprintf(`
 		SELECT a.id::text, b.id::text,
 		       ST_Distance(ST_Transform(a.geom, 4326)::geography, ST_Transform(b.geom, 4326)::geography) AS dist
@@ -494,10 +525,15 @@ func scanCoincidentPair(ctx context.Context, db bun.IDB, a, b auditClass, tol fl
 		    SELECT 1 FROM runtime.feature_connectivity c
 		    WHERE (c.from_feature_id = a.id AND c.to_feature_id = b.id)
 		       OR (c.from_feature_id = b.id AND c.to_feature_id = a.id)
-		  )
-		LIMIT ?`, a.physicalTable, b.physicalTable, distinct)
+		  )%s
+		LIMIT ?`, a.physicalTable, b.physicalTable, distinct, scopeSQL)
 
-	rows, err := db.QueryContext(ctx, query, tol, max)
+	// Arg order follows the placeholders: the ST_DWithin tolerance, then the
+	// optional scope IN-lists, then the LIMIT.
+	args := []any{tol}
+	args = append(args, scopeArgs...)
+	args = append(args, max)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("connectivity: audit: coincidence scan %s<->%s: %w", a.code, b.code, err)
 	}

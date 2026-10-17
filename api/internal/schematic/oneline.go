@@ -610,16 +610,48 @@ func layoutNetwork(view *View) (map[string]point, []conductorPlace, []edge) {
 	}
 	sort.Strings(pointIDs)
 
-	positions := map[string]point{}
+	// Lay each disconnected sub-network out in its own local space, then SHELF-PACK
+	// them into a grid aimed at a roughly landscape box -- rather than a single
+	// left-to-right strip. A one-line often pulls in several unconnected bits (a
+	// stray RMU, an off-feeder meter); strung in one row they make an extremely wide
+	// sheet that the PDF fit then shrinks to near-nothing (symbols drop below the
+	// renderer's resolution, the legend vanishes). Packing to rows keeps the whole
+	// thing compact and legible on the page.
+	type placedComp struct {
+		local map[string]point
+		w, h  float64
+	}
 	visited := map[string]bool{}
-	xOffset := 0.0
+	comps := make([]placedComp, 0)
+	totalArea := 0.0
 	for _, root := range pointIDs {
 		if visited[root] {
 			continue
 		}
 		comp := componentNodes(root, adj, visited)
-		width := layoutComponent(comp, adj, nodeByID, positions, xOffset)
-		xOffset += width + oneLineComponentGap
+		local, w, h := layoutComponent(comp, adj, nodeByID)
+		comps = append(comps, placedComp{local: local, w: w, h: h})
+		totalArea += (w + oneLineComponentGap) * (h + oneLineYSpacing)
+	}
+
+	// Target row width for a ~landscape aspect; a single component always gets its
+	// own row (the first in a row is placed regardless of width).
+	targetW := math.Sqrt(totalArea * 1.6)
+	positions := map[string]point{}
+	rowX, rowY, rowH := 0.0, 0.0, 0.0
+	for _, c := range comps {
+		if rowX > 0 && rowX+c.w > targetW {
+			rowX = 0
+			rowY += rowH + oneLineComponentGap
+			rowH = 0
+		}
+		for id, p := range c.local {
+			positions[id] = point{x: rowX + p.x, y: rowY + p.y}
+		}
+		rowX += c.w + oneLineComponentGap
+		if c.h > rowH {
+			rowH = c.h
+		}
 	}
 
 	condIDs := make([]string, 0, len(conductorNbrs))
@@ -688,7 +720,11 @@ func componentNodes(root string, adj map[string]map[string]bool, visited map[str
 // edges -- they're just drawn as connectors between the positions. This puts
 // children UNDER their parent rather than centring each depth-level on its own,
 // which is what made the earlier layout look scrambled.
-func layoutComponent(comp []string, adj map[string]map[string]bool, nodeByID map[string]*Node, positions map[string]point, xOffset float64) float64 {
+// layoutComponent lays one component out into a FRESH LOCAL coordinate space
+// (origin 0,0) and returns that map plus the component's width and height, so the
+// caller can shelf-pack components into a grid rather than a single wide strip. See
+// chooseRoot for the root choice; the tidy-tree shape is unchanged.
+func layoutComponent(comp []string, adj map[string]map[string]bool, nodeByID map[string]*Node) (map[string]point, float64, float64) {
 	root := chooseRoot(comp, adj, nodeByID)
 
 	// Spanning tree via BFS: a stable child order (sorted) keeps the layout
@@ -711,13 +747,18 @@ func layoutComponent(comp []string, adj map[string]map[string]bool, nodeByID map
 	// Tidy-tree x assignment: leaves take successive columns left-to-right; a
 	// parent sits at the mean of its children. Recursion depth is bounded by the
 	// tree height, fine for a feeder.
-	nextX := xOffset
+	local := map[string]point{}
+	nextX := 0.0
+	maxDepth := 0
 	var place func(id string, depth int)
 	place = func(id string, depth int) {
+		if depth > maxDepth {
+			maxDepth = depth
+		}
 		y := float64(depth) * oneLineYSpacing
 		kids := children[id]
 		if len(kids) == 0 {
-			positions[id] = point{x: nextX, y: y}
+			local[id] = point{x: nextX, y: y}
 			nextX += oneLineXSpacing
 			return
 		}
@@ -726,17 +767,18 @@ func layoutComponent(comp []string, adj map[string]map[string]bool, nodeByID map
 		}
 		sum := 0.0
 		for _, c := range kids {
-			sum += positions[c].x
+			sum += local[c].x
 		}
-		positions[id] = point{x: sum / float64(len(kids)), y: y}
+		local[id] = point{x: sum / float64(len(kids)), y: y}
 	}
 	place(root, 0)
 
-	width := nextX - oneLineXSpacing - xOffset
+	width := nextX - oneLineXSpacing
 	if width < 0 {
 		width = 0
 	}
-	return width
+	height := float64(maxDepth) * oneLineYSpacing
+	return local, width, height
 }
 
 // chooseRoot picks the sub-network's top node (the feeder head). A feeder head is

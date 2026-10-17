@@ -45,6 +45,7 @@ import { ServiceIdentifyPanel } from "@/components/map/service-identify-panel"
 import { StatusBar } from "@/components/map/status-bar"
 import { TerritoryEditToolbar } from "@/components/map/territory-edit-toolbar"
 import { TerritoryPanel } from "@/components/map/territory-panel"
+import { TracePathBanner } from "@/components/map/trace-path-banner"
 import { TraceResultTable } from "@/components/map/trace-result-table"
 import { VoltEdgeMap } from "@/components/map/voltedge-map"
 import { Button } from "@/components/ui/button"
@@ -265,6 +266,20 @@ export function MapPage() {
                   mapSettings.data ? [mapSettings.data.center_lng, mapSettings.data.center_lat] : undefined
                 }
                 initialZoom={mapSettings.data?.zoom}
+                operatingBounds={
+                  mapSettings.data &&
+                  mapSettings.data.bounds_min_lng != null &&
+                  mapSettings.data.bounds_min_lat != null &&
+                  mapSettings.data.bounds_max_lng != null &&
+                  mapSettings.data.bounds_max_lat != null
+                    ? [
+                        mapSettings.data.bounds_min_lng,
+                        mapSettings.data.bounds_min_lat,
+                        mapSettings.data.bounds_max_lng,
+                        mapSettings.data.bounds_max_lat,
+                      ]
+                    : undefined
+                }
               />
             )}
             {/* The temporary one-line view -- an abstract single-line built from
@@ -306,6 +321,7 @@ export function MapPage() {
       <TraceResultTable />
       <IsolationResultTable />
       <OutageHighlightBanner />
+      <TracePathBanner />
       <LoadFlowPanel />
       <FaultCurrentPanel />
       <AmpacityPanel />

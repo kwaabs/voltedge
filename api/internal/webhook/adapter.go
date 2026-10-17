@@ -68,6 +68,15 @@ func (featureAdapter) apply(ctx context.Context, tx bun.IDB, ep *Endpoint, raw j
 	}
 	classID := loaded.FeatureClass.ID
 
+	// The external system this endpoint's ids belong to (config.system_code), used to
+	// bridge to the feature-authored external_ref reverse index (migration 0145): a
+	// feature that already CLAIMS this external id in its external_ref is adopted
+	// instead of duplicated, and a feature this endpoint CREATES gets its external_ref
+	// stamped so it becomes the correlation source of truth. Empty -> the endpoint
+	// isn't tied to a catalogued system, so it falls back to its own per-endpoint
+	// correlation only (the historic behaviour).
+	systemCode := strings.TrimSpace(configString(ep.Config, "system_code"))
+
 	op := defaulted(strings.ToLower(ch.Op), "upsert")
 
 	// Resolve the correlation ref, if this external_id was seen before.
@@ -117,6 +126,48 @@ func (featureAdapter) apply(ctx context.Context, tx bun.IDB, ep *Endpoint, raw j
 			}
 			return itemResult{Op: "update", ExternalID: externalID, FeatureClass: classCode, FeatureID: ref.FeatureID}, nil
 		}
+
+		// First sight on THIS endpoint -- but a feature may already claim this
+		// external id in its external_ref (set outbound, e.g. an operator tagged the
+		// SERVICE_POINT with its AMI meter no). Adopt it rather than creating a
+		// duplicate, and record the per-endpoint ref so next time is a direct hit.
+		// Only a feature of this endpoint's OWN class is adopted (an external id
+		// reused across classes stays separate). Needs the endpoint's system_code.
+		if systemCode != "" {
+			var adopt struct {
+				FeatureClassCode string `bun:"feature_class_code"`
+				FeatureID        string `bun:"feature_id"`
+			}
+			err := tx.NewSelect().
+				TableExpr("runtime.external_feature_refs").
+				Column("feature_class_code", "feature_id").
+				Where("system_code = ? AND external_id = ?", systemCode, externalID).
+				Scan(ctx, &adopt)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return itemResult{}, fmt.Errorf("webhook: external-ref lookup: %w", err)
+			}
+			if err == nil && adopt.FeatureClassCode == classCode && adopt.FeatureID != "" {
+				if _, err := crud.UpdateFeature(ctx, tx, loaded, adopt.FeatureID, crud.UpdateFeatureInput{
+					Subtype:     ch.Subtype,
+					Name:        ch.Name,
+					TerritoryID: ch.TerritoryID,
+					Geometry:    ch.Geometry,
+					Attributes:  ch.Attributes,
+				}); err != nil {
+					return itemResult{}, err
+				}
+				if _, err := tx.NewInsert().Model(&FeatureRef{
+					EndpointID:     ep.ID,
+					ExternalID:     externalID,
+					FeatureClassID: classID,
+					FeatureID:      adopt.FeatureID,
+				}).Exec(ctx); err != nil {
+					return itemResult{}, fmt.Errorf("webhook: record adopted ref: %w", err)
+				}
+				return itemResult{Op: "update", ExternalID: externalID, FeatureClass: classCode, FeatureID: adopt.FeatureID}, nil
+			}
+		}
+
 		row, err := crud.CreateFeature(ctx, tx, loaded, crud.CreateFeatureInput{
 			Subtype:     ch.Subtype,
 			Name:        ch.Name,
@@ -138,6 +189,19 @@ func (featureAdapter) apply(ctx context.Context, tx bun.IDB, ep *Endpoint, raw j
 			FeatureID:      newID,
 		}).Exec(ctx); err != nil {
 			return itemResult{}, fmt.Errorf("webhook: record ref: %w", err)
+		}
+		// Stamp the created feature's external_ref with {system_code: external_id} so
+		// it becomes the correlation source of truth (and is outbound-fetchable): the
+		// reverse-index trigger (0145) then indexes it. A system column, so set by a
+		// direct UPDATE (not a feature attribute). Best-effort relative to the create;
+		// it runs in the same tx so it rolls back with the rest on failure.
+		if systemCode != "" && loaded.FeatureClass.PhysicalTable != nil {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(
+				"UPDATE %s SET external_ref = jsonb_set(coalesce(external_ref, '{}'::jsonb), ARRAY[?], to_jsonb(?::text)) WHERE id = ?",
+				*loaded.FeatureClass.PhysicalTable,
+			), systemCode, externalID, newID); err != nil {
+				return itemResult{}, fmt.Errorf("webhook: stamp external_ref: %w", err)
+			}
 		}
 		return itemResult{Op: "create", ExternalID: externalID, FeatureClass: classCode, FeatureID: newID}, nil
 

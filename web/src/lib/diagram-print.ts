@@ -96,6 +96,9 @@ function prepareContentClone(live: SVGSVGElement, token: string): SVGSVGElement 
   // which consistently carry the `opacity-0 group-hover:opacity-100` classes.
   clone.querySelectorAll("foreignObject").forEach((n) => n.remove())
   clone.querySelectorAll('[class*="opacity-0"]').forEach((n) => n.remove())
+  // Screen-only annotations (e.g. the one-line's trace-result highlight) opt out of
+  // the print with data-print-hidden -- a guide for the user on screen, never on the sheet.
+  clone.querySelectorAll("[data-print-hidden]").forEach((n) => n.remove())
   // The opt-in drawing grid paints a huge over-cover rect; never plot it.
   clone.querySelectorAll('rect[fill^="url(#diagram-grid"]').forEach((n) => n.remove())
 

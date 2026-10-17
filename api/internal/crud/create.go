@@ -77,6 +77,14 @@ func CreateFeature(ctx context.Context, db bun.IDB, loaded *metadata.Loaded, in 
 		}
 	}
 
+	// Feature-class deactivation gate: a globally-deactivated class, or one
+	// disabled for this feature's territory, accepts no new features (authoritative,
+	// not just hidden in the UI). Runs before the user-scope check -- "is this class
+	// usable here at all" is a more fundamental refusal than "do YOU have access".
+	if err := enforceClassAvailability(ctx, db, loaded, territoryID); err != nil {
+		return nil, err
+	}
+
 	// Phase 58 spatial write enforcement: a scoped user may only create a
 	// feature inside a territory they hold. A no-op unless enforcement is on and
 	// the user is scoped; geometry-less features (nil territoryID) are exempt.

@@ -1225,7 +1225,11 @@ if t == "gis.territories" || t == "gis.territory_levels" { continue }   // confi
     <li><b>Remember the seam: add, then compile.</b> An added field/subtype/domain-value is authored the instant you save it, but not <em>enforced</em> until you recompile. If a new field isn’t showing up on features, you almost certainly haven’t recompiled. (Live-consumed edits — field flags, <code>required_for_subtypes</code>, material-spec numbers, rules — need no recompile.)</li>
     <li><b>Let the guards and the loud failures work for you.</b> Deletes are guarded against references; a narrowing recompile fails loudly; a mistaken symbology-rule delete surfaces at publish. They are the catalog telling you there is data to deal with first.</li>
     <li><b>When additive isn’t enough, reach for <code>uncompile</code> deliberately.</b> Renaming/retyping a field or removing a subtype means <code>uncompile</code> → re-author → <code>compile</code> — which discards the class’s rows. Export first.</li>
+    <li><b>To take a class out of use <em>without</em> losing data, Deactivate — don’t uncompile.</b> <b>Deactivate</b> (<code>POST /admin/feature-classes/{code}/deactivate</code>) flips <code>status: active → deprecated</code>: the class leaves the map, the New-Feature menu, the Features browser and every form while its table and rows are kept; <b>Reactivate</b> restores it instantly. Reserve <code>uncompile</code> for the schema-rebuild case (it drops the table).</li>
   </ul>
+  <div class="en-b"><span class="tag en">Turning a class off — global &amp; per-territory</span>
+  <p><b>Global:</b> Deactivate (above) removes a class everywhere and, unlike hiding it in the UI, is enforced at write time — a deactivated class accepts no new features. The table and data survive, so it is fully reversible.</p>
+  <p><b>Per-territory:</b> a still-active class can be turned off for specific territories via its <b>Territory availability</b> control (<code>metadata.feature_class_territory_disabled</code>), cascading down the territory tree. A new feature landing in a disabled territory is refused; existing features are grandfathered. Global off always wins over any per-territory setting. See the Access Control guide, ch.&nbsp;11.</p></div>
 </section>
 
 

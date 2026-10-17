@@ -212,6 +212,19 @@ func listLinks(ctx context.Context, db bun.IDB, featureClass, featureID string) 
 		return nil, err
 	}
 
+	// Don't enumerate links for a feature the caller couldn't read: a soft-deleted,
+	// out-of-territory (Phase 58), or peer-private-draft (Phase 61) feature must not
+	// have its external links surfaced. EnforceFeatureReadScope answers not-found for
+	// all of those (and a missing/purged id) -- the same answer a feature read gives
+	// -- so a deleted feature's links can't be listed. (The create path already
+	// rejects a deleted feature via resolveFeature; this closes the read path.)
+	if err := crud.EnforceFeatureReadScope(ctx, db, loaded, featureID); err != nil {
+		if crud.IsNotFoundError(err) {
+			return nil, notFound("feature %s (%s) not found", featureID, featureClass)
+		}
+		return nil, err
+	}
+
 	var rows []ExternalLink
 	if err := db.NewSelect().Model(&rows).
 		Where("feature_class_id = ? AND feature_id = ?", loaded.FeatureClass.ID, featureID).

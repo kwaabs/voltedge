@@ -34,6 +34,13 @@ export function AdminMapSettingsPage() {
   // is a valid, meaningful state here rather than an error.
   const [annMin, setAnnMin] = useState("")
   const [annMax, setAnnMax] = useState("")
+  // Optional operating-area bounds (service-territory bbox). Strings; all four blank
+  // = unbounded (map roams the world). All four together or none — a partial bbox
+  // can't constrain a view.
+  const [bMinLng, setBMinLng] = useState("")
+  const [bMinLat, setBMinLat] = useState("")
+  const [bMaxLng, setBMaxLng] = useState("")
+  const [bMaxLat, setBMaxLat] = useState("")
 
   useEffect(() => {
     if (!data) return
@@ -42,6 +49,10 @@ export function AdminMapSettingsPage() {
     setZoom(String(data.zoom))
     setAnnMin(data.annotation_min_zoom === null ? "" : String(data.annotation_min_zoom))
     setAnnMax(data.annotation_max_zoom === null ? "" : String(data.annotation_max_zoom))
+    setBMinLng(data.bounds_min_lng === null ? "" : String(data.bounds_min_lng))
+    setBMinLat(data.bounds_min_lat === null ? "" : String(data.bounds_min_lat))
+    setBMaxLng(data.bounds_max_lng === null ? "" : String(data.bounds_max_lng))
+    setBMaxLat(data.bounds_max_lat === null ? "" : String(data.bounds_max_lat))
   }, [data])
 
   const lngNum = Number(lng)
@@ -64,7 +75,23 @@ export function AdminMapSettingsPage() {
   const annRangeValid = annMinBound === null || annMaxBound === null || annMinBound <= annMaxBound
   const annValid = annMinValid && annMaxValid && annRangeValid
 
-  const canSave = lngValid && latValid && zoomValid && annValid && !update.isPending
+  // Operating bounds: all four blank (unbounded), or all four filled with a valid,
+  // non-inverted bbox inside the geographic domain.
+  const bFilled = [bMinLng, bMinLat, bMaxLng, bMaxLat].filter((s) => s.trim() !== "").length
+  const bMinLngN = Number(bMinLng)
+  const bMinLatN = Number(bMinLat)
+  const bMaxLngN = Number(bMaxLng)
+  const bMaxLatN = Number(bMaxLat)
+  const boundsComplete = bFilled === 4
+  const boundsValid =
+    bFilled === 0 ||
+    (boundsComplete &&
+      [bMinLngN, bMaxLngN].every((n) => Number.isFinite(n) && n >= -180 && n <= 180) &&
+      [bMinLatN, bMaxLatN].every((n) => Number.isFinite(n) && n >= -90 && n <= 90) &&
+      bMinLngN < bMaxLngN &&
+      bMinLatN < bMaxLatN)
+
+  const canSave = lngValid && latValid && zoomValid && annValid && boundsValid && !update.isPending
 
   async function handleSave() {
     if (!canSave) return
@@ -75,6 +102,10 @@ export function AdminMapSettingsPage() {
         zoom: zoomNum,
         annotation_min_zoom: annMinBound,
         annotation_max_zoom: annMaxBound,
+        bounds_min_lng: boundsComplete ? bMinLngN : null,
+        bounds_min_lat: boundsComplete ? bMinLatN : null,
+        bounds_max_lng: boundsComplete ? bMaxLngN : null,
+        bounds_max_lat: boundsComplete ? bMaxLatN : null,
       })
       useToastStore.getState().pushSuccess("Map settings saved.")
     } catch {
@@ -190,6 +221,71 @@ export function AdminMapSettingsPage() {
               </div>
               {!annRangeValid && (
                 <span className="text-destructive text-xs">Min zoom must not exceed max zoom</span>
+              )}
+            </div>
+
+            <div className="border-t pt-4">
+              <h2 className="text-sm font-medium">Operating area (map bounds)</h2>
+              <p className="text-muted-foreground text-sm">
+                Constrain the map to the utility&apos;s service territory — a lon/lat box the map won&apos;t pan or
+                zoom outside, so no tiles are fetched for empty areas. Enter all four corners to bound it, or
+                leave all blank to let the map roam the whole world (the default). You can read corner
+                coordinates off the map&apos;s lat/lng readout.
+              </p>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium">Min longitude (west)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    className={inputClass}
+                    value={bMinLng}
+                    onChange={(e) => setBMinLng(e.target.value)}
+                    placeholder="none"
+                    aria-invalid={!boundsValid}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium">Min latitude (south)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    className={inputClass}
+                    value={bMinLat}
+                    onChange={(e) => setBMinLat(e.target.value)}
+                    placeholder="none"
+                    aria-invalid={!boundsValid}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium">Max longitude (east)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    className={inputClass}
+                    value={bMaxLng}
+                    onChange={(e) => setBMaxLng(e.target.value)}
+                    placeholder="none"
+                    aria-invalid={!boundsValid}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium">Max latitude (north)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    className={inputClass}
+                    value={bMaxLat}
+                    onChange={(e) => setBMaxLat(e.target.value)}
+                    placeholder="none"
+                    aria-invalid={!boundsValid}
+                  />
+                </div>
+              </div>
+              {!boundsValid && (
+                <span className="text-destructive text-xs">
+                  Enter all four corners (or none), each within range, with min below max.
+                </span>
               )}
             </div>
 

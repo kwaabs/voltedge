@@ -31,6 +31,10 @@ export interface FieldSchema {
   editable_after_publish: boolean
   domain_code?: string
   domain_values?: string[]
+  /** Human label per coded value, keyed by code (e.g. "CLASS_1" ->
+   * "Class 1 (9 m)"). Display only — the code stays what's stored and sent.
+   * Absent for a field with no coded domain. */
+  domain_value_labels?: Record<string, string>
   range_min?: number
   range_max?: number
   required_for_subtypes?: number[]
@@ -69,6 +73,11 @@ export interface FeatureClassSchema {
    * symbology rule's own min_zoom/max_zoom, which pick a style not visibility. */
   min_display_zoom?: number
   max_display_zoom?: number
+  /** The effective set of analysis-study ids this class offers — applicable by
+   * role, minus any admin prune (api/internal/studies). The feature panel's
+   * analysis menu shows a study only when its id is in this list. Absent/empty
+   * means no engineering studies apply (e.g. a structural class like a pole). */
+  analysis_studies?: string[]
 }
 
 /**

@@ -71,6 +71,15 @@ func fetchLinkData(ctx context.Context, db bun.IDB, cipher *secretbox.Cipher, id
 	if link.ResourcePath != nil {
 		path = *link.ResourcePath
 	}
+	return doFetch(ctx, sys, cipher, path)
+}
+
+// doFetch is the shared outbound-fetch core: build base_url + relative path into an
+// SSRF-safe request, apply the system's auth, read + size-cap the body, and normalize
+// it to a single JSON shape. Used by the api-link fetch (fetchLinkData) and the
+// feature external_ref fetch (FetchFeatureExternalData). The decrypted credential
+// never leaves applyAuth; `path` MUST already be validated relative by the caller.
+func doFetch(ctx context.Context, sys *externalsystem.ExternalSystem, cipher *secretbox.Cipher, path string) (*linkDataResponse, error) {
 	target, err := resolveTarget(sys.BaseURL, path)
 	if err != nil {
 		return nil, err

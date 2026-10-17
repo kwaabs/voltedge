@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router"
 import { ChevronDown, ChevronRight, Database, FileClock, Loader2, MapPinned, MapPinOff, Printer, Search, Trash2 } from "lucide-react"
 
+import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { ClassWipeDialog } from "@/components/map/class-wipe-dialog"
 import { formatFieldLabel, formatValue, inputClass } from "@/components/map/field-utils"
 import { TagPrintSheet, type PrintTag } from "@/components/map/tag-print-sheet"
@@ -13,8 +15,11 @@ import { type FeatureRecord } from "@/hooks/use-feature"
 import { type FeatureClassSummary, useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { useFeatureRows } from "@/hooks/use-feature-rows"
+import { apiFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
 import { useSelectionStore } from "@/stores/selection-store"
+import { useToastStore } from "@/stores/toast-store"
 
 /**
  * The feature-classes browser: a UI home for every compiled feature class,
@@ -154,7 +159,13 @@ function ClassRows({ fc }: { fc: FeatureClassSummary }) {
   // the Danger zone control. The server re-checks the same permission and
   // territory scope, so this gate is a UI convenience, not the security boundary.
   const canWipeClass = usePermission()("features:wipe")
+  // Bulk soft-delete of the selected rows is an ordinary features:write action
+  // (same DELETE the map's single-feature delete uses); the server re-checks
+  // write scope per feature, so this gate is a UI convenience.
+  const canDelete = usePermission()("features:write")
+  const queryClient = useQueryClient()
   const [wipeOpen, setWipeOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [printTags, setPrintTags] = useState<PrintTag[] | null>(null)
   const [shortfall, setShortfall] = useState(0)
@@ -191,6 +202,33 @@ function ClassRows({ fc }: { fc: FeatureClassSummary }) {
 
   function toggleAll(checked: boolean) {
     setSelectedIds(checked ? new Set(rows.map((r) => r.id)) : new Set())
+  }
+
+  // Soft-delete every selected row (restorable server-side, the same DELETE the
+  // map's single delete uses). allSettled so a partial failure (a row outside
+  // the caller's write scope) doesn't abandon the rows that did delete: we refresh
+  // the list and keep only the failures selected, then surface the shortfall. A
+  // thrown message is caught by ConfirmDeleteDialog and shown as a toast.
+  async function deleteSelected() {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    const results = await Promise.allSettled(
+      ids.map((id) => apiFetch(`/features/${fc.code}/${id}`, { method: "DELETE" })),
+    )
+    const failedIds = ids.filter((_, i) => results[i].status === "rejected")
+    ids.forEach((id, i) => {
+      if (results[i].status === "fulfilled") useDeletedFeaturesStore.getState().markDeleted(id)
+    })
+    queryClient.invalidateQueries({ queryKey: ["feature-rows", fc.code] })
+    queryClient.invalidateQueries({ queryKey: ["diagram-placements"] })
+    if (failedIds.length > 0) {
+      setSelectedIds(new Set(failedIds))
+      throw new Error(
+        `Deleted ${ids.length - failedIds.length} of ${ids.length}; ${failedIds.length} could not be deleted (permission or territory scope).`,
+      )
+    }
+    setSelectedIds(new Set())
+    useToastStore.getState().pushSuccess(`Deleted ${ids.length} feature${ids.length === 1 ? "" : "s"}.`)
   }
 
   async function printSelected() {
@@ -243,8 +281,9 @@ function ClassRows({ fc }: { fc: FeatureClassSummary }) {
           )}
         </div>
 
-        {/* Bulk print selection bar -- only for a tags:read holder, once rows load. */}
-        {canReadTags && !isPending && !isError && rows.length > 0 && (
+        {/* Selection bar -- shown to a tags:read holder (bulk print) and/or a
+            features:write holder (bulk delete), once rows load. */}
+        {(canReadTags || canDelete) && !isPending && !isError && rows.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-3 border-t pt-2">
             <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
               <input
@@ -260,14 +299,27 @@ function ClassRows({ fc }: { fc: FeatureClassSummary }) {
             {someSelected && (
               <>
                 <span className="text-muted-foreground text-xs">{selectedIds.size} selected</span>
-                <Button size="sm" onClick={printSelected} disabled={primaryBatch.isPending}>
-                  {primaryBatch.isPending ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Printer className="size-4" />
-                  )}
-                  Print tags ({selectedIds.size})
-                </Button>
+                {canReadTags && (
+                  <Button size="sm" onClick={printSelected} disabled={primaryBatch.isPending}>
+                    {primaryBatch.isPending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Printer className="size-4" />
+                    )}
+                    Print tags ({selectedIds.size})
+                  </Button>
+                )}
+                {canDelete && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => setDeleteOpen(true)}
+                  >
+                    <Trash2 className="size-4" />
+                    Delete ({selectedIds.size})
+                  </Button>
+                )}
                 <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
                   Clear
                 </Button>
@@ -297,7 +349,7 @@ function ClassRows({ fc }: { fc: FeatureClassSummary }) {
                 key={row.id}
                 classCode={fc.code}
                 row={row}
-                selectable={canReadTags}
+                selectable={canReadTags || canDelete}
                 selected={selectedIds.has(row.id)}
                 onSelectChange={(checked) => toggleOne(row.id, checked)}
                 subtypeLabel={row.subtype != null ? (subtypeName.get(row.subtype) ?? String(row.subtype)) : "—"}
@@ -318,6 +370,15 @@ function ClassRows({ fc }: { fc: FeatureClassSummary }) {
           onOpenChange={setWipeOpen}
         />
       )}
+
+      <ConfirmDeleteDialog
+        open={deleteOpen}
+        title={`Delete ${selectedIds.size} selected feature${selectedIds.size === 1 ? "" : "s"}?`}
+        description="This soft-deletes the selected features — they disappear from the map and lists immediately. They can be restored later (from the map's deleted-features view), but not from here."
+        confirmLabel={`Delete ${selectedIds.size}`}
+        onOpenChange={setDeleteOpen}
+        onConfirm={deleteSelected}
+      />
 
       {printTags && (
         <TagPrintSheet

@@ -22,15 +22,21 @@ const downstreamTraceCode = "DOWNSTREAM_TRACE"
 
 // AssignResult reports what one assign run did: how many features the trace
 // reached (within the circuit's network), how many rows were freshly stamped,
-// and how many prior members were cleared by the full sync.
+// and how many prior members were cleared by the full sync. Skipped /
+// SkippedPerClass surface reached features whose class is IN this network but has
+// no active circuit_id field -- almost always a class that carries the field in
+// metadata but hasn't been recompiled, so it can't be stamped. Without this the
+// skip was silent and an assign looked complete when it wasn't.
 type AssignResult struct {
-	CircuitID   string             `json:"circuit_id"`
-	CircuitName string             `json:"circuit_name"`
-	Network     string             `json:"network"`
-	Reached     int                `json:"reached"`
-	Stamped     int                `json:"stamped"`
-	Cleared     int                `json:"cleared"`
-	PerClass    []AssignClassCount `json:"per_class"`
+	CircuitID       string             `json:"circuit_id"`
+	CircuitName     string             `json:"circuit_name"`
+	Network         string             `json:"network"`
+	Reached         int                `json:"reached"`
+	Stamped         int                `json:"stamped"`
+	Cleared         int                `json:"cleared"`
+	PerClass        []AssignClassCount `json:"per_class"`
+	Skipped         int                `json:"skipped"`
+	SkippedPerClass []AssignClassCount `json:"skipped_per_class,omitempty"`
 }
 
 // AssignClassCount is how many features of one class the run stamped.
@@ -95,17 +101,31 @@ func AssignCircuit(ctx context.Context, db *bun.DB, circuitID string) (*AssignRe
 		return nil, err
 	}
 
+	// Classes IN this network regardless of circuit_id field. Lets a reached
+	// feature whose class is in-network but NOT stampable (no active circuit_id --
+	// typically the class carries the field in metadata but hasn't been recompiled)
+	// be reported as a skip rather than silently dropped. A reached feature of an
+	// out-of-network class (e.g. LV an MV trace crossed into) is correctly ignored.
+	networkCodes, err := networkClassCodes(ctx, db, c.Network)
+	if err != nil {
+		return nil, err
+	}
+
 	// Group reached feature ids by class, dropping anything outside the
 	// circuit's network -- an MV trace that somehow crossed into LV must never
 	// stamp an MV circuit onto an LV feature.
 	idsByClass := map[string][]string{}
+	skippedByClass := map[string]int{}
 	reached := 0
 	for _, f := range traced.Features {
-		if _, ok := byCode[f.FeatureClass]; !ok {
+		if _, ok := byCode[f.FeatureClass]; ok {
+			idsByClass[f.FeatureClass] = append(idsByClass[f.FeatureClass], f.FeatureID)
+			reached++
 			continue
 		}
-		idsByClass[f.FeatureClass] = append(idsByClass[f.FeatureClass], f.FeatureID)
-		reached++
+		if networkCodes[f.FeatureClass] {
+			skippedByClass[f.FeatureClass]++
+		}
 	}
 
 	actor := actorParam(auth.ActorID(ctx))
@@ -114,6 +134,10 @@ func AssignCircuit(ctx context.Context, db *bun.DB, circuitID string) (*AssignRe
 		CircuitName: c.Name,
 		Network:     c.Network,
 		Reached:     reached,
+	}
+	for code, n := range skippedByClass {
+		result.Skipped += n
+		result.SkippedPerClass = append(result.SkippedPerClass, AssignClassCount{FeatureClass: code, Stamped: n})
 	}
 
 	if err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
@@ -212,6 +236,28 @@ func applyStaleness(ctx context.Context, db bun.IDB, circuits []Circuit) error {
 		}
 	}
 	return nil
+}
+
+// networkClassCodes returns the code of every COMPILED feature class in the given
+// network, regardless of whether it carries an active circuit_id field. Used only
+// to classify reached features the stamp couldn't touch: in-network ones (here) are
+// a recompile-needed skip, out-of-network ones are silently ignored.
+func networkClassCodes(ctx context.Context, db bun.IDB, network string) (map[string]bool, error) {
+	const query = `SELECT code FROM metadata.feature_classes WHERE network = ? AND physical_table IS NOT NULL`
+	rows, err := db.QueryContext(ctx, query, network)
+	if err != nil {
+		return nil, fmt.Errorf("circuit: loading %s network classes: %w", network, err)
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, fmt.Errorf("circuit: scanning network class: %w", err)
+		}
+		out[code] = true
+	}
+	return out, rows.Err()
 }
 
 // loadScopeClasses returns every compiled feature class in the given network

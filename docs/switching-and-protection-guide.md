@@ -111,7 +111,7 @@ Required (`R`) fields are enforced on create (a missing one is a `400` naming th
 | `MV_SWITCH`, `LV_SWITCH` | `device_state`, `condition_rating` | `is_fused`, `fuse_rating_a`, `curve_ref`; `normal_state` (MV only) | `circuit_id`, `operational_state` |
 | `MV_BREAKER` | `device_state`, `condition_rating` | `switch_function`, `normal_state` | `circuit_id`, `operational_state` |
 | `MV_ISOLATOR` | `device_state`, `condition_rating` | `normal_state` | same |
-| `MV_RECLOSER` | `device_state`, `condition_rating` | `reclose_attempts`, `fast_curve_ref`, `slow_curve_ref`, `reclose_interval_s`, `reset_time_s`, `normal_state` | same |
+| `MV_RECLOSER` | `device_state`, `condition_rating` | `device_number` (ANSI, usually 50/51 + 79), `reclose_attempts`, `fast_curve_ref`, `slow_curve_ref`, `reclose_interval_s`, `reset_time_s`, `normal_state` | same |
 | `MV_SECTIONALIZER` | `device_state`, `condition_rating` | `count_to_lockout`, `normal_state` | same |
 | `MV_FUSE` | `device_state`, `condition_rating` | `fuse_rating_a`, `fuse_speed`, `curve_ref` | same |
 | `RMU` | `rmu_config` | — | `circuit_id`, `operational_state` |

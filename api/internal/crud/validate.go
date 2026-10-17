@@ -87,6 +87,12 @@ func isForbiddenError(err error) bool {
 	return ok
 }
 
+// IsForbiddenError reports whether err is a Phase 58 spatial-access denial, for
+// callers OUTSIDE this package (e.g. the external_ref editor in
+// api/internal/externallink) that get a forbidden from EnforceFeatureWriteScope
+// and must map it to an HTTP 403 rather than a generic 500.
+func IsForbiddenError(err error) bool { return isForbiddenError(err) }
+
 // validateSubtype checks the request's subtype against what the feature
 // class actually defines. A feature class with no subtypes must not
 // receive one; a feature class with subtypes must receive a valid code.

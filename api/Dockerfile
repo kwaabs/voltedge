@@ -25,6 +25,7 @@ RUN CGO_ENABLED=0 go build -o /out/exportworker ./cmd/exportworker
 RUN CGO_ENABLED=0 go build -o /out/mcpserver ./cmd/mcpserver
 RUN CGO_ENABLED=0 go build -o /out/webhookworker ./cmd/webhookworker
 RUN CGO_ENABLED=0 go build -o /out/importworker ./cmd/importworker
+RUN CGO_ENABLED=0 go build -o /out/validationworker ./cmd/validationworker
 RUN CGO_ENABLED=0 go build -o /out/authadmin ./cmd/authadmin
 RUN CGO_ENABLED=0 go build -o /out/resetdata ./cmd/resetdata
 
@@ -35,6 +36,7 @@ COPY --from=build /out/exportworker /usr/local/bin/exportworker
 COPY --from=build /out/mcpserver /usr/local/bin/mcpserver
 COPY --from=build /out/webhookworker /usr/local/bin/webhookworker
 COPY --from=build /out/importworker /usr/local/bin/importworker
+COPY --from=build /out/validationworker /usr/local/bin/validationworker
 COPY --from=build /out/authadmin /usr/local/bin/authadmin
 COPY --from=build /out/resetdata /usr/local/bin/resetdata
 EXPOSE 8080

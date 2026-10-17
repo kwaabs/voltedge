@@ -369,6 +369,11 @@ func downstreamNeighbors(ctx context.Context, db bun.IDB, n node) ([]downstreamE
 	var rows []edgeRow
 	if err := db.NewSelect().Model(&rows).
 		Where("from_feature_id = ? AND from_feature_class_id = ?", n.featureID, n.classID).
+		// Skip edges to a soft-deleted feature so powerflow never traverses one (see
+		// trace.neighborsOf for the rationale and the shared feature_registry
+		// liveness definition).
+		Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.from_feature_id AND r.deleted_at IS NULL)").
+		Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.to_feature_id AND r.deleted_at IS NULL)").
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("powerflow: loading neighbors: %w", err)
 	}
@@ -400,6 +405,11 @@ func incidentNeighbors(ctx context.Context, db bun.IDB, n node) ([]downstreamEdg
 	if err := db.NewSelect().Model(&rows).
 		Where("(from_feature_id = ? AND from_feature_class_id = ?) OR (to_feature_id = ? AND to_feature_class_id = ?)",
 			n.featureID, n.classID, n.featureID, n.classID).
+		// Skip edges to a soft-deleted feature so powerflow never traverses one (see
+		// trace.neighborsOf for the rationale and the shared feature_registry
+		// liveness definition).
+		Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.from_feature_id AND r.deleted_at IS NULL)").
+		Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.to_feature_id AND r.deleted_at IS NULL)").
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("powerflow: loading incident neighbors: %w", err)
 	}

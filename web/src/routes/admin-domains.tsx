@@ -1,15 +1,16 @@
-import { Fragment, useState } from "react"
+import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ListPlus, Loader2, Pencil, Plus, Tags, Trash2, Wrench, X } from "lucide-react"
+import { ListPlus, Loader2, Pencil, Plus, Search, Tags, Trash2, Wrench, X } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { FormDialog } from "@/components/admin/form-dialog"
 import { inputClass } from "@/components/map/field-utils"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { usePermission } from "@/hooks/use-auth"
 import { type AdminDomain, type AdminDomainValue, useAdminDomains, useAdminMaterialSpecs } from "@/hooks/use-admin"
 import { ApiError, apiFetch } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { useToastStore } from "@/stores/toast-store"
 
 const labelClass = "text-xs font-medium"
@@ -296,6 +297,10 @@ export function AdminDomainsPage() {
   const [editingDomainCode, setEditingDomainCode] = useState<string | null>(null)
   const [editingValue, setEditingValue] = useState<{ domainCode: string; value: AdminDomainValue } | null>(null)
   const [deleteValueTarget, setDeleteValueTarget] = useState<{ domainCode: string; value: AdminDomainValue } | null>(null)
+  // Master-detail: the left list selects a domain whose values preview on the
+  // right. `query` filters the left list by name/code (the catalog is long).
+  const [selectedCode, setSelectedCode] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
 
   function close() {
     setOpen(false)
@@ -334,9 +339,17 @@ export function AdminDomainsPage() {
     }
   }
 
+  // Filter the left list and resolve which domain the right pane previews.
+  // Falls back to the first filtered row so the preview is never empty while
+  // any domain matches (the user's click then pins a specific one).
+  const q = query.trim().toLowerCase()
+  const filteredDomains = (data?.domains ?? []).filter(
+    (d) => !q || d.name.toLowerCase().includes(q) || d.code.toLowerCase().includes(q),
+  )
+  const selectedDomain = data?.domains.find((d) => d.code === selectedCode) ?? filteredDomains[0]
+
   return (
-    <div className="h-full overflow-y-auto p-4">
-      <div className="flex w-full flex-col gap-4">
+    <div className="flex h-full flex-col gap-4 p-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-semibold">Domains</h1>
@@ -489,6 +502,28 @@ export function AdminDomainsPage() {
           )}
         </FormDialog>
 
+        {/* Editing modals live once at page level, resolved from the targeted
+            domain code, rather than per row. */}
+        {editingDomainCode &&
+          data &&
+          (() => {
+            const d = data.domains.find((x) => x.code === editingDomainCode)
+            return d ? <EditDomainRow domain={d} onDone={() => setEditingDomainCode(null)} /> : null
+          })()}
+        {addingValueCode &&
+          data &&
+          (() => {
+            const d = data.domains.find((x) => x.code === addingValueCode)
+            return d ? <AddDomainValueRow domain={d} onDone={() => setAddingValueCode(null)} /> : null
+          })()}
+        {editingValue && (
+          <EditDomainValueRow
+            domainCode={editingValue.domainCode}
+            value={editingValue.value}
+            onDone={() => setEditingValue(null)}
+          />
+        )}
+
         {isPending ? (
           <div className="text-muted-foreground flex items-center gap-2 text-sm">
             <Loader2 className="size-4 animate-spin" />
@@ -499,41 +534,81 @@ export function AdminDomainsPage() {
         ) : data.domains.length === 0 ? (
           <p className="text-muted-foreground text-sm">No domains yet.</p>
         ) : (
-          <div className="flex flex-col gap-2">
-            {data.domains.map((d) => (
-              <Fragment key={d.code}>
-                {editingDomainCode === d.code && (
-                  <EditDomainRow domain={d} onDone={() => setEditingDomainCode(null)} />
+          <div className="flex min-h-0 flex-1 gap-4">
+            {/* Left: the domain list, filtered and selectable. Fills the column
+                height; the list scrolls internally past the fold. */}
+            <div className="flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border">
+              <div className="border-b p-2">
+                <div className="relative">
+                  <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2" />
+                  <input
+                    className={`${inputClass} h-8 pl-8`}
+                    placeholder="Filter domains..."
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="max-h-[65vh] flex-1 overflow-y-auto">
+                {filteredDomains.length === 0 ? (
+                  <p className="text-muted-foreground p-3 text-sm">No domains match.</p>
+                ) : (
+                  filteredDomains.map((d) => (
+                    <button
+                      key={d.code}
+                      type="button"
+                      onClick={() => setSelectedCode(d.code)}
+                      className={cn(
+                        "hover:bg-muted/50 flex w-full flex-col items-start gap-0.5 border-b px-3 py-2 text-left last:border-b-0",
+                        selectedDomain?.code === d.code && "bg-muted",
+                      )}
+                    >
+                      <span className="flex w-full items-center gap-1.5">
+                        <Tags className="text-muted-foreground size-3.5 shrink-0" />
+                        <span className="truncate text-sm font-medium">{d.name}</span>
+                        <span className="text-muted-foreground ml-auto shrink-0 text-[10px]">
+                          {d.domain_type === "coded" ? `${d.values?.length ?? 0} values` : "range"}
+                        </span>
+                      </span>
+                      <span className="text-muted-foreground font-mono text-[10px]">{d.code}</span>
+                    </button>
+                  ))
                 )}
-                {addingValueCode === d.code && (
-                  <AddDomainValueRow domain={d} onDone={() => setAddingValueCode(null)} />
-                )}
-                <Card>
-                  <CardHeader className="flex flex-row items-center gap-2 pb-2">
-                    <Tags className="text-muted-foreground size-4" />
+              </div>
+            </div>
+
+            {/* Right: the selected domain's live preview -- how its value list
+                actually reads, with inline add/edit/delete. */}
+            <div className="min-w-0 flex-1 overflow-y-auto">
+              {selectedDomain ? (
+                <div className="rounded-lg border">
+                  <div className="flex items-start gap-2 border-b p-3">
+                    <Tags className="text-muted-foreground mt-0.5 size-4 shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <CardTitle className="text-sm">{d.name}</CardTitle>
-                      <CardDescription className="font-mono text-xs">{d.code}</CardDescription>
+                      <h2 className="text-sm font-semibold">{selectedDomain.name}</h2>
+                      <p className="text-muted-foreground font-mono text-xs">{selectedDomain.code}</p>
                     </div>
-                    <span className="text-muted-foreground text-xs">{d.domain_type}</span>
+                    <Badge variant="outline" className="shrink-0">
+                      {selectedDomain.domain_type === "coded" ? "coded values" : "numeric range"}
+                    </Badge>
                     {canWrite && (
-                      <>
+                      <div className="flex items-center gap-1">
                         <Button
                           variant="ghost"
                           size="icon"
                           className="size-7"
-                          title="Edit"
-                          onClick={() => setEditingDomainCode(d.code)}
+                          title="Edit domain"
+                          onClick={() => setEditingDomainCode(selectedDomain.code)}
                         >
                           <Pencil className="size-4" />
                         </Button>
-                        {d.domain_type === "coded" && (
+                        {selectedDomain.domain_type === "coded" && (
                           <Button
                             variant="ghost"
                             size="icon"
                             className="size-7"
                             title="Add value"
-                            onClick={() => setAddingValueCode(d.code)}
+                            onClick={() => setAddingValueCode(selectedDomain.code)}
                           >
                             <ListPlus className="size-4" />
                           </Button>
@@ -542,69 +617,79 @@ export function AdminDomainsPage() {
                           variant="ghost"
                           size="icon"
                           className="text-destructive size-7"
-                          onClick={() => setDeleteTarget(d)}
+                          title="Delete domain"
+                          onClick={() => setDeleteTarget(selectedDomain)}
                         >
                           <Trash2 className="size-4" />
                         </Button>
-                      </>
-                    )}
-                  </CardHeader>
-                  {d.values && d.values.length > 0 && (
-                    <CardContent className="flex flex-col gap-2 pt-0">
-                      <div className="flex flex-wrap gap-1">
-                        {d.values.map((v) => (
-                          <span
-                            key={v.code}
-                            className="bg-muted text-muted-foreground group flex items-center gap-1 rounded-md py-0.5 pr-0.5 pl-1.5 text-xs"
-                            title={v.material_spec_code ? `${v.code} · material spec: ${v.material_spec_code}` : v.code}
-                          >
-                            {v.material_spec_code && <Wrench className="size-3" />}
-                            {v.label}
-                            {canWrite && (
-                              <>
-                                <button
-                                  type="button"
-                                  className="hover:text-foreground rounded p-0.5"
-                                  title="Edit value"
-                                  onClick={() => setEditingValue({ domainCode: d.code, value: v })}
-                                >
-                                  <Pencil className="size-3" />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="hover:text-destructive rounded p-0.5"
-                                  title="Delete value"
-                                  onClick={() => setDeleteValueTarget({ domainCode: d.code, value: v })}
-                                >
-                                  <X className="size-3" />
-                                </button>
-                              </>
-                            )}
-                          </span>
-                        ))}
                       </div>
-                      {editingValue?.domainCode === d.code && (
-                        <EditDomainValueRow
-                          domainCode={d.code}
-                          value={editingValue.value}
-                          onDone={() => setEditingValue(null)}
-                        />
-                      )}
-                    </CardContent>
-                  )}
-                  {d.domain_type === "range" && d.range_min !== undefined && d.range_max !== undefined && (
-                    <CardContent className="pt-0">
-                      <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs">
-                        {d.range_min} – {d.range_max}
-                      </span>
-                    </CardContent>
-                  )}
-                </Card>
-              </Fragment>
-            ))}
+                    )}
+                  </div>
+
+                  <div className="p-3">
+                    {selectedDomain.domain_type === "coded" ? (
+                      selectedDomain.values && selectedDomain.values.length > 0 ? (
+                        <ul className="divide-y overflow-hidden rounded-md border">
+                          {selectedDomain.values.map((v) => (
+                            <li key={v.code} className="hover:bg-muted/30 flex items-center gap-2 px-3 py-1.5">
+                              <span className="text-muted-foreground w-5 shrink-0 text-right text-[11px] tabular-nums">
+                                {v.sort_order}
+                              </span>
+                              <span className="flex-1 truncate text-sm">{v.label}</span>
+                              {v.material_spec_code && (
+                                <span title={`material spec: ${v.material_spec_code}`}>
+                                  <Wrench className="text-muted-foreground size-3.5" />
+                                </span>
+                              )}
+                              <span className="text-muted-foreground font-mono text-xs">{v.code}</span>
+                              {canWrite && (
+                                <div className="flex items-center gap-0.5">
+                                  <button
+                                    type="button"
+                                    className="text-muted-foreground hover:text-foreground rounded p-1"
+                                    title="Edit value"
+                                    onClick={() => setEditingValue({ domainCode: selectedDomain.code, value: v })}
+                                  >
+                                    <Pencil className="size-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="text-muted-foreground hover:text-destructive rounded p-1"
+                                    title="Delete value"
+                                    onClick={() => setDeleteValueTarget({ domainCode: selectedDomain.code, value: v })}
+                                  >
+                                    <X className="size-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-muted-foreground text-sm">
+                          No values yet{canWrite ? " — use the Add value button above." : "."}
+                        </p>
+                      )
+                    ) : selectedDomain.range_min !== undefined && selectedDomain.range_max !== undefined ? (
+                      <div className="text-sm">
+                        Numeric range:{" "}
+                        <span className="font-mono">
+                          {selectedDomain.range_min} – {selectedDomain.range_max}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground text-sm">No bounds set.</p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
+                  Select a domain to preview its values.
+                </div>
+              )}
+            </div>
           </div>
         )}
-      </div>
 
       <ConfirmDeleteDialog
         open={deleteTarget !== null}

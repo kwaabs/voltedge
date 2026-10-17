@@ -156,9 +156,10 @@ type ListResult struct {
 // whose feature was purged from the registry drops out -- an orphan code is not
 // worth surfacing in a management view) and, through it, to the class name. The
 // aliases fr / fc are exactly what featureregistry.ApplyScope's predicates
-// reference, so the same territory + private-draft visibility filter a feature
-// read applies is AND-ed on here: the console can never list a tag whose feature
-// the caller may not see.
+// reference, so the same soft-delete + territory + private-draft visibility filter
+// a feature read applies is AND-ed on here: the console can never list a tag whose
+// feature the caller may not see -- including a tag on a SOFT-DELETED feature,
+// which ApplyScope now hides (so a deleted asset's tags drop out of the console).
 func tagConsoleBase(db bun.IDB, sc featureregistry.Scope) *bun.SelectQuery {
 	q := db.NewSelect().Model((*Tag)(nil)).
 		Join("JOIN runtime.feature_registry AS fr ON fr.feature_class_code = t.feature_class_code AND fr.feature_id = t.feature_id").

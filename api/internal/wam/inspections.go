@@ -215,7 +215,11 @@ func selectInspections(db bun.IDB, dst any) *bun.SelectQuery {
 	return db.NewSelect().Model(dst).
 		ColumnExpr(inspectionColumns).
 		ColumnExpr("ST_X(location) AS longitude").
-		ColumnExpr("ST_Y(location) AS latitude")
+		ColumnExpr("ST_Y(location) AS latitude").
+		// Hide an inspection whose asset is SOFT-DELETED (NULL/live/purged asset kept)
+		// -- a deleted feature must not surface as the subject of an inspection. See
+		// faults.selectFaults for the shared rationale.
+		Where("NOT EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = asset_id AND r.deleted_at IS NOT NULL)")
 }
 
 // RecordItemInput is one answered checklist question. Passed is the pass/fail

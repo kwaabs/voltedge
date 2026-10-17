@@ -668,6 +668,13 @@ details.sx summary{cursor:pointer;font-weight:600}
     <div class="w-body" id="ro-out"></div>
   </div>
   <p><code>territories:unscoped</code> is a <em>permission</em>, so a custom read-only auditor role can hold it (see the role designer). Pitfalls: unassigned features vanish for scoped users; a scoped user with no grants sees an empty map, not an error; <code>GET /territories</code> leaks names; changing a person’s <code>manager_id</code> shrinks their manager’s scope on the next request.</p>
+  <div class="en-b"><span class="tag en">Related but distinct · per-territory feature-class availability</span>
+  <p>Everything above scopes <em>who may work where</em>. A separate, class-level axis decides <em>which feature classes exist where</em>. An admin can take a feature class <b>out of use</b> without deleting its data:</p>
+  <ul>
+    <li><b>Global off</b> — <code>feature_classes.status</code> → <code>deprecated</code> (the <b>Deactivate</b> action, <code>POST /admin/feature-classes/{code}/deactivate</code>). The class drops out of the map, the New-Feature menu, the Features browser and every form; its table and rows are kept; <b>Reactivate</b> restores it. Enforced at write time (it accepts no new features), not just hidden.</li>
+    <li><b>Per-territory off</b> — a <code>metadata.feature_class_territory_disabled</code> row turns a still-active class off for one territory and, by cascade, <b>every territory beneath it</b>. On create, the feature’s territory (resolved by the same point-in-polygon as above) is checked and a feature in a disabled territory is <b>refused</b>. Existing features are <b>grandfathered</b>; global off always wins.</li>
+  </ul>
+  <p>This is authored on the class (Admin → Feature classes → <b>Territory availability</b>), and composes with — but is independent of — the user-level territory scope this chapter describes.</p></div>
 </section>
 
 <!-- ============ CH12 ============ -->

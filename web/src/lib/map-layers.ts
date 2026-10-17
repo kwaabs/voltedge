@@ -6,6 +6,7 @@ import type View from "ol/View"
 
 import { lineDashArray, type LineDashStyle } from "@/lib/line-dash"
 import { iconDataUri, type IconRegistry } from "@/lib/symbology-icons"
+import { MVT_LAYER_PROP } from "@/lib/martin"
 import { resolveSymbology, type DisplayZoomBand, type LabelDef, type SymbologyRuleSchema } from "@/lib/symbology"
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
 import { useEditStore } from "@/stores/edit-store"
@@ -544,14 +545,21 @@ function labelStyleFor(def: LabelDef, placement: "point" | "line", pointOffsetY:
   const halo = def.halo !== false
   const haloColor = def.halo_color ?? LABEL_HALO_COLOR
   const haloWidth = def.halo_width ?? LABEL_HALO_WIDTH
-  // Class-wide placement (point/polygon only): the authored offset shifts the
-  // label from its anchor, offset_y overriding the default drop below the glyph;
-  // rotation spins the text. A line label rides the line, where OL ignores
-  // offset and rotation would fight the placement, so all three collapse to 0.
+  // Point/polygon placement: the authored offset shifts the label from its anchor,
+  // offset_y overriding the default drop below the glyph; rotation spins the text.
+  // Line placement: offset_x along the line and rotation would fight placement:"line",
+  // so they stay 0 -- BUT a configured offset_y should lift the label OFF the stroke
+  // instead of riding it. Its default textBaseline "middle" centres it on the line;
+  // steering the baseline by the offset's sign sits a negative offset_y ABOVE the
+  // line, a positive one BELOW, and 0 keeps it on the line (the old default). The
+  // offset_y pixel value is also passed through for the perpendicular magnitude where
+  // OL honours it on a line.
   const isPoint = placement === "point"
+  const lineOffsetY = def.offset_y ?? 0
   const offsetX = isPoint ? (def.offset_x ?? 0) : 0
-  const offsetY = isPoint ? (def.offset_y ?? pointOffsetY) : 0
+  const offsetY = isPoint ? (def.offset_y ?? pointOffsetY) : lineOffsetY
   const rotation = isPoint ? ((def.rotation ?? 0) * Math.PI) / 180 : 0
+  const textBaseline = isPoint ? "top" : lineOffsetY < 0 ? "bottom" : lineOffsetY > 0 ? "top" : "middle"
   const key = `${size}|${color}|${bold}|${italic}|${halo}|${haloColor}|${haloWidth}|${placement}|${offsetX}|${offsetY}|${rotation}`
   const cached = labelStyleCache.get(key)
   if (cached) return cached
@@ -564,12 +572,11 @@ function labelStyleFor(def: LabelDef, placement: "point" | "line", pointOffsetY:
       rotation,
       fill: new Fill({ color }),
       stroke: halo ? new Stroke({ color: haloColor, width: haloWidth }) : undefined,
-      // A point/polygon name sits below the glyph by default (offset_y can
-      // move it); a line name rides the line itself (offset meaningless with
-      // placement:"line", so both offsets are 0 there).
+      // A point/polygon name sits below the glyph by default (offset_y moves it);
+      // a line name rides the stroke unless offset_y lifts it off (see above).
       offsetX,
       offsetY,
-      textBaseline: isPoint ? "top" : "middle",
+      textBaseline,
       overflow: true,
     }),
   })
@@ -703,6 +710,44 @@ export function createSymbologyStyle(
       }
     }
     return geometryStyle
+  }
+}
+
+/**
+ * Per-band style for a Martin COMPOSITE vector tile. Each feature carries its
+ * source-layer (the gis table name = the source id) in the MVT_LAYER_PROP attribute
+ * (ol/format/MVT's layerName); this resolves it to the class and applies that class's
+ * own symbology/label/display-zoom by delegating to a per-class createSymbologyStyle,
+ * cached once per source id. A class whose source id is in hiddenBySourceId (toggled
+ * off in the layers panel) draws nothing. The caller builds a FRESH one whenever the
+ * symbology / label-toggle / hidden inputs change (the per-class cache bakes those in).
+ */
+export function createCompositeStyle(opts: {
+  view: View
+  icons?: IconRegistry
+  symbologyByClassCode: Record<string, SymbologyRuleSchema[] | undefined>
+  labelDefsByClassCode: Record<string, LabelDef | undefined>
+  displayZoomByClassCode: Record<string, DisplayZoomBand | undefined>
+  labelsHiddenBySourceId: Record<string, boolean>
+  hiddenBySourceId: Record<string, boolean>
+}) {
+  const perClass: Record<string, (feature: FeatureLike, resolution: number) => Style | Style[]> = {}
+  return function compositeStyleForFeature(feature: FeatureLike, resolution: number): Style | Style[] {
+    const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
+    if (!sourceId || opts.hiddenBySourceId[sourceId]) return hiddenStyle
+    let styleForClass = perClass[sourceId]
+    if (!styleForClass) {
+      const classCode = sourceId.toUpperCase()
+      styleForClass = createSymbologyStyle(
+        opts.symbologyByClassCode[classCode],
+        opts.view,
+        opts.icons,
+        opts.labelsHiddenBySourceId[sourceId] ? undefined : opts.labelDefsByClassCode[classCode],
+        opts.displayZoomByClassCode[classCode],
+      )
+      perClass[sourceId] = styleForClass
+    }
+    return styleForClass(feature, resolution)
   }
 }
 

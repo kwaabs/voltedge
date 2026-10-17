@@ -73,12 +73,57 @@ export interface CreateCircuitBody {
   name: string
   network: CircuitNetwork
   voltage_kv?: number | null
+  source_feature_class?: string | null
+  source_feature_id?: string | null
 }
 
+/** Creates a circuit and returns it (with its new id), so a caller can chain a
+ * source-set + assign off a freshly created circuit. */
 export function useCreateCircuit() {
-  return useCircuitMutation<CreateCircuitBody>((body) =>
-    apiFetch("/circuits", { method: "POST", body: JSON.stringify(body) }),
-  )
+  const queryClient = useQueryClient()
+  return useMutation<Circuit, ApiError, CreateCircuitBody>({
+    mutationFn: (body) => apiFetch<Circuit>("/circuits", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["circuits"] })
+    },
+  })
+}
+
+/** The counts AssignCircuit returns (api/internal/circuit/assign.go): how many
+ * features the downstream trace from the source reached, how many were stamped,
+ * and how many prior members were cleared by the full sync. */
+export interface AssignCircuitResult {
+  circuit_id: string
+  circuit_name: string
+  network: string
+  reached: number
+  stamped: number
+  cleared: number
+  per_class: { feature_class: string; stamped: number }[]
+  /** Reached features in this network that COULDN'T be stamped because their class
+   * has no active circuit_id field (almost always: the class carries the field but
+   * hasn't been recompiled). Nonzero skipped means "recompile these classes, then
+   * re-assign". */
+  skipped: number
+  skipped_per_class?: { feature_class: string; stamped: number }[]
+}
+
+/** Runs assign-by-trace: POST /circuits/{id}/assign traces downstream from the
+ * circuit's source feature and full-syncs circuit_id onto every reached member.
+ * Requires the circuit to already have a source set. Assign is a bulk feature write
+ * (it changes many rows' circuit_id), so it invalidates the circuit list AND the
+ * feature caches so panels/browsers reflect the new membership. */
+export function useAssignCircuit() {
+  const queryClient = useQueryClient()
+  return useMutation<AssignCircuitResult, ApiError, { id: string }>({
+    mutationFn: ({ id }) => apiFetch<AssignCircuitResult>(`/circuits/${id}/assign`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["circuits"] })
+      queryClient.invalidateQueries({ queryKey: ["feature"] })
+      queryClient.invalidateQueries({ queryKey: ["features"] })
+      queryClient.invalidateQueries({ queryKey: ["feature-rows"] })
+    },
+  })
 }
 
 /** Rename (`name`), set/clear voltage (`voltage_kv`, or `clear_voltage`), or

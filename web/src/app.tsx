@@ -28,6 +28,7 @@ import { AdminSymbologyIconsPage } from "@/routes/admin-symbology-icons"
 import { AdminTerritoriesPage } from "@/routes/admin-territories"
 import { AdminUsersPage } from "@/routes/admin-users"
 import { AdminLoggingPage } from "@/routes/admin-logging"
+import { AdminActivityPage } from "@/routes/admin-activity"
 import { SyncReviewPage } from "@/routes/sync-review"
 import { DocsPage } from "@/routes/docs"
 import { FeaturesPage } from "@/routes/features"
@@ -302,6 +303,14 @@ export function App() {
               element={
                 <RequirePermission perm="admin:users">
                   <AdminLoggingPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/activity"
+              element={
+                <RequirePermission perm="admin:users">
+                  <AdminActivityPage />
                 </RequirePermission>
               }
             />

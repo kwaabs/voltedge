@@ -82,8 +82,18 @@ func scopeDrafts(q *bun.SelectQuery, authors []string, apply bool) *bun.SelectQu
 	return q.Where(clause, args...)
 }
 
-// applyScope AND-s both visibility filters (territory + drafts) onto a query.
+// applyScope AND-s every visibility filter the CRUD read side applies -- the
+// soft-delete filter, the territory scope, and the private-draft filter -- onto a
+// query, so a registry read "hides exactly what a feature read would" (the
+// documented contract this helper exists for). The deleted_at IS NULL predicate
+// is FIRST and unconditional: a soft-deleted feature must not surface anywhere
+// user-facing, and this one predicate covers every registry read -- Lookup (the
+// id resolver), Search (the asset-id picker), and external joined reads via
+// ApplyScope (the asset-tag console) -- so none can confirm, classify, or
+// enumerate a deleted feature. (The connectivity audit and feature history read
+// deleted rows deliberately, but through their OWN queries, never this helper.)
 func applyScope(q *bun.SelectQuery, sc Scope) *bun.SelectQuery {
+	q = q.Where("fr.deleted_at IS NULL")
 	q = scopeTerritory(q, sc.TerritoryIDs, sc.ApplyTerritory)
 	q = scopeDrafts(q, sc.DraftAuthors, sc.ApplyDrafts)
 	return q
@@ -102,9 +112,9 @@ func ApplyScope(q *bun.SelectQuery, sc Scope) *bun.SelectQuery {
 }
 
 // Lookup resolves a single feature by its exact id -- the "type in an asset id,
-// what is it?" path. Returns (nil, nil) when no such id exists (a soft-deleted
-// row is still returned; the caller decides whether a tombstone is acceptable),
-// so the HTTP layer can answer 404 without treating a miss as an error.
+// what is it?" path. Returns (nil, nil) when no such id exists, OR when it is
+// soft-deleted / out of the caller's scope (applyScope now filters all three),
+// so the HTTP layer answers 404 -- a deleted id can't be confirmed or classified.
 func Lookup(ctx context.Context, db bun.IDB, id string, sc Scope) (*Entry, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -125,14 +135,15 @@ func Lookup(ctx context.Context, db bun.IDB, id string, sc Scope) (*Entry, error
 }
 
 // SearchFilter drives the typeahead. Q is an id prefix (case-insensitive), the
-// natural input as a user types a uuid; Class scopes to one feature class; Live
-// hides soft-deleted rows (the picker default). Scope carries the Phase-58
-// territory + Phase-61 draft visibility constraints, applied identically to the
-// CRUD read side so the picker can't surface an id the reader couldn't open.
+// natural input as a user types a uuid; Class scopes to one feature class. Scope
+// carries the Phase-58 territory + Phase-61 draft visibility constraints, applied
+// identically to the CRUD read side so the picker can't surface an id the reader
+// couldn't open. Soft-deleted rows are ALWAYS hidden now (applyScope filters
+// deleted_at unconditionally) -- there is no "include deleted" mode, so the old
+// Live toggle is gone.
 type SearchFilter struct {
 	Q     string
 	Class string
-	Live  bool
 	Scope Scope
 	Limit int
 }
@@ -157,12 +168,9 @@ func Search(ctx context.Context, db bun.IDB, f SearchFilter) ([]Entry, error) {
 		// match cheap, and a user types an id from the front.
 		q = q.Where("fr.feature_id::text ILIKE ?", prefix+"%")
 	}
-	if f.Live {
-		q = q.Where("fr.deleted_at IS NULL")
-	}
-	// AND in the same territory (Phase 58) + draft (Phase 61) visibility filters
-	// the CRUD read side applies, so the picker never surfaces an id its owner
-	// couldn't open.
+	// AND in the soft-delete + territory (Phase 58) + draft (Phase 61) visibility
+	// filters the CRUD read side applies, so the picker never surfaces an id its
+	// owner couldn't open -- and never a soft-deleted feature (applyScope).
 	q = applyScope(q, f.Scope)
 
 	if err := q.OrderExpr("fr.created_at DESC NULLS LAST").Limit(limit).Scan(ctx); err != nil {

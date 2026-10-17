@@ -87,15 +87,27 @@ func catalogHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
-// tileHandler serves one MVT tile for one feature class, scoped to the acting
-// user's territories. A missing/uncompiled/geometry-less class is a 404 (there
-// is no such tile source), a bad z/x/y is a 400, and an empty tile (no features
-// in this tile's envelope, or none in scope) is a 204 -- what an MVT client
-// expects for "nothing here", the same as Martin returned.
+// tileHandler serves an MVT tile for one or more feature classes, scoped to the
+// acting user's territories. The {code} segment is either a single source id
+// (/{code}/z/x/y) or a comma-separated COMPOSITE of them (/{a,b,c}/z/x/y) -- the
+// map groups a whole zoom band into one composite request so it makes ~3 tile
+// requests per view instead of one per class (~60). Each class is rendered by
+// the same scoped MVT query and the single-layer results are concatenated: an
+// MVT tile is `message Tile { repeated Layer layers }`, and protobuf repeated
+// fields merge on byte concatenation, so the joined bytes decode as one tile
+// carrying every class as its own named layer (the source id). That layer name
+// is how the client's MVT format recovers a feature's class
+// (feature.get(mvtLayer) -> source id).
+//
+// A bad z/x/y is a 400; a request in which NOT ONE id resolves to a compiled
+// geometric class is a 404 (no such tile source) -- but a single unresolvable id
+// in a composite is skipped, not fatal, so a stale catalog entry can't blank a
+// whole band. An empty tile (no features here, or none in scope) is a 204 --
+// what an MVT client expects for "nothing here", the same as Martin returned.
 func tileHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		sourceID := strings.ToLower(chi.URLParam(r, "code"))
+		sourceIDs := splitTileCodes(chi.URLParam(r, "code"))
 
 		z, okz := parseTileCoord(chi.URLParam(r, "z"))
 		x, okx := parseTileCoord(chi.URLParam(r, "x"))
@@ -104,10 +116,8 @@ func tileHandler(db *bun.DB) http.HandlerFunc {
 			http.Error(w, "tile coordinates must be non-negative integers", http.StatusBadRequest)
 			return
 		}
-
-		fc, err := loadTileClass(ctx, db, sourceID)
-		if err != nil {
-			http.Error(w, "no such tile source", http.StatusNotFound)
+		if len(sourceIDs) == 0 {
+			http.Error(w, "no tile source requested", http.StatusBadRequest)
 			return
 		}
 
@@ -117,19 +127,51 @@ func tileHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 
-		mvt, err := renderTile(ctx, db, fc, z, x, y, ids, apply)
-		if err != nil {
-			http.Error(w, "failed to render tile", http.StatusInternalServerError)
+		var buf []byte
+		resolved := 0
+		for _, sourceID := range sourceIDs {
+			fc, err := loadTileClass(ctx, db, sourceID)
+			if err != nil {
+				// One unresolvable id (e.g. a class dropped from compile but still
+				// in a cached catalog) must not fail the whole composite -- skip it.
+				continue
+			}
+			resolved++
+			mvt, err := renderTile(ctx, db, fc, z, x, y, ids, apply)
+			if err != nil {
+				http.Error(w, "failed to render tile", http.StatusInternalServerError)
+				return
+			}
+			buf = append(buf, mvt...) // empty (nil) class tiles contribute nothing
+		}
+		if resolved == 0 {
+			http.Error(w, "no such tile source", http.StatusNotFound)
 			return
 		}
-		if len(mvt) == 0 {
+		if len(buf) == 0 {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		w.Header().Set("Content-Type", mvtContentType)
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(mvt)
+		_, _ = w.Write(buf)
 	}
+}
+
+// splitTileCodes parses the {code} path segment into one or more lowercased
+// source ids. A composite tile request joins them with commas
+// (/{a,b,c}/z/x/y); a plain single-class request is just the one-element case.
+// Entries are trimmed and lowercased (the ids loadTileClass matches on) and
+// blanks (a stray or trailing comma) are dropped.
+func splitTileCodes(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.ToLower(strings.TrimSpace(p)); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // tileClass is the slice of a feature class the tile query needs: the physical

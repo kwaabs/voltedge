@@ -61,7 +61,13 @@ func selectDefects(db bun.IDB, dst any) *bun.SelectQuery {
 		ColumnExpr("COALESCE(asset_class, '') AS asset_class").
 		ColumnExpr("COALESCE(asset_id::text, '') AS asset_id").
 		ColumnExpr("ST_X(location) AS longitude").
-		ColumnExpr("ST_Y(location) AS latitude")
+		ColumnExpr("ST_Y(location) AS latitude").
+		// Hide a defect whose asset is SOFT-DELETED: a deleted feature must not
+		// surface anywhere, including as the subject of a defect. A NULL asset
+		// (orphan defect) and a live/purged asset are kept; soft-deleted == a
+		// feature_registry row with deleted_at set. See faults.selectFaults for the
+		// shared rationale (correlated NOT EXISTS, index probe on asset_id).
+		Where("NOT EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = asset_id AND r.deleted_at IS NOT NULL)")
 }
 
 // CreateDefectParams is the input to CreateDefect. Asset (class + id) and title
@@ -289,7 +295,11 @@ func selectWorkOrders(db bun.IDB, dst any) *bun.SelectQuery {
 	return db.NewSelect().Model(dst).
 		ColumnExpr(workOrderColumns).
 		ColumnExpr("ST_X(location) AS longitude").
-		ColumnExpr("ST_Y(location) AS latitude")
+		ColumnExpr("ST_Y(location) AS latitude").
+		// Hide a work order whose asset is SOFT-DELETED (NULL/live/purged asset kept)
+		// -- a deleted feature must not surface as the subject of a work order. See
+		// faults.selectFaults for the shared rationale.
+		Where("NOT EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = asset_id AND r.deleted_at IS NOT NULL)")
 }
 
 // CreateWorkOrderParams is the input to CreateWorkOrder. WorkType and title are

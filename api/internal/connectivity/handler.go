@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/uptrace/bun"
+
+	"github.com/kwaabs/voltedge/api/internal/auth"
 )
 
 // Routes returns a router for the connectivity engine, meant to be
@@ -14,8 +17,11 @@ import (
 //
 //	POST   /                establish a connection, gated on network_rules
 //	GET    /?feature_class=&feature_id=  list connections for one feature
-//	GET    /audit            read-only connectivity consistency report
+//	GET    /audit            read-only connectivity consistency report (?feature_ids= scopes it)
 //	POST   /audit/cleanup     remove orphaned connections (connectivity:commit)
+//	POST   /audit/reconcile   run the audit and persist it into the issue queue (connectivity:commit)
+//	GET    /issues            the validation-issue queue (filter by status/severity/kind)
+//	PATCH  /issues/{id}       triage one issue (acknowledge/resolve/suppress)
 //	DELETE /{id}             revoke (permanently remove) a connection
 //
 // Unlike api/internal/crud, there's no {code} in the path -- a
@@ -27,6 +33,11 @@ func Routes(db *bun.DB) chi.Router {
 	r.Get("/", listHandler(db))
 	r.Get("/audit", auditHandler(db))
 	r.Post("/audit/cleanup", cleanupHandler(db))
+	// Incremental validation (Step 2): run the audit and persist it into the
+	// self-pruning ops.validation_issues queue; list/triage that queue.
+	r.Post("/audit/reconcile", reconcileHandler(db))
+	r.Get("/issues", issuesListHandler(db))
+	r.Patch("/issues/{id}", issuePatchHandler(db))
 	r.Delete("/{id}", revokeHandler(db))
 	return r
 }
@@ -56,7 +67,10 @@ func cleanupHandler(db *bun.DB) http.HandlerFunc {
 }
 
 // auditHandler serves the read-only consistency audit (audit.go). It writes
-// nothing; optional tolerance_m and max_findings query params tune the run.
+// nothing; optional tolerance_m and max_findings query params tune the run, and
+// an optional feature_ids (comma-separated) SCOPES it to those features' own
+// connectivity/relationships/coincidences -- the "validate just this selection"
+// path, versus the whole-database sweep when it's omitted.
 func auditHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in AuditInput
@@ -68,6 +82,13 @@ func auditHandler(db *bun.DB) http.HandlerFunc {
 		if v := r.URL.Query().Get("max_findings"); v != "" {
 			if n, err := strconv.Atoi(v); err == nil {
 				in.MaxFindings = n
+			}
+		}
+		if v := r.URL.Query().Get("feature_ids"); strings.TrimSpace(v) != "" {
+			for _, id := range strings.Split(v, ",") {
+				if id = strings.TrimSpace(id); id != "" {
+					in.FeatureIDs = append(in.FeatureIDs, id)
+				}
 			}
 		}
 
@@ -128,6 +149,79 @@ func revokeHandler(db *bun.DB) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 
 		if err := revokeConnection(r.Context(), db, id); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// reconcileHandler runs the audit and PERSISTS it into the self-pruning issue queue
+// (issues.go): upsert findings, auto-resolve the fixed ones in the audited scope. The
+// optional JSON body { tolerance_m?, max_findings?, feature_ids?[] } scopes and tunes
+// the run; an empty body reconciles the whole database.
+func reconcileHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ToleranceM  float64  `json:"tolerance_m"`
+			MaxFindings int      `json:"max_findings"`
+			FeatureIDs  []string `json:"feature_ids"`
+		}
+		// Body is optional -- an empty/absent body is a whole-database reconcile.
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		in := AuditInput{ToleranceMeters: req.ToleranceM, MaxFindings: req.MaxFindings, FeatureIDs: req.FeatureIDs}
+		report, err := AuditConnectivity(r.Context(), db, in)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		result, err := ReconcileIssues(r.Context(), db, report, req.FeatureIDs)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"result": result, "summary": report.Summary})
+	}
+}
+
+// issuesListHandler serves the validation-issue queue. Default (no status) is the live
+// queue (open + acknowledged), errors first; optional status / severity / kind / limit
+// query params filter it.
+func issuesListHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		f := IssueFilter{
+			Status:   r.URL.Query().Get("status"),
+			Severity: r.URL.Query().Get("severity"),
+			Kind:     r.URL.Query().Get("kind"),
+		}
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				f.Limit = n
+			}
+		}
+		issues, err := ListIssues(r.Context(), db, f)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"issues": issues})
+	}
+}
+
+// issuePatchHandler triages one issue: { "status": "acknowledged" | "resolved" |
+// "suppressed" | "open" }, stamping the acting user on an acknowledge.
+func issuePatchHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var req struct {
+			Status string `json:"status"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+		if err := UpdateIssueStatus(r.Context(), db, id, req.Status, auth.ActorID(r.Context())); err != nil {
 			writeError(w, err)
 			return
 		}

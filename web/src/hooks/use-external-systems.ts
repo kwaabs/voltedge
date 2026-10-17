@@ -19,6 +19,10 @@ export interface ExternalSystem {
   auth_username?: string
   has_credential: boolean
   response_format: "json" | "xml"
+  // The outbound live-fetch path template (migration 0145), with {placeholder}
+  // fields filled from a feature's external_ref value, e.g. /meters/{id}/consumption.
+  // Absent for push/link-only systems.
+  path_template?: string
   created_at: string
   updated_at: string
 }

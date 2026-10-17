@@ -35,9 +35,9 @@ JOIN (VALUES
     ('POLE_USE', 'DISTRIBUTION', 'Distribution', 1),
     ('POLE_USE', 'TRANSMISSION', 'Transmission', 2),
     ('POLE_USE', 'SERVICE', 'Service', 3),
-    ('POLE_HEIGHT_CLASS', 'CLASS_1', 'Class 1', 1),
-    ('POLE_HEIGHT_CLASS', 'CLASS_2', 'Class 2', 2),
-    ('POLE_HEIGHT_CLASS', 'CLASS_3', 'Class 3', 3),
+    ('POLE_HEIGHT_CLASS', 'CLASS_1', 'Class 1 (9 m)', 1),
+    ('POLE_HEIGHT_CLASS', 'CLASS_2', 'Class 2 (12 m)', 2),
+    ('POLE_HEIGHT_CLASS', 'CLASS_3', 'Class 3 (15 m)', 3),
     ('CONDITION_RATING', 'GOOD', 'Good', 1),
     ('CONDITION_RATING', 'FAIR', 'Fair', 2),
     ('CONDITION_RATING', 'POOR', 'Poor', 3)

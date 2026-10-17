@@ -318,6 +318,17 @@ func toolListFeatureTags(ctx context.Context, db bun.IDB, args json.RawMessage) 
 	if in.FeatureClassCode == "" || in.FeatureID == "" {
 		return nil, fmt.Errorf("feature_class_code and feature_id are required")
 	}
+	// Gate on the feature read: don't list tags for a soft-deleted / out-of-scope /
+	// missing feature. This tool takes an arbitrary (class, id), so without the gate
+	// an agent could enumerate a deleted feature's tags -- the same leak get_feature
+	// and attachment_list were closed for.
+	loaded, err := metadata.Load(ctx, db, in.FeatureClassCode)
+	if err != nil {
+		return nil, fmt.Errorf("no such feature class %q: %w", in.FeatureClassCode, err)
+	}
+	if err := crud.EnforceFeatureReadScope(ctx, db, loaded, in.FeatureID); err != nil {
+		return nil, err
+	}
 	tags, err := assettag.ListForFeature(ctx, db, in.FeatureClassCode, in.FeatureID)
 	if err != nil {
 		return nil, err

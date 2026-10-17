@@ -177,6 +177,15 @@ func listRelationships(ctx context.Context, db bun.IDB, featureClassCode, featur
 	if err := db.NewSelect().Model(&rows).
 		Where("(origin_feature_id = ? AND origin_feature_class_id = ?) OR (destination_feature_id = ? AND destination_feature_class_id = ?)",
 			featureID, fcID, featureID, fcID).
+		// A soft-deleted feature must not exist anywhere in the system: a
+		// relationship to a deleted peer is hidden from this list the moment either
+		// endpoint is deleted, so a deleted feature stops showing on its former
+		// peers' Relationships tab (the row survives for lossless restore -- see
+		// crud.softDeleteFeature -- but it's invisible until purge/cleanup removes
+		// it). "Live" == a feature_registry row with deleted_at IS NULL, the same
+		// cross-class liveness definition the connectivity audit/cleanup use.
+		Where("origin_feature_id IN (SELECT feature_id FROM runtime.feature_registry WHERE deleted_at IS NULL)").
+		Where("destination_feature_id IN (SELECT feature_id FROM runtime.feature_registry WHERE deleted_at IS NULL)").
 		Order("established_at").
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("relationship: list: %w", err)

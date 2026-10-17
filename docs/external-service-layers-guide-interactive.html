@@ -1,0 +1,425 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge External Service Layers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px;overflow-x:auto}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.fbox{border:1.5px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 10px;font:600 12px var(--f-mono);display:inline-block}
+.fbox.bad{border-color:var(--red);color:var(--red);background:var(--red-tint)}
+.fbox.good{border-color:var(--green);color:var(--green)}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.pill.raster{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.vector{background:var(--blue-tint);color:var(--blue);border:1px solid var(--blue)}
+.lyr{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line2);padding:8px 2px}
+.lyr:first-child{border-top:0}
+.lyr .nm{flex:1;font-size:13px}
+.lyr .nm small{color:var(--muted)}
+.ctl{margin-bottom:12px}
+.ctl label{display:block;font:600 12px var(--f-mono);margin-bottom:4px}
+input[type=text],input[type=range],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%}
+input[type=range]{padding:0;accent-color:var(--acc)}
+.switch{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.switch input{accent-color:var(--acc)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+[hidden]{display:none!important}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Service Layers</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · Overview</a><a href="#c2">2 · Types</a><a href="#c3">3 · Register</a><a href="#c4">4 · On the map</a><a href="#c5">5 · Identify</a><a href="#c6">6 · Proxy &amp; safety</a><a href="#c7">7 · Limits</a><a href="#c8">8 · Check</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · external service layers · overlay someone else's live map on yours</div>
+  <h1>Their live data.<br><span>Over your network.</span></h1>
+  <p class="lede">Pull a third-party map service — an Esri ArcGIS layer, an OGC WMS/WFS, an XYZ tile set — onto the map as an overlay, fetched through VoltEdge's own server-side proxy so credentials never leave the server. This edition is a working one: pick a type, register a service, toggle it on, click to identify, and watch the SSRF gate decide.</p>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Ada</b> holds <span class="perm">metadata:write</span> — she registers services. <b>Priya</b> holds <span class="perm">features:read</span> — she toggles and identifies them on the map. <b>Dana</b> has neither. Admin actions lock to what the persona may do.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">Who this is for</span>
+<p><b>Administrators</b> who register each service once (Admin → Map settings → the <b>Service layers</b> card), and <b>any map user</b> who then switches those layers on. In the app this is called <b>"Service layers"</b> — there's no "Attach" button; enabled services simply appear as toggles in the Layers panel.</p>
+<p>The one idea to carry: a service layer is a <b>live reference you never own</b>. (Contrast <b>Data Import</b>, which <em>copies</em> rows into your own classes. Import to take ownership; a service layer to look at someone else's live data.)</p></div>
+
+<!-- 1 -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">1</div><h2>What it is</h2><p>Overlay a third-party map service on your network — raster picture or live vector features.</p></div>
+  <div class="pl-b"><span class="tag pl">In plain terms</span>
+  <p>Someone else publishes a map — the council's cadastre, an imagery provider, your GIS server's FeatureServer. Register it once, and it becomes a layer your users can switch on over the top of VoltEdge's own features.</p></div>
+  <div class="callout">The browser never talks to the third party. Every tile and query is fetched by VoltEdge's server, which keeps your credentials sealed and vets every outbound address.</div>
+  <div class="tbl"><table>
+    <tr><th>Role</th><th>Does</th><th>Needs</th></tr>
+    <tr><td>Administrator</td><td>Registers a service in the catalogue (URL, type, auth, extent…)</td><td><span class="perm">metadata:write</span></td></tr>
+    <tr><td>Map user</td><td>Toggles the layer on, sets opacity, clicks to identify</td><td><span class="perm">features:read</span></td></tr>
+  </table></div>
+</section>
+
+<!-- 2 -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">2</div><h2>The seven types</h2><p>Four raster (you see a picture) and three vector (real features you can click).</p></div>
+  <p>Pick a type to see what it is, how it renders, and what you'll provide.</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Service type chooser</h4></div>
+    <div class="w-bar"><div class="seg" id="ty-seg"></div></div>
+    <div class="w-split">
+      <div class="w-main"><dl class="kv" id="ty-kv"></dl></div>
+      <div class="w-side"><div class="readout" id="ty-note"></div></div>
+    </div>
+  </div>
+  <div class="tip"><b>Required bits</b> — <code>layer_ids</code> is required for <b>WMS, WMTS, WFS</b>; XYZ and vector-tile URLs must contain <code>{z}/{x}/{y}</code>. There's no plain "GeoJSON URL" type and no TMS — use WFS or Esri FeatureServer for vector-from-a-URL.</div>
+</section>
+
+<!-- 3 -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">3</div><h2>Register a service</h2><p>Admin → Map settings → Service layers. The catalogue entry, authored once.</p></div>
+  <p>Build an entry below. It's gated on <span class="perm">metadata:write</span> — switch to <b>Ada</b> to save it.</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Service registration</h4></div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="ctl"><label>Type</label><select class="fld" id="rg-type"></select></div>
+        <div class="ctl"><label>URL</label><input type="text" id="rg-url" value="https://gis.council.example/arcgis/rest/services/Cadastre/MapServer"></div>
+        <div class="ctl"><label>Authentication</label><select class="fld" id="rg-auth"><option value="none">none (public)</option><option value="api_key">API key</option><option value="basic">basic (user + password)</option><option value="bearer">bearer token</option></select></div>
+        <div class="ctl" id="rg-cred-wrap" hidden><label>Secret (sealed, write-only)</label><input type="text" id="rg-cred" placeholder="paste the key/token/password"></div>
+        <label class="switch"><input type="checkbox" id="rg-query"> Queryable (allow click-to-identify)</label>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn pri" id="rg-save" data-need="metadata:write">Save service</button><span id="rg-msg" class="muted" style="font-size:13px"></span></div>
+      </div>
+      <div class="w-side">
+        <div class="lab" style="margin-bottom:6px">Entry</div>
+        <div class="readout" id="rg-out"></div>
+      </div>
+    </div>
+  </div>
+  <div class="en-b"><span class="tag en">The credential is write-only</span>
+  <p>You type the secret in; VoltEdge <b>seals it with AES-256-GCM</b> server-side and <b>never returns it</b> — the API only ever reports <code>has_credential: true</code>. Edit it later with three states: blank = keep, clear = remove, new value = replace. ⚠️ An authenticated layer needs the server's encryption key configured, and is <b>always proxied</b> (the browser can't hold a server secret).</p></div>
+  <div class="tip"><b>Discover</b> — for WMS/WMTS/WFS and the Esri types, a <b>Discover</b> button fetches the service's capabilities and auto-fills the layer id(s), version, format, CRS and extent — so you pick from what the service really offers. (XYZ and vector tiles have nothing to discover.)</div>
+</section>
+
+<!-- 4 -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">4</div><h2>On the map</h2><p>Enabled services appear as toggles in the Layers panel — no "attach" step.</p></div>
+  <p>Every map user (<span class="perm">features:read</span>) sees the enabled services as a <b>Service layers</b> section. Toggle one on; an opacity slider appears.</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it · Layers panel</span><h4>Service layers</h4></div>
+    <div class="w-body"><div id="lp-list"></div></div>
+  </div>
+  <ul>
+    <li>💡 Overlays are <b>off by default</b> — opt-in, so the map stays uncluttered.</li>
+    <li>💡 Drop the opacity to see your own network <em>through</em> a raster overlay.</li>
+    <li>⚠️ Order is the admin's; users can't reorder. Your on/off + opacity choices are remembered <b>in this browser</b>, not synced to your account.</li>
+  </ul>
+</section>
+
+<!-- 5 -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">5</div><h2>Identify — click to inspect</h2><p>Read a third-party layer's attributes, if the admin allowed it.</p></div>
+  <p>If a service is <b>queryable</b>, clicking it reads its attributes — but <em>how</em> depends on the type. Toggle queryable and pick a type to see what a click does.</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it · identify</span><h4>What a click does</h4><span style="flex:1"></span><label class="switch"><input type="checkbox" id="id-query" checked> queryable</label></div>
+    <div class="w-bar"><div class="seg" id="id-seg"></div></div>
+    <div class="w-split">
+      <div class="w-main"><div class="readout" id="id-how"></div></div>
+      <div class="w-side"><div class="lab" style="margin-bottom:6px">Result panel</div><div id="id-out" class="readout">Pick a type.</div></div>
+    </div>
+  </div>
+  <div class="caution"><b>It's a fallback, read-only.</b> Identify only fires when your click <em>misses every VoltEdge feature</em> — your own network is always inspected first — and it opens a read-only panel (there's nothing of yours to edit on someone else's data).</div>
+</section>
+
+<!-- 6 -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">6</div><h2>The proxy &amp; the SSRF gate</h2><p>Why the browser never calls the third party, and which addresses the server refuses.</p></div>
+  <div class="pl-b"><span class="tag pl">In plain terms</span>
+  <p>Every request goes through VoltEdge's own same-origin proxy (<code>/service-layers/…</code>). That keeps the URL + credential on the server, sidesteps CORS, and lets the server <b>check every outbound address</b> before it connects.</p></div>
+  <p>Enter a host the service resolves to, and whether it's public/authenticated — the gate decides.</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it · SSRF gate</span><h4>Will the server fetch it?</h4></div>
+    <div class="w-bar">
+      <input type="text" id="ss-host" value="203.0.113.10" style="max-width:260px" placeholder="host or IP">
+      <label class="switch" style="margin-left:10px"><input type="checkbox" id="ss-auth"> authenticated</label>
+    </div>
+    <div class="w-body"><div id="ss-out" class="readout"></div></div>
+  </div>
+  <p>Try <code>10.0.0.5</code>, <code>127.0.0.1</code>, <code>169.254.169.254</code> (cloud metadata), <code>100.64.0.1</code> (CGNAT) — all blocked — vs a public address.</p>
+  <div class="en-b"><span class="tag en">Under the hood</span>
+  <p>The address is checked <b>after DNS resolution and on every redirect hop</b> (defeating DNS-rebinding); blocked ranges include loopback, private (RFC 1918/ULA), link-local, <b>CGNAT 100.64/10</b> and <b>NAT64</b>. Cross-host redirects strip custom headers so an API key can't leak. An <b>authenticated</b> layer is always proxied; only a public, CORS-friendly raster may go direct. Proxy limits: 20 s timeout, 32 MiB per response.</p></div>
+</section>
+
+<!-- 7 -->
+<section class="ch" id="c7">
+  <div class="ch-head"><div class="ch-num">7</div><h2>The honest edges</h2><p>Know these before you lean on a layer.</p></div>
+  <div class="cards">
+    <div class="card"><h4>CRS</h4><p>Vector is reprojected to the map's 3857. A service offering <em>only</em> a non-3857/4326 grid isn't reprojected yet.</p></div>
+    <div class="card"><h4>WMTS grid</h4><p>A best-effort Web-Mercator pyramid, not the service's exact matrix set — fine for standard providers.</p></div>
+    <div class="card"><h4>Vector style</h4><p>One flat default style; a Mapbox-GL <code>style_url</code> is accepted but not applied yet.</p></div>
+    <div class="card"><h4>Esri FeatureServer</h4><p>Read as GeoJSON — needs ArcGIS <b>10.4+</b>. WFS caps at 5,000 features.</p></div>
+    <div class="card"><h4>Identify</h4><p>Needs <code>is_queryable</code>; vector identify only finds features already on screen.</p></div>
+    <div class="card"><h4>Credentials</h4><p>Useless without the server encryption key — set it before adding an authed layer.</p></div>
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="ch" id="c8">
+  <div class="ch-head"><div class="ch-num">8</div><h2>Check yourself</h2><p>Eight asks. Pick an answer; the reason appears either way.</p></div>
+  <div id="qz"></div>
+  <footer>
+    <p><b>VoltEdge External Service Layers</b> — the interactive edition. Every rule here mirrors the shipping feature; the full manual (<code>external-service-layers-guide.md</code>) holds the field and permission tables.</p>
+    <p class="muted">Companion reading: <b>Data Import</b> (copying data in vs. overlaying it live), <b>Everyday Operations</b> Ch 11 (the Identify tool), and <b>Map Settings &amp; Basemaps</b>.</p>
+  </footer>
+</section>
+
+</div>
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* personas */
+const PERSONAS={
+  ada:{name:'Ada',role:'Admin — registers services',perms:['metadata:write','features:read']},
+  priya:{name:'Priya',role:'Map user — toggles & identifies',perms:['features:read']},
+  dana:{name:'Dana',role:'No access',perms:[]}
+};
+let persona='priya';
+const can=p=>PERSONAS[persona].perms.includes(p);
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=Object.entries(PERSONAS).map(([k,p])=>`<option value="${k}">${p.name}</option>`).join(''); sel.value=persona; sel.onchange=()=>{ persona=sel.value; applyGates(); }; })();
+function applyGates(){ $$('[data-need]').forEach(b=>{ const ok=can(b.dataset.need); b.classList.toggle('locked',!ok); b.disabled=!ok; let g=b.nextElementSibling; if(g&&g.classList&&g.classList.contains('gate')) g.remove(); if(!ok){ const s=document.createElement('span'); s.className='gate'; s.textContent='needs '+b.dataset.need; b.after(s); } }); }
+
+/* 2 · type chooser */
+const TYPES={
+  wms:{label:'WMS',fam:'raster',ol:'TileWMS',provide:'GetMap URL + layer name(s)',identify:'server GetFeatureInfo',note:'OGC Web Map Service. The server renders an image per tile; layer_ids = the LAYERS to draw. Identify asks the service GetFeatureInfo at the click.'},
+  wmts:{label:'WMTS',fam:'raster',ol:'WMTS',provide:'WMTS URL + layer identifier',identify:'—',note:'OGC tiled WMS. Pre-rendered tiles. The tile grid is a best-effort Web-Mercator pyramid rather than the exact matrix set.'},
+  xyz:{label:'XYZ tiles',fam:'raster',ol:'XYZ',provide:'a {z}/{x}/{y} template',identify:'—',note:'A plain slippy-tile template — the simplest raster. No layer_ids; the URL must carry {z}/{x}/{y}.'},
+  esri_map:{label:'Esri MapServer',fam:'raster',ol:'TileArcGISRest',provide:'MapServer root URL (+ sublayers)',identify:'server identify',note:'ArcGIS dynamic map service. VoltEdge appends /export. Identify uses the ArcGIS identify endpoint server-side.'},
+  vector_tile:{label:'Vector tiles (MVT)',fam:'vector',ol:'VectorTile / MVT',provide:'a {z}/{x}/{y} template',identify:'client hit-test',note:'Mapbox Vector Tiles — real vector features. A Mapbox-GL style_url is accepted but not applied yet (flat default style).'},
+  esri_feature:{label:'Esri FeatureServer',fam:'vector',ol:'Vector (GeoJSON)',provide:'FeatureServer/{id} URL',identify:'client hit-test',note:'ArcGIS feature service read as GeoJSON (f=geojson, needs ArcGIS 10.4+), loaded by on-screen bbox. Identify hit-tests the rendered features.'},
+  wfs:{label:'WFS',fam:'vector',ol:'Vector (GeoJSON)',provide:'WFS URL + typeName',identify:'client hit-test',note:'OGC Web Feature Service. GeoJSON by bbox, capped at 5,000 features. Identify hit-tests what is drawn.'}
+};
+(function(){ const ks=Object.keys(TYPES); let cur='esri_map';
+  $('#ty-seg').innerHTML=ks.map(k=>`<button data-k="${k}" aria-pressed="${k===cur}">${TYPES[k].label}</button>`).join('');
+  function paint(){ const t=TYPES[cur]; $('#ty-kv').innerHTML=`<dt>Family</dt><dd><span class="pill ${t.fam}">${t.fam}</span></dd><dt>Renders as</dt><dd>OpenLayers ${esc(t.ol)}</dd><dt>You provide</dt><dd>${esc(t.provide)}</dd><dt>Identify</dt><dd>${t.identify==='—'?'<span class="muted">not supported</span>':esc(t.identify)}</dd>`; $('#ty-note').textContent=t.note; $$('#ty-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur)); }
+  $('#ty-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); }; paint();
+})();
+
+/* 3 · registration */
+(function(){ const sel=$('#rg-type'); sel.innerHTML=Object.keys(TYPES).map(k=>`<option value="${k}" ${k==='esri_map'?'selected':''}>${TYPES[k].label}</option>`).join('');
+  const st={type:'esri_map',auth:'none',query:false};
+  const needsLayerIds=t=>t==='wms'||t==='wmts'||t==='wfs';
+  const needsTemplate=t=>t==='xyz'||t==='vector_tile';
+  function paint(){
+    $('#rg-cred-wrap').hidden = st.auth==='none';
+    const proxied = st.auth!=='none';
+    $('#rg-out').innerHTML = `<b>service_type</b> ${st.type}<br><b>url</b> …<br>`
+      + (needsLayerIds(st.type)?`<b>layer_ids</b> <span style="color:var(--amber)">required</span><br>`:'')
+      + (needsTemplate(st.type)?`<span style="color:var(--amber)">↳ url must contain {z}/{x}/{y}</span><br>`:'')
+      + `<b>auth_type</b> ${st.auth}`
+      + (st.auth!=='none'?`<br><b>has_credential</b> <span id="rg-hc" style="color:var(--muted)">false</span>`:'')
+      + `<br><b>is_queryable</b> ${st.query}`
+      + `<br><b>proxied</b> ${proxied?'<span style="color:var(--green)">yes (forced — authenticated)</span>':'optional'}`;
+  }
+  sel.onchange=()=>{ st.type=sel.value; paint(); };
+  $('#rg-auth').onchange=e=>{ st.auth=e.target.value; $('#rg-msg').textContent=''; paint(); };
+  $('#rg-query').onchange=e=>{ st.query=e.target.checked; paint(); };
+  $('#rg-save').onclick=()=>{ if(!can('metadata:write')) return; const hc=$('#rg-hc'); const typed=$('#rg-cred').value.trim();
+    if(st.auth!=='none'&&hc){ hc.textContent = typed?'true (sealed AES-256-GCM)':'false'; hc.style.color=typed?'var(--green)':'var(--muted)'; }
+    $('#rg-msg').textContent='Saved — the secret is sealed and never returned.'; };
+  paint();
+})();
+
+/* 4 · layers panel mock */
+(function(){ const L=[
+    {id:'cadastre',label:'Council cadastre',type:'esri_map',on:false,op:1},
+    {id:'imagery',label:'Aerial imagery',type:'xyz',on:true,op:0.7},
+    {id:'flood',label:'Flood zones (WFS)',type:'wfs',on:false,op:1}];
+  function render(){ $('#lp-list').innerHTML='<div class="lab" style="margin-bottom:4px">🌐 Service layers</div>'+L.map((l,i)=>
+    `<div class="lyr"><input type="checkbox" data-i="${i}" ${l.on?'checked':''}><span class="nm">${esc(l.label)} <small>· ${l.type}</small></span>`
+    +(l.on?`<input type="range" min="0" max="1" step="0.05" value="${l.op}" data-op="${i}" style="width:120px">`:'')+'</div>').join('');
+    $$('#lp-list input[type=checkbox]').forEach(c=>c.onchange=e=>{ L[+e.target.dataset.i].on=e.target.checked; render(); });
+    $$('#lp-list input[data-op]').forEach(r=>r.oninput=e=>{ L[+e.target.dataset.op].op=+e.target.value; }); }
+  render();
+})();
+
+/* 5 · identify */
+(function(){ const ks=Object.keys(TYPES); let cur='wms';
+  $('#id-seg').innerHTML=ks.map(k=>`<button data-k="${k}" aria-pressed="${k===cur}">${TYPES[k].label}</button>`).join('');
+  function paint(){ const t=TYPES[cur]; const q=$('#id-query').checked; $$('#id-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur));
+    if(!q){ $('#id-how').innerHTML='<b>Not queryable</b> — the admin didn’t enable <code>is_queryable</code>, so a click does nothing on this layer.'; $('#id-out').innerHTML='<span class="muted">(no identify)</span>'; return; }
+    if(t.identify==='—'){ $('#id-how').innerHTML=`<b>${t.label}</b> has no identify — it’s a plain tile source with no feature data to query.`; $('#id-out').innerHTML='<span class="muted">(nothing to read)</span>'; return; }
+    if(t.identify.startsWith('server')){ $('#id-how').innerHTML=`<b>${t.label}</b> → a <b>server round-trip</b> (${esc(t.identify)}): VoltEdge asks the service at the click point and shows what it returns.`; }
+    else { $('#id-how').innerHTML=`<b>${t.label}</b> → a <b>client hit-test</b>: VoltEdge inspects the features <em>already drawn on screen</em> under the cursor — so it only finds what’s currently in view.`; }
+    $('#id-out').innerHTML='<b>Parcel 44/7</b><br>owner: Public<br>zoning: residential<br><span class="muted">(read-only — a third-party feature)</span>'; }
+  $('#id-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); };
+  $('#id-query').onchange=paint; paint();
+})();
+
+/* 6 · SSRF gate */
+function classifyHost(h){
+  h=(h||'').trim();
+  // crude IPv4 parse; hostnames treated as "resolves to public" for the demo.
+  const m=h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if(!m) return h?{ok:true,why:'a hostname — allowed only if it resolves to a public IP (checked after DNS).'}:{ok:false,why:'enter a host or IP.'};
+  const o=m.slice(1).map(Number); if(o.some(x=>x>255)) return {ok:false,why:'not a valid IPv4 address.'};
+  const [a,b,c]=o;
+  if(a===127) return {ok:false,why:'loopback (127.0.0.0/8) — blocked.'};
+  if(a===10) return {ok:false,why:'private RFC 1918 (10/8) — blocked.'};
+  if(a===172&&b>=16&&b<=31) return {ok:false,why:'private RFC 1918 (172.16/12) — blocked.'};
+  if(a===192&&b===168) return {ok:false,why:'private RFC 1918 (192.168/16) — blocked.'};
+  if(a===169&&b===254) return {ok:false,why:'link-local / cloud metadata (169.254/16) — blocked.'};
+  if(a===100&&b>=64&&b<=127) return {ok:false,why:'CGNAT (100.64/10, RFC 6598) — blocked.'};
+  if(a===0) return {ok:false,why:'unspecified (0/8) — blocked.'};
+  if(a>=224&&a<=239) return {ok:false,why:'multicast — blocked.'};
+  return {ok:true,why:'public unicast — allowed.'};
+}
+(function(){ function run(){ const r=classifyHost($('#ss-host').value); const authed=$('#ss-auth').checked;
+    const proxied = authed; // authenticated => always proxied; public raster could be direct
+    $('#ss-out').innerHTML = (r.ok?`<span class="fbox good">fetch allowed</span>`:`<span class="fbox bad">blocked</span>`)+` &nbsp; ${esc(r.why)}`
+      + `<br><br><b>Route:</b> ${authed?'<span style="color:var(--green)">through VoltEdge’s proxy</span> (authenticated — the browser can’t hold the server secret)':'proxy by default; a public CORS-friendly raster <em>may</em> be served direct'}`; }
+  $('#ss-host').oninput=run; $('#ss-auth').onchange=run; run();
+})();
+
+/* 8 · quiz */
+(function(){ const Q=[
+ ['A map user with only <code>features:read</code> opens the Layers panel. What can they do?','Toggle service layers on and identify them, but not register one',['Register a new service','Toggle service layers on and identify them, but not register one','Nothing','Edit the service URL'],'Registering needs metadata:write; toggling + identify is features:read.'],
+ ['You add an authenticated WMS. Does the browser ever hold the API key?','No — an authenticated layer is always fetched through the server proxy',['Yes, in localStorage','No — an authenticated layer is always fetched through the server proxy','Only the first time','Yes, as a cookie'],'The secret is sealed server-side; authed layers are always proxied.'],
+ ['A service URL resolves to <code>169.254.169.254</code>. What happens?','The server refuses it — link-local / cloud-metadata is blocked',['It fetches normally','The server refuses it — link-local / cloud-metadata is blocked','It is proxied with a warning','Only blocked if authenticated'],'SSRF gate blocks loopback/private/link-local/CGNAT/NAT64, checked after DNS and on redirects.'],
+ ['You stored a credential, then GET the service. What does the API return for the secret?','has_credential: true — the secret itself is never returned',['The plaintext secret','has_credential: true — the secret itself is never returned','The AES ciphertext','An empty string'],'Write-only: sealed with AES-256-GCM, only has_credential is exposed.'],
+ ['Which type can NOT be click-identified?','XYZ raster tiles',['WMS','XYZ raster tiles','Esri MapServer','WFS'],'XYZ/WMTS are plain tiles with no feature data; identify needs GetFeatureInfo/identify or rendered vector features.'],
+ ['You identify a WFS layer but the feature you want is off-screen. Found?','No — vector identify only hit-tests features already rendered on screen',['Yes, it queries the whole dataset','No — vector identify only hit-tests features already rendered on screen','Only if queryable','Only for Esri'],'WFS/FeatureServer/vector-tile identify is a client hit-test of the drawn features.'],
+ ['Where does a user’s "layer on + opacity" choice persist?','In their browser (localStorage), not their account',['In the database per user','In their browser (localStorage), not their account','In the service catalogue','Nowhere'],'Like pins and hidden layers — per-browser, not synced per account.'],
+ ['What’s the difference between importing data and a service layer?','Import copies rows you own; a service layer is a live reference you don’t',['Nothing','Import copies rows you own; a service layer is a live reference you don’t','Service layers are faster','Import is read-only'],'Import to take ownership (validated, yours); a service layer to view someone else’s live data.']];
+  $('#qz').innerHTML=Q.map((x,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${x[0]}<div class="opts">${x[2].map(o=>`<button class="btn" data-o="${esc(o)}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $$('#qz .quiz-q').forEach((el,i)=>{ const x=Q[i]; el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const good=b.dataset.o===esc(x[1]); const fb=el.querySelector('.fb'); fb.className='fb '+(good?'good':'bad'); fb.innerHTML=(good?'✔ Correct. ':`✘ Answer: <b>${x[1]}</b>. `)+x[3]; }); });
+})();
+
+/* scroll-spy */
+(function(){ const links=[...document.querySelectorAll('#chaps a')]; const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));
+  const io=new IntersectionObserver(es=>{es.forEach(e=>{ if(e.isIntersecting){links.forEach(l=>l.classList.remove('on')); const a=map.get(e.target.id); if(a){a.classList.add('on'); a.scrollIntoView({block:'nearest',inline:'center'})}}})},{rootMargin:'-30% 0px -60% 0px'});
+  document.querySelectorAll('section.ch').forEach(s=>io.observe(s)); })();
+
+applyGates();
+</script>
+</body></html>

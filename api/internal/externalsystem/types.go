@@ -24,8 +24,12 @@ type systemResponse struct {
 	AuthUsername   string    `json:"auth_username,omitempty"`
 	HasCredential  bool      `json:"has_credential"`
 	ResponseFormat string    `json:"response_format"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	// PathTemplate (migration 0145): the outbound live-fetch path for the feature
+	// external_ref fetch, with {placeholder} fields filled from a feature's ref
+	// value (e.g. /meters/{id}/consumption). Omitted when unset (push/link-only).
+	PathTemplate string    `json:"path_template,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // createRequest is the POST / body. Credential is the plaintext secret
@@ -40,6 +44,7 @@ type createRequest struct {
 	AuthUsername   string `json:"auth_username"`
 	Credential     string `json:"credential"`
 	ResponseFormat string `json:"response_format"`
+	PathTemplate   string `json:"path_template"`
 }
 
 // updateRequest is the PATCH /{code} body. Every field is optional --
@@ -54,6 +59,9 @@ type updateRequest struct {
 	AuthUsername   *string `json:"auth_username"`
 	Credential     *string `json:"credential"`
 	ResponseFormat *string `json:"response_format"`
+	// PathTemplate is two-state like the rest: absent = leave it, present = set
+	// (an empty string clears it back to push/link-only).
+	PathTemplate   *string `json:"path_template"`
 }
 
 // apiError is the JSON body returned for any 4xx/5xx response.

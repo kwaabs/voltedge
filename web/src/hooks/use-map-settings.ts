@@ -19,6 +19,14 @@ export interface MapView {
    * (the default). Distinct from the default-view zoom above. */
   annotation_min_zoom: number | null
   annotation_max_zoom: number | null
+  /** Optional operating-area bounds (the utility's service territory): a lon/lat
+   * bbox the map view is constrained to, outside which nothing is shown and no
+   * tiles are fetched. All four together or all null (= unbounded, roams the whole
+   * world, the default). */
+  bounds_min_lng: number | null
+  bounds_min_lat: number | null
+  bounds_max_lng: number | null
+  bounds_max_lat: number | null
 }
 
 /**

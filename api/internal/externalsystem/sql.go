@@ -27,6 +27,10 @@ type ExternalSystem struct {
 	AuthUsername   *string   `bun:"auth_username"`
 	CredentialEnc  []byte    `bun:"credential_enc"`
 	ResponseFormat string    `bun:"response_format"`
+	// PathTemplate (migration 0145): for the feature external_ref fetch -- a path
+	// with {placeholder} fields filled from a feature's external_ref value for this
+	// system (e.g. /meters/{id}/consumption). Null for push-only / link-only systems.
+	PathTemplate   *string   `bun:"path_template"`
 	CreatedAt      time.Time `bun:"created_at,nullzero"`
 	UpdatedAt      time.Time `bun:"updated_at,nullzero"`
 }
@@ -142,6 +146,7 @@ func createSystem(ctx context.Context, s *store, req createRequest) (*systemResp
 		BaseURL:        baseURL,
 		AuthType:       authType,
 		ResponseFormat: responseFormat,
+		PathTemplate:   ptrIfSet(req.PathTemplate),
 	}
 	// 'none' carries no auth params even if the caller sent stray ones.
 	if authType != "none" {
@@ -229,6 +234,9 @@ func updateSystem(ctx context.Context, s *store, code string, req updateRequest)
 	if req.ResponseFormat != nil {
 		sys.ResponseFormat = strings.TrimSpace(*req.ResponseFormat)
 	}
+	if req.PathTemplate != nil {
+		sys.PathTemplate = ptrIfSet(*req.PathTemplate)
+	}
 	// Switching to 'none' drops any auth params + stored secret.
 	if sys.AuthType == "none" {
 		sys.AuthHeader = nil
@@ -262,7 +270,7 @@ func updateSystem(ctx context.Context, s *store, code string, req updateRequest)
 
 	sys.UpdatedAt = time.Now()
 	if _, err := s.db.NewUpdate().Model(&sys).
-		Column("name", "base_url", "auth_type", "auth_header", "auth_username", "credential_enc", "response_format", "updated_at").
+		Column("name", "base_url", "auth_type", "auth_header", "auth_username", "credential_enc", "response_format", "path_template", "updated_at").
 		WherePK().
 		Exec(ctx); err != nil {
 		return nil, fmt.Errorf("externalsystem: update: %w", err)
@@ -302,6 +310,9 @@ func formatSystem(sys *ExternalSystem) *systemResponse {
 	}
 	if sys.AuthUsername != nil {
 		resp.AuthUsername = *sys.AuthUsername
+	}
+	if sys.PathTemplate != nil {
+		resp.PathTemplate = *sys.PathTemplate
 	}
 	return resp
 }
