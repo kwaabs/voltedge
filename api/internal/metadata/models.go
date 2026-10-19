@@ -133,6 +133,14 @@ type Field struct {
 	VisibleOnCreate      bool    `bun:"visible_on_create"`
 	VisibleOnUpdate      bool    `bun:"visible_on_update"`
 	EditableAfterPublish bool    `bun:"editable_after_publish"`
+	// Per-class display order of the field in the attribute form (migration
+	// 0146). Pure UI metadata -- Load orders by it; the compiler ignores it.
+	SortOrder int `bun:"sort_order"`
+	// Field-level default value (migration 0150), as text, cast to data_type at
+	// write time (a coded/domain field holds the domain value code). Applied on
+	// create when the field is omitted; overridden per subtype by
+	// SubtypeFieldRule.DefaultOverride. Read live -- no recompile.
+	DefaultValue *string `bun:"default_value"`
 }
 
 // Subtype mirrors metadata.subtypes -- see migrations/0008.

@@ -58,6 +58,7 @@ import { FeatureAttachments } from "@/components/map/feature-attachments"
 import { FeatureCreateForm } from "@/components/map/feature-create-form"
 import { FeatureEditForm } from "@/components/map/feature-edit-form"
 import { FaultsTab } from "@/components/map/feature-faults-tab"
+import { OperationsTab } from "@/components/map/feature-operations-tab"
 import { TagsTab } from "@/components/map/feature-tags-tab"
 import { WorksTab } from "@/components/map/feature-works-tab"
 import { formatFieldLabel, formatValue, inputClass } from "@/components/map/field-utils"
@@ -155,6 +156,7 @@ type TabId =
   | "materials"
   | "works"
   | "faults"
+  | "operations"
   | "tags"
   | "files"
   | "links"
@@ -168,6 +170,7 @@ const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
   { id: "materials", label: "Materials", icon: Wrench },
   { id: "works", label: "Works", icon: ClipboardList },
   { id: "faults", label: "Faults", icon: ZapOff },
+  { id: "operations", label: "Operations", icon: Activity },
   { id: "tags", label: "Tags", icon: QrCode },
   { id: "files", label: "Files", icon: Paperclip },
   { id: "links", label: "Links", icon: ExternalLinkIcon },
@@ -324,6 +327,18 @@ function AttributesTab() {
       ? subtypeSchema?.fields.find((f) => f.name === fieldName)?.domain_value_labels?.[value]
       : undefined
 
+  // Show attributes in the admin-set field order (the schema's fields come back
+  // in sort_order -- migration 0146), not the raw attribute-object key order, so
+  // the read-only panel matches the create/edit forms. A field not in the schema
+  // (loading, or a stray attribute) sorts after the known ones, keeping its
+  // original relative position.
+  const fieldOrder = new Map((subtypeSchema?.fields ?? []).map((f, i) => [f.name, i]))
+  const orderedAttributes = Object.entries(feature.attributes).sort(([a], [b]) => {
+    const ia = fieldOrder.get(a) ?? Number.MAX_SAFE_INTEGER
+    const ib = fieldOrder.get(b) ?? Number.MAX_SAFE_INTEGER
+    return ia - ib
+  })
+
   // Move the feature between draft and published -- the review/sign-off axis.
   // status is the publish system column, not a metadata attribute, so it's
   // deliberately absent from the edit form; this inline control is its home.
@@ -456,7 +471,7 @@ function AttributesTab() {
         </>
       )}
 
-      {Object.entries(feature.attributes).map(([key, value]) => (
+      {orderedAttributes.map(([key, value]) => (
         <Fragment key={key}>
           <dt className={dtClass}>{formatFieldLabel(key)}</dt>
           <dd className={ddClass}>
@@ -3146,6 +3161,7 @@ export function FeaturePanel() {
   // can carry a defect or work order), so it's not restricted by network role.
   const canReadWorks = usePermission()("wam:read")
   const canReadFaults = usePermission()("faults:read")
+  const canReadOperations = usePermission()("operations:read")
   const canReadTags = usePermission()("tags:read")
   const canWriteCircuits = usePermission()("circuits:write")
   const [circuitSourceOpen, setCircuitSourceOpen] = useState(false)
@@ -3158,6 +3174,11 @@ export function FeaturePanel() {
       (tab.id !== "terminals" || isConnectable) &&
       (tab.id !== "works" || canReadWorks) &&
       (tab.id !== "faults" || canReadFaults) &&
+      // Operations (the device-operation log) only makes sense for an operable
+      // device -- a protective/switching apparatus, which is a `junction` in the
+      // network model (a breaker/recloser/fuse/switch). Hidden for edges,
+      // containers and non-network features, and for a user without operations:read.
+      (tab.id !== "operations" || (canReadOperations && selectedNetworkRole === "junction")) &&
       (tab.id !== "tags" || canReadTags),
   )
 
@@ -3805,7 +3826,7 @@ export function FeaturePanel() {
 
       {!minimized && (
       <div className="flex min-h-0 flex-1">
-        <div className="bg-muted/40 flex w-32 shrink-0 flex-col gap-0.5 border-r border-[oklch(0.45_0.10_252)]/10 dark:border-primary/10 p-1">
+        <div className="scrollbar-thin bg-muted/40 flex w-32 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-[oklch(0.45_0.10_252)]/10 dark:border-primary/10 p-1">
           {visibleTabs.map((tab) => {
             // Terminals/Relationships unmount when the active tab
             // changes (see below) -- switching away mid-edit would
@@ -3855,6 +3876,7 @@ export function FeaturePanel() {
               {activeTab === "materials" && <MaterialsTab onEditClick={() => setActiveTab("attributes")} />}
               {activeTab === "works" && <WorksTab />}
               {activeTab === "faults" && <FaultsTab />}
+              {activeTab === "operations" && <OperationsTab />}
               {activeTab === "tags" && <TagsTab />}
               {activeTab === "files" && (
                 <FeatureAttachments

@@ -94,9 +94,16 @@ interface CoordinationState {
   armed: boolean
   armedStart: TraceFeatureRef | null
   armedFault: TraceFeatureRef | null
+  // True while the panel's "Pick fault" button has armed the map to take the
+  // NEXT feature click as the fault location (voltedge-map.tsx's click handler /
+  // peer-picker.tsx route to setFault while this is set) -- the arm-then-click
+  // gesture, same shape as trace-path-store.ts's `active`. NOT persisted.
+  pickingFault: boolean
   result: CoordinationResult | null
   loading: boolean
   arm: (start: TraceFeatureRef) => void
+  startPickFault: () => void
+  cancelPickFault: () => void
   setFault: (fault: TraceFeatureRef) => void
   rearm: () => void
   setLoading: (loading: boolean) => void
@@ -110,14 +117,21 @@ export const useCoordinationStore = create<CoordinationState>()(
       armed: false,
       armedStart: null,
       armedFault: null,
+      pickingFault: false,
       result: null,
       loading: false,
-      arm: (start) => set({ armed: true, armedStart: start, armedFault: null, result: null, loading: false }),
-      setFault: (fault) => set({ armedFault: fault }),
-      rearm: () => set({ armed: true, result: null, loading: false }),
+      arm: (start) =>
+        set({ armed: true, armedStart: start, armedFault: null, pickingFault: false, result: null, loading: false }),
+      startPickFault: () => set({ pickingFault: true }),
+      cancelPickFault: () => set({ pickingFault: false }),
+      // Setting the fault (from a map click while picking, or the peer-picker)
+      // also ends the pick gesture.
+      setFault: (fault) => set({ armedFault: fault, pickingFault: false }),
+      rearm: () => set({ armed: true, pickingFault: false, result: null, loading: false }),
       setLoading: (loading) => set({ loading }),
       setResult: (result) => set({ result, loading: false }),
-      clear: () => set({ armed: false, armedStart: null, armedFault: null, result: null, loading: false }),
+      clear: () =>
+        set({ armed: false, armedStart: null, armedFault: null, pickingFault: false, result: null, loading: false }),
     }),
     resultPersist("voltedge-coordination-result"),
   ),

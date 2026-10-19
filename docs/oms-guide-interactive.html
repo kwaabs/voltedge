@@ -292,7 +292,7 @@ svg text{font-family:var(--f-mono)}
   <div class="rail-in">
     <div class="brand"><span class="dot"></span>OMS</div>
     <div class="chaps" id="chaps">
-      <a href="#c1">1 · Records</a><a href="#c2">2 · Who</a><a href="#c3">3 · Calls</a><a href="#c4">4 · Incident</a><a href="#c5">5 · Live cone</a><a href="#c6">6 · Switching</a><a href="#c7">7 · Planned</a><a href="#c8">8 · Reliability</a><a href="#c9">9 · Integration</a><a href="#c10">10 · Feeder 7</a><a href="#c11">11 · Reference</a>
+      <a href="#c1">1 · Records</a><a href="#c2">2 · Who</a><a href="#c3">3 · Calls</a><a href="#c4">4 · Incident</a><a href="#c5">5 · Live cone</a><a href="#c6">6 · Switching</a><a href="#c6b">6b · Restore (FLISR)</a><a href="#c7">7 · Planned</a><a href="#c8">8 · Reliability</a><a href="#c9">9 · Integration</a><a href="#c10">10 · Feeder 7</a><a href="#c11">11 · Reference</a>
     </div>
     <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
   </div>
@@ -307,7 +307,7 @@ svg text{font-family:var(--f-mono)}
 </header>
 
 <div class="en-b" style="margin-top:22px"><span class="tag en">Who this is for</span>
-<p><b>Control-room operators</b> who take calls and drive outages to restoration, <b>planners</b> scheduling planned work, and <b>engineers</b> reading reliability performance. The full manual (<code>oms-guide.md</code>) holds every table; this edition keeps all ten sections, the reference appendix and the corrections list, and makes each idea something you can poke.</p>
+<p><b>Control-room operators</b> who take calls and drive outages to restoration, <b>planners</b> scheduling planned work, and <b>engineers</b> reading reliability performance. The full manual (<code>oms-guide.md</code>) holds every table; this edition keeps all ten sections (plus a FLISR back-feed restoration chapter), the reference appendix and the corrections list, and makes each idea something you can poke.</p>
 <p>Four honest limits up front, because they decide how far to trust a screen: <b>“affected” and “dark now” are two different engines</b> and are not meant to match; the <b>class walks behind prediction, the affected count and the switching order’s <i>verify N</i> are strictly directed</b>, so a customer fed through an RMU bus can be missed — or blamed on <i>no</i> device; <b>SAIDI/SAIFI/CAIDI are unplanned-only</b>; and <b>executing an open/close step really flips the device’s <code>device_state</code></b>. Chapters 4–6 and 8 show each of them with numbers.</p></div>
 
 <h3 style="margin-top:28px">The cast &amp; the running example</h3>
@@ -328,6 +328,7 @@ svg text{font-family:var(--f-mono)}
   <tr><td>§4 The incident &amp; who’s affected</td><td>4</td><td>Status machine · Attribution rules · Affected vs walk</td></tr>
   <tr><td>§5 The live de-energised cone</td><td>5</td><td>Operate the network</td></tr>
   <tr><td>§6 Switching orders &amp; live-state coupling</td><td>6</td><td>Order generator</td></tr>
+  <tr><td>FLISR — restore by back-feed</td><td>6b</td><td>Back-feed suggester + load-flow capacity</td></tr>
   <tr><td>§7 Planned outages</td><td>7</td><td>Planned-outage booking</td></tr>
   <tr><td>§8 Restore &amp; reliability indices</td><td>8</td><td>Index calculator · By cause</td></tr>
   <tr><td>§9 Integration</td><td>9</td><td>Webhooks &amp; MCP tools</td></tr>
@@ -472,6 +473,53 @@ svg text{font-family:var(--f-mono)}
   </div>
   <div class="caution"><b>⚠️ Executing an open/close step changes the real network.</b> Ticking an <code>open</code> or <code>close</code> step <b>flips the target device’s live <code>device_state</code></b> — through <code>crud.UpdateFeature</code>, so it is validated and logged to <code>gis.feature_history</code> with the acting user — and every trace, the power-flow engine and the map immediately reflect it. <code>verify</code>, <code>earth</code> and <code>note</code> steps only record <code>executed_at</code>. A device with no <code>device_state</code>, or one that has been deleted, is silently skipped — the step never fails. <b>Un-ticking writes the <i>opposite</i> position, not the previous one</b> (<code>switching.go:322-334</code>): un-tick <code>open</code> → <code>CLOSED</code>; un-tick <code>close</code> → <code>OPEN</code>. So with REC-7 already locked out, ticking its “open” step is a no-op but <i>un-ticking</i> it <b>closes REC-7 in the model</b>. Try it above.</div>
   <p>So as Dana ticks the isolate and restore steps, Priya watches the red cone on the outage map shrink in real time — the steps are <i>operating</i> the model, not just checking boxes. Cancelling an order keeps its steps but does <b>not</b> undo any state it flipped, and a completed order cannot be cancelled.</p>
+</section>
+
+<!-- ============ CH6b — FLISR ============ -->
+<section class="ch" id="c6b">
+  <div class="ch-head"><div class="ch-num">6b</div><h2>Restore by back-feed — FLISR</h2><p>When the fault won’t clear fast: which tie to close, from where, and whether the donor can take it.</p></div>
+  <p>The Chapter 6 order restores by <b>re-closing the blamed device</b> — right once the fault clears. When it <i>won’t</i> clear quickly, VoltEdge instead suggests <b>back-feeding the dead section from a neighbouring feeder</b> through a <b>normally-open tie</b>, and checks with a real load-flow sweep whether that feeder can carry it. This is the <b>service-restoration</b> half of FLISR (Fault Location, Isolation &amp; Service Restoration); the standalone manual <b>FLISR — Service Restoration by Back-Feed</b> holds the full reference. It <b>suggests only</b> — writes nothing, flips no switch — then drafts the close-tie order on one click.</p>
+  <p><b>Why this exists — the back-feed gap.</b> §5 flagged a blind spot twice: a region fed from a neighbour <i>through a closed normally-open tie</i> still sits inside the tripped device’s directed cone, so the live read can call it dark when it isn’t. FLISR is the other side of that coin — the tool that <b>tells you which tie to close</b> to make that back-feed, and whether the donor can take it. It answers the control-room question after an isolate: <i>“the section past REC-7 is dead and the fault is isolated — can I pick those customers up from elsewhere while the repair runs?”</i></p>
+  <div class="en-b"><span class="tag en">∑ Model — five steps</span>
+  <p>The engine (<code>oms/restore.go SuggestRestoration</code>) composes primitives you have already met; it computes nothing electrical the rest of the app doesn’t:</p>
+  <ol style="font-size:13.5px;padding-left:20px;margin:6px 0 0;line-height:1.6">
+    <li><b>Dead cone.</b> <code>trace.DeEnergizedCone(device)</code> — what is dark <i>now</i> (reads live <code>device_state</code>), including the open tie at its boundary (an open device is a barrier the walk reaches but does not cross).</li>
+    <li><b>Candidate ties.</b> the cone members whose class is tie-capable (offers <code>normal_state</code>/<code>NORMALLY_OPEN</code>) <b>and</b> whose own live <code>normal_state</code> is <code>NORMALLY_OPEN</code>.</li>
+    <li><b>Live far side.</b> the tie’s connected neighbours <i>not</i> in the cone; a liveness check (<code>NetworkDeEnergized</code>) keeps only the genuinely energised ones — a far side that is itself dead (another outage, the same ring) restores nothing.</li>
+    <li><b>Donor &amp; load.</b> <code>UpstreamFeaturesOfClass</code> finds the feeder heads above the live far side — the <b>nearest</b> names the alternate source, the <b>farthest</b> is the grid source the sweep starts from. Restored load = <code>SummarizeService</code> over the dead cone’s leaves; the donor’s present load = <code>DownstreamLoadLeaves</code>.</li>
+    <li><b>Capacity verdict</b> (below), then <b>rank</b>: capacity-OK before unverified before exceeds, then most customers restored, then most load.</li>
+  </ol></div>
+  <div class="en-b"><span class="tag en">∑ Model — the capacity verdict, two bases</span>
+  <p>A plan’s badge comes from one of two bases, in rising authority (the field <code>verdict_basis</code> says which decided it):</p>
+  <div class="tbl"><table>
+    <tr><th>Badge</th><th><code>verdict_basis</code></th><th>How it is decided</th></tr>
+    <tr><td><span class="pill fresh">Capacity OK · load-flow</span></td><td><code>load_flow</code></td><td>A real contingency sweep (<code>powerflow/contingency.go</code>) closes the tie, re-sweeps the donor, and finds <b>no</b> post-transfer voltage violation (outside 0.95–1.05 pu) and <b>no</b> thermal overload.</td></tr>
+    <tr><td><span class="pill stale">Overloads feeder</span></td><td><code>load_flow</code></td><td>that sweep found a violation or an overload — not a clean transfer.</td></tr>
+    <tr><td><span class="pill fresh">Capacity OK</span> <span class="muted">(no suffix)</span></td><td><code>nameplate</code></td><td>no sweep voltage was available, so the quick estimate stands: the restored kVA fits the donor transformer’s spare rating.</td></tr>
+    <tr><td><span class="pill sec">Capacity unverified</span></td><td><code>none</code></td><td>neither a sweep voltage nor a transformer nameplate was found — the fit cannot be judged.</td></tr>
+  </table></div>
+  <p>The load-flow sweep <b>supersedes</b> the nameplate when it reaches a verdict. An <i>inconclusive</i> sweep — the tie forms a loop/mesh (a parallel path, not a radial transfer) or it energises no new load — leaves the nameplate verdict standing, and a sweep <i>failure</i> degrades to nameplate with a note, so one bad sweep never sinks the suggestion.</p></div>
+  <div class="tip"><b>Prerequisite — model the ties.</b> FLISR can only suggest a tie it can <i>see</i>: a switch whose class carries the Phase-48 <code>normal_state</code> field <b>and</b> whose live value is <code>NORMALLY_OPEN</code> (place them with the Add-tie flow — see <b>Switching &amp; Protection</b>). No modelled tie on the dead section’s edge → the panel says so plainly rather than inventing a path. This is the single most common reason it comes up empty.</div>
+  <p>The scenario is the running one: <b>REC-7 is locked out <code>OPEN</code></b>, so the Feeder 7 tail — SP-220 and the clinic SP-230 — is dark. A <b>normally-open tie T-79</b> sits on the ring tail, one hop from <b>Feeder 9</b>. Below, FLISR finds that tie, names the donor, totals what it restores, and runs the sweep. Flip <b>Feeder 9’s existing load</b> and watch the same tie turn from a clean transfer into one the sweep refuses.</p>
+  <div class="widget" id="wfl">
+    <div class="w-head"><span class="eyebrow">Interactive · FLISR</span><h4>Suggest a back-feed — and load-flow-check it</h4></div>
+    <div class="w-bar"><span class="pill stale">REC-7 locked out · Feeder 7 tail dark</span><label class="lab" for="wfl-l">Feeder 9 existing load</label><span class="seg" id="wfl-l"><button class="btn" data-l="light">Light</button><button class="btn" data-l="normal" aria-pressed="true">Normal</button><button class="btn" data-l="peak">Peak</button></span><button class="btn" id="wfl-g">Build switching order</button><span id="wfl-gate"></span></div>
+    <div class="w-split"><div class="w-main"><svg id="wfl-svg" viewBox="0 0 960 545" width="100%" role="img" aria-label="FLISR back-feed suggestion"></svg><div id="wfl-leg"></div></div><div class="w-side" id="wfl-out"></div></div>
+  </div>
+  <div class="tip">The capacity badge is the headline: <b>Capacity OK · load-flow</b> is a transfer an operator can make as-is; <b>Overloads feeder</b> means the sweep found a post-transfer undervoltage or overload. Either way the order still <b>builds</b> — an <i>Overloads feeder</i> plan simply carries a <b>WARNING</b> note step before the close, because the operator decides, not the tool.</div>
+  <div class="en-b"><span class="tag en">▶ Operator</span>
+  <p><b>How to — restore by back-feed.</b> 🔒 <span class="perm">oms:read</span> to see the plans, <span class="perm">oms:write</span> to build the order. Open the active incident → the <b>Restoration (FLISR)</b> panel sits below the switching orders. Each card is one plan, best first: <b>Close <i>tie</i></b>, the feeder it back-feeds <b>from</b>, the customers/supplies/kVA it restores, and a <b>capacity badge</b>. Pick a green one → <b>Build switching order</b> (<code>POST /oms/incidents/{id}/restoration-orders</code>, body <code>{tie_class, tie_id}</code>, <code>201</code>). The new order joins the switching list above; Dana ticks its <b>Close</b> step, T-79’s live <code>device_state</code> flips, the cone collapses, supply is back.</p></div>
+  <div class="en-b"><span class="tag en">∑ Model — the order it drafts</span>
+  <p><code>GenerateRestorationOrder</code> re-runs the suggestion and <b>refuses a tie that is not currently suggested</b> (no order on a stale or bogus tie), refuses a <code>restored</code>/<code>cancelled</code> incident, and <b>may coexist with the incident’s isolation order</b> — they are different programs, so it does <i>not</i> share the “one live order per incident” guard, keying on its own reference (<code>Restoration of … via …</code>) instead. Its RESTORE-phase steps: a <code>note</code> (<i>confirm the faulted section is isolated and safe</i>), an optional <b>WARNING</b> <code>note</code> when the verdict is <i>exceeds</i> (citing the sweep’s violations/overloads), a <code>close</code> on the tie, and a <code>verify</code>. The close step is ordinary — executing it (Chapter 6) flips the tie’s live <code>device_state</code> through the same validated, history-logged path as any open/close step; no new machinery.</p></div>
+  <p><b>The surface.</b> Reads need <span class="perm">oms:read</span>, the build needs <span class="perm">oms:write</span>:</p>
+  <div class="tbl"><table>
+    <tr><th>Verb &amp; path</th><th>What</th></tr>
+    <tr><td><code>GET /oms/incidents/{id}/restoration</code></td><td>suggested back-feed plans for an incident’s device</td></tr>
+    <tr><td><code>GET /oms/restoration?device_class=&amp;device_id=</code></td><td>the same, for an ad-hoc device (no incident)</td></tr>
+    <tr><td><code>POST /oms/incidents/{id}/restoration-orders</code></td><td>build the close-tie order from a chosen tie (<code>{tie_class, tie_id}</code>)</td></tr>
+  </table></div>
+  <p>Agent / MCP tools mirror them: <code>oms_suggest_restoration</code> (by incident or device) and <code>oms_generate_restoration_order</code>.</p>
+  <div class="caution"><b>⚠️ Honest limits.</b> FLISR suggests <b>only modelled ties</b> — no normally-open point on the boundary, no plan. The tie must border the <i>live</i> dead cone; one hidden behind a second open device is not offered. Capacity can be <b>unverified</b> (no modelled voltage <i>and</i> no nameplate). The sweep is the same <b>planning-grade, balanced, single-phase</b> ladder as load-flow — validate against a balanced reference, not an unbalanced feeder. The donor source is the <b>farthest upstream protective device</b> (right for a radial donor, best-effort in a mesh). A plan is a <b>single</b> tie close — no multi-switch staging, no partial pick-up, no ETR. And like the rest of OMS it is <b>not territory-scoped</b>.</div>
 </section>
 
 <!-- ============ CH7 ============ -->
@@ -1221,6 +1269,7 @@ function drawGraph(svg,G,o){
     if(m==='call'){ stroke='var(--s4)'; sw=3; }
     if(m==='bound'){ stroke='var(--s1)'; sw=3.2; }
     if(m==='blame'){ stroke='var(--s4)'; sw=3.4; }
+    if(m==='restore'){ stroke='var(--green)'; sw=3.4; }
     let shape=''; const lbl=nmShort(G,id);
     if(n.cls==='MV_CONDUCTOR'){ shape=`<rect x="${x-22}" y="${y-8}" width="44" height="16" rx="8" fill="${dead?'var(--dead)':'var(--tint)'}" stroke="${iso?'var(--amber)':stroke}" stroke-width="${sw}"${extra}/>`; }
     else if(n.cls==='MV_BUSBAR'){ const vertical=id==='B7'||id==='B9'; shape=vertical?`<rect x="${x-4}" y="${y-(id==='B7'?15:20)}" width="8" height="${id==='B7'?110:40}" rx="2" fill="${dead?'var(--dead)':'var(--ink)'}" stroke="${stroke}" stroke-width="${sw}"/>`:`<rect x="${x-80}" y="${y-4}" width="160" height="8" rx="2" fill="${dead?'var(--dead)':'var(--ink)'}" stroke="${stroke}" stroke-width="${sw}"/>`; }
@@ -1468,6 +1517,66 @@ const writeGate=(r)=>can('ow')?null:{code:403,body:{error:'you do not have the r
   $('#w9-c').onclick=()=>{ const o=S.orders.find(x=>x.incident_id===sel&&x.status!=='cancelled'); last=gate()||(o?S.cancelOrder(o.id):{code:400,body:{error:'no live switching order for this incident'}}); paint(); };
   $('#w9-out').addEventListener('change',e=>{ const c=e.target.closest('input[data-s]'); if(!c) return; S.tick(7); const r=gate()||S.exec(c.dataset.s,c.checked); last=r; paint(); });
   onPersona(()=>{ if(S) paint(); }); setup();
+})();
+
+/* ===== WFL: FLISR back-feed restoration suggestion ===== */
+(function(){
+  let load='normal', built=null;
+  const F9LOAD={light:200,normal:1000,peak:3000};   /* SP-910 existing demand (kW) -- the what-if lever */
+  function buildG(){ const G=estate(); G.nodes.REC7.attrs.device_state='OPEN'; G.nodes.SP910.attrs.kw=F9LOAD[load]; return G; }
+  /* oms/restore.go SuggestRestoration, ported: dead cone -> NORMALLY_OPEN ties on it -> energised far side -> donor + capacity sweep */
+  function flisr(G){
+    const deadArr=cone(G,'REC7'); const dead=new Set(deadArr);
+    const deadLeaves=deadArr.filter(id=>isLeafClass(G.nodes[id].cls)&&countsAsLoad(G,id));
+    const deadRollup=rollupOf(deadLeaves.map(id=>supplyLine(G,id)));
+    const ties=deadArr.filter(id=>G.nodes[id].cls==='MV_SWITCH'&&G.nodes[id].attrs.normal_state==='NORMALLY_OPEN'&&G.nodes[id].attrs.device_state==='OPEN');
+    const plans=[];
+    ties.forEach(tie=>{
+      const far=neighborsOf(G,tie,'CONNECTED').filter(n=>!dead.has(n));
+      if(!far.length) return;
+      let donorNear=null,donorHead=null;
+      for(const l of far){ const ups=upstreamOfClass(G,l,PROTECTIVE_DEVICE_CLASSES); if(ups.length){ donorNear=ups[0].id; donorHead=ups[ups.length-1].id; break; } }
+      if(!donorHead) return;
+      let opt; try{ const r=restorationOptions(G,donorHead,11000); opt=r.options.find(o=>o.tie===tie)||{restored:[],viol:[],over:[],feasible:false,note:'tie is not an open boundary reachable from the donor'}; }
+      catch(e){ opt={restored:[],viol:[],over:[],feasible:false,note:'capacity sweep unavailable'}; }
+      const restoredLeaves=(opt.restored||[]).filter(id=>isLeafClass(G.nodes[id].cls)&&countsAsLoad(G,id));
+      const restoredRollup=rollupOf(restoredLeaves.map(id=>supplyLine(G,id)));
+      plans.push({tie,tieName:G.nodes[tie].name,donorNear,donorName:donorNear?G.nodes[donorNear].name:'',opt,restoredRollup});
+    });
+    return {deadRollup,plans};
+  }
+  const isExceeds=o=>!o.feasible&&(((o.viol||[]).length)||((o.over||[]).length));
+  function badge(o){ if(o.feasible) return pill('Capacity OK · load-flow','fresh'); if(isExceeds(o)) return pill('Overloads feeder','stale'); if(o.note) return pill('No transfer','sec'); return pill('Capacity unverified','sec'); }
+  function genOrder(p){ const o=p.opt, tn=p.tieName.split(' (')[0], dn=p.donorName.split(' (')[0]||'the alternate feeder';
+    const steps=[{n:1,phase:'restore',action:'note',instr:'Confirm the faulted section below REC-7 is isolated and safe to back-energize (fault cleared, earths removed as required).'}];
+    if(isExceeds(o)) steps.push({n:0,phase:'restore',action:'note',instr:`WARNING: a load-flow sweep predicts ${(o.viol||[]).length} voltage violation(s) and ${(o.over||[]).length} overload(s) on ${dn} once this section transfers${o.minPu!=null?' (worst '+o.minPu.toFixed(3)+' pu)':''} — confirm before closing.`});
+    steps.push({n:0,phase:'restore',action:'close',flip:tn,instr:`Close ${tn} to back-feed the de-energized section from ${dn}.`});
+    steps.push({n:0,phase:'restore',action:'verify',instr:`Verify ${p.restoredRollup.service_points} supply(ies) / ${p.restoredRollup.customers} customer(s) restored via ${dn}.`});
+    steps.forEach((s,i)=>s.n=i+1);
+    return {reference:`Restoration of REC-7 via ${tn}`,steps};
+  }
+  function paint(){
+    const G=buildG(); const F=flisr(G); const plan=F.plans[0];
+    const dead=new Set(cone(G,'REC7'));
+    const marks={}; dead.forEach(k=>marks[k]='dead'); marks['REC7']='blame';
+    if(plan){ marks[plan.tie]='restore'; if(plan.donorNear) marks[plan.donorNear]='restore'; }
+    drawGraph($('#wfl-svg'),G,{marks,sel:plan?plan.tie:null});
+    $('#wfl-leg').innerHTML='<div class="legend"><span><i class="sw" style="background:var(--dead)"></i>dark now (dead cone)</span><span><i class="sw" style="background:var(--raise);border:3px solid var(--green)"></i>the tie to close &amp; its donor feeder</span><span><i class="sw" style="background:var(--raise);border:3px solid var(--s4)"></i>tripped device</span><span>NOP = normally-open tie</span></div>';
+    let h=`<div class="kv"><span>Dead section</span><b>${F.deadRollup.service_points} SP · ${nf(F.deadRollup.customers)} customers · ${nf(F.deadRollup.demand_kw)} kW</b><span>Feeder 9 existing load</span><b>${nf(F9LOAD[load])} kW</b></div>`;
+    if(!F.plans.length){ h+='<p class="muted" style="font-size:13px;margin:10px 0 0">No normally-open tie borders the de-energized section — there is no alternate-source restoration path.</p>'; }
+    else F.plans.forEach(p=>{ const o=p.opt;
+      h+=`<div class="rec" style="margin-top:10px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>Close ${esc(p.tieName.split(' (')[0])}</b> ${badge(o)}</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:5px;line-height:1.55">Back-feed from <b style="color:var(--ink)">${esc(p.donorName.split(' (')[0]||'—')}</b> (Feeder 9)<br>Restores ${nf(p.restoredRollup.customers)} customer(s) · ${p.restoredRollup.service_points} supply(ies) · ${nf(o.restoredKW||0)} kW<br>Load-flow: ${o.feasible?'<b style="color:var(--green)">feasible</b>':(esc(((o.viol||[]).length)+' voltage violation(s), '+((o.over||[]).length)+' overload(s)'))}${o.minPu!=null?' · worst '+o.minPu.toFixed(3)+' pu':''}${o.note?'<br><i>'+esc(o.note)+'</i>':''}</div></div>`;
+    });
+    if(built&&F.plans.length){ const ord=genOrder(F.plans[0]); h+=`<h5 style="margin:12px 0 4px">${esc(ord.reference)} ${pill('draft','sec')}</h5>`+ord.steps.map(s=>`<div class="rec" style="font-size:12.5px;margin-bottom:4px"><b>${s.n}. ${s.phase} · ${s.action}</b>${s.flip?` <span class="pill sec">flips ${esc(s.flip)}</span>`:''}<br>${esc(s.instr)}</div>`).join(''); }
+    if(!can('ow')) h+=`<p>${lockTip('ow')}</p>`;
+    $('#wfl-out').innerHTML=h;
+    $('#wfl-gate').innerHTML=can('ow')?'':lockTip('ow');
+  }
+  seg('#wfl-l',b=>{ load=b.dataset.l; built=false; paint(); });
+  $('#wfl-g').onclick=()=>{ if(!can('ow')){ paint(); return; } built=true; paint(); };
+  onPersona(paint);
+  paint();
 })();
 
 /* ===== W10: planned outage ===== */

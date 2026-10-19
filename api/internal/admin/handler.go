@@ -113,6 +113,9 @@ func Routes(db *bun.DB, cipher *secretbox.Cipher) chi.Router {
 	r.Delete("/feature-classes/{code}", deleteFeatureClassHandler(db))
 	r.Post("/feature-classes/{code}/subtypes", addSubtypeHandler(db))
 	r.Post("/feature-classes/{code}/fields", addFieldHandler(db))
+	// Static /fields/order is matched before the /fields/{name} param by chi's
+	// trie, so the display-order reorder and the single-field patch don't collide.
+	r.Put("/feature-classes/{code}/fields/order", reorderFieldsHandler(db))
 	r.Patch("/feature-classes/{code}/fields/{name}", updateFieldHandler(db))
 	r.Post("/feature-classes/{code}/compile", compileFeatureClassHandler(db))
 	r.Post("/feature-classes/{code}/uncompile", uncompileFeatureClassHandler(db))
@@ -320,6 +323,21 @@ func updateFieldHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func reorderFieldsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		var req reorderFieldsRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if err := reorderFields(r.Context(), db, code, req.Order); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"reordered": len(req.Order)})
 	}
 }
 

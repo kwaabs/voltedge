@@ -268,6 +268,9 @@ type fieldRequest struct {
 	VisibleOnUpdate      bool    `json:"visible_on_update"`
 	EditableAfterPublish bool    `json:"editable_after_publish"`
 	RequiredForSubtypes  []int   `json:"required_for_subtypes"`
+	// Optional field-level default (metadata.fields.default_value); for a
+	// domain-tied field it's a domain value code. Empty/absent = no default.
+	DefaultValue *string `json:"default_value"`
 }
 
 // fieldResponse mirrors fieldRequest, echoed back for addField's POST
@@ -312,6 +315,19 @@ type updateFieldRequest struct {
 	VisibleOnUpdate      *bool   `json:"visible_on_update"`
 	EditableAfterPublish *bool   `json:"editable_after_publish"`
 	RequiredForSubtypes  *[]int  `json:"required_for_subtypes"`
+	// DefaultValue is the field-level default (metadata.fields.default_value,
+	// migration 0150), as text. Like DomainCode: nil means "leave alone", a
+	// pointer to "" clears it, any other value sets it (and, for a domain-tied
+	// field, must be one of the domain's value codes).
+	DefaultValue *string `json:"default_value"`
+}
+
+// reorderFieldsRequest is PUT /admin/feature-classes/{code}/fields/order's body:
+// the class's active field names in the exact order the form should show them.
+// Must be a permutation of the class's current active fields (reorder.go rejects
+// a mismatch). Display-only (migration 0146 sort_order) -- no recompile.
+type reorderFieldsRequest struct {
+	Order []string `json:"order"`
 }
 
 // terminalRequest is one named connection point, only meaningful (and

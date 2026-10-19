@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/deviceops"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
@@ -258,6 +260,18 @@ func SetStepExecuted(ctx context.Context, db *bun.DB, stepID string, executed bo
 			return err
 		}
 
+		// A FRESH execution (not a re-tick) of an open/close step is a device
+		// operation -- log it to the device-operation event log (deviceops) in
+		// this same tx, so a planned switching op appears in the trip/operation
+		// history alongside crew- and SCADA-sourced ones. The loaded `step` still
+		// holds its pre-update ExecutedAt, so `== nil` means this call is the
+		// transition into executed.
+		if executed && step.ExecutedAt == nil {
+			if err := emitStepOperation(ctx, tx, step); err != nil {
+				return err
+			}
+		}
+
 		// Recompute the parent order's status from its steps.
 		var counts struct {
 			Total    int `bun:"total"`
@@ -354,6 +368,37 @@ func applyStepDeviceState(ctx context.Context, db bun.IDB, step *SwitchingStep, 
 		return fmt.Errorf("oms: setting %s %s device_state=%s: %w", *step.DeviceClass, *step.DeviceID, target, err)
 	}
 	return nil
+}
+
+// emitStepOperation logs a device-operation event (api/internal/deviceops) for a
+// freshly-executed open/close switching step, so a planned operation lands in the
+// device-operation log the same as a crew- or SCADA-sourced one. source is
+// 'switching_order' and switching_step_id links back to the step. Only open/close
+// steps name an operation (verify/earth/note don't move a device). A step with no
+// device is a no-op. Runs in the step's tx -- an error rolls the whole thing back.
+func emitStepOperation(ctx context.Context, db bun.IDB, step *SwitchingStep) error {
+	if step.DeviceClass == nil || step.DeviceID == nil {
+		return nil
+	}
+	var opType string
+	switch step.Action {
+	case StepActionOpen:
+		opType = "open"
+	case StepActionClose:
+		opType = "close"
+	default:
+		return nil
+	}
+	stepID := step.ID
+	_, err := deviceops.Record(ctx, db, deviceops.RecordInput{
+		DeviceClass:     *step.DeviceClass,
+		DeviceID:        *step.DeviceID,
+		OpType:          opType,
+		Source:          "switching_order",
+		OccurredAt:      time.Now(),
+		SwitchingStepID: &stepID,
+	})
+	return err
 }
 
 // CancelSwitchingOrder marks an order cancelled (steps are kept for the record).

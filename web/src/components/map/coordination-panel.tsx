@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Crosshair, X } from "lucide-react"
 
 import { AnalysisExplanation, Formula } from "@/components/map/analysis-explanation"
@@ -336,8 +336,9 @@ function CoordinationExplanation({
  * fault-current panel, sharing its fixed bottom-centre slot and arm-then-run
  * lifecycle, but wider (it renders a chart, not a table) and needing a *second*
  * node: coordination grades the devices on the path from a source to a specific
- * fault location, so the user arms the source (from the selected feature) then
- * sets the fault node from a second map selection. The result is a log-log TCC
+ * fault location, so the user arms the source (from the selected feature), then
+ * clicks "Pick fault" to arm the map and clicks the faulted feature (an
+ * arm-then-click gesture, like "Trace path to…"). The result is a log-log TCC
  * chart of every graded device's curve, the prospective fault current as a
  * vertical line, and the pairwise coordination margins.
  */
@@ -347,7 +348,7 @@ export function CoordinationPanel() {
   const result = useCoordinationStore((s) => s.result)
   const armedStart = useCoordinationStore((s) => s.armedStart)
   const armedFault = useCoordinationStore((s) => s.armedFault)
-  const selected = useSelectionStore((s) => s.selected)
+  const pickingFault = useCoordinationStore((s) => s.pickingFault)
   const { data: featureClasses } = useFeatureClasses()
   const [voltageInput, setVoltageInput] = useState("11000")
   // Blank the voltage when armed from a transformer so its secondary is derived.
@@ -355,24 +356,21 @@ export function CoordinationPanel() {
   const [ctiInput, setCtiInput] = useState("0.3")
   const fp = useFloatingPanel(736, "max-h-[80vh]")
 
+  // While the fault pick is armed, Escape cancels it (mirrors the trace-path
+  // gesture). Only bound while actually picking, so it never swallows Escape
+  // elsewhere.
+  useEffect(() => {
+    if (!pickingFault) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") useCoordinationStore.getState().cancelPickFault()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [pickingFault])
+
   if (!armed && !result) return null
 
   const classNameFor = (code: string) => featureClasses?.feature_classes.find((fc) => fc.code === code)?.name ?? code
-
-  // The current map selection, as a set-fault candidate -- only usable when it
-  // differs from the armed source (a device can't coordinate against itself).
-  const selectionIsSameAsStart =
-    selected != null &&
-    armedStart != null &&
-    selected.featureClassCode === armedStart.feature_class &&
-    selected.featureId === armedStart.feature_id
-  const canSetFault = selected != null && !selectionIsSameAsStart
-
-  function setFaultToSelected() {
-    const sel = useSelectionStore.getState().selected
-    if (!sel) return
-    useCoordinationStore.getState().setFault({ feature_class: sel.featureClassCode, feature_id: sel.featureId })
-  }
 
   async function runCoordination() {
     const start = useCoordinationStore.getState().armedStart
@@ -429,28 +427,33 @@ export function CoordinationPanel() {
 
           <div className="flex items-center gap-2 text-sm">
             <span className="text-muted-foreground w-16 shrink-0">Fault at</span>
-            {armedFault ? (
+            {pickingFault ? (
+              <span className="text-primary text-xs">Click the faulted feature on the map… (Esc to cancel)</span>
+            ) : armedFault ? (
               <span className="truncate">
                 {classNameFor(armedFault.feature_class)}{" "}
                 <span className="text-muted-foreground font-mono text-xs">{shortId(armedFault.feature_id)}</span>
               </span>
             ) : (
-              <span className="text-muted-foreground text-xs">Select a downstream feature on the map, then Set fault</span>
+              <span className="text-muted-foreground text-xs">Pick fault, then click the faulted feature on the map</span>
             )}
             <Button
-              variant="outline"
+              variant={pickingFault ? "default" : "outline"}
               size="sm"
               className="ml-auto h-7 gap-1.5 px-2 text-xs"
-              onClick={setFaultToSelected}
-              disabled={!canSetFault}
+              onClick={() =>
+                pickingFault
+                  ? useCoordinationStore.getState().cancelPickFault()
+                  : useCoordinationStore.getState().startPickFault()
+              }
               title={
-                selectionIsSameAsStart
-                  ? "The selected feature is the source — pick a different, downstream feature"
-                  : "Use the currently selected feature as the fault location"
+                pickingFault
+                  ? "Cancel — stop waiting for a map click"
+                  : "Arm the map: the next feature you click becomes the fault location"
               }
             >
               <Crosshair className="size-3.5" />
-              Set fault
+              {pickingFault ? "Cancel" : armedFault ? "Change fault" : "Pick fault"}
             </Button>
           </div>
 

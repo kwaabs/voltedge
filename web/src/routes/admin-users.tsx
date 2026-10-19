@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { KeyRound, Loader2, MapPin, Pencil, Plus, ShieldAlert, Unlink, UserPlus, X } from "lucide-react"
+import { useMemo, useState } from "react"
+import { KeyRound, Loader2, MapPin, Plus, Search, Settings2, ShieldAlert, Unlink, UserPlus, X } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { FormDialog } from "@/components/admin/form-dialog"
@@ -34,6 +34,7 @@ import {
   useUpdateUser,
 } from "@/hooks/use-users"
 import { ApiError } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { useToastStore } from "@/stores/toast-store"
 
 const labelClass = "text-xs font-medium"
@@ -286,49 +287,156 @@ function SetPasswordRow({ user, onDone }: { user: AdminUser; onDone: () => void 
   )
 }
 
-/** "Edit account" form, revealed per user as a dialog. Only the display name
- * is editable; email is the login + SSO-link key and is shown read-only. */
-function EditNameRow({ user, onDone }: { user: AdminUser; onDone: () => void }) {
+/** Inline display-name editor inside the Manage dialog (email is the login +
+ * SSO-link key, shown read-only). Saves on its own button; the rest of the
+ * dialog's sections mutate live. */
+function DisplayNameEditor({ user }: { user: AdminUser }) {
   const [name, setName] = useState(user.display_name)
   const update = useUpdateUser()
   const trimmed = name.trim()
-  const canSave = trimmed.length > 0 && trimmed !== user.display_name
-
-  function handleSave() {
-    update.mutate(
-      { userId: user.id, displayName: trimmed },
-      { onSuccess: onDone, onError: (err) => toastError(err, "Could not update the account.") },
-    )
-  }
+  const canSave = trimmed.length > 0 && trimmed !== user.display_name && !update.isPending
 
   return (
-    <FormDialog
-      open
-      onOpenChange={(next) => next || onDone()}
-      title="Edit account"
-      description={`Update the display name for ${user.email}.`}
-      onSubmit={handleSave}
-      submitLabel="Save"
-      canSubmit={canSave}
-      saving={update.isPending}
-    >
-      <div className="flex flex-col gap-1">
-        <label className={labelClass}>Display name</label>
+    <div className="flex flex-col gap-1.5">
+      <span className={labelClass}>Display name</span>
+      <div className="flex items-center gap-2">
         <input
-          className={inputClass}
+          className={`${inputClass} max-w-xs`}
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Ama Mensah"
         />
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!canSave}
+          onClick={() =>
+            update.mutate(
+              { userId: user.id, displayName: trimmed },
+              { onError: (err) => toastError(err, "Could not update the account.") },
+            )
+          }
+        >
+          {update.isPending && <Loader2 className="size-4 animate-spin" />}
+          Save
+        </Button>
       </div>
-      <div className="flex flex-col gap-1">
-        <label className={labelClass}>Email</label>
-        <input className={inputClass} value={user.email} disabled />
-        <span className="text-muted-foreground text-xs">
-          Email is the sign-in and SSO-link identity and can't be changed here.
-        </span>
+      <span className="text-muted-foreground text-xs">
+        Email ({user.email}) is the sign-in and SSO-link identity and can't be changed.
+      </span>
+    </div>
+  )
+}
+
+/** Roles editor: the assigned-role chips (removable) + an add-role dropdown. */
+function RolesEditor({ user, roles }: { user: AdminUser; roles: AdminRole[] }) {
+  const assignRole = useAssignRole()
+  const removeRole = useRemoveRole()
+  const [addingRole, setAddingRole] = useState("")
+  const userRoles = user.roles ?? []
+  const assignable = roles.filter((r) => !userRoles.includes(r.key))
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className={labelClass}>Roles</span>
+      <div className="flex flex-wrap items-center gap-1">
+        {userRoles.length === 0 && (
+          <span className="text-muted-foreground text-xs">none -- this account is authorized for nothing</span>
+        )}
+        {userRoles.map((r) => (
+          <span
+            key={r}
+            className="bg-muted text-muted-foreground group flex items-center gap-1 rounded-md py-0.5 pr-0.5 pl-1.5 text-xs"
+          >
+            {r}
+            <button
+              type="button"
+              className="hover:text-destructive rounded p-0.5"
+              title="Revoke role"
+              onClick={() =>
+                removeRole.mutate(
+                  { userId: user.id, role: r },
+                  { onError: (err) => toastError(err, "Could not revoke the role.") },
+                )
+              }
+            >
+              <X className="size-3" />
+            </button>
+          </span>
+        ))}
+        {assignable.length > 0 && (
+          <div className="flex items-center gap-1">
+            <select
+              className={`${inputClass} h-7 py-0`}
+              value={addingRole}
+              onChange={(e) => setAddingRole(e.target.value)}
+            >
+              <option value="">add role...</option>
+              {assignable.map((r) => (
+                <option key={r.key} value={r.key}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              disabled={!addingRole || assignRole.isPending}
+              onClick={() =>
+                assignRole.mutate(
+                  { userId: user.id, role: addingRole },
+                  {
+                    onSuccess: () => setAddingRole(""),
+                    onError: (err) => toastError(err, "Could not assign the role."),
+                  },
+                )
+              }
+            >
+              <Plus className="size-4" />
+            </Button>
+          </div>
+        )}
       </div>
-    </FormDialog>
+    </div>
+  )
+}
+
+/** Sign-in identities: the linked providers, with unlink for the SSO ones. */
+function IdentitiesEditor({ user, onUnlink }: { user: AdminUser; onUnlink: (provider: string) => void }) {
+  const userProviders = user.providers ?? []
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className={labelClass}>Sign-in identities</span>
+      <div className="flex flex-wrap items-center gap-1">
+        {userProviders.length === 0 && <span className="text-muted-foreground text-xs">none linked yet</span>}
+        {userProviders.map((p) => {
+          const isSSO = p === "azuread" || p === "google"
+          return (
+            <span
+              key={p}
+              className="bg-muted text-muted-foreground flex items-center gap-1 rounded-md py-0.5 pr-0.5 pl-1.5 text-xs"
+            >
+              {PROVIDER_LABEL[p] ?? p}
+              {isSSO && (
+                <button
+                  type="button"
+                  className="hover:text-destructive rounded p-0.5"
+                  title="Unlink this SSO identity"
+                  onClick={() => onUnlink(p)}
+                >
+                  <Unlink className="size-3" />
+                </button>
+              )}
+            </span>
+          )
+        })}
+      </div>
+      <span className="text-muted-foreground text-xs">
+        SSO identities link automatically on the account's first successful sign-in; they can't be pre-set here, only
+        removed.
+      </span>
+    </div>
   )
 }
 
@@ -460,60 +568,161 @@ function SpatialAccessSection({ user, allUsers }: { user: AdminUser; allUsers: A
   )
 }
 
-/** One account card: identity, roles, linked providers, and actions. */
-function UserRow({
+/**
+ * The full per-account editor, opened from a row's Manage action. Everything
+ * that doesn't fit a compact table row lives here: display name, roles, linked
+ * sign-in identities, manager, and territory grants. The sections mutate live
+ * (each hook invalidates the user list), so there's no dialog-level Save --
+ * Close just dismisses.
+ */
+function ManageUserDialog({
   user,
   roles,
-  isSelf,
   allUsers,
+  onClose,
 }: {
   user: AdminUser
   roles: AdminRole[]
-  isSelf: boolean
   allUsers: AdminUser[]
+  onClose: () => void
 }) {
-  const assignRole = useAssignRole()
-  const removeRole = useRemoveRole()
-  const setStatus = useSetUserStatus()
   const unlink = useUnlinkIdentity()
-  const [addingRole, setAddingRole] = useState("")
-  const [showEdit, setShowEdit] = useState(false)
-  const [showPassword, setShowPassword] = useState(false)
   const [unlinkTarget, setUnlinkTarget] = useState<string | null>(null)
+
+  return (
+    <Dialog open onOpenChange={(next) => next || onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {user.display_name}
+            {user.break_glass && (
+              <span className="bg-amber-500/15 rounded px-1.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                break-glass
+              </span>
+            )}
+            {user.status === "disabled" && (
+              <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs font-medium">disabled</span>
+            )}
+          </DialogTitle>
+          <DialogDescription>{user.email}</DialogDescription>
+        </DialogHeader>
+
+        <div className="flex max-h-[65vh] flex-col gap-4 overflow-y-auto pr-1">
+          <DisplayNameEditor user={user} />
+          <RolesEditor user={user} roles={roles} />
+          <IdentitiesEditor user={user} onUnlink={setUnlinkTarget} />
+          <SpatialAccessSection user={user} allUsers={allUsers} />
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+
+      <ConfirmDeleteDialog
+        open={unlinkTarget !== null}
+        title={`Unlink ${PROVIDER_LABEL[unlinkTarget ?? ""] ?? unlinkTarget ?? ""} from ${user.email}?`}
+        description="The user won't be able to sign in with this provider until they link it again on a future SSO login. This can't be undone directly."
+        confirmLabel="Unlink"
+        onOpenChange={(open) => !open && setUnlinkTarget(null)}
+        onConfirm={async () => {
+          if (!unlinkTarget) return
+          await unlink.mutateAsync({ userId: user.id, provider: unlinkTarget })
+          setUnlinkTarget(null)
+        }}
+      />
+    </Dialog>
+  )
+}
+
+/** One compact table row: identity + a role/territory summary + quick actions
+ * (Manage, Set password, Disable/Enable). The heavy editing is in the Manage
+ * dialog; the row carries only its own Disable confirm. */
+function UserTableRow({
+  user,
+  isSelf,
+  managerName,
+  onManage,
+  onPassword,
+}: {
+  user: AdminUser
+  isSelf: boolean
+  managerName: string | null
+  onManage: () => void
+  onPassword: () => void
+}) {
+  const setStatus = useSetUserStatus()
   const [disableConfirm, setDisableConfirm] = useState(false)
 
   const disabled = user.status === "disabled"
   const userRoles = user.roles ?? []
-  const userProviders = user.providers ?? []
-  const assignable = roles.filter((r) => !userRoles.includes(r.key))
+  const shownRoles = userRoles.slice(0, 3)
+  const extraRoles = userRoles.length - shownRoles.length
 
   return (
-    <Card className={disabled ? "opacity-60" : undefined}>
-      <CardHeader className="flex flex-row items-start gap-2 pb-2">
-        <div className="min-w-0 flex-1">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            {user.display_name}
-            {user.break_glass && (
-              <span className="bg-amber-500/15 text-amber-600 rounded px-1.5 py-0.5 text-xs font-medium dark:text-amber-400">
-                break-glass
-              </span>
-            )}
-            {disabled && (
-              <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs font-medium">disabled</span>
-            )}
-          </CardTitle>
-          <CardDescription className="truncate">{user.email}</CardDescription>
+    <tr className={cn("border-t align-middle", disabled && "opacity-55")}>
+      {/* Identity */}
+      <td className="px-3 py-2">
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{user.display_name}</span>
+          {user.break_glass && (
+            <span className="bg-amber-500/15 rounded px-1 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+              break-glass
+            </span>
+          )}
+          {disabled && (
+            <span className="bg-muted text-muted-foreground rounded px-1 py-0.5 text-[10px] font-medium">disabled</span>
+          )}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Button variant="ghost" size="icon" className="size-7" title="Edit account" onClick={() => setShowEdit(true)}>
-            <Pencil className="size-4" />
+        <div className="text-muted-foreground truncate text-xs">{user.email}</div>
+      </td>
+
+      {/* Roles (read-only summary; edit in Manage) */}
+      <td className="px-3 py-2">
+        {userRoles.length === 0 ? (
+          <span className="text-muted-foreground text-xs">—</span>
+        ) : (
+          <div className="flex flex-wrap gap-1">
+            {shownRoles.map((r) => (
+              <span key={r} className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs">
+                {r}
+              </span>
+            ))}
+            {extraRoles > 0 && <span className="text-muted-foreground text-xs">+{extraRoles}</span>}
+          </div>
+        )}
+      </td>
+
+      {/* Manager */}
+      <td className="text-muted-foreground px-3 py-2 text-xs">{managerName ?? "—"}</td>
+
+      {/* Territory count */}
+      <td className="px-3 py-2 text-xs">
+        {user.territories.length > 0 ? (
+          <span className="inline-flex items-center gap-1">
+            <MapPin className="text-muted-foreground size-3" />
+            {user.territories.length}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </td>
+
+      {/* Actions */}
+      <td className="px-3 py-2">
+        <div className="flex items-center justify-end gap-1">
+          <Button variant="ghost" size="icon" className="size-7" title="Manage account" onClick={onManage}>
+            <Settings2 className="size-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="size-7" title="Set password" onClick={() => setShowPassword((v) => !v)}>
+          <Button variant="ghost" size="icon" className="size-7" title="Set password" onClick={onPassword}>
             <KeyRound className="size-4" />
           </Button>
           <Button
             variant="outline"
             size="sm"
+            className="h-7"
             disabled={setStatus.isPending || (isSelf && !disabled)}
             title={isSelf && !disabled ? "You can't disable your own account" : undefined}
             onClick={() => {
@@ -530,126 +739,7 @@ function UserRow({
             {disabled ? "Enable" : "Disable"}
           </Button>
         </div>
-      </CardHeader>
-
-      <CardContent className="flex flex-col gap-3 pt-0">
-        {/* Roles */}
-        <div className="flex flex-col gap-1.5">
-          <span className={labelClass}>Roles</span>
-          <div className="flex flex-wrap items-center gap-1">
-            {userRoles.length === 0 && (
-              <span className="text-muted-foreground text-xs">none -- this account is authorized for nothing</span>
-            )}
-            {userRoles.map((r) => (
-              <span
-                key={r}
-                className="bg-muted text-muted-foreground group flex items-center gap-1 rounded-md py-0.5 pr-0.5 pl-1.5 text-xs"
-              >
-                {r}
-                <button
-                  type="button"
-                  className="hover:text-destructive rounded p-0.5"
-                  title="Revoke role"
-                  onClick={() =>
-                    removeRole.mutate(
-                      { userId: user.id, role: r },
-                      { onError: (err) => toastError(err, "Could not revoke the role.") },
-                    )
-                  }
-                >
-                  <X className="size-3" />
-                </button>
-              </span>
-            ))}
-            {assignable.length > 0 && (
-              <div className="flex items-center gap-1">
-                <select
-                  className={`${inputClass} h-7 py-0`}
-                  value={addingRole}
-                  onChange={(e) => setAddingRole(e.target.value)}
-                >
-                  <option value="">add role...</option>
-                  {assignable.map((r) => (
-                    <option key={r.key} value={r.key}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  disabled={!addingRole || assignRole.isPending}
-                  onClick={() =>
-                    assignRole.mutate(
-                      { userId: user.id, role: addingRole },
-                      {
-                        onSuccess: () => setAddingRole(""),
-                        onError: (err) => toastError(err, "Could not assign the role."),
-                      },
-                    )
-                  }
-                >
-                  <Plus className="size-4" />
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Linked sign-in identities */}
-        <div className="flex flex-col gap-1.5">
-          <span className={labelClass}>Sign-in identities</span>
-          <div className="flex flex-wrap items-center gap-1">
-            {userProviders.length === 0 && (
-              <span className="text-muted-foreground text-xs">none linked yet</span>
-            )}
-            {userProviders.map((p) => {
-              const isSSO = p === "azuread" || p === "google"
-              return (
-                <span
-                  key={p}
-                  className="bg-muted text-muted-foreground flex items-center gap-1 rounded-md py-0.5 pr-0.5 pl-1.5 text-xs"
-                >
-                  {PROVIDER_LABEL[p] ?? p}
-                  {isSSO && (
-                    <button
-                      type="button"
-                      className="hover:text-destructive rounded p-0.5"
-                      title="Unlink this SSO identity"
-                      onClick={() => setUnlinkTarget(p)}
-                    >
-                      <Unlink className="size-3" />
-                    </button>
-                  )}
-                </span>
-              )
-            })}
-          </div>
-          <span className="text-muted-foreground text-xs">
-            SSO identities link automatically on the account's first successful sign-in; they can't be pre-set here,
-            only removed.
-          </span>
-        </div>
-
-        {/* Spatial access: manager edge + territory grants (Phase 58) */}
-        <SpatialAccessSection user={user} allUsers={allUsers} />
-
-        {showEdit && <EditNameRow user={user} onDone={() => setShowEdit(false)} />}
-        {showPassword && <SetPasswordRow user={user} onDone={() => setShowPassword(false)} />}
-      </CardContent>
-
-      <ConfirmDeleteDialog
-        open={unlinkTarget !== null}
-        title={`Unlink ${PROVIDER_LABEL[unlinkTarget ?? ""] ?? unlinkTarget ?? ""} from ${user.email}?`}
-        description="The user won't be able to sign in with this provider until they link it again on a future SSO login. This can't be undone directly."
-        confirmLabel="Unlink"
-        onOpenChange={(open) => !open && setUnlinkTarget(null)}
-        onConfirm={async () => {
-          if (!unlinkTarget) return
-          await unlink.mutateAsync({ userId: user.id, provider: unlinkTarget })
-        }}
-      />
+      </td>
 
       <ConfirmDeleteDialog
         open={disableConfirm}
@@ -661,21 +751,48 @@ function UserRow({
           await setStatus.mutateAsync({ userId: user.id, status: "disabled" })
         }}
       />
-    </Card>
+    </tr>
   )
 }
+
+type StatusFilter = "all" | "active" | "disabled" | "break-glass"
 
 export function AdminUsersPage() {
   const { data, isPending, isError } = useAdminUsers()
   const { data: rolesData } = useAdminRoles()
   const can = usePermission()
   const [creating, setCreating] = useState(false)
+  const [manageId, setManageId] = useState<string | null>(null)
+  const [passwordId, setPasswordId] = useState<string | null>(null)
+
+  // Filters: free-text (name/email), a role, and a status facet -- a 2000-row
+  // account list is unmanageable without narrowing it first.
+  const [query, setQuery] = useState("")
+  const [roleFilter, setRoleFilter] = useState("")
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
 
   const roles = rolesData?.roles ?? []
-  // The signed-in user's own email, so a row for yourself can disable its
-  // own "Disable" button. The server enforces this too; this is just the
-  // matching UI affordance.
+  const users = useMemo(() => data?.users ?? [], [data])
+  // The signed-in user's own email, so a row for yourself can disable its own
+  // "Disable" button. The server enforces this too; this is the matching UI.
   const selfEmail = useSession().data?.email
+  // id -> display name, to show a user's manager by name in the table.
+  const nameById = useMemo(() => new Map(users.map((u) => [u.id, u.display_name])), [users])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return users.filter((u) => {
+      if (q && !`${u.display_name} ${u.email}`.toLowerCase().includes(q)) return false
+      if (roleFilter && !(u.roles ?? []).includes(roleFilter)) return false
+      if (statusFilter === "active" && u.status !== "active") return false
+      if (statusFilter === "disabled" && u.status !== "disabled") return false
+      if (statusFilter === "break-glass" && !u.break_glass) return false
+      return true
+    })
+  }, [users, query, roleFilter, statusFilter])
+
+  const manageUser = manageId ? users.find((u) => u.id === manageId) ?? null : null
+  const passwordUser = passwordId ? users.find((u) => u.id === passwordId) ?? null : null
 
   return (
     <div className="h-full overflow-y-auto p-4">
@@ -696,6 +813,10 @@ export function AdminUsersPage() {
         {can("admin:auth-settings") && data && <LocalAuthSwitchCard enabled={data.local_auth_enabled} />}
 
         <CreateUserDialog open={creating} onOpenChange={setCreating} roles={roles} />
+        {manageUser && (
+          <ManageUserDialog user={manageUser} roles={roles} allUsers={users} onClose={() => setManageId(null)} />
+        )}
+        {passwordUser && <SetPasswordRow user={passwordUser} onDone={() => setPasswordId(null)} />}
 
         {isPending ? (
           <div className="text-muted-foreground flex items-center gap-2 text-sm">
@@ -704,14 +825,80 @@ export function AdminUsersPage() {
           </div>
         ) : isError || !data ? (
           <p className="text-destructive text-sm">Could not load accounts.</p>
-        ) : data.users.length === 0 ? (
+        ) : users.length === 0 ? (
           <p className="text-muted-foreground text-sm">No accounts yet.</p>
         ) : (
-          <div className="flex flex-col gap-2">
-            {data.users.map((u) => (
-              <UserRow key={u.id} user={u} roles={roles} isSelf={u.email === selfEmail} allUsers={data.users} />
-            ))}
-          </div>
+          <>
+            {/* Filter bar: one row, the search twice as wide as each select,
+                the count trailing. inputClass carries w-full, so each control
+                fills its own flex column rather than the whole row. */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-[2]">
+                <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+                <input
+                  className={`${inputClass} h-8 pl-8`}
+                  placeholder="Search name or email…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
+              <select
+                className={`${inputClass} h-8 flex-1`}
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+              >
+                <option value="">All roles</option>
+                {roles.map((r) => (
+                  <option key={r.key} value={r.key}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className={`${inputClass} h-8 flex-1`}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              >
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="disabled">Disabled</option>
+                <option value="break-glass">Break-glass</option>
+              </select>
+              <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+                {filtered.length} of {users.length}
+              </span>
+            </div>
+
+            {filtered.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No accounts match these filters.</p>
+            ) : (
+              <div className="overflow-hidden rounded-lg border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Account</th>
+                      <th className="px-3 py-2 font-medium">Roles</th>
+                      <th className="px-3 py-2 font-medium">Manager</th>
+                      <th className="px-3 py-2 font-medium">Territories</th>
+                      <th className="px-3 py-2 font-medium text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((u) => (
+                      <UserTableRow
+                        key={u.id}
+                        user={u}
+                        isSelf={u.email === selfEmail}
+                        managerName={u.manager_id ? nameById.get(u.manager_id) ?? null : null}
+                        onManage={() => setManageId(u.id)}
+                        onPassword={() => setPasswordId(u.id)}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

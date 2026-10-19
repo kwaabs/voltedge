@@ -142,6 +142,8 @@ A **switching order** (`oms.switching_orders`) is the ordered program a crew exe
 
 So as Dana ticks the isolate/restore steps, Priya watches the **red de-energised cone on the outage map shrink** in real time (§5) — because the steps are *actually operating the model*, not just checking boxes.
 
+> 💡 **Restore by back-feed (FLISR).** The generated order restores by **re-closing the blamed device** — right once the fault clears. When it *won't* clear quickly, VoltEdge can instead suggest **back-feeding the dead section from a neighbouring feeder** through a **normally-open tie**, load-flow-checked, and draft the close-tie order for you — the **Restoration (FLISR)** panel on the incident. This also closes the "closed back-feed tie" gap §5 flags. See **[FLISR — Service Restoration by Back-Feed](flisr-restoration-guide.md)**.
+
 ---
 
 ## 7. Planned outages

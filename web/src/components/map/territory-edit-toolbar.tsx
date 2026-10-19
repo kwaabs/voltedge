@@ -58,9 +58,10 @@ export function TerritoryEditToolbar() {
       style={drag.style}
       className={cn(
         "bg-popover text-popover-foreground absolute z-40 flex items-center gap-1 rounded-md border p-1 shadow-lg",
-        // Until dragged, stay centered at the top of the map; a drag pins an
-        // explicit left/top (drag.style) and drops this translate anchor.
-        !drag.positioned && "top-3 left-1/2 -translate-x-1/2",
+        // Until dragged, stay centered near the top of the map (nudged down a
+        // little so it clears the top control cluster); a drag pins an explicit
+        // left/top (drag.style) and drops this translate anchor.
+        !drag.positioned && "top-8 left-1/2 -translate-x-1/2",
       )}
     >
       {drag.grip}

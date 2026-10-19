@@ -22,6 +22,7 @@ import (
 
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/oms"
+	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
 )
 
@@ -139,6 +140,28 @@ func omsTools() []Tool {
 			}`),
 			RequiredPerm: auth.PermOMSRead,
 			Handler:      toolOMSIncidentEnergization,
+		},
+		{
+			Name: "oms_suggest_restoration",
+			Description: "FLISR -- suggest how to RESTORE the de-energized section below a faulted/open " +
+				"device by back-feeding it from an alternate source through a normally-open tie, the " +
+				"same read the REST GET /incidents/{id}/restoration (and /restoration) routes return. " +
+				"Name the device by incident_id (uses the incident's blamed device) OR directly by " +
+				"device_class + device_id. Returns the dead section's totals and, best-first, each " +
+				"viable plan: the tie to close, the alternate source feeder, the customers/load it " +
+				"would restore, and a capacity verdict (ok / exceeds / unverified) against the " +
+				"alternate transformer's nameplate. Read-only -- it suggests switching, it flips nothing.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"incident_id":{"type":"string","description":"An incident (uuid) whose blamed device to restore around; provide this OR device_class+device_id."},
+					"device_class":{"type":"string","description":"The faulted/open device's feature class; provide with device_id instead of incident_id."},
+					"device_id":{"type":"string","description":"The faulted/open device's id (uuid); provide with device_class."}
+				},
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermOMSRead,
+			Handler:      toolOMSSuggestRestoration,
 		},
 		{
 			Name: "oms_list_switching_orders",
@@ -419,6 +442,37 @@ func omsTools() []Tool {
 			Handler:      toolOMSGenerateSwitchingOrder,
 		},
 		{
+			Name: "oms_generate_restoration_order",
+			Description: "FLISR -- build a draft RESTORATION switching order for an incident that " +
+				"back-feeds its dead section by closing a normally-open tie, the same write the REST " +
+				"POST /incidents/{id}/restoration-orders route performs. The tie (tie_class + tie_id) " +
+				"must be one oms_suggest_restoration currently suggests for this incident -- run that " +
+				"first to choose a tie. The order's steps confirm the faulted section is isolated, warn " +
+				"when the alternate feeder may be overloaded, close the tie, and verify supply restored; " +
+				"executing the close step later flips the tie's live state (oms_set_switching_step_executed). " +
+				"A restoration order may coexist with the incident's isolation order. Returns the " +
+				"generated order with its steps. This WRITES to the database: confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"incident_id":{"type":"string","description":"The incident's id (uuid); must have an attributed device and not be restored/cancelled."},
+					"tie_class":{"type":"string","description":"The feature class of the normally-open tie to close (from oms_suggest_restoration)."},
+					"tie_id":{"type":"string","description":"The tie's id (uuid), from a suggested restoration plan."}
+				},
+				"required":["incident_id","tie_class","tie_id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Generate restoration order",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // it drafts a close-tie order, it doesn't remove anything
+				IdempotentHint:  &falseHint, // a second generate for the same tie is rejected while a live one exists
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermOMSWrite,
+			Handler:      toolOMSGenerateRestorationOrder,
+		},
+		{
 			Name: "oms_set_switching_step_executed",
 			Description: "Mark a switching step done (executed=true, default) or outstanding again " +
 				"(executed=false) -- the same write the REST POST /switching-steps/{id}/execute " +
@@ -554,6 +608,26 @@ func toolOMSIncidentEnergization(ctx context.Context, db bun.IDB, args json.RawM
 		return nil, fmt.Errorf("id is required")
 	}
 	return oms.IncidentEnergization(ctx, db, in.ID)
+}
+
+func toolOMSSuggestRestoration(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		IncidentID  string `json:"incident_id"`
+		DeviceClass string `json:"device_class"`
+		DeviceID    string `json:"device_id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	// incident_id wins when given (resolves to the incident's blamed device);
+	// otherwise the device must be named directly.
+	if in.IncidentID != "" {
+		return oms.SuggestRestorationForIncident(ctx, db, in.IncidentID)
+	}
+	if in.DeviceClass == "" || in.DeviceID == "" {
+		return nil, fmt.Errorf("provide incident_id, or both device_class and device_id")
+	}
+	return oms.SuggestRestoration(ctx, db, trace.FeatureRef{FeatureClass: in.DeviceClass, FeatureID: in.DeviceID})
 }
 
 func toolOMSListSwitchingOrders(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
@@ -769,6 +843,25 @@ func toolOMSGenerateSwitchingOrder(ctx context.Context, db bun.IDB, args json.Ra
 		return nil, err
 	}
 	return oms.GenerateSwitchingOrder(ctx, sdb, in.IncidentID)
+}
+
+func toolOMSGenerateRestorationOrder(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		IncidentID string `json:"incident_id"`
+		TieClass   string `json:"tie_class"`
+		TieID      string `json:"tie_id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.IncidentID == "" || in.TieClass == "" || in.TieID == "" {
+		return nil, fmt.Errorf("incident_id, tie_class and tie_id are required")
+	}
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	return oms.GenerateRestorationOrder(ctx, sdb, in.IncidentID, in.TieClass, in.TieID)
 }
 
 func toolOMSSetSwitchingStepExecuted(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {

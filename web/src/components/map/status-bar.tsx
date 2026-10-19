@@ -159,10 +159,10 @@ function ZoomToFeatureButton() {
       disabled={!selected}
       onClick={() => useSelectionStore.getState().focusSelected()}
       title={selected ? "Zoom the map to the selected feature" : "Select a feature first"}
-      className="text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 gap-1.5 px-1.5 text-xs font-normal disabled:opacity-40"
+      className="text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 px-1.5 text-xs font-normal disabled:opacity-40"
     >
       <Crosshair className="size-3.5" />
-      Zoom to feature
+      <span className="sr-only">Zoom to feature</span>
     </Button>
   )
 }
@@ -210,10 +210,10 @@ function BoxZoomButton() {
           variant="ghost"
           size="sm"
           title="Box zoom in or out"
-          className="text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 gap-1.5 px-1.5 text-xs font-normal"
+          className="text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 px-1.5 text-xs font-normal"
         >
           <Scan className="size-3.5" />
-          Box zoom
+          <span className="sr-only">Box zoom</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" className="w-44">
@@ -293,10 +293,10 @@ function MeasureButton() {
           variant="ghost"
           size="sm"
           title="Measure distance or area"
-          className="text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 gap-1.5 px-1.5 text-xs font-normal"
+          className="text-slate-200 dark:text-muted-foreground hover:text-foreground h-5 px-1.5 text-xs font-normal"
         >
           <Ruler className="size-3.5" />
-          Measure
+          <span className="sr-only">Measure</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" className="w-44">

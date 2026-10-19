@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react"
 
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useConnectStore } from "@/stores/connect-store"
+import { useCoordinationStore } from "@/stores/coordination-store"
 import { useDiagramPlaceStore } from "@/stores/diagram-place-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useTracePathStore } from "@/stores/trace-path-store"
@@ -38,6 +39,7 @@ export function PeerPicker() {
   const connectTarget = useConnectStore((s) => s.target)
   const tracePathActive = useTracePathStore((s) => s.active)
   const tracePathTarget = useTracePathStore((s) => s.target)
+  const pickingCoordinationFault = useCoordinationStore((s) => s.pickingFault)
   const diagramPlacePhase = useDiagramPlaceStore((s) => s.phase)
   const { data: featureClasses } = useFeatureClasses()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -97,6 +99,11 @@ export function PeerPicker() {
     } else if (pickingTracePathTarget) {
       useTracePathStore.getState().pickTarget(candidate)
       clearCandidates()
+    } else if (pickingCoordinationFault) {
+      useCoordinationStore
+        .getState()
+        .setFault({ feature_class: candidate.featureClassCode, feature_id: candidate.featureId })
+      clearCandidates()
     } else {
       select(candidate.featureClassCode, candidate.featureId)
     }
@@ -116,7 +123,9 @@ export function PeerPicker() {
             ? "a target"
             : pickingTracePathTarget
               ? "the destination"
-              : "one"}
+              : pickingCoordinationFault
+                ? "the fault location"
+                : "one"}
       </p>
       <div className="max-h-64 overflow-y-auto p-1">
         {candidates.map((candidate) => {

@@ -48,7 +48,9 @@ Find your task on the left; open the document on the right.
 | Understand feeders, protection zones, switching sections and how VoltEdge does subnetworks | **[Feeders, Sections & Subnetworks](network-sectioning-guide.md)** |
 | Model switchgear and protection — switches, breakers, reclosers, fuses, RMUs, relays and coordination | **[Switching & Protection](switching-and-protection-guide.md)** |
 | Log and manage electrical fault events — lifecycle, impact, and links to outages and repairs | **[Faults](faults-guide.md)** |
+| Record and report device operations — trips, lockouts, recloses, open/close; trip counts and device inventory | **[Device Operations](operations-guide.md)** |
 | Manage outages — trouble calls, prediction, affected customers, switching orders, restoration, reliability | **[OMS — Outage Management](oms-guide.md)** |
+| Restore a dead section by back-feed — which normally-open tie to close, load-flow-checked, one-click switching order | **[FLISR — Service Restoration](flisr-restoration-guide.md)** |
 | See the whole outage loop end to end — how Faults, OMS and WAM fit together | **[Outage Operations](outage-operations-guide.md)** |
 | Understand SAIDI/SAIFI/CAIDI/ENS exactly — formulas, customer base, and honest limits | **[Reliability & Indices](reliability-indices-guide.md)** |
 | Know how far to trust the analysis numbers — what's validated vs what, and the gaps | **[Analysis Validation Report](analysis-validation-report.md)** |

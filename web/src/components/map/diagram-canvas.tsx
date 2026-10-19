@@ -1,7 +1,8 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
 import { useQueries, useQueryClient } from "@tanstack/react-query"
-import { Cable, ChevronsLeft, ChevronsRight, CornerDownRight, Crosshair, Download, Grid3x3, Hand, LayoutTemplate, Link2, List, Loader2, Magnet, Maximize, Maximize2, Minimize, Minus, MousePointer2, PenLine, Plus, Printer, RefreshCw, Replace, Shapes, Spline, Square, Table, Trash2, Type, Waypoints, X, Zap, ZoomIn, ZoomOut } from "lucide-react"
+import { Cable, ChevronsLeft, ChevronsRight, CornerDownRight, Crosshair, Download, Grid3x3, Hand, LayoutTemplate, Link2, List, Loader2, Magnet, MapPin, Maximize, Maximize2, Minimize, Minus, MousePointer2, PenLine, Plus, Printer, RefreshCw, Replace, Shapes, Spline, Square, Table, Trash2, Type, Waypoints, X, Zap, ZoomIn, ZoomOut } from "lucide-react"
 
+import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { Button } from "@/components/ui/button"
 import { DeleteDiagramDialog } from "@/components/map/delete-diagram-dialog"
 import { type DiagramLayerEntry, DiagramLayersMenu } from "@/components/map/diagram-layers-menu"
@@ -27,7 +28,7 @@ import {
   useRegenerateDiagram,
 } from "@/hooks/use-diagrams"
 import { usePermission } from "@/hooks/use-auth"
-import { type FeatureRecord } from "@/hooks/use-feature"
+import { type FeatureRecord, useFeature } from "@/hooks/use-feature"
 import { type FeatureSearchResult, MIN_QUERY_LENGTH, useFeatureNameSearch } from "@/hooks/use-feature-name-search"
 import { type PanelOption, usePanelOptions } from "@/hooks/use-panels"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
@@ -1645,6 +1646,25 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
         : undefined,
     [selected, placements],
   )
+  // "Place on map" (the mirror of Add-from-map): a feature selected on this
+  // diagram that has NO map geometry can have its footprint DRAWN on the map,
+  // giving it a map presence while keeping its diagram placement. Needs features:
+  // write; reads the selected feature to tell geometry-less from already-mapped,
+  // and its MAP geometry_type for the draw shape (point/line/polygon -- a true
+  // geometry 'none' class can never be drawn, so it's excluded).
+  const canWriteFeatures = usePermission()("features:write")
+  const { data: selectedFeature } = useFeature(selected?.featureClassCode, selected?.featureId)
+  const selectedMapGeomType = selected
+    ? featureClassesData?.feature_classes.find((fc) => fc.code === selected.featureClassCode)?.geometry_type
+    : undefined
+  const canPlaceOnMap =
+    canWriteFeatures &&
+    !!selectedPlacement &&
+    !!selectedFeature &&
+    !selectedFeature.geometry &&
+    (selectedMapGeomType === "point" || selectedMapGeomType === "line" || selectedMapGeomType === "polygon") &&
+    !isPickingHere &&
+    !isPlacingHere
   // A place-from-map line draw. The full `isLineDrawing` (which also covers
   // digitizing a *new* line-shaped feature) is computed further down, once
   // digitizingClass and geometryTypeByClass exist.
@@ -1685,6 +1705,10 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // element + the classes it's eligible to become opens the picker overlay; a
   // pick resumes promotion with that class.
   const [promotePicker, setPromotePicker] = useState<{ element: DiagramElement; classes: FeatureClassSummary[] } | null>(null)
+  // A validated "Replace from map" pick waiting on the user's confirmation before
+  // it overwrites the stub (the server-irreversible retire-and-rewire happens on
+  // confirm, not the moment the map feature is clicked).
+  const [replaceConfirm, setReplaceConfirm] = useState<{ stub: DiagramPlacement; picked: FeatureRef } | null>(null)
   const [pendingElementRemoval, setPendingElementRemoval] = useState<PendingElementRemoval | null>(null)
   // Which schematic polyline the user is drawing vertex-by-vertex, if any
   // (Phase 24): a plain schematic "line", or -- Slice 5 -- a heavy "bus" or a
@@ -2128,10 +2152,14 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   useEffect(() => {
     if (!isPickingHere || !placePicked) return
     // Replace-from-map: the pick overwrites an already-placed stub in place
-    // rather than arming a fresh placement. Runs immediately (there's no
-    // "then click to drop it" step -- the stub already owns a spot).
+    // rather than arming a fresh placement. The retire-and-rewire is
+    // server-irreversible, so instead of running on the click it validates the
+    // pick, exits picking mode, and raises a confirm dialog -- the replace only
+    // runs once the user confirms (executeReplace, below).
     if (placeReplaceTarget) {
-      void replaceStubFromMap(placeReplaceTarget, placePicked)
+      const stub = validateReplace(placeReplaceTarget, placePicked)
+      useDiagramPlaceStore.getState().cancel()
+      if (stub) setReplaceConfirm({ stub, picked: placePicked })
       return
     }
     const fc = featureClassesData?.feature_classes.find((c) => c.code === placePicked.featureClassCode)
@@ -2204,39 +2232,38 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
     }
   }
 
-  // Overwrites an already-placed stub (`target`) with the real map feature the
-  // user just picked (`picked`), the sibling of placePickedFeature for the
-  // "Replace from map" gesture. The stub keeps its spot: the server re-points
-  // the placement in place, moves the stub's wiring onto the map feature, and
-  // retires the stub. Validated client-side first so a hopeless pick fails with
-  // a clear toast (the server enforces the same rules regardless).
-  async function replaceStubFromMap(target: FeatureRef, picked: FeatureRef) {
-    if (!openDiagramId) return
-    const store = useDiagramPlaceStore.getState()
+  // Validates a "Replace from map" pick client-side (the server enforces the same
+  // rules regardless). Returns the stub placement to overwrite, or null (having
+  // toasted why) for a hopeless pick -- so an invalid pick fails fast without ever
+  // raising the confirm dialog. The actual retire-and-rewire is executeReplace.
+  function validateReplace(target: FeatureRef, picked: FeatureRef): DiagramPlacement | null {
     const stub = placements.find(
       (p) => p.feature_class === target.featureClassCode && p.feature_id === target.featureId,
     )
     if (!stub) {
       useToastStore.getState().pushError("The feature to replace is no longer on this diagram.")
-      store.cancel()
-      return
+      return null
     }
     if (picked.featureClassCode !== target.featureClassCode) {
       useToastStore.getState().pushError("Replace needs the same feature class as the one you're overwriting.")
-      store.cancel()
-      return
+      return null
     }
     if (picked.featureId === target.featureId) {
       useToastStore.getState().pushError("That's the same feature — pick a different one to replace it with.")
-      store.cancel()
-      return
+      return null
     }
     if (placements.some((p) => p.feature_class === picked.featureClassCode && p.feature_id === picked.featureId)) {
       useToastStore.getState().pushError("That map feature is already on this diagram.")
-      store.cancel()
-      return
+      return null
     }
-    store.cancel()
+    return stub
+  }
+
+  // Overwrites an already-placed stub with the real map feature the user picked,
+  // once confirmed. The stub keeps its spot: the server re-points the placement in
+  // place, moves the stub's wiring onto the map feature, and retires the stub.
+  async function executeReplace(stub: DiagramPlacement, picked: FeatureRef) {
+    if (!openDiagramId) return
     try {
       await apiFetch(`/diagrams/${openDiagramId}/placements/${stub.id}/replace-from-map`, {
         method: "POST",
@@ -3759,6 +3786,31 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
               <span className="sr-only">Replace from map</span>
             </Button>
           )}
+          {/* Place on map: the mirror of Add-from-map. A diagram feature with no
+              map geometry gets its footprint drawn on the map (arms the map draw
+              bound to this feature; the drawn geometry is PATCHed onto it). We
+              close the diagram so the map is visible to draw on. */}
+          {canPlaceOnMap && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              title="Place on map — draw this diagram feature's geometry on the map"
+              onClick={() => {
+                if (!selected || !selectedMapGeomType) return
+                useDrawStore
+                  .getState()
+                  .startDigitize(selected.featureClassCode, selected.featureId, selectedMapGeomType as "point" | "line" | "polygon")
+                useToastStore
+                  .getState()
+                  .pushSuccess("Draw the geometry on the map — double-click to finish, Esc to cancel.")
+                close()
+              }}
+            >
+              <MapPin className="size-4" />
+              <span className="sr-only">Place on map</span>
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -4016,6 +4068,26 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                 classes={promotePicker.classes}
                 onPick={(code) => beginPromote(promotePicker.element, code)}
                 onCancel={() => setPromotePicker(null)}
+              />
+            )}
+            {replaceConfirm && (
+              <ConfirmDeleteDialog
+                open
+                title="Replace this diagram feature?"
+                description={`Overwrite ${
+                  featureClassesData?.feature_classes.find((c) => c.code === replaceConfirm.stub.feature_class)?.name ??
+                  replaceConfirm.stub.feature_class
+                } (${replaceConfirm.stub.feature_id.slice(0, 8)}…) with the picked ${
+                  featureClassesData?.feature_classes.find((c) => c.code === replaceConfirm.picked.featureClassCode)?.name ??
+                  replaceConfirm.picked.featureClassCode
+                } (${replaceConfirm.picked.featureId.slice(0, 8)}…). The stub's wiring moves onto the map feature and the stub is retired — this can't be undone.`}
+                confirmLabel="Replace"
+                onOpenChange={(open) => !open && setReplaceConfirm(null)}
+                onConfirm={async () => {
+                  const rc = replaceConfirm
+                  setReplaceConfirm(null)
+                  await executeReplace(rc.stub, rc.picked)
+                }}
               />
             )}
             <svg

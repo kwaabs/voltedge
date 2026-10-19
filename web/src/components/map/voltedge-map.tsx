@@ -84,6 +84,7 @@ import { useAnnotationEditStore } from "@/stores/annotation-edit-store"
 import { BLANK_BASEMAP, useBasemapStore } from "@/stores/basemap-store"
 import { useBoxZoomStore } from "@/stores/box-zoom-store"
 import { useConnectStore } from "@/stores/connect-store"
+import { useCoordinationStore } from "@/stores/coordination-store"
 import { useDeletedFeaturesStore } from "@/stores/deleted-features-store"
 import { useDiagramPlaceStore } from "@/stores/diagram-place-store"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
@@ -626,6 +627,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   const drawingFeatureClassCode = useDrawStore((s) => s.drawingFeatureClassCode)
   const drawingGeometryType = useDrawStore((s) => s.drawingGeometryType)
   const draft = useDrawStore((s) => s.draft)
+  const draftGeometryTool = useDrawStore((s) => s.draftGeometryTool)
   const connectMode = useConnectStore((s) => s.mode)
   const connectSource = useConnectStore((s) => s.source)
   const connectTarget = useConnectStore((s) => s.target)
@@ -1304,16 +1306,16 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
     }
   }, [annotationDrawingKind, createAnnotation])
 
-  // Renders an already-placed draft into the draft layer and lets the user
-  // drag it (Phase 20 -- docs/phase-20-split-copy.md). The draw flow's own
-  // Draw interaction leaves the just-drawn feature sitting in draftSource, but
+  // Renders an already-placed draft into the draft layer and lets the user touch
+  // it up before saving (Phase 20 -- docs/phase-20-split-copy.md). The draw flow's
+  // own Draw interaction leaves the just-drawn feature sitting in draftSource, but
   // a draft *seeded* from an existing feature (Duplicate -- draw-store.ts's
   // startCopyDraft) has nothing there yet, so this seeds it from draft.geometry
-  // once. Either way a Translate keeps draft.geometry in sync as it's dragged,
-  // so feature-create-form.tsx's Save posts the final position. Not gated on a
-  // geometry-edit tool -- an unsaved draft is always freely movable. Snap is
-  // deliberately left off here (it only attaches while drawing or editing);
-  // positioning a copy is a coarse nudge, not a precise re-snap.
+  // once. The placed-draft toolbar (draft-edit-toolbar.tsx) arms the gesture via
+  // draftGeometryTool: "move" drags the whole shape (Translate), "reshape" edits
+  // its vertices (Modify). Either keeps draft.geometry in sync so Save posts the
+  // final shape. Snap attaches below (the shared Snap effect now also covers a
+  // draft), so touches can snap to nearby features.
   useEffect(() => {
     const map = mapRef.current
     const source = draftSourceRef.current
@@ -1329,18 +1331,23 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
       source.addFeature(feature)
     }
 
-    const dragged = feature
-    const translate = new Translate({ features: new Collection([dragged]) })
-    translate.on("translateend", () => {
-      const geometry = dragged.getGeometry()
+    const target = feature
+    const sync = () => {
+      const geometry = target.getGeometry()
       const geojson = geometry && geometryToGeoJSON(geometry)
       if (geojson) useDrawStore.getState().updateDraftGeometry(geojson)
-    })
-    map.addInteraction(translate)
-    return () => {
-      map.removeInteraction(translate)
     }
-  }, [draft])
+
+    const interaction =
+      draftGeometryTool === "reshape"
+        ? new Modify({ features: new Collection([target]) })
+        : new Translate({ features: new Collection([target]) })
+    interaction.on(draftGeometryTool === "reshape" ? "modifyend" : "translateend", sync)
+    map.addInteraction(interaction)
+    return () => {
+      map.removeInteraction(interaction)
+    }
+  }, [draft, draftGeometryTool])
 
   // The ad-hoc measure tool (see src/components/map/measure-toolbar.tsx
   // and measure-store.ts). While a mode is armed this owns a throwaway
@@ -2835,7 +2842,10 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
     // arm snapping.
     const editingActive = Boolean(editing && (geometryTool === "move" || geometryTool === "vertices"))
     const measuringActive = Boolean(measureMode)
-    if (!snapEnabled || (!drawingActive && !editingActive && !measuringActive)) return
+    // A placed draft being touched up (move/reshape via the draft-edit toolbar)
+    // also gets snapping, so a copied/just-drawn feature can snap to its neighbours.
+    const draftActive = Boolean(draft?.geometry)
+    if (!snapEnabled || (!drawingActive && !editingActive && !measuringActive && !draftActive)) return
 
     const layers = vectorLayersRef.current
     refreshSnapSource(map, layers, snapSource)
@@ -2872,7 +2882,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
       for (const key of tileKeys) unByKey(key)
       if (rafHandle) cancelAnimationFrame(rafHandle)
     }
-  }, [snapEnabled, drawingFeatureClassCode, editing, geometryTool, measureMode])
+  }, [snapEnabled, drawingFeatureClassCode, editing, geometryTool, measureMode, draft, draftGeometryTool])
 
   // The Split tool (geometry-edit-toolbar.tsx, edit-store.ts's "split") with its
   // live preview (Phase 20). Two phases share one scratch layer so the cut stays
@@ -3324,6 +3334,51 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
           const { clientX, clientY } = evt.originalEvent as PointerEvent
           useSelectionStore.getState().showCandidates(
             pathHits.map((hit) => ({ featureClassCode: hit.code, featureId: hit.id })),
+            { x: clientX, y: clientY },
+            { clearSelected: false },
+          )
+        }
+        return
+      }
+
+      // A click while the protection-coordination panel is waiting on a fault
+      // location (coordination-store.ts's `pickingFault`, armed by the panel's
+      // "Pick fault" button) sets that fault. Same stacked-feature peer-picker
+      // disambiguation as the gestures above; a hit on the armed SOURCE is
+      // ignored (a device can't coordinate against itself) so the pick stays
+      // live, and an empty-space click is ignored too (the panel's button or
+      // Escape cancels).
+      const coordState = useCoordinationStore.getState()
+      if (coordState.pickingFault) {
+        const faultHits: { code: string; id: string }[] = []
+        const seenFault = new Set<string>()
+        const start = coordState.armedStart
+        map.forEachFeatureAtPixel(
+          evt.pixel,
+          (feature) => {
+            const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
+            const id = feature.get("id") as string | undefined
+            const code = sourceId ? codeBySourceId.get(sourceId) : undefined
+            if (code && id) {
+              // Skip the armed source itself.
+              if (start && start.feature_class === code && start.feature_id === id) return undefined
+              const key = `${code}:${id}`
+              if (!seenFault.has(key)) {
+                seenFault.add(key)
+                faultHits.push({ code, id })
+              }
+            }
+            return undefined
+          },
+          { layerFilter: isVectorLayer, hitTolerance: 5 },
+        )
+
+        if (faultHits.length === 1) {
+          useCoordinationStore.getState().setFault({ feature_class: faultHits[0].code, feature_id: faultHits[0].id })
+        } else if (faultHits.length > 1) {
+          const { clientX, clientY } = evt.originalEvent as PointerEvent
+          useSelectionStore.getState().showCandidates(
+            faultHits.map((hit) => ({ featureClassCode: hit.code, featureId: hit.id })),
             { x: clientX, y: clientY },
             { clearSelected: false },
           )

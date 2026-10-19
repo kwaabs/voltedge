@@ -603,6 +603,14 @@ func diagramMembershipsFor(ctx context.Context, db bun.IDB, nodes []node) (map[s
 // follows an edge where n is the "from" side (walking toward "to"),
 // UPSTREAM only follows the reverse, anything else (CONNECTED,
 // SHORTEST_PATH) treats every edge touching n as undirected.
+// neighborsOf returns n's graph neighbors in the given direction. DOWNSTREAM
+// follows an edge only where n is the "from" side (walking toward "to"), UPSTREAM
+// only the reverse; anything else (CONNECTED, SHORTEST_PATH) treats every edge
+// touching n as undirected. The authored from/to orientation is the direction
+// signal -- the network rules wire a device line-IN / load-OUT, so a strict
+// directional walk respects a radial feeder's direction on its own (see bfs's
+// junction pass-through for how a common-node bus, whose edges are one-way-sink,
+// is handled undirected instead).
 func neighborsOf(ctx context.Context, db bun.IDB, n node, direction string) ([]node, error) {
 	var rows []edgeRow
 	q := db.NewSelect().Model(&rows)
@@ -767,6 +775,33 @@ func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers
 	// each closing its own half of the gap (see the doc comment above).
 	passThroughJunctions := direction == "DOWNSTREAM" || direction == "UPSTREAM"
 
+	// startIsInlineDevice is true when the trace STARTS on an inline protective or
+	// switching device (boundary_role 'protective'/'switching' -- fuse, switch,
+	// breaker, recloser, isolator, cut-out). Such a device is network_role=
+	// 'junction' like almost every point feature (it just means "a graph node"),
+	// but unlike a common-node busbar it has a real line side and load side. Its
+	// connections are authored line-IN / load-OUT by the network rules, so a STRICT
+	// directional walk from it already points the right way -- fanning it out
+	// undirected (the junction pass-through below) is what made a downstream trace
+	// from a feeder-pillar fuse climb back up onto the bus feeding it. So the start
+	// stays strictly directional when it is one of these devices; this rests on the
+	// authored from/to alone and needs no terminal data. Only the start is treated
+	// this way: a device reached MID-walk still expands via the junction rules an
+	// RMU and other meshed assemblies depend on (and for a radial pillar a mid-walk
+	// fuse can only reach its already-visited bus, so it changes nothing there).
+	var startIsInlineDevice bool
+	if passThroughJunctions {
+		var boundaryRole map[string]string
+		boundaryRole, err = loader.boundaryRoles(ctx, db)
+		if err != nil {
+			return
+		}
+		switch boundaryRole[start.classID] {
+		case "protective", "switching":
+			startIsInlineDevice = true
+		}
+	}
+
 	// transformerIDs is only consulted on an opt-in downstream stop, so only that
 	// path pays the (memoized) query -- every other trace leaves it nil, and a nil
 	// map reads false, so the boundary check below is a no-op for them.
@@ -843,11 +878,30 @@ func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers
 		// junction on a pass-through walk; everything it discovers is then
 		// unlocked. This is the LEAVE half -- it lets a walk that has reached a bus
 		// fan out through the sibling ways authored bus-inward (see the doc above).
-		expandUndirected := passThroughJunctions && (unlocked[current] || junctionIDs[current.classID])
+		// EXCEPTION: when the START itself is an inline protective/switching device
+		// (startIsInlineDevice), it stays strictly directional despite being a
+		// network_role='junction' node -- it is a section head with a real line/load
+		// orientation, not a common-node bus, so a downstream trace descends to its
+		// load side via the authored from/to and never fans back up onto the bus
+		// feeding it. Only the start is special-cased; a device reached mid-walk
+		// still expands via the junction rules meshed assemblies (an RMU) rely on.
+		startInlineStrict := current == start && startIsInlineDevice
+		expandUndirected := passThroughJunctions && !startInlineStrict &&
+			(unlocked[current] || junctionIDs[current.classID])
 		effectiveDirection := direction
 		if expandUndirected {
 			effectiveDirection = "CONNECTED"
 		}
+		// unlockNeighbors: a node discovered here expands undirected itself when this
+		// node did (the junction LEAVE half) OR when this node is the strict inline-
+		// device start. The start fuse walks its ONE authored load-side edge (strict,
+		// so it never climbs to the bus), but the conductor chain below it is spliced
+		// conductor->conductor in whatever order it was drawn -- an arbitrary from/to
+		// that only an undirected walk can follow. Unlocking the start's load-side
+		// neighbour hands the rest of that chain to the normal pass-through, so the
+		// trace descends the whole feeder instead of dead-ending at the first splice
+		// authored against the direction of flow.
+		unlockNeighbors := expandUndirected || startInlineStrict
 
 		var neighbors []node
 		neighbors, err = neighborsOf(ctx, db, current, effectiveDirection)
@@ -922,7 +976,7 @@ func bfs(ctx context.Context, db bun.IDB, start node, direction string, barriers
 			}
 			visited[n] = true
 			parent[n] = current
-			if expandUndirected {
+			if unlockNeighbors {
 				unlocked[n] = true
 			}
 			order = append(order, n)

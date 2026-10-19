@@ -101,6 +101,15 @@ func addField(ctx context.Context, db *bun.DB, featureClassCode string, req fiel
 			return err
 		}
 
+		// Append a new field at the END of the class's form order (migration
+		// 0146) rather than letting it default to 0 and jump to the top.
+		var maxOrder int
+		if err := tx.NewSelect().Model((*metadata.Field)(nil)).
+			ColumnExpr("COALESCE(MAX(sort_order), 0)").
+			Where("feature_class_id = ?", fc.ID).Scan(ctx, &maxOrder); err != nil {
+			return fmt.Errorf("computing next field order: %w", err)
+		}
+
 		field := &metadata.Field{
 			FeatureClassID:       fc.ID,
 			Name:                 req.Name,
@@ -110,6 +119,7 @@ func addField(ctx context.Context, db *bun.DB, featureClassCode string, req fiel
 			VisibleOnCreate:      req.VisibleOnCreate,
 			VisibleOnUpdate:      req.VisibleOnUpdate,
 			EditableAfterPublish: req.EditableAfterPublish,
+			SortOrder:            maxOrder + 1,
 		}
 		if req.DomainCode != nil {
 			id := domainIDByCode[*req.DomainCode]
@@ -118,6 +128,13 @@ func addField(ctx context.Context, db *bun.DB, featureClassCode string, req fiel
 		if req.GroupCode != nil {
 			id := groupIDByCode[*req.GroupCode]
 			field.GroupID = &id
+		}
+		// Optional field-level default (migration 0150); for a domain-tied field
+		// it's a domain value code, validated at create time by the CRUD engine.
+		if req.DefaultValue != nil {
+			if v := strings.TrimSpace(*req.DefaultValue); v != "" {
+				field.DefaultValue = &v
+			}
 		}
 		if _, err := tx.NewInsert().Model(field).ExcludeColumn("id").Returning("id").Exec(ctx); err != nil {
 			return fmt.Errorf("insert field: %w", err)

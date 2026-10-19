@@ -1,4 +1,4 @@
-import { BookOpen, ChevronRight, Loader2, Lock } from "lucide-react"
+import { BookOpen, ChevronRight, Loader2, Lock, Search, X } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { NavLink, useParams } from "react-router"
 import ReactMarkdown from "react-markdown"
@@ -56,6 +56,24 @@ export function DocsPage() {
   const listQuery = useDocs()
   const docs = listQuery.data ?? []
 
+  // Free-text filter over the library index. Matches a doc's title, description
+  // and category (case-insensitive, all query words must hit somewhere) so a
+  // search like "export cim" finds the manual without scrolling. While a filter
+  // is active every matching group force-opens (see DocNavGroup) so results in
+  // a normally-collapsed Markdown category are visible, not hidden behind a
+  // closed section.
+  const [filter, setFilter] = useState("")
+  const query = filter.trim().toLowerCase()
+
+  const filteredDocs = useMemo(() => {
+    if (!query) return docs
+    const terms = query.split(/\s+/)
+    return docs.filter((d) => {
+      const haystack = `${d.title} ${d.description ?? ""} ${d.category}`.toLowerCase()
+      return terms.every((t) => haystack.includes(t))
+    })
+  }, [docs, query])
+
   // Preserve manifest order within each category (the server sends them in
   // display order); group only splits them into labelled sections. The
   // interactive guides now lead and stay open; the Markdown categories fall
@@ -63,7 +81,7 @@ export function DocsPage() {
   // library reads interactive-first with the plain-text editions tucked away.
   const groups = useMemo(() => {
     const byCategory = new Map<string, DocSummary[]>()
-    for (const d of docs) {
+    for (const d of filteredDocs) {
       const arr = byCategory.get(d.category) ?? []
       arr.push(d)
       byCategory.set(d.category, arr)
@@ -75,7 +93,7 @@ export function DocsPage() {
       items,
       defaultOpen: groupRank(label) < 2,
     })).sort((a, b) => groupRank(a.label) - groupRank(b.label))
-  }, [docs])
+  }, [filteredDocs])
 
   return (
     <div className="flex h-[calc(100svh-3.5rem)] flex-col">
@@ -87,6 +105,33 @@ export function DocsPage() {
             <span className="font-semibold tracking-tight">Documentation</span>
           </div>
 
+          {/* Filter box: narrows the index to docs whose title/description/
+              category matches. Only shown once the index has loaded with
+              content -- there's nothing to filter while loading/empty/errored. */}
+          {!listQuery.isLoading && !listQuery.isError && docs.length > 0 && (
+            <div className="relative mb-3">
+              <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+              <input
+                type="text"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Search documentation…"
+                aria-label="Search documentation"
+                className="border-input bg-background focus-visible:ring-ring h-8 w-full rounded-md border pr-7 pl-8 text-sm outline-none focus-visible:ring-1"
+              />
+              {filter && (
+                <button
+                  type="button"
+                  onClick={() => setFilter("")}
+                  aria-label="Clear search"
+                  className="text-muted-foreground hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+
           {listQuery.isLoading ? (
             <div className="text-muted-foreground flex items-center gap-2 px-1 text-sm">
               <Loader2 className="size-4 animate-spin" /> Loading…
@@ -95,6 +140,10 @@ export function DocsPage() {
             <p className="text-destructive px-1 text-sm">Couldn't load the documentation index.</p>
           ) : docs.length === 0 ? (
             <p className="text-muted-foreground px-1 text-sm">No documents are available.</p>
+          ) : groups.length === 0 ? (
+            <p className="text-muted-foreground px-1 text-sm">
+              No documents match “{filter.trim()}”.
+            </p>
           ) : (
             <div className="flex flex-col gap-3">
               {groups.map((group) => (
@@ -104,6 +153,7 @@ export function DocsPage() {
                   items={group.items}
                   defaultOpen={group.defaultOpen}
                   activeId={id ?? null}
+                  forceOpen={query.length > 0}
                 />
               ))}
             </div>
@@ -130,11 +180,15 @@ function DocNavGroup({
   items,
   defaultOpen,
   activeId,
+  forceOpen,
 }: {
   label: string
   items: DocSummary[]
   defaultOpen: boolean
   activeId: string | null
+  /** While a search filter is active, every matching group opens so results in
+   * normally-collapsed categories show rather than hiding behind a chevron. */
+  forceOpen: boolean
 }) {
   const hasActive = items.some((d) => d.id === activeId)
   const [open, setOpen] = useState(defaultOpen || hasActive)
@@ -142,19 +196,22 @@ function DocNavGroup({
     if (hasActive) setOpen(true)
   }, [hasActive])
 
+  const expanded = open || forceOpen
+
   return (
     <div className="flex flex-col gap-1">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1 px-1 py-0.5 text-xs font-medium tracking-wide uppercase"
+        aria-expanded={expanded}
+        disabled={forceOpen}
+        className="text-muted-foreground hover:text-foreground flex w-full items-center gap-1 px-1 py-0.5 text-xs font-medium tracking-wide uppercase disabled:cursor-default"
       >
-        <ChevronRight className={cn("size-3 shrink-0 transition-transform", open && "rotate-90")} />
+        <ChevronRight className={cn("size-3 shrink-0 transition-transform", expanded && "rotate-90")} />
         <span className="flex-1 text-left">{label}</span>
         <span className="text-muted-foreground/60 tabular-nums lowercase">{items.length}</span>
       </button>
-      {open && (
+      {expanded && (
         <div className="flex flex-col gap-1">
           {items.map((d) => (
             <NavLink

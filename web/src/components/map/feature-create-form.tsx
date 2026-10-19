@@ -22,6 +22,28 @@ import { useSelectionStore } from "@/stores/selection-store"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
 
 /**
+ * Coerce a field's text default (metadata.fields.default_value) to the value
+ * shape the form's inputs use: a boolean for a boolean field, a number for a
+ * numeric/integer field, and the raw string otherwise (text/date/uuid, and a
+ * coded/domain field whose default is its value code — which the select matches
+ * directly). Mirrors the server's own write-time cast. Returns undefined for an
+ * unparseable number so a bad default just leaves the field blank.
+ */
+function coerceDefault(dataType: string, raw: string): unknown {
+  switch (dataType) {
+    case "boolean":
+      return raw === "true" || raw === "1"
+    case "numeric":
+    case "integer": {
+      const n = Number(raw)
+      return Number.isFinite(n) ? n : undefined
+    }
+    default:
+      return raw
+  }
+}
+
+/**
  * Renders in place of feature-panel.tsx's tabs while a draft exists
  * (see draw-store.ts) -- a not-yet-saved feature has no id, so
  * Terminals/Relationships don't apply yet. Two distinct draft origins,
@@ -88,6 +110,29 @@ export function FeatureCreateForm() {
     setFeederA(null)
     setFeederB(null)
   }, [draftToken])
+
+  // Pre-fill field-level defaults (metadata.fields.default_value, S3). The reset
+  // effect above runs on draftToken but the schema may still be loading then, so
+  // this fills defaults once the schema is available for this draft. Gap-fill: it
+  // only sets a visible-on-create field that has a configured default and isn't
+  // already set (by the PLANNED baseline, a Duplicate seed, or the user), so it
+  // never clobbers a seeded/typed value and re-running (e.g. a schema refetch) is
+  // a no-op. A domain default lands as its value code, so the dropdown opens
+  // pre-selected.
+  useEffect(() => {
+    if (!schema) return
+    setAttributes((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const f of schema.fields) {
+        if (!f.visible_on_create || f.default_value == null || f.default_value === "") continue
+        if (f.name in next) continue
+        next[f.name] = coerceDefault(f.data_type, f.default_value)
+        changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [schema, draftToken])
 
   if (!draft) return null
 

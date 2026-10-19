@@ -1,4 +1,5 @@
 import { CircuitPicker } from "@/components/map/circuit-picker"
+import { CurvePicker } from "@/components/map/curve-picker"
 import { inputClass } from "@/components/map/field-utils"
 import type { CircuitNetwork } from "@/hooks/use-circuits"
 import type { FieldSchema } from "@/hooks/use-feature-class-schema"
@@ -46,6 +47,15 @@ export function FieldInput({ field, value, onChange, network }: FieldInputProps)
   // rode the generic text path); everything else flows by data_type below.
   if (field.name === "circuit_id") {
     return <CircuitPicker value={value} onChange={onChange} network={network} />
+  }
+
+  // curve_ref (a fuse's time-current curve, MV_FUSE) stores a
+  // metadata.protection_curves.code -- the string the coordination engine joins
+  // to its melt/clear points. A free-text box let a typo silently never resolve;
+  // a picker over the catalog (ampere-quantity = fuse curves) can only hold a
+  // code that actually exists. Special-cased by name, like circuit_id above.
+  if (field.name === "curve_ref") {
+    return <CurvePicker value={value} onChange={onChange} quantity="ampere" />
   }
 
   if (field.domain_values) {

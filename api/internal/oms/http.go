@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
 )
 
@@ -21,6 +22,7 @@ import (
 //	GET  /incidents/{id}             one incident
 //	GET  /incidents/{id}/affected    the incident's affected service points (map overlay)
 //	GET  /incidents/{id}/energization  the incident's LIVE de-energized cone (current switch state)
+//	GET  /incidents/{id}/restoration   FLISR: suggested back-feed plans to restore the dead section
 //	POST /incidents/predict          roll open calls up into predicted incidents
 //	POST /incidents/planned          schedule a planned outage around a device
 //	POST /incidents/{id}/confirm     confirm/execute + snapshot interruptions
@@ -28,6 +30,8 @@ import (
 //	POST /incidents/{id}/cancel      cancel + release the calls
 //	GET  /incidents/{id}/switching-orders   the incident's switching orders
 //	POST /incidents/{id}/switching-orders   generate a switching order from the device
+//	POST /incidents/{id}/restoration-orders FLISR: generate a close-tie restoration order from a chosen tie
+//	GET  /restoration                FLISR for an ad-hoc device (?device_class=&device_id=)
 //	GET  /switching-orders/{id}      one switching order with its steps
 //	POST /switching-orders/{id}/cancel      cancel a switching order
 //	POST /switching-steps/{id}/execute      mark a step done / outstanding
@@ -51,12 +55,16 @@ func Routes(db *bun.DB) chi.Router {
 	r.Get("/incidents/{id}", getIncidentHandler(db))
 	r.Get("/incidents/{id}/affected", affectedAreaHandler(db))
 	r.Get("/incidents/{id}/energization", energizationHandler(db))
+	r.Get("/incidents/{id}/restoration", restorationForIncidentHandler(db))
 	r.Post("/incidents/{id}/confirm", incidentActionHandler(db, ConfirmIncident))
 	r.Post("/incidents/{id}/restore", incidentActionHandler(db, RestoreIncident))
 	r.Post("/incidents/{id}/cancel", incidentActionHandler(db, CancelIncident))
 
 	r.Get("/incidents/{id}/switching-orders", listSwitchingOrdersHandler(db))
 	r.Post("/incidents/{id}/switching-orders", generateSwitchingOrderHandler(db))
+	r.Post("/incidents/{id}/restoration-orders", generateRestorationOrderHandler(db))
+	r.Get("/restoration", restorationForDeviceHandler(db))
+
 	r.Get("/switching-orders/{id}", getSwitchingOrderHandler(db))
 	r.Post("/switching-orders/{id}/cancel", cancelSwitchingOrderHandler(db))
 	r.Post("/switching-steps/{id}/execute", executeStepHandler(db))
@@ -216,6 +224,39 @@ func energizationHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
+// restorationForIncidentHandler suggests back-feed restoration plans for an
+// incident (FLISR): the normally-open ties that could re-energize its dead section
+// from an alternate source, with restored-load and capacity. Read-only.
+func restorationForIncidentHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		suggestion, err := SuggestRestorationForIncident(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, suggestion)
+	}
+}
+
+// restorationForDeviceHandler is the ad-hoc counterpart: suggest restoration for
+// any open device named by ?device_class=&device_id=, without an incident.
+func restorationForDeviceHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		class := r.URL.Query().Get("device_class")
+		id := r.URL.Query().Get("device_id")
+		if class == "" || id == "" {
+			writeError(w, invalidf("device_class and device_id are required"))
+			return
+		}
+		suggestion, err := SuggestRestoration(r.Context(), db, trace.FeatureRef{FeatureClass: class, FeatureID: id})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, suggestion)
+	}
+}
+
 func predictIncidentsHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		created, err := PredictAndPersist(r.Context(), db)
@@ -281,6 +322,33 @@ func listSwitchingOrdersHandler(db *bun.DB) http.HandlerFunc {
 func generateSwitchingOrderHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		order, err := GenerateSwitchingOrder(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, order)
+	}
+}
+
+// generateRestorationOrderRequest names the tie to close (FLISR Slice 2). The
+// tie must be one SuggestRestoration currently suggests for this incident.
+type generateRestorationOrderRequest struct {
+	TieClass string `json:"tie_class"`
+	TieID    string `json:"tie_id"`
+}
+
+func generateRestorationOrderHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req generateRestorationOrderRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		if req.TieClass == "" || req.TieID == "" {
+			writeError(w, invalidf("tie_class and tie_id are required"))
+			return
+		}
+		order, err := GenerateRestorationOrder(r.Context(), db, chi.URLParam(r, "id"), req.TieClass, req.TieID)
 		if err != nil {
 			writeError(w, err)
 			return

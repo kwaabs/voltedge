@@ -1,9 +1,7 @@
 import { useState } from "react"
-import { Plus, Search, X } from "lucide-react"
+import { Plus, Search } from "lucide-react"
 
 import { inputClass } from "@/components/map/field-utils"
-import { OrthoToggleButton } from "@/components/map/ortho-toggle-button"
-import { SnapToggleButton } from "@/components/map/snap-toggle-button"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -26,12 +24,6 @@ const DRAWABLE_GEOMETRY_TYPES: readonly DrawGeometryType[] = ["point", "line", "
 
 function isDrawGeometryType(value: string): value is DrawGeometryType {
   return (DRAWABLE_GEOMETRY_TYPES as readonly string[]).includes(value)
-}
-
-const BANNER_TEXT: Record<DrawGeometryType, string> = {
-  point: "Click the map to place the new feature",
-  line: "Click to add points, double-click to finish the line",
-  polygon: "Click to add points, double-click to finish the polygon",
 }
 
 interface ClassGroup {
@@ -84,9 +76,7 @@ export function NewFeatureMenu() {
   const { data: packagedOptions } = usePackagedSubstationOptions()
   const { data: ductOptions } = useDuctOptions()
   const startDrawing = useDrawStore((s) => s.startDrawing)
-  const cancelDrawing = useDrawStore((s) => s.cancelDrawing)
   const drawing = useDrawStore((s) => s.drawingFeatureClassCode)
-  const drawingGeometryType = useDrawStore((s) => s.drawingGeometryType)
   // Modifying an existing feature's geometry and drawing a brand-new one are
   // mutually exclusive workflows: both would attach their own OL interaction to
   // the same map and fight over clicks (the same reason voltedge-map blocks
@@ -143,20 +133,11 @@ export function NewFeatureMenu() {
   // not the shortest possible list.
   const groupedClasses = groupByCategory(filteredClasses)
 
-  if (drawing) {
-    return (
-      <div className="bg-background/90 flex items-center gap-2 rounded-md border py-1.5 pr-1.5 pl-3 text-sm shadow-sm">
-        <span className="bg-primary/70 size-2 shrink-0 animate-pulse rounded-full" />
-        {drawingGeometryType ? BANNER_TEXT[drawingGeometryType] : BANNER_TEXT.point}
-        {(drawingGeometryType === "line" || drawingGeometryType === "polygon") && <OrthoToggleButton />}
-        <SnapToggleButton />
-        <Button variant="ghost" size="icon" className="size-6 shrink-0" onClick={cancelDrawing}>
-          <X className="size-3.5" />
-          <span className="sr-only">Cancel</span>
-        </Button>
-      </div>
-    )
-  }
+  // While a draw is in flight the floating, draggable DrawBanner (rendered at the
+  // map level in map.tsx) takes over the "how to draw"/Ortho/Snap/cancel UI, so
+  // this menu's trigger simply steps aside rather than turning into an inline
+  // banner that crowded the top control cluster.
+  if (drawing) return null
 
   return (
     <DropdownMenu open={menuOpen && !editing} onOpenChange={(o) => setMenuOpen("feature", o)}>

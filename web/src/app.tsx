@@ -23,6 +23,7 @@ import { AdminWebhooksPage } from "@/routes/admin-webhooks"
 import { AdminFieldPacksPage } from "@/routes/admin-field-packs"
 import { AdminCostCatalogPage } from "@/routes/admin-cost-catalog"
 import { AdminMaterialsPage } from "@/routes/admin-materials"
+import { AdminProtectionCurvesPage } from "@/routes/admin-protection-curves"
 import { AdminStencilsPage } from "@/routes/admin-stencils"
 import { AdminSymbologyIconsPage } from "@/routes/admin-symbology-icons"
 import { AdminTerritoriesPage } from "@/routes/admin-territories"
@@ -37,6 +38,7 @@ import { ImportRunPage } from "@/routes/imports"
 import { LoginPage } from "@/routes/login"
 import { MapPage } from "@/routes/map"
 import { NotFoundPage } from "@/routes/not-found"
+import { OperationsPage } from "@/routes/operations"
 import { OutagesPage } from "@/routes/outages"
 import { TagResolvePage } from "@/routes/tag-resolve"
 import { WorksPage } from "@/routes/works"
@@ -101,6 +103,14 @@ export function App() {
               element={
                 <RequirePermission perm="faults:read">
                   <FaultsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="operations"
+              element={
+                <RequirePermission perm="operations:read">
+                  <OperationsPage />
                 </RequirePermission>
               }
             />
@@ -183,6 +193,14 @@ export function App() {
               element={
                 <RequirePermission perm="metadata:write">
                   <AdminDomainsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/protection-curves"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminProtectionCurvesPage />
                 </RequirePermission>
               }
             />

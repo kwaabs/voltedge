@@ -38,6 +38,10 @@ export interface FieldSchema {
   range_min?: number
   range_max?: number
   required_for_subtypes?: number[]
+  /** The field-level default value (migration 0150), as text; for a domain-tied
+   * field it's a domain value code. The create form pre-fills it. Absent when no
+   * default is set. */
+  default_value?: string
   /** Keyed by domain value code -- only present for the subset of
    * domain_values that carry a material spec. */
   material_specs?: Record<string, MaterialSpecSummary>

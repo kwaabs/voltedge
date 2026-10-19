@@ -68,7 +68,10 @@ func Load(ctx context.Context, db bun.IDB, code string) (*Loaded, error) {
 	if err := db.NewSelect().Model(&fields).
 		Where("feature_class_id = ?", fc.ID).
 		Where("status = ?", "active").
-		Order("name").
+		// Display order is the admin-set per-class sort_order (migration 0146),
+		// ties broken by name -- this single ORDER BY drives every form and the
+		// admin fields table.
+		Order("sort_order", "name").
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("metadata: loading fields for %q: %w", code, err)
 	}

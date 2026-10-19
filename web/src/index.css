@@ -228,6 +228,32 @@
 }
 
 /*
+ * A slim, unobtrusive scrollbar for compact scroll regions (e.g. the feature
+ * panel's tab rail) where the browser default is too heavy. A thin thumb in the
+ * border tint over a transparent track; it darkens to the muted-foreground on
+ * hover. Firefox uses scrollbar-width/color; WebKit the pseudo-elements. Both
+ * read the theme vars, so it tracks light/dark automatically.
+ */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+}
+
+/*
  * The "Select" marquee tool's rubber-band rectangle (ol/interaction/DragBox,
  * voltedge-map.tsx). It's constructed with a custom className ("ol-dragbox-
  * select"), which bypasses ol.css's default ".ol-dragbox" border -- so without
@@ -237,4 +263,18 @@
 .ol-dragbox-select {
   border: 2px dashed #0284c7;
   background-color: rgba(2, 132, 199, 0.15);
+}
+
+/*
+ * Move the map's zoom (+/-) control from OpenLayers' default top-left to the
+ * BOTTOM-left of the map canvas. The top action toolbar (Query / Territories /
+ * ... in map.tsx) is anchored top-right and grows leftward; when the one-line
+ * panel narrows the map, the toolbar spans the full width and used to sit on top
+ * of the zoom buttons. The status bar is a sibling BELOW the map viewport (not an
+ * overlay), so the bottom-left corner is clear. `top: auto` unsets ol.css's
+ * default; `left` stays as ol.css sets it.
+ */
+.ol-zoom {
+  top: auto;
+  bottom: 0.5em;
 }

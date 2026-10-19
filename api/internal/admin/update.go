@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/uptrace/bun"
@@ -424,8 +425,31 @@ func updateField(ctx context.Context, db *bun.DB, featureClassCode, fieldName st
 			field.EditableAfterPublish = *req.EditableAfterPublish
 			cols = append(cols, "editable_after_publish")
 		}
+		if req.DefaultValue != nil {
+			v := strings.TrimSpace(*req.DefaultValue)
+			if v == "" {
+				field.DefaultValue = nil
+			} else {
+				// A domain-tied field's default must be one of the domain's coded
+				// values (validated against the field's possibly-just-changed
+				// domain), else every create of this class would 400 on the bad
+				// default. Non-domain fields are coerced to data_type at create.
+				if field.DomainID != nil {
+					exists, err := tx.NewSelect().Model((*metadata.DomainValue)(nil)).
+						Where("domain_id = ? AND code = ?", *field.DomainID, v).Exists(ctx)
+					if err != nil {
+						return fmt.Errorf("checking default value against domain: %w", err)
+					}
+					if !exists {
+						return invalid("default value %q is not a value of this field's domain", v)
+					}
+				}
+				field.DefaultValue = &v
+			}
+			cols = append(cols, "default_value")
+		}
 		if len(cols) == 0 && req.RequiredForSubtypes == nil {
-			return invalid("request must set at least one of domain_code, group_code, nullable, visible_on_create, visible_on_update, editable_after_publish, required_for_subtypes")
+			return invalid("request must set at least one of domain_code, group_code, nullable, visible_on_create, visible_on_update, editable_after_publish, default_value, required_for_subtypes")
 		}
 
 		if len(cols) > 0 {

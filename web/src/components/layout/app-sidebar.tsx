@@ -1,4 +1,4 @@
-import { BookOpen, Database, FileUp, Map, QrCode, Siren, Wrench, Zap, ZapOff } from "lucide-react"
+import { Activity, BookOpen, Database, FileUp, Map, QrCode, Siren, Wrench, Zap, ZapOff } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import { AdminNavIcon, adminNavItems } from "@/components/layout/admin-nav"
@@ -25,8 +25,9 @@ import { usePermission } from "@/hooks/use-auth"
 const dataItems = [
   { to: "/features", label: "Feature classes", icon: Database, perm: "features:read" },
   { to: "/imports", label: "Import data", icon: FileUp, perm: "features:write" },
-  { to: "/outages", label: "Outages", icon: Siren, perm: "oms:read" },
+  { to: "/outages", label: "Outage Management", icon: Siren, perm: "oms:read" },
   { to: "/faults", label: "Faults", icon: ZapOff, perm: "faults:read" },
+  { to: "/operations", label: "Operations", icon: Activity, perm: "operations:read" },
   { to: "/works", label: "Works", icon: Wrench, perm: "wam:read" },
   { to: "/t", label: "Resolve tag", icon: QrCode, perm: "tags:read" },
 ]

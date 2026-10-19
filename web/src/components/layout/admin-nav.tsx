@@ -1,4 +1,5 @@
 import {
+  Activity,
   Cloud,
   Coins,
   FileInput,
@@ -80,6 +81,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         label: "Materials",
         description: "The materials catalog features draw their specs from.",
         icon: Wrench,
+        perm: "metadata:read",
+      },
+      {
+        to: "/admin/protection-curves",
+        label: "Protection curves",
+        description: "Fuse melt/clear and relay TCC curves the coordination engine interpolates.",
+        icon: Activity,
         perm: "metadata:read",
       },
       {

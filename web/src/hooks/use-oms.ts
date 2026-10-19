@@ -243,6 +243,62 @@ interface SwitchingOrdersResponse {
   switching_orders: SwitchingOrder[]
 }
 
+// --- FLISR restoration (back-feed suggestion) ------------------------------
+
+/** A bare feature reference as the OMS restoration API returns it. */
+export interface OmsFeatureRef {
+  feature_class: string
+  feature_id: string
+}
+
+export type CapacityVerdict = "ok" | "exceeds" | "unverified"
+
+/** One suggested back-feed: close `tie` to re-energize the dead section from
+ * `alternate_source`. Capacity verdict judges whether that feeder can carry the
+ * picked-up load (unverified when no transformer nameplate was found). */
+export interface RestorationPlan {
+  tie: OmsFeatureRef
+  tie_label: string
+  alternate_source?: OmsFeatureRef
+  alternate_source_label?: string
+  restored_service_points: number
+  restored_customers: number
+  restored_load_kw: number
+  restored_load_kva: number
+  alternate_feeder_load_kva: number
+  alternate_capacity_kva?: number
+  spare_headroom_kva?: number
+  capacity_verdict: CapacityVerdict
+  /** How capacity_verdict was decided: a real donor-feeder load-flow sweep
+   * ("load_flow", authoritative), the nameplate summed-demand estimate
+   * ("nameplate"), or neither ("none"). */
+  verdict_basis: "load_flow" | "nameplate" | "none"
+  /** Load-flow check results (present when verdict_basis === "load_flow", or when
+   * the sweep ran but was inconclusive). */
+  load_flow_checked: boolean
+  load_flow_feasible: boolean
+  /** Post-transfer voltage violations and thermal overloads the sweep found. */
+  violations: number
+  overloaded: number
+  /** Worst per-unit voltage reached on the donor feeder once the section transfers. */
+  worst_voltage_pu?: number
+  /** Engine note when the sweep was inconclusive (loop/mesh, no load gained) or
+   * degraded (sweep error). */
+  load_flow_note?: string
+}
+
+/** FLISR answer for one faulted device: the dead section's totals plus every
+ * viable back-feed plan, best-first. `note` explains an empty plan list. */
+export interface RestorationSuggestion {
+  device: OmsFeatureRef
+  de_energized_service_points: number
+  de_energized_customers: number
+  de_energized_load_kw: number
+  de_energized_load_kva: number
+  plans: RestorationPlan[]
+  note?: string
+}
+
 interface TroubleCallsResponse {
   trouble_calls: TroubleCall[]
 }
@@ -381,6 +437,30 @@ export function useSwitchingOrders(incidentId: string | null) {
 export function useGenerateSwitchingOrder() {
   return useOmsMutation<{ incidentId: string }>(({ incidentId }) =>
     apiFetch(`/oms/incidents/${incidentId}/switching-orders`, { method: "POST" }),
+  )
+}
+
+/** FLISR: suggested back-feed restoration plans for an active incident (the
+ * normally-open ties that could re-energize its dead section from an alternate
+ * source). Skipped until an incidentId is supplied and `enabled`; short staleTime
+ * so it tracks switching. */
+export function useRestorationSuggestion(incidentId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: [...OMS_KEY, "restoration", incidentId ?? ""],
+    queryFn: () => apiFetch<RestorationSuggestion>(`/oms/incidents/${incidentId}/restoration`),
+    enabled: incidentId != null && enabled,
+    staleTime: 10_000,
+  })
+}
+
+/** Build a draft close-tie restoration order from a chosen plan's tie. */
+export function useGenerateRestorationOrder() {
+  return useOmsMutation<{ incidentId: string; tieClass: string; tieId: string }>(
+    ({ incidentId, tieClass, tieId }) =>
+      apiFetch(`/oms/incidents/${incidentId}/restoration-orders`, {
+        method: "POST",
+        body: JSON.stringify({ tie_class: tieClass, tie_id: tieId }),
+      }),
   )
 }
 

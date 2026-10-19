@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { AlertTriangle, ArrowLeft, Copy, FlaskConical, LandPlot, ListPlus, Loader2, Pencil, Plus, Power, PowerOff, Trash2, Wrench } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Copy, FlaskConical, GripVertical, LandPlot, ListPlus, Loader2, Pencil, Plus, Power, PowerOff, Trash2, Wrench } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
@@ -34,6 +34,7 @@ import { type FeatureClassSchema, type FieldSchema, useFeatureClassSchema } from
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { ApiError, apiFetch } from "@/lib/api"
 import { LINE_DASH_STYLES } from "@/lib/line-dash"
+import { cn } from "@/lib/utils"
 import type { LabelDef } from "@/lib/symbology"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -92,6 +93,150 @@ function DomainCell({ field }: { field: FieldSchema }) {
     )
   }
   return <span className="font-mono text-xs">{field.domain_code}</span>
+}
+
+/**
+ * The class's fields, in their form display order (migration 0146 sort_order),
+ * with drag-to-reorder. Each row is a native HTML5 draggable (no dnd library --
+ * the app carries none); dropping a row onto another reorders the local list and
+ * PUTs the new order of field NAMES to /admin/feature-classes/{code}/fields/order,
+ * which rewrites sort_order. The order shows up immediately in the create/edit
+ * forms (metadata.Load reads sort_order live) -- no recompile.
+ *
+ * Local `order` state mirrors the server's field order and is re-seeded whenever
+ * the schema changes (an add/edit/delete elsewhere), so an in-flight drag never
+ * fights a refetch. Reordering is gated on canWrite; a viewer sees a plain list.
+ */
+function FieldsTable({
+  code,
+  fields,
+  canWrite,
+  onEdit,
+}: {
+  code: string
+  fields: FieldSchema[]
+  canWrite: boolean
+  onEdit: (name: string) => void
+}) {
+  const queryClient = useQueryClient()
+  const [order, setOrder] = useState<FieldSchema[]>(fields)
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [overIndex, setOverIndex] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  // Re-seed from the server whenever the field set/order changes upstream. Keyed
+  // on the names-in-order so a pure attribute edit (no order change) doesn't
+  // clobber an in-progress local reorder.
+  const serverKey = fields.map((f) => f.name).join("\u0000")
+  useEffect(() => {
+    setOrder(fields)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverKey])
+
+  async function persist(next: FieldSchema[]) {
+    const prev = order
+    setOrder(next) // optimistic
+    setSaving(true)
+    try {
+      await apiFetch(`/admin/feature-classes/${code}/fields/order`, {
+        method: "PUT",
+        body: JSON.stringify({ order: next.map((f) => f.name) }),
+      })
+      // Refresh the shared schema so the forms (and this table) reflect the new order.
+      queryClient.invalidateQueries({ queryKey: ["feature-class-schema", code] })
+    } catch (err) {
+      setOrder(prev) // roll back
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not save the field order.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleDrop(target: number) {
+    const from = dragIndex
+    setDragIndex(null)
+    setOverIndex(null)
+    if (from === null || from === target) return
+    const next = [...order]
+    const [moved] = next.splice(from, 1)
+    next.splice(target, 0, moved)
+    persist(next)
+  }
+
+  if (order.length === 0) return <p className="text-muted-foreground text-sm">No fields.</p>
+
+  return (
+    <div className="overflow-hidden rounded-lg border">
+      {canWrite && (
+        <p className="text-muted-foreground bg-muted/30 border-b px-3 py-1.5 text-xs">
+          Drag a row by its handle to reorder how fields appear on the form.{saving && " Saving…"}
+        </p>
+      )}
+      <table className="w-full text-sm">
+        <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+          <tr>
+            {canWrite && <th className="w-8 px-2 py-2" />}
+            <th className="px-3 py-2 font-medium">Name</th>
+            <th className="px-3 py-2 font-medium">Type</th>
+            <th className="px-3 py-2 font-medium">Domain</th>
+            <th className="px-3 py-2 font-medium">Nullable</th>
+            <th className="px-3 py-2 font-medium">Create</th>
+            <th className="px-3 py-2 font-medium">Update</th>
+            <th className="px-3 py-2 font-medium">Required for</th>
+            <th className="px-3 py-2 font-medium" />
+          </tr>
+        </thead>
+        <tbody>
+          {order.map((f, i) => (
+            <tr
+              key={f.name}
+              onDragOver={canWrite ? (e) => { e.preventDefault(); setOverIndex(i) } : undefined}
+              onDrop={canWrite ? () => handleDrop(i) : undefined}
+              className={cn(
+                "border-t",
+                canWrite && overIndex === i && dragIndex !== null && dragIndex !== i && "bg-accent/60",
+                canWrite && dragIndex === i && "opacity-50",
+              )}
+            >
+              {canWrite && (
+                <td className="px-2 py-2">
+                  <span
+                    draggable
+                    onDragStart={() => setDragIndex(i)}
+                    onDragEnd={() => { setDragIndex(null); setOverIndex(null) }}
+                    className="text-muted-foreground hover:text-foreground flex cursor-grab items-center active:cursor-grabbing"
+                    title="Drag to reorder"
+                  >
+                    <GripVertical className="size-4" />
+                  </span>
+                </td>
+              )}
+              <td className="px-3 py-2 font-mono text-xs">{f.name}</td>
+              <td className="px-3 py-2">{f.data_type}</td>
+              <td className="px-3 py-2">
+                <DomainCell field={f} />
+              </td>
+              <td className="px-3 py-2">{f.nullable ? "yes" : "no"}</td>
+              <td className="px-3 py-2">{f.visible_on_create ? "yes" : "no"}</td>
+              <td className="px-3 py-2">{f.visible_on_update ? "yes" : "no"}</td>
+              <td className="px-3 py-2">
+                {f.required_for_subtypes && f.required_for_subtypes.length > 0
+                  ? f.required_for_subtypes.join(", ")
+                  : "—"}
+              </td>
+              <td className="px-3 py-2 text-right">
+                {canWrite && (
+                  <Button variant="ghost" size="icon" className="size-7" title="Edit" onClick={() => onEdit(f.name)}>
+                    <Pencil className="size-3.5" />
+                  </Button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 /**
@@ -352,8 +497,14 @@ function EditFieldRow({
   const [visibleOnUpdate, setVisibleOnUpdate] = useState(field.visible_on_update)
   const [editableAfterPublish, setEditableAfterPublish] = useState(field.editable_after_publish)
   const [requiredFor, setRequiredFor] = useState<Set<number>>(new Set(field.required_for_subtypes ?? []))
+  const [defaultValue, setDefaultValue] = useState(field.default_value ?? "")
   const [saving, setSaving] = useState(false)
   const queryClient = useQueryClient()
+
+  // The selected domain's coded values, for a domain-value default dropdown.
+  // Reacts to the Domain picker above, so changing the domain re-scopes the
+  // default options (a stale default is caught by the server).
+  const selectedDomainValues = domainsData?.domains.find((d) => d.code === domainCode)?.values ?? []
 
   function toggleRequired(subtypeCode: number) {
     setRequiredFor((prev) => {
@@ -376,6 +527,7 @@ function EditFieldRow({
           visible_on_update: visibleOnUpdate,
           editable_after_publish: editableAfterPublish,
           required_for_subtypes: [...requiredFor],
+          default_value: defaultValue,
         }),
       })
       queryClient.invalidateQueries({ queryKey: ["feature-class-schema", code] })
@@ -411,6 +563,37 @@ function EditFieldRow({
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>Default value</label>
+        {domainCode && selectedDomainValues.length > 0 ? (
+          <select className={inputClass} value={defaultValue} onChange={(e) => setDefaultValue(e.target.value)}>
+            <option value="">— no default —</option>
+            {selectedDomainValues.map((v) => (
+              <option key={v.code} value={v.code}>
+                {v.label} ({v.code})
+              </option>
+            ))}
+          </select>
+        ) : field.data_type === "boolean" ? (
+          <select className={inputClass} value={defaultValue} onChange={(e) => setDefaultValue(e.target.value)}>
+            <option value="">— no default —</option>
+            <option value="true">true</option>
+            <option value="false">false</option>
+          </select>
+        ) : (
+          <input
+            className={inputClass}
+            type={field.data_type === "numeric" || field.data_type === "integer" ? "number" : "text"}
+            value={defaultValue}
+            onChange={(e) => setDefaultValue(e.target.value)}
+            placeholder="no default"
+          />
+        )}
+        <span className="text-muted-foreground text-xs">
+          Pre-fills the create form and fills the value when a feature is created without it. Leave blank for none.
+        </span>
       </div>
 
       <div className="flex flex-wrap gap-4">
@@ -3346,61 +3529,15 @@ export function AdminFeatureClassDetailPage() {
                   />
                 ) : null
               })()}
-            {schema.fields.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No fields.</p>
-            ) : (
-              <div className="overflow-hidden rounded-lg border">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
-                    <tr>
-                      <th className="px-3 py-2 font-medium">Name</th>
-                      <th className="px-3 py-2 font-medium">Type</th>
-                      <th className="px-3 py-2 font-medium">Domain</th>
-                      <th className="px-3 py-2 font-medium">Nullable</th>
-                      <th className="px-3 py-2 font-medium">Create</th>
-                      <th className="px-3 py-2 font-medium">Update</th>
-                      <th className="px-3 py-2 font-medium">Required for</th>
-                      <th className="px-3 py-2 font-medium" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {schema.fields.map((f) => (
-                      <tr key={f.name} className="border-t">
-                        <td className="px-3 py-2 font-mono text-xs">{f.name}</td>
-                        <td className="px-3 py-2">{f.data_type}</td>
-                        <td className="px-3 py-2">
-                          <DomainCell field={f} />
-                        </td>
-                        <td className="px-3 py-2">{f.nullable ? "yes" : "no"}</td>
-                        <td className="px-3 py-2">{f.visible_on_create ? "yes" : "no"}</td>
-                        <td className="px-3 py-2">{f.visible_on_update ? "yes" : "no"}</td>
-                        <td className="px-3 py-2">
-                          {f.required_for_subtypes && f.required_for_subtypes.length > 0
-                            ? f.required_for_subtypes.join(", ")
-                            : "—"}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          {canWrite && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-7"
-                              title="Edit"
-                              onClick={() => {
-                                setAddingField(false)
-                                setEditingFieldName(f.name)
-                              }}
-                            >
-                              <Pencil className="size-3.5" />
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <FieldsTable
+              code={code}
+              fields={schema.fields}
+              canWrite={canWrite}
+              onEdit={(name) => {
+                setAddingField(false)
+                setEditingFieldName(name)
+              }}
+            />
 
             {schema.terminals && schema.terminals.length > 0 && (
               <>

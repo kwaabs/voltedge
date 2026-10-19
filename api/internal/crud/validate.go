@@ -292,6 +292,42 @@ func validateRequired(loaded *metadata.Loaded, subtype *metadata.Subtype, attrs 
 	return nil
 }
 
+// injectDefaults fills any field absent from attrs with its effective default,
+// so a create (form, API or MCP) that omits a field still writes the configured
+// default. The effective default is the per-subtype override
+// (subtype_field_rules.default_override) when present, else the field-level
+// default (fields.default_value, migration 0150). Both are text, coerced to the
+// field's data_type by validateValue downstream -- the same path the required-
+// field default already takes. Only create-settable fields are filled
+// (visible_on_create, not computed), so a default never lands on a field the
+// create would reject. Create-only: an update must not resurrect a default for a
+// field the user deliberately cleared. Mutates attrs in place.
+func injectDefaults(loaded *metadata.Loaded, subtype *metadata.Subtype, attrs map[string]any) {
+	for _, f := range loaded.Fields {
+		if !f.VisibleOnCreate || f.IsComputed {
+			continue
+		}
+		if _, present := attrs[f.Name]; present {
+			continue
+		}
+		var def *string
+		if subtype != nil {
+			for _, r := range loaded.SubtypeFieldRules {
+				if r.SubtypeID == subtype.ID && r.FieldID == f.ID && r.DefaultOverride != nil {
+					def = r.DefaultOverride
+					break
+				}
+			}
+		}
+		if def == nil {
+			def = f.DefaultValue
+		}
+		if def != nil {
+			attrs[f.Name] = *def
+		}
+	}
+}
+
 // validateForCreate runs the whole create-time validation sequence over an
 // in-memory metadata bundle: subtype, geometry, required-by-subtype (which may
 // inject default_override values into attrs), field known-ness/visibility, and
@@ -313,6 +349,10 @@ func validateForCreate(loaded *metadata.Loaded, subtypeCode *int, geometry []byt
 	if err := validateGeometry(loaded, geometry); err != nil {
 		return nil, nil, err
 	}
+	// Fill configured defaults for omitted fields BEFORE the required check, so a
+	// required field with a default is satisfied by it, and a non-required field
+	// still gets its default written.
+	injectDefaults(loaded, subtype, attrs)
 	if err := validateRequired(loaded, subtype, attrs); err != nil {
 		return nil, nil, err
 	}

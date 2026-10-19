@@ -198,6 +198,23 @@ interface DrawState {
    * every ordinary draw. Cleared alongside the other drawing state on
    * finish/cancel. */
   drawingTieFeederClasses: string[] | null
+  /** Set while a "Place on map" (digitize-onto-existing) draw is in flight
+   * (startDigitize, from diagram-canvas.tsx's selected diagram-only feature):
+   * the EXISTING feature whose geometry is being drawn. Unlike every other draw
+   * this doesn't create a feature -- finishDrawing routes the drawn geometry to
+   * `geometryUpdate` (a PATCH of this feature's geom) instead of a create `draft`.
+   * Cleared on finish/cancel. */
+  digitizeTarget: { featureClassCode: string; featureId: string } | null
+  /** A completed "Place on map" draw: the existing feature + the geometry drawn
+   * for it, waiting for the committer (digitize-committer.tsx) to PATCH it onto
+   * the feature and clear this. A fresh object each finish, so the committer's
+   * effect fires once per draw. */
+  geometryUpdate: { featureClassCode: string; featureId: string; geometry: NonNullable<DraftFeature["geometry"]> } | null
+  /** Which gesture the placed-draft toolbar (draft-edit-toolbar.tsx) has armed on
+   * a draft's geometry: "move" drags the whole shape (Translate), "reshape" edits
+   * its vertices (Modify, line/polygon only). voltedge-map.tsx's draft-interaction
+   * effect reads this. Defaults to "move"; the toolbar resets it per new draft. */
+  draftGeometryTool: "move" | "reshape"
   draft: DraftFeature | null
   /** Bumped every time a *new* draft opens (finishDrawing / startCopyDraft /
    * startDiagramDraft) but NOT when the draft's geometry is merely dragged
@@ -236,6 +253,15 @@ interface DrawState {
    * stashes the eligible feeder classes so the finished draft is marked as a
    * /ties fan-out (Phase 50 Slice 2). */
   startTieDrawing: (switchFeatureClass: string, feederFeatureClasses: string[]) => void
+  /** Begin a "Place on map" draw for an EXISTING diagram-only feature: draws
+   * point/line/polygon per its class, but finishDrawing routes the result to
+   * `geometryUpdate` (a geom PATCH of this feature) rather than creating a new
+   * one -- the mirror of the diagram's "Add from map". */
+  startDigitize: (featureClassCode: string, featureId: string, geometryType: DrawGeometryType) => void
+  /** Clear the pending geometryUpdate after the committer has PATCHed it. */
+  clearGeometryUpdate: () => void
+  /** Arm a gesture on the current placed draft's geometry (draft-edit-toolbar). */
+  setDraftGeometryTool: (tool: "move" | "reshape") => void
   cancelDrawing: () => void
   finishDrawing: (geometry: NonNullable<DraftFeature["geometry"]>) => void
   startCopyDraft: (
@@ -284,8 +310,33 @@ export const useDrawStore = create<DrawState>((set, get) => ({
   drawingDuct: false,
   drawingCouplerBusClasses: null,
   drawingTieFeederClasses: null,
+  digitizeTarget: null,
+  geometryUpdate: null,
+  draftGeometryTool: "move",
   draft: null,
   draftToken: 0,
+  setDraftGeometryTool: (tool) => set({ draftGeometryTool: tool }),
+  // "Place on map": arm the same point/line/polygon draw as startDrawing, but
+  // stash the existing feature as digitizeTarget so finishDrawing PATCHes its geom
+  // instead of creating a new feature. Clears any draft + prior geometryUpdate.
+  startDigitize: (featureClassCode, featureId, geometryType) =>
+    set({
+      drawingFeatureClassCode: featureClassCode,
+      drawingGeometryType: geometryType,
+      drawingRmuConfig: null,
+      drawingPackagedConfig: null,
+      drawingPackagedSubtype: null,
+      drawingAssemblyAnchorClass: null,
+      drawingAssemblyConfig: null,
+      drawingAssemblySubtype: null,
+      drawingDuct: false,
+      drawingCouplerBusClasses: null,
+      drawingTieFeederClasses: null,
+      digitizeTarget: { featureClassCode, featureId },
+      geometryUpdate: null,
+      draft: null,
+    }),
+  clearGeometryUpdate: () => set({ geometryUpdate: null }),
   startDrawing: (featureClassCode, geometryType) =>
     set({
       drawingFeatureClassCode: featureClassCode,
@@ -421,10 +472,23 @@ export const useDrawStore = create<DrawState>((set, get) => ({
       drawingDuct: false,
       drawingCouplerBusClasses: null,
       drawingTieFeederClasses: null,
+      digitizeTarget: null,
     }),
   finishDrawing: (geometry) => {
     const featureClassCode = get().drawingFeatureClassCode
     if (!featureClassCode) return
+    // "Place on map": the drawn geometry belongs to an EXISTING feature. Route it
+    // to geometryUpdate (a geom PATCH) and stop -- no create draft, no form.
+    const digitize = get().digitizeTarget
+    if (digitize) {
+      set({
+        drawingFeatureClassCode: null,
+        drawingGeometryType: null,
+        digitizeTarget: null,
+        geometryUpdate: { featureClassCode: digitize.featureClassCode, featureId: digitize.featureId, geometry },
+      })
+      return
+    }
     const rmuConfig = get().drawingRmuConfig
     const packagedConfig = get().drawingPackagedConfig
     const packagedSubtype = get().drawingPackagedSubtype

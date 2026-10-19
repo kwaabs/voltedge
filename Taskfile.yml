@@ -1323,6 +1323,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/protection_curves_example.sql
 
+  seed-fuse-curves:
+    desc: Load the deployment fuse-curve library (extra ampere-quantity TCC curves the MV_FUSE curve_ref picker offers, e.g. a 400 A fuse) through the gitbash sidecar (requires migration 0076; no compile needed -- plain metadata the engine reads at run time; EDIT seed/fuse_curves_library.sql to replace the illustrative points with real datasheet values)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/fuse_curves_library.sql
+
   seed-pnc-control-devices:
     desc: Register the P&C secondary / DC-auxiliary & control layer (STATION_BATTERY, BATTERY_CHARGER, CONTROL_IED, ANNUNCIATOR -- all geometry none / network none, contained by SUBSTATION_PANEL) through the gitbash sidecar (run seed-substation-panel first so the containment JOIN resolves; the extra relay ANSI_DEVICE_NUMBER values ship in seed-protective-relay -- re-run that task to pick them up; compile CODE=STATION_BATTERY, BATTERY_CHARGER, CONTROL_IED, ANNUNCIATOR after)
     cmds:
@@ -1386,6 +1394,14 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/mv_conductor_diagram_promote.sql
+
+  seed-lv-conductor-diagram-promote:
+    desc: Make LV_CONDUCTOR diagram-placeable + geometry_optional (the LV twin of seed-mv-conductor-diagram-promote) so an LV feeder-pillar diagram drop can be promoted into a real conductor with no map geometry through the gitbash sidecar (requires seed-lv-conductors; MUST recompile after -- `task compile CODE=LV_CONDUCTOR` -- so the compiler drops the baked NOT NULL on geom, else a diagram-only promote fails 23502; safe for trace/powerflow -- geometry-less conductor = zero-impedance ideal wire)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/lv_conductor_diagram_promote.sql
 
   seed-mv-busbar-voltage-symbology:
     desc: Colour MV_BUSBAR by voltage_class (11 kV red / 33 kV blue) via domain-scoped symbology rules through the gitbash sidecar (requires seed-mv-busbar + seed-mv-symbology; live features only -- template furniture never colours; nothing to compile -- resolves client-side)
@@ -1533,6 +1549,7 @@ tasks:
       - task: seed-mv-symbology
       - task: seed-stencils-extra
       - task: seed-mv-conductor-diagram-promote
+      - task: seed-lv-conductor-diagram-promote
       - task: seed-mv-busbar-voltage-symbology
       - task: seed-mv-cim-mapping
       # Built-in single-line templates for the assembly/kit fan-outs. Runs last in

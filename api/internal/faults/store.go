@@ -229,6 +229,12 @@ func CreateFault(ctx context.Context, db bun.IDB, p CreateFaultParams) (*FaultEv
 	if err := webhookout.Emit(ctx, db, webhookout.EventFaultRaised, webhookout.KindFault, f.ID, f); err != nil {
 		return nil, err
 	}
+	// If the clearing device is already known, log the trip to the device-operation
+	// log (deviceops). Idempotent per fault, so a later device-identifying update
+	// (UpdateFault, below) won't double-log.
+	if err := emitFaultTrip(ctx, db, f); err != nil {
+		return nil, err
+	}
 	return f, nil
 }
 
@@ -437,6 +443,12 @@ func UpdateFault(ctx context.Context, db bun.IDB, id string, p UpdateFaultParams
 		return nil, err
 	}
 	if err := recordFaultHistory(ctx, db, historyUpdated, f); err != nil {
+		return nil, err
+	}
+	// If this patch is what identified the clearing device, log the trip now
+	// (deviceops). Idempotent per fault, so if CreateFault already logged it this
+	// is a no-op.
+	if err := emitFaultTrip(ctx, db, f); err != nil {
 		return nil, err
 	}
 	return f, nil

@@ -31,10 +31,11 @@ type adapter interface {
 // feature row); work and fault drive the wam/faults engines through their own
 // correlation table (ops.webhook_entity_refs, migration 0125).
 var adapters = map[string]adapter{
-	"feature": featureAdapter{},
-	"reading": readingAdapter{},
-	"work":    workAdapter{},
-	"fault":   faultAdapter{},
+	"feature":   featureAdapter{},
+	"reading":   readingAdapter{},
+	"work":      workAdapter{},
+	"fault":     faultAdapter{},
+	"operation": operationAdapter{},
 }
 
 // featureAdapter ingests feature changes through crud.CreateFeature /

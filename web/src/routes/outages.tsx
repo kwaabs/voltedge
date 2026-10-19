@@ -12,6 +12,7 @@ import {
   MapPin,
   MapPinned,
   PhoneCall,
+  PlugZap,
   Plus,
   PowerOff,
   RotateCcw,
@@ -36,6 +37,7 @@ import {
   type IncidentAction,
   type IncidentStatus,
   type FaultCauseContribution,
+  type RestorationPlan,
   type SwitchingOrder,
   type SwitchingStep,
   type TroubleCall,
@@ -44,12 +46,14 @@ import {
   useCreatePlannedOutage,
   useCreateTroubleCall,
   useExecuteStep,
+  useGenerateRestorationOrder,
   useGenerateSwitchingOrder,
   useIncidentAction,
   useIncidentEnergization,
   useIncidents,
   usePredictIncidents,
   useReliabilityIndices,
+  useRestorationSuggestion,
   useSwitchingOrders,
   useTroubleCalls,
 } from "@/hooks/use-oms"
@@ -559,6 +563,180 @@ function SwitchingOrdersPanel({
             </Button>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+// --- FLISR restoration -----------------------------------------------------
+
+/** Capacity verdict pill for a restoration plan: whether the alternate feeder can
+ * carry the picked-up load. `basis` says whether the verdict came from a real
+ * load-flow sweep (authoritative) or the nameplate estimate -- shown in the tooltip
+ * and, for a sweep, with a small check mark. */
+function CapacityBadge({
+  verdict,
+  basis,
+}: {
+  verdict: RestorationPlan["capacity_verdict"]
+  basis: RestorationPlan["verdict_basis"]
+}) {
+  const sweep = basis === "load_flow"
+  if (verdict === "ok") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+        title={
+          sweep
+            ? "Load-flow sweep: the donor feeder can pick up this section with no voltage violation or overload."
+            : "Nameplate estimate: the restored load fits the alternate transformer's spare rating."
+        }
+      >
+        <CheckCircle2 className="size-3" />
+        Capacity OK{sweep && " · load-flow"}
+      </span>
+    )
+  }
+  if (verdict === "exceeds") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-medium text-red-800 dark:bg-red-950 dark:text-red-300"
+        title={
+          sweep
+            ? "Load-flow sweep: this back-feed causes a voltage violation or thermal overload on the donor feeder."
+            : "Nameplate estimate: the restored load exceeds the alternate transformer's spare rating."
+        }
+      >
+        <ShieldAlert className="size-3" />
+        {sweep ? "Overloads feeder" : "May overload"}
+      </span>
+    )
+  }
+  return (
+    <span
+      className="bg-muted text-muted-foreground inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium"
+      title="Neither a load-flow sweep nor a transformer nameplate was available for the alternate feeder, so the fit can't be judged here."
+    >
+      <Gauge className="size-3" />
+      Capacity unverified
+    </span>
+  )
+}
+
+/** One suggested back-feed plan: the tie to close, what it restores, its capacity
+ * verdict, and the action to draft the close-tie switching order. */
+function RestorationPlanCard({
+  plan,
+  canWrite,
+  pending,
+  onBuild,
+}: {
+  plan: RestorationPlan
+  canWrite: boolean
+  pending: boolean
+  onBuild: () => void
+}) {
+  return (
+    <div className="bg-muted/30 rounded-md p-2 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1 font-medium">
+          <Zap className="size-3.5 text-amber-600" />
+          Close {plan.tie_label}
+        </span>
+        <CapacityBadge verdict={plan.capacity_verdict} basis={plan.verdict_basis} />
+      </div>
+      <div className="text-muted-foreground mt-1 space-y-0.5">
+        <div>Back-feed from {plan.alternate_source_label || "an alternate feeder"}</div>
+        <div>
+          Restores {plan.restored_customers.toLocaleString()} customer(s) · {plan.restored_service_points}{" "}
+          supply(ies) · {plan.restored_load_kva.toFixed(0)} kVA
+        </div>
+        {plan.alternate_capacity_kva != null && (
+          <div>
+            Alt feeder load {plan.alternate_feeder_load_kva.toFixed(0)} / {plan.alternate_capacity_kva.toFixed(0)} kVA
+            {plan.spare_headroom_kva != null && ` · ${plan.spare_headroom_kva.toFixed(0)} kVA spare`}
+          </div>
+        )}
+        {plan.load_flow_checked && (
+          <div>
+            Load-flow:{" "}
+            {plan.load_flow_feasible
+              ? "feasible"
+              : `${plan.violations} voltage violation(s), ${plan.overloaded} overload(s)`}
+            {plan.worst_voltage_pu != null && ` · worst ${plan.worst_voltage_pu.toFixed(3)} pu`}
+          </div>
+        )}
+        {plan.load_flow_note && <div className="italic">{plan.load_flow_note}</div>}
+      </div>
+      {canWrite && (
+        <Button variant="outline" size="sm" className="mt-2" disabled={pending} onClick={onBuild}>
+          {pending ? <Loader2 className="size-4 animate-spin" /> : <ListChecks className="size-4" />}
+          Build switching order
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** FLISR restoration suggestions for an active incident: the normally-open ties
+ * that could back-feed its dead section from an alternate source. Each plan shows
+ * what it restores plus a capacity verdict; "Build switching order" drafts the
+ * close-tie program (it then appears in the switching list above). Only mounted
+ * for an active incident with a device. */
+function RestorationPanel({ incidentId, canWrite }: { incidentId: string; canWrite: boolean }) {
+  const suggestion = useRestorationSuggestion(incidentId)
+  const generate = useGenerateRestorationOrder()
+  const d = suggestion.data
+
+  const header = (
+    <div className="mb-1 flex items-center gap-1.5">
+      <PlugZap className="size-3.5 text-amber-600" />
+      <span className="text-sm font-medium">Restoration (FLISR)</span>
+    </div>
+  )
+
+  if (suggestion.isPending) {
+    return (
+      <div className="mt-3">
+        {header}
+        <LoadingRow label="Finding restoration options…" />
+      </div>
+    )
+  }
+  if (suggestion.isError || !d) {
+    return (
+      <div className="mt-3">
+        {header}
+        <p className="text-destructive text-sm">Could not load restoration options.</p>
+      </div>
+    )
+  }
+  const plans = d.plans ?? []
+
+  return (
+    <div className="mt-3">
+      {header}
+      {plans.length === 0 ? (
+        <p className="text-muted-foreground text-xs">
+          {d.note || "No back-feed restoration path found."}
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {plans.map((p) => (
+            <RestorationPlanCard
+              key={`${p.tie.feature_class}:${p.tie.feature_id}`}
+              plan={p}
+              canWrite={canWrite}
+              pending={generate.isPending}
+              onBuild={() =>
+                generate.mutate(
+                  { incidentId, tieClass: p.tie.feature_class, tieId: p.tie.feature_id },
+                  { onError: (err) => toastError(err, "Could not build a restoration order.") },
+                )
+              }
+            />
+          ))}
+        </div>
       )}
     </div>
   )
@@ -1076,7 +1254,12 @@ function SwitchingDrawer({ incident, canWrite }: { incident: Incident | null; ca
       </CardHeader>
       <CardContent className="pt-0">
         {hasDevice ? (
-          <SwitchingOrdersPanel incidentId={incident.id} hasDevice={hasDevice} canWrite={canWrite} />
+          <>
+            <SwitchingOrdersPanel incidentId={incident.id} hasDevice={hasDevice} canWrite={canWrite} />
+            {/* FLISR back-feed options -- only while the outage is live (a device
+                that is actually open, with a dead section to restore). */}
+            {isActive && <RestorationPanel incidentId={incident.id} canWrite={canWrite} />}
+          </>
         ) : (
           <p className="text-muted-foreground text-sm">
             Unattributed incident — no device to switch. Attribute a device to build a switching order.
@@ -1148,7 +1331,7 @@ export function OutagesPage() {
           <div>
             <h1 className="flex items-center gap-2 text-lg font-semibold">
               <Siren className="size-5" />
-              Outage control
+              Outage Management
             </h1>
             <p className="text-muted-foreground text-sm">
               Log trouble calls, roll them up to the protective device that likely operated, and drive each incident

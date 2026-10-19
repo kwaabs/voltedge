@@ -35,6 +35,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/coupler"
 	"github.com/kwaabs/voltedge/api/internal/crud"
+	"github.com/kwaabs/voltedge/api/internal/deviceops"
 	"github.com/kwaabs/voltedge/api/internal/diagram"
 	"github.com/kwaabs/voltedge/api/internal/docs"
 	"github.com/kwaabs/voltedge/api/internal/drafts"
@@ -278,6 +279,11 @@ func main() {
 	// is neither an outage nor an asset-condition record), gated method-aware here
 	// so this router carries no auth of its own -- the same arrangement OMS/WAM use.
 	r.With(auth.RequirePermission(auth.PermFaultsRead, auth.PermFaultsWrite)).Mount("/faults", faults.Routes(db))
+	// Device-operation event log (migration 0147): the append-only record of
+	// protective/switching device operations (trip/lockout/reclose/open/close).
+	// Its own operations:* capability (a device operation is neither a fault
+	// investigation nor an outage); method-aware gate, router carries no auth.
+	r.With(auth.RequirePermission(auth.PermOperationsRead, auth.PermOperationsWrite)).Mount("/operations", deviceops.Routes(db))
 	// Feature registry (migration 0108): a cross-class index of every feature
 	// id -> its class, maintained by the compiler-attached DB trigger. Backs
 	// the asset-id typeahead/resolve any form needs when a user references an
@@ -376,6 +382,11 @@ func main() {
 	r.With(auth.RequirePermission(auth.PermAnnotationsRead, auth.PermAnnotationsWrite)).Mount("/map-annotations", mapannotation.Routes(db))
 	r.With(auth.RequirePermission(auth.PermTraceRun, auth.PermTraceRun)).Mount("/trace", trace.Routes(db))
 	r.With(auth.RequirePermission(auth.PermAnalysisRun, auth.PermAnalysisRun)).Mount("/analysis", powerflow.Routes(db))
+	// The protection-curve CATALOG + its admin editor. Method-aware gate: GET is
+	// features:read (the feature form's fuse/relay curve picker reads it, and those
+	// authors may not hold analysis:run), while every write (admin CRUD over curves
+	// and their points) is metadata:write (powerflow.CatalogRoutes).
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermMetadataWrite)).Mount("/curves", powerflow.CatalogRoutes(db))
 	// Bill of Quantities: a priced schedule over a scope. Read-only, reads feature
 	// quantities (like /aggregate) -- gated on features:read.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/boq", boq.Routes(db))
@@ -686,6 +697,11 @@ type fieldSchema struct {
 	RangeMin             *float64 `json:"range_min,omitempty"`
 	RangeMax             *float64 `json:"range_max,omitempty"`
 	RequiredForSubtypes  []int    `json:"required_for_subtypes,omitempty"`
+	// DefaultValue is the field-level default (metadata.fields.default_value,
+	// migration 0150), as text (a coded/domain field holds the domain value
+	// code). The create form pre-fills it; omitted when unset. Per-subtype
+	// overrides (subtype_field_rules.default_override) aren't surfaced here yet.
+	DefaultValue *string `json:"default_value,omitempty"`
 	// MaterialSpecs is keyed by domain value code, only present for the
 	// subset of DomainValues that carry a material_spec_id
 	// (metadata.domain_values, migrations/0021) -- lets a consumer go
@@ -938,6 +954,7 @@ func featureClassSchemaHandler(db *bun.DB) http.HandlerFunc {
 				VisibleOnCreate:      f.VisibleOnCreate,
 				VisibleOnUpdate:      f.VisibleOnUpdate,
 				EditableAfterPublish: f.EditableAfterPublish,
+				DefaultValue:         f.DefaultValue,
 			}
 
 			if f.DomainID != nil {

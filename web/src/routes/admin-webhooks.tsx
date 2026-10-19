@@ -258,6 +258,7 @@ function EndpointFormFields({
               <option value="reading">Reading (recorded as a feature)</option>
               <option value="work">Work order</option>
               <option value="fault">Fault event</option>
+              <option value="operation">Device operation</option>
             </select>
           </div>
         )}

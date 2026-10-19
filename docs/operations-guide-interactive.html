@@ -1,0 +1,477 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Device Operations Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+button,select,input{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+.tbtn{font:600 11px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:5px 8px;cursor:pointer}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(36px,6vw,64px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+
+section.ch{padding-top:56px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head h2{font-size:clamp(24px,4vw,34px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:2px}
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:19px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+
+/* widget shell */
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px;overflow-x:auto}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep);color:#fff}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+select.fld,input.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px}
+.badge{display:inline-block;font:700 10.5px var(--f-mono);padding:2px 8px;border-radius:10px;text-transform:capitalize}
+.badge.trip,.badge.lockout{background:var(--red-tint);color:var(--red)}
+.badge.reclose,.badge.alarm{background:var(--amber-tint);color:var(--amber)}
+.badge.open{background:var(--blue-tint);color:var(--blue)}
+.badge.close,.badge.earth{background:var(--green-tint);color:var(--green)}
+.badge.other{background:var(--line2);color:var(--muted)}
+.st{display:inline-block;font:700 10.5px var(--f-mono);padding:2px 8px;border-radius:10px;border:1px solid var(--line)}
+.st.OPEN{background:var(--blue-tint);color:var(--blue);border-color:var(--blue)}
+.st.CLOSED{background:var(--green-tint);color:var(--green);border-color:var(--green)}
+.src{font:600 11px var(--f-mono);color:var(--muted);text-transform:capitalize}
+.pre{font:12px/1.55 var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre;margin:10px 0}
+.pre .k{color:var(--blue)} .pre .s{color:var(--green)} .pre .n{color:var(--amber)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 40px;max-width:78ch}
+.steps li::before{content:counter(s);position:absolute;left:0;top:7px;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font:700 13px var(--f-mono);display:grid;place-items:center}
+.flash{font:600 12px var(--f-mono);padding:7px 10px;border-radius:5px;margin-top:8px;min-height:1em}
+.flash.good{background:var(--green-tint);color:var(--green)}
+.flash.warn{background:var(--amber-tint);color:var(--amber)}
+.chainrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0;font:600 12px var(--f-mono)}
+.chainrow .arr{color:var(--muted)}
+.chainrow .nd{border:1px solid var(--line);border-radius:6px;padding:7px 10px;background:var(--surface)}
+.chainrow .nd.op{border-color:var(--acc);background:var(--tint);color:var(--acc-deep)}
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+.empty{color:var(--muted);font-size:13px;padding:10px 2px}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+[hidden]{display:none!important}
+@media (max-width:760px){.ch-num{font-size:40px}code{white-space:normal;overflow-wrap:anywhere}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+
+<div class="rail"><div class="rail-in">
+  <span class="brand"><span class="dot"></span>VoltEdge</span>
+  <nav class="chaps" id="chaps">
+    <a href="#c1">1 · What it is</a>
+    <a href="#c2">2 · The three reports</a>
+    <a href="#c3">3 · How it fills</a>
+    <a href="#c4">4 · SCADA feed</a>
+    <a href="#c5">5 · Links & access</a>
+  </nav>
+  <button class="tbtn" id="themeBtn" title="Toggle light/dark">◑</button>
+</div></div>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">VoltEdge · Operational manuals</div>
+    <h1>Device <span>Operations</span></h1>
+    <p class="lede">The record of what the network's protective and switching devices actually did — every
+      trip, lockout, reclose and open/close, with a cause, a time, and where the report came from. This is the
+      working, in-browser copy: the widgets below run the real model on sample data.</p>
+  </header>
+
+  <!-- ===================== 1 ===================== -->
+  <section class="ch" id="c1">
+    <div class="ch-head"><span class="ch-num">1</span><h2>What it is — and what it isn't</h2>
+      <p>Three records sit close together. Keep them straight and everything else follows.</p></div>
+
+    <p>A device's <b>state</b> is only where it stands <i>right now</i>. The <b>operations log</b> is the
+      history of how it got there. An <b>outage</b> is the <i>customer</i> consequence — a device operation is the
+      <i>electrical event</i> that often causes one.</p>
+
+    <div class="tbl"><table>
+      <thead><tr><th>Record</th><th>Answers</th><th>Where</th></tr></thead>
+      <tbody>
+        <tr><td><code>device_state</code></td><td>"Is this breaker open or closed <b>now</b>?"</td><td>a column on the feature — current value only</td></tr>
+        <tr><td><b>Device operation</b></td><td>"<b>What has</b> this device done, and how often?"</td><td>the operations log — this guide</td></tr>
+        <tr><td>Fault</td><td>"What electrical fault did it clear?"</td><td>Faults module</td></tr>
+        <tr><td>Outage / incident</td><td>"Who lost supply?"</td><td>Outage Management (OMS)</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>An operation is <b>append-only</b>: it's a thing that happened, so it's never edited or deleted — the
+      record of a trip stands. Each one carries a device, an operation type, a source, a time, an optional cause,
+      and optional links to the fault / incident / switching step it relates to.</p>
+
+    <div class="callout">The outage board tells you <i>who is off supply</i>. The operations log tells you
+      <i>what the devices did</i> — to get there, and to restore it.</div>
+  </section>
+
+  <!-- ===================== 2 ===================== -->
+  <section class="ch" id="c2">
+    <div class="ch-head"><span class="ch-num">2</span><h2>The three reports</h2>
+      <p>One page, three lenses. Flip between them — the sample log below is live.</p></div>
+
+    <p><b>Timeline</b> is the live "what just happened" board. <b>By device</b> is the trip-count rollup — the
+      reliability signal (which recloser operates most). <b>Devices</b> is the inventory: every operable device,
+      its current state, and its last operation (or <i>never</i>).</p>
+
+    <div class="widget">
+      <div class="w-head"><span class="eyebrow">Live widget</span><h4>Operations explorer</h4>
+        <span class="muted" style="margin-left:auto;font-size:12px" id="opCount"></span></div>
+      <div class="w-bar">
+        <div class="seg" role="tablist">
+          <button data-view="timeline" aria-pressed="true">Timeline</button>
+          <button data-view="bydevice" aria-pressed="false">By device</button>
+          <button data-view="devices" aria-pressed="false">Devices</button>
+        </div>
+        <span style="flex:1"></span>
+        <select class="fld" id="fType"><option value="">All operations</option>
+          <option>trip</option><option>lockout</option><option>reclose</option><option>open</option><option>close</option></select>
+        <select class="fld" id="fSource" ><option value="">All sources</option>
+          <option>crew</option><option>scada</option><option>relay</option><option>switching_order</option></select>
+      </div>
+      <div class="w-body" id="opBody"></div>
+      <div class="w-bar" style="border-top:1px solid var(--line2);border-bottom:0">
+        <span class="lab">Log one:</span>
+        <select class="fld" id="nDevice"></select>
+        <select class="fld" id="nType"><option>trip</option><option>lockout</option><option>reclose</option><option>open</option><option>close</option><option>earth</option></select>
+        <select class="fld" id="nSource"><option>crew</option><option>scada</option><option>relay</option></select>
+        <input class="fld" id="nCause" placeholder="cause (optional)" style="flex:1;min-width:120px">
+        <button class="btn pri" id="nLog">Log operation</button>
+      </div>
+    </div>
+    <p class="muted" style="font-size:13.5px">Logging appends to the sample log and updates all three views at
+      once — exactly what the real <code>POST /operations</code> does. The device list in <b>Devices</b> is
+      discovered from the classes that model a <code>device_state</code>, so it includes devices that have never
+      operated.</p>
+  </section>
+
+  <!-- ===================== 3 ===================== -->
+  <section class="ch" id="c3">
+    <div class="ch-head"><span class="ch-num">3</span><h2>How the log fills itself</h2>
+      <p>You'll rarely log everything by hand. VoltEdge feeds the log from across the system.</p></div>
+
+    <div class="tbl"><table>
+      <thead><tr><th>Source</th><th>When</th><th>Logs</th></tr></thead>
+      <tbody>
+        <tr><td><span class="src">crew</span></td><td>the manual Log-operation action</td><td>whatever you enter</td></tr>
+        <tr><td><span class="src">switching_order</span></td><td>you mark an open/close switching step <b>executed</b></td><td>an <span class="badge open">open</span>/<span class="badge close">close</span>, linked to the step</td></tr>
+        <tr><td><span class="src">relay / scada / derived</span></td><td>a fault names the device that cleared it</td><td>a <span class="badge trip">trip</span>, linked to the fault — once per fault</td></tr>
+        <tr><td><span class="src">scada</span></td><td>an external system pushes an event (ch. 4)</td><td>whatever it sends</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="widget">
+      <div class="w-head"><span class="eyebrow">Live widget</span><h4>Watch it auto-fill</h4></div>
+      <div class="w-bar">
+        <button class="btn" id="simSwitch">▶ Execute a switching step (open)</button>
+        <button class="btn" id="simFault">▶ Book a fault (device cleared it)</button>
+        <button class="btn" id="simFaultAgain">▶ Re-save the same fault</button>
+      </div>
+      <div class="w-body">
+        <div id="simLog" class="pre" style="min-height:70px">// click a button — the operation it emits appears here</div>
+        <div class="flash" id="simFlash"></div>
+      </div>
+    </div>
+
+    <div class="tip"><b>One trip per fault</b> Booking the same fault again doesn't double-log — the trip dedupes
+      on the fault id. Try the third button: it emits nothing.</div>
+  </section>
+
+  <!-- ===================== 4 ===================== -->
+  <section class="ch" id="c4">
+    <div class="ch-head"><span class="ch-num">4</span><h2>Feeding it from SCADA</h2>
+      <p>An external system pushes operations straight in — through the same hardened webhook pipeline that feeds features, readings, work orders and faults.</p></div>
+
+    <ol class="steps">
+      <li><b>Set up (admin):</b> create a webhook endpoint with <b>Target = "Device operation"</b>, and give it a
+        <code>system_code</code> so VoltEdge knows which external system the ids belong to.</li>
+      <li><b>Name the device:</b> send VoltEdge's own <code>device_class</code>+<code>device_id</code>, or just the
+        <code>device_external_id</code> — VoltEdge resolves it to the right feature through the device's
+        <code>external_ref</code> (the SCADA id you tagged it with). The external side never needs VoltEdge uuids.</li>
+      <li><b>Push the event</b> to the endpoint. Each carries the sender's own <code>external_id</code> — the dedup key.</li>
+    </ol>
+
+    <div class="widget">
+      <div class="w-head"><span class="eyebrow">Live widget</span><h4>SCADA delivery &amp; idempotency</h4></div>
+      <div class="w-body">
+        <div class="pre" id="scadaPayload"></div>
+        <div class="w-bar" style="padding-left:0;padding-right:0;border:0">
+          <button class="btn pri" id="scadaSend">Deliver event</button>
+          <button class="btn" id="scadaSendAgain">Deliver the same batch again</button>
+        </div>
+        <div class="flash" id="scadaFlash"></div>
+      </div>
+    </div>
+
+    <div class="caution"><b>SCADA re-sends</b> A re-delivered batch records nothing the second time — the
+      <code>external_id</code> → <code>source_event_id</code> dedup means a trip is never double-logged, no matter
+      how many times the event arrives.</div>
+  </section>
+
+  <!-- ===================== 5 ===================== -->
+  <section class="ch" id="c5">
+    <div class="ch-head"><span class="ch-num">5</span><h2>Links &amp; access</h2>
+      <p>Where operations sit in the operational family, and who can see and log them.</p></div>
+
+    <h3>The operation → fault → outage chain</h3>
+    <div class="chainrow">
+      <span class="nd op">device operates (TRIP)</span><span class="arr">→</span>
+      <span class="nd">clears a FAULT</span><span class="arr">→</span>
+      <span class="nd">customers lose supply (OUTAGE)</span>
+    </div>
+    <div class="chainrow">
+      <span class="nd">SWITCHING ORDER restores them</span><span class="arr">→</span>
+      <span class="nd op">executing an open/close step logs an operation</span>
+    </div>
+    <p>An operation can carry a <code>fault_id</code> and an <code>incident_id</code>; an executed switching step
+      logs its own operation. The operations log is the <b>electrical ground truth</b> beneath the outage story —
+      which is why it lives beside Faults and Outage Management, not merged into them.</p>
+
+    <h3>For agents (MCP)</h3>
+    <div class="tbl"><table>
+      <thead><tr><th>Tool</th><th>Does</th></tr></thead>
+      <tbody>
+        <tr><td><code>operations_list</code></td><td>the Timeline board</td></tr>
+        <tr><td><code>operations_device_timeline</code></td><td>one device's history</td></tr>
+        <tr><td><code>operations_counts</code></td><td>the trip-count rollup</td></tr>
+        <tr><td><code>operations_inventory</code></td><td>the device inventory</td></tr>
+        <tr><td><code>operations_record</code></td><td>log an operation (write)</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Permissions</h3>
+    <div class="tbl"><table>
+      <thead><tr><th>Capability</th><th>Default holders</th></tr></thead>
+      <tbody>
+        <tr><td><span class="perm">operations:read</span></td><td>viewer, analyst, editor, field-technician, admin, break-glass</td></tr>
+        <tr><td><span class="perm">operations:write</span></td><td>editor, field-technician, admin, break-glass</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <footer>
+    VoltEdge — Device Operations. The widgets run a faithful mock of the real model on sample data; nothing here
+    writes to a live system. See the markdown <b>Device Operations</b> guide for the reference version.
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  // ---- theme toggle (persisted) ----
+  var root=document.documentElement, KEY="voltedge-ops-theme";
+  try{var sv=localStorage.getItem(KEY); if(sv) root.setAttribute("data-theme",sv);}catch(e){}
+  document.getElementById("themeBtn").onclick=function(){
+    var cur=root.getAttribute("data-theme");
+    var dark=cur?cur==="dark":matchMedia("(prefers-color-scheme:dark)").matches;
+    var next=dark?"light":"dark"; root.setAttribute("data-theme",next);
+    try{localStorage.setItem(KEY,next);}catch(e){}
+  };
+  // ---- scroll-spy chapter nav ----
+  var links=[].slice.call(document.querySelectorAll("#chaps a"));
+  var secs=links.map(function(a){return document.querySelector(a.getAttribute("href"));});
+  function spy(){var y=scrollY+70,i=secs.length-1; while(i>0&&secs[i].offsetTop>y)i--;
+    links.forEach(function(a,k){a.classList.toggle("on",k===i);});}
+  addEventListener("scroll",spy,{passive:true}); spy();
+
+  // ---- sample data ----
+  // Devices (the inventory): class, id, current state. Some have never operated.
+  var devices=[
+    {cls:"MV_RECLOSER", id:"rec-0039", st:"CLOSED"},
+    {cls:"MV_BREAKER",  id:"brk-0041", st:"CLOSED"},
+    {cls:"MV_SWITCH",   id:"sw-0112",  st:"OPEN"},
+    {cls:"MV_FUSE",     id:"fus-0203", st:"CLOSED"},
+    {cls:"MV_SWITCH",   id:"sw-0118",  st:"CLOSED"}  // never operates in the seed
+  ];
+  function dlabel(d){return d.cls+" "+d.id;}
+  var now=Date.now(), H=3600e3;
+  // Operations log, newest-first-ish (we sort on render).
+  var ops=[
+    {t:now-2*H,   dev:0, type:"trip",    src:"relay",           cause:"overcurrent", link:"fault f-71"},
+    {t:now-2*H+9e3,dev:0,type:"lockout", src:"relay",           cause:"3rd shot",    link:"fault f-71"},
+    {t:now-1.2*H, dev:0, type:"reclose", src:"scada",           cause:"auto-reclose",link:""},
+    {t:now-40*60e3,dev:1,type:"trip",    src:"relay",           cause:"earth fault", link:"fault f-72"},
+    {t:now-30*60e3,dev:2,type:"open",    src:"switching_order", cause:"isolate",     link:"step s-5"},
+    {t:now-8*60e3, dev:3,type:"trip",    src:"derived",         cause:"melt",        link:"fault f-73"}
+  ];
+  var seq=1;
+
+  // ---- renderers ----
+  var fType=document.getElementById("fType"), fSource=document.getElementById("fSource");
+  var body=document.getElementById("opBody"), view="timeline";
+  function esc(s){return String(s).replace(/[&<>]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c];});}
+  function when(t){return new Date(t).toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"});}
+  function filtered(){return ops.filter(function(o){
+    if(fType.value&&o.type!==fType.value)return false;
+    if(fSource.value&&o.src!==fSource.value)return false; return true;
+  });}
+  function badge(t){return '<span class="badge '+t+'">'+t+'</span>';}
+
+  function renderTimeline(){
+    var rows=filtered().slice().sort(function(a,b){return b.t-a.t;});
+    document.getElementById("opCount").textContent=rows.length+" operation"+(rows.length===1?"":"s");
+    if(!rows.length){body.innerHTML='<div class="empty">No operations match.</div>'; return;}
+    var h='<table><thead><tr><th>When</th><th>Device</th><th>Operation</th><th>Source</th><th>Cause</th></tr></thead><tbody>';
+    rows.forEach(function(o){var d=devices[o.dev];
+      h+='<tr><td style="white-space:nowrap">'+when(o.t)+'</td><td>'+esc(d.cls)+'<br><span class="muted mono" style="font-size:11px">'+esc(d.id)+'</span></td>'+
+         '<td>'+badge(o.type)+'</td><td><span class="src">'+esc(o.src)+'</span></td><td class="muted">'+esc(o.cause||"—")+(o.link?' <span class="muted" style="font-size:11px">· '+esc(o.link)+'</span>':'')+'</td></tr>';
+    });
+    body.innerHTML=h+'</tbody></table>';
+  }
+  function renderByDevice(){
+    var map={};
+    filtered().forEach(function(o){var k=o.dev+"|"+o.type; (map[k]=map[k]||{dev:o.dev,type:o.type,n:0,last:0}); map[k].n++; if(o.t>map[k].last)map[k].last=o.t;});
+    var rows=Object.keys(map).map(function(k){return map[k];}).sort(function(a,b){return b.n-a.n;});
+    document.getElementById("opCount").textContent=rows.length+" device/op tallies";
+    if(!rows.length){body.innerHTML='<div class="empty">No operations yet.</div>'; return;}
+    var h='<table><thead><tr><th>Device</th><th>Operation</th><th style="text-align:right">Count</th><th>Last</th></tr></thead><tbody>';
+    rows.forEach(function(r){var d=devices[r.dev];
+      h+='<tr><td>'+esc(d.cls)+'<br><span class="muted mono" style="font-size:11px">'+esc(d.id)+'</span></td><td>'+badge(r.type)+'</td>'+
+         '<td style="text-align:right;font-weight:700">'+r.n+'</td><td class="muted" style="white-space:nowrap">'+when(r.last)+'</td></tr>';
+    });
+    body.innerHTML=h+'</tbody></table>';
+  }
+  function renderDevices(){
+    document.getElementById("opCount").textContent=devices.length+" operable devices";
+    var h='<table><thead><tr><th>Device</th><th>State</th><th>Last operation</th><th>When</th></tr></thead><tbody>';
+    devices.forEach(function(d,i){
+      var last=null; ops.forEach(function(o){if(o.dev===i&&(!last||o.t>last.t))last=o;});
+      h+='<tr><td>'+esc(d.cls)+'<br><span class="muted mono" style="font-size:11px">'+esc(d.id)+'</span></td>'+
+         '<td><span class="st '+d.st+'">'+d.st+'</span></td>'+
+         '<td>'+(last?badge(last.type):'<span class="muted">never</span>')+'</td>'+
+         '<td class="muted" style="white-space:nowrap">'+(last?when(last.t):'—')+'</td></tr>';
+    });
+    body.innerHTML=h+'</tbody></table>';
+  }
+  function render(){ view==="timeline"?renderTimeline():view==="bydevice"?renderByDevice():renderDevices(); }
+
+  [].slice.call(document.querySelectorAll('[data-view]')).forEach(function(b){
+    b.onclick=function(){
+      view=b.getAttribute("data-view");
+      [].slice.call(document.querySelectorAll('[data-view]')).forEach(function(x){x.setAttribute("aria-pressed",String(x===b));});
+      render();
+    };
+  });
+  fType.onchange=render; fSource.onchange=render;
+
+  // populate the log-one device dropdown
+  var nDevice=document.getElementById("nDevice");
+  devices.forEach(function(d,i){var o=document.createElement("option"); o.value=i; o.textContent=dlabel(d); nDevice.appendChild(o);});
+  document.getElementById("nLog").onclick=function(){
+    var i=+nDevice.value, type=document.getElementById("nType").value, src=document.getElementById("nSource").value;
+    var cause=document.getElementById("nCause").value.trim();
+    ops.push({t:Date.now(),dev:i,type:type,src:src,cause:cause,link:""});
+    // reflect the state change the way an open/close would
+    if(type==="open")devices[i].st="OPEN"; if(type==="close")devices[i].st="CLOSED";
+    document.getElementById("nCause").value="";
+    render();
+  };
+  render();
+
+  // ---- chapter 3: auto-fill ----
+  var simLog=document.getElementById("simLog"), simFlash=document.getElementById("simFlash"), faultBooked=false;
+  function emit(line,obj){ simLog.innerHTML='<span class="muted">// '+line+'</span>\n'+JSON.stringify(obj,null,2)
+      .replace(/"(\w+)":/g,'<span class="k">"$1"</span>:').replace(/: "([^"]*)"/g,': <span class="s">"$1"</span>'); }
+  document.getElementById("simSwitch").onclick=function(){
+    var op={device_class:"MV_SWITCH",device_id:"sw-0112",op_type:"open",source:"switching_order",switching_step_id:"step s-"+(5+seq++)};
+    ops.push({t:Date.now(),dev:2,type:"open",src:"switching_order",cause:"isolate",link:op.switching_step_id});
+    devices[2].st="OPEN"; render();
+    emit("executed switching step → logged:",op);
+    simFlash.className="flash good"; simFlash.textContent="Logged (source switching_order), linked to the step. Switch is now OPEN.";
+  };
+  document.getElementById("simFault").onclick=function(){
+    if(faultBooked){ simFlash.className="flash warn"; simFlash.textContent="This fault already logged its trip — use the third button to see the dedup."; return; }
+    faultBooked=true;
+    var op={device_class:"MV_BREAKER",device_id:"brk-0041",op_type:"trip",source:"relay",cause:"earth fault",fault_id:"fault f-99"};
+    ops.push({t:Date.now(),dev:1,type:"trip",src:"relay",cause:"earth fault",link:"fault f-99"}); render();
+    emit("booked fault (device known) → logged:",op);
+    simFlash.className="flash good"; simFlash.textContent="Logged a trip (source relay), linked to fault f-99.";
+  };
+  document.getElementById("simFaultAgain").onclick=function(){
+    emit("re-saved the same fault f-99 →","deduped: nothing logged (source_event_id already seen)");
+    simFlash.className="flash warn"; simFlash.textContent="No new operation — one trip per fault.";
+  };
+
+  // ---- chapter 4: SCADA ----
+  var payload={external_id:"SCADA-EVT-90432",op_type:"trip",device_external_id:"RTU-42-OC",occurred_at:"2026-10-18T14:03:11Z",cause:"overcurrent"};
+  document.getElementById("scadaPayload").innerHTML=JSON.stringify(payload,null,2)
+    .replace(/"(\w+)":/g,'<span class="k">"$1"</span>:').replace(/: "([^"]*)"/g,': <span class="s">"$1"</span>');
+  var scadaFlash=document.getElementById("scadaFlash"), scadaSeen=false;
+  document.getElementById("scadaSend").onclick=function(){
+    if(scadaSeen){ scadaFlash.className="flash warn"; scadaFlash.textContent="Already delivered — "+payload.external_id+" is deduped. Nothing logged."; return; }
+    scadaSeen=true;
+    ops.push({t:Date.parse(payload.occurred_at),dev:1,type:"trip",src:"scada",cause:"overcurrent",link:"scada "+payload.external_id}); render();
+    scadaFlash.className="flash good"; scadaFlash.textContent="Resolved RTU-42-OC → MV_BREAKER brk-0041 via external_ref, logged a trip (source scada).";
+  };
+  document.getElementById("scadaSendAgain").onclick=function(){
+    scadaFlash.className="flash warn"; scadaFlash.textContent="Re-delivered "+payload.external_id+" → deduped on source_event_id. The log is unchanged.";
+  };
+})();
+</script>
+</body></html>

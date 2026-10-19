@@ -10,6 +10,7 @@ import { ConnectConfirmPanel } from "@/components/map/connect-confirm-panel"
 import { ConnectivityAuditPanel } from "@/components/map/connectivity-audit-panel"
 import { CoordinationPanel } from "@/components/map/coordination-panel"
 import { DiagramCanvas } from "@/components/map/diagram-canvas"
+import { DigitizeCommitter } from "@/components/map/digitize-committer"
 import { ExportDialog } from "@/components/map/export-dialog"
 import { ExportJobsPanel } from "@/components/map/export-jobs-panel"
 import { FaultCurrentPanel } from "@/components/map/fault-current-panel"
@@ -18,6 +19,8 @@ import { FeatureQueryPanel } from "@/components/map/feature-query-panel"
 import { TerritoryExplorerPanel } from "@/components/map/territory-explorer-panel"
 import { ImportDialog } from "@/components/map/import-dialog"
 import { ImportedFeaturePopup } from "@/components/map/imported-feature-popup"
+import { DraftEditToolbar } from "@/components/map/draft-edit-toolbar"
+import { DrawBanner } from "@/components/map/draw-banner"
 import { GeometryEditToolbar } from "@/components/map/geometry-edit-toolbar"
 import { IsolationResultTable } from "@/components/map/isolation-result-table"
 import { OutageHighlightBanner } from "@/components/map/outage-highlight-banner"
@@ -256,6 +259,8 @@ export function MapPage() {
               reasoning as the status bar belonging to this column. */}
           <GeometryEditToolbar />
           <TerritoryEditToolbar />
+          <DrawBanner />
+          <DraftEditToolbar />
           {/* Map viewport -- flex-1 so the status bar below shares this column;
               both hide together when a diagram is maximized (this column is
               `hidden`), and in split view the bar spans only the map's width. */}
@@ -312,6 +317,7 @@ export function MapPage() {
       <ImportedFeaturePopup />
       <ServiceIdentifyPanel />
       <PeerPicker />
+      <DigitizeCommitter />
       <FeaturePanel />
       <TerritoryPanel />
       <ConnectConfirmPanel />

@@ -149,7 +149,7 @@ var manifest = []Doc{
 	{
 		ID:          "oms-guide-interactive",
 		Title:       "OMS Outage Management — Interactive Guide",
-		Description: "Run the real OMS rules in your browser on a Feeder 7 estate: trouble calls, prediction, who is affected versus dark, the live cone, switching orders that flip device state, planned outages, SAIDI/SAIFI, webhooks and an endpoints tester, with the manual's code-verified corrections.",
+		Description: "Run the real OMS rules in your browser on a Feeder 7 estate: trouble calls, prediction, who is affected versus dark, the live cone, switching orders that flip device state, a FLISR back-feed restoration suggester (which normally-open tie to close, load-flow-checked), planned outages, SAIDI/SAIFI, webhooks and an endpoints tester, with the manual's code-verified corrections.",
 		Category:    "Interactive guides",
 		Filename:    "oms-guide-interactive.html",
 		Format:      "html",
@@ -160,6 +160,14 @@ var manifest = []Doc{
 		Description: "Log an electrical fault, drive it through its lifecycle, link it to an outage and a repair, and see exactly what the API accepts, rejects and emits — a working in-browser copy of the Faults module.",
 		Category:    "Interactive guides",
 		Filename:    "faults-guide-interactive.html",
+		Format:      "html",
+	},
+	{
+		ID:          "operations-guide-interactive",
+		Title:       "Device Operations — Interactive Guide",
+		Description: "Flip the operations log between its three reports (Timeline, trip-counts, device inventory), log an operation, watch it auto-fill from executed switching and booked faults, and deliver a SCADA event that resolves by external id and dedupes on re-send — a working in-browser copy of the Device Operations module.",
+		Category:    "Interactive guides",
+		Filename:    "operations-guide-interactive.html",
 		Format:      "html",
 	},
 	{
@@ -384,6 +392,20 @@ var manifest = []Doc{
 		Description: "The outage lifecycle end to end: trouble calls rolled into predicted incidents (blamed on the nearest protective device), affected-customer and critical-facility rollups, the live de-energised cone, switching orders whose open/close steps flip the real device_state, planned outages, restoration and the SAIDI/SAIFI/CAIDI/ENS reliability indices.",
 		Category:    "Manuals",
 		Filename:    "oms-guide.md",
+	},
+	{
+		ID:          "flisr-restoration-guide",
+		Title:       "FLISR — Service Restoration by Back-Feed",
+		Description: "Restoring a dead section by back-feed: how VoltEdge suggests which normally-open tie to close to re-energise an outaged section from a neighbouring feeder, load-flow-checks whether that feeder can carry it (superseding the nameplate estimate), ranks the plans, and drafts the one-click close-tie switching order.",
+		Category:    "Manuals",
+		Filename:    "flisr-restoration-guide.md",
+	},
+	{
+		ID:          "operations-guide",
+		Title:       "Device Operations — Logging & Reporting Device Trips",
+		Description: "The device-operation log: recording and reporting every protective/switching device operation (trip, lockout, reclose, open, close). The three reports (Timeline, By device trip-counts, Devices inventory with current state), how the log auto-fills from switching, faults, crews and SCADA/webhooks, the external-ref device correlation, and how it links to Outage Management and Faults.",
+		Category:    "Manuals",
+		Filename:    "operations-guide.md",
 	},
 	{
 		ID:          "outage-operations-guide",

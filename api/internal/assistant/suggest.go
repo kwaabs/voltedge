@@ -54,7 +54,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"sort"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kwaabs/voltedge/api/internal/assistant/llm"
@@ -74,13 +76,26 @@ const suggestLimit = 8
 
 // suggestMaxDistanceMeters drops geometric candidates farther than this from the
 // edited feature before they ever reach a chip. The suggest surface is a
-// snap-and-connect assist: a candidate a couple of hundred metres away is not
+// snap-and-connect assist: a candidate a hundred-plus metres away is not
 // something the user "just snapped to", it's the nearest-N fallback the engines
 // return when nothing is genuinely close, and surfacing it reads as noise. Non-
 // geometric candidates (nil distance -- a class with no geometry) are never
-// distance-filtered, since there's no distance to judge them by. Tunable: raise
-// it if a deployment's features are legitimately sparser than this.
-const suggestMaxDistanceMeters = 200.0
+// distance-filtered, since there's no distance to judge them by.
+//
+// Default 50 m -- tight enough to read as "adjacent/snapped" rather than "just
+// the nearest one around". Overridable with SUGGEST_MAX_DISTANCE_METERS (a
+// positive number of metres) for a deployment whose features are legitimately
+// sparser. Read once at package init.
+var suggestMaxDistanceMeters = suggestMaxDistanceFromEnv()
+
+func suggestMaxDistanceFromEnv() float64 {
+	if v := os.Getenv("SUGGEST_MAX_DISTANCE_METERS"); v != "" {
+		if d, err := strconv.ParseFloat(v, 64); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 50.0
+}
 
 // Routes returns the assistant router, meant to be mounted at /assistant behind
 // the session-auth trust boundary (see api/cmd/server/main.go):
