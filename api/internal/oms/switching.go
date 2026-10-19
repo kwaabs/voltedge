@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/deviceops"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/kwaabs/voltedge/api/internal/safety"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
 )
@@ -349,6 +351,22 @@ func applyStepDeviceState(ctx context.Context, db bun.IDB, step *SwitchingStep, 
 		}
 	default:
 		return nil // verify/earth/note don't move a device's live position
+	}
+
+	// Safety interlock (Slice 2): a BLOCKING safety tag (danger/out_of_service) on
+	// the device bars operating it. Refuse the step before anything flips, naming
+	// the tag so the operator knows why. Applies to execute AND revert -- any state
+	// change on a tagged device is barred until the tag is cleared or its clearance
+	// surrendered. Runs in the step's tx, so a blocked step leaves nothing changed.
+	if blocker, berr := safety.OperationBlocked(ctx, db, *step.DeviceClass, *step.DeviceID); berr != nil {
+		return berr
+	} else if blocker != nil {
+		reason := ""
+		if blocker.Reason != nil && strings.TrimSpace(*blocker.Reason) != "" {
+			reason = " — " + strings.TrimSpace(*blocker.Reason)
+		}
+		return invalidf("cannot operate %s: a %q safety tag is in place%s (remove the tag or surrender its clearance first)",
+			deviceRefLabel(*step.DeviceClass, *step.DeviceID), blocker.TagType, reason)
 	}
 
 	loaded, err := metadata.Load(ctx, db, *step.DeviceClass)

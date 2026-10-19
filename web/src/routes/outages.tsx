@@ -57,6 +57,7 @@ import {
   useSwitchingOrders,
   useTroubleCalls,
 } from "@/hooks/use-oms"
+import { useIssueClearanceFromOrder } from "@/hooks/use-safety"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useOmsHighlightStore } from "@/stores/oms-highlight-store"
@@ -438,6 +439,8 @@ const SWITCHING_BADGE: Record<SwitchingOrder["status"], string> = {
 
 function SwitchingOrderCard({ order, canWrite }: { order: SwitchingOrder; canWrite: boolean }) {
   const cancel = useCancelSwitchingOrder()
+  const canSafety = usePermission()("safety:write")
+  const issueClearance = useIssueClearanceFromOrder()
   const isTerminal = order.status === "completed" || order.status === "cancelled"
   const isolate = order.steps.filter((s) => s.phase === "isolate")
   const restore = order.steps.filter((s) => s.phase === "restore")
@@ -507,6 +510,27 @@ function SwitchingOrderCard({ order, canWrite }: { order: SwitchingOrder; canWri
                 <StepRow key={s.id} step={s} canWrite={canWrite} />
               ))}
             </>
+          )}
+          {/* Issue a permit-to-work from this order: danger-tag the devices it
+              opens and ground the points it earths, so they can't be operated
+              until the clearance is surrendered. Needs safety:write. */}
+          {canSafety && !isTerminal && isolate.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              disabled={issueClearance.isPending}
+              title="Create a permit-to-work: tags the opened devices and grounds the earthed points"
+              onClick={() =>
+                issueClearance.mutate(
+                  { orderId: order.id },
+                  { onError: (err) => toastError(err, "Could not issue a clearance.") },
+                )
+              }
+            >
+              {issueClearance.isPending ? <Loader2 className="size-4 animate-spin" /> : <ShieldAlert className="size-4" />}
+              Issue clearance
+            </Button>
           )}
         </>
       )}

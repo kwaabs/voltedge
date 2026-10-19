@@ -18,6 +18,7 @@ import {
   GripHorizontal,
   History,
   Info,
+  LandPlot,
   Link2,
   Loader2,
   Lock,
@@ -31,6 +32,7 @@ import {
   RefreshCw,
   Route,
   Satellite,
+  ShieldAlert,
   Shuffle,
   SlidersHorizontal,
   Spline,
@@ -59,6 +61,8 @@ import { FeatureCreateForm } from "@/components/map/feature-create-form"
 import { FeatureEditForm } from "@/components/map/feature-edit-form"
 import { FaultsTab } from "@/components/map/feature-faults-tab"
 import { OperationsTab } from "@/components/map/feature-operations-tab"
+import { SafetyTab } from "@/components/map/feature-safety-tab"
+import { SpatialTab } from "@/components/map/feature-spatial-tab"
 import { TagsTab } from "@/components/map/feature-tags-tab"
 import { WorksTab } from "@/components/map/feature-works-tab"
 import { formatFieldLabel, formatValue, inputClass } from "@/components/map/field-utils"
@@ -157,6 +161,8 @@ type TabId =
   | "works"
   | "faults"
   | "operations"
+  | "safety"
+  | "spatial"
   | "tags"
   | "files"
   | "links"
@@ -171,6 +177,8 @@ const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
   { id: "works", label: "Works", icon: ClipboardList },
   { id: "faults", label: "Faults", icon: ZapOff },
   { id: "operations", label: "Operations", icon: Activity },
+  { id: "safety", label: "Safety", icon: ShieldAlert },
+  { id: "spatial", label: "Spatial", icon: LandPlot },
   { id: "tags", label: "Tags", icon: QrCode },
   { id: "files", label: "Files", icon: Paperclip },
   { id: "links", label: "Links", icon: ExternalLinkIcon },
@@ -3162,6 +3170,8 @@ export function FeaturePanel() {
   const canReadWorks = usePermission()("wam:read")
   const canReadFaults = usePermission()("faults:read")
   const canReadOperations = usePermission()("operations:read")
+  const canReadSafety = usePermission()("safety:read")
+  const canReadFeatures = usePermission()("features:read")
   const canReadTags = usePermission()("tags:read")
   const canWriteCircuits = usePermission()("circuits:write")
   const [circuitSourceOpen, setCircuitSourceOpen] = useState(false)
@@ -3179,6 +3189,15 @@ export function FeaturePanel() {
       // network model (a breaker/recloser/fuse/switch). Hidden for edges,
       // containers and non-network features, and for a user without operations:read.
       (tab.id !== "operations" || (canReadOperations && selectedNetworkRole === "junction")) &&
+      // Safety (tags/grounds) applies to any network feature a crew works on -- a
+      // device to tag (junction) or a conductor to earth (edge). Hidden for
+      // non-network features and a user without safety:read.
+      (tab.id !== "safety" ||
+        (canReadSafety && (selectedNetworkRole === "junction" || selectedNetworkRole === "edge"))) &&
+      // Spatial (geometry-derived overlap/proximity) applies to any feature with a
+      // shape -- including the land polygons (easement/parcel/corridor/vegetation),
+      // which are network_role 'none', so it is NOT gated on a network role.
+      (tab.id !== "spatial" || canReadFeatures) &&
       (tab.id !== "tags" || canReadTags),
   )
 
@@ -3877,6 +3896,8 @@ export function FeaturePanel() {
               {activeTab === "works" && <WorksTab />}
               {activeTab === "faults" && <FaultsTab />}
               {activeTab === "operations" && <OperationsTab />}
+              {activeTab === "safety" && <SafetyTab />}
+              {activeTab === "spatial" && <SpatialTab />}
               {activeTab === "tags" && <TagsTab />}
               {activeTab === "files" && (
                 <FeatureAttachments

@@ -49,6 +49,8 @@ Find your task on the left; open the document on the right.
 | Model switchgear and protection — switches, breakers, reclosers, fuses, RMUs, relays and coordination | **[Switching & Protection](switching-and-protection-guide.md)** |
 | Log and manage electrical fault events — lifecycle, impact, and links to outages and repairs | **[Faults](faults-guide.md)** |
 | Record and report device operations — trips, lockouts, recloses, open/close; trip counts and device inventory | **[Device Operations](operations-guide.md)** |
+| Protect a crew — tag out a device (barring operation), apply grounds, issue and surrender clearances | **[Operational Safety](safety-guide.md)** |
+| Manage land & vegetation — easements, parcels, corridors; what's inside/covering a feature; clearance & trim dispatch | **[Land & Spatial Management](land-spatial-guide.md)** |
 | Manage outages — trouble calls, prediction, affected customers, switching orders, restoration, reliability | **[OMS — Outage Management](oms-guide.md)** |
 | Restore a dead section by back-feed — which normally-open tie to close, load-flow-checked, one-click switching order | **[FLISR — Service Restoration](flisr-restoration-guide.md)** |
 | See the whole outage loop end to end — how Faults, OMS and WAM fit together | **[Outage Operations](outage-operations-guide.md)** |

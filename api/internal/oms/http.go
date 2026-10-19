@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
 )
@@ -31,6 +32,7 @@ import (
 //	GET  /incidents/{id}/switching-orders   the incident's switching orders
 //	POST /incidents/{id}/switching-orders   generate a switching order from the device
 //	POST /incidents/{id}/restoration-orders FLISR: generate a close-tie restoration order from a chosen tie
+//	POST /switching-orders/{id}/clearance   issue a permit-to-work from the order (tags opened devices, grounds earthed points) — also needs safety:write
 //	GET  /restoration                FLISR for an ad-hoc device (?device_class=&device_id=)
 //	GET  /switching-orders/{id}      one switching order with its steps
 //	POST /switching-orders/{id}/cancel      cancel a switching order
@@ -65,6 +67,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/incidents/{id}/restoration-orders", generateRestorationOrderHandler(db))
 	r.Get("/restoration", restorationForDeviceHandler(db))
 
+	r.Post("/switching-orders/{id}/clearance", issueClearanceHandler(db))
 	r.Get("/switching-orders/{id}", getSwitchingOrderHandler(db))
 	r.Post("/switching-orders/{id}/cancel", cancelSwitchingOrderHandler(db))
 	r.Post("/switching-steps/{id}/execute", executeStepHandler(db))
@@ -354,6 +357,37 @@ func generateRestorationOrderHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusCreated, order)
+	}
+}
+
+// issueClearanceRequest is POST /switching-orders/{id}/clearance's body (Slice 3).
+type issueClearanceRequest struct {
+	WorkDescription *string `json:"work_description"`
+	IssuedTo        *string `json:"issued_to"`
+}
+
+// issueClearanceHandler issues a permit-to-work from a switching order, tagging
+// the devices it opens and grounding the points it earths. It escalates beyond the
+// mount's oms:write to also require safety:write in-handler -- issuing a clearance
+// (and so placing blocking tags) is a safety authority, not a general switching
+// right (mirrors the diagram-promote metadata:write escalation).
+func issueClearanceHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, ok := auth.UserFrom(r.Context())
+		if !ok || !(user.BreakGlass || user.Has(auth.PermSafetyWrite)) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "you do not have the required permission (safety:write)"})
+			return
+		}
+		var req issueClearanceRequest
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&req) // body is optional
+		}
+		c, err := IssueClearanceFromOrder(r.Context(), db, chi.URLParam(r, "id"), req.WorkDescription, req.IssuedTo)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, c)
 	}
 }
 

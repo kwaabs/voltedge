@@ -144,6 +144,8 @@ func moduleTools() []Tool {
 	t = append(t, wamTools()...)
 	t = append(t, faultsTools()...)
 	t = append(t, operationsTools()...)
+	t = append(t, safetyTools()...)
+	t = append(t, spatialTools()...)
 	t = append(t, circuitTools()...)
 	t = append(t, territoryTools()...)
 	t = append(t, builderTools()...)

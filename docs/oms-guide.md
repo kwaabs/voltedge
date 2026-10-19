@@ -142,6 +142,8 @@ A **switching order** (`oms.switching_orders`) is the ordered program a crew exe
 
 So as Dana ticks the isolate/restore steps, Priya watches the **red de-energised cone on the outage map shrink** in real time (§5) — because the steps are *actually operating the model*, not just checking boxes.
 
+> ⚠️ **A safety tag can refuse a step.** Executing an open/close step now runs the **operational-safety interlock** first: if the device carries a blocking **danger**/**out-of-service** tag, the step is refused (nothing flips) with the tag's reason — remove the tag or surrender its clearance first. You can also **issue a clearance from a switching order** to danger-tag every device it opens in one action. See **[Operational Safety — Tags, Grounds & Clearances](safety-guide.md)**.
+
 > 💡 **Restore by back-feed (FLISR).** The generated order restores by **re-closing the blamed device** — right once the fault clears. When it *won't* clear quickly, VoltEdge can instead suggest **back-feeding the dead section from a neighbouring feeder** through a **normally-open tie**, load-flow-checked, and draft the close-tie order for you — the **Restoration (FLISR)** panel on the incident. This also closes the "closed back-feed tie" gap §5 flags. See **[FLISR — Service Restoration by Back-Feed](flisr-restoration-guide.md)**.
 
 ---

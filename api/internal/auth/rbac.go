@@ -53,6 +53,8 @@ const (
 	PermTagsWrite           = "tags:write"
 	PermOperationsRead      = "operations:read"
 	PermOperationsWrite     = "operations:write"
+	PermSafetyRead          = "safety:read"
+	PermSafetyWrite         = "safety:write"
 )
 
 // RequirePermission gates a route (sub)tree by RBAC permission. A request

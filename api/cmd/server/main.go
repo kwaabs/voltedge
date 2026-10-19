@@ -62,7 +62,9 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/relationship"
 	"github.com/kwaabs/voltedge/api/internal/rmu"
 	"github.com/kwaabs/voltedge/api/internal/rules"
+	"github.com/kwaabs/voltedge/api/internal/safety"
 	"github.com/kwaabs/voltedge/api/internal/schematic"
+	"github.com/kwaabs/voltedge/api/internal/spatial"
 	"github.com/kwaabs/voltedge/api/internal/studies"
 	"github.com/kwaabs/voltedge/api/internal/secretbox"
 	"github.com/kwaabs/voltedge/api/internal/servicelayers"
@@ -284,6 +286,16 @@ func main() {
 	// Its own operations:* capability (a device operation is neither a fault
 	// investigation nor an outage); method-aware gate, router carries no auth.
 	r.With(auth.RequirePermission(auth.PermOperationsRead, auth.PermOperationsWrite)).Mount("/operations", deviceops.Routes(db))
+	// Operational safety (migration 0151): tags, grounds and clearances, and the
+	// interlock a blocking tag feeds. Its own safety:* capability -- a blocking tag
+	// bars operation for everyone, so the right to protect (and release) a work area
+	// is granted deliberately, not folded into switching rights. Method-aware gate.
+	r.With(auth.RequirePermission(auth.PermSafetyRead, auth.PermSafetyWrite)).Mount("/safety", safety.Routes(db))
+	// Spatial engine (geometry-derived overlap/proximity across the gis.* tables):
+	// "what assets are inside this easement / corridor / parcel?", "what land covers
+	// this asset?", "what vegetation is within N m of this line?". Read-only over the
+	// features themselves, so it rides features:read like the feature registry.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/spatial", spatial.Routes(db))
 	// Feature registry (migration 0108): a cross-class index of every feature
 	// id -> its class, maintained by the compiler-attached DB trigger. Backs
 	// the asset-id typeahead/resolve any form needs when a user references an

@@ -1,0 +1,367 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Land &amp; Spatial Management — Interactive Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  --s0:#0b7a8c; --s1:#c2650a; --s2:#6a4fc4; --s3:#2f9a52; --s4:#c23a6b; --s5:#8a7a12; --s6:#2b5ead; --s7:#b0452a; --s8:#4d6b7a;
+  --dead:#aab6bd;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; --dead:#4a5a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; --dead:#4a5a64; color-scheme:dark}
+*{box-sizing:border-box} html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;margin-top:30px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:72ch} p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)} .muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(34px,6vw,62px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.96}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:64ch}
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.en{background:var(--blue-tint);color:var(--blue)} .tag.pl{background:var(--tint);color:var(--acc-deep)}
+.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:80ch;background:var(--surface);border:1px solid var(--line)}
+.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:80ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+section.ch{padding-top:56px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 50px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+svg text{font-family:var(--f-mono);fill:var(--ink)}
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0} td code{white-space:nowrap}
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)} .w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:0}
+@media(max-width:720px){.w-split{grid-template-columns:1fr}}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff} .btn.pri:hover{background:var(--acc-deep)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.5;overflow-x:auto}
+.readout b{color:var(--ink)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 12px var(--f-mono);margin-top:10px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;letter-spacing:.04em}
+.pill.stale{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.pill.fresh{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.bad{background:var(--red-tint);color:var(--red);border:1px solid var(--red)}
+.pill.sec{background:var(--tint);color:var(--acc-deep);border:1px solid color-mix(in srgb,var(--acc) 40%,transparent)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px} .card p{font-size:14px;margin:6px 0}
+.ctl{margin-bottom:12px}
+.ctl label{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--f-mono);margin-bottom:4px}
+.ctl label .v{color:var(--acc-deep);font-weight:700}
+input[type=range]{width:100%;accent-color:var(--acc);margin:0}
+input[type=number],select.fld{font:500 13px var(--f-mono);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px 8px}
+.row{display:flex;gap:6px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--line2);font-size:13px}
+.row:last-child{border-bottom:0}
+.quiz{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz .fb.good{color:var(--green)} .quiz .fb.bad{color:var(--red)}
+footer{margin-top:60px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+</style></head>
+<body>
+<nav class="rail" aria-label="Chapters"><div class="rail-in">
+  <div class="brand"><span class="dot"></span>Land &amp; Spatial</div>
+  <div class="chaps" id="chaps">
+    <a href="#c1">1 · Classes</a><a href="#c2">2 · Spatial engine</a><a href="#c3">3 · Vegetation clearance</a><a href="#c4">4 · Due tracking</a><a href="#c5">5 · Reference</a>
+  </div>
+</div></nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · land &amp; spatial management · geometry-derived</div>
+  <h1>The network crosses<br><span>someone's land.</span></h1>
+  <p class="lede">Easements, parcels, corridors and vegetation are feature classes — and VoltEdge then derives the relationships from the <em>shapes</em>: what sits inside an easement, what land covers a pole, what trees breach clearance on a feeder. This guide runs the <b>real geometry</b> in your browser (point-in-polygon, geodesic distance, the per-voltage clearance rule, the date queries) on a small estate you can poke.</p>
+  <p class="muted" style="font-size:14px;margin-top:14px">🔒 a permission · 💡 a tip · ⚠️ a limitation · <b>▶</b> operator · <b>∑</b> engineer. The sample map uses <b>1 unit = 1 metre</b>, so distances read directly.</p>
+</header>
+
+<!-- ============ C1 ============ -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">01</div><h2>The four land classes</h2><p>Polygons that are context, not network nodes.</p></div>
+  <p>All four are <code>network_role 'none'</code> polygons — land/legal/environmental context, not nodes power flows through. They seed <code>draft</code>; <b>publish them from /admin</b> after <code>task compile</code>. The <b>bold</b> fields drive the due tracking in Chapter 4.</p>
+  <div class="cards">
+    <div class="card"><h4>LAND_PARCEL</h4><p>A cadastral land unit — the land an easement burdens.</p><p class="muted" style="font-size:12.5px">parcel_ref · owner_name · land_use · area_sqm</p></div>
+    <div class="card"><h4>EASEMENT</h4><p>The legal right to keep the network's assets on the land.</p><p class="muted" style="font-size:12.5px">easement_ref · easement_type · status · grantor · granted_date · <b>expiry_date</b></p></div>
+    <div class="card"><h4>UTILITY_CORRIDOR</h4><p>The managed strip (right-of-way) the network runs through.</p><p class="muted" style="font-size:12.5px">corridor_type · corridor_ref · width_m · managed</p></div>
+    <div class="card"><h4>VEGETATION_ZONE</h4><p>A patch of vegetation, for clearance / trim analysis.</p><p class="muted" style="font-size:12.5px">veg_type · species · height_m · condition · <b>last_trimmed</b> · <b>trim_cycle_months</b></p></div>
+  </div>
+  <div class="tip"><b>Why geometry-derived</b> VoltEdge's connectivity and relationships are <i>authored</i> — you wire them. The spatial engine instead reads the <b>shapes</b> across the compiled <code>gis.*</code> tables, so a pole never has to be <i>linked</i> to an easement for "is it on one?" to have an answer.</div>
+</section>
+
+<!-- ============ C2 ============ -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">02</div><h2>The spatial engine</h2><p>Pick a reference and a mode; the geometry answers.</p></div>
+  <p><code>GET /spatial/related</code> returns the features spatially related to one reference, in four modes. Pick a reference feature and a mode below — the map highlights the matches and the real predicate runs (ray-cast point-in-polygon, segment distance).</p>
+  <div class="widget" id="w1">
+    <div class="w-head"><span class="eyebrow">Interactive · 1</span><h4>Spatial query — from the shapes</h4></div>
+    <div class="w-bar">
+      <span class="lab">Reference</span><select id="w1-ref" class="fld"></select>
+      <span class="lab">Mode</span><span class="seg" id="w1-mode">
+        <button data-m="intersects" aria-pressed="true">Overlapping</button>
+        <button data-m="contains">Inside this</button>
+        <button data-m="contained_by">Covering this</button>
+        <button data-m="within">Nearby</button>
+      </span>
+      <span id="w1-dwrap" style="display:none"><span class="lab">Within</span> <input type="number" id="w1-dist" value="10" min="1" style="width:68px"> m</span>
+    </div>
+    <div class="w-split"><div class="w-main"><svg id="w1-svg" viewBox="0 0 800 500" width="100%" role="img" aria-label="Estate map"></svg><div class="legend" id="w1-leg"></div></div><div class="w-side" id="w1-out"></div></div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>Mode</th><th>Predicate</th><th>Question</th></tr>
+    <tr><td>intersects</td><td><code>ST_Intersects</code></td><td>anything overlapping the reference</td></tr>
+    <tr><td>contains</td><td>ref <code>ST_Contains</code> target</td><td>assets <b>inside</b> an easement/corridor/parcel</td></tr>
+    <tr><td>contained_by</td><td>target <code>ST_Contains</code> ref</td><td>the land <b>covering</b> an asset</td></tr>
+    <tr><td>within</td><td><code>ST_DWithin</code> (geodesic)</td><td>features within N metres, nearest first</td></tr>
+  </table></div>
+  <div class="en-b"><span class="tag en">∑ Safe by construction</span><p>Class codes resolve to their physical table through metadata (a whitelist); feature ids are bound; the reference geometry is fetched by a subquery. A table name is never taken from the request, and the geometry never round-trips through the app.</p></div>
+</section>
+
+<!-- ============ C3 ============ -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">03</div><h2>Vegetation clearance</h2><p>Which trees are too close — and dispatch a trim.</p></div>
+  <p>The reliability (and wildfire) workhorse: find the vegetation within the clearance a conductor's <b>voltage</b> requires. Pick a conductor (or the whole feeder) and watch the breaches; raise a trim order with one click. Drag the override to see a breach appear or clear.</p>
+  <div class="widget" id="w2">
+    <div class="w-head"><span class="eyebrow">Interactive · 2</span><h4>Clearance scan → trim order</h4></div>
+    <div class="w-bar">
+      <span class="lab">Scope</span><span class="seg" id="w2-scope">
+        <button data-s="MV1" aria-pressed="true">MV-1 (11 kV)</button>
+        <button data-s="LV5">LV-5 (400 V)</button>
+        <button data-s="feeder">Whole feeder</button>
+      </span>
+      <span class="lab">Clearance</span><span class="seg" id="w2-cl">
+        <button data-c="0" aria-pressed="true">Per-voltage</button>
+        <button data-c="1">Override</button>
+      </span>
+      <span id="w2-owrap" style="display:none"><input type="number" id="w2-ov" value="3" min="0.5" step="0.5" style="width:64px"> m</span>
+    </div>
+    <div class="w-split"><div class="w-main"><svg id="w2-svg" viewBox="0 0 800 500" width="100%" role="img" aria-label="Clearance map"></svg><div class="legend" id="w2-leg"></div></div><div class="w-side" id="w2-out"></div></div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>Voltage</th><th>Default clearance</th><th></th></tr>
+    <tr><td>400 V</td><td>1.0 m</td><td rowspan="4" class="muted" style="font-size:12.5px;vertical-align:middle">Illustrative — tune <code>defaultClearanceByVoltage</code> to your standard, or pass a uniform <code>clearance</code>. Unknown voltage → 2.0 m.</td></tr>
+    <tr><td>11 kV</td><td>2.5 m</td></tr>
+    <tr><td>33 kV</td><td>3.0 m</td></tr>
+    <tr><td>132 kV</td><td>4.5 m</td></tr>
+  </table></div>
+  <div class="en-b"><span class="tag en">▶ Dispatch</span><p>🔒 <code>wam:write</code>. <b>Raise trim order</b> creates a preventive WAM work order (asset = the vegetation zone), priority derived from the breach: near-contact (≤ 0.5 m) is <b>urgent</b>, a big breach <b>high</b>, else <b>medium</b>. It lands on the WAM board below.</p></div>
+  <div class="readout" id="w2-board" style="margin-top:4px"></div>
+</section>
+
+<!-- ============ C4 ============ -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">04</div><h2>Due tracking</h2><p>Dates, not shapes — stay ahead.</p></div>
+  <p>The proactive side: easements expiring and trims coming due. Slide <b>today</b> forward and watch the badges flip — the same arithmetic <code>ExpiringEasements</code> and <code>VegetationTrimDue</code> run (<code>expiry_date − today</code>; <code>last_trimmed + trim_cycle_months</code>).</p>
+  <div class="widget" id="w3">
+    <div class="w-head"><span class="eyebrow">Interactive · 3</span><h4>Expiry &amp; trim-due</h4></div>
+    <div class="w-bar"><div class="ctl" style="flex:1;margin:0;min-width:240px"><label>Today <span class="v" id="w3-today"></span></label><input type="range" id="w3-slide" min="0" max="900" value="0" step="5"></div></div>
+    <div class="w-body"><div id="w3-out"></div></div>
+  </div>
+  <div class="tip"><b>Degrades gracefully</b> The due queries return an empty list when the EASEMENT / VEGETATION_ZONE class isn't seeded or compiled — a deployment without the land classes isn't an error.</div>
+</section>
+
+<!-- ============ C5 ============ -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">05</div><h2>Reference &amp; limits</h2><p>Endpoints, tools and the honest caveats.</p></div>
+  <div class="tbl"><table>
+    <tr><th>Verb &amp; path</th><th>Agent tool</th><th>Permission</th></tr>
+    <tr><td><code>GET /spatial/related</code></td><td><code>spatial_related</code></td><td>features:read</td></tr>
+    <tr><td><code>GET /spatial/vegetation-encroachments</code></td><td><code>vegetation_encroachments</code></td><td>features:read</td></tr>
+    <tr><td><code>POST …/work-order</code></td><td><code>raise_vegetation_trim_order</code></td><td>wam:write</td></tr>
+    <tr><td><code>GET /spatial/easements/expiring</code></td><td><code>easements_expiring</code></td><td>features:read</td></tr>
+    <tr><td><code>GET /spatial/vegetation/trim-due</code></td><td><code>vegetation_trim_due</code></td><td>features:read</td></tr>
+  </table></div>
+  <div class="caution"><b>Honest limits</b> The land classes seed <b>draft</b> (compile + publish before use). The per-voltage clearance values are <b>illustrative</b>. No standalone due-report panel or breach map overlay yet (the per-feature badge ships; the lists are reachable via API/tools). A whole-network spatial scan isn't offered — scope to one reference / conductor / circuit. Land records are <b>not territory-scoped</b>.</div>
+
+  <h3>Check yourself</h3>
+  <div id="quiz"></div>
+  <div class="en-b"><span class="tag pl">Related</span><p>The <b>Land &amp; Spatial Management</b> manual (<code>land-spatial-guide.md</code>) holds the full reference. A trim order flows into <b>Works, Inspections &amp; Maintenance</b>; the clearance rule reads the conductors' <code>voltage_class</code> from <b>Switching &amp; Protection</b>.</p></div>
+</section>
+
+<footer>VoltEdge · Land &amp; Spatial Management — interactive guide. The geometry, the clearance rule and the date queries run client-side as faithful ports of <code>api/internal/spatial</code>. The sample estate is illustrative.</footer>
+</div>
+
+<script>
+/* ---------- the sample estate (1 svg unit = 1 metre) ---------- */
+const EST = {
+  E1:{code:'EASEMENT',   name:'Easement E-1', kind:'easement', expiry:'2026-12-31', geom:{t:'polygon',p:[[40,40],[760,40],[760,210],[40,210]]}},
+  P1:{code:'LAND_PARCEL',name:'Parcel P-1',   kind:'parcel',   geom:{t:'polygon',p:[[40,300],[380,300],[380,470],[40,470]]}},
+  VA:{code:'VEGETATION_ZONE',name:'Veg A (oak)', kind:'veg', species:'Oak',  last:'2023-05-01', cycle:24, geom:{t:'polygon',p:[[280,91],[340,91],[340,125],[280,125]]}},
+  VB:{code:'VEGETATION_ZONE',name:'Veg B (hedge)',kind:'veg', species:'Hedge',last:'2026-01-01', cycle:12, geom:{t:'polygon',p:[[200,352],[255,352],[255,368],[200,368]]}},
+  VC:{code:'VEGETATION_ZONE',name:'Veg C (shrub)',kind:'veg', species:'Shrub',last:'2026-09-01', cycle:6,  geom:{t:'polygon',p:[[560,93],[640,93],[640,150],[560,150]]}},
+  MV1:{code:'MV_CONDUCTOR',name:'MV-1 (11 kV)', kind:'cond', voltage:'11KV', geom:{t:'line',p:[[60,90],[740,90]]}},
+  LV5:{code:'LV_CONDUCTOR',name:'LV-5 (400 V)', kind:'cond', voltage:'400V', geom:{t:'line',p:[[80,360],[340,360]]}},
+  POLE:{code:'POLE',name:'Pole P-12', kind:'point', geom:{t:'point',p:[[300,90]]}},
+  TX:{code:'DIST_XFMR',name:'TX-7', kind:'point', geom:{t:'point',p:[[520,90]]}},
+};
+const ORDER=['E1','P1','VA','VB','VC','MV1','LV5','POLE','TX']; /* draw order: polys, lines, points */
+const CLEAR={'400V':1.0,'11KV':2.5,'33KV':3.0,'132KV':4.5};
+
+/* ---------- geometry (faithful to ST_* semantics) ---------- */
+const V=f=>f.geom.p;
+function S(f){const g=f.geom,p=g.p,o=[];if(g.t==='point')return o;for(let i=0;i<p.length-1;i++)o.push([p[i],p[i+1]]);if(g.t==='polygon')o.push([p[p.length-1],p[0]]);return o;}
+function ptInPoly(pt,f){if(f.geom.t!=='polygon')return false;const p=f.geom.p;let c=false;for(let i=0,j=p.length-1;i<p.length;j=i++){const yi=p[i][1],yj=p[j][1];if((yi>pt[1])!==(yj>pt[1])&&pt[0]<(p[j][0]-p[i][0])*(pt[1]-yi)/(yj-yi)+p[i][0])c=!c;}return c;}
+function dPS(p,a,b){const vx=b[0]-a[0],vy=b[1]-a[1],wx=p[0]-a[0],wy=p[1]-a[1];const c1=vx*wx+vy*wy;if(c1<=0)return Math.hypot(wx,wy);const c2=vx*vx+vy*vy;if(c2<=c1)return Math.hypot(p[0]-b[0],p[1]-b[1]);const t=c1/c2;return Math.hypot(p[0]-(a[0]+t*vx),p[1]-(a[1]+t*vy));}
+const cr=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+function segX(a,b,c,d){return (cr(c,d,a)>0)!==(cr(c,d,b)>0)&&(cr(a,b,c)>0)!==(cr(a,b,d)>0);}
+function intersects(f1,f2){if(V(f1).some(v=>ptInPoly(v,f2)))return true;if(V(f2).some(v=>ptInPoly(v,f1)))return true;for(const[a,b]of S(f1))for(const[c,d]of S(f2))if(segX(a,b,c,d))return true;return false;}
+function minDist(f1,f2){if(intersects(f1,f2))return 0;let m=Infinity;const s1=S(f1),s2=S(f2);if(s2.length)V(f1).forEach(v=>s2.forEach(([c,d])=>m=Math.min(m,dPS(v,c,d))));if(s1.length)V(f2).forEach(v=>s1.forEach(([a,b])=>m=Math.min(m,dPS(v,a,b))));V(f1).forEach(a=>V(f2).forEach(b=>m=Math.min(m,Math.hypot(a[0]-b[0],a[1]-b[1]))));return m;}
+function contains(pf,f){if(pf.geom.t!=='polygon')return false;return V(f).every(v=>ptInPoly(v,pf));}
+
+/* ---------- rendering ---------- */
+const COL={ref:'var(--acc)',match:'var(--green)',breach:'var(--red)'};
+function draw(svg,hl){
+  hl=hl||{}; let g='';
+  for(const id of ORDER){const f=EST[id],geo=f.geom,m=hl[id];
+    const stroke=m?COL[m]:'var(--muted)',sw=m?3:1.4;
+    const fill=f.kind==='easement'?'var(--blue-tint)':f.kind==='parcel'?'var(--amber-tint)':f.kind==='veg'?'var(--green-tint)':'none';
+    if(geo.t==='polygon'){g+=`<polygon points="${geo.p.map(x=>x.join(',')).join(' ')}" fill="${m==='breach'?'var(--red-tint)':fill}" fill-opacity="0.6" stroke="${stroke}" stroke-width="${sw}"/>`;
+      const cx=geo.p.reduce((s,x)=>s+x[0],0)/geo.p.length,cy=geo.p.reduce((s,x)=>s+x[1],0)/geo.p.length;
+      g+=`<text x="${cx}" y="${cy}" text-anchor="middle" font-size="12" style="fill:var(--ink)">${f.name}</text>`;}
+    else if(geo.t==='line'){g+=`<polyline points="${geo.p.map(x=>x.join(',')).join(' ')}" fill="none" stroke="${m?stroke:'var(--ink)'}" stroke-width="${m?4:2.6}"/>`;
+      g+=`<text x="${geo.p[0][0]+6}" y="${geo.p[0][1]-7}" font-size="12" style="fill:var(--ink)">${f.name}</text>`;}
+    else{g+=`<circle cx="${geo.p[0][0]}" cy="${geo.p[0][1]}" r="6" fill="var(--raise)" stroke="${m?stroke:'var(--ink)'}" stroke-width="${m?3:2}"/><text x="${geo.p[0][0]+9}" y="${geo.p[0][1]+4}" font-size="11" style="fill:var(--ink)">${f.name}</text>`;}
+  }
+  svg.innerHTML=g;
+}
+const $=s=>document.querySelector(s);
+
+/* ===== W1: spatial query ===== */
+(function(){
+  const ref=$('#w1-ref'); ref.innerHTML=ORDER.map(id=>`<option value="${id}">${EST[id].name}</option>`).join('');
+  ref.value='E1'; let mode='intersects';
+  function paint(){
+    const r=EST[ref.value]; const dist=Number($('#w1-dist').value)||0;
+    $('#w1-dwrap').style.display=mode==='within'?'':'none';
+    const hl={}; hl[ref.value]='ref'; const matches=[];
+    for(const id of ORDER){ if(id===ref.value)continue; const t=EST[id]; let ok=false,d=null;
+      if(mode==='intersects') ok=intersects(r,t);
+      else if(mode==='contains') ok=contains(r,t);
+      else if(mode==='contained_by') ok=contains(t,r);
+      else { d=minDist(r,t); ok=d<=dist; }
+      if(ok){ hl[id]='match'; matches.push({id,name:t.name,code:t.code,d}); }
+    }
+    draw($('#w1-svg'),hl);
+    $('#w1-leg').innerHTML=`<span><i class="sw" style="background:var(--acc)"></i>reference</span><span><i class="sw" style="background:var(--green)"></i>match</span>`;
+    if(mode==='within') matches.sort((a,b)=>a.d-b.d);
+    $('#w1-out').innerHTML=`<div class="lab">${({intersects:'Overlapping',contains:'Inside',contained_by:'Covering',within:'Nearby'})[mode]} — ${matches.length} match${matches.length===1?'':'es'}</div>`+
+      (matches.length?matches.map(m=>`<div class="row"><span style="flex:1"><b>${m.name}</b><br><span class="muted">${m.code}</span></span>${m.d!=null?`<span class="muted">${m.d<1?'<1':Math.round(m.d)} m</span>`:''}</div>`).join(''):'<p class="muted" style="font-size:13px;margin:8px 0 0">Nothing found — try another mode.</p>');
+  }
+  $('#w1-mode').onclick=e=>{const b=e.target.closest('button');if(!b)return;mode=b.dataset.m;$('#w1-mode').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));paint();};
+  ref.onchange=paint; $('#w1-dist').oninput=paint; paint();
+})();
+
+/* ===== W2: clearance → trim order ===== */
+(function(){
+  let scope='MV1', useOv=false; const orders=[];
+  function clearanceFor(v,ov){ return ov>0?ov:(CLEAR[v]||2.0); }
+  function scan(){
+    const conds = scope==='feeder'?['MV1','LV5']:[scope];
+    const ov = useOv?Number($('#w2-ov').value)||0:0;
+    const out=[];
+    for(const cid of conds){ const c=EST[cid]; const cl=clearanceFor(c.voltage,ov);
+      for(const vid of ['VA','VB','VC']){ const v=EST[vid]; const d=minDist(c,v); if(d<=cl) out.push({cid,c,vid,v,d,cl}); } }
+    out.sort((a,b)=>(b.cl-b.d)-(a.cl-a.d)); return out;
+  }
+  function prio(cl,d){ if(d<=0.5)return'urgent'; if((cl-d)>=1||(cl>0&&d<cl*0.4))return'high'; return'medium'; }
+  function paint(){
+    $('#w2-owrap').style.display=useOv?'':'none';
+    const br=scan(); const hl={}; const conds=scope==='feeder'?['MV1','LV5']:[scope]; conds.forEach(c=>hl[c]='ref'); br.forEach(b=>hl[b.vid]='breach');
+    draw($('#w2-svg'),hl);
+    $('#w2-leg').innerHTML=`<span><i class="sw" style="background:var(--acc)"></i>conductor</span><span><i class="sw" style="background:var(--red)"></i>breaching veg</span>`;
+    let h=`<div class="lab">${br.length} breach${br.length===1?'':'es'}</div>`;
+    h += br.length?br.map((b,i)=>{const p=prio(b.cl,b.d); const done=orders.some(o=>o.vid===b.vid&&o.cid===b.cid);
+      return `<div class="row"><span style="flex:1"><b>${b.v.name}</b> <span class="pill ${p==='urgent'?'bad':p==='high'?'stale':'sec'}">${p}</span><br><span class="muted">${b.d<0.1?'touching':b.d.toFixed(1)+' m'} — needs ${b.cl} m · breach ${(b.cl-b.d).toFixed(1)} m${scope==='feeder'?' · on '+b.c.name:''}</span></span>`+
+      (done?'<span class="muted" style="color:var(--green)">✓ raised</span>':`<button class="btn" data-i="${i}">Raise trim order</button>`)+`</div>`;}).join(''):'<p class="muted" style="font-size:13px;margin:8px 0 0">No vegetation breaching clearance.</p>';
+    $('#w2-out').innerHTML=h;
+    $('#w2-out').dataset.br=JSON.stringify(br.map(b=>({cid:b.cid,vid:b.vid,name:b.v.name,cond:b.c.name,cl:b.cl,d:b.d,p:prio(b.cl,b.d)})));
+    const bd=orders.length?orders.map(o=>`<div><b>WO-${o.n}</b> · ${o.p} · Vegetation trim — clearance breach on ${o.cond} · asset ${o.name}</div>`).join(''):'<span class="muted">No trim orders raised yet. Click “Raise trim order”.</span>';
+    $('#w2-board').innerHTML=`<div class="lab" style="margin-bottom:4px">WAM work board</div>${bd}`;
+  }
+  $('#w2-out').onclick=e=>{const b=e.target.closest('button[data-i]');if(!b)return;const br=JSON.parse($('#w2-out').dataset.br||'[]');const x=br[+b.dataset.i];if(!x)return;orders.push({n:1000+orders.length+1,vid:x.vid,cid:x.cid,name:x.name,cond:x.cond,p:x.p});paint();};
+  $('#w2-scope').onclick=e=>{const b=e.target.closest('button');if(!b)return;scope=b.dataset.s;$('#w2-scope').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));paint();};
+  $('#w2-cl').onclick=e=>{const b=e.target.closest('button');if(!b)return;useOv=b.dataset.c==='1';$('#w2-cl').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));paint();};
+  $('#w2-ov').oninput=paint; paint();
+})();
+
+/* ===== W3: due tracking ===== */
+(function(){
+  const BASE=new Date('2026-10-19T00:00:00Z');
+  const addMonths=(d,m)=>{const x=new Date(d);x.setUTCMonth(x.getUTCMonth()+m);return x;};
+  const days=(a,b)=>Math.round((b-a)/86400000);
+  function paint(){
+    const off=Number($('#w3-slide').value); const today=new Date(BASE.getTime()+off*86400000);
+    $('#w3-today').textContent=today.toISOString().slice(0,10)+(off?` (+${off} d)`:'');
+    const ease=['E1'].map(id=>{const f=EST[id];const du=days(today,new Date(f.expiry+'T00:00:00Z'));const cls=du<0?'bad':du<=90?'stale':'fresh';const txt=du<0?`expired ${-du} d ago`:`expires in ${du} d`;return `<div class="row"><span style="flex:1"><b>${f.name}</b> <span class="muted">${f.expiry}</span></span><span class="pill ${cls}">${txt}</span></div>`;}).join('');
+    const veg=['VA','VB','VC'].map(id=>{const f=EST[id];const due=addMonths(new Date(f.last+'T00:00:00Z'),f.cycle);const od=days(due,today);const cls=od>0?'bad':od>=-30?'stale':'fresh';const txt=od>0?`trim overdue ${od} d`:`trim due in ${-od} d`;return `<div class="row"><span style="flex:1"><b>${f.name}</b> <span class="muted">last ${f.last} · ${f.cycle} mo</span></span><span class="pill ${cls}">${txt}</span></div>`;}).join('');
+    $('#w3-out').innerHTML=`<div class="lab" style="margin-bottom:2px">Easement expiry (within 90 d)</div>${ease}<div class="lab" style="margin:12px 0 2px">Vegetation trim (within 30 d)</div>${veg}`;
+  }
+  $('#w3-slide').oninput=paint; paint();
+})();
+
+/* ===== quiz ===== */
+(function(){
+  const Q=[
+    {q:'A pole falls inside an easement polygon but was never linked to it. Does the spatial engine find the easement “covering” the pole?',a:['Yes — it reads the geometry','No — the link must be authored first'],c:0,fb:'The engine is geometry-derived (ST_Contains); no authored relationship is needed.'},
+    {q:'Which mode answers “what assets are inside this easement?”',a:['contained_by','contains','within'],c:1,fb:'contains: the reference (easement) ST_Contains the targets.'},
+    {q:'An 11 kV conductor has a tree 1.2 m away. Breach?',a:['Yes — 11 kV needs 2.5 m','No — under 2.5 m is fine'],c:0,fb:'1.2 m < the 2.5 m an 11 kV line requires, so it breaches by 1.3 m.'},
+    {q:'What permission does raising a trim order need, beyond features:read?',a:['safety:write','wam:write','metadata:write'],c:1,fb:'The trim order is a WAM work order — wam:write, escalated in-handler.'},
+  ];
+  $('#quiz').innerHTML=Q.map((x,i)=>`<div class="quiz" data-i="${i}"><div><b>Q${i+1}.</b> ${x.q}</div><div class="opts">${x.a.map((o,j)=>`<button class="btn" data-j="${j}">${o}</button>`).join('')}</div><div class="fb"></div></div>`).join('');
+  $('#quiz').onclick=e=>{const b=e.target.closest('button[data-j]');if(!b)return;const w=b.closest('.quiz'),i=+w.dataset.i,j=+b.dataset.j,ok=j===Q[i].c;const fb=w.querySelector('.fb');fb.className='fb '+(ok?'good':'bad');fb.textContent=(ok?'✓ ':'✗ ')+Q[i].fb;};
+})();
+
+/* chapter scrollspy */
+(function(){const links=[...document.querySelectorAll('#chaps a')];const secs=links.map(a=>document.querySelector(a.getAttribute('href')));
+  const io=new IntersectionObserver(es=>{es.forEach(en=>{if(en.isIntersecting){const i=secs.indexOf(en.target);links.forEach((l,k)=>l.classList.toggle('on',k===i));}});},{rootMargin:'-40% 0px -55% 0px'});
+  secs.forEach(s=>s&&io.observe(s));})();
+</script>
+</body></html>

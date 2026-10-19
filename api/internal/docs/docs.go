@@ -147,6 +147,14 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
+		ID:          "land-spatial-guide-interactive",
+		Title:       "Land & Spatial Management (interactive)",
+		Description: "The land/spatial engine as something you operate on a small estate: run the four spatial modes (overlapping / inside / covering / nearby) with real point-in-polygon and geodesic distance; scan a conductor or a whole feeder for vegetation breaching its per-voltage clearance and raise a trim order onto a WAM board; and slide 'today' forward to watch easement-expiry and trim-due badges flip. The interactive companion to the Land & Spatial Management manual.",
+		Category:    "Interactive guides",
+		Filename:    "land-spatial-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "oms-guide-interactive",
 		Title:       "OMS Outage Management — Interactive Guide",
 		Description: "Run the real OMS rules in your browser on a Feeder 7 estate: trouble calls, prediction, who is affected versus dark, the live cone, switching orders that flip device state, a FLISR back-feed restoration suggester (which normally-open tie to close, load-flow-checked), planned outages, SAIDI/SAIFI, webhooks and an endpoints tester, with the manual's code-verified corrections.",
@@ -406,6 +414,20 @@ var manifest = []Doc{
 		Description: "The device-operation log: recording and reporting every protective/switching device operation (trip, lockout, reclose, open, close). The three reports (Timeline, By device trip-counts, Devices inventory with current state), how the log auto-fills from switching, faults, crews and SCADA/webhooks, the external-ref device correlation, and how it links to Outage Management and Faults.",
 		Category:    "Manuals",
 		Filename:    "operations-guide.md",
+	},
+	{
+		ID:          "safety-guide",
+		Title:       "Operational Safety — Tags, Grounds & Clearances",
+		Description: "The safety-document layer and its interlock: danger/out-of-service tags that BAR a device from being operated, applied grounds, and clearances (permits-to-work) that bind them and hand a work area to a crew. How a switching step is refused on a tagged device, how to issue a clearance from a switching order (auto-tagging the devices it opens), and how surrendering it releases everything.",
+		Category:    "Manuals",
+		Filename:    "safety-guide.md",
+	},
+	{
+		ID:          "land-spatial-guide",
+		Title:       "Land & Spatial Management",
+		Description: "The land the network crosses and the geometry-derived engine over it: the easement/parcel/corridor/vegetation classes; the spatial query (what's inside / covering / near a feature, from the shapes); vegetation clearance (trees within the clearance a conductor's voltage requires) and the one-click WAM trim order; and the due tracking for expiring easements and overdue trims.",
+		Category:    "Manuals",
+		Filename:    "land-spatial-guide.md",
 	},
 	{
 		ID:          "outage-operations-guide",
