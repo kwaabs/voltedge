@@ -93,3 +93,73 @@ export function usePriceBoQ() {
       apiFetch<BoqResult>("/boq", { method: "POST", body: JSON.stringify(body) }),
   })
 }
+
+// --- Asset register (the per-feature sibling of the priced schedule) ---
+
+/** The asset-register request: the same scope shapes as a BoQ, plus an optional
+ * valuation. Mirrors api/internal/boq/types.go RegisterRequest. */
+export interface AssetRegisterRequest {
+  feature_classes?: string[]
+  scope?: BoqScope
+  feature_refs?: BoqFeatureRef[]
+  include_valuation?: boolean
+  display_currency?: string
+}
+
+/** One asset's itemised row. Valuation fields are present only when the request
+ * asked for it. Mirrors api/internal/boq/types.go RegisterRow. */
+export interface AssetRegisterRow {
+  feature_class: string
+  feature_class_name: string
+  feature_id: string
+  subtype?: number
+  subtype_name?: string
+  name?: string
+  status?: string
+  material_code?: string
+  material_name?: string
+  quantity: number
+  unit: "each" | "km"
+  // longitude/latitude = point location / line START endpoint / polygon
+  // representative point; to_longitude/to_latitude = line END endpoint.
+  longitude?: number
+  latitude?: number
+  to_longitude?: number
+  to_latitude?: number
+  territory_id?: string
+  territory_name?: string
+  circuit_id?: string
+  ownership?: string
+  external_ref?: string
+  created_at?: string
+  unit_rate?: number
+  value?: number
+  priced_source?: "catalog" | "override" | "unpriced"
+}
+
+/** The itemised asset register. Currency/total fields are meaningful only when
+ * valuation was requested. Mirrors api/internal/boq/types.go RegisterResponse. */
+export interface AssetRegisterResult {
+  rows: AssetRegisterRow[]
+  count: number
+  truncated: boolean
+  include_valuation: boolean
+  currency?: string
+  currency_name?: string
+  base_currency?: string
+  per_base?: number
+  total_value?: number
+  currencies: BoqCurrency[]
+}
+
+/** Builds the itemised asset register for a scope on demand (a one-shot POST,
+ * like usePriceBoQ -- the register is returned inline, not polled). */
+export function useAssetRegister() {
+  return useMutation<AssetRegisterResult, ApiError, AssetRegisterRequest>({
+    mutationFn: (body) =>
+      apiFetch<AssetRegisterResult>("/boq/asset-register", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  })
+}

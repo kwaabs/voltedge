@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"path"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -360,8 +361,13 @@ func downloadHandler(db *bun.DB, store *ObjectStore) http.HandlerFunc {
 			return
 		}
 
-		spec := formats[job.Format]
-		filename := "voltedge-export." + spec.ext
+		// Geometry exports name the download by their format's extension; an
+		// asset-register job (format "xlsx", not in the formats registry) carries
+		// its human filename as the last segment of the object key.
+		filename := "voltedge-export." + formats[job.Format].ext
+		if job.Kind == "asset_register" {
+			filename = path.Base(*job.ObjectKey)
+		}
 		signed, err := store.PresignGet(r.Context(), *job.ObjectKey, filename)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "could not prepare download: "+err.Error())

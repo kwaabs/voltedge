@@ -108,6 +108,9 @@ the lifecycle state, and the result pointer:
 | `worker_id` text | which worker holds the lease (observability) |
 | `lease_expires_at` timestamptz | heartbeat lease; a stale `running` row is reclaimable |
 | `created_at` / `started_at` / `finished_at` | timing |
+| `kind` text | `geographic` (this phase) or `asset_register` — the consumer the worker dispatches to (migration `0153`) |
+
+> **Shared with the Asset Register.** Migration `0153` added the `kind` discriminator (and widened the `format` CHECK to allow `xlsx`) so the **BoQ Asset Register** reuses this whole queue — the same SKIP-LOCKED claim, heartbeat lease, poison reaper and retention sweep — rather than duplicating it. `runClaimedJob` branches on `kind`: a `geographic` job streams its geometry encoder (below); an `asset_register` job calls an **injected builder** (`export.SetAssetRegisterBuilder`, wired in `cmd/exportworker` to `boq.BuildAssetRegisterXLSXForJob`) that builds a per-feature `.xlsx` and uploads it under `asset-registers/{id}/…`. The injection keeps the dependency one-way — `boq` imports `export`, never the reverse. The worker reconstructs the requester (`auth.LoadSessionUser` + `WithUser`) so a detached build is scoped exactly as the requester, the asset-register analogue of this phase's frozen-scope snapshot. Enqueue + poll live under `/boq/asset-register.xlsx` + `/boq/asset-register/jobs/{id}`; `listExportJobs` filters to `kind='geographic'` so register jobs stay out of the geographic export history. See `docs/bill-of-quantities-guide.md` Ch. 8.
 
 ### The claim (SKIP LOCKED)
 

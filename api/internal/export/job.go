@@ -32,8 +32,12 @@ const maxExportAttempts = 3
 type ExportJob struct {
 	bun.BaseModel `bun:"table:ops.export_jobs,alias:export_jobs"`
 
-	ID          string          `bun:"id,pk,nullzero"`
-	Status      string          `bun:"status"`
+	ID     string `bun:"id,pk,nullzero"`
+	Status string `bun:"status"`
+	// Kind discriminates the two queue consumers sharing this table: "geographic"
+	// (the Phase 17 geometry export) or "asset_register" (the BoQ per-feature
+	// spreadsheet). runClaimedJob dispatches on it (migration 0153).
+	Kind        string          `bun:"kind"`
 	Format      string          `bun:"format"`
 	RequestedBy string          `bun:"requested_by"`
 	Scope       json.RawMessage `bun:"scope,type:jsonb"`
@@ -85,7 +89,8 @@ type ExportScope struct {
 	DraftAuthors []string `json:"draft_authors"`
 }
 
-// enqueueExport inserts a queued job for requestedBy and returns its id.
+// enqueueExport inserts a queued geographic export job for requestedBy and
+// returns its id.
 func enqueueExport(ctx context.Context, db bun.IDB, requestedBy string, scope ExportScope) (string, error) {
 	raw, err := json.Marshal(scope)
 	if err != nil {
@@ -93,6 +98,7 @@ func enqueueExport(ctx context.Context, db bun.IDB, requestedBy string, scope Ex
 	}
 	job := &ExportJob{
 		Status:      "queued",
+		Kind:        "geographic",
 		Format:      scope.Format,
 		RequestedBy: requestedBy,
 		Scope:       raw,
@@ -101,6 +107,34 @@ func enqueueExport(ctx context.Context, db bun.IDB, requestedBy string, scope Ex
 		return "", err
 	}
 	return job.ID, nil
+}
+
+// EnqueueAssetRegister inserts a queued asset-register job (kind="asset_register",
+// format="xlsx") for requestedBy and returns its id. The scope is the opaque
+// boq.RegisterRequest JSON -- the worker hands it to the injected asset-register
+// builder (SetAssetRegisterBuilder) and never interprets it here. Exported so the
+// boq package can enqueue without importing this package's unexported primitives
+// (and without export importing boq -- the builder is injected, not imported).
+func EnqueueAssetRegister(ctx context.Context, db bun.IDB, requestedBy string, scope json.RawMessage) (string, error) {
+	job := &ExportJob{
+		Status:      "queued",
+		Kind:        "asset_register",
+		Format:      "xlsx",
+		RequestedBy: requestedBy,
+		Scope:       scope,
+	}
+	if _, err := db.NewInsert().Model(job).Returning("id").Exec(ctx); err != nil {
+		return "", err
+	}
+	return job.ID, nil
+}
+
+// GetJobForUser loads one job by id, owner-scoped so a caller can never read
+// another user's job. Exported for the boq asset-register status endpoint, which
+// polls the job it enqueued and presigns its artifact. Returns sql.ErrNoRows when
+// the id doesn't exist or isn't the caller's (indistinguishable on purpose).
+func GetJobForUser(ctx context.Context, db bun.IDB, id, requestedBy string) (*ExportJob, error) {
+	return getExportJob(ctx, db, id, requestedBy)
 }
 
 // claimExport atomically claims the oldest queued (or lease-expired running)
@@ -259,12 +293,15 @@ func getExportJob(ctx context.Context, db bun.IDB, id, requestedBy string) (*Exp
 	return job, nil
 }
 
-// listExportJobs returns a caller's most recent jobs, newest first, for the
-// history panel.
+// listExportJobs returns a caller's most recent geographic export jobs, newest
+// first, for the export history panel. Asset-register jobs (kind="asset_register")
+// are excluded -- they belong to the BoQ panel's own polling, not the geographic
+// export history.
 func listExportJobs(ctx context.Context, db bun.IDB, requestedBy string, limit int) ([]ExportJob, error) {
 	var jobs []ExportJob
 	err := db.NewSelect().Model(&jobs).
 		Where("requested_by = ?", requestedBy).
+		Where("kind = ?", "geographic").
 		OrderExpr("created_at DESC").
 		Limit(limit).
 		Scan(ctx)

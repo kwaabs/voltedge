@@ -31,6 +31,130 @@ func validateFaultType(v string) error {
 	return oneOf("fault_type", v, FaultTypeSLG, FaultTypeLL, FaultTypeLLG, FaultTypeLLL, FaultTypeLLLG, FaultTypeEarth, FaultTypeUnknown)
 }
 
+// ListFaultModes returns the failure modes catalogued for a feature class
+// (faults.fault_modes, migration 0154), in display order -- the class-aware
+// "cause" picker behind the fault form. includeInactive adds retired modes (for
+// the admin editor); the picker passes false. An unknown or uncatalogued class
+// returns an empty list, never an error: the form then falls back to free text.
+func ListFaultModes(ctx context.Context, db bun.IDB, featureClass string, includeInactive bool) ([]FaultMode, error) {
+	featureClass = strings.TrimSpace(featureClass)
+	if featureClass == "" {
+		return []FaultMode{}, nil
+	}
+	modes := []FaultMode{}
+	q := db.NewSelect().Model(&modes).
+		Where("feature_class_code = ?", featureClass).
+		OrderExpr("sort_order, label")
+	if !includeInactive {
+		q = q.Where("active")
+	}
+	if err := q.Scan(ctx); err != nil {
+		return nil, fmt.Errorf("faults: listing fault modes for %q: %w", featureClass, err)
+	}
+	return modes, nil
+}
+
+func validateDimension(v string) error {
+	return oneOf("dimension", v, "electrical", "mechanical", "thermal", "environmental", "ageing", "operational", "other")
+}
+
+func validateSeverity(v string) error {
+	return oneOf("severity", v, "low", "medium", "high", "critical")
+}
+
+// FaultModeParams is the create/update input for a catalogue entry. FeatureClassCode
+// and Code identify the mode and are fixed after create; the rest are its FMEA
+// payload. Active defaults true on create.
+type FaultModeParams struct {
+	FeatureClassCode string
+	Code             string
+	Label            string
+	Dimension        string
+	TypicalCause     *string
+	Effect           *string
+	Severity         string
+	SortOrder        int
+	Active           *bool
+}
+
+// CreateFaultMode adds a catalogue entry for a class. The (class, code) pair is
+// unique; a duplicate surfaces as an error from the constraint.
+func CreateFaultMode(ctx context.Context, db bun.IDB, p FaultModeParams) (*FaultMode, error) {
+	class, code, label := strings.TrimSpace(p.FeatureClassCode), strings.TrimSpace(p.Code), strings.TrimSpace(p.Label)
+	if class == "" || code == "" || label == "" {
+		return nil, invalidf("feature_class_code, code and label are required")
+	}
+	if err := validateDimension(p.Dimension); err != nil {
+		return nil, err
+	}
+	if err := validateSeverity(p.Severity); err != nil {
+		return nil, err
+	}
+	m := &FaultMode{
+		FeatureClassCode: class,
+		Code:             code,
+		Label:            label,
+		Dimension:        p.Dimension,
+		TypicalCause:     p.TypicalCause,
+		Effect:           p.Effect,
+		Severity:         p.Severity,
+		SortOrder:        p.SortOrder,
+		Active:           p.Active == nil || *p.Active,
+	}
+	if _, err := db.NewInsert().Model(m).Returning("*").Exec(ctx); err != nil {
+		return nil, fmt.Errorf("faults: creating fault mode: %w", err)
+	}
+	return m, nil
+}
+
+// UpdateFaultMode replaces the mutable fields of a catalogue entry by id (the
+// identity pair class/code is fixed). Returns a not-found error for an unknown id.
+func UpdateFaultMode(ctx context.Context, db bun.IDB, id string, p FaultModeParams) (*FaultMode, error) {
+	if strings.TrimSpace(p.Label) == "" {
+		return nil, invalidf("label is required")
+	}
+	if err := validateDimension(p.Dimension); err != nil {
+		return nil, err
+	}
+	if err := validateSeverity(p.Severity); err != nil {
+		return nil, err
+	}
+	m := &FaultMode{
+		ID:           id,
+		Label:        strings.TrimSpace(p.Label),
+		Dimension:    p.Dimension,
+		TypicalCause: p.TypicalCause,
+		Effect:       p.Effect,
+		Severity:     p.Severity,
+		SortOrder:    p.SortOrder,
+		Active:       p.Active == nil || *p.Active,
+	}
+	res, err := db.NewUpdate().Model(m).
+		Column("label", "dimension", "typical_cause", "effect", "severity", "sort_order", "active").
+		WherePK().Returning("*").Exec(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("faults: updating fault mode %q: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, invalidf("fault mode %q not found", id)
+	}
+	return m, nil
+}
+
+// DeleteFaultMode removes a catalogue entry by id. Logged faults keep their
+// fault_mode code (no FK), so deleting a mode never orphans a record -- it just
+// drops it from the picker. Returns a not-found error for an unknown id.
+func DeleteFaultMode(ctx context.Context, db bun.IDB, id string) error {
+	res, err := db.NewDelete().Model((*FaultMode)(nil)).Where("id = ?", id).Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("faults: deleting fault mode %q: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return invalidf("fault mode %q not found", id)
+	}
+	return nil
+}
+
 func validateStatus(v string) error {
 	return oneOf("status", v, StatusDetected, StatusInvestigating, StatusCleared, StatusClosed)
 }
@@ -81,6 +205,7 @@ type CreateFaultParams struct {
 	Longitude             *float64
 	Latitude              *float64
 	FaultType             *string
+	FaultMode             *string
 	Cause                 *string
 	FaultCurrentA         *float64
 	ProtectiveDeviceClass *string
@@ -157,6 +282,9 @@ func CreateFault(ctx context.Context, db bun.IDB, p CreateFaultParams) (*FaultEv
 	}
 	if p.FaultType != nil && strings.TrimSpace(*p.FaultType) != "" {
 		add("fault_type", "?", strings.TrimSpace(*p.FaultType))
+	}
+	if p.FaultMode != nil && strings.TrimSpace(*p.FaultMode) != "" {
+		add("fault_mode", "?", strings.TrimSpace(*p.FaultMode))
 	}
 	if p.Cause != nil {
 		add("cause", "?", strings.TrimSpace(*p.Cause))
@@ -337,6 +465,7 @@ func SetFaultStatus(ctx context.Context, db bun.IDB, id, status string) (*FaultE
 type UpdateFaultParams struct {
 	Reference             *string
 	FaultType             *string
+	FaultMode             *string
 	Cause                 *string
 	FaultCurrentA         *float64
 	ProtectiveDeviceClass *string
@@ -376,6 +505,13 @@ func UpdateFault(ctx context.Context, db bun.IDB, id string, p UpdateFaultParams
 				return nil, err
 			}
 			set("fault_type = ?", ft)
+		}
+	}
+	if p.FaultMode != nil {
+		if fm := strings.TrimSpace(*p.FaultMode); fm == "" {
+			set("fault_mode = NULL")
+		} else {
+			set("fault_mode = ?", fm)
 		}
 	}
 	if p.Cause != nil {

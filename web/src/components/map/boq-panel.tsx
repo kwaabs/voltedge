@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, Download, Loader2, Printer } from "lucide-react"
+import { ChevronDown, Download, FileSpreadsheet, Loader2, Printer } from "lucide-react"
 
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
@@ -20,9 +20,17 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { FloatingPanel } from "@/components/ui/floating-panel"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
-import { type BoqRequest, type BoqResult, usePriceBoQ } from "@/hooks/use-boq"
+import {
+  type AssetRegisterRequest,
+  type AssetRegisterResult,
+  type AssetRegisterRow,
+  type BoqRequest,
+  type BoqResult,
+  useAssetRegister,
+  usePriceBoQ,
+} from "@/hooks/use-boq"
 import { type TerritorySummary, useTerritories } from "@/hooks/use-territories"
-import { ApiError } from "@/lib/api"
+import { apiFetch, ApiError } from "@/lib/api"
 import { boqPdfFilename, buildBoqPdf } from "@/lib/boq-print"
 import { cn } from "@/lib/utils"
 import { useBoqStore } from "@/stores/boq-store"
@@ -86,11 +94,23 @@ function flattenTerritories(list: TerritorySummary[]): TerritoryRow[] {
  */
 export function BoqPanel() {
   const open = useBoqStore((s) => s.open)
+  // The panel produces one of two outputs from the same scope: the priced,
+  // rolled-up schedule ("schedule") or the per-feature itemised asset register
+  // ("register"). The scope controls are shared; only the action, result area and
+  // valuation toggle differ.
+  const [output, setOutput] = useState<"schedule" | "register">("schedule")
   const [mode, setMode] = useState<ScopeMode>("whole")
   const [selectedClasses, setSelectedClasses] = useState<Record<string, boolean>>({})
   const [territoryId, setTerritoryId] = useState("")
   const [displayCurrency, setDisplayCurrency] = useState("")
   const [result, setResult] = useState<BoqResult | null>(null)
+  // Asset-register output + its "value the assets too" toggle (off by default:
+  // the register is a plain inventory unless costs are asked for).
+  const [includeValuation, setIncludeValuation] = useState(false)
+  const [registerResult, setRegisterResult] = useState<AssetRegisterResult | null>(null)
+  // The server-built multi-sheet XLSX is a streamed download, not a cached
+  // result -- just a busy flag for the button.
+  const [xlsxBusy, setXlsxBusy] = useState(false)
   // The in-app PDF preview: a blob URL for the built sheet plus its download
   // name, or null when the dialog is closed. Revoked on close so the blob is
   // never leaked.
@@ -99,6 +119,7 @@ export function BoqPanel() {
   const { data: classesData } = useFeatureClasses()
   const { data: territoriesData } = useTerritories()
   const price = usePriceBoQ()
+  const register = useAssetRegister()
 
   const territoryRows = useMemo(
     () => flattenTerritories(territoriesData?.territories ?? []),
@@ -128,6 +149,7 @@ export function BoqPanel() {
   useEffect(() => {
     if (!open) {
       setResult(null)
+      setRegisterResult(null)
       setPreview((prev) => {
         if (prev) URL.revokeObjectURL(prev.url)
         return null
@@ -137,32 +159,50 @@ export function BoqPanel() {
 
   if (!open) return null
 
-  // Build the request body for the current form. Returns null when the chosen
-  // scope has nothing to price (no territory / no selection / no trace) so the
-  // Price button can be disabled with a reason.
-  const buildRequest = (currency: string): BoqRequest | null => {
-    const base: BoqRequest = {}
-    if (currency) base.display_currency = currency
-
+  // The scope half of a request -- shared by the priced schedule and the asset
+  // register. Returns null when the chosen scope has nothing to resolve (no
+  // territory / no selection / no trace) so the action button can be disabled.
+  const buildScope = (): Pick<BoqRequest, "feature_classes" | "scope" | "feature_refs"> | null => {
     switch (mode) {
       case "whole":
         // Empty class set = every class (the engine's default).
-        if (checkedClasses.length > 0) base.feature_classes = checkedClasses
-        return base
+        return checkedClasses.length > 0 ? { feature_classes: checkedClasses } : {}
       case "territory":
         if (!territoryId) return null
-        if (checkedClasses.length > 0) base.feature_classes = checkedClasses
-        base.scope = { kind: "territory", territory_id: territoryId }
-        return base
+        return {
+          ...(checkedClasses.length > 0 ? { feature_classes: checkedClasses } : {}),
+          scope: { kind: "territory", territory_id: territoryId },
+        }
       case "selection":
         if (selectionRefs.length === 0) return null
-        base.feature_refs = selectionRefs.map((r) => ({ class: r.featureClassCode, id: r.featureId }))
-        return base
+        return { feature_refs: selectionRefs.map((r) => ({ class: r.featureClassCode, id: r.featureId })) }
       case "trace":
         if (!traceRefs || traceRefs.length === 0) return null
-        base.feature_refs = traceRefs.map((f) => ({ class: f.feature_class, id: f.feature_id }))
-        return base
+        return { feature_refs: traceRefs.map((f) => ({ class: f.feature_class, id: f.feature_id })) }
     }
+  }
+
+  // Build the priced-schedule request for the current form, or null when the
+  // scope has nothing to price.
+  const buildRequest = (currency: string): BoqRequest | null => {
+    const scope = buildScope()
+    if (!scope) return null
+    const base: BoqRequest = { ...scope }
+    if (currency) base.display_currency = currency
+    return base
+  }
+
+  // Build the asset-register request. Valuation (and so the currency) only ride
+  // along when the toggle is on.
+  const buildRegisterRequest = (currency: string): AssetRegisterRequest | null => {
+    const scope = buildScope()
+    if (!scope) return null
+    const base: AssetRegisterRequest = { ...scope }
+    if (includeValuation) {
+      base.include_valuation = true
+      if (currency) base.display_currency = currency
+    }
+    return base
   }
 
   const runPrice = (currency: string) => {
@@ -182,9 +222,78 @@ export function BoqPanel() {
     })
   }
 
-  const canPrice = buildRequest(displayCurrency) !== null
+  const runRegister = (currency: string) => {
+    const req = buildRegisterRequest(currency)
+    if (!req) return
+    register.mutate(req, {
+      onSuccess: (res) => {
+        setRegisterResult(res)
+        if (res.currency) setDisplayCurrency(res.currency)
+      },
+      onError: (err) =>
+        useToastStore
+          .getState()
+          .pushError(err instanceof ApiError ? err.message : "Could not build the register."),
+    })
+  }
 
-  const currencyOptions = result?.currencies ?? []
+  // Build the multi-sheet XLSX (one sheet per class, full per-class attribute
+  // columns) for the current register scope as an async job: enqueue it, poll
+  // until the worker has built it and stored it in RustFS, then download it
+  // straight from the store via the presigned URL the job hands back. Uses the
+  // same scope/valuation as the on-screen register.
+  const downloadRegisterXlsx = async () => {
+    const req = buildRegisterRequest(displayCurrency)
+    if (!req) return
+    setXlsxBusy(true)
+    try {
+      const { job_id } = await apiFetch<{ job_id: string }>("/boq/asset-register.xlsx", {
+        method: "POST",
+        body: JSON.stringify(req),
+      })
+      const deadline = Date.now() + 5 * 60 * 1000 // give up after 5 minutes
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1500))
+        const job = await apiFetch<{
+          status: string
+          download_url?: string
+          filename?: string
+          error?: string
+        }>(`/boq/asset-register/jobs/${job_id}`)
+        if (job.status === "succeeded" && job.download_url) {
+          const a = document.createElement("a")
+          a.href = job.download_url
+          a.download = job.filename || "asset-register.xlsx"
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          break
+        }
+        if (job.status === "failed" || job.status === "cancelled") {
+          throw new ApiError(500, job.error || "The register export failed.")
+        }
+        if (Date.now() > deadline) {
+          throw new ApiError(504, "The register is taking longer than expected — check back shortly.")
+        }
+      }
+    } catch (err) {
+      useToastStore
+        .getState()
+        .pushError(err instanceof ApiError ? err.message : "Could not build the spreadsheet.")
+    } finally {
+      setXlsxBusy(false)
+    }
+  }
+
+  const canRun = buildScope() !== null
+  const isPending = output === "schedule" ? price.isPending : register.isPending
+
+  // The currency picker is driven by whichever result is showing. In register
+  // mode it only matters when valuation is on (otherwise there's no money).
+  const currencyOptions =
+    output === "schedule" ? (result?.currencies ?? []) : (registerResult?.currencies ?? [])
+  const showCurrency =
+    output === "schedule" ? currencyOptions.length > 0 : includeValuation && currencyOptions.length > 0
 
   // A human-readable description of the priced scope for the PDF title block,
   // mirroring the scope select's own wording.
@@ -236,6 +345,31 @@ export function BoqPanel() {
       <div className="flex h-full flex-col">
         {/* Controls */}
         <div className="space-y-2.5 border-b p-3">
+          {/* Output mode: the same scope, as a priced schedule or an itemised
+              per-feature asset register. */}
+          <div className="bg-muted/60 grid grid-cols-2 gap-1 rounded-md p-0.5">
+            <button
+              type="button"
+              className={cn(
+                "rounded px-2 py-1 text-xs font-medium transition-colors",
+                output === "schedule" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setOutput("schedule")}
+            >
+              Priced schedule
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "flex items-center justify-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors",
+                output === "register" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setOutput("register")}
+            >
+              <FileSpreadsheet className="size-3.5" /> Asset register
+            </button>
+          </div>
+
           <div className="space-y-1">
             <label htmlFor="boq-scope" className="text-sm font-medium">
               Scope
@@ -327,14 +461,27 @@ export function BoqPanel() {
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <p className="text-muted-foreground text-xs">
-                  Leave empty to price every class.
+                  Leave empty to {output === "schedule" ? "price" : "list"} every class.
                 </p>
               </div>
             </>
           )}
 
+          {output === "register" && (
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 accent-current"
+                checked={includeValuation}
+                onChange={(e) => setIncludeValuation(e.target.checked)}
+              />
+              <span>Include valuation</span>
+              <span className="text-muted-foreground text-xs">— each asset's catalog cost &amp; value</span>
+            </label>
+          )}
+
           <div className="flex items-end gap-2">
-            {currencyOptions.length > 0 && (
+            {showCurrency && (
               <div className="min-w-0 flex-1 space-y-1">
                 <label htmlFor="boq-currency" className="text-sm font-medium">
                   Currency
@@ -346,11 +493,12 @@ export function BoqPanel() {
                   onChange={(e) => {
                     const next = e.target.value
                     setDisplayCurrency(next)
-                    // Re-price in the new currency straightaway (conversion is
+                    // Re-run in the new currency straightaway (conversion is
                     // server-side off the same base figures).
-                    runPrice(next)
+                    if (output === "schedule") runPrice(next)
+                    else runRegister(next)
                   }}
-                  disabled={price.isPending}
+                  disabled={isPending}
                 >
                   {currencyOptions.map((c) => (
                     <option key={c.code} value={c.code}>
@@ -364,13 +512,13 @@ export function BoqPanel() {
             <Button
               size="sm"
               className="shadow-sm"
-              disabled={!canPrice || price.isPending}
-              onClick={() => runPrice(displayCurrency)}
+              disabled={!canRun || isPending}
+              onClick={() => (output === "schedule" ? runPrice(displayCurrency) : runRegister(displayCurrency))}
             >
-              {price.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
-              Price
+              {isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              {output === "schedule" ? "Price" : "Build register"}
             </Button>
-            {result && (
+            {output === "schedule" && result && (
               <>
                 <Button
                   size="sm"
@@ -392,19 +540,57 @@ export function BoqPanel() {
                 </Button>
               </>
             )}
+            {output === "register" && registerResult && registerResult.rows.length > 0 && (
+              <>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="shadow-sm"
+                  onClick={() => downloadRegisterCsv(registerResult)}
+                  title="Download this asset register as CSV (flat, one sheet)"
+                >
+                  <Download className="size-3.5" /> CSV
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="shadow-sm"
+                  disabled={xlsxBusy}
+                  onClick={downloadRegisterXlsx}
+                  title="Build an Excel workbook (one sheet per class, full attribute columns) in the background; it downloads when ready"
+                >
+                  {xlsxBusy ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="size-3.5" />
+                  )}{" "}
+                  {xlsxBusy ? "Building…" : "XLSX"}
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
         {/* Results */}
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          {price.isPending && !result ? (
-            <p className="text-muted-foreground text-sm">Pricing…</p>
-          ) : !result ? (
+          {output === "schedule" ? (
+            price.isPending && !result ? (
+              <p className="text-muted-foreground text-sm">Pricing…</p>
+            ) : !result ? (
+              <p className="text-muted-foreground text-sm">
+                Choose a scope and press Price to build the schedule.
+              </p>
+            ) : (
+              <BoqSchedule result={result} />
+            )
+          ) : register.isPending && !registerResult ? (
+            <p className="text-muted-foreground text-sm">Building register…</p>
+          ) : !registerResult ? (
             <p className="text-muted-foreground text-sm">
-              Choose a scope and press Price to build the schedule.
+              Choose a scope and press Build register to list the assets.
             </p>
           ) : (
-            <BoqSchedule result={result} />
+            <AssetRegisterView result={registerResult} />
           )}
         </div>
       </div>
@@ -660,6 +846,172 @@ function downloadCsv(result: BoqResult) {
   const a = document.createElement("a")
   a.href = url
   a.download = `bill-of-quantities-${result.currency}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+/** The itemised asset register: one row per feature, grouped by class, with a
+ * compact in-panel table (the full column set ships in the CSV). When valuation
+ * was requested each asset carries a value and the footer a total. */
+function AssetRegisterView({ result }: { result: AssetRegisterResult }) {
+  const valued = result.include_valuation
+  const money = (n: number | undefined) =>
+    n == null ? "" : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const qty = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 3 })
+  // A point's location, or a line's two endpoints (start → end).
+  const loc = (r: AssetRegisterRow) => {
+    if (r.latitude == null || r.longitude == null) return "—"
+    const from = `${r.latitude.toFixed(5)}, ${r.longitude.toFixed(5)}`
+    if (r.to_latitude != null && r.to_longitude != null)
+      return `${from} → ${r.to_latitude.toFixed(5)}, ${r.to_longitude.toFixed(5)}`
+    return from
+  }
+
+  return (
+    <div className="space-y-3 text-sm">
+      {result.truncated && (
+        <p className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+          Capped at {result.count.toLocaleString()} assets — narrow the scope to see them all.
+        </p>
+      )}
+      {result.rows.length === 0 ? (
+        <p className="text-muted-foreground">No assets in this scope.</p>
+      ) : (
+        <div className="overflow-hidden rounded-md border">
+          <table className="w-full border-collapse">
+            <thead className="bg-muted/50 text-muted-foreground text-xs">
+              <tr>
+                <th className="px-2 py-1.5 text-left font-medium">Asset</th>
+                <th className="px-2 py-1.5 text-left font-medium">Type / material</th>
+                <th className="px-2 py-1.5 text-right font-medium">Qty</th>
+                <th className="px-2 py-1.5 text-left font-medium">Location</th>
+                {valued && <th className="px-2 py-1.5 text-right font-medium">Value</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {result.rows.map((r) => (
+                <tr key={`${r.feature_class}:${r.feature_id}`} className="border-t align-top">
+                  <td className="px-2 py-1">
+                    <div className="font-medium">{r.name || r.feature_id.slice(0, 8)}</div>
+                    <div className="text-muted-foreground text-xs">{r.feature_class_name}</div>
+                  </td>
+                  <td className="px-2 py-1">
+                    {[r.subtype_name, r.material_name || r.material_code].filter(Boolean).join(" · ") || (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap">
+                    {qty(r.quantity)} {r.unit}
+                  </td>
+                  <td className="px-2 py-1 text-muted-foreground text-xs tabular-nums">{loc(r)}</td>
+                  {valued && (
+                    <td className="px-2 py-1 text-right tabular-nums">
+                      {r.priced_source === "unpriced" ? (
+                        <span className="text-amber-700 dark:text-amber-500" title="No catalog rate">
+                          —
+                        </span>
+                      ) : (
+                        <span title={r.priced_source === "override" ? "Hand-set override" : "Catalog rate"}>
+                          {money(r.value)}
+                        </span>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+            {valued && result.total_value != null && (
+              <tfoot>
+                <tr className="border-t-2 font-semibold">
+                  <td className="px-2 py-1.5" colSpan={4}>
+                    Total value ({result.currency})
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{money(result.total_value)}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+
+      <p className="text-muted-foreground text-xs">
+        {result.count.toLocaleString()} asset{result.count === 1 ? "" : "s"}
+        {valued && result.currency ? ` · valued in ${result.currency} (${result.currency_name})` : ""}
+        {" · CSV = flat sheet; XLSX = one sheet per class with full attributes."}
+      </p>
+    </div>
+  )
+}
+
+/** Builds a CSV of the asset register (the full flat column set) and triggers a
+ * client-side download. Valuation columns ride along only when they were
+ * requested. */
+function downloadRegisterCsv(result: AssetRegisterResult) {
+  const esc = (v: string | number | undefined) => {
+    const s = v == null ? "" : String(v)
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const valued = result.include_valuation
+  const header = [
+    "Asset ID",
+    "Class",
+    "Subtype",
+    "Name",
+    "Status",
+    "Material",
+    "Quantity",
+    "Unit",
+    "Longitude",
+    "Latitude",
+    "To longitude",
+    "To latitude",
+    "Territory",
+    "Circuit",
+    "Ownership",
+    "External refs",
+    "Created",
+  ]
+  if (valued) header.push(`Unit cost (${result.currency})`, `Value (${result.currency})`, "Priced")
+
+  const rows: string[] = [header.map(esc).join(",")]
+  for (const r of result.rows) {
+    const cells: (string | number | undefined)[] = [
+      r.feature_id,
+      r.feature_class_name,
+      r.subtype_name ?? "",
+      r.name ?? "",
+      r.status ?? "",
+      r.material_name || r.material_code || "",
+      r.quantity,
+      r.unit,
+      r.longitude ?? "",
+      r.latitude ?? "",
+      r.to_longitude ?? "",
+      r.to_latitude ?? "",
+      r.territory_name || r.territory_id || "",
+      r.circuit_id ?? "",
+      r.ownership ?? "",
+      r.external_ref ?? "",
+      r.created_at ?? "",
+    ]
+    if (valued) cells.push(r.unit_rate ?? "", r.value ?? "", r.priced_source ?? "")
+    rows.push(cells.map(esc).join(","))
+  }
+  if (valued && result.total_value != null) {
+    const totalRow: (string | number)[] = new Array(header.length).fill("")
+    totalRow[0] = "Total value"
+    totalRow[header.length - 2] = result.total_value
+    rows.push(totalRow.map(esc).join(","))
+  }
+
+  const csv = rows.join("\n")
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `asset-register${valued && result.currency ? `-${result.currency}` : ""}.csv`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)

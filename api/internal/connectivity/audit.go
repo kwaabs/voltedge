@@ -100,6 +100,10 @@ type AuditFinding struct {
 	FromStatus     string   `json:"from_status,omitempty"`
 	ToStatus       string   `json:"to_status,omitempty"`
 	DistanceMeters *float64 `json:"distance_meters,omitempty"` // set for coincident_unconnected
+	// Field is the metadata field a data-quality (attr_*) finding is about -- the
+	// column that's missing, out-of-domain or out-of-range on FromClass/FromID.
+	// Empty for the connectivity findings.
+	Field string `json:"field,omitempty"`
 }
 
 // AuditSummary is the counts behind the findings list (which may be truncated).
@@ -113,6 +117,10 @@ type AuditSummary struct {
 	TerminalOversubscribed int `json:"terminal_oversubscribed"`
 	RelationshipsTotal    int     `json:"relationships_total"`
 	OrphanedRelationships int     `json:"orphaned_relationships"`
+	// AttributeIssues is how many data-quality (attr_*) findings the attribute
+	// audit added -- required-missing, out-of-domain and out-of-range values on
+	// existing feature rows (AuditAll / attribute_audit.go).
+	AttributeIssues       int     `json:"attribute_issues"`
 	ClassPairsScanned     int     `json:"class_pairs_scanned"`
 	ToleranceMeters       float64 `json:"tolerance_meters"`
 	Truncated             bool    `json:"truncated"`

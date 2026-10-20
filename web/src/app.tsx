@@ -22,6 +22,8 @@ import { AdminMapSettingsPage } from "@/routes/admin-map-settings"
 import { AdminWebhooksPage } from "@/routes/admin-webhooks"
 import { AdminFieldPacksPage } from "@/routes/admin-field-packs"
 import { AdminCostCatalogPage } from "@/routes/admin-cost-catalog"
+import { AdminFaultModesPage } from "@/routes/admin-fault-modes"
+import { AdminValidationRulesPage } from "@/routes/admin-validation-rules"
 import { AdminMaterialsPage } from "@/routes/admin-materials"
 import { AdminProtectionCurvesPage } from "@/routes/admin-protection-curves"
 import { AdminStencilsPage } from "@/routes/admin-stencils"
@@ -257,6 +259,22 @@ export function App() {
               element={
                 <RequirePermission perm="metadata:write">
                   <AdminCostCatalogPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/fault-modes"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminFaultModesPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/validation-rules"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminValidationRulesPage />
                 </RequirePermission>
               }
             />

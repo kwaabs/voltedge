@@ -311,6 +311,14 @@ func toolRunBillOfQuantities(ctx context.Context, db bun.IDB, args json.RawMessa
 	return boq.RunBoQ(ctx, db, req)
 }
 
+func toolRunAssetRegister(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var req boq.RegisterRequest
+	if err := json.Unmarshal(args, &req); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	return boq.RunAssetRegister(ctx, db, req)
+}
+
 func toolValidateFeature(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
 	var in struct {
 		FeatureClass string          `json:"feature_class"`
@@ -554,6 +562,31 @@ func toolConnectivityAudit(ctx context.Context, db bun.IDB, args json.RawMessage
 		return nil, err
 	}
 	return report, nil
+}
+
+func toolValidationIssues(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		Status   string `json:"status"`
+		Severity string `json:"severity"`
+		Kind     string `json:"kind"`
+		Limit    int    `json:"limit"`
+	}
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, fmt.Errorf("invalid arguments: %w", err)
+		}
+	}
+
+	issues, err := connectivity.ListIssues(ctx, db, connectivity.IssueFilter{
+		Status:   in.Status,
+		Severity: in.Severity,
+		Kind:     in.Kind,
+		Limit:    in.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"issues": issues, "count": len(issues)}, nil
 }
 
 func toolSuggestRelationships(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {

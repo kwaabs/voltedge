@@ -46,11 +46,28 @@ Prevention does the heavy lifting: a feature that breaks a network rule or lands
 
 ## 3. What gets validated
 
-The worker runs the **same connectivity audit** the whole-DB sweep runs, only **scoped to a set of feature ids**. Three finding kinds:
+The worker runs the **same audit** the whole-DB sweep runs, only **scoped to a set of feature ids**. There are two families of finding — **connectivity** (topology) and **attribute** (data-quality) — and both flow into the one queue.
+
+**Connectivity (topology):**
 
 - **`orphaned_connection`** — a row in `runtime.feature_connectivity` whose `from` or `to` feature no longer exists (deleted/purged out from under the link). *Severity: error.*
 - **`orphaned_relationship`** — the same, for `runtime.feature_relationships` (origin/destination gone). *Severity: error.*
 - **`coincident_unconnected`** — two features whose geometries sit within a small tolerance of each other but are **not** connected — almost always a capture slip (someone drew the second feature *near* the first but never wired them). *Severity: warning.*
+
+**Attribute (data-quality).** These scan a class's existing rows against its **current** metadata, catching the *drift* a write-time check can't (the value was valid when written; the metadata changed since) and *expected-but-empty* fields:
+
+- **`attr_required_missing`** — a schema-required field holding NULL (a legacy row, or a NOT NULL not applied on an alter). *Severity: error.*
+- **`attr_out_of_domain`** — a coded value no longer in its domain (a value removed from the domain after the row was written). *Severity: warning.*
+- **`attr_out_of_range`** — a number outside a range the domain has since tightened. *Severity: warning.*
+- **`attr_completeness`** — a field an admin flagged as **expected** but left unset — e.g. *a transformer should carry a rating, a conductor a material*, optionally only for one subtype. These come from the **Data-quality rules** catalog (§3.1). *Severity: per the rule (default warning).*
+
+The metadata-derived drift checks need no configuration. The `attr_completeness` family is driven by rules an admin authors, because "which fields are *expected*" is a deployment's own standard, not a schema fact.
+
+### 3.1 The Data-quality rules catalog 🔒
+
+🔒 *Edited at **Admin → Data-quality rules** (`/admin/validation-rules`), gated on `metadata:write` — like the cost and fault-mode catalogs.*
+
+A rule says a **field is expected to be populated** on a feature class, optionally only for one **subtype**, at a chosen **severity**, with an optional custom message. Pick a class, pick a field (from its schema), choose "every feature of the class" or a specific subtype, and save. The audit reads the active rules (`ops.validation_rules`, migration 0155) and scans existing rows for the ones left unset → `attr_completeness` issues. A rule whose field no longer exists on the class is a harmless no-op. There is **no shipped seed** — completeness standards are yours to define.
 
 ### Scoping — the key change
 
@@ -75,7 +92,8 @@ The heart of the system is `ops.validation_issues` (migration **0137**) and the 
 Every finding is reduced to a stable **fingerprint**:
 
 - `coincident_unconnected` → `cu:` + the two feature ids **sorted** (so the pair A|B and B|A are the *same* issue, found from either end).
-- everything else → `kind` + `:` + the connection/relationship id.
+- an attribute (`attr_*`) finding → `kind` + `:` + the feature id + `:` + the field, so the issue is one per *(feature, field, rule)* and fixing that field auto-resolves it.
+- everything else (connectivity) → `kind` + `:` + the connection/relationship id.
 
 The fingerprint is a **UNIQUE** column. Reconcile **upserts** on it (`ON CONFLICT (fingerprint) DO UPDATE`). So:
 
@@ -157,9 +175,9 @@ The **Network audit** floating panel (on the map) now opens on an **Issue queue*
 
 In the queue tab:
 
-- **Filters** — status (Live = open+acknowledged, or a specific state) and severity.
+- **Filters** — status (Live = open+acknowledged, or a specific state), severity, and **Kind** (All / Connectivity / Data quality — the last splits the attribute `attr_*` findings from the topology ones, so you can triage one family at a time).
 - **Reconcile now** — a manual whole-database kick (`POST /connectivity/audit/reconcile`) for when you don't want to wait for the worker. Needs **`connectivity:commit`**.
-- **Issue rows** — each shows the severity badge, the message, and **two locatable feature chips** (click to zoom the map to the feature), plus triage buttons.
+- **Issue rows** — each shows the severity badge, a **connectivity / data-quality** tag, the message, and **two locatable feature chips** (click to zoom the map to the feature), plus triage buttons. (An attribute finding points at a single feature, so only the first chip is populated.)
 
 Triage actions (all **`connectivity:commit`**):
 
@@ -191,7 +209,7 @@ Filter by **person**, **feature class**, **action**, and a **from/to time window
 
 Know these before you lean on the system:
 
-- **Only connectivity/relationship/coincidence is validated.** The queue is about *topology* data-quality. It does **not** validate attribute values, schema conformance, or electrical correctness — those are other mechanisms (domains at write time, the analysis engines).
+- **Topology *and* attribute data-quality are validated — but not electrical correctness.** The queue covers connectivity (orphans, coincidence) **and** attribute conformance (required-missing, out-of-domain/range drift, and admin-defined completeness rules). It does **not** validate *electrical correctness* (that's the analysis engines), nor cross-field business logic beyond "field expected" / "expected if subtype". The attribute checks compare each row to the **current** metadata, so they surface drift the write-time checks (domains/NOT NULL at write) couldn't have caught.
 - **The activity audit covers feature writes only.** `gis.feature_history` records feature changes. It does **not** cover connectivity edits, relationship edits, metadata/schema changes, admin config (basemaps, service layers, import profiles), or user/role/territory changes. Faults, OMS and WAM keep their own histories; sign-in events are in `auth_events`.
 - **Out-of-order tail-skip** (§5.3) — mitigated by re-validation + the nightly whole-DB reconcile backstop, not eliminated.
 - **The worker is single-instance** by design — don't scale it horizontally.
@@ -207,6 +225,8 @@ Know these before you lean on the system:
 | Reconcile (manual kick) | `connectivity:commit` | Reconcile now · `POST /connectivity/audit/reconcile` |
 | Triage an issue (ack/resolve/suppress/re-open) | `connectivity:commit` | `PATCH /connectivity/issues/{id}` |
 | Run the on-demand audit | `connectivity:read` | Run audit tab · `GET /connectivity/audit` |
+| View the data-quality rules | `connectivity:read` | `GET /connectivity/rules` |
+| Edit data-quality rules (add/change/remove) | `metadata:write` | Admin → Data-quality rules · `POST`/`PATCH`/`DELETE /connectivity/rules` |
 | View the activity audit | `admin:users` | Admin → Activity audit · `GET /features/activity` |
 
 ---
@@ -216,22 +236,28 @@ Know these before you lean on the system:
 **Endpoints**
 - `GET /connectivity/audit?feature_ids=<csv>` — scoped (or whole-DB) on-demand audit.
 - `POST /connectivity/audit/reconcile` — audit + reconcile into the queue; body `{feature_ids?, tolerance_m?, max_findings?}`; empty body = whole-DB.
-- `GET /connectivity/issues?status=&severity=&kind=&limit=` — the queue (default = live, errors-first).
+- `GET /connectivity/issues?status=&severity=&kind=&limit=` — the queue (default = live, errors-first). Attribute findings carry `attr_*` kinds alongside the connectivity kinds.
 - `PATCH /connectivity/issues/{id}` — `{status}` triage.
+- `GET /connectivity/rules?feature_class=&include_inactive=` — the data-quality (completeness) rules catalog.
+- `POST /connectivity/rules` · `PATCH /connectivity/rules/{id}` · `DELETE /connectivity/rules/{id}` — author rules (`metadata:write`, escalated in-handler).
 - `GET /features/activity?actor_id=&feature_class=&action=&from=&to=&limit=` — the activity audit (RFC3339 times; `admin:users`).
 
 **Migrations**
 - `0137_create_validation_issues.sql` — `ops.validation_issues`.
 - `0138_create_validation_cursor.sql` — `ops.validation_cursor`.
+- `0155_create_validation_rules.sql` — `ops.validation_rules` (the completeness-rule catalog).
 
 **Code**
-- `api/internal/connectivity/audit.go` — the scoped audit (`featureScopeClause`).
-- `api/internal/connectivity/issues.go` — `fingerprintFor`, `ReconcileIssues`, `ListIssues`, `UpdateIssueStatus`.
-- `api/internal/connectivity/sweep.go` — `ValidationSweep`, `RunWorker`, config.
+- `api/internal/connectivity/audit.go` — the scoped audit (`featureScopeClause`); `AuditFinding.Field`, `AuditSummary.AttributeIssues`.
+- `api/internal/connectivity/attribute_audit.go` — `AuditAttributes` (the `attr_*` checks against *current* metadata) and `AuditAll` (connectivity + attribute merged into one report before reconcile).
+- `api/internal/connectivity/rules.go` — the `ValidationRule` model, list/active-list/CRUD, and the `/connectivity/rules` handlers (`requireMetadataWrite`).
+- `api/internal/connectivity/issues.go` — `fingerprintFor` (with the `attr_*` branch), `ReconcileIssues`, `ListIssues`, `UpdateIssueStatus`.
+- `api/internal/connectivity/sweep.go` — `ValidationSweep`, `RunWorker`, config (tails history → `AuditAll`).
 - `api/cmd/validationworker/main.go` — the worker entrypoint.
 - `api/internal/crud/activity.go` — `listActivity` + the activity log model.
-- `web/src/hooks/use-validation-issues.ts`, `web/src/hooks/use-activity.ts` — the client hooks.
-- `web/src/components/map/connectivity-audit-panel.tsx` — the Issue queue + Run audit tabs.
+- `web/src/hooks/use-validation-issues.ts`, `web/src/hooks/use-validation-rules.ts`, `web/src/hooks/use-activity.ts` — the client hooks.
+- `web/src/components/map/connectivity-audit-panel.tsx` — the Issue queue (with the Kind category filter) + Run audit tabs.
+- `web/src/routes/admin-validation-rules.tsx` — the Data-quality rules editor.
 - `web/src/routes/admin-activity.tsx` — the Activity audit page.
 
 ---

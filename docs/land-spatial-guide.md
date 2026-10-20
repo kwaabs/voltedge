@@ -13,7 +13,7 @@ The network runs across **land** — land someone owns, land a **wayleave or eas
 ```
 
 Two layers, as elsewhere:
-- **▶ Operator** — the feature panel's **Spatial** tab: what overlaps/covers/neighbours a feature, the vegetation breaching a conductor (or a whole feeder), a one-click trim order, and an expiry/trim-due badge.
+- **▶ Operator** — the feature panel's **Land use** tab: what overlaps/covers/neighbours a feature, the vegetation breaching a conductor (or a whole feeder), a one-click trim order, and an expiry/trim-due badge.
 - **∑ Engineer** — the four classes, the PostGIS predicates, the per-voltage clearance rule, and the date queries.
 
 **Legend.** 🔒 a permission. 💡 a tip. ⚠️ an honest limitation. **▶** operate lane; **∑** model lane.
@@ -54,7 +54,7 @@ This is the new capability. VoltEdge's connectivity and relationships are **auth
 
 > ∑ **Safe by construction.** Class codes in a request resolve to their physical table through metadata (a whitelist), feature ids are bound parameters, and the reference geometry is fetched by a subquery — a table name is never taken from the request and the geometry never round-trips through the app.
 
-> **How to — ▶** Open any feature → the **Spatial** tab → pick **Overlapping / Inside this / Covering this / Nearby** (set a distance for Nearby). Results group by class; click a row to open that feature, hover to highlight it on the map.
+> **How to — ▶** Open any feature → the **Land use** tab → pick **Overlapping / Inside this / Covering this / Nearby** (set a distance for Nearby). Results group by class; click a row to open that feature, hover to highlight it on the map.
 
 ---
 
@@ -75,7 +75,7 @@ The clearance rule (`encroachment.go`):
 
 Each breach reports the conductor, the vegetation (species/height/type), the **actual distance**, the **required clearance**, and the **breach** (how much too close) — worst breach first.
 
-> **How to — ▶** Select a conductor → the Spatial tab's **Vegetation clearance** section lists the breaches. Toggle **This conductor / Whole feeder** to widen the scan to the conductor's circuit.
+> **How to — ▶** Select a conductor → the Land use tab's **Vegetation clearance** section lists the breaches. Toggle **This conductor / Whole feeder** to widen the scan to the conductor's circuit.
 
 ---
 
@@ -98,7 +98,7 @@ The proactive side: dates, not shapes.
 
 Both **degrade to an empty list** when the class isn't seeded/compiled, so a deployment without the land classes isn't an error.
 
-> **How to — ▶** Open an EASEMENT or a VEGETATION_ZONE → the Spatial tab shows a badge: *"Easement expires in 40 days"* / *"expired 12 days ago"*; *"Trim overdue by 25 days"* / *"due in 10 days"* (red / amber / muted), computed from the feature's own dates.
+> **How to — ▶** Open an EASEMENT or a VEGETATION_ZONE → the Land use tab shows a badge: *"Easement expires in 40 days"* / *"expired 12 days ago"*; *"Trim overdue by 25 days"* / *"due in 10 days"* (red / amber / muted), computed from the feature's own dates.
 
 ---
 

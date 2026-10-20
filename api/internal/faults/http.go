@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/uptrace/bun"
 )
 
@@ -36,6 +37,15 @@ func Routes(db *bun.DB) chi.Router {
 	// router's root resource, so it lives at "/".
 	r.Get("/", listFaultsHandler(db))
 	r.Get("/map", listFaultsForMapHandler(db))
+	// The failure-mode catalogue: GET is the fault form's class-aware picker
+	// (faults:read via the mount); the write verbs maintain the catalogue and
+	// escalate in-handler to metadata:write (admin-only reference data, like the
+	// other catalogs), so a plain faults:write user can log faults but not edit
+	// the taxonomy.
+	r.Get("/modes", listFaultModesHandler(db))
+	r.Post("/modes", createFaultModeHandler(db))
+	r.Patch("/modes/{id}", updateFaultModeHandler(db))
+	r.Delete("/modes/{id}", deleteFaultModeHandler(db))
 	r.Post("/", createFaultHandler(db))
 	r.Get("/{id}", getFaultHandler(db))
 	r.Get("/{id}/history", faultHistoryHandler(db))
@@ -89,6 +99,117 @@ func listFaultsForMapHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
+// listFaultModesHandler backs the fault form's class-aware cause picker: the
+// active failure modes catalogued for a feature class (?asset_class= or
+// ?feature_class=). An uncatalogued class yields an empty list, and the form then
+// relies on the free-text cause.
+func listFaultModesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		class := r.URL.Query().Get("asset_class")
+		if class == "" {
+			class = r.URL.Query().Get("feature_class")
+		}
+		// include_inactive is for the admin editor; the picker omits it.
+		includeInactive := r.URL.Query().Get("include_inactive") == "true"
+		modes, err := ListFaultModes(r.Context(), db, class, includeInactive)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"fault_modes": modes})
+	}
+}
+
+// requireCatalogAdmin gates a catalogue write on metadata:write (on top of the
+// faults:write the mount already enforced), so editing the taxonomy is an
+// admin-only action -- the same stance the cost and curve catalogs take. Returns
+// false (and writes a 403) when the caller lacks it.
+func requireCatalogAdmin(w http.ResponseWriter, r *http.Request) bool {
+	user, ok := auth.UserFrom(r.Context())
+	if !ok || !user.Has(auth.PermMetadataWrite) {
+		writeError(w, forbiddenf("editing the fault-mode catalogue needs the %s permission", auth.PermMetadataWrite))
+		return false
+	}
+	return true
+}
+
+type faultModeRequest struct {
+	FeatureClassCode string  `json:"feature_class_code"`
+	Code             string  `json:"code"`
+	Label            string  `json:"label"`
+	Dimension        string  `json:"dimension"`
+	TypicalCause     *string `json:"typical_cause"`
+	Effect           *string `json:"effect"`
+	Severity         string  `json:"severity"`
+	SortOrder        int     `json:"sort_order"`
+	Active           *bool   `json:"active"`
+}
+
+func (req faultModeRequest) params() FaultModeParams {
+	return FaultModeParams{
+		FeatureClassCode: req.FeatureClassCode,
+		Code:             req.Code,
+		Label:            req.Label,
+		Dimension:        req.Dimension,
+		TypicalCause:     req.TypicalCause,
+		Effect:           req.Effect,
+		Severity:         req.Severity,
+		SortOrder:        req.SortOrder,
+		Active:           req.Active,
+	}
+}
+
+func createFaultModeHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireCatalogAdmin(w, r) {
+			return
+		}
+		var req faultModeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		mode, err := CreateFaultMode(r.Context(), db, req.params())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, mode)
+	}
+}
+
+func updateFaultModeHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireCatalogAdmin(w, r) {
+			return
+		}
+		var req faultModeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		mode, err := UpdateFaultMode(r.Context(), db, chi.URLParam(r, "id"), req.params())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, mode)
+	}
+}
+
+func deleteFaultModeHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireCatalogAdmin(w, r) {
+			return
+		}
+		if err := DeleteFaultMode(r.Context(), db, chi.URLParam(r, "id")); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 type createFaultRequest struct {
 	Reference             *string    `json:"reference"`
 	AssetClass            *string    `json:"asset_class"`
@@ -96,6 +217,7 @@ type createFaultRequest struct {
 	Longitude             *float64   `json:"longitude"`
 	Latitude              *float64   `json:"latitude"`
 	FaultType             *string    `json:"fault_type"`
+	FaultMode             *string    `json:"fault_mode"`
 	Cause                 *string    `json:"cause"`
 	FaultCurrentA         *float64   `json:"fault_current_a"`
 	ProtectiveDeviceClass *string    `json:"protective_device_class"`
@@ -124,6 +246,7 @@ func createFaultHandler(db *bun.DB) http.HandlerFunc {
 			Longitude:             req.Longitude,
 			Latitude:              req.Latitude,
 			FaultType:             req.FaultType,
+			FaultMode:             req.FaultMode,
 			Cause:                 req.Cause,
 			FaultCurrentA:         req.FaultCurrentA,
 			ProtectiveDeviceClass: req.ProtectiveDeviceClass,
@@ -183,6 +306,7 @@ func faultImpactHandler(db *bun.DB) http.HandlerFunc {
 type updateFaultRequest struct {
 	Reference             *string  `json:"reference"`
 	FaultType             *string  `json:"fault_type"`
+	FaultMode             *string  `json:"fault_mode"`
 	Cause                 *string  `json:"cause"`
 	FaultCurrentA         *float64 `json:"fault_current_a"`
 	ProtectiveDeviceClass *string  `json:"protective_device_class"`
@@ -205,6 +329,7 @@ func updateFaultHandler(db *bun.DB) http.HandlerFunc {
 		fault, err := UpdateFault(r.Context(), db, chi.URLParam(r, "id"), UpdateFaultParams{
 			Reference:             req.Reference,
 			FaultType:             req.FaultType,
+			FaultMode:             req.FaultMode,
 			Cause:                 req.Cause,
 			FaultCurrentA:         req.FaultCurrentA,
 			ProtectiveDeviceClass: req.ProtectiveDeviceClass,

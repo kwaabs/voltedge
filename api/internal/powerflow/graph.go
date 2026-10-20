@@ -631,7 +631,7 @@ func buildTree(ctx context.Context, db bun.IDB, start node, barriers map[string]
 					continue
 				}
 				return nil, nil, invalid(
-					"the network downstream of the start feature is not radial (loop/mesh detected at feature class id %s, feature %s reached by more than one path) -- load flow requires a tree, run LOOP_CHECK_TRACE first to locate and eliminate the mesh",
+					"the network downstream of the start feature is not radial (loop/mesh detected at feature class id %s, feature %s reached by more than one path) -- this analysis walks a single impedance path to each point, so it needs a radial network; run LOOP_CHECK_TRACE first to locate and eliminate the mesh (open the normally-open ring/tie point, or fix the duplicate connectivity)",
 					n.classID, n.featureID,
 				)
 			}

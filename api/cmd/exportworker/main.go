@@ -25,6 +25,7 @@ import (
 	"syscall"
 
 	"github.com/kwaabs/voltedge/api/internal/attachment"
+	"github.com/kwaabs/voltedge/api/internal/boq"
 	"github.com/kwaabs/voltedge/api/internal/export"
 	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/uptrace/bun"
@@ -57,6 +58,11 @@ func main() {
 	if err := store.EnsureBucket(context.Background()); err != nil {
 		log.Fatalf("export worker: %v", err)
 	}
+
+	// Teach the worker how to build asset-register jobs (kind="asset_register"
+	// on the shared ops.export_jobs queue). The build lives in boq; injecting it
+	// keeps the export->boq dependency one-way (export never imports boq).
+	export.SetAssetRegisterBuilder(boq.BuildAssetRegisterXLSXForJob)
 
 	// SIGINT/SIGTERM cancels the loop; RunWorker drains its in-flight jobs
 	// before returning, so a rolling restart doesn't strand a running export.

@@ -106,7 +106,7 @@ func ValidationSweep(ctx context.Context, db *bun.DB, batch int) (*SweepResult, 
 		return &SweepResult{}, nil // caught up
 	}
 
-	report, err := AuditConnectivity(ctx, db, AuditInput{FeatureIDs: ids})
+	report, err := AuditAll(ctx, db, AuditInput{FeatureIDs: ids})
 	if err != nil {
 		return nil, fmt.Errorf("connectivity: validation sweep: audit: %w", err)
 	}

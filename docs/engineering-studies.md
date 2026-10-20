@@ -39,6 +39,7 @@ Every study is one `POST` under `/analysis`, is **strictly read-only** (it compu
 | | Nodal (Y-bus) load flow | `/analysis/nodal-load-flow` | 3 |
 | | Auto load flow (dispatch router) | `/analysis/load-flow-auto` | 3 |
 | **Fault & protection** | Fault current (3-phase + SLG) | `/analysis/fault-current` | 4 |
+| | Fault location (distance-to-fault) | `/analysis/fault-location` | 4 (§4.10) |
 | | Protection coordination | `/analysis/coordination` | 5 |
 | | Conductor ampacity (IEEE 738) | `/analysis/ampacity` | 6 |
 | | Arc-flash (IEEE 1584) | `/analysis/arc-flash` | 7 |
@@ -71,6 +72,7 @@ Not every study has been checked to the same depth, and the platform is honest a
 | Auto load flow (router) | `/analysis/load-flow-auto` | Derived | Routes to the radial/meshed/nodal engine by topology; inherits whichever engine runs. |
 | Nodal (Y-bus) load flow | `/analysis/nodal-load-flow` | **Experimental** | Gauss-Seidel nodal solver; not yet verified against a reference power-flow. |
 | Arc-flash (IEEE 1584) | `/analysis/arc-flash` | **Experimental** | Incident energy / PPE category. **Safety-relevant and not independently verified — indicative only, never a basis for PPE selection or energized-work permits.** |
+| Fault location (distance-to-fault) | `/analysis/fault-location` | **Experimental** | Inverse of the validated fault engine, but the impedance-to-distance interpolation and the real-measurement back-calculation are not reference-checked — an *estimate* that narrows a crew patrol to a span, not a surveyed position. |
 | Volt-VAR control | `/analysis/volt-var` | **Experimental** | Not verified against a reference. |
 | Tap optimization | `/analysis/tap-optimization` | **Experimental** | Not verified against a reference. |
 | Storage dispatch | `/analysis/storage-dispatch` | **Experimental** | Not verified against a reference. |
@@ -708,6 +710,22 @@ That 14 kA — not 9.5 — is the duty the board must interrupt. This is exactly
 - **Generator infeed is three-phase only.** Don't read an SLG `fault_current_amps` as including embedded generation — it's grid-only by design.
 - **`grounded = false` is information, not an error.** It correctly says an SLG fault there draws almost nothing — until an earthing transformer is added on the delta section.
 - **It's radial.** A meshed fault study isn't supported; open the ring for the study.
+
+### 4.10 Fault location — the inverse of the fault-current study ▶∑
+
+🔎 *Endpoint `POST /analysis/fault-location`. Validation tier: **Experimental** (indicative only).* 
+
+Chapter 4 so far is the **forward** question: *"if a fault were at node N, how much current?"* **Fault location** runs it backwards — the **operational** question after a real trip: *"a relay measured **this** fault current — **where** along the feeder is the fault?"* It is the "FL" that completes the FLISR chain (FLISR restores service *around* the fault; fault location tells the crew *where to walk*).
+
+**∑ Method — because fault current is monotone in distance.** The prospective current falls as the impedance from the source grows, so a measured current `I_m` pins a **target impedance** `|Z_target| = c·V_LN / I_m`. The engine reuses the fault study's per-node accumulated `|Z|` (§4.5) and walks each conductor span: wherever the span's source-to-span impedance window *brackets* `Z_target`, the fault is on that span. It interpolates the fraction along the span (impedance is ≈ linear in length on a uniform conductor) into a **distance from the source** and an interpolated **map point**, oriented so fraction 0 is the span's upstream end. A feeder branches, so the same electrical distance recurs on several laterals — **every** bracketing span is returned as a **candidate**, exactly the "the fault is one of these" a real fault-locator presents.
+
+**▶ Inputs.** The `start` is the **feeder source** (the substation bus / transformer secondary), *not* the tripped device — the same contract as the fault-current study. Plus `measured_current_amps` (what the relay/SCADA recorded) and the nominal voltage. Unlike the prospective study, the voltage factor `c` defaults to **1.0** — a real measurement back-calculates at the actual pre-fault voltage, not the IEC 1.10 rating maximum.
+
+**▶ Reading the result.** A ranked list of candidates, each with its **span** (the faulted conductor), the **upstream feature** feeding it, the **distance from the source** and along the span, and an interpolated lon/lat drawn as a red pin on the map. An empty list comes with a `note` explaining why — the measured current was above the source ceiling (fault at/near the source, or the source impedance is understated) or below the feeder's minimum (beyond the modelled network, or a high-impedance/arcing fault). A candidate whose impedance path wasn't fully resolved is flagged — its distance is an optimistic estimate.
+
+**▶ From a logged fault.** A fault event already records its `fault_current_a` (fed from the device-operation log / SCADA). On the asset's **Faults** tab, a fault with a measured current shows a **Locate** button that hands that current to the Fault Location panel — pick the feeder source and the candidate spans appear, no re-typing.
+
+**⚠️ Limits.** *Three-phase only* for now (single-line-to-ground location — the commonest distribution fault — needs the zero-sequence path inverted and is the next increment). Candidates are confined to the **faulted voltage level** (spans upstream of any transformer, where `|Z|` stays monotone). It needs a **radial** network from the start, like every impedance walk. And it is **Experimental** — the distance is an *estimate* that narrows a patrol from a whole section to a span, not a surveyed position; the source impedance and conductor data drive its accuracy.
 
 ---
 

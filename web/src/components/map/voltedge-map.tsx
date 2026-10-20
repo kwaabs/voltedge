@@ -90,6 +90,7 @@ import { useDiagramPlaceStore } from "@/stores/diagram-place-store"
 import { type DrawGeometryType, useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
 import { useFaultCurrentStore } from "@/stores/fault-current-store"
+import { useFaultLocationStore } from "@/stores/fault-location-store"
 import { useFaultOverlayStore } from "@/stores/fault-overlay-store"
 import { useImportedFeatureStore } from "@/stores/imported-feature-store"
 import { useImportedOverlaysStore } from "@/stores/imported-overlays-store"
@@ -488,6 +489,10 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   // map-pins-store.ts). Same clear-and-repopulate pattern; the pins effect
   // below owns its contents.
   const pinsSourceRef = useRef<VectorSource | null>(null)
+  // Fault-location candidate markers (fault-location-store.ts) -- one red dot per
+  // candidate span's interpolated fault point. Same client-side clear-and-
+  // repopulate pattern as the pins layer; the effect below owns its contents.
+  const faultLocSourceRef = useRef<VectorSource | null>(null)
   // The single OL Feature holding the MultiPolygon boundary currently
   // under authoring (Phase 11 Slice I) -- its own source/layer, kept
   // above the overlay so the in-progress boundary reads distinctly. The
@@ -924,6 +929,24 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
     map.addLayer(pinsLayer)
     pinsSourceRef.current = pinsSource
 
+    // Fault-location candidate markers -- a red dot at each candidate span's
+    // interpolated fault point (fault-location-store.ts), above the pins so the
+    // "walk here" spots sit on top. The effect below populates it from the store.
+    const faultLocSource = new VectorSource()
+    const faultLocLayer = new VectorLayer({
+      source: faultLocSource,
+      style: new Style({
+        image: new CircleStyle({
+          radius: 7,
+          fill: new Fill({ color: "#dc2626" }),
+          stroke: new Stroke({ color: "#ffffff", width: 2 }),
+        }),
+      }),
+      zIndex: 12,
+    })
+    map.addLayer(faultLocLayer)
+    faultLocSourceRef.current = faultLocSource
+
     // The boundary currently under authoring (Phase 11 Slice I) -- reuses
     // editStyleForFeature (its default branch is the polygon/multipolygon
     // cyan edit style), at zIndex 8 like the feature edit layer (the two
@@ -1170,6 +1193,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
       annotationSourceRef.current = null
       annotationLayerRef.current = null
       pinsSourceRef.current = null
+      faultLocSourceRef.current = null
       territoryEditSourceRef.current = null
       territoryEditFeatureRef.current = null
       draftSourceRef.current = null
@@ -2682,6 +2706,20 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
       source.addFeature(feature)
     }
   }, [pins])
+
+  // Fault-location candidate markers: a red dot at each candidate span's
+  // interpolated fault point, rebuilt whenever a new location result lands (and
+  // cleared when the panel closes). Same client-side pattern as the pins above.
+  const faultLocCandidates = useFaultLocationStore((s) => s.result?.candidates)
+  useEffect(() => {
+    const source = faultLocSourceRef.current
+    if (!source) return
+    source.clear()
+    for (const c of faultLocCandidates ?? []) {
+      if (c.longitude == null || c.latitude == null) continue
+      source.addFeature(new Feature({ geometry: new Point(fromLonLat([c.longitude, c.latitude])) }))
+    }
+  }, [faultLocCandidates])
 
   // Forces every vector tile source to refetch -- bumped by
   // feature-create-form.tsx after a successful save, since the catalog

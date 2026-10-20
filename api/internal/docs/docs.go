@@ -395,6 +395,13 @@ var manifest = []Doc{
 		Filename:    "faults-guide.md",
 	},
 	{
+		ID:          "fault-modes-guide",
+		Title:       "Fault-Mode Catalog (FMEA)",
+		Description: "The per-feature-class failure-mode catalog behind the fault form's class-aware cause picker: the three ways a fault is described (fault_type / fault_mode / protective device), the FMEA record (dimension, typical cause, effect, severity), logging with the picker, administering the catalog, and the comprehensive list of modes for all 63 asset classes.",
+		Category:    "Manuals",
+		Filename:    "fault-modes-guide.md",
+	},
+	{
 		ID:          "oms-guide",
 		Title:       "OMS — Outage Management",
 		Description: "The outage lifecycle end to end: trouble calls rolled into predicted incidents (blamed on the nearest protective device), affected-customer and critical-facility rollups, the live de-energised cone, switching orders whose open/close steps flip the real device_state, planned outages, restoration and the SAIDI/SAIFI/CAIDI/ENS reliability indices.",

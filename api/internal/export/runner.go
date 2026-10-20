@@ -48,6 +48,13 @@ type encodeResult struct {
 // lands on local disk; object_key holds the RustFS key the download path
 // presigns.
 func runClaimedJob(ctx context.Context, db *bun.DB, store *ObjectStore, job *ExportJob) {
+	// Asset-register jobs share this queue but build a tabular .xlsx via the
+	// injected boq builder, not a streamed geometry encode (migration 0153).
+	if job.Kind == "asset_register" {
+		runAssetRegisterJob(ctx, db, store, job)
+		return
+	}
+
 	var scope ExportScope
 	if err := json.Unmarshal(job.Scope, &scope); err != nil {
 		markFailed(ctx, db, job.ID, fmt.Sprintf("corrupt job scope: %v", err))

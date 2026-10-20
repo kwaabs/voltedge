@@ -37,6 +37,7 @@ import {
   SlidersHorizontal,
   Spline,
   Sun,
+  Crosshair,
   Thermometer,
   Trash2,
   TrendingDown,
@@ -126,6 +127,7 @@ import { useDrawStore } from "@/stores/draw-store"
 import { useEditStore } from "@/stores/edit-store"
 import { useOneLineStore } from "@/stores/one-line-store"
 import { useFaultCurrentStore } from "@/stores/fault-current-store"
+import { useFaultLocationStore } from "@/stores/fault-location-store"
 import { type IsolationResult, useIsolateStore } from "@/stores/isolate-store"
 import { useLoadFlowStore } from "@/stores/load-flow-store"
 import { useSelectionStore } from "@/stores/selection-store"
@@ -178,7 +180,7 @@ const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
   { id: "faults", label: "Faults", icon: ZapOff },
   { id: "operations", label: "Operations", icon: Activity },
   { id: "safety", label: "Safety", icon: ShieldAlert },
-  { id: "spatial", label: "Spatial", icon: LandPlot },
+  { id: "spatial", label: "Land use", icon: LandPlot },
   { id: "tags", label: "Tags", icon: QrCode },
   { id: "files", label: "Files", icon: Paperclip },
   { id: "links", label: "Links", icon: ExternalLinkIcon },
@@ -2647,6 +2649,16 @@ export function FeaturePanel() {
   // nominal_voltage_v first, no honest MV/LV default), clearing the other
   // three mutually-exclusive workflows; the panel's own Run button makes
   // the POST /analysis/fault-current call.
+  // Opens the Fault Location panel (fault-location-panel.tsx) for the selected
+  // feature as the feeder SOURCE. Unlike the planning studies above it is an
+  // independent, operational tool, so it does NOT clear the mutually-exclusive
+  // workflows -- a located fault can sit open beside a fault-current or trace
+  // result. The panel's own Locate button makes the POST /analysis/fault-location.
+  function armFaultLocation() {
+    if (!selected) return
+    useFaultLocationStore.getState().arm({ feature_class: selected.featureClassCode, feature_id: selected.featureId })
+  }
+
   function armFaultCurrent() {
     if (!selected) return
     useTraceStore.getState().clear()
@@ -3647,6 +3659,10 @@ export function FeaturePanel() {
                             Fault current…
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem onSelect={armFaultLocation}>
+                          <Crosshair className="size-4" />
+                          Locate fault…
+                        </DropdownMenuItem>
                         {studyOK("coordination") && (
                           <DropdownMenuItem onSelect={armCoordination}>
                             <ChartSpline className="size-4" />

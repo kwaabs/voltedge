@@ -211,6 +211,57 @@ func readTools() []Tool {
 			Handler:      toolRunBillOfQuantities,
 		},
 		{
+			Name: "run_asset_register",
+			Description: "Build an itemised asset register -- one row per feature -- for a scope of the " +
+				"network (the per-feature sibling of run_bill_of_quantities, behind the map's BoQ " +
+				"panel in Asset register mode). Each row carries a flat set of common columns: " +
+				"asset id, class, subtype, name, status, material, quantity/unit, longitude/latitude, " +
+				"territory, circuit, ownership, external refs and created date. Scope it the same way " +
+				"as a BoQ: an explicit feature_refs set (takes precedence and defines the classes), or " +
+				"whole feature_classes optionally narrowed by scope (territory subtree / radius / bbox). " +
+				"Set include_valuation to also value each asset through the same catalog/override/material " +
+				"path the priced schedule uses (unit_rate, value, priced_source=catalog|override|unpriced), " +
+				"in display_currency. Respects the same read scoping as every other read; capped at " +
+				"100000 rows (truncated=true when hit).",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_classes":{"type":"array","items":{"type":"string"},"description":"Class codes to list; ignored when feature_refs is given."},
+					"scope":{
+						"type":"object",
+						"description":"An optional spatial narrowing for a class scan. Requires classes with geometry.",
+						"properties":{
+							"kind":{"type":"string","enum":["none","territory","radius","bbox"],"description":"The scope kind; none/omitted lists every class in full."},
+							"territory_id":{"type":"string","description":"For kind=territory: the territory whose subtree to list within."},
+							"center":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"For kind=radius: the [longitude, latitude] center."},
+							"radius_m":{"type":"number","description":"For kind=radius: the radius in metres."},
+							"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"For kind=bbox: [min_lon, min_lat, max_lon, max_lat]."}
+						},
+						"required":["kind"],
+						"additionalProperties":false
+					},
+					"feature_refs":{
+						"type":"array",
+						"description":"An explicit set of features to register (e.g. a trace result or selection). Takes precedence over feature_classes/scope.",
+						"items":{
+							"type":"object",
+							"properties":{
+								"class":{"type":"string","description":"The feature class code."},
+								"id":{"type":"string","description":"The feature id."}
+							},
+							"required":["class","id"],
+							"additionalProperties":false
+						}
+					},
+					"include_valuation":{"type":"boolean","description":"When true, value each asset through the cost catalog (unit_rate, value, priced_source)."},
+					"display_currency":{"type":"string","description":"Currency code for the valuation; omit for the base currency. Only used when include_valuation is true."}
+				},
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermFeaturesRead,
+			Handler:      toolRunAssetRegister,
+		},
+		{
 			Name: "validate_feature",
 			Description: "Dry-run the validation a create would perform on a proposed feature, " +
 				"without writing anything. Checks the subtype, geometry presence/type, " +
@@ -454,6 +505,30 @@ func readTools() []Tool {
 			}`),
 			RequiredPerm: auth.PermConnectivityRead,
 			Handler:      toolConnectivityAudit,
+		},
+		{
+			Name: "validation_issues",
+			Description: "List the standing validation-issue queue -- the self-pruning backlog the " +
+				"validation worker keeps fresh, the same list the Network-audit 'Issue queue' panel " +
+				"shows. Covers two families of finding: connectivity (topology -- 'orphaned_connection', " +
+				"'orphaned_relationship', 'coincident_unconnected') and attribute/data-quality (kinds " +
+				"prefixed 'attr_' -- 'attr_required_missing', 'attr_out_of_domain' and 'attr_out_of_range' " +
+				"are drift of an existing row away from the CURRENT metadata, and 'attr_completeness' is a " +
+				"field an admin declared should be populated via a data-quality rule). Each issue carries " +
+				"its kind, severity, message, the feature(s) it points at, status and first/last-seen " +
+				"timestamps. Read-only. Default returns the live queue (open + acknowledged), errors first.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"status":{"type":"string","enum":["open","acknowledged","resolved","suppressed"],"description":"Filter by status; omit for the live queue (open + acknowledged)."},
+					"severity":{"type":"string","enum":["error","warning"],"description":"Filter by severity."},
+					"kind":{"type":"string","description":"Filter by exact finding kind, e.g. 'coincident_unconnected' or 'attr_out_of_domain'."},
+					"limit":{"type":"integer","description":"Max issues to return, 1-1000 (default 500)."}
+				},
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermConnectivityRead,
+			Handler:      toolValidationIssues,
 		},
 		{
 			Name: "suggest_relationships",

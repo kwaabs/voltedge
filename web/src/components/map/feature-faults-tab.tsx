@@ -1,19 +1,23 @@
 import { useState } from "react"
-import { CheckCircle2, Loader2, Plus, RotateCcw, Search, Wrench, Zap } from "lucide-react"
+import { CheckCircle2, Crosshair, Loader2, Plus, RotateCcw, Search, Wrench, Zap } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { usePermission } from "@/hooks/use-auth"
 import {
   type FaultEvent,
+  FAULT_TYPE_LABELS,
+  type FaultSeverity,
   type FaultStatus,
   type FaultType,
   useBookDefectFromFault,
   useCreateFault,
+  useFaultModes,
   useFaults,
   useSetFaultStatus,
 } from "@/hooks/use-faults"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { useFaultLocationStore } from "@/stores/fault-location-store"
 import { useSelectionStore } from "@/stores/selection-store"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -27,6 +31,17 @@ import { useToastStore } from "@/stores/toast-store"
 
 const inputClass = "border-input bg-background w-full rounded-sm border px-2 py-1 text-sm"
 const FAULT_TYPES: FaultType[] = ["SLG", "LL", "LLG", "LLL", "LLLG", "earth", "unknown"]
+
+/** A marker value for the mode picker's "not in the list" option -- logs a fault
+ * with no coded mode, falling back to the free-text cause. */
+const MODE_OTHER = "__other__"
+
+const SEVERITY_BADGE: Record<FaultSeverity, string> = {
+  low: "bg-slate-500/15 text-slate-600 dark:text-slate-400",
+  medium: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+  high: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
+  critical: "bg-red-500/15 text-red-600 dark:text-red-400",
+}
 
 function toastError(err: unknown, fallback: string) {
   useToastStore.getState().pushError(err instanceof ApiError ? err.message : fallback)
@@ -90,9 +105,18 @@ function NewFaultForm({
   onDone: () => void
 }) {
   const create = useCreateFault()
+  const modes = useFaultModes(assetClass)
   const [title, setTitle] = useState("")
   const [faultType, setFaultType] = useState<FaultType>("unknown")
+  const [modeCode, setModeCode] = useState("")
   const [cause, setCause] = useState("")
+
+  const modeList = modes.data?.fault_modes ?? []
+  const hasModes = modeList.length > 0
+  const selectedMode = modeList.find((m) => m.code === modeCode)
+  // The free-text cause shows when no catalogued modes exist, or the user picked
+  // "Other", or a mode is chosen (as elaboration).
+  const showCause = !hasModes || modeCode === MODE_OTHER || !!selectedMode
 
   const canSave = !create.isPending && title.trim() !== ""
 
@@ -104,6 +128,7 @@ function NewFaultForm({
         asset_id: assetId,
         title: title.trim(),
         fault_type: faultType,
+        ...(selectedMode ? { fault_mode: selectedMode.code } : {}),
         ...(cause.trim() ? { cause: cause.trim() } : {}),
       },
       { onSuccess: onDone, onError: (err) => toastError(err, "Could not log this fault.") },
@@ -120,21 +145,46 @@ function NewFaultForm({
         placeholder="What faulted on this asset?"
         className={inputClass}
       />
+
+      {/* Class-aware failure mode: the faults that can happen on THIS asset type. */}
+      {hasModes && (
+        <div className="flex flex-col gap-1">
+          <select value={modeCode} onChange={(e) => setModeCode(e.target.value)} className={inputClass}>
+            <option value="">Failure mode (optional)…</option>
+            {modeList.map((m) => (
+              <option key={m.code} value={m.code}>
+                {m.label}
+              </option>
+            ))}
+            <option value={MODE_OTHER}>Other / not listed</option>
+          </select>
+          {selectedMode && (
+            <div className="text-muted-foreground flex flex-wrap items-center gap-1.5 text-xs">
+              <Badge className={SEVERITY_BADGE[selectedMode.severity]}>{selectedMode.severity}</Badge>
+              <span>{humanize(selectedMode.dimension)}</span>
+              {selectedMode.effect && <span>· {selectedMode.effect}</span>}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex gap-2">
         <select value={faultType} onChange={(e) => setFaultType(e.target.value as FaultType)} className={inputClass}>
           {FAULT_TYPES.map((t) => (
             <option key={t} value={t}>
-              {t}
+              {t} ({FAULT_TYPE_LABELS[t]})
             </option>
           ))}
         </select>
-        <input
-          value={cause}
-          onChange={(e) => setCause(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-          placeholder="Cause (optional)"
-          className={inputClass}
-        />
+        {showCause && (
+          <input
+            value={cause}
+            onChange={(e) => setCause(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+            placeholder={selectedMode ? "Detail (optional)" : "Cause (optional)"}
+            className={inputClass}
+          />
+        )}
       </div>
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={submit} disabled={!canSave}>
@@ -160,6 +210,19 @@ function FaultRow({ fault, canWrite }: { fault: FaultEvent; canWrite: boolean })
   const bookDefect = () =>
     book.mutate({ faultId: fault.id }, { onError: (err) => toastError(err, "Could not book a defect from this fault.") })
 
+  // Hand this fault's measured current to the Fault Location panel (distance-to-
+  // fault). The panel still arms from the feeder source the operator picks; this
+  // just pre-fills the current so it isn't re-typed.
+  const locate = () => {
+    if (fault.fault_current_a == null) return
+    useFaultLocationStore.getState().setPrefillCurrent(fault.fault_current_a)
+    useToastStore
+      .getState()
+      .pushSuccess(
+        `Measured ${fault.fault_current_a} A ready — select the feeder source on the map and choose "Locate fault".`,
+      )
+  }
+
   const isClosed = fault.status === "closed"
   const canBookDefect = canWrite && !fault.defect_id && !isClosed
 
@@ -170,6 +233,7 @@ function FaultRow({ fault, canWrite }: { fault: FaultEvent; canWrite: boolean })
           <p className="truncate font-medium">{fault.title}</p>
           <p className="text-muted-foreground text-xs">
             {fault.fault_type ? `${fault.fault_type} · ` : ""}
+            {fault.fault_mode ? `${humanize(fault.fault_mode)} · ` : ""}
             {fault.cause ? `${humanize(fault.cause)} · ` : ""}
             {formatWhen(fault.detected_at)}
             {fault.incident_id && <> · outage {shortId(fault.incident_id)}</>}
@@ -180,6 +244,18 @@ function FaultRow({ fault, canWrite }: { fault: FaultEvent; canWrite: boolean })
       </div>
       {canWrite && (
         <div className="mt-2 flex flex-wrap gap-1">
+          {fault.fault_current_a != null && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={locate}
+              title={`Pre-fill ${fault.fault_current_a} A into the Fault Location panel (distance-to-fault)`}
+            >
+              <Crosshair className="size-3" />
+              Locate
+            </Button>
+          )}
           {canBookDefect && (
             <Button variant="outline" size="sm" className="h-6 px-2 text-xs" disabled={busy} onClick={bookDefect}>
               <Wrench className="size-3" />

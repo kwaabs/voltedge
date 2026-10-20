@@ -29,9 +29,17 @@ const MODES: { value: SpatialMode; label: string; hint: string }[] = [
   { value: "within", label: "Nearby", hint: "features within a distance of this one" },
 ]
 
+// Short/known acronyms kept all-caps when humanizing a class code (MV_CONDUCTOR
+// → "MV Conductor", not "Mv conductor").
+const CLASS_ACRONYMS = new Set([
+  "MV", "LV", "HV", "EHV", "UHV", "CT", "VT", "AC", "DC", "EV", "PV", "DER",
+  "RMU", "URD", "BESS", "LVAC", "OLTC", "ANSI", "GPS", "CIM", "AMI", "SCADA",
+])
 function humanizeClass(code: string): string {
-  const s = code.replace(/_/g, " ").toLowerCase()
-  return s.charAt(0).toUpperCase() + s.slice(1)
+  return code
+    .split("_")
+    .map((w) => (w.length <= 2 || CLASS_ACRONYMS.has(w) ? w : w.charAt(0) + w.slice(1).toLowerCase()))
+    .join(" ")
 }
 
 function shortId(id: string): string {

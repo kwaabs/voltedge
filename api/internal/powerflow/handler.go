@@ -113,6 +113,11 @@ func enforceStudy(db *bun.DB, studyID string, next http.HandlerFunc) http.Handle
 //	                        to report per-node incident energy (cal/cm2), arc-flash
 //	                        boundary, and NFPA 70E PPE category, on IEEE typical
 //	                        geometry until per-feature fields exist (S2)
+//	POST   /fault-location  distance-to-fault: the INVERSE of /fault-current -- a
+//	                        measured fault current pins a target impedance, and each
+//	                        conductor span whose source-to-span impedance brackets it
+//	                        is a candidate location (distance from source + an
+//	                        interpolated point). Three-phase, faulted voltage level.
 //	POST   /ev-hosting      EV feeder-headroom study (Phase 54): the under-voltage
 //	                        mirror of /hosting-capacity -- for a node (or every
 //	                        connection node on a feeder) binary-search the largest
@@ -150,6 +155,10 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/nodal-load-flow", enforceStudy(db, "nodal_load_flow", nodalLoadFlowHandler(db)))
 	r.Post("/load-flow-auto", enforceStudy(db, "load_flow_auto", dispatchLoadFlowHandler(db)))
 	r.Post("/arc-flash", arcFlashHandler(db))
+	// /fault-location, like /arc-flash, is a derived operational tool (the inverse
+	// of the fault-current study), not a menu study of its own -- so it skips the
+	// per-class studies gate and relies on the /analysis mount's permission.
+	r.Post("/fault-location", faultLocationHandler(db))
 	r.Post("/ev-hosting", enforceStudy(db, "ev_hosting", evHostingHandler(db)))
 	r.Post("/unbalanced-load-flow", enforceStudy(db, "unbalanced_load_flow", unbalancedLoadFlowHandler(db)))
 	r.Post("/volt-var", enforceStudy(db, "volt_var", voltVarHandler(db)))
@@ -223,6 +232,23 @@ func arcFlashHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		result, err := runArcFlash(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func faultLocationHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req faultLocationRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := runFaultLocation(r.Context(), db, req)
 		if err != nil {
 			writeError(w, err)
 			return

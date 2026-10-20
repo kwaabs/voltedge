@@ -16,6 +16,7 @@ import {
 import { usePermission } from "@/hooks/use-auth"
 import {
   type FaultEvent,
+  FAULT_TYPE_LABELS,
   type FaultStatus,
   type FaultType,
   type FaultHistoryEntry,
@@ -134,7 +135,7 @@ function LogFaultDialog({ onClose }: { onClose: () => void }) {
           <select className={inputClass} value={faultType} onChange={(e) => setFaultType(e.target.value as FaultType)}>
             {FAULT_TYPES.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {t} ({FAULT_TYPE_LABELS[t]})
               </option>
             ))}
           </select>

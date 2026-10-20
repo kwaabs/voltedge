@@ -25,6 +25,23 @@ func IsInvalid(err error) bool {
 	return errors.As(err, &ie)
 }
 
+// ForbiddenError marks an authorization failure (the caller lacks a permission an
+// in-handler escalation requires, e.g. metadata:write to edit the fault-mode
+// catalogue) -- mapped to 403 by writeError.
+type ForbiddenError struct{ msg string }
+
+func (e *ForbiddenError) Error() string { return e.msg }
+
+func forbiddenf(format string, args ...any) error {
+	return &ForbiddenError{msg: fmt.Sprintf(format, args...)}
+}
+
+// IsForbidden reports whether err is (or wraps) a ForbiddenError.
+func IsForbidden(err error) bool {
+	var fe *ForbiddenError
+	return errors.As(err, &fe)
+}
+
 // writeJSON writes a JSON body with the given status.
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -36,7 +53,10 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 // 500 -- the same split oms and wam draw.
 func writeError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
-	if IsInvalid(err) {
+	switch {
+	case IsForbidden(err):
+		status = http.StatusForbidden
+	case IsInvalid(err):
 		status = http.StatusBadRequest
 	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})

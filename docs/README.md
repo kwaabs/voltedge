@@ -48,6 +48,7 @@ Find your task on the left; open the document on the right.
 | Understand feeders, protection zones, switching sections and how VoltEdge does subnetworks | **[Feeders, Sections & Subnetworks](network-sectioning-guide.md)** |
 | Model switchgear and protection — switches, breakers, reclosers, fuses, RMUs, relays and coordination | **[Switching & Protection](switching-and-protection-guide.md)** |
 | Log and manage electrical fault events — lifecycle, impact, and links to outages and repairs | **[Faults](faults-guide.md)** |
+| Pick the right failure mode when logging a fault — the per-asset-class FMEA catalog for all 63 classes | **[Fault-Mode Catalog (FMEA)](fault-modes-guide.md)** |
 | Record and report device operations — trips, lockouts, recloses, open/close; trip counts and device inventory | **[Device Operations](operations-guide.md)** |
 | Protect a crew — tag out a device (barring operation), apply grounds, issue and surrender clearances | **[Operational Safety](safety-guide.md)** |
 | Manage land & vegetation — easements, parcels, corridors; what's inside/covering a feature; clearance & trim dispatch | **[Land & Spatial Management](land-spatial-guide.md)** |

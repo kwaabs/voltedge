@@ -10,6 +10,101 @@ import { ApiError, apiFetch } from "@/lib/api"
 export type FaultType = "SLG" | "LL" | "LLG" | "LLL" | "LLLG" | "earth" | "unknown"
 export type FaultStatus = "detected" | "investigating" | "cleared" | "closed"
 
+/** Human names for the electrical fault classifications (L = line/phase, G =
+ * ground), for dropdown labels like "SLG (Single line-to-ground)". The stored
+ * value stays the code. */
+export const FAULT_TYPE_LABELS: Record<FaultType, string> = {
+  SLG: "Single line-to-ground",
+  LL: "Line-to-line",
+  LLG: "Double line-to-ground",
+  LLL: "Three-phase",
+  LLLG: "Three-phase-to-ground",
+  earth: "Earth fault",
+  unknown: "Unknown / unclassified",
+}
+export type FaultDimension =
+  | "electrical"
+  | "mechanical"
+  | "thermal"
+  | "environmental"
+  | "ageing"
+  | "operational"
+  | "other"
+export type FaultSeverity = "low" | "medium" | "high" | "critical"
+
+/** One catalogued failure mode for a feature class (faults.fault_modes) -- the
+ * class-aware "cause" picker behind the fault form. `code` is what a logged fault
+ * stores in fault_mode; dimension/typical_cause/effect/severity are the light
+ * FMEA payload shown as helper text. */
+export interface FaultMode {
+  id: string
+  feature_class_code: string
+  code: string
+  label: string
+  dimension: FaultDimension
+  typical_cause: string | null
+  effect: string | null
+  severity: FaultSeverity
+  sort_order: number
+  active: boolean
+}
+
+/** The failure modes catalogued for a feature class, in display order. Empty for
+ * an uncatalogued class -- the form then relies on the free-text cause. Cached
+ * long: the catalog changes rarely (admin edits). includeInactive adds retired
+ * modes (the admin editor); the picker omits it. */
+export function useFaultModes(featureClass: string | undefined, includeInactive = false) {
+  return useQuery({
+    queryKey: ["faults", "modes", featureClass ?? "", includeInactive],
+    queryFn: () =>
+      apiFetch<{ fault_modes: FaultMode[] }>(
+        `/faults/modes?asset_class=${encodeURIComponent(featureClass!)}${includeInactive ? "&include_inactive=true" : ""}`,
+      ),
+    enabled: !!featureClass,
+    staleTime: 5 * 60_000,
+  })
+}
+
+// --- Fault-mode catalogue admin (metadata:write) ---------------------------
+
+/** Create/update body for a catalogue entry. feature_class_code + code are
+ * required on create and fixed thereafter; the rest are the FMEA payload. */
+export interface FaultModeBody {
+  feature_class_code?: string
+  code?: string
+  label: string
+  dimension: FaultDimension
+  typical_cause?: string | null
+  effect?: string | null
+  severity: FaultSeverity
+  sort_order: number
+  active?: boolean
+}
+
+function useFaultModesMutation<TBody>(fn: (body: TBody) => Promise<unknown>) {
+  const queryClient = useQueryClient()
+  return useMutation<unknown, ApiError, TBody>({
+    mutationFn: fn,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["faults", "modes"] }),
+  })
+}
+
+export function useCreateFaultMode() {
+  return useFaultModesMutation<FaultModeBody>((body) =>
+    apiFetch("/faults/modes", { method: "POST", body: JSON.stringify(body) }),
+  )
+}
+
+export function useUpdateFaultMode() {
+  return useFaultModesMutation<{ id: string; body: FaultModeBody }>(({ id, body }) =>
+    apiFetch(`/faults/modes/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  )
+}
+
+export function useDeleteFaultMode() {
+  return useFaultModesMutation<string>((id) => apiFetch(`/faults/modes/${id}`, { method: "DELETE" }))
+}
+
 /** One electrical fault event (faults.fault_events). asset_class/asset_id name
  * the affected feature (both null when the fault is anchored only by a location
  * pin or the incident it caused). incident_id links the OMS outage it caused;
@@ -23,6 +118,7 @@ export interface FaultEvent {
   longitude: number | null
   latitude: number | null
   fault_type: FaultType | null
+  fault_mode: string | null
   cause: string | null
   fault_current_a: number | null
   protective_device_class: string | null
@@ -203,6 +299,7 @@ export interface CreateFaultBody {
   longitude?: number
   latitude?: number
   fault_type?: FaultType
+  fault_mode?: string
   cause?: string
   fault_current_a?: number
   protective_device_class?: string
@@ -226,6 +323,7 @@ export function useCreateFault() {
 export interface UpdateFaultBody {
   reference?: string
   fault_type?: FaultType
+  fault_mode?: string
   cause?: string
   fault_current_a?: number
   protective_device_class?: string

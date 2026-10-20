@@ -38,6 +38,15 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/audit/reconcile", reconcileHandler(db))
 	r.Get("/issues", issuesListHandler(db))
 	r.Patch("/issues/{id}", issuePatchHandler(db))
+	// The completeness / business-rule catalog behind the attribute audit (rules.go,
+	// migration 0155). GET lists a class's rules; the write verbs maintain the
+	// catalog and escalate in-handler to metadata:write (admin policy), like the
+	// cost/curve/fault-mode catalogs. Static "/rules..." routes match ahead of the
+	// "/{id}" connection-revoke below.
+	r.Get("/rules", rulesListHandler(db))
+	r.Post("/rules", ruleCreateHandler(db))
+	r.Patch("/rules/{id}", ruleUpdateHandler(db))
+	r.Delete("/rules/{id}", ruleDeleteHandler(db))
 	r.Delete("/{id}", revokeHandler(db))
 	return r
 }
@@ -92,7 +101,7 @@ func auditHandler(db *bun.DB) http.HandlerFunc {
 			}
 		}
 
-		report, err := AuditConnectivity(r.Context(), db, in)
+		report, err := AuditAll(r.Context(), db, in)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -171,7 +180,7 @@ func reconcileHandler(db *bun.DB) http.HandlerFunc {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 
 		in := AuditInput{ToleranceMeters: req.ToleranceM, MaxFindings: req.MaxFindings, FeatureIDs: req.FeatureIDs}
-		report, err := AuditConnectivity(r.Context(), db, in)
+		report, err := AuditAll(r.Context(), db, in)
 		if err != nil {
 			writeError(w, err)
 			return

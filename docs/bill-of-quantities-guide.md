@@ -12,7 +12,9 @@ This guide has two audiences that meet in the middle. **Estimators and planners*
 
 ## Chapter 1 — What the Bill of Quantities is
 
-A Bill of Quantities answers a deceptively simple question: *"what is in this part of the network, and what would it cost?"* VoltEdge builds it directly from the live model — no spreadsheet, no separate asset register. You pick a **scope** (what to count), the tool rolls the scoped features up into quantities, multiplies each quantity by a **catalog rate**, and hands back a grouped, totalled schedule you can read on screen or export.
+A Bill of Quantities answers a deceptively simple question: *"what is in this part of the network, and what would it cost?"* VoltEdge builds it directly from the live model — no spreadsheet to maintain by hand. You pick a **scope** (what to count), the tool rolls the scoped features up into quantities, multiplies each quantity by a **catalog rate**, and hands back a grouped, totalled schedule you can read on screen or export.
+
+The same panel has a second mode. Where the Bill of Quantities **rolls the scope up** into priced buckets, the **Asset Register** (Chapter 8) lists the **individual assets** — one row per feature — as a spreadsheet, optionally valued through the same catalog. Same scope, same read-scoping; a roll-up for costing, an itemised register for inventory. Reach it with the **Priced schedule / Asset register** toggle at the top of the panel.
 
 Two ideas are worth holding from the start:
 
@@ -277,9 +279,9 @@ not (§2.3).
 
 A few things worth knowing at the edges:
 
-- **Pricing from an agent.** The BoQ engine is exposed as the **`run_bill_of_quantities`** MCP tool (gated `features:read`), so an AI assistant can price a scope and read back the same grouped schedule the panel shows. The catalog-administration side (currencies, rates, overrides) is **not** in MCP — it stays a deliberate admin-screen action.
+- **Pricing from an agent.** The BoQ engine is exposed as the **`run_bill_of_quantities`** MCP tool, and the register as **`run_asset_register`** (both gated `features:read`), so an AI assistant can price a scope or pull the itemised register and read back the same data the panel shows. The catalog-administration side (currencies, rates, overrides) is **not** in MCP — it stays a deliberate admin-screen action.
 - **Scopes the panel doesn't surface yet.** The engine also supports **radius** and **bounding-box** spatial scopes. They are reachable through the API but not wired into the panel, because they need a map draw/point gesture that isn't built. The four scopes in Chapter 2 are what the UI offers today.
-- **What's planned, not built.** Server-side CSV/XLSX export and a per-assembly Bill of Materials are the next slice; today's exports are the client-side PDF and CSV in Chapter 2.
+- **What's planned, not built.** A per-assembly Bill of Materials is the next slice. The server-side spreadsheet export *has* landed — it is the Asset Register's multi-sheet **XLSX** (Chapter 8), built asynchronously and stored in RustFS; the priced schedule's own exports stay the client-side PDF and CSV of Chapter 2.
 
 ### 7.1 The request, field by field
 
@@ -309,6 +311,62 @@ The REST route is one read-only `POST /boq`:
 
 ---
 
+## Chapter 8 — The Asset Register
+
+🔒 *Needs `features:read` — the same gate as the priced schedule. Valuation (below) reads the same catalog, still only `features:read`.*
+
+The Bill of Quantities answers *"what would this cost?"* by rolling a scope up into priced buckets. The **Asset Register** answers the sibling question — *"what are the individual assets, one by one?"* — over the **same scope**, as a spreadsheet. It is the per-feature view: one row per feature, not a `class × subtype × material` bucket. Use it for an inventory handoff, a field audit list, a fixed-asset register, or any time you need the assets themselves rather than their costed total.
+
+### 8.1 Running it (▶)
+
+**1. Switch mode.** At the top of the Bill of Quantities panel, the **Priced schedule / Asset register** toggle flips the output. All the scope controls are shared — pick **Whole network / Territory / Current selection / Trace result** exactly as in Chapter 2.
+
+**2. (Optional) Value the assets.** Tick **Include valuation** to add a cost to every row. Off by default: the register is a plain inventory unless you ask for money. With it on, a **Currency** dropdown appears (once you've built the register) just like the schedule's.
+
+**3. Build register.** The itemised table appears: one row per asset, grouped by class, with a count and — when valued — a total. The on-screen table is a compact preview; the full column set ships in the exports.
+
+**4. Export.** Two buttons, two different forms:
+
+| Button | Form | How it's produced |
+| --- | --- | --- |
+| **CSV** | A **flat** sheet — every class in one table, a common column set | Built in the browser, downloads instantly |
+| **XLSX** | A **workbook with one sheet per class**, each carrying that class's *full* attribute columns | Built **asynchronously** on the server and stored in RustFS; it downloads when ready (§8.4) |
+
+💡 Reach for **CSV** for a quick, uniform dump across classes; reach for **XLSX** when you want each class's own attributes (a transformer's rating, a conductor's voltage) in proper Excel tabs.
+
+### 8.2 The columns
+
+The flat **CSV** carries a common set present on every class: *Asset ID, Class, Subtype, Name, Status, Material, Quantity, Unit, Longitude, Latitude, To longitude, To latitude, Territory, Circuit, Ownership, External refs, Created* — plus *Unit cost, Value, Priced* when valuation is on. The per-class **XLSX** leads with the same context columns and then adds **every attribute field of that class**, in the admin-set field order, as its own column (numeric fields come through as real numbers Excel can sum).
+
+**Coordinates, by geometry.** A **point** asset reports its own longitude/latitude. A **line** asset (a conductor, a cable) reports its **two endpoints** — *From* and *To* — rather than a single centroid, which would misrepresent a span; its **Length (km)** is a column too. A **polygon** (a land parcel, an easement) reports a representative interior point. (The on-screen table shows a point's location, or a line's `start → end`.)
+
+### 8.3 Valuation (∑)
+
+When **Include valuation** is on, each row is priced through the **exact same path** as the Bill of Quantities — per-feature override, else the material/catalog rate, else *unpriced* (see §3.4) — so an Asset Register's values **reconcile with a priced schedule** for the same scope. Each valued row carries its **Unit cost**, its **Value** (unit cost × quantity, where a line's quantity is its length), and a **Priced** marker of `catalog`, `override` or `unpriced`. A total sits under the valued register. With valuation off, none of those columns appear and no catalog is read.
+
+### 8.4 How the XLSX is built — the async job
+
+The CSV is instant and local. The **XLSX is a background job**, for the same reason a large geographic export is: a whole-network register across many classes can be big and slow to build, and you shouldn't hold an HTTP request open for it.
+
+- Pressing **XLSX** **enqueues** a job and the button shows **Building…**. The panel then **polls** until the job finishes and the workbook **downloads on its own** — no second click.
+- A **worker** builds the file and stores it in **RustFS** (the object store), then hands back a short-lived **presigned link**; the bytes come straight from the store, never back through the app.
+- The register is built **as you** — the worker reconstructs your permissions and territory scope, so an asynchronously-built register contains exactly what you could see building it live. 🗺️ Your scope still applies.
+- ⚠️ **The export worker must be running** (the same `exportworker` that serves geographic exports). Without it, a register job sits queued and the button spins until it times out. A failed build surfaces its reason as a toast.
+- Finished register files are **reaped by the same retention sweep** as exports, so the store doesn't grow without bound. They live under the `asset-registers/` prefix of the export bucket — browsable in the RustFS console if you administer the store.
+
+### 8.5 From an agent
+
+The register is the **`run_asset_register`** MCP tool (`features:read`): an assistant can pull the itemised rows for a scope, with the same `include_valuation` option, and read them back as JSON. (The XLSX workbook itself is a UI/stored-file artifact, not an MCP return.)
+
+### 8.6 Honest limits
+
+- ⚠️ The XLSX needs the **export worker**; the CSV never does.
+- The register obeys the **same visibility filters** as the schedule (§2.2): soft-delete, territory read-enforcement, private drafts. Two people can export "the whole network" and get different row counts.
+- Coded (domain) fields in the XLSX show their **code**, not the human label — fine for downstream processing, one level removed from the on-screen label.
+- A register is **capped** at a large row limit to stay bounded; an enormous whole-network scope is better narrowed by territory or trace first.
+
+---
+
 ## Appendix — Quick reference
 
 **Permissions.** Run a BoQ: `features:read`. Administer the catalog (currencies, rates) and set per-feature overrides: `metadata:write` (which the `/admin` metadata screens gate on for reading too).
@@ -326,3 +384,5 @@ The REST route is one read-only `POST /boq`:
 **Why is something Unpriced?** No rate resolved through the precedence chain (§3.4) — or a rate exists but has the wrong unit basis for the class geometry (§3.5): the conductor's material has no `cost_per_km` and the class has no `per_km` fallback, or the discrete asset's class has neither a matching-subtype rate nor a class default. Add the missing rate (or an override) and re-price.
 
 **Grounded in the code.** Engine: [api/internal/boq](api/internal/boq/) and [api/internal/crud/boq.go](api/internal/crud/boq.go). Catalog metadata & migrations: `migrations/0127_create_cost_rates_and_currencies.sql`, `migrations/0128_create_feature_cost_overrides.sql`. UI: [web/src/components/map/boq-panel.tsx](web/src/components/map/boq-panel.tsx), [web/src/routes/admin-cost-catalog.tsx](web/src/routes/admin-cost-catalog.tsx), the per-feature override in [web/src/components/map/feature-panel.tsx](web/src/components/map/feature-panel.tsx), and the PDF writer [web/src/lib/boq-print.ts](web/src/lib/boq-print.ts).
+
+**Asset register (Chapter 8).** Engine: [api/internal/boq/register.go](api/internal/boq/register.go) (+ the per-feature scans in [api/internal/crud/asset_register.go](api/internal/crud/asset_register.go)). Spreadsheet writer (dependency-free): [api/internal/xlsx](api/internal/xlsx/). The async XLSX rides the shared export queue — enqueue + poll in [api/internal/boq/handler.go](api/internal/boq/handler.go), the job kind + builder injection in [api/internal/export/assetregister.go](api/internal/export/assetregister.go) and `migrations/0153_add_export_jobs_asset_register.sql`, built by the `exportworker`. MCP: `run_asset_register` in [api/internal/agenttools](api/internal/agenttools/). UI is the register mode of [web/src/components/map/boq-panel.tsx](web/src/components/map/boq-panel.tsx).

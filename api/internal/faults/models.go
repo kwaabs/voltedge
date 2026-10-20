@@ -59,6 +59,7 @@ type FaultEvent struct {
 	Longitude             *float64   `bun:"longitude,scanonly" json:"longitude"`
 	Latitude              *float64   `bun:"latitude,scanonly" json:"latitude"`
 	FaultType             *string    `bun:"fault_type" json:"fault_type"`
+	FaultMode             *string    `bun:"fault_mode" json:"fault_mode"`
 	Cause                 *string    `bun:"cause" json:"cause"`
 	FaultCurrentA         *float64   `bun:"fault_current_a" json:"fault_current_a"`
 	ProtectiveDeviceClass *string    `bun:"protective_device_class" json:"protective_device_class"`
@@ -75,4 +76,23 @@ type FaultEvent struct {
 	Notes                 *string    `bun:"notes" json:"notes"`
 	CreatedAt             time.Time  `bun:"created_at" json:"created_at"`
 	UpdatedAt             time.Time  `bun:"updated_at" json:"updated_at"`
+}
+
+// FaultMode mirrors faults.fault_modes -- one failure mode a given feature class
+// can exhibit (migration 0154), the per-class FMEA catalog behind the fault
+// form's class-aware cause picker. Dimension/TypicalCause/Effect/Severity are the
+// light FMEA payload; Code is what FaultEvent.FaultMode stores.
+type FaultMode struct {
+	bun.BaseModel `bun:"table:faults.fault_modes"`
+
+	ID               string `bun:"id,pk" json:"id"`
+	FeatureClassCode string `bun:"feature_class_code" json:"feature_class_code"`
+	Code             string `bun:"code" json:"code"`
+	Label            string `bun:"label" json:"label"`
+	Dimension        string `bun:"dimension" json:"dimension"`
+	TypicalCause     *string `bun:"typical_cause" json:"typical_cause"`
+	Effect           *string `bun:"effect" json:"effect"`
+	Severity         string `bun:"severity" json:"severity"`
+	SortOrder        int    `bun:"sort_order" json:"sort_order"`
+	Active           bool   `bun:"active" json:"active"`
 }

@@ -277,7 +277,7 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
   <div class="rail-in">
     <div class="brand"><span class="dot"></span>Everyday Ops</div>
     <div class="chaps" id="chaps">
-      <a href="#c1">1 · Map &amp; tools</a><a href="#c2">2 · Find &amp; open</a><a href="#c3">3 · Create</a><a href="#c4">4 · Attributes</a><a href="#c5">5 · Geometry</a><a href="#c6">6 · Measure</a><a href="#c7">7 · Snap</a><a href="#c8">8 · Connect</a><a href="#c9">9 · Annotate</a><a href="#c10">10 · Yours &amp; unstuck</a><a href="#c11">11 · Attach &amp; query</a>
+      <a href="#c1">1 · Map &amp; tools</a><a href="#c2">2 · Find &amp; open</a><a href="#c3">3 · Create</a><a href="#c4">4 · Attributes</a><a href="#c5">5 · Geometry</a><a href="#c6">6 · Measure</a><a href="#c7">7 · Snap</a><a href="#c8">8 · Connect</a><a href="#c9">9 · Annotate</a><a href="#c10">10 · Yours &amp; unstuck</a><a href="#c11">11 · Attach &amp; query</a><a href="#c11b">11b · Land</a>
     </div>
     <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
   </div>
@@ -1641,6 +1641,58 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
     <tr><td>See a feature's photos/documents</td><td>Open it → <b>Files</b> tab (read-only)</td></tr>
     <tr><td>Attach or delete files</td><td><b>Files</b> → <b>Manage files</b> → Upload / trash (needs <code>attachments:write</code>)</td></tr>
   </table></div>
+</section>
+
+<!-- ============ C11b — LAND & SPATIAL ============ -->
+<section class="ch" id="c11b">
+  <div class="ch-head"><div class="ch-num">11b</div><h2>Land, easements &amp; vegetation</h2><p>Record the land the network crosses — then let the geometry answer “what’s inside this easement?”, “what covers this pole?”, “which trees breach clearance?”.</p></div>
+
+  <div class="pl-b"><span class="tag pl">In plain terms</span>
+  <p>Four polygon classes record land and greenery: <b>Land Parcel</b>, <b>Easement</b>, <b>Utility Corridor</b> and <b>Vegetation Zone</b>. You draw them like any feature. The clever part is the <b>Land use</b> tab on the feature panel: it reads the <em>shapes</em> — so a pole never has to be <i>linked</i> to an easement for “is it on one?” to have an answer — and turns vegetation that is too close into a <b>trim job</b>.</p></div>
+
+  <h3>11b.1 Turn the classes on — once 🔧</h3>
+  <p>The four classes ship <b>switched off</b> (status <code>draft</code>). An administrator enables them once:</p>
+  <div class="tbl"><table>
+    <tr><th>Step</th><th>Where</th></tr>
+    <tr><td>Apply the land seed, then compile each class (fields become real columns)</td><td>server: <code>task compile CODE=EASEMENT</code> (and <code>LAND_PARCEL</code>, <code>UTILITY_CORRIDOR</code>, <code>VEGETATION_ZONE</code>)</td></tr>
+    <tr><td>Publish each class so it appears on the map</td><td><b>/admin → feature classes</b> → set status <b>active</b> (<span class="perm">metadata:write</span>)</td></tr>
+  </table></div>
+  <div class="caution"><b>Until published they’re invisible</b> — a draft class doesn’t show in the <b>New feature</b> menu and can’t be drawn. If you can’t find “Easement” in the menu, it hasn’t been published yet.</div>
+
+  <h3>11b.2 Draw a land feature ✏️</h3>
+  <p>Exactly the create flow from Chapter 3, with a polygon: <b>New feature</b> → pick <b>Easement / Land Parcel / Utility Corridor / Vegetation Zone</b> → trace the boundary → fill the form (<span class="perm">features:write</span>). Move, reshape and delete them with the Chapter 5 geometry tools.</p>
+  <div class="tip"><b>Fill the dates</b> — an <b>Easement</b>’s <code>expiry_date</code> and a <b>Vegetation Zone</b>’s <code>last_trimmed</code> + <code>trim_cycle_months</code> are what power the due badges in §11b.5. The clearance scan (§11b.4) reads each conductor’s <code>voltage_class</code>, so make sure your lines carry it.</div>
+
+  <h3>11b.3 Ask the geometry — the Land use tab 🗺️</h3>
+  <p>Open <em>any</em> feature → the <b>Land use</b> tab → pick a mode. It runs across every feature with a shape, from the geometry alone (<span class="perm">features:read</span>):</p>
+  <div class="tbl"><table>
+    <tr><th>Mode</th><th>Select this…</th><th>…to get</th></tr>
+    <tr><td><b>Overlapping</b></td><td>anything</td><td>everything whose shape touches it</td></tr>
+    <tr><td><b>Inside this</b></td><td>an easement / corridor / parcel</td><td>the assets inside it</td></tr>
+    <tr><td><b>Covering this</b></td><td>a pole / conductor</td><td>the easements &amp; parcels over it</td></tr>
+    <tr><td><b>Nearby</b></td><td>anything (+ a distance)</td><td>features within N metres, nearest first</td></tr>
+  </table></div>
+  <p>Click a result to open it; hover to flash it on the map.</p>
+
+  <h3>11b.4 Vegetation clearance → a trim job 🌳</h3>
+  <p>Select a <b>conductor</b> → the Land use tab shows <b>Vegetation clearance</b>: the trees inside the clearance its <em>voltage</em> requires (11 kV wants more room than 400 V). Toggle <b>This conductor / Whole feeder</b> to widen the scan. On a breach, <b>Raise trim order</b> (<span class="perm">wam:write</span>) drops a work order onto the <b>WAM board</b> — detect to dispatch in one click; the row then shows <b>✓ order raised</b>.</p>
+  <div class="story"><span class="who">Worked example · Dana</span>A storm forecast lands. Dana opens the Feeder 7 trunk, switches the clearance scan to <b>Whole feeder</b>, and sees three oaks breaching the 2.5 m an 11 kV line needs — one at 0.4 m (flagged <b>urgent</b>). She clicks <b>Raise trim order</b> on each; the crew picks them off the WAM board that afternoon.</div>
+
+  <h3>11b.5 Stay ahead — expiry &amp; trim badges ⏰</h3>
+  <p>Open an <b>Easement</b> or a <b>Vegetation Zone</b> and the Land use tab shows a due badge from its own dates: <i>“expires in 40 days” / “expired 12 days ago”</i>, <i>“trim overdue by 25 days”</i> (red / amber / muted). The whole-network lists — every expiring easement, every overdue trim — are available to the assistant and the API (tools <code>easements_expiring</code>, <code>vegetation_trim_due</code>).</p>
+
+  <h3>11b.6 One-card recap</h3>
+  <div class="tbl"><table>
+    <tr><th>I want to…</th><th>Do this</th></tr>
+    <tr><td>Use the land classes at all</td><td>Admin: compile + <b>publish</b> them (/admin, draft → active)</td></tr>
+    <tr><td>Record an easement / parcel / corridor / vegetation</td><td><b>New feature</b> → pick the class → draw the polygon → fill the form</td></tr>
+    <tr><td>See what’s inside an easement</td><td>Open it → <b>Land use</b> tab → <b>Inside this</b></td></tr>
+    <tr><td>See what land covers a pole</td><td>Open the pole → <b>Land use</b> → <b>Covering this</b></td></tr>
+    <tr><td>Find trees too close to a line / feeder</td><td>Open a conductor → <b>Land use</b> → <b>Vegetation clearance</b> (toggle Whole feeder)</td></tr>
+    <tr><td>Send a crew to trim</td><td>On a breach → <b>Raise trim order</b> (needs <code>wam:write</code>) → WAM board</td></tr>
+    <tr><td>Know what’s expiring / overdue</td><td>Open the easement/vegetation → the <b>Land use</b> badge; whole lists via the assistant/API</td></tr>
+  </table></div>
+  <div class="en-b"><span class="tag en">Go deeper</span><p>The <b>Land &amp; Spatial Management</b> guide (and its hands-on interactive) covers the engine end to end — the four modes with their PostGIS predicates, the per-voltage clearance rule, and the due queries.</p></div>
 </section>
 
 <!-- ============ QUIZ & CLOSE ============ -->

@@ -14,6 +14,7 @@ import { DigitizeCommitter } from "@/components/map/digitize-committer"
 import { ExportDialog } from "@/components/map/export-dialog"
 import { ExportJobsPanel } from "@/components/map/export-jobs-panel"
 import { FaultCurrentPanel } from "@/components/map/fault-current-panel"
+import { FaultLocationPanel } from "@/components/map/fault-location-panel"
 import { FeaturePanel } from "@/components/map/feature-panel"
 import { FeatureQueryPanel } from "@/components/map/feature-query-panel"
 import { TerritoryExplorerPanel } from "@/components/map/territory-explorer-panel"
@@ -330,6 +331,7 @@ export function MapPage() {
       <TracePathBanner />
       <LoadFlowPanel />
       <FaultCurrentPanel />
+      <FaultLocationPanel />
       <AmpacityPanel />
       <CoordinationPanel />
       <VoltageProfilePanel />

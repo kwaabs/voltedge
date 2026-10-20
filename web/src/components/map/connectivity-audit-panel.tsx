@@ -182,6 +182,9 @@ function IssueRow({
       <div className="flex flex-wrap items-center gap-1 pl-1">
         <FeatureChip code={issue.from_class} id={issue.from_id} diagramOnly={isDiagramOnly(issue.from_class)} classNameFor={classNameFor} />
         <FeatureChip code={issue.to_class} id={issue.to_id} diagramOnly={isDiagramOnly(issue.to_class)} classNameFor={classNameFor} />
+        <span className="bg-muted/60 text-muted-foreground rounded px-1 py-0.5 text-[10px]">
+          {issue.kind.startsWith("attr_") ? "data quality" : "connectivity"}
+        </span>
         {issue.status === "acknowledged" && <span className="text-muted-foreground text-[11px]">· acknowledged</span>}
         {issue.status === "suppressed" && <span className="text-muted-foreground text-[11px]">· suppressed</span>}
         <div className="ml-auto flex items-center gap-0.5">
@@ -218,10 +221,17 @@ function IssueQueue({
 }) {
   const [status, setStatus] = useState<IssueStatusFilter>("")
   const [severity, setSeverity] = useState<IssueSeverityFilter>("")
+  // Category splits the queue by what the check is about: connectivity findings
+  // (orphaned/coincident/…) vs data-quality findings (the attr_* attribute audit).
+  const [category, setCategory] = useState<"" | "connectivity" | "quality">("")
   const { data, isLoading, isError } = useValidationIssues({ status, severity })
   const triage = useTriageIssue()
   const reconcile = useReconcileIssues()
-  const issues = data?.issues ?? []
+  const allIssues = data?.issues ?? []
+  const issues = allIssues.filter((it) => {
+    const isQuality = it.kind.startsWith("attr_")
+    return category === "" || (category === "quality") === isQuality
+  })
   const live = status === ""
 
   return (
@@ -253,6 +263,26 @@ function IssueQueue({
             )}
           >
             {s === "" ? "Any" : s}
+          </button>
+        ))}
+        <span className="text-muted-foreground mr-0.5 ml-2">Kind</span>
+        {(
+          [
+            ["", "All"],
+            ["connectivity", "Connectivity"],
+            ["quality", "Data quality"],
+          ] as const
+        ).map(([val, label]) => (
+          <button
+            key={val || "all"}
+            type="button"
+            onClick={() => setCategory(val)}
+            className={cn(
+              "cursor-pointer rounded px-1.5 py-0.5",
+              category === val ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70",
+            )}
+          >
+            {label}
           </button>
         ))}
         <Button

@@ -723,6 +723,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/cost_catalog_example.sql
 
+  seed-fault-modes:
+    desc: Load the per-feature-class FAILURE-MODE (FMEA) catalog for fault logging (faults.fault_modes -- the class-aware cause picker, ~400 modes across all 63 classes, each with dimension/typical cause/effect/severity) through the gitbash sidecar (requires migration 0154 first; no compile -- pure faults-schema reference data, idempotent via ON CONFLICT DO UPDATE)
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/fault_modes_catalog.sql
+
   seed-boundary-roles:
     desc: Stamp feature_classes.boundary_role (network-sectioning taxonomy source/protective/switching/transformer; migration 0129) onto today's classes through the gitbash sidecar -- the backbone of network labelling / subnetworks (requires migration 0129 first; no compile -- pure class metadata, idempotent)
     cmds:

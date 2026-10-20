@@ -3,6 +3,7 @@ package connectivity
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -58,6 +59,11 @@ func fingerprintFor(f AuditFinding) string {
 			a, b = b, a
 		}
 		return "cu:" + a + "|" + b
+	}
+	// A data-quality finding is one per (feature, field, rule) -- its feature id
+	// and field make it stable across runs, so fixing the field auto-resolves it.
+	if strings.HasPrefix(f.Kind, "attr_") {
+		return f.Kind + ":" + f.FromID + ":" + f.Field
 	}
 	return f.Kind + ":" + f.ConnectionID
 }

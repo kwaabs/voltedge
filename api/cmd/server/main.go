@@ -401,7 +401,7 @@ func main() {
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermMetadataWrite)).Mount("/curves", powerflow.CatalogRoutes(db))
 	// Bill of Quantities: a priced schedule over a scope. Read-only, reads feature
 	// quantities (like /aggregate) -- gated on features:read.
-	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/boq", boq.Routes(db))
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/boq", boq.Routes(db, exportStore))
 	// Phase 19: the in-app AI assistant's backend (docs/phase-19-assistant.md).
 	// Only RequireAuth here, not a single RBAC gate -- /assistant/suggestions
 	// reads two capabilities at once (connectivity + relationships) and gates
