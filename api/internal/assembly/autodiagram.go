@@ -21,6 +21,12 @@ var assemblyDiagramTemplates = map[string]string{
 	"PAD_MOUNT_URD":        "Pad-mount transformer + feeder pillar (URD)",
 	"WAYS_4":               "Feeder pillar — 4-way",
 	"WAYS_6":               "Feeder pillar — 6-way",
+	// Nested packed station (seed/packed_station_assembly.sql). Fixed and mobile
+	// share one single-line each -- the enclosure tenure doesn't change the kit.
+	"PACKED_RMU_FIXED":     "Packed station — RMU + transformer + pillar",
+	"PACKED_RMU_MOBILE":    "Packed station — RMU + transformer + pillar",
+	"PACKED_XFMR_FIXED":    "Packed station — transformer + pillar",
+	"PACKED_XFMR_MOBILE":   "Packed station — transformer + pillar",
 }
 
 // buildAutoDiagram stands up the kit's single-line right after a successful
