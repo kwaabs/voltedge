@@ -233,12 +233,17 @@ function IssueQueue({
   const { data, isLoading, isError } = useValidationIssues({ status, severity })
   const triage = useTriageIssue()
   const reconcile = useReconcileIssues()
-  // Reconcile + triage WRITE to the queue (connectivity:commit); they appear only
-  // in edit mode (S4). Viewing the queue stays open in view mode. Both hooks run
-  // unconditionally, then combine (rules of hooks).
+  // Two tiers of write on the queue, both requiring connectivity:commit:
+  //  - TRIAGE (acknowledge/resolve/suppress/re-open) is queue CURATION -- it only
+  //    changes an issue's status, never a feature -- so it's available in view mode
+  //    too (you work the queue as you read it).
+  //  - RECONCILE re-runs the audit and rewrites the queue (maintenance), so it stays
+  //    edit-mode-only, alongside the destructive Cleanup in the Run-audit tab.
+  // Both hooks run unconditionally, then combine (rules of hooks).
   const editMode = useEditModeStore((s) => s.editMode)
   const canCommitPerm = usePermission()("connectivity:commit")
-  const canCommit = editMode && canCommitPerm
+  const canTriage = canCommitPerm
+  const canReconcile = editMode && canCommitPerm
   const allIssues = data?.issues ?? []
   const issues = allIssues.filter((it) => {
     const isQuality = it.kind.startsWith("attr_")
@@ -297,7 +302,7 @@ function IssueQueue({
             {label}
           </button>
         ))}
-        {canCommit && (
+        {canReconcile && (
           <Button
             size="sm"
             variant="outline"
@@ -333,7 +338,7 @@ function IssueQueue({
                 isDiagramOnly={isDiagramOnly}
                 onTriage={(s) => triage.mutate({ id: it.id, status: s })}
                 busy={triage.isPending}
-                canTriage={canCommit}
+                canTriage={canTriage}
               />
             ))}
           </ul>
