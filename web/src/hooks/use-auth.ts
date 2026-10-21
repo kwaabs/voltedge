@@ -15,7 +15,19 @@ export interface SessionUser {
   display_name: string
   break_glass: boolean
   permissions: string[]
+  /** True when the user has at least one report down the manager tree. Drives
+   * supervisor-scoped views (e.g. the edit-session audit a non-admin supervisor
+   * may see for their own reports). */
+  is_supervisor: boolean
 }
+
+/**
+ * A derived UI capability (not an RBAC grant): who may open the Edit Sessions
+ * audit. Admins (admin:users) and break-glass see everyone; a supervisor sees
+ * their own + subordinates'. Injected into the permission set below so the nav
+ * and route gate on it uniformly; the server still enforces the real scope.
+ */
+export const CAP_VIEW_EDIT_SESSIONS = "edit-sessions:view"
 
 /** One SSO button the login screen should offer (GET /auth/providers). */
 export interface AuthProvider {
@@ -109,5 +121,11 @@ export function useLogout() {
 export function usePermission() {
   const { data } = useSession()
   const set = new Set(data?.permissions ?? [])
+  // Derived UI capability (see CAP_VIEW_EDIT_SESSIONS): admin / break-glass /
+  // supervisor may open the edit-session audit. Added to the set so the nav and
+  // route gate on one string; the server re-checks and scopes the rows.
+  if (set.has("admin:users") || data?.break_glass || data?.is_supervisor) {
+    set.add(CAP_VIEW_EDIT_SESSIONS)
+  }
   return (perm: string) => set.has(perm)
 }

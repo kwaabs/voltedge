@@ -1,0 +1,428 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Asset Lifecycle &amp; Aging</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:16px/1.62 var(--f-body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(26px,4vw,38px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+h3{font-size:20px;font-weight:700;font-stretch:92%;margin-top:32px}
+h4{font-size:15px;font-weight:700;letter-spacing:.02em}
+p,li{max-width:70ch}
+p{margin:12px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+a{color:var(--acc-deep)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1040px;margin:0 auto;padding:8px 20px;display:flex;gap:12px;align-items:center}
+.chaps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
+.chaps::-webkit-scrollbar{display:none}
+.chaps a{font:500 12px/1 var(--f-mono);color:var(--muted);text-decoration:none;padding:7px 9px;border-radius:4px;white-space:nowrap}
+.chaps a:hover,.chaps a.on{color:var(--ink);background:var(--line2)}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+
+.hero{padding-block:48px 26px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(38px,6vw,68px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.95}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:18px;color:var(--muted);margin-top:16px;max-width:62ch}
+
+.tag{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:3px;margin-bottom:8px}
+.tag.pl{background:var(--tint);color:var(--acc-deep)}
+.tag.en{background:var(--blue-tint);color:var(--blue)}
+.pl-b,.en-b{border-radius:7px;padding:14px 18px;margin:18px 0;max-width:78ch}
+.pl-b{background:var(--tint);border:1px solid color-mix(in srgb,var(--acc) 30%,transparent)}
+.en-b{background:var(--surface);border:1px solid var(--line)}
+.pl-b>*:last-child,.en-b>*:last-child{margin-bottom:0}
+.tip,.caution{border-radius:6px;padding:10px 14px;margin:16px 0;max-width:78ch;font-size:14.5px;border:1px solid var(--line)}
+.tip{background:var(--green-tint);border-color:color-mix(in srgb,var(--green) 35%,transparent)}
+.caution{background:var(--amber-tint);border-color:color-mix(in srgb,var(--amber) 40%,transparent)}
+.tip b:first-child,.caution b:first-child{font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+
+section.ch{padding-top:60px;scroll-margin-top:54px}
+.ch-head{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px}
+.ch-num{font:800 52px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head p{grid-column:2;margin:4px 0 0;color:var(--muted)}
+
+.callout{font-family:var(--f-display);font-stretch:95%;font-size:20px;line-height:1.35;font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin:26px 0;max-width:60ch}
+
+.tbl{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:6px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+th{font:600 11px/1.2 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.ok{color:var(--green);font-weight:700}.no{color:var(--muted)}
+
+.perm{font:600 11px var(--f-mono);background:var(--line2);padding:1px 5px;border-radius:3px;white-space:nowrap}
+
+.widget{border:1px solid var(--line);border-radius:8px;background:var(--raise);overflow:hidden;margin:24px 0}
+.w-head{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.w-head .eyebrow{color:var(--acc-deep)}
+.w-head h4{font-size:15px}
+.w-bar{padding:10px 14px;border-bottom:1px solid var(--line2);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.w-body{padding:14px;overflow-x:auto}
+.w-split{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:0}
+.w-split>.w-main{padding:14px;min-width:0;border-right:1px solid var(--line2)}
+.w-split>.w-side{padding:14px;min-width:0;font-size:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button,.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:4px;padding:6px 9px;cursor:pointer}
+.seg button:hover,.btn:hover{color:var(--ink);border-color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-deep)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.locked{opacity:.5;cursor:not-allowed;border-style:dashed}
+.lab{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.readout{font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;line-height:1.55;overflow-x:auto}
+.readout b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
+.kv dt{font:600 11px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:12.5px}
+.gate{display:inline-block;font:700 10px var(--f-mono);padding:2px 6px;border-radius:9px;background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber);margin-left:4px;letter-spacing:.03em}
+.persona{display:flex;align-items:center;gap:6px;font:600 11px var(--f-mono);white-space:nowrap}
+.persona select{font:600 11px var(--f-mono);padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
+.ctl{margin-bottom:12px}
+.ctl label{display:block;font:600 12px var(--f-mono);margin-bottom:4px}
+input[type=range]{font:500 13px var(--f-mono);accent-color:var(--acc);width:100%;padding:0}
+.switch{display:inline-flex;gap:6px;align-items:center;font:600 11.5px var(--f-mono);cursor:pointer}
+.switch input{accent-color:var(--acc)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
+.card{border:1px solid var(--line);border-radius:7px;background:var(--raise);padding:12px 14px}
+.card h4{margin-bottom:4px}
+.card p{font-size:14px;margin:6px 0}
+.big{font:800 34px/1 var(--f-display);font-stretch:80%;color:var(--acc)}
+.pill{display:inline-block;font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em}
+.pill.op{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.pill.off{background:var(--line2);color:var(--muted);border:1px solid var(--line)}
+.pill.err{background:var(--red-tint);color:var(--red);border:1px solid var(--red)}
+.pill.warn{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.quiz-q{border:1px solid var(--line);border-radius:7px;padding:12px 14px;margin:12px 0;background:var(--raise)}
+.quiz-q .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.quiz-q .fb{margin-top:8px;font-size:14px;min-height:1.2em}
+.quiz-q .fb.good{color:var(--green)} .quiz-q .fb.bad{color:var(--red)}
+/* lifecycle map preview */
+.lifemap{display:flex;flex-direction:column;gap:10px}
+.lrow{display:flex;align-items:center;gap:12px}
+.lsym{width:120px;height:0;border-top-width:4px;border-top-style:solid;position:relative}
+.lrow .meta{font:500 12.5px var(--f-mono)}
+footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:var(--muted);font-size:14px}
+[hidden]{display:none!important}
+@media (max-width:760px){
+  code{white-space:normal;overflow-wrap:anywhere}
+  .w-split{grid-template-columns:1fr}
+  .w-split>.w-main{border-right:0;border-bottom:1px solid var(--line2)}
+  .ch-num{font-size:40px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head><body>
+<nav class="rail" aria-label="Chapters">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Asset Lifecycle</div>
+    <div class="chaps" id="chaps">
+      <a href="#c1">1 · Three axes</a><a href="#c2">2 · The states</a><a href="#c3">3 · The network gate</a><a href="#c4">4 · On the map</a><a href="#c5">5 · Aging &amp; replacement</a><a href="#c6">6 · Check</a>
+    </div>
+    <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
+  </div>
+</nav>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">VoltEdge guide · asset lifecycle &amp; aging · from a line on a plan to a decommissioned relic</div>
+  <h1>Where is each asset<br><span>in its life?</span></h1>
+  <p class="lede">Every feature carries a lifecycle axis — planned, in service, derated, retired, removed. It decides what the live network <em>is</em> (planned and retired assets don't conduct), how the map reads, and what needs replacing. This edition is a working one: drive the state machine, break and heal a feeder by retiring a span, and age an asset against its expected life.</p>
+  <p class="muted" style="font-size:14px;margin-top:18px">Use <b>As</b> in the top bar. <b>Pat</b> is a planner (<span class="perm">features:write</span>) — changes an asset's lifecycle. <b>Val</b> (<span class="perm">features:read</span>) views the report but can't change a thing. <b>Ada</b> is an admin (<span class="perm">metadata:write</span>) — hers is the expected-life catalog. Controls lock to what the persona may do.</p>
+</header>
+
+<div class="en-b" style="margin-top:22px"><span class="tag en">Don't confuse the three axes</span>
+<p>VoltEdge has three "status"-shaped questions, and lifecycle is only one of them. <b>Editorial</b> <code>status</code> = draft or published. <b>Availability</b> (class status) = is this <em>class</em> still offered. <b>Lifecycle</b> <code>lifecycle_status</code> = where this <em>asset</em> is in its physical life. A feature can be a <em>published</em> draft of a <em>PLANNED</em> asset of a still-<em>offered</em> class — three independent answers.</p></div>
+
+<!-- 1 -->
+<section class="ch" id="c1">
+  <div class="ch-head"><div class="ch-num">1</div><h2>Three axes, one feature</h2><p>Lifecycle is its own axis — not the editorial or availability status. Pick one to see what it answers.</p></div>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Which "status" is this?</h4></div>
+    <div class="w-bar"><div class="seg" id="ax-seg"></div></div>
+    <div class="w-split">
+      <div class="w-main"><dl class="kv" id="ax-kv"></dl></div>
+      <div class="w-side"><div class="readout" id="ax-note"></div></div>
+    </div>
+  </div>
+  <div class="tip"><b>The tell</b> — if the question is "should this record exist?" that's delete, not lifecycle. A <code>REMOVED</code> asset is still a record (you can re-energise it); a deleted feature is gone.</div>
+</section>
+
+<!-- 2 -->
+<section class="ch" id="c2">
+  <div class="ch-head"><div class="ch-num">2</div><h2>The six states</h2><p>A coded axis on every feature, in life order. Pick a state — then move an asset and watch the dates look after themselves.</p></div>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>The lifecycle states</h4></div>
+    <div class="w-bar"><div class="seg" id="st-seg"></div></div>
+    <div class="w-split">
+      <div class="w-main"><dl class="kv" id="st-kv"></dl></div>
+      <div class="w-side"><div class="readout" id="st-note"></div></div>
+    </div>
+  </div>
+
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it · a transition</span><h4>Move the asset</h4><span style="flex:1"></span><span class="lab">now = <span id="tr-now"></span></span></div>
+    <div class="w-bar">
+      <span class="lab">To</span><div class="seg" id="tr-seg"></div>
+      <button class="btn" id="tr-reset">reset</button>
+    </div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="lab" style="margin-bottom:6px">Current record</div>
+        <dl class="kv" id="tr-kv"></dl>
+      </div>
+      <div class="w-side"><div class="readout" id="tr-note"></div></div>
+    </div>
+  </div>
+  <div class="tip"><b>One pick, dates handled</b> — moving <em>into</em> service stamps <code>commissioned_at</code> if it's blank; moving to retired/removed stamps <code>retired_at</code>. Lifecycle changes go through a dedicated path (<code>PATCH …/lifecycle</code>), recorded in the feature's history — not the generic attribute edit.</div>
+</section>
+
+<!-- 3 -->
+<section class="ch" id="c3">
+  <div class="ch-head"><div class="ch-num">3</div><h2>The network gate</h2><p>Only operational assets conduct. Retire a span and watch the downstream go dark.</p></div>
+  <p>A tiny feeder: a <b>source</b> feeds a <b>breaker</b>, a <b>line span</b>, and a <b>load</b>. Trace and power flow only follow an edge when <em>both</em> ends are live and operational (<code>IN_SERVICE</code>/<code>DERATED</code>). Set the span's lifecycle and see what still reaches the load.</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Does the load stay fed?</h4></div>
+    <div class="w-bar"><span class="lab">Span is</span><div class="seg" id="gate-seg"></div></div>
+    <div class="w-split">
+      <div class="w-main"><div id="gate-diagram" style="font:600 13px var(--f-mono);line-height:2.4"></div></div>
+      <div class="w-side"><div class="readout" id="gate-note"></div></div>
+    </div>
+  </div>
+  <div class="caution"><b>Unconditional today.</b> There's no "trace the planned network as if built" mode yet — the gate always applies. You can still select and inspect a non-operational feature; it just doesn't carry a trace onward.</div>
+</section>
+
+<!-- 4 -->
+<section class="ch" id="c4">
+  <div class="ch-head"><div class="ch-num">4</div><h2>On the map</h2><p>Non-operational assets are de-emphasised, so the live network reads clearly.</p></div>
+  <p>Operational features draw at full strength. Planned ones are <b>ghosted</b> (dashed, faint — "coming"); retired/removed ones are <b>greyed out</b> ("gone"). Flip a feature's state and watch it change:</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Lifecycle styling</h4></div>
+    <div class="w-bar"><span class="lab">A line feature is</span><div class="seg" id="map-seg"></div></div>
+    <div class="w-body"><div class="lifemap" id="map-demo"></div></div>
+  </div>
+  <div class="en-b"><span class="tag en">No extra plumbing</span><p>The map reads <code>lifecycle_status</code> straight from the vector tile — every feature column rides along in the tile already, so styling needs no new endpoint. The style function just fades the symbol for a non-operational feature (cloning the cached style first, so the shared symbology is never touched).</p></div>
+</section>
+
+<!-- 5 -->
+<section class="ch" id="c5">
+  <div class="ch-head"><div class="ch-num">5</div><h2>Aging &amp; replacement</h2><p>How close is each in-service asset to the end of its expected life? Set the numbers and watch the bucket.</p></div>
+  <p>An admin says how long a class should last (the expected-life catalog). The aging report measures each in-service asset's age against it and buckets it: <b>overdue</b>, <b>due soon</b>, or <b>ok</b>. Drive one asset:</p>
+  <div class="widget">
+    <div class="w-head"><span class="eyebrow">Try it</span><h4>Remaining useful life</h4></div>
+    <div class="w-split">
+      <div class="w-main">
+        <div class="ctl"><label>Expected life — <span id="ag-exp-v">40</span> years <span class="gate" data-need="metadata:write" id="ag-gate" hidden>catalog = metadata:write</span></label><input type="range" id="ag-exp" min="5" max="80" value="40"></div>
+        <div class="ctl"><label>Commissioned in — <span id="ag-com-v"></span></label><input type="range" id="ag-com" min="1970" max="2026" value="1990"></div>
+        <div class="ctl"><label>"Due soon" window — <span id="ag-due-v">2</span> years</label><input type="range" id="ag-due" min="0" max="10" value="2"></div>
+      </div>
+      <div class="w-side">
+        <dl class="kv" id="ag-kv"></dl>
+        <div style="margin-top:12px" id="ag-bucket"></div>
+        <div class="readout" id="ag-note" style="margin-top:10px"></div>
+      </div>
+    </div>
+  </div>
+  <div class="tip"><b>Only in-service assets age.</b> Planned ones aren't built; retired/removed ones are already handled — all excluded, the same operational set the network gate uses. A <code>subtype_code</code> of NULL is the class default; set it to override one subtype (a wood pole ≠ a steel tower).</div>
+</section>
+
+<!-- 6 -->
+<section class="ch" id="c6">
+  <div class="ch-head"><div class="ch-num">6</div><h2>Check yourself</h2><p>Six asks. Pick an answer; the reason appears either way.</p></div>
+  <div id="qz"></div>
+  <footer>
+    <p><b>VoltEdge Asset Lifecycle &amp; Aging</b> — the interactive edition. Every rule here mirrors the shipping feature; the full manual (<code>asset-lifecycle-guide.md</code>) holds the endpoint, migration and permission tables.</p>
+    <p class="muted">Companion reading: <b>Connectivity &amp; the Network Audit</b> (what conducts), <b>Engineering Studies</b> (trace &amp; power flow), and <b>Bill of Quantities</b> (the other per-asset rollup).</p>
+  </footer>
+</section>
+
+</div>
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const NOW_Y=new Date().getFullYear();
+
+/* personas */
+const PERSONAS={
+  pat:{name:'Pat',role:'Planner',perms:['features:read','features:write']},
+  val:{name:'Val',role:'Viewer',perms:['features:read']},
+  ada:{name:'Ada',role:'Admin',perms:['features:read','features:write','metadata:write']},
+};
+let persona='pat';
+const can=p=>PERSONAS[persona].perms.includes(p);
+const onPersona=[];
+(function(){ const sel=$('#persona-sel'); sel.innerHTML=Object.entries(PERSONAS).map(([k,p])=>`<option value="${k}">${p.name}</option>`).join(''); sel.value=persona; sel.onchange=()=>{ persona=sel.value; applyGates(); onPersona.forEach(f=>f()); }; })();
+function applyGates(){ $$('[data-need]').forEach(b=>{ const ok=can(b.dataset.need); if(b.tagName==='BUTTON'){ b.classList.toggle('locked',!ok); b.disabled=!ok; let g=b.nextElementSibling; if(g&&g.classList&&g.classList.contains('gate')) g.remove(); if(!ok){ const s=document.createElement('span'); s.className='gate'; s.textContent='needs '+b.dataset.need; b.after(s);} } else { b.hidden=ok; } }); }
+
+/* chapter rail highlight */
+(function(){ const links=$$('.chaps a'); const map={}; links.forEach(a=>map[a.getAttribute('href').slice(1)]=a);
+  const ob=new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting){ links.forEach(l=>l.classList.remove('on')); map[e.target.id]?.classList.add('on'); }}),{rootMargin:'-45% 0px -50% 0px'});
+  $$('section.ch').forEach(s=>ob.observe(s)); })();
+
+/* 1 · three axes */
+const AXES={
+  editorial:{label:'Editorial',col:'status',answers:'Is this a draft, or published for everyone?',values:'draft · published',setby:'Publish / unpublish',note:'The review/sign-off axis. Orthogonal to lifecycle — a PLANNED asset can be published (shared) while still only planned.'},
+  availability:{label:'Availability',col:'class status',answers:'Is this feature CLASS still offered to create?',values:'active · deprecated',setby:'Admin (class deactivation)',note:'A class-level switch, not per-feature. Retiring the LV_FUSE class is not the same as retiring one fuse.'},
+  lifecycle:{label:'Lifecycle',col:'lifecycle_status',answers:'Where is this ASSET in its physical life?',values:'planned → in service → retired → removed',setby:'The Lifecycle control (this guide)',note:'The subject of this guide. Drives what conducts, how the map reads, and the aging report. Defaults to IN_SERVICE on create.'},
+};
+(function(){ const ks=Object.keys(AXES); let cur='lifecycle';
+  $('#ax-seg').innerHTML=ks.map(k=>`<button data-k="${k}" aria-pressed="${k===cur}">${AXES[k].label}</button>`).join('');
+  function paint(){ const t=AXES[cur]; $('#ax-kv').innerHTML=`<dt>Column</dt><dd><code>${esc(t.col)}</code></dd><dt>Answers</dt><dd>${esc(t.answers)}</dd><dt>Values</dt><dd>${esc(t.values)}</dd><dt>Set by</dt><dd>${esc(t.setby)}</dd>`; $('#ax-note').textContent=t.note; $$('#ax-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur)); }
+  $('#ax-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); }; paint();
+})();
+
+/* lifecycle state model */
+const STATES=['PLANNED','UNDER_CONSTRUCTION','IN_SERVICE','DERATED','RETIRED','REMOVED'];
+const LABEL={PLANNED:'Planned',UNDER_CONSTRUCTION:'Under construction',IN_SERVICE:'In service',DERATED:'Derated',RETIRED:'Retired',REMOVED:'Removed'};
+const OPERATIONAL=new Set(['IN_SERVICE','DERATED']);
+const STATE_MEAN={
+  PLANNED:'On a plan, not yet built.',
+  UNDER_CONSTRUCTION:'Being built.',
+  IN_SERVICE:'Live and carrying load.',
+  DERATED:'In service at a reduced rating (still energised).',
+  RETIRED:'Taken out of service, still physically present.',
+  REMOVED:'Physically gone — kept as a record.',
+};
+
+/* 2 · the states */
+(function(){ let cur='IN_SERVICE';
+  $('#st-seg').innerHTML=STATES.map(s=>`<button data-k="${s}" aria-pressed="${s===cur}">${LABEL[s]}</button>`).join('');
+  function paint(){ const op=OPERATIONAL.has(cur);
+    $('#st-kv').innerHTML=`<dt>Code</dt><dd><code>${cur}</code></dd><dt>Means</dt><dd>${esc(STATE_MEAN[cur])}</dd><dt>Conducts?</dt><dd>${op?'<span class="pill op">operational</span>':'<span class="pill off">off-network</span>'}</dd>`;
+    $('#st-note').innerHTML = op
+      ? 'Operational: this asset carries current and takes part in trace &amp; power flow.'
+      : 'Not operational: trace and power flow walk neither through nor into it. It still shows on the map (de-emphasised) and stays a full record.';
+    $$('#st-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===cur)); }
+  $('#st-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; cur=b.dataset.k; paint(); }; paint();
+})();
+
+/* 2b · a transition */
+(function(){ $('#tr-now').textContent=NOW_Y;
+  const start={status:'PLANNED',commissioned_at:null,retired_at:null};
+  let rec={...start};
+  $('#tr-seg').innerHTML=STATES.map(s=>`<button data-k="${s}">${LABEL[s]}</button>`).join('');
+  function render(msg){ const op=OPERATIONAL.has(rec.status);
+    $('#tr-kv').innerHTML=`<dt>lifecycle_status</dt><dd><code>${rec.status}</code> ${op?'<span class="pill op">op</span>':'<span class="pill off">off</span>'}</dd><dt>commissioned_at</dt><dd>${rec.commissioned_at??'<span class="muted">— null</span>'}</dd><dt>retired_at</dt><dd>${rec.retired_at??'<span class="muted">— null</span>'}</dd>`;
+    $('#tr-note').innerHTML=msg; }
+  function move(to){ if(!can('features:write')){ render('<span class="pill warn">locked</span> Changing the lifecycle needs <code>features:write</code>. Switch to <b>Pat</b> or <b>Ada</b>.'); return; }
+    const from=rec.status; const today=NOW_Y+'-06-15'; let stamped=[];
+    rec.status=to;
+    if(to==='IN_SERVICE' && !rec.commissioned_at){ rec.commissioned_at=today; stamped.push('commissioned_at'); }
+    if((to==='RETIRED'||to==='REMOVED') && !rec.retired_at){ rec.retired_at=today; stamped.push('retired_at'); }
+    let note=`<b>${from}</b> → <b>${to}</b>.`;
+    if(stamped.length) note+=` Auto-stamped <code>${stamped.join('</code>, <code>')}</code> = ${today}.`;
+    note += OPERATIONAL.has(to)!==OPERATIONAL.has(from) ? (OPERATIONAL.has(to)?' Now <span class="pill op">operational</span> — it starts conducting.':' Now <span class="pill off">off-network</span> — it stops conducting.') : '';
+    render(note); }
+  $('#tr-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; move(b.dataset.k); };
+  $('#tr-reset').onclick=()=>{ rec={...start}; render('Reset to a freshly-planned asset — no dates yet.'); };
+  onPersona.push(()=>render('Persona changed. Try a transition.'));
+  render('A freshly-planned asset. Move it toward service and watch the dates.');
+})();
+
+/* 3 · network gate */
+(function(){ let span='IN_SERVICE';
+  $('#gate-seg').innerHTML=STATES.map(s=>`<button data-k="${s}" aria-pressed="${s===span}">${LABEL[s]}</button>`).join('');
+  function paint(){ const op=OPERATIONAL.has(span); const arrow=op?'──▶':'─╳─';
+    const spanCol=op?'var(--green)':'var(--red)';
+    $('#gate-diagram').innerHTML=
+      `<span class="pill op">SOURCE</span> ──▶ <span class="pill op">BREAKER</span> `+
+      `<span style="color:${spanCol}">${arrow}</span> <span class="pill ${op?'op':'off'}">SPAN·${LABEL[span]}</span> `+
+      `<span style="color:${spanCol}">${arrow}</span> <span class="pill ${op?'op':'off'}">LOAD ${op?'⚡':'∅'}</span>`;
+    $('#gate-note').innerHTML = op
+      ? 'The span is operational, so both its edges conduct — the trace reaches the <b>load</b>, and power flow feeds it.'
+      : `The span is <b>${LABEL[span]}</b> (off-network). Its edges are dropped, so the trace stops at the breaker and the <b>load reads unfed</b> — exactly the point of retiring it.`;
+    $$('#gate-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===span)); }
+  $('#gate-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; span=b.dataset.k; paint(); }; paint();
+})();
+
+/* 4 · map styling */
+(function(){ let st='IN_SERVICE';
+  $('#map-seg').innerHTML=STATES.map(s=>`<button data-k="${s}" aria-pressed="${s===st}">${LABEL[s]}</button>`).join('');
+  function styleFor(s){ // mirrors web/src/lib/map-layers.ts applyLifecycleStyle
+    if(OPERATIONAL.has(s)) return {color:'var(--acc)',dash:'none',opacity:1,desc:'Full strength — drawn exactly as its symbology says.'};
+    if(s==='PLANNED'||s==='UNDER_CONSTRUCTION') return {color:'var(--acc)',dash:'dashed',opacity:.55,desc:'Ghosted — keeps its colour, dashed and faint. "Coming."'};
+    return {color:'#848484',dash:'solid',opacity:.4,desc:'Greyed out. "Gone."'};
+  }
+  function paint(){ const sN=styleFor(st);
+    const rows=[['IN_SERVICE',styleFor('IN_SERVICE')],[st,sN]];
+    $('#map-demo').innerHTML=rows.map(([name,st2],i)=>
+      `<div class="lrow"><div class="lsym" style="border-top-color:${st2.color};border-top-style:${st2.dash==='dashed'?'dashed':'solid'};opacity:${st2.opacity}"></div>`+
+      `<div class="meta">${i===0?'<span class="muted">reference: </span>':''}${LABEL[name]} ${OPERATIONAL.has(name)?'<span class="pill op">op</span>':'<span class="pill off">off</span>'}<br><span class="muted" style="font-size:11.5px">${esc(st2.desc)}</span></div></div>`
+    ).join('');
+    $$('#map-seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===st)); }
+  $('#map-seg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; st=b.dataset.k; paint(); }; paint();
+})();
+
+/* 5 · aging */
+(function(){ const exp=$('#ag-exp'),com=$('#ag-com'),due=$('#ag-due');
+  $('#ag-gate').hidden=can('metadata:write');
+  onPersona.push(()=>{ $('#ag-gate').hidden=can('metadata:write'); });
+  function run(){ const E=+exp.value, C=+com.value, D=+due.value;
+    $('#ag-exp-v').textContent=E; $('#ag-com-v').textContent=C; $('#ag-due-v').textContent=D;
+    const age=NOW_Y-C; const remaining=E-age;
+    let bucket,pill;
+    if(remaining<=0){ bucket='overdue'; pill='<span class="pill err">OVERDUE</span>'; }
+    else if(remaining<=D){ bucket='due_soon'; pill='<span class="pill warn">DUE SOON</span>'; }
+    else { bucket='ok'; pill='<span class="pill op">OK</span>'; }
+    $('#ag-kv').innerHTML=`<dt>In service</dt><dd>${C} → now (${NOW_Y})</dd><dt>Age</dt><dd>${age} yr</dd><dt>Expected</dt><dd>${E} yr</dd><dt>Remaining</dt><dd>${remaining.toFixed(0)} yr</dd>`;
+    $('#ag-bucket').innerHTML=`Standing: ${pill}`;
+    $('#ag-note').innerHTML = bucket==='overdue'
+      ? `Past its expected life by <b>${Math.abs(remaining)}</b> yr — top of the worst-first replacement work-list.`
+      : bucket==='due_soon'
+        ? `Within <b>${D}</b> yr of end of life — flag it for the replacement plan.`
+        : `<b>${remaining}</b> yr of life left — comfortably within life.`;
+  }
+  [exp,com,due].forEach(x=>x.oninput=run); run();
+})();
+
+/* 6 · quiz */
+const QUIZ=[
+ ['A feature is published but its lifecycle_status is PLANNED. Does it conduct in a trace?','No — only IN_SERVICE/DERATED conduct',['Yes, because it is published','No — only IN_SERVICE/DERATED conduct','Only if it has geometry','Only downstream'],'Publishing is the editorial axis; conduction keys off the lifecycle axis. A PLANNED asset is off-network regardless of publish state.'],
+ ['You set an asset to IN_SERVICE and it had no commission date. What happens?','commissioned_at is auto-stamped today',['Nothing — you must set the date','commissioned_at is auto-stamped today','It is rejected','retired_at is cleared'],'Moving INTO service auto-stamps commissioned_at when it is unset — the common path is a single status pick.'],
+ ['Which states are "operational" (conduct)?','IN_SERVICE and DERATED',['IN_SERVICE only','IN_SERVICE and DERATED','Everything except REMOVED','IN_SERVICE, DERATED and PLANNED'],'A derated asset is still energised (reduced rating, not an open point), so it conducts; the other four do not.'],
+ ['A mid-feeder span is set to RETIRED. The load beyond it now reads…','Unfed — the retired span does not conduct',['Fed as before','Unfed — the retired span does not conduct','Fed at reduced voltage','An error'],'An edge conducts only when both ends are operational; a retired span drops out, so the trace stops and the downstream reads unfed.'],
+ ['How does the map know to grey out a retired feature?','lifecycle_status rides along in the vector tile',['A separate styling endpoint','lifecycle_status rides along in the vector tile','It queries each feature','It cannot — styling is manual'],'Every feature column is already in the tile properties, so the style function reads lifecycle_status directly and fades non-operational features.'],
+ ['Who can edit the expected-life catalog?','metadata:write',['features:read','features:write','metadata:write','anyone'],'Viewing the report/catalog is features:read; editing the expected-life policy is an admin action — metadata:write.'],
+];
+(function(){ const box=$('#qz');
+  box.innerHTML=QUIZ.map((q,i)=>`<div class="quiz-q"><b>${i+1}.</b> ${esc(q[0])}<div class="opts" data-i="${i}">${q[2].map((o,j)=>`<button class="btn" data-j="${j}">${esc(o)}</button>`).join('')}</div><div class="fb" id="fb-${i}"></div></div>`).join('');
+  box.addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return; const wrap=b.parentElement; const i=+wrap.dataset.i; const j=+b.dataset.j; const correct=QUIZ[i][1]===QUIZ[i][2][j]; const fb=$('#fb-'+i);
+    fb.className='fb '+(correct?'good':'bad'); fb.innerHTML=(correct?'✓ ':'✗ ')+esc(QUIZ[i][3]);
+    $$('#qz .opts[data-i="'+i+'"] button').forEach(x=>x.setAttribute('aria-pressed','false')); b.setAttribute('aria-pressed','true'); });
+})();
+
+applyGates();
+</script>
+</body></html>

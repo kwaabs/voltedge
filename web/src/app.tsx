@@ -23,6 +23,7 @@ import { AdminWebhooksPage } from "@/routes/admin-webhooks"
 import { AdminFieldPacksPage } from "@/routes/admin-field-packs"
 import { AdminCostCatalogPage } from "@/routes/admin-cost-catalog"
 import { AdminFaultModesPage } from "@/routes/admin-fault-modes"
+import { AdminAssetLifePage } from "@/routes/admin-asset-life"
 import { AdminValidationRulesPage } from "@/routes/admin-validation-rules"
 import { AdminMaterialsPage } from "@/routes/admin-materials"
 import { AdminProtectionCurvesPage } from "@/routes/admin-protection-curves"
@@ -32,6 +33,7 @@ import { AdminTerritoriesPage } from "@/routes/admin-territories"
 import { AdminUsersPage } from "@/routes/admin-users"
 import { AdminLoggingPage } from "@/routes/admin-logging"
 import { AdminActivityPage } from "@/routes/admin-activity"
+import { AdminEditSessionsPage } from "@/routes/admin-edit-sessions"
 import { SyncReviewPage } from "@/routes/sync-review"
 import { DocsPage } from "@/routes/docs"
 import { FeaturesPage } from "@/routes/features"
@@ -279,6 +281,14 @@ export function App() {
               }
             />
             <Route
+              path="admin/asset-life"
+              element={
+                <RequirePermission perm="metadata:write">
+                  <AdminAssetLifePage />
+                </RequirePermission>
+              }
+            />
+            <Route
               path="admin/external-systems"
               element={
                 <RequirePermission perm="metadata:write">
@@ -347,6 +357,14 @@ export function App() {
               element={
                 <RequirePermission perm="admin:users">
                   <AdminActivityPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/edit-sessions"
+              element={
+                <RequirePermission perm="edit-sessions:view">
+                  <AdminEditSessionsPage />
                 </RequirePermission>
               }
             />

@@ -27,6 +27,17 @@ func actorArg(ctx context.Context) any {
 	return nil
 }
 
+// editSessionArg mirrors actorArg for the edit-mode session id the web client
+// sends while editing (migration 0158). nil -> the edit_session_id column is
+// written NULL (a write made outside edit mode or by a non-UI caller), exactly
+// as actorArg writes NULL for a session-less actor.
+func editSessionArg(ctx context.Context) any {
+	if id := auth.EditSessionID(ctx); id != "" {
+		return id
+	}
+	return nil
+}
+
 // quoteIdent wraps a Postgres identifier in double quotes -- same
 // reasoning as compiler's copy: field names are always admin-set
 // lower_snake_case, not user input, but quoting is free and removes a
@@ -99,6 +110,9 @@ func selectColumnsGeom(loaded *metadata.Loaded, targetSRID *int) []string {
 	// keys off it, and publishFeature reads it back here to decide whether this
 	// is a first publish (stamp) or a re-publish (leave alone).
 	cols = append(cols, "published_at", "published_by")
+	// Asset lifecycle: the system axis compiled onto every table. Surfaced at
+	// the top level of the envelope (formatRow), alongside status/dates.
+	cols = append(cols, "lifecycle_status", "commissioned_at", "retired_at")
 	return cols
 }
 
@@ -164,6 +178,11 @@ func formatRow(loaded *metadata.Loaded, row map[string]any) (map[string]any, err
 		// feature is first published, then set forever (an unpublish leaves them).
 		"published_at": row["published_at"],
 		"published_by": row["published_by"],
+		// Asset lifecycle: where this physical asset sits in its life, plus the
+		// commission/retire dates. Present on every class (a system column).
+		"lifecycle_status": row["lifecycle_status"],
+		"commissioned_at":  row["commissioned_at"],
+		"retired_at":       row["retired_at"],
 	}
 	if v, ok := row["subtype"]; ok {
 		out["subtype"] = v

@@ -3,6 +3,7 @@ import { Check, LandPlot, Pencil, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { usePermission } from "@/hooks/use-auth"
+import { useEditModeStore } from "@/stores/edit-mode-store"
 import { ApiError } from "@/lib/api"
 import { useTerritories, useUpdateTerritory } from "@/hooks/use-territories"
 import { useTerritoryEditStore } from "@/stores/territory-edit-store"
@@ -40,7 +41,11 @@ export function TerritoryPanel() {
   // Only an editor (territories:write) gets the authoring entries (Phase 11
   // Slice I); the API enforces it regardless. Starting the boundary edit
   // closes this panel -- the authoring toolbar takes over.
-  const canEdit = can("territories:write")
+  // Territory editing (details + boundary) is a write -- shown only in edit mode
+  // (S4). Browsing territories stays open in view mode. Hook called
+  // unconditionally, then combined (rules of hooks).
+  const territoryEditMode = useEditModeStore((s) => s.editMode)
+  const canEdit = can("territories:write") && territoryEditMode
   const startBoundaryEdit = () => {
     useTerritoryEditStore.getState().start(selected.id, selected.name)
     clearSelected()

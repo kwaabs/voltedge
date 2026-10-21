@@ -28,6 +28,7 @@ import {
   useRegenerateDiagram,
 } from "@/hooks/use-diagrams"
 import { usePermission } from "@/hooks/use-auth"
+import { useEditing } from "@/hooks/use-editing"
 import { type FeatureRecord, useFeature } from "@/hooks/use-feature"
 import { type FeatureSearchResult, MIN_QUERY_LENGTH, useFeatureNameSearch } from "@/hooks/use-feature-name-search"
 import { type PanelOption, usePanelOptions } from "@/hooks/use-panels"
@@ -45,6 +46,7 @@ import { type ConnectMode, useConnectStore } from "@/stores/connect-store"
 import { diagramLayerKey, useDiagramLayersStore } from "@/stores/diagram-layers-store"
 import { useDiagramPlaceStore } from "@/stores/diagram-place-store"
 import { useDiagramStore } from "@/stores/diagram-store"
+import { useEditModeStore } from "@/stores/edit-mode-store"
 import { useDrawStore } from "@/stores/draw-store"
 import { useFaultCurrentStore } from "@/stores/fault-current-store"
 import { useIsolateStore } from "@/stores/isolate-store"
@@ -240,6 +242,9 @@ function nextPlacementPosition(placements: DiagramPlacement[]): { x: number; y: 
  * by accident, so it gets the same explicit-choice guard every other
  * permanent-ish action in this app already has. */
 function RemoveControl({ x, y, size, onRemove }: { x: number; y: number; size: number; onRemove: () => void }) {
+  // Removing a diagram element is an edit -- the X never shows in view mode (S3).
+  const editMode = useEditModeStore((s) => s.editMode)
+  if (!editMode) return null
   return (
     <g
       transform={`translate(${x}, ${y})`}
@@ -281,6 +286,9 @@ function RemoveControl({ x, y, size, onRemove }: { x: number; y: number; size: n
  * not destructive -- the conventional two-overlapping-squares "copy" glyph.
  * stopPropagation on pointerdown so clicking it never starts a placement drag. */
 function DuplicateControl({ x, y, size, onDuplicate }: { x: number; y: number; size: number; onDuplicate: () => void }) {
+  // Duplicating an element is an edit -- hidden in view mode (S3).
+  const editMode = useEditModeStore((s) => s.editMode)
+  if (!editMode) return null
   return (
     <g
       transform={`translate(${x}, ${y})`}
@@ -335,6 +343,10 @@ function LabelToggleControl({
   hidden: boolean
   onToggle: () => void
 }) {
+  // Persists a shared per-placement label flag (migration 0054) -- a write, so it
+  // is hidden in view mode (S3).
+  const editMode = useEditModeStore((s) => s.editMode)
+  if (!editMode) return null
   return (
     <g
       transform={`translate(${x}, ${y})`}
@@ -1586,13 +1598,21 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // supervisor/admin/break-glass-admin only, never editor/viewer. Hide the
   // trigger for anyone the server would refuse anyway; the confirm dialog opens
   // on this id (null = closed).
-  const canDeleteDiagram = usePermission()("diagrams:delete")
+  // Edit/View mode (S3): the diagram canvas is read-only in view mode -- no
+  // dragging/resizing/placing/promoting, and the editing controls are hidden.
+  // `editMode` is the raw flag (diagram-layout moves ride diagrams:write, not
+  // features:write); `editingEnabled` is the features:write-AND-edit-mode gate the
+  // feature-write affordances (place-on-map) use. The server still enforces each
+  // permission regardless of the UI mode.
+  const editMode = useEditModeStore((s) => s.editMode)
+  const editingEnabled = useEditing()
+  const canDeleteDiagram = usePermission()("diagrams:delete") && editMode
   // Promoting a stencil into a real, permanent feature is admin-only
   // (metadata:write, the model-authoring capability) -- gates the double-click
   // promote and the slot "Create new" affordance. The server enforces the same
   // permission on POST /diagrams/{id}/elements/{elementID}/promote, so this only
   // hides controls the user couldn't use anyway.
-  const canPromote = usePermission()("metadata:write")
+  const canPromote = usePermission()("metadata:write") && editMode
   const [deletingDiagram, setDeletingDiagram] = useState(false)
   // Regenerate rebuilds an auto-generated assembly single-line from its source
   // template (only such diagrams report regenerable). It REPLACES the instance,
@@ -1652,7 +1672,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // write; reads the selected feature to tell geometry-less from already-mapped,
   // and its MAP geometry_type for the draw shape (point/line/polygon -- a true
   // geometry 'none' class can never be drawn, so it's excluded).
-  const canWriteFeatures = usePermission()("features:write")
+  const canWriteFeatures = editingEnabled
   const { data: selectedFeature } = useFeature(selected?.featureClassCode, selected?.featureId)
   const selectedMapGeomType = selected
     ? featureClassesData?.feature_classes.find((fc) => fc.code === selected.featureClassCode)?.geometry_type
@@ -2509,6 +2529,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // than move the feature.
   function handlePlacementPointerDown(e: React.PointerEvent<SVGElement>, placement: DiagramPlacement) {
     if (canvasMode === "pan") return
+    if (!editMode) return // view mode: no dragging (selection still bubbles)
     const svgPoint = clientToSvgPoint(e.clientX, e.clientY)
     if (!svgPoint) return
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -3070,6 +3091,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
 
   function promoteElement(element: DiagramElement) {
     if (canvasMode === "pan" || !openDiagramId) return
+    if (!editMode) return // view mode: a double-click just selects, never promotes
     // Admin-only: promoting a decoration into shared org-wide data is a
     // model-authoring act (metadata:write), enforced again on the server. Tell
     // a non-admin why nothing happens rather than swallowing the gesture.
@@ -3251,6 +3273,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
 
   function handleElementPointerDown(e: React.PointerEvent<SVGElement>, element: DiagramElement) {
     if (canvasMode === "pan") return
+    if (!editMode) return // view mode: no dragging (selection still bubbles)
     const svgPoint = clientToSvgPoint(e.clientX, e.clientY)
     if (!svgPoint) return
     e.stopPropagation()
@@ -3294,6 +3317,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
 
   function handleElementResizePointerDown(e: React.PointerEvent<SVGElement>, element: DiagramElement) {
     if (canvasMode === "pan") return
+    if (!editMode) return
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     setElementResize({ id: element.id, width: element.width ?? 0, height: element.height ?? 0 })
@@ -3323,6 +3347,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   // measured against that and snapped to ROTATE_SNAP_DEGREES, upright = 0.
   function handleElementRotatePointerDown(e: React.PointerEvent<SVGGElement>, element: DiagramElement) {
     if (canvasMode === "pan") return
+    if (!editMode) return
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     setElementRotate({ id: element.id, centerX: element.x, centerY: element.y, rotation: element.rotation })
@@ -3720,41 +3745,48 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <DiagramTitle diagramId={openDiagramId} />
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <AddMenu
-            diagramId={openDiagramId}
-            container={diagramInstance?.container}
-            diagramType={diagramInstance?.diagram_type}
-            placements={placements}
-            pickActive={isPickingHere || isPlacingHere}
-            onToggleFromMap={() =>
-              isPickingHere || isPlacingHere
-                ? useDiagramPlaceStore.getState().cancel()
-                : useDiagramPlaceStore.getState().startPicking(openDiagramId)
-            }
-            digitizeClasses={geometryLessClasses}
-            digitizingClass={digitizingClass}
-            onStartDigitize={(code) => setDigitizingClass(code)}
-            onCancelDigitize={() => setDigitizingClass(null)}
-          />
-          <ConnectMenu
-            connectActive={armingMode === "connectivity" || connectMode === "connectivity"}
-            relateActive={armingMode === "relationship" || connectMode === "relationship"}
-            onConnect={() => armAuthoring("connectivity")}
-            onRelate={() => armAuthoring("relationship")}
-          />
-          <AddAnnotationMenu
-            onAddBox={addBox}
-            onAddText={addText}
-            onAddLine={() => startElementDraw("line")}
-            onAddBus={() => startElementDraw("bus")}
-            onAddTap={() => startElementDraw("tap")}
-            onAddControl={() => startElementDraw("control")}
-            onAddTitleBlock={addTitleBlock}
-            onAddLegend={addLegend}
-            lineArmed={drawingElementLine}
-          />
-          <StencilPalette onPick={addSymbol} />
-          <TemplatesMenu diagramId={openDiagramId} />
+          {/* Edit/View mode (S3): the diagram authoring menus (add from map,
+              connect/relate, annotations, stencils, templates) show only in edit
+              mode -- in view mode the canvas is a read-only drawing. */}
+          {editMode && (
+            <>
+              <AddMenu
+                diagramId={openDiagramId}
+                container={diagramInstance?.container}
+                diagramType={diagramInstance?.diagram_type}
+                placements={placements}
+                pickActive={isPickingHere || isPlacingHere}
+                onToggleFromMap={() =>
+                  isPickingHere || isPlacingHere
+                    ? useDiagramPlaceStore.getState().cancel()
+                    : useDiagramPlaceStore.getState().startPicking(openDiagramId)
+                }
+                digitizeClasses={geometryLessClasses}
+                digitizingClass={digitizingClass}
+                onStartDigitize={(code) => setDigitizingClass(code)}
+                onCancelDigitize={() => setDigitizingClass(null)}
+              />
+              <ConnectMenu
+                connectActive={armingMode === "connectivity" || connectMode === "connectivity"}
+                relateActive={armingMode === "relationship" || connectMode === "relationship"}
+                onConnect={() => armAuthoring("connectivity")}
+                onRelate={() => armAuthoring("relationship")}
+              />
+              <AddAnnotationMenu
+                onAddBox={addBox}
+                onAddText={addText}
+                onAddLine={() => startElementDraw("line")}
+                onAddBus={() => startElementDraw("bus")}
+                onAddTap={() => startElementDraw("tap")}
+                onAddControl={() => startElementDraw("control")}
+                onAddTitleBlock={addTitleBlock}
+                onAddLegend={addLegend}
+                lineArmed={drawingElementLine}
+              />
+              <StencilPalette onPick={addSymbol} />
+              <TemplatesMenu diagramId={openDiagramId} />
+            </>
+          )}
           <DiagramLayersMenu diagramId={openDiagramId} entries={diagramLayerEntries} />
           {/* Replace from map (admin): overwrite the selected diagram feature
               with a real feature picked on the geographic map -- the "add from
@@ -3855,7 +3887,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
             {maximized ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
             <span className="sr-only">{maximized ? "Exit full page" : "Full page"}</span>
           </Button>
-          {diagramInstance?.regenerable && (
+          {diagramInstance?.regenerable && editMode && (
             <Button
               variant="ghost"
               size="icon"
@@ -4053,7 +4085,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                 <span className="text-muted-foreground">or Esc</span>
               </div>
             )}
-            {slotBinding && (
+            {slotBinding && editMode && (
               <SlotBindPanel
                 slot={slotBinding}
                 onBind={(featureId, featureClass) => void bindSlot(slotBinding, featureId, featureClass)}
@@ -4798,7 +4830,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
                     onPointerCancel={() => setElementDrag(null)}
                     onDoubleClick={(e) => {
                       e.stopPropagation()
-                      setEditingText({ id: element.id, value: element.text ?? "" })
+                      if (editMode) setEditingText({ id: element.id, value: element.text ?? "" })
                     }}
                   >
                     {element.text || "Label"}
@@ -4877,7 +4909,9 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
               // shaped entirely by its two endpoint placements, so there's
               // nothing here to move -- it stays select-only, and you reposition
               // it by moving those endpoints.
-              const draggable = drawnPath !== null
+              // View mode (S3): nothing is draggable, so the cursor reads as
+              // select-only and handlePlacementPointerDown's guard never fires.
+              const draggable = editMode && drawnPath !== null
               const selectOnly = hasGeometry && !draggable
               const d = drawnPath ? polylinePath(drawnPath) : elbowPath(p1.x, p1.y, p2.x, p2.y)
               const mid = drawnPath ? polylineMidpoint(drawnPath) : { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }

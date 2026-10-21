@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Calculator, ChevronRight, Download, LandPlot, ListChecks, Search, ShieldCheck, SlidersHorizontal, Sparkles, Upload, Workflow, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Calculator, ChevronRight, Download, LandPlot, ListChecks, Pencil, Search, ShieldCheck, SlidersHorizontal, Sparkles, Upload, Workflow, X } from "lucide-react"
 import { useState } from "react"
 
 import { AmpacityPanel } from "@/components/map/ampacity-panel"
@@ -55,6 +55,7 @@ import { VoltEdgeMap } from "@/components/map/voltedge-map"
 import { Button } from "@/components/ui/button"
 import { useAssistantStatus } from "@/hooks/use-assistant"
 import { useDiagramInstance } from "@/hooks/use-diagrams"
+import { useCanEnterEditMode, useEditing } from "@/hooks/use-editing"
 import { useActiveExportCount } from "@/hooks/use-export-jobs"
 import { useMapSettings } from "@/hooks/use-map-settings"
 import { cn } from "@/lib/utils"
@@ -62,6 +63,7 @@ import { useAssistantChatStore } from "@/stores/assistant-chat-store"
 import { useBoqStore } from "@/stores/boq-store"
 import { useConnectivityAuditStore } from "@/stores/connectivity-audit-store"
 import { type DiagramPane, useDiagramStore } from "@/stores/diagram-store"
+import { useEditModeStore } from "@/stores/edit-mode-store"
 import { useExportStore } from "@/stores/export-store"
 import { useImportStore } from "@/stores/import-store"
 import { useMapSelectStore } from "@/stores/map-select-store"
@@ -90,6 +92,11 @@ export function MapPage() {
   const mapBbox = useMapViewStore((s) => s.bbox)
   const selectedRefs = useMapSelectStore((s) => s.selected)
   const chatOpen = useAssistantChatStore((s) => s.open)
+  // Edit vs view mode (S1): the Edit toggle is offered only to users who hold
+  // features:write; `editing` is true only when such a user has turned the mode
+  // ON. In view mode the create menus are hidden and the panel is read-only.
+  const canEnterEdit = useCanEnterEditMode()
+  const editing = useEditing()
   // The chat toolbar entry only appears when the server has a model configured;
   // the deterministic suggestions work regardless, so a model-less deployment
   // simply never shows a chat box (see use-assistant.ts).
@@ -125,6 +132,22 @@ export function MapPage() {
       <div className="flex min-h-0 flex-1">
         <div className={cn("relative flex min-h-0 flex-col", maximized ? "hidden" : "flex-1")}>
           <div className="pointer-events-auto absolute top-3 right-3 z-10 flex items-center gap-2">
+            {/* Edit/View toggle (S1). Always visible to a features:write user, even
+                when the rest of the controls are collapsed, so the current mode is
+                never hidden. In View (default) the create menus are gone and the
+                feature panel is read-only; Edit reveals them. */}
+            {canEnterEdit && (
+              <Button
+                variant={editing ? "default" : "secondary"}
+                size="sm"
+                className={cn("shadow-sm", editing && "bg-amber-600 hover:bg-amber-700 text-white")}
+                title={editing ? "You're editing — click to return to view-only" : "Enter edit mode to create and change features"}
+                onClick={() => useEditModeStore.getState().toggle()}
+              >
+                <Pencil className={cn("size-3.5", !editing && "text-amber-600")} />
+                {editing ? "Editing" : "Edit"}
+              </Button>
+            )}
             {controlsCollapsed ? (
               <Button
                 variant="secondary"
@@ -153,14 +176,17 @@ export function MapPage() {
                 >
                   <LandPlot className={cn("size-3.5", !explorerOpen && "text-teal-600")} /> Territories
                 </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="shadow-sm"
-                  onClick={() => useImportStore.getState().openDialog()}
-                >
-                  <Upload className="size-3.5 text-emerald-600" /> Attach
-                </Button>
+                {/* Data import is a write -- only in edit mode (S4). */}
+                {editing && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="shadow-sm"
+                    onClick={() => useImportStore.getState().openDialog()}
+                  >
+                    <Upload className="size-3.5 text-emerald-600" /> Attach
+                  </Button>
+                )}
                 {/* Split button: the left half opens the export dialog, the
                     attached right segment toggles the jobs panel and carries a
                     live badge of how many exports are still running. */}
@@ -237,9 +263,15 @@ export function MapPage() {
                     <Sparkles className={cn("size-3.5", !chatOpen && "text-violet-600")} /> Assistant
                   </Button>
                 )}
-                <NewFeatureMenu />
-                <NewAssemblyMenu />
-                <NewAnnotationMenu />
+                {/* Create menus appear only in edit mode (S1) -- in view mode
+                    there's nothing here to accidentally start a new feature with. */}
+                {editing && (
+                  <>
+                    <NewFeatureMenu />
+                    <NewAssemblyMenu />
+                    <NewAnnotationMenu />
+                  </>
+                )}
                 <LayersPanel />
                 <Button
                   variant="ghost"
@@ -265,7 +297,14 @@ export function MapPage() {
           {/* Map viewport -- flex-1 so the status bar below shares this column;
               both hide together when a diagram is maximized (this column is
               `hidden`), and in split view the bar spans only the map's width. */}
-          <div className="relative min-h-0 flex-1">
+          <div className={cn("relative min-h-0 flex-1", editing && "ring-2 ring-inset ring-amber-500")}>
+            {/* Ambient edit-mode cue (S1): a persistent badge so the mode is
+                unmistakable even when the toggle is scrolled out of view. */}
+            {editing && (
+              <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full bg-amber-600 px-3 py-1 text-xs font-semibold text-white shadow-md">
+                Edit mode
+              </div>
+            )}
             {!mapSettings.isPending && (
               <VoltEdgeMap
                 initialCenter={
@@ -324,7 +363,9 @@ export function MapPage() {
       <ConnectConfirmPanel />
       <AssistantSuggestions />
       <AssistantChat />
-      <AnnotationEditPanel />
+      {/* Annotation/redline editing is a write surface -- the edit panel only
+          opens in edit mode (S4); the annotations themselves still draw on the map. */}
+      {editing && <AnnotationEditPanel />}
       <TraceResultTable />
       <IsolationResultTable />
       <OutageHighlightBanner />

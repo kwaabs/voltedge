@@ -28,6 +28,13 @@ export interface FeatureRecord {
   // has geometry but no territory resolved (unassigned); undefined = a
   // non-geometric class with no territory_id column at all.
   territory_id?: string | null
+  // Asset lifecycle: where this physical asset sits in its life. A system axis on
+  // every class, distinct from `status` (draft/published). Default IN_SERVICE.
+  // Dates are ISO (YYYY-MM-DD) or null. Changed through the dedicated
+  // PATCH /features/{code}/{id}/lifecycle path, not the generic attribute edit.
+  lifecycle_status?: string
+  commissioned_at?: string | null
+  retired_at?: string | null
   attributes: Record<string, unknown>
   // Private-drafts Phase B: set by the server's read overlay when the acting
   // user has a private, unpublished edit of this already-published feature that

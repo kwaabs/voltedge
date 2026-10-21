@@ -630,8 +630,15 @@ func neighborsOf(ctx context.Context, db bun.IDB, n node, direction string) ([]n
 	// Terminals/Relationships lists and the map). "Live" == a feature_registry row
 	// with deleted_at IS NULL, the cross-class liveness the connectivity audit/
 	// cleanup use; correlated EXISTS keeps it an index probe in this per-node BFS.
-	q = q.Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.from_feature_id AND r.deleted_at IS NULL)").
-		Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.to_feature_id AND r.deleted_at IS NULL)")
+	//
+	// The same probe also enforces the asset-lifecycle gate: an edge only conducts
+	// if BOTH endpoints are in an OPERATIONAL lifecycle state (IN_SERVICE/DERATED).
+	// A PLANNED, under-construction, retired or removed asset isn't part of the
+	// live network, so the trace walks neither THROUGH nor INTO it -- the same
+	// mid-traversal gap the deleted-feature filter closes. lifecycle_status is
+	// mirrored into the registry (migration 0156) so this stays one index probe.
+	q = q.Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.from_feature_id AND r.deleted_at IS NULL AND "+crud.LifecycleOperationalClause("r")+")").
+		Where("EXISTS (SELECT 1 FROM runtime.feature_registry r WHERE r.feature_id = feature_connectivity.to_feature_id AND r.deleted_at IS NULL AND "+crud.LifecycleOperationalClause("r")+")")
 	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("trace: loading neighbors: %w", err)
 	}

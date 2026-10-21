@@ -1,5 +1,7 @@
 import {
   Activity,
+  CalendarClock,
+  Clock,
   Cloud,
   Coins,
   FileInput,
@@ -114,6 +116,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         perm: "metadata:write",
       },
       {
+        to: "/admin/asset-life",
+        label: "Asset lifecycle",
+        description: "Expected service life per class and the aging report — which in-service assets are due or overdue for replacement.",
+        icon: CalendarClock,
+        perm: "metadata:write",
+      },
+      {
         to: "/admin/external-systems",
         label: "External systems",
         description: "APIs a feature's live links fetch data from (CIS, billing…).",
@@ -199,6 +208,14 @@ export const adminNavGroups: AdminNavGroup[] = [
         description: "Who changed what, and when — the feature change log sliced by person and time.",
         icon: History,
         perm: "admin:users",
+      },
+      {
+        to: "/admin/edit-sessions",
+        label: "Edit sessions",
+        description: "Each edit-mode session start-to-end — who edited, how long, how many changes, which classes. Admins see everyone; a supervisor sees their own and their reports'.",
+        icon: Clock,
+        // Derived capability: admin / break-glass / supervisor (see use-auth.ts).
+        perm: "edit-sessions:view",
       },
       {
         to: "/admin/territories",

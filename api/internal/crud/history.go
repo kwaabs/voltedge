@@ -29,7 +29,10 @@ type featureHistory struct {
 	FeatureID        string          `bun:"feature_id"`
 	Action           string          `bun:"action"`
 	ActorID          any             `bun:"actor_id"` // uuid string, or nil for a system write
-	Snapshot         json.RawMessage `bun:"snapshot,type:jsonb"`
+	// EditSessionID groups a batch of edits made in one edit-mode session (migration
+	// 0158). Nil for a write made outside edit mode or by a non-UI caller.
+	EditSessionID any             `bun:"edit_session_id"`
+	Snapshot      json.RawMessage `bun:"snapshot,type:jsonb"`
 }
 
 // The action verbs written to gis.feature_history.action. One per distinct
@@ -71,6 +74,7 @@ func recordHistory(ctx context.Context, db bun.IDB, classCode, featureID, action
 		FeatureID:        featureID,
 		Action:           action,
 		ActorID:          actorArg(ctx),
+		EditSessionID:    editSessionArg(ctx),
 		Snapshot:         raw,
 	}).Exec(ctx)
 	if err != nil {

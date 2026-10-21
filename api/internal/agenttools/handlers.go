@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/kwaabs/voltedge/api/internal/assetlife"
 	"github.com/kwaabs/voltedge/api/internal/boq"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
@@ -587,6 +588,58 @@ func toolValidationIssues(ctx context.Context, db bun.IDB, args json.RawMessage)
 		return nil, err
 	}
 	return map[string]any{"issues": issues, "count": len(issues)}, nil
+}
+
+func toolAssetLifeReport(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		FeatureClass   string  `json:"feature_class"`
+		DueWithinYears float64 `json:"due_within_years"`
+		MaxItems       int     `json:"max_items"`
+	}
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, fmt.Errorf("invalid arguments: %w", err)
+		}
+	}
+
+	report, err := assetlife.Aging(ctx, db, assetlife.AgingInput{
+		FeatureClass:   in.FeatureClass,
+		DueWithinYears: in.DueWithinYears,
+		MaxItems:       in.MaxItems,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return report, nil
+}
+
+func toolSetFeatureLifecycle(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		FeatureClass    string  `json:"feature_class"`
+		FeatureID       string  `json:"feature_id"`
+		LifecycleStatus *string `json:"lifecycle_status"`
+		CommissionedAt  *string `json:"commissioned_at"`
+		RetiredAt       *string `json:"retired_at"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.FeatureClass == "" || in.FeatureID == "" {
+		return nil, fmt.Errorf("feature_class and feature_id are required")
+	}
+
+	loaded, err := metadata.Load(ctx, db, in.FeatureClass)
+	if err != nil {
+		return nil, fmt.Errorf("no such feature class %q: %w", in.FeatureClass, err)
+	}
+
+	// The acting user is already on ctx (auth.WithUser in Execute), so SetLifecycle
+	// attributes the change and applies the same scope gates as the REST path.
+	return crud.SetLifecycle(ctx, db, loaded, in.FeatureID, crud.LifecycleInput{
+		Status:         in.LifecycleStatus,
+		CommissionedAt: in.CommissionedAt,
+		RetiredAt:      in.RetiredAt,
+	})
 }
 
 func toolSuggestRelationships(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {

@@ -153,6 +153,36 @@ func Compile(ctx context.Context, db *bun.DB, code string) (*Result, error) {
 					result.ColumnsAdded = append(result.ColumnsAdded, "external_ref")
 				}
 
+				// Asset lifecycle -- the system axis buildCreateTable now emits on a
+				// fresh table, backfilled onto any table compiled before it existed,
+				// the same single-source-of-truth pattern as external_ref above.
+				// lifecycle_status is added NOT NULL DEFAULT 'IN_SERVICE' with the
+				// coded-value CHECK, so every existing row backfills to IN_SERVICE
+				// (an asset already in the system is in service) in one ALTER. The
+				// two dates are nullable. The DEFAULT is intentionally left on the
+				// column so a plain INSERT that omits the status is in-service too.
+				if !existingCols["lifecycle_status"] {
+					stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN lifecycle_status text NOT NULL DEFAULT 'IN_SERVICE' CHECK (lifecycle_status IN ('PLANNED', 'UNDER_CONSTRUCTION', 'IN_SERVICE', 'DERATED', 'RETIRED', 'REMOVED'))", qualifiedTable)
+					if _, err := tx.ExecContext(ctx, stmt); err != nil {
+						return fmt.Errorf("add column lifecycle_status: %w", err)
+					}
+					result.ColumnsAdded = append(result.ColumnsAdded, "lifecycle_status")
+				}
+				if !existingCols["commissioned_at"] {
+					stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN commissioned_at date", qualifiedTable)
+					if _, err := tx.ExecContext(ctx, stmt); err != nil {
+						return fmt.Errorf("add column commissioned_at: %w", err)
+					}
+					result.ColumnsAdded = append(result.ColumnsAdded, "commissioned_at")
+				}
+				if !existingCols["retired_at"] {
+					stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN retired_at date", qualifiedTable)
+					if _, err := tx.ExecContext(ctx, stmt); err != nil {
+						return fmt.Errorf("add column retired_at: %w", err)
+					}
+					result.ColumnsAdded = append(result.ColumnsAdded, "retired_at")
+				}
+
 				// territory_id (Phase 11) -- only geometric classes get it; a
 			// geometry-less class has nothing to place in a territory.
 			// Mirrors the created_by backfill so a recompile also covers a

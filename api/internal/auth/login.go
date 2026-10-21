@@ -141,6 +141,11 @@ type userJSON struct {
 	DisplayName string   `json:"display_name"`
 	BreakGlass  bool     `json:"break_glass"`
 	Permissions []string `json:"permissions"`
+	// IsSupervisor is true when the user has at least one report down the manager
+	// tree. The SPA reads it to show supervisor-scoped views (e.g. the edit-session
+	// audit, which a non-admin supervisor may see for their own reports); the
+	// server still enforces the actual scope.
+	IsSupervisor bool `json:"is_supervisor"`
 }
 
 type loginRequest struct {
@@ -180,7 +185,8 @@ func (s *service) loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, userJSON{
 		ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, BreakGlass: user.BreakGlass,
-		Permissions: sortedPermissions(loaded.Permissions),
+		Permissions:  sortedPermissions(loaded.Permissions),
+		IsSupervisor: len(loaded.Subordinates) > 0,
 	})
 }
 
@@ -205,7 +211,8 @@ func (s *service) meHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, userJSON{
 		ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, BreakGlass: user.BreakGlass,
-		Permissions: sortedPermissions(user.Permissions),
+		Permissions:  sortedPermissions(user.Permissions),
+		IsSupervisor: len(user.Subordinates) > 0,
 	})
 }
 

@@ -2,6 +2,8 @@ import { useState } from "react"
 import { Check, CheckCheck, EyeOff, List, Loader2, RefreshCw, ShieldCheck, Table2, Undo2, X } from "lucide-react"
 
 import { inputClass } from "@/components/map/field-utils"
+import { usePermission } from "@/hooks/use-auth"
+import { useEditModeStore } from "@/stores/edit-mode-store"
 import {
   type IssueSeverityFilter,
   type IssueStatusFilter,
@@ -158,12 +160,14 @@ function IssueRow({
   isDiagramOnly,
   onTriage,
   busy,
+  canTriage,
 }: {
   issue: ValidationIssue
   classNameFor: (code: string) => string
   isDiagramOnly: (code?: string) => boolean
   onTriage: (status: ValidationIssue["status"]) => void
   busy: boolean
+  canTriage: boolean
 }) {
   const closed = issue.status === "resolved" || issue.status === "suppressed"
   return (
@@ -187,19 +191,21 @@ function IssueRow({
         </span>
         {issue.status === "acknowledged" && <span className="text-muted-foreground text-[11px]">· acknowledged</span>}
         {issue.status === "suppressed" && <span className="text-muted-foreground text-[11px]">· suppressed</span>}
-        <div className="ml-auto flex items-center gap-0.5">
-          {closed ? (
-            <TriageBtn title="Re-open" icon={<Undo2 className="size-3.5" />} onClick={() => onTriage("open")} disabled={busy} />
-          ) : (
-            <>
-              {issue.status === "open" && (
-                <TriageBtn title="Acknowledge" icon={<Check className="size-3.5" />} onClick={() => onTriage("acknowledged")} disabled={busy} />
-              )}
-              <TriageBtn title="Mark resolved" icon={<CheckCheck className="size-3.5" />} onClick={() => onTriage("resolved")} disabled={busy} />
-              <TriageBtn title="Suppress (won't re-surface)" icon={<EyeOff className="size-3.5" />} onClick={() => onTriage("suppressed")} disabled={busy} />
-            </>
-          )}
-        </div>
+        {canTriage && (
+          <div className="ml-auto flex items-center gap-0.5">
+            {closed ? (
+              <TriageBtn title="Re-open" icon={<Undo2 className="size-3.5" />} onClick={() => onTriage("open")} disabled={busy} />
+            ) : (
+              <>
+                {issue.status === "open" && (
+                  <TriageBtn title="Acknowledge" icon={<Check className="size-3.5" />} onClick={() => onTriage("acknowledged")} disabled={busy} />
+                )}
+                <TriageBtn title="Mark resolved" icon={<CheckCheck className="size-3.5" />} onClick={() => onTriage("resolved")} disabled={busy} />
+                <TriageBtn title="Suppress (won't re-surface)" icon={<EyeOff className="size-3.5" />} onClick={() => onTriage("suppressed")} disabled={busy} />
+              </>
+            )}
+          </div>
+        )}
       </div>
     </li>
   )
@@ -227,6 +233,12 @@ function IssueQueue({
   const { data, isLoading, isError } = useValidationIssues({ status, severity })
   const triage = useTriageIssue()
   const reconcile = useReconcileIssues()
+  // Reconcile + triage WRITE to the queue (connectivity:commit); they appear only
+  // in edit mode (S4). Viewing the queue stays open in view mode. Both hooks run
+  // unconditionally, then combine (rules of hooks).
+  const editMode = useEditModeStore((s) => s.editMode)
+  const canCommitPerm = usePermission()("connectivity:commit")
+  const canCommit = editMode && canCommitPerm
   const allIssues = data?.issues ?? []
   const issues = allIssues.filter((it) => {
     const isQuality = it.kind.startsWith("attr_")
@@ -285,17 +297,19 @@ function IssueQueue({
             {label}
           </button>
         ))}
-        <Button
-          size="sm"
-          variant="outline"
-          className="ml-auto h-6 gap-1 px-2 text-[11px]"
-          onClick={() => reconcile.mutate(undefined)}
-          disabled={reconcile.isPending}
-          title="Run the audit now and reconcile it into the queue (the worker does this automatically)"
-        >
-          {reconcile.isPending ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
-          Reconcile now
-        </Button>
+        {canCommit && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto h-6 gap-1 px-2 text-[11px]"
+            onClick={() => reconcile.mutate(undefined)}
+            disabled={reconcile.isPending}
+            title="Run the audit now and reconcile it into the queue (the worker does this automatically)"
+          >
+            {reconcile.isPending ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+            Reconcile now
+          </Button>
+        )}
       </div>
 
       <div className="overflow-auto">
@@ -319,6 +333,7 @@ function IssueQueue({
                 isDiagramOnly={isDiagramOnly}
                 onTriage={(s) => triage.mutate({ id: it.id, status: s })}
                 busy={triage.isPending}
+                canTriage={canCommit}
               />
             ))}
           </ul>
@@ -353,6 +368,12 @@ export function ConnectivityAuditPanel() {
   const [layout, setLayout] = useState<"table" | "list">("table")
   const [confirmCleanup, setConfirmCleanup] = useState(false)
   const [cleaning, setCleaning] = useState(false)
+  // Cleanup (purge orphans) is a destructive WRITE (connectivity:commit) -- shown
+  // only in edit mode (S4). Running the audit itself is a read and stays open.
+  // Both hooks run unconditionally, then combine (rules of hooks).
+  const editMode = useEditModeStore((s) => s.editMode)
+  const canCommitPerm = usePermission()("connectivity:commit")
+  const canCommit = editMode && canCommitPerm
   // Anchored bottom-LEFT and stretched to the right (unlike the bottom-centre
   // analysis panels): the audit's findings table is wide, so it reads as a
   // full-width bottom bar until the user drags/resizes it.
@@ -474,7 +495,7 @@ export function ConnectivityAuditPanel() {
               value={toleranceInput}
               onChange={(e) => setToleranceInput(e.target.value)}
             />
-            {orphanTotal > 0 && (
+            {orphanTotal > 0 && canCommit && (
               <Button size="sm" variant="destructive" onClick={() => setConfirmCleanup(true)} disabled={loading}>
                 Clean up {orphanTotal} orphaned
               </Button>

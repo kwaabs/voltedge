@@ -11,6 +11,7 @@ import {
   useUploadAttachment,
 } from "@/hooks/use-attachments"
 import { usePermission } from "@/hooks/use-auth"
+import { useEditModeStore } from "@/stores/edit-mode-store"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useErrorToast, useToastStore } from "@/stores/toast-store"
@@ -52,7 +53,12 @@ function formatBytes(bytes: number): string {
 export function FeatureAttachments({ featureClassCode, featureId }: FeatureAttachmentsProps) {
   const { data, isPending, isError, error } = useAttachments(featureClassCode, featureId)
   useErrorToast(isError, error, "Could not load attachments")
-  const canWrite = usePermission()("attachments:write")
+  // Uploading/deleting attachments is a write -- the Manage mode (and its Upload +
+  // Delete controls) appears only in edit mode. Browsing/downloading stays open in
+  // view mode. Both hooks run unconditionally, then combine (rules of hooks).
+  const canWritePerm = usePermission()("attachments:write")
+  const attachmentsEditMode = useEditModeStore((s) => s.editMode)
+  const canWrite = canWritePerm && attachmentsEditMode
 
   const upload = useUploadAttachment(featureClassCode, featureId)
   const del = useDeleteAttachment(featureClassCode, featureId)

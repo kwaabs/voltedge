@@ -531,6 +531,51 @@ func readTools() []Tool {
 			Handler:      toolValidationIssues,
 		},
 		{
+			Name: "asset_life_report",
+			Description: "Report the remaining useful life of in-service assets, ranked worst-first -- the " +
+				"asset-lifecycle aging engine. For every feature class that has an expected-life catalog " +
+				"entry it scans the live, operational (IN_SERVICE/DERATED) features, derives each one's age " +
+				"from its commission date (falling back to when it was created), and buckets it against the " +
+				"expected life: 'overdue' (past end of life), 'due_soon' (within the window), or 'ok'. " +
+				"Returns overall and per-class counts plus the per-asset list. Read-only. Classes without a " +
+				"catalog entry are not assessed.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"Limit to one class code; omit for every catalogued class."},
+					"due_within_years":{"type":"number","description":"The 'due_soon' window in years (default 2)."},
+					"max_items":{"type":"integer","description":"Cap on returned per-asset rows, worst-first (default 1000); the summary counts are never capped."}
+				},
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermFeaturesRead,
+			Handler:      toolAssetLifeReport,
+		},
+		{
+			Name: "set_feature_lifecycle",
+			Description: "Move a feature along its asset-lifecycle axis: set its lifecycle_status and/or its " +
+				"commission/retire dates. Valid statuses, in life order: PLANNED, UNDER_CONSTRUCTION, " +
+				"IN_SERVICE, DERATED, RETIRED, REMOVED. Only IN_SERVICE and DERATED are operational -- a " +
+				"feature in any other state does not conduct in trace or power flow. Moving INTO service " +
+				"auto-stamps the commission date if unset; moving to retired/removed auto-stamps the retire " +
+				"date. Dates are ISO 'YYYY-MM-DD'. This is the dedicated transition path, not a generic " +
+				"attribute edit; the change is recorded in the feature's history.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"feature_class":{"type":"string","description":"The feature class code."},
+					"feature_id":{"type":"string","description":"The feature's id (uuid)."},
+					"lifecycle_status":{"type":"string","enum":["PLANNED","UNDER_CONSTRUCTION","IN_SERVICE","DERATED","RETIRED","REMOVED"],"description":"The new lifecycle state; omit to change only the dates."},
+					"commissioned_at":{"type":"string","description":"Commission/in-service date (YYYY-MM-DD)."},
+					"retired_at":{"type":"string","description":"Retire/decommission date (YYYY-MM-DD)."}
+				},
+				"required":["feature_class","feature_id"],
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermFeaturesWrite,
+			Handler:      toolSetFeatureLifecycle,
+		},
+		{
 			Name: "suggest_relationships",
 			Description: "Propose ranked candidate features the given feature could legally form " +
 				"a structural/spatial relationship with, without establishing anything. A " +

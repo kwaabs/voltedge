@@ -747,8 +747,45 @@ export function createCompositeStyle(opts: {
       )
       perClass[sourceId] = styleForClass
     }
-    return styleForClass(feature, resolution)
+    const base = styleForClass(feature, resolution)
+    // Asset-lifecycle de-emphasis (S4): a feature not in an operational state is
+    // drawn faded so the live network reads clearly. Only the minority of
+    // non-operational features pay the clone cost; operational ones pass through.
+    const lifecycle = feature.get("lifecycle_status") as string | undefined
+    if (lifecycle && !LIFECYCLE_OPERATIONAL.has(lifecycle)) {
+      return applyLifecycleStyle(base, lifecycle)
+    }
+    return base
   }
+}
+
+// The operational lifecycle states (mirrors api/internal/crud/lifecycle.go) --
+// the only ones drawn at full strength. GHOSTED = proposed/not-yet-built, drawn
+// dashed and faint; everything else non-operational (retired/removed) is greyed.
+const LIFECYCLE_OPERATIONAL = new Set(["IN_SERVICE", "DERATED"])
+const LIFECYCLE_GHOSTED = new Set(["PLANNED", "UNDER_CONSTRUCTION"])
+
+/**
+ * De-emphasise a feature's symbology by its lifecycle state. The base style(s)
+ * come from the shared symbology cache, so we CLONE before mutating -- never
+ * touch the cached originals. A ghosted (planned) feature keeps its colour but
+ * goes dashed and semi-transparent ("coming"); a retired/removed one is greyed
+ * out ("gone").
+ */
+function applyLifecycleStyle(styles: Style | Style[], status: string): Style | Style[] {
+  const ghost = LIFECYCLE_GHOSTED.has(status)
+  const transform = (s: Style): Style => {
+    const c = s.clone()
+    c.getImage()?.setOpacity(ghost ? 0.55 : 0.3)
+    const stroke = c.getStroke()
+    if (stroke) {
+      if (ghost) stroke.setLineDash([6, 5])
+      else stroke.setColor("rgba(130, 130, 130, 0.55)")
+    }
+    if (!ghost) c.getFill()?.setColor("rgba(130, 130, 130, 0.18)")
+    return c
+  }
+  return Array.isArray(styles) ? styles.map(transform) : transform(styles)
 }
 
 /**

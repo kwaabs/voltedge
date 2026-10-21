@@ -43,6 +43,7 @@ import { useEffect, useRef } from "react"
 import { useAllDisplayZooms, useAllLabelDefs, useAllSymbology } from "@/hooks/use-all-symbology"
 import { usePermission } from "@/hooks/use-auth"
 import { useCatalog } from "@/hooks/use-catalog"
+import { useEditing } from "@/hooks/use-editing"
 import { type FeatureGeometry, useFeature } from "@/hooks/use-feature"
 import { type FaultImpact, useFaultMapMarkers } from "@/hooks/use-faults"
 import { type AffectedArea, type EnergizationState, useIncidentsForMap } from "@/hooks/use-oms"
@@ -642,6 +643,11 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   const diagramPlacePhase = useDiagramPlaceStore((s) => s.phase)
   const editing = useEditStore((s) => s.editing)
   const geometryTool = useEditStore((s) => s.geometryTool)
+  // Edit/View mode (S2): no map-editing interaction (draw, modify, connect,
+  // annotation draw) is armed in view mode, and leaving edit mode cancels any
+  // in-flight gesture. A defence-in-depth complement to S1 hiding the entry
+  // points -- the map itself refuses to start an edit when the mode is off.
+  const editModeOn = useEditing()
   const deletedIds = useDeletedFeaturesStore((s) => s.ids)
   const snapEnabled = useSnapStore((s) => s.enabled)
   const basemap = useBasemapStore((s) => s.basemap)
@@ -1242,7 +1248,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   useEffect(() => {
     const map = mapRef.current
     const source = draftSourceRef.current
-    if (!map || !source || !drawingFeatureClassCode || !drawingGeometryType) return
+    if (!map || !source || !drawingFeatureClassCode || !drawingGeometryType || !editModeOn) return
 
     const draw = new Draw({
       source,
@@ -1273,7 +1279,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
       map.removeInteraction(draw)
       document.removeEventListener("keydown", handleEscape)
     }
-  }, [drawingFeatureClassCode, drawingGeometryType])
+  }, [drawingFeatureClassCode, drawingGeometryType, editModeOn])
 
   // Adds/removes an OL Draw interaction for the annotation kind the user picked
   // to draw (Phase 36 Slice 4 -- see new-annotation-menu.tsx and
@@ -1287,7 +1293,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   // from the refetch the mutation triggers.
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !annotationDrawingKind) return
+    if (!map || !annotationDrawingKind || !editModeOn) return
 
     const source = new VectorSource()
     const layer = new VectorLayer({ source, style: draftStyleForFeature, zIndex: 10 })
@@ -1328,7 +1334,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
       map.removeLayer(layer)
       document.removeEventListener("keydown", handleEscape)
     }
-  }, [annotationDrawingKind, createAnnotation])
+  }, [annotationDrawingKind, createAnnotation, editModeOn])
 
   // Renders an already-placed draft into the draft layer and lets the user touch
   // it up before saving (Phase 20 -- docs/phase-20-split-copy.md). The draw flow's
@@ -1629,6 +1635,23 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
     document.addEventListener("keydown", handleEscape)
     return () => document.removeEventListener("keydown", handleEscape)
   }, [connectMode])
+
+  // S2 (edit/view mode): leaving edit mode cancels any in-flight map-edit gesture,
+  // so view mode can never hold a live draw / geometry-edit / connect / annotation
+  // interaction. The arming effects also refuse to START one in view mode; this
+  // covers a gesture that was already running when the user flipped back to view.
+  useEffect(() => {
+    if (editModeOn) return
+    const draw = useDrawStore.getState()
+    if (draw.drawingFeatureClassCode) draw.cancelDrawing()
+    if (draw.draft) draw.clearDraft()
+    if (useConnectStore.getState().mode) useConnectStore.getState().cancel()
+    if (useEditStore.getState().editing) useEditStore.getState().stop()
+    const ann = useAnnotationEditStore.getState()
+    if (ann.drawingKind) ann.cancelDrawing()
+    if (ann.selectedId) ann.deselect()
+    if (useTerritoryEditStore.getState().editing) useTerritoryEditStore.getState().stop()
+  }, [editModeOn])
 
   // Escape likewise cancels an in-progress "Trace path to…" gesture
   // (trace-path-store.ts) while it's waiting on a destination feature.
@@ -2818,7 +2841,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   useEffect(() => {
     const map = mapRef.current
     const feature = editFeatureRef.current
-    if (!map || !editing || !feature || !geometryTool) return
+    if (!map || !editing || !feature || !geometryTool || !editModeOn) return
 
     const features = new Collection([feature])
     const handleEnd = () => {
@@ -2848,7 +2871,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
     return () => {
       map.removeInteraction(modify)
     }
-  }, [geometryTool, editing, editingFeature])
+  }, [geometryTool, editing, editingFeature, editModeOn])
 
   // Attaches OL's Snap interaction whenever a workflow that lays down
   // coordinates is active -- drawing a brand new feature (draft-store.ts's
@@ -3910,7 +3933,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   useEffect(() => {
     const map = mapRef.current
     const source = annotationSourceRef.current
-    if (!map || !source || !annotationSelectedId || !annotationTool) return
+    if (!map || !source || !annotationSelectedId || !annotationTool || !editModeOn) return
 
     const feature = source.getFeatureById(annotationSelectedId)
     if (!feature) return
@@ -3974,7 +3997,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
     return () => {
       map.removeInteraction(modify)
     }
-  }, [annotationSelectedId, annotationTool])
+  }, [annotationSelectedId, annotationTool, editModeOn])
 
   // Imported overlays (Phase 15) -- repopulate the single imported layer from
   // the store whenever an overlay is added, removed, toggled, or hydrated from
@@ -4117,7 +4140,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   useEffect(() => {
     const map = mapRef.current
     const feature = territoryEditFeatureRef.current
-    if (!map || !territoryEditing || !feature || !territoryEditTool) return
+    if (!map || !territoryEditing || !feature || !territoryEditTool || !editModeOn) return
 
     const writeDirty = () => {
       const geometry = feature.getGeometry()
@@ -4152,7 +4175,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
     return () => {
       map.removeInteraction(draw)
     }
-  }, [territoryEditTool, territoryEditing, territoryBoundaries])
+  }, [territoryEditTool, territoryEditing, territoryBoundaries, editModeOn])
 
   // Whether the highlight halo is currently waiting on a feature fetch
   // it'll need a geometry from -- e.g. right after clicking a connection/

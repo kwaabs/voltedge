@@ -4,6 +4,8 @@
  * API itself. In production this is served from the same origin behind
  * a reverse proxy, same /api prefix.
  */
+import { useEditModeStore } from "@/stores/edit-mode-store"
+
 const API_BASE = "/api"
 
 /**
@@ -49,6 +51,11 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   if (!SAFE_METHODS.has(method)) {
     const csrf = readCookie(CSRF_COOKIE)
     if (csrf) headers["X-CSRF-Token"] = csrf
+    // Edit-session tagging: while the user is in edit mode, carry the session id
+    // so the server stamps feature_history.edit_session_id and the edit-sessions
+    // report can group this batch of changes. Absent outside edit mode.
+    const editSession = useEditModeStore.getState().sessionId
+    if (editSession) headers["X-Edit-Session"] = editSession
   }
 
   const res = await fetch(`${API_BASE}${path}`, {

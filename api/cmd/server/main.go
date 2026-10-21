@@ -24,6 +24,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/kwaabs/voltedge/api/internal/admin"
 	"github.com/kwaabs/voltedge/api/internal/assembly"
+	"github.com/kwaabs/voltedge/api/internal/assetlife"
 	"github.com/kwaabs/voltedge/api/internal/assettag"
 	"github.com/kwaabs/voltedge/api/internal/assistant"
 	"github.com/kwaabs/voltedge/api/internal/assistant/llm"
@@ -172,6 +173,10 @@ func main() {
 	authCfg := auth.NewConfigFromEnv()
 	r.Use(auth.SecurityHeaders())
 	r.Use(auth.SessionLoader(db, authCfg))
+	// Edit-session tagging: when the web client is in edit mode it sends an
+	// X-Edit-Session uuid on each mutating request; this stamps it onto the
+	// request context so the CRUD history writer can group a batch of edits.
+	r.Use(auth.EditSessionLoader())
 	// Enrich the request-summary log line with the resolved caller. This runs
 	// just after SessionLoader so UserFrom sees the attached user; it writes into
 	// the pointer-carried logx attribute bag the request logger opened upstream,
@@ -402,6 +407,10 @@ func main() {
 	// Bill of Quantities: a priced schedule over a scope. Read-only, reads feature
 	// quantities (like /aggregate) -- gated on features:read.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/boq", boq.Routes(db, exportStore))
+	// Asset-lifecycle aging: the expected-useful-life catalog + the remaining-life
+	// report. Method-aware -- the report/catalog read is features:read, editing the
+	// catalog is metadata:write (admin policy, like the cost/curve catalogs).
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermMetadataWrite)).Mount("/asset-life", assetlife.Routes(db))
 	// Phase 19: the in-app AI assistant's backend (docs/phase-19-assistant.md).
 	// Only RequireAuth here, not a single RBAC gate -- /assistant/suggestions
 	// reads two capabilities at once (connectivity + relationships) and gates

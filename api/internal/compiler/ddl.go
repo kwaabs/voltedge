@@ -218,6 +218,22 @@ func buildCreateTable(qualifiedTable string, fc *metadata.FeatureClass, fields [
 	// (compiler.go) mirrors it into runtime.external_feature_refs for inbound lookup.
 	cols = append(cols, `external_ref jsonb`)
 
+	// Asset lifecycle: where this physical asset sits in its life, as a
+	// system axis on EVERY class (like external_ref), distinct from the
+	// editorial `status` (draft/published) and the network `boundary_role`.
+	// NOT NULL DEFAULT 'IN_SERVICE' so a recompiled legacy table backfills
+	// every existing row to the only sensible default -- an asset already in
+	// the system is in service -- and new rows that don't set it are in
+	// service too. The CHECK pins the coded value set; widening it later is a
+	// safe ADD-only change (syncLifecycleCheck mirrors syncCheckConstraints).
+	// commissioned_at / retired_at are the lifecycle dates (nullable),
+	// generalizing the scattered per-class install_date. A feature is
+	// OPERATIONAL -- conducts in trace & power flow -- only when its status is
+	// IN_SERVICE or DERATED (see lifecycleOperationalStatuses).
+	cols = append(cols, `lifecycle_status text NOT NULL DEFAULT 'IN_SERVICE' CHECK (lifecycle_status IN ('PLANNED', 'UNDER_CONSTRUCTION', 'IN_SERVICE', 'DERATED', 'RETIRED', 'REMOVED'))`)
+	cols = append(cols, `commissioned_at date`)
+	cols = append(cols, `retired_at date`)
+
 	// The territory this feature belongs to (Phase 11) -- only for classes
 	// that actually carry a geometry to place; a geometry-less class has
 	// nothing to contain in a territory, so it never gets the column.

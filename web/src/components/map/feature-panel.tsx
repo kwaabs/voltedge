@@ -98,6 +98,8 @@ import { type FeatureHistoryEntry, useFeatureHistory } from "@/hooks/use-feature
 import { useFeatureClassSchema } from "@/hooks/use-feature-class-schema"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { usePermission } from "@/hooks/use-auth"
+import { useEditing } from "@/hooks/use-editing"
+import { useEditModeStore } from "@/stores/edit-mode-store"
 import { useMarkDownstreamPrivate, useResyncOwnership } from "@/hooks/use-ownership"
 import {
   type ExternalLink,
@@ -213,6 +215,29 @@ function snapshotComputedVoltages(start: TraceFeatureRef): Record<string, number
   return Object.fromEntries(lf.nodes.map((n) => [`${n.feature_class}:${n.feature_id}`, n.voltage_v]))
 }
 
+// The asset-lifecycle states, in life order, with human labels. Mirrors the
+// coded set the compiler pins on the lifecycle_status system column
+// (api/internal/crud/lifecycle.go). IN_SERVICE / DERATED are the operational
+// (conducting) states -- the network gate (trace & power flow) keys off them.
+const LIFECYCLE_STATUSES = [
+  "PLANNED",
+  "UNDER_CONSTRUCTION",
+  "IN_SERVICE",
+  "DERATED",
+  "RETIRED",
+  "REMOVED",
+] as const
+const LIFECYCLE_LABELS: Record<string, string> = {
+  PLANNED: "Planned",
+  UNDER_CONSTRUCTION: "Under construction",
+  IN_SERVICE: "In service",
+  DERATED: "Derated",
+  RETIRED: "Retired",
+  REMOVED: "Removed",
+}
+// Operational (conducting) states get a green badge; off-network states are muted.
+const LIFECYCLE_OPERATIONAL = new Set(["IN_SERVICE", "DERATED"])
+
 function AttributesTab() {
   const selected = useSelectionStore((s) => s.selected)
   const editing = useEditStore((s) => s.editing)
@@ -223,8 +248,11 @@ function AttributesTab() {
   // never sees the control, rather than being offered an action the server
   // would reject. Publishing is the review/sign-off step of the draft ->
   // published axis (docs/phase-38-operational-state.md, "Follow-on").
-  const canPublish = usePermission()("features:write")
+  // Edit affordances show only in edit mode (features:write AND the Edit toggle on);
+  // in view mode the panel is read-only. The server still enforces the permission.
+  const canPublish = useEditing()
   const [publishing, setPublishing] = useState(false)
+  const [lifecycleBusy, setLifecycleBusy] = useState(false)
   const { data: feature, isPending, isError, error } = useFeature(
     selected?.featureClassCode,
     selected?.featureId,
@@ -379,10 +407,33 @@ function AttributesTab() {
     }
   }
 
+  async function handleSetLifecycle(status: string) {
+    if (!selected || lifecycleBusy) return
+    setLifecycleBusy(true)
+    try {
+      await apiFetch(
+        `/features/${selected.featureClassCode}/${selected.featureId}/lifecycle`,
+        { method: "PATCH", body: JSON.stringify({ lifecycle_status: status }) },
+      )
+      queryClient.invalidateQueries({ queryKey: ["feature", selected.featureClassCode, selected.featureId] })
+    } catch (err) {
+      useToastStore.getState().pushError(
+        err instanceof ApiError ? err.message : "Could not change this feature's lifecycle.",
+      )
+    } finally {
+      setLifecycleBusy(false)
+    }
+  }
+
   const isPublished = feature.status === "published"
   // The control is hidden (not just disabled) without features:write or on a
   // soft-deleted feature -- the same guard Duplicate/Delete use in the header.
   const showPublishControl = canPublish && !feature.deleted_at
+  // Asset lifecycle: default to IN_SERVICE for a row written before the column
+  // existed and read back before a recompile (defensive -- the column is
+  // NOT NULL DEFAULT 'IN_SERVICE', so the server always sends one post-recompile).
+  const lifecycleStatus = feature.lifecycle_status ?? "IN_SERVICE"
+  const showLifecycleControl = canPublish && !feature.deleted_at
 
   return (
     <>
@@ -464,6 +515,62 @@ function AttributesTab() {
           )}
         </div>
       </dd>
+
+      <dt className={dtClass}>Lifecycle</dt>
+      <dd className={ddClass}>
+        <div className="flex items-center justify-between gap-2">
+          <Badge
+            variant={LIFECYCLE_OPERATIONAL.has(lifecycleStatus) ? "success" : "secondary"}
+            title={
+              LIFECYCLE_OPERATIONAL.has(lifecycleStatus)
+                ? "Operational — conducts in trace and power flow"
+                : "Off-network — excluded from trace and power flow"
+            }
+          >
+            {LIFECYCLE_LABELS[lifecycleStatus] ?? lifecycleStatus}
+          </Badge>
+          {showLifecycleControl && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-xs"
+                  disabled={lifecycleBusy}
+                  title="Move this asset along its lifecycle"
+                >
+                  {lifecycleBusy ? <Loader2 className="size-3 animate-spin" /> : <Workflow className="size-3" />}
+                  Change
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {LIFECYCLE_STATUSES.map((s) => (
+                  <DropdownMenuItem
+                    key={s}
+                    disabled={s === lifecycleStatus}
+                    onClick={() => handleSetLifecycle(s)}
+                  >
+                    {LIFECYCLE_LABELS[s]}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      </dd>
+
+      {feature.commissioned_at && (
+        <>
+          <dt className={dtClass}>Commissioned</dt>
+          <dd className={ddClass}>{feature.commissioned_at}</dd>
+        </>
+      )}
+      {feature.retired_at && (
+        <>
+          <dt className={dtClass}>Retired</dt>
+          <dd className={ddClass}>{feature.retired_at}</dd>
+        </>
+      )}
 
       {feature.deleted_at && (
         <>
@@ -659,6 +766,8 @@ function useCounterpartNames(refs: { feature_class: string; feature_id: string }
 
 function TerminalsTab() {
   const selected = useSelectionStore((s) => s.selected)
+  // Connect/disconnect are edit actions -- the controls appear only in edit mode.
+  const canEditConn = useEditing()
   // The peeked counterpart (a row clicked to highlight it on the map without
   // opening its panel -- the row's info button does that). Drives the active
   // row styling below; cleared when this tab unmounts so no halo lingers.
@@ -679,7 +788,7 @@ function TerminalsTab() {
     }),
   )
 
-  const newConnectionButton = selected && (
+  const newConnectionButton = selected && canEditConn && (
     <Button
       variant="outline"
       size="sm"
@@ -791,14 +900,16 @@ function TerminalsTab() {
                 <Info className="size-3.5" />
                 <span className="sr-only">Open feature panel</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setRevokingConnection(conn)}
-                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 rounded p-1"
-              >
-                <Unlink2 className="size-3.5" />
-                <span className="sr-only">Revoke connection</span>
-              </button>
+              {canEditConn && (
+                <button
+                  type="button"
+                  onClick={() => setRevokingConnection(conn)}
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 rounded p-1"
+                >
+                  <Unlink2 className="size-3.5" />
+                  <span className="sr-only">Revoke connection</span>
+                </button>
+              )}
               {/* The terminal this connection lands on (T1/T2 on the viewed
                   feature) -- pinned to the card's extreme right edge, after the
                   action buttons, in a big badge so it reads at a glance. */}
@@ -821,6 +932,8 @@ function TerminalsTab() {
 
 function RelationshipsTab() {
   const selected = useSelectionStore((s) => s.selected)
+  // Relate/unrelate are edit actions -- the controls appear only in edit mode.
+  const canEditRel = useEditing()
   // Same peek-vs-open split as TerminalsTab -- clicking a row locates the
   // counterpart on the map, the info button opens its panel.
   const located = useSelectionStore((s) => s.located)
@@ -840,7 +953,7 @@ function RelationshipsTab() {
     }),
   )
 
-  const newRelationshipButton = selected && (
+  const newRelationshipButton = selected && canEditRel && (
     <Button
       variant="outline"
       size="sm"
@@ -936,14 +1049,16 @@ function RelationshipsTab() {
                 <Info className="size-3.5" />
                 <span className="sr-only">Open feature panel</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setRevokingRelationship(rel)}
-                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 rounded p-1"
-              >
-                <Unlink2 className="size-3.5" />
-                <span className="sr-only">Revoke relationship</span>
-              </button>
+              {canEditRel && (
+                <button
+                  type="button"
+                  onClick={() => setRevokingRelationship(rel)}
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 rounded p-1"
+                >
+                  <Unlink2 className="size-3.5" />
+                  <span className="sr-only">Revoke relationship</span>
+                </button>
+              )}
             </div>
           )
         })}
@@ -976,6 +1091,9 @@ function LinksTab({ featureClassCode, featureId }: { featureClassCode: string; f
   const systemsQuery = useExternalSystems(canReadSystems)
   const systems = systemsQuery.data?.external_systems ?? []
   const canAddApi = canReadSystems && systems.length > 0
+  // Adding/removing links is a write -- only in edit mode. Viewing links (and
+  // following them / reading api-link data) stays open in view mode.
+  const canEditLinks = useEditing()
 
   const [adding, setAdding] = useState(false)
   const [kind, setKind] = useState<"hyperlink" | "api">("hyperlink")
@@ -1089,12 +1207,12 @@ function LinksTab({ featureClassCode, featureId }: { featureClassCode: string; f
             </Button>
           </div>
         </div>
-      ) : (
+      ) : canEditLinks ? (
         <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}>
           <Plus className="size-4" />
           Add link
         </Button>
-      )}
+      ) : null}
 
       {isPending ? (
         <div className="text-muted-foreground flex items-center gap-2 text-sm">
@@ -1107,7 +1225,7 @@ function LinksTab({ featureClassCode, featureId }: { featureClassCode: string; f
         <div className="flex w-full flex-col gap-2">
           {data.links.map((link) =>
             link.kind === "api" ? (
-              <ApiLinkRow key={link.id} link={link} onRemove={() => removeLink(link.id)} />
+              <ApiLinkRow key={link.id} link={link} onRemove={() => removeLink(link.id)} canRemove={canEditLinks} />
             ) : (
               <div
                 key={link.id}
@@ -1126,15 +1244,17 @@ function LinksTab({ featureClassCode, featureId }: { featureClassCode: string; f
                   </span>
                   <span className="text-muted-foreground truncate font-mono text-xs">{link.url}</span>
                 </a>
-                <button
-                  type="button"
-                  onClick={() => removeLink(link.id)}
-                  title="Remove link"
-                  className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
-                >
-                  <Trash2 className="size-3.5" />
-                  <span className="sr-only">Remove link</span>
-                </button>
+                {canEditLinks && (
+                  <button
+                    type="button"
+                    onClick={() => removeLink(link.id)}
+                    title="Remove link"
+                    className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
+                  >
+                    <Trash2 className="size-3.5" />
+                    <span className="sr-only">Remove link</span>
+                  </button>
+                )}
               </div>
             ),
           )}
@@ -1159,7 +1279,8 @@ function LinksTab({ featureClassCode, featureId }: { featureClassCode: string; f
 function ExternalRefsSection({ featureClassCode, featureId }: { featureClassCode: string; featureId: string }) {
   const { data, isPending, isError } = useFeatureExternalRefs(featureClassCode, featureId)
   const setRefs = useSetFeatureExternalRefs(featureClassCode, featureId)
-  const canWrite = usePermission()("features:write")
+  // Edit affordances gate on edit mode (features:write AND the Edit toggle on).
+  const canWrite = useEditing()
 
   // The system catalog gives the add-picker its options and tells each ref row
   // whether its system can be fetched (has a path_template). Behind metadata:read
@@ -1399,7 +1520,7 @@ function ExternalRefRow({
  * shows the normalized payload as an expandable card. The data isn't
  * loaded until the first "Load"; after that the same button re-fetches.
  */
-function ApiLinkRow({ link, onRemove }: { link: ExternalLink; onRemove: () => void }) {
+function ApiLinkRow({ link, onRemove, canRemove }: { link: ExternalLink; onRemove: () => void; canRemove: boolean }) {
   const [open, setOpen] = useState(false)
   const query = useExternalLinkData(link.id, open)
 
@@ -1426,15 +1547,17 @@ function ApiLinkRow({ link, onRemove }: { link: ExternalLink; onRemove: () => vo
           {query.isFetching ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
           {open ? "Refresh" : "Load"}
         </Button>
-        <button
-          type="button"
-          onClick={onRemove}
-          title="Remove link"
-          className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
-        >
-          <Trash2 className="size-3.5" />
-          <span className="sr-only">Remove link</span>
-        </button>
+        {canRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            title="Remove link"
+            className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
+          >
+            <Trash2 className="size-3.5" />
+            <span className="sr-only">Remove link</span>
+          </button>
+        )}
       </div>
       {open && (
         <div className="border-t p-2">
@@ -1830,7 +1953,12 @@ function CostOverrideSection({
   featureId: string
   linear: boolean
 }) {
-  const canEdit = usePermission()("metadata:write")
+  // Per-feature cost overrides are a write surface, so they appear only in edit
+  // mode (metadata:write AND the Edit toggle on) -- in view mode the panel is
+  // read-only. Both hooks run unconditionally, then combine (rules of hooks).
+  const canWriteCost = usePermission()("metadata:write")
+  const costEditMode = useEditModeStore((s) => s.editMode)
+  const canEdit = canWriteCost && costEditMode
   // Query only for admins (the endpoint 403s otherwise); the undefined arg
   // disables the query for everyone else.
   const { data } = useFeatureCostOverrides(canEdit ? featureClassCode : undefined)
@@ -3185,7 +3313,14 @@ export function FeaturePanel() {
   const canReadSafety = usePermission()("safety:read")
   const canReadFeatures = usePermission()("features:read")
   const canReadTags = usePermission()("tags:read")
-  const canWriteCircuits = usePermission()("circuits:write")
+  // Circuit assignment is a write surface -- shown only in edit mode (circuits:write
+  // AND the Edit toggle on). Both hooks run unconditionally, then combine.
+  const canWriteCircuitsPerm = usePermission()("circuits:write")
+  const circuitsEditMode = useEditModeStore((s) => s.editMode)
+  const canWriteCircuits = canWriteCircuitsPerm && circuitsEditMode
+  // The header's mutating actions (Edit / Duplicate / Delete) show only in edit
+  // mode; the view actions beside them (trace/analysis, view diagram) stay.
+  const canEditFeatures = useEditing()
   const [circuitSourceOpen, setCircuitSourceOpen] = useState(false)
   // Circuit catalog (small, cached) — used below to badge the feature when it's a
   // circuit's designated source. A separate useCircuits() lives in the attribute
@@ -3592,7 +3727,7 @@ export function FeaturePanel() {
                     <>
                       <DropdownMenuItem onSelect={armLoadFlow}>
                         <Activity className="size-4" />
-                        Analyze LV network (from secondary)…
+                        Analyze LV network…
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                     </>
@@ -3740,7 +3875,10 @@ export function FeaturePanel() {
                       transformer, the boundary where a private network is declared.
                       Utility is the default, so a utility transformer still shows
                       the action (to mark it) but nothing stays marked unless set. */}
-                  {isTransformerBoundary && (
+                  {/* Ownership MUTATIONS (stamp/propagate the ownership axis across
+                      downstream features) are writes -- edit-mode only. The ownership
+                      trace and the "Private" badge are reads and stay in view mode. */}
+                  {isTransformerBoundary && canEditFeatures && (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
@@ -3759,7 +3897,7 @@ export function FeaturePanel() {
                 </DropdownMenuContent>
               </DropdownMenu>
               )}
-              {!oneLineOpen && (
+              {!oneLineOpen && canEditFeatures && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -3783,7 +3921,7 @@ export function FeaturePanel() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-52">
-                    {!oneLineOpen && (
+                    {!oneLineOpen && canEditFeatures && (
                       <>
                         <DropdownMenuItem
                           disabled={!feature?.geometry || Boolean(feature?.deleted_at)}
@@ -3795,7 +3933,7 @@ export function FeaturePanel() {
                         <DropdownMenuSeparator />
                       </>
                     )}
-                    {isDiagramContainer && diagrams.length === 0 && (
+                    {isDiagramContainer && diagrams.length === 0 && canEditFeatures && (
                       <DropdownMenuItem onSelect={() => setCreatingDiagram(true)}>
                         <Workflow className="size-4" />
                         Create diagram
@@ -3814,7 +3952,7 @@ export function FeaturePanel() {
                           View {d.name || d.diagram_type}
                         </DropdownMenuItem>
                       ))}
-                    {!oneLineOpen && (
+                    {!oneLineOpen && canEditFeatures && (
                       <>
                         {hasDiagramActions && <DropdownMenuSeparator />}
                         <DropdownMenuItem

@@ -402,6 +402,21 @@ var manifest = []Doc{
 		Filename:    "fault-modes-guide.md",
 	},
 	{
+		ID:          "asset-lifecycle-guide",
+		Title:       "Asset Lifecycle & Aging",
+		Description: "Where each physical asset sits in its life: the lifecycle_status axis (planned → in service → retired → removed) and commission/retire dates on every feature, how a non-operational asset drops out of trace and power flow, the expected-useful-life catalog, and the aging report that flags assets due or overdue for replacement.",
+		Category:    "Manuals",
+		Filename:    "asset-lifecycle-guide.md",
+	},
+	{
+		ID:          "asset-lifecycle-guide-interactive",
+		Title:       "Asset Lifecycle & Aging (interactive)",
+		Description: "The lifecycle axis as something you drive: tell the three 'status' axes apart, step an asset through the six states and watch the commission/retire dates auto-stamp, retire a mid-feeder span and see the downstream go dark (the network gate), flip a feature between ghosted/greyed map styling, and age an asset against its expected life to land it in the overdue / due-soon / ok bucket. The interactive companion to the Asset Lifecycle & Aging manual.",
+		Category:    "Interactive guides",
+		Filename:    "asset-lifecycle-guide-interactive.html",
+		Format:      "html",
+	},
+	{
 		ID:          "oms-guide",
 		Title:       "OMS — Outage Management",
 		Description: "The outage lifecycle end to end: trouble calls rolled into predicted incidents (blamed on the nearest protective device), affected-customer and critical-facility rollups, the live de-energised cone, switching orders whose open/close steps flip the real device_state, planned outages, restoration and the SAIDI/SAIFI/CAIDI/ENS reliability indices.",

@@ -71,6 +71,7 @@ func Routes(db *bun.DB) chi.Router {
 	// Cross-feature activity log (who changed what, in a window). A static segment,
 	// so chi matches it ahead of the /{code} class routes below.
 	r.Get("/activity", activityHandler(db))
+	r.Get("/edit-sessions", editSessionsHandler(db))
 	r.Get("/{code}", listHandler(db))
 	r.Post("/{code}", createHandler(db))
 	r.Post("/{code}/query", queryHandler(db))
@@ -80,6 +81,7 @@ func Routes(db *bun.DB) chi.Router {
 	r.Get("/{code}/{id}/gps-captures", gpsCapturesHandler(db))
 	r.Get("/{code}/{id}/capacity", capacityHandler(db))
 	r.Patch("/{code}/{id}", updateHandler(db))
+	r.Patch("/{code}/{id}/lifecycle", lifecycleHandler(db))
 	r.Post("/{code}/{id}/split", splitHandler(db))
 	r.Post("/{code}/{id}/publish", publishHandler(db))
 	r.Post("/{code}/{id}/unpublish", unpublishHandler(db))
@@ -569,6 +571,37 @@ func updateHandler(db *bun.DB) http.HandlerFunc {
 			Subtype:           req.Subtype,
 			ExpectedUpdatedAt: req.ExpectedUpdatedAt,
 		})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+// lifecycleHandler moves a feature along its asset-lifecycle axis (status and/or
+// the commission/retire dates). A dedicated route rather than part of the generic
+// PATCH update because a lifecycle change is a deliberate operational act that
+// drives the network gate and the aging report -- see crud.SetLifecycle. Gated by
+// the /features mount's features:write, same as a normal edit.
+func lifecycleHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "code")
+		id := chi.URLParam(r, "id")
+
+		loaded, err := loadOrNotFound(r.Context(), db, code)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		var req LifecycleInput
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := SetLifecycle(r.Context(), db, loaded, id, req)
 		if err != nil {
 			writeError(w, err)
 			return

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
 
@@ -24,6 +25,28 @@ func SecurityHeaders() func(http.Handler) http.Handler {
 			h.Set("Cross-Origin-Opener-Policy", "same-origin")
 			if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 				h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// EditSessionLoader attaches the client's edit-mode session id to the request
+// context when the X-Edit-Session header carries a well-formed uuid. The web
+// client mints one uuid per edit-mode span (Edit toggle on -> off) and sends it
+// on every mutating request made while editing; the CRUD history writer stamps
+// it onto each feature_history row so the edit-sessions report can group a batch
+// of changes back together. Non-failing like SessionLoader: a missing or
+// MALFORMED header is simply dropped (no session stamped) -- the value is cast to
+// a uuid column downstream, so validating here keeps a bad header from erroring
+// an otherwise-good write.
+func EditSessionLoader() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if raw := r.Header.Get("X-Edit-Session"); raw != "" {
+				if id, err := uuid.Parse(raw); err == nil {
+					r = r.WithContext(WithEditSession(r.Context(), id.String()))
+				}
 			}
 			next.ServeHTTP(w, r)
 		})

@@ -6,7 +6,10 @@ import "context"
 // with or forge the authenticated-user slot on a request context.
 type contextKey int
 
-const userContextKey contextKey = iota
+const (
+	userContextKey contextKey = iota
+	editSessionContextKey
+)
 
 // SessionUser is the authenticated identity carried on a request's
 // context once the session middleware has validated the cookie. It is a
@@ -95,6 +98,22 @@ func WithUser(ctx context.Context, u *SessionUser) context.Context {
 func UserFrom(ctx context.Context) (*SessionUser, bool) {
 	u, ok := ctx.Value(userContextKey).(*SessionUser)
 	return u, ok
+}
+
+// WithEditSession attaches the client's edit-mode session id (the uuid the web
+// client mints when the Edit toggle is turned on and sends on every mutating
+// request via the X-Edit-Session header). The CRUD history writer stamps it onto
+// each feature_history row so a batch of changes made in one edit session can be
+// grouped back together (the edit-sessions report). "" clears it.
+func WithEditSession(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, editSessionContextKey, id)
+}
+
+// EditSessionID returns the edit-mode session id on ctx, or "" when the request
+// carried none (a read, a non-UI caller, or a write made outside edit mode).
+func EditSessionID(ctx context.Context) string {
+	id, _ := ctx.Value(editSessionContextKey).(string)
+	return id
 }
 
 // ActorID returns the authenticated user's id for stamping the audit
