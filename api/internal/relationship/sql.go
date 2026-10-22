@@ -149,9 +149,60 @@ func establishRelationship(ctx context.Context, db bun.IDB, req establishRequest
 	// happened to be close enough that none was warranted.
 	warning, _ := checkPlausibility(ctx, db, origin, destination)
 
+	// Audit the establish on BOTH features' timelines (Slice A): a relationship
+	// never writes to either feature's own gis row, so without this the feature a
+	// thing is attached to -- the pole a street light rides, say -- would show
+	// nothing in its History. The write shares the relationship's fate the same way
+	// crud's own history does: atomic with it when the caller passed a transaction
+	// (the fan-out/attach engines), a second statement on the plain REST path. We
+	// don't propagate a history error to the caller -- the relationship itself is
+	// the thing that had to succeed -- but a feature_history insert has no FK and a
+	// well-formed row, so in practice it only fails if the whole request is already
+	// failing.
+	recordRelationshipHistory(ctx, db, crud.HistoryRelate, rel.ID, class.Name, class.Kind,
+		origin.loaded.FeatureClass.Code, req.Origin.FeatureID,
+		destination.loaded.FeatureClass.Code, req.Destination.FeatureID)
+
 	resp := formatRelationship(rel, class, origin, destination)
 	resp.PlausibilityWarning = warning
 	return resp, nil
+}
+
+// recordRelationshipHistory writes an audit entry on BOTH features a relationship
+// touches, so the change reads on each one's History timeline (whichever feature
+// an operator opens, they see it). Each side's snapshot names the OTHER feature
+// as the related one and records this feature's role (origin/destination) in the
+// link, plus the relationship class/kind/id. A per-row history error is swallowed
+// rather than propagated -- the relationship change is what had to succeed -- and
+// the row shares that change's transaction when the caller supplied one. action
+// is crud.HistoryRelate or crud.HistoryUnrelate.
+func recordRelationshipHistory(ctx context.Context, db bun.IDB, action, relID, className, kind, originClass, originID, destClass, destID string) {
+	// Skip a side whose class code didn't resolve (only possible on the revoke
+	// path's best-effort lookup) rather than writing a history row with a blank
+	// feature_class_code. On the origin's timeline the counterpart is the
+	// destination, and vice versa.
+	if originClass != "" {
+		_ = crud.RecordRelationshipEvent(ctx, db, originClass, originID, action, map[string]any{
+			"id":                    originID,
+			"relationship_id":       relID,
+			"relationship_class":    className,
+			"kind":                  kind,
+			"end":                   "origin",
+			"related_feature_class": destClass,
+			"related_feature_id":    destID,
+		})
+	}
+	if destClass != "" {
+		_ = crud.RecordRelationshipEvent(ctx, db, destClass, destID, action, map[string]any{
+			"id":                    destID,
+			"relationship_id":       relID,
+			"relationship_class":    className,
+			"kind":                  kind,
+			"end":                   "destination",
+			"related_feature_class": originClass,
+			"related_feature_id":    originID,
+		})
+	}
 }
 
 // listRelationships returns every relationship involving one feature, on
@@ -224,6 +275,16 @@ func RevokeRelationship(ctx context.Context, db bun.IDB, id string) error {
 }
 
 func revokeRelationship(ctx context.Context, db bun.IDB, id string) error {
+	// Load the row before deleting it: the unrelate audit (Slice A) needs both
+	// endpoints and the relationship class, which the bare id doesn't carry.
+	var rel FeatureRelationship
+	if err := db.NewSelect().Model(&rel).Where("id = ?", id).Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return notFound("relationship %s not found", id)
+		}
+		return fmt.Errorf("relationship: revoke: %w", err)
+	}
+
 	res, err := db.NewDelete().Model((*FeatureRelationship)(nil)).Where("id = ?", id).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("relationship: revoke: %w", err)
@@ -235,6 +296,24 @@ func revokeRelationship(ctx context.Context, db bun.IDB, id string) error {
 	if n == 0 {
 		return notFound("relationship %s not found", id)
 	}
+
+	// Resolve the class codes + relationship class for the audit snapshot, then
+	// record the unrelate on both ends (best-effort, after the delete committed).
+	fcCodes, err := loadFeatureClassCodes(ctx, db, []string{rel.OriginFeatureClassID, rel.DestinationFeatureClassID})
+	if err != nil {
+		// The delete succeeded; losing just the audit snapshot's class names isn't
+		// worth failing the request. Record with whatever we have.
+		fcCodes = map[string]string{}
+	}
+	className, kind := "", ""
+	if classes, err := loadRelationshipClassesByID(ctx, db, []string{rel.RelationshipClassID}); err == nil {
+		if c, ok := classes[rel.RelationshipClassID]; ok {
+			className, kind = c.Name, c.Kind
+		}
+	}
+	recordRelationshipHistory(ctx, db, crud.HistoryUnrelate, rel.ID, className, kind,
+		fcCodes[rel.OriginFeatureClassID], rel.OriginFeatureID,
+		fcCodes[rel.DestinationFeatureClassID], rel.DestinationFeatureID)
 	return nil
 }
 

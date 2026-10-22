@@ -47,6 +47,7 @@ import { useEditing } from "@/hooks/use-editing"
 import { type FeatureGeometry, useFeature } from "@/hooks/use-feature"
 import { type FaultImpact, useFaultMapMarkers } from "@/hooks/use-faults"
 import { type AffectedArea, type EnergizationState, useIncidentsForMap } from "@/hooks/use-oms"
+import { useWorkOrders } from "@/hooks/use-wam"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useBasemaps } from "@/hooks/use-basemaps"
 import { useServiceLayers, type ServiceLayerRecord } from "@/hooks/use-service-layers"
@@ -78,6 +79,7 @@ import {
   importedStyleForFeature,
   pinStyleForFeature,
   territoryStyleForFeature,
+  workOrderStyleForFeature,
 } from "@/lib/map-layers"
 import { bandSources, compositeUrlTemplate, featureClassSourceIds, MVT_LAYER_PROP } from "@/lib/martin"
 import { formatArea, formatLength } from "@/lib/measure"
@@ -93,6 +95,7 @@ import { useEditStore } from "@/stores/edit-store"
 import { useFaultCurrentStore } from "@/stores/fault-current-store"
 import { useFaultLocationStore } from "@/stores/fault-location-store"
 import { useFaultOverlayStore } from "@/stores/fault-overlay-store"
+import { useWorkOrderOverlayStore } from "@/stores/work-order-overlay-store"
 import { useImportedFeatureStore } from "@/stores/imported-feature-store"
 import { useImportedOverlaysStore } from "@/stores/imported-overlays-store"
 import { useIsolateStore } from "@/stores/isolate-store"
@@ -600,6 +603,11 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   const faultMarkerSourceRef = useRef<VectorSource | null>(null)
   const faultMarkerLayerRef = useRef<VectorLayer | null>(null)
   const faultImpactSourceRef = useRef<VectorSource | null>(null)
+  // Work-order overlay (work-order-overlay-store.ts) -- the twin of the fault
+  // overlay: one clickable marker layer of the open work orders at their asset
+  // locations. No impact source (an order has no downstream section to draw).
+  const workOrderMarkerSourceRef = useRef<VectorSource | null>(null)
+  const workOrderMarkerLayerRef = useRef<VectorLayer | null>(null)
   const faultImpactFittedTokenRef = useRef(0)
   // The last Territory Explorer focus token the map fitted, so selecting a
   // territory fits its boundary exactly once (not on every boundaries refetch).
@@ -680,6 +688,10 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
   // The overlay only fetches while it's switched on (fault-overlay-store); the
   // legend filters the result client-side, so toggling a status never refetches.
   const faultMarkers = useFaultMapMarkers(faultOverlayVisible)
+  // The work-order overlay -- pins the OPEN work orders (each at its asset's
+  // inherited location) while switched on. Fetches only while visible.
+  const workOrderOverlayVisible = useWorkOrderOverlayStore((s) => s.visible)
+  const workOrderMarkers = useWorkOrders({ openOnly: true }, workOrderOverlayVisible)
   // The outage (OMS incident) overlay -- the twin of the fault overlay above.
   const omsOverlayVisible = useOmsOverlayStore((s) => s.visible)
   const omsOverlayStatuses = useOmsOverlayStore((s) => s.statuses)
@@ -1075,6 +1087,20 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
     faultMarkerSourceRef.current = faultMarkerSource
     faultMarkerLayerRef.current = faultMarkerLayer
 
+    // Work-order overlay: one clickable marker layer (priority-colored circles) of
+    // the open work orders, at the same zIndex as the fault/OMS markers. Starts
+    // empty + hidden; the population effect owns its contents and visibility.
+    const workOrderMarkerSource = new VectorSource()
+    const workOrderMarkerLayer = new VectorLayer({
+      source: workOrderMarkerSource,
+      style: workOrderStyleForFeature,
+      zIndex: 9,
+      visible: false,
+    })
+    map.addLayer(workOrderMarkerLayer)
+    workOrderMarkerSourceRef.current = workOrderMarkerSource
+    workOrderMarkerLayerRef.current = workOrderMarkerLayer
+
     // The outage (OMS incident) map overlay (oms-overlay-store.ts) -- the twin of
     // the fault overlay above. Three layers, mirroring the console mini-map's
     // amber/red split (outage-map.tsx): the frozen affected cone draws every
@@ -1215,6 +1241,8 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
       faultMarkerSourceRef.current = null
       faultMarkerLayerRef.current = null
       faultImpactSourceRef.current = null
+      workOrderMarkerSourceRef.current = null
+      workOrderMarkerLayerRef.current = null
       incidentMarkerSourceRef.current = null
       incidentMarkerLayerRef.current = null
       incidentAffectedSourceRef.current = null
@@ -2221,6 +2249,33 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
       }
     }
   }, [faultOverlayVisible, faultOverlayStatuses, faultMarkers.data])
+
+  // Work-order overlay markers. Repopulates the marker source from the open work
+  // orders, drawing one priority-colored circle per order that resolved to a
+  // location (its asset's inherited point, or an explicit pin), and flips the
+  // layer's visibility with the store. Each feature carries the order's priority
+  // (for the style) and its asset ref (so a click opens that asset's panel, whose
+  // Works tab lists this order). Orders with no location (an asset-less job, or an
+  // uncompiled/geometry-less asset) are simply not drawn.
+  useEffect(() => {
+    const source = workOrderMarkerSourceRef.current
+    const layer = workOrderMarkerLayerRef.current
+    if (!source || !layer) return
+
+    layer.setVisible(workOrderOverlayVisible)
+    source.clear()
+    if (!workOrderOverlayVisible) return
+
+    for (const wo of workOrderMarkers.data?.work_orders ?? []) {
+      if (wo.longitude == null || wo.latitude == null) continue
+      const feature = new Feature(new Point(fromLonLat([wo.longitude, wo.latitude])))
+      feature.set("workOrderId", wo.id)
+      feature.set("workOrderPriority", wo.priority)
+      feature.set("workOrderAssetClass", wo.asset_class ?? "")
+      feature.set("workOrderAssetId", wo.asset_id ?? "")
+      source.addFeature(feature)
+    }
+  }, [workOrderOverlayVisible, workOrderMarkers.data])
 
   // Pulse the LIVE faults -- a "radar ping" that fades as it grows, to draw the
   // eye to faults that still need attention. Only detected/investigating pulse: a
@@ -3556,6 +3611,33 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
           if (incidentId) useOmsOverlayStore.getState().showCone(incidentId)
           if (deviceClass && deviceId) {
             useSelectionStore.getState().select(deviceClass, deviceId, { focus: true })
+          }
+          return
+        }
+      }
+
+      // A work-order overlay marker (its own clickable layer, zIndex 9). Clicking
+      // one selects the order's asset -- highlighting it in place and opening its
+      // FeaturePanel, whose Works tab shows this very order. An asset-less order
+      // (no feature to open) is a no-op. Hit-tested after faults/outages so a
+      // fault or incident marker stacked over it still wins its own click.
+      const workOrderLayer = workOrderMarkerLayerRef.current
+      if (workOrderLayer && workOrderLayer.getVisible()) {
+        let workOrderHit: Feature | null = null
+        map.forEachFeatureAtPixel(
+          evt.pixel,
+          (feature) => {
+            workOrderHit = feature as Feature
+            return true
+          },
+          { layerFilter: (l) => l === workOrderLayer, hitTolerance: 6 },
+        )
+        if (workOrderHit) {
+          const hit = workOrderHit as Feature
+          const assetClass = hit.get("workOrderAssetClass") as string | undefined
+          const assetId = hit.get("workOrderAssetId") as string | undefined
+          if (assetClass && assetId) {
+            useSelectionStore.getState().select(assetClass, assetId, { focus: true })
           }
           return
         }

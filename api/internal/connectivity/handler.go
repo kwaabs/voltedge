@@ -20,7 +20,7 @@ import (
 //	GET    /audit            read-only connectivity consistency report (?feature_ids= scopes it)
 //	POST   /audit/cleanup     remove orphaned connections (connectivity:commit)
 //	POST   /audit/reconcile   run the audit and persist it into the issue queue (connectivity:commit)
-//	GET    /issues            the validation-issue queue (filter by status/severity/kind)
+//	GET    /issues            the validation-issue queue (filter by status/severity/kind; ?feature_ids= scopes it)
 //	PATCH  /issues/{id}       triage one issue (acknowledge/resolve/suppress)
 //	DELETE /{id}             revoke (permanently remove) a connection
 //
@@ -203,6 +203,13 @@ func issuesListHandler(db *bun.DB) http.HandlerFunc {
 			Status:   r.URL.Query().Get("status"),
 			Severity: r.URL.Query().Get("severity"),
 			Kind:     r.URL.Query().Get("kind"),
+		}
+		if v := r.URL.Query().Get("feature_ids"); strings.TrimSpace(v) != "" {
+			for _, id := range strings.Split(v, ",") {
+				if id = strings.TrimSpace(id); id != "" {
+					f.FeatureIDs = append(f.FeatureIDs, id)
+				}
+			}
 		}
 		if v := r.URL.Query().Get("limit"); v != "" {
 			if n, err := strconv.Atoi(v); err == nil {

@@ -54,6 +54,7 @@ func RaiseTrimOrder(ctx context.Context, db bun.IDB, in TrimOrderInput) (*wam.Wo
 	}
 
 	vegClass, vegID := in.VegetationClass, in.VegetationID
+	source := wam.SourceVegetation
 	return wam.CreateWorkOrder(ctx, db, wam.CreateWorkOrderParams{
 		WorkType:    wam.WorkTypePreventive,
 		Priority:    priority,
@@ -61,6 +62,7 @@ func RaiseTrimOrder(ctx context.Context, db bun.IDB, in TrimOrderInput) (*wam.Wo
 		Description: &desc,
 		AssetClass:  &vegClass,
 		AssetID:     &vegID,
+		Source:      &source,
 	})
 }
 

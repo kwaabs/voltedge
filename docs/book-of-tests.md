@@ -32,6 +32,15 @@ template cases.
    against a reference, not just "it ran"), that it holds at **scale**, that
    **access control** is enforced, and that it survives **concurrent editing**.
    These are what separate "impressive demo" from "a utility can trust it."
+9. **Operational subsystems** — safety (tags/grounds/clearances), FLISR
+   restoration, the device-operations log, and the land/spatial domain.
+10. **Asset management & data quality** — asset lifecycle & aging (+ its network
+    gate), the asset register / BoQ, the fault-mode catalog, attribute QA, and
+    fault location.
+11. **Composite units & structures** — the nested packed station, and attaching a
+    street light to a pole.
+12. **Platform, integration & governance** — edit/view mode, the edit-session
+    audit, external-reference integration, and webhooks (inbound + outbound).
 
 - **Appendix A — coverage matrix.**
 
@@ -1813,6 +1822,312 @@ against the "writing checks the validation can't cash" risk.
 
 ---
 
+# Chapter 9 — Operational subsystems
+
+The analysis chapters prove the *engines*. This chapter proves the day-to-day
+**operational** layers that sit on top of the model: safety, restoration,
+operation logging, and the spatial/land domain. All run against Oakwood.
+
+## Test 9.1 — Operational safety (tags, grounds, clearances)
+
+**Purpose:** Prove the safety layer bars a device operation and that a clearance
+auto-applies its tags/grounds. Permission: `safety:read` / `safety:write`.
+
+```
+  blocking tag on a switch  ->  an OMS open/close STEP on it is REFUSED
+  issue clearance from an order -> auto-tags + grounds every device in scope
+```
+
+**Steps**
+1. Place a **blocking tag** on a switch (`POST /safety/...`, `safety:write`).
+2. Run an OMS switching order whose step opens/closes that switch (`applyStepDeviceState`).
+3. Issue a clearance from a switching order: `POST /oms/switching-orders/{id}/clearance` (needs `safety:write` escalation).
+4. Open the feature's **Safety** tab; confirm the tags/grounds/clearances list.
+5. Drive the 13 safety MCP tools (see `docs/safety-guide.md`).
+
+**Expected / pass criteria**
+- The blocking tag **refuses** the open/close step with a clear error; non-blocking tags don't.
+- The clearance **auto-tags and grounds** every device in its order's scope (`IssueClearanceFromOrder`).
+- The Safety tab reflects state; MCP tools mirror the REST surface.
+
+**Failure modes**
+- A blocked device that still operates = the gate in `oms.applyStepDeviceState` regressed.
+- Clearance that leaves devices untagged = `oms/clearance.go` scope bug.
+
+## Test 9.2 — FLISR back-feed restoration
+
+**Purpose:** Suggest a restoration tie for a dead section and generate a close-tie
+order. Permission: `oms:read` / `oms:write`.
+
+**Steps**
+1. Open an incident with a de-energised cone (from Test 5.7).
+2. Request restoration suggestions: the engine finds a `NORMALLY_OPEN` tie to an energised alternate source, ranked, with a capacity verdict.
+3. Confirm the verdict uses a **real load-flow** capacity check (`verdict_basis: load_flow` supersedes nameplate — `powerflow/restore_export.go`).
+4. Generate the order: `POST /incidents/{id}/restoration-orders` (MCP `oms_generate_restoration_order`) — close-tie RESTORE steps land in `switching_orders`.
+
+**Expected / pass criteria**
+- Only ties reaching an **energised** alternate source within capacity are suggested, ranked.
+- `verdict_basis` = `load_flow` when the flow check ran; the order's steps are RESTORE close-tie steps.
+
+**Failure modes**
+- A suggested tie to a dead source, or one that overloads the alternate feeder, = `SuggestRestoration` logic bug.
+
+## Test 9.3 — Device-operations log
+
+**Purpose:** Prove the append-only operation log captures trips/opens/closes from
+every source. Permission: `operations:read` / `operations:write`.
+
+**Steps**
+1. Execute a switching step (open/close) and confirm an `ops.operations` row auto-emits.
+2. Create/update a fault → a `trip` operation auto-emits (idempotent — no duplicate on re-update).
+3. Push an operation via the webhook `operation` adapter with an external device ref (correlated by `external_ref`).
+4. Open the `/operations` board + the per-device Operations tab + the device-inventory report. Drive the 5 operation MCP tools.
+
+**Expected / pass criteria**
+- Every open/close/trip lands exactly once (idempotent); fed from crew, switching, faults, SCADA, and agents.
+- The board, per-device tab, and report all read the same log.
+
+**Failure modes**
+- A duplicate trip on fault re-update = the idempotency key regressed.
+
+## Test 9.4 — Land & spatial (vegetation, easements)
+
+**Purpose:** Exercise the geometry-derived spatial engine and the vegetation /
+easement workflows. Permission: `features:read` (+ `wam:write` to raise a trim).
+
+**Steps**
+1. `GET /spatial/related` for a feature (4 modes: intersects / contains / contained_by / within) over the `gis.*` land classes (LAND_PARCEL/EASEMENT/UTILITY_CORRIDOR/VEGETATION_ZONE).
+2. `GET /spatial/vegetation-encroachments` — scan a conductor (and the circuit-wide toggle) for zones breaching its **per-voltage clearance**.
+3. Raise a trim order: `POST .../work-order` onto a WAM board (MCP `raise_vegetation_trim_order`).
+4. `GET /spatial/easements/expiring` + `/vegetation/trim-due`; confirm the per-feature **LandDueBadge** and slide "today" forward.
+
+**Expected / pass criteria**
+- Overlap/proximity results match the geometry; clearance breaches are per-voltage, not a flat distance.
+- A trim order lands on WAM; expiry/trim-due badges flip with the clock.
+
+**Failure modes**
+- A breach computed with a flat (non-voltage) clearance, or spatial results not matching the polygons.
+
+# Chapter 10 — Asset management & data quality
+
+The record-keeping layer: where each asset is in its life, what it's worth, how a
+fault on it is described, whether its data is clean, and where a fault sits on a
+feeder.
+
+## Test 10.1 — Asset lifecycle & aging (and the network gate)
+
+**Purpose:** Prove the lifecycle axis, its trace/power-flow gate, and the aging
+report. Permission: `features:write` (lifecycle) / `features:read` (report) /
+`metadata:write` (catalog).
+
+```
+  lifecycle_status in {PLANNED, UNDER_CONSTRUCTION, IN_SERVICE, DERATED, RETIRED, REMOVED}
+  OPERATIONAL = IN_SERVICE | DERATED  ->  only these CONDUCT
+```
+
+**Steps**
+1. `PATCH /features/{code}/{id}/lifecycle` to move a mid-feeder feature to `RETIRED`; confirm `retired_at` auto-stamps.
+2. Run a downstream trace and a load flow from above it → the retired feature and everything beyond it **drops out** (both endpoints must be operational).
+3. Move it back to `IN_SERVICE` (auto-stamps `commissioned_at`) → it conducts again.
+4. Seed an expected-life catalog entry (`/asset-life/catalog`, `metadata:write`); run `GET /asset-life/report` and confirm overdue/due-soon/ok buckets + remaining-life.
+5. Drive MCP `set_feature_lifecycle` + `asset_life_report`.
+
+**Expected / pass criteria**
+- A non-operational feature conducts in neither trace nor power flow (the `feature_registry.lifecycle_status` gate).
+- Aging report buckets in-service assets only; planned/retired excluded. Dates auto-stamp on the matching transition.
+
+**Failure modes**
+- A retired feature still traced/solved = a conduction query missed the operational predicate.
+
+## Test 10.2 — Asset register & Bill of Quantities
+
+**Purpose:** Generate a per-feature asset register (async XLSX via RustFS) and a
+priced BoQ. Permission: `features:read`.
+
+**Steps**
+1. `POST /boq/asset-register.xlsx` with a scope (map / selection / territory / circuit) → enqueues a job (shared `ops.export_jobs`, `kind` discriminator).
+2. Poll `GET /boq/asset-register/jobs/{id}` → presigned **RustFS** download; open the XLSX (one sheet per class, full attribute columns; lines show From/To endpoints).
+3. Run the priced BoQ (`/boq`) with the catalog; confirm per-feature overrides apply.
+4. Drive MCP `run_asset_register`.
+
+**Expected / pass criteria**
+- The job runs detached, the requester is reconstructed (`auth.LoadSessionUser`), and the file lands in RustFS.
+- Quantities/pricing match the scope; valuation is off by default on the register.
+
+**Failure modes**
+- A line feature showing a centroid instead of From/To, or the job failing to reconstruct the requester's scope.
+
+## Test 10.3 — Fault-mode catalog (FMEA picker)
+
+**Purpose:** Prove the class-aware failure-mode picker on the fault form.
+Permission: `faults:write` (log) / `metadata:write` (catalog).
+
+**Steps**
+1. Open the fault form on a given class → the **cause** picker lists only that class's modes (`GET /faults/modes`), distinct from the electrical `fault_type`.
+2. Log a fault with a `fault_mode`; confirm it stores.
+3. Edit the catalog (`POST/PATCH/DELETE /faults/modes`, `metadata:write` escalation).
+4. Spot-check a few of the ~400 seeded modes across classes against `docs/fault-modes-guide.md`.
+
+**Expected / pass criteria**
+- Each class offers its own FMEA modes (dimension / typical cause / effect / severity); the picker is class-scoped.
+
+**Failure modes**
+- A class showing another class's modes, or `fault_mode` conflated with `fault_type`.
+
+## Test 10.4 — Attribute QA / data-quality rules
+
+**Purpose:** Prove the attribute audit (drift + completeness rules) feeds the same
+validation-issue queue as connectivity. Permission: `connectivity:read` (view) /
+`metadata:write` (rules) / `connectivity:commit` (triage).
+
+**Steps**
+1. Create a data-quality completeness rule (`POST /connectivity/rules`, `metadata:write`) — a field expected on a class/subtype.
+2. Run the audit (`GET /connectivity/audit` → `AuditAll` merges connectivity + attribute findings in **one** report).
+3. In the Network-audit **Issue queue**, filter by **Kind → Data quality**; confirm `attr_required_missing` / `attr_out_of_domain` / `attr_out_of_range` / `attr_completeness` rows.
+4. Fix a flagged field → the issue **auto-resolves** on the next reconcile. Triage one (ack/resolve/suppress) — note triage now works in **view mode** (Test 12.1).
+5. Drive MCP `validation_issues`.
+
+**Expected / pass criteria**
+- Drift (value valid-when-written, now out of domain/range) is caught against **current** metadata; completeness rules fire per rule.
+- One merged report; fingerprint `attr_*:feature:field` auto-resolves on fix.
+
+**Failure modes**
+- Reconciling connectivity and attribute findings separately (would wrongly auto-resolve the other family).
+
+## Test 10.5 — Fault location (distance-to-fault)
+
+**Purpose:** Prove the inverse-of-fault-current distance estimate. Permission:
+`analysis:run`.
+
+**Steps**
+1. `POST /analysis/fault-location` with a measured current and a faulted 3-phase feature → target `|Z|` → bracket the conductor span whose source-to-span impedance window contains it → distance + oriented map point, multiple candidates per lateral.
+2. From a logged fault, use the **Locate** button (pre-fills `fault_current_a`).
+3. Confirm red candidate pins on the map; drive MCP `locate_fault`.
+
+**Expected / pass criteria**
+- Candidate spans + interpolated distances are returned (3-phase, faulted voltage level); mesh start is rejected with the neutral LOOP_CHECK_TRACE message.
+
+**Failure modes**
+- A candidate outside the bracketed impedance window, or a silent empty result on a mesh.
+
+# Chapter 11 — Composite units & structures
+
+## Test 11.1 — Packed-station assembly (nested)
+
+**Purpose:** Place a nested packed station and prove its internal hierarchy +
+connectivity + auto single-line. Permission: `features:write` +
+`relationships:commit` + `connectivity:commit`.
+
+```
+  PACKAGED_SUBSTATION (point)
+   |- RMU (- bus - 2 ring + 1 tee switch)   |- DIST_XFMR   |- LV_PILLAR (- bus - 4 fuses)
+   fixed/mobile = enclosure subtype; one point moves the whole unit
+```
+
+**Steps**
+1. Assemblies → Packaged Substation → **Packed station — RMU + transformer + pillar (fixed/mobile)** → place.
+2. Confirm the fan-out creates the RMU (containing its bus + 3 switches), the transformer, and the pillar (containing its bus + 4 fuses), all geometry-less.
+3. Trace from the ring: current flows bus → tee switch → transformer → LV bus → fuses.
+4. Open the auto single-line; confirm the typed slots bound (RMU internals, transformer, pillar internals) with **zero manual binding**.
+5. Place the **transformer + pillar** (no-RMU) config.
+
+**Expected / pass criteria**
+- Two-level containment (station → RMU/pillar → their internals) via `support_parent_position`; the tee switch feeds the transformer (MV_SWITCH T1 → DIST_XFMR T1).
+- Single-line auto-builds; the fused tee lands above the transformer slot.
+
+**Failure modes**
+- A flat (non-nested) structure, or the tee wired from T2 (bus side) instead of T1.
+
+## Test 11.2 — Attach a street light to a pole
+
+**Purpose:** Attach a geometry-less pole-mounted lamp and auto-wire it to the
+pole's LV. Permission: `features:write` + `relationships:commit`
+(+ `connectivity:commit` to wire).
+
+**Steps**
+1. Open a pole (editing on) → **⋯ More → Attach street light** → pick phase / luminaire type / condition → **Attach** (`POST /street-lights`).
+2. Confirm the lamp is created **geometry-less** (subtype `pole_mounted`), linked **POLE supports STREET_LIGHT**, and — when exactly one LV conductor is within ~10 m, phase-compatible — **auto-wired**.
+3. Try a pole with zero / several LV runs → attached-only with the explanatory `wire_note`.
+4. Drive MCP `attach_street_light`.
+
+**Expected / pass criteria**
+- Create + relate are atomic; the auto-wire is best-effort (never undoes the attach), exactly-one-else-attach-only, never guesses the wrong line.
+- Without `connectivity:commit`, the lamp attaches unwired with a note.
+
+**Failure modes**
+- A wire to the wrong LV line when several are in range, or the attach rolling back on a wire failure.
+
+# Chapter 12 — Platform, integration & governance
+
+## Test 12.1 — Edit / view mode
+
+**Purpose:** Prove the app is read-only until Edit is on, and that destructive
+writes stay gated. Permission: `features:write` (to see the toggle).
+
+**Steps**
+1. Land in **View** (default each session). Confirm: create menus hidden, feature panel read-only, no map draw/connect armed, diagram canvas read-only.
+2. Flip **Edit** on (amber toggle + map ring + "Edit mode" badge). Confirm every create/edit/connect/delete/import/promote affordance appears across map **and** diagram.
+3. In the Audit panel: confirm **triage** (ack/resolve/suppress) works in view mode, but **Reconcile** + **Clean up** need edit mode.
+4. Flip Edit off mid-gesture → the gesture cancels; confirm a read-only user never sees the toggle.
+
+**Expected / pass criteria**
+- View mode arms no edit interaction; the server still enforces every permission (UX-only gate).
+- Queue-curation (triage) is view-mode; destructive/data writes are edit-mode.
+
+**Failure modes**
+- Any write affordance reachable in view mode (a leak), or a gesture left live after leaving edit mode.
+
+## Test 12.2 — Edit-session audit (tiered visibility)
+
+**Purpose:** Prove edits group into sessions and the visibility tiers.
+Permission: `admin:users` (all) / supervisor (own + reports).
+
+**Steps**
+1. In edit mode, make several feature changes → each `feature_history` row carries the client's `X-Edit-Session` uuid.
+2. `GET /features/edit-sessions` → one row per session (who / start / end / change-count / classes). Sessions with **no** changes never appear.
+3. As an **admin / break-glass** → see everyone. As a **non-admin supervisor** → see self + subordinates. As a **leaf editor** (no reports) → 403.
+4. Confirm the Admin → **Edit sessions** page gates on the derived `edit-sessions:view` capability (`is_supervisor` on `/auth/me`).
+
+**Expected / pass criteria**
+- Start/end = first/last stamped change; the scope filter restricts rows server-side (not just the UI).
+
+**Failure modes**
+- A supervisor seeing a non-subordinate's sessions, or an empty session appearing.
+
+## Test 12.3 — External reference integration (SCADA/AMI/CIS)
+
+**Purpose:** Prove the `external_ref` system column + its reverse index.
+Permission: `features:write` / `metadata:write`.
+
+**Steps**
+1. Stamp a feature's external ids (`external_ref` jsonb `{system_code: id}`) via the panel / MCP set tool.
+2. Confirm the per-class trigger mirrors it into `runtime.external_feature_refs` (reverse lookup).
+3. Push an inbound webhook carrying an external ref → it **adopts + stamps** the matching feature.
+4. Fetch live external data via a system path template (admin `path_template`). Drive the get/set MCP tools.
+
+**Expected / pass criteria**
+- The reverse index stays in step (pull + push); inbound correlation finds the feature by its external id.
+
+**Failure modes**
+- A stale reverse index after an `external_ref` edit (trigger regressed).
+
+## Test 12.4 — Webhooks (inbound ingestion + outbound emit)
+
+**Purpose:** Prove both directions of the integration bus. Permission: webhook
+mount (HMAC) / `metadata:read` (admin).
+
+**Steps**
+1. **Inbound:** POST a signed delivery to `/webhooks` → HMAC + replay check, SSRF-hardened, service-user-scoped **atomic apply**; confirm a poison delivery is reaped (attempts cap), not retried forever.
+2. **Outbound:** make a change on a wired write path (faults/wam/oms) → a transactional-outbox row emits on the same tx; confirm the delivery worker fans it out.
+3. Confirm no secret leaks in logs/errors.
+
+**Expected / pass criteria**
+- Inbound: valid signed deliveries apply atomically; malformed/replayed are rejected; a worker panic recovers (no poison-loop).
+- Outbound: an event is emitted exactly once per committed change.
+
+**Failure modes**
+- A delivery applied without a valid HMAC, or an outbound event emitted for a rolled-back change.
+
 # Appendix A — coverage matrix
 
 ## Chapter 3 — Building & maintaining the network
@@ -1887,3 +2202,28 @@ energization have agent tools.
 > they decide whether anything else matters. Then 8.3/8.4 (a scope leak or a
 > corrupting concurrent edit is a release-blocker). 8.6 makes all of it
 > repeatable; do it early so 8.1's numbers can't silently regress.
+
+## Chapters 9–12 — operational, asset, structures, platform
+
+| # | Test | Area | Key surface |
+|---|---|---|---|
+| 9.1 | Safety (tags/grounds/clearances + operation gate) | Operational | `/safety`, `safety:write` |
+| 9.2 | FLISR back-feed restoration | Operational | `POST /incidents/{id}/restoration-orders` · `oms_generate_restoration_order` |
+| 9.3 | Device-operations log | Operational | `/operations`, `operations:write` |
+| 9.4 | Land & spatial (vegetation, easements) | Spatial | `/spatial/*`, `raise_vegetation_trim_order` |
+| 10.1 | Asset lifecycle & aging + network gate | Asset mgmt | `PATCH .../lifecycle` · `/asset-life/*` · `set_feature_lifecycle` / `asset_life_report` |
+| 10.2 | Asset register & BoQ | Asset mgmt | `POST /boq/asset-register.xlsx` · `run_asset_register` |
+| 10.3 | Fault-mode catalog (FMEA picker) | Data quality | `/faults/modes`, `metadata:write` |
+| 10.4 | Attribute QA / data-quality rules | Data quality | `/connectivity/rules`, `/connectivity/audit` · `validation_issues` |
+| 10.5 | Fault location (distance-to-fault) | Fault | `POST /analysis/fault-location` · `locate_fault` |
+| 11.1 | Packed-station assembly (nested) | Structures | `POST /assemblies` (PACKED_*) |
+| 11.2 | Attach street light to a pole | Structures | `POST /street-lights` · `attach_street_light` |
+| 12.1 | Edit / view mode | Governance | client toggle; server still enforces perms |
+| 12.2 | Edit-session audit (tiered visibility) | Governance | `GET /features/edit-sessions`, `admin:users` / supervisor |
+| 12.3 | External reference integration | Integration | `external_ref` + `runtime.external_feature_refs` |
+| 12.4 | Webhooks (inbound + outbound) | Integration | `/webhooks` (HMAC) · transactional outbox |
+
+**New MCP tools since the Ch 4–7 parity note:** `set_feature_lifecycle`,
+`asset_life_report`, `validation_issues`, `locate_fault`, `run_asset_register`,
+`attach_street_light`, plus the safety (13) / spatial / operations / restoration
+tools — so the agent surface now reaches well beyond the six traces.

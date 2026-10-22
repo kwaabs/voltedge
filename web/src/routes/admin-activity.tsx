@@ -20,6 +20,8 @@ const ACTIONS = [
   "purge",
   "stage",
   "switch",
+  "relate",
+  "unrelate",
 ] as const
 
 /** How "loud" an action is, driving the badge tint -- a purge/delete reads
@@ -28,6 +30,7 @@ function actionTone(action: string): string {
   if (action === "purge" || action === "delete") return "bg-destructive/15 text-destructive"
   if (action === "create" || action === "restore") return "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
   if (action === "publish" || action === "switch") return "bg-sky-500/15 text-sky-600 dark:text-sky-400"
+  if (action === "relate") return "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400"
   return "bg-muted text-muted-foreground"
 }
 

@@ -96,7 +96,12 @@ const (
 	// device resolves it against the pack with no signal -- tag_code -> feature. Void
 	// tags are omitted (they must miss, as online). Additive: an older pack has no
 	// rows and the device falls back to online-only resolution.
-	packSchemaVersion = 10
+	// v11 added longitude/latitude to wam_work_orders: a work order inherits its
+	// asset's on-geometry location at creation (wam.resolveAssetLocation), so the
+	// field tool can map an assigned job even when its asset feature isn't in the
+	// pack (a job can sit outside the packed area). Additive: an older device just
+	// ignores the two new columns and lists the job without a map pin, as before.
+	packSchemaVersion = 11
 
 	// Tile zoom range for the pack's MBTiles. minZoom 8 covers any realistic
 	// pack's zoomed-out "whole work area" overview (below the source minzoom the
@@ -369,8 +374,8 @@ func buildArtifacts(ctx context.Context, db *bun.DB, store *export.ObjectStore, 
 	}
 	defer faultStmt.Close()
 	workOrderStmt, err := stx.PrepareContext(ctx, `INSERT INTO wam_work_orders
-		(id, reference, work_type, status, priority, title, description, asset_class, asset_id, defect_id, assigned_to, scheduled_for, due_by, started_at, completion_notes)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		(id, reference, work_type, status, priority, title, description, asset_class, asset_id, defect_id, assigned_to, scheduled_for, due_by, started_at, completion_notes, longitude, latitude)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		stx.Rollback()
 		return buildResult{}, err
@@ -823,7 +828,12 @@ func initPackSchema(ctx context.Context, sq *sql.DB) error {
 			scheduled_for    TEXT,
 			due_by           TEXT,
 			started_at       TEXT,
-			completion_notes TEXT
+			completion_notes TEXT,
+			-- Pack schema v11: the order's location (its asset's on-geometry point, or
+			-- an explicit pin), so the field tool can map a job even when its asset
+			-- feature isn't in the pack (an assigned job can sit outside the packed area).
+			longitude        REAL,
+			latitude         REAL
 		)`,
 		// The active inspection checklists (pack schema v8) + their ordered items, so
 		// the field tool runs an inspection against a packed asset offline. A failing
@@ -1560,7 +1570,8 @@ func loadPackWorkOrders(ctx context.Context, db bun.IDB, assigneeID string, stmt
 	const q = `
 SELECT id::text, reference, work_type, status, priority, title, description,
        asset_class, asset_id::text, defect_id::text, assigned_to,
-       scheduled_for, due_by, started_at, completion_notes
+       scheduled_for, due_by, started_at, completion_notes,
+       ST_X(location) AS longitude, ST_Y(location) AS latitude
 FROM wam.work_orders
 WHERE assigned_to_user_id::text = ?
   AND status NOT IN ('completed', 'cancelled')
@@ -1576,12 +1587,15 @@ ORDER BY COALESCE(scheduled_for, due_by, created_at)`
 		var id, workType, status string
 		var reference, priority, title, description, assetClass, assetID, defectID, assignedTo, completionNotes sql.NullString
 		var scheduledFor, dueBy, startedAt sql.NullTime
+		var longitude, latitude sql.NullFloat64
 		if err := rows.Scan(&id, &reference, &workType, &status, &priority, &title, &description,
-			&assetClass, &assetID, &defectID, &assignedTo, &scheduledFor, &dueBy, &startedAt, &completionNotes); err != nil {
+			&assetClass, &assetID, &defectID, &assignedTo, &scheduledFor, &dueBy, &startedAt, &completionNotes,
+			&longitude, &latitude); err != nil {
 			return n, err
 		}
 		if _, err := stmt.ExecContext(ctx, id, reference, workType, status, priority, title, description,
-			assetClass, assetID, defectID, assignedTo, nullTimeText(scheduledFor), nullTimeText(dueBy), nullTimeText(startedAt), completionNotes); err != nil {
+			assetClass, assetID, defectID, assignedTo, nullTimeText(scheduledFor), nullTimeText(dueBy), nullTimeText(startedAt), completionNotes,
+			nullFloat(longitude), nullFloat(latitude)); err != nil {
 			return n, err
 		}
 		n++

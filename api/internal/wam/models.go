@@ -39,6 +39,10 @@ const (
 	SourceOutage              = "outage"
 	SourceConditionMonitoring = "condition_monitoring"
 	SourceAdHoc               = "ad_hoc"
+	// Work-order origins (wam.work_orders.source, migration 0161): where a job was
+	// raised from, so the board can be filtered by provenance.
+	SourceValidation = "validation" // a data-quality / connectivity audit fix
+	SourceVegetation = "vegetation" // a vegetation-clearance trim
 )
 
 // Work order type and lifecycle. The "one typed work order engine": every unit
@@ -132,6 +136,7 @@ type WorkOrder struct {
 	AssetID          *string    `bun:"asset_id" json:"asset_id"`
 	Longitude        *float64   `bun:"longitude,scanonly" json:"longitude"`
 	Latitude         *float64   `bun:"latitude,scanonly" json:"latitude"`
+	Source           *string    `bun:"source" json:"source,omitempty"`
 	DefectID         *string    `bun:"defect_id" json:"defect_id"`
 	AssignedTo       *string    `bun:"assigned_to" json:"assigned_to"`
 	AssignedToUserID *string    `bun:"assigned_to_user_id" json:"assigned_to_user_id"`

@@ -59,6 +59,32 @@ const (
 	historyDiscard     = "discard"
 )
 
+// HistoryRelate / HistoryUnrelate are the action verbs for a structural/spatial
+// relationship being established or revoked. Exported (unlike the verbs above)
+// because the write originates in the relationship package, not here: a
+// relationship change never touches either feature's own gis row, so without an
+// explicit audit entry the feature it attaches to (the pole a lamp rides, say)
+// shows nothing in its History. They are NOT staging verbs, so they surface in
+// every view the public verbs do -- the per-feature timeline, the activity log,
+// and the edit-session roll-up.
+const (
+	HistoryRelate   = "relate"
+	HistoryUnrelate = "unrelate"
+)
+
+// RecordRelationshipEvent appends one feature_history audit row on featureID
+// (class classCode) for a relationship change touching it -- the exported seam
+// the relationship package uses so the owning writer of the history table stays
+// here. action is HistoryRelate or HistoryUnrelate; snapshot carries the
+// relationship context (the other feature, the class, the kind) so the timeline
+// reads as "linked to <X>". Actor and edit-session are read from ctx exactly as
+// recordHistory does, so a relate made in an edit session is grouped with the
+// rest of that session's changes. The caller invokes this best-effort AFTER the
+// relationship itself is committed, so a history failure never undoes the change.
+func RecordRelationshipEvent(ctx context.Context, db bun.IDB, classCode, featureID, action string, snapshot map[string]any) error {
+	return recordHistory(ctx, db, classCode, featureID, action, snapshot)
+}
+
 // recordHistory appends one audit row for a feature write. snapshot is the
 // formatRow-shaped map the writer is about to return (the full post-change
 // state); actor is read from ctx exactly as the created_by/updated_by stamp is.

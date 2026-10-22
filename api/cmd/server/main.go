@@ -49,6 +49,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/fieldpack"
 	"github.com/kwaabs/voltedge/api/internal/httpx"
 	"github.com/kwaabs/voltedge/api/internal/importer"
+	"github.com/kwaabs/voltedge/api/internal/issuework"
 	"github.com/kwaabs/voltedge/api/internal/logsettings"
 	"github.com/kwaabs/voltedge/api/internal/logx"
 	"github.com/kwaabs/voltedge/api/internal/mapannotation"
@@ -66,6 +67,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/safety"
 	"github.com/kwaabs/voltedge/api/internal/schematic"
 	"github.com/kwaabs/voltedge/api/internal/spatial"
+	"github.com/kwaabs/voltedge/api/internal/streetlight"
 	"github.com/kwaabs/voltedge/api/internal/studies"
 	"github.com/kwaabs/voltedge/api/internal/secretbox"
 	"github.com/kwaabs/voltedge/api/internal/servicelayers"
@@ -301,6 +303,11 @@ func main() {
 	// this asset?", "what vegetation is within N m of this line?". Read-only over the
 	// features themselves, so it rides features:read like the feature registry.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesRead)).Mount("/spatial", spatial.Routes(db))
+	// Assign a data-quality issue as a fix: raise a WAM work order from the issue
+	// and link it, so the fix lands on an office or field user's board (and syncs
+	// into their field pack). Gated wam:write in-router; the issue's acknowledge is
+	// a side effect of the assignment. Thin orchestration over connectivity + wam.
+	r.With(auth.RequirePermission(auth.PermWAMWrite, auth.PermWAMWrite)).Mount("/validation-issues", issuework.Routes(db))
 	// Feature registry (migration 0108): a cross-class index of every feature
 	// id -> its class, maintained by the compiler-attached DB trigger. Backs
 	// the asset-id typeahead/resolve any form needs when a user references an
@@ -361,6 +368,11 @@ func main() {
 	// carries the same THREE capabilities (features gate here + inner relationships:
 	// commit + connectivity:commit in assembly.Routes).
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/assemblies", assembly.Routes(db))
+	// Attach a lamp to a pole: create a geometry-less pole-mounted STREET_LIGHT,
+	// link it to the pole, and best-effort auto-wire it to the pole's nearby LV.
+	// Features gate here; relationships:commit (always) + connectivity:commit (for
+	// the auto-wire) are enforced inside streetlight.Routes.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/street-lights", streetlight.Routes(db))
 	// Phase 44 Slice 4 (docs/phase-44-cable-management.md): the composite "create one
 	// cable duct and fan out its ways" endpoint. Like /panels it creates features and
 	// writes containment (duct -> each DUCT_WAY) in one transaction, so it needs BOTH

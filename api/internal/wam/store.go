@@ -289,7 +289,7 @@ func SetDefectStatus(ctx context.Context, db bun.IDB, id, status string) (*Defec
 // Work orders
 // ---------------------------------------------------------------------------
 
-const workOrderColumns = "id, reference, work_type, status, priority, title, description, asset_class, asset_id, defect_id, assigned_to, assigned_to_user_id, scheduled_for, due_by, started_at, completed_at, completion_notes, created_at, updated_at"
+const workOrderColumns = "id, reference, work_type, status, priority, title, description, asset_class, asset_id, source, defect_id, assigned_to, assigned_to_user_id, scheduled_for, due_by, started_at, completed_at, completion_notes, created_at, updated_at"
 
 func selectWorkOrders(db bun.IDB, dst any) *bun.SelectQuery {
 	return db.NewSelect().Model(dst).
@@ -315,6 +315,7 @@ type CreateWorkOrderParams struct {
 	AssetID          *string
 	Longitude        *float64
 	Latitude         *float64
+	Source           *string
 	DefectID         *string
 	AssignedTo       *string
 	AssignedToUserID *string
@@ -332,6 +333,21 @@ func CreateWorkOrder(ctx context.Context, db bun.IDB, p CreateWorkOrderParams) (
 	}
 	if strings.TrimSpace(p.Title) == "" {
 		return nil, invalidf("a work order needs a title")
+	}
+	// A feature-asset order with no explicit coordinate inherits its asset's
+	// on-geometry location, so every such order is pinnable on the field map and
+	// locatable on the web board. Best-effort: an uncompiled / geometry-less /
+	// missing asset just leaves the order locationless (as before).
+	if p.Longitude == nil && p.Latitude == nil &&
+		p.AssetClass != nil && strings.TrimSpace(*p.AssetClass) != "" &&
+		p.AssetID != nil && strings.TrimSpace(*p.AssetID) != "" {
+		lon, lat, ok, err := resolveAssetLocation(ctx, db, strings.TrimSpace(*p.AssetClass), strings.TrimSpace(*p.AssetID))
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			p.Longitude, p.Latitude = &lon, &lat
+		}
 	}
 	hasLng := p.Longitude != nil
 	hasLat := p.Latitude != nil
@@ -381,6 +397,9 @@ func CreateWorkOrder(ctx context.Context, db bun.IDB, p CreateWorkOrderParams) (
 		cols = append(cols, "location")
 		vals = append(vals, "ST_SetSRID(ST_MakePoint(?, ?), 4326)")
 		args = append(args, *p.Longitude, *p.Latitude)
+	}
+	if p.Source != nil && strings.TrimSpace(*p.Source) != "" {
+		add("source", "?", strings.TrimSpace(*p.Source))
 	}
 	if p.DefectID != nil && strings.TrimSpace(*p.DefectID) != "" {
 		add("defect_id", "?", strings.TrimSpace(*p.DefectID))

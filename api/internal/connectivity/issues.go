@@ -2,6 +2,8 @@ package connectivity
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -46,6 +48,51 @@ type ValidationIssue struct {
 	ResolvedAt     *time.Time `bun:"resolved_at" json:"resolved_at,omitempty"`
 	AcknowledgedBy *string    `bun:"acknowledged_by" json:"acknowledged_by,omitempty"`
 	AcknowledgedAt *time.Time `bun:"acknowledged_at" json:"acknowledged_at,omitempty"`
+	// WorkOrderID is the WAM work order raised to fix this issue (migration 0160),
+	// or nil if unassigned. Set by SetIssueWorkOrder on assign; the issue still
+	// resolves via the audit reconcile, not the order's completion.
+	WorkOrderID *string `bun:"work_order_id" json:"work_order_id,omitempty"`
+	// WorkOrderRef / AssigneeLabel are display-only, filled by ListIssues' LEFT JOIN
+	// to the work order (and its assignee) when the issue is assigned -- so the UI
+	// can read "Assigned to Dana · WO-1234" without a second fetch. Never written.
+	WorkOrderRef  string `bun:"work_order_ref,scanonly" json:"work_order_ref,omitempty"`
+	AssigneeLabel string `bun:"assignee_label,scanonly" json:"assignee_label,omitempty"`
+}
+
+// GetIssue loads one validation issue by id -- the read the assignment
+// orchestration needs to turn an issue into a work order. A missing id is a 404.
+func GetIssue(ctx context.Context, db bun.IDB, id string) (*ValidationIssue, error) {
+	issue := new(ValidationIssue)
+	if err := db.NewSelect().Model(issue).Where("id = ?", id).Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, notFound("validation issue %s not found", id)
+		}
+		return nil, fmt.Errorf("connectivity: get validation issue: %w", err)
+	}
+	return issue, nil
+}
+
+// SetIssueWorkOrder links a work order to an issue (the assignment) and moves the
+// issue to acknowledged -- it's now being handled, so it leaves the "open" bucket
+// but stays in the live queue until the audit reconcile confirms the fix and
+// auto-resolves it. Stamps who assigned it as the acknowledger. A no-op update
+// (unknown id) is a 404.
+func SetIssueWorkOrder(ctx context.Context, db bun.IDB, issueID, workOrderID, actor string) error {
+	r, err := db.NewUpdate().Model((*ValidationIssue)(nil)).
+		Where("id = ?", issueID).
+		Set("work_order_id = ?", workOrderID).
+		Set("status = ?", "acknowledged").
+		Set("acknowledged_by = ?", nullUUID(actor)).
+		Set("acknowledged_at = now()").
+		Set("updated_at = now()").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("connectivity: linking issue work order: %w", err)
+	}
+	if n, _ := r.RowsAffected(); n == 0 {
+		return notFound("validation issue %s not found", issueID)
+	}
+	return nil
 }
 
 // fingerprintFor is the stable upsert key for a finding, so the same problem maps to
@@ -158,7 +205,11 @@ type IssueFilter struct {
 	Status   string
 	Severity string
 	Kind     string
-	Limit    int
+	// FeatureIDs, when non-empty, scopes the queue to issues that TOUCH one of
+	// these features (either endpoint) -- the "My edits" panel passes the features
+	// a user just changed, so they triage only what their own work surfaced.
+	FeatureIDs []string
+	Limit      int
 }
 
 // ListIssues returns the issue queue, most-recently-seen first, errors before
@@ -169,23 +220,36 @@ func ListIssues(ctx context.Context, db bun.IDB, f IssueFilter) ([]ValidationIss
 		limit = 500
 	}
 	issues := []ValidationIssue{}
-	q := db.NewSelect().Model(&issues)
+	// Alias the issue table (vi) and LEFT JOIN the raised work order + its assignee,
+	// so an assigned issue carries a human "Assigned to X · WO-ref" for the UI. The
+	// join means columns shared with wam_work_orders (status) must be qualified.
+	q := db.NewSelect().
+		Model(&issues).
+		ModelTableExpr("ops.validation_issues AS vi").
+		ColumnExpr("vi.*").
+		ColumnExpr("wo.reference AS work_order_ref").
+		ColumnExpr("COALESCE(u.display_name, u.email, wo.assigned_to) AS assignee_label").
+		Join("LEFT JOIN wam.work_orders AS wo ON wo.id = vi.work_order_id").
+		Join("LEFT JOIN iam.users AS u ON u.id = wo.assigned_to_user_id")
 	switch f.Status {
 	case "":
-		q = q.Where("status IN ('open','acknowledged')")
+		q = q.Where("vi.status IN ('open','acknowledged')")
 	case "open", "acknowledged", "resolved", "suppressed":
-		q = q.Where("status = ?", f.Status)
+		q = q.Where("vi.status = ?", f.Status)
 	default:
 		return nil, invalid("status must be one of open/acknowledged/resolved/suppressed")
 	}
 	if f.Severity == "error" || f.Severity == "warning" {
-		q = q.Where("severity = ?", f.Severity)
+		q = q.Where("vi.severity = ?", f.Severity)
 	}
 	if f.Kind != "" {
-		q = q.Where("kind = ?", f.Kind)
+		q = q.Where("vi.kind = ?", f.Kind)
+	}
+	if len(f.FeatureIDs) > 0 {
+		q = q.Where("(vi.from_id IN (?) OR vi.to_id IN (?))", bun.In(f.FeatureIDs), bun.In(f.FeatureIDs))
 	}
 	// errors first, then most-recently-seen.
-	q = q.OrderExpr("(severity = 'error') DESC").Order("last_seen_at DESC").Limit(limit)
+	q = q.OrderExpr("(vi.severity = 'error') DESC").OrderExpr("vi.last_seen_at DESC").Limit(limit)
 	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("connectivity: listing validation issues: %w", err)
 	}

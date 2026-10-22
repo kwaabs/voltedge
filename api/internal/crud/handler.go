@@ -69,8 +69,11 @@ const defaultListLimit = 50
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	// Cross-feature activity log (who changed what, in a window). A static segment,
-	// so chi matches it ahead of the /{code} class routes below.
+	// so chi matches it ahead of the /{code} class routes below. /activity and
+	// /edit-sessions are admin-gated (any actor); /my-activity pins to the caller
+	// and needs no monitoring permission -- the self-service "My edits" feed.
 	r.Get("/activity", activityHandler(db))
+	r.Get("/my-activity", myActivityHandler(db))
 	r.Get("/edit-sessions", editSessionsHandler(db))
 	r.Get("/{code}", listHandler(db))
 	r.Post("/{code}", createHandler(db))
@@ -398,6 +401,56 @@ func activityHandler(db *bun.DB) http.HandlerFunc {
 			}
 		}
 
+		entries, err := listActivity(r.Context(), db, f)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"activity": entries})
+	}
+}
+
+// myActivityHandler serves the SIGNED-IN user's own recent changes -- the
+// self-service "My edits" view behind the map panel. Unlike activityHandler
+// (admin-gated, any actor), this pins actor_id to the caller, so it needs no
+// monitoring permission: you can always see what you yourself did. A plain
+// viewer simply gets an empty list (they make no writes). The panel's own
+// filters (feature_class / action / from / to / limit) are honoured, but actor_id
+// is forced to the caller and can never be overridden to spy on a peer.
+func myActivityHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, ok := auth.UserFrom(r.Context())
+		if !ok {
+			writeError(w, forbidden("authentication required"))
+			return
+		}
+		// actor_id is NOT read from the query -- it's pinned to the caller.
+		f := ActivityFilter{
+			ActorID:      user.ID,
+			FeatureClass: r.URL.Query().Get("feature_class"),
+			Action:       r.URL.Query().Get("action"),
+		}
+		if v := r.URL.Query().Get("from"); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				writeError(w, invalid("from must be an RFC3339 timestamp: %v", err))
+				return
+			}
+			f.From = &t
+		}
+		if v := r.URL.Query().Get("to"); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				writeError(w, invalid("to must be an RFC3339 timestamp: %v", err))
+				return
+			}
+			f.To = &t
+		}
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				f.Limit = n
+			}
+		}
 		entries, err := listActivity(r.Context(), db, f)
 		if err != nil {
 			writeError(w, err)

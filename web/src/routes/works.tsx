@@ -402,6 +402,11 @@ function WorkOrderRow({ order, canWrite, assignees }: { order: WorkOrder; canWri
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <Badge text={order.status} cls={WORK_STATUS_BADGE[order.status]} />
           <span className="text-muted-foreground text-xs capitalize">{humanize(order.work_type)}</span>
+          {order.source && (
+            <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10px] capitalize" title="Where this order came from">
+              {order.source}
+            </span>
+          )}
           <span className="text-sm font-medium">{order.title}</span>
         </div>
         <div className="text-muted-foreground mt-0.5 text-xs">

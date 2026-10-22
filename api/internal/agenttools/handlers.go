@@ -13,12 +13,14 @@ import (
 	"fmt"
 
 	"github.com/kwaabs/voltedge/api/internal/assetlife"
+	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/boq"
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/ownership"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
+	"github.com/kwaabs/voltedge/api/internal/streetlight"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
 )
@@ -639,6 +641,50 @@ func toolSetFeatureLifecycle(ctx context.Context, db bun.IDB, args json.RawMessa
 		Status:         in.LifecycleStatus,
 		CommissionedAt: in.CommissionedAt,
 		RetiredAt:      in.RetiredAt,
+	})
+}
+
+func toolAttachStreetLight(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		PoleFeatureClass string         `json:"pole_feature_class"`
+		PoleFeatureID    string         `json:"pole_feature_id"`
+		Subtype          *int           `json:"subtype"`
+		Attributes       map[string]any `json:"attributes"`
+		RadiusMeters     float64        `json:"radius_meters"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.PoleFeatureClass == "" || in.PoleFeatureID == "" {
+		return nil, fmt.Errorf("pole_feature_class and pole_feature_id are required")
+	}
+
+	// The tool's RequiredPerm already gated features:write; attaching also needs
+	// relationships:commit, and the auto-wire needs connectivity:commit. The
+	// engines don't RBAC-check themselves, so enforce it here (mirroring the REST
+	// handler): no relationships:commit -> refuse; no connectivity:commit -> attach
+	// but don't wire.
+	user, ok := auth.UserFrom(ctx)
+	if !ok {
+		return nil, fmt.Errorf("authentication required")
+	}
+	if !user.Has(auth.PermRelationshipsCommit) {
+		return nil, fmt.Errorf("attaching a street light needs the %s permission", auth.PermRelationshipsCommit)
+	}
+	// AttachStreetLight runs a transaction + a raw spatial query, so it needs the
+	// root *bun.DB, which Execute passes for a write tool.
+	sqldb, ok := db.(*bun.DB)
+	if !ok {
+		return nil, fmt.Errorf("attach_street_light requires a database handle")
+	}
+
+	return streetlight.AttachStreetLight(ctx, sqldb, streetlight.AttachInput{
+		PoleFeatureClass: in.PoleFeatureClass,
+		PoleFeatureID:    in.PoleFeatureID,
+		SubtypeCode:      in.Subtype,
+		Attributes:       in.Attributes,
+		RadiusMeters:     in.RadiusMeters,
+		CanWire:          user.Has(auth.PermConnectivityCommit),
 	})
 }
 

@@ -576,6 +576,32 @@ func readTools() []Tool {
 			Handler:      toolSetFeatureLifecycle,
 		},
 		{
+			Name: "attach_street_light",
+			Description: "Attach a pole-mounted street light (a lamp bracketed to an existing pole, not a " +
+				"standalone column) to a pole. Creates a geometry-less STREET_LIGHT (subtype pole_mounted -- it " +
+				"has no map geometry of its own, it rides the pole), links it to the pole (POLE supports " +
+				"STREET_LIGHT), and best-effort auto-wires it to the single LV conductor the pole carries " +
+				"within range (default ~10 m). Attaching needs relationships:commit; the auto-wire additionally " +
+				"needs connectivity:commit (without it the lamp is attached but left unwired). If zero or " +
+				"several LV conductors are in range, or the one found is a phase mismatch, the lamp is attached " +
+				"unwired and the result's wire_note explains why. The lamp's required attributes are phase, " +
+				"luminaire_type and condition_rating (coded domain values).",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"pole_feature_class":{"type":"string","description":"The pole's feature class code (normally POLE)."},
+					"pole_feature_id":{"type":"string","description":"The existing pole's id (uuid)."},
+					"subtype":{"type":"integer","description":"The street-light subtype; omit for pole_mounted (3)."},
+					"attributes":{"type":"object","description":"The lamp's fields -- at least phase, luminaire_type, condition_rating (coded values)."},
+					"radius_meters":{"type":"number","description":"Auto-wire search radius in metres (default ~10)."}
+				},
+				"required":["pole_feature_class","pole_feature_id","attributes"],
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermFeaturesWrite,
+			Handler:      toolAttachStreetLight,
+		},
+		{
 			Name: "suggest_relationships",
 			Description: "Propose ranked candidate features the given feature could legally form " +
 				"a structural/spatial relationship with, without establishing anything. A " +

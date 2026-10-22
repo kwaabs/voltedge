@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Check, CheckCheck, EyeOff, List, Loader2, RefreshCw, ShieldCheck, Table2, Undo2, X } from "lucide-react"
+import { Check, CheckCheck, EyeOff, List, Loader2, RefreshCw, ShieldCheck, Table2, Undo2, UserPlus, X } from "lucide-react"
 
 import { inputClass } from "@/components/map/field-utils"
 import { usePermission } from "@/hooks/use-auth"
@@ -8,10 +8,13 @@ import {
   type IssueSeverityFilter,
   type IssueStatusFilter,
   type ValidationIssue,
+  useAssignIssue,
+  useAssignIssuesBulk,
   useReconcileIssues,
   useTriageIssue,
   useValidationIssues,
 } from "@/hooks/use-validation-issues"
+import { type AssignableUser, useAssignableUsers } from "@/hooks/use-wam"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -161,6 +164,10 @@ function IssueRow({
   onTriage,
   busy,
   canTriage,
+  canAssign,
+  assignees,
+  onAssign,
+  assignBusy,
 }: {
   issue: ValidationIssue
   classNameFor: (code: string) => string
@@ -168,8 +175,15 @@ function IssueRow({
   onTriage: (status: ValidationIssue["status"]) => void
   busy: boolean
   canTriage: boolean
+  canAssign: boolean
+  assignees: AssignableUser[]
+  onAssign: (userId: string) => void
+  assignBusy: boolean
 }) {
+  const [assigning, setAssigning] = useState(false)
   const closed = issue.status === "resolved" || issue.status === "suppressed"
+  const assigned = !!issue.work_order_id
+  const assignable = canAssign && !assigned && !closed
   return (
     <li className="flex flex-col gap-1 p-2">
       <div className="flex items-start gap-2">
@@ -191,9 +205,17 @@ function IssueRow({
         </span>
         {issue.status === "acknowledged" && <span className="text-muted-foreground text-[11px]">· acknowledged</span>}
         {issue.status === "suppressed" && <span className="text-muted-foreground text-[11px]">· suppressed</span>}
-        {canTriage && (
-          <div className="ml-auto flex items-center gap-0.5">
-            {closed ? (
+        {assigned && (
+          <span className="text-[11px] text-indigo-600 dark:text-indigo-400" title={issue.work_order_ref ? `Work order ${issue.work_order_ref}` : undefined}>
+            · {issue.assignee_label ? `assigned to ${issue.assignee_label}` : "assigned"}
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-0.5">
+          {assignable && !assigning && (
+            <TriageBtn title="Assign the fix to a user" icon={<UserPlus className="size-3.5" />} onClick={() => setAssigning(true)} />
+          )}
+          {canTriage &&
+            (closed ? (
               <TriageBtn title="Re-open" icon={<Undo2 className="size-3.5" />} onClick={() => onTriage("open")} disabled={busy} />
             ) : (
               <>
@@ -203,10 +225,42 @@ function IssueRow({
                 <TriageBtn title="Mark resolved" icon={<CheckCheck className="size-3.5" />} onClick={() => onTriage("resolved")} disabled={busy} />
                 <TriageBtn title="Suppress (won't re-surface)" icon={<EyeOff className="size-3.5" />} onClick={() => onTriage("suppressed")} disabled={busy} />
               </>
-            )}
-          </div>
-        )}
+            ))}
+        </div>
       </div>
+      {assignable && assigning && (
+        <div className="flex items-center gap-1 pl-1">
+          <select
+            autoFocus
+            disabled={assignBusy}
+            defaultValue=""
+            onChange={(e) => {
+              if (e.target.value) {
+                onAssign(e.target.value)
+                setAssigning(false)
+              }
+            }}
+            className="border-input bg-background h-7 min-w-0 flex-1 rounded-md border px-1.5 text-xs"
+          >
+            <option value="" disabled>
+              Assign to…
+            </option>
+            {assignees.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.display_name || u.email}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setAssigning(false)}
+            className="text-muted-foreground hover:text-foreground rounded p-1"
+            title="Cancel"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      )}
     </li>
   )
 }
@@ -233,6 +287,10 @@ function IssueQueue({
   const { data, isLoading, isError } = useValidationIssues({ status, severity })
   const triage = useTriageIssue()
   const reconcile = useReconcileIssues()
+  const assign = useAssignIssue()
+  const bulkAssignMut = useAssignIssuesBulk()
+  const assignableUsers = useAssignableUsers()
+  const canAssign = usePermission()("wam:write")
   // Two tiers of write on the queue, both requiring connectivity:commit:
   //  - TRIAGE (acknowledge/resolve/suppress/re-open) is queue CURATION -- it only
   //    changes an issue's status, never a feature -- so it's available in view mode
@@ -250,6 +308,14 @@ function IssueQueue({
     return category === "" || (category === "quality") === isQuality
   })
   const live = status === ""
+  // Bulk-assign: every shown issue that's still live and not yet assigned, handed
+  // to one user in one gesture (each becomes its own work order).
+  const unassignedOpen = issues.filter((it) => it.status !== "resolved" && it.status !== "suppressed" && !it.work_order_id)
+  const bulkAssign = (userId: string) => {
+    if (!userId || unassignedOpen.length === 0) return
+    if (unassignedOpen.length > 1 && !window.confirm(`Raise a work order for each of these ${unassignedOpen.length} issues and assign them all?`)) return
+    bulkAssignMut.mutate({ issueIds: unassignedOpen.map((it) => it.id), assignedToUserId: userId })
+  }
 
   return (
     <div className={cn("flex flex-col overflow-hidden", grow ? "min-h-0 flex-1" : "max-h-[24rem]")}>
@@ -302,11 +368,32 @@ function IssueQueue({
             {label}
           </button>
         ))}
+        {canAssign && unassignedOpen.length > 0 && (
+          <select
+            defaultValue=""
+            disabled={bulkAssignMut.isPending}
+            onChange={(e) => {
+              bulkAssign(e.target.value)
+              e.target.value = ""
+            }}
+            title="Raise and assign a work order for every shown unassigned issue, to one user"
+            className="border-input bg-background ml-auto h-6 rounded-md border px-1.5 text-[11px]"
+          >
+            <option value="" disabled>
+              Assign {unassignedOpen.length} to…
+            </option>
+            {(assignableUsers.data?.users ?? []).map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.display_name || u.email}
+              </option>
+            ))}
+          </select>
+        )}
         {canReconcile && (
           <Button
             size="sm"
             variant="outline"
-            className="ml-auto h-6 gap-1 px-2 text-[11px]"
+            className={cn("h-6 gap-1 px-2 text-[11px]", unassignedOpen.length === 0 && "ml-auto")}
             onClick={() => reconcile.mutate(undefined)}
             disabled={reconcile.isPending}
             title="Run the audit now and reconcile it into the queue (the worker does this automatically)"
@@ -339,6 +426,10 @@ function IssueQueue({
                 onTriage={(s) => triage.mutate({ id: it.id, status: s })}
                 busy={triage.isPending}
                 canTriage={canTriage}
+                canAssign={canAssign}
+                assignees={assignableUsers.data?.users ?? []}
+                onAssign={(userId) => assign.mutate({ id: it.id, assignedToUserId: userId })}
+                assignBusy={assign.isPending}
               />
             ))}
           </ul>

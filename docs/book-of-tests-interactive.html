@@ -1,0 +1,508 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VoltEdge Book of Tests — interactive runner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef2f3; --surface:#f6f9fa; --raise:#ffffff; --ink:#14202a; --muted:#54646f; --line:#cbd6dc; --line2:#dde5e9;
+  --acc:#13795b; --acc-deep:#0d5a43; --tint:#d9f0e6;
+  --amber:#b8720c; --amber-tint:#f5ead6;
+  --blue:#2b5ead; --blue-tint:#dde6f5;
+  --red:#bf3b26; --red-tint:#f6e1dc;
+  --green:#1e8a4c; --green-tint:#dcefe2;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1317; --surface:#111b21; --raise:#16222a; --ink:#e1eaee; --muted:#92a4ae; --line:#2a3b45; --line2:#1f2f38;
+  --acc:#3fc79a; --acc-deep:#66d8b2; --tint:#10302a; --amber:#e3a23f; --amber-tint:#33281a; --blue:#7aa4ea; --blue-tint:#1b2740;
+  --red:#ee6a54; --red-tint:#3a1f1a; --green:#4fc47f; --green-tint:#15301f; color-scheme:dark}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font:15px/1.6 var(--f-body);margin:0}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:20px;padding-block:0 80px}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.1;margin:0}
+h2{font-size:clamp(22px,3.4vw,30px);font-weight:750;font-stretch:88%;letter-spacing:-.01em}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--line2);padding:1px 5px;border-radius:3px}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+button,select{font-family:inherit}
+button:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.rail{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 93%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.rail-in{max-width:1080px;margin:0 auto;padding:8px 20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.brand{font:700 13px var(--f-display);font-stretch:85%;color:var(--acc-deep);display:flex;align-items:center;gap:6px}
+.brand .dot{width:10px;height:10px;border-radius:2px;background:var(--acc)}
+.rail .seg{display:flex;gap:4px;flex-wrap:wrap}
+.rail select{font:600 11.5px var(--f-mono);padding:5px 7px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--ink)}
+.rail .sp{flex:1}
+.btn{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:5px;padding:6px 9px;cursor:pointer}
+.btn:hover{color:var(--ink);border-color:var(--muted)}
+
+.hero{padding-block:40px 20px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(32px,5vw,54px);font-weight:800;font-stretch:78%;letter-spacing:-.02em;line-height:.96}
+.hero h1 span{color:var(--acc)}
+.hero .lede{font-size:17px;color:var(--muted);margin-top:14px;max-width:64ch}
+
+.dash{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:22px 0}
+.stat{border:1px solid var(--line);border-radius:8px;background:var(--raise);padding:12px 14px}
+.stat .n{font:800 30px/1 var(--f-display);font-stretch:80%}
+.stat .l{font:600 11px var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:4px}
+.stat.pass .n{color:var(--green)} .stat.fail .n{color:var(--red)} .stat.skip .n{color:var(--amber)} .stat.todo .n{color:var(--muted)}
+.bar{height:10px;border-radius:6px;background:var(--line2);overflow:hidden;display:flex;margin-top:8px}
+.bar > i{display:block;height:100%}
+.bar .p{background:var(--green)} .bar .f{background:var(--red)} .bar .s{background:var(--amber)}
+
+.ch{margin-top:34px}
+.ch-head{display:flex;align-items:baseline;gap:12px;border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:4px;flex-wrap:wrap}
+.ch-head .num{font:800 30px/0.85 var(--f-display);font-stretch:75%;color:var(--acc)}
+.ch-head h2{flex:1;min-width:200px}
+.ch-head .cp{font:600 11px var(--f-mono);color:var(--muted)}
+.ch-bar{height:6px;border-radius:4px;background:var(--line2);overflow:hidden;display:flex;margin:6px 0 2px}
+
+.test{border:1px solid var(--line);border-radius:8px;background:var(--raise);margin:12px 0;overflow:hidden}
+.test.s-pass{border-color:color-mix(in srgb,var(--green) 45%,var(--line))}
+.test.s-fail{border-color:color-mix(in srgb,var(--red) 45%,var(--line))}
+.test.s-skip{border-color:color-mix(in srgb,var(--amber) 45%,var(--line))}
+.t-head{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;background:var(--surface)}
+.t-head .id{font:700 12px var(--f-mono);color:var(--acc-deep);white-space:nowrap}
+.t-head .ti{flex:1;font-weight:600;font-size:14.5px;min-width:0}
+.t-head .st{font:700 10px var(--f-mono);padding:2px 7px;border-radius:9px;letter-spacing:.03em;text-transform:uppercase}
+.st.none{background:var(--line2);color:var(--muted)} .st.pass{background:var(--green-tint);color:var(--green);border:1px solid var(--green)}
+.st.fail{background:var(--red-tint);color:var(--red);border:1px solid var(--red)} .st.skip{background:var(--amber-tint);color:var(--amber);border:1px solid var(--amber)}
+.chev{color:var(--muted);transition:transform .15s}
+.test.open .chev{transform:rotate(90deg)}
+.t-body{padding:0 14px 14px;display:none}
+.test.open .t-body{display:block}
+.t-body .meta{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.pill{font:600 11px var(--f-mono);padding:2px 7px;border-radius:9px;background:var(--line2);color:var(--ink)}
+.pill.perm{background:var(--tint);color:var(--acc-deep)}
+.t-body h4{font:700 11px var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:14px 0 6px}
+.t-body p{margin:6px 0;font-size:14px}
+.t-body ol,.t-body ul{margin:6px 0;padding-left:22px}
+.t-body li{margin:4px 0;font-size:14px}
+.acts{display:flex;gap:6px;margin:14px 0 6px;flex-wrap:wrap}
+.acts button{font:600 11.5px var(--f-mono);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:6px;padding:7px 12px;cursor:pointer}
+.acts button:hover{color:var(--ink)}
+.acts button.on-pass{background:var(--green);border-color:var(--green);color:#fff}
+.acts button.on-fail{background:var(--red);border-color:var(--red);color:#fff}
+.acts button.on-skip{background:var(--amber);border-color:var(--amber);color:#fff}
+.note{width:100%;margin-top:8px;font:500 13px var(--f-mono);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;color:var(--ink);resize:vertical;min-height:38px}
+footer{margin-top:50px;padding-top:18px;border-top:2px solid var(--ink);color:var(--muted);font-size:13.5px}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head><body>
+<nav class="rail">
+  <div class="rail-in">
+    <div class="brand"><span class="dot"></span>Book of Tests</div>
+    <label class="eyebrow" for="f-ch">Chapter</label>
+    <select id="f-ch"></select>
+    <label class="eyebrow" for="f-st">Status</label>
+    <select id="f-st">
+      <option value="">All</option><option value="none">Not run</option><option value="pass">Pass</option>
+      <option value="fail">Fail</option><option value="skip">Skip</option>
+    </select>
+    <span class="sp"></span>
+    <button class="btn" id="expand">Expand all</button>
+    <button class="btn" id="collapse">Collapse</button>
+    <button class="btn" id="reset">Reset results</button>
+  </div>
+</nav>
+<div class="wrap">
+<header class="hero">
+  <div class="eyebrow">VoltEdge · validation manual · run it, tick it, track it</div>
+  <h1>The book of tests,<br><span>as a runner.</span></h1>
+  <p class="lede">Every test from the manual as a card you mark <b>pass / fail / skip</b>, with per-chapter and overall progress, filters, and notes — all saved in your browser. The companion to <code>book-of-tests.md</code> (the canonical text); this is the self-contained thing you actually work through a QA pass with.</p>
+</header>
+
+<div class="dash" id="dash"></div>
+<div id="chapters"></div>
+
+<footer>
+  <p><b>VoltEdge Book of Tests</b> — interactive runner. Results live in this browser only (localStorage); nothing is uploaded. The full prose, ASCII schematics and failure-mode detail are in <code>docs/book-of-tests.md</code>.</p>
+</footer>
+</div>
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const STORE_KEY="voltedge-book-of-tests-v1";
+
+/* Chapter titles + one-line scope. */
+const CHAPTERS={
+  "3":{t:"Building & maintaining the network", d:"Author Oakwood: create, draw, wire, relate, diagram, tag, import/export."},
+  "4":{t:"Load-flow analysis", d:"Basic, meshed, nodal, auto, unbalanced, voltage profile."},
+  "5":{t:"Traces & OMS", d:"Standard, feeder, section, service, supply-path, isolate, energization."},
+  "6":{t:"Fault & protection", d:"Fault current, SLG, arc flash, coordination, ampacity, N-1."},
+  "7":{t:"DER & optimization", d:"Hosting, EV hosting, storage, volt-var, taps, VVO, load-growth."},
+  "8":{t:"Production-readiness", d:"Accuracy, scale, access control, concurrency, subsystems, automation."},
+  "9":{t:"Operational subsystems", d:"Safety, FLISR, device-ops log, land & spatial."},
+  "10":{t:"Asset management & data quality", d:"Lifecycle & aging, asset register/BoQ, fault modes, attribute QA, fault location."},
+  "11":{t:"Composite units & structures", d:"Nested packed station, street-light-on-pole."},
+  "12":{t:"Platform, integration & governance", d:"Edit/view mode, edit-session audit, external refs, webhooks."},
+};
+
+/* Every test. perm = key permission; ep = endpoint; mcp = agent tool. */
+const TESTS=[
+ {id:"3.1",ch:"3",title:"Create the Oakwood territory",perm:"territories:write",
+  purpose:"Stand up the scratch territory everything is built in; exercise create / edit / reparent.",
+  steps:["Create a top-level territory “Oakwood” (Territories admin or the map panel).","Rename it inline and reparent it under a region.","Toggle the boundary inspect-lock (the trailing i on the Layers Territories row)."],
+  pass:["Appears in the Territory Explorer tree with per-class counts.","Inline rename + reparent persist; level is NOT editable anywhere.","Inspect-lock mutes the click-panel but keeps the overlay + labels.","Without territories:write the edit form is hidden/rejected."]},
+ {id:"3.2",ch:"3",title:"Create a single feature (required attrs, date guard)",perm:"features:write",
+  purpose:"The atomic authoring gesture — draw one feature and prove required-attribute + future-date enforcement. Build the Oakwood GSP.",
+  steps:["New feature → pick class (e.g. GRID_SUPPLY_POINT) → draw geometry.","Leave a required field blank and try to save.","Set a date/timestamp field to a future date.","Save valid; set source_r_ohm / source_x_ohm."],
+  pass:["Blank required field blocks save (asterisks come from subtype rules).","Future date rejected inline (app-wide guard).","Feature drawn + selectable; attributes round-trip."]},
+ {id:"3.3",ch:"3",title:"Primary substation from a template (typed slots)",perm:"metadata:write / features:write",
+  purpose:"Build the 33/11 kV primary sub from a built-in single-line template with typed slots.",
+  steps:["Apply the “33/11 kV substation” template to a SUBSTATION container.","Fill the typed slots (MV_BUSBAR / POWER_XFMR / MV_SWITCHGEAR_PANEL) by binding or promoting.","Set the POWER_XFMR fields (33KV/11000, rated_mva, impedance_pct, Dyn11, taps)."],
+  pass:["Lays out incomers → transformer bays → sectionalised 11 kV bus + coupler + feeders.","The SUBSTATION×ONE_LINE allowlist is unconstrained — no silent slot-skip."]},
+ {id:"3.4",ch:"3",title:"Assembly fan-out (RMU) + auto single-line",perm:"features:write",
+  purpose:"Build the Feeder-A RMU ring from the fan-out engine; confirm it auto-generates a fully-placed single-line on create.",
+  steps:["New feature → Assemblies → RMU (WAYS_n) → place.","Confirm the fan-out creates ways, busbar, switches AND a geometry-less MV_CONDUCTOR per cable side (T1).","Open the auto diagram; Regenerate and confirm it rebuilds from template + placements.","Build the LV pillar assembly (LV_PILLAR + LV_FUSE)."],
+  pass:["Assembly wired, single-line placed, zero manual binding.","Regenerate idempotent; the ring left CLOSED gives the weak-mesh loop Test 4.3 needs.","If MV_CONDUCTOR isn't geometry_optional+compiled, the cable step fails — compile it first."]},
+ {id:"3.5",ch:"3",title:"Draw the MV/LV network (conductors + snapping)",perm:"features:write",
+  purpose:"Draw the feeders and prove snapping + the edit-lock guard.",
+  steps:["Draw an MV_CONDUCTOR from the 11 kV bus; snap its start to the busbar.","Save, then IMMEDIATELY draw a second conductor snapping to the first — no pan.","Mid-edit of a geometry, try to arm a new draw from New / Assemblies / Annotate."],
+  pass:["Snap-to-just-saved works immediately (snap source rebuilds on tileloadend).","The three draw menus are DISABLED while editing."]},
+ {id:"3.6",ch:"3",title:"Edit a feature (attributes + geometry + loads)",perm:"features:write",
+  purpose:"Change attributes/geometry; set the loads that make the analyses non-trivial.",
+  steps:["Inline-edit a SERVICE_POINT: demand_kw, power_factor, load_priority (P1–P4).","Move a conductor vertex and save.","Confirm the Service trace reflects the new demand_kw."],
+  pass:["Edits round-trip; load shows in the Service rollup as kW/kVA.","Geometry persists; conductor length (impedance/ampacity) updates. (Prereq for 4.1/4.2.)"]},
+ {id:"3.7",ch:"3",title:"Establish connectivity (terminals, code-match)",perm:"features:write",
+  purpose:"Wire two features through terminals; prove the engine matches by terminal CODE, not uuid.",
+  steps:["Connect an LV_CONDUCTOR (T1) to a SERVICE_POINT terminal.","Connect a class holding more than one terminal row per code (generic + subtype override).","From the Terminals list, click a row (peek halo) and use i to open its panel."],
+  pass:["A rule-permitted connection succeeds; the multi-terminal-row case connects (matched by code).","Row click locates; i opens — distinct gestures.","A legal connection failing with “no network rule permits…” = the code-match regression."]},
+ {id:"3.8",ch:"3",title:"Establish relationships",perm:"features:write",
+  purpose:"Create the non-connectivity relationships — accounting + composite part-of.",
+  steps:["Relate a NETWORK_METER to a metered element via metering_accounting.","Add a TAP_CHANGER as part-of a POWER_XFMR."],
+  pass:["metering_accounting permitted by its 3-place allowlist; the meter is off-path (never a trace node).","part-of holds; CIM later renders the tap changer as a RatioTapChanger asset.","A kind outside the allowlist is rejected naming origin/dest/kind."]},
+ {id:"3.9",ch:"3",title:"Validate against rules + duplicate remover",perm:"features:write / metadata:write",
+  purpose:"Prove the three rule families gate authoring and the admin duplicate-remover works.",
+  steps:["Attempt an illegal connection (no network rule).","Attempt an illegal relationship / a snap violating a snapping rule.","In admin Rules, seed a duplicate in each section and use “Remove N duplicates”."],
+  pass:["Illegal connection → “… no network rule permits this connection”.","Dup detector flags all three sections; a bidirectional rule authored twice = ONE duplicate."]},
+ {id:"3.10",ch:"3",title:"Build single-line diagram (promote / replace / regenerate)",perm:"metadata:write / features:write",
+  purpose:"Turn map features into a diagram; exercise the stencil workflows.",
+  steps:["Place Oakwood features on a new ONE_LINE diagram.","Promote a typed slot/stencil into a real permanent feature (SlotBindPanel “Create new”).","Replace-from-map: overwrite a placed stub with a real feature.","Regenerate the assembly diagram; confirm the promoted feature survives."],
+  pass:["Promote is atomic (create→place→consume) and admin-only; survives reload/regenerate.","Replace re-points wiring by feature_id, drops the stub without orphaning.","Non-metadata:write user can't see Create-new / double-click-promote; direct call → 403."]},
+ {id:"3.11",ch:"3",title:"Diagram presentation (tree/table + print)",perm:"read",
+  purpose:"Read a diagram/result as a tree and export a drawing sheet.",
+  steps:["Toggle a result panel between Table and Tree.","Print the diagram to a PDF drawing sheet."],
+  pass:["Tree builds client-side from parent_feature_*; orphans reparent under root, cycles guarded.","Print = light-palette mm-sheet PDF with title block + footer, no server round-trip."]},
+ {id:"3.12",ch:"3",title:"Asset tags lifecycle",perm:"asset-tags:write",
+  purpose:"Attach and transition an asset tag through its lifecycle.",
+  steps:["Apply a tag to a feature (migrate OLD-4471 → VE-7Q3K2).","Move it through its lifecycle states.","Filter/search features by tag."],
+  pass:["Tag attaches, transitions, and is queryable; a non-terminal tag still resolves on the panel."]},
+ {id:"3.13",ch:"3",title:"Import with reprojection",perm:"import",
+  purpose:"Bring features in from a non-native CRS and confirm reprojection.",
+  steps:["Import a Shapefile/DXF/CIM in a projected CRS (a national grid EPSG).","Confirm geometry lands in the right place (ST_Transform on ingest)."],
+  pass:["Imported features overlay correctly; wrong source SRID → features land offset (confirm the picker matched the file)."]},
+ {id:"3.14",ch:"3",title:"Export jobs & CIM/DXF with target CRS",perm:"export",
+  purpose:"Export the network, background/reopen the job, reproject on the way out.",
+  steps:["Export a scope as DXF/Shapefile/CIM with a target CRS.","Close the Export Jobs panel, reopen from the toolbar; confirm the job kept running.","Inspect output: CIM crsUrn=…EPSG::N, Shapefile .prj."],
+  pass:["Reprojection applies (DXF/Shapefile/CIM), one CRS per job, catalog SRIDs only.","KMZ is WGS84-locked — must not offer a target CRS (rejected at enqueue)."]},
+ {id:"3.15",ch:"3",title:"External systems (feature data links)",perm:"metadata:write + features:write",
+  purpose:"Catalogue an external system + attach a live-data link; confirm the SSRF proxy + auth behave.",
+  steps:["Catalogue a system (code/name/base_url WITH trailing slash/auth/format).","Add a kind=api link (system + resource_path) + a plain hyperlink.","Open the External systems tab → data card. Point base_url at localhost and re-view."],
+  pass:["API link fetches server-side read-only; nothing written. Hyperlink opens a new tab.","A credential is write-only (only has_credential returned). localhost/private base_url REFUSED (SSRF).","base_url without a trailing slash drops the last path segment (RFC join)."]},
+ {id:"3.16",ch:"3",title:"Bulk wipe (nuke) — teardown",perm:"features:wipe",
+  purpose:"Clear a class (or the scratch build) so the exercise repeats.",
+  steps:["In the Features browser, pick a class and run the class wipe (“nuke”).","Confirm the two-step: soft-delete, then purge."],
+  pass:["Scoped to (territory × class); soft-then-purge is deliberate.","After purge, analyses/traces return empty, not errors. No features:wipe → cannot invoke; never crosses scope."]},
+
+ {id:"4.1",ch:"4",title:"LV service load flow through a transformer (worked exercise)",perm:"analysis:run",ep:"/analysis/load-flow",
+  purpose:"Dated worked exercise: prove the LV load flow and the nominal_voltage_v base gotcha.",
+  steps:["Pick an LV service downstream of a DIST_XFMR.","Start UPSTREAM of the transformer; set nominal_voltage_v to the MV base.","Run; confirm V steps down across the transformer to the LV base."],
+  pass:["A load flow needs demand_kw or it's a no-op.","Start upstream applies the ratio and steps down; start AT the transformer skips its ratio.","Step-down needs both primary_voltage (coded) + secondary_voltage (volts)."]},
+ {id:"4.2",ch:"4",title:"Basic radial load flow",perm:"analysis:run",ep:"/analysis/load-flow",
+  purpose:"Kersting forward-backward sweep on a radial feeder — per-node V, per-branch loading.",
+  steps:["Run { start (upstream of any xfmr), nominal_voltage_v } on a radial feeder with demand_kw set."],
+  pass:["200, iterations=3, nodes[]/barriers[]/overloaded[]. V steps down with distance + across transformers.","voltage_drop_pct is vs each node's OWN base (LV node reads a small drop, not ~95%).","Over-100% nodes appear in overloaded[]; material_resolved=false on unresolved branches (still completes).","A real mesh → 400 “… not radial … run LOOP_CHECK_TRACE first…”; a FALSE mesh must NOT trip it."]},
+ {id:"4.3",ch:"4",title:"Meshed load flow (weak-mesh compensation)",perm:"analysis:run",ep:"/analysis/meshed-load-flow",
+  purpose:"Solve a radial spanning tree, then close each ring/link-box loop by circulating-power compensation.",
+  steps:["Run { start, nominal_voltage_v, max_iterations? } on a normally-CLOSED ring / closed link box."],
+  pass:["200 with compensation_passes, loop_count, loops[]. Each compensated loop converges below 1e-4 V.","Radial net degrades cleanly to loop_count=0, numerics identical to 4.2.","A loop through an OPEN device is left open, not compensated (never energises a NO tie).","Zero-impedance loop flagged, not compensated."]},
+ {id:"4.4",ch:"4",title:"Nodal load flow (Y-bus)",perm:"analysis:run",ep:"/analysis/nodal-load-flow",
+  purpose:"Full nodal Y-bus over a densely meshed graph; the only engine supporting multiple slack sources + PV buses.",
+  steps:["Run with { start, sources[], nominal_voltage_v } over a meshed net; add a PV bus (voltage_setpoint_pu)."],
+  pass:["Solves the whole mesh at once; multi-slack OK; PV bus holds |V| with Q within reactive_limit."]},
+ {id:"4.5",ch:"4",title:"Auto load flow (dispatch router)",perm:"analysis:run",ep:"/analysis/load-flow-auto",
+  purpose:"The router that picks the right engine for the topology (radial→sweep, mesh→nodal).",
+  steps:["Run { start, nominal_voltage_v } on both a radial and a meshed start."],
+  pass:["Routes to the correct engine automatically; numbers match the engine run directly."]},
+ {id:"4.6",ch:"4",title:"Unbalanced (three-phase) load flow",perm:"analysis:run",ep:"/analysis/unbalanced-load-flow",
+  purpose:"Per-phase three-phase unbalanced solve.",
+  steps:["Run on a feeder with per-phase loads / single-phase laterals."],
+  pass:["Per-phase voltages/currents + neutral; unbalance surfaced. Validate vs an unbalanced reference, not the balanced sweep."]},
+ {id:"4.7",ch:"4",title:"Voltage profile",perm:"analysis:run",ep:"/analysis/voltage-profile",
+  purpose:"Voltage vs distance along a path, with under-voltage flags.",
+  steps:["Run { start, nominal_voltage_v, min_voltage_pu?, max_voltage_pu? } along a feeder."],
+  pass:["V vs distance; nodes below min flagged. min>max → 400; a never-reached node (base 0) is NOT flagged under-voltage.","losses_complete=false = unresolved material (lower bound, not a failure)."]},
+
+ {id:"5.1",ch:"5",title:"Standard trace",perm:"trace:run",ep:"/trace",mcp:"run_trace",
+  purpose:"General connectivity walk in a chosen direction.",
+  steps:["Run { trace_configuration:{direction, cross_transformers?}, start, target? }.","Try DOWNSTREAM/UPSTREAM/CONNECTED/SHORTEST_PATH."],
+  pass:["Reached features with parent_feature_* + placement flags. DOWNSTREAM stops at transformers unless cross_transformers.","Tier guard: DOWNSTREAM never climbs lower, UPSTREAM never steps higher. Junction pass-through reaches sibling ways.","SHORTEST_PATH without target → validation error; CONNECTED/SHORTEST_PATH apply NO tier guard."]},
+ {id:"5.2",ch:"5",title:"Feeder trace",perm:"trace:run",ep:"/trace/feeder",mcp:"run_feeder_trace",
+  purpose:"Whole feeder from a source, downstream, flowing THROUGH transformers.",
+  steps:["Run { trace_configuration:{direction:\"DOWNSTREAM\"}, start }."],
+  pass:["Full downstream feeder incl. LV networks past every distribution transformer. Non-DOWNSTREAM rejected."]},
+ {id:"5.3",ch:"5",title:"Section trace",perm:"trace:run",ep:"/trace/section",mcp:"run_section_trace",
+  purpose:"The switchable section around a feature, bounded by isolating devices.",
+  steps:["Run { start, boundary_class? } (defaults MV_SWITCH)."],
+  pass:["Everything between the bounding switches; boundary devices listed. Unknown boundary_class → 404."]},
+ {id:"5.4",ch:"5",title:"Service trace",perm:"trace:run",ep:"/trace/service",mcp:"run_service_trace",
+  purpose:"Load/consumption rollup downstream of a point — customers, kW/kVA, critical, by-tier.",
+  steps:["Run { start } (DOWNSTREAM, load-only)."],
+  pass:["customers, total kW/kVA, critical count, by_tier (P1–P4). critical = rank ≤ P2 (supersedes legacy is_critical).","Number matches the same rollup in trace/isolation tables + the OMS console."]},
+ {id:"5.5",ch:"5",title:"Supply-path trace",perm:"trace:run",ep:"/trace/supply-path",mcp:"— (none)",
+  purpose:"Barrier-free walk UPSTREAM to the source, listing milestones.",
+  steps:["Run { start } — start only."],
+  pass:["Ordered upstream milestones to the source; OPEN devices do NOT stop it. MCP parity gap — flag if an agent is asked to run it."]},
+ {id:"5.6",ch:"5",title:"Isolation trace",perm:"trace:run",ep:"/trace/isolate",mcp:"run_isolation_trace",
+  purpose:"Minimal set of devices to open to de-energize a target, and what goes dark.",
+  steps:["Run { device, trace_configuration:{direction:\"DOWNSTREAM\"} } — field is device, not start."],
+  pass:["Isolating devices + the affected set, with a ServiceRollup of customers lost. Passing start instead of device → error."]},
+ {id:"5.7",ch:"5",title:"OMS incident energization",perm:"oms:read",ep:"/oms/incidents/{id}/energization",mcp:"oms_incident_energization",
+  purpose:"Live energization state around an outage — who's de-energized, who's backfed.",
+  steps:["On an incident with switching applied, GET the energization."],
+  pass:["De-energized cone + affected ServiceRollup (critical chip), consistent with a fresh trace. Unknown id → 404."]},
+
+ {id:"6.1",ch:"6",title:"Fault current (three-phase)",perm:"analysis:run",ep:"/analysis/fault-current",
+  purpose:"Symmetrical three-phase fault current at a point.",
+  steps:["Run { start, nominal_voltage_v, fault_type:\"three_phase\", fault_impedance_ohm? }."],
+  pass:["Fault MVA/kA + contributions along the path. x_r_ratio defaults 2.0 where a xfmr lacks it.","Missing/≤0 nominal_voltage_v → the positive-number error; a xfmr with no %Z is an ideal element."]},
+ {id:"6.2",ch:"6",title:"Single-line-to-ground fault (SLG)",perm:"analysis:run",ep:"/analysis/fault-current (slg)",
+  purpose:"Earth-fault current via symmetrical components.",
+  steps:["Run fault_type=slg with zero-sequence inputs (source_r0/x0, z0_pct, vector_group, earthing shunt)."],
+  pass:["I_slg = 3V/(Z1+Z2+Z0); Z0 path follows the vector group (Dyn default) + earthing. zeroSeqLineFactor 3.0 where unspecified.","Confirm the vector group matches the real transformer before trusting magnitude."]},
+ {id:"6.3",ch:"6",title:"Arc flash (IEEE 1584)",perm:"analysis:run",ep:"/analysis/arc-flash",
+  purpose:"Incident energy and PPE category.",
+  steps:["Run { start, nominal_voltage_v, arc_electrode_configuration, … }."],
+  pass:["Incident energy (cal/cm²), arc-flash boundary, ppe_category. An undetermined case → ppe_category=-1 (DANGEROUS), a flag not a crash.","(Flagged EXPERIMENTAL / safety — see the validation badge.)"]},
+ {id:"6.4",ch:"6",title:"Protection coordination",perm:"analysis:run",ep:"/analysis/coordination",
+  purpose:"Time-current coordination between upstream/downstream protective devices.",
+  steps:["Run { start, nominal_voltage_v, fault…, cti_seconds? } (default 0.3 s) across a breaker/recloser/fuse chain."],
+  pass:["Operating times per device + margins; mis-coordinated pairs flagged where margin < cti. A device with no protection element is skipped, not fatal."]},
+ {id:"6.5",ch:"6",title:"Conductor ampacity (IEEE 738)",perm:"analysis:run",ep:"/analysis/ampacity",
+  purpose:"Thermal current rating under ambient conditions.",
+  steps:["Run the conductor (network_role=edge) + ambient_temp_c (REQUIRED pointer) + IEEE 738 material fields."],
+  pass:["Steady-state ampacity at the ambient. Non-edge → rejected; missing ambient_temp_c → validation error (not defaulted)."]},
+ {id:"6.6",ch:"6",title:"N-1 contingency",perm:"analysis:run",ep:"/analysis/contingency",
+  purpose:"Loss-of-element study — can the network be backfed.",
+  steps:["Run { source, tie? } — field is source, not start."],
+  pass:["Per-contingency feasible flag + backfeed path; with a tie, whether closing restores within limits. start instead of source → error; no backfeed → feasible=false."]},
+
+ {id:"7.1",ch:"7",title:"Hosting capacity (generation headroom)",perm:"analysis:run",ep:"/analysis/hosting-capacity",
+  purpose:"Max DER injection before a voltage/thermal limit binds.",
+  steps:["Run { source, node, nominal_voltage_v, max_voltage_pu? }."],
+  pass:["Headroom kW via ramp-then-bisect + binding_constraint (overvoltage/thermal/none/pre_existing). pre_existing = already at a limit (headroom 0), valid."]},
+ {id:"7.2",ch:"7",title:"EV hosting capacity (load headroom)",perm:"analysis:run",ep:"/analysis/ev-hosting",
+  purpose:"The undervoltage mirror — EV load a node absorbs before undervoltage/thermal binds.",
+  steps:["Run like hosting capacity but NO max_voltage_pu; reads connected_load_kw/diversity_factor/managed_demand_cap_kw."],
+  pass:["Load headroom kW; binding constraint undervoltage or thermal; managed cap clamps the usable headroom."]},
+ {id:"7.3",ch:"7",title:"Storage dispatch",perm:"analysis:run",ep:"/analysis/storage-dispatch",
+  purpose:"Optimal battery dispatch over steps against a lexicographic objective.",
+  steps:["Run { source, nominal_voltage_v, dispatch_steps } on a BESS with rated_power_kw + SoC window."],
+  pass:["Per-step signed dispatch honouring rated_power_kw + SoC window; objective improves lexicographically. No rated_power_kw → not a candidate."]},
+ {id:"7.4",ch:"7",title:"Volt-VAR (capacitor)",perm:"analysis:run",ep:"/analysis/volt-var",
+  purpose:"Single-step evaluation of closing a switchable capacitor bank.",
+  steps:["Run { source, nominal_voltage_v } with an out-of-circuit switchable cap."],
+  pass:["Voltage/loss effect of the candidate close; recommend only if it helps within band. A fixed cap isn't a candidate."]},
+ {id:"7.5",ch:"7",title:"Tap optimization",perm:"analysis:run",ep:"/analysis/tap-optimization",
+  purpose:"Best regulator/transformer tap within travel limits.",
+  steps:["Run { source, nominal_voltage_v }; reads regulator_step_pct, bounded by ± max_tap_steps."],
+  pass:["Recommended tap + resulting profile, within the step limit. No regulator_step_pct → not optimizable."]},
+ {id:"7.6",ch:"7",title:"Volt-VAR optimization (VVO, combined)",perm:"analysis:run",ep:"/analysis/vvo",
+  purpose:"Co-optimize caps + regulators + batteries by coordinate descent.",
+  steps:["Run { source, nominal_voltage_v, max_rounds? } (default 8)."],
+  pass:["A setpoint per actor, a converged flag, combined improvement. Not worse than the best single-actor study (7.3–7.5). Non-convergence returned flagged."]},
+ {id:"7.7",ch:"7",title:"Load-growth forecast",perm:"analysis:run",ep:"/analysis/load-growth",
+  purpose:"Scenario projection of the feeder over a horizon — what overloads/sags, and when.",
+  steps:["Run { start, nominal_voltage_v, horizon_years, base_growth_pct, … } — field is start, not source."],
+  pass:["assets[] (first_violation_year + trajectory), voltage_violations[], reinforcement_order, validation:\"derived\".","Meshed → error (radial only); horizon 1–60; include_planned off → PLANNED assets contribute zero (no double-count)."]},
+
+ {id:"8.1",ch:"8",title:"Numerical accuracy vs a reference",perm:"—",
+  purpose:"The credibility test: solver numbers are CORRECT (hand-calc / IEEE 13-34 / CYME), not just well-shaped.",
+  steps:["Pick a canonical case with a known answer; run the matching engine; compare within tolerance."],
+  pass:["Results match the reference within tolerance. THE critical gap — do this first."]},
+ {id:"8.2",ch:"8",title:"Scale & performance",perm:"—",
+  purpose:"Does it survive a real network — 10k/100k/1M features; no O(table) ops; degrades not dies.",
+  steps:["Load a large synthetic network; run tiles, traces, load flow; watch timings + truncation flags."],
+  pass:["Tiles O(density) not O(N); trace flags `truncated` at the cap (configurable). Largest untested risk — second priority."]},
+ {id:"8.3",ch:"8",title:"Access control & tenancy",perm:"—",
+  purpose:"The server enforces 401/403; territory isolation; CSRF; break-glass audited.",
+  steps:["Hit protected routes without/with the wrong permission; cross a territory boundary; omit the CSRF token."],
+  pass:["401/403 enforced server-side (not just UI). Scoped users can't see/do out-of-territory. Break-glass logged. (Blocker-class.)"]},
+ {id:"8.4",ch:"8",title:"Concurrency & data integrity",perm:"—",
+  purpose:"Many editors — OCC 409; draft/sync conflicts; no orphans after bulk ops.",
+  steps:["Two editors update the same feature; conflicting drafts; a bulk purge with references."],
+  pass:["Stale write → 409 (expected_updated_at). Draft/sync conflicts surfaced. No orphaned polymorphic refs after a purge. (Blocker-class.)"]},
+ {id:"8.5",ch:"8",title:"Operational / field / interop subsystems",perm:"—",
+  purpose:"The subsystems the analysis tests skip: OMS write, WAM loop, Faults, field offline sync, CIM round-trip.",
+  steps:["Exercise an OMS switching write, a WAM work order loop, a fault record, an offline field-pack sync, a CIM export+import round-trip."],
+  pass:["Each subsystem round-trips; field sync replays offline edits under the submitter's identity + scope. (See Chapters 9–12 for the newer ones.)"]},
+ {id:"8.6",ch:"8",title:"Automation / regression",perm:"—",
+  purpose:"The book runs unattended in CI, asserting 8.1's numbers.",
+  steps:["Script the reference cases + the accuracy assertions; wire into CI."],
+  pass:["The suite runs green unattended; 8.1's numbers can't silently regress. Do it early."]},
+
+ {id:"9.1",ch:"9",title:"Operational safety (tags, grounds, clearances)",perm:"safety:read / safety:write",ep:"/safety",
+  purpose:"Prove the safety layer bars a device operation and a clearance auto-applies its tags/grounds.",
+  steps:["Place a blocking tag on a switch.","Run an OMS step that opens/closes it.","Issue a clearance from a switching order (POST /oms/switching-orders/{id}/clearance).","Open the Safety tab; drive the 13 safety MCP tools."],
+  pass:["The blocking tag REFUSES the open/close step; non-blocking tags don't.","The clearance auto-tags + grounds every device in scope. Safety tab + MCP mirror REST."]},
+ {id:"9.2",ch:"9",title:"FLISR back-feed restoration",perm:"oms:read / oms:write",ep:"/incidents/{id}/restoration-orders",mcp:"oms_generate_restoration_order",
+  purpose:"Suggest a restoration tie for a dead section and generate a close-tie order.",
+  steps:["Open an incident with a de-energised cone.","Request restoration suggestions (NO tie → energised alt source, ranked, capacity verdict).","Confirm verdict_basis=load_flow supersedes nameplate.","Generate the order (RESTORE close-tie steps)."],
+  pass:["Only ties reaching an energised alternate source within capacity are suggested, ranked.","A suggested tie to a dead/overloaded source = a SuggestRestoration bug."]},
+ {id:"9.3",ch:"9",title:"Device-operations log",perm:"operations:read / operations:write",ep:"/operations",
+  purpose:"Prove the append-only operation log captures trips/opens/closes from every source.",
+  steps:["Execute a switching step → an ops.operations row auto-emits.","Create/update a fault → a trip auto-emits (idempotent).","Push an operation via the webhook adapter (external device ref).","Open the board + per-device tab + device-inventory report; drive the 5 MCP tools."],
+  pass:["Every open/close/trip lands exactly once (idempotent), fed from crew/switching/faults/SCADA/agents.","A duplicate trip on re-update = idempotency regressed."]},
+ {id:"9.4",ch:"9",title:"Land & spatial (vegetation, easements)",perm:"features:read (+ wam:write)",ep:"/spatial/*",mcp:"raise_vegetation_trim_order",
+  purpose:"Exercise the geometry-derived spatial engine + the vegetation/easement workflows.",
+  steps:["GET /spatial/related (intersects/contains/contained_by/within).","GET /spatial/vegetation-encroachments — per-voltage clearance breaches.","Raise a trim order onto WAM.","GET /spatial/easements/expiring + /vegetation/trim-due; slide ‘today’ forward."],
+  pass:["Overlap/proximity matches the geometry; breaches are per-voltage, not a flat distance.","Trim order lands on WAM; expiry/trim-due badges flip with the clock."]},
+
+ {id:"10.1",ch:"10",title:"Asset lifecycle & aging (and the network gate)",perm:"features:write / features:read / metadata:write",ep:"/features/{code}/{id}/lifecycle · /asset-life/*",mcp:"set_feature_lifecycle / asset_life_report",
+  purpose:"Prove the lifecycle axis, its trace/power-flow gate, and the aging report.",
+  steps:["PATCH a mid-feeder feature to RETIRED (retired_at auto-stamps).","Trace + load-flow from above it → it + everything beyond drops out.","Move back to IN_SERVICE (commissioned_at auto-stamps) → conducts again.","Seed an expected-life entry; GET /asset-life/report; drive the MCP tools."],
+  pass:["A non-operational feature conducts in NEITHER trace nor power flow (the registry lifecycle gate).","Aging buckets in-service assets only; dates auto-stamp on the matching transition."]},
+ {id:"10.2",ch:"10",title:"Asset register & Bill of Quantities",perm:"features:read",ep:"/boq/asset-register.xlsx",mcp:"run_asset_register",
+  purpose:"Generate a per-feature asset register (async XLSX via RustFS) and a priced BoQ.",
+  steps:["POST /boq/asset-register.xlsx with a scope → enqueues a job.","Poll the job → presigned RustFS download; open the XLSX (one sheet/class, From/To on lines).","Run the priced BoQ with the catalog + per-feature overrides."],
+  pass:["Job runs detached, requester reconstructed, file lands in RustFS. Quantities/pricing match the scope; valuation off by default.","A line feature showing a centroid instead of From/To = a bug."]},
+ {id:"10.3",ch:"10",title:"Fault-mode catalog (FMEA picker)",perm:"faults:write / metadata:write",ep:"/faults/modes",
+  purpose:"Prove the class-aware failure-mode picker on the fault form.",
+  steps:["Open the fault form on a class → the cause picker lists only that class's modes.","Log a fault with a fault_mode.","Edit the catalog (metadata:write). Spot-check modes vs the guide."],
+  pass:["Each class offers its own FMEA modes (dimension/cause/effect/severity); class-scoped; distinct from fault_type."]},
+ {id:"10.4",ch:"10",title:"Attribute QA / data-quality rules",perm:"connectivity:read / metadata:write / connectivity:commit",ep:"/connectivity/rules · /connectivity/audit",mcp:"validation_issues",
+  purpose:"Prove the attribute audit (drift + completeness rules) feeds the same validation queue as connectivity.",
+  steps:["Create a completeness rule (field expected on a class).","Run the audit (AuditAll merges connectivity + attribute in ONE report).","In the Issue queue, filter Kind → Data quality; confirm the attr_* rows.","Fix a flagged field → auto-resolves on reconcile. Triage one (works in view mode)."],
+  pass:["Drift caught vs CURRENT metadata; completeness rules fire. One merged report; attr_* fingerprint auto-resolves on fix.","Reconciling the two families separately would wrongly auto-resolve the other — must be one report."]},
+ {id:"10.5",ch:"10",title:"Fault location (distance-to-fault)",perm:"analysis:run",ep:"/analysis/fault-location",mcp:"locate_fault",
+  purpose:"Prove the inverse-of-fault-current distance estimate.",
+  steps:["POST a measured current + a faulted 3-phase feature → candidate spans + distances.","From a logged fault, use the Locate button (pre-fills fault_current_a).","Confirm red candidate pins; drive locate_fault."],
+  pass:["Candidate spans + interpolated distances (3-phase, faulted level). A mesh start → the neutral LOOP_CHECK_TRACE message.","A candidate outside the bracketed impedance window = a bug."]},
+
+ {id:"11.1",ch:"11",title:"Packed-station assembly (nested)",perm:"features:write + relationships:commit + connectivity:commit",ep:"/assemblies (PACKED_*)",
+  purpose:"Place a nested packed station; prove its internal hierarchy + connectivity + auto single-line.",
+  steps:["Assemblies → Packaged Substation → Packed station (RMU + transformer + pillar, fixed/mobile) → place.","Confirm RMU (bus+3 switches), transformer, pillar (bus+4 fuses), all geometry-less.","Trace from the ring: bus → tee → transformer → LV bus → fuses.","Open the auto single-line; place the no-RMU config."],
+  pass:["Two-level containment via support_parent_position; the tee feeds the transformer (MV_SWITCH T1 → DIST_XFMR T1).","Single-line auto-builds; the fused tee lands above the transformer slot.","A flat (non-nested) structure, or the tee wired from T2, = a bug."]},
+ {id:"11.2",ch:"11",title:"Attach a street light to a pole",perm:"features:write + relationships:commit (+ connectivity:commit)",ep:"/street-lights",mcp:"attach_street_light",
+  purpose:"Attach a geometry-less pole-mounted lamp and auto-wire it to the pole's LV.",
+  steps:["Pole (editing on) → ⋯ More → Attach street light → pick phase/type/condition → Attach.","Confirm the lamp is geometry-less (pole_mounted), linked POLE supports STREET_LIGHT, and auto-wired when one LV is within ~10 m.","Try a pole with zero/several LV runs → attached-only with the wire_note.","Drive attach_street_light."],
+  pass:["Create + relate are atomic; auto-wire is best-effort (never undoes the attach), exactly-one-else-attach-only.","Without connectivity:commit, the lamp attaches unwired with a note. A wire to the wrong line = a bug."]},
+
+ {id:"12.1",ch:"12",title:"Edit / view mode",perm:"features:write (to see the toggle)",
+  purpose:"Prove the app is read-only until Edit is on, and destructive writes stay gated.",
+  steps:["Land in View (default). Confirm create menus hidden, panel read-only, no map/diagram edit armed.","Flip Edit on (amber toggle + map ring + badge). Confirm every write affordance appears (map + diagram).","Audit panel: triage works in view mode; Reconcile + Clean up need edit mode.","Flip Edit off mid-gesture → the gesture cancels; a read-only user never sees the toggle."],
+  pass:["View mode arms NO edit interaction; the server still enforces every permission (UX-only gate).","Any write affordance reachable in view mode = a leak."]},
+ {id:"12.2",ch:"12",title:"Edit-session audit (tiered visibility)",perm:"admin:users / supervisor",ep:"/features/edit-sessions",
+  purpose:"Prove edits group into sessions and the visibility tiers.",
+  steps:["In edit mode, make several changes → each history row carries the X-Edit-Session uuid.","GET /features/edit-sessions → one row per session (who/start/end/count/classes).","As admin/break-glass → all; non-admin supervisor → self + subordinates; leaf editor → 403."],
+  pass:["Start/end = first/last stamped change; empty sessions never appear; scope is enforced server-side.","A supervisor seeing a non-subordinate's sessions = a bug."]},
+ {id:"12.3",ch:"12",title:"External reference integration (SCADA/AMI/CIS)",perm:"features:write / metadata:write",
+  purpose:"Prove the external_ref system column + its reverse index.",
+  steps:["Stamp a feature's external ids (external_ref jsonb) via panel/MCP.","Confirm the trigger mirrors it into runtime.external_feature_refs.","Push an inbound webhook carrying an external ref → adopts + stamps the feature.","Fetch live external data via a path template."],
+  pass:["The reverse index stays in step (pull + push); inbound correlation finds the feature by its external id.","A stale reverse index after an edit = the trigger regressed."]},
+ {id:"12.4",ch:"12",title:"Webhooks (inbound ingestion + outbound emit)",perm:"webhook HMAC / metadata:read",ep:"/webhooks",
+  purpose:"Prove both directions of the integration bus.",
+  steps:["Inbound: POST a signed delivery to /webhooks → HMAC + replay check, SSRF-hardened, atomic apply; confirm a poison delivery is reaped.","Outbound: make a change on a wired write path → a transactional-outbox row emits on the same tx; the worker fans out."],
+  pass:["Inbound: valid signed deliveries apply atomically; malformed/replayed rejected; a worker panic recovers (no poison-loop).","Outbound: an event emitted exactly once per COMMITTED change — never for a rolled-back one."]},
+];
+
+/* ---- state (localStorage) ---- */
+let state = {};
+try { state = JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch { state = {}; }
+function save(){ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+function statusOf(id){ return (state[id] && state[id].status) || ""; }
+function noteOf(id){ return (state[id] && state[id].note) || ""; }
+function setStatus(id, st){ state[id] = state[id] || {}; state[id].status = (state[id].status === st ? "" : st); save(); render(); }
+function setNote(id, n){ state[id] = state[id] || {}; state[id].note = n; save(); }
+
+/* ---- render ---- */
+const filt = { ch:"", st:"" };
+function matches(t){ return (!filt.ch || t.ch === filt.ch) && (!filt.st || (statusOf(t.id) || "none") === filt.st); }
+
+function countBy(list){ const c={pass:0,fail:0,skip:0,none:0}; for(const t of list){ const s=statusOf(t.id)||"none"; c[s]++; } return c; }
+function barHTML(c,total){ const pct=n=>total?(100*n/total):0;
+  return `<i class="p" style="width:${pct(c.pass)}%"></i><i class="f" style="width:${pct(c.fail)}%"></i><i class="s" style="width:${pct(c.skip)}%"></i>`; }
+
+function render(){
+  // dashboard
+  const c = countBy(TESTS); const total = TESTS.length;
+  $("#dash").innerHTML = `
+    <div class="stat"><div class="n">${total}</div><div class="l">Tests</div></div>
+    <div class="stat pass"><div class="n">${c.pass}</div><div class="l">Pass</div></div>
+    <div class="stat fail"><div class="n">${c.fail}</div><div class="l">Fail</div></div>
+    <div class="stat skip"><div class="n">${c.skip}</div><div class="l">Skip</div></div>
+    <div class="stat todo"><div class="n">${c.none}</div><div class="l">Not run</div><div class="bar">${barHTML(c,total)}</div></div>`;
+
+  // chapters
+  const chOrder = Object.keys(CHAPTERS);
+  let html = "";
+  for (const ch of chOrder){
+    const tests = TESTS.filter(t=>t.ch===ch);
+    const shown = tests.filter(matches);
+    if (!shown.length) continue;
+    const cc = countBy(tests); const done = cc.pass+cc.fail+cc.skip;
+    html += `<section class="ch" id="ch-${ch}"><div class="ch-head"><div class="num">${ch}</div>
+      <h2>${esc(CHAPTERS[ch].t)}</h2><div class="cp">${done}/${tests.length} run · ${cc.pass} pass · ${cc.fail} fail</div></div>
+      <div class="ch-bar">${barHTML(cc,tests.length)}</div>
+      <p class="muted" style="margin:6px 0 2px;font-size:13.5px">${esc(CHAPTERS[ch].d)}</p>`;
+    for (const t of shown) html += testHTML(t);
+    html += `</section>`;
+  }
+  $("#chapters").innerHTML = html || `<p class="muted" style="margin-top:30px">No tests match the filter.</p>`;
+  wire();
+}
+
+function testHTML(t){
+  const st = statusOf(t.id);
+  const stLabel = st ? st : "none";
+  const metaBits = [ `<span class="pill perm">${esc(t.perm)}</span>` ];
+  if (t.ep) metaBits.push(`<span class="pill">${esc(t.ep)}</span>`);
+  if (t.mcp) metaBits.push(`<span class="pill">MCP ${esc(t.mcp)}</span>`);
+  return `<div class="test s-${st||"none"} ${t._open?"open":""}" data-id="${t.id}">
+    <div class="t-head" data-toggle="${t.id}">
+      <span class="id">${t.id}</span><span class="ti">${esc(t.title)}</span>
+      <span class="st ${stLabel}">${st||"not run"}</span>
+      <span class="chev">›</span>
+    </div>
+    <div class="t-body">
+      <div class="meta">${metaBits.join("")}</div>
+      <p>${esc(t.purpose)}</p>
+      <h4>Steps</h4><ol>${t.steps.map(s=>`<li>${esc(s)}</li>`).join("")}</ol>
+      <h4>Pass criteria</h4><ul>${t.pass.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>
+      <div class="acts">
+        <button data-set="pass" data-id="${t.id}" class="${st==="pass"?"on-pass":""}">✓ Pass</button>
+        <button data-set="fail" data-id="${t.id}" class="${st==="fail"?"on-fail":""}">✗ Fail</button>
+        <button data-set="skip" data-id="${t.id}" class="${st==="skip"?"on-skip":""}">— Skip</button>
+      </div>
+      <textarea class="note" data-note="${t.id}" placeholder="Notes / observed result / defect ref…">${esc(noteOf(t.id))}</textarea>
+    </div>
+  </div>`;
+}
+
+function wire(){
+  $$('[data-toggle]').forEach(h=>h.onclick=()=>{ const el=h.closest('.test'); el.classList.toggle('open');
+    const t=TESTS.find(x=>x.id===h.dataset.toggle); if(t) t._open=el.classList.contains('open'); });
+  $$('[data-set]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); const t=TESTS.find(x=>x.id===b.dataset.id); if(t)t._open=true; setStatus(b.dataset.id,b.dataset.set); });
+  $$('[data-note]').forEach(n=>n.oninput=()=>setNote(n.dataset.note,n.value));
+}
+
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* filters + toolbar */
+(function(){
+  const sel=$("#f-ch"); sel.innerHTML=`<option value="">All chapters</option>`+Object.keys(CHAPTERS).map(c=>`<option value="${c}">Ch ${c} — ${esc(CHAPTERS[c].t)}</option>`).join("");
+  sel.onchange=()=>{ filt.ch=sel.value; render(); };
+  $("#f-st").onchange=e=>{ filt.st=e.target.value; render(); };
+  $("#expand").onclick=()=>{ TESTS.forEach(t=>t._open=true); render(); };
+  $("#collapse").onclick=()=>{ TESTS.forEach(t=>t._open=false); render(); };
+  $("#reset").onclick=()=>{ if(confirm("Clear all pass/fail/skip results and notes in this browser?")){ state={}; save(); render(); } };
+})();
+
+render();
+</script>
+</body></html>

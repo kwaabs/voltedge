@@ -636,6 +636,21 @@ var manifest = []Doc{
 		Filename:     "kubernetes-and-coolify-guide.md",
 		RequiredPerm: auth.PermUsersManage,
 	},
+	{
+		ID:          "book-of-tests",
+		Title:       "Book of Tests — Validation Manual",
+		Description: "The end-to-end acceptance manual: ~75 tests across building the reference network, every load-flow/trace/fault/DER study, production-readiness, the operational subsystems (safety, FLISR, device-ops, land & spatial), asset management & data quality, composite units, and the platform/governance layer. Each test gives a purpose, the permission it needs, the steps to run it and the exact pass criteria.",
+		Category:    "Manuals",
+		Filename:    "book-of-tests.md",
+	},
+	{
+		ID:          "book-of-tests-interactive",
+		Title:       "Book of Tests — interactive runner",
+		Description: "The whole validation manual as a test-runner you work through: every test as a card you mark pass / fail / skip, with per-chapter and overall progress bars, status and chapter filters, free-text notes, and localStorage persistence — the self-contained companion to the Book of Tests manual.",
+		Category:    "Interactive guides",
+		Filename:    "book-of-tests-interactive.html",
+		Format:      "html",
+	},
 }
 
 // docsDir is the directory the manual files are read from. DOCS_DIR overrides

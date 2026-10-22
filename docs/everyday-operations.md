@@ -1647,7 +1647,42 @@ A few things worth understanding:
   done *for* you and always follows the model's rules. When you're laying down anything
   standard, reach for **Assemblies** before wiring by hand.
 
-### 8.9 One-card recap
+### 8.9 Attach a street light to a pole 💡
+
+Some street lights aren't traditional lamp columns — they're just a **luminaire bracketed
+onto an existing distribution pole**. VoltEdge models that as a one-step action *on the
+pole*: it creates the lamp, links it to the pole, and (where it can) wires it to the pole's
+LV — all at once. The lamp has **no map geometry of its own**; it rides the pole, so if the
+pole moves the lamp goes with it.
+
+**▶ Quick steps**
+
+1. Place the pole first if it isn't there yet — an ordinary point create (**§3.1**).
+2. With **editing on**, open the pole's panel (click it on the map).
+3. Open the **⋯ More** menu in the panel header → **Attach street light**.
+4. Pick the lamp's **phase**, **luminaire type** (LED / SON / SOX / metal-halide) and
+   **condition**, then **Attach**.
+5. Read the toast: it tells you whether the lamp was also **wired to the pole's LV**, or
+   attached and left for you to wire.
+
+**Worked example.** Priya is adding a side-street lamp to an existing pole on Feeder 7. She
+turns editing on, clicks the pole, opens **⋯ More → Attach street light**, picks *LED*,
+*L1N*, *Good*, and hits **Attach**. There's one LV conductor running along that pole, so
+VoltEdge connects the lamp to it automatically and the toast says *"attached and wired."* On
+the next pole there are two LV runs, so it can't tell which to use — the lamp is attached and
+the toast says *"two LV conductors in range — wire it manually,"* which she then does from the
+lamp's **Terminals** tab (§8.2).
+
+**How it works.** Like a guided assembly, this runs a small server composite: it creates a
+geometry-less pole-mounted `STREET_LIGHT`, records a **POLE supports STREET_LIGHT** link, and
+then **auto-wires** — but only when it's unambiguous. It looks for an `LV_CONDUCTOR` passing
+within about **10 m** of the pole: **exactly one, phase-compatible → it wires it**; zero,
+several, or a phase mismatch → it attaches the lamp and tells you to wire it yourself (it
+never guesses the wrong line). The auto-wire step needs the connection permission; without it
+the lamp is simply attached unwired. The lamp then behaves like any other LV leaf — it shows
+in the pole's **Relationships**, carries a load, and appears in traces.
+
+### 8.10 One-card recap
 
 | I want to… | Do this |
 | --- | --- |
@@ -1659,6 +1694,7 @@ A few things worth understanding:
 | Fix a relationship flagged "worth a second look" | **Undo** (back it out) or **Keep** on the amber note |
 | Remove a relationship | **Relationships** tab → **unlink** icon → confirm |
 | Build a standard arrangement pre-wired | **Assemblies** menu → pick kit → place → **Save** |
+| Attach a lamp to a pole | Open the pole (editing on) → **⋯ More → Attach street light** → pick phase/type/condition → **Attach** (auto-wires if one LV is in range) |
 | Decide connection vs. relationship | Would current flow? → **connection**. Physical/organisational? → **relationship** |
 
 Next: **Chapter 9 — Annotating the map**, where we add the non-network layer — text

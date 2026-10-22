@@ -739,6 +739,14 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/packed_station_assembly.sql
 
+  seed-street-light-pole:
+    desc: Add the data-model foundation for attaching a lamp to a POLE -- STREET_LIGHT subtype 3 pole_mounted + geometry_optional (a pole lamp rides its pole, no own geometry) + a POLE supports STREET_LIGHT relationship class. Then RECOMPILE STREET_LIGHT (task compile CODE=STREET_LIGHT) -- geometry_optional drops NOT NULL on geom. Idempotent.
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/street_light_pole_mounted.sql
+
   seed-packed-station-diagrams:
     desc: Add the two packed-station single-line templates (runtime.diagram_templates) the nested packed station auto-builds its one-line from -- RMU+transformer+pillar and transformer+pillar. Typed slots (MV_BUSBAR/MV_SWITCH/DIST_XFMR/LV_BUSBAR/LV_FUSE) bound FIFO per class by api/internal/diagram/autobuild.go. Requires seed/packed_station_assembly.sql + the component class seeds. NO recompile -- pure runtime template data, idempotent (guarded on name).
     cmds:

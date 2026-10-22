@@ -368,6 +368,41 @@ export function faultStyleForFeature(feature: FeatureLike): Style | Style[] {
   })
 }
 
+/** Work-order marker colors, keyed by priority -- the work-order map overlay. A
+ * work order is drawn as a CIRCLE (see workOrderStyleForFeature), distinct from
+ * the fault triangle and the OMS/incident diamond, so the three overlays never
+ * read as each other. Color carries the priority at a glance (grey→blue→orange→red
+ * as it climbs), leaving work type and assignee for the click-through. */
+export const WORK_ORDER_PRIORITY_COLORS: Record<string, string> = {
+  low: "#6b7280", // gray-500
+  medium: "#2563eb", // blue-600
+  high: "#ea580c", // orange-600
+  urgent: "#dc2626", // red-600
+}
+const WORK_ORDER_FALLBACK_COLOR = "#2563eb"
+
+/** Up-and-RIGHT a touch less than the fault marker, so a work order and a fault on
+ * the SAME asset sit side by side instead of on top of each other. */
+export const WORK_ORDER_MARKER_DISPLACEMENT: [number, number] = [12, -12]
+
+/** The work-order overlay's style: a priority-colored filled circle with a white
+ * casing. voltedge-map.tsx tags each marker with `workOrderPriority` when it builds
+ * the overlay from the open work orders; OL calls the style with the feature alone,
+ * so the priority is read off the feature. Every marker is a point (a work order's
+ * inherited location), so there's no line/area branch like the fault style. */
+export function workOrderStyleForFeature(feature: FeatureLike): Style {
+  const priority = (feature.get("workOrderPriority") as string | undefined) ?? "medium"
+  const color = WORK_ORDER_PRIORITY_COLORS[priority] ?? WORK_ORDER_FALLBACK_COLOR
+  return new Style({
+    image: new Circle({
+      radius: 7,
+      displacement: WORK_ORDER_MARKER_DISPLACEMENT,
+      fill: new Fill({ color }),
+      stroke: new Stroke({ color: "#ffffff", width: 1.5 }),
+    }),
+  })
+}
+
 /** Incident-marker colors, keyed by OMS incident status (outage map overlay --
  * the twin of FAULT_STATUS_COLORS). Color is the ONE visual variable the marker
  * carries: it reads the incident's lifecycle at a glance (amber = inferred,

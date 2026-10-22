@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Calculator, ChevronRight, Download, LandPlot, ListChecks, Pencil, Search, ShieldCheck, SlidersHorizontal, Sparkles, Upload, Workflow, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Calculator, ChevronRight, Download, History, LandPlot, ListChecks, Pencil, Search, ShieldCheck, SlidersHorizontal, Sparkles, Upload, Workflow, X } from "lucide-react"
 import { useState } from "react"
 
 import { AmpacityPanel } from "@/components/map/ampacity-panel"
@@ -26,6 +26,7 @@ import { GeometryEditToolbar } from "@/components/map/geometry-edit-toolbar"
 import { IsolationResultTable } from "@/components/map/isolation-result-table"
 import { OutageHighlightBanner } from "@/components/map/outage-highlight-banner"
 import { LayersPanel } from "@/components/map/layers-panel"
+import { MyEditsPanel } from "@/components/map/my-edits-panel"
 import { LoadFlowPanel } from "@/components/map/load-flow-panel"
 import { VoltageProfilePanel } from "@/components/map/voltage-profile-panel"
 import { ContingencyPanel } from "@/components/map/contingency-panel"
@@ -62,6 +63,7 @@ import { cn } from "@/lib/utils"
 import { useAssistantChatStore } from "@/stores/assistant-chat-store"
 import { useBoqStore } from "@/stores/boq-store"
 import { useConnectivityAuditStore } from "@/stores/connectivity-audit-store"
+import { useMyEditsStore } from "@/stores/my-edits-store"
 import { type DiagramPane, useDiagramStore } from "@/stores/diagram-store"
 import { useEditModeStore } from "@/stores/edit-mode-store"
 import { useExportStore } from "@/stores/export-store"
@@ -89,6 +91,7 @@ export function MapPage() {
   const activeExports = useActiveExportCount()
   const boqOpen = useBoqStore((s) => s.open)
   const auditOpen = useConnectivityAuditStore((s) => s.open)
+  const myEditsOpen = useMyEditsStore((s) => s.open)
   const mapBbox = useMapViewStore((s) => s.bbox)
   const selectedRefs = useMapSelectStore((s) => s.selected)
   const chatOpen = useAssistantChatStore((s) => s.open)
@@ -239,6 +242,20 @@ export function MapPage() {
                 >
                   <ShieldCheck className={cn("size-3.5", !auditOpen && "text-rose-600")} /> Audit
                 </Button>
+                {/* "My edits": the signed-in user's own recent changes, self-
+                    service (no admin permission). Offered only to users who can
+                    edit -- a pure viewer makes no changes to review. */}
+                {canEnterEdit && (
+                  <Button
+                    variant={myEditsOpen ? "default" : "secondary"}
+                    size="sm"
+                    className="shadow-sm"
+                    onClick={() => useMyEditsStore.getState().toggle()}
+                    title="My edits — your own recent changes, click one to open it on the map"
+                  >
+                    <History className={cn("size-3.5", !myEditsOpen && "text-cyan-600")} /> My edits
+                  </Button>
+                )}
                 <Button
                   variant={selectedRefs.length > 0 ? "default" : "secondary"}
                   size="sm"
@@ -353,6 +370,7 @@ export function MapPage() {
       <ExportJobsPanel />
       <BoqPanel />
       <ConnectivityAuditPanel />
+      <MyEditsPanel />
       <ImportDialog />
       <ImportedFeaturePopup />
       <ServiceIdentifyPanel />

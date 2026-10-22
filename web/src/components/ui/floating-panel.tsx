@@ -23,6 +23,12 @@ interface FloatingPanelProps {
   minHeight?: number
   /** Extra classes for the outer window (e.g. a z-index override). */
   className?: string
+  /** When set, the panel's position and size are remembered under this key in
+   * localStorage, so it reopens where it was last left (and survives a reload).
+   * Absent = the default behaviour: geometry is ephemeral, seeded from
+   * initialRect on every mount. The stored rect is re-clamped to the viewport on
+   * load, so a window saved on a larger screen can't open off a smaller one. */
+  persistKey?: string
 }
 
 const DEFAULT_RECT: PanelRect = { x: 120, y: 96, width: 480, height: 420 }
@@ -63,10 +69,39 @@ export function FloatingPanel({
   minWidth = 320,
   minHeight = 200,
   className,
+  persistKey,
 }: FloatingPanelProps) {
-  const [rect, setRect] = useState<PanelRect>(() =>
-    clampRect({ ...DEFAULT_RECT, ...initialRect }, minWidth, minHeight),
-  )
+  const storageKey = persistKey ? `voltedge-panel-rect:${persistKey}` : null
+  const [rect, setRect] = useState<PanelRect>(() => {
+    if (storageKey) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null")
+        if (
+          saved &&
+          typeof saved.x === "number" &&
+          typeof saved.y === "number" &&
+          typeof saved.width === "number" &&
+          typeof saved.height === "number"
+        ) {
+          return clampRect(saved, minWidth, minHeight)
+        }
+      } catch {
+        // Corrupt/blocked storage: fall through to the seeded default.
+      }
+    }
+    return clampRect({ ...DEFAULT_RECT, ...initialRect }, minWidth, minHeight)
+  })
+
+  // Remember the rect under persistKey, so a reopen (or reload) restores it. Writes
+  // on every drag frame are cheap (a tiny JSON) and always reflect the latest shape.
+  useEffect(() => {
+    if (!storageKey) return
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(rect))
+    } catch {
+      // Storage full/blocked -- persistence is best-effort, never fatal.
+    }
+  }, [storageKey, rect])
 
   // Active drag/resize gesture. Null when idle. Held in a ref so the pointer
   // handlers don't need to be re-bound as the pointer moves.

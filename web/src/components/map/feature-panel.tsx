@@ -19,6 +19,7 @@ import {
   History,
   Info,
   LandPlot,
+  Lightbulb,
   Link2,
   Loader2,
   Lock,
@@ -64,6 +65,7 @@ import { FaultsTab } from "@/components/map/feature-faults-tab"
 import { OperationsTab } from "@/components/map/feature-operations-tab"
 import { SafetyTab } from "@/components/map/feature-safety-tab"
 import { SpatialTab } from "@/components/map/feature-spatial-tab"
+import { StreetLightsTab } from "@/components/map/feature-street-lights-tab"
 import { TagsTab } from "@/components/map/feature-tags-tab"
 import { WorksTab } from "@/components/map/feature-works-tab"
 import { formatFieldLabel, formatValue, inputClass } from "@/components/map/field-utils"
@@ -167,6 +169,7 @@ type TabId =
   | "operations"
   | "safety"
   | "spatial"
+  | "streetlights"
   | "tags"
   | "files"
   | "links"
@@ -183,6 +186,7 @@ const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
   { id: "operations", label: "Operations", icon: Activity },
   { id: "safety", label: "Safety", icon: ShieldAlert },
   { id: "spatial", label: "Land use", icon: LandPlot },
+  { id: "streetlights", label: "Street lights", icon: Lightbulb },
   { id: "tags", label: "Tags", icon: QrCode },
   { id: "files", label: "Files", icon: Paperclip },
   { id: "links", label: "Links", icon: ExternalLinkIcon },
@@ -1622,6 +1626,13 @@ function historyActionLabel(action: string): { label: string; className: string 
       return { label: "Private delete", className: "bg-amber-500/15 text-amber-600 dark:text-amber-400" }
     case "discard":
       return { label: "Discarded", className: "bg-muted text-muted-foreground" }
+    // Relationship changes (Slice A): a relate/unrelate touches no attribute, but
+    // it's recorded on both features' timelines so an attach/detach is auditable
+    // from the feature it hangs off (e.g. the pole a street light rides).
+    case "relate":
+      return { label: "Linked", className: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400" }
+    case "unrelate":
+      return { label: "Unlinked", className: "bg-amber-500/15 text-amber-600 dark:text-amber-400" }
     default:
       // An unrecognized verb (a newer backend action this build doesn't know)
       // still renders -- shown verbatim rather than dropped.
@@ -3321,6 +3332,8 @@ export function FeaturePanel() {
   // The header's mutating actions (Edit / Duplicate / Delete) show only in edit
   // mode; the view actions beside them (trace/analysis, view diagram) stay.
   const canEditFeatures = useEditing()
+  // A pole can carry lamps: it gets a "Street lights" tab (list + attach).
+  const isPole = selected?.featureClassCode === "POLE"
   const [circuitSourceOpen, setCircuitSourceOpen] = useState(false)
   // Circuit catalog (small, cached) — used below to badge the feature when it's a
   // circuit's designated source. A separate useCircuits() lives in the attribute
@@ -3345,6 +3358,8 @@ export function FeaturePanel() {
       // shape -- including the land polygons (easement/parcel/corridor/vegetation),
       // which are network_role 'none', so it is NOT gated on a network role.
       (tab.id !== "spatial" || canReadFeatures) &&
+      // Street lights (pole-mounted lamps) only exist on a POLE -- list + attach.
+      (tab.id !== "streetlights" || (isPole && canReadFeatures)) &&
       (tab.id !== "tags" || canReadTags),
   )
 
@@ -3989,7 +4004,6 @@ export function FeaturePanel() {
         onOpenChange={setDeleteDialogOpen}
       />
 
-
       {circuitSourceOpen && (
         <SetCircuitSourceDialog
           feature={{ featureClassCode: selected.featureClassCode, featureId: selected.featureId }}
@@ -4052,6 +4066,7 @@ export function FeaturePanel() {
               {activeTab === "operations" && <OperationsTab />}
               {activeTab === "safety" && <SafetyTab />}
               {activeTab === "spatial" && <SpatialTab />}
+              {activeTab === "streetlights" && <StreetLightsTab />}
               {activeTab === "tags" && <TagsTab />}
               {activeTab === "files" && (
                 <FeatureAttachments

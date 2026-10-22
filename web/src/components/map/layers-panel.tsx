@@ -1,4 +1,4 @@
-import { Globe, Info, LandPlot, Layers, PencilLine, Shapes, Siren, Tag, Trash2, ZapOff } from "lucide-react"
+import { ClipboardList, Globe, Info, LandPlot, Layers, PencilLine, Shapes, Siren, Tag, Trash2, ZapOff } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -16,7 +16,7 @@ import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { useSymbologyIcons } from "@/hooks/use-symbology-icons"
 import { useServiceLayers } from "@/hooks/use-service-layers"
 import { useTerritoryLevels } from "@/hooks/use-territories"
-import { FAULT_STATUS_COLORS, INCIDENT_STATUS_COLORS, territoryColorForRank } from "@/lib/map-layers"
+import { FAULT_STATUS_COLORS, INCIDENT_STATUS_COLORS, territoryColorForRank, WORK_ORDER_PRIORITY_COLORS } from "@/lib/map-layers"
 import { featureClassSourceIds } from "@/lib/martin"
 import { isRenderableServiceType } from "@/lib/service-layers-source"
 import { iconDataUri } from "@/lib/symbology-icons"
@@ -24,6 +24,7 @@ import { resolveSymbology } from "@/lib/symbology"
 import { cn } from "@/lib/utils"
 import { FAULT_STATUS_ORDER, useFaultOverlayStore } from "@/stores/fault-overlay-store"
 import { INCIDENT_STATUS_ORDER, useOmsOverlayStore } from "@/stores/oms-overlay-store"
+import { useWorkOrderOverlayStore } from "@/stores/work-order-overlay-store"
 import { useImportedOverlaysStore } from "@/stores/imported-overlays-store"
 import { useLayersStore } from "@/stores/layers-store"
 import { useMapAnnotationsStore } from "@/stores/map-annotations-store"
@@ -108,9 +109,12 @@ export function LayersPanel() {
   const toggleServiceLayer = useServiceLayersStore((s) => s.toggle)
   const serviceLayerOpacity = useServiceLayersStore((s) => s.opacity)
   const setServiceLayerOpacity = useServiceLayersStore((s) => s.setOpacity)
+  const workOrderOverlayVisible = useWorkOrderOverlayStore((s) => s.visible)
+  const toggleWorkOrderOverlay = useWorkOrderOverlayStore((s) => s.toggleVisible)
   const can = usePermission()
   const canReadFaults = can("faults:read")
   const canReadOms = can("oms:read")
+  const canReadWam = can("wam:read")
   const { data: territoryLevels } = useTerritoryLevels()
   // Territories are auto-published by Martin but aren't a feature class --
   // they live in the Overlays section below, not this list (see
@@ -386,6 +390,22 @@ export function LayersPanel() {
             onCheckedChange={(checked) => setOmsPulse(checked === true)}
           >
             <span className="truncate">Pulse live outages</span>
+          </DropdownMenuCheckboxItem>
+        )}
+
+        {/* Work orders -- a priority-colored circle marker per OPEN work order at
+            its asset's location; clicking one opens that asset's panel (its Works
+            tab lists the order). Gated on wam:read (the data endpoint is too). */}
+        {canReadWam && (
+          <DropdownMenuCheckboxItem
+            checked={workOrderOverlayVisible}
+            onSelect={(e) => e.preventDefault()}
+            onCheckedChange={() => toggleWorkOrderOverlay()}
+          >
+            <span className="flex min-w-0 items-center gap-1.5">
+              <ClipboardList className="size-4 shrink-0" style={{ color: WORK_ORDER_PRIORITY_COLORS.high }} />
+              <span className="truncate">Work orders</span>
+            </span>
           </DropdownMenuCheckboxItem>
         )}
 

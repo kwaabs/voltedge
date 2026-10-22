@@ -64,6 +64,7 @@ Find your task on the left; open the document on the right.
 | Overlay a third-party map service — ArcGIS FeatureServer/MapServer, WMS, WMTS, WFS, XYZ or vector tiles | **[External Service Layers](external-service-layers-guide.md)** |
 | Connect VoltEdge to SCADA/AMI/CIS — register systems, link and tag features, pull live data, receive webhook pushes | **[Integrations & External Systems](integrations-guide.md)** |
 | Keep a high-change network trustworthy — continuous validation, the self-pruning issue queue, and the who-changed-what activity audit | **[Data Validation & Audit](validation-and-audit-guide.md)** |
+| Run a full acceptance pass — build the reference network and exercise every study, trace, subsystem and governance feature, with pass criteria (and a tick-as-you-go interactive runner) | **[Book of Tests](book-of-tests.md)** |
 | Configure logging, correlate a request by its id, or ship logs off the box | **[Logging & Observability Guide](logging-and-observability-guide.md)** |
 | Deploy to production at scale — replicas, load balancers, DB replicas, Kubernetes | **[Production Deployment & Scaling](deployment-and-scaling-guide.md)** |
 | Actually stand up the production stack step by step — env, images, migrate, TLS | **[Production Setup Runbook](production-setup-runbook.md)** |

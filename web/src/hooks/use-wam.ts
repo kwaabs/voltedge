@@ -51,6 +51,9 @@ export interface WorkOrder {
   asset_id: string | null
   longitude: number | null
   latitude: number | null
+  /** Where the order was raised from: "validation" (a data-quality fix),
+   * "vegetation" (a clearance trim), etc., or null for a plain manual order. */
+  source: string | null
   defect_id: string | null
   assigned_to: string | null
   assigned_to_user_id: string | null
@@ -115,6 +118,7 @@ export function useWorkOrders(
     assetId?: string
     openOnly?: boolean
   } = {},
+  enabled = true,
 ) {
   const params = new URLSearchParams()
   if (opts.openOnly) params.set("open", "true")
@@ -140,6 +144,7 @@ export function useWorkOrders(
     ],
     queryFn: () => apiFetch<WorkOrdersResponse>(`/wam/work-orders${query}`),
     staleTime: 15_000,
+    enabled,
   })
 }
 
