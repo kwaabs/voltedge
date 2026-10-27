@@ -70,8 +70,10 @@ func Routes(db *bun.DB) chi.Router {
 	r.Get("/crews/{id}/members", listCrewMembersHandler(db))
 	r.Post("/crews/{id}/members", addCrewMemberHandler(db))
 	r.Delete("/crews/{id}/members/{userId}", removeCrewMemberHandler(db))
+	r.Get("/crews/{id}/assignments", listCrewAssignmentsHandler(db))
 	r.Get("/incidents/{id}/crews", listIncidentCrewsHandler(db))
 	r.Post("/incidents/{id}/crews", dispatchCrewHandler(db))
+	r.Post("/incidents/{id}/subcontractor", taskSubcontractorHandler(db))
 	r.Patch("/crew-assignments/{id}", advanceAssignmentHandler(db))
 	r.Patch("/incidents/{id}/etr", setIncidentETRHandler(db))
 
@@ -475,6 +477,17 @@ func removeCrewMemberHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
+func listCrewAssignmentsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		assignments, err := ListCrewAssignments(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"assignments": assignments})
+	}
+}
+
 func listIncidentCrewsHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		crews, err := ListIncidentCrews(r.Context(), db, chi.URLParam(r, "id"))
@@ -509,6 +522,29 @@ func dispatchCrewHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusCreated, ca)
+	}
+}
+
+func taskSubcontractorHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			SubcontractorID string  `json:"subcontractor_id"`
+			Title           *string `json:"title"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		if strings.TrimSpace(req.SubcontractorID) == "" {
+			writeError(w, invalidf("subcontractor_id is required"))
+			return
+		}
+		wo, err := TaskSubcontractorToIncident(r.Context(), db, chi.URLParam(r, "id"), req.SubcontractorID, req.Title)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, wo)
 	}
 }
 

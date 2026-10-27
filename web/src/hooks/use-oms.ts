@@ -678,6 +678,16 @@ export function useCrews(opts: { includeInactive?: boolean } = {}) {
   })
 }
 
+/** A crew's assignments across all incidents (its job history), newest first. */
+export function useCrewAssignments(crewId: string | null) {
+  return useQuery({
+    queryKey: [...OMS_KEY, "crew-assignments", crewId ?? ""],
+    queryFn: () => apiFetch<{ assignments: CrewAssignment[] }>(`/oms/crews/${crewId}/assignments`),
+    enabled: crewId != null,
+    staleTime: 15_000,
+  })
+}
+
 /** The crew assignments on one incident. */
 export function useIncidentCrews(incidentId: string | null) {
   return useQuery({
@@ -760,6 +770,18 @@ export function useDispatchCrew() {
       method: "POST",
       body: JSON.stringify({ crew_id, note, raise_work_order, work_order_title }),
     }),
+  )
+}
+
+/** Task an external subcontractor to an incident: raises a subcontractor-tasked
+ * restoration work order linked to the incident (no crew, no fan-out). */
+export function useTaskSubcontractor() {
+  return useOmsMutation<{ incidentId: string; subcontractor_id: string; title?: string }>(
+    ({ incidentId, subcontractor_id, title }) =>
+      apiFetch(`/oms/incidents/${incidentId}/subcontractor`, {
+        method: "POST",
+        body: JSON.stringify({ subcontractor_id, title }),
+      }),
   )
 }
 

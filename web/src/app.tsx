@@ -23,6 +23,7 @@ import { AdminWebhooksPage } from "@/routes/admin-webhooks"
 import { AdminFieldPacksPage } from "@/routes/admin-field-packs"
 import { AdminCostCatalogPage } from "@/routes/admin-cost-catalog"
 import { AdminCrewsPage } from "@/routes/admin-crews"
+import { AdminSubcontractorsPage } from "@/routes/admin-subcontractors"
 import { LiveStatePage } from "@/routes/live-state"
 import { AdminFaultModesPage } from "@/routes/admin-fault-modes"
 import { AdminAssetLifePage } from "@/routes/admin-asset-life"
@@ -306,6 +307,14 @@ export function App() {
               element={
                 <RequirePermission perm="oms:write">
                   <AdminCrewsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/subcontractors"
+              element={
+                <RequirePermission perm="wam:write">
+                  <AdminSubcontractorsPage />
                 </RequirePermission>
               }
             />

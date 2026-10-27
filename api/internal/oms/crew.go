@@ -243,6 +243,23 @@ func DeactivateCrew(ctx context.Context, db bun.IDB, id string) error {
 	return nil
 }
 
+// ListCrewAssignments returns a crew's assignments across all incidents,
+// newest-first -- the crew's job history (active and cleared). Each row carries
+// the incident id so the UI can link to it.
+func ListCrewAssignments(ctx context.Context, db bun.IDB, crewID string) ([]CrewAssignment, error) {
+	var out []CrewAssignment
+	if err := db.NewSelect().Model(&out).
+		ColumnExpr("ca.*").
+		ColumnExpr("crew.name AS crew_name").
+		Join("LEFT JOIN oms.crews AS crew ON crew.id = ca.crew_id").
+		Where("ca.crew_id = ?", crewID).
+		Order("ca.dispatched_at DESC").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("oms: listing crew %s assignments: %w", crewID, err)
+	}
+	return out, nil
+}
+
 // ListIncidentCrews returns the crew assignments on an incident, newest-first,
 // each with its crew name.
 func ListIncidentCrews(ctx context.Context, db bun.IDB, incidentID string) ([]CrewAssignment, error) {
@@ -349,7 +366,8 @@ func DispatchCrewToIncident(ctx context.Context, db *bun.DB, crewID, incidentID 
 		// incident, pinned to the blamed device so the crew navigates to it in the
 		// field pack. Same transaction -- a failed work order rolls back the dispatch.
 		if opts.RaiseWorkOrder {
-			wo, err := raiseRestorationWorkOrder(ctx, tx, inc, crewID, opts.WorkOrderTitle)
+			cid := crewID
+			wo, err := raiseRestorationWorkOrder(ctx, tx, inc, &cid, nil, opts.WorkOrderTitle)
 			if err != nil {
 				return err
 			}
@@ -480,12 +498,13 @@ func SetIncidentETR(ctx context.Context, db *bun.DB, incidentID string, etr *tim
 
 // --- helpers ---------------------------------------------------------------
 
-// raiseRestorationWorkOrder creates the crew-assigned corrective work order a
-// crew dispatch optionally raises. It pins to the incident's blamed device (so
-// CreateWorkOrder inherits that asset's location and the crew can navigate to it),
-// tags source 'outage', and links back to the incident. High priority -- an
-// outage restoration is urgent field work.
-func raiseRestorationWorkOrder(ctx context.Context, tx bun.Tx, inc *Incident, crewID string, titleOverride *string) (*wam.WorkOrder, error) {
+// raiseRestorationWorkOrder creates the corrective work order an outage response
+// raises -- tasked to a crew (crew dispatch) or a subcontractor (external
+// tasking), exactly one of which is set. It pins to the incident's blamed device
+// (so CreateWorkOrder inherits that asset's location), tags source 'outage', and
+// links back to the incident. High priority -- an outage restoration is urgent
+// field work.
+func raiseRestorationWorkOrder(ctx context.Context, db bun.IDB, inc *Incident, crewID, subcontractorID, titleOverride *string) (*wam.WorkOrder, error) {
 	title := "Restore outage"
 	if inc.PredictedDeviceClass != nil && *inc.PredictedDeviceClass != "" {
 		title = "Restore outage at " + *inc.PredictedDeviceClass
@@ -494,18 +513,50 @@ func raiseRestorationWorkOrder(ctx context.Context, tx bun.Tx, inc *Incident, cr
 		title = strings.TrimSpace(*titleOverride)
 	}
 	source := wam.SourceOutage
-	cid := crewID
 	iid := inc.ID
-	return wam.CreateWorkOrder(ctx, tx, wam.CreateWorkOrderParams{
-		WorkType:   wam.WorkTypeCorrective,
-		Priority:   wam.PriorityHigh,
-		Title:      title,
-		AssetClass: inc.PredictedDeviceClass,
-		AssetID:    inc.PredictedDeviceID,
-		Source:     &source,
-		CrewID:     &cid,
-		IncidentID: &iid,
+	return wam.CreateWorkOrder(ctx, db, wam.CreateWorkOrderParams{
+		WorkType:        wam.WorkTypeCorrective,
+		Priority:        wam.PriorityHigh,
+		Title:           title,
+		AssetClass:      inc.PredictedDeviceClass,
+		AssetID:         inc.PredictedDeviceID,
+		Source:          &source,
+		CrewID:          crewID,
+		SubcontractorID: subcontractorID,
+		IncidentID:      &iid,
 	})
+}
+
+// TaskSubcontractorToIncident records that an EXTERNAL subcontractor has been
+// tasked with an outage: it raises a subcontractor-tasked restoration work order
+// linked to the incident (no crew, no field-pack fan-out -- the firm works off
+// this system; the utility's coordinator tracks the order's status). A closed
+// incident is refused. Returns the work order.
+func TaskSubcontractorToIncident(ctx context.Context, db *bun.DB, incidentID, subcontractorID string, title *string) (*wam.WorkOrder, error) {
+	if strings.TrimSpace(subcontractorID) == "" {
+		return nil, invalidf("subcontractor_id is required")
+	}
+	var out *wam.WorkOrder
+	err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		inc, err := GetIncident(ctx, tx, incidentID)
+		if err != nil {
+			return err
+		}
+		if inc.Status == StatusRestored || inc.Status == StatusCancelled {
+			return invalidf("incident %q is %s; cannot task work to a closed incident", incidentID, inc.Status)
+		}
+		sid := strings.TrimSpace(subcontractorID)
+		wo, err := raiseRestorationWorkOrder(ctx, tx, inc, nil, &sid, title)
+		if err != nil {
+			return err
+		}
+		out = wo
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func getCrew(ctx context.Context, db bun.IDB, id string) (*Crew, error) {

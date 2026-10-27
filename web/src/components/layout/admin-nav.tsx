@@ -1,5 +1,6 @@
 import {
   Activity,
+  Building2,
   CalendarClock,
   Clock,
   Cloud,
@@ -116,6 +117,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         description: "Field crews the Outage Management board dispatches — name, kind, availability and status.",
         icon: Truck,
         perm: "oms:write",
+      },
+      {
+        to: "/admin/subcontractors",
+        label: "Subcontractors",
+        description: "External firms the utility tasks field work to — they don't operate in this system; tasking records who is responsible.",
+        icon: Building2,
+        perm: "wam:write",
       },
       {
         to: "/admin/fault-modes",

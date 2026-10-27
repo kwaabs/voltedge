@@ -61,6 +61,10 @@ export interface WorkOrder {
    * A crew-assigned order reaches every member's field pack. */
   crew_id: string | null
   crew_name: string | null
+  /** Tasked external subcontractor (bare ref → wam.subcontractors); `subcontractor_name`
+   * joined for display. Recorded responsibility only — no field-pack fan-out. */
+  subcontractor_id: string | null
+  subcontractor_name: string | null
   scheduled_for: string | null
   due_by: string | null
   started_at: string | null
@@ -122,6 +126,10 @@ export function useWorkOrders(
     assetId?: string
     /** Scope to the restoration work raised for one OMS incident. */
     incidentId?: string
+    /** Scope to the work assigned to one crew. */
+    crewId?: string
+    /** Scope to the work tasked to one subcontractor. */
+    subcontractorId?: string
     openOnly?: boolean
   } = {},
   enabled = true,
@@ -136,6 +144,8 @@ export function useWorkOrders(
   if (opts.assetClass) params.set("asset_class", opts.assetClass)
   if (opts.assetId) params.set("asset_id", opts.assetId)
   if (opts.incidentId) params.set("incident_id", opts.incidentId)
+  if (opts.crewId) params.set("crew_id", opts.crewId)
+  if (opts.subcontractorId) params.set("subcontractor_id", opts.subcontractorId)
   const query = params.toString() ? `?${params.toString()}` : ""
   return useQuery({
     queryKey: [
@@ -148,6 +158,8 @@ export function useWorkOrders(
       opts.assetClass ?? "",
       opts.assetId ?? "",
       opts.incidentId ?? "",
+      opts.crewId ?? "",
+      opts.subcontractorId ?? "",
       opts.openOnly ?? false,
     ],
     queryFn: () => apiFetch<WorkOrdersResponse>(`/wam/work-orders${query}`),
@@ -173,6 +185,58 @@ export function useAssignableUsers() {
     queryFn: () => apiFetch<AssignableUsersResponse>("/wam/assignable-users"),
     staleTime: 60_000,
   })
+}
+
+/** An external firm the utility tasks field work to (GET /wam/subcontractors).
+ * NOT a crew — it has no members/status/packs; `open_work_order_count` is its
+ * current tasked load. */
+export interface Subcontractor {
+  id: string
+  name: string
+  contact_name: string | null
+  phone: string | null
+  email: string | null
+  notes: string | null
+  active: boolean
+  open_work_order_count: number
+  created_at: string
+  updated_at: string
+}
+
+/** The subcontractor registry. `includeInactive` also returns retired firms. */
+export function useSubcontractors(opts: { includeInactive?: boolean } = {}) {
+  const query = opts.includeInactive ? "?include_inactive=true" : ""
+  return useQuery({
+    queryKey: [...WAM_KEY, "subcontractors", opts.includeInactive ?? false],
+    queryFn: () => apiFetch<{ subcontractors: Subcontractor[] }>(`/wam/subcontractors${query}`),
+    staleTime: 30_000,
+  })
+}
+
+export interface SubcontractorBody {
+  name: string
+  contact_name?: string
+  phone?: string
+  email?: string
+  notes?: string
+}
+
+export function useCreateSubcontractor() {
+  return useWamMutation<SubcontractorBody>((body) =>
+    apiFetch("/wam/subcontractors", { method: "POST", body: JSON.stringify(body) }),
+  )
+}
+
+export function useUpdateSubcontractor() {
+  return useWamMutation<{ id: string; body: SubcontractorBody }>(({ id, body }) =>
+    apiFetch(`/wam/subcontractors/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  )
+}
+
+export function useSetSubcontractorActive() {
+  return useWamMutation<{ id: string; active: boolean }>(({ id, active }) =>
+    apiFetch(`/wam/subcontractors/${id}/active`, { method: "POST", body: JSON.stringify({ active }) }),
+  )
 }
 
 // --- Mutations -------------------------------------------------------------
@@ -230,6 +294,7 @@ export interface RaiseWorkOrderBody {
   assigned_to?: string
   assigned_to_user_id?: string
   crew_id?: string
+  subcontractor_id?: string
   scheduled_for?: string
   due_by?: string
 }
@@ -255,6 +320,7 @@ export interface CreateWorkOrderBody {
   assigned_to?: string
   assigned_to_user_id?: string
   crew_id?: string
+  subcontractor_id?: string
   scheduled_for?: string
   due_by?: string
 }
@@ -277,6 +343,8 @@ export interface UpdateWorkOrderBody {
   assigned_to_user_id?: string
   /** "" clears the crew; a uuid assigns it. */
   crew_id?: string
+  /** "" clears the subcontractor; a uuid tasks it. */
+  subcontractor_id?: string
   scheduled_for?: string
   due_by?: string
   completion_notes?: string

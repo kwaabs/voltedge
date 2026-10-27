@@ -142,6 +142,7 @@ type WorkOrder struct {
 	AssignedTo       *string    `bun:"assigned_to" json:"assigned_to"`
 	AssignedToUserID *string    `bun:"assigned_to_user_id" json:"assigned_to_user_id"`
 	CrewID           *string    `bun:"crew_id" json:"crew_id"`
+	SubcontractorID  *string    `bun:"subcontractor_id" json:"subcontractor_id"`
 	ScheduledFor     *time.Time `bun:"scheduled_for" json:"scheduled_for"`
 	DueBy            *time.Time `bun:"due_by" json:"due_by"`
 	StartedAt        *time.Time `bun:"started_at" json:"started_at"`
@@ -153,6 +154,8 @@ type WorkOrder struct {
 	// CrewName is the assigned crew's name, joined on read (scan-only) so the board
 	// can show "Team B" instead of a uuid. Never written back through bun.
 	CrewName *string `bun:"crew_name,scanonly" json:"crew_name"`
+	// SubcontractorName is the tasked external firm's name, joined on read.
+	SubcontractorName *string `bun:"subcontractor_name,scanonly" json:"subcontractor_name"`
 }
 
 // InspectionTemplate mirrors wam.inspection_templates -- a reusable checklist

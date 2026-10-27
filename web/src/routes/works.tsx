@@ -28,6 +28,7 @@ import {
   useDefects,
   useRaiseWorkOrder,
   useSetDefectStatus,
+  useSubcontractors,
   useUpdateWorkOrder,
   useWorkOrders,
 } from "@/hooks/use-wam"
@@ -74,6 +75,9 @@ function assigneeLabel(order: WorkOrder, users: AssignableUser[]): string | null
   if (order.crew_id) {
     return order.crew_name ? `Crew: ${order.crew_name}` : "Crew"
   }
+  if (order.subcontractor_id) {
+    return order.subcontractor_name ? `Subcontractor: ${order.subcontractor_name}` : "Subcontractor"
+  }
   return order.assigned_to || null
 }
 
@@ -86,6 +90,24 @@ function AssigneeSelect({ value, onChange }: { value: string; onChange: (v: stri
       {(users.data?.users ?? []).map((u) => (
         <option key={u.id} value={u.id}>
           {u.display_name}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+/** A subcontractor picker (subcontractor_id). "" = none. Lists active external
+ * firms with their open-work load. Tasking records responsibility only — the firm
+ * does not operate in this system, so there is no field-pack fan-out. */
+function SubcontractorSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const subs = useSubcontractors()
+  return (
+    <select className={inputClass} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">No subcontractor</option>
+      {(subs.data?.subcontractors ?? []).map((s) => (
+        <option key={s.id} value={s.id}>
+          {s.name}
+          {s.open_work_order_count ? ` — ${s.open_work_order_count} open` : ""}
         </option>
       ))}
     </select>
@@ -249,6 +271,7 @@ function NewWorkOrderDialog({ onClose }: { onClose: () => void }) {
   const [assetId, setAssetId] = useState("")
   const [assignedToUserId, setAssignedToUserId] = useState("")
   const [assignedCrewId, setAssignedCrewId] = useState("")
+  const [subcontractorId, setSubcontractorId] = useState("")
   const [assignedTo, setAssignedTo] = useState("")
   const [scheduledFor, setScheduledFor] = useState("")
   const [description, setDescription] = useState("")
@@ -272,6 +295,7 @@ function NewWorkOrderDialog({ onClose }: { onClose: () => void }) {
         asset_id: assetId.trim() || undefined,
         assigned_to_user_id: assignedToUserId || undefined,
         crew_id: assignedCrewId || undefined,
+        subcontractor_id: subcontractorId || undefined,
         assigned_to: assignedTo.trim() || undefined,
         scheduled_for: toIso(scheduledFor),
         description: description.trim() || undefined,
@@ -343,13 +367,18 @@ function NewWorkOrderDialog({ onClose }: { onClose: () => void }) {
 
       <div className="flex gap-2">
         <div className="flex flex-1 flex-col gap-1">
+          <label className={labelClass}>Task a subcontractor</label>
+          <SubcontractorSelect value={subcontractorId} onChange={setSubcontractorId} />
+        </div>
+        <div className="flex flex-1 flex-col gap-1">
           <label className={labelClass}>Scheduled for</label>
           <input className={inputClass} type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} />
         </div>
-        <div className="flex flex-1 flex-col gap-1">
-          <label className={labelClass}>External crew</label>
-          <input className={inputClass} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} placeholder="Free-text label (optional)" />
-        </div>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>External crew (free text)</label>
+        <input className={inputClass} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} placeholder="Ad-hoc label for an unregistered external party (optional)" />
       </div>
 
       <div className="flex flex-col gap-1">
@@ -368,6 +397,7 @@ function NewWorkOrderDialog({ onClose }: { onClose: () => void }) {
 function RaiseWorkOrderDialog({ defect, onClose }: { defect: Defect; onClose: () => void }) {
   const [assignedToUserId, setAssignedToUserId] = useState("")
   const [assignedCrewId, setAssignedCrewId] = useState("")
+  const [subcontractorId, setSubcontractorId] = useState("")
   const [scheduledFor, setScheduledFor] = useState("")
   const raise = useRaiseWorkOrder()
 
@@ -384,6 +414,7 @@ function RaiseWorkOrderDialog({ defect, onClose }: { defect: Defect; onClose: ()
         body: {
           assigned_to_user_id: assignedToUserId || undefined,
           crew_id: assignedCrewId || undefined,
+          subcontractor_id: subcontractorId || undefined,
           scheduled_for: toIso(scheduledFor),
         },
       },
@@ -412,9 +443,15 @@ function RaiseWorkOrderDialog({ defect, onClose }: { defect: Defect; onClose: ()
           <CrewSelect value={assignedCrewId} onChange={setAssignedCrewId} />
         </div>
       </div>
-      <div className="flex flex-col gap-1">
-        <label className={labelClass}>Scheduled for</label>
-        <input className={inputClass} type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} />
+      <div className="flex gap-2">
+        <div className="flex flex-1 flex-col gap-1">
+          <label className={labelClass}>Task a subcontractor</label>
+          <SubcontractorSelect value={subcontractorId} onChange={setSubcontractorId} />
+        </div>
+        <div className="flex flex-1 flex-col gap-1">
+          <label className={labelClass}>Scheduled for</label>
+          <input className={inputClass} type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} />
+        </div>
       </div>
     </FormDialog>
   )
@@ -662,6 +699,7 @@ export function WorksPage() {
       o.status !== "cancelled" &&
       !o.assigned_to_user_id &&
       !o.crew_id &&
+      !o.subcontractor_id &&
       !o.assigned_to,
   ).length
 

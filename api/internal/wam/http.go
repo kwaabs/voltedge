@@ -60,7 +60,89 @@ func Routes(db *bun.DB) chi.Router {
 
 	r.Get("/assignable-users", listAssignableUsersHandler(db))
 
+	r.Get("/subcontractors", listSubcontractorsHandler(db))
+	r.Post("/subcontractors", createSubcontractorHandler(db))
+	r.Patch("/subcontractors/{id}", updateSubcontractorHandler(db))
+	r.Post("/subcontractors/{id}/active", setSubcontractorActiveHandler(db))
+
 	return r
+}
+
+// ---------------------------------------------------------------------------
+// subcontractors (registry)
+// ---------------------------------------------------------------------------
+
+func listSubcontractorsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		subs, err := ListSubcontractors(r.Context(), db, r.URL.Query().Get("include_inactive") == "true")
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"subcontractors": subs})
+	}
+}
+
+type subcontractorRequest struct {
+	Name        string  `json:"name"`
+	ContactName *string `json:"contact_name"`
+	Phone       *string `json:"phone"`
+	Email       *string `json:"email"`
+	Notes       *string `json:"notes"`
+}
+
+func (s subcontractorRequest) params() SubcontractorParams {
+	return SubcontractorParams{Name: s.Name, ContactName: s.ContactName, Phone: s.Phone, Email: s.Email, Notes: s.Notes}
+}
+
+func createSubcontractorHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req subcontractorRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		sc, err := CreateSubcontractor(r.Context(), db, req.params())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, sc)
+	}
+}
+
+func updateSubcontractorHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req subcontractorRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		sc, err := UpdateSubcontractor(r.Context(), db, chi.URLParam(r, "id"), req.params())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, sc)
+	}
+}
+
+func setSubcontractorActiveHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Active bool `json:"active"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		sc, err := SetSubcontractorActive(r.Context(), db, chi.URLParam(r, "id"), req.Active)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, sc)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +251,7 @@ type raiseWorkOrderRequest struct {
 	AssignedTo       *string    `json:"assigned_to"`
 	AssignedToUserID *string    `json:"assigned_to_user_id"`
 	CrewID           *string    `json:"crew_id"`
+	SubcontractorID  *string    `json:"subcontractor_id"`
 	ScheduledFor     *time.Time `json:"scheduled_for"`
 	DueBy            *time.Time `json:"due_by"`
 }
@@ -185,6 +268,7 @@ func raiseWorkOrderHandler(db *bun.DB) http.HandlerFunc {
 			AssignedTo:       req.AssignedTo,
 			AssignedToUserID: req.AssignedToUserID,
 			CrewID:           req.CrewID,
+			SubcontractorID:  req.SubcontractorID,
 			ScheduledFor:     req.ScheduledFor,
 			DueBy:            req.DueBy,
 		})
@@ -219,7 +303,9 @@ func listWorkOrdersHandler(db *bun.DB) http.HandlerFunc {
 			AssetID:          q.Get("asset_id"),
 			AssignedTo:       q.Get("assigned_to"),
 			AssignedToUserID: assignedToUserID,
+			CrewID:           q.Get("crew_id"),
 			IncidentID:       q.Get("incident_id"),
+			SubcontractorID:  q.Get("subcontractor_id"),
 			Open:             q.Get("open") == "true",
 		})
 		if err != nil {
@@ -244,6 +330,7 @@ type createWorkOrderRequest struct {
 	AssignedTo       *string    `json:"assigned_to"`
 	AssignedToUserID *string    `json:"assigned_to_user_id"`
 	CrewID           *string    `json:"crew_id"`
+	SubcontractorID  *string    `json:"subcontractor_id"`
 	ScheduledFor     *time.Time `json:"scheduled_for"`
 	DueBy            *time.Time `json:"due_by"`
 }
@@ -269,6 +356,7 @@ func createWorkOrderHandler(db *bun.DB) http.HandlerFunc {
 			AssignedTo:       req.AssignedTo,
 			AssignedToUserID: req.AssignedToUserID,
 			CrewID:           req.CrewID,
+			SubcontractorID:  req.SubcontractorID,
 			ScheduledFor:     req.ScheduledFor,
 			DueBy:            req.DueBy,
 		})
@@ -299,6 +387,7 @@ type updateWorkOrderRequest struct {
 	AssignedTo       *string    `json:"assigned_to"`
 	AssignedToUserID *string    `json:"assigned_to_user_id"`
 	CrewID           *string    `json:"crew_id"`
+	SubcontractorID  *string    `json:"subcontractor_id"`
 	ScheduledFor     *time.Time `json:"scheduled_for"`
 	DueBy            *time.Time `json:"due_by"`
 	CompletionNotes  *string    `json:"completion_notes"`
@@ -319,6 +408,7 @@ func updateWorkOrderHandler(db *bun.DB) http.HandlerFunc {
 			AssignedTo:       req.AssignedTo,
 			AssignedToUserID: req.AssignedToUserID,
 			CrewID:           req.CrewID,
+			SubcontractorID:  req.SubcontractorID,
 			ScheduledFor:     req.ScheduledFor,
 			DueBy:            req.DueBy,
 			CompletionNotes:  req.CompletionNotes,

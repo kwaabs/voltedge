@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
-import { Loader2, Plus, Truck, UserPlus, Users } from "lucide-react"
+import { useNavigate } from "react-router"
+import { Loader2, Plus, Truck, UserPlus, Users, Wrench } from "lucide-react"
 
 import { inputClass } from "@/components/map/field-utils"
 import { Button } from "@/components/ui/button"
@@ -12,10 +13,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { WorkOrderMiniList } from "@/components/wam/work-order-mini-list"
 import {
   type Crew,
   useAddCrewMember,
   useCreateCrew,
+  useCrewAssignments,
   useCrewMembers,
   useCrews,
   useDeactivateCrew,
@@ -61,12 +64,14 @@ export function AdminCrewsPage() {
 
   const [creating, setCreating] = useState(false)
   const [selected, setSelected] = useState<Crew | null>(null)
+  const [workFor, setWorkFor] = useState<Crew | null>(null)
 
   const rows = crews.data?.crews ?? []
 
   // Keep the open detail dialog in step with refetched data (status/member_count
   // change as the operator acts) by re-resolving the selected crew from the list.
   const selectedLive = selected ? (rows.find((c) => c.id === selected.id) ?? selected) : null
+  const workForLive = workFor ? (rows.find((c) => c.id === workFor.id) ?? workFor) : null
 
   return (
     <div className="h-full overflow-y-auto p-4">
@@ -113,6 +118,7 @@ export function AdminCrewsPage() {
                       <th>Members</th>
                       <th>Territory</th>
                       <th>Phone</th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -141,6 +147,21 @@ export function AdminCrewsPage() {
                         </td>
                         <td className="text-muted-foreground">{c.territory_name ?? "—"}</td>
                         <td className="text-muted-foreground">{c.phone ?? "—"}</td>
+                        <td className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 gap-1 px-1.5 text-xs"
+                            title="View this crew's incidents and assigned work"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setWorkFor(c)
+                            }}
+                          >
+                            <Wrench className="size-3.5" />
+                            Work
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -153,6 +174,7 @@ export function AdminCrewsPage() {
 
       {creating && <CreateCrewDialog onClose={() => setCreating(false)} />}
       {selectedLive && <CrewDetailDialog crew={selectedLive} onClose={() => setSelected(null)} />}
+      {workForLive && <CrewWorkDialog crew={workForLive} onClose={() => setWorkFor(null)} />}
     </div>
   )
 }
@@ -536,6 +558,100 @@ function CrewMembersSection({ crew }: { crew: Crew }) {
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+const ASSIGN_TONE: Record<string, string> = {
+  dispatched: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  on_site: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
+  cleared: "bg-muted text-muted-foreground",
+}
+
+/** A standalone dialog for a crew's work, opened from the roster row's Work
+ * button — kept separate from the detail/edit dialog so neither grows unwieldy. */
+function CrewWorkDialog({ crew, onClose }: { crew: Crew; onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Wrench className="size-4" />
+            {crew.name} — work
+          </DialogTitle>
+          <DialogDescription>The incidents this crew is on and the work orders it owns.</DialogDescription>
+        </DialogHeader>
+        <CrewWorkSection crew={crew} />
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** The crew's incidents (its assignment history) and the work orders assigned to
+ * it — "what is this crew on / tasked with". */
+function CrewWorkSection({ crew }: { crew: Crew }) {
+  const navigate = useNavigate()
+  const assignments = useCrewAssignments(crew.id)
+  const rows = assignments.data?.assignments ?? []
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1.5">
+        <span className="flex items-center gap-2 text-sm font-medium">
+          <Truck className="size-4" />
+          Incidents
+          <span className="text-muted-foreground font-normal">— outages this crew is or was on</span>
+        </span>
+        {assignments.isPending ? (
+          <div className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Loader2 className="size-4 animate-spin" />
+            Loading…
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="text-muted-foreground text-sm">Not assigned to any incident.</p>
+        ) : (
+          <div className="flex flex-col divide-y rounded-md border">
+            {rows.map((a) => (
+              <div key={a.id} className="flex flex-wrap items-center gap-x-2 px-2 py-1.5 text-sm">
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-[11px] font-medium capitalize",
+                    ASSIGN_TONE[a.status] ?? "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {a.status.replace("_", " ")}
+                </span>
+                <span className="text-muted-foreground text-xs tabular-nums">
+                  {new Date(a.dispatched_at).toLocaleString()}
+                </span>
+                <button
+                  type="button"
+                  className="text-primary ml-auto text-xs hover:underline"
+                  onClick={() => navigate(`/outages/${a.incident_id}`)}
+                >
+                  View outage
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <span className="flex items-center gap-2 text-sm font-medium">
+          <Wrench className="size-4" />
+          Assigned work
+          <span className="text-muted-foreground font-normal">— work orders this crew owns</span>
+        </span>
+        <div className="max-h-64 overflow-y-auto">
+          <WorkOrderMiniList scope={{ crewId: crew.id }} empty="No work orders assigned to this crew." />
+        </div>
+      </div>
     </div>
   )
 }

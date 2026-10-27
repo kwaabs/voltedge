@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router"
 import {
   Activity,
   ArrowLeft,
+  Building2,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
@@ -66,6 +67,7 @@ import {
   useDispatchCrew,
   useIncidentCrews,
   useSetIncidentETR,
+  useTaskSubcontractor,
   useAssociateTroubleCall,
   useCancelSwitchingOrder,
   useCreatePlannedOutage,
@@ -89,7 +91,7 @@ import {
   useTroubleCalls,
 } from "@/hooks/use-oms"
 import { useIssueClearanceFromOrder } from "@/hooks/use-safety"
-import { useWorkOrders } from "@/hooks/use-wam"
+import { useSubcontractors, useWorkOrders } from "@/hooks/use-wam"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useOmsHighlightStore } from "@/stores/oms-highlight-store"
@@ -3316,18 +3318,22 @@ function toLocalInput(d: Date): string {
  * free-text crew_ref and the hand-typed ETR. */
 function IncidentCrewsCard({ inc, canWrite }: { inc: Incident; canWrite: boolean }) {
   const crews = useCrews()
+  const subcontractors = useSubcontractors()
   const assignments = useIncidentCrews(inc.id)
   const workOrders = useWorkOrders({ incidentId: inc.id })
   const dispatch = useDispatchCrew()
+  const taskSub = useTaskSubcontractor()
   const advance = useAdvanceAssignment()
   const setEtr = useSetIncidentETR()
   const queryClient = useQueryClient()
   const [pickCrew, setPickCrew] = useState("")
+  const [pickSub, setPickSub] = useState("")
   const [etrLocal, setEtrLocal] = useState("")
   const [raiseWO, setRaiseWO] = useState(true)
 
   const rows = assignments.data?.assignments ?? []
   const woRows = workOrders.data?.work_orders ?? []
+  const subRows = subcontractors.data?.subcontractors ?? []
   // A crew may run several incidents at once, so the picker offers every active
   // crew (annotated with its load), minus any already active on THIS incident.
   const onThisIncident = new Set(rows.filter((a) => a.status !== "cleared").map((a) => a.crew_id))
@@ -3346,6 +3352,20 @@ function IncidentCrewsCard({ inc, canWrite }: { inc: Incident; canWrite: boolean
           if (woId) useToastStore.getState().pushSuccess("Crew dispatched and a restoration work order raised.")
         },
         onError: (e) => toastError(e, "Could not dispatch the crew."),
+      },
+    )
+  }
+  function doTaskSub() {
+    if (!pickSub) return
+    taskSub.mutate(
+      { incidentId: inc.id, subcontractor_id: pickSub },
+      {
+        onSuccess: () => {
+          setPickSub("")
+          queryClient.invalidateQueries({ queryKey: ["wam"] })
+          useToastStore.getState().pushSuccess("Subcontractor tasked; a restoration work order was raised.")
+        },
+        onError: (e) => toastError(e, "Could not task the subcontractor."),
       },
     )
   }
@@ -3493,6 +3513,30 @@ function IncidentCrewsCard({ inc, canWrite }: { inc: Incident; canWrite: boolean
               : "No crews yet. Create crews in "}
             {!(crews.data?.crews ?? []).some((c) => c.active) && <span className="font-medium">Admin → Crews</span>}
           </p>
+        )}
+
+        {/* Task an external subcontractor (no crew, no fan-out) */}
+        {canWrite && !isTerminal && subRows.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className={cn(inputClass, "min-w-48 flex-1")}
+              value={pickSub}
+              onChange={(e) => setPickSub(e.target.value)}
+              aria-label="Task an external subcontractor"
+            >
+              <option value="">Task a subcontractor…</option>
+              {subRows.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                  {s.open_work_order_count ? ` — ${s.open_work_order_count} open` : ""}
+                </option>
+              ))}
+            </select>
+            <Button variant="outline" size="sm" disabled={!pickSub || taskSub.isPending} onClick={doTaskSub}>
+              <Building2 className="size-4" />
+              Task
+            </Button>
+          </div>
         )}
 
         {/* Field work raised for this incident */}
