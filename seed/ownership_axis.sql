@@ -78,6 +78,32 @@ WHERE fc.code IN (
 ON CONFLICT (feature_class_id, name) DO NOTHING;
 
 -- =====================================================================
+-- 3b. Ownership is managed ONLY by the propagation actions, never hand-edited.
+-- =====================================================================
+-- Ownership is a PROPAGATED connectivity property: a private boundary transformer
+-- makes its WHOLE downstream island private, so it must be declared once at the
+-- boundary and written across the island together. Two ways to set the same field
+-- (a per-feature form edit AND the Mark-private / Mark-utility / Re-sync actions in
+-- api/internal/ownership) is a footgun -- a hand edit sets ONE feature and drifts
+-- from its downstream. So the `ownership` field is hidden from the create AND
+-- update forms on every class that carries it: it still shows READ-ONLY in the
+-- Attributes panel and labels traces/load-flow, but the only way to change it is
+-- the guided actions (which write the column directly in SQL, bypassing the form,
+-- so they are unaffected). visible_on_create/visible_on_update are RUNTIME flags
+-- (the schema endpoint reads them live) -- NO recompile. Idempotent.
+UPDATE metadata.fields f
+SET visible_on_create = false, visible_on_update = false
+FROM metadata.feature_classes fc
+WHERE f.feature_class_id = fc.id
+  AND f.name = 'ownership'
+  AND fc.code IN (
+    'DIST_XFMR', 'POWER_XFMR',
+    'LV_CONDUCTOR', 'LV_SWITCH', 'LV_LINK_BOX', 'LV_BUSBAR', 'LV_PILLAR',
+    'LV_FUSE', 'SERVICE_CUTOUT', 'SERVICE_POINT', 'METER', 'STREET_LIGHT',
+    'METER_CHAMBER'
+  );
+
+-- =====================================================================
 -- 4. Symbology: NONE. A privately-owned feature keeps the SAME standard colours
 --    and symbology as every other feature of its class -- ownership is a DATA
 --    flag and an attribute / trace / load-flow label, not a map restyle. (An

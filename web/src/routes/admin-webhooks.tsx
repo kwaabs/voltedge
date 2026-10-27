@@ -259,6 +259,7 @@ function EndpointFormFields({
               <option value="work">Work order</option>
               <option value="fault">Fault event</option>
               <option value="operation">Device operation</option>
+              <option value="outage">Outage signal (SCADA trip / AMI last-gasp)</option>
             </select>
           </div>
         )}

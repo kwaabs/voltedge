@@ -22,11 +22,14 @@ import { AdminMapSettingsPage } from "@/routes/admin-map-settings"
 import { AdminWebhooksPage } from "@/routes/admin-webhooks"
 import { AdminFieldPacksPage } from "@/routes/admin-field-packs"
 import { AdminCostCatalogPage } from "@/routes/admin-cost-catalog"
+import { AdminCrewsPage } from "@/routes/admin-crews"
+import { LiveStatePage } from "@/routes/live-state"
 import { AdminFaultModesPage } from "@/routes/admin-fault-modes"
 import { AdminAssetLifePage } from "@/routes/admin-asset-life"
 import { AdminValidationRulesPage } from "@/routes/admin-validation-rules"
 import { AdminMaterialsPage } from "@/routes/admin-materials"
 import { AdminProtectionCurvesPage } from "@/routes/admin-protection-curves"
+import { AdminAssembliesPage } from "@/routes/admin-assemblies"
 import { AdminStencilsPage } from "@/routes/admin-stencils"
 import { AdminSymbologyIconsPage } from "@/routes/admin-symbology-icons"
 import { AdminTerritoriesPage } from "@/routes/admin-territories"
@@ -34,16 +37,18 @@ import { AdminUsersPage } from "@/routes/admin-users"
 import { AdminLoggingPage } from "@/routes/admin-logging"
 import { AdminActivityPage } from "@/routes/admin-activity"
 import { AdminEditSessionsPage } from "@/routes/admin-edit-sessions"
+import { AdminSecurityLogPage } from "@/routes/admin-security-log"
 import { SyncReviewPage } from "@/routes/sync-review"
 import { DocsPage } from "@/routes/docs"
 import { FeaturesPage } from "@/routes/features"
 import { FaultsPage } from "@/routes/faults"
 import { ImportRunPage } from "@/routes/imports"
+import { GetAppPage } from "@/routes/get-app"
 import { LoginPage } from "@/routes/login"
 import { MapPage } from "@/routes/map"
 import { NotFoundPage } from "@/routes/not-found"
 import { OperationsPage } from "@/routes/operations"
-import { OutagesPage } from "@/routes/outages"
+import { OutageDetailPage, OutagesPage } from "@/routes/outages"
 import { TagResolvePage } from "@/routes/tag-resolve"
 import { WorksPage } from "@/routes/works"
 
@@ -64,8 +69,11 @@ export function App() {
     <BrowserRouter>
       <Toaster />
       <Routes>
-        {/* Public: the only route reachable without a session. */}
+        {/* Public: reachable without a session. */}
         <Route path="/login" element={<LoginPage />} />
+        {/* The field-app download landing -- a login-free page so a fresh device
+            can install the signed APK (scan the QR / tap Download). */}
+        <Route path="/get-app" element={<GetAppPage />} />
 
         {/* Everything else sits behind the session gate (Slice C gates the
             API to match; RequireSession bounces an unauthenticated browser
@@ -84,6 +92,27 @@ export function App() {
               element={
                 <RequirePermission perm="oms:read">
                   <OutagesPage />
+                </RequirePermission>
+              }
+            />
+            {/* An incident's full detail (map cone, affected rollup, switching +
+                FLISR, timeline, feeding calls), reached by clicking a board row.
+                Same oms:read gate; the write controls inside self-gate on oms:write. */}
+            <Route
+              path="outages/:incidentId"
+              element={
+                <RequirePermission perm="oms:read">
+                  <OutageDetailPage />
+                </RequirePermission>
+              }
+            />
+            {/* Live state: device telemetry reconciled against the model. View
+                gated telemetry:read; the Apply action inside self-gates oms:write. */}
+            <Route
+              path="live-state"
+              element={
+                <RequirePermission perm="telemetry:read">
+                  <LiveStatePage />
                 </RequirePermission>
               }
             />
@@ -209,6 +238,14 @@ export function App() {
               }
             />
             <Route
+              path="admin/assemblies"
+              element={
+                <RequirePermission perm="assemblies:write">
+                  <AdminAssembliesPage />
+                </RequirePermission>
+              }
+            />
+            <Route
               path="admin/cim-mappings"
               element={
                 <RequirePermission perm="metadata:write">
@@ -261,6 +298,14 @@ export function App() {
               element={
                 <RequirePermission perm="metadata:write">
                   <AdminCostCatalogPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/crews"
+              element={
+                <RequirePermission perm="oms:write">
+                  <AdminCrewsPage />
                 </RequirePermission>
               }
             />
@@ -357,6 +402,14 @@ export function App() {
               element={
                 <RequirePermission perm="admin:users">
                   <AdminActivityPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin/security-log"
+              element={
+                <RequirePermission perm="admin:users">
+                  <AdminSecurityLogPage />
                 </RequirePermission>
               }
             />

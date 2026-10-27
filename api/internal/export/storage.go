@@ -106,6 +106,19 @@ func NewObjectStoreFromEnv() (*ObjectStore, error) {
 	return &ObjectStore{client: client, presignClient: presignClient, bucket: bucket, urlTTL: urlTTL}, nil
 }
 
+// NewObjectStoreForBucket builds a store bound to an EXPLICIT bucket rather than
+// RUSTFS_BUCKET, reusing the same RUSTFS_* client + public-presign config. For a
+// store that must not share the exports bucket (and its retention sweep) -- e.g.
+// the field-app APK distribution, which is long-lived and publicly downloaded.
+func NewObjectStoreForBucket(bucket string) (*ObjectStore, error) {
+	s, err := NewObjectStoreFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	s.bucket = bucket
+	return s, nil
+}
+
 // newRustFSClient builds a minio client for endpoint with the shared static
 // credentials. Region is set EXPLICITLY (RUSTFS_REGION, default us-east-1) rather
 // than left empty: with no region, minio-go resolves the bucket region on first

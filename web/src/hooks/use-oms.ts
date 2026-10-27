@@ -45,6 +45,16 @@ export interface Incident {
   circuit_id: string | null
   outage_type: string
   cause_code: string | null
+  /** Cause certainty: unknown -> suspected -> confirmed (migration 0168). */
+  cause_status: string
+  /** How the utility learned of the outage (0168): customer | ami | scada | crew |
+   * planned | upstream | analytics. Stamped at raise, correctable; null on a
+   * pre-0168 row. */
+  detection_source: string | null
+  /** Optional free provenance note for the source (channel / external id). */
+  detection_detail: string | null
+  /** When the first signal arrived (0168) — distinct from started_at. */
+  detected_at: string | null
   status: IncidentStatus
   confidence: number | null
   started_at: string
@@ -55,18 +65,45 @@ export interface Incident {
   affected_customers: number | null
   affected_service_points: number | null
   crew_ref: string | null
+  /** The user who last advanced this incident (confirm/dispatch/restore/cancel),
+   * or null for an engine-predicted incident no one has touched yet. */
+  last_actor_user_id: string | null
+  /** Display name of last_actor_user_id, resolved server-side (no admin:users
+   * needed to read it). Null when unattributed or the account was removed. */
+  last_actor_name: string | null
   notes: string | null
   created_at: string
   updated_at: string
 }
 
 /** One affected service point in an incident's outage cone, with the WGS84
- * point the map overlay draws. */
+ * point the map overlay draws. `feature_class` + `customers` are stamped by the
+ * /affected reader (omitted / 0 on the bare map-overlay payload) so the console
+ * can show a supply-by-supply table, not just a headline sum. */
 export interface AffectedServicePoint {
   id: string
   name: string
   longitude: number
   latitude: number
+  feature_class?: string
+  customers?: number
+}
+
+/** One territory's share of an incident's affected set at a hierarchy level. */
+export interface AffectedTerritoryRow {
+  territory_id: string
+  territory_name: string
+  service_points: number
+  customers: number
+}
+
+/** The affected set grouped by the territories at one level (all regions, all
+ * districts, …), biggest-first. */
+export interface AffectedTerritoryLevel {
+  level_code: string
+  level_name: string
+  level_rank: number
+  rows: AffectedTerritoryRow[]
 }
 
 /** An incident's geographic impact: the blamed device (if any) plus the service
@@ -80,6 +117,12 @@ export interface AffectedArea {
    * by restoration tier, so the console can show critical customers hit, not
    * just a raw count. See ServiceRollup (trace-store.ts). */
   service?: ServiceRollup
+  /** Affected customers rolled up the geographic hierarchy (region / district /
+   * …), one entry per level that has affected supplies. */
+  by_territory: AffectedTerritoryLevel[]
+  /** How many affected supplies no longer resolve to a map point (deleted /
+   * geometry-less) — they count toward the total but can't be drawn. */
+  missing_geometry: number
 }
 
 /** System reliability indices (IEEE 1366) over the confirmed interruption
@@ -299,8 +342,49 @@ export interface RestorationSuggestion {
   note?: string
 }
 
+/** One lifecycle event in a call/incident timeline (oms.events). actor_name is
+ * resolved server-side; null for an engine/system step (prediction, SCADA, AMI). */
+export interface TimelineEvent {
+  id: string
+  entity_kind: "call" | "incident"
+  entity_id: string
+  event_type: string
+  actor_user_id: string | null
+  actor_name: string | null
+  note: string | null
+  occurred_at: string
+  created_at: string
+}
+
+interface TimelineResponse {
+  events: TimelineEvent[]
+}
+
+/** A trouble call's timeline — its own events plus the incident it rolled into,
+ * merged chronologically. Skipped until a callId is given (lazy, on expand). */
+export function useCallTimeline(callId: string | null) {
+  return useQuery({
+    queryKey: [...OMS_KEY, "call-timeline", callId ?? ""],
+    queryFn: () => apiFetch<TimelineResponse>(`/oms/trouble-calls/${callId}/timeline`),
+    enabled: callId != null,
+    staleTime: 15_000,
+  })
+}
+
+/** An incident's timeline — its lifecycle plus the received events of its calls. */
+export function useIncidentTimeline(incidentId: string | null) {
+  return useQuery({
+    queryKey: [...OMS_KEY, "incident-timeline", incidentId ?? ""],
+    queryFn: () => apiFetch<TimelineResponse>(`/oms/incidents/${incidentId}/timeline`),
+    enabled: incidentId != null,
+    staleTime: 15_000,
+  })
+}
+
 interface TroubleCallsResponse {
   trouble_calls: TroubleCall[]
+  /** Count under the filter, ignoring limit/offset — for the page controls. */
+  total?: number
 }
 interface IncidentsResponse {
   incidents: Incident[]
@@ -308,24 +392,67 @@ interface IncidentsResponse {
 
 const OMS_KEY = ["oms"] as const
 
-/** The trouble-call queue, newest first, optionally filtered by status. */
-export function useTroubleCalls(status?: CallStatus) {
-  const query = status ? `?status=${status}` : ""
+/** The trouble-call queue, newest first. `status` filters; `incidentId` scopes to
+ * one incident's calls; `limit`/`offset` paginate (limit omitted = all, so the
+ * incident-scoped and small-deployment reads are unchanged). Keeps the previous
+ * page visible while the next loads. */
+export function useTroubleCalls(
+  opts: { status?: CallStatus | ""; incidentId?: string; limit?: number; offset?: number } = {},
+) {
+  const params = new URLSearchParams()
+  if (opts.status) params.set("status", opts.status)
+  if (opts.incidentId) params.set("incident_id", opts.incidentId)
+  if (opts.limit != null) params.set("limit", String(opts.limit))
+  if (opts.offset != null) params.set("offset", String(opts.offset))
+  const query = params.toString() ? `?${params.toString()}` : ""
   return useQuery({
-    queryKey: [...OMS_KEY, "trouble-calls", status ?? "all"],
+    queryKey: [
+      ...OMS_KEY,
+      "trouble-calls",
+      opts.status ?? "all",
+      opts.incidentId ?? "",
+      opts.limit ?? 0,
+      opts.offset ?? 0,
+    ],
     queryFn: () => apiFetch<TroubleCallsResponse>(`/oms/trouble-calls${query}`),
     staleTime: 15_000,
+    placeholderData: (prev) => prev,
   })
 }
 
-/** The incident board. `openOnly` narrows to unrestored incidents. */
-export function useIncidents(opts: { status?: IncidentStatus; openOnly?: boolean } = {}) {
+/** One coded outage cause (oms.outage_causes) — the coarse incident-level "why".
+ * The detailed per-asset FMEA lives on the fault. */
+export interface OutageCause {
+  code: string
+  label: string
+  family: string
+  sort_order: number
+  active: boolean
+}
+
+interface OutageCausesResponse {
+  outage_causes: OutageCause[]
+}
+
+/** The coded cause catalog for the incident cause picker. Rarely changes. */
+export function useOutageCauses() {
+  return useQuery({
+    queryKey: [...OMS_KEY, "outage-causes"],
+    queryFn: () => apiFetch<OutageCausesResponse>("/oms/outage-causes"),
+    staleTime: 5 * 60_000,
+  })
+}
+
+/** The incident board. `openOnly` narrows to unrestored incidents; `territoryId`
+ * scopes to that territory's subtree (region catches its districts). */
+export function useIncidents(opts: { status?: IncidentStatus; openOnly?: boolean; territoryId?: string } = {}) {
   const params = new URLSearchParams()
   if (opts.status) params.set("status", opts.status)
   if (opts.openOnly) params.set("open", "true")
+  if (opts.territoryId) params.set("territory_id", opts.territoryId)
   const query = params.toString() ? `?${params.toString()}` : ""
   return useQuery({
-    queryKey: [...OMS_KEY, "incidents", opts.status ?? "all", opts.openOnly ?? false],
+    queryKey: [...OMS_KEY, "incidents", opts.status ?? "all", opts.openOnly ?? false, opts.territoryId ?? ""],
     queryFn: () => apiFetch<IncidentsResponse>(`/oms/incidents${query}`),
     staleTime: 15_000,
   })
@@ -350,6 +477,290 @@ export function useReliabilityIndices(
     queryFn: () => apiFetch<ReliabilityIndices>(`/oms/indices${query}`),
     staleTime: 30_000,
   })
+}
+
+/** One detection-source bucket in the source/cause analytics (how we learned). */
+export interface DetectionSourceStat {
+  source: string
+  incidents: number
+  customers_affected: number
+}
+
+/** One cause-family bucket in the source/cause analytics (why it happened). */
+export interface CauseFamilyStat {
+  family: string
+  incidents: number
+  customers_affected: number
+}
+
+/** The "source & cause" payoff metrics over a window (GET /oms/detection-metrics):
+ * the detection-source mix, the machine-detected (awareness) share, the
+ * cause-family breakdown, and the mean detection->restore time. */
+export interface DetectionMetrics {
+  from: string
+  to: string
+  total_incidents: number
+  restored_incidents: number
+  by_source: DetectionSourceStat[]
+  machine_detected_incidents: number
+  machine_detected_share: number
+  by_cause: CauseFamilyStat[]
+  avg_detection_to_restore_minutes: number | null
+}
+
+/** Source/cause analytics over an optional RFC3339 window (default 12 months). */
+export function useDetectionMetrics(opts: { from?: string; to?: string } = {}) {
+  const params = new URLSearchParams()
+  if (opts.from) params.set("from", opts.from)
+  if (opts.to) params.set("to", opts.to)
+  const query = params.toString() ? `?${params.toString()}` : ""
+  return useQuery({
+    queryKey: [...OMS_KEY, "detection-metrics", opts.from ?? "", opts.to ?? ""],
+    queryFn: () => apiFetch<DetectionMetrics>(`/oms/detection-metrics${query}`),
+    staleTime: 30_000,
+  })
+}
+
+/** One territory's share of the live network-wide outage impact. */
+export interface AreaImpactRow {
+  territory_id: string
+  territory_name: string
+  customers: number
+  service_points: number
+  incidents: number
+}
+
+/** The impact grouped by the territories at one hierarchy level. */
+export interface AreaImpactLevel {
+  level_code: string
+  level_name: string
+  level_rank: number
+  rows: AreaImpactRow[]
+}
+
+/** Network-wide outage impact across all open incidents (GET /oms/area-impact):
+ * totals + the geographic breakdown + an unassigned bucket. */
+export interface AreaImpact {
+  open_incidents: number
+  total_customers: number
+  total_service_points: number
+  unassigned: AreaImpactRow
+  levels: AreaImpactLevel[]
+}
+
+/** One likely protective device to attribute an incident to (upstream of its
+ * calls). `nearest` = the prediction's own first choice; `support` = callers
+ * through it. The name is resolved client-side. */
+export interface DeviceCandidate {
+  feature_class: string
+  feature_id: string
+  support: number
+  nearest: boolean
+}
+
+/** The protective devices to suggest in the re-attribution picker. */
+export function useIncidentDeviceCandidates(incidentId: string | null) {
+  return useQuery({
+    queryKey: [...OMS_KEY, "device-candidates", incidentId ?? ""],
+    queryFn: () => apiFetch<{ candidates: DeviceCandidate[] }>(`/oms/incidents/${incidentId}/device-candidates`),
+    enabled: incidentId != null,
+    staleTime: 30_000,
+  })
+}
+
+/** Network-wide customers-out rolled by territory, across all open incidents. */
+export function useAreaImpact() {
+  return useQuery({
+    queryKey: [...OMS_KEY, "area-impact"],
+    queryFn: () => apiFetch<AreaImpact>("/oms/area-impact"),
+    staleTime: 30_000,
+  })
+}
+
+/** One geographic cluster of open trouble calls (GET /oms/trouble-spots) — a
+ * place a crew can be dispatched to before/without prediction finding a device. */
+export interface TroubleSpot {
+  call_ids: string[]
+  service_point_ids: string[]
+  call_count: number
+  centroid_lng: number
+  centroid_lat: number
+  radius_m: number
+  territory_id: string | null
+  territory_name: string | null
+  dominant_call_type: CallType
+  has_ami: boolean
+  earliest_reported_at: string
+  latest_reported_at: string
+}
+
+interface TroubleSpotsResponse {
+  trouble_spots: TroubleSpot[]
+}
+
+/** The geographic lens: open calls clustered into trouble spots (`eps` = join
+ * distance in metres, default 250). Short staleTime — it tracks the call queue. */
+export function useTroubleSpots(opts: { eps?: number } = {}) {
+  const query = opts.eps != null ? `?eps=${opts.eps}` : ""
+  return useQuery({
+    queryKey: [...OMS_KEY, "trouble-spots", opts.eps ?? ""],
+    queryFn: () => apiFetch<TroubleSpotsResponse>(`/oms/trouble-spots${query}`),
+    staleTime: 15_000,
+  })
+}
+
+// --- crews (blocker #2) ----------------------------------------------------
+
+/** A field crew / resource (GET /oms/crews). `status` is available / dispatched /
+ * on_site / unavailable; `active_incident_id` is its current job (if any). */
+export interface Crew {
+  id: string
+  name: string
+  kind: string | null
+  status: string
+  territory_id: string | null
+  territory_name: string | null
+  phone: string | null
+  active: boolean
+  member_count: number
+  active_incident_id: string | null
+  active_assignment_id: string | null
+  active_since: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** A user on a crew (GET /oms/crews/{id}/members). `display_name`/`email` are
+ * joined from iam.users; `role` is free text (lead / member). */
+export interface CrewMember {
+  id: string
+  crew_id: string
+  user_id: string
+  role: string | null
+  added_at: string
+  display_name: string | null
+  email: string | null
+}
+
+/** A crew's engagement on one incident (dispatched → on_site → cleared). */
+export interface CrewAssignment {
+  id: string
+  crew_id: string
+  incident_id: string
+  status: string
+  dispatched_at: string
+  on_site_at: string | null
+  cleared_at: string | null
+  note: string | null
+  assigned_by: string | null
+  crew_name: string | null
+  /** Set when dispatching also raised a restoration work order for the incident. */
+  work_order_id?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** The crew roster. `includeInactive` also returns retired crews. */
+export function useCrews(opts: { includeInactive?: boolean } = {}) {
+  const query = opts.includeInactive ? "?include_inactive=true" : ""
+  return useQuery({
+    queryKey: [...OMS_KEY, "crews", opts.includeInactive ?? false],
+    queryFn: () => apiFetch<{ crews: Crew[] }>(`/oms/crews${query}`),
+    staleTime: 30_000,
+  })
+}
+
+/** The crew assignments on one incident. */
+export function useIncidentCrews(incidentId: string | null) {
+  return useQuery({
+    queryKey: [...OMS_KEY, "incident-crews", incidentId ?? ""],
+    queryFn: () => apiFetch<{ assignments: CrewAssignment[] }>(`/oms/incidents/${incidentId}/crews`),
+    enabled: incidentId != null,
+    staleTime: 15_000,
+  })
+}
+
+/** The members on a crew. */
+export function useCrewMembers(crewId: string | null) {
+  return useQuery({
+    queryKey: [...OMS_KEY, "crew-members", crewId ?? ""],
+    queryFn: () => apiFetch<{ members: CrewMember[] }>(`/oms/crews/${crewId}/members`),
+    enabled: crewId != null,
+    staleTime: 30_000,
+  })
+}
+
+/** Add a user to a crew (idempotent; re-adding updates the role). */
+export function useAddCrewMember() {
+  return useOmsMutation<{ crewId: string; user_id: string; role?: string }>(({ crewId, user_id, role }) =>
+    apiFetch(`/oms/crews/${crewId}/members`, { method: "POST", body: JSON.stringify({ user_id, role }) }),
+  )
+}
+
+/** Remove a user from a crew. */
+export function useRemoveCrewMember() {
+  return useOmsMutation<{ crewId: string; userId: string }>(({ crewId, userId }) =>
+    apiFetch(`/oms/crews/${crewId}/members/${userId}`, { method: "DELETE" }),
+  )
+}
+
+export interface CrewBody {
+  name: string
+  kind?: string
+  phone?: string
+  territory_id?: string
+}
+
+export function useCreateCrew() {
+  return useOmsMutation<CrewBody>((body) => apiFetch("/oms/crews", { method: "POST", body: JSON.stringify(body) }))
+}
+
+export function useUpdateCrew() {
+  return useOmsMutation<{ id: string; body: CrewBody }>(({ id, body }) =>
+    apiFetch(`/oms/crews/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  )
+}
+
+export function useSetCrewAvailability() {
+  return useOmsMutation<{ id: string; available: boolean }>(({ id, available }) =>
+    apiFetch(`/oms/crews/${id}/availability`, { method: "POST", body: JSON.stringify({ available }) }),
+  )
+}
+
+export function useDeactivateCrew() {
+  return useOmsMutation<{ id: string }>(({ id }) => apiFetch(`/oms/crews/${id}`, { method: "DELETE" }))
+}
+
+/** Dispatch a crew to an incident (creates a 'dispatched' assignment). Set
+ * `raise_work_order` to also raise a crew-assigned restoration work order for the
+ * incident (reaches every crew member's field pack). */
+export function useDispatchCrew() {
+  return useOmsMutation<{
+    incidentId: string
+    crew_id: string
+    note?: string
+    raise_work_order?: boolean
+    work_order_title?: string
+  }>(({ incidentId, crew_id, note, raise_work_order, work_order_title }) =>
+    apiFetch(`/oms/incidents/${incidentId}/crews`, {
+      method: "POST",
+      body: JSON.stringify({ crew_id, note, raise_work_order, work_order_title }),
+    }),
+  )
+}
+
+/** Advance a crew assignment: on_site or cleared. */
+export function useAdvanceAssignment() {
+  return useOmsMutation<{ id: string; status: string }>(({ id, status }) =>
+    apiFetch(`/oms/crew-assignments/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
+  )
+}
+
+/** Set or clear an incident's ETR (RFC3339, or null to clear). */
+export function useSetIncidentETR() {
+  return useOmsMutation<{ id: string; etr: string | null }>(({ id, etr }) =>
+    apiFetch(`/oms/incidents/${id}/etr`, { method: "PATCH", body: JSON.stringify({ etr }) }),
+  )
 }
 
 // --- Mutations -------------------------------------------------------------
@@ -401,6 +812,41 @@ export function useAssociateTroubleCall() {
 /** Roll open, SP-resolved calls up into predicted incidents. */
 export function usePredictIncidents() {
   return useOmsMutation<void>(() => apiFetch("/oms/incidents/predict", { method: "POST" }))
+}
+
+/** Dispatch a crew to a trouble spot: raise a confirmed, unattributed incident
+ * from its open calls (geographic lens, no device needed). */
+export function useRaiseIncidentFromSpot() {
+  return useOmsMutation<{ call_ids: string[] }>((body) =>
+    apiFetch("/oms/trouble-spots/raise", { method: "POST", body: JSON.stringify(body) }),
+  )
+}
+
+/** Refine an incident's cause (code + status) and/or correct its detection
+ * source — a partial update, only the supplied fields apply. `cause_code: ""`
+ * clears the cause. */
+export interface SetAttributionBody {
+  cause_code?: string
+  cause_status?: string
+  detection_source?: string
+  detection_detail?: string
+}
+
+export function useSetIncidentAttribution() {
+  return useOmsMutation<{ id: string; body: SetAttributionBody }>(({ id, body }) =>
+    apiFetch(`/oms/incidents/${id}/attribution`, { method: "PATCH", body: JSON.stringify(body) }),
+  )
+}
+
+/** Set or change the protective device an incident is blamed on (operator
+ * override): re-traces the cone, re-stamps affected + territory, keeps the calls. */
+export function useAttributeIncidentDevice() {
+  return useOmsMutation<{ id: string; device_class: string; device_id: string }>(({ id, device_class, device_id }) =>
+    apiFetch(`/oms/incidents/${id}/device`, {
+      method: "PATCH",
+      body: JSON.stringify({ device_class, device_id }),
+    }),
+  )
 }
 
 /** Schedule a planned outage around operating one device. planned_start/_end are
@@ -481,9 +927,9 @@ export function useCancelSwitchingOrder() {
   )
 }
 
-export type IncidentAction = "confirm" | "restore" | "cancel"
+export type IncidentAction = "confirm" | "dispatch" | "restore" | "cancel"
 
-/** Advance an incident's lifecycle (confirm / restore / cancel). */
+/** Advance an incident's lifecycle (confirm / dispatch / restore / cancel). */
 export function useIncidentAction() {
   return useOmsMutation<{ id: string; action: IncidentAction }>(({ id, action }) =>
     apiFetch(`/oms/incidents/${id}/${action}`, { method: "POST" }),

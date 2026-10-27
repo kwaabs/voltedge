@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'src/config/settings_repository.dart';
 import 'src/providers.dart';
-import 'src/ui/home_screen.dart';
+import 'src/ui/splash_screen.dart';
 import 'src/ui/theme.dart';
 
 Future<void> main() async {
@@ -33,7 +33,7 @@ class VoltEdgeFieldApp extends StatelessWidget {
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.system,
-      home: const HomeScreen(),
+      home: const SplashScreen(),
     );
   }
 }

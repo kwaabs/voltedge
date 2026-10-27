@@ -23,6 +23,7 @@ import {
   Link2,
   Loader2,
   Lock,
+  LockOpen,
   MoreHorizontal,
   Network,
   Paperclip,
@@ -64,6 +65,7 @@ import { FeatureEditForm } from "@/components/map/feature-edit-form"
 import { FaultsTab } from "@/components/map/feature-faults-tab"
 import { OperationsTab } from "@/components/map/feature-operations-tab"
 import { SafetyTab } from "@/components/map/feature-safety-tab"
+import { MeterHostChip, ServicePointMetersTab } from "@/components/map/feature-service-point-meters-tab"
 import { SpatialTab } from "@/components/map/feature-spatial-tab"
 import { StreetLightsTab } from "@/components/map/feature-street-lights-tab"
 import { TagsTab } from "@/components/map/feature-tags-tab"
@@ -102,7 +104,7 @@ import { useFeatureClasses } from "@/hooks/use-feature-classes"
 import { usePermission } from "@/hooks/use-auth"
 import { useEditing } from "@/hooks/use-editing"
 import { useEditModeStore } from "@/stores/edit-mode-store"
-import { useMarkDownstreamPrivate, useResyncOwnership } from "@/hooks/use-ownership"
+import { useMarkDownstreamPrivate, useMarkDownstreamUtility, useResyncOwnership } from "@/hooks/use-ownership"
 import {
   type ExternalLink,
   type ExternalRefEntry,
@@ -170,6 +172,7 @@ type TabId =
   | "safety"
   | "spatial"
   | "streetlights"
+  | "meters"
   | "tags"
   | "files"
   | "links"
@@ -187,6 +190,7 @@ const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
   { id: "safety", label: "Safety", icon: ShieldAlert },
   { id: "spatial", label: "Land use", icon: LandPlot },
   { id: "streetlights", label: "Street lights", icon: Lightbulb },
+  { id: "meters", label: "Meters", icon: Gauge },
   { id: "tags", label: "Tags", icon: QrCode },
   { id: "files", label: "Files", icon: Paperclip },
   { id: "links", label: "Links", icon: ExternalLinkIcon },
@@ -600,9 +604,15 @@ function AttributesTab() {
                 the raw id (falling back to the id if the catalog hasn't
                 loaded or the circuit is gone). Every other attribute formats
                 by its own value. */}
-            {key === "circuit_id" && typeof value === "string"
-              ? (circuitNames[value] ?? formatValue(value))
-              : (domainLabel(key, value) ?? formatValue(value))}
+            {key === "circuit_id" && typeof value === "string" ? (
+              circuitNames[value] ?? formatValue(value)
+            ) : key === "ownership" && (value == null || value === "") ? (
+              // Ownership is utility by default: an UNSET value reads as utility-owned
+              // (the axis stores NULL = utility), so show that rather than a bare "—".
+              <span className="text-muted-foreground">{domainLabel("ownership", "utility") ?? "Utility-owned"}</span>
+            ) : (
+              (domainLabel(key, value) ?? formatValue(value))
+            )}
           </dd>
         </Fragment>
       ))}
@@ -2148,6 +2158,7 @@ export function FeaturePanel() {
   // Asset-ownership actions live in the actions dropdown, shown only on a
   // transformer (the declare boundary, boundary_role='transformer').
   const markDownstreamPrivate = useMarkDownstreamPrivate()
+  const markDownstreamUtility = useMarkDownstreamUtility()
   const resyncOwnership = useResyncOwnership()
 
   const isEditingSelected =
@@ -2174,6 +2185,23 @@ export function FeaturePanel() {
           useToastStore
             .getState()
             .pushError(err instanceof ApiError ? err.message : "Could not mark downstream private."),
+      },
+    )
+  }
+
+  function handleMarkOwnershipUtility() {
+    if (!selected) return
+    markDownstreamUtility.mutate(
+      { featureClass: selected.featureClassCode, featureId: selected.featureId },
+      {
+        onSuccess: (res) =>
+          useToastStore
+            .getState()
+            .pushSuccess(`Reverted to utility: this feature + ${res.reached} downstream (${res.stamped} cleared).`),
+        onError: (err) =>
+          useToastStore
+            .getState()
+            .pushError(err instanceof ApiError ? err.message : "Could not revert to utility."),
       },
     )
   }
@@ -2503,6 +2531,89 @@ export function FeaturePanel() {
     } catch (err) {
       useTraceStore.getState().setLoading(false)
       useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not trace this feeder.")
+    }
+  }
+
+  // Loop (mesh) check: POST /trace/loops and reuse the trace result store purely
+  // as the map-highlight channel (same trick the feeder/section variants use),
+  // then toast the yes/no. A radial network should have no loops, so a hit is
+  // flagged as a warning, not a success. `direction` is upstream / downstream /
+  // both -- see api/internal/trace/loops.go for what each scopes.
+  async function runLoopCheck(
+    direction: "upstream" | "downstream" | "both",
+    asBuilt = false,
+    startOverride?: TraceFeatureRef,
+  ) {
+    if (!startOverride && !selected) return
+    const start =
+      startOverride ?? { feature_class: selected!.featureClassCode, feature_id: selected!.featureId }
+    useIsolateStore.getState().clear()
+    useTraceStore.getState().setLoading(true)
+    try {
+      const result = await apiFetch<{
+        start: TraceFeatureRef
+        direction: string
+        has_loop: boolean
+        loops: { features: TraceFeatureRef[]; length: number }[]
+        truncated?: boolean
+      }>("/trace/loops", {
+        method: "POST",
+        body: JSON.stringify({ start, direction, as_built: asBuilt }),
+      })
+
+      if (!result.has_loop) {
+        useTraceStore.getState().clear()
+        useToastStore
+          .getState()
+          .pushSuccess(
+            direction === "both"
+              ? "No loops found in this feature's network."
+              : `No loops found ${direction} of this feature.`,
+          )
+        return
+      }
+
+      // Union every feature that sits on a detected ring, so the map highlights
+      // the loop(s). Deduped across loops (a feature can be on more than one).
+      const seen = new Set<string>()
+      const members: TracedFeature[] = []
+      for (const loop of result.loops) {
+        for (const f of loop.features) {
+          const key = `${f.feature_class}:${f.feature_id}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          members.push({ feature_class: f.feature_class, feature_id: f.feature_id })
+        }
+      }
+
+      const dirLabel = direction === "both" ? "network" : direction
+      useTraceStore.getState().setResult(
+        {
+          trace_configuration: `Loop check — ${dirLabel}${asBuilt ? " (as-built)" : ""}`,
+          direction: `LOOPS_${direction.toUpperCase()}`,
+          start: result.start,
+          features: members,
+          barriers: [],
+          truncated: result.truncated,
+        },
+        null,
+        () => runLoopCheck(direction, asBuilt, start),
+      )
+
+      const n = result.loops.length
+      const ringWord = asBuilt ? "ring" : "live loop"
+      useToastStore
+        .getState()
+        .pushWarning(
+          `${n} ${ringWord}${n === 1 ? "" : "s"} found (${members.length} feature${members.length === 1 ? "" : "s"} highlighted).` +
+            (asBuilt ? " As-built — open points ignored." : " Open points were respected, so this is a closed loop."),
+        )
+      // The fix surface (break a point / revoke an edge) is the trace result panel's
+      // collapsible "Fix" column, shown automatically for a LIVE loop result (its
+      // direction starts LOOPS_ and isn't as-built) -- see trace-result-table.tsx.
+    } catch (err) {
+      useTraceStore.getState().setLoading(false)
+      useToastStore.getState().pushError(err instanceof ApiError ? err.message : "Could not check for loops.")
     }
   }
 
@@ -3334,6 +3445,8 @@ export function FeaturePanel() {
   const canEditFeatures = useEditing()
   // A pole can carry lamps: it gets a "Street lights" tab (list + attach).
   const isPole = selected?.featureClassCode === "POLE"
+  // A service point can host meters: it gets a "Meters" tab (list + attach).
+  const isServicePoint = selected?.featureClassCode === "SERVICE_POINT"
   const [circuitSourceOpen, setCircuitSourceOpen] = useState(false)
   // Circuit catalog (small, cached) — used below to badge the feature when it's a
   // circuit's designated source. A separate useCircuits() lives in the attribute
@@ -3360,6 +3473,8 @@ export function FeaturePanel() {
       (tab.id !== "spatial" || canReadFeatures) &&
       // Street lights (pole-mounted lamps) only exist on a POLE -- list + attach.
       (tab.id !== "streetlights" || (isPole && canReadFeatures)) &&
+      // Meters ride a SERVICE_POINT -- list + attach.
+      (tab.id !== "meters" || (isServicePoint && canReadFeatures)) &&
       (tab.id !== "tags" || canReadTags),
   )
 
@@ -3717,6 +3832,47 @@ export function FeaturePanel() {
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   )}
+                  {/* Loop (mesh) detection. By default an OPEN device breaks the walk,
+                      so a normally-open ring (radial in operation) is NOT a live loop;
+                      the as-built item ignores switch state to show every physical ring.
+                      Direct-run: pick an item, it runs and highlights any ring. */}
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Workflow className="size-4" />
+                      Check for loops…
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-64">
+                      <DropdownMenuItem onSelect={() => runLoopCheck("downstream")}>
+                        <TrendingDown className="size-4" />
+                        <span className="flex flex-col">
+                          Loops downstream
+                          <span className="text-muted-foreground text-xs">A live ring among the loads below here</span>
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => runLoopCheck("upstream")}>
+                        <TrendingUp className="size-4" />
+                        <span className="flex flex-col">
+                          Loops upstream
+                          <span className="text-muted-foreground text-xs">Fed live from more than one direction</span>
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => runLoopCheck("both")}>
+                        <Network className="size-4" />
+                        <span className="flex flex-col">
+                          Any live loop (whole network)
+                          <span className="text-muted-foreground text-xs">Any closed cycle (open points break it)</span>
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => runLoopCheck("both", true)}>
+                        <Network className="size-4" />
+                        <span className="flex flex-col">
+                          Any ring (as-built)
+                          <span className="text-muted-foreground text-xs">Ignores open points — every physical ring</span>
+                        </span>
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                   <DropdownMenuItem
                     onSelect={() => {
                       if (!selected) return
@@ -3903,6 +4059,15 @@ export function FeaturePanel() {
                         <Lock className="size-4" />
                         {ownershipIsPrivate ? "Re-mark downstream private" : "Mark downstream private"}
                       </DropdownMenuItem>
+                      {ownershipIsPrivate && (
+                        <DropdownMenuItem
+                          disabled={markDownstreamUtility.isPending}
+                          onSelect={handleMarkOwnershipUtility}
+                        >
+                          <LockOpen className="size-4" />
+                          Mark downstream utility
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem disabled={resyncOwnership.isPending} onSelect={handleResyncOwnership}>
                         <RefreshCw className="size-4" />
                         Re-sync ownership
@@ -4057,6 +4222,9 @@ export function FeaturePanel() {
             />
           ) : (
             <>
+              {/* On a METER, a one-to-one pointer to the service point it rides
+                  (the reverse of the SP's Meters tab) -- shown above every tab. */}
+              <MeterHostChip />
               {activeTab === "attributes" && <AttributesTab />}
               {activeTab === "terminals" && isConnectable && <TerminalsTab />}
               {activeTab === "relationships" && <RelationshipsTab />}
@@ -4067,6 +4235,7 @@ export function FeaturePanel() {
               {activeTab === "safety" && <SafetyTab />}
               {activeTab === "spatial" && <SpatialTab />}
               {activeTab === "streetlights" && <StreetLightsTab />}
+              {activeTab === "meters" && <ServicePointMetersTab />}
               {activeTab === "tags" && <TagsTab />}
               {activeTab === "files" && (
                 <FeatureAttachments

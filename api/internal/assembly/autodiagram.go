@@ -2,31 +2,38 @@ package assembly
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 
 	"github.com/uptrace/bun"
 
 	"github.com/kwaabs/voltedge/api/internal/diagram"
 )
 
-// assemblyDiagramTemplates maps a kit config code (the Config named in the create
-// request -- e.g. POLE_MOUNT_STD) to the built-in single-line template
-// (seed/assembly_diagram_templates.sql) whose typed slots match that kit's
-// fanned-out components. A config with no entry gets no diagram (not an error).
-var assemblyDiagramTemplates = map[string]string{
-	"POLE_MOUNT_STD":       "Pole-mount transformer (overhead)",
-	"POLE_MOUNT_RECLOSER":  "Pole-mount recloser",
-	"POLE_MOUNT_CAP_BANK":  "Pole-mount capacitor bank",
-	"POLE_MOUNT_REGULATOR": "Pole-mount voltage regulator",
-	"POLE_MOUNT_BESS":      "Pole-mount battery storage",
-	"PAD_MOUNT_URD":        "Pad-mount transformer + feeder pillar (URD)",
-	"WAYS_4":               "Feeder pillar — 4-way",
-	"WAYS_6":               "Feeder pillar — 6-way",
-	// Nested packed station (seed/packed_station_assembly.sql). Fixed and mobile
-	// share one single-line each -- the enclosure tenure doesn't change the kit.
-	"PACKED_RMU_FIXED":     "Packed station — RMU + transformer + pillar",
-	"PACKED_RMU_MOBILE":    "Packed station — RMU + transformer + pillar",
-	"PACKED_XFMR_FIXED":    "Packed station — transformer + pillar",
-	"PACKED_XFMR_MOBILE":   "Packed station — transformer + pillar",
+// kitDiagramTemplateName resolves which runtime.diagram_templates row backs a kit's
+// single-line. The link is DATA-DRIVEN (migration 0163): it reads
+// metadata.assembly_templates.diagram_template_name for the (anchor class, config),
+// so an in-app-authored kit (which the Go binary has never heard of) gets its
+// generated/linked template too. Empty (no row, or a NULL link) means "no diagram"
+// -- not an error. This replaced a hardcoded config->name Go map; the built-ins'
+// links were backfilled into the column by migration 0163.
+func kitDiagramTemplateName(ctx context.Context, db *bun.DB, anchorClass, config string) (string, error) {
+	var name *string
+	err := db.QueryRowContext(ctx, `
+SELECT at.diagram_template_name
+FROM metadata.assembly_templates at
+JOIN metadata.feature_classes afc ON afc.id = at.anchor_feature_class_id
+WHERE afc.code = ? AND at.code = ?`, anchorClass, config).Scan(&name)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", nil
+	case err != nil:
+		return "", err
+	}
+	if name == nil {
+		return "", nil
+	}
+	return *name, nil
 }
 
 // buildAutoDiagram stands up the kit's single-line right after a successful
@@ -38,9 +45,12 @@ var assemblyDiagramTemplates = map[string]string{
 // pole anchor matches no slot and is harmlessly ignored. Best-effort -- the
 // handler logs any error, never fails the create over a diagram.
 func buildAutoDiagram(ctx context.Context, db *bun.DB, in CreateAssemblyInput, result *CreateAssemblyResult) (*diagram.GenerateAssemblyDiagramResult, error) {
-	templateName := assemblyDiagramTemplates[in.Config]
+	templateName, err := kitDiagramTemplateName(ctx, db, in.AnchorFeatureClass, in.Config)
+	if err != nil {
+		return nil, err
+	}
 	if templateName == "" {
-		return nil, nil // no template for this config -- nothing to build, not an error
+		return nil, nil // no template linked for this kit -- nothing to build, not an error
 	}
 
 	anchorID, err := featureID(result.Anchor)

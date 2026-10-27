@@ -43,13 +43,13 @@ const markdownComponents: Components = {
 
 /**
  * The in-app documentation viewer. A left rail lists every manual the server
- * says this user may read (administrative guides are filtered out server-side
- * for a caller without the permission -- see api/internal/docs), grouped by
- * category; the right pane renders the selected manual's Markdown.
+ * says this user may read, grouped by category; the right pane renders the
+ * selected manual's Markdown (or an interactive HTML guide in an iframe).
  *
- * The permission limit is enforced by the API, not here: an admin manual never
- * appears in the list for an unauthorised user, and a direct GET /docs/{id}
- * for one is refused 403 -- the frontend just reflects that outcome.
+ * Visibility is enforced by the API, not here (see api/internal/docs): the
+ * written library is admin-only, so a non-admin's list contains only the
+ * interactive guides, and a direct GET /docs/{id} for a document they may not
+ * read is refused 403 -- the frontend just reflects that outcome.
  */
 export function DocsPage() {
   const { id } = useParams()

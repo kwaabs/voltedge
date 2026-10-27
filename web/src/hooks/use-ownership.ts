@@ -46,6 +46,24 @@ export function useMarkDownstreamPrivate() {
   })
 }
 
+/** The inverse of useMarkDownstreamPrivate: clear a transformer and everything
+ * downstream of it back to utility-owned. Same invalidation + tile refresh. */
+export function useMarkDownstreamUtility() {
+  const queryClient = useQueryClient()
+  return useMutation<OwnershipPropagateResult, ApiError, { featureClass: string; featureId: string }>({
+    mutationFn: ({ featureClass, featureId }) =>
+      apiFetch<OwnershipPropagateResult>("/ownership/mark-utility", {
+        method: "POST",
+        body: JSON.stringify({ feature_class: featureClass, feature_id: featureId }),
+      }),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["feature", vars.featureClass, vars.featureId] })
+      queryClient.invalidateQueries({ queryKey: ["features"] })
+      useMapRefreshStore.getState().bump()
+    },
+  })
+}
+
 export function useResyncOwnership() {
   const queryClient = useQueryClient()
   return useMutation<OwnershipResyncResult, ApiError, void>({

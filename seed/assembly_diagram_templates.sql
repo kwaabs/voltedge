@@ -197,65 +197,93 @@ WHERE NOT EXISTS (SELECT 1 FROM upd)
 -- Packaged substation (compact)
 --   config COMPACT: 1x MV_SWITCH -> 1x DIST_XFMR -> 1x LV_BUSBAR (chain)
 -- =========================================================================
+-- Upsert (not insert-if-absent): the layout here is revised over time -- the LV
+-- busbar is now a horizontal bar (a "path" slot) instead of rendering as a long
+-- vertical line -- so re-running this seed must UPDATE an already-seeded template,
+-- not skip it. (runtime.diagram_templates has no unique(name), so this is an
+-- explicit update-else-insert rather than ON CONFLICT.) After updating the
+-- template, Regenerate an existing packaged-substation diagram to pick up the new
+-- layout (migration 0122: Regenerate re-applies source_template_id); new builds
+-- get it automatically.
+WITH tmpl(name, description, payload) AS (
+  VALUES (
+    'Packaged substation (compact)',
+    'Compact secondary substation single-line: MV switch, distribution transformer, LV busbar in a chain. Bind each slot to the packaged-substation fan-out components.',
+    $$
+    {
+      "elements": [
+        { "kind": "line", "x": 200, "y": 30,  "rotation": 0, "z_index": 0, "path": [[200,30],[200,95]],   "style": {"stroke": "var(--foreground)"} },
+        { "kind": "line", "x": 200, "y": 145, "rotation": 0, "z_index": 0, "path": [[200,145],[200,215]], "style": {"stroke": "var(--foreground)"} },
+        { "kind": "line", "x": 200, "y": 265, "rotation": 0, "z_index": 0, "path": [[200,265],[200,335]], "style": {"stroke": "var(--foreground)"} },
+
+        { "kind": "slot", "x": 200, "y": 120, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
+        { "kind": "slot", "x": 200, "y": 240, "rotation": 0, "z_index": 20, "slot_class": "DIST_XFMR" },
+        { "kind": "slot", "x": 120, "y": 360, "rotation": 0, "z_index": 20, "slot_class": "LV_BUSBAR", "path": [[120,360],[280,360]] },
+
+        { "kind": "text", "x": 235, "y": 24,  "rotation": 0, "z_index": 30, "text": "MV incomer" },
+        { "kind": "text", "x": 235, "y": 114, "rotation": 0, "z_index": 30, "text": "MV switch" },
+        { "kind": "text", "x": 235, "y": 234, "rotation": 0, "z_index": 30, "text": "Distribution transformer" },
+        { "kind": "text", "x": 300, "y": 354, "rotation": 0, "z_index": 30, "text": "LV busbar" }
+      ]
+    }
+    $$::jsonb
+  )
+),
+upd AS (
+  UPDATE runtime.diagram_templates t
+     SET payload = tmpl.payload, description = tmpl.description
+    FROM tmpl
+   WHERE t.name = tmpl.name
+  RETURNING t.id
+)
 INSERT INTO runtime.diagram_templates (name, description, payload)
-SELECT
-  'Packaged substation (compact)',
-  'Compact secondary substation single-line: MV switch, distribution transformer, LV busbar in a chain. Bind each slot to the packaged-substation fan-out components.',
-  $$
-  {
-    "elements": [
-      { "kind": "line", "x": 200, "y": 40,  "rotation": 0, "z_index": 0, "path": [[200,40],[200,110]],  "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 200, "y": 170, "rotation": 0, "z_index": 0, "path": [[200,170],[200,250]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 200, "y": 310, "rotation": 0, "z_index": 0, "path": [[200,310],[200,410]], "style": {"stroke": "var(--foreground)"} },
-
-      { "kind": "slot", "x": 200, "y": 140, "rotation": 0, "z_index": 20, "slot_class": "MV_SWITCH" },
-      { "kind": "slot", "x": 200, "y": 280, "rotation": 0, "z_index": 20, "slot_class": "DIST_XFMR" },
-      { "kind": "slot", "x": 200, "y": 440, "rotation": 0, "z_index": 20, "slot_class": "LV_BUSBAR" },
-
-      { "kind": "text", "x": 235, "y": 34,  "rotation": 0, "z_index": 30, "text": "MV incomer" },
-      { "kind": "text", "x": 235, "y": 145, "rotation": 0, "z_index": 30, "text": "MV switch" },
-      { "kind": "text", "x": 235, "y": 285, "rotation": 0, "z_index": 30, "text": "Distribution transformer" },
-      { "kind": "text", "x": 235, "y": 445, "rotation": 0, "z_index": 30, "text": "LV busbar" }
-    ]
-  }
-  $$::jsonb
-WHERE NOT EXISTS (
-  SELECT 1 FROM runtime.diagram_templates WHERE name = 'Packaged substation (compact)'
-);
+SELECT name, description, payload FROM tmpl
+WHERE NOT EXISTS (SELECT 1 FROM runtime.diagram_templates WHERE name = tmpl.name);
 
 -- =========================================================================
 -- Pole-mount transformer (overhead)  (POLE_MOUNT_STD)
 --   1x MV_FUSE + 1x MV_ARRESTER + 1x DIST_XFMR + 1x LV_BUSBAR
 -- =========================================================================
+-- Upsert (see the compact template above for why): revising the busbar to a
+-- horizontal bar must update an already-seeded row, and Regenerate re-applies it.
+WITH tmpl(name, description, payload) AS (
+  VALUES (
+    'Pole-mount transformer (overhead)',
+    'Overhead pole-mounted transformer single-line: MV fuse (cutout), surge arrester, distribution transformer, LV busbar. Bind each slot to the assembly''s fan-out components.',
+    $$
+    {
+      "elements": [
+        { "kind": "line", "x": 200, "y": 40,  "rotation": 0, "z_index": 0, "path": [[200,40],[200,100]],  "style": {"stroke": "var(--foreground)"} },
+        { "kind": "line", "x": 200, "y": 130, "rotation": 0, "z_index": 0, "path": [[200,130],[200,230]], "style": {"stroke": "var(--foreground)"} },
+        { "kind": "line", "x": 200, "y": 115, "rotation": 0, "z_index": 0, "path": [[200,115],[330,115]], "style": {"stroke": "var(--foreground)"} },
+        { "kind": "line", "x": 330, "y": 145, "rotation": 0, "z_index": 0, "path": [[330,145],[330,175]], "style": {"stroke": "var(--foreground)"} },
+        { "kind": "line", "x": 200, "y": 300, "rotation": 0, "z_index": 0, "path": [[200,300],[200,400]], "style": {"stroke": "var(--foreground)"} },
+
+        { "kind": "slot", "x": 200, "y": 115, "rotation": 0, "z_index": 20, "slot_class": "MV_FUSE" },
+        { "kind": "slot", "x": 330, "y": 130, "rotation": 0, "z_index": 20, "slot_class": "MV_ARRESTER" },
+        { "kind": "slot", "x": 200, "y": 270, "rotation": 0, "z_index": 20, "slot_class": "DIST_XFMR" },
+        { "kind": "slot", "x": 120, "y": 410, "rotation": 0, "z_index": 20, "slot_class": "LV_BUSBAR", "path": [[120,410],[280,410]] },
+
+        { "kind": "text", "x": 235, "y": 34,  "rotation": 0, "z_index": 30, "text": "MV line" },
+        { "kind": "text", "x": 120, "y": 110, "rotation": 0, "z_index": 30, "text": "MV fuse" },
+        { "kind": "text", "x": 360, "y": 135, "rotation": 0, "z_index": 30, "text": "Surge arrester" },
+        { "kind": "text", "x": 235, "y": 275, "rotation": 0, "z_index": 30, "text": "Distribution transformer" },
+        { "kind": "text", "x": 300, "y": 404, "rotation": 0, "z_index": 30, "text": "LV busbar" }
+      ]
+    }
+    $$::jsonb
+  )
+),
+upd AS (
+  UPDATE runtime.diagram_templates t
+     SET payload = tmpl.payload, description = tmpl.description
+    FROM tmpl
+   WHERE t.name = tmpl.name
+  RETURNING t.id
+)
 INSERT INTO runtime.diagram_templates (name, description, payload)
-SELECT
-  'Pole-mount transformer (overhead)',
-  'Overhead pole-mounted transformer single-line: MV fuse (cutout), surge arrester, distribution transformer, LV busbar. Bind each slot to the assembly''s fan-out components.',
-  $$
-  {
-    "elements": [
-      { "kind": "line", "x": 200, "y": 40,  "rotation": 0, "z_index": 0, "path": [[200,40],[200,100]],  "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 200, "y": 130, "rotation": 0, "z_index": 0, "path": [[200,130],[200,230]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 200, "y": 115, "rotation": 0, "z_index": 0, "path": [[200,115],[330,115]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 330, "y": 145, "rotation": 0, "z_index": 0, "path": [[330,145],[330,175]], "style": {"stroke": "var(--foreground)"} },
-      { "kind": "line", "x": 200, "y": 300, "rotation": 0, "z_index": 0, "path": [[200,300],[200,400]], "style": {"stroke": "var(--foreground)"} },
-
-      { "kind": "slot", "x": 200, "y": 115, "rotation": 0, "z_index": 20, "slot_class": "MV_FUSE" },
-      { "kind": "slot", "x": 330, "y": 130, "rotation": 0, "z_index": 20, "slot_class": "MV_ARRESTER" },
-      { "kind": "slot", "x": 200, "y": 270, "rotation": 0, "z_index": 20, "slot_class": "DIST_XFMR" },
-      { "kind": "slot", "x": 200, "y": 430, "rotation": 0, "z_index": 20, "slot_class": "LV_BUSBAR" },
-
-      { "kind": "text", "x": 235, "y": 34,  "rotation": 0, "z_index": 30, "text": "MV line" },
-      { "kind": "text", "x": 120, "y": 110, "rotation": 0, "z_index": 30, "text": "MV fuse" },
-      { "kind": "text", "x": 360, "y": 135, "rotation": 0, "z_index": 30, "text": "Surge arrester" },
-      { "kind": "text", "x": 235, "y": 275, "rotation": 0, "z_index": 30, "text": "Distribution transformer" },
-      { "kind": "text", "x": 235, "y": 435, "rotation": 0, "z_index": 30, "text": "LV busbar" }
-    ]
-  }
-  $$::jsonb
-WHERE NOT EXISTS (
-  SELECT 1 FROM runtime.diagram_templates WHERE name = 'Pole-mount transformer (overhead)'
-);
+SELECT name, description, payload FROM tmpl
+WHERE NOT EXISTS (SELECT 1 FROM runtime.diagram_templates WHERE name = tmpl.name);
 
 -- =========================================================================
 -- Pole-mount recloser  (POLE_MOUNT_RECLOSER)

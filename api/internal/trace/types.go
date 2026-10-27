@@ -9,9 +9,9 @@
 // describes (connected, downstream, upstream, shortest_path) with real
 // barrier-stopping (trace_barrier_rules, checked live against a
 // feature's current attribute value at each hop -- never baked into
-// the connectivity graph itself). Isolation and loop/mesh detection
-// (which compose two of these primitives) aren't built yet -- see
-// docs/phase-4-trace-engine.md's "What's still open". cross_transformers
+// the connectivity graph itself). Isolation (isolate.go) and loop/mesh
+// detection (loops.go) -- both named in docs/phase-4-trace-engine.md's
+// "What's still open" -- now compose these primitives too. cross_transformers
 // is now enforced for downstream traces -- the transformer boundary the
 // original stub left open is answered as functional_role='transformer'
 // (migration 0091): a downstream walk stops at each transformer unless the

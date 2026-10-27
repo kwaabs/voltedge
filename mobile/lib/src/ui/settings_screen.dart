@@ -65,6 +65,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         token: res.token,
         email: res.email.isNotEmpty ? res.email : email,
         displayName: res.displayName,
+        permissions: res.permissions,
       );
       ref.invalidate(remotePacksProvider);
       if (!mounted) return;

@@ -87,9 +87,9 @@ Two ordering consequences worth remembering:
 | `iam.user_identities` | One row per way to prove identity: `provider` is `local`, `azuread` or `google`. Local rows carry the Argon2id `password_hash`; SSO rows carry the provider's `provider_subject`. Unique `(provider, provider_subject)` and unique `(user_id, provider)`. |
 | `iam.sessions` | Server-side sessions: SHA-256 of the cookie token, per-session CSRF token, `idle_expires_at`, `absolute_expires_at`, `revoked_at`, `ip`, `user_agent`. |
 | `iam.api_tokens` | Long-lived bearer tokens: `token_prefix` (first 12 chars, for display), `token_sha256`, `expires_at` (nullable), `revoked_at`, `last_used_at`, `created_by`. |
-| `iam.permissions` | The catalog: `key` (primary key), `description`. 34 rows. |
+| `iam.permissions` | The catalog: `key` (primary key), `description`. 37 rows. |
 | `iam.roles` | `key`, `name`, `description`, `is_system`. 9 seeded rows. |
-| `iam.role_permissions` | Which permissions a role grants. 150 seeded rows. |
+| `iam.role_permissions` | Which permissions a role grants. 163 seeded rows. |
 | `iam.user_roles` | Which roles a user holds (`granted_by`, `granted_at`). **No rows are seeded.** |
 | `iam.user_territories` | Direct user -> territory grants. |
 | `iam.system_settings` | Runtime switches: `local_auth_enabled`, `territory_enforcement_enabled`, and (when set) `private_drafts_enabled`, plus map defaults and the log level. |
@@ -179,15 +179,15 @@ All nine have `is_system = true`. They come from three migrations: **0025** (fiv
 | --- | --- | --- | --- | --- | --- |
 | `viewer` | Viewer | 0025 | 11 | Read-only: features, connectivity, relationships, diagrams, and the metadata catalog. | Priya, dispatcher: sees everything, changes nothing |
 | `analyst` | Analyst | 0025 | 13 | Everything a viewer can do, plus running traces and network analysis. | Tom, planner: runs traces and studies |
-| `editor` | Editor | 0025 | 23 | Everything an analyst can do, plus editing features, connectivity, relationships, and diagrams. | Dana, field supervisor: edits data |
-| `supervisor` | Supervisor | 0078 | 16 | Everything an editor can do, plus deleting diagrams. | An editor who may also delete diagrams (see 3.3 for the drift) |
-| `admin` | Administrator | 0025 | 34 | Full access, including the metadata catalog, user management, and auth settings. | Ada, system administrator |
-| `break-glass-admin` | Break-glass admin | 0025 | 34 | Full access; the role given to emergency break-glass accounts. | Owen, emergency account (pair with the break_glass flag) |
-| `field-surveyor` | Field surveyor | 0099 | 4 | Read-only field capture: view features and connectivity, take photos and attachments. Cannot edit features. | Field tool: read-only capture with photos |
-| `field-enumerator` | Field enumerator | 0099 | 5 | Field capture with editing: everything a surveyor can do, plus creating and editing features in the field. | Field tool: surveyor plus creating/editing features |
-| `field-technician` | Field technician | 0099 | 10 | Field works: everything an enumerator can do, plus the work board -- log defects, perform and close work orders, record inspections. | Field tool: enumerator plus work board, faults and tags |
+| `editor` | Editor | 0025 | 25 | Everything an analyst can do, plus editing features, connectivity, relationships, and diagrams. | Dana, field supervisor: edits data |
+| `supervisor` | Supervisor | 0078 | 18 | Everything an editor can do, plus deleting diagrams. | An editor who may also delete diagrams (see 3.3 for the drift) |
+| `admin` | Administrator | 0025 | 37 | Full access, including the metadata catalog, user management, and auth settings. | Ada, system administrator |
+| `break-glass-admin` | Break-glass admin | 0025 | 37 | Full access; the role given to emergency break-glass accounts. | Owen, emergency account (pair with the break_glass flag) |
+| `field-surveyor` | Field surveyor | 0099 | 5 | Read-only field capture: view features and connectivity, take photos and attachments. Cannot edit features. | Field tool: read-only capture with photos |
+| `field-enumerator` | Field enumerator | 0099 | 6 | Field capture with editing: everything a surveyor can do, plus creating and editing features in the field. | Field tool: surveyor plus creating/editing features |
+| `field-technician` | Field technician | 0099 | 11 | Field works: everything an enumerator can do, plus the work board -- log defects, perform and close work orders, record inspections. | Field tool: enumerator plus work board, faults and tags |
 
-Grant counts are from the scratch database built from the migrations: viewer 11, analyst 13, editor 23, supervisor 16, admin 34, break-glass-admin 34, field-surveyor 4, field-enumerator 5, field-technician 10 (150 rows in all).
+Grant counts are from the scratch database built from the migrations: viewer 11, analyst 13, editor 25, supervisor 18, admin 37, break-glass-admin 37, field-surveyor 5, field-enumerator 6, field-technician 11 (163 rows in all).
 
 ### 3.2 How the roles relate
 
@@ -196,13 +196,15 @@ Grant counts are from the scratch database built from the migrations: viewer 11,
    |  + trace:run, analysis:run
  analyst (13)
    |  + features:write, connectivity:commit, relationships:commit, diagrams:write,
-   |    annotations:write, attachments:write, oms:write, wam:write, faults:write, tags:write
- editor (23)        edits DATA; no metadata:*, no admin:*, no territory powers
+   |    annotations:write, attachments:write, oms:write, wam:write, faults:write, tags:write,
+   |    assemblies:read/write
+ editor (25)        edits DATA; no metadata:*, no admin:*, no territory powers
    |
-   +-- supervisor (16): copy of editor *as of migration 0078*, plus diagrams:delete  (see 3.3)
- admin (34) == break-glass-admin (34): every permission
+   +-- supervisor (18): copy of editor *as of migration 0078*, plus diagrams:delete  (see 3.3)
+ admin (37) == break-glass-admin (37): every permission
 
- field-surveyor (4)  < field-enumerator (5) < field-technician (10)    (a separate, narrower ladder for the field tool)
+ field-surveyor (5)  < field-enumerator (6) < field-technician (11)    (a separate, narrower ladder for the field tool;
+                                                                        each holds field:login -- the gate to sign in to it)
 ```
 
 Things the ladder deliberately does **not** give an editor: `metadata:write` (edit the schema), `admin:users` (manage people), `admin:auth-settings`, `territories:write`, `territories:unscoped`, `circuits:write`, `sync:review`/`sync:post`, `admin:field-packs`, `features:wipe`, `diagrams:delete`.
@@ -283,7 +285,7 @@ Roles are additive. A user holding `viewer` and `field-technician` holds the uni
 
 ## 4. The permission catalog
 
-Thirty-four permission keys exist. Each is a stable `resource:action` string that `auth.RequirePermission` (or an in-handler `Has()`) compares verbatim; the Go constants live in `api/internal/auth/rbac.go` (plus `access.PermUnscoped` for `territories:unscoped`).
+Thirty-seven permission keys exist. Each is a stable `resource:action` string that `auth.RequirePermission` (or an in-handler `Has()`) compares verbatim; the Go constants live in `api/internal/auth/rbac.go` (plus `access.PermUnscoped` for `territories:unscoped`).
 
 | Permission | Area | Since | What it allows | Held by | Gates (R read, W write/other, all, + extra check) |
 | --- | --- | --- | --- | --- | --- |
@@ -293,6 +295,8 @@ Thirty-four permission keys exist. Each is a stable `resource:action` string tha
 | `analysis:run` | Trace & analysis | 0025 | Run power-flow, fault-current, and ampacity analysis. | A, E, S, Ad, BG | `/analysis` (all) |
 | `annotations:read` | Annotations | 0061 | View map annotations (the redlining/markup layer). | V, A, E, S, Ad, BG | `/map-annotations` (R) |
 | `annotations:write` | Annotations | 0061 | Create, edit, and delete map annotations (redlining/markup). | E, S, Ad, BG | `/map-annotations` (W) |
+| `assemblies:read` | Assemblies | 0162 | View the assembly-kit catalog (place-one-get-a-wired-set recipes). | E, S, Ad, BG | `/assemblies/templates` (R) |
+| `assemblies:write` | Assemblies | 0162 | Author assembly kits: define a place-one-get-a-wired-set recipe and its components. A kit arranges existing classes, so it sits below `metadata:write`. | E, S, Ad, BG | `/assemblies/templates` (W); UI: `/admin/assemblies` |
 | `attachments:read` | Attachments | 0041 | View and download files attached to features. | V, A, E, S, Ad, BG, FS, FE, FT | `/attachments` (R) |
 | `attachments:write` | Attachments | 0041 | Upload, replace, and delete files attached to features. | E, S, Ad, BG, FS, FE, FT | `/attachments` (W) |
 | `circuits:write` | Circuits | 0063 | Create, rename, and delete circuits, and edit their voltage and source feature. | Ad, BG | `/circuits` (W); UI: `/admin/circuits` |
@@ -306,6 +310,7 @@ Thirty-four permission keys exist. Each is a stable `resource:action` string tha
 | `features:read` | Features | 0025 | View feature data: map layers, attributes, and feature-class schema. | V, A, E, S, Ad, BG, FS, FE, FT | `/feature-classes` (all); `/features` (R); `/imports` (R); `/export` (all); `/tiles` (all); `/territories` (R); `/circuits` (R); `/feature-registry` (all); `/panels` (R); `/rmus` (R); `/packaged-substations` (R); `/assemblies` (R); `/ducts` (R); `/couplers` (R); `/ties` (R); `/feature-links` (R); `/boq` (all); `/map-settings` (R); `/private-drafts` (R); `/basemaps` (R); `/service-layers` (R) |
 | `features:wipe` | Features | 0116 | Bulk soft-delete and permanently purge every feature in a class (admin). | Ad, BG | `POST /features/{code}/wipe`, `.../counts`, `.../purge-deleted` (+) |
 | `features:write` | Features | 0025 | Create, edit, publish, unpublish, delete, and restore features. | E, S, Ad, BG, FE, FT | `/features` (W); `/imports` (W); `/ownership` (all); `/panels` (W); `/rmus` (W); `/packaged-substations` (W); `/assemblies` (W); `/ducts` (W); `/couplers` (W); `/ties` (W); `/feature-links` (W); `POST /circuits/{id}/assign` (+); UI: `/imports` |
+| `field:login` | Field tool | 0164 | Sign in to the offline field app (obtain a field-app bearer token). Without it, a valid credential is refused 403 at field login -- so field-app access is an explicit grant, not implied by having an account. | Ad, BG, FS, FE, FT | `POST /auth/field-login` (+, on the field-sync service) |
 | `metadata:read` | Metadata catalog | 0025 | View the metadata catalog: classes, domains, field groups, symbology, materials. | V, A, E, S, Ad, BG | (no API mount; two manuals; three webhook assistant tools) |
 | `metadata:write` | Metadata catalog | 0025 | Edit and compile the metadata catalog and symbology. | Ad, BG | `/admin` (all); `/map-settings` (W); `/private-drafts` (W); `/basemaps` (W); `/service-layers` (W); `/external-systems` (all); `/webhook-endpoints` (all); `POST /diagrams/{id}/elements/{eid}/promote` (+); UI: `/admin/feature-classes`, `/admin/domains`, `/admin/field-groups`, `/admin/materials`, `/admin/cost-catalog`, `/admin/cim-mappings`, `/admin/imports`, `/admin/diagrams`, `/admin/stencils`, `/admin/symbology-icons`, `/admin/external-systems`, `/admin/webhooks`, `/admin/map-settings` |
 | `oms:read` | Outages (OMS) | 0088 | View the outage board: trouble calls, predicted and active incidents. | V, A, E, Ad, BG | `/oms` (R); UI: `/outages` |
@@ -775,7 +780,7 @@ An example that does not work, to avoid a wrong mental model: an agent holding T
 | Field app | `POST /auth/field-login` on the field-sync service `{email, password, device_name}` (token stored as `field-app · <device_name>`) | **0 = non-expiring** (a device must work offline for weeks) | same `authenticateLocal` events as a browser login; the token's `created_by` is the user |
 | List / revoke | `authadmin list-tokens --email`, `authadmin revoke-token --email --id` | | `revoked_at` stamped |
 
-A field login runs the *exact* local-login policy: lockout, the local-auth switch (so with local auth off only break-glass users can log in from a device), and the same events. Because field tokens never expire by default, **revocation is the control**: when a device is lost, run `revoke-token`, and disable the user if the credential itself is suspect.
+A field login runs the *exact* local-login policy: lockout, the local-auth switch (so with local auth off only break-glass users can log in from a device), and the same events. **Then, since migration 0164, it additionally requires the `field:login` permission** — a valid credential held by a user who lacks it is refused **403** (`this account does not have field-app access`). So signing into the field app is an explicit grant held only by the three field roles plus admin/break-glass; an office-only account (viewer/analyst/editor) with perfectly good credentials cannot obtain a field-app token. A person who does both office and field work holds an office role *and* a field role (roles stack). On success the response also returns the user's effective permission set, which the device uses to show/hide its modules (the server still enforces every call independently). Because field tokens never expire by default, **revocation is the control**: when a device is lost, run `revoke-token`, and disable the user if the credential itself is suspect.
 
 ### 9.4 Webhook ingestion credentials
 
@@ -1425,7 +1430,7 @@ Line numbers refer to the documents **before** the correction (`git show HEAD:<f
 | --- | --- | --- | --- | --- |
 | 1 | §3.1 table (430) | table named `iam.identities` | `iam.user_identities` | `migrations/0024_create_auth_schema.sql` (`CREATE TABLE iam.user_identities`) |
 | 2 | §1.6 (123), §3.2 (445), §9.2 (1561) | "Five roles ship" / "seeds exactly five roles" | five baseline roles from 0025, plus `supervisor` (0078) and three field roles (0099): nine | `migrations/0078`, `0099`; scratch DB: 9 rows in `iam.roles` |
-| 3 | §1.6 (130, 136), §3.2 (452), §9.1 (1559) | later permissions "automatically flow" to admin/break-glass via `CROSS JOIN` | the `CROSS JOIN` ran once in 0025 over 14 permissions; each later migration grants explicitly | `0031`, `0040`, `0044`, `0061`, `0063`, `0078`, `0088`, `0094`, `0097`, `0107`, `0115`, `0116` each `INSERT INTO iam.role_permissions ... WHERE r.key IN ('admin','break-glass-admin')` |
+| 3 | §1.6 (130, 136), §3.2 (452), §9.1 (1559) | later permissions "automatically flow" to admin/break-glass via `CROSS JOIN` | the `CROSS JOIN` ran once in 0025 over 14 permissions; each later migration grants explicitly | `0031`, `0040`, `0044`, `0061`, `0063`, `0078`, `0088`, `0094`, `0097`, `0107`, `0115`, `0116`, `0162`, `0164` each `INSERT INTO iam.role_permissions ... WHERE r.key IN ('admin','break-glass-admin')` |
 | 4 | §1.3 (82), §3.6 (620) | CSRF check includes `Origin`; every mutating route carries it | only `Sec-Fetch-Site` is inspected; middleware is applied to a specific set of surfaces | `api/internal/auth/middleware.go` `RequireCSRF`; `grep RequireCSRF` shows `/auth` logout + switch, `/auth/admin`, attachments, assistant chat/execute, field-packs, sync-review only |
 | 5 | §3.8 (652) | an AI agent's bearer token drives `POST /analysis/...` through the API's step 1 | the API server reads cookies only; the agent uses the MCP server | `middleware.go` `SessionLoader` (cookie only); bearer users: `mcpserver/server.go:256`, `fieldpack/routes.go`, `webhook/receiver.go:173` |
 | 6 | §4.2 (704) | quoted message with `"District"` | level **code**, `"district"` | `territory/assign.go` (`min.Code`) |

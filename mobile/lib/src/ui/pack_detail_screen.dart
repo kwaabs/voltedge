@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../pack/pack_database.dart';
 import '../pack/pack_store.dart';
+import '../providers.dart';
 import 'drafts_screen.dart';
 import 'faults_screen.dart';
 import 'feature_detail_screen.dart';
@@ -12,15 +14,15 @@ import 'wam_screen.dart';
 /// Opens a downloaded pack's data.sqlite and shows what's inside: the manifest
 /// facts, the graph-table row counts, and the per-class feature list. Proves the
 /// whole server→device contract end to end without the map (that's Slice 2b).
-class PackDetailScreen extends StatefulWidget {
+class PackDetailScreen extends ConsumerStatefulWidget {
   const PackDetailScreen({super.key, required this.pack});
   final LocalPack pack;
 
   @override
-  State<PackDetailScreen> createState() => _PackDetailScreenState();
+  ConsumerState<PackDetailScreen> createState() => _PackDetailScreenState();
 }
 
-class _PackDetailScreenState extends State<PackDetailScreen> {
+class _PackDetailScreenState extends ConsumerState<PackDetailScreen> {
   PackDatabase? _db;
   Object? _error;
 
@@ -58,14 +60,22 @@ class _PackDetailScreenState extends State<PackDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Module visibility is gated by BOTH what the pack shipped AND the signed-in
+    // user's permissions (migration 0164 ships them on login). Pack context alone
+    // isn't enough offline: the SQLite already holds the data, so a user without
+    // wam:read/faults:read must still not be shown that module. The server also
+    // enforces every sync/online call independently.
+    final settings = ref.watch(settingsRepositoryProvider);
     return Scaffold(
       appBar: AppBar(
         title: Text('Pack ${shortId(widget.pack.id)}'),
         actions: [
           // The offline WAM surface (work board / defects / inspections), shown when
           // this pack shipped WAM read-context (a wam:read build) OR a shared base
-          // whose per-user overlay brought a work board (shared-field-packs S3b).
-          if (_db?.packsWam == true || widget.pack.overlayWorkOrderCount > 0)
+          // whose per-user overlay brought a work board (shared-field-packs S3b) --
+          // and only to a user who holds wam:read.
+          if ((_db?.packsWam == true || widget.pack.overlayWorkOrderCount > 0) &&
+              settings.hasPermission('wam:read'))
             IconButton(
               icon: const Icon(Icons.assignment_outlined),
               tooltip: 'Work & assets',
@@ -90,8 +100,8 @@ class _PackDetailScreenState extends State<PackDetailScreen> {
             ),
           // The offline Faults surface (fault board / raise / status / book defect),
           // shown only when this pack shipped faults read-context (a faults:read
-          // build). Orthogonal to WAM -- a pack can carry faults, WAM, both, neither.
-          if (_db?.packsFaults == true)
+          // build) AND the user holds faults:read. Orthogonal to WAM.
+          if (_db?.packsFaults == true && settings.hasPermission('faults:read'))
             IconButton(
               icon: const Icon(Icons.bolt_outlined),
               tooltip: 'Faults',

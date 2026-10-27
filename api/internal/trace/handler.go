@@ -35,6 +35,9 @@ import (
 //	                       walk rolled up by load, customers, and
 //	                       restoration priority, with the per-SERVICE_POINT
 //	                       breakdown behind it
+//	POST   /loops          cycle (loop/mesh) detection from a feature,
+//	                       scoped upstream / downstream / both -- a radial
+//	                       network should have none, so each is worth flagging
 //
 // Read-only -- unlike api/internal/connectivity and
 // api/internal/relationship, there's nothing here to establish or
@@ -50,7 +53,53 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/supply-path", supplyPathHandler(db))
 	r.Post("/service", serviceHandler(db))
 	r.Post("/energization", energizationHandler(db))
+	r.Post("/loops", loopsHandler(db))
+	r.Post("/loops/break-options", loopBreakOptionsHandler(db))
 	return r
+}
+
+// loopBreakOptionsHandler lists the switchable devices on each closed loop reachable
+// from a feature -- the candidates to OPEN to break the ring. See
+// api/internal/trace/loops.go DetectLoopBreakOptions.
+func loopBreakOptionsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Start featureRef `json:"start"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+		if req.Start.FeatureClass == "" || req.Start.FeatureID == "" {
+			writeError(w, invalid("start.feature_class and start.feature_id are required"))
+			return
+		}
+		rings, truncated, err := DetectLoopBreakOptions(r.Context(), db, FeatureRef{FeatureClass: req.Start.FeatureClass, FeatureID: req.Start.FeatureID})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"rings": rings, "truncated": truncated})
+	}
+}
+
+// loopsHandler flags cycles (loops/meshes) in a feature's network, scoped by
+// direction -- "upstream", "downstream" or "both". See api/internal/trace/loops.go.
+func loopsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req loopCheckRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalid("request body is not valid JSON: %v", err))
+			return
+		}
+
+		result, err := detectLoops(r.Context(), db, req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
 }
 
 // energizationHandler classifies a set of features live vs de-energised: it

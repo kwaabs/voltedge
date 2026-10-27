@@ -320,6 +320,88 @@ func ServiceTrace(ctx context.Context, db bun.IDB, in ServiceInput) (*ServiceRes
 	}, nil
 }
 
+// LoopCheckInput is the exported input to DetectLoops, mirroring the POST
+// /trace/loops body. Direction is "upstream", "downstream" or "both" (the
+// default). See loopCheckRequest and api/internal/trace/loops.go.
+type LoopCheckInput struct {
+	Start     FeatureRef
+	Direction string
+	// AsBuilt ignores switch state (reports every physical ring); default false
+	// means an OPEN device breaks the walk, so a normally-open ring is not a loop.
+	AsBuilt bool
+}
+
+// LoopRing is one ring found by DetectLoopsInScope: the member features plus the
+// ring's lowest nominal voltage (nil when none of its members carry a voltage),
+// used by the topology audit to classify a loop LV vs MV against the radial-vs-mesh
+// policy. Always detected with switch state respected (an open ring is not a loop).
+type LoopRing struct {
+	Features    []FeatureRef `json:"features"`
+	MinVoltageV *float64     `json:"min_voltage_v,omitempty"`
+}
+
+// LoopBreakCandidate is one switchable device on a loop that could be OPENed to
+// break it -- its current state and whether it's the recommended pick (a CLOSED
+// device, since opening it actually breaks the live ring).
+type LoopBreakCandidate struct {
+	FeatureClass string `json:"feature_class"`
+	FeatureID    string `json:"feature_id"`
+	DeviceState  string `json:"device_state,omitempty"`
+	Recommended  bool   `json:"recommended,omitempty"`
+}
+
+// LoopBreakRing is one closed loop plus the switchable devices on it -- the "where
+// can I open a point to break this ring" answer. Any one candidate opened breaks
+// the ring (in a loop every member stays fed), so any CLOSED device is valid; the
+// first is recommended.
+type LoopBreakRing struct {
+	Features   []FeatureRef         `json:"features"`
+	Candidates []LoopBreakCandidate `json:"candidates"`
+}
+
+// NetworkLoop is the exported form of networkLoop -- one detected ring of
+// features closing a cycle. See networkLoop.
+type NetworkLoop struct {
+	Features []FeatureRef `json:"features"`
+	Length   int          `json:"length"`
+}
+
+// LoopCheckResult is the exported form of loopCheckResponse -- whether the
+// feature's network loops in the chosen direction, and the ring(s) found. See
+// loopCheckResponse.
+type LoopCheckResult struct {
+	Start     FeatureRef    `json:"start"`
+	Direction string        `json:"direction"`
+	HasLoop   bool          `json:"has_loop"`
+	Loops     []NetworkLoop `json:"loops"`
+	Truncated bool          `json:"truncated"`
+}
+
+// DetectLoops runs one loop (mesh) check through the engine's detectLoops entry
+// point and returns the result in exported form. Read-only. Errors are the
+// engine's own (validation / not-found).
+func DetectLoops(ctx context.Context, db bun.IDB, in LoopCheckInput) (*LoopCheckResult, error) {
+	resp, err := detectLoops(ctx, db, loopCheckRequest{
+		Start:     featureRef{FeatureClass: in.Start.FeatureClass, FeatureID: in.Start.FeatureID},
+		Direction: in.Direction,
+		AsBuilt:   in.AsBuilt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	loops := make([]NetworkLoop, len(resp.Loops))
+	for i, l := range resp.Loops {
+		loops[i] = NetworkLoop{Features: toExportedRefs(l.Features), Length: l.Length}
+	}
+	return &LoopCheckResult{
+		Start:     toExportedRef(resp.Start),
+		Direction: resp.Direction,
+		HasLoop:   resp.HasLoop,
+		Loops:     loops,
+		Truncated: resp.Truncated,
+	}, nil
+}
+
 func toExportedRef(r featureRef) FeatureRef {
 	return FeatureRef{FeatureClass: r.FeatureClass, FeatureID: r.FeatureID}
 }

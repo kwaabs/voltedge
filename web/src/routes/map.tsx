@@ -316,9 +316,10 @@ export function MapPage() {
               `hidden`), and in split view the bar spans only the map's width. */}
           <div className={cn("relative min-h-0 flex-1", editing && "ring-2 ring-inset ring-amber-500")}>
             {/* Ambient edit-mode cue (S1): a persistent badge so the mode is
-                unmistakable even when the toggle is scrolled out of view. */}
+                unmistakable even when the toggle is scrolled out of view. Top-left
+                corner, clear of the top-right controls cluster. */}
             {editing && (
-              <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full bg-amber-600 px-3 py-1 text-xs font-semibold text-white shadow-md">
+              <div className="pointer-events-none absolute top-3 left-3 z-10 rounded-full bg-amber-600 px-3 py-1 text-xs font-semibold text-white shadow-md">
                 Edit mode
               </div>
             )}

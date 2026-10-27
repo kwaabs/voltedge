@@ -353,22 +353,10 @@ func applyStepDeviceState(ctx context.Context, db bun.IDB, step *SwitchingStep, 
 		return nil // verify/earth/note don't move a device's live position
 	}
 
-	// Safety interlock (Slice 2): a BLOCKING safety tag (danger/out_of_service) on
-	// the device bars operating it. Refuse the step before anything flips, naming
-	// the tag so the operator knows why. Applies to execute AND revert -- any state
-	// change on a tagged device is barred until the tag is cleared or its clearance
-	// surrendered. Runs in the step's tx, so a blocked step leaves nothing changed.
-	if blocker, berr := safety.OperationBlocked(ctx, db, *step.DeviceClass, *step.DeviceID); berr != nil {
-		return berr
-	} else if blocker != nil {
-		reason := ""
-		if blocker.Reason != nil && strings.TrimSpace(*blocker.Reason) != "" {
-			reason = " — " + strings.TrimSpace(*blocker.Reason)
-		}
-		return invalidf("cannot operate %s: a %q safety tag is in place%s (remove the tag or surrender its clearance first)",
-			deviceRefLabel(*step.DeviceClass, *step.DeviceID), blocker.TagType, reason)
-	}
-
+	// A switching order may reference a since-removed device class or a class that
+	// doesn't model device_state -- tolerate both as a no-op (defensive), BEFORE the
+	// strict OperateDevice flip below. (OperateDevice re-loads, but that's cheap and
+	// keeps the safety-gate + flip in one shared place.)
 	loaded, err := metadata.Load(ctx, db, *step.DeviceClass)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -380,10 +368,42 @@ func applyStepDeviceState(ctx context.Context, db bun.IDB, step *SwitchingStep, 
 		return nil // this class doesn't model a live device_state
 	}
 
-	if _, err := crud.UpdateFeature(ctx, db, loaded, *step.DeviceID, crud.UpdateFeatureInput{
+	return OperateDevice(ctx, db, *step.DeviceClass, *step.DeviceID, target)
+}
+
+// OperateDevice flips a switching device's live device_state to target
+// ("OPEN"/"CLOSED"), subject to the SAFETY interlock -- a blocking danger/
+// out-of-service tag refuses it, naming the tag. It is the shared core of a
+// switching-step execution (applyStepDeviceState) and the direct operate endpoint
+// (operateDeviceHandler), so both honour the same tag gate and go through the
+// validated, history-logged crud.UpdateFeature rather than a raw column write. It
+// does NOT log a device-operation event -- the caller records that with its own
+// source (a step logs source=switching_order; the direct endpoint source=manual).
+func OperateDevice(ctx context.Context, db bun.IDB, class, id, target string) error {
+	if blocker, berr := safety.OperationBlocked(ctx, db, class, id); berr != nil {
+		return berr
+	} else if blocker != nil {
+		reason := ""
+		if blocker.Reason != nil && strings.TrimSpace(*blocker.Reason) != "" {
+			reason = " — " + strings.TrimSpace(*blocker.Reason)
+		}
+		return invalidf("cannot operate %s: a %q safety tag is in place%s (remove the tag or surrender its clearance first)",
+			deviceRefLabel(class, id), blocker.TagType, reason)
+	}
+	loaded, err := metadata.Load(ctx, db, class)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return invalidf("device class %q does not exist", class)
+		}
+		return fmt.Errorf("oms: loading device class %s: %w", class, err)
+	}
+	if loaded.FieldByName(deviceStateField) == nil {
+		return invalidf("%s does not model a switchable device_state", class)
+	}
+	if _, err := crud.UpdateFeature(ctx, db, loaded, id, crud.UpdateFeatureInput{
 		Attributes: map[string]any{deviceStateField: target},
 	}); err != nil {
-		return fmt.Errorf("oms: setting %s %s device_state=%s: %w", *step.DeviceClass, *step.DeviceID, target, err)
+		return fmt.Errorf("oms: setting %s %s device_state=%s: %w", class, id, target, err)
 	}
 	return nil
 }

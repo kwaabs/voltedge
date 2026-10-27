@@ -463,6 +463,66 @@ func readTools() []Tool {
 			Handler:      toolRunServiceTrace,
 		},
 		{
+			Name: "check_network_loops",
+			Description: "Check a feature's network for loops (cycles/meshes). A distribution " +
+				"network should be radial -- a tree -- so any loop is worth flagging: an accidental " +
+				"double-feed, a ring left closed, or a deliberate mesh to confirm. direction scopes " +
+				"the search: 'downstream' looks for a load-side ring fed at or above the feature, " +
+				"'upstream' looks for a supply-side ring (the feature fed from more than one " +
+				"direction), and 'both' (the default) finds any loop in the feature's connected " +
+				"network. Returns has_loop plus each ring as an ordered list of features. No trace " +
+				"configuration needed. Read-only.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"start":{
+						"type":"object",
+						"description":"The feature to check for loops around.",
+						"properties":{
+							"feature_class":{"type":"string","description":"The start feature's class code."},
+							"feature_id":{"type":"string","description":"The start feature's id (uuid)."}
+						},
+						"required":["feature_class","feature_id"],
+						"additionalProperties":false
+					},
+					"direction":{"type":"string","enum":["upstream","downstream","both"],"description":"Which side to search: upstream (supply side), downstream (load side), or both (default)."},
+					"as_built":{"type":"boolean","description":"Default false: an OPEN device breaks the walk, so a normally-open ring (radial in operation) is NOT reported as a loop. Set true to report every physical ring regardless of switch state (the as-constructed/planning view)."}
+				},
+				"required":["start"],
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermTraceRun,
+			Handler:      toolCheckNetworkLoops,
+		},
+		{
+			Name: "list_assembly_kits",
+			Description: "List the assembly-kit catalog -- the 'place one anchor feature and get its " +
+				"whole pre-wired set of components' recipes (RMU, packaged substation, pole/pad kits, " +
+				"plus any authored in-app). Returns each kit's id, anchor feature class, code, name, " +
+				"component count and linked single-line template. Use the id with get_assembly_kit for " +
+				"the full component list. Takes no arguments.",
+			InputSchema:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			RequiredPerm: auth.PermAssembliesRead,
+			Handler:      toolListAssemblyKits,
+		},
+		{
+			Name: "get_assembly_kit",
+			Description: "Get one assembly kit's full recipe: its anchor class/subtype, linked " +
+				"single-line template, and every component in creation order (class, subtype, default " +
+				"attributes, structural parent, electrical wire-to target + terminals, mimic offset). " +
+				"Use list_assembly_kits to find a kit id.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"id":{"type":"string","description":"The assembly kit's id (uuid) from list_assembly_kits."}
+				},
+				"required":["id"],
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermAssembliesRead,
+			Handler:      toolGetAssemblyKit,
+		},
+		{
 			Name: "suggest_connections",
 			Description: "Propose ranked candidate features the given feature could legally " +
 				"connect to, without establishing anything. A candidate is permitted by an " +

@@ -200,6 +200,7 @@ func (s *service) authenticateOIDC(ctx context.Context, r *http.Request, provide
 			return nil, e
 		}
 		s.logEvent(ctx, r, eventLoginSuccess, user.ID, "SSO via "+providerKey)
+		s.syncDisplayName(ctx, &user, c.Name)
 		return &user, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -230,5 +231,31 @@ func (s *service) authenticateOIDC(ctx context.Context, r *http.Request, provide
 	}
 	s.logEvent(ctx, r, eventSSOLinked, user.ID, "linked "+providerKey+" identity")
 	s.logEvent(ctx, r, eventLoginSuccess, user.ID, "SSO via "+providerKey+" (first login)")
+	s.syncDisplayName(ctx, &user, c.Name)
 	return &user, nil
+}
+
+// syncDisplayName fills a user's display name from the provider's token when the
+// stored name is still a placeholder -- empty, or equal to the email it was
+// enrolled with (createManagedUser's fallback). This is what lets an admin
+// pre-provision an SSO account with just an email and have the real name appear
+// on first sign-in. It NEVER overwrites a name an admin typed deliberately (a
+// non-placeholder), and a missing/same token name is a no-op. Best-effort: a
+// name-sync failure must not block a login, so the error is swallowed.
+func (s *service) syncDisplayName(ctx context.Context, user *User, tokenName string) {
+	tokenName = strings.TrimSpace(tokenName)
+	if tokenName == "" || tokenName == user.DisplayName {
+		return
+	}
+	// A placeholder is an empty name or the email itself; anything else is an
+	// admin-set name we leave alone.
+	if user.DisplayName != "" && !strings.EqualFold(user.DisplayName, user.Email) {
+		return
+	}
+	if _, err := s.db.NewUpdate().Model((*User)(nil)).
+		Set("display_name = ?", tokenName).
+		Where("id = ?", user.ID).Exec(ctx); err != nil {
+		return
+	}
+	user.DisplayName = tokenName
 }

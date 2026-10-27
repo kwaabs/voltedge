@@ -52,6 +52,10 @@ func Routes(db *bun.DB, cfg Config) chi.Router {
 	// the unauthenticated endpoint can't be used to make the server buffer a large
 	// body (the rate limit bounds attempt count; this bounds each attempt's size).
 	r.With(loginLimiter.Middleware, httpx.MaxBytes(64<<10)).Post("/login", s.loginHandler)
+	// The break-glass reveal code gate (soft second factor): rate-limited like
+	// login, since it's an unauthenticated code-guessing surface -- though a
+	// correct code alone still can't sign in (the password is also required).
+	r.With(loginLimiter.Middleware, httpx.MaxBytes(8<<10)).Post("/break-glass/reveal", s.breakGlassRevealHandler)
 	r.Get("/oidc/{provider}/login", s.oidcLoginHandler)
 	r.Get("/oidc/{provider}/callback", s.oidcCallbackHandler)
 	r.With(RequireAuth, RequireCSRF).Post("/logout", s.logoutHandler)

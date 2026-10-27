@@ -38,6 +38,30 @@
 -- POST /packaged-substations are still owed to call it verified.
 
 -- ---------------------------------------------------------------------------
+-- Component prerequisite: geometry_optional on DIST_XFMR.
+--
+-- The fan-out (api/internal/packagedsub/fanout.go) creates every internal
+-- component WITHOUT map geometry -- only the enclosure carries a geom -- so each
+-- component class must be geometry_optional, exactly like the RMU's and pillar's
+-- kit classes (see seed/lv_pillar_example.sql's note). The other two components
+-- here are already relaxed: LV_BUSBAR by seed/lv_pillar_example.sql and MV_SWITCH
+-- by seed/mv_lv_switch_example.sql. DIST_XFMR was NOT, so a COMPACT build failed
+-- at position 2 with: `creating templated DIST_XFMR: geometry is required for
+-- feature class "DIST_XFMR"` (crud/validate.go). Relax it here.
+--
+-- BACKWARD-COMPATIBLE: geometry_optional only RELAXES -- a DIST_XFMR placed
+-- directly on the map still gets its geometry and is unaffected; this merely lets
+-- one be created geometry-less INSIDE a packaged substation. Idempotent.
+--
+-- NEEDS A RECOMPILE (`task compile CODE=DIST_XFMR`) to make the gis.dist_xfmr
+-- geom column nullable and relax the create validator (migration 0052) -- the
+-- flag alone doesn't take effect until the class is recompiled.
+-- ---------------------------------------------------------------------------
+UPDATE metadata.feature_classes
+SET geometry_optional = true
+WHERE code = 'DIST_XFMR' AND geometry_optional IS DISTINCT FROM true;
+
+-- ---------------------------------------------------------------------------
 -- Templates: one row per config for the PACKAGED_SUBSTATION class. Idempotent
 -- on the (packaged class, config) unique key.
 -- ---------------------------------------------------------------------------

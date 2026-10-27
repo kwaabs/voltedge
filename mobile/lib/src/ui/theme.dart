@@ -40,7 +40,15 @@ class AppTheme {
       seedColor: seed,
       brightness: brightness,
     );
-    final base = ThemeData(colorScheme: scheme, useMaterial3: true);
+    // Noto Sans is BUNDLED (assets/fonts, declared in pubspec) rather than fetched
+    // at runtime -- the field tool is offline-first, so a runtime font download
+    // (e.g. google_fonts' default) could leave a crew with no typeface. Setting
+    // fontFamily on the base theme flows it through the whole textTheme.
+    final base = ThemeData(
+      colorScheme: scheme,
+      useMaterial3: true,
+      fontFamily: 'Noto Sans',
+    );
     final onBar = scheme.onPrimary;
 
     return base.copyWith(

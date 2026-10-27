@@ -12,14 +12,17 @@ import (
 //
 //	POST /mark-private  declare a feature (a transformer) private and stamp
 //	                    ownership=private onto everything downstream of it
+//	POST /mark-utility  the inverse: clear ownership back to utility on a feature
+//	                    and everything downstream of it
 //	POST /resync        recompute the whole ownership map from every currently
 //	                    private boundary (the drift fix)
 //
-// Both bulk-write feature rows, so api/cmd/server/main.go mounts this behind a
+// All bulk-write feature rows, so api/cmd/server/main.go mounts this behind a
 // features:write gate -- the same capability a single attribute edit needs.
 func Routes(db *bun.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Post("/mark-private", markPrivateHandler(db))
+	r.Post("/mark-utility", markUtilityHandler(db))
 	r.Post("/resync", resyncHandler(db))
 	return r
 }
@@ -43,6 +46,29 @@ func markPrivateHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		res, err := MarkDownstreamPrivate(r.Context(), db, FeatureRef{
+			FeatureClass: req.FeatureClass,
+			FeatureID:    req.FeatureID,
+		})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	}
+}
+
+func markUtilityHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req markPrivateRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("request body is not valid JSON: %v", err))
+			return
+		}
+		if req.FeatureClass == "" || req.FeatureID == "" {
+			writeError(w, invalidf("feature_class and feature_id are required"))
+			return
+		}
+		res, err := MarkDownstreamUtility(r.Context(), db, FeatureRef{
 			FeatureClass: req.FeatureClass,
 			FeatureID:    req.FeatureID,
 		})

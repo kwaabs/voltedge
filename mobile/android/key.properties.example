@@ -1,0 +1,18 @@
+# Release signing for the VoltEdge Field APK (self-distribution).
+#
+# 1. Generate an upload keystore (once; keep the .jks + these passwords safe --
+#    losing them means you can never ship an update that the installed app accepts):
+#
+#      keytool -genkey -v -keystore upload-keystore.jks \
+#        -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+#
+#    Run it from mobile/android/app/ so the keystore lands next to build.gradle.kts.
+#
+# 2. Copy this file to mobile/android/key.properties and fill in the real values.
+#    key.properties and *.jks are gitignored -- never commit them.
+
+storePassword=CHANGE_ME
+keyPassword=CHANGE_ME
+keyAlias=upload
+# Path to the keystore, relative to mobile/android/app/ (where build.gradle.kts is).
+storeFile=upload-keystore.jks

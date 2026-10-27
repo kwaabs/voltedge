@@ -112,6 +112,12 @@ func fingerprintFor(f AuditFinding) string {
 	if strings.HasPrefix(f.Kind, "attr_") {
 		return f.Kind + ":" + f.FromID + ":" + f.Field
 	}
+	// A topology loop is keyed by its ring's member-id set (LoopKey), not any single
+	// connection, so the same ring is one row regardless of starting point and
+	// auto-resolves the moment the loop is broken (its members no longer form a ring).
+	if f.Kind == "topology_loop" {
+		return "loop:" + f.LoopKey
+	}
 	return f.Kind + ":" + f.ConnectionID
 }
 
@@ -209,51 +215,103 @@ type IssueFilter struct {
 	// these features (either endpoint) -- the "My edits" panel passes the features
 	// a user just changed, so they triage only what their own work surfaced.
 	FeatureIDs []string
-	Limit      int
+	// FirstSeenFrom/To bound the queue by when an issue FIRST appeared, so a
+	// triager can focus on "problems that surfaced this week". Either may be nil.
+	FirstSeenFrom *time.Time
+	FirstSeenTo   *time.Time
+	Limit         int
 }
 
 // ListIssues returns the issue queue, most-recently-seen first, errors before
 // warnings. The default (empty Status) is the live queue a triager works.
+//
+// The core query is a plain single-table read; the "assigned to X · WO-ref"
+// display labels are filled by a SEPARATE best-effort pass (resolveAssignees), so
+// the cross-schema work-order/user join can never take the whole queue down --
+// a display nicety must not break the triager's worklist.
 func ListIssues(ctx context.Context, db bun.IDB, f IssueFilter) ([]ValidationIssue, error) {
 	limit := f.Limit
 	if limit <= 0 || limit > 1000 {
 		limit = 500
 	}
 	issues := []ValidationIssue{}
-	// Alias the issue table (vi) and LEFT JOIN the raised work order + its assignee,
-	// so an assigned issue carries a human "Assigned to X · WO-ref" for the UI. The
-	// join means columns shared with wam_work_orders (status) must be qualified.
-	q := db.NewSelect().
-		Model(&issues).
-		ModelTableExpr("ops.validation_issues AS vi").
-		ColumnExpr("vi.*").
-		ColumnExpr("wo.reference AS work_order_ref").
-		ColumnExpr("COALESCE(u.display_name, u.email, wo.assigned_to) AS assignee_label").
-		Join("LEFT JOIN wam.work_orders AS wo ON wo.id = vi.work_order_id").
-		Join("LEFT JOIN iam.users AS u ON u.id = wo.assigned_to_user_id")
+	q := db.NewSelect().Model(&issues)
 	switch f.Status {
 	case "":
-		q = q.Where("vi.status IN ('open','acknowledged')")
+		q = q.Where("status IN ('open','acknowledged')")
 	case "open", "acknowledged", "resolved", "suppressed":
-		q = q.Where("vi.status = ?", f.Status)
+		q = q.Where("status = ?", f.Status)
 	default:
 		return nil, invalid("status must be one of open/acknowledged/resolved/suppressed")
 	}
 	if f.Severity == "error" || f.Severity == "warning" {
-		q = q.Where("vi.severity = ?", f.Severity)
+		q = q.Where("severity = ?", f.Severity)
 	}
 	if f.Kind != "" {
-		q = q.Where("vi.kind = ?", f.Kind)
+		q = q.Where("kind = ?", f.Kind)
 	}
 	if len(f.FeatureIDs) > 0 {
-		q = q.Where("(vi.from_id IN (?) OR vi.to_id IN (?))", bun.In(f.FeatureIDs), bun.In(f.FeatureIDs))
+		q = q.Where("(from_id IN (?) OR to_id IN (?))", bun.In(f.FeatureIDs), bun.In(f.FeatureIDs))
+	}
+	if f.FirstSeenFrom != nil {
+		q = q.Where("first_seen_at >= ?", *f.FirstSeenFrom)
+	}
+	if f.FirstSeenTo != nil {
+		q = q.Where("first_seen_at < ?", *f.FirstSeenTo)
 	}
 	// errors first, then most-recently-seen.
-	q = q.OrderExpr("(vi.severity = 'error') DESC").OrderExpr("vi.last_seen_at DESC").Limit(limit)
+	q = q.OrderExpr("(severity = 'error') DESC").OrderExpr("last_seen_at DESC").Limit(limit)
 	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("connectivity: listing validation issues: %w", err)
 	}
+	resolveAssignees(ctx, db, issues)
 	return issues, nil
+}
+
+// resolveAssignees fills the display-only work_order_ref + assignee_label on any
+// ASSIGNED issue, in one extra query joining the raised work order to its user.
+// Best-effort: an error here (e.g. the work-order tables unreachable) is swallowed
+// -- the queue still returns, just without the human assignee names -- so a
+// display nicety can never break the triager's worklist.
+func resolveAssignees(ctx context.Context, db bun.IDB, issues []ValidationIssue) {
+	byWorkOrder := map[string][]*ValidationIssue{}
+	ids := make([]string, 0)
+	for i := range issues {
+		if issues[i].WorkOrderID == nil || *issues[i].WorkOrderID == "" {
+			continue
+		}
+		id := *issues[i].WorkOrderID
+		if _, seen := byWorkOrder[id]; !seen {
+			ids = append(ids, id)
+		}
+		byWorkOrder[id] = append(byWorkOrder[id], &issues[i])
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	var rows []struct {
+		ID            string `bun:"id"`
+		Reference     string `bun:"reference"`
+		AssigneeLabel string `bun:"assignee_label"`
+	}
+	err := db.NewSelect().
+		TableExpr("wam.work_orders AS wo").
+		ColumnExpr("wo.id::text AS id").
+		ColumnExpr("COALESCE(wo.reference, '') AS reference").
+		ColumnExpr("COALESCE(u.display_name, u.email, wo.assigned_to, '') AS assignee_label").
+		Join("LEFT JOIN iam.users AS u ON u.id = wo.assigned_to_user_id").
+		Where("wo.id IN (?)", bun.In(ids)).
+		Scan(ctx, &rows)
+	if err != nil {
+		return // best-effort: leave labels blank, the queue still loads
+	}
+	for _, r := range rows {
+		for _, issue := range byWorkOrder[r.ID] {
+			issue.WorkOrderRef = r.Reference
+			issue.AssigneeLabel = r.AssigneeLabel
+		}
+	}
 }
 
 // UpdateIssueStatus is the triage action: move one issue to acknowledged / resolved /

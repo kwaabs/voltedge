@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -146,11 +147,47 @@ type userJSON struct {
 	// audit, which a non-admin supervisor may see for their own reports); the
 	// server still enforces the actual scope.
 	IsSupervisor bool `json:"is_supervisor"`
+	// Roles are the user's role KEYS (e.g. "admin", "editor"), sorted -- shown in
+	// the account menu. Permissions above are what the UI gates on; these are the
+	// human-readable membership behind them.
+	Roles []string `json:"roles"`
+	// Territories are the user's DIRECT territory grants (name + level), for the
+	// account menu's "granted territories". Empty for an unscoped (all-territory)
+	// user. Same shape the admin user list uses.
+	Territories []adminTerritoryGrantJSON `json:"territories"`
+}
+
+// selfRoles / selfTerritories load the extra account-menu fields for the /auth/me
+// and /auth/login responses, by user id. Both return an empty (non-nil) slice on
+// no rows so the JSON is [] not null.
+func (s *service) selfRoles(ctx context.Context, userID string) ([]string, error) {
+	var rows []struct {
+		RoleKey string `bun:"role_key"`
+	}
+	if err := s.db.NewSelect().
+		ColumnExpr("r.key AS role_key").
+		TableExpr("iam.user_roles AS ur").
+		Join("JOIN iam.roles AS r ON r.id = ur.role_id").
+		Where("ur.user_id = ?", userID).
+		OrderExpr("r.key").
+		Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+	keys := make([]string, len(rows))
+	for i, row := range rows {
+		keys[i] = row.RoleKey
+	}
+	return keys, nil
 }
 
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// BreakGlassCode is the optional second-factor reveal code, sent only when a
+	// deployment has local sign-in disabled and a BREAK_GLASS_REVEAL_CODE set
+	// (the login screen collects it before showing the password form). Ignored
+	// in every other mode.
+	BreakGlassCode string `json:"break_glass_code"`
 }
 
 // loginHandler is POST /auth/login. On success it mints a session, sets
@@ -169,6 +206,25 @@ func (s *service) loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Break-glass reveal code (second factor). When a code is configured and
+	// local sign-in is OFF, a (break-glass) login must also carry the code --
+	// the password alone, even posted directly, is not enough. Checked AFTER
+	// the password: a wrong password already failed generically above, so this
+	// path is never a password oracle; only a correct password + wrong/absent
+	// code reaches here, and it still can't sign in.
+	if s.cfg.BreakGlassReveal != "" {
+		on, switchErr := s.localAuthEnabled(r.Context())
+		if switchErr != nil {
+			writeError(w, switchErr)
+			return
+		}
+		if !on && subtle.ConstantTimeCompare([]byte(req.BreakGlassCode), []byte(s.cfg.BreakGlassReveal)) != 1 {
+			s.logEvent(r.Context(), r, eventLoginDenied, user.ID, "break-glass reveal code missing or invalid")
+			writeError(w, forbidden("break-glass access requires a valid reveal code"))
+			return
+		}
+	}
+
 	rawToken, _, err := s.createSession(r.Context(), user.ID, r)
 	if err != nil {
 		writeError(w, err)
@@ -183,10 +239,22 @@ func (s *service) loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setSessionCookies(w, rawToken, loaded.CSRFToken)
 
+	roles, err := s.selfRoles(r.Context(), user.ID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	territories, err := s.loadUserTerritories(r.Context(), user.ID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, userJSON{
 		ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, BreakGlass: user.BreakGlass,
 		Permissions:  sortedPermissions(loaded.Permissions),
 		IsSupervisor: len(loaded.Subordinates) > 0,
+		Roles:        roles,
+		Territories:  territories,
 	})
 }
 
@@ -209,10 +277,22 @@ func (s *service) meHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, unauthorized("authentication required"))
 		return
 	}
+	roles, err := s.selfRoles(r.Context(), user.ID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	territories, err := s.loadUserTerritories(r.Context(), user.ID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, userJSON{
 		ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, BreakGlass: user.BreakGlass,
 		Permissions:  sortedPermissions(user.Permissions),
 		IsSupervisor: len(user.Subordinates) > 0,
+		Roles:        roles,
+		Territories:  territories,
 	})
 }
 

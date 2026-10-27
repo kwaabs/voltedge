@@ -36,6 +36,7 @@ var adapters = map[string]adapter{
 	"work":      workAdapter{},
 	"fault":     faultAdapter{},
 	"operation": operationAdapter{},
+	"outage":    outageAdapter{},
 }
 
 // featureAdapter ingests feature changes through crud.CreateFeature /

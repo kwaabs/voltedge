@@ -60,6 +60,7 @@ import { applyBasemap, resolveBasemap } from "@/lib/basemaps"
 import { createServiceLayerObject } from "@/lib/service-layers-source"
 import { deriveFeatureLabel, identifyRasterLayer } from "@/lib/service-layers-identify"
 import { splitCoordinates } from "@/lib/geometry"
+import { convexHull, type LonLat } from "@/lib/hull"
 import {
   type AnnotationKind,
   annotationStyleForFeature,
@@ -267,6 +268,21 @@ const orthoPolygonGeometryFunction: GeometryFunction = (coordinates, geometry) =
     return geometry
   }
   return new Polygon([ring])
+}
+
+/**
+ * Add the convex-hull outage-area polygon for a set of affected service points
+ * to `source`, if they form one (>= 3 distinct points). The hull is computed in
+ * lon/lat and reprojected to the map's view projection; the ring is explicitly
+ * closed. A no-op for an empty/degenerate cone, so the caller can call it
+ * unconditionally before adding the point markers.
+ */
+function addConeHull(source: VectorSource, points: { longitude: number; latitude: number }[]): void {
+  const hull = convexHull(points.map((p): LonLat => [p.longitude, p.latitude]))
+  if (hull.length < 3) return
+  const ring = hull.map((p) => fromLonLat([p[0], p[1]]))
+  ring.push(ring[0]) // close the ring
+  source.addFeature(new Feature(new Polygon([ring])))
 }
 
 /**
@@ -1110,31 +1126,48 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
     // status-colored device diamonds on top (zIndex 9) -- the only CLICKABLE one,
     // so it keeps a layer ref the click handler hit-tests. All start empty; the
     // population effects own their contents and flip the marker layer's visibility.
+    // Each cone source holds the affected SERVICE POINTS (circles) plus a single
+    // convex-hull POLYGON enclosing them -- the filled outage-area blob. One style
+    // function per layer picks the polygon fill or the point circle by geometry
+    // type, so both ride the same source and the hull sits translucently under the
+    // dots (the area reads as "this neighbourhood is dark", not scattered points).
+    const incidentAffectedPointStyle = new Style({
+      image: new CircleStyle({
+        radius: 5,
+        fill: new Fill({ color: "#f59e0b" }),
+        stroke: new Stroke({ color: "#ffffff", width: 1.25 }),
+      }),
+    })
+    const incidentAffectedAreaStyle = new Style({
+      fill: new Fill({ color: "rgba(245,158,11,0.14)" }),
+      stroke: new Stroke({ color: "rgba(245,158,11,0.55)", width: 1.5 }),
+    })
     const incidentAffectedSource = new VectorSource()
     const incidentAffectedLayer = new VectorLayer({
       source: incidentAffectedSource,
-      style: new Style({
-        image: new CircleStyle({
-          radius: 5,
-          fill: new Fill({ color: "#f59e0b" }),
-          stroke: new Stroke({ color: "#ffffff", width: 1.25 }),
-        }),
-      }),
+      style: (feature) =>
+        feature.getGeometry() instanceof Polygon ? incidentAffectedAreaStyle : incidentAffectedPointStyle,
       zIndex: 6,
     })
     map.addLayer(incidentAffectedLayer)
     incidentAffectedSourceRef.current = incidentAffectedSource
 
+    const incidentEnergizedPointStyle = new Style({
+      image: new CircleStyle({
+        radius: 6,
+        fill: new Fill({ color: "#dc2626" }),
+        stroke: new Stroke({ color: "#ffffff", width: 1.25 }),
+      }),
+    })
+    const incidentEnergizedAreaStyle = new Style({
+      fill: new Fill({ color: "rgba(220,38,38,0.16)" }),
+      stroke: new Stroke({ color: "rgba(220,38,38,0.6)", width: 1.5 }),
+    })
     const incidentEnergizedSource = new VectorSource()
     const incidentEnergizedLayer = new VectorLayer({
       source: incidentEnergizedSource,
-      style: new Style({
-        image: new CircleStyle({
-          radius: 6,
-          fill: new Fill({ color: "#dc2626" }),
-          stroke: new Stroke({ color: "#ffffff", width: 1.25 }),
-        }),
-      }),
+      style: (feature) =>
+        feature.getGeometry() instanceof Polygon ? incidentEnergizedAreaStyle : incidentEnergizedPointStyle,
       zIndex: 7,
     })
     map.addLayer(incidentEnergizedLayer)
@@ -2540,9 +2573,14 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
 
       affected.clear()
       energized.clear()
+      // Add the convex-hull outage-area polygon FIRST (so the point markers draw
+      // over its translucent fill), then the per-SP points. A cone of fewer than
+      // three distinct points yields no polygon -- the dots alone carry it.
+      addConeHull(affected, area?.service_points ?? [])
       for (const sp of area?.service_points ?? []) {
         affected.addFeature(new Feature(new Point(fromLonLat([sp.longitude, sp.latitude]))))
       }
+      addConeHull(energized, live?.service_points ?? [])
       for (const sp of live?.service_points ?? []) {
         energized.addFeature(new Feature(new Point(fromLonLat([sp.longitude, sp.latitude]))))
       }

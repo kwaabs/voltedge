@@ -16,6 +16,7 @@ package auth
 import (
 	"context"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,6 +44,11 @@ type FieldLoginResult struct {
 	UserID      string
 	Email       string
 	DisplayName string
+	// Permissions is the user's effective permission set (sorted), so the field
+	// app can show/hide each module by capability -- the same list the browser
+	// login returns. The device gates its UI off this; the server still enforces
+	// every operation independently.
+	Permissions []string
 }
 
 // FieldLogin authenticates an email + password under the same policy as the
@@ -75,6 +81,21 @@ func FieldLogin(ctx context.Context, db *bun.DB, r *http.Request, email, passwor
 		}
 	}
 
+	// Field-app access is an EXPLICIT capability (migration 0164): the credential
+	// is valid, but only a user granted field:login (the field roles, admin,
+	// break-glass) may obtain a field-app token. Load the effective permission set
+	// once -- it both gates this and ships to the device so it can hide modules.
+	su, err := LoadSessionUser(ctx, db, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !su.BreakGlass && !su.Has(PermFieldLogin) {
+		return nil, &FieldLoginError{
+			Status:  http.StatusForbidden,
+			Message: "this account does not have field-app access (field:login)",
+		}
+	}
+
 	name := strings.TrimSpace(tokenName)
 	if name == "" {
 		name = "field-app"
@@ -88,5 +109,17 @@ func FieldLogin(ctx context.Context, db *bun.DB, r *http.Request, email, passwor
 		UserID:      user.ID,
 		Email:       user.Email,
 		DisplayName: user.DisplayName,
+		Permissions: permissionList(su),
 	}, nil
+}
+
+// permissionList is the user's effective permission set as a sorted slice, for the
+// field-login response (the map order is otherwise non-deterministic).
+func permissionList(su *SessionUser) []string {
+	out := make([]string, 0, len(su.Permissions))
+	for p := range su.Permissions {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }

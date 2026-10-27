@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../config/settings_repository.dart';
 import '../edit/edit_database.dart';
+import 'app_release.dart';
 import 'models.dart';
 
 /// FieldsyncException carries a server-supplied error message (the {"error": ...}
@@ -60,6 +61,9 @@ class FieldsyncClient {
       token: body['token'] as String? ?? '',
       email: body['email'] as String? ?? '',
       displayName: body['display_name'] as String? ?? '',
+      permissions: (body['permissions'] as List? ?? const [])
+          .map((p) => p.toString())
+          .toList(),
     );
   }
 
@@ -315,6 +319,23 @@ class FieldsyncClient {
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return body['url'] as String? ?? '';
   }
+
+  /// GET /app/latest -- the published field-app release manifest, served PUBLICLY
+  /// (no bearer) by the self-distribution endpoints the fieldsync process also
+  /// mounts. Returns null when nothing has been published yet (404), so a fresh
+  /// deployment doesn't surface an error; other failures still throw so a flaky
+  /// network degrades to "couldn't check" rather than a false "up to date".
+  Future<AppRelease?> fetchLatestRelease() async {
+    final res = await _http.get(_uri('/app/latest'), headers: _headers());
+    if (res.statusCode == 404) return null;
+    _ensureOk(res);
+    return AppRelease.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// The absolute URL the device opens to download the current APK (the
+  /// /app/download redirect to a presigned RustFS object). Built from the same
+  /// base URL every other call uses.
+  String appDownloadUrl() => '${_settings.baseUrl}/app/download';
 
   Map<String, dynamic> _opToJson(OutboxOp o) => {
         'op_id': o.opId,

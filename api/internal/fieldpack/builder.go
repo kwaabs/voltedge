@@ -1559,9 +1559,13 @@ func nullFloat(f sql.NullFloat64) any {
 	return f.Float64
 }
 
-// loadPackWorkOrders writes the requester's own open work orders -- their field
-// "work board". Person-centric (assigned_to_user_id = the pack requester),
-// independent of the pack bbox: a job is a job wherever its asset sits.
+// loadPackWorkOrders writes the requester's open work orders -- their field
+// "work board". It ships an order assigned to the requester as a PERSON
+// (assigned_to_user_id) OR to a CREW the requester is a member of (crew_id ∈ the
+// requester's active crews, oms.crew_members) -- so crew-assigned work fans out to
+// every member's pack. Independent of the pack bbox: a job is a job wherever its
+// asset sits. A crew-owned order with no personal label shows "Crew: <name>" in
+// the assigned_to field so the worker sees whose job it is (no pack-schema change).
 // Completed/cancelled orders are omitted; an empty assignee ships nothing.
 func loadPackWorkOrders(ctx context.Context, db bun.IDB, assigneeID string, stmt *sql.Stmt) (int, error) {
 	if assigneeID == "" {
@@ -1569,14 +1573,18 @@ func loadPackWorkOrders(ctx context.Context, db bun.IDB, assigneeID string, stmt
 	}
 	const q = `
 SELECT id::text, reference, work_type, status, priority, title, description,
-       asset_class, asset_id::text, defect_id::text, assigned_to,
+       asset_class, asset_id::text, defect_id::text,
+       COALESCE(assigned_to, (SELECT 'Crew: ' || c.name FROM oms.crews c WHERE c.id = wo.crew_id)) AS assigned_to,
        scheduled_for, due_by, started_at, completion_notes,
        ST_X(location) AS longitude, ST_Y(location) AS latitude
-FROM wam.work_orders
-WHERE assigned_to_user_id::text = ?
+FROM wam.work_orders wo
+WHERE (assigned_to_user_id::text = ?
+       OR crew_id IN (SELECT cm.crew_id FROM oms.crew_members cm
+                      JOIN oms.crews cr ON cr.id = cm.crew_id
+                      WHERE cm.user_id::text = ? AND cr.active))
   AND status NOT IN ('completed', 'cancelled')
 ORDER BY COALESCE(scheduled_for, due_by, created_at)`
-	rows, err := db.QueryContext(ctx, q, assigneeID)
+	rows, err := db.QueryContext(ctx, q, assigneeID, assigneeID)
 	if err != nil {
 		return 0, err
 	}

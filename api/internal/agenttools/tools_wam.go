@@ -193,6 +193,7 @@ func wamTools() []Tool {
 					"defect_id":{"type":"string","description":"Optional defect id (uuid) this order addresses."},
 					"assigned_to":{"type":"string","description":"Optional free-text assignee label (external crews)."},
 					"assigned_to_user_id":{"type":"string","description":"Optional internal user id (uuid) to assign the order to; see wam_list_assignable_users."},
+					"crew_id":{"type":"string","description":"Optional crew id (uuid) to assign the order to; reaches every crew member's field pack. See oms_list_crews."},
 					"scheduled_for":{"type":"string","format":"date-time","description":"Optional RFC3339 scheduled start."},
 					"due_by":{"type":"string","format":"date-time","description":"Optional RFC3339 due date."}
 				},
@@ -228,6 +229,7 @@ func wamTools() []Tool {
 					"description":{"type":"string","description":"New description; omit to keep it."},
 					"assigned_to":{"type":"string","description":"New free-text assignee label; omit to keep it."},
 					"assigned_to_user_id":{"type":"string","description":"New internal assignee user id (uuid); send an empty string to unassign; omit to keep it."},
+					"crew_id":{"type":"string","description":"New crew id (uuid); send an empty string to clear the crew; omit to keep it. See oms_list_crews."},
 					"scheduled_for":{"type":"string","format":"date-time","description":"New RFC3339 scheduled start; omit to keep it."},
 					"due_by":{"type":"string","format":"date-time","description":"New RFC3339 due date; omit to keep it."},
 					"completion_notes":{"type":"string","description":"Completion notes; omit to keep them."}
@@ -263,6 +265,7 @@ func wamTools() []Tool {
 					"description":{"type":"string","description":"Optional description for the order."},
 					"assigned_to":{"type":"string","description":"Optional free-text assignee label (external crews)."},
 					"assigned_to_user_id":{"type":"string","description":"Optional internal user id (uuid) to assign the order to."},
+					"crew_id":{"type":"string","description":"Optional crew id (uuid) to assign the order to; reaches every crew member's field pack. See oms_list_crews."},
 					"scheduled_for":{"type":"string","format":"date-time","description":"Optional RFC3339 scheduled start."},
 					"due_by":{"type":"string","format":"date-time","description":"Optional RFC3339 due date."}
 				},
@@ -652,6 +655,7 @@ func toolWAMCreateWorkOrder(ctx context.Context, db bun.IDB, args json.RawMessag
 		DefectID         *string    `json:"defect_id"`
 		AssignedTo       *string    `json:"assigned_to"`
 		AssignedToUserID *string    `json:"assigned_to_user_id"`
+		CrewID           *string    `json:"crew_id"`
 		ScheduledFor     *time.Time `json:"scheduled_for"`
 		DueBy            *time.Time `json:"due_by"`
 	}
@@ -674,6 +678,7 @@ func toolWAMCreateWorkOrder(ctx context.Context, db bun.IDB, args json.RawMessag
 		DefectID:         in.DefectID,
 		AssignedTo:       in.AssignedTo,
 		AssignedToUserID: in.AssignedToUserID,
+		CrewID:           in.CrewID,
 		ScheduledFor:     in.ScheduledFor,
 		DueBy:            in.DueBy,
 	})
@@ -688,6 +693,7 @@ func toolWAMUpdateWorkOrder(ctx context.Context, db bun.IDB, args json.RawMessag
 		Description      *string    `json:"description"`
 		AssignedTo       *string    `json:"assigned_to"`
 		AssignedToUserID *string    `json:"assigned_to_user_id"`
+		CrewID           *string    `json:"crew_id"`
 		ScheduledFor     *time.Time `json:"scheduled_for"`
 		DueBy            *time.Time `json:"due_by"`
 		CompletionNotes  *string    `json:"completion_notes"`
@@ -707,6 +713,7 @@ func toolWAMUpdateWorkOrder(ctx context.Context, db bun.IDB, args json.RawMessag
 		Description:      in.Description,
 		AssignedTo:       in.AssignedTo,
 		AssignedToUserID: in.AssignedToUserID,
+		CrewID:           in.CrewID,
 		ScheduledFor:     in.ScheduledFor,
 		DueBy:            in.DueBy,
 		CompletionNotes:  in.CompletionNotes,
@@ -721,6 +728,7 @@ func toolWAMRaiseWorkOrderFromDefect(ctx context.Context, db bun.IDB, args json.
 		Description      *string    `json:"description"`
 		AssignedTo       *string    `json:"assigned_to"`
 		AssignedToUserID *string    `json:"assigned_to_user_id"`
+		CrewID           *string    `json:"crew_id"`
 		ScheduledFor     *time.Time `json:"scheduled_for"`
 		DueBy            *time.Time `json:"due_by"`
 	}
@@ -742,6 +750,7 @@ func toolWAMRaiseWorkOrderFromDefect(ctx context.Context, db bun.IDB, args json.
 		Description:      in.Description,
 		AssignedTo:       in.AssignedTo,
 		AssignedToUserID: in.AssignedToUserID,
+		CrewID:           in.CrewID,
 		ScheduledFor:     in.ScheduledFor,
 		DueBy:            in.DueBy,
 	})

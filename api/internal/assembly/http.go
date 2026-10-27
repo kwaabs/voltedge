@@ -33,7 +33,102 @@ func Routes(db *bun.DB) chi.Router {
 		auth.RequirePermission(auth.PermRelationshipsCommit, auth.PermRelationshipsCommit),
 		auth.RequirePermission(auth.PermConnectivityCommit, auth.PermConnectivityCommit),
 	).Post("/", createAssemblyHandler(db))
+
+	// Kit catalog authoring (assemblies:read to view, assemblies:write to edit). A
+	// kit is a reusable arrangement of EXISTING classes/terminals, not a schema
+	// change, so it is gated below metadata:write -- a senior editor may author one.
+	// These add their gate ON TOP of the mount's features:read/write, which every
+	// authoring role already holds.
+	r.With(auth.RequirePermission(auth.PermAssembliesRead, auth.PermAssembliesRead)).Get("/templates", listKitsHandler(db))
+	r.With(auth.RequirePermission(auth.PermAssembliesRead, auth.PermAssembliesRead)).Get("/templates/{id}", getKitHandler(db))
+	r.With(auth.RequirePermission(auth.PermAssembliesWrite, auth.PermAssembliesWrite)).Post("/templates", createKitHandler(db))
+	r.With(auth.RequirePermission(auth.PermAssembliesWrite, auth.PermAssembliesWrite)).Post("/templates/validate", validateKitHandler(db))
+	r.With(auth.RequirePermission(auth.PermAssembliesWrite, auth.PermAssembliesWrite)).Patch("/templates/{id}", updateKitHandler(db))
+	r.With(auth.RequirePermission(auth.PermAssembliesWrite, auth.PermAssembliesWrite)).Delete("/templates/{id}", deleteKitHandler(db))
 	return r
+}
+
+func listKitsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		kits, err := ListKits(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if kits == nil {
+			kits = []KitSummary{}
+		}
+		writeJSON(w, http.StatusOK, kits)
+	}
+}
+
+func getKitHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		kit, err := GetKit(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, kit)
+	}
+}
+
+func createKitHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var in KitInput
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, invalidf("request body is not valid JSON: %v", err))
+			return
+		}
+		kit, err := CreateKit(r.Context(), db, in)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, kit)
+	}
+}
+
+func updateKitHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var in KitInput
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, invalidf("request body is not valid JSON: %v", err))
+			return
+		}
+		kit, err := UpdateKit(r.Context(), db, chi.URLParam(r, "id"), in)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, kit)
+	}
+}
+
+func deleteKitHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := DeleteKit(r.Context(), db, chi.URLParam(r, "id")); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func validateKitHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var in KitInput
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, invalidf("request body is not valid JSON: %v", err))
+			return
+		}
+		v, err := ValidateKit(r.Context(), db, in)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, v)
+	}
 }
 
 // listAssemblyOptionsHandler serves the addable list. It rides the mount's
@@ -117,7 +212,7 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case IsInvalid(err), crud.IsValidationError(err), relationship.IsValidationError(err):
 		status = http.StatusBadRequest
-	case crud.IsNotFoundError(err):
+	case IsNotFound(err), crud.IsNotFoundError(err):
 		status = http.StatusNotFound
 	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})

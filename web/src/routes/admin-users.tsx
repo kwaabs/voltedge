@@ -50,6 +50,43 @@ const PROVIDER_LABEL: Record<string, string> = {
   google: "Google",
 }
 
+/** How an account signs in, from its linked identities: a muted "Password" chip
+ * for a local credential, a sky chip per SSO provider (Microsoft / Google), and
+ * an amber "SSO · pending" chip when no identity is linked yet -- a
+ * pre-provisioned SSO account that hasn't had its first sign-in (it links then).
+ * An account can carry several (e.g. Password + Microsoft). */
+function SignInBadges({ providers }: { providers: string[] }) {
+  if (providers.length === 0) {
+    return (
+      <span
+        className="rounded bg-sky-500/15 px-1 py-0.5 text-[10px] font-medium text-sky-600 dark:text-sky-400"
+        title="SSO account — no identity linked yet; it links on first sign-in"
+      >
+        SSO · pending
+      </span>
+    )
+  }
+  return (
+    <>
+      {providers.map((p) => {
+        const local = p === "local"
+        return (
+          <span
+            key={p}
+            className={cn(
+              "rounded px-1 py-0.5 text-[10px] font-medium",
+              local ? "bg-muted text-muted-foreground" : "bg-sky-500/15 text-sky-600 dark:text-sky-400",
+            )}
+            title={local ? "Signs in with a local password" : `Signs in with ${PROVIDER_LABEL[p] ?? p} (SSO)`}
+          >
+            {PROVIDER_LABEL[p] ?? p}
+          </span>
+        )
+      })}
+    </>
+  )
+}
+
 /**
  * The global local-auth switch (api/internal/auth setLocalAuthHandler),
  * gated by admin:auth-settings -- distinct from the admin:users this page
@@ -111,13 +148,12 @@ function CreateUserDialog({
   const create = useCreateUser()
 
   // A break-glass account must carry a password; an ordinary account may be
-  // SSO-only (no password) and link its provider on first login.
+  // SSO-only (no password) and link its provider on first login. The display
+  // name is optional for an SSO account -- it fills from the Microsoft token on
+  // first sign-in -- so only the email is truly required.
   const passwordRequired = breakGlass
   const canSave =
-    email.trim().length > 0 &&
-    name.trim().length > 0 &&
-    (!passwordRequired || password.length >= 12) &&
-    !create.isPending
+    email.trim().length > 0 && (!passwordRequired || password.length >= 12) && !create.isPending
 
   // Clear the fields on close so reopening the dialog is always a fresh
   // form rather than showing the last attempt's input.
@@ -188,16 +224,20 @@ function CreateUserDialog({
             </div>
             <div className="flex flex-col gap-1">
               <label className={labelClass}>
-                Display name <span className="text-destructive">*</span>
+                Display name <span className="text-muted-foreground">(optional)</span>
               </label>
               <input
                 className={inputClass}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Jane Doe"
+                placeholder="fills from Microsoft on first sign-in"
               />
             </div>
           </div>
+          <p className="text-muted-foreground -mt-1 text-xs">
+            For an SSO user, just enter the email and leave the password and name blank — the name fills from their
+            Microsoft profile on first sign-in.
+          </p>
 
           <div className="flex flex-col gap-1">
             <label className={labelClass}>Initial role</label>
@@ -253,6 +293,9 @@ function SetPasswordRow({ user, onDone }: { user: AdminUser; onDone: () => void 
   const [password, setPassword] = useState("")
   const setPw = useSetUserPassword()
   const canSave = password.length >= 12
+  // An account that already has a local credential is being RESET; an SSO-only
+  // account is having a local password ADDED (a second way to sign in).
+  const hasLocal = (user.providers ?? []).includes("local")
 
   function handleSave() {
     setPw.mutate(
@@ -265,8 +308,12 @@ function SetPasswordRow({ user, onDone }: { user: AdminUser; onDone: () => void 
     <FormDialog
       open
       onOpenChange={(next) => next || onDone()}
-      title="Set password"
-      description={`A new password for ${user.email}.`}
+      title={hasLocal ? "Reset password" : "Add a local password"}
+      description={
+        hasLocal
+          ? `A new password for ${user.email}.`
+          : `Add a local password for ${user.email} — they'll be able to sign in with email + password in addition to SSO.`
+      }
       onSubmit={handleSave}
       submitLabel="Save"
       canSubmit={canSave}
@@ -665,8 +712,9 @@ function UserTableRow({
     <tr className={cn("border-t align-middle", disabled && "opacity-55")}>
       {/* Identity */}
       <td className="px-3 py-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{user.display_name}</span>
+          <SignInBadges providers={user.providers ?? []} />
           {user.break_glass && (
             <span className="bg-amber-500/15 rounded px-1 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
               break-glass
@@ -716,7 +764,13 @@ function UserTableRow({
           <Button variant="ghost" size="icon" className="size-7" title="Manage account" onClick={onManage}>
             <Settings2 className="size-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="size-7" title="Set password" onClick={onPassword}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            title={(user.providers ?? []).includes("local") ? "Reset password" : "Add a local password"}
+            onClick={onPassword}
+          >
             <KeyRound className="size-4" />
           </Button>
           <Button

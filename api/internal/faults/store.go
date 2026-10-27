@@ -661,6 +661,20 @@ func RaiseFaultFromIncident(ctx context.Context, db *bun.DB, incidentID string, 
 			return err
 		}
 		fault = f
+
+		// Unify with the incident's cause axis (0168): raising a fault is the
+		// corroborating evidence, so a cause that was merely guessed is now
+		// CONFIRMED. Only when the incident actually names a cause -- a null cause
+		// is left 'unknown' (you can't confirm a cause you haven't named). Best
+		// effort within the same tx; cross-schema SQL, no oms Go import (the same
+		// loose coupling the incident read above uses).
+		if cause.Valid && strings.TrimSpace(cause.String) != "" {
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE oms.incidents SET cause_status = 'confirmed', updated_at = now() WHERE id = ? AND cause_status <> 'confirmed'",
+				incidentID); err != nil {
+				return fmt.Errorf("faults: confirming incident %s cause: %w", incidentID, err)
+			}
+		}
 		return nil
 	})
 	if err != nil {

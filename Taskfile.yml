@@ -88,6 +88,31 @@ tasks:
     cmds:
       - go build -o bin/server ./cmd/server
 
+  # ----------------------------------------------------- field app (mobile) --
+
+  apk-build:
+    desc: "Build the SIGNED release APK (mobile). Needs mobile/android/key.properties + the keystore (see key.properties.example); without them it falls back to debug signing."
+    dir: mobile
+    cmds:
+      - flutter build apk --release
+
+  apk-publish:
+    desc: "Publish a built release APK to RustFS + update latest.json so /app/download serves it. Pass VERSION (e.g. VERSION=1.2.0) and optional NOTES; reads RUSTFS_* from .env. Run `task apk-build` first."
+    dir: "{{.API_DIR}}"
+    requires:
+      vars: [VERSION]
+    cmds:
+      - go run ./cmd/apkpublish -apk ../mobile/build/app/outputs/flutter-apk/app-release.apk -version {{.VERSION}} -notes "{{.NOTES}}"
+
+  mobile-release:
+    desc: "One-shot field-app release: build the signed APK, then publish it to RustFS. Usage: task mobile-release VERSION=1.2.0 [NOTES=\"...\"]."
+    requires:
+      vars: [VERSION]
+    cmds:
+      - task: apk-build
+      - task: apk-publish
+        vars: { VERSION: "{{.VERSION}}", NOTES: "{{.NOTES}}" }
+
   exportworker-dev:
     desc: Run the export worker locally against dockerized postgres + rustfs (Phase 17)
     dir: "{{.API_DIR}}"
@@ -723,6 +748,38 @@ tasks:
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/cost_catalog_example.sql
 
+  seed-oms-storm:
+    desc: "Storm-scale soak seed (blocker #3): bulk-insert ~2000 OPEN trouble calls scattered around random real service points (tagged caller_ref='STORM-TEST') so trouble-spot clustering, Area Impact and the outage board can be exercised at a storm's volume. Edit the generate_series count in seed/oms_storm_load.sql for more. Remove with task clean-oms-storm."
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/oms_storm_load.sql
+
+  clean-oms-storm:
+    desc: "Remove the storm soak-test trouble calls (caller_ref='STORM-TEST') left by task seed-oms-storm."
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -c "DELETE FROM oms.trouble_calls WHERE caller_ref = 'STORM-TEST';"
+
+  seed-telemetry-sim:
+    desc: "Live-state demo/soak seed (blocker #1): populate ops.device_telemetry for every operable device (~70% agree / 20% disagree / 10% stale, tagged source='SIM') so the Live State reconciliation + Apply can be tested without a real SCADA gateway. Requires migration 0172. Remove with task clean-telemetry-sim."
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/telemetry_sim.sql
+
+  clean-telemetry-sim:
+    desc: "Remove the simulated telemetry (source='SIM') left by task seed-telemetry-sim."
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -c "DELETE FROM ops.device_telemetry WHERE source = 'SIM';"
+
   seed-fault-modes:
     desc: Load the per-feature-class FAILURE-MODE (FMEA) catalog for fault logging (faults.fault_modes -- the class-aware cause picker, ~400 modes across all 63 classes, each with dimension/typical cause/effect/severity) through the gitbash sidecar (requires migration 0154 first; no compile -- pure faults-schema reference data, idempotent via ON CONFLICT DO UPDATE)
     cmds:
@@ -746,6 +803,14 @@ tasks:
         docker compose exec -T gitbash
         psql "{{.CONTAINER_DATABASE_URL}}"
         -f /workspace/seed/street_light_pole_mounted.sql
+
+  seed-meter-service-point:
+    desc: Add the data-model foundation for attaching a METER to a SERVICE POINT -- METER geometry_optional (a SP-mounted meter rides its service point, no own geometry; a surveyed meter keeps its point -- per instance) + a SERVICE_POINT supports METER relationship class. Then RECOMPILE METER (task compile CODE=METER) -- geometry_optional drops NOT NULL on geom. Idempotent.
+    cmds:
+      - >-
+        docker compose exec -T gitbash
+        psql "{{.CONTAINER_DATABASE_URL}}"
+        -f /workspace/seed/meter_service_point_mounted.sql
 
   seed-packed-station-diagrams:
     desc: Add the two packed-station single-line templates (runtime.diagram_templates) the nested packed station auto-builds its one-line from -- RMU+transformer+pillar and transformer+pillar. Typed slots (MV_BUSBAR/MV_SWITCH/DIST_XFMR/LV_BUSBAR/LV_FUSE) bound FIFO per class by api/internal/diagram/autobuild.go. Requires seed/packed_station_assembly.sql + the component class seeds. NO recompile -- pure runtime template data, idempotent (guarded on name).
@@ -844,7 +909,7 @@ tasks:
         -f /workspace/seed/substation_templates.sql
 
   seed-assembly-diagram-templates:
-    desc: Load the built-in single-line diagram templates for every assembly/kit (RMU 2W_1T/2W_2T, packaged substation, the six pole/pad kits, switchgear-panel incomer + feeder) through the gitbash sidecar, so a diagram can Apply-template then bind each typed slot to the fan-out's geometry-less internal components (requires migration 0049; idempotent on template name; also flips is_diagram_placeable true for DIST_XFMR/LV_LINK_BOX/PROTECTIVE_RELAY -- a runtime flag, nothing to compile)
+    desc: Load the built-in single-line diagram templates for every assembly/kit (RMU 2W_1T/2W_2T, packaged substation, the six pole/pad kits, switchgear-panel incomer + feeder) through the gitbash sidecar, so a diagram can Apply-template then bind each typed slot to the fan-out's geometry-less internal components (requires migration 0049; upserts by template name so re-running updates a revised layout; also flips is_diagram_placeable true for DIST_XFMR/LV_LINK_BOX/PROTECTIVE_RELAY -- a runtime flag, nothing to compile)
     cmds:
       - >-
         docker compose exec -T gitbash
@@ -916,7 +981,7 @@ tasks:
         -f /workspace/seed/packaged_substation_example.sql
 
   seed-packaged-substation-templates:
-    desc: Load the COMPACT packaged-substation chain recipe (MV_SWITCH -> DIST_XFMR -> LV_BUSBAR wired in series; Phase 56 Slice 2, backs POST /packaged-substations) through the gitbash sidecar (requires migration 0092 + seed-packaged-substation applied first; no compile step -- pure metadata rows)
+    desc: Load the COMPACT packaged-substation chain recipe (MV_SWITCH -> DIST_XFMR -> LV_BUSBAR wired in series; Phase 56 Slice 2, backs POST /packaged-substations) through the gitbash sidecar (requires migration 0092 + seed-packaged-substation applied first; also relaxes DIST_XFMR to geometry_optional so the kit can fan out -- run `task compile CODE=DIST_XFMR` after)
     cmds:
       - >-
         docker compose exec -T gitbash

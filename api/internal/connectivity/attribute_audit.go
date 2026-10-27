@@ -52,6 +52,20 @@ func AuditAll(ctx context.Context, db bun.IDB, in AuditInput) (*AuditReport, err
 	if truncated {
 		report.Summary.Truncated = true
 	}
+
+	// Topology loops (switch-state-respecting) ride the same report so they share
+	// the queue + auto-resolve. Only run while there's headroom in the findings cap.
+	if remaining = maxFindings - len(report.Findings); remaining > 0 {
+		loops, loopTrunc, lerr := auditTopologyLoops(ctx, db, in.FeatureIDs, remaining)
+		if lerr != nil {
+			return nil, lerr
+		}
+		report.Findings = append(report.Findings, loops...)
+		report.Summary.TopologyLoops = len(loops)
+		if loopTrunc {
+			report.Summary.Truncated = true
+		}
+	}
 	return report, nil
 }
 

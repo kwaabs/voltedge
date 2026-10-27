@@ -141,6 +141,7 @@ func buildRegistry() []Tool {
 func moduleTools() []Tool {
 	var t []Tool
 	t = append(t, omsTools()...)
+	t = append(t, telemetryTools()...)
 	t = append(t, wamTools()...)
 	t = append(t, faultsTools()...)
 	t = append(t, analysisTools()...)

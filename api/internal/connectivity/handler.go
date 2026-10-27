@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/uptrace/bun"
@@ -210,6 +211,22 @@ func issuesListHandler(db *bun.DB) http.HandlerFunc {
 					f.FeatureIDs = append(f.FeatureIDs, id)
 				}
 			}
+		}
+		if v := r.URL.Query().Get("from"); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				writeError(w, invalid("from must be an RFC3339 timestamp: %v", err))
+				return
+			}
+			f.FirstSeenFrom = &t
+		}
+		if v := r.URL.Query().Get("to"); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				writeError(w, invalid("to must be an RFC3339 timestamp: %v", err))
+				return
+			}
+			f.FirstSeenTo = &t
 		}
 		if v := r.URL.Query().Get("limit"); v != "" {
 			if n, err := strconv.Atoi(v); err == nil {

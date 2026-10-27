@@ -31,6 +31,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/kwaabs/voltedge/api/internal/appdist"
 	"github.com/kwaabs/voltedge/api/internal/export"
 	"github.com/kwaabs/voltedge/api/internal/fieldpack"
 	"github.com/kwaabs/voltedge/api/internal/logx"
@@ -105,7 +107,27 @@ func main() {
 	if port == "" {
 		port = "8091"
 	}
-	srv := &http.Server{Addr: ":" + port, Handler: fieldpack.Routes(db, store)}
+
+	// The field-app surface the device talks to. We also expose the PUBLIC
+	// self-distribution endpoints (/app/latest, /app/download) here: the offline
+	// field app only knows its fieldsync base URL, so this is where its "is there a
+	// newer APK?" check and the download must land (the same routes the web page
+	// serves from the main API). They read a SEPARATE RustFS bucket (appdist.Bucket)
+	// than the packs, so a store-init failure just omits them -- never fatal; the
+	// web download page keeps working regardless.
+	var handler http.Handler = fieldpack.Routes(db, store)
+	if appStore, aerr := export.NewObjectStoreForBucket(appdist.Bucket); aerr != nil {
+		log.Printf("fieldsync: app-distribution store unavailable, /app endpoints disabled: %v", aerr)
+	} else if berr := appStore.EnsureBucket(context.Background()); berr != nil {
+		log.Printf("fieldsync: ensure app bucket %q: %v (/app endpoints disabled)", appdist.Bucket, berr)
+	} else {
+		root := chi.NewRouter()
+		root.Mount("/app", appdist.Routes(appStore))
+		root.Mount("/", handler)
+		handler = root
+	}
+
+	srv := &http.Server{Addr: ":" + port, Handler: handler}
 
 	go func() {
 		<-ctx.Done()

@@ -2,6 +2,7 @@ package oms
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	"github.com/kwaabs/voltedge/api/internal/trace"
@@ -147,6 +148,83 @@ func PredictIncidents(ctx context.Context, db bun.IDB, calls []CallLocation) ([]
 	return out, nil
 }
 
+// DeviceCandidate is one likely protective device for an incident -- a device the
+// re-attribution picker suggests. Support is how many of the incident's calling
+// service points walk up through it; Nearest is true when it is the NEAREST
+// protective device for at least one call (the prediction's own first choice).
+// The name is resolved by the caller/UI (feature_registry carries no label).
+type DeviceCandidate struct {
+	FeatureClass string `json:"feature_class"`
+	FeatureID    string `json:"feature_id"`
+	Support      int    `json:"support"`
+	Nearest      bool   `json:"nearest"`
+}
+
+// IncidentDeviceCandidates suggests the protective devices an operator might
+// attribute an incident to: for each of the incident's calling service points it
+// walks upstream and takes the two nearest protective devices (the immediate one
+// and the next one up, in case the closer device did not operate). Candidates are
+// de-duplicated and ranked by support (callers through them), nearest first. An
+// incident with no located calls yields none (the picker falls back to search).
+func IncidentDeviceCandidates(ctx context.Context, db bun.IDB, incidentID string) ([]DeviceCandidate, error) {
+	var spIDs []string
+	if err := db.NewSelect().
+		ColumnExpr("DISTINCT service_point_id").
+		TableExpr("oms.trouble_calls").
+		Where("incident_id = ?", incidentID).
+		Where("service_point_id IS NOT NULL").
+		Scan(ctx, &spIDs); err != nil {
+		return nil, fmt.Errorf("oms: loading incident %s calling SPs: %w", incidentID, err)
+	}
+	if len(spIDs) == 0 {
+		return []DeviceCandidate{}, nil
+	}
+
+	type agg struct {
+		class, id string
+		support   int
+		nearest   bool
+	}
+	order := make([]string, 0)
+	byKey := map[string]*agg{}
+	for _, sp := range spIDs {
+		path, err := trace.UpstreamFeaturesOfClass(ctx, db,
+			trace.FeatureRef{FeatureClass: ServicePointClass, FeatureID: sp}, ProtectiveDeviceClasses)
+		if err != nil {
+			return nil, err
+		}
+		for depth, d := range path {
+			if depth > 1 { // the nearest protective device and the next one up
+				break
+			}
+			k := d.FeatureClass + "|" + d.FeatureID
+			a := byKey[k]
+			if a == nil {
+				a = &agg{class: d.FeatureClass, id: d.FeatureID}
+				byKey[k] = a
+				order = append(order, k)
+			}
+			a.support++
+			if depth == 0 {
+				a.nearest = true
+			}
+		}
+	}
+
+	out := make([]DeviceCandidate, 0, len(byKey))
+	for _, k := range order {
+		a := byKey[k]
+		out = append(out, DeviceCandidate{FeatureClass: a.class, FeatureID: a.id, Support: a.support, Nearest: a.nearest})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Nearest != out[j].Nearest {
+			return out[i].Nearest // nearest first
+		}
+		return out[i].Support > out[j].Support
+	})
+	return out, nil
+}
+
 // DownstreamSupplies returns every counting load leaf (SERVICE_POINT or PRIMARY
 // METER) in the downstream cone of a device, each as a trace.ServicePoint line
 // carrying its class+id and frozen customer count -- the set ConfirmIncident
@@ -168,6 +246,14 @@ type AffectedServicePoint struct {
 	Name      string  `json:"name" bun:"name"`
 	Longitude float64 `json:"longitude" bun:"longitude"`
 	Latitude  float64 `json:"latitude" bun:"latitude"`
+	// FeatureClass and Customers are stamped by the caller (IncidentAffectedArea)
+	// from the per-supply figures it already holds, so the console can render a
+	// supply-by-supply table — which supplies are out and how many customers each
+	// — not just a headline sum. They are the geometry query's blind spots
+	// (SERVICE_POINT vs PRIMARY METER, and the frozen customer count), so they are
+	// zero on callers that only want the map geometry (the overlay, energization).
+	FeatureClass string `json:"feature_class,omitempty" bun:"-"`
+	Customers    int    `json:"customers,omitempty" bun:"-"`
 }
 
 // AffectedSupplyGeometry fetches the id/name/point of each given supply for the

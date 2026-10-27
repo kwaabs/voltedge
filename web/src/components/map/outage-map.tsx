@@ -1,6 +1,7 @@
 import { boundingExtent } from "ol/extent"
 import Feature from "ol/Feature"
 import Point from "ol/geom/Point"
+import Polygon from "ol/geom/Polygon"
 import TileLayer from "ol/layer/Tile"
 import VectorLayer from "ol/layer/Vector"
 import Map from "ol/Map"
@@ -15,6 +16,7 @@ import { useEffect, useMemo, useRef } from "react"
 import { useBasemaps } from "@/hooks/use-basemaps"
 import { type AffectedServicePoint, useAffectedArea, useIncidentEnergization } from "@/hooks/use-oms"
 import { applyBasemap, resolveBasemap } from "@/lib/basemaps"
+import { convexHull, type LonLat } from "@/lib/hull"
 import { useBasemapStore } from "@/stores/basemap-store"
 
 // A self-contained OpenLayers map embedded in the outage console (its own map
@@ -45,6 +47,27 @@ const OFF_SP_STYLE = new Style({
   }),
 })
 
+// The filled outage-AREA hulls under the points: amber for the frozen affected
+// cone, red for the live de-energized subset -- the "neighbourhood is dark" blob.
+const AFFECTED_AREA_STYLE = new Style({
+  fill: new Fill({ color: "rgba(245,158,11,0.14)" }),
+  stroke: new Stroke({ color: "rgba(245,158,11,0.55)", width: 1.5 }),
+})
+const OFF_AREA_STYLE = new Style({
+  fill: new Fill({ color: "rgba(220,38,38,0.16)" }),
+  stroke: new Stroke({ color: "rgba(220,38,38,0.6)", width: 1.5 }),
+})
+
+/** Build the closed convex-hull polygon of a set of affected points, or null for
+ * fewer than three distinct points (the caller falls back to the bare dots). */
+function hullPolygon(points: { longitude: number; latitude: number }[]): Polygon | null {
+  const hull = convexHull(points.map((p): LonLat => [p.longitude, p.latitude]))
+  if (hull.length < 3) return null
+  const ring = hull.map((p) => fromLonLat([p[0], p[1]]))
+  ring.push(ring[0])
+  return new Polygon([ring])
+}
+
 function deviceStyleWithLabel(label: string): Style {
   return new Style({
     image: new RegularShape({
@@ -69,6 +92,7 @@ export function OutageMap({ incidentId }: { incidentId: string | null }) {
   const baseLayerRef = useRef<TileLayer<TileSource> | null>(null)
   const spSourceRef = useRef<VectorSource | null>(null)
   const deviceSourceRef = useRef<VectorSource | null>(null)
+  const areaSourceRef = useRef<VectorSource | null>(null)
 
   const basemaps = useBasemaps()
   const basemapCode = useBasemapStore((s) => s.basemap)
@@ -93,9 +117,15 @@ export function OutageMap({ incidentId }: { incidentId: string | null }) {
     if (!mapDivRef.current || mapRef.current) return
 
     const baseLayer = new TileLayer<TileSource>()
+    const areaSource = new VectorSource()
     const spSource = new VectorSource()
     const deviceSource = new VectorSource()
 
+    // The outage-area hulls sit UNDER the points (rendered first), styled by role.
+    const areaLayer = new VectorLayer({
+      source: areaSource,
+      style: (f) => (f.get("role") === "off" ? OFF_AREA_STYLE : AFFECTED_AREA_STYLE),
+    })
     const spLayer = new VectorLayer({
       source: spSource,
       style: (f) => (offIdsRef.current.has(f.get("id")) ? OFF_SP_STYLE : RESTORED_SP_STYLE),
@@ -107,13 +137,14 @@ export function OutageMap({ incidentId }: { incidentId: string | null }) {
 
     const map = new Map({
       target: mapDivRef.current,
-      layers: [baseLayer, spLayer, deviceLayer],
+      layers: [baseLayer, areaLayer, spLayer, deviceLayer],
       view: new View({ center: fromLonLat([0, 0]), zoom: 2 }),
       controls: [],
     })
 
     mapRef.current = map
     baseLayerRef.current = baseLayer
+    areaSourceRef.current = areaSource
     spSourceRef.current = spSource
     deviceSourceRef.current = deviceSource
 
@@ -179,6 +210,29 @@ export function OutageMap({ incidentId }: { incidentId: string | null }) {
       })
     }
   }, [incidentId, affected.data])
+
+  // The outage-area hulls (amber affected cone + red de-energized subset),
+  // recomputed when either cone changes. Kept in its own effect writing only to
+  // areaSource, so energization polling refreshes the red blob without re-fitting
+  // the view (the point/device redraw above owns the one-shot fit).
+  useEffect(() => {
+    const areaSource = areaSourceRef.current
+    if (!areaSource) return
+    areaSource.clear()
+    if (!incidentId) return
+    const affectedHull = hullPolygon(affected.data?.service_points ?? [])
+    if (affectedHull) {
+      const f = new Feature({ geometry: affectedHull })
+      f.set("role", "affected")
+      areaSource.addFeature(f)
+    }
+    const offHull = hullPolygon(energization.data?.service_points ?? [])
+    if (offHull) {
+      const f = new Feature({ geometry: offHull })
+      f.set("role", "off")
+      areaSource.addFeature(f)
+    }
+  }, [incidentId, affected.data, energization.data])
 
   const offCount = energization.data?.customers ?? 0
   const deviceOpen = energization.data?.device_state === "OPEN"

@@ -115,6 +115,49 @@ func MarkDownstreamPrivate(ctx context.Context, db bun.IDB, src FeatureRef) (*Pr
 	return result, nil
 }
 
+// MarkDownstreamUtility is the exact inverse of MarkDownstreamPrivate: it clears
+// ownership (back to NULL = utility) on src plus every feature connectivity-
+// reachable downstream of it. The one-click "this transformer and its network are
+// the utility's after all" action, so a private boundary set by mistake -- or a
+// customer network taken back over -- can be reverted. (For the rare case where
+// some of that downstream is ALSO fed from a DIFFERENT still-private transformer,
+// a follow-up Resync re-stamps it correctly from the remaining boundaries.)
+func MarkDownstreamUtility(ctx context.Context, db bun.IDB, src FeatureRef) (*PropagateResult, error) {
+	classes, byCode, err := loadOwnershipClasses(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := byCode[src.FeatureClass]; !ok {
+		return nil, invalidf("class %q has no ownership field -- apply seed/ownership_axis.sql and recompile it", src.FeatureClass)
+	}
+
+	idsByClass, reached, err := downstreamSet(ctx, db, src, byCode)
+	if err != nil {
+		return nil, err
+	}
+
+	actor := actorParam(auth.ActorID(ctx))
+	result := &PropagateResult{Source: src, Reached: reached}
+	if err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		for _, c := range classes {
+			ids := idsByClass[c.code]
+			if len(ids) == 0 {
+				continue
+			}
+			n, err := clearPrivateIDs(ctx, tx, c, ids, actor)
+			if err != nil {
+				return err
+			}
+			result.Stamped += n
+			result.PerClass = append(result.PerClass, ClassCount{FeatureClass: c.code, Stamped: n})
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // Resync recomputes the whole ownership map from scratch: it reads every
 // declared-private boundary (a transformer currently private), clears ownership
 // everywhere, then re-stamps each boundary and its downstream set private. This
@@ -301,6 +344,22 @@ func stampPrivate(ctx context.Context, tx bun.IDB, c ownClass, ids []string, act
 	res, err := tx.ExecContext(ctx, query, ownerPrivate, actor, bun.In(ids))
 	if err != nil {
 		return 0, fmt.Errorf("ownership: stamping private on %s: %w", c.code, err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+// clearPrivateIDs resets ownership to NULL (= utility) on the given live features
+// of one class -- the targeted inverse of stampPrivate (MarkDownstreamUtility).
+// Idempotent: a feature already utility is a harmless no-op.
+func clearPrivateIDs(ctx context.Context, tx bun.IDB, c ownClass, ids []string, actor any) (int, error) {
+	query := fmt.Sprintf(
+		"UPDATE %s SET ownership = NULL, updated_at = now(), updated_by = ? WHERE id IN (?) AND deleted_at IS NULL",
+		c.table,
+	)
+	res, err := tx.ExecContext(ctx, query, actor, bun.In(ids))
+	if err != nil {
+		return 0, fmt.Errorf("ownership: clearing ownership on %s: %w", c.code, err)
 	}
 	n, _ := res.RowsAffected()
 	return int(n), nil

@@ -78,7 +78,8 @@ func omsTools() []Tool {
 				"type":"object",
 				"properties":{
 					"status":{"type":"string","description":"Filter to a single incident status (e.g. predicted, confirmed, scheduled, restored, cancelled); omit for all."},
-					"open_only":{"type":"boolean","description":"Return only incidents that are not yet restored (the active board); defaults to false."}
+					"open_only":{"type":"boolean","description":"Return only incidents that are not yet restored (the active board); defaults to false."},
+					"territory_id":{"type":"string","description":"Scope to incidents in this territory's subtree (the territory and every descendant); omit for all territories."}
 				},
 				"additionalProperties":false
 			}`),
@@ -223,6 +224,87 @@ func omsTools() []Tool {
 			RequiredPerm: auth.PermOMSRead,
 			Handler:      toolOMSReliabilityIndices,
 		},
+		{
+			Name: "oms_list_outage_causes",
+			Description: "List the coded outage-cause catalog (oms.outage_causes) -- the coarse, " +
+				"incident-level 'why' an operator picks from (equipment failure, third-party dig-in, " +
+				"lightning, vegetation, ...), each with a code, a human label and a family. The same " +
+				"read the REST GET /oms/outage-causes route returns. Use it to resolve a valid " +
+				"cause_code before oms_set_incident_attribution. The detailed per-asset failure mode " +
+				"is a separate catalog on the fault (not here). No arguments.",
+			InputSchema:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			RequiredPerm: auth.PermOMSRead,
+			Handler:      toolOMSListOutageCauses,
+		},
+		{
+			Name: "oms_detection_metrics",
+			Description: "Summarise HOW the utility learned of its unplanned outages and WHY they " +
+				"happened, over a window -- the same read the REST GET /oms/detection-metrics route " +
+				"returns. Returns the detection-source mix (by_source: customer / ami / scada / crew / " +
+				"upstream / analytics), the machine_detected_share (the fraction known via telemetry " +
+				"WITHOUT a customer call -- the situational-awareness measure), the cause-family mix " +
+				"(by_cause), and the mean detection-to-restore time. from/to (RFC3339) are optional " +
+				"(default the trailing 12 months).",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"from":{"type":"string","description":"Window start (RFC3339 timestamp); defaults to 12 months before 'to'."},
+					"to":{"type":"string","description":"Window end (RFC3339 timestamp); defaults to now."}
+				},
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermOMSRead,
+			Handler:      toolOMSDetectionMetrics,
+		},
+		{
+			Name: "oms_list_trouble_spots",
+			Description: "Cluster the OPEN, located trouble calls into geographic TROUBLE SPOTS -- " +
+				"the same read the REST GET /oms/trouble-spots route returns. This is the geographic " +
+				"lens: it groups nearby open calls (single-linkage within `eps` metres, default 250) " +
+				"into places a crew can be dispatched to BEFORE/without prediction finding a device. " +
+				"Each spot carries its member call_ids + service_point_ids, call_count, centroid " +
+				"lng/lat + radius, dominant territory, dominant call_type, an AMI flag, and the " +
+				"earliest/latest report time. Feed a spot's call_ids to oms_raise_incident_from_spot " +
+				"to dispatch. Address-only calls with no point are excluded.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"eps":{"type":"number","description":"Cluster join distance in metres (calls within this of each other are one spot); defaults to 250."}
+				},
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermOMSRead,
+			Handler:      toolOMSListTroubleSpots,
+		},
+		{
+			Name: "oms_area_impact",
+			Description: "The network-wide AREA IMPACT -- how many customers are off supply right now, " +
+				"rolled up the geographic hierarchy (region → district → …) across ALL open incidents at " +
+				"once -- the same read the REST GET /oms/area-impact route returns. Returns open_incidents, " +
+				"total_customers/total_service_points, an unassigned bucket (impact on incidents with no " +
+				"territory), and levels[]: per hierarchy level, the territories with customers/service_points " +
+				"off and how many incidents touch each. Use it to answer 'which areas are worst hit now'. " +
+				"No arguments.",
+			InputSchema:  json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			RequiredPerm: auth.PermOMSRead,
+			Handler:      toolOMSAreaImpact,
+		},
+		{
+			Name: "oms_list_crews",
+			Description: "List the field crews / resources (the same read the REST GET /oms/crews route " +
+				"returns): each crew's name, kind, status (available / dispatched / on_site / unavailable), " +
+				"home territory, and its current active incident (if any). Set include_inactive to also " +
+				"return retired crews. Use it to find an available crew before oms_dispatch_crew.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"include_inactive":{"type":"boolean","description":"Also return retired (active=false) crews; defaults to false."}
+				},
+				"additionalProperties":false
+			}`),
+			RequiredPerm: auth.PermOMSRead,
+			Handler:      toolOMSListCrews,
+		},
 
 		// --- writes (oms:write) ---
 		{
@@ -331,6 +413,31 @@ func omsTools() []Tool {
 			},
 			RequiredPerm: auth.PermOMSWrite,
 			Handler:      toolOMSConfirmIncident,
+		},
+		{
+			Name: "oms_dispatch_incident",
+			Description: "Advance a confirmed incident to 'dispatched' -- a crew has been sent to " +
+				"the field -- the same write the REST POST /incidents/{id}/dispatch route performs " +
+				"(the outage board's dispatch action). Only a confirmed incident can be dispatched. " +
+				"Returns the updated incident. This WRITES to the database: confirm with a human " +
+				"before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"id":{"type":"string","description":"The incident's id (uuid); must be confirmed."}
+				},
+				"required":["id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Dispatch incident",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // a status advance, not a removal
+				IdempotentHint:  &falseHint, // an already-dispatched incident can't be dispatched again
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermOMSWrite,
+			Handler:      toolOMSDispatchIncident,
 		},
 		{
 			Name: "oms_create_planned_outage",
@@ -524,6 +631,159 @@ func omsTools() []Tool {
 			RequiredPerm: auth.PermOMSWrite,
 			Handler:      toolOMSCancelSwitchingOrder,
 		},
+		{
+			Name: "oms_set_incident_attribution",
+			Description: "Refine an incident's CAUSE (why it happened) and/or correct its DETECTION " +
+				"SOURCE (how the utility learned of it) -- the same write the REST PATCH " +
+				"/oms/incidents/{id}/attribution route performs. A partial update: only the supplied " +
+				"fields change. cause_code is a code from oms_list_outage_causes (an empty string " +
+				"clears the cause); cause_status is unknown / suspected / confirmed; detection_source " +
+				"is customer / ami / scada / crew / planned / upstream / analytics; detection_detail is " +
+				"a free provenance note. Assigning a cause with no explicit status implies 'suspected'. " +
+				"Returns the updated incident. This WRITES to the database: confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"id":{"type":"string","description":"The incident's id (uuid) to attribute."},
+					"cause_code":{"type":"string","description":"A code from oms_list_outage_causes (e.g. LIGHTNING); an empty string clears the cause."},
+					"cause_status":{"type":"string","description":"Cause certainty: unknown, suspected or confirmed."},
+					"detection_source":{"type":"string","description":"How the outage was detected: customer, ami, scada, crew, planned, upstream or analytics."},
+					"detection_detail":{"type":"string","description":"Optional free provenance note (channel / external id); an empty string clears it."}
+				},
+				"required":["id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Set incident cause / source",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // it refines attribution, it doesn't remove the incident
+				IdempotentHint:  &trueHint,  // re-applying the same attribution yields the same state
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermOMSWrite,
+			Handler:      toolOMSSetIncidentAttribution,
+		},
+		{
+			Name: "oms_raise_incident_from_spot",
+			Description: "Dispatch a crew to a geographic trouble spot by raising a CONFIRMED, " +
+				"UNATTRIBUTED incident from its open calls -- the same write the REST POST " +
+				"/oms/trouble-spots/raise route performs. Pass the call_ids of one trouble spot (from " +
+				"oms_list_trouble_spots). It makes ONE incident with no device yet (attribute one " +
+				"later, or raise a fault), links the calls, and stamps the detection source, " +
+				"detected_at, dominant territory and an affected estimate from them. Use this (not " +
+				"oms_run_prediction) for no-device calls, so separate neighbourhoods become separate " +
+				"incidents instead of one lump. Returns the created incident. This WRITES: confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"call_ids":{"type":"array","items":{"type":"string"},"description":"The open trouble call ids of the spot to dispatch to (from a oms_list_trouble_spots spot)."}
+				},
+				"required":["call_ids"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Dispatch crew to trouble spot",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // a create is additive
+				IdempotentHint:  &falseHint, // repeating it raises another incident from the same calls (now associated)
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermOMSWrite,
+			Handler:      toolOMSRaiseIncidentFromSpot,
+		},
+		{
+			Name: "oms_attribute_incident_device",
+			Description: "Set or CHANGE the protective device an incident is blamed on -- the operator " +
+				"override prediction can't do (the same write the REST PATCH /oms/incidents/{id}/device " +
+				"route performs). Use it to attribute a device to an UNATTRIBUTED incident (so it becomes " +
+				"switchable), or to correct a mis-blamed one. It re-traces the new device's downstream " +
+				"cone and re-stamps the incident's affected counts + dominant territory, keeps its linked " +
+				"calls, clears the confidence (a human attribution is not a prediction), and re-freezes a " +
+				"confirmed incident's interruptions from the new cone. A restored/cancelled incident can't " +
+				"be re-attributed. Returns the updated incident. This WRITES: confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"id":{"type":"string","description":"The incident's id (uuid) to attribute a device to."},
+					"device_class":{"type":"string","description":"The protective/switchable device's feature class (e.g. MV_RECLOSER)."},
+					"device_id":{"type":"string","description":"The device's feature id (uuid)."}
+				},
+				"required":["id","device_class","device_id"],
+				"additionalProperties":false
+			}`),
+			Annotations: &Annotations{
+				Title:           "Attribute device to incident",
+				ReadOnlyHint:    &falseHint, // this tool writes
+				DestructiveHint: &falseHint, // it corrects attribution; re-freezes interruptions
+				IdempotentHint:  &trueHint,  // attributing the same device again yields the same state
+				OpenWorldHint:   &falseHint, // acts only on this system's own database
+			},
+			RequiredPerm: auth.PermOMSWrite,
+			Handler:      toolOMSAttributeIncidentDevice,
+		},
+		{
+			Name: "oms_dispatch_crew",
+			Description: "Send a crew to an incident (the same write the REST POST /oms/incidents/{id}/crews " +
+				"route performs): creates a 'dispatched' assignment, marks the crew dispatched, and -- if the " +
+				"incident is confirmed -- advances it to 'dispatched'. Optionally raises a crew-assigned " +
+				"restoration work order for the incident (raise_work_order), pinned to the blamed device, which " +
+				"reaches every crew member's field pack. A crew already on an active assignment, or a closed " +
+				"incident, is refused. Returns the assignment (with work_order_id when one was raised). This " +
+				"WRITES: confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"incident_id":{"type":"string","description":"The incident (uuid) to dispatch the crew to."},
+					"crew_id":{"type":"string","description":"The crew (uuid) to dispatch (from oms_list_crews; must be available)."},
+					"note":{"type":"string","description":"Optional dispatch note."},
+					"raise_work_order":{"type":"boolean","description":"Also raise a crew-assigned restoration work order for the incident; defaults to false."},
+					"work_order_title":{"type":"string","description":"Optional title for the raised work order; defaults to 'Restore outage …'."}
+				},
+				"required":["incident_id","crew_id"],
+				"additionalProperties":false
+			}`),
+			Annotations:  &Annotations{Title: "Dispatch crew", ReadOnlyHint: &falseHint, DestructiveHint: &falseHint, IdempotentHint: &falseHint, OpenWorldHint: &falseHint},
+			RequiredPerm: auth.PermOMSWrite,
+			Handler:      toolOMSDispatchCrew,
+		},
+		{
+			Name: "oms_advance_crew_assignment",
+			Description: "Move a crew assignment forward (the same write the REST PATCH /oms/crew-assignments/{id} " +
+				"route performs): dispatched → on_site → cleared. Stamps the transition time and frees the crew when " +
+				"cleared (if it has no other active assignment). Backwards moves are refused. Returns the assignment. " +
+				"This WRITES: confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"id":{"type":"string","description":"The crew assignment (uuid) to advance (from oms_list_incident_crews via the incident, or a dispatch result)."},
+					"status":{"type":"string","description":"The new status: on_site or cleared."}
+				},
+				"required":["id","status"],
+				"additionalProperties":false
+			}`),
+			Annotations:  &Annotations{Title: "Advance crew assignment", ReadOnlyHint: &falseHint, DestructiveHint: &falseHint, IdempotentHint: &falseHint, OpenWorldHint: &falseHint},
+			RequiredPerm: auth.PermOMSWrite,
+			Handler:      toolOMSAdvanceCrewAssignment,
+		},
+		{
+			Name: "oms_set_incident_etr",
+			Description: "Set or clear an incident's estimated time of restoration (the same write the REST " +
+				"PATCH /oms/incidents/{id}/etr route performs). Pass etr as an RFC3339 timestamp to set it, or " +
+				"omit it (null) to clear. A closed incident is refused. Returns the updated incident. This WRITES: " +
+				"confirm with a human before calling.",
+			InputSchema: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"id":{"type":"string","description":"The incident (uuid) to set the ETR on."},
+					"etr":{"type":"string","description":"Estimated restoration time (RFC3339); omit to clear the ETR."}
+				},
+				"required":["id"],
+				"additionalProperties":false
+			}`),
+			Annotations:  &Annotations{Title: "Set incident ETR", ReadOnlyHint: &falseHint, DestructiveHint: &falseHint, IdempotentHint: &trueHint, OpenWorldHint: &falseHint},
+			RequiredPerm: auth.PermOMSWrite,
+			Handler:      toolOMSSetIncidentETR,
+		},
 	}
 }
 
@@ -536,11 +796,11 @@ func toolOMSListTroubleCalls(ctx context.Context, db bun.IDB, args json.RawMessa
 	if err := json.Unmarshal(args, &in); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
-	calls, err := oms.ListTroubleCalls(ctx, db, in.Status)
+	calls, total, err := oms.ListTroubleCalls(ctx, db, oms.TroubleCallFilter{Status: in.Status})
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"trouble_calls": calls, "count": len(calls)}, nil
+	return map[string]any{"trouble_calls": calls, "count": len(calls), "total": total}, nil
 }
 
 func toolOMSGetTroubleCall(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
@@ -558,13 +818,14 @@ func toolOMSGetTroubleCall(ctx context.Context, db bun.IDB, args json.RawMessage
 
 func toolOMSListIncidents(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
 	var in struct {
-		Status   string `json:"status"`
-		OpenOnly bool   `json:"open_only"`
+		Status      string `json:"status"`
+		OpenOnly    bool   `json:"open_only"`
+		TerritoryID string `json:"territory_id"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
-	incidents, err := oms.ListIncidents(ctx, db, in.Status, in.OpenOnly)
+	incidents, err := oms.ListIncidents(ctx, db, in.Status, in.OpenOnly, in.TerritoryID)
 	if err != nil {
 		return nil, err
 	}
@@ -681,6 +942,115 @@ func toolOMSReliabilityIndices(ctx context.Context, db bun.IDB, args json.RawMes
 	})
 }
 
+func toolOMSListOutageCauses(ctx context.Context, db bun.IDB, _ json.RawMessage) (any, error) {
+	causes, err := oms.ListOutageCauses(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"outage_causes": causes}, nil
+}
+
+func toolOMSDetectionMetrics(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		From *time.Time `json:"from"`
+		To   *time.Time `json:"to"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	return oms.ComputeDetectionMetrics(ctx, db, in.From, in.To)
+}
+
+func toolOMSListTroubleSpots(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		Eps float64 `json:"eps"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	spots, err := oms.ClusterTroubleSpots(ctx, db, in.Eps)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"trouble_spots": spots}, nil
+}
+
+func toolOMSAreaImpact(ctx context.Context, db bun.IDB, _ json.RawMessage) (any, error) {
+	return oms.ComputeAreaImpact(ctx, db)
+}
+
+func toolOMSListCrews(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		IncludeInactive bool `json:"include_inactive"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	crews, err := oms.ListCrews(ctx, db, in.IncludeInactive)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"crews": crews}, nil
+}
+
+func toolOMSDispatchCrew(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		IncidentID     string  `json:"incident_id"`
+		CrewID         string  `json:"crew_id"`
+		Note           *string `json:"note"`
+		RaiseWorkOrder bool    `json:"raise_work_order"`
+		WorkOrderTitle *string `json:"work_order_title"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.IncidentID == "" || in.CrewID == "" {
+		return nil, fmt.Errorf("incident_id and crew_id are required")
+	}
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	return oms.DispatchCrewToIncident(ctx, sdb, in.CrewID, in.IncidentID, in.Note,
+		oms.DispatchOptions{RaiseWorkOrder: in.RaiseWorkOrder, WorkOrderTitle: in.WorkOrderTitle})
+}
+
+func toolOMSAdvanceCrewAssignment(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.ID == "" || in.Status == "" {
+		return nil, fmt.Errorf("id and status are required")
+	}
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	return oms.AdvanceCrewAssignment(ctx, sdb, in.ID, in.Status)
+}
+
+func toolOMSSetIncidentETR(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ID  string     `json:"id"`
+		ETR *time.Time `json:"etr"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	return oms.SetIncidentETR(ctx, sdb, in.ID, in.ETR)
+}
+
 // --- write handlers ---
 
 func toolOMSCreateTroubleCall(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
@@ -759,6 +1129,85 @@ func toolOMSConfirmIncident(ctx context.Context, db bun.IDB, args json.RawMessag
 		return nil, err
 	}
 	return oms.ConfirmIncident(ctx, sdb, in.ID)
+}
+
+func toolOMSDispatchIncident(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	return oms.DispatchIncident(ctx, sdb, in.ID)
+}
+
+func toolOMSSetIncidentAttribution(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ID              string  `json:"id"`
+		CauseCode       *string `json:"cause_code"`
+		CauseStatus     *string `json:"cause_status"`
+		DetectionSource *string `json:"detection_source"`
+		DetectionDetail *string `json:"detection_detail"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	return oms.SetIncidentAttribution(ctx, sdb, in.ID, oms.SetAttributionParams{
+		CauseCode:       in.CauseCode,
+		CauseStatus:     in.CauseStatus,
+		DetectionSource: in.DetectionSource,
+		DetectionDetail: in.DetectionDetail,
+	})
+}
+
+func toolOMSRaiseIncidentFromSpot(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		CallIDs []string `json:"call_ids"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if len(in.CallIDs) == 0 {
+		return nil, fmt.Errorf("call_ids is required")
+	}
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	return oms.RaiseIncidentFromCalls(ctx, sdb, in.CallIDs)
+}
+
+func toolOMSAttributeIncidentDevice(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ID          string `json:"id"`
+		DeviceClass string `json:"device_class"`
+		DeviceID    string `json:"device_id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.ID == "" || in.DeviceClass == "" || in.DeviceID == "" {
+		return nil, fmt.Errorf("id, device_class and device_id are required")
+	}
+	sdb, err := asDB(db)
+	if err != nil {
+		return nil, err
+	}
+	return oms.AttributeIncidentDevice(ctx, sdb, in.ID, in.DeviceClass, in.DeviceID)
 }
 
 func toolOMSCreatePlannedOutage(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {

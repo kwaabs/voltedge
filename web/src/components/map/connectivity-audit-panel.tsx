@@ -69,9 +69,20 @@ function kindLabel(kind: string): string {
       return "Terminal over-subscribed"
     case "orphaned_relationship":
       return "Orphaned relationship"
+    case "topology_loop":
+      return "Closed loop (mesh)"
     default:
       return kind.replace(/_/g, " ")
   }
+}
+
+/** Which bucket a finding's kind belongs to, for the Kind filter + the row badge:
+ * attribute drift (attr_*) is "quality", a closed loop is "topology", everything
+ * else is "connectivity". */
+function kindCategory(kind: string): "connectivity" | "quality" | "topology" {
+  if (kind.startsWith("attr_")) return "quality"
+  if (kind === "topology_loop") return "topology"
+  return "connectivity"
 }
 
 /** A chip for one referenced feature. A finding can name two features (from/to);
@@ -201,7 +212,11 @@ function IssueRow({
         <FeatureChip code={issue.from_class} id={issue.from_id} diagramOnly={isDiagramOnly(issue.from_class)} classNameFor={classNameFor} />
         <FeatureChip code={issue.to_class} id={issue.to_id} diagramOnly={isDiagramOnly(issue.to_class)} classNameFor={classNameFor} />
         <span className="bg-muted/60 text-muted-foreground rounded px-1 py-0.5 text-[10px]">
-          {issue.kind.startsWith("attr_") ? "data quality" : "connectivity"}
+          {kindCategory(issue.kind) === "quality"
+            ? "data quality"
+            : kindCategory(issue.kind) === "topology"
+              ? "topology"
+              : "connectivity"}
         </span>
         {issue.status === "acknowledged" && <span className="text-muted-foreground text-[11px]">· acknowledged</span>}
         {issue.status === "suppressed" && <span className="text-muted-foreground text-[11px]">· suppressed</span>}
@@ -265,6 +280,14 @@ function IssueRow({
   )
 }
 
+/** A datetime-local value ("2026-10-23T14:30", local) → the RFC3339 string the
+ * API parses, or undefined when blank. */
+function toRFC3339(local: string): string | undefined {
+  if (!local) return undefined
+  const d = new Date(local)
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString()
+}
+
 /** The triage view of the persistent, self-pruning issue queue
  * (ops.validation_issues). The worker keeps it current; here an operator reads the
  * live queue and acknowledges / resolves / suppresses an issue -- rather than
@@ -283,8 +306,11 @@ function IssueQueue({
   const [severity, setSeverity] = useState<IssueSeverityFilter>("")
   // Category splits the queue by what the check is about: connectivity findings
   // (orphaned/coincident/…) vs data-quality findings (the attr_* attribute audit).
-  const [category, setCategory] = useState<"" | "connectivity" | "quality">("")
-  const { data, isLoading, isError } = useValidationIssues({ status, severity })
+  const [category, setCategory] = useState<"" | "connectivity" | "quality" | "topology">("")
+  // Date bounds on when an issue FIRST appeared (datetime-local → RFC3339).
+  const [from, setFrom] = useState("")
+  const [to, setTo] = useState("")
+  const { data, isLoading, isError } = useValidationIssues({ status, severity, from: toRFC3339(from), to: toRFC3339(to) })
   const triage = useTriageIssue()
   const reconcile = useReconcileIssues()
   const assign = useAssignIssue()
@@ -303,10 +329,7 @@ function IssueQueue({
   const canTriage = canCommitPerm
   const canReconcile = editMode && canCommitPerm
   const allIssues = data?.issues ?? []
-  const issues = allIssues.filter((it) => {
-    const isQuality = it.kind.startsWith("attr_")
-    return category === "" || (category === "quality") === isQuality
-  })
+  const issues = allIssues.filter((it) => category === "" || kindCategory(it.kind) === category)
   const live = status === ""
   // Bulk-assign: every shown issue that's still live and not yet assigned, handed
   // to one user in one gesture (each becomes its own work order).
@@ -354,6 +377,7 @@ function IssueQueue({
             ["", "All"],
             ["connectivity", "Connectivity"],
             ["quality", "Data quality"],
+            ["topology", "Topology"],
           ] as const
         ).map(([val, label]) => (
           <button
@@ -368,6 +392,37 @@ function IssueQueue({
             {label}
           </button>
         ))}
+        <span className="text-muted-foreground mr-0.5 ml-2" title="Filter by when an issue first appeared">
+          First seen
+        </span>
+        <input
+          type="datetime-local"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+          title="From (first seen at/after)"
+          className="border-input bg-background h-6 rounded border px-1 text-[11px]"
+        />
+        <span className="text-muted-foreground">–</span>
+        <input
+          type="datetime-local"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          title="To (first seen before)"
+          className="border-input bg-background h-6 rounded border px-1 text-[11px]"
+        />
+        {(from || to) && (
+          <button
+            type="button"
+            onClick={() => {
+              setFrom("")
+              setTo("")
+            }}
+            className="text-muted-foreground hover:text-foreground cursor-pointer rounded px-1 py-0.5"
+            title="Clear the date filter"
+          >
+            Clear dates
+          </button>
+        )}
         {canAssign && unassignedOpen.length > 0 && (
           <select
             defaultValue=""

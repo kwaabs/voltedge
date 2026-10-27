@@ -57,6 +57,10 @@ export interface WorkOrder {
   defect_id: string | null
   assigned_to: string | null
   assigned_to_user_id: string | null
+  /** Assigned field crew (bare ref → oms.crews); `crew_name` is joined for display.
+   * A crew-assigned order reaches every member's field pack. */
+  crew_id: string | null
+  crew_name: string | null
   scheduled_for: string | null
   due_by: string | null
   started_at: string | null
@@ -116,6 +120,8 @@ export function useWorkOrders(
     mine?: boolean
     assetClass?: string
     assetId?: string
+    /** Scope to the restoration work raised for one OMS incident. */
+    incidentId?: string
     openOnly?: boolean
   } = {},
   enabled = true,
@@ -129,6 +135,7 @@ export function useWorkOrders(
   else if (opts.assignedToUserId) params.set("assigned_to_user_id", opts.assignedToUserId)
   if (opts.assetClass) params.set("asset_class", opts.assetClass)
   if (opts.assetId) params.set("asset_id", opts.assetId)
+  if (opts.incidentId) params.set("incident_id", opts.incidentId)
   const query = params.toString() ? `?${params.toString()}` : ""
   return useQuery({
     queryKey: [
@@ -140,6 +147,7 @@ export function useWorkOrders(
       opts.mine ? "mine" : opts.assignedToUserId ?? "",
       opts.assetClass ?? "",
       opts.assetId ?? "",
+      opts.incidentId ?? "",
       opts.openOnly ?? false,
     ],
     queryFn: () => apiFetch<WorkOrdersResponse>(`/wam/work-orders${query}`),
@@ -221,6 +229,7 @@ export interface RaiseWorkOrderBody {
   description?: string
   assigned_to?: string
   assigned_to_user_id?: string
+  crew_id?: string
   scheduled_for?: string
   due_by?: string
 }
@@ -245,6 +254,7 @@ export interface CreateWorkOrderBody {
   defect_id?: string
   assigned_to?: string
   assigned_to_user_id?: string
+  crew_id?: string
   scheduled_for?: string
   due_by?: string
 }
@@ -265,6 +275,8 @@ export interface UpdateWorkOrderBody {
   description?: string
   assigned_to?: string
   assigned_to_user_id?: string
+  /** "" clears the crew; a uuid assigns it. */
+  crew_id?: string
   scheduled_for?: string
   due_by?: string
   completion_notes?: string

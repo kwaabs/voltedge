@@ -104,6 +104,11 @@ type AuditFinding struct {
 	// column that's missing, out-of-domain or out-of-range on FromClass/FromID.
 	// Empty for the connectivity findings.
 	Field string `json:"field,omitempty"`
+	// LoopKey is the stable identity of a topology_loop finding's ring (its member
+	// feature ids, sorted + joined) -- the fingerprint keys on it so the same ring
+	// is one issue row and auto-resolves when broken. Internal, not serialized; the
+	// From/To above carry two representative members for display.
+	LoopKey string `json:"-"`
 }
 
 // AuditSummary is the counts behind the findings list (which may be truncated).
@@ -121,6 +126,10 @@ type AuditSummary struct {
 	// audit added -- required-missing, out-of-domain and out-of-range values on
 	// existing feature rows (AuditAll / attribute_audit.go).
 	AttributeIssues       int     `json:"attribute_issues"`
+	// TopologyLoops is how many closed-loop (topology_loop) findings the loop audit
+	// added -- rings where the network is expected radial (at/above the LV mesh
+	// threshold) and no open point breaks them. 0 on a radial, switch-correct network.
+	TopologyLoops         int     `json:"topology_loops"`
 	ClassPairsScanned     int     `json:"class_pairs_scanned"`
 	ToleranceMeters       float64 `json:"tolerance_meters"`
 	Truncated             bool    `json:"truncated"`

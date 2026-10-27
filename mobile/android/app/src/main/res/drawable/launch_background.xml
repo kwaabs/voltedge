@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Modify this file to customize your launch splash screen -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
+    <!-- Brand green (AppTheme.seed #00A878) so the native launch window matches the
+         in-app splash — no white flash before Flutter draws its first frame. -->
+    <item android:drawable="#FF00A878" />
 
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+    <!-- The bolt mark, centered, so the very first (pre-Flutter) frame is branded
+         rather than a blank green screen. Item width/height/gravity need API 23+;
+         on older devices the mark is simply omitted (the green frame, as before). -->
+    <item
+        android:width="96dp"
+        android:height="96dp"
+        android:drawable="@drawable/launch_logo"
+        android:gravity="center" />
 </layer-list>

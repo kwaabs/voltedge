@@ -26,6 +26,13 @@ type Config struct {
 	// Secure marks cookies Secure (HTTPS-only). Off for local http dev,
 	// on everywhere real. Defaults to on unless AUTH_INSECURE_COOKIES=1.
 	Secure bool
+
+	// BreakGlassReveal is an optional second-factor code for emergency local
+	// sign-in. When set AND local password sign-in is disabled, a break-glass
+	// login must ALSO carry this code (the login screen hides the password form
+	// until the code is entered and server-verified). Empty -> the feature is
+	// off and the password form behaves as before.
+	BreakGlassReveal string
 }
 
 // NewConfigFromEnv builds a Config from the environment, with safe
@@ -41,9 +48,10 @@ func NewConfigFromEnv() Config {
 	return Config{
 		CookieName:     envOr("SESSION_COOKIE_NAME", "ve_session"),
 		CSRFCookieName: envOr("CSRF_COOKIE_NAME", "ve_csrf"),
-		IdleTimeout:    envDuration("SESSION_IDLE_TIMEOUT", 12*time.Hour),
-		AbsoluteMax:    envDuration("SESSION_ABSOLUTE_MAX", 30*24*time.Hour),
-		Secure:         !envBool("AUTH_INSECURE_COOKIES", false),
+		IdleTimeout:      envDuration("SESSION_IDLE_TIMEOUT", 12*time.Hour),
+		AbsoluteMax:      envDuration("SESSION_ABSOLUTE_MAX", 30*24*time.Hour),
+		Secure:           !envBool("AUTH_INSECURE_COOKIES", false),
+		BreakGlassReveal: os.Getenv("BREAK_GLASS_REVEAL_CODE"),
 	}
 }
 

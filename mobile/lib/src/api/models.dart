@@ -9,11 +9,17 @@ class FieldLoginResult {
     required this.token,
     required this.email,
     required this.displayName,
+    this.permissions = const [],
   });
 
   final String token;
   final String email;
   final String displayName;
+
+  /// The user's effective permission set (from migration 0164's field:login
+  /// flow). The app gates which modules it shows off this; the server still
+  /// enforces every operation, so this is UX, not security.
+  final List<String> permissions;
 }
 
 /// PackManifest is the download envelope on a succeeded pack: two presigned

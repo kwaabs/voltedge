@@ -23,6 +23,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/kwaabs/voltedge/api/internal/admin"
+	"github.com/kwaabs/voltedge/api/internal/appdist"
 	"github.com/kwaabs/voltedge/api/internal/assembly"
 	"github.com/kwaabs/voltedge/api/internal/assetlife"
 	"github.com/kwaabs/voltedge/api/internal/assettag"
@@ -55,6 +56,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/mapannotation"
 	"github.com/kwaabs/voltedge/api/internal/mapsettings"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
+	"github.com/kwaabs/voltedge/api/internal/metermount"
 	"github.com/kwaabs/voltedge/api/internal/oms"
 	"github.com/kwaabs/voltedge/api/internal/ownership"
 	"github.com/kwaabs/voltedge/api/internal/packagedsub"
@@ -71,6 +73,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/studies"
 	"github.com/kwaabs/voltedge/api/internal/secretbox"
 	"github.com/kwaabs/voltedge/api/internal/servicelayers"
+	"github.com/kwaabs/voltedge/api/internal/telemetry"
 	"github.com/kwaabs/voltedge/api/internal/territory"
 	"github.com/kwaabs/voltedge/api/internal/tie"
 	"github.com/kwaabs/voltedge/api/internal/tiles"
@@ -123,6 +126,17 @@ func main() {
 	}
 	if err := exportStore.EnsureBucket(context.Background()); err != nil {
 		log.Printf("warning: could not ensure export bucket (exports fail until RustFS is reachable): %v", err)
+	}
+
+	// Field-app distribution ("our own play store"): a separate bucket for the
+	// published signed APK + its latest.json manifest, served publicly (see the
+	// /app mount below). A nil store (RustFS misconfigured) just disables the
+	// endpoints; it never blocks boot.
+	appStore, appStoreErr := export.NewObjectStoreForBucket(appdist.Bucket)
+	if appStoreErr != nil {
+		log.Printf("warning: app-distribution store unavailable (field-app download disabled): %v", appStoreErr)
+	} else if err := appStore.EnsureBucket(context.Background()); err != nil {
+		log.Printf("warning: could not ensure app bucket (field-app download fails until RustFS is reachable): %v", err)
 	}
 
 	// Phase 19 Slice 3: the assistant chat orchestrator's model. Optional --
@@ -298,6 +312,13 @@ func main() {
 	// bars operation for everyone, so the right to protect (and release) a work area
 	// is granted deliberately, not folded into switching rights. Method-aware gate.
 	r.With(auth.RequirePermission(auth.PermSafetyRead, auth.PermSafetyWrite)).Mount("/safety", safety.Routes(db))
+	// Live-state / telemetry ingestion (migration 0172, blocker #1): a latest-value
+	// device-telemetry store fed by a dedicated lightweight endpoint (NOT the
+	// durable webhook event engine -- telemetry is a high-rate, latest-value,
+	// loss-tolerant stream), reconciled against the model device_state. Routes
+	// self-gate per permission (telemetry:read / telemetry:ingest / oms:write for
+	// apply), so this is a plain mount; the SCADA/DMS gateway that feeds it is external.
+	r.Mount("/telemetry", telemetry.Routes(db))
 	// Spatial engine (geometry-derived overlap/proximity across the gis.* tables):
 	// "what assets are inside this easement / corridor / parcel?", "what land covers
 	// this asset?", "what vegetation is within N m of this line?". Read-only over the
@@ -373,6 +394,11 @@ func main() {
 	// Features gate here; relationships:commit (always) + connectivity:commit (for
 	// the auto-wire) are enforced inside streetlight.Routes.
 	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/street-lights", streetlight.Routes(db))
+	// Attach a METER to a SERVICE POINT (seed/meter_service_point_mounted.sql): a
+	// geometry-less meter that rides its SP, wired METER T2 -> SERVICE_POINT T1.
+	// Same gate shape as /street-lights -- features here, relationships:commit +
+	// connectivity:commit (for the wire) inside metermount.Routes.
+	r.With(auth.RequirePermission(auth.PermFeaturesRead, auth.PermFeaturesWrite)).Mount("/meter-mounts", metermount.Routes(db))
 	// Phase 44 Slice 4 (docs/phase-44-cable-management.md): the composite "create one
 	// cable duct and fan out its ways" endpoint. Like /panels it creates features and
 	// writes containment (duct -> each DUCT_WAY) in one transaction, so it needs BOTH
@@ -521,6 +547,11 @@ func main() {
 	// mutations need sync:post.
 	r.With(auth.RequirePermission(auth.PermSyncReview, auth.PermSyncPost)).Mount("/sync-review", fieldpack.AdminReviewRoutes(db))
 	r.Mount("/auth", auth.Routes(db, authCfg))
+	// Field-app distribution -- PUBLIC (no auth): a fresh phone downloads the
+	// signed APK with no web login. Only mounted when the APK store configured.
+	if appStore != nil {
+		r.Mount("/app", appdist.Routes(appStore))
+	}
 
 	// Phase 17: export jobs are drained by the standalone cmd/exportworker
 	// process (internal/export/worker.go), not the API -- so a large export

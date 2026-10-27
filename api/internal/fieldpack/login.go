@@ -56,10 +56,12 @@ func fieldLoginHandler(db *bun.DB) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
+		json.NewEncoder(w).Encode(map[string]any{
 			"token":        res.Token,
 			"email":        res.Email,
 			"display_name": res.DisplayName,
+			// The user's effective permissions, so the device can show/hide modules.
+			"permissions": res.Permissions,
 		})
 	}
 }

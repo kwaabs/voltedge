@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react"
-import { Eye, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { Fragment, useMemo, useState } from "react"
+import { Eye, LayoutGrid, Loader2, Pencil, Plus, RefreshCw, Table2, Trash2 } from "lucide-react"
 
 import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
 import { FormDialog } from "@/components/admin/form-dialog"
@@ -18,6 +18,7 @@ import {
   useUpdateCircuit,
 } from "@/hooks/use-circuits"
 import { ApiError } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { useToastStore } from "@/stores/toast-store"
 
 const labelClass = "text-xs font-medium"
@@ -182,6 +183,78 @@ function EditCircuitDialog({ circuit, onClose }: { circuit: Circuit; onClose: ()
   )
 }
 
+/** The membership status of a circuit as a labelled badge -- never assigned,
+ * stale (a member changed since the last assign), or in sync. */
+function membershipBadge(circuit: Circuit): { label: string; className: string; title: string } {
+  if (circuit.members_synced_at == null) {
+    return {
+      label: "not assigned",
+      className: "bg-muted text-muted-foreground",
+      title: "Membership has never been assigned from this circuit's source",
+    }
+  }
+  if (circuit.stale) {
+    return {
+      label: "stale — re-assign",
+      className: "bg-amber-500/15 text-amber-700 dark:text-amber-500",
+      title: "A member feature changed since this circuit was last assigned — re-assign from its source to refresh membership",
+    }
+  }
+  return {
+    label: "in sync",
+    className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-500",
+    title: "Membership is current",
+  }
+}
+
+/** The inline "if you assign now" preview for a circuit -- shared by the card and
+ * table rows. Rendered only once expanded, so the trace runs on demand. */
+function CircuitPreview({ circuit, isAssigning, onApply }: { circuit: Circuit; isAssigning: boolean; onApply: () => void }) {
+  const preview = usePreviewCircuit(circuit.id, true)
+  return (
+    <div className="bg-muted/30 rounded-md border px-3 py-2 text-xs">
+      {preview.isPending ? (
+        <span className="text-muted-foreground flex items-center gap-2">
+          <Loader2 className="size-3.5 animate-spin" /> Tracing…
+        </span>
+      ) : preview.isError ? (
+        <span className="text-destructive">{preview.error.message}</span>
+      ) : preview.data ? (
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="font-medium">If you assign now:</span>
+            <span className="text-emerald-700 dark:text-emerald-500">+{preview.data.will_add} join</span>
+            <span className="text-destructive">−{preview.data.will_remove} drop</span>
+            <span className="text-muted-foreground">={preview.data.unchanged} unchanged</span>
+            <span className="text-muted-foreground">· {preview.data.reached} reached</span>
+            {preview.data.will_add === 0 && preview.data.will_remove === 0 && (
+              <span className="text-muted-foreground italic">already in sync</span>
+            )}
+          </div>
+          {preview.data.per_class.length > 0 && (
+            <div className="text-muted-foreground font-mono">
+              {preview.data.per_class.map((p) => `${p.feature_class}: +${p.add}/−${p.remove}/=${p.keep}`).join("  ·  ")}
+            </div>
+          )}
+          {preview.data.skipped > 0 && (
+            <div className="text-amber-700 dark:text-amber-500">
+              {preview.data.skipped} reached feature{preview.data.skipped === 1 ? "" : "s"} can’t be stamped (class
+              missing an active circuit_id — recompile):{" "}
+              {(preview.data.skipped_per_class ?? []).map((c) => `${c.feature_class} ×${c.stamped}`).join(", ")}
+            </div>
+          )}
+          <div>
+            <Button size="sm" className="h-7" disabled={isAssigning} onClick={onApply}>
+              {isAssigning ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+              Apply assign
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 /** One circuit row with its actions. */
 function CircuitRow({
   circuit,
@@ -197,7 +270,6 @@ function CircuitRow({
   isAssigning: boolean
 }) {
   const [previewOpen, setPreviewOpen] = useState(false)
-  const preview = usePreviewCircuit(circuit.id, previewOpen)
   const hasSource = Boolean(circuit.source_feature_class)
   return (
     <div className="flex flex-col">
@@ -266,60 +338,144 @@ function CircuitRow({
         </div>
       </div>
       {previewOpen && (
-        <div className="bg-muted/30 mx-2 mb-1 ml-2 rounded-md border px-3 py-2 text-xs">
-          {preview.isPending ? (
-            <span className="text-muted-foreground flex items-center gap-2">
-              <Loader2 className="size-3.5 animate-spin" /> Tracing…
-            </span>
-          ) : preview.isError ? (
-            <span className="text-destructive">{preview.error.message}</span>
-          ) : preview.data ? (
-            <div className="flex flex-col gap-1">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="font-medium">If you assign now:</span>
-                <span className="text-emerald-700 dark:text-emerald-500">+{preview.data.will_add} join</span>
-                <span className="text-destructive">−{preview.data.will_remove} drop</span>
-                <span className="text-muted-foreground">={preview.data.unchanged} unchanged</span>
-                <span className="text-muted-foreground">· {preview.data.reached} reached</span>
-                {preview.data.will_add === 0 && preview.data.will_remove === 0 && (
-                  <span className="text-muted-foreground italic">already in sync</span>
-                )}
-              </div>
-              {preview.data.per_class.length > 0 && (
-                <div className="text-muted-foreground font-mono">
-                  {preview.data.per_class
-                    .map((p) => `${p.feature_class}: +${p.add}/−${p.remove}/=${p.keep}`)
-                    .join("  ·  ")}
-                </div>
-              )}
-              {preview.data.skipped > 0 && (
-                <div className="text-amber-700 dark:text-amber-500">
-                  {preview.data.skipped} reached feature{preview.data.skipped === 1 ? "" : "s"} can’t be stamped (class
-                  missing an active circuit_id — recompile):{" "}
-                  {(preview.data.skipped_per_class ?? []).map((c) => `${c.feature_class} ×${c.stamped}`).join(", ")}
-                </div>
-              )}
-              <div>
-                <Button
-                  size="sm"
-                  className="h-7"
-                  disabled={isAssigning}
-                  onClick={() => {
-                    onAssign(circuit)
-                    setPreviewOpen(false)
-                  }}
-                >
-                  {isAssigning ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-                  Apply assign
-                </Button>
-              </div>
-            </div>
-          ) : null}
+        <div className="mx-2 mb-1">
+          <CircuitPreview
+            circuit={circuit}
+            isAssigning={isAssigning}
+            onApply={() => {
+              onAssign(circuit)
+              setPreviewOpen(false)
+            }}
+          />
         </div>
       )}
     </div>
   )
 }
+
+/** The flat, scannable table view of every circuit (both networks in one grid):
+ * name, network, voltage, membership status and source at a glance, with the same
+ * per-row actions as the cards and an expandable "assign now" preview. */
+function CircuitTable({
+  circuits,
+  onEdit,
+  onDelete,
+  onAssign,
+  assigningId,
+}: {
+  circuits: Circuit[]
+  onEdit: (c: Circuit) => void
+  onDelete: (c: Circuit) => void
+  onAssign: (c: Circuit) => void
+  assigningId: string | null
+}) {
+  const [expanded, setExpanded] = useState<string | null>(null)
+  return (
+    <div className="rounded-md border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-muted-foreground border-b text-left text-xs">
+            <th className="px-3 py-2 font-medium">Name</th>
+            <th className="px-3 py-2 font-medium">Network</th>
+            <th className="px-3 py-2 font-medium">Voltage</th>
+            <th className="px-3 py-2 font-medium">Membership</th>
+            <th className="px-3 py-2 font-medium">Source</th>
+            <th className="px-3 py-2 text-right font-medium">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {circuits.length === 0 ? (
+            <tr>
+              <td colSpan={6} className="text-muted-foreground px-3 py-6 text-center">
+                No circuits yet.
+              </td>
+            </tr>
+          ) : (
+            circuits.map((c) => {
+              const hasSource = Boolean(c.source_feature_class)
+              const m = membershipBadge(c)
+              const isAssigning = assigningId === c.id
+              const open = expanded === c.id
+              return (
+                <Fragment key={c.id}>
+                  <tr className="hover:bg-muted/40 border-b last:border-0">
+                    <td className="px-3 py-2 font-medium">{c.name}</td>
+                    <td className="px-3 py-2">
+                      <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs">{c.network}</span>
+                    </td>
+                    <td className="text-muted-foreground px-3 py-2 tabular-nums">
+                      {c.voltage_kv != null ? `${c.voltage_kv} kV` : "—"}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium", m.className)} title={m.title}>
+                        {m.label}
+                      </span>
+                    </td>
+                    <td className="text-muted-foreground px-3 py-2 text-xs">{c.source_feature_class ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center justify-end gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          disabled={!hasSource}
+                          aria-pressed={open}
+                          title={hasSource ? "Preview what an assign would add / drop — writes nothing" : "No source set — nothing to preview"}
+                          onClick={() => setExpanded(open ? null : c.id)}
+                        >
+                          <Eye className="size-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          disabled={!hasSource || isAssigning}
+                          title={hasSource ? "Assign / re-sync from the source" : "No source set — set one on the map first"}
+                          onClick={() => onAssign(c)}
+                        >
+                          {isAssigning ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                        </Button>
+                        <Button variant="ghost" size="icon" className="size-7" title="Edit" onClick={() => onEdit(c)}>
+                          <Pencil className="size-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive size-7"
+                          title="Delete"
+                          onClick={() => onDelete(c)}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                  {open && (
+                    <tr className="border-b last:border-0">
+                      <td colSpan={6} className="px-3 pt-0 pb-2">
+                        <CircuitPreview
+                          circuit={c}
+                          isAssigning={isAssigning}
+                          onApply={() => {
+                            onAssign(c)
+                            setExpanded(null)
+                          }}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+type CircuitsView = "cards" | "table"
+const VIEW_KEY = "voltedge-circuits-view"
 
 export function AdminCircuitsPage() {
   const { data, isPending, isError } = useCircuits()
@@ -330,6 +486,12 @@ export function AdminCircuitsPage() {
   const assign = useAssignCircuit()
   const assignStale = useAssignStale()
   const [assigningId, setAssigningId] = useState<string | null>(null)
+  // Cards (grouped by network) vs a flat scannable table; sticky per-browser.
+  const [view, setView] = useState<CircuitsView>(() => (localStorage.getItem(VIEW_KEY) === "table" ? "table" : "cards"))
+  const setViewPersist = (v: CircuitsView) => {
+    setView(v)
+    localStorage.setItem(VIEW_KEY, v)
+  }
 
   function handleAssign(c: Circuit) {
     setAssigningId(c.id)
@@ -398,6 +560,30 @@ export function AdminCircuitsPage() {
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <div className="bg-muted/60 flex items-center gap-0.5 rounded-md p-0.5">
+              <button
+                type="button"
+                onClick={() => setViewPersist("cards")}
+                className={cn(
+                  "flex items-center gap-1 rounded px-2 py-1 text-xs",
+                  view === "cards" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+                title="Card view, grouped by network"
+              >
+                <LayoutGrid className="size-3.5" /> Cards
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewPersist("table")}
+                className={cn(
+                  "flex items-center gap-1 rounded px-2 py-1 text-xs",
+                  view === "table" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+                title="Table view — every circuit in one grid"
+              >
+                <Table2 className="size-3.5" /> Table
+              </button>
+            </div>
             {staleCount > 0 && (
               <Button
                 size="sm"
@@ -428,6 +614,14 @@ export function AdminCircuitsPage() {
           </div>
         ) : isError ? (
           <p className="text-destructive text-sm">Could not load circuits.</p>
+        ) : view === "table" ? (
+          <CircuitTable
+            circuits={circuits}
+            onEdit={setEditing}
+            onDelete={setDeleting}
+            onAssign={handleAssign}
+            assigningId={assigningId}
+          />
         ) : (
           NETWORKS.map((network) => {
             const rows = byNetwork.get(network) ?? []

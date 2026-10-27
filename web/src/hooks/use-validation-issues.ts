@@ -40,6 +40,9 @@ export interface IssueQueueFilter {
   /** Scope the queue to issues touching these features (My edits passes the
    * features a user changed). Absent = the whole queue. */
   featureIds?: string[]
+  /** Bound the queue by when an issue FIRST appeared (RFC3339). Either optional. */
+  from?: string
+  to?: string
 }
 
 /** The validation-issue queue. An empty status returns the LIVE queue (open +
@@ -51,6 +54,8 @@ export function useValidationIssues(filter: IssueQueueFilter, enabled = true) {
   if (filter.severity) params.set("severity", filter.severity)
   if (filter.kind) params.set("kind", filter.kind)
   if (filter.featureIds && filter.featureIds.length > 0) params.set("feature_ids", filter.featureIds.join(","))
+  if (filter.from) params.set("from", filter.from)
+  if (filter.to) params.set("to", filter.to)
   const qs = params.toString()
   return useQuery({
     queryKey: ["validation-issues", filter],

@@ -2553,6 +2553,10 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
   bool get _showCreateFab =>
       _db != null &&
       _error == null &&
+      // Creating a feature is a write -- a read-only tier (field-surveyor, no
+      // features:write) doesn't get the Create button (migration 0164 ships the
+      // user's permissions on login; the server enforces the write on sync too).
+      ref.read(settingsRepositoryProvider).hasPermission('features:write') &&
       _createClass == null &&
       !_editing &&
       !_editingGeom &&
@@ -3055,6 +3059,10 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
     // for every feature (a pole may still *relate* to the gear it carries).
     final role = _db?.networkRoleFor(f.featureClass);
     final canConnect = role != 'none' && role != 'container';
+    // A read-only tier (field-surveyor, no features:write) sees no write
+    // affordances -- edit / delete / connect / relate / move / undo are all hidden,
+    // leaving view + close. The server also rejects the write on sync regardless.
+    final canWrite = ref.read(settingsRepositoryProvider).hasPermission('features:write');
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
       color: theme.colorScheme.surfaceContainerHighest,
@@ -3072,7 +3080,7 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
               // The edit form carries its own Cancel/Save bar, so the header's Edit
               // and Discard buttons are only shown in read-only mode -- and not while
               // connecting, when the map's target-tap owns the interaction.
-              if (!_editing && !_connecting && !_relating) ...[
+              if (!_editing && !_connecting && !_relating && canWrite) ...[
                 // A tombstoned feature offers only Undo -- editing/connecting a
                 // feature that's about to be soft-deleted makes no sense.
                 if (isDeleted)

@@ -154,98 +154,108 @@ func CreateAssembly(ctx context.Context, db *bun.DB, in CreateAssemblyInput) (*C
 
 	result := &CreateAssemblyResult{}
 	if err := db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		// 1. the anchor itself -- the one feature carrying map geometry (and hence a
-		// territory); the kit components are geometry-optional and created without.
-		anchorEnv, err := crud.CreateFeature(ctx, tx, anchorLoaded, crud.CreateFeatureInput{
-			Subtype:     anchorSubtype,
-			Name:        in.Name,
-			Geometry:    in.Geometry,
-			TerritoryID: in.TerritoryID,
-			Attributes:  in.Attributes,
-		})
-		if err != nil {
-			return err
-		}
-		anchorID, err := featureID(anchorEnv)
-		if err != nil {
-			return err
-		}
-		result.Anchor = anchorEnv
-
-		// byPosition[0] is the anchor; each item records itself so a later item can
-		// name it as a structural parent or wiring target. The template guarantees
-		// targets reference position 0 or an EARLIER item, so this single forward
-		// pass resolves every reference.
-		byPosition := map[int]featureRef{anchorPosition: {class: in.AnchorFeatureClass, id: anchorID}}
-
-		for _, it := range tmpl.Items {
-			env, err := crud.CreateFeature(ctx, tx, compMeta[it.ComponentFeatureClass], crud.CreateFeatureInput{
-				Subtype:    it.SubtypeCode,
-				Attributes: it.Attributes,
-			})
-			if err != nil {
-				return fmt.Errorf("creating templated %s: %w", it.ComponentFeatureClass, err)
-			}
-			compID, err := featureID(env)
-			if err != nil {
-				return err
-			}
-			byPosition[it.Position] = featureRef{class: it.ComponentFeatureClass, id: compID}
-
-			created := CreatedComponent{
-				FeatureClass: it.ComponentFeatureClass,
-				Feature:      env,
-				OffsetX:      it.OffsetX,
-				OffsetY:      it.OffsetY,
-				Rotation:     it.Rotation,
-			}
-
-			// Structural link: this item to its parent (default the anchor), kind
-			// from the template (e.g. spatial_support). Absent for items with no
-			// structural relationship (a nil SupportKind).
-			if it.SupportKind != nil {
-				parentPos := anchorPosition
-				if it.SupportParentPosition != nil {
-					parentPos = *it.SupportParentPosition
-				}
-				parent, ok := byPosition[parentPos]
-				if !ok {
-					return fmt.Errorf("assembly: %s support_parent_position %d not yet created (template out of order)", it.ComponentFeatureClass, parentPos)
-				}
-				rel, err := relationship.EstablishRelationship(ctx, tx, relationshipInput(
-					*it.SupportKind, parent.class, parent.id, it.ComponentFeatureClass, compID,
-				))
-				if err != nil {
-					return err
-				}
-				created.SupportRelationshipID = rel.ID
-			}
-
-			// Electrical link: this item to its wiring target (0 = anchor). Absent
-			// for an externally-fed item (a nil WireToPosition, e.g. the cutout that
-			// takes its feed from the MV line placed separately).
-			if it.WireToPosition != nil {
-				target, ok := byPosition[*it.WireToPosition]
-				if !ok {
-					return fmt.Errorf("assembly: %s wire_to_position %d not yet created (template out of order)", it.ComponentFeatureClass, *it.WireToPosition)
-				}
-				conn, err := connectivity.EstablishConnection(ctx, tx, connectivity.EstablishConnectionInput{
-					From: connectivity.Endpoint{FeatureClass: target.class, FeatureID: target.id, Terminal: it.UpstreamTerminal},
-					To:   connectivity.Endpoint{FeatureClass: it.ComponentFeatureClass, FeatureID: compID, Terminal: it.OwnTerminal},
-				})
-				if err != nil {
-					return fmt.Errorf("wiring %s to %s: %w", it.ComponentFeatureClass, target.class, err)
-				}
-				created.ConnectionID = conn.ID
-			}
-
-			result.Components = append(result.Components, created)
-		}
-		return nil
+		return fanOut(ctx, tx, in, anchorLoaded, tmpl, compMeta, anchorSubtype, result)
 	}); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// fanOut performs the whole kit creation inside a caller-supplied transaction: the
+// anchor, then every component wired to its structural parent and electrical
+// target. Extracted from CreateAssembly so the authoring dry-run (authoring.go)
+// can run the REAL fan-out in a rolled-back transaction to validate a kit before
+// it is saved -- no parallel, less-trustworthy validation path. result is filled
+// as it goes (the dry-run discards it).
+func fanOut(ctx context.Context, tx bun.Tx, in CreateAssemblyInput, anchorLoaded *metadata.Loaded, tmpl *metadata.AssemblyTemplateResolved, compMeta map[string]*metadata.Loaded, anchorSubtype *int, result *CreateAssemblyResult) error {
+	// 1. the anchor itself -- the one feature carrying map geometry (and hence a
+	// territory); the kit components are geometry-optional and created without.
+	anchorEnv, err := crud.CreateFeature(ctx, tx, anchorLoaded, crud.CreateFeatureInput{
+		Subtype:     anchorSubtype,
+		Name:        in.Name,
+		Geometry:    in.Geometry,
+		TerritoryID: in.TerritoryID,
+		Attributes:  in.Attributes,
+	})
+	if err != nil {
+		return err
+	}
+	anchorID, err := featureID(anchorEnv)
+	if err != nil {
+		return err
+	}
+	result.Anchor = anchorEnv
+
+	// byPosition[0] is the anchor; each item records itself so a later item can
+	// name it as a structural parent or wiring target. The template guarantees
+	// targets reference position 0 or an EARLIER item, so this single forward
+	// pass resolves every reference.
+	byPosition := map[int]featureRef{anchorPosition: {class: in.AnchorFeatureClass, id: anchorID}}
+
+	for _, it := range tmpl.Items {
+		env, err := crud.CreateFeature(ctx, tx, compMeta[it.ComponentFeatureClass], crud.CreateFeatureInput{
+			Subtype:    it.SubtypeCode,
+			Attributes: it.Attributes,
+		})
+		if err != nil {
+			return fmt.Errorf("creating templated %s: %w", it.ComponentFeatureClass, err)
+		}
+		compID, err := featureID(env)
+		if err != nil {
+			return err
+		}
+		byPosition[it.Position] = featureRef{class: it.ComponentFeatureClass, id: compID}
+
+		created := CreatedComponent{
+			FeatureClass: it.ComponentFeatureClass,
+			Feature:      env,
+			OffsetX:      it.OffsetX,
+			OffsetY:      it.OffsetY,
+			Rotation:     it.Rotation,
+		}
+
+		// Structural link: this item to its parent (default the anchor), kind
+		// from the template (e.g. spatial_support). Absent for items with no
+		// structural relationship (a nil SupportKind).
+		if it.SupportKind != nil {
+			parentPos := anchorPosition
+			if it.SupportParentPosition != nil {
+				parentPos = *it.SupportParentPosition
+			}
+			parent, ok := byPosition[parentPos]
+			if !ok {
+				return fmt.Errorf("assembly: %s support_parent_position %d not yet created (template out of order)", it.ComponentFeatureClass, parentPos)
+			}
+			rel, err := relationship.EstablishRelationship(ctx, tx, relationshipInput(
+				*it.SupportKind, parent.class, parent.id, it.ComponentFeatureClass, compID,
+			))
+			if err != nil {
+				return err
+			}
+			created.SupportRelationshipID = rel.ID
+		}
+
+		// Electrical link: this item to its wiring target (0 = anchor). Absent
+		// for an externally-fed item (a nil WireToPosition, e.g. the cutout that
+		// takes its feed from the MV line placed separately).
+		if it.WireToPosition != nil {
+			target, ok := byPosition[*it.WireToPosition]
+			if !ok {
+				return fmt.Errorf("assembly: %s wire_to_position %d not yet created (template out of order)", it.ComponentFeatureClass, *it.WireToPosition)
+			}
+			conn, err := connectivity.EstablishConnection(ctx, tx, connectivity.EstablishConnectionInput{
+				From: connectivity.Endpoint{FeatureClass: target.class, FeatureID: target.id, Terminal: it.UpstreamTerminal},
+				To:   connectivity.Endpoint{FeatureClass: it.ComponentFeatureClass, FeatureID: compID, Terminal: it.OwnTerminal},
+			})
+			if err != nil {
+				return fmt.Errorf("wiring %s to %s: %w", it.ComponentFeatureClass, target.class, err)
+			}
+			created.ConnectionID = conn.ID
+		}
+
+		result.Components = append(result.Components, created)
+	}
+	return nil
 }
 
 // relationshipInput builds an EstablishRelationshipInput for a parent-to-child link

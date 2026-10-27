@@ -1,6 +1,9 @@
-import { LogOut, User, Zap } from "lucide-react"
+import { ChevronDown, LogOut, Zap } from "lucide-react"
+import { useState } from "react"
 import { useLocation, useNavigate } from "react-router"
 
+import { ConfirmDeleteDialog } from "@/components/admin/confirm-delete-dialog"
+import { ActivityBell } from "@/components/layout/activity-bell"
 import { ThemeToggle } from "@/components/layout/theme-toggle"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +24,17 @@ const TITLES: Record<string, string> = {
   "/admin/users": "Users",
 }
 
+/** Two-letter initials for the avatar: first name's initial + last name's
+ * initial ("Justice Danso" -> "JD"). A single word gives its first letter, and
+ * a blank name falls back to the email's first character, so there's always
+ * something to show. */
+function initials(name: string, email: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  if (parts.length === 1) return parts[0][0].toUpperCase()
+  return (email.trim()[0] ?? "?").toUpperCase()
+}
+
 /**
  * The header's account control, wired to the real session (Slice D). The
  * shell only renders behind RequireSession, so a user is always present
@@ -31,46 +45,104 @@ function AccountMenu() {
   const { data: user } = useSession()
   const logout = useLogout()
   const navigate = useNavigate()
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
 
   if (!user) return null
 
+  // Revoke the session, then land on the login screen whether or not the revoke
+  // call succeeded (the local cache is cleared either way). Returns a promise so
+  // the confirm dialog can show its spinner until the sign-out settles.
+  async function handleSignOut() {
+    await new Promise<void>((resolve) => {
+      logout.mutate(undefined, {
+        onSettled: () => {
+          navigate("/login", { replace: true })
+          resolve()
+        },
+      })
+    })
+  }
+
   return (
-    <DropdownMenu>
+    <>
+      <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
-          // Green account chip in LIGHT MODE ONLY -- the `dark:` overrides restore
-          // the neutral outline look (bg-background / border-input / text-foreground
-          // + accent hover) so dark mode is unchanged.
-          className="gap-1.5 border-green-600 bg-green-600 text-white hover:bg-green-700 hover:text-white dark:border-input dark:bg-background dark:text-foreground dark:hover:bg-accent dark:hover:text-accent-foreground"
+          title={user.display_name}
+          aria-label={`Account: ${user.display_name}`}
+          // `group` so the chevron can react to the menu's open state (Radix puts
+          // data-state="open" on this trigger): ChevronDown rotates 180° when open,
+          // reading as an up-chevron -- down to expand, up to collapse.
+          className="group gap-1 px-1"
         >
-          <User className="size-4" />
-          <span className="max-w-[12rem] truncate">{user.display_name}</span>
+          {/* Round initials avatar. Green in LIGHT MODE ONLY; the dark: overrides
+              restore the neutral look so dark mode is unchanged. */}
+          <span className="flex size-8 items-center justify-center rounded-full border border-green-600 bg-green-600 text-xs font-semibold text-white dark:border-input dark:bg-background dark:text-foreground">
+            {initials(user.display_name, user.email)}
+          </span>
+          {/* No explicit colour -- inherit the header's text (slate-100 in the
+              light blue bar, foreground in dark) like the bell/theme icons, so it
+              stays visible on the dark header. */}
+          <ChevronDown className="size-4 opacity-80 transition-transform group-data-[state=open]:rotate-180" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="w-64">
         <DropdownMenuLabel className="flex flex-col gap-0.5">
           <span className="truncate font-medium">{user.display_name}</span>
           <span className="text-muted-foreground truncate text-xs font-normal">{user.email}</span>
         </DropdownMenuLabel>
+
+        <div className="px-2 py-1.5">
+          <div className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">Roles</div>
+          {user.roles.length > 0 ? (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {user.roles.map((r) => (
+                <span key={r} className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs">
+                  {r}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="text-muted-foreground mt-1 text-xs">No role assigned</div>
+          )}
+        </div>
+
+        {user.territories.length > 0 && (
+          <div className="px-2 pb-1.5">
+            <div className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+              Granted territories
+            </div>
+            <div className="mt-1 flex flex-col gap-0.5">
+              {user.territories.map((t) => (
+                <span key={t.territory_id} className="truncate text-xs">
+                  {t.territory_name} <span className="text-muted-foreground">· {t.level_code}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         <DropdownMenuSeparator />
-        <DropdownMenuItem
-          disabled={logout.isPending}
-          onSelect={(e) => {
-            e.preventDefault()
-            logout.mutate(undefined, {
-              // Land on the login screen whether or not the revoke call
-              // succeeded -- the local cache is cleared either way.
-              onSettled: () => navigate("/login", { replace: true }),
-            })
-          }}
-        >
+        {/* Open a confirm dialog rather than signing out immediately; the menu
+            closes on select and the dialog opens off `confirmSignOut`. */}
+        <DropdownMenuItem disabled={logout.isPending} onSelect={() => setConfirmSignOut(true)}>
           <LogOut className="size-4" />
           Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
-    </DropdownMenu>
+      </DropdownMenu>
+
+      <ConfirmDeleteDialog
+        open={confirmSignOut}
+        onOpenChange={setConfirmSignOut}
+        title="Sign out?"
+        description="You’ll be returned to the sign-in screen and will need to sign in again to continue."
+        confirmLabel="Sign out"
+        onConfirm={handleSignOut}
+      />
+    </>
   )
 }
 
@@ -102,6 +174,7 @@ export function AppHeader() {
           identity first, "where am I" second. */}
       <span className="text-slate-300 dark:text-muted-foreground text-sm font-medium">{title}</span>
       <div className="ml-auto flex items-center gap-1">
+        <ActivityBell />
         <ThemeToggle />
         <AccountMenu />
       </div>

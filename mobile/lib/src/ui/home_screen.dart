@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../api/app_release.dart';
 import '../api/fieldsync_client.dart';
 import '../api/models.dart';
 import '../pack/pack_store.dart';
@@ -22,6 +24,7 @@ class HomeScreen extends ConsumerWidget {
     final downloaded = ref.watch(downloadedPacksProvider);
     final remote = ref.watch(remotePacksProvider);
     final shared = ref.watch(sharedCellsProvider);
+    final update = ref.watch(appUpdateProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -60,6 +63,10 @@ class HomeScreen extends ConsumerWidget {
           padding: const EdgeInsets.only(bottom: 96),
           children: [
             if (!settings.isConfigured) const _NotConfiguredBanner(),
+            update.maybeWhen(
+              data: (u) => u == null ? const SizedBox.shrink() : _UpdateBanner(update: u),
+              orElse: () => const SizedBox.shrink(),
+            ),
             const _SectionHeader('On this device'),
             downloaded.when(
               loading: () => const _Loading(),
@@ -413,6 +420,92 @@ class _NotConfiguredBanner extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const SettingsScreen()),
             ),
             child: const Text('Sign in'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A newer field-app build is published (self-distribution update check): a
+/// dismissible nudge at the top of the home list with the new version + an Update
+/// button that opens the APK download in the device browser (where Android's
+/// install flow takes over). Dismiss hides it until the next launch. [_dismissed]
+/// is local widget state, which survives the ListView's rebuilds because the
+/// banner keeps its place at the head of the list.
+class _UpdateBanner extends StatefulWidget {
+  const _UpdateBanner({required this.update});
+  final AppUpdate update;
+
+  @override
+  State<_UpdateBanner> createState() => _UpdateBannerState();
+}
+
+class _UpdateBannerState extends State<_UpdateBanner> {
+  bool _dismissed = false;
+
+  Future<void> _download() async {
+    final uri = Uri.parse(widget.update.downloadUrl);
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open ${widget.update.downloadUrl}')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_dismissed) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final release = widget.update.release;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.system_update, color: scheme.onPrimaryContainer),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Update available — version ${release.version}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onPrimaryContainer,
+                      ),
+                ),
+                if (release.notes != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    release.notes!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onPrimaryContainer,
+                        ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: _download,
+                  icon: const Icon(Icons.download, size: 18),
+                  label: const Text('Update'),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Dismiss',
+            icon: Icon(Icons.close, color: scheme.onPrimaryContainer),
+            onPressed: () => setState(() => _dismissed = true),
           ),
         ],
       ),

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/kwaabs/voltedge/api/internal/assembly"
 	"github.com/kwaabs/voltedge/api/internal/assetlife"
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/boq"
@@ -513,6 +514,61 @@ func toolRunServiceTrace(ctx context.Context, db bun.IDB, args json.RawMessage) 
 	result, err := trace.ServiceTrace(ctx, db, trace.ServiceInput{
 		TraceConfiguration: in.TraceConfiguration,
 		Start:              trace.FeatureRef{FeatureClass: in.Start.FeatureClass, FeatureID: in.Start.FeatureID},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func toolListAssemblyKits(ctx context.Context, db bun.IDB, _ json.RawMessage) (any, error) {
+	kits, err := assembly.ListKits(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	if kits == nil {
+		kits = []assembly.KitSummary{}
+	}
+	return kits, nil
+}
+
+func toolGetAssemblyKit(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	kit, err := assembly.GetKit(ctx, db, in.ID)
+	if err != nil {
+		return nil, err
+	}
+	return kit, nil
+}
+
+func toolCheckNetworkLoops(ctx context.Context, db bun.IDB, args json.RawMessage) (any, error) {
+	var in struct {
+		Start struct {
+			FeatureClass string `json:"feature_class"`
+			FeatureID    string `json:"feature_id"`
+		} `json:"start"`
+		Direction string `json:"direction"`
+		AsBuilt   bool   `json:"as_built"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if in.Start.FeatureClass == "" || in.Start.FeatureID == "" {
+		return nil, fmt.Errorf("start.feature_class and start.feature_id are required")
+	}
+
+	result, err := trace.DetectLoops(ctx, db, trace.LoopCheckInput{
+		Start:     trace.FeatureRef{FeatureClass: in.Start.FeatureClass, FeatureID: in.Start.FeatureID},
+		Direction: in.Direction,
+		AsBuilt:   in.AsBuilt,
 	})
 	if err != nil {
 		return nil, err

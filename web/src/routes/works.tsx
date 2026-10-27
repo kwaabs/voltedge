@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { usePermission } from "@/hooks/use-auth"
+import { useCrews } from "@/hooks/use-oms"
 import {
   type AssignableUser,
   type Defect,
@@ -63,12 +64,15 @@ function humanize(s: string): string {
 }
 
 /** The assignee label for a work order: the internal worker's name when set
- * (resolved from the assignable-users list), else the free-text crew label,
- * else nothing. */
+ * (resolved from the assignable-users list), else the assigned crew's name, else
+ * the free-text crew label, else nothing. */
 function assigneeLabel(order: WorkOrder, users: AssignableUser[]): string | null {
   if (order.assigned_to_user_id) {
     const u = users.find((x) => x.id === order.assigned_to_user_id)
     return u ? u.display_name : "Assigned"
+  }
+  if (order.crew_id) {
+    return order.crew_name ? `Crew: ${order.crew_name}` : "Crew"
   }
   return order.assigned_to || null
 }
@@ -82,6 +86,23 @@ function AssigneeSelect({ value, onChange }: { value: string; onChange: (v: stri
       {(users.data?.users ?? []).map((u) => (
         <option key={u.id} value={u.id}>
           {u.display_name}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+/** A crew picker (crew_id). "" = no crew. Lists active crews; a crew-assigned
+ * order reaches every member's field pack. */
+function CrewSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const crews = useCrews()
+  return (
+    <select className={inputClass} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">No crew</option>
+      {(crews.data?.crews ?? []).map((c) => (
+        <option key={c.id} value={c.id}>
+          {c.name}
+          {c.member_count ? ` (${c.member_count})` : ""}
         </option>
       ))}
     </select>
@@ -221,6 +242,7 @@ function NewWorkOrderDialog({ onClose }: { onClose: () => void }) {
   const [assetClass, setAssetClass] = useState("")
   const [assetId, setAssetId] = useState("")
   const [assignedToUserId, setAssignedToUserId] = useState("")
+  const [assignedCrewId, setAssignedCrewId] = useState("")
   const [assignedTo, setAssignedTo] = useState("")
   const [scheduledFor, setScheduledFor] = useState("")
   const [description, setDescription] = useState("")
@@ -243,6 +265,7 @@ function NewWorkOrderDialog({ onClose }: { onClose: () => void }) {
         asset_class: assetClass.trim() || undefined,
         asset_id: assetId.trim() || undefined,
         assigned_to_user_id: assignedToUserId || undefined,
+        crew_id: assignedCrewId || undefined,
         assigned_to: assignedTo.trim() || undefined,
         scheduled_for: toIso(scheduledFor),
         description: description.trim() || undefined,
@@ -307,14 +330,20 @@ function NewWorkOrderDialog({ onClose }: { onClose: () => void }) {
           <AssigneeSelect value={assignedToUserId} onChange={setAssignedToUserId} />
         </div>
         <div className="flex flex-1 flex-col gap-1">
-          <label className={labelClass}>Scheduled for</label>
-          <input className={inputClass} type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} />
+          <label className={labelClass}>Assign to crew</label>
+          <CrewSelect value={assignedCrewId} onChange={setAssignedCrewId} />
         </div>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label className={labelClass}>External crew</label>
-        <input className={inputClass} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} placeholder="Free-text label for an external crew (optional)" />
+      <div className="flex gap-2">
+        <div className="flex flex-1 flex-col gap-1">
+          <label className={labelClass}>Scheduled for</label>
+          <input className={inputClass} type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} />
+        </div>
+        <div className="flex flex-1 flex-col gap-1">
+          <label className={labelClass}>External crew</label>
+          <input className={inputClass} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} placeholder="Free-text label (optional)" />
+        </div>
       </div>
 
       <div className="flex flex-col gap-1">
@@ -332,6 +361,7 @@ function NewWorkOrderDialog({ onClose }: { onClose: () => void }) {
  * overrides. */
 function RaiseWorkOrderDialog({ defect, onClose }: { defect: Defect; onClose: () => void }) {
   const [assignedToUserId, setAssignedToUserId] = useState("")
+  const [assignedCrewId, setAssignedCrewId] = useState("")
   const [scheduledFor, setScheduledFor] = useState("")
   const raise = useRaiseWorkOrder()
 
@@ -347,6 +377,7 @@ function RaiseWorkOrderDialog({ defect, onClose }: { defect: Defect; onClose: ()
         defectId: defect.id,
         body: {
           assigned_to_user_id: assignedToUserId || undefined,
+          crew_id: assignedCrewId || undefined,
           scheduled_for: toIso(scheduledFor),
         },
       },
@@ -371,9 +402,13 @@ function RaiseWorkOrderDialog({ defect, onClose }: { defect: Defect; onClose: ()
           <AssigneeSelect value={assignedToUserId} onChange={setAssignedToUserId} />
         </div>
         <div className="flex flex-1 flex-col gap-1">
-          <label className={labelClass}>Scheduled for</label>
-          <input className={inputClass} type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} />
+          <label className={labelClass}>Assign to crew</label>
+          <CrewSelect value={assignedCrewId} onChange={setAssignedCrewId} />
         </div>
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className={labelClass}>Scheduled for</label>
+        <input className={inputClass} type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} />
       </div>
     </FormDialog>
   )
@@ -616,7 +651,12 @@ export function WorksPage() {
   const activeOrders = orderRows.filter((o) => o.status !== "completed" && o.status !== "cancelled").length
   const inProgress = orderRows.filter((o) => o.status === "in_progress").length
   const unassigned = orderRows.filter(
-    (o) => o.status !== "completed" && o.status !== "cancelled" && !o.assigned_to_user_id && !o.assigned_to,
+    (o) =>
+      o.status !== "completed" &&
+      o.status !== "cancelled" &&
+      !o.assigned_to_user_id &&
+      !o.crew_id &&
+      !o.assigned_to,
   ).length
 
   return (

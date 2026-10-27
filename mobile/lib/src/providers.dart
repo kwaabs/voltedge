@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
+import 'api/app_release.dart';
 import 'api/fieldsync_client.dart';
 import 'api/models.dart';
 import 'config/settings_repository.dart';
@@ -60,6 +62,31 @@ final downloadedPacksProvider = FutureProvider.autoDispose<List<LocalPack>>(
 final sharedCellsProvider = FutureProvider.autoDispose<List<CellSummary>>(
   (ref) => ref.watch(fieldsyncClientProvider).listCells(),
 );
+
+/// Launch-time update check (self-distribution / "our own play store"): fetch the
+/// published release manifest and, when it names a build newer than the installed
+/// one, surface an [AppUpdate] the home screen renders as a dismissible nudge.
+/// Resolves to null when up to date, nothing is published yet, or the device isn't
+/// configured/signed in. Best-effort: ANY failure (offline, unreachable base URL)
+/// degrades to null -- an update nudge must never block or error the home screen.
+/// autoDispose so it re-checks each time the home screen is shown.
+final appUpdateProvider = FutureProvider.autoDispose<AppUpdate?>((ref) async {
+  final settings = ref.watch(settingsRepositoryProvider);
+  if (!settings.isConfigured) return null;
+  try {
+    final release = await ref.watch(fieldsyncClientProvider).fetchLatestRelease();
+    if (release == null) return null;
+    final info = await PackageInfo.fromPlatform();
+    final installedCode = int.tryParse(info.buildNumber) ?? 0;
+    if (!release.isNewerThan(info.version, installedCode)) return null;
+    return AppUpdate(
+      release: release,
+      downloadUrl: ref.read(fieldsyncClientProvider).appDownloadUrl(),
+    );
+  } catch (_) {
+    return null;
+  }
+});
 
 /// The packable feature-class catalog (GET /feature-classes) -- backs the class
 /// picker on the "new pack" form. autoDispose so it refetches each time the form

@@ -289,13 +289,16 @@ func SetDefectStatus(ctx context.Context, db bun.IDB, id, status string) (*Defec
 // Work orders
 // ---------------------------------------------------------------------------
 
-const workOrderColumns = "id, reference, work_type, status, priority, title, description, asset_class, asset_id, source, defect_id, assigned_to, assigned_to_user_id, scheduled_for, due_by, started_at, completed_at, completion_notes, created_at, updated_at"
+const workOrderColumns = "id, reference, work_type, status, priority, title, description, asset_class, asset_id, source, defect_id, incident_id, assigned_to, assigned_to_user_id, crew_id, scheduled_for, due_by, started_at, completed_at, completion_notes, created_at, updated_at"
 
 func selectWorkOrders(db bun.IDB, dst any) *bun.SelectQuery {
 	return db.NewSelect().Model(dst).
 		ColumnExpr(workOrderColumns).
 		ColumnExpr("ST_X(location) AS longitude").
 		ColumnExpr("ST_Y(location) AS latitude").
+		// Assigned crew's name via a correlated subquery (not a join) to avoid
+		// unqualified-column ambiguity with the bare column list above.
+		ColumnExpr("(SELECT c.name FROM oms.crews c WHERE c.id = crew_id) AS crew_name").
 		// Hide a work order whose asset is SOFT-DELETED (NULL/live/purged asset kept)
 		// -- a deleted feature must not surface as the subject of a work order. See
 		// faults.selectFaults for the shared rationale.
@@ -317,8 +320,10 @@ type CreateWorkOrderParams struct {
 	Latitude         *float64
 	Source           *string
 	DefectID         *string
+	IncidentID       *string
 	AssignedTo       *string
 	AssignedToUserID *string
+	CrewID           *string
 	ScheduledFor     *time.Time
 	DueBy            *time.Time
 }
@@ -364,7 +369,8 @@ func CreateWorkOrder(ctx context.Context, db bun.IDB, p CreateWorkOrderParams) (
 	// A brand-new order is a draft; naming an assignee or a schedule up front is
 	// a convenience that advances it one notch so it lands on the right board.
 	assigned := (p.AssignedTo != nil && strings.TrimSpace(*p.AssignedTo) != "") ||
-		(p.AssignedToUserID != nil && strings.TrimSpace(*p.AssignedToUserID) != "")
+		(p.AssignedToUserID != nil && strings.TrimSpace(*p.AssignedToUserID) != "") ||
+		(p.CrewID != nil && strings.TrimSpace(*p.CrewID) != "")
 	status := WorkStatusDraft
 	if assigned {
 		status = WorkStatusAssigned
@@ -404,11 +410,17 @@ func CreateWorkOrder(ctx context.Context, db bun.IDB, p CreateWorkOrderParams) (
 	if p.DefectID != nil && strings.TrimSpace(*p.DefectID) != "" {
 		add("defect_id", "?", strings.TrimSpace(*p.DefectID))
 	}
+	if p.IncidentID != nil && strings.TrimSpace(*p.IncidentID) != "" {
+		add("incident_id", "?", strings.TrimSpace(*p.IncidentID))
+	}
 	if p.AssignedTo != nil && strings.TrimSpace(*p.AssignedTo) != "" {
 		add("assigned_to", "?", strings.TrimSpace(*p.AssignedTo))
 	}
 	if p.AssignedToUserID != nil && strings.TrimSpace(*p.AssignedToUserID) != "" {
 		add("assigned_to_user_id", "?", strings.TrimSpace(*p.AssignedToUserID))
+	}
+	if p.CrewID != nil && strings.TrimSpace(*p.CrewID) != "" {
+		add("crew_id", "?", strings.TrimSpace(*p.CrewID))
 	}
 	if p.ScheduledFor != nil {
 		add("scheduled_for", "?", *p.ScheduledFor)
@@ -457,6 +469,7 @@ type WorkOrderFilter struct {
 	AssetID          string
 	AssignedTo       string
 	AssignedToUserID string // narrow to work assigned to one user (the "my work orders" filter)
+	IncidentID       string // narrow to the restoration work raised for one OMS incident
 	Open             bool
 }
 
@@ -487,6 +500,9 @@ func ListWorkOrders(ctx context.Context, db bun.IDB, f WorkOrderFilter) ([]WorkO
 	if f.AssignedToUserID != "" {
 		q = q.Where("assigned_to_user_id = ?", f.AssignedToUserID)
 	}
+	if f.IncidentID != "" {
+		q = q.Where("incident_id = ?", f.IncidentID)
+	}
 	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("wam: listing work orders: %w", err)
 	}
@@ -503,6 +519,7 @@ type UpdateWorkOrderParams struct {
 	Description      *string
 	AssignedTo       *string
 	AssignedToUserID *string // "" clears the assignment (SET NULL); a uuid assigns
+	CrewID           *string // "" clears the crew (SET NULL); a uuid assigns
 	ScheduledFor     *time.Time
 	DueBy            *time.Time
 	CompletionNotes  *string
@@ -566,6 +583,14 @@ func UpdateWorkOrder(ctx context.Context, db bun.IDB, id string, p UpdateWorkOrd
 			set("assigned_to_user_id = ?", uid)
 		}
 	}
+	if p.CrewID != nil {
+		// Same as the user assignment: empty means "unassign crew" -> SET NULL.
+		if cid := strings.TrimSpace(*p.CrewID); cid == "" {
+			set("crew_id = NULL")
+		} else {
+			set("crew_id = ?", cid)
+		}
+	}
 	if p.ScheduledFor != nil {
 		set("scheduled_for = ?", *p.ScheduledFor)
 	}
@@ -612,6 +637,7 @@ type RaiseWorkOrderFromDefectParams struct {
 	Description      *string
 	AssignedTo       *string
 	AssignedToUserID *string
+	CrewID           *string
 	ScheduledFor     *time.Time
 	DueBy            *time.Time
 }
@@ -656,6 +682,7 @@ func RaiseWorkOrderFromDefect(ctx context.Context, db *bun.DB, defectID string, 
 			DefectID:         &defect.ID,
 			AssignedTo:       p.AssignedTo,
 			AssignedToUserID: p.AssignedToUserID,
+			CrewID:           p.CrewID,
 			ScheduledFor:     p.ScheduledFor,
 			DueBy:            p.DueBy,
 		})

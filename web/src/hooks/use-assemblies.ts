@@ -1,33 +1,40 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { apiFetch } from "@/lib/api"
 
-/**
- * One addable Kit Assembly: an (anchor class, config) pair -- optionally pinned
- * to a particular anchor subtype -- the backend has a fan-out template for. The
- * anchor is a POINT feature (an overhead POLE or a pad-mount DIST_XFMR) whose
- * kit (regulator, arrester, riser, etc.) fans out around it. `anchor_feature_class`
- * + `config` + `anchor_subtype` are exactly what POST /assemblies needs (as
- * anchor_feature_class + config + top-level subtype); the labels drive the
- * "Overhead & pad-mount kits" menu. `anchor_subtype` is absent for options that
- * fit any subtype (e.g. POLE_MOUNT_STD) and set for those that require a specific
- * one (e.g. PAD_MOUNT_URD needs the pad-mount DIST_XFMR subtype). Mirrors the
- * backend AssemblyOption.
- */
+// ---------------------------------------------------------------------------
+// Placing a kit on the map (GET /assemblies/options + POST /assemblies). These
+// back the toolbar's Assemblies menu (new-assembly-menu.tsx) and the create
+// form's fan-out save (feature-create-form.tsx) -- distinct from the kit CATALOG
+// authoring below (/assemblies/templates), which this hook file also serves.
+// ---------------------------------------------------------------------------
+
+/** One addable kit in the map's Assemblies menu -- mirrors api/internal/assembly
+ * AssemblyOption. anchor_subtype is non-null only when the recipe forces it. */
 export interface AssemblyOption {
   anchor_feature_class: string
   anchor_feature_class_name: string
   config: string
   name: string
-  anchor_subtype?: number
+  anchor_subtype?: number | null
 }
 
-/** A component fanned out by an assembly create -- its class, the created feature
- * (with its id), the connection or support relationship tying it to the anchor,
- * and its template offset + rotation. Mirrors the backend CreatedComponent. */
+/** The whole addable (anchor class x config) list for the Assemblies menu.
+ * Refetched whenever a kit is authored (the catalog mutations below invalidate
+ * ["assembly-options"]), so a newly-authored kit appears without a reload. */
+export function useAssemblyOptions() {
+  return useQuery({
+    queryKey: ["assembly-options"],
+    queryFn: () => apiFetch<AssemblyOption[]>("/assemblies/options"),
+    staleTime: 5 * 60_000,
+  })
+}
+
+/** One fanned-out component in a POST /assemblies result (api/internal/assembly
+ * CreatedComponent). */
 export interface CreatedAssemblyComponent {
   feature_class: string
-  feature: { id: string; [key: string]: unknown }
+  feature: { id: string } & Record<string, unknown>
   connection_id?: string
   support_relationship_id?: string
   offset_x: number
@@ -35,22 +42,120 @@ export interface CreatedAssemblyComponent {
   rotation: number
 }
 
-/** The POST /assemblies response: the placed anchor and every component fanned
- * out around it. Mirrors the backend CreateAssemblyResult. */
+/** POST /assemblies response: the placed anchor plus every component created and
+ * wired. The create form reads result.anchor.id to select the placed anchor. */
 export interface CreateAssemblyResult {
-  anchor: { id: string; [key: string]: unknown }
+  anchor: { id: string } & Record<string, unknown>
   components: CreatedAssemblyComponent[]
 }
 
-/**
- * The Kit Assemblies that can be placed on the map -- GET /assemblies/options.
- * Empty until the backend's template catalog is seeded (it returns nothing
- * without a template), so the "Overhead & pad-mount kits" affordance simply
- * never shows until the catalog is present. Read-only.
- */
-export function useAssemblyOptions() {
+/** One component in a kit recipe. Mirrors api/internal/assembly KitComponentInput
+ * (feature-class CODES, snake_case) so fetched JSON is used as-is. A kit is the
+ * "place one anchor feature and get its whole pre-wired set" recipe. */
+export interface KitComponent {
+  component_feature_class: string
+  subtype_code?: number | null
+  attributes?: Record<string, unknown>
+  support_kind?: string | null
+  support_parent_position?: number | null
+  wire_to_position?: number | null
+  own_terminal?: string | null
+  upstream_terminal?: string | null
+  position: number
+  offset_x: number
+  offset_y: number
+  rotation: number
+}
+
+export interface Kit {
+  id: string
+  anchor_feature_class: string
+  anchor_feature_class_name?: string
+  code: string
+  name: string
+  anchor_subtype_code?: number | null
+  diagram_template_name?: string | null
+  components: KitComponent[]
+}
+
+export interface KitSummary {
+  id: string
+  anchor_feature_class: string
+  anchor_feature_class_name: string
+  code: string
+  name: string
+  component_count: number
+  diagram_template_name?: string | null
+}
+
+export interface KitInput {
+  anchor_feature_class: string
+  code: string
+  name: string
+  anchor_subtype_code?: number | null
+  diagram_template_name?: string | null
+  components: KitComponent[]
+}
+
+/** POST /assemblies/templates/validate -- structural errors (block a save) plus a
+ * best-effort live placement dry-run (placement_check, advisory). */
+export interface KitValidation {
+  valid: boolean
+  errors: string[]
+  placement_check?: string
+}
+
+export function useAssemblyKits() {
   return useQuery({
-    queryKey: ["assembly-options"],
-    queryFn: () => apiFetch<AssemblyOption[]>("/assemblies/options"),
+    queryKey: ["assembly-kits"],
+    queryFn: () => apiFetch<KitSummary[]>("/assemblies/templates"),
+    staleTime: 30_000,
+  })
+}
+
+export function useAssemblyKit(id: string | null) {
+  return useQuery({
+    queryKey: ["assembly-kit", id],
+    queryFn: () => apiFetch<Kit>(`/assemblies/templates/${id}`),
+    enabled: !!id,
+  })
+}
+
+/** Create (no id) or update (id) a kit. Invalidates the list and the single-kit
+ * cache so the editor and the map's Assemblies menu both refresh. */
+export function useSaveAssemblyKit() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, input }: { id?: string; input: KitInput }) =>
+      apiFetch<Kit>(id ? `/assemblies/templates/${id}` : "/assemblies/templates", {
+        method: id ? "PATCH" : "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: (kit) => {
+      qc.invalidateQueries({ queryKey: ["assembly-kits"] })
+      qc.invalidateQueries({ queryKey: ["assembly-kit", kit.id] })
+      qc.invalidateQueries({ queryKey: ["assembly-options"] })
+    },
+  })
+}
+
+export function useDeleteAssemblyKit() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiFetch(`/assemblies/templates/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["assembly-kits"] })
+      qc.invalidateQueries({ queryKey: ["assembly-options"] })
+    },
+  })
+}
+
+export function useValidateAssemblyKit() {
+  return useMutation({
+    mutationFn: (input: KitInput) =>
+      apiFetch<KitValidation>("/assemblies/templates/validate", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
   })
 }

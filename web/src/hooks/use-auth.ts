@@ -9,6 +9,13 @@ import { ApiError, apiFetch } from "@/lib/api"
  * show or hide controls it knows the server would refuse, so the UI
  * matches enforcement rather than guessing.
  */
+/** One directly-granted territory, for the account menu's "granted territories". */
+export interface SessionTerritoryGrant {
+  territory_id: string
+  territory_name: string
+  level_code: string
+}
+
 export interface SessionUser {
   id: string
   email: string
@@ -19,6 +26,11 @@ export interface SessionUser {
    * supervisor-scoped views (e.g. the edit-session audit a non-admin supervisor
    * may see for their own reports). */
   is_supervisor: boolean
+  /** The user's role keys (e.g. "admin", "editor"), sorted — shown in the account
+   * menu. permissions above are what the UI gates on; these are the membership. */
+  roles: string[]
+  /** The user's direct territory grants. Empty for an unscoped (all-territory) user. */
+  territories: SessionTerritoryGrant[]
 }
 
 /**
@@ -38,6 +50,9 @@ export interface AuthProvider {
 export interface ProvidersInfo {
   providers: AuthProvider[]
   local_auth_enabled: boolean
+  /** True when local sign-in is off AND a break-glass reveal code is configured:
+   * the screen hides the password form until the code is entered + verified. */
+  break_glass_code_required: boolean
 }
 
 export const SESSION_QUERY_KEY = ["auth", "me"] as const
@@ -86,9 +101,19 @@ export function useProviders() {
  * CSRF cookies; we prime the session cache with the returned user so the
  * app shell renders immediately without a second /auth/me round trip.
  */
+/** POST the break-glass reveal code so the server can OK showing the password
+ * form (a UX check; the login endpoint re-verifies the code). Resolves on a
+ * valid code, rejects (ApiError) on a wrong one. */
+export function useRevealBreakGlass() {
+  return useMutation<{ revealed: boolean }, ApiError, { code: string }>({
+    mutationFn: (body) =>
+      apiFetch<{ revealed: boolean }>("/auth/break-glass/reveal", { method: "POST", body: JSON.stringify(body) }),
+  })
+}
+
 export function useLogin() {
   const queryClient = useQueryClient()
-  return useMutation<SessionUser, ApiError, { email: string; password: string }>({
+  return useMutation<SessionUser, ApiError, { email: string; password: string; break_glass_code?: string }>({
     mutationFn: (body) => apiFetch<SessionUser>("/auth/login", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: (user) => {
       queryClient.setQueryData(SESSION_QUERY_KEY, user)

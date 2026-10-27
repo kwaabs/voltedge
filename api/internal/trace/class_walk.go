@@ -168,34 +168,47 @@ func singleClassSet(id *string) map[string]bool {
 	return map[string]bool{*id: true}
 }
 
-// reachableWithDepth is a plain barrier-free BFS from start in one direction,
+// reachableWithDepth is a barrier-free BFS from start in one direction,
 // returning every reached node (including start, at depth 0) with its hop
 // distance. Bounded by maxTraceHops, the same defensive valve the config-driven
 // bfs uses.
+//
+// It delegates to the shared bfs so the walk is JUNCTION-AWARE: a busbar or
+// switchgear bus (network_role='junction') is an electrical common node, and
+// bfs crosses it undirected -- the same pass-through the energization cone
+// (DeEnergizedCone) relies on. A plain neighborsOf(direction) walk could not
+// cross a one-way-sink bus, so an affected-customer count (DownstreamLoadLeaves)
+// or a protection-path prediction (featuresOfClass/UpstreamFeaturesOfClass)
+// would dead-end at a bus and disagree with the cone -- e.g. a service point fed
+// off an RMU bus would be missed. Routing both through bfs makes "affected"
+// use the identical topology as "energized". It stays barrier-free (barriers=
+// nil: it ignores live switch state, the conservative set OMS freezes), with no
+// class target and no transformer stop -- the same reach as before BUT now
+// crossing junctions and honouring the cross-layer tier guard bfs already
+// applies to every directional walk.
 func reachableWithDepth(ctx context.Context, db bun.IDB, start node, direction string) ([]nodeDepth, bool, error) {
-	visited := map[node]bool{start: true}
-	queue := []nodeDepth{{n: start, depth: 0}}
-	out := make([]nodeDepth, 0, 16)
-
-	for len(queue) > 0 && len(visited) < maxTraceHops {
-		cur := queue[0]
-		queue = queue[1:]
-		out = append(out, cur)
-
-		neighbors, err := neighborsOf(ctx, db, cur.n, direction)
-		if err != nil {
-			return nil, false, err
-		}
-		for _, nb := range neighbors {
-			if visited[nb] {
-				continue
-			}
-			visited[nb] = true
-			queue = append(queue, nodeDepth{n: nb, depth: cur.depth + 1})
-		}
+	loader := newFeatureClassLoader()
+	order, _, _, _, parent, _, truncated, err := bfs(ctx, db, start, direction, nil, loader, nil, nil, false, false, nil)
+	if err != nil {
+		return nil, false, err
 	}
-	// Cap hit with work still queued -- the walk is incomplete.
-	truncated := len(queue) > 0 && len(visited) >= maxTraceHops
+
+	// Depth = hop distance from start along the BFS parent tree. bfs appends each
+	// node to `order` at discovery (start first) and records parent[n] at the same
+	// point, so every node's parent appears EARLIER in order than the node itself
+	// -- one forward pass with a memo resolves every depth without re-walking.
+	depthOf := map[node]int{start: 0}
+	out := make([]nodeDepth, 0, len(order))
+	for _, n := range order {
+		d, ok := depthOf[n]
+		if !ok {
+			if p, pok := parent[n]; pok {
+				d = depthOf[p] + 1
+			}
+			depthOf[n] = d
+		}
+		out = append(out, nodeDepth{n: n, depth: d})
+	}
 	return out, truncated, nil
 }
 

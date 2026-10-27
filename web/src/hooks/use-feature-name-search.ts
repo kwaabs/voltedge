@@ -29,10 +29,14 @@ const PER_CLASS_LIMIT = 8
  * "add an existing feature" picker can reuse the exact same fan-out
  * instead of a second copy.
  */
-export function useFeatureNameSearch(query: string) {
+export function useFeatureNameSearch(query: string, classCodes?: string[]) {
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState<FeatureSearchResult[]>([])
   const { data: featureClasses } = useFeatureClasses()
+  // A stable key for the optional class scope, so the effect re-runs when the
+  // caller narrows the fan-out (e.g. "only SERVICE_POINT / METER") without
+  // depending on a fresh array identity each render.
+  const scopeKey = classCodes ? classCodes.join(",") : ""
 
   useEffect(() => {
     const trimmed = query.trim()
@@ -44,7 +48,13 @@ export function useFeatureNameSearch(query: string) {
 
     let cancelled = false
     setLoading(true)
-    const classes = featureClasses.feature_classes
+    // Scope the fan-out to the requested classes when given (a picker that only
+    // wants supplies, or only switchable devices), else hit every class as the
+    // map's global search box does.
+    const scope = scopeKey ? new Set(scopeKey.split(",")) : null
+    const classes = scope
+      ? featureClasses.feature_classes.filter((fc) => scope.has(fc.code))
+      : featureClasses.feature_classes
 
     const timer = setTimeout(async () => {
       const perClass = await Promise.all(
@@ -74,7 +84,7 @@ export function useFeatureNameSearch(query: string) {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [query, featureClasses])
+  }, [query, featureClasses, scopeKey])
 
   return { results, loading }
 }

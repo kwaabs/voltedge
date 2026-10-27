@@ -123,7 +123,7 @@ type IncidentMapMarker struct {
 // every status once and the legend hides restored/cancelled client-side, exactly
 // as the fault overlay does.
 func ListIncidentsForMap(ctx context.Context, db bun.IDB, status string, openOnly bool) ([]IncidentMapMarker, error) {
-	incidents, err := ListIncidents(ctx, db, status, openOnly)
+	incidents, err := ListIncidents(ctx, db, status, openOnly, "")
 	if err != nil {
 		return nil, err
 	}

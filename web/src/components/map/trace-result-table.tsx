@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import { ChevronRight, GripHorizontal, List, ListTree, RefreshCw, X } from "lucide-react"
+import { ChevronRight, GripHorizontal, List, ListTree, RefreshCw, Scissors, X } from "lucide-react"
 
 import { AnalysisExplanation } from "@/components/map/analysis-explanation"
+import { LoopFixContent } from "@/components/map/loop-fix-panel"
 import { Button } from "@/components/ui/button"
 import { ServiceRollupSummary } from "@/components/map/service-rollup-summary"
 import { useFeatureClasses } from "@/hooks/use-feature-classes"
@@ -439,6 +440,8 @@ export function TraceResultTable() {
   const [hoveredKey, setHoveredKey] = useState<string | null>(null)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const [size, setSize] = useState<{ width: number; height: number } | null>(null)
+  // Whether the collapsible "Fix" column (shown for a live loop check) is expanded.
+  const [fixOpen, setFixOpen] = useState(true)
   const panelRef = useRef<HTMLDivElement>(null)
 
   // Grab the header and drag -- pointer-capture mechanics identical to
@@ -600,6 +603,11 @@ export function TraceResultTable() {
 
   const directionLabel = DIRECTION_LABEL[result.direction] ?? result.direction
   const traceDesc = traceDescription(result.direction, result.trace_configuration)
+  // A loop check reuses this panel (synthetic direction LOOPS_*). A LIVE loop gets
+  // a collapsible right-hand "Fix" column so the loop and its fix share one window;
+  // the as-built view (trace_configuration carries "as-built") is informational only.
+  const isLoopResult = (result.direction ?? "").startsWith("LOOPS_")
+  const showFix = isLoopResult && !(result.trace_configuration ?? "").includes("as-built")
   const classNameFor = (code: string) => featureClasses?.feature_classes.find((fc) => fc.code === code)?.name ?? code
 
   // Network sectioning (migration 0129): each row's section = its nearest
@@ -948,6 +956,19 @@ export function TraceResultTable() {
               <span className="sr-only">Re-run trace</span>
             </Button>
           )}
+          {/* Show/hide the Fix column (live loop checks only). */}
+          {showFix && (
+            <Button
+              variant={fixOpen ? "secondary" : "ghost"}
+              size="icon"
+              className="size-6"
+              onClick={() => setFixOpen((v) => !v)}
+              title={fixOpen ? "Hide fix" : "Fix this loop"}
+            >
+              <Scissors className="size-3.5" />
+              <span className="sr-only">{fixOpen ? "Hide fix" : "Fix this loop"}</span>
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -959,6 +980,11 @@ export function TraceResultTable() {
           </Button>
         </div>
       </div>
+
+      {/* Body, plus (for a live loop check) a collapsible right-hand Fix column, so
+          the loop result and its fix share ONE window. */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
 
       {/* "Continue past transformers" toggle -- shown only once a downstream
           trace has actually met the transformer boundary (it stopped at one, or
@@ -1083,6 +1109,19 @@ export function TraceResultTable() {
           </p>
         </AnalysisExplanation>
       )}
+        </div>
+
+        {showFix && fixOpen && (
+          <div className="bg-card/40 flex w-72 shrink-0 flex-col overflow-hidden border-l">
+            <div className="text-muted-foreground flex items-center gap-1.5 border-b px-3 py-1.5 text-xs font-medium">
+              <Scissors className="text-primary size-3.5" /> Fix loop
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <LoopFixContent start={result.start} />
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Bottom-right resize grip -- same affordance and mechanics as
           feature-panel.tsx's. stopPropagation in the handler keeps a resize

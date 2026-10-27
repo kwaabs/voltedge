@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kwaabs/voltedge/api/internal/auth"
+	"github.com/kwaabs/voltedge/api/internal/deviceops"
 	"github.com/kwaabs/voltedge/api/internal/trace"
 	"github.com/uptrace/bun"
 )
@@ -22,11 +24,14 @@ import (
 //	GET  /incidents/map              incidents projected onto their device (map overlay)
 //	GET  /incidents/{id}             one incident
 //	GET  /incidents/{id}/affected    the incident's affected service points (map overlay)
+//	GET  /incidents/{id}/timeline    the incident's lifecycle events + its calls
+//	GET  /trouble-calls/{id}/timeline  a call's events + the incident it joined
 //	GET  /incidents/{id}/energization  the incident's LIVE de-energized cone (current switch state)
 //	GET  /incidents/{id}/restoration   FLISR: suggested back-feed plans to restore the dead section
 //	POST /incidents/predict          roll open calls up into predicted incidents
 //	POST /incidents/planned          schedule a planned outage around a device
 //	POST /incidents/{id}/confirm     confirm/execute + snapshot interruptions
+//	POST /incidents/{id}/dispatch    confirmed -> dispatched (crew en route)
 //	POST /incidents/{id}/restore     mark restored, close interruption windows
 //	POST /incidents/{id}/cancel      cancel + release the calls
 //	GET  /incidents/{id}/switching-orders   the incident's switching orders
@@ -49,16 +54,42 @@ func Routes(db *bun.DB) chi.Router {
 	r.Get("/trouble-calls", listTroubleCallsHandler(db))
 	r.Post("/trouble-calls", createTroubleCallHandler(db))
 	r.Post("/trouble-calls/{id}/associate", associateTroubleCallHandler(db))
+	r.Get("/trouble-calls/{id}/timeline", callTimelineHandler(db))
+
+	// The geographic lens: cluster open calls into trouble spots, and dispatch a
+	// crew to one by raising an unattributed incident from its calls.
+	r.Get("/trouble-spots", listTroubleSpotsHandler(db))
+	r.Post("/trouble-spots/raise", raiseIncidentFromSpotHandler(db))
+
+	// Crew / resource management (blocker #2): crew entities + assignment lifecycle.
+	r.Get("/crews", listCrewsHandler(db))
+	r.Post("/crews", createCrewHandler(db))
+	r.Patch("/crews/{id}", updateCrewHandler(db))
+	r.Post("/crews/{id}/availability", setCrewAvailabilityHandler(db))
+	r.Delete("/crews/{id}", deactivateCrewHandler(db))
+	r.Get("/crews/{id}/members", listCrewMembersHandler(db))
+	r.Post("/crews/{id}/members", addCrewMemberHandler(db))
+	r.Delete("/crews/{id}/members/{userId}", removeCrewMemberHandler(db))
+	r.Get("/incidents/{id}/crews", listIncidentCrewsHandler(db))
+	r.Post("/incidents/{id}/crews", dispatchCrewHandler(db))
+	r.Patch("/crew-assignments/{id}", advanceAssignmentHandler(db))
+	r.Patch("/incidents/{id}/etr", setIncidentETRHandler(db))
 
 	r.Get("/incidents", listIncidentsHandler(db))
 	r.Get("/incidents/map", listIncidentsForMapHandler(db))
 	r.Post("/incidents/predict", predictIncidentsHandler(db))
 	r.Post("/incidents/planned", createPlannedOutageHandler(db))
+	r.Get("/outage-causes", listOutageCausesHandler(db))
 	r.Get("/incidents/{id}", getIncidentHandler(db))
+	r.Get("/incidents/{id}/device-candidates", incidentDeviceCandidatesHandler(db))
+	r.Patch("/incidents/{id}/attribution", setIncidentAttributionHandler(db))
+	r.Patch("/incidents/{id}/device", attributeIncidentDeviceHandler(db))
 	r.Get("/incidents/{id}/affected", affectedAreaHandler(db))
+	r.Get("/incidents/{id}/timeline", incidentTimelineHandler(db))
 	r.Get("/incidents/{id}/energization", energizationHandler(db))
 	r.Get("/incidents/{id}/restoration", restorationForIncidentHandler(db))
 	r.Post("/incidents/{id}/confirm", incidentActionHandler(db, ConfirmIncident))
+	r.Post("/incidents/{id}/dispatch", incidentActionHandler(db, DispatchIncident))
 	r.Post("/incidents/{id}/restore", incidentActionHandler(db, RestoreIncident))
 	r.Post("/incidents/{id}/cancel", incidentActionHandler(db, CancelIncident))
 
@@ -72,9 +103,106 @@ func Routes(db *bun.DB) chi.Router {
 	r.Post("/switching-orders/{id}/cancel", cancelSwitchingOrderHandler(db))
 	r.Post("/switching-steps/{id}/execute", executeStepHandler(db))
 
+	// Operate a single device directly (open/close) outside a switching order --
+	// the one-click "open this device to break a loop" (and close-back) action.
+	// Same safety gate + device-operation log as a switching step.
+	r.Post("/devices/{class}/{id}/operate", operateDeviceHandler(db))
+
 	r.Get("/indices", reliabilityIndicesHandler(db))
+	r.Get("/detection-metrics", detectionMetricsHandler(db))
+	r.Get("/area-impact", areaImpactHandler(db))
 
 	return r
+}
+
+// areaImpactHandler returns the network-wide outage impact rolled up by territory
+// (region → district → …) across all open incidents -- "where is it worst now".
+func areaImpactHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		impact, err := ComputeAreaImpact(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, impact)
+	}
+}
+
+// detectionMetricsHandler returns the source/cause analytics for a window
+// (?from=&to= RFC3339, default trailing 12 months): the detection-source mix,
+// the machine-detected (awareness) share, the cause-family breakdown, and the
+// mean detection->restore time.
+func detectionMetricsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		var from, to *time.Time
+		if s := q.Get("from"); s != "" {
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				writeError(w, invalidf("invalid from: want RFC3339, got %q", s))
+				return
+			}
+			from = &t
+		}
+		if s := q.Get("to"); s != "" {
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				writeError(w, invalidf("invalid to: want RFC3339, got %q", s))
+				return
+			}
+			to = &t
+		}
+		metrics, err := ComputeDetectionMetrics(r.Context(), db, from, to)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, metrics)
+	}
+}
+
+// operateDeviceHandler flips one switching device's device_state to OPEN or CLOSED
+// (OperateDevice: safety-gated, validated, history-logged) and records a crew-source
+// device operation, atomically. Backs the loop-fix "Open" action and its close-back.
+func operateDeviceHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		class := chi.URLParam(r, "class")
+		id := chi.URLParam(r, "id")
+		var body struct {
+			State string `json:"state"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, invalidf("request body is not valid JSON: %v", err))
+			return
+		}
+		state := strings.ToUpper(strings.TrimSpace(body.State))
+		if state != deviceStateOpen && state != deviceStateClosed {
+			writeError(w, invalidf("state must be %q or %q", deviceStateOpen, deviceStateClosed))
+			return
+		}
+		opType := "close"
+		if state == deviceStateOpen {
+			opType = "open"
+		}
+
+		if err := db.RunInTx(r.Context(), nil, func(ctx context.Context, tx bun.Tx) error {
+			if e := OperateDevice(ctx, tx, class, id, state); e != nil {
+				return e
+			}
+			_, e := deviceops.Record(ctx, tx, deviceops.RecordInput{
+				DeviceClass: class,
+				DeviceID:    id,
+				OpType:      opType,
+				Source:      "crew",
+				OccurredAt:  time.Now(),
+			})
+			return e
+		}); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"device_class": class, "device_id": id, "device_state": state})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -83,12 +211,35 @@ func Routes(db *bun.DB) chi.Router {
 
 func listTroubleCallsHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		calls, err := ListTroubleCalls(r.Context(), db, r.URL.Query().Get("status"))
+		q := r.URL.Query()
+		// limit defaults to 0 (all, so callers scoped by incident_id or small
+		// deployments are unaffected); the board passes limit=20/50 to paginate a
+		// storm's volume. Capped so a client can't request an unbounded page.
+		limit, offset := 0, 0
+		if s := q.Get("limit"); s != "" {
+			if v, err := strconv.Atoi(s); err == nil && v >= 0 {
+				limit = v
+			}
+		}
+		if limit > 200 {
+			limit = 200
+		}
+		if s := q.Get("offset"); s != "" {
+			if v, err := strconv.Atoi(s); err == nil && v >= 0 {
+				offset = v
+			}
+		}
+		calls, total, err := ListTroubleCalls(r.Context(), db, TroubleCallFilter{
+			Status:     q.Get("status"),
+			IncidentID: q.Get("incident_id"),
+			Limit:      limit,
+			Offset:     offset,
+		})
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"trouble_calls": calls})
+		writeJSON(w, http.StatusOK, map[string]any{"trouble_calls": calls, "total": total})
 	}
 }
 
@@ -155,6 +306,247 @@ func associateTroubleCallHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
+// listTroubleSpotsHandler clusters the open, located calls into geographic trouble
+// spots (?eps= join distance in metres, default 250) a crew can be dispatched to.
+func listTroubleSpotsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		eps := 0.0
+		if s := r.URL.Query().Get("eps"); s != "" {
+			v, err := strconv.ParseFloat(s, 64)
+			if err != nil || v < 0 {
+				writeError(w, invalidf("invalid eps: want a non-negative number of metres, got %q", s))
+				return
+			}
+			eps = v
+		}
+		spots, err := ClusterTroubleSpots(r.Context(), db, eps)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"trouble_spots": spots})
+	}
+}
+
+// raiseIncidentFromSpotHandler dispatches a crew to a trouble spot by raising a
+// confirmed, unattributed incident from its calls.
+func raiseIncidentFromSpotHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			CallIDs []string `json:"call_ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		inc, err := RaiseIncidentFromCalls(r.Context(), db, req.CallIDs)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, inc)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// crews (blocker #2)
+// ---------------------------------------------------------------------------
+
+func listCrewsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		crews, err := ListCrews(r.Context(), db, r.URL.Query().Get("include_inactive") == "true")
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"crews": crews})
+	}
+}
+
+type crewRequest struct {
+	Name        string  `json:"name"`
+	Kind        *string `json:"kind"`
+	Phone       *string `json:"phone"`
+	TerritoryID *string `json:"territory_id"`
+}
+
+func (c crewRequest) params() CrewParams {
+	return CrewParams{Name: c.Name, Kind: c.Kind, Phone: c.Phone, TerritoryID: c.TerritoryID}
+}
+
+func createCrewHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req crewRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		crew, err := CreateCrew(r.Context(), db, req.params())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, crew)
+	}
+}
+
+func updateCrewHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req crewRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		crew, err := UpdateCrew(r.Context(), db, chi.URLParam(r, "id"), req.params())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, crew)
+	}
+}
+
+func setCrewAvailabilityHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Available bool `json:"available"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		crew, err := SetCrewAvailability(r.Context(), db, chi.URLParam(r, "id"), req.Available)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, crew)
+	}
+}
+
+func deactivateCrewHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := DeactivateCrew(r.Context(), db, chi.URLParam(r, "id")); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"deactivated": true})
+	}
+}
+
+func listCrewMembersHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		members, err := ListCrewMembers(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"members": members})
+	}
+}
+
+func addCrewMemberHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			UserID string  `json:"user_id"`
+			Role   *string `json:"role"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		m, err := AddCrewMember(r.Context(), db, chi.URLParam(r, "id"), req.UserID, req.Role)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, m)
+	}
+}
+
+func removeCrewMemberHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := RemoveCrewMember(r.Context(), db, chi.URLParam(r, "id"), chi.URLParam(r, "userId")); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"removed": true})
+	}
+}
+
+func listIncidentCrewsHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		crews, err := ListIncidentCrews(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"assignments": crews})
+	}
+}
+
+func dispatchCrewHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			CrewID         string  `json:"crew_id"`
+			Note           *string `json:"note"`
+			RaiseWorkOrder bool    `json:"raise_work_order"`
+			WorkOrderTitle *string `json:"work_order_title"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		if strings.TrimSpace(req.CrewID) == "" {
+			writeError(w, invalidf("crew_id is required"))
+			return
+		}
+		ca, err := DispatchCrewToIncident(r.Context(), db, req.CrewID, chi.URLParam(r, "id"), req.Note,
+			DispatchOptions{RaiseWorkOrder: req.RaiseWorkOrder, WorkOrderTitle: req.WorkOrderTitle})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, ca)
+	}
+}
+
+func advanceAssignmentHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Status string `json:"status"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		ca, err := AdvanceCrewAssignment(r.Context(), db, chi.URLParam(r, "id"), req.Status)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, ca)
+	}
+}
+
+func setIncidentETRHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ETR *time.Time `json:"etr"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		inc, err := SetIncidentETR(r.Context(), db, chi.URLParam(r, "id"), req.ETR)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, inc)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // incidents
 // ---------------------------------------------------------------------------
@@ -162,7 +554,7 @@ func associateTroubleCallHandler(db *bun.DB) http.HandlerFunc {
 func listIncidentsHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		incidents, err := ListIncidents(r.Context(), db, q.Get("status"), q.Get("open") == "true")
+		incidents, err := ListIncidents(r.Context(), db, q.Get("status"), q.Get("open") == "true", q.Get("territory_id"))
 		if err != nil {
 			writeError(w, err)
 			return
@@ -199,6 +591,73 @@ func getIncidentHandler(db *bun.DB) http.HandlerFunc {
 	}
 }
 
+// listOutageCausesHandler returns the coded cause catalog for the incident cause
+// picker (the coarse outage-level "why"; the detailed FMEA is on the fault).
+func listOutageCausesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		causes, err := ListOutageCauses(r.Context(), db)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"outage_causes": causes})
+	}
+}
+
+// incidentDeviceCandidatesHandler suggests the protective devices to attribute an
+// incident to (the devices upstream of its calling service points), for the
+// re-attribution picker's quick-pick chips.
+func incidentDeviceCandidatesHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		candidates, err := IncidentDeviceCandidates(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"candidates": candidates})
+	}
+}
+
+// attributeIncidentDeviceHandler sets/changes the protective device an incident is
+// blamed on and re-traces its cone (affected + territory), re-freezing a confirmed
+// incident's interruptions. The operator override prediction can't do.
+func attributeIncidentDeviceHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			DeviceClass string `json:"device_class"`
+			DeviceID    string `json:"device_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		inc, err := AttributeIncidentDevice(r.Context(), db, chi.URLParam(r, "id"), req.DeviceClass, req.DeviceID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, inc)
+	}
+}
+
+// setIncidentAttributionHandler refines an incident's cause (code + status) and/or
+// corrects its detection source -- a partial update, only the supplied fields apply.
+func setIncidentAttributionHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req SetAttributionParams
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, invalidf("invalid request body: %v", err))
+			return
+		}
+		inc, err := SetIncidentAttribution(r.Context(), db, chi.URLParam(r, "id"), req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, inc)
+	}
+}
+
 // affectedAreaHandler returns the selected incident's outage cone as service
 // point points, for the map to highlight. Frozen once confirmed, live-traced
 // while still predicted (see store.IncidentAffectedArea).
@@ -210,6 +669,32 @@ func affectedAreaHandler(db *bun.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, area)
+	}
+}
+
+// callTimelineHandler returns a trouble call's lifecycle timeline -- its own
+// events plus the incident it rolled into -- for the call detail panel.
+func callTimelineHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		events, err := CallTimeline(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"events": events})
+	}
+}
+
+// incidentTimelineHandler returns an incident's lifecycle timeline plus the
+// "received" events of the calls that fed it.
+func incidentTimelineHandler(db *bun.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		events, err := IncidentTimeline(r.Context(), db, chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"events": events})
 	}
 }
 

@@ -138,8 +138,10 @@ type WorkOrder struct {
 	Latitude         *float64   `bun:"latitude,scanonly" json:"latitude"`
 	Source           *string    `bun:"source" json:"source,omitempty"`
 	DefectID         *string    `bun:"defect_id" json:"defect_id"`
+	IncidentID       *string    `bun:"incident_id" json:"incident_id"`
 	AssignedTo       *string    `bun:"assigned_to" json:"assigned_to"`
 	AssignedToUserID *string    `bun:"assigned_to_user_id" json:"assigned_to_user_id"`
+	CrewID           *string    `bun:"crew_id" json:"crew_id"`
 	ScheduledFor     *time.Time `bun:"scheduled_for" json:"scheduled_for"`
 	DueBy            *time.Time `bun:"due_by" json:"due_by"`
 	StartedAt        *time.Time `bun:"started_at" json:"started_at"`
@@ -147,6 +149,10 @@ type WorkOrder struct {
 	CompletionNotes  *string    `bun:"completion_notes" json:"completion_notes"`
 	CreatedAt        time.Time  `bun:"created_at" json:"created_at"`
 	UpdatedAt        time.Time  `bun:"updated_at" json:"updated_at"`
+
+	// CrewName is the assigned crew's name, joined on read (scan-only) so the board
+	// can show "Team B" instead of a uuid. Never written back through bun.
+	CrewName *string `bun:"crew_name,scanonly" json:"crew_name"`
 }
 
 // InspectionTemplate mirrors wam.inspection_templates -- a reusable checklist

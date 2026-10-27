@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/kwaabs/voltedge/api/internal/crud"
@@ -171,6 +172,65 @@ func meterCountsAsLoad(code string, attrs map[string]any) bool {
 	return role == meterRolePrimary
 }
 
+// metersFeedingServicePoint returns the subset of the given METER feature ids
+// that are wired to a SERVICE_POINT (either edge direction). Such a meter is a
+// device OF its service point -- the trace conducts through it, but the SP it
+// feeds is the counted supply, so collectService skips it to avoid a PRIMARY
+// meter and its SP double-counting. It catches both an SP-mounted meter (the
+// attach action, which wires METER T2 -> SERVICE_POINT T1) and a legacy
+// meter->SP chain, since both carry the METER<->SERVICE_POINT connectivity. A
+// deployment without a METER or SERVICE_POINT class skips nothing. Only queried
+// when meters are actually present (the common SP-only trace never pays for it).
+func metersFeedingServicePoint(ctx context.Context, db bun.IDB, meterIDs []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	if len(meterIDs) == 0 {
+		return out, nil
+	}
+	var classes []struct {
+		Code string `bun:"code"`
+		ID   string `bun:"id"`
+	}
+	if err := db.NewSelect().
+		ColumnExpr("code, id").
+		TableExpr("metadata.feature_classes").
+		Where("code IN (?)", bun.In([]string{meterClass, servicePointClass})).
+		Scan(ctx, &classes); err != nil {
+		return nil, fmt.Errorf("trace: resolving METER/SERVICE_POINT class ids: %w", err)
+	}
+	var meterClassID, spClassID string
+	for _, c := range classes {
+		switch c.Code {
+		case meterClass:
+			meterClassID = c.ID
+		case servicePointClass:
+			spClassID = c.ID
+		}
+	}
+	if meterClassID == "" || spClassID == "" {
+		return out, nil // no metering / service-point model in this deployment
+	}
+
+	const q = `
+SELECT from_feature_id::text AS meter_id FROM runtime.feature_connectivity
+  WHERE from_feature_class_id = ? AND to_feature_class_id = ? AND from_feature_id IN (?)
+UNION
+SELECT to_feature_id::text AS meter_id FROM runtime.feature_connectivity
+  WHERE to_feature_class_id = ? AND from_feature_class_id = ? AND to_feature_id IN (?)`
+	var rows []struct {
+		MeterID string `bun:"meter_id"`
+	}
+	if err := db.NewRaw(q,
+		meterClassID, spClassID, bun.In(meterIDs),
+		meterClassID, spClassID, bun.In(meterIDs),
+	).Scan(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("trace: finding service-point-attached meters: %w", err)
+	}
+	for _, r := range rows {
+		out[r.MeterID] = true
+	}
+	return out, nil
+}
+
 // resolveServicePriority reads a SERVICE_POINT's restoration tier, superseding
 // the legacy is_critical: the load_priority field if set and valid, else the
 // old boolean (true -> P2, the faithful lift the backfill uses), else Standard.
@@ -278,8 +338,30 @@ func collectService(ctx context.Context, db bun.IDB, nodes []node, classCodes ma
 	rollup := &ServiceRollup{}
 	points := make([]ServicePoint, 0, 8)
 
+	// A meter wired to a SERVICE_POINT is a DEVICE OF that SP, not a second supply:
+	// the trace still conducts THROUGH it (LV -> meter -> SP), but the SP it feeds is
+	// the counted supply. Pre-find such meters among the reached nodes so the loop
+	// below skips them, keeping a PRIMARY meter and its SP from double-counting (an
+	// SP-mounted meter, seed/meter_service_point_mounted.sql). Only touches a PRIMARY
+	// meter on an SP -- a legacy role-unset/CHECK meter was already inert, and a
+	// standalone meter with no SP still counts.
+	meterIDs := make([]string, 0)
+	for _, n := range nodes {
+		if classCodes[n.classID] == meterClass {
+			meterIDs = append(meterIDs, n.featureID)
+		}
+	}
+	attachedMeters, err := metersFeedingServicePoint(ctx, db, meterIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	for _, n := range nodes {
 		code := classCodes[n.classID]
+		// A meter that feeds a service point defers to it -- the SP is the supply.
+		if code == meterClass && attachedMeters[n.featureID] {
+			continue
+		}
 		// Narrow (customer-only) mode keeps the cheap code pre-filter: skip a
 		// non-customer class before any DB read, exactly as the old isLoadLeaf did.
 		if !wide && !isCustomerLeaf(code) {

@@ -97,15 +97,30 @@ type TroubleCall struct {
 // (feature class code + id), both nullable and not DB foreign keys. Confidence
 // (0..1) is null for a manually raised incident. RestoredAt null = still out.
 type Incident struct {
-	bun.BaseModel `bun:"table:oms.incidents"`
+	bun.BaseModel `bun:"table:oms.incidents,alias:inc"`
 
 	ID                    string     `bun:"id,pk" json:"id"`
 	PredictedDeviceClass  *string    `bun:"predicted_device_class" json:"predicted_device_class"`
 	PredictedDeviceID     *string    `bun:"predicted_device_id" json:"predicted_device_id"`
 	CircuitID             *string    `bun:"circuit_id" json:"circuit_id"`
+	// TerritoryID is the DOMINANT territory of the affected set (0169) -- the
+	// board's scope/rollup key. TerritoryName is resolved by a LEFT JOIN on read
+	// (scan-only, never stored), null when unassigned or the territory was removed.
+	TerritoryID           *string    `bun:"territory_id" json:"territory_id"`
+	TerritoryName         *string    `bun:"territory_name,scanonly" json:"territory_name"`
 	OutageType            string     `bun:"outage_type" json:"outage_type"`
 	CauseCode             *string    `bun:"cause_code" json:"cause_code"`
-	Status                string     `bun:"status" json:"status"`
+	// CauseStatus is how certain the cause is: unknown -> suspected -> confirmed
+	// (0168). Always set (defaults 'unknown'), refined by a crew or a raised fault.
+	CauseStatus string `bun:"cause_status" json:"cause_status"`
+	// DetectionSource is HOW the utility learned of the outage (0168): customer /
+	// ami / scada / crew / planned / upstream / analytics -- stamped by the raising
+	// path, not inferred. DetectionDetail is an optional free provenance note
+	// (channel, external id). DetectedAt is when the first signal arrived.
+	DetectionSource *string    `bun:"detection_source" json:"detection_source"`
+	DetectionDetail *string    `bun:"detection_detail" json:"detection_detail"`
+	DetectedAt      *time.Time `bun:"detected_at" json:"detected_at"`
+	Status          string     `bun:"status" json:"status"`
 	Confidence            *float64   `bun:"confidence" json:"confidence"`
 	StartedAt             time.Time  `bun:"started_at" json:"started_at"`
 	PlannedStart          *time.Time `bun:"planned_start" json:"planned_start"`
@@ -115,9 +130,17 @@ type Incident struct {
 	AffectedCustomers     *int       `bun:"affected_customers" json:"affected_customers"`
 	AffectedServicePoints *int       `bun:"affected_service_points" json:"affected_service_points"`
 	CrewRef               *string    `bun:"crew_ref" json:"crew_ref"`
-	Notes                 *string    `bun:"notes" json:"notes"`
-	CreatedAt             time.Time  `bun:"created_at" json:"created_at"`
-	UpdatedAt             time.Time  `bun:"updated_at" json:"updated_at"`
+	LastActorUserID       *string    `bun:"last_actor_user_id" json:"last_actor_user_id"`
+	// LastActorName is the display name of last_actor_user_id, resolved by a LEFT
+	// JOIN in the read queries (scan-only -- never a stored column). Null when no
+	// actor, or when the acting account was since removed. It lets the board and
+	// the webhook payload show "restored by Ama" without the viewer needing
+	// admin:users to resolve the id themselves.
+	LastActorName *string `bun:"last_actor_name,scanonly" json:"last_actor_name"`
+
+	Notes     *string   `bun:"notes" json:"notes"`
+	CreatedAt time.Time `bun:"created_at" json:"created_at"`
+	UpdatedAt time.Time `bun:"updated_at" json:"updated_at"`
 }
 
 // CustomerInterruption mirrors oms.customer_interruptions -- the per-SP fact the

@@ -55,6 +55,7 @@ class SettingsRepository {
   static const _extGnssNameKey = 'externalGnssName';
   static const _signedInEmailKey = 'signedInEmail';
   static const _signedInNameKey = 'signedInName';
+  static const _permissionsKey = 'permissions';
 
   /// The keystore entry the bearer token lives under.
   static const _secureTokenKey = 've_api_token';
@@ -107,6 +108,19 @@ class SettingsRepository {
   String? signedInEmail;
   String? signedInName;
 
+  /// The signed-in user's effective permission set (from field-login, migration
+  /// 0164). The UI shows/hides modules off this (hasPermission); persisted so the
+  /// gating survives an offline restart. The server still enforces every call.
+  List<String> permissions = const [];
+
+  /// Whether the signed-in user holds [perm] (e.g. 'features:write', 'wam:read').
+  /// Used to gate field-app modules in the UI. An EMPTY set means a legacy session
+  /// that signed in before migration 0164 shipped permissions -- we don't know them
+  /// yet, so fall back to allowing (the server still enforces every call); the next
+  /// sign-in populates them and real UI gating takes effect.
+  bool hasPermission(String perm) =>
+      permissions.isEmpty || permissions.contains(perm);
+
   bool get isConfigured => token != null && token!.isNotEmpty;
 
   Future<File> _resolveFile() async {
@@ -155,6 +169,10 @@ class SettingsRepository {
         final storedName = map[_signedInNameKey] as String?;
         signedInName =
             (storedName == null || storedName.isEmpty) ? null : storedName;
+        final storedPerms = map[_permissionsKey] as List?;
+        permissions = storedPerms == null
+            ? const []
+            : storedPerms.map((p) => p.toString()).toList();
         final storedToken = map[_tokenKey] as String?;
         legacyToken =
             (storedToken == null || storedToken.isEmpty) ? null : storedToken;
@@ -200,12 +218,14 @@ class SettingsRepository {
     required String token,
     String? email,
     String? displayName,
+    List<String> permissions = const [],
   }) async {
     await setToken(token);
     final e = email?.trim();
     final n = displayName?.trim();
     signedInEmail = (e == null || e.isEmpty) ? null : e;
     signedInName = (n == null || n.isEmpty) ? null : n;
+    this.permissions = permissions;
     await _persist();
   }
 
@@ -218,6 +238,7 @@ class SettingsRepository {
     await setToken(null);
     signedInEmail = null;
     signedInName = null;
+    permissions = const [];
     await _persist();
   }
 
@@ -269,6 +290,7 @@ class SettingsRepository {
       if (externalGnssName != null) _extGnssNameKey: externalGnssName,
       if (signedInEmail != null) _signedInEmailKey: signedInEmail,
       if (signedInName != null) _signedInNameKey: signedInName,
+      if (permissions.isNotEmpty) _permissionsKey: permissions,
     };
     await file.writeAsString(jsonEncode(map), flush: true);
   }

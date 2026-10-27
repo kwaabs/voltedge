@@ -28,6 +28,8 @@ const (
 	PermDiagramsRead        = "diagrams:read"
 	PermDiagramsWrite       = "diagrams:write"
 	PermDiagramsDelete      = "diagrams:delete"
+	PermAssembliesRead      = "assemblies:read"
+	PermAssembliesWrite     = "assemblies:write"
 	PermAnnotationsRead     = "annotations:read"
 	PermAnnotationsWrite    = "annotations:write"
 	PermTraceRun            = "trace:run"
@@ -39,6 +41,7 @@ const (
 	PermTerritoriesWrite    = "territories:write"
 	PermCircuitsWrite       = "circuits:write"
 	PermFieldPacksAdmin     = "admin:field-packs"
+	PermFieldLogin          = "field:login"
 	PermAttachmentsRead     = "attachments:read"
 	PermAttachmentsWrite    = "attachments:write"
 	PermSyncReview          = "sync:review"
@@ -55,6 +58,8 @@ const (
 	PermOperationsWrite     = "operations:write"
 	PermSafetyRead          = "safety:read"
 	PermSafetyWrite         = "safety:write"
+	PermTelemetryRead       = "telemetry:read"
+	PermTelemetryIngest     = "telemetry:ingest"
 )
 
 // RequirePermission gates a route (sub)tree by RBAC permission. A request

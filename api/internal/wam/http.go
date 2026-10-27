@@ -168,6 +168,7 @@ type raiseWorkOrderRequest struct {
 	Description      *string    `json:"description"`
 	AssignedTo       *string    `json:"assigned_to"`
 	AssignedToUserID *string    `json:"assigned_to_user_id"`
+	CrewID           *string    `json:"crew_id"`
 	ScheduledFor     *time.Time `json:"scheduled_for"`
 	DueBy            *time.Time `json:"due_by"`
 }
@@ -183,6 +184,7 @@ func raiseWorkOrderHandler(db *bun.DB) http.HandlerFunc {
 			Description:      req.Description,
 			AssignedTo:       req.AssignedTo,
 			AssignedToUserID: req.AssignedToUserID,
+			CrewID:           req.CrewID,
 			ScheduledFor:     req.ScheduledFor,
 			DueBy:            req.DueBy,
 		})
@@ -217,6 +219,7 @@ func listWorkOrdersHandler(db *bun.DB) http.HandlerFunc {
 			AssetID:          q.Get("asset_id"),
 			AssignedTo:       q.Get("assigned_to"),
 			AssignedToUserID: assignedToUserID,
+			IncidentID:       q.Get("incident_id"),
 			Open:             q.Get("open") == "true",
 		})
 		if err != nil {
@@ -240,6 +243,7 @@ type createWorkOrderRequest struct {
 	DefectID         *string    `json:"defect_id"`
 	AssignedTo       *string    `json:"assigned_to"`
 	AssignedToUserID *string    `json:"assigned_to_user_id"`
+	CrewID           *string    `json:"crew_id"`
 	ScheduledFor     *time.Time `json:"scheduled_for"`
 	DueBy            *time.Time `json:"due_by"`
 }
@@ -264,6 +268,7 @@ func createWorkOrderHandler(db *bun.DB) http.HandlerFunc {
 			DefectID:         req.DefectID,
 			AssignedTo:       req.AssignedTo,
 			AssignedToUserID: req.AssignedToUserID,
+			CrewID:           req.CrewID,
 			ScheduledFor:     req.ScheduledFor,
 			DueBy:            req.DueBy,
 		})
@@ -293,6 +298,7 @@ type updateWorkOrderRequest struct {
 	Description      *string    `json:"description"`
 	AssignedTo       *string    `json:"assigned_to"`
 	AssignedToUserID *string    `json:"assigned_to_user_id"`
+	CrewID           *string    `json:"crew_id"`
 	ScheduledFor     *time.Time `json:"scheduled_for"`
 	DueBy            *time.Time `json:"due_by"`
 	CompletionNotes  *string    `json:"completion_notes"`
@@ -312,6 +318,7 @@ func updateWorkOrderHandler(db *bun.DB) http.HandlerFunc {
 			Description:      req.Description,
 			AssignedTo:       req.AssignedTo,
 			AssignedToUserID: req.AssignedToUserID,
+			CrewID:           req.CrewID,
 			ScheduledFor:     req.ScheduledFor,
 			DueBy:            req.DueBy,
 			CompletionNotes:  req.CompletionNotes,

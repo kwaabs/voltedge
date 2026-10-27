@@ -17,12 +17,19 @@ import (
 // oidcFlowCookie carries the per-attempt state/nonce/PKCE-verifier across
 // the redirect to the IdP and back. It MUST be SameSite=Lax, not Strict:
 // the callback arrives as a top-level cross-site navigation from the IdP,
-// and a Strict cookie would not be sent, breaking every SSO login. It is
-// httpOnly, short-lived, and scoped to the /auth/oidc path so it never
-// rides along on ordinary API calls.
+// and a Strict cookie would not be sent, breaking every SSO login.
+//
+// Path MUST be "/", not "/auth/oidc": the backend's routes are reached under a
+// path PREFIX the app's reverse proxy adds (the dev Vite proxy serves the API at
+// /api/* and rewrites it to the backend's bare /auth/..., and a prod gateway may
+// mount the API elsewhere). A cookie scoped to "/auth/oidc" is never sent on the
+// browser-facing /api/auth/oidc/.../callback, so the callback sees no flow and
+// fails "expired". "/" is prefix-agnostic. It stays httpOnly + short-lived (10
+// min) and is cleared on the callback, so riding along on other calls is
+// harmless.
 const (
 	oidcFlowCookie = "ve_oidc_flow"
-	oidcFlowPath   = "/auth/oidc"
+	oidcFlowPath   = "/"
 	oidcFlowTTL    = 10 * time.Minute
 )
 
@@ -57,10 +64,41 @@ func (s *service) providersHandler(w http.ResponseWriter, r *http.Request) {
 	// always sign in locally regardless. The screen still shows the form,
 	// but this lets it hint the current policy.
 	localEnabled, _ := s.localAuthEnabled(r.Context())
+	// When local sign-in is off AND a break-glass reveal code is configured, the
+	// login screen hides the password form behind that code (a soft second
+	// factor). Without a code configured it just shows the form with a note, as
+	// before, so a break-glass admin is never locked out of an emergency login.
+	breakGlassCodeRequired := !localEnabled && s.cfg.BreakGlassReveal != ""
 	writeJSON(w, http.StatusOK, map[string]any{
-		"providers":          providers,
-		"local_auth_enabled": localEnabled,
+		"providers":                 providers,
+		"local_auth_enabled":        localEnabled,
+		"break_glass_code_required": breakGlassCodeRequired,
 	})
+}
+
+// breakGlassRevealHandler is POST /auth/break-glass/reveal -- the login screen
+// posts the typed reveal code here before showing the password form, so a wrong
+// code is rejected up front (the login endpoint re-checks it, so this is a UX
+// convenience, not the real gate). 200 = correct (reveal the form); 401 = wrong.
+// A no-op 404-ish "not applicable" is returned as 400 when the feature is off.
+func (s *service) breakGlassRevealHandler(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.BreakGlassReveal == "" {
+		writeError(w, invalid("break-glass reveal code is not configured"))
+		return
+	}
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(req.Code), []byte(s.cfg.BreakGlassReveal)) != 1 {
+		s.logEvent(r.Context(), r, eventLoginFailure, "", "break-glass reveal code rejected")
+		writeError(w, unauthorized("invalid reveal code"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"revealed": true})
 }
 
 // oidcLoginHandler is GET /auth/oidc/{provider}/login -- it starts the

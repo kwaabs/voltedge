@@ -7,13 +7,14 @@
 // the binary; DOCS_DIR points at it (default ../docs, matching the server's
 // working directory of api/ under `task api-dev`).
 //
-// Permissioning is per document and enforced HERE, on the server, exactly as
-// the caller asked: an administrative manual (the Admin & Break-Glass guide,
-// the CIM export guide) carries a RequiredPerm, and a caller lacking it never
-// sees the entry in the list AND is refused 403 on a direct fetch. General
-// manuals carry no RequiredPerm -- any authenticated user may read them, which
-// is why the mount is a plain RequireAuth rather than a single RBAC gate (see
-// cmd/server/main.go): the gate that matters is inside, per document.
+// Permissioning is enforced HERE, on the server. The product policy is a split
+// library: the written manuals, how-to guides and administrative references are
+// ADMIN-ONLY (the admin role or a break-glass admin), while every other signed-in
+// user sees ONLY the interactive guides (the hands-on, persona-gated simulators).
+// A caller who may not read a document never sees the entry in the list AND is
+// refused 403 on a direct fetch. That is why the mount is a plain RequireAuth
+// rather than a single RBAC gate (see cmd/server/main.go): every signed-in user
+// reaches the mount, and canSee below is the gate that actually restricts it.
 package docs
 
 import (
@@ -48,12 +49,16 @@ type Doc struct {
 }
 
 // manifest is the whole in-app library: the reference manuals, the how-to
-// guides, the administrative references and the README front door
-// (docs/README.md's Tier 1). Order here is the display order. The
-// administrative documents (CIM export, symbology, admin/break-glass, and the
-// logging & observability guide) carry a RequiredPerm; everything else is
-// readable by any signed-in user. Filenames are the real docs/*.md names --
-// verified present in the repo-root docs/ directory.
+// guides, the interactive guides, the administrative references and the README
+// front door (docs/README.md's Tier 1). Order here is the display order.
+// Visibility is set by canSee: the written documents are admin-only, and a
+// non-admin sees only the OPERATIONAL interactive guides -- an interactive guide
+// (Format == "html") that carries no RequiredPerm. An interactive guide on an
+// administrative topic (access control, deployment, the runbook, Kubernetes,
+// logging, field-tool admin, CIM export, symbology, admin/break-glass) carries
+// the SAME RequiredPerm as its written counterpart, which makes it admin-only
+// here too. Filenames are the real docs/*.md / *.html names -- verified present
+// in the repo-root docs/ directory.
 var manifest = []Doc{
 	{
 		ID:          "readme",
@@ -187,12 +192,13 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
-		ID:          "access-control-guide-interactive",
-		Title:       "Access Control (interactive)",
-		Description: "Run the access rules in your browser: a role designer, a request tester that follows the real middleware order, territory resolution and point-in-polygon assignment, a lockout and rate-limit lab, an SSO decision simulator, a break-glass drill, an audit query builder and a 'why can't Priya do X' diagnoser, with a persona switch over the real seeded roles.",
-		Category:    "Interactive guides",
-		Filename:    "access-control-guide-interactive.html",
-		Format:      "html",
+		ID:           "access-control-guide-interactive",
+		Title:        "Access Control (interactive)",
+		Description:  "Run the access rules in your browser: a role designer, a request tester that follows the real middleware order, territory resolution and point-in-polygon assignment, a lockout and rate-limit lab, an SSO decision simulator, a break-glass drill, an audit query builder and a 'why can't Priya do X' diagnoser, with a persona switch over the real seeded roles.",
+		Category:     "Interactive guides",
+		Filename:     "access-control-guide-interactive.html",
+		Format:       "html",
+		RequiredPerm: auth.PermUsersManage,
 	},
 	{
 		ID:          "feature-catalog-interactive",
@@ -211,36 +217,40 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
-		ID:          "deployment-and-scaling-guide-interactive",
-		Title:       "Production Deployment & Scaling (interactive)",
-		Description: "Scaling the stateless API tier as a working model: locate where state lives, follow a request through the tiers, and size the login wave, probes, HPA and PDB, PgBouncer and connection budgets (with an Erlang-C queue), read-replica routing and lag, tile capacity, the worker queues and shared-pack builds. Then score the pre-flight checklist, plan a migration, set alerts and ask the scaling playbook what to turn when load rises. Includes a reality check of what is implemented versus recommended. A persona switch gates operator actions.",
-		Category:    "Interactive guides",
-		Filename:    "deployment-and-scaling-guide-interactive.html",
-		Format:      "html",
+		ID:           "deployment-and-scaling-guide-interactive",
+		Title:        "Production Deployment & Scaling (interactive)",
+		Description:  "Scaling the stateless API tier as a working model: locate where state lives, follow a request through the tiers, and size the login wave, probes, HPA and PDB, PgBouncer and connection budgets (with an Erlang-C queue), read-replica routing and lag, tile capacity, the worker queues and shared-pack builds. Then score the pre-flight checklist, plan a migration, set alerts and ask the scaling playbook what to turn when load rises. Includes a reality check of what is implemented versus recommended. A persona switch gates operator actions.",
+		Category:     "Interactive guides",
+		Filename:     "deployment-and-scaling-guide-interactive.html",
+		Format:       "html",
+		RequiredPerm: auth.PermUsersManage,
 	},
 	{
-		ID:          "production-setup-runbook-interactive",
-		Title:       "Production Setup Runbook (interactive)",
-		Description: "The single-host Docker Compose install as a working rehearsal: explore every service and published port, build and check the .env against what the compose file actually passes through, reorder or skip the steps and see what breaks, run the migrations and seed phases with failure injection, do the first login and the login-flood and TLS checks, model a rolling upgrade, plan backup and restore, and diagnose symptoms. A persona switch gates operator actions.",
-		Category:    "Interactive guides",
-		Filename:    "production-setup-runbook-interactive.html",
-		Format:      "html",
+		ID:           "production-setup-runbook-interactive",
+		Title:        "Production Setup Runbook (interactive)",
+		Description:  "The single-host Docker Compose install as a working rehearsal: explore every service and published port, build and check the .env against what the compose file actually passes through, reorder or skip the steps and see what breaks, run the migrations and seed phases with failure injection, do the first login and the login-flood and TLS checks, model a rolling upgrade, plan backup and restore, and diagnose symptoms. A persona switch gates operator actions.",
+		Category:     "Interactive guides",
+		Filename:     "production-setup-runbook-interactive.html",
+		Format:       "html",
+		RequiredPerm: auth.PermUsersManage,
 	},
 	{
-		ID:          "kubernetes-and-coolify-guide-interactive",
-		Title:       "Kubernetes & Coolify Deployment (interactive)",
-		Description: "Moving the stack onto a cluster or Coolify as a working model: translate between Compose, Coolify and Kubernetes, audit which env vars really reach a container, wire secrets and config, budget connections, build and lint a workload, tune probes, HPA and queue-depth scaling, simulate rolling updates, sequence the bootstrap and walk through incidents. A chooser compares Coolify and Kubernetes. A persona switch gates operator actions.",
-		Category:    "Interactive guides",
-		Filename:    "kubernetes-and-coolify-guide-interactive.html",
-		Format:      "html",
+		ID:           "kubernetes-and-coolify-guide-interactive",
+		Title:        "Kubernetes & Coolify Deployment (interactive)",
+		Description:  "Moving the stack onto a cluster or Coolify as a working model: translate between Compose, Coolify and Kubernetes, audit which env vars really reach a container, wire secrets and config, budget connections, build and lint a workload, tune probes, HPA and queue-depth scaling, simulate rolling updates, sequence the bootstrap and walk through incidents. A chooser compares Coolify and Kubernetes. A persona switch gates operator actions.",
+		Category:     "Interactive guides",
+		Filename:     "kubernetes-and-coolify-guide-interactive.html",
+		Format:       "html",
+		RequiredPerm: auth.PermUsersManage,
 	},
 	{
-		ID:          "logging-and-observability-guide-interactive",
-		Title:       "Logging & Observability (interactive)",
-		Description: "The log pipeline as a working lab: trace the pipeline from app through Vector and Loki to Grafana, try the logger init and level thresholds, simulate the Admin logging screen, build request lines, check redaction and client-address spoofing, test the token gate, query a synthetic estate in LogQL, size retention and cardinality, replay alert rules and drill an incident. A persona switch gates operator actions.",
-		Category:    "Interactive guides",
-		Filename:    "logging-and-observability-guide-interactive.html",
-		Format:      "html",
+		ID:           "logging-and-observability-guide-interactive",
+		Title:        "Logging & Observability (interactive)",
+		Description:  "The log pipeline as a working lab: trace the pipeline from app through Vector and Loki to Grafana, try the logger init and level thresholds, simulate the Admin logging screen, build request lines, check redaction and client-address spoofing, test the token gate, query a synthetic estate in LogQL, size retention and cardinality, replay alert rules and drill an incident. A persona switch gates operator actions.",
+		Category:     "Interactive guides",
+		Filename:     "logging-and-observability-guide-interactive.html",
+		Format:       "html",
+		RequiredPerm: auth.PermUsersManage,
 	},
 	{
 		ID:          "asset-tags-guide-interactive",
@@ -251,12 +261,13 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
-		ID:          "cim-export-guide-interactive",
-		Title:       "CIM/XML Export (interactive)",
-		Description: "A working copy of the real CIM encoder (a JavaScript port that reproduces the server's Oakwood output byte-for-byte): follow a feature into its CIM objects, compute the UUIDv5 ids and see which ones are unstable, edit the declarative mapping and watch the file change, try the seven transforms, build connectivity nodes and the nearest-end heuristic, size an export job and its state machine, explore the file, classify classes into the four coverage buckets, build a hand-off note from the eighteen known gaps, see node-breaker vs bus-branch processing, generate the adapter pipeline for a recipient, reconcile counts, run a validator with defect injection, and generate the mapping SQL recipes. A persona switch gates export (features:read) and mapping edits (metadata:read/write).",
-		Category:    "Interactive guides",
-		Filename:    "cim-export-guide-interactive.html",
-		Format:      "html",
+		ID:           "cim-export-guide-interactive",
+		Title:        "CIM/XML Export (interactive)",
+		Description:  "A working copy of the real CIM encoder (a JavaScript port that reproduces the server's Oakwood output byte-for-byte): follow a feature into its CIM objects, compute the UUIDv5 ids and see which ones are unstable, edit the declarative mapping and watch the file change, try the seven transforms, build connectivity nodes and the nearest-end heuristic, size an export job and its state machine, explore the file, classify classes into the four coverage buckets, build a hand-off note from the eighteen known gaps, see node-breaker vs bus-branch processing, generate the adapter pipeline for a recipient, reconcile counts, run a validator with defect injection, and generate the mapping SQL recipes. A persona switch gates export (features:read) and mapping edits (metadata:read/write).",
+		Category:     "Interactive guides",
+		Filename:     "cim-export-guide-interactive.html",
+		Format:       "html",
+		RequiredPerm: auth.PermMetadataRead,
 	},
 	{
 		ID:          "bill-of-quantities-guide-interactive",
@@ -267,28 +278,31 @@ var manifest = []Doc{
 		Format:      "html",
 	},
 	{
-		ID:          "field-tool-admin-guide-interactive",
-		Title:       "Field Tool Admin (interactive)",
-		Description: "The field back-office as a working simulation: follow any action through cmd/fieldsync and cmd/server, watch pack contents freeze from a crew's permissions, run the Field Packs page, size a shift-start build surge and the apply side (with PgBouncer and CPU limits), and drive the real review pipeline - policy, per-device lanes, head-of-line blocking, conflicts and supersession. Then define, grid, gate, schedule, reap and audit shared cells, stage a pack on behalf of a crew member, and diagnose faults against the live simulation. A persona switch gates every control by admin:field-packs, sync:review and sync:post.",
-		Category:    "Interactive guides",
-		Filename:    "field-tool-admin-guide-interactive.html",
-		Format:      "html",
+		ID:           "field-tool-admin-guide-interactive",
+		Title:        "Field Tool Admin (interactive)",
+		Description:  "The field back-office as a working simulation: follow any action through cmd/fieldsync and cmd/server, watch pack contents freeze from a crew's permissions, run the Field Packs page, size a shift-start build surge and the apply side (with PgBouncer and CPU limits), and drive the real review pipeline - policy, per-device lanes, head-of-line blocking, conflicts and supersession. Then define, grid, gate, schedule, reap and audit shared cells, stage a pack on behalf of a crew member, and diagnose faults against the live simulation. A persona switch gates every control by admin:field-packs, sync:review and sync:post.",
+		Category:     "Interactive guides",
+		Filename:     "field-tool-admin-guide-interactive.html",
+		Format:       "html",
+		RequiredPerm: auth.PermFieldPacksAdmin,
 	},
 	{
-		ID:          "symbology-guide-interactive",
-		Title:       "Symbology & Map Styling (interactive)",
-		Description: "The symbology manual as a working engine painting a sample Oakwood network: a why-can't-Priya-see-it pipeline with the cache and hard-refresh, a most-specific-wins scorer, a real SVG icon library and editor with live width/height and intrinsic-size diagnostics, a sizing calculator, the per-class rule editor (default rule, subtype and field targeting, line and polygon styles) with a click inspector, zoom bands vs Display zoom vs labels, map and diagram contexts side by side, and a seven-step diagnoser with SQL peeks. A persona switch gates every control by metadata permission.",
-		Category:    "Interactive guides",
-		Filename:    "symbology-guide-interactive.html",
-		Format:      "html",
+		ID:           "symbology-guide-interactive",
+		Title:        "Symbology & Map Styling (interactive)",
+		Description:  "The symbology manual as a working engine painting a sample Oakwood network: a why-can't-Priya-see-it pipeline with the cache and hard-refresh, a most-specific-wins scorer, a real SVG icon library and editor with live width/height and intrinsic-size diagnostics, a sizing calculator, the per-class rule editor (default rule, subtype and field targeting, line and polygon styles) with a click inspector, zoom bands vs Display zoom vs labels, map and diagram contexts side by side, and a seven-step diagnoser with SQL peeks. A persona switch gates every control by metadata permission.",
+		Category:     "Interactive guides",
+		Filename:     "symbology-guide-interactive.html",
+		Format:       "html",
+		RequiredPerm: auth.PermMetadataRead,
 	},
 	{
-		ID:          "admin-break-glass-guide-interactive",
-		Title:       "Administration & Break-Glass (interactive)",
-		Description: "The administrator's reference as a simulated deployment you can't hurt: send any caller through RequirePermission and the territory predicate, build the four column-by-role accounts and try each emergency, bring up a system in the wrong order, run the user console and sign-in lab (lockout, SSO linking, bearer tokens), resolve territory scope from the two trees, work the SSO-outage runbook, plan and run resetdata and uncompile, evolve a class with blueprint-vs-building, and query the audit trail. A persona switch changes who is acting.",
-		Category:    "Interactive guides",
-		Filename:    "admin-break-glass-guide-interactive.html",
-		Format:      "html",
+		ID:           "admin-break-glass-guide-interactive",
+		Title:        "Administration & Break-Glass (interactive)",
+		Description:  "The administrator's reference as a simulated deployment you can't hurt: send any caller through RequirePermission and the territory predicate, build the four column-by-role accounts and try each emergency, bring up a system in the wrong order, run the user console and sign-in lab (lockout, SSO linking, bearer tokens), resolve territory scope from the two trees, work the SSO-outage runbook, plan and run resetdata and uncompile, evolve a class with blueprint-vs-building, and query the audit trail. A persona switch changes who is acting.",
+		Category:     "Interactive guides",
+		Filename:     "admin-break-glass-guide-interactive.html",
+		Format:       "html",
+		RequiredPerm: auth.PermUsersManage,
 	},
 	{
 		ID:          "everyday-operations-interactive",
@@ -664,22 +678,40 @@ func docsDir() string {
 	return filepath.Join("..", "docs")
 }
 
-// canSee reports whether the caller may list or read d. A document with no
-// RequiredPerm is visible to any authenticated user; otherwise the caller must
-// hold the permission -- or be a break-glass admin, who overrides every
-// permission (Has does not short-circuit on break-glass yet, so we check it
-// explicitly here, the same belt-and-braces the rest of the app uses).
+// isAdmin reports whether the caller may read the FULL documentation library:
+// the admin role (admin:users) or a break-glass admin. Everyone else is limited
+// to the interactive guides (see canSee). Break-glass is checked explicitly
+// because Has does not short-circuit on it -- the same belt-and-braces the rest
+// of the app uses.
+func isAdmin(user *auth.SessionUser) bool {
+	return user.BreakGlass || user.Has(auth.PermUsersManage)
+}
+
+// canSee reports whether the caller may list or read d.
+//
+// Access policy (product decision): the written library -- the reference
+// manuals, how-to guides and administrative references -- is ADMIN-ONLY (the
+// admin role or a break-glass admin). Every other signed-in user sees ONLY the
+// OPERATIONAL interactive guides: the hands-on, persona-gated simulators
+// (Format == "html") that carry no RequiredPerm. An interactive guide on an
+// administrative topic (deployment, access control, CIM/symbology config, ...)
+// carries the same RequiredPerm as its written counterpart, which marks it
+// admin-only here too -- so a non-admin sees the operational guides and nothing
+// else. An administrator (isAdmin) sees everything.
 func canSee(user *auth.SessionUser, d Doc) bool {
-	if d.RequiredPerm == "" {
+	if isAdmin(user) {
 		return true
 	}
-	return user.BreakGlass || user.Has(d.RequiredPerm)
+	// Non-admins: only the ungated (operational) interactive guides. Any document
+	// with a RequiredPerm -- every written manual, and the admin-topic interactive
+	// guides -- is admin-only.
+	return d.Format == "html" && d.RequiredPerm == ""
 }
 
 // Routes returns the docs viewer endpoints, mounted at /docs behind a plain
 // RequireAuth (see cmd/server/main.go) -- every signed-in user reaches the
-// mount, and the per-document RequiredPerm below is what actually restricts the
-// administrative manuals:
+// mount, and canSee is what actually restricts it (admins read the full library;
+// everyone else only the interactive guides):
 //
 //	GET /docs        the catalog, filtered to the documents the caller may read
 //	GET /docs/{id}   one document's Markdown (403 if it is restricted and the caller lacks the permission; 404 if unknown)

@@ -27,6 +27,7 @@ import (
 //
 //	GET    /users                          list accounts (roles, linked providers, status)
 //	GET    /roles                          the assignable role catalog
+//	GET    /events                         read-only security audit log (sign-ins, failures, SSO, who/when/IP/browser)
 //	POST   /users                          create an account (email, name, break_glass, role?, password?)
 //	PATCH  /users/{id}                      edit profile (display_name); email is immutable
 //	POST   /users/{id}/roles               assign a role            {"role":"editor"}
@@ -44,6 +45,9 @@ func (s *service) adminRoutes() chi.Router {
 
 	r.Get("/users", s.adminListUsersHandler)
 	r.Get("/roles", s.adminListRolesHandler)
+	// Read-only security audit log (iam.auth_events): sign-ins, failures, SSO
+	// links, logouts, role changes -- who/when/IP/browser. See authevents.go.
+	r.Get("/events", s.adminAuthEventsHandler)
 
 	r.Group(func(r chi.Router) {
 		r.Use(RequireCSRF)
@@ -283,11 +287,18 @@ func (s *service) adminCreateUserHandler(w http.ResponseWriter, r *http.Request)
 func (s *service) createManagedUser(ctx context.Context, email, name string, breakGlass bool, password string) (string, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	name = strings.TrimSpace(name)
-	if email == "" || name == "" {
-		return "", invalid("email and display name are required")
+	if email == "" {
+		return "", invalid("email is required")
 	}
 	if !strings.Contains(email, "@") {
 		return "", invalid("%q is not a valid email address", email)
+	}
+	// The display name is optional for an SSO account enrolled with just an email:
+	// show the email as a placeholder until the provider's token fills the real
+	// name on first login (authenticateOIDC -> syncDisplayName). An admin who types
+	// a name keeps it (syncDisplayName never overwrites a non-placeholder).
+	if name == "" {
+		name = email
 	}
 	if password != "" {
 		if err := validatePasswordStrength(password); err != nil {
