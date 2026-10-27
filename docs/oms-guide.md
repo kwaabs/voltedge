@@ -49,14 +49,14 @@ Two permissions (`migrations/0088_seed_oms_permissions.sql`; constants `auth.Per
 
 | Action | Permission | viewer | analyst (Tom) | editor (Priya, Dana) | admin (Ada) |
 |---|---|---|---|---|---|
-| See the board, calls, affected area, energisation, switching orders, reliability | `oms:read` | ✓ | ✓ | ✓ | ✓ |
-| Log/associate calls, predict, confirm, dispatch, plan, restore, cancel, generate order, **execute step** | `oms:write` | — | — | ✓ | ✓ |
+| See the board, calls, affected area, energisation, switching orders, reliability, crews | `oms:read` | ✓ | ✓ | ✓ | ✓ |
+| Log/associate calls, predict, confirm, dispatch, plan, restore, cancel, generate order, **execute step**, re-attribute, manage crews & dispatch, set ETR, task a subcontractor | `oms:write` | — | — | ✓ | ✓ |
 
-`break-glass-admin` holds both permissions too, exactly like `admin` (`0088:25-33`). A viewer gets a **read-only board** (the write controls self-gate). A request without the needed permission is a `403`; without a session, `401` (`auth/rbac.go:66-85`). Two honest cautions:
+`break-glass-admin` holds both permissions too, exactly like `admin` (`0088:25-33`). A viewer gets a **read-only board** (the write controls self-gate). A request without the needed permission is a `403`; without a session, `401` (`auth/rbac.go:66-85`). (The **subcontractor registry** itself — Admin → Subcontractors — is `wam:write`, since a subcontractor is a WAM entity; *tasking* one to an incident is `oms:write`, §12.) Two honest cautions:
 
 > ⚠️ **OMS is not territory-scoped.** No `oms` table has a `territory_id`, and no incident/board query filters by territory (Phase 58 scoping lives *inside* the `trace` primitives OMS calls, e.g. back-feed paths, not in the OMS queries). The outage board shows **every** territory's incidents to any `oms:read` holder.
 
-> ⚠️ **Incidents record no "who".** There is no actor/user column on an incident — `crew_ref` is free text only. The one real audit trail is indirect: when a switching step flips a device's state, *that* write is logged to `gis.feature_history` with the acting user (§6).
+> **Incidents *do* record "who" now.** `last_actor_user_id` (migration 0165) stamps who last advanced the incident (confirm / dispatch / restore / cancel / re-attribute), resolved to a display name on read (§4) — and a real **crew** can be dispatched (§12), replacing the old free-text `crew_ref`. The switching-step `device_state` flips are still additionally logged to `gis.feature_history` (§6).
 
 ---
 
@@ -222,7 +222,7 @@ A persistent fault on the Feeder 7 main; **REC-7** does its reclose sequence and
 There is **no special "storm mode"** — the loop just runs *N* times in parallel:
 
 - **One Predict run makes many incidents.** Prediction clusters the open calls **per protective device**, so a storm's worth of calls becomes a *set* of incidents in a single run — each with its own blamed device, affected set, switching order and reliability contribution. You drive each the same way.
-- **The uncategorised pile.** Calls with no upstream device all land in **one no-device incident** (§3). In a storm that can be large and can't be attributed from the console — triage it by fixing connectivity and re-predicting, or working those calls off the map directly.
+- **The uncategorised pile.** Calls with no upstream device all land in **one no-device incident** (§3). In a storm that can be large — **attribute it to a device** once you know it (`PATCH /oms/incidents/{id}/device`, §12), fix connectivity and re-predict, or work those calls off the map directly.
 - ⚠️ **Storm days are *not* excluded from reliability.** VoltEdge implements **no IEEE 1366 major-event-day exclusion** — every confirmed unplanned interruption counts in full. If your regulator wants MED-normalised figures, apply that downstream of the raw indices (see **Reliability & Indices §8**).
 - **Keep the board usable** with `?status=` / `?open=true`, and work highest-`confidence`, most-customers incidents first.
 
@@ -231,7 +231,7 @@ There is **no special "storm mode"** — the loop just runs *N* times in paralle
 | Symptom | Why | Fix |
 |---|---|---|
 | **Predict made a `no-device` incident** | the junction-aware upstream walk found **no** `MV_FUSE`/`MV_RECLOSER`/`MV_BREAKER` at all — none seeded on the feeder, broken connectivity upstream, or only an `is_fused` `MV_SWITCH` between the calls and the source (§3). (A one-way RMU bus is no longer a cause — the walk crosses it.) | fix connectivity / seed a protective device so the walk reaches one, **cancel** the no-device incident (its calls return to `open`), and **Predict** again |
-| **Can't set/change an incident's device** | no endpoint or console action mutates `predicted_device_*` after creation (§3) | cancel + re-predict, or **Plan outage** around the right device |
+| **Wrong / missing blamed device** | prediction found the wrong device, or none | **re-attribute** it — `PATCH /oms/incidents/{id}/device` (the **Attribute device** / **Change device** button) sets or changes the device and re-freezes the affected set (§4, §12) |
 | **Affected count > the live cone** | both now walk through junctions, but affected is **barrier-free** (ignores an open device below), while the cone **stops** at it (§4–5) | expected — affected is the reliability set (who the fault cut off), the cone is what's dark right now |
 | **Generate switching order refused** | the incident is `restored`/`cancelled`, has no device, or already has a live order (§6) | restore the state, attribute a device, or cancel the existing order |
 | **Un-ticking an `open` step closed the device** | un-tick writes the *opposite* position, not the prior one (§6) | re-tick the step, or set `device_state` directly |
@@ -241,18 +241,48 @@ There is **no special "storm mode"** — the loop just runs *N* times in paralle
 
 ---
 
+## 12. Crews, field work & subcontractors
+
+Who actually goes out, and the work they carry. Three layers sit behind a dispatch: an internal **crew** (system actors with logins), an external **subcontractor** (track-only, no login), and the WAM **work order** either of them can own. The thread is *outage → dispatch → field job → mobile → completion*.
+
+### Crews and their members (`oms.crews`, `oms.crew_members`)
+
+A **crew** is a dispatchable team: a name, an optional kind (line / cable / contractor), a phone, a home territory, a status (`available` / `dispatched` / `on_site` / `unavailable`), and a roster of **members**. Members are internal users (`iam.users`, joined through `oms.crew_members`, migration 0173) — the field staff who receive the crew's work. A member is **permanent** or **temporary** (`valid_until`, migration 0176): a seconded member auto-drops from routing the moment it lapses, no cleanup needed. A user may belong to **several crews** at once (and receives the union of their work). Manage all of this at **Admin → Crews** (`oms:write`): the roster row opens edit + members; a per-row **Work** button opens the crew's incidents and assigned work orders.
+
+### Dispatch and the assignment lifecycle (`oms.crew_assignments`)
+
+Dispatch a crew to an incident from the incident's **Crews & ETR** card (`POST /oms/incidents/{id}/crews`). It creates a `dispatched` assignment and — if the incident was `confirmed` — advances it to `dispatched`, so the board flag finally reflects a *real* crew (stamps `last_actor_user_id`, fires `oms.incident.updated`). A crew can run **several incidents at once** (storm work); only a duplicate assignment to the *same* incident is refused. The dispatch picker lists **every active crew**, each annotated with its live load (incidents · open orders), so you can see a crew's backlog before piling on more.
+
+An assignment walks `dispatched → on_site → cleared` (`PATCH /oms/crew-assignments/{id}`), each transition timestamped; the crew's status follows and is freed on clear unless it's still busy elsewhere. Set the **ETR** with `PATCH /oms/incidents/{id}/etr`.
+
+### The outage → field-work loop
+
+Dispatching with **Raise restoration work order** ticked creates a **crew-assigned** corrective work order in the *same transaction* — `wam.work_orders` with `source = outage`, `incident_id` linked, pinned to the incident's blamed device so the crew can navigate to it. Because it carries a `crew_id`, it **fans out to every crew member's field pack** (the member-centric pack query also matches a member's active crews). When the crew marks **on-site**, its not-yet-started restoration orders advance to `in_progress` automatically — but **completion stays a deliberate field action** (clearing the assignment is *not* the same as finishing the job). The incident detail's **Field work** list shows the orders raised for that incident.
+
+### Subcontractors — external, track-only (`wam.subcontractors`)
+
+A **subcontractor** is an external firm the utility outsources field work to but which **does not operate in this system**. It is deliberately *not* a crew: no members, no status, no field pack, **no fan-out**. It's a registry row — a name and a contact — that records *who is responsible* (migration 0177; **Admin → Subcontractors**, `wam:write`). Task one to an outage with **Task a subcontractor** on the Crews & ETR card (`POST /oms/incidents/{id}/subcontractor`): it raises a subcontractor-tasked restoration work order linked to the incident, the external parallel to crew dispatch. Any work order can also be tasked to a firm via its `subcontractor_id`. The firm runs the job on their own tools; the utility's own coordinator tracks the order's status. The free-text `assigned_to` label stays for genuinely ad-hoc / unregistered parties.
+
+> **∑ Three ways a job is owned.** `assigned_to_user_id` — one internal **person**. `crew_id` — an internal **crew** (fans out to every member's pack). `subcontractor_id` — an external **firm** (recorded responsibility, *no* fan-out). A job can also carry none (unassigned) or the free-text label.
+
+---
+
 ## Appendix — reference
 
 ### Tables & key enums
 
 | Table | Status / action values |
 |---|---|
-| `oms.incidents.status` | `predicted`, `scheduled`, `confirmed`, `restored`, `cancelled` (+ `dispatched`, defined but unused) |
+| `oms.incidents.status` | `predicted`, `scheduled`, `confirmed`, `dispatched`, `restored`, `cancelled` (`dispatched` set when a crew is sent — §12) |
 | `oms.incidents.outage_type` | `unplanned`, `planned` |
 | `oms.trouble_calls.call_type` | `no_supply`, `partial`, `flicker` |
 | `oms.trouble_calls.status` | `open`, `associated`, `cleared`, `cancelled` |
 | `oms.switching_orders.status` | `draft`, `issued`, `in_progress`, `completed`, `cancelled` |
 | `oms.switching_steps.phase` / `action` | `isolate` / `restore` ; `open`, `close`, `earth`, `verify`, `note` |
+| `oms.crews.status` | `available`, `dispatched`, `on_site`, `unavailable` (§12) |
+| `oms.crew_assignments.status` | `dispatched`, `on_site`, `cleared` (§12) |
+| `oms.crew_members.valid_until` | `NULL` = permanent member; a timestamp = temporary, drops from routing when past (§12) |
+| `wam.subcontractors` | external track-only firms; work tasked via `wam.work_orders.subcontractor_id` (§12) |
 
 ### Endpoints (`/oms`, method-aware `oms:read` / `oms:write`)
 
@@ -271,21 +301,26 @@ There is **no special "storm mode"** — the loop just runs *N* times in paralle
 | `POST /oms/switching-orders/{id}/cancel` | cancel an order (keeps steps) |
 | `POST /oms/switching-steps/{id}/execute` | tick a step (**open/close flips live `device_state`**) |
 | `GET /oms/indices` | SAIDI / SAIFI / CAIDI / ENS + `by_fault_cause` (unplanned only) |
+| `PATCH /oms/incidents/{id}/device` | **re-attribute** — set/change the blamed device (re-freezes interruptions) |
+| `GET`/`POST`/`PATCH`/`DELETE /oms/crews` · `/{id}` · `/{id}/availability` | crew roster CRUD + off-shift/available (§12) |
+| `GET`/`POST`/`DELETE /oms/crews/{id}/members` · `/{userId}` | crew membership (§12) |
+| `GET /oms/crews/{id}/assignments` | a crew's incident history (§12) |
+| `GET`/`POST /oms/incidents/{id}/crews` | an incident's crews · **dispatch** a crew (optionally raise a work order) (§12) |
+| `PATCH /oms/crew-assignments/{id}` | advance an assignment `on_site`/`cleared` (on-site starts its restoration orders) (§12) |
+| `PATCH /oms/incidents/{id}/etr` | set/clear the ETR (§12) |
+| `POST /oms/incidents/{id}/subcontractor` | **task a subcontractor** — raises a tasked restoration work order (§12) |
 
 **Status codes** (`http.go`, `errors.go`): `201` on log-call, planned-outage and generate-order; `200` otherwise. Every client-fixable problem — **including an unknown id** — is `400` `{"error":…}` (there is no `404`); anything unexpected is `500`. `401`/`403` come from the permission gate before the handler.
 
 ### Honest notes (what the module does *not* do)
 
-- **A no-device incident cannot be attributed** — there is no way to set its device after the fact; it can be confirmed (freezing nothing), restored or cancelled (§3).
+- **A no-device incident *can now* be attributed** — `PATCH /oms/incidents/{id}/device` sets or changes the blamed device after the fact (re-stamping the affected set and re-freezing interruptions for a confirmed incident). This is the console action prediction can't do; it also re-homes an already-blamed incident onto the right device.
 - **Affected counts, *verify N* and prediction now use a junction-aware class walk** — the shared `reachableWithDepth` delegates to `bfs`, so supplies behind an RMU's one-way bus **are** counted and a call from one **does** reach its upstream device. The walk stays barrier-free (ignores live switch state). Verified by code reading only; not yet run against a live database.
 - **Not territory-scoped** — the board is organisation-wide for any `oms:read` holder (§2).
-- **No actor column** on an incident — "who" is only in `gis.feature_history` for the switching-step state flips (§2).
 - **"Affected" (frozen, barrier-free) and "energised" (live, barrier-respecting) are different engines** and can differ; neither subtracts a closed back-feed tie (§4–5).
 - **SAIDI/SAIFI/CAIDI/ENS are unplanned-only**; planned outages never enter them (§7–8).
 - `cleared` (call status) is defined but never set; un-ticking an `open`/`close` step writes the *opposite* position, not the prior one (§6).
-- `cause_code` is **free text**, not a coded catalogue.
-- `dispatched` status and the `oms.incident.updated` webhook are **defined but never fired**.
-- An incident has **no WAM link** — the defect/work-order hinge is only through a fault.
+- **Crew ↔ WAM is one-directional** — a crew on-site starts its restoration orders, but completing a work order does **not** clear the crew assignment, and a subcontractor's status is tracked only through its work order (§12).
 - The `0087` migration's "decoupled overlay" comment is **stale** — switching steps write live `device_state` (§6).
 - OMS records are **not** GIS features.
 
@@ -295,7 +330,7 @@ There is **no special "storm mode"** — the loop just runs *N* times in paralle
 - **Faults** — a fault *explains* an incident (raise a fault from the incident) and *books* the repair; the source of the `by_fault_cause` reliability breakdown.
 - **Reliability & Indices** — the exact SAIDI/SAIFI/CAIDI/ENS maths behind §8, the customer base, and the honest limits.
 - **Switching & Protection** — the `device_state` a switching step flips, the protective devices prediction blames, the isolation-boundary classes (`SwitchingDeviceClasses`), and the de-energised cone.
-- **Works, Inspections & Maintenance** — the defect/work-order the fault books.
+- **Works, Inspections & Maintenance** — the work order a dispatch or a subcontractor tasking raises, how a crew-assigned order reaches the field pack, and the subcontractor registry (§12).
 - **Engineering Studies** — the load/energisation model the affected-customer and cone rollups are built on.
 
 ### Corrections made to the first edition (with evidence)

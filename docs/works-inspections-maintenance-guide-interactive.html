@@ -356,7 +356,8 @@ svg .nd:focus-visible{outline:2px solid var(--acc)}
 
   <h3>3.5–3.8 Priority, assignment, schedule — create one</h3>
   <ul>
-    <li><b>Assignment:</b> an <b>internal worker</b> (picked from everyone holding <span class="perm">wam:write</span> — which is why Femi is in Dana’s picker, and why you can never assign work to someone who can’t close it) and/or a free-text <b>external crew</b> label.</li>
+    <li><b>Assignment — four owners, different behaviour.</b> <b>Internal worker</b> (<code>assigned_to_user_id</code>, picked from everyone holding <span class="perm">wam:write</span>) — rides into <i>their</i> field pack. <b>Internal crew</b> (<code>crew_id</code>) — fans out to <b>every member’s</b> pack, and the picker shows each crew’s load. <b>External subcontractor</b> (<code>subcontractor_id</code>, a registered firm) — <b>records responsibility only, no pack fan-out</b>, because the firm works off-system. <b>Free-text label</b> (<code>assigned_to</code>) — an ad-hoc one-off, no account, no fan-out. <span class="perm">∑</span> Work reaches a phone <i>only</i> through an internal owner (a user or a crew); a subcontractor or label reaches no pack. Crews are managed/dispatched by the Outage board, subcontractors at <b>Admin → Subcontractors</b> (see the OMS guide’s crews &amp; work chapter).</li>
+    <li><b>Raised from an outage.</b> Dispatching a crew or tasking a subcontractor from an incident (with <i>Raise restoration work order</i>) creates one of these orders for you — crew- or subcontractor-owned, <code>source=outage</code>, linked by <code>incident_id</code>; a crew arriving on-site even flips its restoration orders to <code>in_progress</code>.</li>
     <li><b>Scheduled-for</b> vs <b>due-by</b> (API/agent): both are planning <em>labels</em> — they don’t alert. Scheduled and unassigned is a perfectly good state.</li>
   </ul>
   <div class="widget" id="w3a">

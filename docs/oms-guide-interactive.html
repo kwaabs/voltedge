@@ -292,7 +292,7 @@ svg text{font-family:var(--f-mono)}
   <div class="rail-in">
     <div class="brand"><span class="dot"></span>OMS</div>
     <div class="chaps" id="chaps">
-      <a href="#c1">1 · Records</a><a href="#c2">2 · Who</a><a href="#c3">3 · Calls</a><a href="#c4">4 · Incident</a><a href="#c5">5 · Live cone</a><a href="#c6">6 · Switching</a><a href="#c6b">6b · Restore (FLISR)</a><a href="#c7">7 · Planned</a><a href="#c8">8 · Reliability</a><a href="#c9">9 · Integration</a><a href="#c10">10 · Feeder 7</a><a href="#c11">11 · Reference</a>
+      <a href="#c1">1 · Records</a><a href="#c2">2 · Who</a><a href="#c3">3 · Calls</a><a href="#c4">4 · Incident</a><a href="#c5">5 · Live cone</a><a href="#c6">6 · Switching</a><a href="#c6b">6b · Restore (FLISR)</a><a href="#c7">7 · Planned</a><a href="#c8">8 · Reliability</a><a href="#c9">9 · Integration</a><a href="#c9b">9b · Crews &amp; work</a><a href="#c10">10 · Feeder 7</a><a href="#c11">11 · Reference</a>
     </div>
     <div class="persona"><label for="persona-sel">As</label><select id="persona-sel" aria-label="Act as"></select></div>
   </div>
@@ -579,6 +579,20 @@ svg text{font-family:var(--f-mono)}
     <div class="w-bar"><b style="font-size:12.5px">Agent tools</b><span class="seg" id="w13-f"><button class="btn" data-f="all">all 19</button><button class="btn" data-f="or">oms:read (9)</button><button class="btn" data-f="ow">oms:write (10)</button><button class="btn" data-f="me">what I may call</button></span></div>
     <div class="w-body" id="w13-t"></div>
   </div>
+</section>
+
+<!-- ============ CH9b ============ -->
+<section class="ch" id="c9b">
+  <div class="ch-head"><div class="ch-num">9b</div><h2>Crews, field work &amp; subcontractors</h2><p>Who actually goes out — and the work they carry.</p></div>
+  <p>A dispatch is more than a board flag. Behind it sit three layers: an internal <b>crew</b> (real people with logins), an external <b>subcontractor</b> (track-only, no login), and the WAM <b>work order</b> either of them can own. The thread is <em>outage → dispatch → field job → mobile → completion</em>.</p>
+  <ul>
+    <li><b>Crews &amp; members.</b> A crew (<code>oms.crews</code>) is a team with a name, a status (<code>available</code> / <code>dispatched</code> / <code>on_site</code> / <code>unavailable</code>) and a roster of <b>members</b> — internal users (<code>oms.crew_members</code>). A member can be <b>permanent</b> or <b>temporary</b> (a <code>valid_until</code> expiry, for a storm secondment that auto-drops when it lapses); a user may be on several crews. Manage them at <b>Admin → Crews</b> (<span class="perm">oms:write</span>) — the row opens edit + members, a per-row <b>Work</b> button opens the crew’s incidents and assigned orders.</li>
+    <li><b>Dispatch.</b> Send a crew from the incident’s <b>Crews &amp; ETR</b> card (<code>POST /oms/incidents/{id}/crews</code>). It advances a <code>confirmed</code> incident to <code>dispatched</code> — the flag now reflects a <i>real</i> crew (actor stamped, <code>oms.incident.updated</code> fired). A crew can run <b>several incidents at once</b> (storm work); only a repeat dispatch to the <i>same</i> incident is refused. The picker shows every active crew with its live load (incidents · open orders), so you see a backlog before adding to it. An assignment walks <code>dispatched → on_site → cleared</code>; set the <b>ETR</b> with <code>PATCH /oms/incidents/{id}/etr</code>.</li>
+    <li><b>The outage → work loop.</b> Dispatching with <i>“Raise restoration work order”</i> creates a <b>crew-assigned</b> work order (<code>wam.work_orders</code>, <code>source=outage</code>, linked by <code>incident_id</code>, pinned to the blamed device) in the same transaction — and because it carries a <code>crew_id</code> it <b>fans out to every member’s field pack</b>. Marking <b>on-site</b> flips its restoration orders to <code>in_progress</code> automatically; <b>completion stays a deliberate field action</b>. The incident’s <b>Field work</b> list shows what’s been raised.</li>
+    <li><b>Subcontractors — external, track-only.</b> A subcontractor (<code>wam.subcontractors</code>) is a firm the utility outsources to that <b>does not operate in this system</b>. It is <i>not</i> a crew: no members, no status, no field pack, <b>no fan-out</b>. It’s a registry row (name + contact, <b>Admin → Subcontractors</b>, <span class="perm">wam:write</span>) that records <i>who is responsible</i>. Task one to an outage with <b>Task a subcontractor</b> (<code>POST /oms/incidents/{id}/subcontractor</code>) — it raises a tasked restoration order linked to the incident; your own coordinator tracks its status. The free-text <code>assigned_to</code> label remains for genuinely one-off parties.</li>
+  </ul>
+  <div class="en-b"><span class="tag en">Three ways a job is owned</span>
+  <p><code>assigned_to_user_id</code> — one internal <b>person</b>. <code>crew_id</code> — an internal <b>crew</b> (fans out to every member’s pack). <code>subcontractor_id</code> — an external <b>firm</b> (recorded responsibility, <i>no</i> fan-out). Work reaches a phone only through an internal owner; a subcontractor or a free-text label reaches no pack. Pick the owner that matches who’s actually doing the work.</p></div>
 </section>
 
 <!-- ============ CH10 ============ -->

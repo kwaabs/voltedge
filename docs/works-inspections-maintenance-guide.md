@@ -342,7 +342,8 @@ The **work type** is what the job *is*. It's set when the order is created and d
 - **A work type** (required, §3.2) and a **priority** (`low` / `medium` / `high` / `urgent`, default **medium**, §3.5).
 - **A status** — its place in the lifecycle (§3.4).
 - **A primary asset** (optional) — the feature the work targets, class + id. Optional because some work (a survey, a general task) isn't about one modelled asset; but naming it is what makes the order show on that asset's **Works tab**.
-- **An assignment** (optional) — *either* an **internal worker** (a VoltEdge user) *or* a free-text **external crew** label, or both (§3.6).
+- **An assignment** (optional) — an **internal worker** (a VoltEdge user), an internal **crew**, an external **subcontractor**, or a free-text label — see §3.6 for how they differ.
+- **An outage link** (optional) — when the order was raised from an OMS incident (a crew dispatch or a subcontractor tasking), its `incident_id` ties it back to the outage it serves; the board/agent can filter by it (§3.6, OMS guide §12).
 - **A schedule** (optional) — a **scheduled-for** date/time and, in the API, a **due-by** date (§3.7).
 - **Lifecycle timestamps** — **started-at** and **completed-at**, stamped automatically as the order moves (§3.4).
 - **A completion note** (optional) — what was actually done, recorded at completion (§3.10).
@@ -386,15 +387,23 @@ Priority (`low` / `medium` / `high` / `urgent`) is how the queue sorts when ther
 - **A corrective order inherits its priority from the defect's severity** (critical → urgent, high → high, low → low, else medium) — see §3.9. You can override it at raise time.
 - **A standalone order defaults to `medium`** and you set it on creation. There's no automatic escalation over time — priority is what you set it to, so revisit it if a job ages.
 
-### 3.6 Assignment — internal workers vs external crews
+### 3.6 Assignment — worker, crew, or subcontractor
 
-A work order can be assigned two ways, and they serve different needs:
+A work order can be owned **four** ways, which look similar in the dialog but behave very differently in the field. In order of strength:
 
-- **Internal worker** — a VoltEdge **user**, chosen from the **assignee picker**. This is the strong form: the order is tied to a real account, so that person can filter the board to **their** work (the **"Mine"** toggle on the board narrows to orders assigned to you), and the assignment is unambiguous.
-  - The picker isn't a hardcoded staff list — it shows **everyone who holds `wam:write`** (the people who can actually perform and close work). Add a user to a role that grants `wam:write` and they appear as assignable automatically; there's nothing separate to maintain. This is why Femi, on a field role, shows up in Dana's picker.
-- **External crew** — a **free-text label** for a contractor or crew that has no VoltEdge account (*"Contractor: Voltaic Ltd"*). Use it when the work is going to someone outside the system. It's a label, not a link — it can't filter "Mine" and carries no account — but it records who's responsible.
+- **Internal worker** (`assigned_to_user_id`) — a VoltEdge **user**, from the **assignee picker**. The order is tied to a real account: that person can filter the board to **their** work (the **"Mine"** toggle), and a worker's open orders ride into **their field pack** on the phone. The picker isn't a hardcoded list — it's **everyone who holds `wam:write`** (the people who can perform and close work), so adding a user to a field role makes them assignable automatically.
 
-You can set **both** (assign to an internal supervisor who coordinates an external crew, say). Assigning either at creation advances the order to **assigned** (§3.4). To **unassign** an internal worker later, clear the assignment (the API treats an empty assignee as "set to nobody").
+- **Internal crew** (`crew_id`) — a **crew**, chosen from the crew picker (which shows each crew's live load — *members · open orders · incidents* — so you can see a backlog before piling on). The payoff: a crew-assigned order **fans out to every crew member's field pack**, not just one person's. Crews are teams of users with membership (including temporary members), managed at **Admin → Crews** and dispatched by the Outage board — see **OMS guide §12**. Click a crew to see the work it owns.
+
+- **External subcontractor** (`subcontractor_id`) — an **external firm** from the subcontractor picker. Unlike the two above, a subcontractor **does not operate in this system**: tasking one **records responsibility only** — there is **no field-pack fan-out**, because the firm runs the job on their own tools. You maintain the firms at **Admin → Subcontractors** (a registry of name + contact, `wam:write`); your own coordinator tracks the order's status on their behalf. Click a firm to see everything tasked to it.
+
+- **Free-text label** (`assigned_to`) — an ad-hoc **"External crew"** string for a genuinely one-off or unregistered party (*"Voltaic Ltd"*). It's a label, not a link — no account, no "Mine", no fan-out. Prefer a registered **subcontractor** when it's a firm you'll task repeatedly; keep the label for one-offs.
+
+Assigning *any* of these at creation advances the order to **assigned** (§3.4). The modes aren't exclusive at the column level, but the dialog treats them as a choice — pick the one that matches who's actually doing the work. To **unassign**, clear the field (the API treats an empty value as "set to nobody" / `NULL`).
+
+> **∑ The field-pack rule.** Work reaches the phone only through an *internal* owner: `assigned_to_user_id` (that one person) or `crew_id` (every member of the crew). A `subcontractor_id` or a free-text label reaches **no** pack — those parties are tracked, not dispatched into VoltEdge. This is the one thing to get right when you choose an owner.
+
+> 💡 **Raised from an outage.** When the Outage board dispatches a crew or tasks a subcontractor with the *"Raise restoration work order"* option, it creates one of these orders for you — crew- or subcontractor-owned, `source = outage`, pinned to the faulted device and linked to the incident (`incident_id`). A crew arriving on-site even flips its restoration orders to **in_progress** automatically (completion still stays your deliberate call). See **OMS guide §12**.
 
 ### 3.7 Scheduling and due dates
 
@@ -843,7 +852,7 @@ When you get signal again, you **sync**: the outbox flushes up to the server, th
 You don't get *all* of Works on the device — you get the **slice you'll plausibly need on this trip**, filtered when the pack is built. Concretely, a Works-enabled pack carries:
 
 - **Open work — your open and work-ordered defects on the packed assets.** Only defects that are still live (`open` or `work_ordered`) and only on assets inside the pack's area come down. Resolved and dismissed defects stay behind — you're taking out the *to-do list*, not the archive.
-- **Your own active work orders.** The non-terminal work orders **assigned to you** ride along — your job list for the trip. You don't get the whole org's board; you get *yours*. (This is the first hint of the "capture tool" rule: the field app is your worklist, not the dispatch desk.)
+- **Your own active work orders — *and your crews'*.** The non-terminal work orders **assigned to you** ride along, **plus** any order assigned to a **crew you're a member of** (§3.6): a crew-owned job fans out to every current member's pack. (Temporary members only receive it while their membership is valid.) You don't get the whole org's board, and a **subcontractor**-tasked order reaches *no* pack — only internal owners fan out. (This is the "capture tool" rule: the field app is your worklist, not the dispatch desk.)
 - **The active inspection checklists.** Every active template and its items comes down in full, so you can run any round the trip calls for. Retired templates don't.
 
 Two practical consequences of *when* this is decided:
@@ -1244,11 +1253,12 @@ Mounted under `/wam`, gated `RequirePermission(wam:read, wam:write)` — GET rea
 | `POST /wam/defects` | Log a defect. |
 | `POST /wam/defects/{id}/status` | Transition a defect's status. |
 | `POST /wam/defects/{id}/work-order` | Raise a corrective order + flip the defect (atomic). |
-| `GET /wam/work-orders` | List orders (filters: status, type, priority, asset, assignee, open). |
+| `GET /wam/work-orders` | List orders (filters: status, type, priority, asset, assignee, **crew_id**, **subcontractor_id**, **incident_id**, open). |
 | `GET /wam/work-orders/{id}` | One order. |
-| `POST /wam/work-orders` | Create an order. |
-| `PATCH /wam/work-orders/{id}` | Sparse-patch an order (start/complete/reassign/reschedule). |
+| `POST /wam/work-orders` | Create an order (owner: `assigned_to_user_id` / `crew_id` / `subcontractor_id` / `assigned_to`). |
+| `PATCH /wam/work-orders/{id}` | Sparse-patch an order (start/complete/reassign/reschedule; empty owner = unassign). |
 | `GET /wam/assignable-users` | Users an order can be assigned to (`wam:write` holders). |
+| `GET`/`POST /wam/subcontractors` · `PATCH /{id}` · `POST /{id}/active` | The subcontractor registry — external firms work is tasked to (§3.6). |
 | `GET /wam/inspection-templates` | List templates (optionally active-only). |
 | `GET /wam/inspection-templates/{id}` | One template + items. |
 | `POST /wam/inspection-templates` | Create a template + items. |
