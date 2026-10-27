@@ -448,14 +448,15 @@ func listCrewMembersHandler(db *bun.DB) http.HandlerFunc {
 func addCrewMemberHandler(db *bun.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			UserID string  `json:"user_id"`
-			Role   *string `json:"role"`
+			UserID     string     `json:"user_id"`
+			Role       *string    `json:"role"`
+			ValidUntil *time.Time `json:"valid_until"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, invalidf("invalid request body: %v", err))
 			return
 		}
-		m, err := AddCrewMember(r.Context(), db, chi.URLParam(r, "id"), req.UserID, req.Role)
+		m, err := AddCrewMember(r.Context(), db, chi.URLParam(r, "id"), req.UserID, req.Role, req.ValidUntil)
 		if err != nil {
 			writeError(w, err)
 			return

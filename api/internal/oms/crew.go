@@ -50,9 +50,17 @@ type Crew struct {
 
 	TerritoryName     *string `bun:"territory_name,scanonly" json:"territory_name"`
 	MemberCount       int     `bun:"member_count,scanonly" json:"member_count"`
-	ActiveIncidentID  *string `bun:"-" json:"active_incident_id"`
-	ActiveAssignment  *string `bun:"-" json:"active_assignment_id"`
-	ActiveSince       *time.Time `bun:"-" json:"active_since"`
+	// OpenWorkOrderCount is the crew's load: work orders assigned to it that are
+	// neither completed nor cancelled. Surfaced so an assigner can see a crew's
+	// backlog before piling on more (a crew can hold any number).
+	OpenWorkOrderCount int `bun:"open_work_order_count,scanonly" json:"open_work_order_count"`
+	// ActiveAssignmentCount is how many incidents the crew is currently on (it can
+	// be on several at once). ActiveIncidentID/ActiveAssignment/ActiveSince describe
+	// the MOST RECENT of those, for a one-line summary.
+	ActiveAssignmentCount int        `bun:"-" json:"active_assignment_count"`
+	ActiveIncidentID      *string    `bun:"-" json:"active_incident_id"`
+	ActiveAssignment      *string    `bun:"-" json:"active_assignment_id"`
+	ActiveSince           *time.Time `bun:"-" json:"active_since"`
 }
 
 // CrewAssignment mirrors oms.crew_assignments. CrewName is scan-only (joined).
@@ -85,7 +93,8 @@ func ListCrews(ctx context.Context, db bun.IDB, includeInactive bool) ([]Crew, e
 	q := db.NewSelect().Model(&crews).
 		ColumnExpr("crew.*").
 		ColumnExpr("terr.name AS territory_name").
-		ColumnExpr("(SELECT count(*) FROM oms.crew_members cm WHERE cm.crew_id = crew.id) AS member_count").
+		ColumnExpr("(SELECT count(*) FROM oms.crew_members cm WHERE cm.crew_id = crew.id AND (cm.valid_until IS NULL OR cm.valid_until > now())) AS member_count").
+		ColumnExpr("(SELECT count(*) FROM wam.work_orders wo WHERE wo.crew_id = crew.id AND wo.status NOT IN ('completed', 'cancelled')) AS open_work_order_count").
 		Join("LEFT JOIN gis.territories AS terr ON terr.id = crew.territory_id").
 		Order("crew.name")
 	if !includeInactive {
@@ -98,7 +107,9 @@ func ListCrews(ctx context.Context, db bun.IDB, includeInactive bool) ([]Crew, e
 		return crews, nil
 	}
 
-	// Current active (non-cleared) assignment per crew, in one pass.
+	// A crew can be on several incidents at once; load every active (non-cleared)
+	// assignment, newest first, so we can both count them and pick the most recent
+	// as the one-line summary.
 	var active []struct {
 		CrewID       string    `bun:"crew_id"`
 		ID           string    `bun:"id"`
@@ -109,15 +120,22 @@ func ListCrews(ctx context.Context, db bun.IDB, includeInactive bool) ([]Crew, e
 		ColumnExpr("crew_id, id, incident_id, dispatched_at").
 		TableExpr("oms.crew_assignments").
 		Where("status <> ?", assignCleared).
+		OrderExpr("dispatched_at DESC").
 		Scan(ctx, &active); err != nil {
 		return nil, fmt.Errorf("oms: loading active assignments: %w", err)
 	}
-	byCrew := make(map[string]int, len(active))
+	// Index by crew: count all, and keep the first seen (most recent) as the summary.
+	summary := make(map[string]int, len(active)) // crew id -> index of most-recent active
+	counts := make(map[string]int, len(active))
 	for i, a := range active {
-		byCrew[a.CrewID] = i
+		counts[a.CrewID]++
+		if _, ok := summary[a.CrewID]; !ok {
+			summary[a.CrewID] = i
+		}
 	}
 	for i := range crews {
-		if idx, ok := byCrew[crews[i].ID]; ok {
+		crews[i].ActiveAssignmentCount = counts[crews[i].ID]
+		if idx, ok := summary[crews[i].ID]; ok {
 			a := active[idx]
 			crews[i].ActiveIncidentID = &a.IncidentID
 			crews[i].ActiveAssignment = &a.ID
@@ -277,12 +295,17 @@ func DispatchCrewToIncident(ctx context.Context, db *bun.DB, crewID, incidentID 
 		if !crew.Active {
 			return invalidf("crew %q is retired", crewID)
 		}
-		busy, err := crewHasActiveAssignment(ctx, tx, crewID)
+		// A crew may run several incidents at once (storm work), so an existing
+		// active assignment elsewhere no longer blocks a dispatch -- only a duplicate
+		// active assignment to THIS incident is refused.
+		dup, err := tx.NewSelect().Model((*CrewAssignment)(nil)).
+			Where("crew_id = ?", crewID).Where("incident_id = ?", incidentID).
+			Where("status <> ?", assignCleared).Exists(ctx)
 		if err != nil {
-			return err
+			return fmt.Errorf("oms: checking crew %s assignment on incident %s: %w", crewID, incidentID, err)
 		}
-		if busy {
-			return invalidf("crew %q is already on an active assignment", crewID)
+		if dup {
+			return invalidf("crew %q is already assigned to this incident", crewID)
 		}
 
 		var actor *string
@@ -397,6 +420,15 @@ func AdvanceCrewAssignment(ctx context.Context, db *bun.DB, assignmentID, to str
 			Set("status = ?", crewStatus).Set("updated_at = now()").
 			Where("id = ?", ca.CrewID).Exec(ctx); err != nil {
 			return fmt.Errorf("oms: updating crew %s status: %w", ca.CrewID, err)
+		}
+
+		// Arriving on site puts the crew's restoration work for this incident
+		// under way -- advance its not-yet-started orders to in_progress (same tx).
+		// Completion stays a deliberate field action, not a side effect of clearing.
+		if to == assignOnSite {
+			if _, err := wam.StartIncidentCrewWorkOrders(ctx, tx, ca.IncidentID, ca.CrewID); err != nil {
+				return err
+			}
 		}
 
 		a, err := getAssignment(ctx, tx, assignmentID)

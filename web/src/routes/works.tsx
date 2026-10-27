@@ -92,19 +92,25 @@ function AssigneeSelect({ value, onChange }: { value: string; onChange: (v: stri
   )
 }
 
-/** A crew picker (crew_id). "" = no crew. Lists active crews; a crew-assigned
- * order reaches every member's field pack. */
+/** A crew picker (crew_id). "" = no crew. Lists active crews with their current
+ * load (members · open orders · live incidents) so an assigner can see a crew's
+ * backlog before piling on more. A crew-assigned order reaches every member's
+ * field pack. */
 function CrewSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const crews = useCrews()
   return (
     <select className={inputClass} value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">No crew</option>
-      {(crews.data?.crews ?? []).map((c) => (
-        <option key={c.id} value={c.id}>
-          {c.name}
-          {c.member_count ? ` (${c.member_count})` : ""}
-        </option>
-      ))}
+      {(crews.data?.crews ?? []).map((c) => {
+        const load: string[] = [`${c.member_count} member${c.member_count === 1 ? "" : "s"}`]
+        if (c.open_work_order_count) load.push(`${c.open_work_order_count} open`)
+        if (c.active_assignment_count) load.push(`${c.active_assignment_count} incident${c.active_assignment_count === 1 ? "" : "s"}`)
+        return (
+          <option key={c.id} value={c.id}>
+            {c.name} — {load.join(" · ")}
+          </option>
+        )
+      })}
     </select>
   )
 }

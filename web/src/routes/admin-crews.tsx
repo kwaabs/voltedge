@@ -377,6 +377,27 @@ function CrewDetailDialog({ crew, onClose }: { crew: Crew; onClose: () => void }
   )
 }
 
+/** Permanent / temporary / expired badge for a crew membership. */
+function MembershipChip({ validUntil }: { validUntil: string | null }) {
+  if (!validUntil) return <span className="text-muted-foreground text-xs">Permanent</span>
+  const expired = new Date(validUntil).getTime() <= Date.now()
+  if (expired) {
+    return (
+      <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground line-through">
+        Expired
+      </span>
+    )
+  }
+  return (
+    <span
+      className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+      title={new Date(validUntil).toLocaleString()}
+    >
+      Until {new Date(validUntil).toLocaleDateString()}
+    </span>
+  )
+}
+
 /** Edit a crew's membership: who is on the team. The member picker lists active
  * users who can act on work (wam:write) — the same pool the work-order assignee
  * picker uses — so a crew's members can be handed field work. */
@@ -388,6 +409,7 @@ function CrewMembersSection({ crew }: { crew: Crew }) {
 
   const [userId, setUserId] = useState("")
   const [role, setRole] = useState("member")
+  const [until, setUntil] = useState("")
 
   const memberRows = members.data?.members ?? []
   const memberIds = new Set(memberRows.map((m) => m.user_id))
@@ -396,11 +418,17 @@ function CrewMembersSection({ crew }: { crew: Crew }) {
 
   function addMember() {
     add.mutate(
-      { crewId: crew.id, user_id: userId, role: role || undefined },
+      {
+        crewId: crew.id,
+        user_id: userId,
+        role: role || undefined,
+        valid_until: until ? new Date(until).toISOString() : null,
+      },
       {
         onSuccess: () => {
           setUserId("")
           setRole("member")
+          setUntil("")
         },
         onError: (err) => toastErr(err, "Could not add the member."),
       },
@@ -444,6 +472,16 @@ function CrewMembersSection({ crew }: { crew: Crew }) {
               <option value="lead">Lead</option>
             </select>
           </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium">Temporary until</label>
+            <input
+              type="datetime-local"
+              className={cn(inputClass, "w-48")}
+              value={until}
+              onChange={(e) => setUntil(e.target.value)}
+              title="Leave empty for a permanent member"
+            />
+          </div>
           <Button size="sm" disabled={!canAdd} onClick={addMember}>
             {add.isPending ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
             Add
@@ -466,6 +504,7 @@ function CrewMembersSection({ crew }: { crew: Crew }) {
                 <th>Name</th>
                 <th>Email</th>
                 <th>Role</th>
+                <th>Membership</th>
                 <th></th>
               </tr>
             </thead>
@@ -475,6 +514,9 @@ function CrewMembersSection({ crew }: { crew: Crew }) {
                   <td className="font-medium">{m.display_name ?? m.user_id}</td>
                   <td className="text-muted-foreground">{m.email ?? "—"}</td>
                   <td className="text-muted-foreground capitalize">{m.role ?? "—"}</td>
+                  <td>
+                    <MembershipChip validUntil={m.valid_until} />
+                  </td>
                   <td className="text-right">
                     {crew.active && (
                       <Button

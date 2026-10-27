@@ -30,11 +30,12 @@ const (
 type CrewMember struct {
 	bun.BaseModel `bun:"table:oms.crew_members,alias:cm"`
 
-	ID      string    `bun:"id,pk" json:"id"`
-	CrewID  string    `bun:"crew_id" json:"crew_id"`
-	UserID  string    `bun:"user_id" json:"user_id"`
-	Role    *string   `bun:"role" json:"role"`
-	AddedAt time.Time `bun:"added_at" json:"added_at"`
+	ID         string     `bun:"id,pk" json:"id"`
+	CrewID     string     `bun:"crew_id" json:"crew_id"`
+	UserID     string     `bun:"user_id" json:"user_id"`
+	Role       *string    `bun:"role" json:"role"`
+	ValidUntil *time.Time `bun:"valid_until" json:"valid_until"`
+	AddedAt    time.Time  `bun:"added_at" json:"added_at"`
 
 	DisplayName *string `bun:"display_name,scanonly" json:"display_name"`
 	Email       *string `bun:"email,scanonly" json:"email"`
@@ -57,9 +58,11 @@ func ListCrewMembers(ctx context.Context, db bun.IDB, crewID string) ([]CrewMemb
 	return out, nil
 }
 
-// AddCrewMember adds a user to a crew (idempotent: re-adding updates the role).
-// The crew must exist and be active; the user must exist and be active.
-func AddCrewMember(ctx context.Context, db bun.IDB, crewID, userID string, role *string) (*CrewMember, error) {
+// AddCrewMember adds a user to a crew (idempotent: re-adding updates the role and
+// expiry). The crew must exist and be active; the user must exist and be active. A
+// non-nil validUntil makes the membership temporary (it stops routing work once
+// past); nil is a permanent member.
+func AddCrewMember(ctx context.Context, db bun.IDB, crewID, userID string, role *string, validUntil *time.Time) (*CrewMember, error) {
 	if strings.TrimSpace(userID) == "" {
 		return nil, invalidf("a user id is required")
 	}
@@ -88,11 +91,12 @@ func AddCrewMember(ctx context.Context, db bun.IDB, crewID, userID string, role 
 		def := crewRoleMember
 		memberRole = &def
 	}
-	m := &CrewMember{CrewID: crewID, UserID: userID, Role: memberRole}
+	m := &CrewMember{CrewID: crewID, UserID: userID, Role: memberRole, ValidUntil: validUntil}
 	if _, err := db.NewInsert().Model(m).
-		Column("crew_id", "user_id", "role").
+		Column("crew_id", "user_id", "role", "valid_until").
 		On("CONFLICT (crew_id, user_id) DO UPDATE").
 		Set("role = EXCLUDED.role").
+		Set("valid_until = EXCLUDED.valid_until").
 		Exec(ctx); err != nil {
 		return nil, fmt.Errorf("oms: adding member to crew %s: %w", crewID, err)
 	}
@@ -120,6 +124,7 @@ func CrewsForUser(ctx context.Context, db bun.IDB, userID string) ([]string, err
 		Join("JOIN oms.crews AS crew ON crew.id = cm.crew_id").
 		Where("cm.user_id = ?", userID).
 		Where("crew.active").
+		Where("cm.valid_until IS NULL OR cm.valid_until > now()").
 		Scan(ctx, &ids); err != nil {
 		return nil, fmt.Errorf("oms: listing crews for user %s: %w", userID, err)
 	}

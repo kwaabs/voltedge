@@ -1581,7 +1581,8 @@ FROM wam.work_orders wo
 WHERE (assigned_to_user_id::text = ?
        OR crew_id IN (SELECT cm.crew_id FROM oms.crew_members cm
                       JOIN oms.crews cr ON cr.id = cm.crew_id
-                      WHERE cm.user_id::text = ? AND cr.active))
+                      WHERE cm.user_id::text = ? AND cr.active
+                        AND (cm.valid_until IS NULL OR cm.valid_until > now())))
   AND status NOT IN ('completed', 'cancelled')
 ORDER BY COALESCE(scheduled_for, due_by, created_at)`
 	rows, err := db.QueryContext(ctx, q, assigneeID, assigneeID)

@@ -629,6 +629,39 @@ func UpdateWorkOrder(ctx context.Context, db bun.IDB, id string, p UpdateWorkOrd
 	return o, nil
 }
 
+// StartIncidentCrewWorkOrders advances a crew's not-yet-started work orders for an
+// incident to 'in_progress' (stamping started_at) -- called when the crew arrives
+// on site, so the field board reflects that the restoration job is under way
+// without the worker having to open and start it by hand. Only orders still in
+// draft/scheduled/assigned are moved; in_progress/completed/cancelled are left
+// alone, and COMPLETION stays a deliberate field action (arriving on site is not
+// the same as finishing the job). Scoped to this crew's own orders for the
+// incident. Returns how many it advanced.
+func StartIncidentCrewWorkOrders(ctx context.Context, db bun.IDB, incidentID, crewID string) (int, error) {
+	if incidentID == "" || crewID == "" {
+		return 0, nil
+	}
+	orders, err := ListWorkOrders(ctx, db, WorkOrderFilter{IncidentID: incidentID})
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, o := range orders {
+		if o.CrewID == nil || *o.CrewID != crewID {
+			continue
+		}
+		switch o.Status {
+		case WorkStatusDraft, WorkStatusScheduled, WorkStatusAssigned:
+			st := WorkStatusInProgress
+			if _, err := UpdateWorkOrder(ctx, db, o.ID, UpdateWorkOrderParams{Status: &st}); err != nil {
+				return n, err
+			}
+			n++
+		}
+	}
+	return n, nil
+}
+
 // RaiseWorkOrderFromDefectParams carries the corrective-order overrides. All
 // optional: title/priority default from the defect when unset.
 type RaiseWorkOrderFromDefectParams struct {

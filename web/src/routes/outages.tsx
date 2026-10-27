@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "react-router"
 import {
   Activity,
@@ -3320,13 +3321,17 @@ function IncidentCrewsCard({ inc, canWrite }: { inc: Incident; canWrite: boolean
   const dispatch = useDispatchCrew()
   const advance = useAdvanceAssignment()
   const setEtr = useSetIncidentETR()
+  const queryClient = useQueryClient()
   const [pickCrew, setPickCrew] = useState("")
   const [etrLocal, setEtrLocal] = useState("")
   const [raiseWO, setRaiseWO] = useState(true)
 
   const rows = assignments.data?.assignments ?? []
   const woRows = workOrders.data?.work_orders ?? []
-  const availableCrews = (crews.data?.crews ?? []).filter((c) => c.active && c.status === "available")
+  // A crew may run several incidents at once, so the picker offers every active
+  // crew (annotated with its load), minus any already active on THIS incident.
+  const onThisIncident = new Set(rows.filter((a) => a.status !== "cleared").map((a) => a.crew_id))
+  const dispatchableCrews = (crews.data?.crews ?? []).filter((c) => c.active && !onThisIncident.has(c.id))
   const isTerminal = inc.status === "restored" || inc.status === "cancelled"
   const busy = dispatch.isPending || advance.isPending || setEtr.isPending
 
@@ -3345,7 +3350,17 @@ function IncidentCrewsCard({ inc, canWrite }: { inc: Incident; canWrite: boolean
     )
   }
   function adv(id: string, status: string) {
-    advance.mutate({ id, status }, { onError: (e) => toastError(e, "Could not update the crew.") })
+    advance.mutate(
+      { id, status },
+      {
+        // Going on-site starts the crew's restoration work orders server-side;
+        // refresh the WAM cache so the Field work list reflects it.
+        onSuccess: () => {
+          if (status === "on_site") queryClient.invalidateQueries({ queryKey: ["wam"] })
+        },
+        onError: (e) => toastError(e, "Could not update the crew."),
+      },
+    )
   }
   function saveEtr() {
     const iso = etrLocal ? new Date(etrLocal).toISOString() : null
@@ -3447,13 +3462,19 @@ function IncidentCrewsCard({ inc, canWrite }: { inc: Incident; canWrite: boolean
               onChange={(e) => setPickCrew(e.target.value)}
               aria-label="Assign an available crew"
             >
-              <option value="">Assign an available crew…</option>
-              {availableCrews.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                  {c.kind ? ` (${c.kind})` : ""}
-                </option>
-              ))}
+              <option value="">Assign a crew…</option>
+              {dispatchableCrews.map((c) => {
+                const load: string[] = []
+                if (c.status !== "available") load.push(c.status.replace("_", " "))
+                if (c.active_assignment_count) load.push(`${c.active_assignment_count} incident${c.active_assignment_count === 1 ? "" : "s"}`)
+                if (c.open_work_order_count) load.push(`${c.open_work_order_count} open`)
+                return (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                    {load.length > 0 ? ` — ${load.join(" · ")}` : ""}
+                  </option>
+                )
+              })}
             </select>
             <Button variant="outline" size="sm" disabled={!pickCrew || busy} onClick={doDispatch}>
               <Truck className="size-4" />
@@ -3465,9 +3486,12 @@ function IncidentCrewsCard({ inc, canWrite }: { inc: Incident; canWrite: boolean
             </label>
           </div>
         )}
-        {canWrite && !isTerminal && availableCrews.length === 0 && (
+        {canWrite && !isTerminal && dispatchableCrews.length === 0 && (
           <p className="text-muted-foreground text-[11px]">
-            No crews available. Create crews in <span className="font-medium">Admin → Crews</span>.
+            {(crews.data?.crews ?? []).some((c) => c.active)
+              ? "All active crews are already on this incident."
+              : "No crews yet. Create crews in "}
+            {!(crews.data?.crews ?? []).some((c) => c.active) && <span className="font-medium">Admin → Crews</span>}
           </p>
         )}
 

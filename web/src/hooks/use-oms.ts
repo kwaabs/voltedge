@@ -623,6 +623,11 @@ export interface Crew {
   phone: string | null
   active: boolean
   member_count: number
+  /** Crew load: work orders assigned to it that are not completed/cancelled. */
+  open_work_order_count: number
+  /** How many incidents the crew is currently on (it can be on several at once);
+   * active_incident_id is the most recent of them. */
+  active_assignment_count: number
   active_incident_id: string | null
   active_assignment_id: string | null
   active_since: string | null
@@ -637,6 +642,9 @@ export interface CrewMember {
   crew_id: string
   user_id: string
   role: string | null
+  /** Temporary-membership expiry: null = permanent; a past value = expired (kept
+   * for audit, no longer routes work). */
+  valid_until: string | null
   added_at: string
   display_name: string | null
   email: string | null
@@ -690,10 +698,16 @@ export function useCrewMembers(crewId: string | null) {
   })
 }
 
-/** Add a user to a crew (idempotent; re-adding updates the role). */
+/** Add a user to a crew (idempotent; re-adding updates the role/expiry). Pass
+ * `valid_until` (RFC3339) for a temporary membership that auto-drops when it
+ * lapses; omit for a permanent member. */
 export function useAddCrewMember() {
-  return useOmsMutation<{ crewId: string; user_id: string; role?: string }>(({ crewId, user_id, role }) =>
-    apiFetch(`/oms/crews/${crewId}/members`, { method: "POST", body: JSON.stringify({ user_id, role }) }),
+  return useOmsMutation<{ crewId: string; user_id: string; role?: string; valid_until?: string | null }>(
+    ({ crewId, user_id, role, valid_until }) =>
+      apiFetch(`/oms/crews/${crewId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ user_id, role, valid_until }),
+      }),
   )
 }
 
