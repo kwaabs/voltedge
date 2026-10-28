@@ -1433,7 +1433,13 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
       draftGeometryTool === "reshape"
         ? new Modify({ features: new Collection([target]) })
         : new Translate({ features: new Collection([target]) })
-    interaction.on(draftGeometryTool === "reshape" ? "modifyend" : "translateend", sync)
+    // Each interaction's `on` only accepts its own end-event literal, so narrow
+    // the union before binding (a union event name satisfies neither overload).
+    if (interaction instanceof Modify) {
+      interaction.on("modifyend", sync)
+    } else {
+      interaction.on("translateend", sync)
+    }
     map.addInteraction(interaction)
     return () => {
       map.removeInteraction(interaction)
@@ -3325,7 +3331,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
         let topHit: { code: string; id: string } | null = null
         map.forEachFeatureAtPixel(
           evt.pixel,
-          (feature, layer) => {
+          (feature, _layer) => {
             const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
             const id = feature.get("id") as string | undefined
             const code = sourceId ? codeBySourceId.get(sourceId) : undefined
@@ -3389,7 +3395,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
 
         map.forEachFeatureAtPixel(
           evt.pixel,
-          (feature, layer) => {
+          (feature, _layer) => {
             const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
             const id = feature.get("id") as string | undefined
             const code = sourceId ? codeBySourceId.get(sourceId) : undefined
@@ -3425,7 +3431,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
 
         map.forEachFeatureAtPixel(
           evt.pixel,
-          (feature, layer) => {
+          (feature, _layer) => {
             const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
             const id = feature.get("id") as string | undefined
             const code = sourceId ? codeBySourceId.get(sourceId) : undefined
@@ -3466,7 +3472,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
 
         map.forEachFeatureAtPixel(
           evt.pixel,
-          (feature, layer) => {
+          (feature, _layer) => {
             const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
             const id = feature.get("id") as string | undefined
             const code = sourceId ? codeBySourceId.get(sourceId) : undefined
@@ -3557,7 +3563,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
         let featureUnderCursor = false
         map.forEachFeatureAtPixel(
           evt.pixel,
-          (feature, layer) => {
+          (feature, _layer) => {
             const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
             const code = sourceId ? codeBySourceId.get(sourceId) : undefined
             if (code && feature.get("id")) {
@@ -3728,7 +3734,7 @@ export function VoltEdgeMap({ initialCenter, initialZoom, operatingBounds }: Vol
 
       map.forEachFeatureAtPixel(
         evt.pixel,
-        (feature, layer) => {
+        (feature, _layer) => {
           const sourceId = feature.get(MVT_LAYER_PROP) as string | undefined
           const id = feature.get("id") as string | undefined
           const code = sourceId ? codeBySourceId.get(sourceId) : undefined

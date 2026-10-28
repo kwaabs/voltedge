@@ -13,6 +13,7 @@ import '../api/models.dart';
 import '../attach/attachment_capture.dart';
 import '../edit/edit_database.dart';
 import '../edit/edit_store.dart';
+import '../geo/field_track_recorder.dart';
 import '../geo/gnss_sample.dart';
 import '../geo/location_service.dart';
 import '../geo/wkb.dart';
@@ -169,6 +170,15 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
   LatLng? _lastTrackPoint;
   DateTime? _lastTrackAt;
 
+  /// Feeds the field breadcrumb-audit recorder (migration 0178) the live GNSS
+  /// stream for THIS open-pack session: it records the worker's movement trail and
+  /// stamps every edit with where they were. Distinct from the track-walk tracker
+  /// above (which builds feature geometry); this runs the whole session. The
+  /// recorder itself is retained by this subscription's closure and by
+  /// EditStore.actorLocation. Foreground-only — closed in dispose, so nothing
+  /// records in the background.
+  ProviderSubscription<AsyncValue<GnssSample>>? _recorderSub;
+
   /// When the current tracking session began -- the reference for the
   /// [_trackFreshWindow] guard that rejects a stale primed/cached first fix.
   DateTime? _trackStartedAt;
@@ -302,6 +312,13 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
           const <OverlayDraft>[]) {
         _draftRecords[d.id] = _recordFromDraft(d);
       }
+      // Field breadcrumb audit trail (migration 0178): start recording this
+      // session's movement trail and stamp every edit with the worker's position.
+      // The recorder mints the session id; EditStore.actorLocation reads its latest
+      // fix so each outbox op carries where the edit was made.
+      final recorder = FieldTrackRecorder(edit);
+      edit.actorLocation = recorder.actorLocation;
+      _startRecorder(recorder);
       setState(() {
         _db = db;
         _edit = edit;
@@ -328,6 +345,7 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
   Future<void> _sync() async {
     await _pushOps(_edit?.pendingOps() ?? const []);
     await _syncAttachments(_edit?.pendingAttachments() ?? const []);
+    await _uploadBreadcrumbs();
     await _pollStatuses();
   }
 
@@ -1345,6 +1363,47 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
     _trackStartedAt = null;
   }
 
+  // ---- Field breadcrumb audit trail (migration 0178) ------------------------
+
+  /// Subscribe the breadcrumb recorder to the live GNSS stream for the whole
+  /// open-pack session (foreground-only — the subscription is closed in dispose,
+  /// so nothing records in the background). listenManual (not a widget watch) keeps
+  /// the autoDispose stream alive independent of rebuilds; no fireImmediately, so
+  /// the first breadcrumb is a fresh live fix, not a stale cached one. Separate from
+  /// the track-walk subscription: this one runs the whole time, that one only while
+  /// walking a geometry.
+  void _startRecorder(FieldTrackRecorder recorder) {
+    _recorderSub?.close();
+    _recorderSub = ref.listenManual<AsyncValue<GnssSample>>(
+      gnssStreamProvider,
+      (prev, next) {
+        final sample = next.valueOrNull;
+        if (sample != null) recorder.onSample(sample);
+      },
+    );
+  }
+
+  /// Upload the session's pending breadcrumbs to POST /field-tracks/breadcrumbs, in
+  /// bounded batches, marking each acked batch uploaded before the next. Best-effort:
+  /// offline / a transient failure just leaves them queued for the next sync (the
+  /// trail is loss-tolerant and idempotent by point id). Called from [_sync] after
+  /// the edit ops, so the located-action waypoints and the trail land together.
+  Future<void> _uploadBreadcrumbs() async {
+    final edit = _edit;
+    if (edit == null) return;
+    try {
+      final client = ref.read(fieldsyncClientProvider);
+      while (true) {
+        final batch = edit.pendingTrackPoints(limit: _syncBatchSize);
+        if (batch.isEmpty) break;
+        await client.uploadBreadcrumbs(batch);
+        edit.markTrackPointsUploaded([for (final p in batch) p.id]);
+      }
+    } catch (_) {
+      // Offline / transient -- leave the breadcrumbs queued to retry next sync.
+    }
+  }
+
   /// A live fix arrived while tracking: append it as a vertex when the crew has
   /// moved at least [_trackMinMetres] from the last one, or the [_trackMaxInterval]
   /// time cap elapsed after a small ([_trackMinMove]) move. The very first fix of
@@ -1932,6 +1991,9 @@ class _PackMapPageState extends ConsumerState<PackMapPage> {
   @override
   void dispose() {
     _trackSub?.close();
+    // End the field session: stop recording breadcrumbs (foreground-only).
+    _recorderSub?.close();
+    _recorderSub = null;
     _edit?.removeListener(_onEditChanged);
     _edit?.dispose();
     _db?.close();

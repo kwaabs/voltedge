@@ -78,7 +78,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -3383,10 +3382,6 @@ export function FeaturePanel() {
   // non-network feature has nothing to "open."
   const selectedClass = featureClasses?.feature_classes.find((fc) => fc.code === selected?.featureClassCode)
   const selectedNetworkRole = selectedClass?.network_role
-  // A boundary transformer (DIST_XFMR / POWER_XFMR) is the source of its own
-  // secondary network -- offer a one-click LV-network study that derives the
-  // run voltage from the transformer's secondary (no voltage input needed).
-  const selectedIsTransformerBoundary = selectedClass?.boundary_role === "transformer"
   // A leaf endpoint (functional_role consumer/sensor -- SERVICE_POINT, METER):
   // it sits at the end of the network with nothing below it, so downstream-
   // direction traces, sectioning (section/zone), isolate and the load-served

@@ -148,6 +148,45 @@ class LocalDelete {
   final String? baseVersion;
 }
 
+/// One movement-trail breadcrumb recorded during a field session (migration 0178,
+/// [[field-breadcrumb-audit-trail]]). [id] is a device-minted UUID v4 so the bulk
+/// upload to POST /field-tracks/breadcrumbs is idempotent. Not an edit op — pure
+/// audit movement data, uploaded through its own light channel, not the outbox.
+class LocalTrackPoint {
+  const LocalTrackPoint({
+    required this.id,
+    required this.sessionId,
+    required this.recordedAt,
+    required this.longitude,
+    required this.latitude,
+    this.accuracyM,
+    this.speedMps,
+    this.source,
+  });
+
+  final String id;
+  final String sessionId;
+  final DateTime recordedAt;
+  final double longitude;
+  final double latitude;
+  final double? accuracyM;
+  final double? speedMps;
+  final String? source;
+
+  /// The wire shape POST /field-tracks/breadcrumbs wants (mirrors the Go
+  /// fieldtrack.BreadcrumbInput).
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'session_id': sessionId,
+        'recorded_at': recordedAt.toUtc().toIso8601String(),
+        'longitude': longitude,
+        'latitude': latitude,
+        'accuracy_m': accuracyM,
+        'speed_mps': speedMps,
+        'source': source,
+      };
+}
+
 /// One electrical connection established offline (Phase 21 Slice 13). Like a
 /// [LocalCreate] it's a whole new fact that exists only on-device until POST /sync
 /// replays it through the server's zero-trust establish engine (Slice 12 spine).
@@ -576,6 +615,29 @@ class EditDatabase {
         updated_at  TEXT NOT NULL
       )
     ''');
+    // Field breadcrumb trail (migration 0178, [[field-breadcrumb-audit-trail]]):
+    // the GPS fixes the device drops while a field session is active, so a
+    // supervisor can map where the worker went. Its own light, loss-tolerant queue
+    // (NOT the outbox): a breadcrumb is not an edit op, it's audit movement data,
+    // uploaded in bulk to POST /field-tracks/breadcrumbs and idempotent by
+    // device-minted id. uploaded_at null = still to push; kept after upload until
+    // the pack dir is reaped (no fresh-pack reconcile — breadcrumbs are history, not
+    // a render overlay).
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS track_points (
+        id          TEXT PRIMARY KEY,
+        session_id  TEXT NOT NULL,
+        recorded_at TEXT NOT NULL,
+        longitude   REAL NOT NULL,
+        latitude    REAL NOT NULL,
+        accuracy_m  REAL,
+        speed_mps   REAL,
+        source      TEXT,
+        uploaded_at TEXT
+      )
+    ''');
+    db.execute('CREATE INDEX IF NOT EXISTS track_points_pending_idx '
+        'ON track_points (uploaded_at)');
   }
 
   /// True if [table] already has a column named [column] -- used to make an
@@ -744,12 +806,15 @@ class EditDatabase {
   /// overlay and its still-pending update_attrs op -- pushing "edit then delete"
   /// would just soft-delete after a pointless PATCH. Replaces (not appends) the
   /// pending delete op so re-deleting is idempotent (one delete op per feature).
-  /// The op's payload is empty: the server needs only (feature_class, feature_id).
+  /// The op's payload is normally empty (the server needs only feature_class +
+  /// feature_id), but may carry an `actor_location` so the delete is a located
+  /// action in the field breadcrumb audit trail — the server ignores the rest.
   void putDelete({
     required String featureId,
     required String featureClass,
     required String opId,
     required DateTime createdAt,
+    Map<String, dynamic> payload = const {},
     String? baseVersion,
   }) {
     _inTx(() {
@@ -769,11 +834,12 @@ class EditDatabase {
       _db.execute(
         'INSERT INTO outbox '
         '(op_id, feature_id, feature_class, kind, payload, base_version, created_at, synced_at) '
-        "VALUES (?, ?, ?, 'delete', '{}', ?, ?, NULL)",
+        "VALUES (?, ?, ?, 'delete', ?, ?, ?, NULL)",
         [
           opId,
           featureId,
           featureClass,
+          jsonEncode(payload),
           baseVersion,
           createdAt.toIso8601String(),
         ],
@@ -841,6 +907,84 @@ class EditDatabase {
       createdAt:
           DateTime.tryParse(r['created_at'] as String? ?? '') ?? DateTime.now(),
     );
+  }
+
+  // ---- Field breadcrumb trail (migration 0178) ------------------------------
+
+  /// Append one movement-trail breadcrumb. Idempotent by device-minted [id]
+  /// (INSERT OR IGNORE), so a recorder that double-drops a point is harmless.
+  void putTrackPoint({
+    required String id,
+    required String sessionId,
+    required DateTime recordedAt,
+    required double longitude,
+    required double latitude,
+    double? accuracyM,
+    double? speedMps,
+    String? source,
+  }) {
+    _db.execute(
+      'INSERT OR IGNORE INTO track_points '
+      '(id, session_id, recorded_at, longitude, latitude, accuracy_m, speed_mps, source) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        id,
+        sessionId,
+        recordedAt.toUtc().toIso8601String(),
+        longitude,
+        latitude,
+        accuracyM,
+        speedMps,
+        source,
+      ],
+    );
+  }
+
+  /// Breadcrumbs not yet uploaded, oldest first, capped at [limit] — one upload
+  /// batch for POST /field-tracks/breadcrumbs.
+  List<LocalTrackPoint> pendingTrackPoints({int limit = 500}) {
+    final rows = _db.select(
+      'SELECT id, session_id, recorded_at, longitude, latitude, accuracy_m, '
+      'speed_mps, source FROM track_points WHERE uploaded_at IS NULL '
+      'ORDER BY recorded_at LIMIT ?',
+      [limit],
+    );
+    return [
+      for (final r in rows)
+        LocalTrackPoint(
+          id: r['id'] as String,
+          sessionId: r['session_id'] as String,
+          recordedAt: DateTime.tryParse(r['recorded_at'] as String? ?? '') ??
+              DateTime.now().toUtc(),
+          longitude: (r['longitude'] as num).toDouble(),
+          latitude: (r['latitude'] as num).toDouble(),
+          accuracyM: (r['accuracy_m'] as num?)?.toDouble(),
+          speedMps: (r['speed_mps'] as num?)?.toDouble(),
+          source: r['source'] as String?,
+        ),
+    ];
+  }
+
+  /// Count of breadcrumbs still to upload (drives nothing user-facing today; handy
+  /// for the sync routine to skip an empty upload).
+  int pendingTrackPointCount() {
+    final rows = _db.select(
+      'SELECT COUNT(*) AS n FROM track_points WHERE uploaded_at IS NULL',
+    );
+    return (rows.first['n'] as int?) ?? 0;
+  }
+
+  /// Stamp breadcrumbs uploaded once the server acked the batch.
+  void markTrackPointsUploaded(Iterable<String> ids, DateTime at) {
+    final list = ids.toList(growable: false);
+    if (list.isEmpty) return;
+    _inTx(() {
+      final ts = at.toUtc().toIso8601String();
+      for (final id in list) {
+        _db.execute('UPDATE track_points SET uploaded_at = ? WHERE id = ?',
+            [ts, id]);
+      }
+    });
   }
 
   /// Un-synced operations, oldest first -- the push order for POST /sync.

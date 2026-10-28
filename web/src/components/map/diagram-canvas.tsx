@@ -1831,7 +1831,7 @@ export function DiagramCanvas({ diagramId: openDiagramId, onClose: close }: { di
   function selectOrPickTarget(
     featureClass: string,
     featureId: string,
-    placementId?: string,
+    _placementId?: string,
     clientX?: number,
     clientY?: number,
   ) {

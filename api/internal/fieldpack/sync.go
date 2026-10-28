@@ -40,6 +40,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/connectivity"
 	"github.com/kwaabs/voltedge/api/internal/crud"
 	"github.com/kwaabs/voltedge/api/internal/faults"
+	"github.com/kwaabs/voltedge/api/internal/fieldtrack"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/relationship"
 	"github.com/kwaabs/voltedge/api/internal/wam"
@@ -506,13 +507,17 @@ func applySyncOp(ctx context.Context, db *bun.DB, cache *resolveCache, op syncOp
 	// RunInTx inside another and buy nothing.
 	switch op.Kind {
 	case "wam_defect_create", "wam_defect_status", "wam_workorder_update", "wam_inspection_record":
-		return applyWAMOp(ctx, db, op, submittedBy)
+		r := applyWAMOp(ctx, db, op, submittedBy)
+		recordActionWaypointBestEffort(ctx, db, op, submittedBy, r.Status)
+		return r
 	case "fault_create", "fault_status", "fault_book_defect":
 		// Offline faults ops replay through the shared faults engine for the same
 		// reason as the WAM ops: each is atomic on its own (a single statement, or
 		// BookDefectFromFault's own transaction) and carries the device-minted id
 		// for idempotent replay, so they run on db directly.
-		return applyFaultsOp(ctx, db, op, submittedBy)
+		r := applyFaultsOp(ctx, db, op, submittedBy)
+		recordActionWaypointBestEffort(ctx, db, op, submittedBy, r.Status)
+		return r
 	}
 
 	// Replay the feature/graph ops under the SUBMITTING field user's identity, so
@@ -670,7 +675,28 @@ func applySyncOp(ctx context.Context, db *bun.DB, cache *resolveCache, op syncOp
 
 	res.Status = "applied"
 	res.Feature = feature
+	recordActionWaypointBestEffort(ctx, db, op, submittedBy, res.Status)
 	return res
+}
+
+// recordActionWaypointBestEffort stamps where the field worker physically was when
+// a mutating op was made (field breadcrumb audit trail, migration 0178), from the
+// op payload's nested "actor_location" -- exactly the way a GNSS gps_capture rides a
+// create/update. The device nests it on EVERY mutating op (including a delete, whose
+// payload is otherwise empty). It is best-effort: an absent location or a write
+// failure is ignored, so the located-action audit can never fail or strand the op it
+// describes. Keyed by op_id, so a replayed op re-records the same waypoint harmlessly.
+func recordActionWaypointBestEffort(ctx context.Context, db *bun.DB, op syncOp, submittedBy, status string) {
+	if status != "applied" || len(op.Payload) == 0 || strings.TrimSpace(submittedBy) == "" {
+		return
+	}
+	var env struct {
+		ActorLocation *fieldtrack.ActionLocationInput `json:"actor_location"`
+	}
+	if err := json.Unmarshal(op.Payload, &env); err != nil || env.ActorLocation == nil {
+		return
+	}
+	_ = fieldtrack.RecordActionWaypoint(ctx, db, op.OpID, submittedBy, op.Kind, op.FeatureClass, op.FeatureID, *env.ActorLocation)
 }
 
 // applyWAMOp replays one work-&-asset-management capture op (Phase 59 offline

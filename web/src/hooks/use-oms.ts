@@ -43,6 +43,10 @@ export interface Incident {
   predicted_device_class: string | null
   predicted_device_id: string | null
   circuit_id: string | null
+  /** The dominant territory of the affected set (migration 0169) — the board's
+   * scope/rollup key; `territory_name` is resolved server-side on read. */
+  territory_id: string | null
+  territory_name: string | null
   outage_type: string
   cause_code: string | null
   /** Cause certainty: unknown -> suspected -> confirmed (migration 0168). */

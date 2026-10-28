@@ -198,6 +198,26 @@ class FieldsyncClient {
     return SyncResponse(results: results, statuses: statuses);
   }
 
+  /// POST /field-tracks/breadcrumbs -- upload a batch of movement-trail points
+  /// (field breadcrumb audit trail, migration 0178). A light, loss-tolerant push of
+  /// the caller's OWN trail (idempotent by device-minted point id), separate from
+  /// the durable /sync edit pipeline. Returns the number the server accepted.
+  Future<int> uploadBreadcrumbs(List<LocalTrackPoint> points,
+      {String? deviceId}) async {
+    if (points.isEmpty) return 0;
+    final res = await _http.post(
+      _uri('/field-tracks/breadcrumbs'),
+      headers: _headers(json: true),
+      body: jsonEncode({
+        if (deviceId != null && deviceId.isNotEmpty) 'device_id': deviceId,
+        'points': [for (final p in points) p.toJson()],
+      }),
+    );
+    _ensureOk(res);
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return (body['accepted'] as num?)?.toInt() ?? 0;
+  }
+
   /// GET /sync/status -- the standalone status pull (Phase 23 Slice 2): reconcile
   /// in-flight ops (captured but not yet known applied) when there's nothing new to
   /// push. Chunks into <=500-id requests (the server's per-poll cap) and

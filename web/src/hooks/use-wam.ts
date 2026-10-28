@@ -55,6 +55,8 @@ export interface WorkOrder {
    * "vegetation" (a clearance trim), etc., or null for a plain manual order. */
   source: string | null
   defect_id: string | null
+  /** Served OMS incident (bare ref → oms.incidents) when raised from an outage. */
+  incident_id: string | null
   assigned_to: string | null
   assigned_to_user_id: string | null
   /** Assigned field crew (bare ref → oms.crews); `crew_name` is joined for display.

@@ -48,6 +48,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/faults"
 	"github.com/kwaabs/voltedge/api/internal/featureregistry"
 	"github.com/kwaabs/voltedge/api/internal/fieldpack"
+	"github.com/kwaabs/voltedge/api/internal/fieldtrack"
 	"github.com/kwaabs/voltedge/api/internal/httpx"
 	"github.com/kwaabs/voltedge/api/internal/importer"
 	"github.com/kwaabs/voltedge/api/internal/issuework"
@@ -319,6 +320,13 @@ func main() {
 	// self-gate per permission (telemetry:read / telemetry:ingest / oms:write for
 	// apply), so this is a plain mount; the SCADA/DMS gateway that feeds it is external.
 	r.Mount("/telemetry", telemetry.Routes(db))
+	// Field breadcrumb audit trail (migration 0178): the supervisor read map over
+	// where field workers physically were -- their movement trails and the located
+	// stamp on every mutating edit. Read-only and privacy-sensitive, so its own
+	// field:tracks:read capability gates the whole mount (all routes are reads).
+	// The field user PUSHES their own trail under features:write on the fieldsync
+	// surface; seeing someone else's is the privileged action gated here.
+	r.With(auth.RequirePermission(auth.PermFieldTracksRead, auth.PermFieldTracksRead)).Mount("/field-tracks", fieldtrack.Routes(db))
 	// Spatial engine (geometry-derived overlap/proximity across the gis.* tables):
 	// "what assets are inside this easement / corridor / parcel?", "what land covers
 	// this asset?", "what vegetation is within N m of this line?". Read-only over the

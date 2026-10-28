@@ -64,6 +64,23 @@ class EditStore extends ChangeNotifier {
   int _attentionCount = 0;
   int _opSeq = 0;
 
+  /// Returns the worker's live position as the server's `actor_location` wire
+  /// shape, or null when there's no fix. Set by the app from the field-track
+  /// recorder; when present, every mutating outbox op is stamped with it so the
+  /// edit is a located action in the field breadcrumb audit trail (migration 0178).
+  /// Null provider (or null return) leaves ops un-stamped — the server simply
+  /// records no waypoint for them, a graceful absence.
+  Map<String, dynamic>? Function()? actorLocation;
+
+  /// Returns [payload] with the current `actor_location` folded in when one is
+  /// available. Called on every op's payload so the located-action stamp rides the
+  /// same durable, idempotent sync op as the edit itself (never a separate channel).
+  Map<String, dynamic> _stampLocation(Map<String, dynamic> payload) {
+    final loc = actorLocation?.call();
+    if (loc == null) return payload;
+    return {...payload, 'actor_location': loc};
+  }
+
   /// Open the edit DB beside the pack and hydrate the in-memory overlay + create
   /// maps and the pending set.
   factory EditStore.open(String path, {String? baseVersion}) {
@@ -198,10 +215,10 @@ class EditStore extends ChangeNotifier {
       delta: delta,
       geomJson: geomJson,
       opId: opId,
-      payload: {
+      payload: _stampLocation({
         if (delta.isNotEmpty) 'attributes': delta,
         if (geomJson != null) 'geometry': geomJson,
-      },
+      }),
       baseVersion: _baseVersion,
       updatedAt: now,
     );
@@ -243,11 +260,11 @@ class EditStore extends ChangeNotifier {
       delta: delta,
       geomJson: geometry,
       opId: opId,
-      payload: {
+      payload: _stampLocation({
         'geometry': geometry,
         if (delta.isNotEmpty) 'attributes': delta,
         if (gpsCapture != null) 'gps_capture': gpsCapture,
-      },
+      }),
       baseVersion: _baseVersion,
       updatedAt: now,
     );
@@ -303,7 +320,7 @@ class EditStore extends ChangeNotifier {
       attrs: attributes,
       name: (trimmedName != null && trimmedName.isNotEmpty) ? trimmedName : null,
       opId: _nextOpId(id),
-      payload: payload,
+      payload: _stampLocation(payload),
       baseVersion: _baseVersion,
       createdAt: now,
     );
@@ -356,6 +373,7 @@ class EditStore extends ChangeNotifier {
       featureId: featureId,
       featureClass: featureClass,
       opId: _nextOpId(featureId),
+      payload: _stampLocation({}),
       baseVersion: _baseVersion,
       createdAt: now,
     );
@@ -438,7 +456,7 @@ class EditStore extends ChangeNotifier {
       baseVersion: _baseVersion,
       createdAt: now,
     );
-    _db.putConnection(conn, payload: payload);
+    _db.putConnection(conn, payload: _stampLocation(payload));
     _connections[id] = conn;
     _pending.add(fromId);
     notifyListeners();
@@ -508,7 +526,7 @@ class EditStore extends ChangeNotifier {
       baseVersion: _baseVersion,
       createdAt: now,
     );
-    _db.putRelationship(rel, payload: payload);
+    _db.putRelationship(rel, payload: _stampLocation(payload));
     _relationships[id] = rel;
     _pending.add(originId);
     notifyListeners();
@@ -621,6 +639,32 @@ class EditStore extends ChangeNotifier {
 
   /// Pending push queue (POST /sync), oldest first.
   List<OutboxOp> pendingOps() => _db.pendingOps();
+
+  // ---- Field breadcrumb trail (migration 0178) ------------------------------
+
+  /// Append one movement-trail breadcrumb (idempotent by id). The field-track
+  /// recorder calls this as it drops points during a session.
+  void recordTrackPoint(LocalTrackPoint p) => _db.putTrackPoint(
+        id: p.id,
+        sessionId: p.sessionId,
+        recordedAt: p.recordedAt,
+        longitude: p.longitude,
+        latitude: p.latitude,
+        accuracyM: p.accuracyM,
+        speedMps: p.speedMps,
+        source: p.source,
+      );
+
+  /// Breadcrumbs not yet uploaded, oldest first (the sync routine's upload batch).
+  List<LocalTrackPoint> pendingTrackPoints({int limit = 500}) =>
+      _db.pendingTrackPoints(limit: limit);
+
+  /// Count of breadcrumbs still to upload — lets the sync routine skip an empty push.
+  int pendingTrackPointCount() => _db.pendingTrackPointCount();
+
+  /// Stamp breadcrumbs uploaded after POST /field-tracks/breadcrumbs acked them.
+  void markTrackPointsUploaded(Iterable<String> ids) =>
+      _db.markTrackPointsUploaded(ids, DateTime.now().toUtc());
 
   /// Mark the given ops synced after POST /sync captured them, then recompute the
   /// pending set from what's left un-synced. Overlays/creates are intentionally

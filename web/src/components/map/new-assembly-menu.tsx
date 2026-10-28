@@ -193,7 +193,7 @@ export function NewAssemblyMenu() {
                 <DropdownMenuItem
                   key={`${o.anchor_feature_class}:${o.config}`}
                   onSelect={() =>
-                    startAssemblyDrawing(o.anchor_feature_class, o.config, o.anchor_subtype)
+                    startAssemblyDrawing(o.anchor_feature_class, o.config, o.anchor_subtype ?? undefined)
                   }
                 >
                   {o.name}

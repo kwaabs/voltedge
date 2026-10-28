@@ -1,4 +1,4 @@
-import { Activity, BookOpen, Database, FileUp, Map, QrCode, Radio, Siren, Wrench, Zap, ZapOff } from "lucide-react"
+import { Activity, BookOpen, Database, FileUp, Map, QrCode, Radio, Route, Siren, Wrench, Zap, ZapOff } from "lucide-react"
 import { NavLink, useLocation } from "react-router"
 
 import { AdminNavIcon, adminNavItems } from "@/components/layout/admin-nav"
@@ -30,6 +30,7 @@ const dataItems = [
   { to: "/faults", label: "Faults", icon: ZapOff, perm: "faults:read" },
   { to: "/operations", label: "Operations", icon: Activity, perm: "operations:read" },
   { to: "/works", label: "Works", icon: Wrench, perm: "wam:read" },
+  { to: "/field-tracks", label: "Field trails", icon: Route, perm: "field:tracks:read" },
   { to: "/t", label: "Resolve tag", icon: QrCode, perm: "tags:read" },
 ]
 

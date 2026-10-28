@@ -41,6 +41,7 @@ import (
 	"github.com/kwaabs/voltedge/api/internal/auth"
 	"github.com/kwaabs/voltedge/api/internal/drafts"
 	"github.com/kwaabs/voltedge/api/internal/export"
+	"github.com/kwaabs/voltedge/api/internal/fieldtrack"
 	"github.com/kwaabs/voltedge/api/internal/httpx"
 	"github.com/kwaabs/voltedge/api/internal/metadata"
 	"github.com/kwaabs/voltedge/api/internal/ratelimit"
@@ -112,6 +113,13 @@ func Routes(db *bun.DB, store *export.ObjectStore) http.Handler {
 		r.Use(bearerAuth(db))
 		r.Use(requirePerm("features:write"))
 		r.Post("/sync", syncHandler(db))
+		// The movement-trail upload (field breadcrumb audit trail, migration 0178):
+		// a device pushes the GPS fixes it dropped during a field session. A light,
+		// loss-tolerant write of the caller's OWN trail, so it rides features:write
+		// beside /sync rather than needing a new grant (seeing someone else's trail is
+		// the privileged action -- field:tracks:read on the web read surface). Action
+		// waypoints are not pushed here; they ride the durable sync inbox (sync.go).
+		r.Post("/field-tracks/breadcrumbs", fieldtrack.IngestBreadcrumbsHandler(db))
 	})
 
 	// The attachments surface (Phase 22 S4): the device lists a feature's images,

@@ -60,6 +60,7 @@ const (
 	PermSafetyWrite         = "safety:write"
 	PermTelemetryRead       = "telemetry:read"
 	PermTelemetryIngest     = "telemetry:ingest"
+	PermFieldTracksRead     = "field:tracks:read"
 )
 
 // RequirePermission gates a route (sub)tree by RBAC permission. A request

@@ -24,6 +24,7 @@ import { AdminFieldPacksPage } from "@/routes/admin-field-packs"
 import { AdminCostCatalogPage } from "@/routes/admin-cost-catalog"
 import { AdminCrewsPage } from "@/routes/admin-crews"
 import { AdminSubcontractorsPage } from "@/routes/admin-subcontractors"
+import { FieldTracksPage } from "@/routes/field-tracks"
 import { LiveStatePage } from "@/routes/live-state"
 import { AdminFaultModesPage } from "@/routes/admin-fault-modes"
 import { AdminAssetLifePage } from "@/routes/admin-asset-life"
@@ -114,6 +115,16 @@ export function App() {
               element={
                 <RequirePermission perm="telemetry:read">
                   <LiveStatePage />
+                </RequirePermission>
+              }
+            />
+            {/* The field-trail supervisor audit map — where workers went and where
+                they made each edit. Privacy-sensitive, gated field:tracks:read. */}
+            <Route
+              path="field-tracks"
+              element={
+                <RequirePermission perm="field:tracks:read">
+                  <FieldTracksPage />
                 </RequirePermission>
               }
             />
