@@ -49,6 +49,9 @@ export function useTelemetryReconciliation(opts: { staleSeconds?: number } = {})
     queryKey: [...TELEMETRY_KEY, "reconciliation", opts.staleSeconds ?? 0],
     queryFn: () => apiFetch<Reconciliation>(`/telemetry/reconciliation${query}`),
     staleTime: 10_000,
+    // It's a LIVE picture — poll so a new disagreement or a device going quiet
+    // surfaces on its own. (react-query pauses the interval on a hidden tab.)
+    refetchInterval: 15_000,
   })
 }
 
