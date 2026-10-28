@@ -1,5 +1,7 @@
 # Device Operations — Logging & Reporting Device Trips
 
+_Last updated: 2026-10-28_
+
 The **Device Operations** log is the record of *what the network's protective and
 switching devices actually did* — every trip, lockout, reclose, manual open and
 close — with a timestamp, a cause, and where the report came from.
@@ -22,14 +24,22 @@ It answers two questions the rest of VoltEdge could not:
 
 ## Where to find it
 
-- **Operations menu** (left sidebar) — the network-wide board and reports.
+- **Operations menu** (left sidebar) — opens the device-operations surface. It
+  has two tabs: **Operations** (this log — the network-wide board and reports)
+  and **Live state** (device telemetry reconciled against the model — see
+  [Live state](#live-state--field-vs-model)).
+- **Click any device** in a board row to open its **detail panel** on the right:
+  a summary of the feature (its `device_state`, lifecycle and attributes), its
+  **operation history**, any **attachments**, and a **View on map** button. The
+  table shrinks to make room, and the panel stays open as you switch between the
+  Operations and Live state tabs.
 - **A device's Operations tab** — open any breaker, recloser, fuse or switch on
   the map; its attribute panel has an **Operations** tab showing that device's
   own timeline, with a **Log operation** button.
 
-Both require the **`operations:read`** permission to view and
-**`operations:write`** to log. Viewers, analysts, editors, field technicians and
-admins read it; editors, field technicians and admins can log.
+Viewing the log requires **`operations:read`** and logging requires
+**`operations:write`**; the Live state tab requires **`telemetry:read`** and its
+Apply action **`oms:write`** (see [Permissions](#permissions-at-a-glance)).
 
 ---
 
@@ -39,7 +49,7 @@ admins read it; editors, field technicians and admins can log.
 |---|---|
 | **Device** | The feature that operated (its class + id — e.g. an `MV_RECLOSER`). |
 | **Operation** | `trip`, `lockout`, `reclose`, `open`, `close`, `earth`, `alarm`, or `other`. |
-| **Source** | Where the record came from: `crew`, `scada`, `relay`, `switching_order`, `derived`, or `other`. |
+| **Source** | Where the record came from: `crew`, `scada`, `relay`, `switching_order`, `derived`, `telemetry`, or `other`. |
 | **When** | The moment the operation *happened* (not when it was logged). |
 | **Cause** | Free text — "overcurrent", "earth fault", "manual", "test"… |
 | **Notes** | Anything else worth keeping. |
@@ -102,10 +112,53 @@ across VoltEdge automatically:
   fault was detected), linked to the fault. This happens whether the device is
   identified when the fault is first logged or filled in later — and only once
   per fault.
+- **Telemetry (Live state)** — when an operator **applies** a device's telemetry
+  reading to correct the model (Live state → **Apply field**), the resulting
+  open/close is logged automatically (source `telemetry`).
 - **Crew** — the manual **Log operation** action above.
 - **SCADA / external systems** — see below.
 - **Agents** — the in-app assistant and any MCP client (see
   [For agents](#for-agents-mcp-tools)).
+
+---
+
+## Live state — field vs. model
+
+The **Live state** tab answers a different question from the log: *does the model
+match reality right now?* It reconciles the **latest device telemetry** (what the
+field — SCADA / AMI — reports) against each device's **model `device_state`**, and
+flags where they disagree or where a device has gone quiet.
+
+Four tiles summarise the picture:
+
+- **Telemetered** — devices currently reporting telemetry.
+- **Agreeing** — telemetry matches the model and is fresh.
+- **Disagreeing** — the field and the model say different things (e.g. the model
+  says CLOSED, telemetry says OPEN). This is the one that bites a control room: a
+  picture out of sync with the copper.
+- **Stale** — no reading for longer than the staleness window (default 5 minutes):
+  a quiet or dead device (lost comms, a dead RTU).
+
+The **Needs attention** table lists the disagreeing and stale devices. Search it
+by device, state or status, and click a device to open its [detail panel](#where-to-find-it).
+The page refreshes itself — it's a live picture, not a snapshot.
+
+### Apply field
+
+When a device **disagrees**, an operator with **`oms:write`** can press **Apply
+field** to write the telemetry state onto the model, so the model catches up to
+what the field reports. It is deliberate — nothing auto-applies — and is **logged
+as a `telemetry`-sourced operation**, so the correction shows up in the operations
+log. A *stale* row has no Apply: a quiet device isn't disagreeing, it's just
+silent.
+
+> Applying records that the device **has** moved in the field; it does **not**
+> command it to move, so it is not subject to the switching safety interlock.
+
+Viewing Live state needs **`telemetry:read`**; telemetry itself is pushed in by a
+SCADA / AMI gateway as batches to the telemetry ingest endpoint
+(**`telemetry:ingest`**) — a separate feed from the device-operation ingestion
+described next.
 
 ---
 
@@ -195,3 +248,5 @@ gated by the same permissions:
 |---|---|
 | `operations:read` | viewer, analyst, editor, field-technician, admin, break-glass |
 | `operations:write` | editor, field-technician, admin, break-glass |
+| `telemetry:read` (view Live state) | operational roles, per your configuration |
+| `oms:write` (Apply field) | operators who run the network, per your configuration |

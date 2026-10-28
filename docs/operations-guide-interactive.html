@@ -223,6 +223,7 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
         <tr><td><span class="src">switching_order</span></td><td>you mark an open/close switching step <b>executed</b></td><td>an <span class="badge open">open</span>/<span class="badge close">close</span>, linked to the step</td></tr>
         <tr><td><span class="src">relay / scada / derived</span></td><td>a fault names the device that cleared it</td><td>a <span class="badge trip">trip</span>, linked to the fault — once per fault</td></tr>
         <tr><td><span class="src">scada</span></td><td>an external system pushes an event (ch. 4)</td><td>whatever it sends</td></tr>
+        <tr><td><span class="src">telemetry</span></td><td>an operator applies a device's telemetry in <b>Live state</b></td><td>the <span class="badge open">open</span>/<span class="badge close">close</span> they confirmed, correcting the model</td></tr>
       </tbody>
     </table></div>
 
@@ -241,6 +242,12 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
 
     <div class="tip"><b>One trip per fault</b> Booking the same fault again doesn't double-log — the trip dedupes
       on the fault id. Try the third button: it emits nothing.</div>
+
+    <div class="tip"><b>Live state tab</b> The Operations page shares a tab with <b>Live state</b> — device telemetry
+      reconciled against the model (telemetered / agreeing / disagreeing / stale). Where the field and the model
+      disagree, an operator (<code>oms:write</code>) presses <b>Apply field</b> to catch the model up; that correction
+      is logged here as a <span class="src">telemetry</span> operation. Click any device row (either tab) to open a
+      detail panel with its summary, operation history, attachments and a <b>View on map</b> button.</div>
   </section>
 
   <!-- ===================== 4 ===================== -->
@@ -318,6 +325,7 @@ footer{margin-top:64px;padding-top:20px;border-top:2px solid var(--ink);color:va
   <footer>
     VoltEdge — Device Operations. The widgets run a faithful mock of the real model on sample data; nothing here
     writes to a live system. See the markdown <b>Device Operations</b> guide for the reference version.
+    <br>Last updated: 2026-10-28
   </footer>
 </div>
 
