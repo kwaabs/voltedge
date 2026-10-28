@@ -24,7 +24,7 @@ var opTypes = map[string]bool{
 
 var sources = map[string]bool{
 	"crew": true, "scada": true, "relay": true,
-	"switching_order": true, "derived": true, "other": true,
+	"switching_order": true, "derived": true, "telemetry": true, "other": true,
 }
 
 // Operation is one row of ops.operations -- one device operation. Bare device

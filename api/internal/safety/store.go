@@ -85,8 +85,8 @@ func PlaceTag(ctx context.Context, db bun.IDB, in PlaceTagInput) (*Tag, error) {
 		Notes:           trimPtr(in.Notes),
 	}
 	if _, err := db.NewInsert().Model(tag).
-		ExcludeColumn("id", "placed_at", "created_at").
-		Returning("id, placed_at, created_at").Exec(ctx); err != nil {
+		ExcludeColumn("id", "placed_at").
+		Returning("*").Exec(ctx); err != nil {
 		return nil, err
 	}
 	return tag, nil
@@ -187,8 +187,8 @@ func ApplyGround(ctx context.Context, db bun.IDB, in ApplyGroundInput) (*Ground,
 		Notes:        trimPtr(in.Notes),
 	}
 	if _, err := db.NewInsert().Model(g).
-		ExcludeColumn("id", "applied_at", "created_at").
-		Returning("id, applied_at, created_at").Exec(ctx); err != nil {
+		ExcludeColumn("id", "applied_at").
+		Returning("*").Exec(ctx); err != nil {
 		return nil, err
 	}
 	return g, nil
@@ -287,8 +287,8 @@ func CreateClearance(ctx context.Context, db bun.IDB, in CreateClearanceInput) (
 		Notes:            trimPtr(in.Notes),
 	}
 	if _, err := db.NewInsert().Model(c).
-		ExcludeColumn("id", "requested_at", "created_at", "updated_at").
-		Returning("id, requested_at, created_at, updated_at").Exec(ctx); err != nil {
+		ExcludeColumn("id", "requested_at").
+		Returning("*").Exec(ctx); err != nil {
 		return nil, err
 	}
 	return GetClearance(ctx, db, c.ID)

@@ -44,7 +44,7 @@ func Record(ctx context.Context, db bun.IDB, in RecordInput) (*Operation, error)
 		return nil, invalidf("op_type %q is not one of trip, lockout, reclose, open, close, earth, alarm, other", in.OpType)
 	}
 	if !sources[in.Source] {
-		return nil, invalidf("source %q is not one of crew, scada, relay, switching_order, derived, other", in.Source)
+		return nil, invalidf("source %q is not one of crew, scada, relay, switching_order, derived, telemetry, other", in.Source)
 	}
 	if in.OccurredAt.IsZero() {
 		return nil, invalidf("occurred_at is required")
@@ -70,9 +70,9 @@ func Record(ctx context.Context, db bun.IDB, in RecordInput) (*Operation, error)
 	// unique index (migration 0147). ON CONFLICT DO NOTHING + RETURNING yields no
 	// row on a duplicate, so re-select the stored one to stay idempotent.
 	if op.SourceEventID != nil && *op.SourceEventID != "" {
-		res, err := db.NewInsert().Model(op).ExcludeColumn("id", "created_at").
+		res, err := db.NewInsert().Model(op).ExcludeColumn("id").
 			On("CONFLICT (source_system, source_event_id) WHERE source_event_id IS NOT NULL DO NOTHING").
-			Returning("id, created_at").Exec(ctx)
+			Returning("*").Exec(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -89,8 +89,8 @@ func Record(ctx context.Context, db bun.IDB, in RecordInput) (*Operation, error)
 		return op, nil
 	}
 
-	if _, err := db.NewInsert().Model(op).ExcludeColumn("id", "created_at").
-		Returning("id, created_at").Exec(ctx); err != nil {
+	if _, err := db.NewInsert().Model(op).ExcludeColumn("id").
+		Returning("*").Exec(ctx); err != nil {
 		return nil, err
 	}
 	return op, nil
